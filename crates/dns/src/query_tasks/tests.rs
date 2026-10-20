@@ -1,4 +1,6 @@
 use super::*;
+#[path = "tests/callbacks.rs"]
+mod callbacks;
 use std::{
     sync::atomic::{AtomicBool, Ordering},
     time::Duration,
@@ -36,11 +38,13 @@ async fn original_query_origin_is_bound_before_io_and_cancel_requires_real_scope
         )
         .unwrap();
     let actual = context.0.state.lock().unwrap().records[0]
-        .witness
+        .registration
         .get()
         .unwrap()
-        .clone()
-        .unwrap();
+        .as_ref()
+        .unwrap()
+        .witness
+        .clone();
     let origin = entering.await.unwrap();
     assert!(origin.same_registration(&actual));
     assert!(!actual.is_joined());
@@ -61,6 +65,16 @@ async fn original_query_origin_is_bound_before_io_and_cancel_requires_real_scope
     let exit = scope.next_exit().await.unwrap();
     let joined = actual.try_joined().unwrap();
     assert_eq!(exit.id, joined.id());
+    assert_eq!(
+        context.0.state.lock().unwrap().records[0]
+            .registration
+            .get()
+            .unwrap()
+            .as_ref()
+            .unwrap()
+            .id,
+        exit.id
+    );
     assert_eq!(exit.class, TaskClass::Auxiliary);
     assert!(joined.result().is_ok());
     context
@@ -111,11 +125,13 @@ async fn query_panic_retains_same_original_join_error_arc_and_blocks_new_admissi
         )
         .unwrap();
     let witness = context.0.state.lock().unwrap().records[0]
-        .witness
+        .registration
         .get()
         .unwrap()
-        .clone()
-        .unwrap();
+        .as_ref()
+        .unwrap()
+        .witness
+        .clone();
     let exit = scope.next_exit().await.unwrap();
     assert!(exit.result.is_err());
     let original = witness.try_joined().unwrap().result().unwrap_err();

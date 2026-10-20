@@ -7,7 +7,7 @@ use std::{
 };
 use tokio::sync::{oneshot, Notify};
 use zero_platform_tokio::contract::{
-    scope::{TaskClass, TaskJoinWitness, TaskRegistrar, WeakTaskRegistrar},
+    scope::{TaskClass, TaskId, TaskJoinWitness, TaskRegistrar, WeakTaskRegistrar},
     CancellationToken, ChannelError,
 };
 
@@ -30,14 +30,20 @@ struct Shared {
 #[derive(Debug, Default)]
 struct State {
     closing: bool,
+    identity_fault: bool,
     records: Vec<Arc<Record>>,
     first_failure: Option<Arc<ChannelError>>,
 }
 #[derive(Debug)]
 struct Record {
-    witness: OnceLock<Option<TaskJoinWitness>>,
+    registration: OnceLock<Option<QueryRegistration>>,
     bound: Notify,
     cancel: CancellationToken,
+}
+#[derive(Debug)]
+struct QueryRegistration {
+    id: TaskId,
+    witness: TaskJoinWitness,
 }
 impl OwnedDnsQueryTasks {
     /// The caller supplies the actual root registrar and finite query budget.
@@ -80,7 +86,7 @@ impl OwnedDnsQueryTasks {
     ) -> io::Result<()> {
         self.ensure_open()?;
         let record = Arc::new(Record {
-            witness: OnceLock::new(),
+            registration: OnceLock::new(),
             bound: Notify::new(),
             cancel,
         });
@@ -106,6 +112,7 @@ impl OwnedDnsQueryTasks {
         let (sender, receiver) = oneshot::channel();
         let parent = self.0.parent.clone();
         let cancellation = record.cancel.clone();
+        let callbacks = self.0.registrar.defer_callbacks();
         let spawned = self
             .0
             .registrar
@@ -127,69 +134,101 @@ impl OwnedDnsQueryTasks {
                 Ok(())
             });
         match spawned {
-            Ok((_, witness)) => {
+            Ok((id, witness)) => {
                 record
-                    .witness
-                    .set(Some(witness.clone()))
+                    .registration
+                    .set(Some(QueryRegistration {
+                        id,
+                        witness: witness.clone(),
+                    }))
                     .expect("query bound once");
                 record.bound.notify_waiters();
                 let _ = sender.send(witness);
+                drop(callbacks);
                 Ok(())
             }
             Err(source) => {
                 // Failed synchronous registration never started a task/native.
                 record
-                    .witness
+                    .registration
                     .set(None)
                     .expect("failed query registration settled once");
                 record.bound.notify_waiters();
-                self.0
-                    .state
-                    .lock()
-                    .expect("DNS query tasks poisoned")
-                    .records
-                    .retain(|current| !Arc::ptr_eq(current, &record));
+                let retired = {
+                    let mut state = self.0.state.lock().expect("DNS query tasks poisoned");
+                    let index = state
+                        .records
+                        .iter()
+                        .position(|current| Arc::ptr_eq(current, &record));
+                    index.map(|index| state.records.remove(index))
+                };
                 record.cancel.cancel();
+                drop(retired);
+                drop(callbacks);
                 Err(io::Error::other(source))
             }
         }
     }
     fn reap(&self) {
-        let mut state = self.0.state.lock().expect("DNS query tasks poisoned");
-        let mut first = state.first_failure.take();
-        state.records.retain(|record| {
-            let Some(bound) = record.witness.get() else {
-                return true;
+        loop {
+            let retired = {
+                let mut state = self.0.state.lock().expect("DNS query tasks poisoned");
+                let ready = state
+                    .records
+                    .iter()
+                    .enumerate()
+                    .find_map(|(index, record)| {
+                        let bound = record.registration.get()?;
+                        match bound {
+                            None => Some((index, None)),
+                            Some(registration) => registration
+                                .witness
+                                .try_joined()
+                                .map(|joined| (index, Some((registration.id, joined)))),
+                        }
+                    });
+                let Some((index, joined)) = ready else { return };
+                if let Some((id, joined)) = joined {
+                    if joined.id() != id {
+                        state.closing = true;
+                        state.identity_fault = true;
+                        state.first_failure.get_or_insert_with(|| {
+                            Arc::new(ChannelError::new(
+                                zero_platform_tokio::contract::Stage::Close,
+                                zero_platform_tokio::contract::Reason::Internal,
+                                zero_platform_tokio::contract::Impact::Component,
+                            ))
+                        });
+                        return; // Keep the unmatched original record charged.
+                    }
+                    if let Err(source) = joined.result() {
+                        state.first_failure.get_or_insert(source);
+                    }
+                }
+                state.records.remove(index)
             };
-            let Some(witness) = bound else { return false };
-            let Some(joined) = witness.try_joined() else {
-                return true;
-            };
-            if let Err(source) = joined.result() {
-                first.get_or_insert(source);
-            }
-            false
-        });
-        state.first_failure = first;
+            // Actual witness/cancel/Notify destruction can invoke an external
+            // waker; no final retired Record drop runs under the enclosing lock.
+            drop(retired);
+        }
     }
     pub(crate) async fn next_exit(&self) -> bool {
         self.reap();
-        let record = self
-            .0
-            .state
-            .lock()
-            .expect("DNS query tasks poisoned")
-            .records
-            .first()
-            .cloned();
+        let record = {
+            let state = self.0.state.lock().expect("DNS query tasks poisoned");
+            if state.identity_fault {
+                return false;
+            }
+            state.records.first().cloned()
+        };
         let Some(record) = record else { return false };
         loop {
             let bound = record.bound.notified();
             tokio::pin!(bound);
             bound.as_mut().enable();
-            if let Some(bound) = record.witness.get() {
-                if let Some(witness) = bound {
-                    witness.wait().await;
+            if let Some(bound) = record.registration.get() {
+                if let Some(registration) = bound {
+                    registration.witness.wait().await;
                 }
                 self.reap();
                 return true;

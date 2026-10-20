@@ -16,7 +16,7 @@ use tokio::{
     time::{timeout_at, Instant},
 };
 use tokio_util::sync::CancellationToken;
-use zero_core::component::TaskId;
+pub use zero_core::component::TaskId;
 
 use super::{
     lifecycle::{CloseReport, ComponentError, TaskFailure, Unfinished},
