@@ -170,6 +170,11 @@ async fn actual_shared_driver_keeps_source_port_peer_tombstones_and_read_guards(
     let (bytes, old) = rx1.recv().await.unwrap().unwrap();
     assert_eq!(bytes, b"already read");
     assert!(old.is_current());
+    ctl1.cancel(zero_platform_tokio::contract::CloseReason::Completed);
+    assert!(
+        !old.is_current(),
+        "cancel revokes an already-read token synchronously"
+    );
     let logical = ctl1.wait_closed(deadline()).await.unwrap();
     assert!(logical.is_complete());
     assert!(

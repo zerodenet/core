@@ -24,7 +24,10 @@ impl DirectUdpResponseSource {
 }
 
 #[derive(Clone)]
-pub(crate) struct DirectUdpResponseGuard(Arc<DirectUdpResponseState>);
+pub(crate) struct DirectUdpResponseGuard {
+    state: Arc<DirectUdpResponseState>,
+    logical_cancel: Option<zero_platform_tokio::contract::CancellationToken>,
+}
 
 struct DirectUdpResponseState {
     active: AtomicBool,
@@ -35,9 +38,25 @@ struct DirectUdpResponseState {
 
 impl DirectUdpResponseGuard {
     pub(crate) fn is_current(&self) -> bool {
-        self.0.active.load(Ordering::Acquire)
-            && self.0.services.direct_policy_is_current(&self.0.policy)
-            && self.0.egress_generation == self.0.services.egress_generation()
+        self.state.active.load(Ordering::Acquire)
+            && self
+                .state
+                .services
+                .direct_policy_is_current(&self.state.policy)
+            && self.state.egress_generation == self.state.services.egress_generation()
+            && !self
+                .logical_cancel
+                .as_ref()
+                .is_some_and(|cancel| cancel.is_cancelled())
+    }
+    pub(super) fn with_logical_cancel(
+        mut self,
+        cancel: zero_platform_tokio::contract::CancellationToken,
+    ) -> Self {
+        // The native source token is unchanged. Add this actual association's
+        // cancellation fence without allocating/replacing its socket identity.
+        self.logical_cancel = Some(cancel);
+        self
     }
 }
 
@@ -55,12 +74,15 @@ impl DirectUdpResponseFlow {
     ) -> Self {
         Self {
             session_id,
-            guard: DirectUdpResponseGuard(Arc::new(DirectUdpResponseState {
-                active: AtomicBool::new(true),
-                services,
-                policy,
-                egress_generation,
-            })),
+            guard: DirectUdpResponseGuard {
+                state: Arc::new(DirectUdpResponseState {
+                    active: AtomicBool::new(true),
+                    services,
+                    policy,
+                    egress_generation,
+                }),
+                logical_cancel: None,
+            },
         }
     }
 }
@@ -69,6 +91,6 @@ impl Drop for DirectUdpResponseFlow {
     fn drop(&mut self) {
         // Removing an exact reply owner revokes every copy of its read token.
         // A new socket, even at the same local port, gets a distinct token.
-        self.guard.0.active.store(false, Ordering::Release);
+        self.guard.state.active.store(false, Ordering::Release);
     }
 }

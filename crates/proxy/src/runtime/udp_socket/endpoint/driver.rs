@@ -68,7 +68,7 @@ impl Shared {
             });
         }
     }
-    fn deliver(&self, bytes: &[u8], source: DirectUdpResponseSource) {
+    fn deliver(&self, bytes: &[u8], mut source: DirectUdpResponseSource) {
         let state = self
             .state
             .lock()
@@ -120,6 +120,9 @@ impl Shared {
             self.drop_queued(zero_traits::PacketDropReason::QueueFull);
             return;
         }
+        source.guard = source
+            .guard
+            .map(|guard| guard.with_logical_cancel(logical.cancel.clone()));
         permit.send(Response {
             payload: bytes.to_vec(),
             source,
