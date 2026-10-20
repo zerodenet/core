@@ -125,6 +125,9 @@ impl Entry {
             Err(error) => {
                 let error = Arc::new(error);
                 self.failure = Some(error.clone());
+                let mut retry = Box::pin(sleep_until(Instant::now() + Duration::from_millis(10)));
+                let _ = retry.as_mut().poll(cx);
+                self.retry = Some(retry);
                 Poll::Ready(Err(error))
             }
         }

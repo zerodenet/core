@@ -64,7 +64,11 @@ impl UdpDispatch {
         &mut JoinSet<ChainTask>,
         &mut tokio::sync::mpsc::UnboundedReceiver<UdpFlowCancellation>,
     ) {
-        let (upstream_udp, upstream_idle_deadline, chain_tasks) = self.flow_state.poll_refs();
+        let services = self.runtime.services();
+        let retired = services.packet_path_execution().tcp().retired_datagrams();
+        let (upstream_udp, upstream_idle_deadline, chain_tasks) = self
+            .flow_state
+            .poll_refs(retired, services.udp_upstream_idle_timeout());
         self.direct_socket.refresh_if_stale();
         (
             &self.direct_socket,

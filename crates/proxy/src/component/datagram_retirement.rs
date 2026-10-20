@@ -1,6 +1,7 @@
 //! Application-owned logical Datagram controllers, reserved before actual open.
 mod entry;
 mod lease;
+mod progress;
 use entry::Entry;
 pub(crate) use lease::DatagramReservation;
 use std::{
@@ -21,6 +22,7 @@ pub(crate) struct RetiredDatagrams {
     capacity: NonZeroUsize,
     state: Mutex<State>,
     waiter: AsyncMutex<()>,
+    changed: tokio::sync::Notify,
 }
 struct State {
     next: u64,
@@ -65,6 +67,7 @@ impl RetiredDatagrams {
                 waker: None,
             }),
             waiter: AsyncMutex::new(()),
+            changed: tokio::sync::Notify::new(),
         }
     }
     pub(crate) fn reserve(self: &Arc<Self>) -> Result<DatagramReservation, ChannelError> {
@@ -172,6 +175,7 @@ impl RetiredDatagrams {
         }
         let waker = state.waker.clone();
         drop(state);
+        self.changed.notify_waiters();
         if let Some(waker) = waker {
             waker.wake();
         }
@@ -221,6 +225,7 @@ impl RetiredDatagrams {
         }
         let waker = state.waker.clone();
         drop(state);
+        self.changed.notify_waiters();
         if let Some(waker) = waker {
             waker.wake();
         }
@@ -241,6 +246,7 @@ impl RetiredDatagrams {
         let waker = state.waker.clone();
         drop(entry);
         drop(state);
+        self.changed.notify_waiters();
         if let Some(waker) = waker {
             waker.wake();
         }

@@ -151,3 +151,43 @@ async fn a_started_open_can_adopt_after_stop_without_losing_its_pre_reserved_con
         .unwrap();
     assert_eq!(owner.reserve().err().unwrap().reason, Reason::Revoked);
 }
+
+#[tokio::test]
+async fn normal_udp_driver_recycles_capacity_one_for_two_real_socket_batches_without_global_stop() {
+    use std::{future::Future, task::Poll};
+    let owner = owner(1);
+    for association in [AssociationId(51), AssociationId(52)] {
+        let reservation = owner.reserve().unwrap();
+        let peer = tokio::net::UdpSocket::bind("127.0.0.1:0").await.unwrap();
+        let socket = TokioDatagramSocket::bind("127.0.0.1:0").await.unwrap();
+        let local = socket.local_addr().unwrap();
+        let channel = socket.into_fixed_datagram_session(
+            association,
+            peer.local_addr().unwrap(),
+            CancellationToken::new(),
+        );
+        let lease = reservation.adopt(channel.control);
+        let progressing = owner.progress_retired(deadline());
+        tokio::pin!(progressing);
+        std::future::poll_fn(|cx| {
+            assert!(progressing.as_mut().poll(cx).is_pending());
+            Poll::Ready(())
+        })
+        .await;
+        // No remote UDP response exists; only this retirement notification can
+        // wake the already registered normal-run progress waiter.
+        drop(lease);
+        let report = tokio::time::timeout_at(deadline(), progressing)
+            .await
+            .unwrap()
+            .unwrap();
+        assert!(report.is_complete());
+        assert_eq!(report.closed_io.len(), 1);
+        TokioDatagramSocket::bind_addr(local)
+            .await
+            .unwrap()
+            .close()
+            .unwrap();
+    }
+    drop(owner.reserve().unwrap());
+}
