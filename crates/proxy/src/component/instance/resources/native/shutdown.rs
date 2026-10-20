@@ -25,6 +25,10 @@ impl HostResources {
             state.closed = true;
             state.start_deadline = None;
         }
+        // Fence the actual registered physical owner as well as new access.
+        // Cancellation callbacks run after the durable closed phase is installed
+        // and outside every host resource/cleanup lock.
+        self.carriers.revoke();
         self.changed.notify_waiters();
         // Native observations may flush external wakes. Sample before acquiring
         // even the async cleanup gate; a concurrently completed receipt can be

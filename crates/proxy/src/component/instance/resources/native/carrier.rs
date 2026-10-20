@@ -83,6 +83,11 @@ impl CarrierDeclarations {
             host_cancel,
         })
     }
+    pub(super) fn revoke(&self) {
+        if let Some(cancel) = &self.host_cancel {
+            cancel.cancel();
+        }
+    }
     pub(super) fn evidence(&self) -> Vec<CarrierIoEvidence> {
         // Native/scope observers can run external wakes. Snapshot identities
         // first, then release every host resource lock before observing them.

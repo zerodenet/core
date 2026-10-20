@@ -122,3 +122,36 @@ async fn actual_host_cancel_fences_native_prepare_with_an_independently_live_own
         .is_complete());
     assert!(fixture.scope.shutdown(deadline()).await.is_complete());
 }
+
+#[tokio::test]
+async fn provider_shutdown_revokes_an_existing_reservation_before_native_io() {
+    let mut fixture = Fixture::new().await;
+    fixture.scope.enable_registration().unwrap();
+    let _access = fixture.resources.activate(deadline()).unwrap();
+    fixture
+        .resources
+        .register_controlled_carrier(0, fixture.owner.registration(), &fixture.scope.registrar())
+        .unwrap();
+    fixture.owner.start(deadline()).await.unwrap();
+    let grant = fixture.owner.grants().reserve().unwrap();
+    let partial = fixture.resources.shutdown_io(deadline()).await.unwrap();
+    assert!(!partial.is_complete() && partial.closed_io.is_empty());
+    assert_eq!(
+        fixture.owner.grants().reserve().err().unwrap().reason,
+        Reason::Revoked
+    );
+    assert!(fixture
+        .transport
+        .prepare_controlled_stream(fixture.destination(), fixture.context(), grant)
+        .is_err());
+    std::future::poll_fn(|cx| {
+        assert!(fixture.listener.poll_accept(cx).is_pending());
+        std::task::Poll::Ready(())
+    })
+    .await;
+    assert!(!fixture.resources.io_evidence().carriers[0].native_generation_closed);
+    fixture.owner.shutdown(deadline()).await.unwrap();
+    assert!(fixture.resources.io_evidence().carriers[0].native_generation_closed);
+    assert!(!fixture.resources.io_evidence().physical_confirmed());
+    fixture.scope.shutdown(deadline()).await;
+}
