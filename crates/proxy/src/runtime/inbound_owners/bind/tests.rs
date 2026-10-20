@@ -13,7 +13,7 @@ use zero_platform_tokio::contract::component::ResourceDeclaration;
 mod datagram;
 mod retirement;
 
-fn proxy() -> Proxy {
+pub(super) fn proxy() -> Proxy {
     Proxy::new(
         RuntimeConfig::parse(
             r#"{
