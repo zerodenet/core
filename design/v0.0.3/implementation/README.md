@@ -212,6 +212,26 @@ SS 的 roleless replay 工厂使用既有适配器按 `(ReplayPolicy, capacity)`
 
 类型化绑定是冷计划快照，不是当前代际准入fence，也不证明转交业务/I/O退出。生产仍仅启用零资源Direct/SOCKS Stream；真实共享图、原生进程授权、使用者/I/O确认清理和恢复、其余角色/协议与M4继续，整体17项未完成。
 
+## PR03/04B 进行中：实际原生进程授权与插件组件所有者
+
+代码 `40219adb12c89c36d3741cfd7ec76f105460316f`，冻结 tree `11ac1671a3bf2feb7bbaab9e601bf1b2526990ad`。[验证及35份证据](pr03-native-process-validation.json)保存实际命令、21个源码摘要、候选编译错误和原始CI日志。
+
+`ProcessRequest` 保存协议自己的参数与环境变量，Debug仅显示程序和数量。`ResourceDeclaration::Process` 明确声明程序及每代际有限启动次数。实际 `ComponentSlot` 在调用build前持有授权状态，build阶段及start返回后都拒绝启动；仅在已安装所有者的真实生命周期start期间按deadline授权。spawn同步返回实际Child，成功后才扣预算，实际OS错误保留原source；reap不自动补回同代际预算。
+
+SS角色为空的 `PluginFactory` 使用原适配器同一PluginPlan；只有实际授权spawn成功才认领所有权，Child先安装再等待readiness。旧路径已有Child时拒绝接管，失败/丢弃的新所有者不能撤销旧进程。工厂登记一个真实critical监视任务；shutdown观察实际ExitStatus，并由宿主TaskScope确认该任务退出。直接子进程被外部终止的回归取得实际TaskExit、组件ID与状态来源。保留原SIP003环境、obfsproxy参数、10秒/10毫秒readiness及真实探测/取消断言；Replay实现仅移动文件、相对测试路径外逐字一致。插件工厂单独受runtime门控，不依赖blake3。
+
+七项新回归包含实际授权阶段/预算/错误、日志脱敏、真实slot build与start后拒绝、同一Child重复start和显式reap/join、拒绝旧进程接管，以及实际monitor故障；组件57/0，SS库36/0，SS runtime-only构建通过。候选曾出现3项导入/Stage编译错误及2项重导出可见性错误，修正与原文均保留；不声称运行了不存在的旧基线负向实验。
+
+最终严格workspace/all-target/all-feature Clippy通过，完整21文件tree及锁摘要相同。冻结源码/HEAD/锁完成七项：fmt、workspace check、完整workspace **2771/0/159**（155条主摘要及晚期文档测试）、默认release、实际thumb no_std、最小proxy及依赖边界。默认release git=`40219adb`，SHA=`c7fe09472421f181caeab6f28ae279f69b357cff78ca2a9bae80485cf994c1c3`。
+
+同一最终workspace不可变proxy二进制受限组件57/0；独立SS最终不可变库五轮180/0，均实测1 CPU/1 GiB/no swap/user1000、独立网络与只读二进制。这不是完整RS01或物理设备资格。
+
+上一3c95 head的11项workflow全部成功，原始Linux2764/0/159、VLESS251/0/1及Windows日志逐字保存。Windows实际出口切换executed=false，缺少合适第二接口；Optional surface job及四项独立smoke/macOS离线步骤跳过均保留。
+
+四个隔离工作树并行推进Direct/SOCKS Datagram、DNS/Network、已接受配置事务/宿主发布、Trojan Stream，按真实依赖协调并由主任务统一集成；仅一份重型Cargo构建。它们尚未集成的源码不属于本批资格，不以局部通过代替最终head全量。
+
+生产仍仅激活原零共享资源Direct/SOCKS Stream。原生直接Child授权不是子孙进程包含、转交业务/I/O关闭或M4；真实共享图激活仍需宿主代际准入、确认stop/recover以及其余协议/角色迁移，全部17项继续。
+
 ## 尚未完成的生产迁移与资格
 
 普通 Direct/SOCKS5 和全原生已登记网络节点的 relay 已走实际角色；混合旧协议链、其他协议、DNS/内部调用、Datagram/入站/Packet 仍有迁移工作。runtime 提取、单实例配置事务、DNS/Network/路由装配、旧桥清除及最终消费者回归尚未完成。PR03/PR04A 和整体均保持进行中，不能以当前检查点宣布 G0–G10 整体完成。
