@@ -67,10 +67,10 @@ impl ControlledDatagramOwner {
             Ok(socket) => socket,
             Err(source) => return Err(self.no_native(&entry, phase("create_socket", source))),
         };
-        *entry.lock() = Native::Raw(original.into());
+        *entry.lock() = NativeHandleState::Raw(original.into());
         let configured = {
             let native = entry.lock();
-            let Native::Raw(original) = &*native else {
+            let NativeHandleState::Raw(original) = &*native else {
                 unreachable!("same synchronous acquisition owner")
             };
             configure(
@@ -102,14 +102,15 @@ impl ControlledDatagramOwner {
             let mut native = entry.lock();
             // from_std consumes the original. Install Unknown before crossing
             // that boundary; neither an error nor unwind fabricates a close.
-            let Native::Raw(original) =
-                std::mem::replace(&mut *native, Native::Unknown(entry.uncertain.clone()))
-            else {
+            let NativeHandleState::Raw(original) = std::mem::replace(
+                &mut *native,
+                NativeHandleState::Unknown(entry.uncertain.clone()),
+            ) else {
                 unreachable!("original installed before native registration")
             };
             match tokio::net::UdpSocket::from_std(original) {
                 Ok(inner) => {
-                    *native = Native::Live(TokioDatagramSocket {
+                    *native = NativeHandleState::Live(TokioDatagramSocket {
                         inner,
                         egress_interface: interface.clone(),
                         observer: None,
@@ -121,7 +122,7 @@ impl ControlledDatagramOwner {
                         .acquisition_failure
                         .lock()
                         .unwrap_or_else(std::sync::PoisonError::into_inner) = Some(source.clone());
-                    *native = Native::Unknown(source.clone());
+                    *native = NativeHandleState::Unknown(source.clone());
                     return Err(DatagramAcquisitionError {
                         reservation: Some(entry.id),
                         outcome: AcquisitionOutcome::Unknown(entry.id),
@@ -137,7 +138,7 @@ impl ControlledDatagramOwner {
         entry: &Arc<Entry>,
         source: Arc<std_io::Error>,
     ) -> DatagramAcquisitionError {
-        *entry.lock() = Native::NoNative;
+        *entry.lock() = NativeHandleState::NoNative;
         self.reap_confirmed();
         DatagramAcquisitionError {
             reservation: Some(entry.id),

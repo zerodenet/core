@@ -84,13 +84,13 @@ pub struct ControlledDatagramOwner {
 }
 struct Entry {
     id: DatagramReservationId,
-    native: Mutex<Native>,
+    native: Mutex<NativeHandleState>,
     // Prepared before the original fd exists; installed before consuming OS
     // registration/close calls, including panic or cancellation of the caller.
     uncertain: Arc<std_io::Error>,
     acquisition_failure: Mutex<Option<Arc<std_io::Error>>>,
 }
-enum Native {
+enum NativeHandleState {
     Reserved,
     Raw(std::net::UdpSocket),
     Live(TokioDatagramSocket),
@@ -99,7 +99,7 @@ enum Native {
     NoNative,
 }
 impl Entry {
-    fn lock(&self) -> MutexGuard<'_, Native> {
+    fn lock(&self) -> MutexGuard<'_, NativeHandleState> {
         self.native
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner)
@@ -138,11 +138,11 @@ impl ControlledDatagramOwner {
     }
     fn reap_confirmed(&mut self) {
         self.entries.retain(|_, entry| match &*entry.lock() {
-            Native::Closed => {
+            NativeHandleState::Closed => {
                 self.confirmed_closed += 1;
                 false
             }
-            Native::NoNative => {
+            NativeHandleState::NoNative => {
                 self.known_no_native += 1;
                 false
             }
@@ -170,7 +170,7 @@ impl ControlledDatagramOwner {
             .entries
             .values()
             .find_map(|entry| match &*entry.lock() {
-                Native::Unknown(source) => Some((entry.id, source.clone())),
+                NativeHandleState::Unknown(source) => Some((entry.id, source.clone())),
                 _ => None,
             })
         {
@@ -190,7 +190,7 @@ impl ControlledDatagramOwner {
         let id = DatagramReservationId(self.next);
         let entry = Arc::new(Entry {
             id,
-            native: Mutex::new(Native::Reserved),
+            native: Mutex::new(NativeHandleState::Reserved),
             uncertain: Arc::new(std_io::Error::other(
                 "original UDP native operation remains unconfirmed",
             )),
@@ -212,15 +212,17 @@ impl ControlledDatagramOwner {
         };
         for entry in self.entries.values() {
             match &*entry.lock() {
-                Native::Unknown(source) => report.unconfirmed.push(UnconfirmedDatagram {
-                    reservation: entry.id,
-                    source: source.clone(),
-                    acquisition_source: entry
-                        .acquisition_failure
-                        .lock()
-                        .unwrap_or_else(std::sync::PoisonError::into_inner)
-                        .clone(),
-                }),
+                NativeHandleState::Unknown(source) => {
+                    report.unconfirmed.push(UnconfirmedDatagram {
+                        reservation: entry.id,
+                        source: source.clone(),
+                        acquisition_source: entry
+                            .acquisition_failure
+                            .lock()
+                            .unwrap_or_else(std::sync::PoisonError::into_inner)
+                            .clone(),
+                    })
+                }
                 _ => report.retained_live += 1,
             }
         }
@@ -238,51 +240,57 @@ impl ControlledDatagramOwner {
 impl Entry {
     fn close(&self) -> Result<DatagramCloseReceipt, Arc<std_io::Error>> {
         let mut native = self.lock();
-        if matches!(&*native, Native::Closed) {
+        if matches!(&*native, NativeHandleState::Closed) {
             return Ok(DatagramCloseReceipt { id: self.id });
         }
-        if matches!(&*native, Native::Reserved | Native::NoNative) {
-            *native = Native::NoNative;
+        if matches!(
+            &*native,
+            NativeHandleState::Reserved | NativeHandleState::NoNative
+        ) {
+            *native = NativeHandleState::NoNative;
             return Err(Arc::new(std_io::Error::other(
                 "no native UDP socket was acquired",
             )));
         }
-        if let Native::Unknown(source) = &*native {
+        if let NativeHandleState::Unknown(source) = &*native {
             if !TokioDatagramSocket::close_is_retryable(source) {
                 return Err(source.clone());
             }
             let source = source.clone();
-            *native = Native::Unknown(self.uncertain.clone());
+            *native = NativeHandleState::Unknown(self.uncertain.clone());
             return match TokioDatagramSocket::retry_close(&source) {
                 Ok(true) => {
-                    *native = Native::Closed;
+                    *native = NativeHandleState::Closed;
                     Ok(DatagramCloseReceipt { id: self.id })
                 }
                 Ok(false) => {
-                    *native = Native::Unknown(source.clone());
+                    *native = NativeHandleState::Unknown(source.clone());
                     Err(source)
                 }
                 Err(source) => {
                     let source = Arc::new(source);
-                    *native = Native::Unknown(source.clone());
+                    *native = NativeHandleState::Unknown(source.clone());
                     Err(source)
                 }
             };
         }
-        let original = std::mem::replace(&mut *native, Native::Unknown(self.uncertain.clone()));
+        let original = std::mem::replace(
+            &mut *native,
+            NativeHandleState::Unknown(self.uncertain.clone()),
+        );
         let result = match original {
-            Native::Raw(socket) => crate::datagram::native_close(socket),
-            Native::Live(socket) => socket.close(),
+            NativeHandleState::Raw(socket) => crate::datagram::native_close(socket),
+            NativeHandleState::Live(socket) => socket.close(),
             _ => unreachable!("native state checked under same lock"),
         };
         match result {
             Ok(()) => {
-                *native = Native::Closed;
+                *native = NativeHandleState::Closed;
                 Ok(DatagramCloseReceipt { id: self.id })
             }
             Err(source) => {
                 let source = Arc::new(source);
-                *native = Native::Unknown(source.clone());
+                *native = NativeHandleState::Unknown(source.clone());
                 Err(source)
             }
         }

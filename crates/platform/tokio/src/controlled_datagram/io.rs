@@ -13,8 +13,8 @@ impl ControlledDatagramSocket {
     }
     pub fn local_addr(&self) -> std_io::Result<SocketAddr> {
         match &*self.entry.lock() {
-            Native::Live(socket) => socket.local_addr(),
-            Native::Raw(socket) => socket.local_addr(),
+            NativeHandleState::Live(socket) => socket.local_addr(),
+            NativeHandleState::Raw(socket) => socket.local_addr(),
             other => Err(unavailable(other)),
         }
     }
@@ -25,7 +25,7 @@ impl ControlledDatagramSocket {
         observer: Option<Arc<dyn zero_traits::IoObserver>>,
     ) -> std_io::Result<()> {
         match &mut *self.entry.lock() {
-            Native::Live(socket) => {
+            NativeHandleState::Live(socket) => {
                 socket.set_observer(observer);
                 Ok(())
             }
@@ -39,7 +39,7 @@ impl ControlledDatagramSocket {
         peer: SocketAddr,
     ) -> Poll<std_io::Result<usize>> {
         match &*self.entry.lock() {
-            Native::Live(socket) => socket.poll_send_to_addr(cx, bytes, peer),
+            NativeHandleState::Live(socket) => socket.poll_send_to_addr(cx, bytes, peer),
             other => Poll::Ready(Err(unavailable(other))),
         }
     }
@@ -49,7 +49,7 @@ impl ControlledDatagramSocket {
         bytes: &mut [u8],
     ) -> Poll<std_io::Result<(usize, SocketAddr)>> {
         match &*self.entry.lock() {
-            Native::Live(socket) => socket.poll_recv_from_addr(cx, bytes),
+            NativeHandleState::Live(socket) => socket.poll_recv_from_addr(cx, bytes),
             other => Poll::Ready(Err(unavailable(other))),
         }
     }
@@ -65,9 +65,9 @@ impl ControlledDatagramSocket {
         self.entry.close()
     }
 }
-fn unavailable(native: &Native) -> std_io::Error {
+fn unavailable(native: &NativeHandleState) -> std_io::Error {
     match native {
-        Native::Unknown(source) => std_io::Error::other(source.clone()),
+        NativeHandleState::Unknown(source) => std_io::Error::other(source.clone()),
         _ => std_io::Error::new(
             std_io::ErrorKind::NotConnected,
             "original UDP socket is not live",
