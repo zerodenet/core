@@ -258,3 +258,38 @@ pub use admission::{Admission, WeakDrivers};
 
 #[cfg(test)]
 mod tests;
+
+impl<O: DriverKind, B: Send + Sync + 'static> Clone for DriverOwner<O, B> {
+    fn clone(&self) -> Self {
+        Self {
+            shared: self.shared.clone(),
+        }
+    }
+}
+impl<O: DriverKind, B: Send + Sync + 'static> DriverOwner<O, B> {
+    pub(super) fn completion_matches(
+        &self,
+        scope: &crate::contract::scope::TaskScopeIdentity,
+    ) -> bool {
+        let state = self.shared.state.lock().unwrap();
+        state.retired
+            && state.pending == 0
+            && !state.count_overflowed
+            && scope.same_scope(&self.shared.registrar.scope_identity())
+            && state.records.values().all(|record| {
+                if !record.delivered.load(Ordering::Acquire) {
+                    return false;
+                }
+                let registration = record.registration.lock().unwrap();
+                let received = record.received.lock().unwrap();
+                match (registration.as_ref(), received.as_ref()) {
+                    (Some((id, witness)), Some(received)) => {
+                        *id == received.id()
+                            && scope.same_scope(&witness.scope_identity())
+                            && witness.matches_joined(received)
+                    }
+                    _ => false,
+                }
+            })
+    }
+}

@@ -65,17 +65,17 @@ impl Drop for ViewToken {
 }
 pub(super) struct Claim {
     original: Weak<Shared>,
-    scope: TaskScopeIdentity,
+    pub(super) scope: TaskScopeIdentity,
 }
 /// Host-retained validation authority for precisely one original and scope.
 /// It retains neither the native original, task scope, protocol nor runtime.
 pub struct MetadataViewIssuer(Arc<Claim>);
 /// Unique claim handed to the consuming owner. No public constructor/fields.
-pub struct MetadataViewClaim(Arc<Claim>);
+pub struct MetadataViewClaim(pub(super) Arc<Claim>);
 /// Immutable historical fact: every actual issued native I/O view was released.
 /// It says nothing about logical guards, native closure, or task delivery.
 #[derive(Clone)]
-pub struct MetadataViewsClosedReceipt(Arc<Claim>);
+pub struct MetadataViewsClosedReceipt(pub(super) Arc<Claim>);
 impl MetadataDatagramControl {
     /// Capture identity only; no native I/O or task registration is granted.
     /// The host validates its real StartAccess/open scope separately.
@@ -99,6 +99,12 @@ impl MetadataDatagramControl {
     }
 }
 impl MetadataViewClaim {
+    /// Verify the exact original views before consuming this unique claim into
+    /// a sealed user graph. This does not create a view or grant native control.
+    pub fn matches(&self, rx: &MetadataDatagramRx, tx: &MetadataDatagramTx) -> bool {
+        let original = self.0.original.clone();
+        original.ptr_eq(&Arc::downgrade(&rx.shared)) && original.ptr_eq(&Arc::downgrade(&tx.shared))
+    }
     pub fn try_closed(&self) -> Option<MetadataViewsClosedReceipt> {
         let original = self.0.original.upgrade()?;
         if !original.views.empty() {
@@ -110,6 +116,15 @@ impl MetadataViewClaim {
     }
 }
 impl MetadataViewIssuer {
+    /// Users/driver proof from the unique graph bound to this exact original
+    /// claim. Native FD closure remains independently owned and verified.
+    pub fn validates_users(
+        &self,
+        receipt: &users::MetadataUsersClosedReceipt,
+        tasks: &TaskRegistrar,
+    ) -> bool {
+        self.validates(&receipt.views, tasks)
+    }
     /// Validate only this opaque view receipt. The host separately requires
     /// logical users and actual task joins/reception before whole-graph closure.
     pub fn validates(&self, receipt: &MetadataViewsClosedReceipt, tasks: &TaskRegistrar) -> bool {
