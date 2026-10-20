@@ -67,18 +67,24 @@ impl ControlledTcpListener {
                     Poll::Ready(Err(pool.remember(&reservation.entry, error, true)))
                 }
                 Poll::Ready(Ok((socket, peer))) => {
-                    let (io, control) =
-                        ControlledTcpStream::from_accepted(socket, pool.cancel.clone());
+                    let (io, control) = ControlledTcpStream::from_accepted(
+                        socket,
+                        reservation.entry.cancel.clone(),
+                    );
                     let installed_control = reservation.entry.control.set(AsyncMutex::new(control));
                     assert!(
                         installed_control.is_ok(),
                         "one actual accepted control per reservation"
                     );
                     reservation.entry.state().phase = Phase::Installed;
+                    let io = AcceptedTcpStream {
+                        io,
+                        _usage: reservation.entry.users.as_ref().map(|users| users.view()),
+                    };
                     // No original getter, configuration or external code ran
                     // before installing this exact control in the same entry.
                     installed();
-                    if let Err(source) = io.configure_accepted() {
+                    if let Err(source) = io.io.configure_accepted() {
                         let error =
                             ChannelError::new(Stage::Prepare, Reason::Io, Impact::Component)
                                 .with_source(source);
@@ -87,7 +93,7 @@ impl ControlledTcpListener {
                     pool.state().transferred = true;
                     Poll::Ready(Ok((
                         AcceptedTcp {
-                            io: AcceptedTcpStream { io },
+                            io,
                             claim: AcceptedTcpClaim {
                                 entry: reservation.entry.clone(),
                             },

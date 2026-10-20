@@ -7,7 +7,8 @@ use tokio_socket::Storage as TcpStorage;
 mod controlled_listener;
 pub mod file;
 pub use controlled_listener::{
-    AcceptedTcp, AcceptedTcpClaim, AcceptedTcpEvidence, AcceptedTcpNativeClosed, AcceptedTcpStream,
+    AcceptedTcp, AcceptedTcpCaller, AcceptedTcpClaim, AcceptedTcpClosed, AcceptedTcpEvidence,
+    AcceptedTcpNativeClosed, AcceptedTcpStream, AcceptedTcpTaskReceiver, AcceptedTcpTasks,
     AcceptedTcpUsers, ControlledTcpListener, ControlledTcpListenerControl,
     ControlledTcpListenerOwner,
 };

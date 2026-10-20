@@ -19,6 +19,30 @@ impl ControlledTcpListenerOwner {
         )));
         Ok(owner)
     }
+    /// Explicit graph authority; the actual host must reserve this scope's
+    /// checked handler/driver ceiling before constructing or binding the owner.
+    pub fn new_with_accepted_graph(
+        declaration: &ResourceDeclaration,
+        attempts: NonZeroUsize,
+        parent: CancellationToken,
+        accepted_limit: NonZeroUsize,
+        per_entry_tasks: NonZeroUsize,
+        registrar: &crate::contract::scope::TaskRegistrar,
+    ) -> Result<Self, ChannelError> {
+        let mut owner =
+            Self::new_with_accepted_limit(declaration, attempts, parent, accepted_limit)?;
+        let shared = Arc::get_mut(&mut owner.control.shared).expect("cold unique listener owner");
+        let pool = Arc::get_mut(shared.accepted.as_mut().expect("accepted owner installed"))
+            .expect("cold unique accepted pool");
+        pool.graph = Some(graph::Authority::new(registrar, per_entry_tasks));
+        Ok(owner)
+    }
+    /// A weak receiver for this original entry table, not another task map.
+    pub fn accepted_task_receiver(&self) -> Option<AcceptedTcpTaskReceiver> {
+        let pool = self.control.shared.accepted.as_ref()?;
+        pool.graph.as_ref()?;
+        Some(AcceptedTcpTaskReceiver::new(pool))
+    }
     /// None means no accepted authority/provider was installed, not empty true.
     pub fn accepted_evidence(&self) -> Option<AcceptedTcpEvidence> {
         self.control
@@ -40,6 +64,20 @@ impl ControlledTcpListenerOwner {
             )
         })?;
         pool.close(claim, deadline).await
+    }
+    pub async fn close_accepted_graph(
+        &mut self,
+        claim: &AcceptedTcpClaim,
+        deadline: Instant,
+    ) -> Result<Option<AcceptedTcpClosed>, ChannelError> {
+        let pool = self.control.shared.accepted.as_ref().ok_or_else(|| {
+            failure(
+                Stage::Close,
+                Reason::Unsupported,
+                "accepted graph authority was not installed",
+            )
+        })?;
+        pool.close_graph(claim, deadline).await
     }
     /// Partial native receipts only, never a whole provider/user proof.
     pub fn take_accepted_report(&self) -> CloseReport {
@@ -89,7 +127,10 @@ impl ControlledTcpListenerOwner {
                 "accepted TCP originals remain owned or Unknown".into(),
             ));
         }
-        if evidence.users == AcceptedTcpUsers::Unaccounted {
+        if matches!(
+            evidence.users,
+            AcceptedTcpUsers::Unaccounted | AcceptedTcpUsers::Pending
+        ) {
             report.unfinished.push(Unfinished::Resource(
                 "accepted TCP transferred users/tasks are Unaccounted".into(),
             ));

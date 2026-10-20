@@ -13,6 +13,7 @@ use tokio::{
 use zero_core::{request::Destination, Address};
 mod facade;
 mod failures;
+mod graph;
 mod wake;
 fn one() -> NonZeroUsize {
     NonZeroUsize::new(1).unwrap()

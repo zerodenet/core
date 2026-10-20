@@ -1,7 +1,10 @@
 //! Bounded children of the same listener owner. Native receipts never prove
-//! transferred users or tasks completed; that host integration is Unaccounted.
+//! transferred users or tasks completed. Explicit graph authority uses actual
+//! same-Scope joins; native-only or escaped-user paths remain Unaccounted.
 mod accept;
 mod close;
+mod graph;
+pub use graph::{AcceptedTcpCaller, AcceptedTcpTaskReceiver, AcceptedTcpTasks};
 mod owner;
 mod pool;
 mod relay;
@@ -18,7 +21,13 @@ pub struct AcceptedTcp {
     claim: AcceptedTcpClaim,
 }
 impl AcceptedTcp {
+    pub fn claim(&self) -> AcceptedTcpClaim {
+        self.claim.clone()
+    }
     pub fn into_parts(self) -> (AcceptedTcpStream, AcceptedTcpClaim) {
+        if let Some(users) = &self.claim.entry.users {
+            users.mark_unaccounted();
+        }
         (self.io, self.claim)
     }
 }
@@ -47,10 +56,26 @@ impl AcceptedTcpNativeClosed {
         self.entry.id
     }
 }
+/// Actual same-entry tasks joined, its unique I/O users released and its
+/// original native control explicitly closed. No arbitrary report can mint it.
+#[derive(Clone)]
+pub struct AcceptedTcpClosed {
+    entry: Arc<Entry>,
+}
+impl AcceptedTcpClosed {
+    pub fn matches(&self, claim: &AcceptedTcpClaim) -> bool {
+        Arc::ptr_eq(&self.entry, &claim.entry)
+    }
+    pub fn id(&self) -> u64 {
+        self.entry.id
+    }
+}
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum AcceptedTcpUsers {
     NoTransfer,
     Unaccounted,
+    Pending,
+    Confirmed,
 }
 pub struct AcceptedTcpEvidence {
     pub admission_closed: bool,
@@ -60,6 +85,7 @@ pub struct AcceptedTcpEvidence {
     pub users: AcceptedTcpUsers,
     pub first_failure: Option<Arc<ChannelError>>,
     pub first_close_failure: Option<Arc<ChannelError>>,
+    pub first_user_failure: Option<crate::contract::scope::TaskJoined>,
 }
 impl AcceptedTcpEvidence {
     pub fn native_confirmed(&self) -> bool {
@@ -70,7 +96,10 @@ impl AcceptedTcpEvidence {
     pub fn provider_confirmed(&self) -> bool {
         self.admission_closed
             && self.native_confirmed()
-            && self.users == AcceptedTcpUsers::NoTransfer
+            && matches!(
+                self.users,
+                AcceptedTcpUsers::NoTransfer | AcceptedTcpUsers::Confirmed
+            )
     }
 }
 pub(super) struct Pool {
@@ -79,6 +108,7 @@ pub(super) struct Pool {
     cancel: CancellationToken,
     state: Mutex<PoolState>,
     relay: Arc<relay::AcceptRelay>,
+    graph: Option<graph::Authority>,
 }
 struct PoolState {
     next: u64,
@@ -88,6 +118,7 @@ struct PoolState {
     transferred: bool,
     first_failure: Option<Arc<ChannelError>>,
     first_close_failure: Option<Arc<ChannelError>>,
+    first_user_failure: Option<crate::contract::scope::TaskJoined>,
 }
 struct Entry {
     id: u64,
@@ -95,9 +126,12 @@ struct Entry {
     state: Mutex<EntryState>,
     control: OnceLock<AsyncMutex<ControlledTcpControl>>,
     uncertain: Arc<ChannelError>,
+    users: Option<Arc<graph::Users>>,
+    cancel: CancellationToken,
 }
 struct EntryState {
     phase: Phase,
+    native_counted: bool,
     failure: Option<Arc<ChannelError>>,
     unknown: Option<Arc<ChannelError>>,
 }

@@ -4,6 +4,7 @@ use tokio::io::{AsyncRead, AsyncWrite, ReadBuf};
 /// Drop nor a split half disappearing can declare protocol tasks/users joined.
 pub struct AcceptedTcpStream {
     pub(super) io: ControlledTcpStream,
+    pub(super) _usage: Option<graph::ViewUse>,
 }
 impl AcceptedTcpStream {
     pub(crate) async fn peek(&self, bytes: &mut [u8]) -> io::Result<usize> {

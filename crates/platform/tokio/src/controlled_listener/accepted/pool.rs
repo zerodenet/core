@@ -6,6 +6,7 @@ impl Pool {
             limit,
             cancel,
             relay: Arc::new(relay::AcceptRelay::new()),
+            graph: None,
             state: Mutex::new(PoolState {
                 next: 0,
                 entries: BTreeMap::new(),
@@ -14,6 +15,7 @@ impl Pool {
                 transferred: false,
                 first_failure: None,
                 first_close_failure: None,
+                first_user_failure: None,
             }),
         }
     }
@@ -63,16 +65,27 @@ impl Pool {
             "accepted TCP acquisition did not return an observed native outcome",
         );
         uncertain.delivery = DeliveryState::Unknown;
-        let entry = Arc::new(Entry {
+        let cancel = self.cancel.child_token();
+        let entry = Arc::new_cyclic(|entry| Entry {
             id,
             identity: self.identity.clone(),
             state: Mutex::new(EntryState {
                 phase: Phase::Waiting,
+                native_counted: false,
                 failure: None,
                 unknown: None,
             }),
             control: OnceLock::new(),
             uncertain: Arc::new(uncertain),
+            users: self.graph.as_ref().map(|authority| {
+                Arc::new(graph::Users::new(
+                    authority.clone(),
+                    entry.clone(),
+                    Arc::downgrade(self),
+                    cancel.clone(),
+                ))
+            }),
+            cancel,
         });
         state.entries.insert(id, entry.clone());
         Ok(Reservation {
@@ -107,10 +120,19 @@ impl Pool {
         retained(source)
     }
     pub(super) fn evidence(&self) -> AcceptedTcpEvidence {
-        let state = self.state();
-        let unknown = state
-            .entries
-            .values()
+        let (entries, transferred, closed, first_failure, first_close_failure, first_user_failure) = {
+            let state = self.state();
+            (
+                state.entries.values().cloned().collect::<Vec<_>>(),
+                state.transferred,
+                state.closed,
+                state.first_failure.clone(),
+                state.first_close_failure.clone(),
+                state.first_user_failure.clone(),
+            )
+        };
+        let unknown = entries
+            .iter()
             .filter_map(|entry| {
                 let state = entry.state();
                 matches!(state.phase, Phase::Unknown | Phase::Acquiring).then(|| {
@@ -124,18 +146,33 @@ impl Pool {
                 })
             })
             .collect();
+        let users = if !transferred {
+            AcceptedTcpUsers::NoTransfer
+        } else if self.graph.is_none() {
+            AcceptedTcpUsers::Unaccounted
+        } else {
+            let mut status = AcceptedTcpUsers::Confirmed;
+            for entry in &entries {
+                match entry.users.as_ref().map(|users| users.status()) {
+                    None | Some(AcceptedTcpUsers::Unaccounted) => {
+                        status = AcceptedTcpUsers::Unaccounted;
+                        break;
+                    }
+                    Some(AcceptedTcpUsers::Pending) => status = AcceptedTcpUsers::Pending,
+                    _ => {}
+                }
+            }
+            status
+        };
         AcceptedTcpEvidence {
             admission_closed: self.cancel.is_cancelled(),
-            retained: state.entries.len(),
+            retained: entries.len(),
             unknown,
-            confirmed_native_closes: state.closed,
-            users: if state.transferred {
-                AcceptedTcpUsers::Unaccounted
-            } else {
-                AcceptedTcpUsers::NoTransfer
-            },
-            first_failure: state.first_failure.clone(),
-            first_close_failure: state.first_close_failure.clone(),
+            confirmed_native_closes: closed,
+            users,
+            first_failure,
+            first_close_failure,
+            first_user_failure,
         }
     }
     pub(super) fn take_report(&self) -> CloseReport {
@@ -151,14 +188,22 @@ impl Pool {
         report
     }
     pub(super) fn confirm(&self, entry: &Arc<Entry>) {
+        let reclaim = entry.users.as_ref().is_none_or(|users| users.complete());
         let mut state = self.state();
         if state
             .entries
             .get(&entry.id)
             .is_some_and(|actual| Arc::ptr_eq(actual, entry))
         {
-            state.entries.remove(&entry.id);
-            state.closed += 1;
+            let mut status = entry.state();
+            if !status.native_counted {
+                status.native_counted = true;
+                state.closed += 1;
+            }
+            drop(status);
+            if reclaim {
+                state.entries.remove(&entry.id);
+            }
         }
     }
 }

@@ -2,7 +2,8 @@
 mod accepted;
 mod control;
 pub use accepted::{
-    AcceptedTcp, AcceptedTcpClaim, AcceptedTcpEvidence, AcceptedTcpNativeClosed, AcceptedTcpStream,
+    AcceptedTcp, AcceptedTcpCaller, AcceptedTcpClaim, AcceptedTcpClosed, AcceptedTcpEvidence,
+    AcceptedTcpNativeClosed, AcceptedTcpStream, AcceptedTcpTaskReceiver, AcceptedTcpTasks,
     AcceptedTcpUsers,
 };
 mod native;
