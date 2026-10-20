@@ -84,3 +84,39 @@ async fn same_native_owners_in_a_different_prefix_order_require_retirement() {
         ["dns-path".to_owned()].into_iter().collect()
     );
 }
+
+#[tokio::test]
+async fn dynamic_selection_cannot_prove_a_pools_previously_captured_owner_identity() {
+    let mut config = config();
+    config.outbound_groups[0].group = zero_config::OutboundGroupKind::Selector {
+        outbounds: vec!["one".into(), "two".into()],
+        default: Some("one".into()),
+        selected: None,
+    };
+    let proxy = Proxy::new(config).unwrap();
+    let snapshot = proxy.engine().runtime_snapshot();
+    proxy
+        .protocols
+        .start_components(
+            snapshot.config().clone(),
+            Instant::now() + Duration::from_secs(3),
+        )
+        .await
+        .unwrap();
+    proxy
+        .protocols
+        .commit_components(snapshot.config(), || Ok(()))
+        .unwrap();
+    let plan = proxy
+        .protocols
+        .prepare_components(snapshot.config().clone())
+        .unwrap();
+    // Even resolving this very same snapshot now cannot tell which member an
+    // already established persistent DNS connection actually captured earlier.
+    assert_eq!(
+        proxy
+            .protocols
+            .affected_dns_detours(proxy.engine(), &snapshot, &snapshot, &plan),
+        ["dns-path".to_owned()].into_iter().collect()
+    );
+}

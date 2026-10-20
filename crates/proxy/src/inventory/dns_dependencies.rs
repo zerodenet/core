@@ -70,6 +70,13 @@ impl ProtocolInventory {
         components: &ComponentPlan,
         target: &str,
     ) -> Option<Owners> {
+        // Dynamic selection may already differ from the pool's captured path.
+        // Resolving it twice cannot recover that identity (and load-balance
+        // resolution itself advances selection state). Such pools retire
+        // conservatively on apply until carriers expose their actual binding.
+        if has_dynamic_target(snapshot.config(), target) {
+            return None;
+        }
         let target = snapshot.plan().target_id(target)?;
         let (resolved, _plan) = engine.resolve_target_id_in_snapshot(snapshot, target)?;
         let (shape, leaves) = match &resolved {
@@ -99,6 +106,27 @@ impl ProtocolInventory {
             .collect::<Option<Vec<_>>>()?;
         (!slots.is_empty()).then_some(Owners { shape, slots })
     }
+}
+
+fn has_dynamic_target(config: &zero_config::RuntimeConfig, target: &str) -> bool {
+    use zero_config::OutboundGroupKind;
+    let mut pending = vec![target];
+    let mut visited = BTreeSet::new();
+    while let Some(tag) = pending.pop() {
+        if !visited.insert(tag) {
+            continue;
+        }
+        let Some(group) = config.outbound_groups.iter().find(|group| group.tag == tag) else {
+            continue;
+        };
+        match &group.group {
+            OutboundGroupKind::Selector { .. }
+            | OutboundGroupKind::UrlTest { .. }
+            | OutboundGroupKind::LoadBalance { .. } => return true,
+            group => pending.extend(group.members().iter().map(String::as_str)),
+        }
+    }
+    false
 }
 
 #[cfg(all(test, feature = "socks5"))]
