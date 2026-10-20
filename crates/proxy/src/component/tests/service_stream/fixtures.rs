@@ -6,7 +6,7 @@ use zero_core::{
 use zero_platform_tokio::contract::{network::CarrierContext, CancellationToken};
 #[cfg(feature = "trojan")]
 pub(super) const PASSWORD: &str = "native-password";
-#[cfg(feature = "vmess")]
+#[cfg(any(feature = "vmess", feature = "vless"))]
 pub(super) const ID: &str = "11111111-2222-3333-4444-555555555555";
 pub(super) fn destination() -> Destination {
     Destination::new(Address::Domain("native.example".into()), 443)
@@ -68,4 +68,16 @@ pub(super) async fn connect(
     )
     .await
     .unwrap()
+}
+
+#[cfg(feature = "vless")]
+pub(super) fn vless_request() -> Vec<u8> {
+    let mut bytes = vec![0];
+    bytes.extend_from_slice(&[
+        0x11, 0x11, 0x11, 0x11, 0x22, 0x22, 0x33, 0x33, 0x44, 0x44, 0x55, 0x55, 0x55, 0x55, 0x55,
+        0x55,
+    ]);
+    bytes.extend_from_slice(&[0, 1, 1, 0xbb, 2, 14]);
+    bytes.extend_from_slice(b"native.example");
+    bytes
 }

@@ -6,6 +6,8 @@ extern crate alloc;
 #[cfg(any(feature = "runtime", feature = "validation"))]
 pub mod encryption;
 
+#[cfg(all(feature = "runtime", feature = "reality"))]
+pub mod component;
 #[cfg(feature = "runtime")]
 pub mod deferred_response;
 #[cfg(feature = "runtime")]

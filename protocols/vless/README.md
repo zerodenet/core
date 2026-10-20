@@ -112,3 +112,25 @@ protocols/vless/src/
 
 - [Xray-core VLESS 出站配置](https://xtls.github.io/en/config/outbounds/vless.html)
 - [VLESS 协议规范](https://github.com/XTLS/Xray-core/discussions/1967)
+
+## 标准 Stream 接入范围
+
+与现有 transport 相同的 `runtime` + `reality` 构建提供协议拥有的
+`component::Options` / `Factory`。首批迁移普通无 flow 的 TCP、TLS、WS（含早期
+数据）和 gRPC；单节点及全原生 relay 直接通过 Stream role 使用真实
+Destination 和 Service/Business 身份，不创建 Session 占位对象。UUID 与自定义
+ID 沿用本协议解析，普通请求帧复用原编码函数。build 不打开连接或启动任务。
+
+提交请求并真实 flush 后返回 Deferred。现有 DeferredVlessResponseStream 在首次
+读取中检查版本并完整消费 addons，完成后才上报 PeerConfirmed；非法版本上报
+PeerRejected，截断仍保留 EOF 错误。Flow 只记录请求帧，Outer 保留实际载体字节。
+
+暂未迁移的边界明确保留原有实际路径；直接传入这些项的 Options 返回错误：
+
+- Vision / zero-aead flow 需要各自的 padding/认证流及实际 TLS 1.3 或加密载体绕过控制。
+- REALITY 需要完整认证、密钥 profile、拒绝及 decoy 导航语义的独立接入回归。
+- VLESS Encryption，尤其 0RTT ticket cache，需要协议状态代际和共享所有者。
+- MUX/XUDP、testpre、reverse、browser_dialer 需要相应资源和后台生命周期。
+- QUIC、mKCP、Hysteria、FinalMask 需要真实 UDP/socket、驱动或 framing 接入。
+- XHTTP 需要实际多载体前缀、download 配置及连接池/驱动生命周期；H2、HTTP Upgrade 尚未接入本 Factory。
+- CA 文件和 DNS 获取的 ECH 配置等待 File grant 和原生 DNS 服务，不能用缺省 source_dir 或丢弃字段代替。

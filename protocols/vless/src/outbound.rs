@@ -1091,15 +1091,7 @@ impl<'a> DeferredTcpTunnelProtocol<VlessFlowTcpTunnelTarget<'a>> for VlessOutbou
 }
 
 fn build_tcp_request(session: &Session, id: &[u8; 16]) -> Result<Vec<u8>, Error> {
-    let mut request = Vec::with_capacity(24);
-    request.push(VLESS_VERSION);
-    request.extend_from_slice(id);
-    request.push(0x00);
-    request.push(crate::shared::CMD_TCP);
-    request.extend_from_slice(&session.port.to_be_bytes());
-    write_address(&mut request, &session.target)?;
-
-    Ok(request)
+    crate::shared::build_request(session, id, crate::shared::CMD_TCP)
 }
 
 fn build_mux_request(id: &[u8; 16]) -> Result<Vec<u8>, Error> {

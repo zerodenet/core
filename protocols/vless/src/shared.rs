@@ -129,13 +129,22 @@ pub(crate) fn build_request(
     id: &[u8; 16],
     command: u8,
 ) -> Result<Vec<u8>, Error> {
+    build_request_to(&session.target, session.port, id, command)
+}
+
+pub(crate) fn build_request_to(
+    target: &Address,
+    port: u16,
+    id: &[u8; 16],
+    command: u8,
+) -> Result<Vec<u8>, Error> {
     let mut request = Vec::with_capacity(24);
     request.push(VLESS_VERSION);
     request.extend_from_slice(id);
     request.push(0x00);
     request.push(command);
-    request.extend_from_slice(&session.port.to_be_bytes());
-    write_address(&mut request, &session.target)?;
+    request.extend_from_slice(&port.to_be_bytes());
+    write_address(&mut request, target)?;
     Ok(request)
 }
 

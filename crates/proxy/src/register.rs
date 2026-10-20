@@ -35,6 +35,9 @@ fn compiled_registries() -> (
     components
         .declare("vmess", "vmess")
         .expect("unique VMess declaration");
+    components
+        .declare("vless", "vless")
+        .expect("unique VLESS declaration");
     let mut registry = ProtocolRegistry::default();
     #[cfg(feature = "socks5")]
     {
@@ -62,6 +65,15 @@ fn compiled_registries() -> (
     #[cfg(feature = "vless")]
     {
         use crate::adapters::vless::VlessAdapter;
+        components
+            .register_where(
+                ::vless::metadata::VlessProtocol.descriptor(),
+                ::vless::component::Factory,
+                crate::adapters::vless::native_input,
+                crate::adapters::vless::component_options,
+            )
+            .expect("unique VLESS component registration");
+        components.set_legacy_connect_stage("vless", crate::adapters::vless::LEGACY_CONNECT_STAGE);
         let adapter = Arc::new(VlessAdapter::default());
         registry.register_inbound_service(adapter.clone());
         registry.register_managed_capability(adapter, VlessAdapter::claim_outbound_leaf_impl);
