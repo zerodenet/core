@@ -114,9 +114,57 @@ async fn failed_native_bind_does_not_count_an_uncreated_datagram_boundary() {
         .await
         .err()
         .expect("actual native interface bind must fail");
-    assert!(failure.to_string().contains("bind_interface"), "{failure}");
+    assert_native_interface_failure(&failure);
+
     assert_eq!(observation.boundaries.load(Ordering::Acquire), 0);
     let report = owner.shutdown(deadline()).await.unwrap();
     assert!(report.is_complete());
     assert_eq!(report.closed_io, vec!["explicitly closed 1 original Direct UDP sockets"], "the failed interface bind created a native original, now explicitly closed by its controlled owner");
+}
+
+#[cfg(target_os = "linux")]
+fn assert_native_interface_failure(error: &EngineError) {
+    use std::error::Error;
+    fn inspect(
+        error: &(dyn Error + 'static),
+        depth: usize,
+        phase: &mut bool,
+        native: &mut Option<(i32, std::io::ErrorKind)>,
+    ) {
+        assert!(depth < 64, "native bind source chain must be finite");
+        if let Some(EngineError::Io(io)) = error.downcast_ref::<EngineError>() {
+            inspect(io, depth + 1, phase, native);
+        }
+        if let Some(retained) = error.downcast_ref::<Arc<EngineError>>() {
+            inspect(retained.as_ref(), depth + 1, phase, native);
+        }
+        if let Some(retained) = error.downcast_ref::<Arc<std::io::Error>>() {
+            inspect(retained.as_ref(), depth + 1, phase, native);
+        }
+        if let Some(io) = error.downcast_ref::<std::io::Error>() {
+            *phase |= io.to_string().contains("bind_interface");
+            if let Some(code) = io.raw_os_error() {
+                *native = Some((code, io.kind()));
+            }
+            // Transparent wrappers can omit their stored value in source().
+            if let Some(inner) = io.get_ref() {
+                inspect(inner, depth + 1, phase, native);
+            }
+        }
+        if let Some(source) = error.source() {
+            inspect(source, depth + 1, phase, native);
+        }
+    }
+    let mut phase = false;
+    let mut native = None;
+    inspect(error, 0, &mut phase, &mut native);
+    assert!(
+        phase,
+        "actual bind_interface phase retained through ChannelError"
+    );
+    let (code, kind) = native.expect("original SO_BINDTODEVICE OS error retained");
+    // Linux ENODEV is the real missing-device result for this impossible name.
+    let expected = std::io::Error::from_raw_os_error(19);
+    assert_eq!(code, 19);
+    assert_eq!(kind, expected.kind());
 }
