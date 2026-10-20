@@ -3,6 +3,7 @@
 mod acquire;
 mod flags;
 mod io;
+pub mod listener;
 #[cfg(test)]
 mod tests;
 use crate::{EgressInterface, TokioDatagramSocket};
@@ -84,6 +85,7 @@ pub struct ControlledDatagramOwner {
 }
 struct Entry {
     id: DatagramReservationId,
+    retired: tokio_util::sync::CancellationToken,
     native: Mutex<NativeHandleState>,
     // Prepared before the original fd exists; installed before consuming OS
     // registration/close calls, including panic or cancellation of the caller.
@@ -190,6 +192,7 @@ impl ControlledDatagramOwner {
         let id = DatagramReservationId(self.next);
         let entry = Arc::new(Entry {
             id,
+            retired: tokio_util::sync::CancellationToken::new(),
             native: Mutex::new(NativeHandleState::Reserved),
             uncertain: Arc::new(std_io::Error::other(
                 "original UDP native operation remains unconfirmed",
@@ -239,6 +242,7 @@ impl ControlledDatagramOwner {
 }
 impl Entry {
     fn close(&self) -> Result<DatagramCloseReceipt, Arc<std_io::Error>> {
+        self.retired.cancel();
         let mut native = self.lock();
         if matches!(&*native, NativeHandleState::Closed) {
             return Ok(DatagramCloseReceipt { id: self.id });

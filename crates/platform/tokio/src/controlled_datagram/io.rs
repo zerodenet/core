@@ -65,7 +65,7 @@ impl ControlledDatagramSocket {
         self.entry.close()
     }
 }
-fn unavailable(native: &NativeHandleState) -> std_io::Error {
+pub(super) fn unavailable(native: &NativeHandleState) -> std_io::Error {
     match native {
         NativeHandleState::Unknown(source) => std_io::Error::other(source.clone()),
         _ => std_io::Error::new(

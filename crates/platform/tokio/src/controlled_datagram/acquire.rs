@@ -54,6 +54,24 @@ impl ControlledDatagramOwner {
             Ok(prepared) => prepared,
             Err(source) => return Err(self.no_native(&entry, phase("prepare", source))),
         };
+        self.acquire_native(entry, source, preferred_port, v6_only, interface)
+    }
+    /// Bind an exact server address without outbound policy or port fallback.
+    pub(super) fn bind_native_listener(
+        &mut self,
+        source: SocketAddr,
+    ) -> Result<ControlledDatagramSocket, DatagramAcquisitionError> {
+        let entry = self.reserve()?;
+        self.acquire_native(entry, source, None, false, None)
+    }
+    fn acquire_native(
+        &mut self,
+        entry: Arc<Entry>,
+        source: SocketAddr,
+        preferred_port: Option<u16>,
+        v6_only: bool,
+        interface: Option<EgressInterface>,
+    ) -> Result<ControlledDatagramSocket, DatagramAcquisitionError> {
         let domain = if source.is_ipv4() {
             socket2::Domain::IPV4
         } else {
