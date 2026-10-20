@@ -53,11 +53,8 @@ async fn original_h2_wire_runs_in_one_registered_aggregate_and_native_close_wait
                     .unwrap();
             };
             let drive = async {
-                while let Some(result) = h2.accept().await {
-                    if result.is_err() {
-                        break;
-                    }
-                    panic!("fixture expected exactly one request");
+                if let Some(result) = h2.accept().await {
+                    assert!(result.is_err(), "fixture expected exactly one request");
                 }
             };
             tokio::join!(transfer, drive);

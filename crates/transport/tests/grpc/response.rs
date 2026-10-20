@@ -33,7 +33,7 @@ async fn actual_pending_h2_response_waker_does_not_retain_head_and_still_wakes_t
         let io=tokio::net::TcpStream::connect(address).await.unwrap();
         let (sender,connection)=h2::client::handshake(io).await.unwrap();
         // Fixture-owned driver; its actual handle is joined below.
-        let driver=tokio::spawn(async move {connection.await});
+        let driver=tokio::spawn(connection);
         let mut sender=sender.ready().await.unwrap();
         let (response,send)=sender.send_request(Request::builder().uri("https://localhost/test").body(()).unwrap(),true).unwrap();
         let head=Head::new(response);registration.await.unwrap();
@@ -113,7 +113,7 @@ async fn dropping_head_after_real_pending_response_registration_reclaims_it_befo
         });
         let io = tokio::net::TcpStream::connect(address).await.unwrap();
         let (sender, connection) = h2::client::handshake(io).await.unwrap();
-        let driver = tokio::spawn(async move { connection.await });
+        let driver = tokio::spawn(connection);
         let mut sender = sender.ready().await.unwrap();
         let (response, send) = sender.send_request(
             Request::builder().uri("https://localhost/pending").body(()).unwrap(),true,
@@ -141,10 +141,13 @@ async fn dropping_head_after_real_pending_response_registration_reclaims_it_befo
         // release it while keeping SendRequest/connection alive to flush CANCEL.
         drop(send);
         let observed_cancel = cancellation.await.unwrap();
-        drop(sender);
+        // Keep the client handle alive until the peer's graceful H2 drain has
+        // completed. Closing it first would race GOAWAY/PING with socket EOF.
         finish.send(()).unwrap();
-        server.await.unwrap();
-        driver.await.unwrap().unwrap();
+        let (server, client) = tokio::join!(server, driver);
+        server.unwrap();
+        client.unwrap().unwrap();
+        drop(sender);
         assert!(isolated,"a registered H2 waker must not increase Shared ownership");
         assert!(reclaimed,"pending Head must be reclaimed before connection cleanup");
         assert!(observed_cancel,"the peer must observe the real CANCEL before teardown");
