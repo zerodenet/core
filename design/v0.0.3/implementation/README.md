@@ -162,6 +162,24 @@ SS 的 roleless replay 工厂使用既有适配器按 `(ReplayPolicy, capacity)`
 
 继续全部17项：类型化规范共享资源准备及代际传播、原生进程授权与使用者/资源确认替换、其余通道/入站/Packet、RuntimeHost/M4、旧桥清除及最终消费者和物理设备资格。
 
+## PR03 进行中：类型化共享资源准备与中立持久所有者
+
+源码提交 `891a571ad1320e3114535de3b36bd05ae19b10e3`、`877ec20bc9893cf44b6ffca1d960133acfc826a0`，冻结 tree `5f342f29be8df78b748cb2c112acd6e3ac1198c0`。[验证及39份原始证据](pr03-shared-preparation-validation.json)记录真实命令、原文/gzip摘要及保留的失败。
+
+`ComponentRecipe` 保留实际强类型工厂与已验证 Options，复用既有身份/角色检查，资源无需虚构协议 descriptor 或通过 Any 恢复类型。`ResourcePreparation` 使用实际宿主分配器，在同一实际工厂/状态的装配 namespace 内按 secret-free static identity 共享 roleless owner；相同身份要求完整描述一致。消费者、分配、描述或依赖图失败会使整轮准备失效，不能抽取此前部分成功的资源或继续解码；已消费的宿主身份不回收。
+
+十项新回归包含两个真实 Direct 角色的依赖登记共享原适配器 TCP2022 replay owner，准备不 build/start，配置各转换一次，实际 Scope 只有一个 critical 维护任务并得到真实 join 结果；还覆盖原始分配错误来源、重复宿主 ID、描述冲突、namespace 隔离、roleless约束、跨主组件/资源依赖环及失败后禁止部分使用。中立配方使用与 Stream 相同的持久 slot；真实旧维护任务未退出时新代际不能取得租约，确认退出后新所有者才可启动。该依赖登记测试不冒充 SS Stream 生产迁移。
+
+首轮完整 workspace 实际 **2751/1/159**（155条主摘要，包含晚期文档测试）：原架构断言拒绝通用组件入口的具体协议测试 gate。将同一个 gate 移入现有 tests/ 目录，未弱化断言；原189项边界回归通过。首轮完整失败、两次候选编译错误、首次未加载 Cargo 环境的 layout 检查及修正输出均保留；wrapper末尾转义的失败摘录不重复计数。
+
+修正后的完整源码 tree 与严格 workspace/all-target/all-feature Clippy 一致，13个文件摘要及锁文件一致。提交后源码、HEAD与锁文件冻结，七项检查全部通过：fmt、workspace check、完整 workspace **2752/0/159**（155条摘要，含晚期文档测试）、默认 release、实际 thumb no_std、最小 proxy feature和实际依赖边界。实际默认 release git_hash=`877ec20b`，SHA=`fa0a26ed63356082e7431ab1c930d44c3a1745ac872df812b1668f4a4582704e`；不包含可选 connector/grpc/WireGuard release资格。
+
+最终完整 workspace 所用同一不可变 proxy 测试二进制，在独立网络命名空间、只读挂载、1 CPU/1 GiB/no swap/user1000 中执行组件过滤 **38/0**，SHA=`ef45cb0ccbbbe9ac0b8b17ed85ce0e74aef94496ca2154820efbbaf419325cd7`。较早候选38/0与其独立二进制/摘要另行保留。此处不代替完整 RS01、共享业务I/O或物理设备验收。
+
+上一 head17adc的全部11个选中workflow成功，实际Linux2742/0/159、VLESS251/0/1与原始日志归档。Optional surface跳过，四个独立smoke/macOS offline步骤跳过；Windows真实出口切换仍executed=false，缺少合适第二接口。历史8fb实际失败、固定reference计数资格及XHTTP earlyEOF未被后续绿灯消除。
+
+生产 catalog 仍只激活零资源 Stream；跨配置共享身份稳定性、依赖代际传播、使用者/共享I/O确认替换、原生进程授权、M4与其余任务卡继续。入站plugin activate和旧pool.clear活跃租借语义尚待迁移，本批不宣称整体完成。
+
 ## 尚未完成的生产迁移与资格
 
 普通 Direct/SOCKS5 和全原生已登记网络节点的 relay 已走实际角色；混合旧协议链、其他协议、DNS/内部调用、Datagram/入站/Packet 仍有迁移工作。runtime 提取、单实例配置事务、DNS/Network/路由装配、旧桥清除及最终消费者回归尚未完成。PR03/PR04A 和整体均保持进行中，不能以当前检查点宣布 G0–G10 整体完成。
