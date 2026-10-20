@@ -1,4 +1,5 @@
-use super::Owner;
+use super::{HostResources, Owner};
+use std::sync::Mutex;
 use tokio::time::{timeout_at, Instant};
 use zero_core::component::ComponentId;
 use zero_platform_tokio::contract::{
@@ -11,43 +12,76 @@ impl Owner {
         &mut self,
         component: ComponentId,
         deadline: Instant,
+        resources: &HostResources,
     ) -> Result<CloseReport, ChannelError> {
-        self.instance.lifecycle.revoke(CloseReason::Shutdown);
+        if !self.protocol_closed {
+            self.instance.lifecycle.revoke(CloseReason::Shutdown);
+        }
         self.tasks.begin_shutdown();
         let Self {
             instance,
             tasks,
             pending_close,
+            protocol_closed,
         } = self;
-        // Persist a task report as soon as that branch completes. A protocol
-        // hook may still be waiting, fail, or have its caller interrupted.
-        let collect_tasks = async {
-            let report = tasks.shutdown(deadline).await;
-            let cache = pending_close.get_or_insert_with(Box::default);
-            cache.unfinished.clear();
-            cache.append(report);
-        };
-        let (protocol, ()) = tokio::join!(
-            timeout_at(deadline, instance.lifecycle.shutdown(deadline)),
-            collect_tasks,
-        );
-        let mut report = match protocol {
-            Ok(Ok(report)) => report,
-            Ok(Err(mut error)) => {
-                error.component.get_or_insert(component);
-                return Err(error);
-            }
-            Err(_) => CloseReport {
-                unfinished: vec![Unfinished::Resource(format!(
-                    "component {} cleanup deadline elapsed",
-                    component.0
-                ))],
-                ..Default::default()
-            },
-        };
-        if let Some(tasks) = pending_close.take() {
-            report.append(*tasks);
+        pending_close
+            .get_or_insert_with(Box::default)
+            .unfinished
+            .clear();
+        // Each branch writes directly into the retained owner before it can
+        // return to join!. Cancellation while another branch is still pending
+        // cannot discard the protocol, task or real blocking-job receipt.
+        {
+            let pending = Mutex::new(&mut *pending_close);
+            let persist = |report| {
+                pending
+                    .lock()
+                    .expect("component close report poisoned")
+                    .get_or_insert_with(Box::default)
+                    .append(report);
+            };
+            let collect_protocol = async {
+                if *protocol_closed {
+                    return Ok(());
+                }
+                match timeout_at(deadline, instance.lifecycle.shutdown(deadline)).await {
+                    Ok(Ok(report)) => {
+                        let complete = report.is_complete();
+                        persist(report);
+                        *protocol_closed = complete;
+                        Ok(())
+                    }
+                    Ok(Err(mut error)) => {
+                        error.component.get_or_insert(component);
+                        Err(error)
+                    }
+                    Err(_) => {
+                        persist(CloseReport {
+                            unfinished: vec![Unfinished::Resource(format!(
+                                "component {} cleanup deadline elapsed",
+                                component.0
+                            ))],
+                            ..Default::default()
+                        });
+                        Ok(())
+                    }
+                }
+            };
+            let collect_tasks = async {
+                persist(tasks.shutdown(deadline).await);
+            };
+            let collect_io = async {
+                let report = resources.shutdown_io(deadline).await?;
+                persist(report);
+                Ok::<(), ChannelError>(())
+            };
+            let (protocol, (), io) = tokio::join!(collect_protocol, collect_tasks, collect_io);
+            protocol?;
+            io?;
         }
-        Ok(report)
+        Ok(pending_close
+            .take()
+            .map(|report| *report)
+            .unwrap_or_default())
     }
 }

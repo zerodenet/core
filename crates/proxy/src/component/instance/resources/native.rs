@@ -17,13 +17,17 @@ pub(in crate::component) struct HostResources {
     component: ComponentId,
     cancel: CancellationToken,
     state: Mutex<State>,
+    changed: Arc<tokio::sync::Notify>,
 }
 struct State {
+    closed: bool,
     start_deadline: Option<Instant>,
     remaining: BTreeMap<PathBuf, usize>,
     tcp: BTreeMap<SocketAddr, bool>,
     datagram: BTreeMap<SocketAddr, bool>,
+    files: files::FileReads,
 }
+mod files;
 mod sockets;
 
 /// Closing the grant phase does not claim that its children have exited.
@@ -46,6 +50,7 @@ impl HostResources {
         let mut remaining = BTreeMap::new();
         let mut tcp = BTreeMap::new();
         let mut datagram = BTreeMap::new();
+        let mut files = files::FileReads::default();
         for declaration in declarations {
             match declaration {
                 ResourceDeclaration::Process {
@@ -80,6 +85,9 @@ impl HostResources {
                         ));
                     }
                 }
+                ResourceDeclaration::File { path, max_bytes } => {
+                    files.declare(component, path, *max_bytes)?
+                }
                 _ => {
                     return Err(error(
                         component,
@@ -93,11 +101,14 @@ impl HostResources {
             component,
             cancel,
             state: Mutex::new(State {
+                closed: false,
                 start_deadline: None,
                 remaining,
                 tcp,
                 datagram,
+                files,
             }),
+            changed: Arc::new(tokio::sync::Notify::new()),
         }))
     }
     pub(in crate::component) fn activate(
@@ -105,7 +116,7 @@ impl HostResources {
         deadline: Instant,
     ) -> Result<StartAccess, ChannelError> {
         let mut state = self.state.lock().expect("native grants poisoned");
-        if self.cancel.is_cancelled() {
+        if self.cancel.is_cancelled() || state.closed {
             return Err(error(
                 self.component,
                 Reason::Revoked,
@@ -136,7 +147,7 @@ impl ResourceAccess for HostResources {
         request: ProcessRequest,
     ) -> Result<tokio::process::Child, ChannelError> {
         let mut state = self.state.lock().expect("native grants poisoned");
-        if self.cancel.is_cancelled() {
+        if self.cancel.is_cancelled() || state.closed {
             return Err(error(
                 self.component,
                 Reason::Revoked,
@@ -174,8 +185,12 @@ impl ResourceAccess for HostResources {
         *remaining -= 1;
         Ok(child)
     }
-    fn read_file(&self, _: PathBuf, _: usize) -> BoxFuture<'_, Result<Vec<u8>, ChannelError>> {
-        Box::pin(async { Err(self.denied()) })
+    fn read_file(
+        &self,
+        path: PathBuf,
+        max_bytes: usize,
+    ) -> BoxFuture<'_, Result<Vec<u8>, ChannelError>> {
+        Box::pin(self.read_declared_file(path, max_bytes))
     }
     fn listen_tcp(
         &self,

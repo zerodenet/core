@@ -61,6 +61,7 @@ struct Owner {
     instance: ComponentInstance,
     tasks: TaskScope,
     pending_close: Option<Box<CloseReport>>,
+    protocol_closed: bool,
 }
 
 // Cancels admission when the initiating future is dropped. The actual owner
@@ -236,6 +237,7 @@ impl ComponentSlot {
                         instance,
                         tasks,
                         pending_close: None,
+                        protocol_closed: false,
                     }),
                 })
             })
@@ -288,7 +290,7 @@ impl ComponentSlot {
         match self.live.get() {
             Some(Ok(live)) => {
                 let mut owner = live.owner.lock().await;
-                owner.shutdown(self.id, deadline).await
+                owner.shutdown(self.id, deadline, &live.resources).await
             }
             Some(Err(_)) | None => Ok(CloseReport::default()),
         }

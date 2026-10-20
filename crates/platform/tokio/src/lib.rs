@@ -1,4 +1,5 @@
 pub mod contract;
+pub mod file;
 #[cfg(feature = "host-network-stats")]
 pub mod network_statistics;
 use std::io;
@@ -19,8 +20,8 @@ use zero_traits::{
 };
 
 mod datagram;
-mod network_service;
 mod dial;
+mod network_service;
 pub use dial::validate_dial_policy;
 
 mod cpu;

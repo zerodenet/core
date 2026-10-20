@@ -24,8 +24,8 @@ pub(super) fn literal(
     Ok(SocketAddr::new(ip, destination.port))
 }
 impl HostResources {
-    fn listener_phase(&self, state: &State) -> Result<(), ChannelError> {
-        if self.cancel.is_cancelled() {
+    pub(super) fn listener_phase(&self, state: &State) -> Result<(), ChannelError> {
+        if self.cancel.is_cancelled() || state.closed {
             return Err(error(
                 self.component,
                 Reason::Revoked,
@@ -36,7 +36,7 @@ impl HostResources {
             error(
                 self.component,
                 Reason::InvalidConfig,
-                "listener acquisition requires the lifecycle start phase",
+                "native resource acquisition requires the lifecycle start phase",
             )
         })?;
         if Instant::now() >= deadline {
