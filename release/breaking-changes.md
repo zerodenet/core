@@ -409,3 +409,8 @@ VMess 普通 TCP 入站现在交付已认证的协议目的地与完整认证事
   catalog's inline driver now owns its external wake target, while retained
   monitors keep only weak relay metadata. These are task-delivery guarantees,
   not native I/O or transferred-user closure evidence.
+
+- `TaskRegistrar::scope_identity` supplies opaque weak `TaskScopeIdentity`
+  metadata for exact host/provider scope matching. Its `registration_open` check
+  reports only original registration admission, without polling tasks, delivering
+  exits, retaining a Scope or claiming resource/user closure.

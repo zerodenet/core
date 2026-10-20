@@ -27,8 +27,10 @@ pub use super::lifecycle::TaskClass;
 mod join;
 pub use join::{TaskJoinWitness, TaskJoined};
 mod hosted;
+mod identity;
 mod relay;
 pub use hosted::{HostedCallbacks, HostedExitReceipt, HostedReceiptError, HostedScope};
+pub use identity::TaskScopeIdentity;
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SpawnError {
     NotStarted,
