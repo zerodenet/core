@@ -45,6 +45,7 @@ async fn prove_stop_before_bind(multiple: bool) {
         let protocols = fixture.proxy.protocols.clone();
         let pending = fixture.gate.pending.clone();
         let original = fixture.originals.last().unwrap().clone();
+        let owners = fixture.proxy.inbound_owners.clone();
         let old_address = format!(
             "127.0.0.1:{}",
             fixture.old.inbounds.last().unwrap().listen.port
@@ -61,6 +62,9 @@ async fn prove_stop_before_bind(multiple: bool) {
         tokio::select! {
             _ = pending.notified() => {},
             _ = &mut applying => panic!("old actual native cleanup is still Pending"),
+        }
+        if multiple {
+            wait_for_first_retirement(applying.as_mut(), &owners).await;
         }
         drop(applying);
         assert!(!fixture.gate.closed.load(Ordering::Acquire));
@@ -154,11 +158,13 @@ async fn switched_port_conflict_recovers_stopped_tags_from_actual_last_good_snap
         let rollback = fixture.rollback.clone();
         let protocols = fixture.proxy.protocols.clone();
         let pending = fixture.gate.pending.clone();
+        let owners = fixture.proxy.inbound_owners.clone();
         let mut applying = Box::pin(reconcile_inbounds(&protocols, None, &next, &rollback, &candidate, fixture.state()));
         tokio::select! {
             _ = pending.notified() => {},
             result = &mut applying => panic!("a conflicting new port must not be tried before StopOld: {result:?}"),
         }
+        wait_for_first_retirement(applying.as_mut(), &owners).await;
         drop(applying);
         assert!(fixture.proxy.inbound_owners.owner("old-0").is_none());
         assert!(!fixture.active.contains_key("old-0"));
@@ -190,4 +196,27 @@ async fn switched_port_conflict_recovers_stopped_tags_from_actual_last_good_snap
         assert!(TcpListener::bind(occupied.local_addr().unwrap()).await.is_err(), "external conflicting owner is unchanged");
         fixture.finish().await;
     }).await.unwrap();
+}
+
+// The batch requests all stops before confirming them in order. A later
+// original driver can reach its own native cleanup before the transaction has
+// published the first owner's actual close receipt. Keep driving that same
+// transaction until publication; entering the later Pending read is not proof
+// of an earlier owner's confirmed retirement.
+async fn wait_for_first_retirement(
+    mut applying: std::pin::Pin<&mut impl Future<Output = Result<(), EngineError>>>,
+    owners: &crate::runtime::inbound_owners::InboundOwnerRegistry,
+) {
+    std::future::poll_fn(|cx| {
+        assert!(
+            applying.as_mut().poll(cx).is_pending(),
+            "the last original native cleanup is still Pending"
+        );
+        if owners.owner("old-0").is_none() {
+            std::task::Poll::Ready(())
+        } else {
+            std::task::Poll::Pending
+        }
+    })
+    .await;
 }
