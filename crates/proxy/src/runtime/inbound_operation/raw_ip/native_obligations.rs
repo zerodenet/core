@@ -128,6 +128,25 @@ impl NativeRegistration {
         }
         Ok(())
     }
+    /// Wait only on the original host Scope binding. Cancellation of this
+    /// waiter leaves both that original binding and the native ledger intact.
+    pub(crate) async fn wait_caller_joined(
+        &self,
+        deadline: Instant,
+    ) -> Result<Arc<crate::runtime::inbound_owners::JoinedPeer>, ChannelError> {
+        let owner = self
+            .owner
+            .upgrade()
+            .ok_or_else(|| rejected(Reason::Revoked))?;
+        let caller = owner
+            .lock()
+            .unwrap_or_else(|error| error.into_inner())
+            .records
+            .get(&self.id)
+            .and_then(|record| record.caller.clone())
+            .ok_or_else(|| rejected(Reason::Revoked))?;
+        caller.wait_joined(deadline).await
+    }
     /// A real consumed TaskExit only; not body Ready, Drop or native closure.
     pub(crate) fn caller_joined(&self) -> Option<Arc<crate::runtime::inbound_owners::JoinedPeer>> {
         let owner = self.owner.upgrade()?;
