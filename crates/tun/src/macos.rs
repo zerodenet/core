@@ -28,6 +28,7 @@ const UTUN_OPT_IFNAME: libc::c_int = 2;
 pub struct Utun {
     name: String,
     fd: AsyncFd<OwnedFd>,
+    owned: crate::OwnedTunIdentity,
     read_buffer: Vec<u8>,
     read_start: usize,
     read_end: usize,
@@ -53,6 +54,7 @@ impl Utun {
         let fd = unsafe { AsyncFd::register(fd) }?;
         Ok(Self {
             name,
+            owned: crate::OwnedTunIdentity::from_fd(fd.get_ref().as_raw_fd()),
             fd,
             read_buffer: vec![0; 65_540],
             read_start: 0,
@@ -89,6 +91,7 @@ impl Utun {
         let fd = unsafe { AsyncFd::register(socket) }?;
         Ok(Self {
             name,
+            owned: crate::OwnedTunIdentity::from_fd(fd.get_ref().as_raw_fd()),
             fd,
             read_buffer: vec![0_u8; 65_540],
             read_start: 0,
@@ -201,6 +204,15 @@ fn find_utun_control() -> io::Result<u32> {
 impl AsRawFd for Utun {
     fn as_raw_fd(&self) -> RawFd {
         self.fd.get_ref().as_raw_fd()
+    }
+}
+
+impl crate::OwnedTunDevice for Utun {
+    fn owned_identity(&self) -> crate::OwnedTunIdentity {
+        self.owned.clone()
+    }
+    fn close_owned(self) -> io::Result<crate::TunCloseReceipt> {
+        crate::owned::close_fd(self.fd.into_inner(), self.name, self.owned)
     }
 }
 

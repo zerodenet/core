@@ -18,7 +18,7 @@ fn duplicate(fd: i32) -> io::Result<std::os::fd::OwnedFd> {
 }
 /// The caller guarantees exclusive packet I/O on the supplied TUN handle.
 /// A duplicate is owned by Zero; the original descriptor remains host-owned.
-pub fn adopt(fd: i32, expected_interface: &str) -> io::Result<impl crate::TunDevice> {
+pub fn adopt(fd: i32, expected_interface: &str) -> io::Result<impl crate::OwnedTunDevice> {
     #[cfg(target_os = "linux")]
     {
         crate::LinuxTun::adopt(duplicate(fd)?, expected_interface)

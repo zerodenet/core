@@ -21,6 +21,7 @@ const IFF_NO_PI: libc::c_int = 0x1000;
 pub struct LinuxTun {
     name: String,
     fd: AsyncFd<File>,
+    owned: crate::OwnedTunIdentity,
 }
 
 impl LinuxTun {
@@ -56,6 +57,7 @@ impl LinuxTun {
         }
         Ok(Self {
             name,
+            owned: crate::OwnedTunIdentity::from_fd(file.as_raw_fd()),
             // SAFETY: the owned File keeps its descriptor open and stable.
             fd: unsafe { AsyncFd::register(file) }?,
         })
@@ -118,6 +120,7 @@ impl LinuxTun {
 
         Ok(Self {
             name: actual_name,
+            owned: crate::OwnedTunIdentity::from_fd(async_fd.get_ref().as_raw_fd()),
             fd: async_fd,
         })
     }
@@ -126,6 +129,15 @@ impl LinuxTun {
 impl AsRawFd for LinuxTun {
     fn as_raw_fd(&self) -> std::os::unix::io::RawFd {
         self.fd.get_ref().as_raw_fd()
+    }
+}
+
+impl crate::OwnedTunDevice for LinuxTun {
+    fn owned_identity(&self) -> crate::OwnedTunIdentity {
+        self.owned.clone()
+    }
+    fn close_owned(self) -> io::Result<crate::TunCloseReceipt> {
+        crate::owned::close_fd(self.fd.into_inner(), self.name, self.owned)
     }
 }
 
