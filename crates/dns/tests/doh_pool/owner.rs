@@ -86,6 +86,10 @@ async fn explicit_pool_shutdown_joins_the_real_driver_and_remote_socket_closure(
 async fn shutdown_deadline_retains_the_actual_lease_and_driver_owner_for_retry() {
     let (endpoint, server) = closing_server().await;
     let resolver = local(endpoint);
+    // ready_client may return before the driver reads peer SETTINGS. Establish
+    // one real round trip before holding the lease, so this fixture exercises
+    // lease retirement rather than a TCP reset with unread handshake bytes.
+    exchange(&resolver).await.unwrap();
     let lease = resolver.ready_client(endpoint, None, None).await.unwrap();
     let error = resolver
         .owner
