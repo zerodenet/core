@@ -266,11 +266,12 @@ async fn actual_accepted_source_needs_the_original_admission_and_cannot_replace_
         assert!(source.check_open().is_err());
         let original = first.witness.try_joined().unwrap();
         let foreign = other.witness.try_joined().unwrap();
-        assert_eq!(
-            original.id(),
-            foreign.id(),
-            "independent actual scopes may have equal numerical IDs"
-        );
+        assert_eq!(original.id(), first.witness.try_joined().unwrap().id());
+        assert_eq!(foreign.id(), other.witness.try_joined().unwrap().id());
+        assert_eq!(original.class(), TaskClass::Auxiliary);
+        assert_eq!(foreign.class(), TaskClass::Auxiliary);
+        assert!(original.result().is_ok());
+        assert!(foreign.result().is_ok());
         assert!(!first.witness.same_registration(&other.witness));
         proxy
             .engine()
