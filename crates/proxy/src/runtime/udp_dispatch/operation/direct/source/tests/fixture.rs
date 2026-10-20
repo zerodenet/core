@@ -19,6 +19,7 @@ pub(crate) struct Live {
     pub(crate) context: PeerResourceContext,
     pub(crate) session: Session,
     pub(crate) operation: DirectUdpFlowOperation,
+    pub(crate) driver_slot: crate::runtime::udp_socket::endpoint::peer::DirectPeerDriverSlot,
     owner: Arc<InboundOwner>,
     monitor: tokio::task::JoinHandle<Result<(), zero_engine::EngineError>>,
     _read_peer: TcpStream,
@@ -61,11 +62,14 @@ impl Live {
         let (mut read, _) = listener.accept().await.unwrap();
         let (binding_tx, binding_rx) = tokio::sync::oneshot::channel();
         let pending = Arc::new(tokio::sync::Notify::new());
+        let (driver_slot, driver_job) =
+            crate::runtime::udp_socket::endpoint::peer::DirectPeerDriverSlot::channel();
         owner.spawn_driver({let group=group.clone();let pending=pending.clone();async move {
             assert!(group.spawn_bound(&host, move |binding| {
                 binding_tx.send(binding.clone()).unwrap();
                 async move {
                     let cancel = binding.cancellation();
+                    crate::runtime::udp_socket::endpoint::peer::job::run_peer_with_driver(async move {
                     let read = read.read_u8(); tokio::pin!(read);
                     tokio::select! {
                         _=cancel.cancelled()=>Ok(()),
@@ -74,6 +78,7 @@ impl Live {
                             if result.is_pending(){pending.notify_one();} result
                         })=>Err(std::io::Error::other(format!("fixture actual read unexpectedly completed: {result:?}")).into()),
                     }
+                    }, driver_job).await
                 }
             })?);
             let _=stopping.wait_for(|stop|*stop).await;
@@ -86,7 +91,9 @@ impl Live {
         let binding = binding_rx.await.unwrap();
         pending.notified().await;
         let context = group.resource_context(binding, ingress);
-        let runtime = UdpIngressRuntime::new(tcp).with_peer_resources(context.clone());
+        let runtime = UdpIngressRuntime::new(tcp)
+            .with_peer_resources(context.clone())
+            .with_direct_peer_driver(driver_slot.clone());
         let mut session = Session::new(
             0,
             zero_core::Address::Ipv4([127, 0, 0, 1]),
@@ -121,6 +128,7 @@ impl Live {
             context,
             session,
             operation,
+            driver_slot,
             owner,
             monitor,
             _read_peer: read_peer,
@@ -138,14 +146,33 @@ impl Live {
             .await
             .unwrap()
     }
-    pub(crate) async fn close(mut self) {
+    pub(crate) async fn finish(mut self) -> Result<(), zero_engine::EngineError> {
         self.handle.finish(zero_engine::SessionOutcome::Cancelled);
         self.owner.stop();
-        self.monitor.await.unwrap().unwrap();
-        self.proxy
-            .inbound_owners
-            .shutdown("source", Instant::now() + Duration::from_secs(2))
+        // A monitor error is a task fact, never a substitute for native cleanup.
+        let monitored = self
+            .monitor
             .await
-            .unwrap();
+            .map_err(|source| zero_engine::EngineError::Io(std::io::Error::other(source)))
+            .and_then(|result| result);
+        let Some(receipt) = self
+            .proxy
+            .inbound_owners
+            .confirm_shutdown("source", Instant::now() + Duration::from_secs(2))
+            .await?
+        else {
+            return monitored;
+        };
+        let fault = self
+            .proxy
+            .inbound_owners
+            .release_closed(receipt, |terminal| Ok(terminal.failure()))?;
+        if let Some(source) = fault {
+            return Err(std::io::Error::other(crate::component::instance::retained(source)).into());
+        }
+        monitored
+    }
+    pub(crate) async fn close(self) {
+        self.finish().await.unwrap();
     }
 }
