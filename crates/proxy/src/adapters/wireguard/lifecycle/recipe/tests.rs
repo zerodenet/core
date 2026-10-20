@@ -3,7 +3,7 @@ use super::*;
 use base64::{engine::general_purpose::STANDARD, Engine as _};
 use gotatun::x25519::{PublicKey, StaticSecret};
 use zero_core::request::{ServiceOrigin, ServicePurpose, ServiceRequestFacts};
-use zero_platform_tokio::contract::{network::CarrierContext, CancellationToken};
+use zero_platform_tokio::contract::{network::CarrierContext, scope::TaskScope, CancellationToken};
 
 fn inputs(endpoint: &str) -> (OutboundConfig, InboundConfig) {
     let peer = STANDARD.encode(PublicKey::from(&StaticSecret::from([2; 32])).as_bytes());
@@ -100,20 +100,35 @@ async fn actual_candidate_must_be_installed_before_build_and_cannot_revive_retir
     let adapter = WireguardAdapter::default();
     let uninstalled = recipe(&adapter, "127.0.0.1:51821", upstream.egress_generation());
     let request = demand(&uninstalled);
-    assert!(uninstalled.start(&upstream, request).await.is_err());
+    let mut scope = TaskScope::suspended(
+        tokio::runtime::Handle::current(),
+        uninstalled.task_limit().unwrap(),
+    );
+    scope.enable_registration().unwrap();
+    let registrar = scope.registrar();
+    assert!(uninstalled
+        .start(&upstream, &registrar, request)
+        .await
+        .is_err());
     let recipe = recipe(&adapter, "127.0.0.1:51821", upstream.egress_generation());
     let pending = recipe.pending();
     let live = pending.live();
     let guard = install(&adapter, &recipe);
     let request = demand(&recipe);
-    let link = recipe.start(&upstream, request).await.unwrap();
+    let link = recipe.start(&upstream, &registrar, request).await.unwrap();
     assert!(Arc::ptr_eq(&link.live, &live));
     assert!(Arc::ptr_eq(&pending.ready().unwrap(), &link));
     let device = link.state.lock().unwrap().devices[0].clone();
     assert!(pending.peer_stack(0).unwrap().owns(&device));
     assert!(device.is_usable());
     assert!(pending.needs_cleanup());
-    assert!(pending.stop_peer_resources(deadline()).await.is_complete());
+    let (closed, joined) = tokio::join!(
+        pending.stop_peer_resources(deadline()),
+        scope.shutdown(deadline())
+    );
+    assert!(closed.is_complete());
+    assert!(joined.is_complete());
+    assert!(joined.failed_tasks.is_empty());
     assert!(device.is_closed());
     assert!(PendingLinkedEndpoint::from_ready(link).is_err());
     drop(guard);
@@ -139,7 +154,13 @@ async fn cancel_while_real_node_dns_is_pending_cannot_spawn_late_candidate_stack
     let pending = recipe.pending();
     let guard = install(&adapter, &recipe);
     let request = demand(&recipe);
-    let mut starting = Box::pin(recipe.start(&upstream, request));
+    let mut scope = TaskScope::suspended(
+        tokio::runtime::Handle::current(),
+        recipe.task_limit().unwrap(),
+    );
+    scope.enable_registration().unwrap();
+    let registrar = scope.registrar();
+    let mut starting = Box::pin(recipe.start(&upstream, &registrar, request));
     let mut query = [0; 512];
     tokio::select! {
         received = peer.recv_from(&mut query) => { assert!(received.unwrap().0 >= 12); },
@@ -155,5 +176,6 @@ async fn cancel_while_real_node_dns_is_pending_cannot_spawn_late_candidate_stack
     assert!(adapter.pending_endpoints.lock().unwrap().is_none());
     // Only the existing global query workers are joined here. This is no claim
     // about global DNS native UDP closure or the endpoint listener's native I/O.
+    assert!(scope.shutdown(deadline()).await.is_complete());
     proxy.resolver.shutdown_queries(deadline()).await.unwrap();
 }

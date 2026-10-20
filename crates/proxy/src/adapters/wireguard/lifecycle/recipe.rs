@@ -15,6 +15,7 @@ use zero_engine::EngineError;
 use zero_platform_tokio::contract::{
     context::{with_deadline, RequestIdentity},
     network::UpstreamBinding,
+    scope::TaskRegistrar,
 };
 
 pub(super) struct LinkedRecipeSettings {
@@ -98,6 +99,15 @@ impl LinkedEndpointRecipe {
             packets,
         })
     }
+    /// The host grants the actual declared stack workers, never an invented
+    /// aggregate wrapper or a second runtime. None declares no stack tasks.
+    pub(super) fn task_limit(&self) -> Result<Option<std::num::NonZeroUsize>, EngineError> {
+        self.stacks
+            .len()
+            .checked_mul(crate::runtime::raw_ip::EndpointStackOwner::TASK_LIMIT)
+            .map(std::num::NonZeroUsize::new)
+            .ok_or_else(|| invalid("linked worker declaration overflow"))
+    }
     pub(super) fn pending(&self) -> Arc<PendingLinkedEndpoint> {
         self.pending.clone()
     }
@@ -125,6 +135,7 @@ impl LinkedEndpointRecipe {
     pub(super) async fn start(
         self,
         upstream: &UpstreamConnectServices,
+        registrar: &TaskRegistrar,
         demand: PacketCarrierDemand,
     ) -> Result<Arc<inbound::LinkedEndpoint>, EngineError> {
         demand.validate()?;
@@ -136,6 +147,12 @@ impl LinkedEndpointRecipe {
             ));
         }
         self.check_staged()?;
+        for peer in 0..self.stacks.len() {
+            self.pending
+                .peer_stack(peer)
+                .ok_or_else(|| invalid("linked client owner declaration is missing"))?
+                .bind_scope(registrar.downgrade())?;
+        }
         let cancel_owner = self
             .pending
             .peer_carrier(0)

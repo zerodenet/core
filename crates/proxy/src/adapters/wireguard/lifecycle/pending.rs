@@ -48,7 +48,7 @@ impl PendingLinkedEndpoint {
             resources: Arc::new(PeerResources {
                 owned,
                 peer_stacks: (0..peers)
-                    .map(|_| crate::runtime::raw_ip::EndpointStackOwner::new())
+                    .map(|_| crate::runtime::raw_ip::EndpointStackOwner::suspended())
                     .collect(),
                 peer_carriers: (0..peers)
                     .map(|_| {

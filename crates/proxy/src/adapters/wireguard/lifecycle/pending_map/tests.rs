@@ -47,6 +47,16 @@ async fn cancelled_candidate_keeps_original_tasks_until_exact_cleanup_and_blocks
     let pending = candidate(1);
     let guard = install(&owner, pending.clone());
     let expected = guard.expected.clone();
+    let mut scope = zero_platform_tokio::contract::scope::TaskScope::new(
+        tokio::runtime::Handle::current(),
+        std::num::NonZeroUsize::new(crate::runtime::raw_ip::EndpointStackOwner::TASK_LIMIT)
+            .unwrap(),
+    );
+    pending
+        .peer_stack(0)
+        .unwrap()
+        .bind_scope(scope.registrar().downgrade())
+        .unwrap();
     let device = pending.peer_stack(0).unwrap().start(recipe()).unwrap();
     drop(guard);
     assert!(Arc::ptr_eq(
@@ -57,7 +67,13 @@ async fn cancelled_candidate_keeps_original_tasks_until_exact_cleanup_and_blocks
     assert!(PendingEndpoints::release_closed(&owner, &expected).is_err());
     assert!(PendingEndpoints::install(owner.clone(), HashMap::new()).is_err());
     let deadline = tokio::time::Instant::now() + std::time::Duration::from_secs(3);
-    assert!(pending.stop_peer_resources(deadline).await.is_complete());
+    let (closed, joined) = tokio::join!(
+        pending.stop_peer_resources(deadline),
+        scope.shutdown(deadline)
+    );
+    assert!(closed.is_complete());
+    assert!(joined.is_complete());
+    assert!(joined.failed_tasks.is_empty());
     assert!(device.is_closed());
     PendingEndpoints::release_closed(&owner, &expected).unwrap();
     assert!(owner.lock().unwrap().is_none());

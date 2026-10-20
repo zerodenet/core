@@ -104,6 +104,12 @@ async fn same_candidate_joins_declared_original_stacks_before_confirming_unused_
     )
     .unwrap();
     let stack = pending.peer_stack(0).unwrap();
+    let mut scope = zero_platform_tokio::contract::scope::TaskScope::new(
+        tokio::runtime::Handle::current(),
+        std::num::NonZeroUsize::new(crate::runtime::raw_ip::EndpointStackOwner::TASK_LIMIT)
+            .unwrap(),
+    );
+    stack.bind_scope(scope.registrar().downgrade()).unwrap();
     let device = stack.start(recipe).unwrap();
     let mut connecting = Box::pin(device.open_tcp_observed(
         "10.0.0.1".parse().unwrap(),
@@ -135,7 +141,12 @@ async fn same_candidate_joins_declared_original_stacks_before_confirming_unused_
     ));
     pending.install(link.clone()).unwrap();
     assert!(Arc::ptr_eq(&pending.ready().unwrap(), &link));
-    let report = pending.stop_peer_resources(deadline).await;
+    let (report, joined) = tokio::join!(
+        pending.stop_peer_resources(deadline),
+        scope.shutdown(deadline)
+    );
+    assert!(joined.is_complete());
+    assert!(joined.failed_tasks.is_empty());
     assert!(report.is_complete());
     assert!(report.failures.is_empty());
     assert!(stack.is_drained());
