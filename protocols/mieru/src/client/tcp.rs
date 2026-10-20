@@ -62,6 +62,7 @@ impl ClientConnection {
                 }),
             }
         }).map_err(io::Error::other)?;
+        driver.registered(witness.clone());
         registration.registered(witness);
         Ok(Self::from_prepared(
             prepared.first,

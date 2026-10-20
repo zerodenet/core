@@ -11,6 +11,15 @@ pub(super) enum DriverHandle {
     Managed(Arc<ManagedDriver>),
 }
 impl DriverHandle {
+    #[cfg(feature = "runtime")]
+    pub(super) fn native_witness(
+        &self,
+    ) -> Option<zero_platform_tokio::contract::scope::TaskJoinWitness> {
+        match self {
+            Self::Legacy(_) => None,
+            Self::Managed(driver) => driver.witness.lock().unwrap().clone(),
+        }
+    }
     pub(super) fn cancel(&self) {
         match self {
             Self::Legacy(task) => task.abort(),
@@ -30,6 +39,7 @@ impl DriverHandle {
 pub(crate) struct ManagedDriver {
     pub(crate) cancel: zero_platform_tokio::contract::CancellationToken,
     finished: AtomicBool,
+    witness: std::sync::Mutex<Option<zero_platform_tokio::contract::scope::TaskJoinWitness>>,
 }
 #[cfg(feature = "runtime")]
 impl ManagedDriver {
@@ -37,10 +47,17 @@ impl ManagedDriver {
         Arc::new(Self {
             cancel,
             finished: AtomicBool::new(false),
+            witness: std::sync::Mutex::new(None),
         })
     }
     pub(crate) fn completion(self: &Arc<Self>) -> Completion {
         Completion(self.clone())
+    }
+    pub(crate) fn registered(
+        &self,
+        witness: zero_platform_tokio::contract::scope::TaskJoinWitness,
+    ) {
+        *self.witness.lock().unwrap() = Some(witness);
     }
 }
 #[cfg(feature = "runtime")]

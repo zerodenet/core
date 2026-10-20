@@ -17,6 +17,7 @@ use zero_platform_tokio::contract::{
 
 /// The actual adapter-scoped pool and an explicit total pending/live/retiring bound.
 /// A legacy-used pool cannot be adopted: its detached workers have no join proof.
+#[derive(Clone)]
 pub struct PoolOptions {
     pub(super) pool: Weak<ClientPool>,
     pub(super) limit: NonZeroUsize,

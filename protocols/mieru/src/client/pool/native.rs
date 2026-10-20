@@ -1,6 +1,5 @@
 //! Native TCP uses only its actual owner's granted background prefix.
 use super::{ClientConnection, ClientPool, PoolKey};
-use crate::inbound::multiplex::stream::MieruLogicalStream;
 use std::io;
 use tokio::time::Instant;
 use zero_core::{component::ComponentInstanceId, request::Destination, Address};
@@ -15,7 +14,7 @@ impl ClientPool {
         mut key: PoolKey,
         options: &mieru_config::MieruTransportOptions,
         deadline: Option<Instant>,
-    ) -> io::Result<MieruLogicalStream> {
+    ) -> io::Result<crate::client::NativeTcpStream> {
         options.validate().map_err(io::Error::other)?;
         if deadline.is_some_and(|deadline| Instant::now() >= deadline) {
             return Err(io::ErrorKind::TimedOut.into());
@@ -41,7 +40,7 @@ impl ClientPool {
         let endpoint = Destination::new(address, key.port);
         let username = key.username.clone();
         let password = key.password.clone();
-        let opening=self.open_inner(key, || {
+        let opening=self.open_with_connection(key, || {
             let lease = state.reserve();
             let state = state.clone();
             let endpoint=endpoint.clone();
@@ -58,11 +57,12 @@ impl ClientPool {
                 ClientConnection::tcp_managed(socket, &username, &password, options, lease).await
             }
         });
-        match deadline {
+        let (stream, connection) = match deadline {
             Some(deadline) => tokio::time::timeout_at(deadline, opening)
                 .await
                 .map_err(|source| io::Error::new(io::ErrorKind::TimedOut, source))?,
             None => opening.await,
-        }
+        }?;
+        connection.native_stream(stream)
     }
 }

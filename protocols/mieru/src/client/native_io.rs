@@ -3,15 +3,23 @@ use std::{
     error::Error,
     fmt, io,
     pin::Pin,
-    sync::{Arc, Mutex},
+    sync::{
+        atomic::{AtomicU64, Ordering},
+        Arc, Mutex,
+    },
     task::{Context, Poll},
 };
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt, ReadBuf};
 use zero_traits::AsyncSocket;
 
 #[derive(Clone, Default)]
-pub(super) struct Captured(Arc<Mutex<Option<Arc<io::Error>>>>);
-pub(super) struct Capture<S> {
+pub(crate) struct Captured(Arc<Observation>);
+#[derive(Default)]
+struct Observation {
+    error: Mutex<Option<Arc<io::Error>>>,
+    written: AtomicU64,
+}
+pub(crate) struct Capture<S> {
     inner: Mutex<S>,
     errors: Captured,
 }
@@ -31,16 +39,23 @@ fn shared(error: Arc<io::Error>) -> io::Error {
     io::Error::new(error.kind(), OriginalIo(error))
 }
 impl Captured {
+    pub(crate) fn written(&self) -> u64 {
+        self.0.written.load(Ordering::Relaxed)
+    }
+    pub(crate) fn has_error(&self) -> bool {
+        self.0.error.lock().unwrap().is_some()
+    }
     fn record(&self, error: io::Error) -> io::Error {
         let error = Arc::new(error);
-        let mut saved = self.0.lock().unwrap();
+        let mut saved = self.0.error.lock().unwrap();
         if saved.is_none() {
             *saved = Some(error.clone());
         }
         shared(error)
     }
-    pub(super) fn recover(&self, fallback: io::Error) -> io::Error {
+    pub(crate) fn recover(&self, fallback: io::Error) -> io::Error {
         self.0
+            .error
             .lock()
             .unwrap()
             .as_ref()
@@ -48,7 +63,7 @@ impl Captured {
             .unwrap_or(fallback)
     }
     fn generated(&self, error: io::Error) -> io::Error {
-        let empty = self.0.lock().unwrap().is_none();
+        let empty = self.0.error.lock().unwrap().is_none();
         if empty {
             self.record(error)
         } else {
@@ -57,7 +72,7 @@ impl Captured {
     }
 }
 impl<S> Capture<S> {
-    pub(super) fn new(inner: S) -> (Self, Captured) {
+    pub(crate) fn new(inner: S) -> (Self, Captured) {
         let errors = Captured::default();
         (
             Self {
@@ -89,13 +104,20 @@ impl<S: AsyncWrite + Unpin> AsyncWrite for Capture<S> {
         cx: &mut Context<'_>,
         bytes: &[u8],
     ) -> Poll<io::Result<usize>> {
-        Pin::new(
+        let result = Pin::new(
             self.inner
                 .get_mut()
                 .expect("exclusive native Mieru carrier"),
         )
         .poll_write(cx, bytes)
-        .map_err(|error| self.errors.record(error))
+        .map_err(|error| self.errors.record(error));
+        if let Poll::Ready(Ok(written)) = result {
+            self.errors
+                .0
+                .written
+                .fetch_add(written as u64, Ordering::Relaxed);
+        }
+        result
     }
     fn poll_flush(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
         Pin::new(

@@ -2,7 +2,11 @@
 mod datagram;
 mod driver;
 #[cfg(feature = "runtime")]
-mod native_io;
+pub(crate) mod native_io;
+#[cfg(feature = "runtime")]
+mod native_stream;
+#[cfg(feature = "runtime")]
+pub use native_stream::NativeTcpStream;
 pub(crate) mod pool;
 mod tcp;
 
@@ -59,6 +63,16 @@ impl Drop for ClientConnection {
     }
 }
 impl ClientConnection {
+    #[cfg(feature = "runtime")]
+    fn native_stream(&self, stream: MieruLogicalStream) -> io::Result<NativeTcpStream> {
+        let join = self.task.native_witness().ok_or_else(|| {
+            io::Error::new(
+                io::ErrorKind::PermissionDenied,
+                "Mieru connection has no native driver registration",
+            )
+        })?;
+        Ok(NativeTcpStream::new(stream, join, self.opens.clone()))
+    }
     pub fn is_closed(&self) -> bool {
         self.task.is_finished() || self.opens.is_closed()
     }

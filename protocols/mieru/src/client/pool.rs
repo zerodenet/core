@@ -131,11 +131,21 @@ impl ClientPool {
         self.open_inner(key, connect).await
     }
 
-    pub(crate) async fn open_inner<F, Fut>(
+    async fn open_inner<F, Fut>(&self, key: PoolKey, connect: F) -> io::Result<MieruLogicalStream>
+    where
+        F: FnMut() -> Fut,
+        Fut: Future<Output = io::Result<Arc<ClientConnection>>>,
+    {
+        self.open_with_connection(key, connect)
+            .await
+            .map(|(stream, _)| stream)
+    }
+
+    async fn open_with_connection<F, Fut>(
         &self,
         key: PoolKey,
         mut connect: F,
-    ) -> io::Result<MieruLogicalStream>
+    ) -> io::Result<(MieruLogicalStream, Arc<ClientConnection>)>
     where
         F: FnMut() -> Fut,
         Fut: Future<Output = io::Result<Arc<ClientConnection>>>,
@@ -151,8 +161,8 @@ impl ClientPool {
                 match connect().await {
                     Ok(connection) => match connection.open().await {
                         Ok(stream) => {
-                            guard.finish(Some(connection));
-                            return Ok(stream);
+                            guard.finish(Some(connection.clone()));
+                            return Ok((stream, connection));
                         }
                         Err(_) => guard.finish(None),
                     },
@@ -161,7 +171,7 @@ impl ClientPool {
             }
             for connection in &connections {
                 match connection.open().await {
-                    Ok(stream) => return Ok(stream),
+                    Ok(stream) => return Ok((stream, connection.clone())),
                     Err(error) if error.kind() == io::ErrorKind::WouldBlock => {}
                     Err(error) if retryable_open_error(&error) => {
                         // Only OPEN has been attempted: no application bytes are replayed.
@@ -176,8 +186,8 @@ impl ClientPool {
                     let guard = DialGuard::new(slot.clone());
                     let connection = connect().await?;
                     let stream = connection.open().await?;
-                    guard.finish(Some(connection));
-                    return Ok(stream);
+                    guard.finish(Some(connection.clone()));
+                    return Ok((stream, connection));
                 }
                 DialPlan::Wait => {
                     let _ = changed.changed().await;
@@ -209,9 +219,11 @@ fn retryable_open_error(error: &io::Error) -> bool {
     )
 }
 
-async fn open_uncached<Fut>(connect: Fut) -> io::Result<MieruLogicalStream>
+async fn open_uncached<Fut>(connect: Fut) -> io::Result<(MieruLogicalStream, Arc<ClientConnection>)>
 where
     Fut: Future<Output = io::Result<Arc<ClientConnection>>>,
 {
-    connect.await?.open().await
+    let connection = connect.await?;
+    let stream = connection.open().await?;
+    Ok((stream, connection))
 }

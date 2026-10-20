@@ -1,4 +1,5 @@
 use super::*;
+use tokio::io::AsyncWriteExt;
 #[tokio::test]
 async fn registered_driver_reuses_same_pool_and_clear_cannot_recycle_even_an_actually_joined_slot()
 {
@@ -193,7 +194,20 @@ async fn registered_driver_failure_retains_original_io_payload_and_actual_scope_
     let original =
         original_failure(&error).expect("same rich I/O payload through tracked scope forwarding");
     assert!(Arc::ptr_eq(&original.0, &marker));
-    assert!(stream.read(&mut payload).await.is_err());
+    let native_error = stream.read(&mut payload).await.unwrap_err();
+    let propagated = crate::client::NativeTcpStream::driver_failure(&native_error, None).unwrap();
+    assert_eq!(propagated.stage, error.stage);
+    assert_eq!(propagated.reason, error.reason);
+    assert_eq!(propagated.impact, error.impact);
+    assert_eq!(propagated.component, error.component);
+    assert_eq!(propagated.delivery, error.delivery);
+    assert_eq!(propagated.retry, error.retry);
+    let from_scope = component_source(&error);
+    let from_native = component_source(&native_error);
+    assert!(
+        std::ptr::eq(from_scope, from_native),
+        "both paths retain the exact original tracked driver failure Arc"
+    );
     drop(stream);
     pool.clear();
     server.await.unwrap();
@@ -204,6 +218,17 @@ async fn registered_driver_failure_retains_original_io_payload_and_actual_scope_
         [Unfinished::Io(_)]
     ));
     assert!(tasks.is_complete());
+}
+
+fn component_source<'a>(error: &'a (dyn std::error::Error + 'static)) -> &'a ChannelError {
+    let mut current = error.source();
+    while let Some(source) = current {
+        if let Some(error) = source.downcast_ref::<ChannelError>() {
+            return error;
+        }
+        current = source.source();
+    }
+    panic!("original component failure is in the source chain")
 }
 
 fn original_failure<'a>(

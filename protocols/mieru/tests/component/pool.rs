@@ -1,18 +1,13 @@
 use super::*;
 #[path = "pool/driver.rs"]
 mod driver;
-#[path = "pool/fixtures.rs"]
-mod fixtures;
-use crate::client::PoolKey;
-use fixtures::*;
+use crate::component::test_support::*;
 use std::{
     io,
     sync::atomic::{AtomicUsize, Ordering},
     time::Duration,
 };
-use tokio::io::{AsyncReadExt, AsyncWriteExt};
-use zero_core::InboundRouteMultiplexer;
-use zero_platform_tokio::TcpRelayStream;
+use tokio::io::AsyncReadExt;
 
 #[tokio::test]
 async fn same_pool_cold_owner_declares_real_background_grant_and_no_default_budget() {

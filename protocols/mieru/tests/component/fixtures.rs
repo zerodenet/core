@@ -1,5 +1,22 @@
-use super::*;
-#[path = "io.rs"]
+use crate::client::PoolKey;
+use std::{
+    num::NonZeroUsize,
+    sync::{
+        atomic::{AtomicU64, AtomicUsize, Ordering},
+        Arc,
+    },
+    time::Duration,
+};
+use tokio::time::Instant;
+use zero_core::InboundRouteMultiplexer;
+use zero_platform_tokio::{
+    contract::{
+        component::BuildContext, lifecycle::BuildError, CancellationToken, ChannelError, Impact,
+        Reason, Stage,
+    },
+    TcpRelayStream,
+};
+#[path = "pool/io.rs"]
 mod io;
 pub(super) use io::{FailureControl, OriginalFailure};
 use std::sync::Mutex;
@@ -93,6 +110,23 @@ pub(super) struct Loopback {
     pub(super) failure: Option<(Arc<FailureControl>, Arc<()>)>,
     pub(super) opens: AtomicUsize,
     pub(super) destinations: Mutex<Vec<(Destination, Option<Instant>)>>,
+    pub(super) traffic: Arc<PhysicalTraffic>,
+}
+#[derive(Debug, Default)]
+pub(super) struct PhysicalTraffic {
+    pub(super) sent: AtomicU64,
+    pub(super) received: AtomicU64,
+}
+impl zero_traits::IoObserver for PhysicalTraffic {
+    fn stream_boundary(&self) {}
+    fn sent(&self, bytes: usize) {
+        self.sent.fetch_add(bytes as u64, Ordering::Relaxed);
+    }
+    fn received(&self, bytes: usize) {
+        self.received.fetch_add(bytes as u64, Ordering::Relaxed);
+    }
+    fn error(&self) {}
+    fn dropped(&self) {}
 }
 impl UpstreamOpener for Loopback {
     fn open_stream(
@@ -124,7 +158,10 @@ impl UpstreamOpener for Loopback {
                 }
                 None => Box::pin(io::PendingRead::new(socket, self.pending.clone())),
             };
-            Ok(socket)
+            Ok(Box::pin(zero_transport::observed::ObservedStream::new(
+                socket,
+                self.traffic.clone(),
+            )) as BoxStream)
         })
     }
     fn open_datagram(

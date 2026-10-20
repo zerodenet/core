@@ -28,7 +28,24 @@ abort, a TCP peer EOF in a test, nor flush is promoted to a generic close receip
 The owner cannot be implicitly replaced. Controlled carrier adoption and real
 physical-close receipts are required before production activation or slot reuse.
 
-This first boundary does not yet expose a standard Stream role. That role must
-validate canonical pool dependency IDs and await the complete encrypted SOCKS
-CONNECT response before reporting target confirmation. UDP underlay and UDP roles
-remain on their existing paths.
+`PoolOptions::prepare_tcp` owns validated TCP options and the same pool recipe;
+the host canonicalizes that recipe before binding its real roleless component ID.
+The standard `StreamFactory` validates the actual dependency generation and complete
+pool recipe, and rejects a changed selected upstream binding before I/O. Its only
+target confirmation point is the complete encrypted SOCKS CONNECT success response,
+including the BND address and port. A submitted request or flush is insufficient.
+The existing Mieru establishment Flow result remains explicit zero; authentication,
+padding and ciphertext remain physical Outer observations.
+
+`NativeTcpStream` changes only native logical-error forwarding. If the actual shared
+driver's command receiver has closed, it waits for that same driver's real join
+witness and forwards the original `Arc<ComponentError>`, preserving decision fields
+and the original rich I/O payload. A logical-session rejection alone never waits
+for or closes the shared driver. The host must consume real scope exits; no hidden
+supervisor is spawned. Legacy stream types and status behavior are unchanged.
+
+The existing TCP logical shutdown sends its CLOSE request and flushes it; it is not
+a remote close acknowledgement or an independently proven receive-half lifetime.
+This implementation preserves that behavior and makes no stronger close claim.
+UDP underlay and UDP roles remain on their existing paths. Production factories
+remain unregistered pending controlled carrier ownership and host replacement.

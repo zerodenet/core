@@ -27,7 +27,7 @@ pub(crate) struct ManagedState {
     pub(crate) cancel: CancellationToken,
     pub(crate) scope_cancel: CancellationToken,
     pub(crate) upstream: UpstreamTransport,
-    limit: NonZeroUsize,
+    pub(crate) limit: NonZeroUsize,
     state: Mutex<State>,
     changed: Notify,
 }

@@ -16,3 +16,6 @@ mod service_stream;
 mod vmess_ca;
 
 mod shadowsocks_stream;
+
+#[cfg(feature = "mieru")]
+mod mieru_stream;

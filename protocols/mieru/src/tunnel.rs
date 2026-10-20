@@ -127,7 +127,7 @@ where
     Ok(())
 }
 
-fn build_request(command: u8, target: &Address, port: u16) -> Result<Vec<u8>, Error> {
+pub(crate) fn build_request(command: u8, target: &Address, port: u16) -> Result<Vec<u8>, Error> {
     let mut req = Vec::from([0x05, command, 0x00]);
     encode_address(target, &mut req)?;
     req.extend_from_slice(&port.to_be_bytes());
