@@ -229,6 +229,19 @@ pub(super) async fn run(
         tokio::pin!(changed);
         changed.as_mut().enable();
         shared.maintain(&mut sockets, &mut watches);
+        if shared.bound_mode {
+            let source = shared
+                .state
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner)
+                .failure
+                .clone();
+            if let Some(source) = source {
+                return Err(
+                    error(Stage::Close, Reason::Io, DeliveryState::Unknown).with_source(source)
+                );
+            }
+        }
         if shared.scope_cancel.is_cancelled() {
             return Ok(());
         }
