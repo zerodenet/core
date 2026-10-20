@@ -240,7 +240,12 @@ where
         loop {
             tokio::select! { biased;
                 result = flight.wait() => return result.map_err(|error|error.to_io_error()),
-                _ = self.next_task_exit() => {},
+                joined = self.next_task_exit() => {
+                    // A follower can arrive after flight selection and before
+                    // the leader admits its worker. Let the leader/shutdown
+                    // run while the actual JoinSet is temporarily empty.
+                    if !joined { tokio::task::yield_now().await; }
+                },
             }
         }
     }

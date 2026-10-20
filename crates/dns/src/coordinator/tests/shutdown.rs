@@ -38,11 +38,41 @@ async fn successful_shutdown_prevents_a_preselected_worker_from_registering_afte
             "worker is paused before final task admission"
         );
     }
+    let follower = {
+        let coordinator = coordinator.clone();
+        tokio::spawn(async move {
+            coordinator
+                .resolve(key(7), async {
+                    panic!("a coalesced follower cannot run a second backend")
+                })
+                .await
+        })
+    };
+    tokio::time::timeout(Duration::from_secs(1), async {
+        loop {
+            if coordinator.state.lock().unwrap().in_flight[&key(7)]
+                .waiters
+                .load(Ordering::Acquire)
+                == 2
+            {
+                break;
+            }
+            tokio::task::yield_now().await;
+        }
+    })
+    .await
+    .expect("empty task set must not starve the real coordinator owner");
     coordinator
         .shutdown(tokio::time::Instant::now() + Duration::from_secs(1))
         .await
         .unwrap();
     assert!(coordinator.state.lock().unwrap().tasks.is_empty());
+    let error = tokio::time::timeout(Duration::from_secs(1), follower)
+        .await
+        .unwrap()
+        .unwrap()
+        .unwrap_err();
+    assert_eq!(error.kind(), io::ErrorKind::NotConnected);
     resume.send(()).unwrap();
     let error = tokio::time::timeout(Duration::from_secs(1), caller)
         .await
