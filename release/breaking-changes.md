@@ -517,3 +517,12 @@ VMess 普通 TCP 入站现在交付已认证的协议目的地与完整认证事
   The guard retains no Scope, caller Waker, registration or I/O authority.
   Create it outside enclosing owner/resource locks and drop it after unlocking.
   Neither method changes admission, task budgets, receipt ACK or closure proof.
+
+- Listener-observer parking additionally retains the current generation's
+  `needs_retirement` bit independently of JoinSet length and error consumption.
+  Startup marks it before preparation; actual registry install/reservation marks
+  it before publishing an owner or native bind capability. Empty Scope/observer
+  completion and forwarding a fault cannot clear it. Recovery clears the bit
+  only after original handle drain and successful actual owner cleanup/source
+  publication, with same-registry/no-pending-owner postconditions serialized
+  against owner insertion. This bit is not native or transferred-user proof.

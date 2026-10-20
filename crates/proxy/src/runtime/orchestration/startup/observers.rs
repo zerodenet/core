@@ -46,7 +46,9 @@ impl OrchestrationState {
             return Err(original);
         }
         owners?;
-        self.listeners.previous_generation_retired();
+        proxy
+            .inbound_owners
+            .confirm_observers_retired(&mut self.listeners)?;
         Ok(())
     }
 }

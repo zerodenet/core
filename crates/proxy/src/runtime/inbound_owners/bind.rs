@@ -61,6 +61,7 @@ impl InboundOwnerRegistry {
         if reserved.entries.contains_key(tag) {
             return Err(io("this listener already has a retained bind reservation"));
         }
+        self.mark_listener_generation();
         let identity = protocols.allocate_resource_identity()?;
         let owner = Arc::new(InboundOwner::new(identity, limit, shutdown.clone()));
         let grant = Arc::new(

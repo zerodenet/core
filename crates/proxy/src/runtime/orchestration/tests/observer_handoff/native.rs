@@ -73,3 +73,31 @@ pub(super) fn original_no_inbounds(error: &(dyn std::error::Error + 'static)) ->
     }
     error.source().is_some_and(original_no_inbounds)
 }
+
+pub(super) fn contains_original_channel(
+    error: &(dyn std::error::Error + 'static),
+    original: &ChannelError,
+) -> bool {
+    if error
+        .downcast_ref::<ChannelError>()
+        .is_some_and(|source| std::ptr::eq(source, original))
+    {
+        return true;
+    }
+    if let Some(source) = error.downcast_ref::<Arc<ChannelError>>() {
+        if contains_original_channel(source.as_ref(), original) {
+            return true;
+        }
+    }
+    if let Some(source) = error
+        .downcast_ref::<std::io::Error>()
+        .and_then(std::io::Error::get_ref)
+    {
+        if contains_original_channel(source, original) {
+            return true;
+        }
+    }
+    error
+        .source()
+        .is_some_and(|source| contains_original_channel(source, original))
+}

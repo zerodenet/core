@@ -146,6 +146,7 @@ impl InboundOwnerRegistry {
             ))
             .into());
         }
+        self.mark_listener_generation();
         let entry = Arc::new(InboundOwner::new(
             protocols.allocate_resource_identity()?,
             limit,

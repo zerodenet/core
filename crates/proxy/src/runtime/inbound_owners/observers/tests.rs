@@ -79,3 +79,63 @@ fn an_interrupted_retirement_keeps_the_exact_current_fault_without_history() {
 }
 
 mod wake;
+
+#[tokio::test]
+async fn empty_observer_set_preserves_pre_observer_native_acquisition_until_real_cleanup() {
+    let proxy = super::super::bind::tests::proxy();
+    let config = proxy.engine().config();
+    let observers = proxy.inbound_owners.take_listener_observers().unwrap();
+    assert!(!observers.has_previous_generation());
+    let reservation = super::super::bind::tests::lease(&proxy, &config, 0);
+    let identity = reservation.owner().identity();
+    let view = reservation.context().listen_tcp().unwrap();
+    let original = view.local_addr().unwrap();
+    assert!(TcpListener::bind(original).await.is_err());
+    drop(view); // Revoke only; host retains the exact original FD/control.
+    drop(reservation); // No observer was ever installed or TaskId manufactured.
+    assert!(observers.is_empty());
+    drop(observers);
+    let mut resumed = proxy.inbound_owners.take_listener_observers().unwrap();
+    assert!(resumed.is_empty());
+    assert!(
+        resumed.has_previous_generation(),
+        "native acquisition dirtied the original batch before any observer"
+    );
+    assert!(proxy
+        .inbound_owners
+        .confirm_observers_retired(&mut resumed)
+        .is_err());
+    assert!(TcpListener::bind(original).await.is_err());
+    assert!(proxy.inbound_owners.identities().contains(&identity));
+    let mut published = false;
+    proxy
+        .inbound_owners
+        .shutdown_all_reported(Instant::now() + Duration::from_secs(2), |tag, terminal| {
+            assert_eq!(tag, "first");
+            assert_eq!(terminal.identity(), identity);
+            assert_eq!(
+                terminal.joined_tasks(),
+                0,
+                "no fake driver exit for a cold acquisition"
+            );
+            assert_eq!(terminal.closed_io_receipts(), 1);
+            assert!(terminal.failure().is_none());
+            published = true;
+            Ok(())
+        })
+        .await
+        .unwrap();
+    assert!(published);
+    proxy
+        .inbound_owners
+        .confirm_observers_retired(&mut resumed)
+        .unwrap();
+    assert!(!resumed.has_previous_generation());
+    drop(resumed);
+    assert!(!proxy
+        .inbound_owners
+        .take_listener_observers()
+        .unwrap()
+        .has_previous_generation());
+    let _replacement = TcpListener::bind(original).await.unwrap();
+}

@@ -1,6 +1,9 @@
 //! A single persistent parking place for the original listener observer tasks.
 use super::*;
-use std::ops::{Deref, DerefMut};
+use std::{
+    ops::{Deref, DerefMut},
+    sync::atomic::{AtomicBool, Ordering},
+};
 use tokio::task::JoinSet;
 mod wake;
 use wake::{ObserverWake, WaitTarget};
@@ -11,6 +14,7 @@ type Observers = JoinSet<Result<(), EngineError>>;
 /// ownership, but cancellation returns it instead of aborting its actual tasks.
 pub(super) struct ObserverParking {
     parked: Mutex<Option<ObserverBatch>>,
+    needs_retirement: AtomicBool,
 }
 impl Default for ObserverParking {
     fn default() -> Self {
@@ -20,6 +24,7 @@ impl Default for ObserverParking {
                 wake: Arc::default(),
                 failure: None,
             })),
+            needs_retirement: AtomicBool::new(false),
         }
     }
 }
@@ -87,6 +92,11 @@ impl ListenerObservers {
         .await
     }
 
+    /// Mark before this generation's preparation or acquisition can suspend.
+    /// An empty observer set never proves that no native owner was installed.
+    pub(crate) fn begin_generation(&self) {
+        self.parking.needs_retirement.store(true, Ordering::Release);
+    }
     pub(crate) fn has_previous_generation(&self) -> bool {
         self.recovered
     }
@@ -100,8 +110,15 @@ impl ListenerObservers {
     pub(crate) fn take_failure(&mut self) -> Option<EngineError> {
         self.owned.as_mut().expect("live lease").failure.take()
     }
-    pub(crate) fn previous_generation_retired(&mut self) {
+    fn previous_generation_retired(&mut self) {
         assert!(self.is_empty(), "original observer handles must be joined");
+        assert!(
+            self.owned.as_ref().expect("live lease").failure.is_none(),
+            "original fault must be delivered"
+        );
+        self.parking
+            .needs_retirement
+            .store(false, Ordering::Release);
         self.recovered = false;
     }
 }
@@ -120,6 +137,48 @@ impl Drop for ListenerObservers {
     }
 }
 impl InboundOwnerRegistry {
+    pub(super) fn mark_listener_generation(&self) {
+        self.observers
+            .needs_retirement
+            .store(true, Ordering::Release);
+    }
+    /// Postcondition of successful shutdown_all_reported, not a native close
+    /// receipt. Keep the bit set unless that actual cleanup succeeded first.
+    pub(crate) fn confirm_observers_retired(
+        &self,
+        observers: &mut ListenerObservers,
+    ) -> Result<(), EngineError> {
+        if !Arc::ptr_eq(&self.observers, &observers.parking) {
+            return Err(std::io::Error::other("foreign original observer lease").into());
+        }
+        let active = self
+            .entries
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        let reserved = self
+            .reservations
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        if !active.is_empty()
+            || !reserved.entries.is_empty()
+            || !observers.is_empty()
+            || observers
+                .owned
+                .as_ref()
+                .expect("live lease")
+                .failure
+                .is_some()
+        {
+            return Err(std::io::Error::other(
+                "original listener generation retirement remains unconfirmed",
+            )
+            .into());
+        }
+        // Serialize with actual owner insertion. Those paths mark dirty while
+        // holding their same map lock; a late owner can never lose this bit.
+        observers.previous_generation_retired();
+        Ok(())
+    }
     /// Inline notification only. Existing owners retain all original task and
     /// native evidence; this is never another Scope exit consumer or task.
     pub(crate) async fn observe_listener_failure(&self) -> EngineError {
@@ -155,7 +214,9 @@ impl InboundOwnerRegistry {
                 )
             })?;
         Ok(ListenerObservers {
-            recovered: !original.tasks.is_empty() || original.failure.is_some(),
+            recovered: self.observers.needs_retirement.load(Ordering::Acquire)
+                || !original.tasks.is_empty()
+                || original.failure.is_some(),
             parking: self.observers.clone(),
             owned: Some(original),
         })

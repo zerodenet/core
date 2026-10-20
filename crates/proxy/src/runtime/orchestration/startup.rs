@@ -87,6 +87,7 @@ impl OrchestrationState {
 
     pub(super) async fn start(&mut self, proxy: &Proxy) -> Result<(), EngineError> {
         self.retire_previous_listeners(proxy).await?;
+        self.listeners.begin_generation();
         self.publish_starting(proxy, &self.applied_snapshot);
         self.preparing_inbounds.ensure_open()?;
         proxy.inbound_owners.open_bind_admission()?;
