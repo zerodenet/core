@@ -58,8 +58,18 @@ impl InboundOwner {
                 // collecting an all-tasks report first would deadlock them.
             }
         };
+        let close_peers = async {
+            #[cfg(feature = "managed-datagram-runtime")]
+            {
+                let groups = self.peers.lock().expect("peer owners poisoned").clone();
+                for group in groups {
+                    group.wait_closed().await.map_err(std::io::Error::other)?;
+                }
+            }
+            Ok::<(), std::io::Error>(())
+        };
         let result = timeout_at(deadline, async {
-            tokio::try_join!(close_resources, close_tasks).map(|_| ())
+            tokio::try_join!(close_resources, close_tasks, close_peers).map(|_| ())
         })
         .await;
         match result {

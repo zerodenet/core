@@ -18,7 +18,13 @@ where
     loop {
         tokio::select! { biased;
             _ = shutdown.wait_for(|stop| *stop) => break,
-            _ = tasks.changed() => peers.retain(|_, sender| !sender.is_closed()),
+            _ = tasks.changed() => {
+                peers.retain(|_, sender| !sender.is_closed());
+                if let Err(error) = tasks.retire_joined(tokio::time::Instant::now() + std::time::Duration::from_secs(5)).await {
+                    socket_error = Some(std::io::Error::other(error));
+                    break;
+                }
+            },
             recv = socket.recv_from(&mut buffer) => {
                 let (size, peer) = match recv { Ok(received) => received, Err(error) => { socket_error = Some(error); break; } };
                 peers.retain(|_, sender| !sender.is_closed());

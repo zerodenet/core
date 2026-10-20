@@ -49,6 +49,8 @@ impl Current {
 pub(crate) struct ComponentCatalog {
     factories: OnceLock<ComponentRegistry<OutboundConfig>>,
     next_id: AtomicU64,
+    #[cfg(feature = "managed-datagram-runtime")]
+    next_association: AtomicU64,
     state: Mutex<State>,
     transition: tokio::sync::Mutex<()>,
     admission: Arc<super::admission::HostAdmission>,
@@ -58,6 +60,8 @@ impl Default for ComponentCatalog {
         Self {
             factories: OnceLock::new(),
             next_id: AtomicU64::new(0),
+            #[cfg(feature = "managed-datagram-runtime")]
+            next_association: AtomicU64::new(0),
             state: Mutex::new(State::default()),
             transition: tokio::sync::Mutex::new(()),
             admission: Arc::default(),
@@ -228,6 +232,17 @@ impl ComponentCatalog {
             recipe,
             input.dial.to_policy(),
         )))
+    }
+    #[cfg(feature = "managed-datagram-runtime")]
+    pub(crate) fn allocate_association(
+        &self,
+    ) -> Result<zero_core::component::AssociationId, ChannelError> {
+        self.next_association
+            .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |value| {
+                value.checked_add(1)
+            })
+            .map(|previous| zero_core::component::AssociationId(previous + 1))
+            .map_err(|_| invalid(Reason::Internal, "association identity exhausted"))
     }
     pub(crate) fn allocate_id(&self) -> Result<ComponentId, ChannelError> {
         let mut current = self.next_id.load(Ordering::Relaxed);

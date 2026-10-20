@@ -118,10 +118,14 @@ impl InboundOwner {
         }
     }
     #[cfg(feature = "managed-datagram-runtime")]
-    pub(super) fn install_peer_tasks(&self) -> Arc<super::InboundPeerTasks> {
+    pub(super) fn install_peer_tasks(
+        &self,
+        protocols: ProtocolInventory,
+    ) -> Arc<super::InboundPeerTasks> {
         let group = Arc::new(super::InboundPeerTasks::new(
             self.identity,
             self.cancel.clone(),
+            protocols,
         ));
         self.peers
             .lock()

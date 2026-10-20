@@ -12,6 +12,13 @@ impl super::ProtocolInventory {
     ) -> Option<Arc<ComponentPlan>> {
         self.registry.components.current(config)
     }
+    #[cfg(feature = "managed-datagram-runtime")]
+    pub(crate) fn allocate_peer_association(
+        &self,
+    ) -> Result<zero_core::component::AssociationId, zero_platform_tokio::contract::ChannelError>
+    {
+        self.registry.components.allocate_association()
+    }
     pub(crate) fn allocate_resource_identity(
         &self,
     ) -> Result<zero_core::component::ComponentInstanceId, zero_engine::EngineError> {

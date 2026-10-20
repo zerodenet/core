@@ -3,6 +3,9 @@ use super::*;
 #[path = "tests/peer_binding.rs"]
 mod peer_binding;
 #[cfg(feature = "managed-datagram-runtime")]
+#[path = "tests/peer_resource.rs"]
+mod peer_resource;
+#[cfg(feature = "managed-datagram-runtime")]
 #[path = "tests/peers.rs"]
 mod peers;
 use crate::runtime::Proxy;

@@ -88,6 +88,13 @@ impl HostPeerBinding {
         self.request_stop();
         self.changed.notify_waiters();
     }
+    pub(super) fn joined_receipt(&self) -> Option<Arc<JoinedPeer>> {
+        self.state
+            .lock()
+            .expect("peer binding poisoned")
+            .joined
+            .clone()
+    }
     pub(crate) fn cancellation(&self) -> CancellationToken {
         self.cancel.clone()
     }

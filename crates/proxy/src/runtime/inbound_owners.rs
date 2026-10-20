@@ -9,7 +9,10 @@ pub(crate) use entry::{InboundOwner, InboundTaskAccess};
 #[cfg(feature = "managed-datagram-runtime")]
 pub(crate) use peer_binding::{HostPeerBinding, JoinedPeer};
 #[cfg(feature = "managed-datagram-runtime")]
-pub(crate) use peers::{InboundPeerTasks, MAX_DATAGRAM_PEERS};
+pub(crate) use peers::{
+    children::{PeerChildIdentity, PeerResourceContext},
+    InboundPeerTasks, MAX_DATAGRAM_PEERS,
+};
 use std::{
     collections::HashMap,
     num::NonZeroUsize,
@@ -42,7 +45,7 @@ pub(crate) struct InboundInstallContext {
 impl InboundInstallContext {
     #[cfg(feature = "managed-datagram-runtime")]
     pub(crate) fn peer_tasks(&self) -> Arc<InboundPeerTasks> {
-        self.entry.install_peer_tasks()
+        self.entry.install_peer_tasks(self.protocols.clone())
     }
     pub(crate) fn register(
         &self,

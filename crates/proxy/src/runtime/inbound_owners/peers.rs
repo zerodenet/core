@@ -4,6 +4,7 @@ use crate::component::instance::{retained, SharedError};
 use std::{collections::BTreeMap, future::Future};
 use tokio::sync::Notify;
 use zero_core::component::TaskId;
+pub(super) mod children;
 
 // Preserve the actual Direct peer listener's existing admission bound.
 pub(crate) const MAX_DATAGRAM_PEERS: usize = 4096;
@@ -11,12 +12,17 @@ pub(crate) const MAX_DATAGRAM_PEERS: usize = 4096;
 struct State {
     active: BTreeMap<TaskId, Arc<HostPeerBinding>>,
     preparing: usize,
+    children: BTreeMap<TaskId, Arc<children::PeerChild>>,
+    claiming: std::collections::BTreeSet<TaskId>,
     closing: bool,
     failure: Option<SharedError>,
     reclaimed: usize,
+    confirmed_children: usize,
+    closed_io: usize,
 }
 pub(crate) struct InboundPeerTasks {
     identity: ComponentInstanceId,
+    protocols: ProtocolInventory,
     cancel: CancellationToken,
     state: Mutex<State>,
     changed: Notify,
@@ -51,7 +57,7 @@ impl Drop for Registration<'_> {
             )),
         ));
         drop(state);
-        self.group.changed.notify_one();
+        self.group.notify_changed();
     }
 }
 impl std::fmt::Debug for InboundPeerTasks {
@@ -60,14 +66,21 @@ impl std::fmt::Debug for InboundPeerTasks {
         f.debug_struct("InboundPeerTasks")
             .field("active", &state.active.len())
             .field("reclaimed", &state.reclaimed)
+            .field("confirmed_children", &state.confirmed_children)
+            .field("closed_io", &state.closed_io)
             .field("closing", &state.closing)
             .finish_non_exhaustive()
     }
 }
 impl InboundPeerTasks {
-    pub(super) fn new(identity: ComponentInstanceId, cancel: CancellationToken) -> Self {
+    pub(super) fn new(
+        identity: ComponentInstanceId,
+        cancel: CancellationToken,
+        protocols: ProtocolInventory,
+    ) -> Self {
         Self {
             identity,
+            protocols,
             cancel,
             state: Mutex::default(),
             changed: Notify::new(),
@@ -166,18 +179,20 @@ impl InboundPeerTasks {
         failure: Option<SharedError>,
     ) -> bool {
         let mut state = self.state.lock().expect("peer task state poisoned");
-        let Some(binding) = state.active.remove(&id) else {
+        let Some(binding) = state.active.get(&id).cloned() else {
             return false;
         };
         binding.joined(id, class, failure.clone());
         if let Some(failure) = failure {
             state.failure.get_or_insert(failure);
             state.closing = true;
-        } else {
+        }
+        if !state.children.contains_key(&id) && !state.claiming.contains(&id) {
+            state.active.remove(&id);
             state.reclaimed = state.reclaimed.saturating_add(1);
         }
         drop(state);
-        self.changed.notify_one();
+        self.notify_changed();
         true
     }
     pub(crate) fn begin_shutdown(&self) {
@@ -186,6 +201,10 @@ impl InboundPeerTasks {
         for binding in state.active.values() {
             binding.request_stop();
         }
+        self.notify_changed();
+    }
+    fn notify_changed(&self) {
+        self.changed.notify_waiters();
         self.changed.notify_one();
     }
     pub(crate) async fn changed(&self) {
@@ -195,6 +214,9 @@ impl InboundPeerTasks {
         self.begin_shutdown();
         loop {
             let notified = self.changed.notified();
+            self.retire_joined(Instant::now() + std::time::Duration::from_secs(5))
+                .await
+                .map_err(|error| std::io::Error::other(retained(Arc::new(error))))?;
             {
                 let state = self.state.lock().expect("peer task state poisoned");
                 if state.active.is_empty() && state.preparing == 0 {
