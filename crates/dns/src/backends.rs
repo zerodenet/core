@@ -404,6 +404,6 @@ use dot::DotDnsResolver;
 #[cfg(feature = "doq")]
 mod doq;
 #[cfg(feature = "doq")]
-use doq::DoqDnsResolver;
-#[cfg(feature = "doq")]
 pub(crate) use doq::owner::EndpointOwner as DoqEndpointOwner;
+#[cfg(feature = "doq")]
+use doq::DoqDnsResolver;

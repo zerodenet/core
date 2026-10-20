@@ -13,8 +13,8 @@ use crate::protocol_registry::{
 use crate::protocol_registry::{UdpFlowCapability, UdpPacketPathCapability};
 use crate::runtime::path::TcpPathCategory;
 
-pub(crate) mod factory;
 mod datagram;
+pub(crate) mod factory;
 mod inbound;
 mod tcp;
 #[cfg(feature = "udp-runtime")]

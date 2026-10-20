@@ -4,7 +4,7 @@ mod shutdown;
 use super::*;
 use std::{collections::HashMap, error::Error, fmt, io, path::Path};
 use tokio::task::{Id, JoinError, JoinSet};
-use zero_platform_tokio::contract::{Stage, lifecycle::CloseReport};
+use zero_platform_tokio::contract::{lifecycle::CloseReport, Stage};
 
 type SharedResult = Result<Arc<[u8]>, Arc<io::Error>>;
 enum Cached {

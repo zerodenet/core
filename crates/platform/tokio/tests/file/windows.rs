@@ -72,7 +72,7 @@ async fn an_actual_silent_pipe_handle_is_rejected_before_any_read() {
     use tokio::net::windows::named_pipe::ServerOptions;
     use windows_sys::Win32::{
         Foundation::ERROR_PIPE_BUSY,
-        Storage::FileSystem::{FILE_TYPE_PIPE, GetFileType},
+        Storage::FileSystem::{GetFileType, FILE_TYPE_PIPE},
     };
     let directory = Directory::new();
     let name = format!(

@@ -6,8 +6,8 @@ use std::{
     path::{Component, Prefix},
 };
 use windows_sys::Win32::{
-    Foundation::{ERROR_SUCCESS, GetLastError, SetLastError},
-    Storage::FileSystem::{FILE_ATTRIBUTE_DEVICE, FILE_TYPE_DISK, FILE_TYPE_UNKNOWN, GetFileType},
+    Foundation::{GetLastError, SetLastError, ERROR_SUCCESS},
+    Storage::FileSystem::{GetFileType, FILE_ATTRIBUTE_DEVICE, FILE_TYPE_DISK, FILE_TYPE_UNKNOWN},
 };
 
 pub(super) fn read(path: &Path, max_bytes: usize, limit: usize) -> io::Result<Vec<u8>> {
