@@ -87,6 +87,29 @@ impl EndpointStackOwner {
             }
         }
     }
+    /// Observe only this installed graph's transferred views and original
+    /// business caller joins. This is independent of workers/native shutdown.
+    pub(crate) async fn stop_users(
+        &self,
+        deadline: tokio::time::Instant,
+    ) -> Result<CloseReport, EngineError> {
+        self.revoke();
+        match self.workers.flow_users() {
+            Some(users) => users
+                .shutdown(deadline)
+                .await
+                .map_err(|source| std::io::Error::other(source).into()),
+            None => {
+                let mut report = CloseReport::default();
+                report
+                    .unfinished
+                    .push(zero_platform_tokio::contract::lifecycle::Unfinished::Io(
+                        "legacy endpoint has no transferred-user owner".into(),
+                    ));
+                Ok(report)
+            }
+        }
+    }
     pub(crate) fn is_open(&self) -> bool {
         !self
             .state

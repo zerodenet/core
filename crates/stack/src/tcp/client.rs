@@ -55,6 +55,10 @@ pub struct ClientTcpStack {
 }
 
 impl ClientTcpStack {
+    /// Actual active connection ceiling; retiring transferred users may still
+    /// occupy their owning host's admission budget after this table drains.
+    pub const CONNECTION_LIMIT: usize = MAX_TCP_CONNECTIONS;
+
     /// One original retransmission worker per connection and one control worker.
     pub const BACKGROUND_TASK_LIMIT: usize = MAX_TCP_CONNECTIONS + 1;
 

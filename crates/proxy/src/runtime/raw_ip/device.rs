@@ -241,6 +241,11 @@ impl SharedRawIpDevice {
                 "raw-IP device closed",
             ));
         }
+        // Raw packet return subscriptions are another transferred-user lane;
+        // they do not inherit the PacketTcpOperation's caller/view token.
+        if let Some(users) = self.task.flow_users() {
+            users.mark_unaccounted();
+        }
         let permit = self
             .forwarded_packets
             .try_reserve()
@@ -281,6 +286,9 @@ impl SharedRawIpDevice {
         if !self.is_usable() {
             return Err(zero_stack::ClientUdpStackError::OutboundClosed);
         }
+        if let Some(users) = self.task.flow_users() {
+            users.mark_unaccounted();
+        }
         self.udp.bind_observed(local_ip, observer)
     }
 
@@ -290,8 +298,32 @@ impl SharedRawIpDevice {
         destination: SocketAddr,
         observer: Option<Arc<dyn zero_traits::IoObserver>>,
     ) -> Result<UserTcpStream, zero_stack::ClientTcpStackError> {
+        if let Some(users) = self.task.flow_users() {
+            users.mark_unaccounted();
+        }
+        self.open_tcp_for_flow(local_ip, destination, observer, None)
+            .await
+    }
+    pub(crate) fn flow_users(&self) -> Option<Arc<crate::runtime::packet_flow::FlowUsers>> {
+        self.task.flow_users()
+    }
+    pub(crate) async fn open_tcp_for_flow(
+        &self,
+        local_ip: IpAddr,
+        destination: SocketAddr,
+        observer: Option<Arc<dyn zero_traits::IoObserver>>,
+        user: Option<&crate::runtime::packet_flow::FlowUser>,
+    ) -> Result<UserTcpStream, zero_stack::ClientTcpStackError> {
         if !self.is_usable() {
             return Err(zero_stack::ClientTcpStackError::OutboundClosed);
+        }
+        match (self.task.flow_users(), user) {
+            (Some(users), Some(user)) if !users.validates(user) => {
+                return Err(zero_stack::ClientTcpStackError::OutboundClosed)
+            }
+            (Some(users), None) => users.mark_unaccounted(),
+            (None, Some(_)) => return Err(zero_stack::ClientTcpStackError::OutboundClosed),
+            _ => {}
         }
         self.tcp
             .connect_observed(local_ip, destination, observer)

@@ -15,6 +15,7 @@ use crate::runtime::raw_ip::tasks::RetainedTasks;
 pub(super) const WORKER_LIMIT: usize = zero_stack::ClientTcpStack::BACKGROUND_TASK_LIMIT + 1;
 
 pub(super) struct DeviceWorkers {
+    users: Option<Arc<crate::runtime::packet_flow::FlowUsers>>,
     tasks: Option<RetainedTasks<Result<(), EngineError>>>,
     scope: Mutex<ScopeBinding>,
     registration: Mutex<()>,
@@ -27,6 +28,7 @@ struct ScopeBinding {
 impl DeviceWorkers {
     pub(super) fn new() -> Arc<Self> {
         Arc::new(Self {
+            users: None,
             registration: Mutex::new(()),
             scope: Mutex::new(ScopeBinding::default()),
             // Existing client connection ceiling + its control worker + this
@@ -40,10 +42,17 @@ impl DeviceWorkers {
     /// No local JoinSet or implicit Tokio fallback exists in this branch.
     pub(super) fn suspended() -> Arc<Self> {
         Arc::new(Self {
+            users: Some(crate::runtime::packet_flow::FlowUsers::new(
+                std::num::NonZeroUsize::new(zero_stack::ClientTcpStack::CONNECTION_LIMIT)
+                    .expect("actual TCP stack connection limit is nonzero"),
+            )),
             tasks: None,
             scope: Mutex::new(ScopeBinding::default()),
             registration: Mutex::new(()),
         })
+    }
+    pub(super) fn flow_users(&self) -> Option<Arc<crate::runtime::packet_flow::FlowUsers>> {
+        self.users.clone()
     }
     pub(super) fn bind_scope(&self, registrar: WeakTaskRegistrar) -> Result<(), EngineError> {
         let mut binding = self
@@ -111,6 +120,10 @@ impl DeviceWorkers {
             .map(as_engine)
     }
     pub(super) fn abort(&self) {
+        if let Some(users) = &self.users {
+            users.revoke();
+        }
+
         let owner = {
             let mut binding = self
                 .scope
