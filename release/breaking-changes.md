@@ -30,6 +30,8 @@ BoundUDP 的同一持久 peer provider 新增 opaque 完成观察：同一个实
 
 显式调用方 BoundDirectBudget 现在可令原 UdpDispatch 的 Direct 首包、后续包、接收与 retire 共用同一实际 PeerResourceContext 下的 BoundUDP provider；原 selected Direct 操作提取同一 current host/source，协议不能自行选择 policy 或替换 generation。原 raw-IP association 在同一实际任务内驱动原 Direct driver，并保留 consumer 与 driver 同时失败的原 typed source。预算全部由调用方明确传入，不从外层 association1024、队列或测试数值造默认；缺省仍不启受控 grant。共享 resolver、其他 UDP 协议 gateway、原 auto bind-failure family fallback 资格和完整 caller-native coverage 仍须独立闭合，不能凭 Direct provider receipt 清除整个 association 的未知义务。
 
+原 listener inline observer 现在并行推进真实 Scope exit 与已 joined child 的协议/native 清理，不等整个 listener 停止才归还已确切关闭的 child 容量。Pending 清理不会阻挡同一 observer 消费其他实际 TaskExit；取消观察保留原 owner 和 receipts，重入先处理已 joined 的原 child。首次实际清理错误在下一 await 前持久保存并撤销准入，Unknown 槽不回收；此处仍不把 TaskExit、body Ready 或空声明当 native Closed。
+
 ### 候选入站的真实 Ready 确认
 
 配置应用和启动的 listener 成功确认现在等待同一实际实例的 Ready receipt。协议资源 start 和 carrier activation 必须先完成，随后实际 accept/recv loop 首次 poll 到运行态才由宿主该调用点确认；TCP+UDP 和 listener group 必须确认所有实际分支，登记任务本身不是 Ready。就绪前错误、停止和取消不发布候选成功；取消等待保留实际 owner、候选信息与同一 receipt，旧实例的通知不能确认新实例。协议自有就绪预算保持原样，包括 SIP003 TCP 原十秒预算，不新增通用五秒 Ready 超时。

@@ -1,6 +1,8 @@
 use super::*;
 #[path = "peer_resource/failure.rs"]
 mod failure;
+#[cfg(feature = "raw-ip-runtime")]
+mod live;
 #[path = "peer_resource/recovery.rs"]
 mod recovery;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};

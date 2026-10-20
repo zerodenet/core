@@ -17,6 +17,8 @@ use zero_platform_tokio::contract::{
 #[cfg(feature = "raw-ip-runtime")]
 mod native_progress;
 mod observation;
+#[cfg(feature = "managed-datagram-runtime")]
+mod peer_cleanup;
 mod pending_bound;
 use pending_bound::PendingNativeBound;
 mod readiness;
@@ -318,17 +320,23 @@ impl InboundOwner {
             return Err(std::io::Error::other("inbound driver was not accepted").into());
         }
         let mut scope = self.scope.lock().await;
-        while !self.driver_finished.load(Ordering::Acquire) {
-            let exit = scope
-                .next_exit()
-                .await
-                .ok_or_else(|| std::io::Error::other("listener driver exit remains unobserved"))?;
-            let failed = exit.result.is_err();
-            self.record(exit); // persist the actual ID/source before any next await
-            if failed {
-                self.stop();
-            }
+        #[cfg(feature = "managed-datagram-runtime")]
+        {
+            self.observe_peer_driver(&mut scope).await
         }
-        self.result()
+        #[cfg(not(feature = "managed-datagram-runtime"))]
+        {
+            while !self.driver_finished.load(Ordering::Acquire) {
+                let exit = scope.next_exit().await.ok_or_else(|| {
+                    std::io::Error::other("listener driver exit remains unobserved")
+                })?;
+                let failed = exit.result.is_err();
+                self.record(exit); // persist the actual ID/source before any next await
+                if failed {
+                    self.stop();
+                }
+            }
+            self.result()
+        }
     }
 }
