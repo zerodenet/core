@@ -54,20 +54,27 @@ async fn actual_configured_doq_uses_canonical_metadata_scope_tls_framing_and_nat
 {
     tokio::time::timeout(Duration::from_secs(12), async {
         let peer = Peer::start(false).await;
-        let (fixture, grant, tasks) = CanonicalMetadata::start(loopback(), limits(), n(2)).await;
+        let (fixture, mut grant, tasks) =
+            CanonicalMetadata::start(loopback(), limits(), n(2)).await;
         let retained = grant.tx.clone(); // Native diagnostic only, never another producer.
+        let claim = grant
+            .users_claim
+            .take()
+            .expect("actual canonical unique claim");
         let socket = HostedMetadataSocket::new(grant, &tasks).unwrap();
-        let (mut owner, mut receiver) = match OwnedEndpointOwner::new_hosted(
+        let (mut owner, mut receiver) = match OwnedEndpointOwner::new_hosted_claimed(
             socket,
-            tasks,
+            tasks.clone(),
             OwnedEndpointLimits {
                 drivers: n(2),
                 users: n(3),
             },
+            claim,
         ) {
             Ok(value) => value,
             Err(_) => panic!("actual host scope matches"),
         };
+        let completion = owner.users_completion().unwrap();
         let handle = owner
             .start(Default::default(), None, Some(peer.client.clone()))
             .unwrap();
@@ -89,29 +96,53 @@ async fn actual_configured_doq_uses_canonical_metadata_scope_tls_framing_and_nat
         assert_eq!(connector.opens.load(Ordering::Acquire), 1);
         assert_eq!(owner.active_users(), 0);
         assert!(retained.local_addr().is_ok());
-        finish(&fixture, &mut owner, &mut receiver).await;
+        owner.begin_shutdown();
+        let joined = fixture
+            .drive(owner.shutdown_users(deadline()))
+            .await
+            .unwrap();
+        assert!(joined.drivers.unjoined.is_empty());
+        assert_eq!(joined.drivers.unreceived.len(), 2);
+        let driver_tasks = owner.driver_tasks();
+        drop(owner);
+        drop(retained);
         assert!(
-            retained.local_addr().is_ok(),
-            "actual user/driver exit did not close the host's native original"
+            completion.try_closed().is_none(),
+            "actual joins did not receive either driver outcome"
+        );
+        fixture
+            .drive(async {
+                for task in driver_tasks {
+                    receiver.receive(task, deadline()).await.unwrap();
+                }
+            })
+            .await;
+        let receipt = completion.try_closed().unwrap();
+        assert!(fixture
+            .resources()
+            .confirm_metadata_users(1, &receipt, &tasks)
+            .is_err());
+        let (foreign, foreign_grant, foreign_tasks) =
+            CanonicalMetadata::start(loopback(), limits(), n(1)).await;
+        assert!(fixture
+            .resources()
+            .confirm_metadata_users(0, &receipt, &foreign_tasks)
+            .is_err());
+        assert!(foreign
+            .resources()
+            .confirm_metadata_users(0, &receipt, &foreign_tasks)
+            .is_err());
+        drop(foreign_grant);
+        assert!(!foreign.shutdown().await.is_complete());
+        fixture.confirm_users(receipt.clone(), &tasks).unwrap();
+        fixture.confirm_users(receipt, &tasks).unwrap(); // same proof is idempotent
+        assert!(
+            !fixture.resources().io_evidence().physical_confirmed(),
+            "users proof did not close native originals"
         );
         let report = fixture.shutdown().await;
-        assert!(
-            !report.is_complete(),
-            "missing canonical external-user proof remains Unaccounted"
-        );
-        assert_eq!(
-            retained.local_addr().unwrap_err().kind(),
-            io::ErrorKind::NotConnected
-        );
-        let native = fixture
-            .slot
-            .live
-            .get()
-            .unwrap()
-            .as_ref()
-            .unwrap()
-            .resources
-            .io_evidence();
+        assert!(report.is_complete());
+        let native = fixture.resources().io_evidence();
         assert_eq!(native.metadata.len(), 1);
         assert!(!native.metadata[0].busy);
         assert_eq!(native.metadata[0].main.confirmed_closed, 1);
@@ -119,10 +150,9 @@ async fn actual_configured_doq_uses_canonical_metadata_scope_tls_framing_and_nat
         assert!(native.metadata[0].main.unknown.is_empty());
         assert_eq!(native.metadata[0].probes.live, 0);
         assert!(native.metadata[0].probes.unknown.is_empty());
-        assert!(
-            !native.physical_confirmed(),
-            "native receipt is no canonical external-user graph proof"
-        );
+        assert_eq!(native.metadata[0].confirmed_users(), 1);
+        assert_eq!(native.metadata[0].unconfirmed_users(), Some(0));
+        assert!(native.physical_confirmed());
         peer.finish().await;
     })
     .await
@@ -134,20 +164,27 @@ async fn cancelling_actual_pending_doq_read_releases_users_without_faking_native
 ) {
     tokio::time::timeout(Duration::from_secs(12), async {
         let peer = Peer::start(true).await;
-        let (fixture, grant, tasks) = CanonicalMetadata::start(loopback(), limits(), n(2)).await;
+        let (fixture, mut grant, tasks) =
+            CanonicalMetadata::start(loopback(), limits(), n(2)).await;
         let retained = grant.tx.clone();
+        let claim = grant
+            .users_claim
+            .take()
+            .expect("actual canonical unique claim");
         let socket = HostedMetadataSocket::new(grant, &tasks).unwrap();
-        let (mut owner, mut receiver) = match OwnedEndpointOwner::new_hosted(
+        let (mut owner, mut receiver) = match OwnedEndpointOwner::new_hosted_claimed(
             socket,
-            tasks,
+            tasks.clone(),
             OwnedEndpointLimits {
                 drivers: n(2),
                 users: n(3),
             },
+            claim,
         ) {
             Ok(value) => value,
             Err(_) => panic!("actual host scope matches"),
         };
+        let completion = owner.users_completion().unwrap();
         let handle = owner
             .start(Default::default(), None, Some(peer.client.clone()))
             .unwrap();
@@ -171,6 +208,10 @@ async fn cancelling_actual_pending_doq_read_releases_users_without_faking_native
             .await;
         peer.received.notified().await;
         assert_eq!(owner.active_users(), 3);
+        assert!(
+            completion.try_closed().is_none(),
+            "actual pending stream retains three logical permits"
+        );
         drop(query);
         fixture.drive(connector.released.notified()).await;
         assert_eq!(
@@ -188,21 +229,28 @@ async fn cancelling_actual_pending_doq_read_releases_users_without_faking_native
             "query Drop did not accept either real driver outcome"
         );
         finish(&fixture, &mut owner, &mut receiver).await;
-        let report = fixture.shutdown().await;
-        assert!(!report.is_complete());
+        drop(owner);
+        assert!(
+            completion.try_closed().is_none(),
+            "an extra original TX view still exists after all real joins/receptions"
+        );
+        let partial = fixture.shutdown().await;
+        assert!(!partial.is_complete());
         assert_eq!(
             retained.local_addr().unwrap_err().kind(),
             io::ErrorKind::NotConnected
         );
-        let native = fixture
-            .slot
-            .live
-            .get()
-            .unwrap()
-            .as_ref()
-            .unwrap()
-            .resources
-            .io_evidence();
+        assert!(
+            completion.try_closed().is_none(),
+            "actual FD close is no users/view receipt"
+        );
+        drop(retained);
+        let receipt = completion.try_closed().unwrap();
+        assert!(!tasks.scope_identity().registration_open());
+        fixture.confirm_users(receipt, &tasks).unwrap(); // real cleanup confirmation while closing
+        let report = fixture.shutdown().await;
+        assert!(report.is_complete());
+        let native = fixture.resources().io_evidence();
         assert_eq!(native.metadata.len(), 1);
         assert!(!native.metadata[0].busy);
         assert_eq!(native.metadata[0].main.confirmed_closed, 1);
@@ -210,10 +258,9 @@ async fn cancelling_actual_pending_doq_read_releases_users_without_faking_native
         assert!(native.metadata[0].main.unknown.is_empty());
         assert_eq!(native.metadata[0].probes.live, 0);
         assert!(native.metadata[0].probes.unknown.is_empty());
-        assert!(
-            !native.physical_confirmed(),
-            "native receipt is no canonical external-user graph proof"
-        );
+        assert_eq!(native.metadata[0].confirmed_users(), 1);
+        assert_eq!(native.metadata[0].unconfirmed_users(), Some(0));
+        assert!(native.physical_confirmed());
         peer.finish().await;
     })
     .await

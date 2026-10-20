@@ -17,7 +17,14 @@ use zero_platform_tokio::contract::{
     CloseReason,
 };
 #[derive(Default)]
-struct Issued(Mutex<Option<(GrantedMetadataListener, TaskRegistrar)>>);
+struct Issued {
+    grant: Mutex<Option<(GrantedMetadataListener, TaskRegistrar)>>,
+    confirmation: Mutex<
+        Option<
+            zero_platform_tokio::controlled_datagram::metadata::users::MetadataUsersClosedReceipt,
+        >,
+    >,
+}
 struct Factory(Arc<Issued>, ResourceDeclaration, NonZeroUsize);
 struct Lifecycle {
     issued: Arc<Issued>,
@@ -62,13 +69,23 @@ impl ResourceLifecycle for Lifecycle {
             .listen_metadata_datagram(self.request)
             .await?;
         assert!(grant.scope.matches(&self.context.tasks));
-        *self.issued.0.lock().unwrap() = Some((grant, self.context.tasks.clone()));
+        *self.issued.grant.lock().unwrap() = Some((grant, self.context.tasks.clone()));
         Ok(())
     }
     fn revoke(&self, _: CloseReason) {}
     async fn shutdown(&mut self, _: Instant) -> Result<CloseReport, ChannelError> {
-        // The consumer test owns the actual endpoint/user lifetime. An empty
-        // lifecycle body cannot stand in for that missing canonical receipt.
+        let confirmation = self.issued.confirmation.lock().unwrap().clone();
+        if let Some(receipt) = confirmation {
+            // Even the fixture's protocol cleanup requires the same original
+            // provider to validate the opaque ticket. No public bool/report is
+            // accepted in place of the actual sealed users/driver graph.
+            self.context.resources.confirm_metadata_users(
+                self.request.ordinal,
+                &receipt,
+                &self.context.tasks,
+            )?;
+            return Ok(CloseReport::default());
+        }
         Ok(CloseReport {
             unfinished: vec![Unfinished::Resource(
                 "fixture transferred QUIC users have no canonical closed receipt".into(),
@@ -79,6 +96,7 @@ impl ResourceLifecycle for Lifecycle {
 }
 pub(super) struct CanonicalMetadata {
     pub(super) slot: Arc<ComponentSlot>,
+    issued: Arc<Issued>,
 }
 impl CanonicalMetadata {
     pub(super) async fn start(
@@ -112,8 +130,25 @@ impl CanonicalMetadata {
             .drive(slot.start(deadline()))
             .await
             .unwrap();
-        let (grant, tasks) = issued.0.lock().unwrap().take().unwrap();
-        (Self { slot }, grant, tasks)
+        let (grant, tasks) = issued.grant.lock().unwrap().take().unwrap();
+        (Self { slot, issued }, grant, tasks)
+    }
+    pub(super) fn resources(&self) -> &HostResources {
+        &self.slot.live.get().unwrap().as_ref().unwrap().resources
+    }
+    pub(super) fn confirm_users(
+        &self,
+        receipt: zero_platform_tokio::controlled_datagram::metadata::users::MetadataUsersClosedReceipt,
+        tasks: &TaskRegistrar,
+    ) -> Result<(), ChannelError> {
+        self.resources()
+            .confirm_metadata_users(0, &receipt, tasks)?;
+        self.issued
+            .confirmation
+            .lock()
+            .unwrap()
+            .get_or_insert(receipt);
+        Ok(())
     }
     pub(super) async fn drive<T>(&self, work: impl Future<Output = T>) -> T {
         TestContext::new([self.slot.as_ref()]).drive(work).await

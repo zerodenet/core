@@ -281,3 +281,6 @@ mod canonical;
 #[cfg(all(feature = "dns", feature = "transport_quic"))]
 #[path = "resource_metadata/quic.rs"]
 mod quic;
+
+#[path = "resource_metadata/confirmation.rs"]
+mod confirmation;
