@@ -92,12 +92,40 @@ impl DnsSystem {
                         self.egress_interface.clone(),
                     )?
                 };
-                resolver.exchange(_query, None, None).await
+                // This temporary pool is a real resource too. Register before
+                // any socket/driver I/O so caller cancellation cannot discard
+                // the only JoinSet owner when the resolver is dropped.
+                self.transport_owners.register_doh(resolver.owner.clone())?;
+                let result = resolver.exchange(_query, None, None).await;
+                let closed = resolver
+                    .owner
+                    .shutdown(self.ech_pool_close_deadline())
+                    .await;
+                match (result, closed) {
+                    (Ok(response), Ok(())) => Ok(response),
+                    (Err(source), _) => Err(source),
+                    (Ok(_), Err(source)) => Err(source),
+                }
             }
             #[cfg(not(feature = "doh"))]
             "https" | "h2c" => Err(unsupported("DNS-over-HTTPS")),
             _ => Err(invalid_endpoint("unsupported ECH DNS endpoint scheme")),
         }
+    }
+
+    #[cfg(feature = "doh")]
+    fn ech_pool_close_deadline(&self) -> tokio::time::Instant {
+        crate::backends::ATTEMPT_DEADLINE
+            .try_with(|deadline| *deadline)
+            .unwrap_or_else(|_| {
+                // No server tag exists for an explicit ECH endpoint; use the
+                // actual shared DNS policy budget, including its existing default.
+                let timeout_ms = match &*self.inner.read().expect("DNS system lock poisoned") {
+                    crate::DnsSystemInner::Configured { policy, .. } => policy.timeout_ms,
+                    _ => zero_config::DnsPolicyConfig::default().timeout_ms,
+                };
+                tokio::time::Instant::now() + std::time::Duration::from_millis(timeout_ms)
+            })
     }
 
     async fn bootstrap(&self, host: &str) -> io::Result<Vec<IpAddr>> {
@@ -133,3 +161,6 @@ fn unsupported(transport: &str) -> io::Error {
         format!("{transport} ECH DNS support is not compiled"),
     )
 }
+
+#[cfg(all(test, feature = "doh"))]
+mod tests;

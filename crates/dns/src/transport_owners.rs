@@ -95,6 +95,14 @@ impl TransportOwners {
             .owners
             .clone()
     }
+    #[cfg(all(test, feature = "doh"))]
+    pub(crate) fn doh_snapshot(&self) -> Vec<Arc<DohDriverOwner>> {
+        self.doh
+            .lock()
+            .expect("DNS DoH owners poisoned")
+            .owners
+            .clone()
+    }
     #[cfg(feature = "doh")]
     pub(crate) fn register_doh(&self, owner: Arc<DohDriverOwner>) -> io::Result<()> {
         let mut state = self.doh.lock().expect("DNS DoH owners poisoned");
