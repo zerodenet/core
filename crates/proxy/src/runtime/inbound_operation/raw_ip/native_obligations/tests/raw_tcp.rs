@@ -82,6 +82,7 @@ async fn actual_raw_tcp_accept_serve_refusal_does_not_stop_the_next_admitted_wir
             let server = server.clone();
             async move {
                 while let Some(packet) = from_client.recv().await {
+                    trace_packet("client->server", &packet.packet);
                     server.feed(&packet.packet).await;
                 }
             }
@@ -90,6 +91,7 @@ async fn actual_raw_tcp_accept_serve_refusal_does_not_stop_the_next_admitted_wir
             let client = client.clone();
             async move {
                 while let Some(packet) = from_server.recv().await {
+                    trace_packet("server->client", &packet);
                     client.feed(&packet).await;
                 }
             }
@@ -183,10 +185,18 @@ async fn actual_raw_tcp_accept_serve_refusal_does_not_stop_the_next_admitted_wir
         next.write_all(b"next raw flow").await.unwrap();
         next.shutdown().await.unwrap();
         let mut reverse = Vec::new();
-        timeout(Duration::from_secs(3), next.read_to_end(&mut reverse))
+        let reading = timeout(Duration::from_secs(3), next.read_to_end(&mut reverse))
             .await
-            .unwrap()
             .unwrap();
+        if let Err(error) = &reading {
+            eprintln!("raw next-flow read error={error:?}, reverse={reverse:?}, echo_finished={}, host_cancelled={}", echo.is_finished(), host.cancellation().is_cancelled());
+            eprintln!("actual completed records={:#?}", proxy.engine().completed_sessions());
+            let state = native.0.lock().unwrap();
+            for (id, record) in &state.records {
+                eprintln!("native record={id:?} entered={} retiring={} business_failure={:?}", record.entered, record.retiring, record.business_failure);
+            }
+        }
+        reading.unwrap();
         assert_eq!(reverse, b"real reverse after FIN");
         echo.await.unwrap();
         let healthy = completed(&proxy, address.port()).await;
@@ -227,4 +237,27 @@ async fn actual_raw_tcp_accept_serve_refusal_does_not_stop_the_next_admitted_wir
     })
     .await
     .unwrap();
+}
+
+// Header-only diagnostics: actual packet direction/sequence and FIN/RST; no payload.
+fn trace_packet(direction: &str, packet: &[u8]) {
+    if packet.len() < 40 || packet[0] >> 4 != 4 || packet[9] != 6 {
+        return;
+    }
+    let start = usize::from(packet[0] & 15) * 4;
+    if packet.len() < start + 20 {
+        return;
+    }
+    let tcp = &packet[start..];
+    let port = |at| u16::from_be_bytes([tcp[at], tcp[at + 1]]);
+    let seq = |at| u32::from_be_bytes([tcp[at], tcp[at + 1], tcp[at + 2], tcp[at + 3]]);
+    eprintln!(
+        "raw packet {direction} {}->{} flags={:#04x} seq={} ack={} bytes={}",
+        port(0),
+        port(2),
+        tcp[13],
+        seq(4),
+        seq(8),
+        packet.len()
+    );
 }
