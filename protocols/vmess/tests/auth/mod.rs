@@ -8,6 +8,7 @@ use crate::{
 use zero_core::{Address, Network};
 
 mod socket;
+mod staged;
 use socket::{target, Socket};
 
 fn user(id: u8) -> VmessUser {

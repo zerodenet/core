@@ -328,11 +328,7 @@ impl InboundListenerCapability for VmessAdapter {
                 mux_response_backlog_bytes,
             } => {
                 let user_refs = inbound_user_refs(users);
-                let profile = self
-                    .runtime
-                    .replace_inbound_profile(&inbound.tag, &user_refs)
-                    .map_err(EngineError::from)?;
-                VmessInboundListenerRequest::from_options_refs(
+                VmessInboundListenerRequest::from_options_refs_staged(
                     source_dir,
                     VmessInboundOptionsRef {
                         users: user_refs.iter().copied(),
@@ -342,9 +338,10 @@ impl InboundListenerCapability for VmessAdapter {
                         mux_response_backlog_frames: *mux_response_backlog_frames,
                         mux_response_backlog_bytes: *mux_response_backlog_bytes,
                     },
+                    &self.runtime,
+                    &inbound.tag,
                 )
                 .map_err(EngineError::from)?
-                .with_profile(profile)
             }
             _ => {
                 return Err(EngineError::Io(std::io::Error::new(
@@ -374,3 +371,7 @@ impl ManagedUdpHandlerProvider for VmessAdapter {
 
 #[cfg(feature = "vmess")]
 impl UdpPacketPathCapability for VmessAdapter {}
+
+#[cfg(test)]
+#[path = "vmess/tests.rs"]
+mod tests;

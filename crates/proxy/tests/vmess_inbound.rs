@@ -17,6 +17,8 @@ const USER_ID: &str = "eeb6c16e-9257-47cf-a7b9-d01e05259c14";
 #[path = "vmess_inbound/fixture.rs"]
 mod fixture;
 use fixture::*;
+#[path = "vmess_inbound/reload.rs"]
+mod reload;
 
 #[tokio::test]
 async fn standard_vmess_tcp_preserves_host_identity_full_auth_payload_and_reverse_half_close() {

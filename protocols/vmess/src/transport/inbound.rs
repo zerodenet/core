@@ -13,11 +13,30 @@ use super::options::{VmessInboundOptionsRef, VmessInboundUserRef};
 #[derive(Clone)]
 pub struct VmessInboundListenerRequest {
     profile: crate::inbound::VmessInboundProfile,
+    material: PreparedMaterial,
+}
+#[derive(Clone)]
+struct PreparedMaterial {
     tls_acceptor: tls::TlsAcceptor,
     ws: Option<OwnedWebSocketProfile>,
     grpc: Option<OwnedGrpcProfile>,
     protocol_name: &'static str,
     mux_response_backlog: crate::mux::MuxResponseBacklogPolicy,
+}
+/// Fully typed cold users and transport material. No active profile is acquired
+/// or changed before activate at the host's accepted listener installation.
+pub struct PreparedVmessInboundListenerRequest {
+    material: PreparedMaterial,
+    update: super::runtime::PreparedVmessInboundProfile,
+}
+impl PreparedVmessInboundListenerRequest {
+    pub fn activate(self) -> Result<VmessInboundListenerRequest, RuntimeError> {
+        let profile = self.update.activate()?;
+        Ok(VmessInboundListenerRequest {
+            profile,
+            material: self.material,
+        })
+    }
 }
 
 /// The ordinary TCP branch has no protocol-created business Session.
@@ -40,49 +59,10 @@ impl VmessInboundListenerRequest {
     pub const ABORT_ON_END: bool = false;
     pub const READ_ERROR_LOG: &'static str = "vmess mux frame read failed";
 
-    pub(in crate::transport) fn from_profile_refs<TTls, TWs, TGrpc>(
-        source_dir: Option<&Path>,
-        profile: crate::inbound::VmessInboundProfile,
-        tls: Option<&TTls>,
-        ws: Option<&TWs>,
-        grpc: Option<&TGrpc>,
-        mux_response_backlog: crate::mux::MuxResponseBacklogPolicy,
-    ) -> Result<Self, RuntimeError>
-    where
-        TTls: ServerTlsProfile + ?Sized,
-        TWs: WebSocketTransportProfile + ?Sized,
-        TGrpc: GrpcTransportProfile + ?Sized,
-    {
-        let protocol_name = match (ws, grpc) {
-            (Some(_), Some(_)) => {
-                return Err(RuntimeError::Io(io::Error::new(
-                    io::ErrorKind::InvalidInput,
-                    "vmess: ws and grpc are mutually exclusive",
-                )));
-            }
-            (Some(_), None) => "vmess+ws",
-            (None, Some(_)) => "vmess+grpc",
-            (None, None) => "vmess",
-        };
-
-        Ok(Self {
-            profile,
-            tls_acceptor: zero_transport::inbound_stack::build_required_tls_acceptor(
-                source_dir,
-                tls,
-                "vmess requires TLS",
-            )?,
-            ws: ws.map(OwnedWebSocketProfile::from_profile),
-            grpc: grpc.map(OwnedGrpcProfile::from_profile),
-            protocol_name,
-            mux_response_backlog,
-        })
-    }
-
-    pub fn from_options_refs<'a, I, TTls, TWs, TGrpc>(
+    fn prepare_options<'a, I, TTls, TWs, TGrpc>(
         source_dir: Option<&Path>,
         options: VmessInboundOptionsRef<'a, I, TTls, TWs, TGrpc>,
-    ) -> Result<Self, RuntimeError>
+    ) -> Result<(crate::inbound::PreparedVmessInboundUsers, PreparedMaterial), RuntimeError>
     where
         I: IntoIterator<Item = VmessInboundUserRef<'a>>,
         TTls: ServerTlsProfile + ?Sized,
@@ -97,21 +77,77 @@ impl VmessInboundListenerRequest {
             mux_response_backlog_frames,
             mux_response_backlog_bytes,
         } = options;
-        let profile = crate::inbound::VmessInboundProfile::from_config_users(users)?;
+        let users = crate::inbound::PreparedVmessInboundUsers::from_config_users(users)?;
         let mux_response_backlog = crate::mux::MuxResponseBacklogPolicy::from_config(
             mux_response_backlog_frames,
             mux_response_backlog_bytes,
         )?;
-        Self::from_profile_refs(source_dir, profile, tls, ws, grpc, mux_response_backlog)
-    }
+        let protocol_name = match (ws, grpc) {
+            (Some(_), Some(_)) => {
+                return Err(RuntimeError::Io(io::Error::new(
+                    io::ErrorKind::InvalidInput,
+                    "vmess: ws and grpc are mutually exclusive",
+                )));
+            }
+            (Some(_), None) => "vmess+ws",
+            (None, Some(_)) => "vmess+grpc",
+            (None, None) => "vmess",
+        };
 
+        let material = PreparedMaterial {
+            tls_acceptor: zero_transport::inbound_stack::build_required_tls_acceptor(
+                source_dir,
+                tls,
+                "vmess requires TLS",
+            )?,
+            ws: ws.map(OwnedWebSocketProfile::from_profile),
+            grpc: grpc.map(OwnedGrpcProfile::from_profile),
+            protocol_name,
+            mux_response_backlog,
+        };
+        Ok((users, material))
+    }
+    pub fn from_options_refs<'a, I, TTls, TWs, TGrpc>(
+        source_dir: Option<&Path>,
+        options: VmessInboundOptionsRef<'a, I, TTls, TWs, TGrpc>,
+    ) -> Result<Self, RuntimeError>
+    where
+        I: IntoIterator<Item = VmessInboundUserRef<'a>>,
+        TTls: ServerTlsProfile + ?Sized,
+        TWs: WebSocketTransportProfile + ?Sized,
+        TGrpc: GrpcTransportProfile + ?Sized,
+    {
+        let (users, material) = Self::prepare_options(source_dir, options)?;
+        Ok(Self {
+            profile: users.into_profile(),
+            material,
+        })
+    }
+    pub fn from_options_refs_staged<'a, I, TTls, TWs, TGrpc>(
+        source_dir: Option<&Path>,
+        options: VmessInboundOptionsRef<'a, I, TTls, TWs, TGrpc>,
+        runtime: &super::runtime::VmessTransportRuntime,
+        tag: &str,
+    ) -> Result<PreparedVmessInboundListenerRequest, RuntimeError>
+    where
+        I: IntoIterator<Item = VmessInboundUserRef<'a>>,
+        TTls: ServerTlsProfile + ?Sized,
+        TWs: WebSocketTransportProfile + ?Sized,
+        TGrpc: GrpcTransportProfile + ?Sized,
+    {
+        let (users, material) = Self::prepare_options(source_dir, options)?;
+        Ok(PreparedVmessInboundListenerRequest {
+            material,
+            update: runtime.stage_inbound_profile(tag, users),
+        })
+    }
     pub fn with_profile(mut self, profile: crate::inbound::VmessInboundProfile) -> Self {
         self.profile = profile;
         self
     }
 
     pub fn protocol_name(&self) -> &'static str {
-        self.protocol_name
+        self.material.protocol_name
     }
 
     pub fn error_protocol_name(&self) -> &'static str {
@@ -130,7 +166,7 @@ impl VmessInboundListenerRequest {
             .accept_client_owned(
                 crate::inbound::VmessInbound,
                 stream,
-                self.mux_response_backlog,
+                self.material.mux_response_backlog,
             )
             .await
             .map_err(RuntimeError::from)
@@ -138,10 +174,10 @@ impl VmessInboundListenerRequest {
     async fn accept_carrier(&self, socket: TokioSocket) -> Result<TcpRelayStream, RuntimeError> {
         zero_transport::inbound_stack::accept_tls_inbound_stream_stack(
             socket,
-            &self.tls_acceptor,
+            &self.material.tls_acceptor,
             InboundStreamStack {
-                ws: self.ws.as_ref(),
-                grpc: self.grpc.as_ref(),
+                ws: self.material.ws.as_ref(),
+                grpc: self.material.grpc.as_ref(),
                 h2: None::<&OwnedH2Profile>,
             },
             "vmess: ws and grpc are mutually exclusive",
@@ -169,7 +205,7 @@ impl VmessInboundListenerRequest {
                 crate::mux::VmessInboundAcceptedStream::from_session_stream(
                     facts.into_legacy_session(),
                     stream,
-                    self.mux_response_backlog,
+                    self.material.mux_response_backlog,
                 ),
             )))
         }

@@ -8,7 +8,7 @@ pub(super) struct Fixture {
     pub(super) running: RunningProxy,
     port: u16,
     connector: TlsConnector,
-    _material: TempMaterial,
+    material: TempMaterial,
 }
 impl Fixture {
     pub(super) fn new(principal: Option<&str>, blocked: bool) -> Self {
@@ -42,8 +42,12 @@ impl Fixture {
             running,
             port,
             connector,
-            _material: material,
+            material,
         }
+    }
+    pub(super) fn remove_tls_files(&self) {
+        std::fs::remove_file(self.material.path("server.crt")).unwrap();
+        std::fs::remove_file(self.material.path("server.key")).unwrap();
     }
     pub(super) async fn connect(&self) -> (TlsStream<TcpStream>, SocketAddr) {
         wait_for_listener(self.port).await;
@@ -63,6 +67,16 @@ pub(super) async fn vmess_client(
     impl tokio::io::AsyncRead + tokio::io::AsyncWrite + Unpin,
     SocketAddr,
 ) {
+    vmess_client_for(fixture, target, USER_ID).await
+}
+pub(super) async fn vmess_client_for(
+    fixture: &Fixture,
+    target: SocketAddr,
+    user_id: &str,
+) -> (
+    impl tokio::io::AsyncRead + tokio::io::AsyncWrite + Unpin,
+    SocketAddr,
+) {
     let (tls, source) = fixture.connect().await;
     // This is the client wire builder, not an inbound host Session.
     let request = zero_core::Session::new(
@@ -76,7 +90,7 @@ pub(super) async fn vmess_client(
         zero_core::ProtocolType::new("client"),
     );
     let wire = ::vmess::outbound::PreparedVmessOutboundRequestBundle::from_config(
-        USER_ID,
+        user_id,
         "chacha20-poly1305",
         None,
     )

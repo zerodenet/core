@@ -9,7 +9,9 @@ use crate::crypto::{
 use crate::shared::{parse_address_from_bytes, read_exact, AUTH_ID_LEN, CMD_TCP, CMD_UDP, VERSION};
 use crate::{parse_uuid, VmessCipher};
 mod facts;
+mod users;
 pub use facts::VmessRequestFacts;
+pub use users::PreparedVmessInboundUsers;
 
 #[derive(Clone)]
 pub struct VmessUser {
@@ -101,33 +103,8 @@ impl VmessInboundProfile {
     where
         I: IntoIterator<Item = VmessInboundUserConfigParts>,
     {
-        users
-            .into_iter()
-            .map(
-                |(
-                    id,
-                    cipher,
-                    principal_key,
-                    up_bps,
-                    down_bps,
-                    device_limit,
-                    quota_remaining_bytes,
-                    policy_revision,
-                )| {
-                    VmessUser::from_config(
-                        &id,
-                        &cipher,
-                        principal_key,
-                        up_bps,
-                        down_bps,
-                        device_limit,
-                        quota_remaining_bytes,
-                        policy_revision,
-                    )
-                },
-            )
-            .collect::<Result<Vec<_>, Error>>()
-            .map(Self::from_users)
+        PreparedVmessInboundUsers::from_config_users(users)
+            .map(PreparedVmessInboundUsers::into_profile)
     }
 
     pub fn from_config_users<I, U>(users: I) -> Result<Self, Error>
@@ -135,7 +112,8 @@ impl VmessInboundProfile {
         I: IntoIterator<Item = U>,
         U: IntoVmessInboundUserConfig,
     {
-        Self::from_config_parts(users.into_iter().map(U::into_vmess_inbound_user_config))
+        PreparedVmessInboundUsers::from_config_users(users)
+            .map(PreparedVmessInboundUsers::into_profile)
     }
 
     pub fn replace_config_users<I, U>(&self, users: I) -> Result<(), Error>
@@ -143,34 +121,7 @@ impl VmessInboundProfile {
         I: IntoIterator<Item = U>,
         U: IntoVmessInboundUserConfig,
     {
-        let replacement = users
-            .into_iter()
-            .map(IntoVmessInboundUserConfig::into_vmess_inbound_user_config)
-            .map(
-                |(
-                    id,
-                    cipher,
-                    principal_key,
-                    up_bps,
-                    down_bps,
-                    device_limit,
-                    quota_remaining_bytes,
-                    policy_revision,
-                )| {
-                    VmessUser::from_config(
-                        &id,
-                        &cipher,
-                        principal_key,
-                        up_bps,
-                        down_bps,
-                        device_limit,
-                        quota_remaining_bytes,
-                        policy_revision,
-                    )
-                },
-            )
-            .collect::<Result<Vec<_>, Error>>()?;
-        self.replace_users(replacement);
+        PreparedVmessInboundUsers::from_config_users(users)?.publish(self);
         Ok(())
     }
 

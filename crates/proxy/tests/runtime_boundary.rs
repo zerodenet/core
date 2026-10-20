@@ -1552,7 +1552,7 @@ fn heavy_protocol_transport_files_do_not_expose_public_config_constructors() {
         ),
         (
             "protocols/vmess/src/transport/inbound.rs",
-            "pub(in crate::transport) fn from_profile_refs",
+            "fn prepare_options",
         ),
         (
             "protocols/vmess/src/transport/leaf.rs",
