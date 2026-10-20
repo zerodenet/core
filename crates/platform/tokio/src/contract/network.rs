@@ -32,6 +32,25 @@ pub struct CarrierContext {
 /// Host-supplied execution of an already selected prefix. Implementations must
 /// reject stale generations and preserve every hard dial constraint. No direct fallback.
 pub trait UpstreamOpener: Send + Sync {
+    /// Controlled capability is opt-in. Reject before any legacy opener or I/O.
+    fn prepare_controlled_stream(
+        &self,
+        _: &UpstreamBinding,
+        _: Destination,
+        _: CarrierContext,
+        grant: crate::controlled_carrier::CarrierGrant,
+    ) -> Result<crate::controlled_carrier::PreparedCarrier, ChannelError> {
+        let mut error = super::ChannelError::new(
+            super::Stage::Prepare,
+            super::Reason::Unsupported,
+            super::Impact::Component,
+        );
+        error.component = Some(grant.instance().component);
+        error.delivery = super::DeliveryState::NotSubmitted;
+        Err(error.with_source(std::io::Error::other(
+            "controlled carrier capability was not granted",
+        )))
+    }
     fn open_stream(
         &self,
         binding: &UpstreamBinding,
@@ -61,6 +80,15 @@ impl UpstreamTransport {
     }
     pub fn binding(&self) -> &UpstreamBinding {
         &self.binding
+    }
+    pub fn prepare_controlled_stream(
+        &self,
+        destination: Destination,
+        context: CarrierContext,
+        grant: crate::controlled_carrier::CarrierGrant,
+    ) -> Result<crate::controlled_carrier::PreparedCarrier, ChannelError> {
+        self.opener
+            .prepare_controlled_stream(&self.binding, destination, context, grant)
     }
     pub fn open_stream(
         &self,
