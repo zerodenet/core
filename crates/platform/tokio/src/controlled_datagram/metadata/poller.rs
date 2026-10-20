@@ -178,6 +178,10 @@ pub(super) struct Registration {
 impl Registration {
     /// Caller waker registration happens before acquiring the native gate.
     pub(super) fn prepare(&mut self, cx: &Context<'_>, cancel: &CancellationToken) -> bool {
+        if cancel.is_cancelled() {
+            self.slot.clear();
+            return true;
+        }
         self.slot.install(cx.waker());
         let cancelled = self
             .cancelled
