@@ -179,3 +179,5 @@ async fn cancel_while_real_node_dns_is_pending_cannot_spawn_late_candidate_stack
     assert!(scope.shutdown(deadline()).await.is_complete());
     proxy.resolver.shutdown_queries(deadline()).await.unwrap();
 }
+
+mod canonical;

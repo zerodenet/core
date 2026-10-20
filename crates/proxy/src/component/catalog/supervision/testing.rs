@@ -1,13 +1,13 @@
 //! Explicit fixture driver for the same HostedScope consumer as production.
 use super::*;
 
-pub(in crate::component) struct TestContext<'a> {
+pub(crate) struct TestContext<'a> {
     slots: Vec<&'a ComponentSlot>,
     admission: Arc<crate::component::admission::HostAdmission>,
     driver: InlineSupervisor,
 }
 impl<'a> TestContext<'a> {
-    pub(in crate::component) fn new(slots: impl IntoIterator<Item = &'a ComponentSlot>) -> Self {
+    pub(crate) fn new(slots: impl IntoIterator<Item = &'a ComponentSlot>) -> Self {
         let slots: Vec<_> = slots.into_iter().collect();
         let admission = slots
             .iter()
@@ -28,7 +28,7 @@ impl<'a> TestContext<'a> {
             driver: Default::default(),
         }
     }
-    pub(in crate::component) async fn drive<T>(&self, work: impl Future<Output = T>) -> T {
+    pub(crate) async fn drive<T>(&self, work: impl Future<Output = T>) -> T {
         self.driver
             .drive(
                 self.admission.signal(),

@@ -136,4 +136,4 @@ impl ComponentCatalog {
 }
 
 #[cfg(test)]
-pub(in crate::component) mod testing;
+pub(crate) mod testing;

@@ -102,6 +102,13 @@ impl EndpointStackOwner {
             .attempted;
         attempted && !self.is_drained()
     }
+    pub(crate) fn device(&self) -> Option<Arc<SharedRawIpDevice>> {
+        self.state
+            .lock()
+            .unwrap_or_else(|error| error.into_inner())
+            .device
+            .clone()
+    }
     pub(crate) fn owns(&self, device: &Arc<SharedRawIpDevice>) -> bool {
         self.state
             .lock()
