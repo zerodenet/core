@@ -91,3 +91,93 @@ async fn same_slot_auxiliary_uses_original_scope_and_cleanup_accepts_the_real_fa
     .await
     .unwrap();
 }
+
+#[tokio::test]
+async fn refused_auxiliary_future_drop_reenters_original_slot_outside_both_reservation_locks() {
+    use std::{
+        future::Future,
+        pin::Pin,
+        sync::atomic::{AtomicBool, Ordering},
+        task::{Context, Poll},
+    };
+    struct Reenter {
+        adoption: CarrierAdoption,
+        dropped: Arc<AtomicBool>,
+    }
+    impl Future for Reenter {
+        type Output = Result<(), crate::contract::lifecycle::ComponentError>;
+        fn poll(self: Pin<&mut Self>, _: &mut Context<'_>) -> Poll<Self::Output> {
+            panic!("the capacity-refused future must never be polled")
+        }
+    }
+    impl Drop for Reenter {
+        fn drop(&mut self) {
+            assert!(
+                self.adoption.slot.closing.try_lock().is_ok(),
+                "original retirement mutex is not held across future destruction"
+            );
+            assert!(
+                self.adoption.slot.state.try_lock().is_ok(),
+                "original state mutex is not held across future destruction"
+            );
+            assert!(self.adoption.endpoints().is_some());
+            self.dropped.store(true, Ordering::Release);
+        }
+    }
+    let mut fixture = Fixture::cold(1).await;
+    let mut scope = TaskScope::new(
+        tokio::runtime::Handle::current(),
+        NonZeroUsize::new(1).unwrap(),
+    );
+    let host = Arc::new(CancellationToken::new());
+    fixture
+        .owner
+        .registration()
+        .bind_declared(
+            &crate::contract::component::ResourceDeclaration::ControlledOutboundStream {
+                endpoint: fixture.destination.clone(),
+                binding: fixture.transport.binding().clone(),
+                demand: crate::contract::component::ControlledStreamDemandClass::Service,
+                max_sockets: NonZeroUsize::new(1).unwrap(),
+            },
+            &scope.registrar(),
+            &host,
+        )
+        .unwrap();
+    fixture.owner.start(deadline()).await.unwrap();
+    let (carrier, mut peer) = fixture.connected().await;
+    let (io, adoption) = carrier.into_parts();
+    let (finish, finished) = tokio::sync::oneshot::channel();
+    scope
+        .registrar()
+        .spawn_tracked(TaskClass::Auxiliary, async move {
+            finished.await.unwrap();
+            Ok(())
+        })
+        .unwrap();
+    let dropped = Arc::new(AtomicBool::new(false));
+    let error = adoption
+        .spawn_auxiliary(
+            &scope.registrar(),
+            Reenter {
+                adoption: adoption.clone(),
+                dropped: dropped.clone(),
+            },
+        )
+        .unwrap_err();
+    assert_eq!(error.reason, Reason::Capacity);
+    assert!(dropped.load(Ordering::Acquire));
+    assert!(adoption.auxiliary_exit().is_none());
+    drop(io);
+    assert!(adoption.retire(deadline()).await.unwrap().is_complete());
+    assert_eq!(peer.read(&mut [0; 1]).await.unwrap(), 0);
+    finish.send(()).unwrap();
+    scope.next_exit().await.unwrap();
+    assert!(fixture
+        .owner
+        .shutdown(deadline())
+        .await
+        .unwrap()
+        .is_complete());
+    assert!(scope.shutdown(deadline()).await.is_complete());
+}
