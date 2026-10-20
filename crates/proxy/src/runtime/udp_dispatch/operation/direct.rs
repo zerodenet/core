@@ -1,6 +1,13 @@
 use std::future::Future;
 use std::pin::Pin;
 
+#[cfg(feature = "managed-datagram-runtime")]
+mod source;
+#[cfg(all(test, feature = "managed-datagram-runtime"))]
+pub(crate) use source::tests::fixture::Live as LiveDirectSource;
+#[cfg(feature = "managed-datagram-runtime")]
+pub(crate) use source::DirectSocketSource;
+
 use zero_core::Session;
 
 use super::contract::PreparedUdpFlowOperation;
