@@ -114,7 +114,7 @@ impl TaskScope {
 }
 
 impl Shared {
-    fn notify_hosted(&self) {
+    pub(super) fn notify_hosted(&self) {
         self.changed.notify_one();
         let waker = self
             .hosted_waker
