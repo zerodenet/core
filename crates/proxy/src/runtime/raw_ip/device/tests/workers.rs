@@ -68,3 +68,23 @@ async fn original_driver_failure_survives_repeated_worker_join_results() {
     }
     assert!(!TcpTaskOwner::spawn(owner.as_ref(), Box::pin(async {})));
 }
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn concurrent_original_worker_registration_is_not_rejected_as_transient_mutex_capacity() {
+    let owner = DeviceWorkers::new();
+    let mut callers = tokio::task::JoinSet::new();
+    for _ in 0..32 {
+        let owner = owner.clone();
+        callers.spawn(async move {
+            TcpTaskOwner::spawn(owner.as_ref(), Box::pin(std::future::pending()))
+        });
+    }
+    while let Some(result) = callers.join_next().await {
+        assert!(result.unwrap());
+    }
+    assert_eq!(owner.tasks.lock().await.unwrap().len(), 32);
+    owner.abort();
+    let report = owner.join().await.unwrap();
+    assert!(report.is_complete());
+    assert!(report.closed_io.is_empty());
+}
