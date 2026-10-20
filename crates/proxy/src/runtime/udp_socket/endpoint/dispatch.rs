@@ -158,7 +158,7 @@ impl DirectDispatchEndpoint {
     /// Preserve the original legacy receive signature and its full source token.
     /// No delivery accounting is performed here; existing consumers retain it.
     pub(crate) async fn recv_from_addr(
-        &self,
+        &mut self,
         output: &mut [u8],
     ) -> Result<(usize, DirectUdpResponseSource), EngineError> {
         let (payload, source) = poll_fn(|cx| {
