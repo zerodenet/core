@@ -179,6 +179,7 @@ mod caller;
 
 mod business;
 
+#[path = "../../../tests/raw_ip_native_carrier.rs"]
 mod carrier;
 
 mod raw_tcp;
