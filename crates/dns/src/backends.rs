@@ -154,11 +154,15 @@ impl ResolverBackend {
 
     pub(crate) fn register_owners(
         &self,
-        owners: &crate::transport_owners::TransportOwners,
+        owners: &std::sync::Arc<crate::transport_owners::TransportOwners>,
     ) -> io::Result<()> {
         #[cfg(feature = "doh")]
         if let Self::Doh(resolver) = self {
             owners.register_doh(resolver.owner.clone())?;
+        }
+        #[cfg(feature = "doq")]
+        if let Self::Doq(resolver) = self {
+            resolver.attach_registry(owners.clone());
         }
         let _ = owners;
         Ok(())
@@ -400,3 +404,5 @@ use dot::DotDnsResolver;
 mod doq;
 #[cfg(feature = "doq")]
 use doq::DoqDnsResolver;
+#[cfg(feature = "doq")]
+pub(crate) use doq::owner::EndpointOwner as DoqEndpointOwner;

@@ -71,6 +71,13 @@ impl DnsService for DnsSystem {
 }
 
 impl DnsSystem {
+    /// Close every actual DoQ endpoint retained by successful or cancelled
+    /// queries, await QUIC idle, drop endpoint handles, and join both drivers.
+    /// Call after shutdown_queries; deadlines retain the same owner for retry.
+    pub async fn shutdown_doq_endpoints(&self, deadline: Instant) -> io::Result<()> {
+        self.transport_owners.shutdown_doq(deadline).await
+    }
+
     /// Close only persistent DoH pools and join their actual H2 drivers/users,
     /// including owners retained across reload. Call after shutdown_queries.
     /// DoQ endpoint idle confirmation and Fake-IP persistence are separate.

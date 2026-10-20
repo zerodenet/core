@@ -219,7 +219,7 @@ impl DnsSystem {
         previous_fake_ip: Option<Arc<FakeIpAllocator>>,
         previous_reverse_mapping: Option<RealIpReverseIndex>,
         fake_ip_state_lease: Option<Arc<fake_ip::StateLease>>,
-        transport_owners: &transport_owners::TransportOwners,
+        transport_owners: &Arc<transport_owners::TransportOwners>,
     ) -> io::Result<DnsSystemInner> {
         let Some(cfg) = config else {
             return Ok(DnsSystemInner::System(TokioSystemResolver));
