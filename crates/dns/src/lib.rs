@@ -60,7 +60,7 @@ pub struct DnsQueryAttempt {
 pub use outbound::{
     DnsBindingRevokedFuture, DnsCarrierBinding, DnsConnectContext, DnsOutboundCarrier,
     DnsOutboundCarrierFuture, DnsOutboundConnectFuture, DnsOutboundConnector,
-    DnsOutboundDatagramFuture,
+    DnsOutboundDatagramFuture, DnsQuicBidiConnector, DnsQuicBidiRequest,
 };
 
 /// The configured DNS subsystem.

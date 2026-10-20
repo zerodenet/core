@@ -35,7 +35,30 @@ pub struct DnsConnectContext {
     pub cancel: CancellationToken,
 }
 
+/// A host-selected QUIC bidirectional stream, without a raw endpoint,
+/// connection or protocol runtime crossing the DNS boundary.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct DnsQuicBidiRequest {
+    pub endpoint: SocketAddr,
+    pub server_name: String,
+    pub alpn: Vec<Vec<u8>>,
+}
+pub trait DnsQuicBidiConnector: fmt::Debug + Send + Sync {
+    /// The implementation retains actual native/driver ownership before any
+    /// I/O. Cancellation releases this query's users, never a native close ACK.
+    fn connect_bidi(
+        &self,
+        request: DnsQuicBidiRequest,
+        context: DnsConnectContext,
+    ) -> DnsOutboundCarrierFuture;
+}
+
 pub trait DnsOutboundConnector: fmt::Debug + Send + Sync {
+    /// Absence preserves the staged legacy path. Once a real capability is
+    /// selected its errors must not fall back to a naked UDP/QUIC acquisition.
+    fn quic_bidi(&self) -> Option<&dyn DnsQuicBidiConnector> {
+        None
+    }
     fn connect(&self, outbound: String, endpoint: SocketAddr) -> DnsOutboundConnectFuture;
     /// Compatible adapters still receive cancellation and the real backend
     /// deadline around their inline connect future. Native hosts override this

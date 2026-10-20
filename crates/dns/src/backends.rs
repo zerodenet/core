@@ -144,7 +144,12 @@ impl ResolverBackend {
             #[cfg(feature = "dot")]
             Self::Dot(resolver) => resolver.exchange(query, detour, connector).await,
             #[cfg(feature = "doq")]
-            Self::Doq(resolver) if detour.is_none() => resolver.exchange(query).await,
+            Self::Doq(resolver) if detour.is_none() => {
+                match connector.and_then(|connector| connector.quic_bidi()) {
+                    Some(provider) => resolver.exchange_hosted(query, provider).await,
+                    None => resolver.exchange(query).await,
+                }
+            }
             #[cfg(feature = "doq")]
             Self::Doq(_) => Err(io::Error::new(
                 io::ErrorKind::Unsupported,

@@ -39,3 +39,14 @@ not reused indefinitely. Cancellation of an older session cannot invalidate its
 replacement. Healthy sessions retain multiplexing and reuse; this does not add
 automatic query replay, change backend deadlines or alter the configured DNS
 dispatch and fallback policy.
+
+## Explicit host QUIC capability
+
+A `DnsOutboundConnector` can supply a `DnsQuicBidiConnector` for direct DoQ.
+The backend passes the actual bootstrap candidate, SNI, `doq` ALPN and original
+attempt context, then keeps the existing length prefix, FIN and response checks.
+After that capability is selected, its failure never triggers a naked UDP/QUIC
+fallback. Query cancellation/retirement releases only that query's users; the
+host separately retains and closes its native originals and actual drivers.
+The default capability is absent during staged migration. DNS does not import
+a transport runtime, raw QUIC handles or another Quinn owner implementation.
