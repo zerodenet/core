@@ -1,5 +1,7 @@
 //! Evidence comes only from consumption of the original response JoinSet.
+mod set;
 use super::packet_path::ChainTask;
+pub(crate) use set::{ResponseSetClosed, ResponseSetLease, ResponseSetOwner};
 use std::{
     collections::HashMap,
     future::Future,
@@ -34,8 +36,14 @@ impl ResponseJoined {
     }
 }
 #[derive(Default)]
+struct Statistics {
+    joined: usize,
+    first: Option<ResponseFailure>,
+}
+#[derive(Default)]
 pub(crate) struct ResponseTasks {
     records: Mutex<HashMap<Id, Weak<ResponseTask>>>,
+    statistics: Mutex<Statistics>,
 }
 #[derive(Default)]
 pub(crate) struct ResponseTask {
@@ -156,6 +164,16 @@ impl ResponseTasks {
                 (Err(source.clone()), Some(ResponseFailure::Join(source)))
             }
         };
+        {
+            let mut statistics = self
+                .statistics
+                .lock()
+                .unwrap_or_else(|error| error.into_inner());
+            statistics.joined = statistics.joined.saturating_add(1);
+            if statistics.first.is_none() {
+                statistics.first = failure.clone();
+            }
+        }
         let record = self
             .records
             .lock()

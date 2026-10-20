@@ -4,7 +4,6 @@ use tokio::time::Instant as TokioInstant;
 #[cfg(feature = "upstream-association-runtime")]
 use zero_engine::EngineError;
 
-use crate::runtime::udp_flow::packet_path::ChainTask;
 #[cfg(feature = "upstream-association-runtime")]
 use crate::runtime::udp_flow::registered::ClosedRegisteredUpstreamAssociation;
 #[cfg(feature = "upstream-association-runtime")]
@@ -12,6 +11,7 @@ use crate::runtime::udp_flow::registered::RegisteredUpstreamAssociationView;
 use crate::runtime::udp_flow::registered::{RegisteredUdpHandlers, RegisteredUdpState};
 #[cfg(feature = "upstream-association-runtime")]
 use crate::runtime::udp_flow::response::UpstreamUdpResponse;
+use crate::runtime::udp_flow::response_join::{ResponseSetLease, ResponseSetOwner};
 
 use super::UdpFlowState;
 
@@ -48,26 +48,24 @@ impl UpstreamUdpPoll<'_> {
 
 impl UdpFlowState {
     pub(crate) fn new(handlers: RegisteredUdpHandlers) -> Self {
+        let (response_owner, chain_tasks) = ResponseSetOwner::new(JoinSet::new());
         Self {
             registered: RegisteredUdpState::new(handlers),
             packet_path: crate::runtime::udp_flow::packet_path_chain::PacketPathManager::new(),
-            chain_tasks: JoinSet::new(),
-            response_tasks: Default::default(),
+            chain_tasks,
+            response_owner,
         }
     }
 
-    pub(crate) fn observe_chain_join(
-        &self,
-        result: super::super::response_join::NativeChainJoin,
-    ) -> super::super::response_join::ObservedChainJoin {
-        self.response_tasks.observe(result)
+    pub(crate) fn response_owner(&self) -> std::sync::Arc<ResponseSetOwner> {
+        self.response_owner.clone()
     }
 
     #[cfg(feature = "udp-runtime")]
-    pub(crate) fn chain_tasks(&mut self) -> &mut JoinSet<ChainTask> {
+    pub(crate) fn chain_tasks(&mut self) -> &mut ResponseSetLease {
         #[cfg(feature = "managed-stream-runtime")]
         self.registered
-            .poll_logical_responses(&mut self.chain_tasks, &self.response_tasks);
+            .poll_logical_responses(&mut self.chain_tasks, self.response_owner.evidence());
         &mut self.chain_tasks
     }
 
@@ -79,11 +77,11 @@ impl UdpFlowState {
     ) -> (
         UpstreamUdpPoll<'_>,
         Option<TokioInstant>,
-        &mut JoinSet<ChainTask>,
+        &mut ResponseSetLease,
     ) {
         #[cfg(feature = "managed-stream-runtime")]
         self.registered
-            .poll_logical_responses(&mut self.chain_tasks, &self.response_tasks);
+            .poll_logical_responses(&mut self.chain_tasks, self.response_owner.evidence());
         (
             UpstreamUdpPoll {
                 registered: &self.registered,

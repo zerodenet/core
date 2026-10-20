@@ -10,7 +10,7 @@ use crate::runtime::udp_delivery::{
 };
 use crate::runtime::udp_dispatch::UdpDispatch;
 
-pub(super) type ChainUdpResponseResult = crate::runtime::udp_flow::response_join::NativeChainJoin;
+pub(super) type ChainUdpResponseResult = crate::runtime::udp_flow::response_join::ObservedChainJoin;
 
 pub(super) fn finish_dispatch(dispatch: UdpDispatch) {
     for completed in dispatch.finish_all() {
@@ -55,7 +55,6 @@ pub(super) async fn handle_chain_result<S, R>(
     S: Send,
     R: DatagramUdpResponder<S>,
 {
-    let chain_result = dispatch.observe_chain_join(chain_result);
     match chain_result {
         Ok(Ok((target, port, payload, session_id))) => {
             let response = record_chain_udp_response_parts(

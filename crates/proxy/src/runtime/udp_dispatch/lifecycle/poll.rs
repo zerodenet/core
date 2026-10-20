@@ -1,12 +1,11 @@
 use super::super::socket::DispatchDirectReceive;
-use tokio::task::JoinSet;
 #[cfg(feature = "upstream-association-runtime")]
 use tokio::time::Instant as TokioInstant;
 
 use crate::logging::log_session_finished;
 use crate::runtime::udp_dispatch::model::UdpFlowCancellation;
 use crate::runtime::udp_dispatch::UdpDispatch;
-use crate::runtime::udp_flow::packet_path::ChainTask;
+use crate::runtime::udp_flow::response_join::ResponseSetLease;
 use crate::runtime::udp_flow::sessions::CompletedUdpFlow;
 #[cfg(feature = "upstream-association-runtime")]
 use crate::runtime::udp_flow::state::UpstreamUdpPoll;
@@ -24,13 +23,6 @@ pub(crate) struct ClosedUpstreamAssociation {
 }
 
 impl UdpDispatch {
-    pub(crate) fn observe_chain_join(
-        &self,
-        result: crate::runtime::udp_flow::response_join::NativeChainJoin,
-    ) -> crate::runtime::udp_flow::response_join::ObservedChainJoin {
-        self.flow_state.observe_chain_join(result)
-    }
-
     /// Drain cancellation signals that arrived while an outer transport was
     /// detached. Returns true when the authenticated association itself must
     /// be closed.
@@ -49,7 +41,7 @@ impl UdpDispatch {
         &mut self,
     ) -> (
         DispatchDirectReceive<'_>,
-        &mut JoinSet<ChainTask>,
+        &mut ResponseSetLease,
         &mut tokio::sync::mpsc::UnboundedReceiver<UdpFlowCancellation>,
     ) {
         self.direct_socket.refresh_if_stale();
@@ -68,7 +60,7 @@ impl UdpDispatch {
         DispatchDirectReceive<'_>,
         UpstreamUdpPoll<'_>,
         Option<TokioInstant>,
-        &mut JoinSet<ChainTask>,
+        &mut ResponseSetLease,
         &mut tokio::sync::mpsc::UnboundedReceiver<UdpFlowCancellation>,
     ) {
         let services = self.runtime.services();
