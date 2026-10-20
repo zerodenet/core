@@ -130,21 +130,6 @@ impl TaskMonitor {
         let mut progress = false;
         {
             let mut tasks = self.inner.lock().expect("component tasks poisoned");
-            let mut index = 0;
-            while index < tasks.pending.len() {
-                let receipt = &tasks.pending[index];
-                if receipt.class() == TaskClass::Auxiliary && receipt.local_failure_accepted() {
-                    let receipt = tasks.pending.swap_remove(index);
-                    tasks
-                        .scope
-                        .acknowledge(&receipt)
-                        .expect("same hosted task receipt");
-                    retired.push(receipt);
-                    progress = true;
-                } else {
-                    index += 1;
-                }
-            }
             for _ in 0..budget {
                 let Poll::Ready(Some(receipt)) = tasks.scope.poll_exit(cx) else {
                     break;
@@ -184,6 +169,24 @@ impl TaskMonitor {
                         retired.push(receipt);
                     }
                     Err(_) => tasks.pending.push(receipt),
+                }
+            }
+            // poll_exit registered the actual driver waker before this read.
+            // Checking local acceptance first could lose its only wake between
+            // that check and native polling (the previous wake was consumed).
+            let mut index = 0;
+            while index < tasks.pending.len() {
+                let receipt = &tasks.pending[index];
+                if receipt.class() == TaskClass::Auxiliary && receipt.local_failure_accepted() {
+                    let receipt = tasks.pending.swap_remove(index);
+                    tasks
+                        .scope
+                        .acknowledge(&receipt)
+                        .expect("same hosted task receipt");
+                    retired.push(receipt);
+                    progress = true;
+                } else {
+                    index += 1;
                 }
             }
         }
