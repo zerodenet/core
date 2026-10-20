@@ -115,7 +115,14 @@ fn target(waker: &Waker) -> Arc<WaitTarget> {
 #[test]
 fn actual_zero_budget_join_self_wake_reenters_monitor_only_after_both_locks_release() {
     bounded(|| {
-        runtime().block_on(async {
+        // Handle::block_on is outside the worker scheduler's deferred-wake
+        // context. Keep its one real worker alive to drive the original task.
+        let rt = tokio::runtime::Builder::new_multi_thread()
+            .worker_threads(1)
+            .enable_all()
+            .build()
+            .unwrap();
+        rt.handle().block_on(async {
             let monitor = monitor(NonZeroUsize::new(1));
             let registrar = monitor.registrar_for_test();
             let (done, observed) = oneshot::channel();
@@ -140,11 +147,17 @@ fn actual_zero_budget_join_self_wake_reenters_monitor_only_after_both_locks_rele
                 *calls.registration.lock().unwrap(),
                 Some(Err(SpawnError::Capacity))
             );
-            tokio::task::unconstrained(async {
+            let joined = tokio::task::unconstrained(std::future::poll_fn(|cx| {
+                // The worker may still be finishing after its oneshot send.
+                // Await the same actual native exit rather than assuming Ready.
+                target.register(cx);
                 monitor.poll(&target, instance(), 1);
-            })
+                match witness.try_joined() {
+                    Some(joined) => Poll::Ready(joined),
+                    None => Poll::Pending,
+                }
+            }))
             .await;
-            let joined = witness.try_joined().unwrap();
             assert_eq!(joined.id(), id);
             assert_eq!(joined.class(), TaskClass::Auxiliary);
             let original = joined.result().unwrap_err();
