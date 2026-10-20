@@ -67,6 +67,7 @@ impl ShadowsocksTcpConnectConfig {
         })
     }
 
+    #[cfg(feature = "blake3")]
     pub(crate) fn is_2022(&self) -> bool {
         self.cipher.is_blake3()
     }

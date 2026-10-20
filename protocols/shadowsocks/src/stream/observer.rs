@@ -1,6 +1,7 @@
 //! Request-bound peer facts for real SIP022 responses only.
 use super::*;
 impl<S> ShadowsocksAeadStream<S> {
+    #[cfg(feature = "blake3")]
     pub(crate) fn with_connect_observer(
         mut self,
         session: Option<zero_core::component::SessionId>,
