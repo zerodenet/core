@@ -13,6 +13,9 @@ use support::{
     wait_for_listener,
 };
 
+#[path = "socks5/standard_inbound.rs"]
+mod standard_inbound;
+
 #[path = "socks5/rejects_blocked_domain_via_route_rule.rs"]
 mod rejects_blocked_domain_via_route_rule;
 #[cfg(all(feature = "socks5", feature = "shadowsocks"))]

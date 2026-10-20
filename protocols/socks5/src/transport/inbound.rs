@@ -71,6 +71,16 @@ impl Socks5InboundAcceptor {
     {
         self.protocol.accept_command(stream).await
     }
+
+    pub async fn accept_command_facts<S>(
+        &self,
+        stream: &mut S,
+    ) -> Result<crate::Socks5CommandFacts, zero_core::Error>
+    where
+        S: AsyncSocket,
+    {
+        self.protocol.accept_command_facts(stream).await
+    }
 }
 
 impl<S> InboundClientResponse<S> for Socks5InboundAcceptor

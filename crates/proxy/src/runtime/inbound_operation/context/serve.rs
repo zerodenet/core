@@ -3,6 +3,24 @@ use zero_engine::EngineError;
 use super::model::InboundConnectionContext;
 
 impl InboundConnectionContext {
+    #[cfg(feature = "socks5")]
+    pub(crate) async fn serve_standard_stream(
+        &self,
+        protocol: zero_core::ProtocolType,
+        destination: zero_core::request::Destination,
+        auth: Option<zero_core::SessionAuth>,
+        reply: impl FnOnce(
+                zero_core::request::RequestFacts,
+            ) -> Result<
+                Box<dyn zero_platform_tokio::contract::inbound::AcceptedStream>,
+                zero_platform_tokio::contract::ChannelError,
+            > + Send,
+    ) -> Result<(), EngineError> {
+        self.runtime
+            .serve_standard_stream(protocol, destination, auth, reply)
+            .await
+    }
+
     pub(crate) async fn serve_message<P>(
         &self,
         protocol: &P,

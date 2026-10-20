@@ -62,6 +62,16 @@ pub(crate) async fn serve_inbound<P: InboundProtocol>(
     client: P::ClientStream,
     protocol: &P,
 ) -> Result<(), EngineError> {
+    serve_with_identity(runtime, session, client, protocol, None).await
+}
+
+pub(crate) async fn serve_with_identity<P: InboundProtocol>(
+    runtime: &TcpIngressRuntime,
+    session: Session,
+    client: P::ClientStream,
+    protocol: &P,
+    identity: Option<&zero_engine::SessionIdentity>,
+) -> Result<(), EngineError> {
     let mut session = session;
     let mut client = client;
     let started_at = Instant::now();
@@ -71,7 +81,9 @@ pub(crate) async fn serve_inbound<P: InboundProtocol>(
         runtime.apply_url_rewrite(&mut session);
     }
     runtime.apply_kernel_rate_limits(&mut session);
-    runtime.prepare_session(&mut session).await?;
+    runtime
+        .prepare_session_with_ticket(&mut session, identity)
+        .await?;
     let traffic_rate_limiters = runtime.traffic_rate_limiters(&session);
 
     let mut handle = runtime.track_session(session.id);
