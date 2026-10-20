@@ -3,6 +3,8 @@
 #[cfg(feature = "runtime")]
 mod auth;
 #[cfg(feature = "runtime")]
+pub mod component;
+#[cfg(feature = "runtime")]
 mod crypto;
 #[cfg(feature = "runtime")]
 pub mod inbound;

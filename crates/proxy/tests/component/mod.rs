@@ -4,3 +4,5 @@ mod fixtures;
 mod registration;
 mod service;
 mod trojan;
+
+mod vmess;

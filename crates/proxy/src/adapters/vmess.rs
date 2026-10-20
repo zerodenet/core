@@ -1,10 +1,14 @@
 #[cfg(feature = "vmess")]
+mod component;
+#[cfg(feature = "vmess")]
 mod listener;
 use ::vmess::transport::{
     VmessInboundListenerRequest, VmessInboundOptionsRef, VmessInboundUserRef,
     VmessOutboundBuildOptionsRef, VmessOutboundLeaf, VmessOutboundOptionsRef,
     VmessTransportRuntime,
 };
+#[cfg(feature = "vmess")]
+pub(crate) use component::{component_options, native_input, LEGACY_CONNECT_STAGE};
 #[cfg(feature = "vmess")]
 use zero_config::InboundConfig;
 use zero_config::{InboundProtocolConfig, OutboundProtocolConfig};

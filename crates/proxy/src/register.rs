@@ -32,6 +32,9 @@ fn compiled_registries() -> (
     components
         .declare("trojan", "trojan")
         .expect("unique Trojan declaration");
+    components
+        .declare("vmess", "vmess")
+        .expect("unique VMess declaration");
     let mut registry = ProtocolRegistry::default();
     #[cfg(feature = "socks5")]
     {
@@ -94,6 +97,15 @@ fn compiled_registries() -> (
     #[cfg(feature = "vmess")]
     {
         use crate::adapters::vmess::VmessAdapter;
+        components
+            .register_where(
+                ::vmess::metadata::VmessProtocol.descriptor(),
+                ::vmess::component::Factory,
+                crate::adapters::vmess::native_input,
+                crate::adapters::vmess::component_options,
+            )
+            .expect("unique VMess component registration");
+        components.set_legacy_connect_stage("vmess", crate::adapters::vmess::LEGACY_CONNECT_STAGE);
         let adapter = Arc::new(VmessAdapter::default());
         registry.register_managed_capability(adapter, VmessAdapter::claim_outbound_leaf_impl);
     }
