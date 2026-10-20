@@ -169,6 +169,14 @@ async fn actual_raw_tcp_accept_serve_refusal_does_not_stop_the_next_admitted_wir
         })
         .await
         .unwrap();
+        if refused_source(source.as_ref()).is_none() {
+            eprintln!("raw actual original business failure={source:#?}");
+            eprintln!(
+                "raw actual completed records={:#?}",
+                proxy.engine().completed_sessions()
+            );
+            trace_source(source.as_ref());
+        }
         let refused_os = refused_source(source.as_ref())
             .expect("actual upstream connect was refused, not host admission");
         assert!(
@@ -285,4 +293,34 @@ fn refused_source<'a>(error: &'a (dyn std::error::Error + 'static)) -> Option<&'
         current = error.source();
     }
     None
+}
+
+// Actual retained typed payloads only; never derive a retry/close decision here.
+fn trace_source(error: &(dyn std::error::Error + 'static)) {
+    let mut current = Some(error);
+    for index in 0..64 {
+        let Some(error) = current else { return };
+        eprintln!("raw source[{index}] display={error}, debug={error:?}");
+        if let Some(io) = error.downcast_ref::<std::io::Error>() {
+            eprintln!(
+                "raw source[{index}] io_kind={:?}, raw_os_error={:?}",
+                io.kind(),
+                io.raw_os_error()
+            );
+            if let Some(inner) = io.get_ref() {
+                current = Some(inner);
+                continue;
+            }
+        }
+        if let Some(io) = error.downcast_ref::<Arc<std::io::Error>>() {
+            current = Some(io.as_ref());
+            continue;
+        }
+        if let Some(channel) = error.downcast_ref::<Arc<ChannelError>>() {
+            current = Some(channel.as_ref());
+            continue;
+        }
+        current = error.source();
+    }
+    eprintln!("raw source chain exceeded bounded diagnostic traversal");
 }
