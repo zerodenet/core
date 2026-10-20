@@ -7,8 +7,9 @@ pub(crate) fn native_input(input: &OutboundConfig) -> bool {
         &input.protocol,
         OutboundProtocolConfig::Trojan {
             mux_concurrency: None,
+            ws,
             ..
-        }
+        } if ws.as_ref().is_none_or(|ws| ws.browser_dialer.is_none())
     )
 }
 pub(crate) fn component_options(
@@ -26,3 +27,7 @@ pub(crate) fn component_options(
         |source| ConfigError::InvalidOutbound(format!("outbound `{}`: {source}", input.tag)),
     )
 }
+
+#[cfg(test)]
+#[path = "component/tests.rs"]
+mod tests;

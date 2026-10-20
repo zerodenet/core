@@ -42,8 +42,10 @@ Trojan 没有成功 CONNECT 应答，因此返回 `PeerConfirmation::Deferred`�
 write/flush 只记录提交事实。协议握手计量只包含 Trojan 请求帧，Outer 仍记录
 实际 TLS/WS/gRPC 字节。标准接口接受 pinned、非 Sync 载体，不产生额外转发任务。
 
-MUX 需要共享连接资源的宿主生命周期，暂不进入此无共享资源 Factory；UDP、
-MUX 及尚含其他旧协议节点的链路保留原有执行路径。该阶段不表示这些路径已迁移。
+MUX 与 WebSocket browser_dialer 需要共享连接或浏览器资源的宿主生命周期，
+暂不进入此无共享资源 Factory。browser_dialer 既不丢弃，也不伪装成普通 WS。
+UDP、MUX、browser_dialer 及尚含其他旧协议节点的链路保留原有执行路径；
+该阶段不表示这些路径已迁移。
 
 ```
 src/lib.rs       — crate root, re-exports

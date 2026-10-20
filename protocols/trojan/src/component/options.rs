@@ -44,6 +44,11 @@ impl Options {
                 "Trojan MUX requires its shared resource owner",
             ));
         }
+        if input.ws.is_some_and(|ws| ws.browser_dialer().is_some()) {
+            return Err(Error::Unsupported(
+                "Trojan browser dialer requires its resource owner",
+            ));
+        }
         if input.server.is_empty() || input.port == 0 {
             return Err(Error::Config("Trojan server and port are required"));
         }
