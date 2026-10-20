@@ -1,6 +1,5 @@
 use super::*;
 use crate::runtime::dns_outbound::ProxyDnsOutboundConnector;
-use std::future::Future;
 use zero_dns::{DnsConnectContext, DnsOutboundConnector};
 fn callback(proxy: &Proxy) -> ProxyDnsOutboundConnector {
     ProxyDnsOutboundConnector::new(

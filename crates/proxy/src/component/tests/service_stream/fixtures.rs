@@ -68,6 +68,7 @@ pub(super) async fn connect(
     )
     .await
     .unwrap()
+    .stream
 }
 
 #[cfg(feature = "vless")]
