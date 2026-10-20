@@ -16,6 +16,7 @@ use crate::protocol_registry::TcpRuntimeServices;
 pub(crate) mod current_services;
 #[cfg(feature = "udp-runtime")]
 pub(crate) mod datagram_udp;
+mod diagnostic_service;
 mod dns_outbound;
 mod handle;
 pub(crate) mod http_redirect;
@@ -385,10 +386,15 @@ impl Proxy {
     ) -> Result<u64, EngineError> {
         let request = outbound_probe::OutboundProbeRequest::parse(url)
             .map_err(|error| EngineError::Io(std::io::Error::other(error)))?;
-        outbound_probe::OutboundProbeRuntime::new(self.tcp_runtime_services())
-            .probe_target_tag(target_tag, &request)
-            .await
-            .map_err(|error| EngineError::Io(std::io::Error::other(error)))
+        let proxy = self.clone();
+        let target_tag = target_tag.to_owned();
+        self.with_diagnostic_service(async move {
+            outbound_probe::OutboundProbeRuntime::new(proxy.tcp_runtime_services())
+                .probe_target_tag(&target_tag, &request)
+                .await
+                .map_err(|error| EngineError::Io(std::io::Error::other(error)))
+        })
+        .await?
     }
 }
 
