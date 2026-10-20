@@ -1,5 +1,6 @@
 //! Cold preparation and bounded current-plan storage for migrated components.
 mod cold;
+mod devices;
 mod maintenance;
 mod plan;
 mod replacement;
@@ -29,6 +30,10 @@ pub(crate) struct ComponentPlan {
     outbounds: BTreeMap<String, Arc<ComponentSlot>>,
     order: Vec<Arc<ComponentSlot>>,
     started: AtomicBool,
+    // Actual roleless virtual-device nodes from this very cold union. Ordinary
+    // Service staging/start cannot grant their deferred replacement phase.
+    deferred_devices: std::collections::BTreeSet<ComponentId>,
+    device_pass: bool,
     // Actual failed exits survive consumption of a slot's one-shot close report.
     failures: Mutex<BTreeMap<zero_core::component::TaskId, Arc<plan::PlanTaskFailure>>>,
     // Canonical IDs from this exact assembly; no old recipes or runtime owners.
@@ -144,6 +149,24 @@ impl ComponentCatalog {
         config: Arc<RuntimeConfig>,
     ) -> Result<Arc<ComponentPlan>, SharedError> {
         let mut state = self.state.lock().expect("component catalog poisoned");
+        // A same-config physical-network transition may explicitly extend the
+        // cold union. Ordinary readers must see that exact retained candidate,
+        // rather than silently reselecting the older current plan.
+        if let Some(candidate) = state.cold.as_ref().filter(|entry| entry.matches(&config)) {
+            match &candidate.plan {
+                Err(source) => return Err(source.clone()),
+                Ok(plan) if plan.device_pass => {
+                    if plan.can_reuse() {
+                        return Ok(plan.clone());
+                    }
+                    return Err(Arc::new(invalid(
+                        Reason::StalePlan,
+                        "device candidate requires explicit cold recovery",
+                    )));
+                }
+                _ => {}
+            }
+        }
         for entry in state
             .current
             .iter()

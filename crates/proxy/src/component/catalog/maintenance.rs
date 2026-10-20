@@ -83,8 +83,10 @@ impl ComponentCatalog {
             });
             state.cold = None;
             state.maintenance = true;
-            self.admission
-                .stage(plan.order.iter().map(|slot| slot.admission_grant()));
+            self.admission.stage(
+                plan.startable_before_devices()
+                    .map(|slot| slot.admission_grant()),
+            );
         }
         let started = plan.start(deadline).await;
         let result = match started {

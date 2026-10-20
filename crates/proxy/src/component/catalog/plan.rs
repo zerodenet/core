@@ -61,11 +61,18 @@ impl ComponentPlan {
     }
 
     pub(crate) async fn start(&self, deadline: tokio::time::Instant) -> Result<(), ChannelError> {
-        for slot in &self.order {
+        for slot in self.startable_before_devices() {
             slot.start(deadline).await?;
         }
         self.scan_tasks(deadline).await?;
-        self.started.store(true, Ordering::Release);
+        if self
+            .order
+            .iter()
+            .filter(|slot| self.deferred_devices.contains(&slot.id))
+            .all(|slot| slot.has_started())
+        {
+            self.started.store(true, Ordering::Release);
+        }
         Ok(())
     }
     pub(super) async fn scan_tasks(
@@ -76,6 +83,26 @@ impl ComponentPlan {
             slot.scan_tasks(deadline).await?;
         }
         Ok(())
+    }
+    pub(super) fn startable_before_devices(&self) -> impl Iterator<Item = &Arc<ComponentSlot>> {
+        self.order
+            .iter()
+            .filter(|slot| !self.deferred_devices.contains(&slot.id))
+    }
+    pub(crate) fn device_component(
+        &self,
+        id: ComponentId,
+    ) -> Result<Arc<ComponentSlot>, ChannelError> {
+        self.order
+            .iter()
+            .find(|slot| slot.id == id && self.deferred_devices.contains(&id))
+            .cloned()
+            .ok_or_else(|| {
+                invalid(
+                    Reason::StalePlan,
+                    "no actual deferred device component in this union",
+                )
+            })
     }
     pub(crate) fn configured(&self, tag: &str) -> Option<Arc<ComponentSlot>> {
         self.outbounds.get(tag).cloned()

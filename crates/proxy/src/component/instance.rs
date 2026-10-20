@@ -152,6 +152,12 @@ impl ComponentSlot {
                 Some(Ok(live)) => !matches!(live.started.get(), Some(Err(_))),
             }
     }
+    /// Actual successful lifecycle start, never a cold spec or a close proof.
+    pub(in crate::component) fn has_started(&self) -> bool {
+        !self.cancel.is_cancelled()
+            && self.task_fault().is_none()
+            && matches!(self.live.get(), Some(Ok(live)) if matches!(live.started.get(), Some(Ok(()))))
+    }
     pub(crate) fn instance_id(&self) -> ComponentInstanceId {
         ComponentInstanceId {
             component: self.id,

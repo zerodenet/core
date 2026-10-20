@@ -12,11 +12,43 @@ impl ComponentCatalog {
         previous: Option<(&Arc<RuntimeConfig>, &Arc<ComponentPlan>)>,
         issued: &BTreeMap<ComponentId, ResourceGeneration>,
     ) -> Result<ComponentPlan, ChannelError> {
-        let plan = self.compile_with_floor(config, previous, issued)?;
+        self.prepare_plan_inner(config, previous, issued, false, |_| Ok(Default::default()))
+    }
+    pub(super) fn prepare_plan_with_devices(
+        &self,
+        config: &RuntimeConfig,
+        previous: Option<(&Arc<RuntimeConfig>, &Arc<ComponentPlan>)>,
+        issued: &BTreeMap<ComponentId, ResourceGeneration>,
+        prepare: impl FnOnce(
+            &mut ResourcePreparation<'_>,
+        ) -> Result<std::collections::BTreeSet<ComponentId>, ChannelError>,
+    ) -> Result<ComponentPlan, ChannelError> {
+        self.prepare_plan_inner(config, previous, issued, true, prepare)
+    }
+    fn prepare_plan_inner(
+        &self,
+        config: &RuntimeConfig,
+        previous: Option<(&Arc<RuntimeConfig>, &Arc<ComponentPlan>)>,
+        issued: &BTreeMap<ComponentId, ResourceGeneration>,
+        device_pass: bool,
+        prepare: impl FnOnce(
+            &mut ResourcePreparation<'_>,
+        ) -> Result<std::collections::BTreeSet<ComponentId>, ChannelError>,
+    ) -> Result<ComponentPlan, ChannelError> {
+        let plan = self.compile_with_floor(config, previous, issued, device_pass, prepare)?;
         // Keep this before returning a plan or binding any admission. A cold
         // shared graph is not stop-old confirmation, a native grant or Ready.
         for slot in &plan.order {
             let spec = slot.recipe.spec();
+            if plan.deferred_devices.contains(&slot.id) {
+                if !spec.roles.is_empty() || !spec.resources.is_empty() {
+                    return Err(invalid(
+                        Reason::InvalidConfig,
+                        "deferred virtual-device node must be roleless without native declarations",
+                    ));
+                }
+                continue;
+            }
             if !spec.resources.is_empty()
                 || spec.task_limit.is_some()
                 || spec.roles.is_empty()
@@ -44,6 +76,10 @@ impl ComponentCatalog {
         config: &RuntimeConfig,
         previous: Option<(&Arc<RuntimeConfig>, &Arc<ComponentPlan>)>,
         issued: &BTreeMap<ComponentId, ResourceGeneration>,
+        device_pass: bool,
+        prepare: impl FnOnce(
+            &mut ResourcePreparation<'_>,
+        ) -> Result<std::collections::BTreeSet<ComponentId>, ChannelError>,
     ) -> Result<ComponentPlan, ChannelError> {
         let mut allocate = || self.allocate_id();
         let identities = previous
@@ -86,6 +122,35 @@ impl ComponentCatalog {
             let slot = self.primary_slot(input, old, &mut resources)?;
             outbounds.insert(input.tag.clone(), slot);
         }
+        let deferred_devices = prepare(&mut resources)?;
+        if deferred_devices
+            .iter()
+            .any(|id| !resources.resources().any(|node| node.component() == *id))
+        {
+            return Err(invalid(
+                Reason::InvalidConfig,
+                "deferred device identity was not issued by the actual resource pass",
+            ));
+        }
+        // A normal callable role cannot start ahead of an unstarted device it
+        // consumes. Packet adapters currently remain outside this role subset;
+        // a future dependent role must join the real deferred phase explicitly.
+        if outbounds
+            .values()
+            .chain(std::iter::once(&builtin))
+            .any(|slot| {
+                slot.recipe
+                    .spec()
+                    .dependencies
+                    .iter()
+                    .any(|id| deferred_devices.contains(id))
+            })
+        {
+            return Err(invalid(
+                Reason::InvalidConfig,
+                "ordinary role depends on a deferred device start",
+            ));
+        }
         let mut nodes: Vec<_> = std::iter::once(builtin.clone())
             .chain(outbounds.values().cloned())
             .collect();
@@ -122,6 +187,8 @@ impl ComponentCatalog {
             outbounds,
             order,
             started: AtomicBool::new(false),
+            deferred_devices,
+            device_pass,
             failures: Mutex::new(BTreeMap::new()),
             confirmed_declared_close: Default::default(),
             closing: Default::default(),
@@ -136,7 +203,9 @@ impl ComponentCatalog {
         config: &RuntimeConfig,
         previous: Option<(&Arc<RuntimeConfig>, &Arc<ComponentPlan>)>,
     ) -> Result<ComponentPlan, ChannelError> {
-        self.compile_with_floor(config, previous, &BTreeMap::new())
+        self.compile_with_floor(config, previous, &BTreeMap::new(), false, |_| {
+            Ok(Default::default())
+        })
     }
 
     fn primary_slot(

@@ -97,8 +97,10 @@ impl ComponentCatalog {
                 plan: Ok(plan.clone()),
             });
             state.prune_issued();
-            self.admission
-                .stage(plan.order.iter().map(|slot| slot.admission_grant()));
+            self.admission.stage(
+                plan.startable_before_devices()
+                    .map(|slot| slot.admission_grant()),
+            );
         }
         plan.start(deadline).await
     }

@@ -203,3 +203,49 @@ async fn interrupted_slot_cleanup_retains_the_original_graph_until_the_same_inli
     PendingEndpoints::release_closed(&adapter.pending_endpoints, &expected).unwrap();
     assert!(adapter.pending_endpoints.lock().unwrap().is_none());
 }
+
+#[tokio::test]
+async fn actual_cold_union_and_ordinary_service_start_cannot_grant_deferred_graph_start_or_commit()
+{
+    let adapter = WireguardAdapter::default();
+    let egress = zero_platform_tokio::EgressInterfaceControl::default();
+    let recipe = recipe(&adapter, "127.0.0.1:51821", egress.generation());
+    let pending = recipe.pending();
+    let guard = install(&adapter, &recipe);
+    let catalog = ComponentCatalog::default();
+    let config = Arc::new(proxy_config());
+    let mut actual_id = None;
+    let mut invocation = None;
+    let plan = catalog
+        .prepare_with_device_resources(config.clone(), |preparation| {
+            let (id, operation) = recipe.into_component(preparation).map_err(|source| {
+                zero_platform_tokio::contract::ChannelError::new(
+                    zero_platform_tokio::contract::Stage::Prepare,
+                    zero_platform_tokio::contract::Reason::Io,
+                    zero_platform_tokio::contract::Impact::Component,
+                )
+                .with_source(source)
+            })?;
+            actual_id = Some(id);
+            invocation = Some(operation);
+            Ok(std::collections::BTreeSet::from([id]))
+        })
+        .unwrap();
+    let slot = plan.device_component(actual_id.unwrap()).unwrap();
+    assert!(Arc::ptr_eq(
+        &plan,
+        &catalog.prepare(config.clone()).unwrap()
+    ));
+    assert!(slot.recipe.spec().roles.is_empty());
+    catalog.start(config.clone(), deadline()).await.unwrap();
+    // This is the actual bound HostAdmission, not a fake registrar or a
+    // temporary scope. The cold virtual-device node is absent from its grants.
+    assert!(slot.start(deadline()).await.is_err());
+    assert!(pending.peer_stack(0).unwrap().device().is_none());
+    assert!(!pending.needs_cleanup());
+    assert!(catalog.commit(&config, || Ok(())).is_err());
+    catalog.shutdown(deadline()).await.unwrap();
+    drop(invocation);
+    drop(guard);
+    assert!(adapter.pending_endpoints.lock().unwrap().is_none());
+}
