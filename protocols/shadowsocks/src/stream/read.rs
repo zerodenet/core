@@ -69,7 +69,7 @@ where
                             }
                             self.read_key = Some(
                                 derive_download_key(self.cipher, &password, salt)
-                                    .map_err(|error| protocol_io(error))?,
+                                    .map_err(protocol_io)?,
                             );
                             if self.is_2022 {
                                 self.modern_response_salt = Some(salt.clone());
@@ -126,7 +126,7 @@ where
                             #[cfg(feature = "blake3")]
                             {
                                 crate::shared::validate_2022_timestamp(_timestamp)
-                                    .map_err(|error| protocol_io(error))?;
+                                    .map_err(protocol_io)?;
                             }
                             // SIP022 3.1.3: the client MUST verify the echoed request salt.
                             if resp_request_salt != self.request_salt {
