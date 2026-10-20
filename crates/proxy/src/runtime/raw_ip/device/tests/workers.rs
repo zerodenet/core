@@ -27,11 +27,7 @@ async fn original_endpoint_driver_and_two_tcp_workers_are_retained_until_actual_
     })
     .await;
     let syn = packets.recv().await.unwrap();
-    assert!(
-        zero_stack::packet::parse_tcp(&syn.packet).unwrap().flags
-            & zero_stack::packet::tcp_flags::SYN
-            != 0
-    );
+    assert!(zero_stack::packet::parse_tcp(&syn.packet).unwrap().syn);
     // The driver has really consumed and submitted SYN, and connect is still
     // waiting for an actual handshake. None of the three original task handles
     // is silently replaced by an abort-only or Drop completion witness.
