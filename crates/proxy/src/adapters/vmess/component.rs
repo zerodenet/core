@@ -1,9 +1,10 @@
 //! Pure selection and cold projection; resourceful styles keep their real owner.
+//! gRPC stays with its existing driver until a native task/resource owner exists.
 use zero_config::{ConfigError, OutboundConfig, OutboundProtocolConfig};
 pub(crate) const LEGACY_CONNECT_STAGE: &str = "connect_upstream_vmess";
 
 pub(crate) fn native_input(input: &OutboundConfig) -> bool {
-    matches!(&input.protocol, OutboundProtocolConfig::Vmess {mux_concurrency:None,tls,ws,..}
+    matches!(&input.protocol, OutboundProtocolConfig::Vmess {mux_concurrency:None,grpc:None,tls,ws,..}
         if ws.as_ref().is_none_or(|ws|ws.browser_dialer.is_none())
             && tls.as_ref().is_none_or(|tls|tls.ca_cert_path.is_none() && !tls.options.ech_config_list.contains("://")))
 }

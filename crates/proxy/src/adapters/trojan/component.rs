@@ -1,4 +1,5 @@
 //! Own the cold projection from public Trojan config into protocol options.
+//! gRPC stays with its existing driver until a native task/resource owner exists.
 use zero_config::{ConfigError, OutboundConfig, OutboundProtocolConfig};
 pub(crate) const LEGACY_CONNECT_STAGE: &str = "connect_upstream_trojan";
 
@@ -7,6 +8,7 @@ pub(crate) fn native_input(input: &OutboundConfig) -> bool {
         &input.protocol,
         OutboundProtocolConfig::Trojan {
             mux_concurrency: None,
+            grpc: None,
             ws,
             ..
         } if ws.as_ref().is_none_or(|ws| ws.browser_dialer.is_none())

@@ -58,6 +58,11 @@ impl Options {
         if input.ws.is_some() && input.grpc.is_some() {
             return Err(Error::Config("trojan: ws and grpc are mutually exclusive"));
         }
+        if input.grpc.is_some() {
+            return Err(Error::Unsupported(
+                "Trojan gRPC requires its carrier and registered driver owner",
+            ));
+        }
         dial.validate()
             .map_err(|_| Error::Config("invalid Trojan dial policy"))?;
         let address = match zero_core::address::parse_ip_literal(input.server) {

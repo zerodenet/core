@@ -102,6 +102,11 @@ impl Options {
         if input.ws.is_some() && input.grpc.is_some() {
             return Err(Error::Config("vless: ws and grpc are mutually exclusive"));
         }
+        if input.grpc.is_some() {
+            return Err(Error::Unsupported(
+                "VLESS gRPC requires its shared carrier and registered driver owner",
+            ));
+        }
         if input.ws.is_some_and(|ws| ws.browser_dialer().is_some()) {
             return Err(Error::Unsupported(
                 "VLESS browser dialer requires its resource owner",

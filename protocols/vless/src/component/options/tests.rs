@@ -4,7 +4,7 @@ fn options(
     tls: &OwnedClientTlsProfile,
     ws: Option<&OwnedWebSocketProfile>,
     grpc: Option<&OwnedGrpcProfile>,
-) -> Options {
+) -> Result<Options, Error> {
     Options::from_options_refs(
         VlessOutboundBuildOptionsRef {
             tag: "profile",
@@ -37,7 +37,6 @@ fn options(
         },
         Default::default(),
     )
-    .unwrap()
 }
 #[test]
 fn actual_native_options_use_the_original_vless_carrier_alpn_defaults_and_keep_explicit_values() {
@@ -62,16 +61,19 @@ fn actual_native_options_use_the_original_vless_carrier_alpn_defaults_and_keep_e
         ..Default::default()
     };
     assert_eq!(
-        options(&tls, None, None).tls.unwrap().alpn,
+        options(&tls, None, None).unwrap().tls.unwrap().alpn,
         ["h2", "http/1.1"]
     );
     assert_eq!(
-        options(&tls, Some(&ws), None).tls.unwrap().alpn,
+        options(&tls, Some(&ws), None).unwrap().tls.unwrap().alpn,
         ["http/1.1"]
     );
-    assert_eq!(options(&tls, None, Some(&grpc)).tls.unwrap().alpn, ["h2"]);
+    assert!(matches!(
+        options(&tls, None, Some(&grpc)),
+        Err(Error::Unsupported(_))
+    ));
     tls.alpn = vec!["explicit".into()];
-    for (ws, grpc) in [(None, None), (Some(&ws), None), (None, Some(&grpc))] {
-        assert_eq!(options(&tls, ws, grpc).tls.unwrap().alpn, tls.alpn);
+    for (ws, grpc) in [(None, None), (Some(&ws), None)] {
+        assert_eq!(options(&tls, ws, grpc).unwrap().tls.unwrap().alpn, tls.alpn);
     }
 }

@@ -12,15 +12,40 @@ fn input(extra: &str) -> OutboundConfig {
 }
 #[test]
 fn resourceful_styles_are_explicitly_excluded_and_never_dropped_by_direct_options() {
+    let registry = crate::register::component_registry();
+    assert!(registry.has_factory("vless"));
     for extra in [
         r#", "mux_concurrency":2"#,
         r#", "tls":{"ca_cert_path":"not-opened.pem"}"#,
         r#", "tls":{"server_name":"localhost","options":{"ech_config_list":"udp://127.0.0.1:53"}}"#,
         r#", "ws":{"browser_dialer":{}}"#,
+        r#", "grpc":{"service_names":["native/Tun"],"multi_mode":false}"#,
+        r#", "grpc":{"service_names":["native/Tun"],"multi_mode":true}"#,
+        r#", "tls":{"server_name":"localhost"},"grpc":{"service_names":["native/Tun"]}"#,
+        r#", "h2":{"host":"front.example","path":"/native"}"#,
     ] {
         let input = input(extra);
         assert!(!native_input(&input), "{extra}");
+        assert!(
+            !registry.has_factory_for("vless", &input),
+            "unmigrated configuration retains its legacy owner: {extra}"
+        );
         assert!(component_options(&input).is_err(), "{extra}");
+    }
+}
+#[test]
+fn ordinary_raw_tls_and_websocket_remain_selected_without_background_carrier_drivers() {
+    let registry = crate::register::component_registry();
+    for extra in [
+        "",
+        r#", "tls":{"server_name":"localhost"}"#,
+        r#", "ws":{"path":"/native"}"#,
+        r#", "tls":{"server_name":"localhost"},"ws":{"path":"/native"}"#,
+    ] {
+        let input = input(extra);
+        assert!(native_input(&input), "{extra}");
+        assert!(registry.has_factory_for("vless", &input), "{extra}");
+        assert!(component_options(&input).is_ok(), "{extra}");
     }
 }
 #[test]
