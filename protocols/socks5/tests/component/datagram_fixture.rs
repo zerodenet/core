@@ -155,7 +155,7 @@ pub(super) async fn server(
                 .unwrap();
             relay.send_to(&response, peer).await.unwrap();
         }
-        let mut control = control.into_inner();
+        let mut control = control.into_inner().unwrap();
         let mut extra = Vec::new();
         control.read_to_end(&mut extra).await.unwrap();
         assert!(extra.is_empty());

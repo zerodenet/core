@@ -6,6 +6,9 @@ pub struct AcceptedTcpStream {
     pub(super) io: ControlledTcpStream,
 }
 impl AcceptedTcpStream {
+    pub(crate) async fn peek(&self, bytes: &mut [u8]) -> io::Result<usize> {
+        self.io.peek_accepted(bytes).await
+    }
     pub fn local_addr(&self) -> io::Result<SocketAddr> {
         self.io.local_addr()
     }

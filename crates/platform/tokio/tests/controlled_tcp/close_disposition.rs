@@ -10,7 +10,8 @@ async fn panic_after_taking_original_close_retains_same_unknown_source_without_f
         listener.accept()
     );
     let (_io, mut control) =
-        ControlledTcpStream::new(socket.unwrap(), tokio_util::sync::CancellationToken::new());
+        ControlledTcpStream::new(socket.unwrap(), tokio_util::sync::CancellationToken::new())
+            .unwrap();
     let mut peer = peer.unwrap().0;
     let observer = control.close_observer();
     let shared = control.shared.clone();

@@ -433,3 +433,11 @@ VMess 普通 TCP 入站现在交付已认证的协议目的地与完整认证事
   callback panic retains an unknown publication outcome, its original owners
   and fault source, and blocks automatic redelivery. Physical declared closure
   and successful fault handoff remain distinct facts.
+
+- TokioSocket can carry the same unique accepted TCP byte view while the
+  listener entry retains the sole native control. Its Rust `into_inner` and
+  `into_controlled` conversions, and `ControlledTcpStream::new`, are now fallible:
+  a controlled accepted facade returns itself intact instead of extracting its
+  original FD or creating another owner. Ordinary native callers explicitly
+  unwrap the successful conversion. Metadata, effective addresses, peek and I/O
+  observation preserve the same stream; no V1/FFI/default activation changes.

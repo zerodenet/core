@@ -94,7 +94,7 @@ async fn pre_transfer_original_tokio_waker_drop_reenters_inflight_metadata_witho
             .poll_read(&mut Context::from_waker(&old), &mut buffer)
             .is_pending());
         drop(old); // the real original Tokio registration retains its clone
-        let (mut io, mut control) = socket.into_controlled(CancellationToken::new());
+        let (mut io, mut control) = socket.into_controlled(CancellationToken::new()).unwrap();
         *probe.shared.lock().unwrap() = Arc::downgrade(&control.shared);
         probe.close_drop.store(true, Ordering::SeqCst);
         let mut buffer = ReadBuf::new(&mut bytes);
@@ -132,7 +132,7 @@ fn real_pending_read_cooperative_self_wake_restores_socket_before_external_close
     runtime.handle().block_on(async {
         timeout(Duration::from_secs(5), async {
             let (socket, mut peer) = pair().await;
-            let (mut io, mut control) = socket.into_controlled(CancellationToken::new());
+            let (mut io, mut control) = socket.into_controlled(CancellationToken::new()).unwrap();
             let probe = Reenter::new();
             *probe.shared.lock().unwrap() = Arc::downgrade(&control.shared);
             let external = waker(probe.clone());
@@ -177,7 +177,7 @@ fn real_pending_read_cooperative_self_wake_restores_socket_before_external_close
 #[tokio::test]
 async fn replacing_and_dropping_caller_waker_never_holds_state_or_retains_the_owner() {
     let (socket, mut peer) = pair().await;
-    let (mut io, mut control) = socket.into_controlled(CancellationToken::new());
+    let (mut io, mut control) = socket.into_controlled(CancellationToken::new()).unwrap();
     let shared = Arc::downgrade(&control.shared);
     let probe = Reenter::new();
     *probe.shared.lock().unwrap() = shared.clone();

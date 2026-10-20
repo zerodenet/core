@@ -47,7 +47,8 @@ async fn original_observer_destructor_reenters_only_after_durable_native_close()
             });
             let (io, mut control) = socket
                 .with_observer(Some(observer.clone()))
-                .into_controlled(CancellationToken::new());
+                .into_controlled(CancellationToken::new())
+                .unwrap();
             *observer.shared.lock().unwrap() = Arc::downgrade(&control.shared);
             drop(observer);
             let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
@@ -73,7 +74,7 @@ async fn synchronous_socket_borrow_restores_same_original_after_native_operation
     timeout(Duration::from_secs(5), async {
         let (socket, mut peer) = pair().await;
         let local = socket.local_addr().unwrap();
-        let (mut io, mut control) = socket.into_controlled(CancellationToken::new());
+        let (mut io, mut control) = socket.into_controlled(CancellationToken::new()).unwrap();
         let shared = control.shared.clone();
         let panic = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
             let _borrow = shared.lease().unwrap();

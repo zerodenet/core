@@ -6,6 +6,6 @@ async fn accepted_sockets_do_not_delay_small_protocol_acknowledgements() {
         .await
         .unwrap();
     let (socket, _) = listener.accept().await.unwrap();
-    assert!(socket.into_inner().nodelay().unwrap());
+    assert!(socket.into_inner().unwrap().nodelay().unwrap());
     drop(client);
 }

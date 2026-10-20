@@ -134,10 +134,7 @@ fn website_operation(
                    socket: zero_platform_tokio::TokioSocket,
                    _context| async move {
             let peer = socket.peer_addr()?;
-            website
-                .serve(socket.into_inner(), peer)
-                .await
-                .map_err(EngineError::from)
+            website.serve(socket, peer).await.map_err(EngineError::from)
         },
     })
 }

@@ -1,7 +1,9 @@
 pub mod contract;
 pub mod controlled_icmp;
 mod tokio_listener;
+mod tokio_socket;
 pub use tokio_listener::TokioListener;
+use tokio_socket::Storage as TcpStorage;
 mod controlled_listener;
 pub mod file;
 pub use controlled_listener::{
@@ -59,7 +61,7 @@ pub use system_dns::system_dns_servers;
 
 #[derive(Debug)]
 pub struct TokioSocket {
-    inner: TcpStream,
+    inner: TcpStorage,
     effective_addresses: Option<(SocketAddr, SocketAddr)>,
     egress_interface: Option<EgressInterface>,
     observer: Option<std::sync::Arc<dyn zero_traits::IoObserver>>,
@@ -109,7 +111,7 @@ impl TokioSocket {
 
     pub fn new(inner: TcpStream) -> Self {
         Self {
-            inner,
+            inner: TcpStorage::Native(inner),
             effective_addresses: None,
             egress_interface: None,
             observer: None,
@@ -188,15 +190,32 @@ impl TokioSocket {
             error,
         })?;
         Ok(Self {
-            inner: stream,
+            inner: TcpStorage::Native(stream),
             effective_addresses: None,
             egress_interface: interface.cloned(),
             observer: None,
         })
     }
 
-    pub fn into_inner(self) -> TcpStream {
-        self.inner
+    /// Native-only extraction. A controlled accepted view is returned intact;
+    /// its original descriptor/control never escapes the listener's entry.
+    pub fn into_inner(self) -> Result<TcpStream, Self> {
+        match self.inner {
+            TcpStorage::Native(inner) => Ok(inner),
+            inner => Err(Self { inner, ..self }),
+        }
+    }
+    /// Pure view adaptation, without getters, cloning, binding or close rights.
+    pub fn from_accepted(io: AcceptedTcpStream) -> Self {
+        Self {
+            inner: TcpStorage::Accepted(Box::new(io)),
+            effective_addresses: None,
+            egress_interface: None,
+            observer: None,
+        }
+    }
+    pub(crate) fn is_controlled(&self) -> bool {
+        matches!(self.inner, TcpStorage::Accepted(_))
     }
 
     /// Addresses supplied by an explicitly enabled listener prelude.
@@ -416,11 +435,13 @@ fn ip_addr_to_ip(addr: IpAddr) -> IpAddress {
     }
 }
 
-pub async fn relay_bidirectional(left: TokioSocket, right: TokioSocket) -> io::Result<(u64, u64)> {
-    let mut left = left.into_inner();
-    let mut right = right.into_inner();
-
-    copy_bidirectional(&mut left, &mut right).await
+pub async fn relay_bidirectional(
+    mut left: TokioSocket,
+    mut right: TokioSocket,
+) -> io::Result<(u64, u64)> {
+    // Keep the original accepted view/control relationship through relay.
+    // As before, this low-level helper bypasses the facade's optional observer.
+    copy_bidirectional(&mut left.inner, &mut right.inner).await
 }
 
 #[derive(Debug)]

@@ -55,7 +55,7 @@ async fn ordinary_socks5_udp_uses_standard_session_domain_zero_payload_and_confi
                 .unwrap();
             relay.send_to(&response, peer).await.unwrap();
         }
-        let mut control = control.into_inner();
+        let mut control = control.into_inner().unwrap();
         let mut extra = Vec::new();
         control.read_to_end(&mut extra).await.unwrap();
         assert!(extra.is_empty());

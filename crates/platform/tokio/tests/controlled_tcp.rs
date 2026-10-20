@@ -64,7 +64,8 @@ async fn controlled_tcp_half_close_preserves_reverse_bytes_observer_and_closes_o
         let (mut io, mut control) = ControlledTcpStream::new(
             socket.with_observer(Some(observer.clone())),
             CancellationToken::new(),
-        );
+        )
+        .unwrap();
         assert_eq!(io.local_addr().unwrap(), local);
         assert_eq!(io.peer_addr().unwrap(), remote);
         io.write_all(b"request").await.unwrap();
@@ -103,8 +104,8 @@ async fn controlled_tcp_pending_read_wakes_on_local_cancel_without_cancelling_pa
         let (socket, mut peer) = pair().await;
         let (sibling, mut sibling_peer) = pair().await;
         let parent = CancellationToken::new();
-        let (mut io, mut control) = socket.into_controlled(parent.clone());
-        let (mut sibling, mut sibling_control) = sibling.into_controlled(parent.clone());
+        let (mut io, mut control) = socket.into_controlled(parent.clone()).unwrap();
+        let (mut sibling, mut sibling_control) = sibling.into_controlled(parent.clone()).unwrap();
         let entered = Arc::new(tokio::sync::Notify::new());
         let entering = entered.clone();
         let reader = tokio::spawn(async move {
@@ -156,7 +157,7 @@ async fn controlled_tcp_dropped_io_and_abandoned_or_expired_close_keep_owner_unt
 ) {
     timeout(Duration::from_secs(3), async {
         let (socket, mut peer) = pair().await;
-        let (io, mut control) = socket.into_controlled(CancellationToken::new());
+        let (io, mut control) = socket.into_controlled(CancellationToken::new()).unwrap();
         drop(io);
         {
             let closing = control.wait_closed(deadline());
@@ -192,8 +193,9 @@ async fn controlled_tcp_cancellation_wakes_a_real_backpressured_write_without_re
             socket.connect(listener.local_addr().unwrap()),
             listener.accept()
         );
-        let (mut io, mut control) =
-            TokioSocket::new(socket.unwrap()).into_controlled(CancellationToken::new());
+        let (mut io, mut control) = TokioSocket::new(socket.unwrap())
+            .into_controlled(CancellationToken::new())
+            .unwrap();
         let _peer = peer.unwrap().0; // Intentionally retain a real peer that does not read.
         let entered = Arc::new(tokio::sync::Notify::new());
         let entering = entered.clone();

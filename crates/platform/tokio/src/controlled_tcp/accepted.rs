@@ -17,7 +17,7 @@ impl ControlledTcpStream {
             return Err(closed());
         };
         match &*socket {
-            Socket::Tokio(socket) => socket.inner.set_nodelay(true),
+            Socket::Tokio(socket) => socket.inner.native()?.set_nodelay(true),
             #[cfg(any(unix, windows))]
             Socket::Native(_) => Err(io::Error::new(
                 io::ErrorKind::InvalidInput,

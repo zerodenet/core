@@ -116,13 +116,13 @@ impl NativeSocket {
             Err(source) => return Poll::Ready(Err(source)),
         };
         loop {
-            match socket.inner.poll_write_ready(cx) {
+            match socket.inner.native()?.poll_write_ready(cx) {
                 Poll::Pending => return Poll::Pending,
                 Poll::Ready(Err(source)) => return Poll::Ready(Err(source)),
                 Poll::Ready(Ok(())) => {}
             }
-            match socket.inner.try_io(Interest::WRITABLE, || {
-                let native = socket2::SockRef::from(&socket.inner);
+            match socket.inner.native()?.try_io(Interest::WRITABLE, || {
+                let native = socket2::SockRef::from(socket.inner.native()?);
                 if let Some(source) = native.take_error()? {
                     return Err(source);
                 }
@@ -178,7 +178,7 @@ impl NativeSocket {
         }
     }
     pub(in crate::controlled_tcp) fn set_nodelay(&self) -> io::Result<()> {
-        self.registered()?.inner.set_nodelay(true)
+        self.registered()?.inner.native()?.set_nodelay(true)
     }
     pub(in crate::controlled_tcp) fn poll_read(
         &mut self,
@@ -220,7 +220,7 @@ impl NativeSocket {
     pub(in crate::controlled_tcp) fn original_socket(&self) -> io::Result<RawSocket> {
         match &self.status {
             Status::Raw(socket) => Ok(socket.as_raw_socket()),
-            Status::Registered(socket) => Ok(socket.inner.as_raw_socket()),
+            Status::Registered(socket) => Ok(socket.inner.native()?.as_raw_socket()),
             Status::ConsumedUnknown(source) => Err(source.error()),
         }
     }

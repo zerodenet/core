@@ -77,7 +77,8 @@ async fn original_tokio_and_pending_native_poll_counts_survive_synchronous_obser
                 let (socket, peer) = pair().await;
                 let (io, control) = socket
                     .with_observer(Some(observer.clone()))
-                    .into_controlled(CancellationToken::new());
+                    .into_controlled(CancellationToken::new())
+                    .unwrap();
                 *observer.shared.lock().unwrap() = Arc::downgrade(&control.shared);
                 (io, control, peer)
             };
@@ -103,7 +104,8 @@ async fn real_read_observer_panic_restores_original_socket_without_poison_or_clo
         observer.panic_read.store(true, Ordering::SeqCst);
         let (mut io, mut control) = socket
             .with_observer(Some(observer.clone()))
-            .into_controlled(CancellationToken::new());
+            .into_controlled(CancellationToken::new())
+            .unwrap();
         *observer.shared.lock().unwrap() = Arc::downgrade(&control.shared);
         peer.write_all(b"x").await.unwrap();
         let shared = control.shared.clone();
@@ -136,7 +138,8 @@ async fn actual_reset_preserves_one_original_error_callback_outside_owner_lock()
         let observer = Arc::new(Reenter::default());
         let (mut io, mut control) = socket
             .with_observer(Some(observer.clone()))
-            .into_controlled(CancellationToken::new());
+            .into_controlled(CancellationToken::new())
+            .unwrap();
         *observer.shared.lock().unwrap() = Arc::downgrade(&control.shared);
         socket2::SockRef::from(&peer)
             .set_linger(Some(Duration::ZERO))

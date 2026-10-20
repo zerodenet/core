@@ -4,7 +4,13 @@ use std::{io, net::TcpStream, sync::Mutex};
 
 impl TokioSocket {
     pub fn close(self) -> io::Result<()> {
-        native_close(self.inner.into_std()?)
+        match self.inner {
+            crate::TcpStorage::Native(socket) => native_close(socket.into_std()?),
+            crate::TcpStorage::Accepted(_) => Err(io::Error::new(
+                io::ErrorKind::Unsupported,
+                "accepted native close belongs to its original listener owner",
+            )),
+        }
     }
     pub fn close_is_retryable(error: &io::Error) -> bool {
         error

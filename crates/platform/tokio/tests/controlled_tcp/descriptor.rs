@@ -32,8 +32,9 @@ async fn controlled_tcp_close_removes_the_original_linux_socket_identity_while_i
         let fd = stream.as_raw_fd();
         let original = identity(fd).unwrap();
         assert_ne!(original.1, 0);
-        let (mut io, mut control) =
-            TokioSocket::new(stream).into_controlled(CancellationToken::new());
+        let (mut io, mut control) = TokioSocket::new(stream)
+            .into_controlled(CancellationToken::new())
+            .unwrap();
         let report = control.wait_closed(Instant::now()).await.unwrap();
         assert!(!report.is_complete());
         assert_eq!(identity(fd), Some(original));

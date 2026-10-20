@@ -6,6 +6,7 @@ mod control;
 mod lease;
 mod native;
 mod observation;
+mod peek;
 mod relay;
 mod socket;
 use crate::TokioSocket;
@@ -113,13 +114,19 @@ pub struct ControlledTcpStream {
     write_waiter: Arc<WaitTarget>,
 }
 impl ControlledTcpStream {
-    pub fn new(socket: TokioSocket, parent: CancellationToken) -> (Self, ControlledTcpControl) {
+    pub fn new(
+        socket: TokioSocket,
+        parent: CancellationToken,
+    ) -> Result<(Self, ControlledTcpControl), TokioSocket> {
+        if socket.is_controlled() {
+            return Err(socket);
+        }
         let label = format!(
             "native TCP {:?} -> {:?}",
             socket.inner.local_addr().ok(),
             socket.inner.peer_addr().ok()
         );
-        Self::new_labeled(socket, parent, label)
+        Ok(Self::new_labeled(socket, parent, label))
     }
     fn new_labeled(
         mut socket: TokioSocket,
@@ -245,7 +252,7 @@ impl TokioSocket {
     pub fn into_controlled(
         self,
         cancel: CancellationToken,
-    ) -> (ControlledTcpStream, ControlledTcpControl) {
+    ) -> Result<(ControlledTcpStream, ControlledTcpControl), Self> {
         ControlledTcpStream::new(self, cancel)
     }
 }
