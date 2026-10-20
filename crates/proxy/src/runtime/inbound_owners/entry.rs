@@ -15,6 +15,8 @@ use zero_platform_tokio::contract::{
     ChannelError, CloseReason, Impact, Reason, Stage,
 };
 mod shutdown;
+mod terminal;
+pub(crate) use terminal::{ClosedInboundReceipt, InboundTerminal};
 #[cfg(test)]
 mod tests;
 struct Resource {
@@ -33,6 +35,11 @@ pub(crate) struct InboundOwner {
     failure: Mutex<Option<SharedError>>,
     driver: OnceLock<TaskId>,
     driver_finished: AtomicBool,
+    scope_closed: AtomicBool,
+    physically_closed: AtomicBool,
+    joined_count: Mutex<usize>,
+    task_failures: Mutex<std::collections::BTreeMap<TaskId, terminal::InboundTaskFailure>>,
+    terminal: OnceLock<Arc<InboundTerminal>>,
     #[cfg(feature = "managed-datagram-runtime")]
     peers: Mutex<Vec<Arc<super::InboundPeerTasks>>>,
 }
@@ -90,6 +97,11 @@ impl InboundOwner {
             failure: Mutex::new(None),
             driver: OnceLock::new(),
             driver_finished: AtomicBool::new(false),
+            scope_closed: AtomicBool::new(false),
+            physically_closed: AtomicBool::new(false),
+            joined_count: Mutex::new(0),
+            task_failures: Mutex::default(),
+            terminal: OnceLock::new(),
             #[cfg(feature = "managed-datagram-runtime")]
             peers: Mutex::new(Vec::new()),
         }
@@ -98,15 +110,17 @@ impl InboundOwner {
         &self,
         identity: ComponentInstanceId,
         owner: Box<dyn DynResourceLifecycle>,
-    ) {
-        self.resources
-            .lock()
-            .expect("inbound resources poisoned")
-            .push(Arc::new(Resource {
-                identity,
-                owner: AsyncMutex::new(owner),
-                stopped: AtomicBool::new(false),
-            }));
+    ) -> Result<(), EngineError> {
+        let mut resources = self.resources.lock().expect("inbound resources poisoned");
+        if self.cancel.is_cancelled() {
+            return Err(std::io::Error::other("inbound resource installation is closed").into());
+        }
+        resources.push(Arc::new(Resource {
+            identity,
+            owner: AsyncMutex::new(owner),
+            stopped: AtomicBool::new(false),
+        }));
+        Ok(())
     }
     pub(crate) fn task_access(&self) -> InboundTaskAccess {
         InboundTaskAccess {
@@ -127,10 +141,12 @@ impl InboundOwner {
             self.cancel.clone(),
             protocols,
         ));
-        self.peers
-            .lock()
-            .expect("peer owners poisoned")
-            .push(group.clone());
+        let mut peers = self.peers.lock().expect("peer owners poisoned");
+        assert!(
+            !self.cancel.is_cancelled(),
+            "peer installation after inbound shutdown"
+        );
+        peers.push(group.clone());
         group
     }
     pub(crate) fn spawn_driver(
@@ -203,46 +219,6 @@ impl InboundOwner {
         #[cfg(feature = "managed-datagram-runtime")]
         for peers in self.peers.lock().expect("peer owners poisoned").iter() {
             peers.begin_shutdown();
-        }
-    }
-    fn record(&self, exit: TaskExit) {
-        let mut report = self.report.lock().expect("inbound close report poisoned");
-        let failed = exit.result.is_err();
-        let failure = if let Err(mut error) = exit.result {
-            error.component.get_or_insert(self.identity.component);
-            let error = Arc::new(error);
-            self.failure
-                .lock()
-                .expect("inbound failure poisoned")
-                .get_or_insert(error.clone());
-            report.failed_tasks.push(TaskFailure {
-                id: exit.id,
-                class: exit.class,
-                error: retained(error.clone()),
-            });
-            Some(error)
-        } else {
-            None
-        };
-        #[cfg(feature = "managed-datagram-runtime")]
-        let peer = self
-            .peers
-            .lock()
-            .expect("peer owners poisoned")
-            .iter()
-            .any(|group| group.joined(exit.id, exit.class, failure.clone()));
-        #[cfg(not(feature = "managed-datagram-runtime"))]
-        let peer = {
-            let _ = failure;
-            false
-        };
-        // A successful dynamic peer's actual exit is consumed by its group;
-        // keep only bounded active IDs and sticky failed receipts, not history.
-        if !peer || failed {
-            report.exited_tasks.push(exit.id);
-        }
-        if self.driver.get() == Some(&exit.id) {
-            self.driver_finished.store(true, Ordering::Release);
         }
     }
     fn result(&self) -> Result<(), EngineError> {

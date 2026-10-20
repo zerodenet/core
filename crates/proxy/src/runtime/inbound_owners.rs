@@ -4,8 +4,9 @@ mod entry;
 mod peer_binding;
 #[cfg(feature = "managed-datagram-runtime")]
 mod peers;
+mod recovery;
 use crate::inventory::ProtocolInventory;
-pub(crate) use entry::{InboundOwner, InboundTaskAccess};
+pub(crate) use entry::{ClosedInboundReceipt, InboundOwner, InboundTaskAccess, InboundTerminal};
 #[cfg(feature = "managed-datagram-runtime")]
 pub(crate) use peer_binding::{HostPeerBinding, JoinedPeer};
 #[cfg(feature = "managed-datagram-runtime")]
@@ -23,13 +24,18 @@ use zero_platform_tokio::contract::{lifecycle::DynResourceLifecycle, Cancellatio
 #[derive(Default)]
 pub(crate) struct InboundOwnerRegistry {
     entries: Mutex<HashMap<String, Arc<InboundOwner>>>,
+    terminals: Mutex<HashMap<String, Arc<InboundTerminal>>>,
 }
 impl std::fmt::Debug for InboundOwnerRegistry {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("InboundOwnerRegistry")
             .field(
                 "owners",
-                &self.entries.lock().expect("inbound owners poisoned").len(),
+                &self
+                    .entries
+                    .lock()
+                    .unwrap_or_else(std::sync::PoisonError::into_inner)
+                    .len(),
             )
             .finish()
     }
@@ -49,7 +55,7 @@ impl InboundInstallContext {
         owner: Box<dyn DynResourceLifecycle>,
     ) -> Result<ComponentInstanceId, EngineError> {
         let identity = self.protocols.allocate_resource_identity()?;
-        self.entry.install_resource(identity, owner);
+        self.entry.install_resource(identity, owner)?;
         Ok(identity)
     }
     pub(crate) fn tasks(&self) -> InboundTaskAccess {
@@ -68,7 +74,10 @@ impl InboundOwnerRegistry {
             .checked_add(1)
             .and_then(NonZeroUsize::new)
             .ok_or_else(|| std::io::Error::other("inbound declared task limit exhausted"))?;
-        let mut entries = self.entries.lock().expect("inbound owners poisoned");
+        let mut entries = self
+            .entries
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
         if entries.contains_key(tag) {
             return Err(std::io::Error::other(format!(
                 "inbound `{tag}` still has an unconfirmed owner"
@@ -89,29 +98,27 @@ impl InboundOwnerRegistry {
     pub(crate) fn owner(&self, tag: &str) -> Option<Arc<InboundOwner>> {
         self.entries
             .lock()
-            .expect("inbound owners poisoned")
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
             .get(tag)
             .cloned()
     }
     pub(crate) async fn shutdown(&self, tag: &str, deadline: Instant) -> Result<(), EngineError> {
-        let Some(entry) = self.owner(tag) else {
+        let Some(receipt) = self.confirm_shutdown(tag, deadline).await? else {
             return Ok(());
         };
-        entry.shutdown(deadline).await?;
-        let mut entries = self.entries.lock().expect("inbound owners poisoned");
-        if entries
-            .get(tag)
-            .is_some_and(|current| Arc::ptr_eq(current, &entry))
-        {
-            entries.remove(tag);
+        if let Some(failure) = receipt.terminal().failure() {
+            return Err(
+                std::io::Error::other(crate::component::instance::retained(failure)).into(),
+            );
         }
-        Ok(())
+        self.release_closed(receipt, |_| Ok(()))
     }
+
     pub(crate) async fn shutdown_all(&self, deadline: Instant) -> Result<(), EngineError> {
         let tags = self
             .entries
             .lock()
-            .expect("inbound owners poisoned")
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
             .keys()
             .cloned()
             .collect::<Vec<_>>();

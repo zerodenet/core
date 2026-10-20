@@ -16,7 +16,7 @@ impl InboundOwner {
                 }
                 let mut owner = resource.owner.lock().await;
                 owner.revoke(CloseReason::Shutdown);
-                let report = match owner.shutdown(deadline).await {
+                let mut report = match owner.shutdown(deadline).await {
                     Ok(report) => report,
                     Err(mut error) => {
                         error.component.get_or_insert(resource.identity.component);
@@ -29,6 +29,7 @@ impl InboundOwner {
                         continue;
                     }
                 };
+                self.retain_resource_failures(&mut report);
                 let complete = report.is_complete();
                 self.report
                     .lock()
@@ -53,7 +54,10 @@ impl InboundOwner {
             loop {
                 match timeout_at(deadline, scope.next_exit()).await {
                     Ok(Some(exit)) => self.record(exit),
-                    Ok(None) => return Ok::<(), std::io::Error>(()),
+                    Ok(None) => {
+                        self.scope_closed.store(true, Ordering::Release);
+                        return Ok::<(), std::io::Error>(());
+                    }
                     Err(_) => {
                         return Err(std::io::Error::new(
                             std::io::ErrorKind::TimedOut,
@@ -88,8 +92,14 @@ impl InboundOwner {
             resources.and(tasks).and(peers)
         })
         .await;
+        if self.confirm_physical_close() {
+            // Failure reporting and actual physical completion are independent.
+            return self.result();
+        }
         match result {
-            Ok(Ok(())) => self.result(),
+            Ok(Ok(())) => {
+                Err(std::io::Error::other("inbound physical confirmation is incomplete").into())
+            }
             Ok(Err(error)) => Err(error.into()),
             Err(_) => Err(std::io::Error::new(
                 std::io::ErrorKind::TimedOut,

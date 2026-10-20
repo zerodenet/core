@@ -196,6 +196,20 @@ impl InboundPeerTasks {
         self.notify_changed();
         true
     }
+    pub(super) fn physically_closed(&self) -> bool {
+        let state = self.state.lock().expect("peer task state poisoned");
+        state.closing
+            && state.active.is_empty()
+            && state.preparing == 0
+            && state.children.is_empty()
+            && state.claiming.is_empty()
+    }
+    pub(super) fn closed_io_count(&self) -> usize {
+        self.state
+            .lock()
+            .expect("peer task state poisoned")
+            .closed_io
+    }
     pub(crate) fn begin_shutdown(&self) {
         let mut state = self.state.lock().expect("peer task state poisoned");
         state.closing = true;
