@@ -37,6 +37,8 @@ struct Resource {
 pub(crate) struct InboundOwner {
     identity: ComponentInstanceId,
     #[cfg(feature = "raw-ip-runtime")]
+    scope_task_limit: NonZeroUsize,
+    #[cfg(feature = "raw-ip-runtime")]
     pub(super) icmp_probe: OnceLock<crate::component::instance::HostIcmpProbeGrant>,
     pub(super) recovery: OnceLock<Arc<dyn crate::protocol_registry::InboundRecovery>>,
     shutdown: watch::Sender<bool>,
@@ -106,6 +108,8 @@ impl InboundOwner {
         let registrar = scope.registrar();
         Self {
             identity,
+            #[cfg(feature = "raw-ip-runtime")]
+            scope_task_limit: limit,
             recovery: OnceLock::new(),
             #[cfg(feature = "raw-ip-runtime")]
             icmp_probe: OnceLock::new(),
@@ -188,6 +192,41 @@ impl InboundOwner {
         );
         peers.push(group.clone());
         group
+    }
+    #[cfg(feature = "raw-ip-runtime")]
+    pub(super) fn install_child_group(
+        &self,
+        protocols: ProtocolInventory,
+        limit: NonZeroUsize,
+    ) -> Result<Arc<super::InboundPeerTasks>, EngineError> {
+        let mut groups = self.peers.lock().expect("peer owners poisoned");
+        if self.cancel.is_cancelled() || self.driver.get().is_some() {
+            return Err(std::io::Error::other(
+                "child groups must be installed before the actual driver starts",
+            )
+            .into());
+        }
+        let used = groups
+            .iter()
+            .try_fold(1_usize, |sum, group| {
+                sum.checked_add(group.declared_limit())
+            })
+            .and_then(|sum| sum.checked_add(limit.get()))
+            .ok_or_else(|| std::io::Error::other("actual child task declaration exhausted"))?;
+        if used > self.scope_task_limit.get() {
+            return Err(std::io::Error::other(
+                "actual child groups exceed the listener's declared task scope",
+            )
+            .into());
+        }
+        let group = Arc::new(super::InboundPeerTasks::with_limit(
+            self.identity,
+            self.cancel.clone(),
+            protocols,
+            limit,
+        ));
+        groups.push(group.clone());
+        Ok(group)
     }
     pub(crate) fn spawn_driver(
         self: &Arc<Self>,

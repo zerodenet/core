@@ -23,6 +23,7 @@ struct State {
 pub(crate) struct InboundPeerTasks {
     identity: ComponentInstanceId,
     protocols: ProtocolInventory,
+    limit: NonZeroUsize,
     cancel: CancellationToken,
     state: Mutex<State>,
     changed: Notify,
@@ -81,10 +82,31 @@ impl InboundPeerTasks {
         Self {
             identity,
             protocols,
+            limit: NonZeroUsize::new(MAX_DATAGRAM_PEERS).unwrap(),
             cancel,
             state: Mutex::default(),
             changed: Notify::new(),
         }
+    }
+    #[cfg(feature = "raw-ip-runtime")]
+    pub(super) fn with_limit(
+        identity: ComponentInstanceId,
+        cancel: CancellationToken,
+        protocols: ProtocolInventory,
+        limit: NonZeroUsize,
+    ) -> Self {
+        let mut group = Self::new(identity, cancel, protocols);
+        group.limit = limit;
+        group
+    }
+    #[cfg(feature = "raw-ip-runtime")]
+    pub(super) fn declared_limit(&self) -> usize {
+        self.limit.get()
+    }
+    #[cfg(feature = "raw-ip-runtime")]
+    pub(crate) fn occupied(&self) -> usize {
+        let state = self.state.lock().expect("peer task state poisoned");
+        state.active.len() + state.preparing
     }
     #[cfg(test)]
     pub(crate) fn spawn<F, Fut>(
@@ -123,7 +145,7 @@ impl InboundPeerTasks {
         }
         let binding = {
             let mut state = self.state.lock().expect("peer task state poisoned");
-            if state.closing || state.active.len() + state.preparing >= MAX_DATAGRAM_PEERS {
+            if state.closing || state.active.len() + state.preparing >= self.limit.get() {
                 return Ok(false);
             }
             state.preparing += 1;

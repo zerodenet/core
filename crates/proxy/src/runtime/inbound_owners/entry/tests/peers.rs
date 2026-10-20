@@ -135,3 +135,74 @@ async fn successful_peer_joins_reclaim_ids_instead_of_growing_the_persistent_rep
     assert_eq!(report.exited_tasks, vec![*owner.driver.get().unwrap()]);
     assert!(report.failed_tasks.is_empty());
 }
+
+#[cfg(feature = "raw-ip-runtime")]
+#[tokio::test]
+async fn explicit_child_groups_share_the_actual_scope_without_borrowing_another_group_quota() {
+    let proxy = Proxy::new(
+        zero_config::RuntimeConfig::parse(r#"{"route":{"final":{"type":"direct"}}}"#).unwrap(),
+    )
+    .unwrap();
+    let (stop, _) = watch::channel(false);
+    let installed = proxy
+        .inbound_owners
+        .install("bounded-children", &proxy.protocols, 2, stop)
+        .unwrap();
+    let first = installed
+        .child_tasks(NonZeroUsize::new(1).unwrap())
+        .unwrap();
+    let second = installed
+        .child_tasks(NonZeroUsize::new(1).unwrap())
+        .unwrap();
+    assert!(installed
+        .child_tasks(NonZeroUsize::new(1).unwrap())
+        .is_err());
+    let owner = installed.owner();
+    let (finish, finished) = tokio::sync::oneshot::channel();
+    owner
+        .spawn_driver(async move {
+            finished.await.map_err(std::io::Error::other)?;
+            Ok(())
+        })
+        .unwrap();
+    let host = installed.tasks();
+    let (release, released) = tokio::sync::oneshot::channel();
+    assert!(first
+        .spawn_bound(&host, |binding| async move {
+            binding.wait_bound().await.map_err(std::io::Error::other)?;
+            released.await.map_err(std::io::Error::other)?;
+            Ok(())
+        })
+        .unwrap());
+    assert_eq!(first.occupied(), 1);
+    let called = Arc::new(std::sync::atomic::AtomicBool::new(false));
+    let rejected = called.clone();
+    assert!(!first
+        .spawn_bound(&host, |_| {
+            rejected.store(true, std::sync::atomic::Ordering::Release);
+            async { Ok(()) }
+        })
+        .unwrap());
+    assert!(!called.load(std::sync::atomic::Ordering::Acquire));
+    assert!(second
+        .spawn_bound(&host, |binding| async move {
+            binding.wait_bound().await.map_err(std::io::Error::other)?;
+            Ok(())
+        })
+        .unwrap());
+    // Body completion and an available peer slot are different facts; only
+    // the original scope's consumed TaskExit can reclaim either group record.
+    assert_eq!(second.occupied(), 1);
+    release.send(()).unwrap();
+    finish.send(()).unwrap();
+    assert!(installed
+        .child_tasks(NonZeroUsize::new(1).unwrap())
+        .is_err());
+    owner
+        .shutdown(Instant::now() + Duration::from_secs(2))
+        .await
+        .unwrap();
+    assert_eq!(first.occupied(), 0);
+    assert_eq!(second.occupied(), 0);
+    assert_eq!(owner.terminal_for_test().unwrap().joined_tasks(), 3);
+}

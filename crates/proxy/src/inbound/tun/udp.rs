@@ -19,12 +19,19 @@ use crate::runtime::udp_ingress::UdpIngressRuntime;
 #[cfg(feature = "raw-ip-runtime")]
 mod owned;
 #[cfg(feature = "raw-ip-runtime")]
+mod scoped;
+#[cfg(feature = "raw-ip-runtime")]
 pub(crate) use owned::OwnedTunUdpTasks;
 mod association;
 mod run;
 mod task_set;
 use association::{AdmissionRejection, AssociationRegistry, Delivery};
 use run::run_inner;
+
+#[cfg(feature = "raw-ip-runtime")]
+type AssociationBinding = Arc<crate::runtime::inbound_owners::HostPeerBinding>;
+#[cfg(not(feature = "raw-ip-runtime"))]
+type AssociationBinding = ();
 
 const ASSOCIATION_IDLE_TIMEOUT: Duration = Duration::from_secs(120);
 const ASSOCIATION_QUEUE_CAPACITY: usize = 128;
@@ -198,7 +205,30 @@ fn spawn_association(
     let runtime = runtime.with_source_addr(Some(
         zero_platform_tokio::socket_address_to_socket_addr(source),
     ));
-    let registered = tasks.spawn(async move {
+    #[cfg(feature = "raw-ip-runtime")]
+    let scope = tasks.scope();
+    #[cfg(feature = "raw-ip-runtime")]
+    let ingress = scope.as_ref().map(|_| runtime.peer_ingress()).transpose()?;
+    let registered = tasks.spawn_bound(move |binding| async move {
+        #[cfg(feature = "raw-ip-runtime")]
+        let runtime = match (binding, scope, ingress) {
+            (Some(binding), Some(scope), Some(ingress)) => {
+                if let Err(error) = binding.wait_bound().await {
+                    return (source, id, Err(std::io::Error::other(error).into()));
+                }
+                runtime.with_peer_resources(scope.group.resource_context(binding, ingress))
+            }
+            (None, None, None) => runtime,
+            _ => {
+                return (
+                    source,
+                    id,
+                    Err(std::io::Error::other("raw-IP association Scope origin mismatch").into()),
+                )
+            }
+        };
+        #[cfg(not(feature = "raw-ip-runtime"))]
+        let _ = binding;
         #[cfg(feature = "raw-ip-runtime")]
         if let Some(native) = &mut native {
             if let Err(error) = native.enter() {

@@ -62,6 +62,14 @@ impl InboundInstallContext {
     pub(crate) fn peer_tasks(&self) -> Arc<InboundPeerTasks> {
         self.entry.install_peer_tasks(self.protocols.clone())
     }
+    #[cfg(feature = "raw-ip-runtime")]
+    pub(crate) fn child_tasks(
+        &self,
+        limit: NonZeroUsize,
+    ) -> Result<Arc<InboundPeerTasks>, EngineError> {
+        self.entry
+            .install_child_group(self.protocols.clone(), limit)
+    }
     pub(crate) fn register(
         &self,
         owner: Box<dyn DynResourceLifecycle>,

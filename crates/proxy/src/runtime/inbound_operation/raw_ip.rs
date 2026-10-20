@@ -124,6 +124,10 @@ impl Drop for RawIpInboundEndpoint {
 }
 
 impl PreparedInboundListenerOperation for RawIpInboundListenerOperation {
+    fn internal_tasks(&self) -> usize {
+        crate::inbound::tun::udp::OwnedTunUdpTasks::MAX_ASSOCIATIONS
+    }
+
     fn install_resources(
         &mut self,
         context: &crate::runtime::inbound_owners::InboundInstallContext,

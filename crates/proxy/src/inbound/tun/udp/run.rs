@@ -16,13 +16,14 @@ pub(super) async fn run_inner(
     let mut legacy_dns = JoinSet::new();
     #[cfg(feature = "raw-ip-runtime")]
     let mut tasks = match &owned {
-        Some(owner) => task_set::TunTasks::Owned(
-            owner
-                .associations
-                .lock()
-                .await
-                .map_err(std::io::Error::other)?,
-        ),
+        Some(owner) => task_set::TunTasks::Scoped(super::scoped::ScopedTasks {
+            scope: owner.scope.get().cloned().ok_or_else(|| {
+                std::io::Error::other("actual raw-IP association Scope was not installed")
+            })?,
+            completed: owner.completed.clone(),
+            lost: super::owned::lost_completion,
+            receiver: owner.receiver.lock().await,
+        }),
         None => task_set::TunTasks::Legacy(&mut legacy_tasks),
     };
     #[cfg(not(feature = "raw-ip-runtime"))]
@@ -173,7 +174,7 @@ pub(super) async fn run_inner(
                     }
                 }
             }
-            Some(completed) = tasks.join_next(), if !tasks.is_empty() => {
+            Some(completed) = tasks.next_completion(), if !tasks.is_empty() => {
                 match completed {
                     Ok((source, id, Ok(()))) => {
                         if associations.remove_matching(source, id) {
@@ -188,14 +189,15 @@ pub(super) async fn run_inner(
                     }
                     Err(error) => {
                         #[cfg(feature = "raw-ip-runtime")]
-                        if let Some(owner) = &owned {
-                            return Err(std::io::Error::other(owner.associations.remember(error)).into());
+                        if owned.is_some() {
+                            // Scope owns the actual TaskExit; this metadata facade cannot invent one.
+                            return Err(std::io::Error::other(error).into());
                         }
                         tracing::warn!(error = %error, "TUN UDP association task panicked");
                     },
                 }
             }
-            Some(completed) = dns_tasks.join_next(), if !dns_tasks.is_empty() => {
+            Some(completed) = dns_tasks.next_completion(), if !dns_tasks.is_empty() => {
                 match completed {
                     Ok(Ok(())) => {}
                     Ok(Err(error)) => tracing::warn!(error = %error, "TUN DNS query failed"),
