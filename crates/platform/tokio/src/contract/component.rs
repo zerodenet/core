@@ -8,6 +8,8 @@ use zero_traits::IoObserver;
 
 mod process;
 pub use process::ProcessRequest;
+mod outbound_datagram;
+pub use outbound_datagram::{GrantedOutboundDatagram, OutboundDatagramRequest};
 
 use super::{
     datagram::DynDatagramOutbound,
@@ -39,6 +41,14 @@ pub enum DeviceOwnership {
 pub enum ResourceDeclaration {
     TcpListener(Destination),
     DatagramListener(Destination),
+    /// A literal outbound peer on the actual host network generation. The
+    /// current provider supports exactly one socket and one acquisition attempt
+    /// (including failures), default dial policy and no preferred source port.
+    OutboundDatagram {
+        peer: std::net::SocketAddr,
+        network_generation: zero_core::component::NetworkGeneration,
+        max_sockets: NonZeroUsize,
+    },
     Device {
         name: Arc<str>,
         ownership: DeviceOwnership,
@@ -79,6 +89,20 @@ pub struct ComponentSpec {
 /// The host implements access only for resources declared by this component.
 /// Calls are deferred until ResourceLifecycle::start, after ownership is installed.
 pub trait ResourceAccess: Send + Sync {
+    /// Default deny. Success must be installed synchronously in the protocol's
+    /// persistent socket owner before callbacks, generation checks or awaits.
+    /// The actual host selection is returned; protocols cannot supply one.
+    fn open_outbound_datagram(
+        &self,
+        _: OutboundDatagramRequest,
+    ) -> Result<GrantedOutboundDatagram, BuildError> {
+        Err(super::ChannelError::new(
+            super::Stage::Prepare,
+            super::Reason::InvalidConfig,
+            super::Impact::Component,
+        )
+        .with_source(std::io::Error::other("undeclared outbound datagram")))
+    }
     /// Synchronous so the persistent protocol owner can install the returned
     /// Child before any await. Default deny; only the host grants native starts.
     fn spawn_process(&self, _: ProcessRequest) -> Result<tokio::process::Child, BuildError> {
