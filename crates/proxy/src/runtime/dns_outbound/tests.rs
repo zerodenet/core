@@ -16,8 +16,7 @@ fn dns_callback_does_not_keep_outbound_pools_alive_after_proxy_drop() {
     // proxy, but its callback must no longer revive the outbound inventory.
     let error = callback
         .source()
-        .err()
-        .expect("inventory retained by DNS callback");
+        .expect_err("inventory retained by DNS callback");
     assert_eq!(error.kind(), std::io::ErrorKind::NotConnected);
 }
 

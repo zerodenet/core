@@ -17,7 +17,7 @@ pub(super) enum RetainedSource {
     Bound(Recipe),
     // Explicit migration gap: unknown owners retain the existing compatibility
     // path. Unsupported is never converted into a successful owner check.
-    Legacy(TcpExecutionServices),
+    Legacy(Box<TcpExecutionServices>),
     Rejected(Arc<EngineError>),
 }
 #[derive(Clone)]
@@ -68,7 +68,7 @@ impl RetainedSource {
         match capture() {
             Ok(recipe) => Self::Bound(recipe),
             Err(EngineError::Core(zero_core::Error::Unsupported(_))) => {
-                Self::Legacy(services.clone())
+                Self::Legacy(Box::new(services.clone()))
             }
             Err(error) => Self::Rejected(Arc::new(error)),
         }
@@ -78,7 +78,7 @@ impl RetainedSource {
         prefix: &PreparedTcpRelayPrefix,
     ) -> Result<TcpExecutionServices, EngineError> {
         match self {
-            Self::Legacy(services) => Ok(services.clone()),
+            Self::Legacy(services) => Ok(services.as_ref().clone()),
             Self::Rejected(error) => Err(EngineError::Io(io::Error::other(error.clone()))),
             Self::Bound(recipe) => {
                 let source = recipe
