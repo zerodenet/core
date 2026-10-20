@@ -5,6 +5,7 @@ use super::*;
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(in crate::component) enum DeclaredResourceKind {
     ControlledOutboundStream,
+    ControlledDirectStream,
     NativeIcmp,
     MetadataDatagram,
     File,
@@ -32,7 +33,7 @@ pub(in crate::component) struct DeclarationEvidence {
     pub provider: DeclarationProvider,
 }
 pub(super) enum CoverageBinding {
-    Carrier,
+    Carrier(DeclaredResourceKind),
     File(PathBuf),
     Tcp(SocketAddr),
     Datagram(SocketAddr),
@@ -44,7 +45,12 @@ impl CoverageBinding {
         declaration: &ResourceDeclaration,
     ) -> Result<Self, ChannelError> {
         Ok(match declaration {
-            ResourceDeclaration::ControlledOutboundStream { .. } => Self::Carrier,
+            ResourceDeclaration::ControlledOutboundStream { .. } => {
+                Self::Carrier(DeclaredResourceKind::ControlledOutboundStream)
+            }
+            ResourceDeclaration::ControlledDirectStream { .. } => {
+                Self::Carrier(DeclaredResourceKind::ControlledDirectStream)
+            }
             ResourceDeclaration::MetadataDatagram { .. } => {
                 Self::Unaccounted(DeclaredResourceKind::MetadataDatagram)
             }
@@ -78,7 +84,7 @@ impl CoverageBinding {
         native: &[evidence::NativeIoEvidence],
     ) -> DeclarationEvidence {
         let (kind, provider) = match self {
-            Self::Carrier => (DeclaredResourceKind::ControlledOutboundStream, None),
+            Self::Carrier(kind) => (*kind, None),
             Self::File(path) => (
                 DeclaredResourceKind::File,
                 files
@@ -152,10 +158,18 @@ impl evidence::HostIoEvidence {
                     }
                 }
                 DeclarationProvider::Carrier(index)
-                    if declaration.kind == DeclaredResourceKind::ControlledOutboundStream =>
+                    if matches!(
+                        declaration.kind,
+                        DeclaredResourceKind::ControlledOutboundStream
+                            | DeclaredResourceKind::ControlledDirectStream
+                    ) =>
                 {
                     match (self.carriers.get(index), carriers.get_mut(index)) {
-                        (Some(owner), Some(seen)) if !*seen && owner.ordinal == ordinal => {
+                        (Some(owner), Some(seen))
+                            if !*seen
+                                && owner.ordinal == ordinal
+                                && owner.kind == declaration.kind =>
+                        {
                             *seen = true;
                             owner.physical_confirmed()
                         }

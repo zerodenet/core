@@ -40,13 +40,15 @@ impl HostResources {
             .declarations
             .get(&ordinal)
             .ok_or_else(|| self.denied())?;
-        let ResourceDeclaration::ControlledOutboundStream { max_sockets, .. } = declaration else {
-            return Err(self.denied());
+        let max_sockets = match declaration {
+            ResourceDeclaration::ControlledOutboundStream { max_sockets, .. }
+            | ResourceDeclaration::ControlledDirectStream { max_sockets, .. } => max_sockets,
+            _ => return Err(self.denied()),
         };
         if actual.instance() != *instance
             || actual.limit() != *max_sockets
             || !scope.matches(tasks)
-            || !scope.registration_open()
+            || !scope.resource_open()
         {
             return Err(error(
                 self.component,

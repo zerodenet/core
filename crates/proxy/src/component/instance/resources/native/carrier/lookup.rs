@@ -24,7 +24,7 @@ impl HostResources {
             )
         };
         let (actual, scope) = self.carriers.identity.as_ref().ok_or_else(fail)?;
-        if instance != *actual || grant.instance() != *actual || !scope.registration_open() {
+        if instance != *actual || grant.instance() != *actual || !scope.resource_open() {
             return Err(fail());
         }
         let candidates: Vec<_> = {
@@ -36,32 +36,30 @@ impl HostResources {
             records
                 .iter()
                 .filter_map(|(ordinal, entry)| {
-                    let ResourceDeclaration::ControlledOutboundStream {
-                        endpoint: expected_endpoint,
-                        binding: expected_binding,
-                        demand: expected_demand,
-                        ..
-                    } = self.carriers.declarations.get(ordinal)?
-                    else {
-                        return None;
-                    };
-                    if endpoint != expected_endpoint
-                        || binding != expected_binding
-                        || demand != *expected_demand
-                        || !entry.actual.matches_grant(grant)
-                    {
+                    if !entry.actual.matches_grant(grant) {
                         return None;
                     }
                     entry
                         .bound
                         .clone()
-                        .map(|bound| (entry.actual.clone(), bound))
+                        .map(|bound| (entry.actual.clone(), bound, *ordinal))
                 })
                 .collect()
         };
-        let [(registration, bound)] = candidates.as_slice() else {
+        let [(registration, bound, ordinal)] = candidates.as_slice() else {
             return Err(fail());
         };
+        let declaration = self.carriers.declarations.get(ordinal).ok_or_else(fail)?;
+        if !bound.matches_declaration(declaration) || bound.demand() != demand {
+            return Err(fail());
+        }
+        match bound.fixed_endpoint_binding() {
+            Some((expected_endpoint, expected_binding))
+                if expected_endpoint == endpoint && expected_binding == binding => {}
+            None if demand == ControlledStreamDemandClass::Business
+                && bound.matches_direct(endpoint, binding) => {}
+            _ => return Err(fail()),
+        }
         // Both getters may finally release original owners or flush I/O wakes.
         // No resource/cleanup/monitor lock encloses either one.
         if !registration
@@ -121,7 +119,11 @@ impl HostResources {
             .ok_or_else(|| self.denied())?;
         // The original Arc is never exposed through the protocol resource trait
         // or bound descriptor. A caller-created cancellation fence cannot match.
-        let issuer = bound.business_issuer(host_cancel, grant)?;
+        let issuer = if bound.fixed_endpoint_binding().is_some() {
+            bound.business_issuer(host_cancel, grant)?
+        } else {
+            bound.direct_business_issuer(host_cancel, grant, endpoint, binding)?
+        };
         Ok((bound, issuer))
     }
 }

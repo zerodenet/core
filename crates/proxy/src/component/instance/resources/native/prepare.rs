@@ -111,6 +111,7 @@ impl HostResources {
                     files.declare(component, path, *max_bytes)?
                 }
                 ResourceDeclaration::ControlledOutboundStream { .. }
+                | ResourceDeclaration::ControlledDirectStream { .. }
                 | ResourceDeclaration::MetadataDatagram { .. } => {}
                 ResourceDeclaration::OutboundDatagram { .. } => {
                     return Err(error(

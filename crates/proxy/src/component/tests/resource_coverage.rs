@@ -167,6 +167,13 @@ fn missing_providers_are_explicitly_unaccounted_without_authorizing_their_constr
     use zero_core::component::NetworkGeneration;
     let declarations = [
         (
+            ResourceDeclaration::ControlledDirectStream {
+                dial: Default::default(),
+                max_sockets: one(),
+            },
+            DeclaredResourceKind::ControlledDirectStream,
+        ),
+        (
             ResourceDeclaration::ControlledOutboundStream {
                 endpoint: Destination::new(Address::Ipv4([127, 0, 0, 1]), 443),
                 binding: zero_platform_tokio::contract::network::UpstreamBinding {

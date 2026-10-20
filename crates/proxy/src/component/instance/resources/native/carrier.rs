@@ -29,6 +29,7 @@ pub(in crate::component) enum CarrierUsersEvidence {
 #[derive(Clone, Debug)]
 pub(in crate::component) struct CarrierIoEvidence {
     pub ordinal: usize,
+    pub kind: coverage::DeclaredResourceKind,
     pub users: CarrierUsersEvidence,
     pub registered: bool,
     pub owner_available: bool,
@@ -67,6 +68,7 @@ impl CarrierDeclarations {
                 matches!(
                     declaration,
                     ResourceDeclaration::ControlledOutboundStream { .. }
+                        | ResourceDeclaration::ControlledDirectStream { .. }
                 )
             })
             .map(|(ordinal, declaration)| (ordinal, declaration.clone()))
@@ -112,10 +114,16 @@ impl CarrierDeclarations {
             })
             .collect();
         self.declarations
-            .keys()
-            .map(|ordinal| {
+            .iter()
+            .map(|(ordinal, declaration)| {
                 let mut proof = CarrierIoEvidence {
                     ordinal: *ordinal,
+                    kind: match declaration {
+                        ResourceDeclaration::ControlledDirectStream { .. } => {
+                            coverage::DeclaredResourceKind::ControlledDirectStream
+                        }
+                        _ => coverage::DeclaredResourceKind::ControlledOutboundStream,
+                    },
                     users: CarrierUsersEvidence::Unaccounted,
                     registered: false,
                     owner_available: false,

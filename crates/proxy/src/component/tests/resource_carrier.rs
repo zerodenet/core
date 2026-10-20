@@ -95,3 +95,6 @@ impl Fixture {
 mod identity;
 #[path = "resource_carrier/native.rs"]
 mod native;
+
+#[path = "resource_carrier/direct.rs"]
+mod direct;

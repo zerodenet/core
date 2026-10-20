@@ -84,3 +84,38 @@ Actual Slot constructor wiring, business demand execution, protocol options and
 Factory start registration, complete transferred-user/transport closure and the
 accepted-TCP host task/user graph remain separate integration obligations. The
 production resource gate remains closed.
+
+## Demand-bound Direct carrier declaration
+
+ControlledDirectStream declares only the exact immutable DialPolicy and explicit
+nonzero physical occupancy. It has no fabricated fixed endpoint, network epoch,
+relay prefix or service/background demand. It uses the same actual CarrierOwner,
+canonical ordinal, instance, weak Scope identity, private host cancellation Arc,
+physical ledger and independent native/users completion receipts. An actual
+owner still cannot cover two declarations or be replaced under one ordinal.
+The coverage snapshot retains its distinct declaration kind; swapping a Direct
+witness into a fixed-endpoint kind cannot prove complete coverage.
+
+Only Business lookup can match Direct. The private component lookup checks the
+original registration against the exact actual CarrierGrant and verifies a
+literal nonzero-port target, empty prefix and complete declared dial equality.
+The platform's private direct_business_issuer freezes that demand's target and
+full binding, including network generation, into the same-slot ticket. Fixed
+ControlledOutboundStream lookup still requires its complete fixed endpoint,
+binding and demand class. It is not broadened into a wildcard.
+
+The private Slot/Engine admission and original DirectConnector resolver/candidate
+path must authenticate the actual demand and current selected generation before
+asking for an issuer. This provider cannot infer candidate provenance from equal
+public values and never returns its host fence/issuer through ResourceAccess.
+The platform and actual Direct consumer integration are dependent changes;
+these provider source checks alone do not qualify arbitrary Direct traffic or
+activate production defaults. Dynamic native failure, Unknown, true caller join,
+view return and native close retain the same separate obligations as fixed C.
+
+Resource identity uses TaskScopeIdentity.resource_open, which still requires the
+original host-enabled, nonclosing Scope. It only removes the requirement for a
+nonzero *task* limit when registering an independently declared resource. Actual
+driver spawn still needs the original registrar, registration_open, capacity and
+real task witness. The zero-task provider regression registers a real bounded
+resource and verifies actual spawn rejects Capacity; it creates no dummy task.

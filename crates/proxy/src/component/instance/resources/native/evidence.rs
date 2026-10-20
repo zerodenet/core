@@ -73,10 +73,14 @@ impl HostResources {
             .enumerate()
             .map(|(ordinal, binding)| {
                 let mut proof = binding.observe(ordinal, &files, &native);
-                if matches!(binding, coverage::CoverageBinding::Carrier) {
+                if matches!(binding, coverage::CoverageBinding::Carrier(_)) {
                     proof.provider = carriers
                         .iter()
-                        .position(|carrier| carrier.ordinal == ordinal && carrier.registered)
+                        .position(|carrier| {
+                            carrier.ordinal == ordinal
+                                && carrier.kind == proof.kind
+                                && carrier.registered
+                        })
                         .map(coverage::DeclarationProvider::Carrier)
                         .unwrap_or(coverage::DeclarationProvider::Unaccounted);
                 }
