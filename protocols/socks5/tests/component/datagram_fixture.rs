@@ -110,9 +110,11 @@ fn context(opener: Arc<Opener>) -> OpenContext {
         ),
     }
 }
+type SeenPackets = Arc<Mutex<Vec<(Address, u16, Vec<u8>)>>>;
+
 pub(super) async fn server(
     count: usize,
-    seen: Arc<Mutex<Vec<(Address, u16, Vec<u8>)>>>,
+    seen: SeenPackets,
     eof: Option<Arc<tokio::sync::Notify>>,
     release: Option<Arc<tokio::sync::Notify>>,
 ) -> (SocketAddr, tokio::task::JoinHandle<()>) {
