@@ -102,7 +102,7 @@ async fn decode_once_and_rebuild_without_retaining_input() {
         let (context, mut scope) = build_context();
         let mut instance = recipe.build(context).unwrap();
         assert!(instance.roles.stream.is_some());
-        assert!(instance.roles.datagram.is_none());
+        assert!(instance.roles.datagram.is_some());
         instance.lifecycle.start(deadline()).await.unwrap();
         assert!(instance
             .lifecycle
