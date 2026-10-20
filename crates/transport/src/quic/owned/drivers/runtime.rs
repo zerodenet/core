@@ -120,6 +120,8 @@ impl quinn::Runtime for OwnedRuntime {
                 let mut state = owner.state.lock().unwrap();
                 state.pending -= 1;
                 state.records.insert(id, record);
+                drop(state);
+                owner.changed.notify_waiters();
             }
             Err(source) => {
                 owner.state.lock().unwrap().pending -= 1;

@@ -3,6 +3,11 @@
 //! inferred from these library types.
 mod callbacks;
 mod drivers;
+mod endpoint;
+pub use endpoint::{
+    OwnedConnection, OwnedEndpointHandle, OwnedEndpointLimits, OwnedEndpointOwner,
+    OwnedEndpointReport, OwnedNativeFailure, OwnedRecvStream, OwnedSendStream,
+};
 mod socket;
 pub use drivers::{
     DriverBody, DriverDelivery, DriverExitReceiver, DriverRegistrationFailure,

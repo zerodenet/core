@@ -82,3 +82,38 @@ Skipped observation after a fault is marked unavailable, not complete traffic
 coverage. There is no new task, packet queue, runtime, socket or production
 default. Scoped thread-local state describes only this synchronous actual poll
 stack, restores on all exits and retains no Engine, policy or host registry.
+
+OwnedEndpointOwner now supplies a cold, sealed endpoint/user graph for this
+library. The existing registrar supplies its real cancellation child and actual
+driver IDs. start runs only after the caller has retained the owner. The handle
+contains only a weak admission capability; it exports no Endpoint, Connecting,
+Connection, native control or raw streams. Pending connect/accept, every actual
+connection handle (including try_clone), and every actual send/receive stream
+consume the caller's explicit finite user limit. Returned stream futures borrow
+the sealed stream. Raw stream/cancellation-waker fields drop before its user
+permit is released. Logical cancellation, FIN, EOF and returning from a cancelled
+read do not release a still-owned stream or declare native closure.
+
+Because the pinned hook returns no admission result, connect/accept check this
+same driver's sticky actual registration rejection synchronously after the raw
+constructor and before delivering its Connecting. A refusal drops the
+unaccepted Connecting and returns a ChannelError whose chain reaches the same
+original SpawnError. It does not forge a ConnectionError, retry or fall back.
+The actual endpoint driver and native owner remain retained for cleanup.
+
+Shutdown stops new admissions, cancels these actual users, closes and releases
+the owner's Endpoint, then waits for all sealed user handles to release and the
+real host collector to join the actual drivers. Only then does it explicitly
+close the original main/probe sockets. Collected witness/source/native receipts
+stay persistent across deadlines and retries. Failure reception still belongs
+to the distinct explicit receiver; shutdown never auto-ACKs it. Reports retain
+unknown native sources and acquisition sources by actual reservation/namespace,
+aggregate confirmed counts without lifetime-ID history, and distinguish actual
+physical completion from rejected registration and undelivered failures.
+
+This closes only the sealed Quinn graph created by this owner. Previously
+issued abstract native views remain fenced by the original native control, but
+protocol users independently constructed from those views are not retroactively
+registered. Canonical host grants and the complete accepted/mask/protocol graph
+must prevent or own such producers before production activation. Existing QUIC
+constructors, protocol integrations and defaults are unchanged.

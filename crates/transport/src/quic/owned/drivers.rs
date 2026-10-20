@@ -26,6 +26,7 @@ struct Shared {
     registrar: TaskRegistrar,
     limit: NonZeroUsize,
     state: Mutex<State>,
+    changed: tokio::sync::Notify,
 }
 struct State {
     pending: usize,
@@ -96,6 +97,7 @@ impl QuinnDriverOwner {
         let shared = Arc::new(Shared {
             registrar,
             limit: max_retained_drivers,
+            changed: tokio::sync::Notify::new(),
             state: Mutex::new(State {
                 pending: 0,
                 retired: false,
@@ -122,6 +124,60 @@ impl QuinnDriverOwner {
     }
     pub fn revoke_registration(&self) {
         self.shared.state.lock().unwrap().retired = true;
+        self.shared.changed.notify_waiters();
+    }
+    pub(super) fn admission(&self) -> Admission {
+        Admission(Arc::downgrade(&self.shared))
+    }
+    pub(super) async fn wait_joined(
+        &self,
+        deadline: tokio::time::Instant,
+    ) -> Result<Vec<TaskJoined>, ChannelError> {
+        loop {
+            let changed = self.shared.changed.notified();
+            tokio::pin!(changed);
+            changed.as_mut().enable();
+            let (pending, witnesses) = {
+                let state = self.shared.state.lock().unwrap();
+                (
+                    state.pending,
+                    state
+                        .records
+                        .values()
+                        .map(|record| {
+                            record
+                                .registration
+                                .lock()
+                                .unwrap()
+                                .as_ref()
+                                .unwrap()
+                                .1
+                                .clone()
+                        })
+                        .collect::<Vec<_>>(),
+                )
+            };
+            let mut joined = Vec::with_capacity(witnesses.len());
+            for witness in witnesses {
+                joined.push(
+                    tokio::time::timeout_at(deadline, witness.wait())
+                        .await
+                        .map_err(|source| {
+                            ChannelError::new(Stage::Close, Reason::Timeout, Impact::Component)
+                                .with_source(source)
+                        })?,
+                );
+            }
+            if pending == 0 {
+                return Ok(joined);
+            }
+            tokio::time::timeout_at(deadline, changed)
+                .await
+                .map_err(|source| {
+                    ChannelError::new(Stage::Close, Reason::Timeout, Impact::Component)
+                        .with_source(source)
+                })?;
+        }
     }
     pub fn task_status(&self) -> DriverTaskStatus {
         let state = self.shared.state.lock().unwrap();
@@ -196,5 +252,50 @@ impl Shared {
         state
             .rejected
             .get_or_insert_with(|| Arc::new(DriverRegistrationFailure { origin, reason }));
+        drop(state);
+        self.changed.notify_waiters();
+    }
+}
+
+#[derive(Clone)]
+pub(super) struct Admission(Weak<Shared>);
+impl Admission {
+    pub(super) fn check(&self) -> Result<(), ChannelError> {
+        let owner = self
+            .0
+            .upgrade()
+            .ok_or_else(|| ChannelError::new(Stage::Prepare, Reason::Revoked, Impact::Component))?;
+        let state = owner.state.lock().unwrap();
+        if let Some(source) = &state.rejected {
+            let reason = match source.reason {
+                DriverRegistrationReason::LocalCapacity
+                | DriverRegistrationReason::Scope(SpawnError::Capacity) => Reason::Capacity,
+                DriverRegistrationReason::Retired
+                | DriverRegistrationReason::Scope(SpawnError::Closing) => Reason::Revoked,
+                _ => Reason::Internal,
+            };
+            return Err(ChannelError::new(Stage::Prepare, reason, Impact::Component)
+                .with_source(SharedRejection(source.clone())));
+        }
+        if state.retired {
+            return Err(ChannelError::new(
+                Stage::Prepare,
+                Reason::Revoked,
+                Impact::Component,
+            ));
+        }
+        Ok(())
+    }
+}
+#[derive(Debug)]
+struct SharedRejection(Arc<DriverRegistrationFailure>);
+impl fmt::Display for SharedRejection {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        self.0.fmt(f)
+    }
+}
+impl std::error::Error for SharedRejection {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        Some(self.0.as_ref())
     }
 }
