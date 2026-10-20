@@ -18,7 +18,7 @@ use zero_core::{
 };
 use zero_platform_tokio::{
     contract::{
-        component::ResourceDeclaration,
+        component::{AcceptedTcpLimits, ResourceDeclaration},
         lifecycle::{ChannelControl, TaskClass},
         scope::{TaskJoinWitness, TaskScope},
         CancellationToken, ChannelError, Impact, Reason, Stage,
@@ -52,6 +52,10 @@ impl Caller {
         let declaration = ResourceDeclaration::TcpListener {
             destination: Destination::new(Address::Ipv4([127, 0, 0, 1]), 0),
             max_bind_attempts: one(),
+            accepted: Some(AcceptedTcpLimits {
+                max_sockets: one(),
+                max_tasks_per_socket: one(),
+            }),
         };
         let mut owner = ControlledTcpListenerOwner::new_with_accepted_graph(
             &declaration,
@@ -178,6 +182,14 @@ impl Caller {
     pub(in crate::component) async fn join(&mut self) {
         self.complete.take().unwrap().send(()).unwrap();
         let exit = self.scope.next_exit().await.unwrap();
+        let delivered = self
+            .owner
+            .accepted_task_receiver()
+            .unwrap()
+            .observe_joined(exit.id)
+            .unwrap();
+        assert_eq!(delivered.id(), exit.id);
+        assert!(delivered.result().is_ok());
         let actual = self.witness.try_joined().unwrap();
         assert_eq!(exit.id, actual.id());
         assert!(actual.result().is_ok());
