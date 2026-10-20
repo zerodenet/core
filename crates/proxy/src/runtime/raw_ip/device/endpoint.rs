@@ -1,6 +1,8 @@
 //! Active client stacks attached to a neutral bidirectional IP endpoint.
 
+mod owner;
 mod recipe;
+pub(crate) use owner::EndpointStackOwner;
 pub(crate) use recipe::EndpointStackRecipe;
 
 use std::{
@@ -82,8 +84,8 @@ impl SharedRawIpDevice {
         peer: usize,
         endpoint: watch::Receiver<mpsc::Sender<EndpointPacket>>,
         options: super::super::RawIpStackOptions,
+        task: Arc<super::workers::DeviceWorkers>,
     ) -> Result<Arc<Self>, EngineError> {
-        let task = super::workers::DeviceWorkers::new();
         let (outbound, raw_packets) =
             mpsc::channel::<zero_stack::packet_output::ObservedPacket>(128);
         let (forwarded_packets, forwarded_rx) = mpsc::channel(128);

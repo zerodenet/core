@@ -8,6 +8,7 @@ pub(in crate::adapters::wireguard) struct PendingLinkedEndpoint {
     listen: ListenConfig,
     live: Arc<LiveInboundDevice>,
     ready: OnceLock<Arc<LinkedEndpoint>>,
+    peer_stacks: Vec<Arc<crate::runtime::raw_ip::EndpointStackOwner>>,
     peer_carriers: Vec<Arc<crate::runtime::udp_dispatch::packet_owner::PacketCarrierOwnerSlot>>,
 }
 impl PendingLinkedEndpoint {
@@ -31,6 +32,9 @@ impl PendingLinkedEndpoint {
             listen,
             live,
             ready: OnceLock::new(),
+            peer_stacks: (0..peers)
+                .map(|_| crate::runtime::raw_ip::EndpointStackOwner::new())
+                .collect(),
             peer_carriers: (0..peers)
                 .map(|_| crate::runtime::udp_dispatch::packet_owner::PacketCarrierOwnerSlot::new())
                 .collect(),
@@ -41,6 +45,12 @@ impl PendingLinkedEndpoint {
         peer: usize,
     ) -> Option<Arc<crate::runtime::udp_dispatch::packet_owner::PacketCarrierOwnerSlot>> {
         self.peer_carriers.get(peer).cloned()
+    }
+    pub(in crate::adapters::wireguard) fn peer_stack(
+        &self,
+        peer: usize,
+    ) -> Option<Arc<crate::runtime::raw_ip::EndpointStackOwner>> {
+        self.peer_stacks.get(peer).cloned()
     }
     pub(super) fn from_ready(link: Arc<LinkedEndpoint>) -> Self {
         let pending = Self::new(link.listen.clone(), link.live.clone());

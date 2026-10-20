@@ -76,6 +76,10 @@ fn cold_candidate_declares_exact_peer_slots_without_runtime_or_native_acquisitio
     assert!(!Arc::ptr_eq(&first, &second));
     assert!(Arc::ptr_eq(&first, &pending.peer_carrier(0).unwrap()));
     assert!(pending.peer_carrier(2).is_none());
+    let stack = pending.peer_stack(0).unwrap();
+    assert!(Arc::ptr_eq(&stack, &pending.peer_stack(0).unwrap()));
+    assert!(!Arc::ptr_eq(&stack, &pending.peer_stack(1).unwrap()));
+    assert!(pending.peer_stack(2).is_none());
     assert!(pending.ready().is_none());
     let report = first.close_native();
     assert!(report.is_complete());
