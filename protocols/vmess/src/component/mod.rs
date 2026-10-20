@@ -1,5 +1,6 @@
 //! Protocol-owned ordinary VMess Stream roles over a constrained real carrier.
 mod carrier;
+pub mod inbound;
 mod options;
 mod owner;
 pub use options::Options;

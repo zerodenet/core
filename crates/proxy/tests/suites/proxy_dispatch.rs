@@ -33,3 +33,6 @@ mod trojan;
 mod trojan_inbound;
 #[path = "../vmess.rs"]
 mod vmess;
+
+#[path = "../vmess_inbound.rs"]
+mod vmess_inbound;

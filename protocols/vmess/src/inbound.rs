@@ -8,6 +8,8 @@ use crate::crypto::{
 };
 use crate::shared::{parse_address_from_bytes, read_exact, AUTH_ID_LEN, CMD_TCP, CMD_UDP, VERSION};
 use crate::{parse_uuid, VmessCipher};
+mod facts;
+pub use facts::VmessRequestFacts;
 
 #[derive(Clone)]
 pub struct VmessUser {
@@ -192,12 +194,23 @@ impl VmessInboundProfile {
     pub async fn accept_tcp_stream<S: AsyncSocket>(
         &self,
         inbound: VmessInbound,
-        mut stream: S,
+        stream: S,
     ) -> Result<(Session, crate::stream::VmessAeadStream<S>), Error> {
+        let (facts, client) = self.accept_request_stream(inbound, stream).await?;
+        Ok((facts.into_legacy_session(), client))
+    }
+
+    /// Uses the original authentication/replay state and stream codec, without
+    /// constructing a Session for the ordinary host Stream handoff.
+    pub async fn accept_request_stream<S: AsyncSocket>(
+        &self,
+        inbound: VmessInbound,
+        mut stream: S,
+    ) -> Result<(VmessRequestFacts, crate::stream::VmessAeadStream<S>), Error> {
         let accepted = self.accept_tcp(inbound, &mut stream).await?;
-        let session = accepted.session().clone();
+        let facts = accepted.facts.clone();
         let client = crate::stream::wrap_tcp_inbound_stream(stream, accepted)?;
-        Ok((session, client))
+        Ok((facts, client))
     }
 
     pub async fn accept_client<S>(
@@ -278,12 +291,12 @@ pub(crate) struct VmessAcceptedStreamState {
 }
 
 pub(crate) struct VmessAccept {
-    session: Session,
+    facts: VmessRequestFacts,
     stream_state: VmessAcceptedStreamState,
 }
 
 struct ParsedCommand {
-    session: Session,
+    facts: VmessRequestFacts,
     body_key: Vec<u8>,
     body_nonce: Vec<u8>,
     response_header: u8,
@@ -325,7 +338,7 @@ impl VmessInbound {
         )
         .await?;
         Ok(VmessAccept {
-            session: parsed.session,
+            facts: parsed.facts,
             stream_state: VmessAcceptedStreamState {
                 upload_key: parsed.body_key.clone(),
                 upload_nonce: parsed.body_nonce.clone(),
@@ -373,7 +386,7 @@ impl VmessInbound {
                     )
                     .await?;
                     return Ok(VmessAccept {
-                        session: parsed.session,
+                        facts: parsed.facts,
                         stream_state: VmessAcceptedStreamState {
                             upload_key: parsed.body_key.clone(),
                             upload_nonce: parsed.body_nonce.clone(),
@@ -401,12 +414,8 @@ impl VmessInbound {
 }
 
 impl VmessAccept {
-    fn session(&self) -> &Session {
-        &self.session
-    }
-
     fn into_session(self) -> Session {
-        self.session
+        self.facts.into_legacy_session()
     }
 
     pub(crate) fn into_stream_state(self) -> VmessAcceptedStreamState {
@@ -523,10 +532,13 @@ fn parse_command_body(plaintext: &[u8], user: &VmessUser) -> Result<ParsedComman
             CMD_UDP => Network::Udp,
             _ => return Err(Error::Protocol("vmess unsupported command")),
         };
-        let mut session = Session::new(0, target, port, network, ProtocolType::new("vmess"));
-        apply_user_auth(&mut session, user);
+        let facts = VmessRequestFacts {
+            destination: zero_core::request::Destination::new(target, port),
+            network,
+            auth: user_auth(user),
+        };
         return Ok(ParsedCommand {
-            session,
+            facts,
             body_key,
             body_nonce,
             response_header,
@@ -538,17 +550,14 @@ fn parse_command_body(plaintext: &[u8], user: &VmessUser) -> Result<ParsedComman
         });
     };
 
-    let mut session = Session::new(
-        0,
-        target,
-        crate::shared::MUX_COOL_PORT,
-        Network::Tcp,
-        ProtocolType::new("vmess"),
-    );
-    apply_user_auth(&mut session, user);
+    let facts = VmessRequestFacts {
+        destination: zero_core::request::Destination::new(target, crate::shared::MUX_COOL_PORT),
+        network: Network::Tcp,
+        auth: user_auth(user),
+    };
     let _ = padding_len;
     Ok(ParsedCommand {
-        session,
+        facts,
         body_key,
         body_nonce,
         response_header,
@@ -560,8 +569,8 @@ fn parse_command_body(plaintext: &[u8], user: &VmessUser) -> Result<ParsedComman
     })
 }
 
-fn apply_user_auth(session: &mut Session, user: &VmessUser) {
-    let auth = SessionAuth {
+fn user_auth(user: &VmessUser) -> SessionAuth {
+    SessionAuth {
         scheme: "vmess-uuid".into(),
         principal_key: user
             .principal_key
@@ -572,8 +581,7 @@ fn apply_user_auth(session: &mut Session, user: &VmessUser) {
         device_limit: user.device_limit,
         quota_remaining_bytes: user.quota_remaining_bytes,
         policy_revision: user.policy_revision,
-    };
-    session.apply_auth(auth);
+    }
 }
 
 async fn send_auth_response<S: AsyncSocket>(

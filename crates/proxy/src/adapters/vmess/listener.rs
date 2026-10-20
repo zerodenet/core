@@ -1,4 +1,4 @@
-use ::vmess::transport::VmessInboundListenerRequest;
+use ::vmess::transport::{VmessInboundAcceptedRoute, VmessInboundListenerRequest};
 
 use crate::runtime::inbound_operation::TcpInboundListenerOperation;
 use crate::runtime::inbound_route::NoClientMuxRouteDefaults;
@@ -21,8 +21,29 @@ pub(super) fn prepare(
                     abort_on_end: VmessInboundListenerRequest::ABORT_ON_END,
                     read_error_log: VmessInboundListenerRequest::READ_ERROR_LOG,
                 };
-                let route = request.accept_route(socket).await?;
-                context.dispatch_no_client_mux_route(route, defaults).await
+                match request.accept_standard_route(socket).await? {
+                    VmessInboundAcceptedRoute::Tcp {
+                        destination,
+                        auth,
+                        stream,
+                    } => {
+                        context
+                            .serve_standard_stream(
+                                ::vmess::inbound::VmessInbound.protocol(),
+                                destination,
+                                Some(auth),
+                                None,
+                                move |facts| {
+                                    ::vmess::component::inbound::TcpReply::new(*stream, facts)
+                                        .map(zero_platform_tokio::contract::inbound::accept_stream)
+                                },
+                            )
+                            .await
+                    }
+                    VmessInboundAcceptedRoute::Legacy(route) => {
+                        context.dispatch_no_client_mux_route(*route, defaults).await
+                    }
+                }
             },
     })
 }

@@ -357,3 +357,7 @@ IPC、HTTP SSE 和 gRPC 的 wire 格式保持 `zero.api.v1` / `zero.event.v1`，
 - 对应回归测试位置。
 
 开发期间只在版本矩阵和 `## Unreleased` 下登记，不预判最终发布版本，也不写入 Cargo 的 `-dev.N` 构建号。完整测试通过后，由 `Prepare Release` 工作流或 `scripts/release.sh` 将矩阵行、章节标题和 workspace 版本一起封板；禁止手工分别修改这些位置。
+
+### VMess ordinary TCP host identity
+
+VMess 普通 TCP 入站现在交付已认证的协议目的地与完整认证事实，由宿主签发一个真实业务身份并进入既有准入、路由、统计、限速和半关闭执行器。原 AuthID replay 状态、单次响应头和 AEAD/body codec 不变；UDP/Mux 与旧公开 Rust Session API 保留显式兼容路径。V1 配置、API、events 与 FFI ABI 不变，无 GUI/SDK 迁移；实际 TLS wire、全认证 sidecar、唯一身份、拒绝与 replay 回归位于 `crates/proxy/tests/vmess_inbound.rs`、`protocols/vmess/tests/auth/mod.rs`。此条记录实现，不代替冻结源码测试结果。

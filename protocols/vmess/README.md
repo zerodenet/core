@@ -94,3 +94,5 @@ MUX、DNS 获取 ECH 和 browser_dialer 需要额外共享资源或宿主服务�
 真实执行路径；直接传入 Options 返回 Unsupported。当前中立 DNS 服务仅提供
 A/AAAA，无法代替 ECH 的 HTTPS RR、材料缓存、force-query 和实际查询路由。
 UDP 及包含其他旧协议的混合链路尚未迁移到此角色。
+
+普通 TCP 入站通过 `accept_request_stream` / `accept_standard_route` 交付目的地与完整认证结果，由宿主签发唯一业务身份。原始 AuthID replay authority、响应头、AEAD/body codec 和 TLS/WS/gRPC carrier 保持同一实现；准入失败不发送第二份协议响应。UDP/Mux 及旧公开 Session 接口保留显式兼容转换。该说明只记录接线，实际测试证据独立记录。

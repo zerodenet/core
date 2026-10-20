@@ -20,6 +20,18 @@ pub struct VmessInboundListenerRequest {
     mux_response_backlog: crate::mux::MuxResponseBacklogPolicy,
 }
 
+/// The ordinary TCP branch has no protocol-created business Session.
+pub enum VmessInboundAcceptedRoute {
+    Tcp {
+        destination: zero_core::request::Destination,
+        auth: zero_core::SessionAuth,
+        stream: Box<crate::stream::VmessAeadStream<TcpRelayStream>>,
+    },
+    Legacy(
+        Box<crate::mux::VmessInboundAcceptedStream<crate::stream::VmessAeadStream<TcpRelayStream>>>,
+    ),
+}
+
 impl VmessInboundListenerRequest {
     pub const ERROR_PROTOCOL_NAME: &'static str = "vmess";
     pub const UDP_PROTOCOL: &'static str = "vmess_udp";
@@ -113,7 +125,18 @@ impl VmessInboundListenerRequest {
         crate::mux::VmessInboundAcceptedStream<crate::stream::VmessAeadStream<TcpRelayStream>>,
         RuntimeError,
     > {
-        let stream = zero_transport::inbound_stack::accept_tls_inbound_stream_stack(
+        let stream = self.accept_carrier(socket).await?;
+        self.profile
+            .accept_client_owned(
+                crate::inbound::VmessInbound,
+                stream,
+                self.mux_response_backlog,
+            )
+            .await
+            .map_err(RuntimeError::from)
+    }
+    async fn accept_carrier(&self, socket: TokioSocket) -> Result<TcpRelayStream, RuntimeError> {
+        zero_transport::inbound_stack::accept_tls_inbound_stream_stack(
             socket,
             &self.tls_acceptor,
             InboundStreamStack {
@@ -123,14 +146,32 @@ impl VmessInboundListenerRequest {
             },
             "vmess: ws and grpc are mutually exclusive",
         )
-        .await?;
-        self.profile
-            .accept_client_owned(
-                crate::inbound::VmessInbound,
-                stream,
-                self.mux_response_backlog,
-            )
-            .await
-            .map_err(RuntimeError::from)
+        .await
+    }
+
+    pub async fn accept_standard_route(
+        self,
+        socket: TokioSocket,
+    ) -> Result<VmessInboundAcceptedRoute, RuntimeError> {
+        let stream = self.accept_carrier(socket).await?;
+        let (facts, stream) = self
+            .profile
+            .accept_request_stream(crate::inbound::VmessInbound, stream)
+            .await?;
+        if facts.network == zero_core::Network::Tcp && !facts.is_mux() {
+            Ok(VmessInboundAcceptedRoute::Tcp {
+                destination: facts.destination,
+                auth: facts.auth,
+                stream: Box::new(stream),
+            })
+        } else {
+            Ok(VmessInboundAcceptedRoute::Legacy(Box::new(
+                crate::mux::VmessInboundAcceptedStream::from_session_stream(
+                    facts.into_legacy_session(),
+                    stream,
+                    self.mux_response_backlog,
+                ),
+            )))
+        }
     }
 }

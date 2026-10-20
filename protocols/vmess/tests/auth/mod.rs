@@ -5,6 +5,7 @@ use crate::{
     },
     inbound::{VmessInbound, VmessInboundProfile, VmessUser},
 };
+use zero_core::{Address, Network};
 
 mod socket;
 use socket::{target, Socket};
@@ -193,4 +194,41 @@ fn replay_identity_includes_credential() {
     let now = Instant::now();
     cache.accept(([1; 16], [9; 16]), now, 2).unwrap();
     cache.accept(([2; 16], [9; 16]), now, 2).unwrap();
+}
+
+#[tokio::test]
+async fn request_facts_share_the_original_replay_authority_and_full_auth() {
+    let mut expected = user(51);
+    expected.principal_key = Some("facts:vmess".into());
+    expected.up_bps = Some(1024);
+    expected.down_bps = Some(2048);
+    expected.device_limit = Some(2);
+    expected.quota_remaining_bytes = Some(4096);
+    expected.policy_revision = Some(7);
+    let wire = request(&expected).await;
+    let profile = VmessInboundProfile::from_users(vec![expected]);
+    let (facts, _) = profile
+        .accept_request_stream(VmessInbound, Socket::new(wire.clone()))
+        .await
+        .unwrap();
+    assert_eq!(facts.network, Network::Tcp);
+    assert_eq!(
+        facts.destination.address,
+        Address::Domain("example.com".into())
+    );
+    assert_eq!(facts.destination.port, 443);
+    assert_eq!(facts.auth.scheme, "vmess-uuid");
+    assert_eq!(facts.auth.principal_key.as_deref(), Some("facts:vmess"));
+    assert_eq!(
+        (facts.auth.up_bps, facts.auth.down_bps),
+        (Some(1024), Some(2048))
+    );
+    assert_eq!(facts.auth.device_limit, Some(2));
+    assert_eq!(facts.auth.quota_remaining_bytes, Some(4096));
+    assert_eq!(facts.auth.policy_revision, Some(7));
+    assert!(profile
+        .clone()
+        .accept_tcp_stream(VmessInbound, Socket::new(wire))
+        .await
+        .is_err());
 }

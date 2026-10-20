@@ -73,6 +73,7 @@ trojan = [
     "dep:tokio-rustls",
 ]
 vmess = [
+    "standard-stream-inbound-runtime",
     "managed-stream-runtime",
     "tcp-session-runtime",
     "dep:vmess",
