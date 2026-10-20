@@ -27,6 +27,8 @@ pub struct MetadataOwner {
     probes: probes::Probes,
     limits: MetadataLimits,
     views: BTreeMap<DatagramReservationId, Arc<Shared>>,
+    pending_main: Option<DatagramOwnerReport>,
+    pending_probes: Option<DatagramOwnerReport>,
 }
 #[derive(Debug)]
 pub struct MetadataOwnerReport {
