@@ -14,7 +14,7 @@ use std::{net::SocketAddr, task::Poll};
 pub use types::*;
 
 /// All limits are caller-assigned. No process or protocol defaults are implied.
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct MetadataLimits {
     pub main_sockets: NonZeroUsize,
     pub probe_sockets: NonZeroUsize,
@@ -53,6 +53,12 @@ pub struct MetadataDatagramTx {
     shared: Arc<Shared>,
 }
 pub struct MetadataDatagramControl {
+    shared: Arc<Shared>,
+    observation_transferred: bool,
+}
+/// Unique observation authority over an already granted original. This carries
+/// no native close/revoke authority and cannot create another receiver/poller.
+pub struct MetadataDatagramObservation {
     shared: Arc<Shared>,
 }
 struct Shared {
@@ -110,12 +116,33 @@ impl MetadataDatagramRx {
     }
 }
 impl MetadataDatagramControl {
+    /// Transfer the sole mutable observation authority. The host keeps native
+    /// control; subsequent transfers or observations through control are denied.
+    pub fn take_observation(&mut self) -> std_io::Result<MetadataDatagramObservation> {
+        self.shared.check()?;
+        if self.observation_transferred {
+            return Err(std_io::Error::new(
+                std_io::ErrorKind::AlreadyExists,
+                "metadata observation authority already transferred",
+            ));
+        }
+        self.observation_transferred = true;
+        Ok(MetadataDatagramObservation {
+            shared: self.shared.clone(),
+        })
+    }
     /// Observe the actual native metadata boundary, including GRO segments and
     /// partial submissions. The original remains owned if a callback panics.
     pub fn set_observer(
         &mut self,
         observer: Option<Arc<dyn zero_traits::IoObserver>>,
     ) -> std_io::Result<()> {
+        if self.observation_transferred {
+            return Err(std_io::Error::new(
+                std_io::ErrorKind::PermissionDenied,
+                "metadata observation authority belongs to its granted view",
+            ));
+        }
         self.shared.check()?;
         let old = self.shared.socket.replace_observer(observer.clone())?;
         super::observation::boundary(&observer, old);
@@ -132,6 +159,21 @@ impl MetadataDatagramControl {
     pub fn close(&mut self) -> Result<DatagramCloseReceipt, Arc<std_io::Error>> {
         self.revoke();
         self.shared.socket.close()
+    }
+}
+impl MetadataDatagramObservation {
+    /// Identity check only, not a native close or task completion receipt.
+    pub fn matches(&self, rx: &MetadataDatagramRx, tx: &MetadataDatagramTx) -> bool {
+        Arc::ptr_eq(&self.shared, &rx.shared) && Arc::ptr_eq(&self.shared, &tx.shared)
+    }
+    pub fn set_observer(
+        &mut self,
+        observer: Option<Arc<dyn zero_traits::IoObserver>>,
+    ) -> std_io::Result<()> {
+        self.shared.check()?;
+        let old = self.shared.socket.replace_observer(observer.clone())?;
+        super::observation::boundary(&observer, old);
+        Ok(())
     }
 }
 impl fmt::Debug for MetadataOwner {

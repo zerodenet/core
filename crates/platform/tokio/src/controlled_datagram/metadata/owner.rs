@@ -104,7 +104,10 @@ impl MetadataOwner {
             tx: MetadataDatagramTx {
                 shared: shared.clone(),
             },
-            control: MetadataDatagramControl { shared },
+            control: MetadataDatagramControl {
+                shared,
+                observation_transferred: false,
+            },
         })
     }
     fn reap(&mut self) {

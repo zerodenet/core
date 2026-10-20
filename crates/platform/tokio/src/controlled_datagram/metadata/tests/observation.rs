@@ -246,3 +246,54 @@ fn accounting_partial_prefix_does_not_count_unsubmitted_suffix() {
     assert_eq!(observer.sent.load(Ordering::SeqCst), 5);
     assert_eq!(observer.sent_packets.load(Ordering::SeqCst), 2);
 }
+
+#[tokio::test]
+async fn actual_unique_observation_transfer_keeps_native_control_with_host() {
+    let mut owner = MetadataOwner::new(limits()).unwrap();
+    let GrantedMetadataDatagram {
+        mut rx,
+        tx,
+        mut control,
+    } = owner.bind(address()).unwrap();
+    let mut observation = control.take_observation().unwrap();
+    assert!(observation.matches(&rx, &tx));
+    assert_eq!(
+        control.take_observation().err().unwrap().kind(),
+        std_io::ErrorKind::AlreadyExists
+    );
+    assert_eq!(
+        control.set_observer(None).unwrap_err().kind(),
+        std_io::ErrorKind::PermissionDenied
+    );
+    let counts = Arc::new(Counts::default());
+    observation.set_observer(Some(counts.clone())).unwrap();
+    let local = tx.local_addr().unwrap();
+    assert_eq!(send(&tx, &transmit(local, b"hosted")).await.bytes, 6);
+    assert_eq!(receive(&mut rx).await, b"hosted");
+    assert_eq!(counts.boundaries.load(Ordering::SeqCst), 1);
+    assert_eq!(counts.sent.load(Ordering::SeqCst), 6);
+    assert_eq!(counts.received.load(Ordering::SeqCst), 6);
+    drop(observation);
+    assert_eq!(owner.occupied_main(), 1, "observation Drop is no receipt");
+    assert!(tx.local_addr().is_ok());
+    control.close().unwrap();
+    assert_eq!(owner.take_report().main.confirmed_closed, 1);
+    assert_eq!(
+        tx.local_addr().unwrap_err().kind(),
+        std_io::ErrorKind::NotConnected
+    );
+}
+
+#[tokio::test]
+async fn actual_observation_identity_rejects_other_metadata_original() {
+    let mut first = MetadataOwner::new(limits()).unwrap();
+    let mut grant = first.bind(address()).unwrap();
+    let observation = grant.control.take_observation().unwrap();
+    let mut second = MetadataOwner::new(limits()).unwrap();
+    let foreign = second.bind(address()).unwrap();
+    assert!(!observation.matches(&foreign.rx, &grant.tx));
+    assert!(!observation.matches(&grant.rx, &foreign.tx));
+    assert!(observation.matches(&grant.rx, &grant.tx));
+    assert_eq!(first.close_all().main.confirmed_closed, 1);
+    assert_eq!(second.close_all().main.confirmed_closed, 1);
+}

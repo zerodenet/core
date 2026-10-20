@@ -19,6 +19,8 @@ mod process;
 pub use process::ProcessRequest;
 mod outbound_datagram;
 pub use outbound_datagram::{GrantedOutboundDatagram, OutboundDatagramRequest};
+mod metadata_datagram;
+pub use metadata_datagram::{GrantedMetadataListener, MetadataDatagramRequest};
 
 use super::{
     datagram::DynDatagramOutbound,
@@ -57,6 +59,13 @@ pub enum ResourceDeclaration {
         demand: ControlledStreamDemandClass,
         /// Live, retiring and Unknown originals, not lifetime healthy opens.
         max_sockets: NonZeroUsize,
+    },
+    /// Ancillary UDP originals and their actual capability probes. Distinct
+    /// from ordinary UDP listener authority; every count is caller-assigned.
+    MetadataDatagram {
+        source: std::net::SocketAddr,
+        limits: crate::controlled_datagram::metadata::MetadataLimits,
+        max_bind_attempts: NonZeroUsize,
     },
     /// Native RAW/ping ICMP originals, distinct from UDP or device authority.
     /// Counts live, retiring and Unknown sockets, not generation lifetime probes.
@@ -150,6 +159,20 @@ pub trait ResourceAccess: Send + Sync {
             super::Reason::Unsupported,
             super::Impact::Component,
         ))
+    }
+    fn listen_metadata_datagram(
+        &self,
+        _request: MetadataDatagramRequest,
+    ) -> BoxFuture<'_, Result<GrantedMetadataListener, BuildError>> {
+        Box::pin(async {
+            let mut failure = super::ChannelError::new(
+                super::Stage::Prepare,
+                super::Reason::Unsupported,
+                super::Impact::Component,
+            );
+            failure.delivery = super::DeliveryState::NotSubmitted;
+            Err(failure)
+        })
     }
     /// Default deny. Success must be installed synchronously in the protocol's
     /// persistent socket owner before callbacks, generation checks or awaits.
