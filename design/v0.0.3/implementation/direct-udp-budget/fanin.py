@@ -115,7 +115,7 @@ class Clients:
             stream.close()
 
 
-def trial(binary, output, number, payload_size):
+def trial(binary, output, number, payload_size, kernel_type=Kernel):
     peers, clients = Peers(), Clients(16)
     kernel = sampler = None
     result = {'profile': 'direct_combined_16_sources_fixed_domain',
@@ -127,7 +127,7 @@ def trial(binary, output, number, payload_size):
         'exact_native_open_attempts': None, 'actual_peer_task_ids': None,
         'network_generation_rotation': 'not_measured: no safe CLI hook; no route/system changes'}
     try:
-        kernel = Kernel(binary, config(peers, True), output)
+        kernel = kernel_type(binary, config(peers, True), output)
         sampler = Sampler(kernel.process, .01)
         result.update({'initial_listener_inode': kernel.listener_inode,
                        'kernel_pid': kernel.process.pid, 'relay': kernel.relay})
