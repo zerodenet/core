@@ -32,6 +32,8 @@ async fn actual_registered_socks_to_trojan_chain_keeps_tls_and_service_identity_
                 assert!(http.len() < 4096);
             }
             assert!(http.starts_with(b"HEAD /native "));
+            let mut tail=Vec::new();stream.read_to_end(&mut tail).await.unwrap();
+            assert!(tail.is_empty(),"the controlled HEAD has no body after write EOF");
             stream.write_all(b"HTTP/1.1 204 No Content\r\nContent-Length: 0\r\n\r\n").await.unwrap();
             stream.shutdown().await.unwrap();
         });
@@ -70,12 +72,15 @@ async fn actual_registered_socks_to_trojan_chain_keeps_tls_and_service_identity_
         let mut stream=connect(&proxy,"chain").await;
         stream.write_all(b"HEAD /native HTTP/1.1\r\nHost: native.example\r\n\r\n").await.unwrap();
         stream.flush().await.unwrap();
+        stream.shutdown().await.unwrap();
         let mut response=Vec::new();stream.read_to_end(&mut response).await.unwrap();
         assert!(response.starts_with(b"HTTP/1.1 204"));
+        // Keep the actual client carrier alive until both raw-copy directions
+        // have observed EOF; only then retire its owner and runtime.
+        server.await.unwrap();
+        prefix.await.unwrap();
         drop(stream);
         assert!(proxy.engine().active_sessions().is_empty(), "service requests must not create fake business sessions");
         running.shutdown().await.unwrap();
-        server.await.unwrap();
-        prefix.await.unwrap();
     }).await.unwrap();
 }
