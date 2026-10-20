@@ -76,16 +76,16 @@ async fn exchanges_a_dns_message_over_bound_http2_transport() {
     .with_root_certificates(roots)
     .with_no_client_auth();
     client_tls.alpn_protocols = vec![b"h2".to_vec()];
-    let resolver = DohDnsResolver {
-        port: address.port(),
-        path: "/dns-query".to_owned(),
-        addrs: vec![address],
-        server_name: "localhost".to_owned(),
-        tls: Some(Arc::new(client_tls)),
-        egress: zero_platform_tokio::EgressInterfaceControl::default(),
-        clients: tokio::sync::Mutex::new(Vec::new()),
-        connect_lock: tokio::sync::Mutex::new(()),
-    };
+    let mut resolver = DohDnsResolver::new(
+        "localhost".to_owned(),
+        address.port(),
+        "/dns-query".to_owned(),
+        vec![address.ip()],
+        Some("localhost".to_owned()),
+        zero_platform_tokio::EgressInterfaceControl::default(),
+    )
+    .expect("construct DoH resolver with a real driver owner");
+    resolver.tls = Some(Arc::new(client_tls));
     let query = crate::message::build_query("doh.example", crate::message::TYPE_A)
         .expect("build DNS query");
 
