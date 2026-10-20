@@ -160,6 +160,19 @@ impl OrchestrationState {
                 }
             }
         }
+        // TUN, ingress and outbound-device owners have received stop and been
+        // joined above. Their real route receipts can now complete without an
+        // apply-lock/device dependency cycle.
+        if let Err(message) = proxy
+            .packet_close_owner
+            .shutdown(tokio::time::Instant::now() + Duration::from_secs(5))
+            .await
+        {
+            cleanup_errors.push(message.clone());
+            if result.is_ok() {
+                result = Err(std::io::Error::other(message).into());
+            }
+        }
         let mut failure = result.as_ref().err().map(ToString::to_string);
         if !cleanup_errors.is_empty() {
             tracing::warn!(errors = ?cleanup_errors, reason = "orchestration_cleanup_error", "orchestration cleanup encountered errors");

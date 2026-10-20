@@ -72,6 +72,9 @@ where
                 );
                 state.reconcile_reload(proxy).await;
             }
+            failure = proxy.packet_close_owner.observe_failure() => {
+                return Err(io::Error::other(failure).into());
+            }
             failure = proxy.apply_owner.observe_failure() => {
                 return Err(io::Error::other(failure).into());
             }

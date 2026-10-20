@@ -62,18 +62,7 @@ impl zero_api::CommandService for ProxyHandle {
     > {
         Box::pin(async move {
             if let zero_api::CommandRequest::PacketRouteClose(request) = &command {
-                let handle = self.clone();
-                let request = request.clone();
-                return tokio::spawn(
-                    async move { super::packet_route::close(handle, request).await },
-                )
-                .await
-                .map_err(|error| {
-                    zero_api::ApiError::new(
-                        zero_api::ApiErrorCode::Internal,
-                        format!("packet route close task failed: {error}"),
-                    )
-                })?;
+                return super::packet_route::close(self.clone(), request.clone()).await;
             }
             if let zero_api::CommandRequest::StatsReset(_) = &command {
                 let _guard = self.proxy.reload_apply_lock.lock().await;

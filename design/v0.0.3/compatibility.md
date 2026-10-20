@@ -58,3 +58,5 @@ Datagram 关闭确认持有者由 Proxy 构造并在所有执行服务中共享�
 入站 listener 的实际 driver 与 carrier 生命周期登记在 Proxy 构造的持久 `InboundOwnerRegistry`，不放在可取消的 run/activate future 内；角色为空的实际 carrier 使用同一组件分配器的真实 `ComponentInstanceId`。作用域预算由实际外层 driver 一个任务加已准备操作声明的内部 driver 数量组成，TCP+datagram 为两个；group 递归登记，不增加无上限重启。原监听 JoinSet 仅观察真实 Scope，退出 ID 与原始错误先写回持久 owner。停止等待不再使用 watch 接收端消失作为确认，候选退役未确认时保留 owner 并拒绝替代。
 
 该批确认范围是实际 listener/UDP driver task 的退出及协议 owner 报告的直接 Child 回收；它不证明旧 UDP dispatch 的所有逻辑 association、DoH 等连接池、进程后代或所有 transferred I/O 已关闭。旧 inbound process spawn 仍未统一到新的 native ProcessRequest grant，不以同状态生命周期 handle 冒充授权迁移完成。新增真实 socket pending/observer 取消/TaskId 回归尚待父任务集成运行。
+
+`PacketRouteClose` 的接受与迟到 receipt 由 Proxy 持久 Scope 持有；预算直接取引擎现有 live packet route 上限 4096（新增只读 Rust `Engine::packet_route_capacity()`），不另造并发默认值。Scope 容量检查先于实际 close claim。原 5 秒 ACK 超时不等于 Closed，同一任务释放配置锁后继续等待实际 route lease 与 response pump 两项确认，再记录一次原事件。调用方取消、关闭等待超时或轮询被取消不会丢控制器/TaskId/错误来源。停止后禁止新 close，真实 join 在 TUN、入站与 outbound-device owner 停止之后；它不占配置串行锁等待可能使 receipt 完成的 TunStop。Scope 惰性绑定现有 Tokio Handle，Proxy 冷构造不依赖运行时。新增回归尚待集成运行，未扩大 V1 方法或响应成功条件。

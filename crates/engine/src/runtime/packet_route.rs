@@ -64,6 +64,10 @@ impl PacketRouteControl {
     }
 }
 impl Engine {
+    /// Actual maximum live packet routes, also bounds pending close receipts.
+    pub fn packet_route_capacity(&self) -> std::num::NonZeroUsize {
+        std::num::NonZeroUsize::new(MAX_ROUTES).expect("packet route capacity is nonzero")
+    }
     pub fn register_packet_route(
         &self,
         mut snapshot: PacketRouteSnapshot,
