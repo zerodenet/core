@@ -4,7 +4,7 @@ mod shutdown;
 use super::*;
 use std::{collections::HashMap, error::Error, fmt, io, path::Path};
 use tokio::task::{Id, JoinError, JoinSet};
-use zero_platform_tokio::contract::{lifecycle::CloseReport, Stage};
+use zero_platform_tokio::contract::{Stage, lifecycle::CloseReport};
 
 type SharedResult = Result<Arc<[u8]>, Arc<io::Error>>;
 enum Cached {
@@ -129,7 +129,18 @@ impl fmt::Display for FileFailure {
 }
 impl Error for FileFailure {
     fn source(&self) -> Option<&(dyn Error + 'static)> {
-        Some(self.0.as_ref())
+        // io::Error forwards source() to its payload's source(), skipping the
+        // payload itself. Expose the actual JoinError so callers can inspect
+        // its panic/cancellation details; native OS errors remain io::Error.
+        if let Some(source) = self
+            .0
+            .get_ref()
+            .and_then(|error| error.downcast_ref::<JoinError>())
+        {
+            Some(source)
+        } else {
+            Some(self.0.as_ref())
+        }
     }
 }
 fn file_failure(component: ComponentId, stage: Stage, source: Arc<io::Error>) -> ChannelError {
