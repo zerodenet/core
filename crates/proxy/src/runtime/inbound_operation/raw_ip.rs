@@ -92,6 +92,11 @@ pub(crate) struct RawIpInboundListenerOperation {
 }
 impl RawIpInboundListenerOperation {
     pub(crate) const MAX_ICMP_PROBES: usize = icmp::MAX_ECHO_PROBES;
+    pub(crate) fn internal_task_limit() -> usize {
+        tcp::MAX_CONNECTIONS
+            .checked_add(crate::inbound::tun::udp::OwnedTunUdpTasks::MAX_ASSOCIATIONS)
+            .expect("fixed raw-IP child group sum fits usize")
+    }
     pub(crate) fn new(
         device: Box<dyn RawIpInboundDevice>,
         endpoint: Option<RawIpInboundEndpoint>,
@@ -125,7 +130,7 @@ impl Drop for RawIpInboundEndpoint {
 
 impl PreparedInboundListenerOperation for RawIpInboundListenerOperation {
     fn internal_tasks(&self) -> usize {
-        crate::inbound::tun::udp::OwnedTunUdpTasks::MAX_ASSOCIATIONS
+        Self::internal_task_limit()
     }
 
     fn install_resources(

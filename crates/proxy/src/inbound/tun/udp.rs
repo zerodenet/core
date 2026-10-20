@@ -216,6 +216,11 @@ fn spawn_association(
                 if let Err(error) = binding.wait_bound().await {
                     return (source, id, Err(std::io::Error::other(error).into()));
                 }
+                if let Some(native) = &native {
+                    if let Err(error) = native.bind_caller(binding.clone()) {
+                        return (source, id, Err(std::io::Error::other(error).into()));
+                    }
+                }
                 runtime.with_peer_resources(scope.group.resource_context(binding, ingress))
             }
             (None, None, None) => runtime,

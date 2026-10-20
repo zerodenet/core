@@ -21,6 +21,14 @@ pub(crate) struct InboundRouteRuntime {
 }
 
 impl InboundRouteRuntime {
+    #[cfg(feature = "raw-ip-runtime")]
+    pub(crate) fn with_caller_native(
+        mut self,
+        registration: crate::runtime::inbound_operation::raw_ip::native_obligations::NativeRegistration,
+    ) -> Self {
+        self.tcp_runtime = self.tcp_runtime.with_caller_native(registration);
+        self
+    }
     pub(crate) fn new(
         shared: SharedIngressRuntimeServices,
         inbound_tag: String,

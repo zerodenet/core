@@ -30,20 +30,37 @@ pub(crate) struct ServiceInvocation {
 
 #[derive(Clone)]
 pub(crate) struct Invocation {
+    #[cfg(feature = "raw-ip-runtime")]
+    pub(crate) caller_native:
+        Option<crate::runtime::inbound_operation::raw_ip::native_obligations::NativeRegistration>,
     pub(crate) admitted: Option<super::business_demand::AdmittedTcpDemand>,
     pub(crate) identity: RequestIdentity,
     pub(crate) deadline: Option<Instant>,
 }
 impl Invocation {
     pub(crate) fn cancellation(&self) -> CancellationToken {
-        self.admitted
+        let cancel = self
+            .admitted
             .as_ref()
-            .map_or_else(CancellationToken::new, |demand| demand.cancellation())
+            .map_or_else(CancellationToken::new, |demand| demand.cancellation());
+        #[cfg(feature = "raw-ip-runtime")]
+        if self
+            .caller_native
+            .as_ref()
+            .is_some_and(|caller| caller.check_open().is_err())
+        {
+            // Same original request token. A stopped/joined caller cannot
+            // acquire a new carrier; this is no native closure confirmation.
+            cancel.cancel();
+        }
+        cancel
     }
 }
 impl From<ServiceInvocation> for Invocation {
     fn from(invocation: ServiceInvocation) -> Self {
         Self {
+            #[cfg(feature = "raw-ip-runtime")]
+            caller_native: None,
             admitted: None,
             identity: RequestIdentity::Service(Arc::new(ServiceRequestFacts {
                 origin: ServiceOrigin::Runtime,

@@ -95,6 +95,11 @@ impl HostPeerBinding {
             .joined
             .clone()
     }
+    /// Observation only: only the original containing Scope constructs this.
+    /// It proves no native descriptor or transferred-user closure.
+    pub(crate) fn observed_join(&self) -> Option<Arc<JoinedPeer>> {
+        self.joined_receipt()
+    }
     pub(crate) fn cancellation(&self) -> CancellationToken {
         self.cancel.clone()
     }

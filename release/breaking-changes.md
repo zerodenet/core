@@ -24,6 +24,8 @@ Raw-IP 子 native 义务另在原 gateway 前持久登记，并计入真实 TCP4
 
 Raw-IP UDP association 原 future 现在只登记一次到同一实际 listener Scope 的独立 1024 childgroup；父 Scope 声明为该组上限与原 driver 的 checked sum，不借用旧 Direct peer 的 4096 或 DNS256 额度。完成消息只用于旧 association/backoff 元数据，真实 TaskExit 与同原 native owner 收尾仍独立；未受控 gateway 的义务门禁继续保留。普通 TUN 保留原 JoinSet 路径，内部 raw-ip-runtime 显式依赖既有 managed-datagram-runtime，以取得真实 HostPeerBinding/PeerResourceContext，不新增配置字段或默认 grant。
 
+Raw-IP TCP 原连接 future 同样只登记一次到该 listener Scope 的独立 4096 childgroup，父额度按 TCP4096 + UDP1024 + 原 driver1 的 checked sum（5121）声明。原 Session 占位值仍经既有 Engine.prepare_session 获得真实业务身份及完整认证/策略处理后才进入所选 leaf；真实 caller 的 opaque 同槽观察随原 admitted Invocation 传递，停止或实际 joined caller 撤销同请求取消令牌。观察本身不授予 native open，不替换 selected-outbound/current 检查，也不能因任务结束清除 Unaccounted：最终仍需 C provider 的同原 grant/adoption/native Closed 与实际 caller join。
+
 ### 候选入站的真实 Ready 确认
 
 配置应用和启动的 listener 成功确认现在等待同一实际实例的 Ready receipt。协议资源 start 和 carrier activation 必须先完成，随后实际 accept/recv loop 首次 poll 到运行态才由宿主该调用点确认；TCP+UDP 和 listener group 必须确认所有实际分支，登记任务本身不是 Ready。就绪前错误、停止和取消不发布候选成功；取消等待保留实际 owner、候选信息与同一 receipt，旧实例的通知不能确认新实例。协议自有就绪预算保持原样，包括 SIP003 TCP 原十秒预算，不新增通用五秒 Ready 超时。

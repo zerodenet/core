@@ -63,7 +63,7 @@ impl ColdListener {
 }
 impl PreparedInboundListenerOperation for ColdListener {
     fn internal_tasks(&self) -> usize {
-        crate::inbound::tun::udp::OwnedTunUdpTasks::MAX_ASSOCIATIONS
+        RawIpInboundListenerOperation::internal_task_limit()
     }
 
     fn recovery_state(&self) -> Option<Arc<dyn crate::protocol_registry::InboundRecovery>> {

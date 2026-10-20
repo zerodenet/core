@@ -9,6 +9,9 @@ pub(crate) struct TcpIngressRuntime {
     pub(super) inbound_tag: String,
     pub(super) source_addr: Option<SocketAddr>,
     pub(super) local_addr: Option<SocketAddr>,
+    #[cfg(feature = "raw-ip-runtime")]
+    caller_native:
+        Option<crate::runtime::inbound_operation::raw_ip::native_obligations::NativeRegistration>,
 }
 
 impl TcpIngressRuntime {
@@ -22,9 +25,26 @@ impl TcpIngressRuntime {
             inbound_tag,
             source_addr,
             local_addr: None,
+            #[cfg(feature = "raw-ip-runtime")]
+            caller_native: None,
         }
     }
 
+    #[cfg(feature = "raw-ip-runtime")]
+    pub(crate) fn with_caller_native(
+        mut self,
+        registration: crate::runtime::inbound_operation::raw_ip::native_obligations::NativeRegistration,
+    ) -> Self {
+        self.caller_native = Some(registration);
+        self
+    }
+    #[cfg(feature = "raw-ip-runtime")]
+    pub(crate) fn caller_native(
+        &self,
+    ) -> Option<crate::runtime::inbound_operation::raw_ip::native_obligations::NativeRegistration>
+    {
+        self.caller_native.clone()
+    }
     pub(crate) fn inbound_tag(&self) -> &str {
         &self.inbound_tag
     }

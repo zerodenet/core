@@ -119,6 +119,8 @@ impl TcpRuntimeServices {
         }
         if let Some(ingress) = &self.execution.ingress {
             self.execution.invocation = Some(crate::component::direct_bridge::Invocation {
+                #[cfg(feature = "raw-ip-runtime")]
+                caller_native: None,
                 admitted: None,
                 identity: zero_platform_tokio::contract::context::RequestIdentity::Business(
                     Arc::new(crate::component::request::facts(session, ingress)),
@@ -155,6 +157,42 @@ impl TcpRuntimeServices {
         }
         invocation.admitted = Some(demand);
         Ok(services)
+    }
+
+    /// Carries the exact existing caller obligation. This grants no native I/O,
+    /// selected component membership, registration adoption, or Closed receipt.
+    #[cfg(feature = "raw-ip-runtime")]
+    pub(crate) fn with_caller_native(
+        mut self,
+        registration: Option<
+            crate::runtime::inbound_operation::raw_ip::native_obligations::NativeRegistration,
+        >,
+    ) -> Result<Self, zero_engine::EngineError> {
+        if let Some(registration) = registration {
+            registration.check_open().map_err(std::io::Error::other)?;
+            let invocation = self
+                .execution
+                .invocation
+                .as_mut()
+                .filter(|invocation| invocation.admitted.is_some())
+                .ok_or_else(|| {
+                    std::io::Error::other(
+                        "native caller association requires the original admitted demand",
+                    )
+                })?;
+            if invocation
+                .caller_native
+                .as_ref()
+                .is_some_and(|previous| !previous.same_slot(&registration))
+            {
+                return Err(std::io::Error::other(
+                    "admitted invocation already belongs to another actual native caller",
+                )
+                .into());
+            }
+            invocation.caller_native = Some(registration);
+        }
+        Ok(self)
     }
 
     #[cfg(feature = "udp-runtime")]

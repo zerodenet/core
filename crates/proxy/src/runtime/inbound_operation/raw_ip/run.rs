@@ -38,7 +38,12 @@ pub(super) async fn run(
         .spawn(tcp::accept(
             tcp.clone(),
             runtime.route_factory(),
-            operation.children.connections.clone(),
+            operation.children.connections.clone().ok_or_else(|| {
+                std::io::Error::other("actual raw-IP TCP child group was not installed")
+            })?,
+            operation.children.host.clone().ok_or_else(|| {
+                std::io::Error::other("actual raw-IP parent Scope was not installed")
+            })?,
             operation.children.native.clone(),
         ))
         .map_err(std::io::Error::other)?;

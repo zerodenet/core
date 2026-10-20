@@ -24,6 +24,8 @@ pub(crate) async fn dispatch_tcp(
             .with_admitted_business_identity(session, demand)?,
         None => runtime.runtime_services(),
     };
+    #[cfg(feature = "raw-ip-runtime")]
+    let services = services.with_caller_native(runtime.caller_native())?;
     let outbound = match super::dispatch_tcp_outbound(
         services,
         session,

@@ -2,7 +2,7 @@
 use super::tasks::Source;
 use std::{
     collections::BTreeMap,
-    sync::{Arc, Mutex},
+    sync::{Arc, Mutex, Weak},
 };
 use tokio::time::Instant;
 use zero_platform_tokio::contract::{
@@ -38,6 +38,7 @@ struct Record {
     kind: ChildKind,
     entered: bool,
     retiring: bool,
+    caller: Option<Arc<crate::runtime::inbound_owners::HostPeerBinding>>,
 }
 pub(crate) struct NativePermit {
     owner: NativeObligations,
@@ -84,6 +85,7 @@ impl NativeObligations {
                 kind,
                 entered: false,
                 retiring: false,
+                caller: None,
             },
         );
         Ok(NativePermit {
@@ -98,7 +100,73 @@ impl NativeObligations {
             .closing = true;
     }
 }
+#[derive(Clone)]
+pub(crate) struct NativeRegistration {
+    owner: Weak<Mutex<State>>,
+    id: u64,
+}
+impl NativeRegistration {
+    pub(crate) fn same_slot(&self, other: &Self) -> bool {
+        self.id == other.id && self.owner.ptr_eq(&other.owner)
+    }
+    pub(crate) fn check_open(&self) -> Result<(), ChannelError> {
+        if self.caller_joined().is_some() {
+            return Err(rejected(Reason::Revoked));
+        }
+        let owner = self
+            .owner
+            .upgrade()
+            .ok_or_else(|| rejected(Reason::Revoked))?;
+        let state = owner.lock().unwrap_or_else(|error| error.into_inner());
+        let caller = state
+            .records
+            .get(&self.id)
+            .and_then(|record| record.caller.as_ref())
+            .ok_or_else(|| rejected(Reason::Revoked))?;
+        if state.closing || caller.cancellation().is_cancelled() {
+            return Err(rejected(Reason::Revoked));
+        }
+        Ok(())
+    }
+    /// A real consumed TaskExit only; not body Ready, Drop or native closure.
+    pub(crate) fn caller_joined(&self) -> Option<Arc<crate::runtime::inbound_owners::JoinedPeer>> {
+        let owner = self.owner.upgrade()?;
+        let caller = owner
+            .lock()
+            .unwrap_or_else(|error| error.into_inner())
+            .records
+            .get(&self.id)?
+            .caller
+            .clone()?;
+        caller.observed_join()
+    }
+}
 impl NativePermit {
+    pub(crate) fn registration(&self) -> NativeRegistration {
+        NativeRegistration {
+            owner: Arc::downgrade(&self.owner.0),
+            id: self.id,
+        }
+    }
+    pub(crate) fn bind_caller(
+        &self,
+        caller: Arc<crate::runtime::inbound_owners::HostPeerBinding>,
+    ) -> Result<(), ChannelError> {
+        let mut state = self
+            .owner
+            .0
+            .lock()
+            .unwrap_or_else(|error| error.into_inner());
+        let record = state
+            .records
+            .get_mut(&self.id)
+            .ok_or_else(|| rejected(Reason::Revoked))?;
+        if record.caller.is_some() || record.entered {
+            return Err(rejected(Reason::InvalidConfig));
+        }
+        record.caller = Some(caller);
+        Ok(())
+    }
     /// Synchronously record Unaccounted immediately before the actual legacy
     /// gateway. Completion, cancellation, TaskExit and Drop do not remove it.
     pub(crate) fn enter(&mut self) -> Result<(), ChannelError> {

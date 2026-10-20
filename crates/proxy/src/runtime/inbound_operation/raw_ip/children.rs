@@ -9,7 +9,8 @@ pub(super) struct RawIpChildren {
     pub(super) icmp: Option<crate::component::instance::HostIcmpProbeGrant>,
     pub(super) drivers: RetainedTasks<Result<(), EngineError>>,
     pub(super) proxies: RetainedTasks<()>,
-    pub(super) connections: RetainedTasks<Result<(), EngineError>>,
+    pub(super) connections: Option<Arc<crate::runtime::inbound_owners::InboundPeerTasks>>,
+    pub(super) host: Option<crate::runtime::inbound_owners::InboundTaskAccess>,
     pub(super) udp: OwnedTunUdpTasks,
     pub(super) stack_workers: RetainedTasks<()>,
     pub(super) echoes: RetainedTasks<()>,
@@ -17,7 +18,7 @@ pub(super) struct RawIpChildren {
 impl RawIpChildren {
     pub(super) fn new() -> Self {
         let native = super::native_obligations::NativeObligations::new(
-            4096,
+            super::tcp::MAX_CONNECTIONS,
             OwnedTunUdpTasks::MAX_ASSOCIATIONS,
             OwnedTunUdpTasks::MAX_DNS,
         );
@@ -29,7 +30,8 @@ impl RawIpChildren {
                 "raw-IP outer carrier readers joined",
                 crate::runtime::raw_ip::MAX_RAW_IP_DEVICES,
             ),
-            connections: RetainedTasks::new("raw-IP TCP connections joined", 4096),
+            connections: None,
+            host: None,
             udp: OwnedTunUdpTasks::new(native),
             stack_workers: RetainedTasks::new(
                 "raw-IP TCP retransmission and control workers joined",
@@ -45,7 +47,11 @@ impl RawIpChildren {
         self.icmp = context.icmp_probe_grant();
         context.register(self.native.resource())?;
         context.register(self.stack_workers.resource())?;
-        context.register(self.connections.resource())?;
+        self.connections = Some(
+            context
+                .child_tasks(std::num::NonZeroUsize::new(super::tcp::MAX_CONNECTIONS).unwrap())?,
+        );
+        self.host = Some(context.tasks());
         self.udp.install(context)?;
         context.register(self.echoes.resource())?;
         context.register(self.proxies.resource())?;
