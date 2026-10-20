@@ -5,6 +5,32 @@ use zero_platform_tokio::contract::component::{
     RootDatagramAttemptFailure, RootDatagramClosed, RootDatagramGrant, RootDatagramIo,
 };
 
+/// Both originals when a query error is followed by a native cleanup failure.
+/// This is diagnostic payload only; it grants no settlement or replay authority.
+#[derive(Debug)]
+pub struct DnsUdpCleanupFailure {
+    query: Option<io::Error>,
+    close: zero_platform_tokio::contract::ChannelError,
+}
+impl DnsUdpCleanupFailure {
+    pub fn query_error(&self) -> Option<&io::Error> {
+        self.query.as_ref()
+    }
+    pub fn close_error(&self) -> &zero_platform_tokio::contract::ChannelError {
+        &self.close
+    }
+}
+impl std::fmt::Display for DnsUdpCleanupFailure {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        std::fmt::Display::fmt(&self.close, f)
+    }
+}
+impl std::error::Error for DnsUdpCleanupFailure {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        Some(&self.close)
+    }
+}
+
 pub(crate) struct OwnedDnsUdp {
     grants: Vec<RootDatagramGrant>,
 }
@@ -107,7 +133,12 @@ impl OwnedDnsUdp {
             });
             let closed = match grant.close(opened.io) {
                 Ok(closed) => closed,
-                Err(source) => return OwnedUdpAttempt::Unsettled(io::Error::other(source)),
+                Err(close) => {
+                    return OwnedUdpAttempt::Unsettled(io::Error::other(DnsUdpCleanupFailure {
+                        query: result.err(),
+                        close,
+                    }))
+                }
             };
             let succeeded = result.is_ok();
             let attempt = OwnedUdpAttempt::Closed {

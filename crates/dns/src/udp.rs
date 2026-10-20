@@ -19,6 +19,8 @@ use zero_platform_tokio::{EgressInterfaceControl, TokioDatagramSocket};
 #[cfg(feature = "udp")]
 mod owned;
 #[cfg(feature = "udp")]
+pub use owned::DnsUdpCleanupFailure;
+#[cfg(feature = "udp")]
 use owned::UdpIo;
 #[cfg(feature = "udp")]
 pub(crate) use owned::{OwnedDnsUdp, OwnedUdpAttempt};
