@@ -1,5 +1,17 @@
 use super::*;
 impl MetadataOwner {
+    /// Identity validation only: all views must refer to the same original in
+    /// this persistent owner. Equal reservation numbers from another owner do
+    /// not match. This does not assert retirement, native close or task exit.
+    pub fn owns_grant(&self, grant: &GrantedMetadataDatagram) -> bool {
+        self.views
+            .get(&grant.control.reservation())
+            .is_some_and(|shared| {
+                Arc::ptr_eq(shared, &grant.control.shared)
+                    && Arc::ptr_eq(shared, &grant.tx.shared)
+                    && Arc::ptr_eq(shared, &grant.rx.shared)
+            })
+    }
     /// Cold construction only. Even capability probes have an owner now.
     pub fn new(limits: MetadataLimits) -> std_io::Result<Self> {
         if limits.concurrent_send_calls.get() > tokio::sync::Semaphore::MAX_PERMITS {

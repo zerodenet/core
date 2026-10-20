@@ -15,6 +15,7 @@ mod client;
 mod inbound_accept;
 pub mod negotiated;
 mod options;
+pub mod owned;
 mod stream;
 pub use stream::QuicStream;
 mod rate_limit;
