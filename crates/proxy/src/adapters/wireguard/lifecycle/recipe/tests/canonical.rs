@@ -162,7 +162,9 @@ async fn interrupted_slot_cleanup_retains_the_original_graph_until_the_same_inli
     let resolved = invocation.resolve(&upstream, request).await.unwrap();
     host.drive(slot.start(deadline())).await.unwrap();
     let witnesses = pending.peer_stack(0).unwrap().test_original_witnesses();
-    assert_eq!(witnesses.len(), 2); // original control + endpoint driver
+    // The client control worker is lazy (ensure_worker at the first TCP
+    // demand). This uninstalled, unused graph has only its endpoint driver.
+    assert_eq!(witnesses.len(), 1);
     assert!(witnesses.iter().all(|witness| !witness.is_joined()));
     // The slot owns the real graph even though installation into a Link never
     // occurs. Abandonment revokes it, but cannot refund these original tasks.
@@ -181,20 +183,19 @@ async fn interrupted_slot_cleanup_retains_the_original_graph_until_the_same_inli
     let report = host.drive(slot.shutdown(deadline())).await.unwrap();
     assert!(report.is_complete());
     // Dropping the uninstalled invocation releases its actual packet receiver.
-    // The endpoint driver may then exit Ok while the slot is still running;
-    // the host deliberately ACKs that success without retaining history. Its
-    // original witness still proves the exact join, independently of the
-    // closing-phase report (which can therefore contain only the control).
+    // The sole endpoint driver may exit Ok while the slot is still running;
+    // the host ACKs that success without retaining history. Its original
+    // witness proves the exact join independently of the closing-phase report.
     let joined: Vec<_> = witnesses
         .iter()
         .map(|witness| {
             witness
                 .try_joined()
-                .expect("same inline host consumer must join both original tasks")
+                .expect("same inline host consumer must join the original driver")
         })
         .collect();
     assert!(joined.iter().all(|joined| joined.result().is_ok()));
-    assert_ne!(joined[0].id(), joined[1].id());
+    assert_eq!(joined.len(), 1);
     assert!(report
         .exited_tasks
         .iter()
