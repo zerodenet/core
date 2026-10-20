@@ -3,7 +3,9 @@ use super::*;
 use base64::{engine::general_purpose::STANDARD, Engine as _};
 use gotatun::x25519::{PublicKey, StaticSecret};
 use zero_core::request::{ServiceOrigin, ServicePurpose, ServiceRequestFacts};
-use zero_platform_tokio::contract::{network::CarrierContext, scope::TaskScope, CancellationToken};
+use zero_platform_tokio::contract::{
+    context::RequestIdentity, network::CarrierContext, scope::TaskScope, CancellationToken,
+};
 
 fn inputs(endpoint: &str) -> (OutboundConfig, InboundConfig) {
     let peer = STANDARD.encode(PublicKey::from(&StaticSecret::from([2; 32])).as_bytes());

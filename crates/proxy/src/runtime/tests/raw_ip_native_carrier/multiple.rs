@@ -160,4 +160,5 @@ async fn explicitly_closed_unused_original_can_leave_the_bounded_observer_withou
     fixture.assert_gate_retained().await;
 }
 
+#[path = "multiple/overflow.rs"]
 mod overflow;
