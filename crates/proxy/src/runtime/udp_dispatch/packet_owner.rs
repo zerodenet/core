@@ -69,6 +69,9 @@ impl PacketCarrierOwnerSlot {
             owner: self.clone(),
         })
     }
+    pub(crate) async fn cancelled(&self) {
+        self.stopped.cancelled().await;
+    }
     pub(crate) fn is_open(&self) -> bool {
         !self.stopped.is_cancelled()
     }

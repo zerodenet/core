@@ -26,6 +26,15 @@ impl EndpointStackRecipe {
         })
     }
 
+    pub(crate) fn prepare_checked(
+        local_addresses: Vec<IpAddr>,
+        mtu: u16,
+        peer: usize,
+        endpoint: watch::Receiver<mpsc::Sender<EndpointPacket>>,
+        options: super::super::super::RawIpStackOptions,
+    ) -> Result<Self, EngineError> {
+        Self::prepare(local_addresses, mtu, peer, endpoint, options).map_err(super::stack_udp_error)
+    }
     /// BuildNew is the only phase allowed to consume this recipe.
     /// This does not certify old resources closed; the host must hold that proof.
     pub(crate) fn start(self) -> Result<Arc<SharedRawIpDevice>, EngineError> {

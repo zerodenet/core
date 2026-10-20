@@ -83,6 +83,9 @@ impl PendingLinkedEndpoint {
         pending.install(link)?;
         Ok(pending)
     }
+    pub(super) fn is_usable(&self) -> bool {
+        self.resources.is_usable()
+    }
     pub(super) fn revoke(&self) {
         if self.resources.owned {
             for owner in &self.resources.peer_stacks {

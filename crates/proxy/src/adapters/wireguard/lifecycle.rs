@@ -3,6 +3,7 @@
 mod linked;
 mod pending;
 mod pending_map;
+mod recipe;
 pub(super) use pending::{PeerResources, PendingLinkedEndpoint};
 use pending_map::PendingEndpoints;
 
