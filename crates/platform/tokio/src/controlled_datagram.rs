@@ -153,6 +153,11 @@ impl ControlledDatagramOwner {
         self.reap_confirmed();
         self.entries.len()
     }
+    /// Whether this owner still retains the exact reservation. Confirmed
+    /// entries are removed only after their receipts entered owner accounting.
+    pub fn retains(&self, id: DatagramReservationId) -> bool {
+        self.entries.contains_key(&id)
+    }
     fn reserve(&mut self) -> Result<Arc<Entry>, DatagramAcquisitionError> {
         self.reap_confirmed();
         let denied = |message| DatagramAcquisitionError {
