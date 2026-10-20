@@ -302,6 +302,14 @@ impl ProtocolMetadata for VmessAdapter {
 
 #[cfg(feature = "vmess")]
 impl InboundListenerCapability for VmessAdapter {
+    fn prepare_inbound_bind(
+        &self,
+        inbound: InboundConfig,
+        source_dir: Option<&std::path::Path>,
+    ) -> Result<Option<crate::protocol_registry::PreparedInboundBind>, EngineError> {
+        crate::protocol_registry::prepare_tcp_inbound_bind(self, inbound, source_dir)
+    }
+
     fn prepare_inbound_listener(
         &self,
         inbound: InboundConfig,

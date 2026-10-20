@@ -175,6 +175,16 @@ pub(crate) trait PreparedOutboundDeviceState: Send {
 
 #[async_trait]
 pub(crate) trait InboundListenerCapability: Send + Sync {
+    /// Cold opt-in for a native bind whose owner can be installed before the
+    /// first acquisition. Unsupported shapes keep their existing bind path.
+    fn prepare_inbound_bind(
+        &self,
+        _inbound: InboundConfig,
+        _source_dir: Option<&std::path::Path>,
+    ) -> Result<Option<super::PreparedInboundBind>, EngineError> {
+        Ok(None)
+    }
+
     /// A related outbound change may alter an inbound's runtime shape even
     /// when its own configuration is unchanged.
     fn inbound_listener_requires_restart(&self, _inbound: &InboundConfig) -> bool {
