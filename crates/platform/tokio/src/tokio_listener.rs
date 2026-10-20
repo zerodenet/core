@@ -35,6 +35,14 @@ impl fmt::Debug for TokioListener {
 }
 
 impl TokioListener {
+    #[cfg(test)]
+    pub(crate) fn native_listener_for_test(&self) -> &TcpListener {
+        match &self.inner {
+            Inner::Native(listener) => listener,
+            Inner::Controlled { .. } => panic!("test requires the original ordinary listener"),
+        }
+    }
+
     pub async fn bind_addr(addr: SocketAddr) -> io::Result<Self> {
         TcpListener::bind(addr).await.map(|listener| Self {
             inner: Inner::Native(listener),

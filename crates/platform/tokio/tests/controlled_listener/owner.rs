@@ -19,7 +19,7 @@ fn owner(address: SocketAddr, attempts: usize) -> ControlledTcpListenerOwner {
     )
     .unwrap()
 }
-fn io_source(error: &(dyn Error + 'static)) -> &io::Error {
+fn io_source<'a>(error: &'a (dyn Error + 'static)) -> &'a io::Error {
     if let Some(source) = error.downcast_ref::<io::Error>() {
         return source;
     }

@@ -12,9 +12,9 @@ async fn consuming_platform_listener_keeps_same_native_handle_and_port_until_con
             .unwrap();
         let address = original.local_addr().unwrap();
         #[cfg(unix)]
-        let original_handle = original.inner.as_raw_fd();
+        let original_handle = original.native_listener_for_test().as_raw_fd();
         #[cfg(windows)]
-        let original_handle = original.inner.as_raw_socket();
+        let original_handle = original.native_listener_for_test().as_raw_socket();
         let parent = CancellationToken::new();
         let (view, mut control) = original.into_controlled(parent.clone());
         assert_eq!(view.local_addr().unwrap(), address);
