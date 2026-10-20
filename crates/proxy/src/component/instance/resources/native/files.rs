@@ -117,11 +117,7 @@ impl FileReads {
         }
         Ok(())
     }
-    fn record(
-        &mut self,
-        component: ComponentId,
-        result: JoinedJob,
-    ) {
+    fn record(&mut self, component: ComponentId, result: JoinedJob) {
         let id = match &result {
             Ok((id, _)) => *id,
             Err(source) => source.id(),
