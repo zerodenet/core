@@ -96,13 +96,23 @@ impl OrchestrationState {
             }
         }
         // This interface confirms only the actual DoH pools/drivers/users.
-        // DoQ and other transports require their own precise owner receipts.
+        // Other transports require their own precise owner receipts.
         if let Err(error) = proxy
             .resolver
             .shutdown_doh_pools(tokio::time::Instant::now() + Duration::from_secs(5))
             .await
         {
             cleanup_errors.push(format!("DoH pool shutdown failed: {error}"));
+            if result.is_ok() {
+                result = Err(EngineError::Io(error));
+            }
+        }
+        if let Err(error) = proxy
+            .resolver
+            .shutdown_doq_endpoints(tokio::time::Instant::now() + Duration::from_secs(5))
+            .await
+        {
+            cleanup_errors.push(format!("DoQ endpoint shutdown failed: {error}"));
             if result.is_ok() {
                 result = Err(EngineError::Io(error));
             }
