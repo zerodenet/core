@@ -31,6 +31,8 @@
 //! ```
 
 pub mod client_udp;
+mod task_owner;
+pub use task_owner::TcpTaskOwner;
 pub mod echo_translation;
 pub mod fragment;
 pub mod packet;
@@ -92,6 +94,24 @@ impl UserNetworkStack {
         let mtu = usize::from(mss).saturating_add(60);
         Self {
             tcp: Arc::new(UserTcpStack::new_output(outbound.clone(), mss)),
+            udp: Arc::new(UserUdpStack::new_output(outbound, mtu)),
+        }
+    }
+
+    /// Use the same TCP state machine while registering its original worker
+    /// futures with a host's persistent owner. No task is started by construction.
+    pub fn new_with_packet_output_and_task_owner(
+        outbound: packet_output::PacketSender,
+        mss: u16,
+        owner: Arc<dyn TcpTaskOwner>,
+    ) -> Self {
+        let mtu = usize::from(mss).saturating_add(60);
+        Self {
+            tcp: Arc::new(UserTcpStack::new_output_with_tasks(
+                outbound.clone(),
+                mss,
+                task_owner::TcpTaskSpawner::owned(owner),
+            )),
             udp: Arc::new(UserUdpStack::new_output(outbound, mtu)),
         }
     }
