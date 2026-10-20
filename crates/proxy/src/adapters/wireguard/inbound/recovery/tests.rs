@@ -74,10 +74,11 @@ fn restore_requires_ready_same_crypto_candidate_and_rejects_another_actual_owner
         inbound.listen.clone(),
         live,
     ));
-    *adapter.pending_endpoints.lock().unwrap() = Some(std::collections::HashMap::from([(
-        inbound.tag.clone(),
-        pending,
-    )]));
+    *adapter.pending_endpoints.lock().unwrap() =
+        Some(Arc::new(std::collections::HashMap::from([(
+            inbound.tag.clone(),
+            pending,
+        )])));
     assert!(recovery.prepare_restore(inbound.clone(), None).is_err());
     let another = Arc::new(LiveInboundDevice::new(
         prepare_device(&inbound).unwrap(),

@@ -51,6 +51,17 @@ impl EndpointStackOwner {
             }
         }
     }
+    pub(crate) fn is_open(&self) -> bool {
+        !self
+            .state
+            .lock()
+            .unwrap_or_else(|error| error.into_inner())
+            .stopped
+    }
+    pub(crate) fn needs_cleanup(&self) -> bool {
+        let state = self.state.lock().unwrap_or_else(|error| error.into_inner());
+        state.attempted && !self.is_drained()
+    }
     pub(crate) fn owns(&self, device: &Arc<SharedRawIpDevice>) -> bool {
         self.state
             .lock()

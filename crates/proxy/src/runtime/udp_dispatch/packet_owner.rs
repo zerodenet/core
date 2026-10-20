@@ -69,6 +69,13 @@ impl PacketCarrierOwnerSlot {
             owner: self.clone(),
         })
     }
+    pub(crate) fn is_open(&self) -> bool {
+        !self.stopped.is_cancelled()
+    }
+    pub(crate) fn needs_cleanup(&self) -> bool {
+        let mut state = self.state.lock().unwrap_or_else(|error| error.into_inner());
+        state.building || state.native.occupied() != 0
+    }
     pub(crate) fn revoke(&self) {
         self.stopped.cancel();
     }

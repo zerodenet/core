@@ -18,12 +18,13 @@ impl PendingPeerCloseReport {
                 .all(PacketCarrierCloseReport::is_complete)
     }
 }
-impl PendingLinkedEndpoint {
+impl PeerResources {
     /// The host has already stopped the affected original listener before this
     /// phase. These are client stacks/outer carriers, not its native close ACK.
     /// Partial candidates remain in the same pending map until this completes.
     pub(in crate::adapters::wireguard) async fn stop_peer_resources(
         &self,
+        link: Option<&LinkedEndpoint>,
         deadline: tokio::time::Instant,
     ) -> PendingPeerCloseReport {
         if !self.owned {
@@ -42,10 +43,7 @@ impl PendingLinkedEndpoint {
         for carrier in &self.peer_carriers {
             carrier.revoke();
         }
-        let carriers = self
-            .ready()
-            .map(|link| link.outer_carriers())
-            .unwrap_or_default();
+        let carriers = link.map(LinkedEndpoint::outer_carriers).unwrap_or_default();
         let waits: Vec<_> = carriers
             .iter()
             .map(|carrier| carrier.stop_background())
@@ -74,9 +72,7 @@ impl PendingLinkedEndpoint {
         }
         let workers_drained = self.peer_stacks.iter().all(|stack| stack.is_drained())
             && carriers.iter().all(|carrier| carrier.background_drained());
-        let owners_current = self
-            .ready()
-            .is_none_or(|link| link.carrier_owners_match(&self.peer_carriers));
+        let owners_current = link.is_none_or(|link| link.carrier_owners_match(&self.peer_carriers));
         if !owners_current {
             failures.push(Arc::new(super::super::invalid(
                 "outer carrier no longer belongs to the candidate's original native owner",

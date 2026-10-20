@@ -36,7 +36,7 @@ type InboundDeviceMap = HashMap<InboundDeviceKey, Weak<inbound::LiveInboundDevic
 
 type LinkedEndpointMap = HashMap<String, Arc<inbound::LinkedEndpoint>>;
 type PendingEndpointMap =
-    Arc<Mutex<Option<HashMap<String, Arc<lifecycle::PendingLinkedEndpoint>>>>>;
+    Arc<Mutex<Option<Arc<HashMap<String, Arc<lifecycle::PendingLinkedEndpoint>>>>>>;
 
 #[derive(Default)]
 pub(crate) struct WireguardAdapter {

@@ -4,7 +4,7 @@ use std::{
     net::{IpAddr, SocketAddr},
     sync::{
         atomic::{AtomicBool, AtomicU64, Ordering},
-        Arc, Mutex,
+        Arc, Mutex, OnceLock,
     },
 };
 use tokio::sync::{mpsc, watch};
@@ -36,6 +36,7 @@ pub(super) struct LinkedEndpoint {
     peers: watch::Sender<Arc<EndpointPeerState>>,
     packets: Mutex<Option<mpsc::Receiver<EndpointPacket>>>,
     active: Arc<AtomicBool>,
+    owned_resources: OnceLock<Arc<super::lifecycle::PeerResources>>,
 }
 
 pub(super) struct LinkedEndpointState {
@@ -83,6 +84,25 @@ impl LinkedEndpointUpdate {
 }
 
 impl LinkedEndpoint {
+    pub(super) fn owned_resources(&self) -> Option<Arc<super::lifecycle::PeerResources>> {
+        self.owned_resources.get().cloned()
+    }
+    pub(super) fn install_owned_resources(
+        &self,
+        resources: Arc<super::lifecycle::PeerResources>,
+    ) -> Result<(), EngineError> {
+        if let Some(current) = self.owned_resources.get() {
+            if Arc::ptr_eq(current, &resources) {
+                return Ok(());
+            }
+            return Err(invalid(
+                "linked endpoint already belongs to another resource owner",
+            ));
+        }
+        self.owned_resources
+            .set(resources)
+            .map_err(|_| invalid("linked resource owner changed during installation"))
+    }
     pub(super) fn outer_carriers(&self) -> Vec<Arc<dyn RawIpWireCarrier>> {
         self.peers
             .borrow()
@@ -137,6 +157,7 @@ impl LinkedEndpoint {
             peers,
             packets: Mutex::new(Some(packets)),
             active: Arc::new(AtomicBool::new(false)),
+            owned_resources: OnceLock::new(),
         }
     }
 

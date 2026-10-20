@@ -2,7 +2,9 @@
 
 mod linked;
 mod pending;
-pub(super) use pending::PendingLinkedEndpoint;
+mod pending_map;
+pub(super) use pending::{PeerResources, PendingLinkedEndpoint};
+use pending_map::PendingEndpoints;
 
 use std::{
     collections::HashMap,
@@ -42,8 +44,6 @@ struct PreparedWireguardDevices {
     traffic: Vec<zero_engine::PreparedEndpointTraffic>,
 }
 
-struct PendingEndpoints(PendingEndpointMap);
-
 impl crate::protocol_registry::EndpointControlCapability for WireguardAdapter {
     fn supports_endpoint_control(&self, binding: &zero_config::EndpointBindingConfig) -> bool {
         binding.protocol == "wireguard"
@@ -57,12 +57,6 @@ impl crate::protocol_registry::EndpointControlCapability for WireguardAdapter {
     }
 }
 
-impl Drop for PendingEndpoints {
-    fn drop(&mut self) {
-        *self.0.lock().unwrap_or_else(|error| error.into_inner()) = None;
-    }
-}
-
 impl PreparedOutboundDeviceState for PreparedWireguardDevices {
     fn publish(self: Box<Self>) -> std::pin::Pin<Box<dyn std::future::Future<Output = ()> + Send>> {
         let Self {
@@ -73,7 +67,7 @@ impl PreparedOutboundDeviceState for PreparedWireguardDevices {
             linked,
             next_linked,
             linked_updates,
-            pending,
+            mut pending,
             traffic,
         } = *self;
         for prepared in traffic {
@@ -86,6 +80,7 @@ impl PreparedOutboundDeviceState for PreparedWireguardDevices {
         let stopped = pool.publish(staged);
         *active = next_profiles;
         *linked.lock().unwrap_or_else(|error| error.into_inner()) = next_linked;
+        pending.published();
         drop(pending);
         Box::pin(async move {
             for device in stopped {
@@ -103,6 +98,7 @@ impl OutboundDeviceLifecycleCapability for WireguardAdapter {
         inbounds: &[InboundConfig],
         context: OutboundDevicePreparationContext,
     ) -> Result<Box<dyn PreparedOutboundDeviceState>, EngineError> {
+        PendingEndpoints::ensure_available(&self.pending_endpoints)?;
         let upstream = &context.upstream;
         let mut staged = self.pool.begin_stage();
         let mut profiles = HashMap::new();
@@ -317,20 +313,18 @@ impl OutboundDeviceLifecycleCapability for WireguardAdapter {
                 },
             );
         }
-        *self
-            .pending_endpoints
-            .lock()
-            .unwrap_or_else(|error| error.into_inner()) = Some(
+        let pending = PendingEndpoints::install(
+            self.pending_endpoints.clone(),
             linked
                 .iter()
                 .map(|(tag, link)| {
-                    (
+                    Ok((
                         tag.clone(),
-                        Arc::new(PendingLinkedEndpoint::from_ready(link.clone())),
-                    )
+                        Arc::new(PendingLinkedEndpoint::from_ready(link.clone())?),
+                    ))
                 })
-                .collect(),
-        );
+                .collect::<Result<HashMap<_, _>, EngineError>>()?,
+        )?;
         Ok(Box::new(PreparedWireguardDevices {
             pool: self.pool.clone(),
             profiles: self.profiles.clone(),
@@ -340,7 +334,7 @@ impl OutboundDeviceLifecycleCapability for WireguardAdapter {
             next_linked: linked,
             linked_updates,
             traffic,
-            pending: PendingEndpoints(self.pending_endpoints.clone()),
+            pending,
         }))
     }
 
