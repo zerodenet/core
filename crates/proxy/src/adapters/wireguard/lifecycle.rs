@@ -119,7 +119,7 @@ impl OutboundDeviceLifecycleCapability for WireguardAdapter {
                 _ => None,
             };
             let device_identity = if let Some(proxy_tag) = outer_udp_proxy {
-                let proxy_identity = context.packet_path_identities.get(proxy_tag).ok_or_else(|| {
+                let proxy_identity = context.packet_paths.get(proxy_tag).map(|path| &path.identity).ok_or_else(|| {
                     invalid(format!(
                         "WireGuard outer_udp_proxy `{proxy_tag}` has no persistent bidirectional UDP packet path"
                     ))
@@ -261,6 +261,7 @@ impl OutboundDeviceLifecycleCapability for WireguardAdapter {
                             "WireGuard outer_udp_proxy `{proxy_tag}` has no persistent bidirectional UDP packet path"
                         ))
                     })?;
+                    let operation = &operation.operation;
                     let path = operation
                         .build_carrier(context.packet_path_services.clone())
                         .await?;

@@ -269,8 +269,11 @@ impl ProtocolInventory {
         use std::sync::Arc;
 
         let admission = zero_engine::EndpointAdmission::from_snapshot(services.snapshot());
-        let (packet_paths, packet_path_identities) =
-            self.prepare_device_packet_paths(config, &admission)?;
+        let packet_paths = self.prepare_device_packet_paths(
+            config,
+            &admission,
+            zero_core::component::NetworkGeneration(services.upstream().egress_generation()),
+        )?;
         let context = crate::protocol_registry::OutboundDevicePreparationContext {
             traffic: services.engine().clone(),
             direct_packet_device: config.runtime.network.direct_packet_device.clone(),
@@ -293,7 +296,6 @@ impl ProtocolInventory {
                     &services.execution(),
                 ),
             packet_paths: Arc::new(packet_paths),
-            packet_path_identities: Arc::new(packet_path_identities),
         };
         self.registry
             .prepare_outbound_devices(config, context, admission)

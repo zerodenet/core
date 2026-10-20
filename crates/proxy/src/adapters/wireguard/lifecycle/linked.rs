@@ -204,6 +204,7 @@ async fn prepare_carriers(
         "WireGuard outer_udp_proxy `{proxy_tag}` has no persistent bidirectional UDP packet path"
     ))
     })?;
+    let operation = &operation.operation;
     let mut carriers = Vec::with_capacity(endpoints.len());
     for _ in endpoints {
         let path = operation

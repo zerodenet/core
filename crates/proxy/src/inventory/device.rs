@@ -7,22 +7,19 @@ use zero_config::{OutboundGroupKind, RuntimeConfig};
 use zero_engine::EngineError;
 
 use super::{PreparedTcpRelayPrefix, ProtocolInventory};
-use crate::protocol_registry::OutboundAdapterContext;
-use crate::runtime::udp_dispatch::packet_path_operation::{
-    PreparedDatagramRelayCarrier, PreparedUdpPacketPathOperation,
-};
+use crate::protocol_registry::{OutboundAdapterContext, PreparedDevicePacketPath};
+use crate::runtime::udp_dispatch::packet_path_operation::PreparedDatagramRelayCarrier;
 
-type PacketPaths = HashMap<String, Arc<dyn PreparedUdpPacketPathOperation>>;
-type PathIdentities = HashMap<String, [u8; 32]>;
+type PacketPaths = HashMap<String, PreparedDevicePacketPath>;
 
 impl ProtocolInventory {
     pub(super) fn prepare_device_packet_paths(
         &self,
         config: &RuntimeConfig,
         admission: &zero_engine::EndpointAdmission<'_>,
-    ) -> Result<(PacketPaths, PathIdentities), EngineError> {
+        network_generation: zero_core::component::NetworkGeneration,
+    ) -> Result<PacketPaths, EngineError> {
         let mut paths: PacketPaths = HashMap::new();
-        let mut identities = HashMap::new();
         for (index, outbound) in config.outbounds.iter().enumerate() {
             if !outbound.udp.enabled || admission.outbound_denial(&outbound.tag).is_some() {
                 continue;
@@ -31,8 +28,14 @@ impl ProtocolInventory {
                 continue;
             };
             if let Some(operation) = claimed.prepare_udp_packet_path(config.source_dir()) {
-                identities.insert(outbound.tag.clone(), path_identity(config, &[index])?);
-                paths.insert(outbound.tag.clone(), Arc::from(operation));
+                paths.insert(
+                    outbound.tag.clone(),
+                    PreparedDevicePacketPath {
+                        operation: Arc::from(operation),
+                        identity: path_identity(config, &[index])?,
+                        root_binding: root_binding(outbound, network_generation),
+                    },
+                );
             }
         }
         for group in &config.outbound_groups {
@@ -51,6 +54,9 @@ impl ProtocolInventory {
             let Some(indices) = indices else {
                 continue;
             };
+            let Some(&first) = indices.first() else {
+                continue;
+            };
             if indices.iter().any(|&index| {
                 !config.outbounds[index].udp.enabled
                     || admission
@@ -62,10 +68,16 @@ impl ProtocolInventory {
             let Ok(operation) = self.prepare_relay_device_packet_path(config, &indices) else {
                 continue;
             };
-            identities.insert(group.tag.clone(), path_identity(config, &indices)?);
-            paths.insert(group.tag.clone(), Arc::new(operation));
+            paths.insert(
+                group.tag.clone(),
+                PreparedDevicePacketPath {
+                    operation: Arc::new(operation),
+                    identity: path_identity(config, &indices)?,
+                    root_binding: root_binding(&config.outbounds[first], network_generation),
+                },
+            );
         }
-        Ok((paths, identities))
+        Ok(paths)
     }
 
     fn prepare_relay_device_packet_path(
@@ -120,3 +132,18 @@ fn path_identity(config: &RuntimeConfig, indices: &[usize]) -> Result<[u8; 32], 
 fn invalid(message: impl ToString) -> EngineError {
     EngineError::Io(std::io::Error::other(message.to_string()))
 }
+
+fn root_binding(
+    outbound: &zero_config::OutboundConfig,
+    network_generation: zero_core::component::NetworkGeneration,
+) -> zero_platform_tokio::contract::network::UpstreamBinding {
+    zero_platform_tokio::contract::network::UpstreamBinding {
+        // These are concrete static first-hop carrier plans, not an execution
+        // of a native role prefix. An associated/control plan remains opt-in.
+        prefix: Vec::new(),
+        dial: outbound.dial.to_policy(),
+        network_generation,
+    }
+}
+#[cfg(test)]
+mod tests;

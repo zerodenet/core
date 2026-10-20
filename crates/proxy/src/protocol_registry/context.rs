@@ -10,7 +10,7 @@ pub(crate) use adapter::OutboundAdapterContext;
 #[cfg(feature = "udp-runtime")]
 pub(crate) use adapter::UdpAdapterContext;
 #[cfg(feature = "raw-ip-runtime")]
-pub(crate) use device::OutboundDevicePreparationContext;
+pub(crate) use device::{OutboundDevicePreparationContext, PreparedDevicePacketPath};
 pub(crate) use tcp::{TcpExecutionServices, TcpRuntimeServices};
 #[cfg(feature = "udp-runtime")]
 pub(crate) use udp::{
