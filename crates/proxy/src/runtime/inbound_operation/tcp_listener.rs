@@ -37,21 +37,25 @@ where
                 request,
                 dispatch,
             } = *self;
-            crate::runtime::listener_loop::run_logged_tcp_socket_listener_loop(
-                crate::runtime::listener_loop::LoggedTcpSocketListenerRequest {
-                    runtime_factory: runtime.route_factory(),
-                    protocol_name,
-                    error_protocol_name,
-                    request,
-                    listener: bound.into_tcp(),
-                    shutdown,
-                    dispatch: move |runtime, request, socket| {
-                        let dispatch = dispatch.clone();
-                        async move {
-                            dispatch(request, socket, InboundConnectionContext::new(runtime)).await
-                        }
+            crate::runtime::inbound_owners::InboundReady::poll_optional(
+                runtime.readiness(),
+                crate::runtime::listener_loop::run_logged_tcp_socket_listener_loop(
+                    crate::runtime::listener_loop::LoggedTcpSocketListenerRequest {
+                        runtime_factory: runtime.route_factory(),
+                        protocol_name,
+                        error_protocol_name,
+                        request,
+                        listener: bound.into_tcp(),
+                        shutdown,
+                        dispatch: move |runtime, request, socket| {
+                            let dispatch = dispatch.clone();
+                            async move {
+                                dispatch(request, socket, InboundConnectionContext::new(runtime))
+                                    .await
+                            }
+                        },
                     },
-                },
+                ),
             )
             .await
         })

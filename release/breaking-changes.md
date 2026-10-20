@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+### 候选入站的真实 Ready 确认
+
+配置应用和启动的 listener 成功确认现在等待同一实际实例的 Ready receipt。协议资源 start 和 carrier activation 必须先完成，随后实际 accept/recv loop 首次 poll 到运行态才由宿主该调用点确认；TCP+UDP 和 listener group 必须确认所有实际分支，登记任务本身不是 Ready。就绪前错误、停止和取消不发布候选成功；取消等待保留实际 owner、候选信息与同一 receipt，旧实例的通知不能确认新实例。协议自有就绪预算保持原样，包括 SIP003 TCP 原十秒预算，不新增通用五秒 Ready 超时。
+
+wire、配置 schema 及调用方式不变，无 GUI/SDK 迁移步骤；原调用方可能更晚收到成功，实际初始化失败会进入原补偿路径。此确认描述监听循环已进入运行态，不代替已转交会话、原生 FD 或整个 M4 资源关闭证明。回归见 `runtime/inbound_owners/entry/readiness/tests.rs` 的真实 TCP/UDP pending、取消和原 TaskExit source，以及 `runtime/orchestration/tests/inbound_ready.rs` 的实际 SIP003 Child、超过五秒仍 pending 的初始化、真实 ACK 和明确 reap。
+
 ### 启动期间的实际配置代次一致性
 
 宿主先订阅实际 reload 通知，再捕获一次 Engine snapshot；本次启动的 DNS candidate 准备/真实资源退休、组件 start/commit、listener 与服务均使用该同一 snapshot 的配置。启动 await 期间的后续公开 Engine reload 留待原 bridge 逐次 reconcile，不能把后来读取的配置提交到先前启动的组件。启动前已完成 Engine reload 也从捕获的实际配置建立 DNS 与组件。wire 与配置 schema 不变；公开 Engine reload / probe 调用方式不需要迁移。回归保留 `automatic_urltest_rebuilds_runtime_across_large_and_small_reloads`，并新增 `runtime/orchestration/tests/startup_snapshot.rs` 的真实 UDP DNS/HTTP 流量与同一 plan Arc 验证。
@@ -23,7 +29,8 @@ wire、结果码、策略/健康中立性与配置字段不变，无 GUI/SDK 迁
 
 入站故障不再把已完成的实际任务 join 和原生资源关闭永久视为未确认。宿主保留原实例的任务 ID、类别与原始错误，只有实际物理关闭证明完成、错误同步交付监督及已有 endpoint 健康记录后，才消费该实例收据并允许新一代替换；取消或交付失败保留原 owner 和同一收据供重试。候选替换遇到旧实例故障仍被拒绝，现有补偿路径从最后成功配置重新建立实例。未确认或 Unknown 的资源继续阻止替换。
 
-此项影响配置更新、停止及内部 listener 监督，无配置字段或 API wire 标识变化，无 GUI/SDK 迁移步骤。普通 Direct listener 没有新增 endpoint 状态模型；候选 listener 的 Ready ACK 仍是后续独立问题。回归位于 `runtime/inbound_owners/entry/tests/peer_resource/recovery.rs`（真实任务 panic、UDP close、取消、交付失败与重放）及 `runtime/orchestration/tests/inbound_recovery.rs`（真实 listener/UDP 流量与最后成功配置恢复）。
+此项影响配置更新、停止及内部 listener 监督，无配置字段或 API wire 标识变化，无 GUI/SDK 迁移步骤。普通 Direct listener 没有新增 endpoint 状态模型；候选 listener 的 Ready 确认由上述实际监听循环收据独立约束。回归位于 `runtime/inbound_owners/entry/tests/peer_resource/recovery.rs`（真实任务 panic、UDP close、取消、交付失败与重放）及 `runtime/orchestration/tests/inbound_recovery.rs`（真实 listener/UDP 流量与最后成功配置恢复）。
+
 ### Native Stream component integration
 
 - HTTP and mixed CONNECT now pass protocol-owned destination facts into the host's standard accepted Stream handoff. The host mints one sealed business identity and retains the existing admission/routing/accounting/half-close pipeline. Protocol-owned replies preserve the established 200/403/502 wire and original carrier failure sources. Rust `http/runtime` gates that reply's Tokio dependencies; default parsing stays runtime independent and the legacy request API remains available. Forward HTTP messages retain the existing executor. V1 config/API/events and FFI ABI are unchanged; regressions live in `protocols/http/tests/component/inbound.rs` and `crates/proxy/tests/http/standard_inbound.rs`. This entry records implementation; validation results are recorded separately.

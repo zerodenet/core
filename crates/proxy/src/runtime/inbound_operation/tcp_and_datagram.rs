@@ -95,6 +95,12 @@ where
             if host.cancellation().is_cancelled() || *shutdown.borrow() {
                 return Ok(());
             }
+            let mut ready_branches = runtime.split_readiness(2)?.into_iter();
+            let tcp_runtime = ready_branches.next().expect("TCP readiness branch");
+            let udp_ready = ready_branches
+                .next()
+                .expect("UDP readiness branch")
+                .readiness();
             if let Some(socket) = udp_socket.as_ref() {
                 let udp_runtime = runtime.udp_runtime();
                 let inbound_tag = runtime.inbound_tag().to_owned();
@@ -103,12 +109,13 @@ where
                 host.spawn(async move {
                     tokio::select! { biased;
                     _ = cancel.cancelled() => Ok(()),
-                    result = crate::runtime::datagram_udp::run_protocol_datagram_udp_relay(
+                    result = crate::runtime::datagram_udp::run_ready_protocol_datagram_udp_relay(
                         udp_runtime,
                         socket,
                         udp_relay,
                         &inbound_tag,
                         false,
+                        udp_ready,
                     )
                     => result,
                     }
@@ -120,7 +127,7 @@ where
                 request: tcp_request,
                 dispatch: tcp_dispatch,
             })
-            .execute(runtime, bound, shutdown);
+            .execute(tcp_runtime, bound, shutdown);
             let (mut result, tcp_finished) = tokio::select! {
                 result = &mut tcp => (result, true),
                 result = &mut completion => (result.map_err(EngineError::from), false),

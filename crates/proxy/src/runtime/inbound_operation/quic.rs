@@ -66,7 +66,7 @@ where
             };
             let profile = self.profile;
             let protocol_name = self.protocol_name;
-            crate::runtime::listener_loop::run_quic_listener_loop(
+            crate::runtime::inbound_owners::InboundReady::poll_optional(runtime.readiness(), crate::runtime::listener_loop::run_quic_listener_loop(
                 crate::runtime::listener_loop::QuicListenerLoopRequest {
                     runtime_factory: runtime.route_factory(),
                     protocol_name,
@@ -87,7 +87,7 @@ where
                         }
                     },
                 },
-            )
+            ))
             .await
         })
     }

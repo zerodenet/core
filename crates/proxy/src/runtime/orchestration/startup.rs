@@ -169,7 +169,9 @@ impl OrchestrationState {
                 bound,
                 tx,
                 &mut self.listeners,
-            )?;
+            )?
+            .wait_ready()
+            .await?;
         }
         Ok(())
     }

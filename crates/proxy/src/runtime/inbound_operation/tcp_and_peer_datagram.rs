@@ -52,39 +52,48 @@ where
                 .host_control()
                 .cloned()
                 .ok_or_else(|| std::io::Error::other("peer listener owner was not installed"))?;
-            let udp_runtime = runtime.udp_runtime();
+            let mut ready_branches = runtime.split_readiness(2)?.into_iter();
+            let tcp_runtime = ready_branches.next().expect("TCP readiness branch");
+            let udp_runtime_state = ready_branches.next().expect("UDP readiness branch");
+            let udp_runtime = udp_runtime_state.udp_runtime();
             let ingress = udp_runtime.peer_ingress()?;
             let inbound_tag = runtime.inbound_tag().to_owned();
-            let tcp_loop =
-                Box::new(tcp_operation).execute(runtime, BoundInbound::Tcp(tcp), shutdown.clone());
+            let tcp_loop = Box::new(tcp_operation).execute(
+                tcp_runtime,
+                BoundInbound::Tcp(tcp),
+                shutdown.clone(),
+            );
             let peer_socket = socket.clone();
             let peer_resources = peers.clone();
-            let udp_loop = peers::run_bound(
-                socket,
-                shutdown,
-                host.clone(),
-                peers,
-                move |peer, packets, binding| {
-                    let relay = (relay_factory)(peer, packets);
-                    let context = peer_resources.resource_context(binding, ingress);
-                    let (slot, driver) =
+            let udp_loop = crate::runtime::inbound_owners::InboundReady::poll_optional(
+                udp_runtime_state.readiness(),
+                peers::run_bound(
+                    socket,
+                    shutdown,
+                    host.clone(),
+                    peers,
+                    move |peer, packets, binding| {
+                        let relay = (relay_factory)(peer, packets);
+                        let context = peer_resources.resource_context(binding, ingress);
+                        let (slot, driver) =
                         crate::runtime::udp_socket::endpoint::peer::DirectPeerDriverSlot::channel();
-                    let runtime = udp_runtime
-                        .clone()
-                        .with_peer_resources(context)
-                        .with_direct_peer_driver(slot);
-                    let socket = peer_socket.clone();
-                    let tag = inbound_tag.clone();
-                    async move {
-                        crate::runtime::udp_socket::endpoint::peer::job::run_peer_with_driver(
-                            crate::runtime::datagram_udp::run_protocol_datagram_udp_relay(
-                                runtime, socket, relay, &tag, true,
-                            ),
-                            driver,
-                        )
-                        .await
-                    }
-                },
+                        let runtime = udp_runtime
+                            .clone()
+                            .with_peer_resources(context)
+                            .with_direct_peer_driver(slot);
+                        let socket = peer_socket.clone();
+                        let tag = inbound_tag.clone();
+                        async move {
+                            crate::runtime::udp_socket::endpoint::peer::job::run_peer_with_driver(
+                                crate::runtime::datagram_udp::run_protocol_datagram_udp_relay(
+                                    runtime, socket, relay, &tag, true,
+                                ),
+                                driver,
+                            )
+                            .await
+                        }
+                    },
+                ),
             );
             run_both(tcp_loop, udp_loop, host).await
         })

@@ -40,14 +40,16 @@ impl PreparedInboundListenerOperation for InboundListenerGroupOperation {
                     "listener group size mismatch",
                 )));
             }
+            let runtimes = runtime.split_readiness(listeners.len())?;
             let control = runtime.host_control().cloned();
             use futures_util::{stream::FuturesUnordered, StreamExt};
             let mut operations: FuturesUnordered<_> = self
                 .0
                 .into_iter()
                 .zip(listeners)
-                .map(|(operation, listener)| {
-                    operation.execute(runtime.clone(), listener, shutdown.clone())
+                .zip(runtimes)
+                .map(|((operation, listener), runtime)| {
+                    operation.execute(runtime, listener, shutdown.clone())
                 })
                 .collect();
             let mut failure = None;

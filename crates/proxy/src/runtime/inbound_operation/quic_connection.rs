@@ -36,7 +36,7 @@ where
                 request,
                 dispatch,
             } = *self;
-            crate::runtime::listener_loop::run_quic_listener_loop(crate::runtime::listener_loop::QuicListenerLoopRequest {
+            crate::runtime::inbound_owners::InboundReady::poll_optional(runtime.readiness(), crate::runtime::listener_loop::run_quic_listener_loop(crate::runtime::listener_loop::QuicListenerLoopRequest {
                 runtime_factory:runtime.route_factory(), protocol_name,listener,shutdown,
                 handler:move |runtime,connection| {
                     let request = request.clone(); let dispatch = dispatch.clone();
@@ -46,7 +46,7 @@ where
                         }
                     }
                 },
-            }).await
+            })).await
         })
     }
 }

@@ -5,17 +5,47 @@ use super::{InboundRouteRuntimeFactory, SharedIngressRuntimeServices};
 
 #[derive(Clone)]
 pub(crate) struct InboundListenerRuntime {
+    ready: Option<crate::runtime::inbound_owners::InboundReady>,
     host: Option<crate::runtime::inbound_owners::InboundTaskAccess>,
     route_factory: InboundRouteRuntimeFactory,
 }
 
 impl InboundListenerRuntime {
+    pub(crate) fn with_readiness(
+        mut self,
+        ready: crate::runtime::inbound_owners::InboundReady,
+    ) -> Self {
+        self.ready = Some(ready);
+        self
+    }
+    pub(crate) fn readiness(&self) -> Option<crate::runtime::inbound_owners::InboundReady> {
+        self.ready.clone()
+    }
+    #[cfg(any(
+        feature = "inbound-listener-group-runtime",
+        feature = "managed-datagram-runtime"
+    ))]
+    pub(crate) fn split_readiness(
+        &self,
+        count: usize,
+    ) -> Result<Vec<Self>, zero_engine::EngineError> {
+        match &self.ready {
+            Some(ready) => Ok(ready
+                .split(count)?
+                .into_iter()
+                .map(|ready| self.clone().with_readiness(ready))
+                .collect()),
+            None => Ok((0..count).map(|_| self.clone()).collect()),
+        }
+    }
+
     pub(crate) fn new(
         shared: SharedIngressRuntimeServices,
         inbound_tag: String,
         host: Option<crate::runtime::inbound_owners::InboundTaskAccess>,
     ) -> Self {
         Self {
+            ready: None,
             host,
             route_factory: InboundRouteRuntimeFactory::new(shared, inbound_tag),
         }

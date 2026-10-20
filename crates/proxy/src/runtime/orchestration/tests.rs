@@ -1,4 +1,6 @@
 use zero_engine::EngineError;
+#[cfg(all(unix, feature = "shadowsocks"))]
+mod inbound_ready;
 #[cfg(feature = "managed-stream-runtime")]
 mod startup_snapshot;
 

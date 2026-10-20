@@ -82,7 +82,7 @@ pub(super) async fn run(
         .map(|endpoint| endpoint.peers.clone());
     let mut timers = PeerTimers::default();
     let mut timer_revision = None;
-    let outcome = loop {
+    let outcome = crate::runtime::inbound_owners::InboundReady::poll_optional(runtime.readiness(), async { loop {
         refresh_endpoint_peers(
             operation.endpoint.as_mut(),
             &mut peer_revision,
@@ -299,7 +299,7 @@ pub(super) async fn run(
             }
             _ = proxied_tasks.join_next(), if !proxied_tasks.is_empty() => {}
         }
-    };
+    } }).await;
     tasks.shutdown().await;
     proxied_tasks.shutdown().await;
     outcome

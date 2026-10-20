@@ -9,7 +9,7 @@ pub(in crate::runtime) fn spawn_inbound_listener(
     bound: crate::protocol_registry::BoundInbound,
     shutdown_tx: watch::Sender<bool>,
     listeners: &mut JoinSet<Result<(), EngineError>>,
-) -> Result<(), EngineError> {
+) -> Result<std::sync::Arc<crate::runtime::inbound_owners::InboundOwner>, EngineError> {
     spawn_inbound_listener_with_state(
         protocols,
         source_dir,
@@ -32,7 +32,7 @@ pub(super) fn spawn_inbound_listener_with_state(
     shutdown_tx: watch::Sender<bool>,
     listeners: &mut JoinSet<Result<(), EngineError>>,
     rollback: bool,
-) -> Result<(), EngineError> {
+) -> Result<std::sync::Arc<crate::runtime::inbound_owners::InboundOwner>, EngineError> {
     let listener_config = runtime_factory.listener_config(inbound);
     let mut operation = (if rollback {
         protocols.prepare_rollback_inbound_listener(listener_config, source_dir)
@@ -65,7 +65,9 @@ pub(super) fn spawn_inbound_listener_with_state(
     let protocol = inbound.protocol.protocol_name();
     let listen_address = inbound.listen.address.clone();
     let listen_port = inbound.listen.port;
-    let listener_runtime = runtime_factory.for_inbound(inbound_tag.clone());
+    let listener_runtime = runtime_factory
+        .for_inbound(inbound_tag.clone())
+        .with_readiness(owner.readiness());
 
     let shutdown_rx = shutdown_tx.subscribe();
     owner.spawn_driver(async move {
@@ -100,11 +102,12 @@ pub(super) fn spawn_inbound_listener_with_state(
         }
         result
     })?;
+    let observing = owner.clone();
     listeners.spawn(async move {
-        owner
+        observing
             .observe_driver()
             .await
-            .map_err(|error| owner.observer_error(error))
+            .map_err(|error| observing.observer_error(error))
     });
-    Ok(())
+    Ok(owner)
 }

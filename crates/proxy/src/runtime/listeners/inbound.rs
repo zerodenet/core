@@ -100,6 +100,12 @@ pub(in crate::runtime) async fn reconcile_inbounds(
                 .owner(&inbound.tag)
                 .is_some_and(|owner| owner.is_running())
         {
+            runtime_factory
+                .owners()
+                .owner(&inbound.tag)
+                .expect("checked actual inbound owner")
+                .wait_ready()
+                .await?;
             state
                 .active_inbounds
                 .insert(inbound.tag.clone(), inbound.clone());
@@ -116,6 +122,12 @@ pub(in crate::runtime) async fn reconcile_inbounds(
             && protocols
                 .update_inbound_listener(runtime_factory.listener_config(inbound), source_dir)?
         {
+            runtime_factory
+                .owners()
+                .owner(&inbound.tag)
+                .expect("checked actual inbound owner")
+                .wait_ready()
+                .await?;
             state
                 .active_inbounds
                 .insert(inbound.tag.clone(), inbound.clone());
@@ -139,15 +151,29 @@ pub(in crate::runtime) async fn reconcile_inbounds(
             None => bind_inbound_with_retry(protocols, runtime_factory, source_dir, inbound).await,
         };
         let error = match bound {
-            Ok(bound) => match spawn_inbound_listener(
-                protocols,
-                source_dir,
-                runtime_factory,
-                inbound,
-                bound,
-                shutdown_tx.clone(),
-                state.listeners,
-            ) {
+            Ok(bound) => match async {
+                let owner = spawn_inbound_listener(
+                    protocols,
+                    source_dir,
+                    runtime_factory,
+                    inbound,
+                    bound,
+                    shutdown_tx.clone(),
+                    state.listeners,
+                )?;
+                // Retain actual candidate metadata before waiting. Cancellation
+                // re-enters the same installed owner/nonce instead of binding a
+                // second listener or mistaking registration for Ready.
+                state
+                    .listener_stops
+                    .insert(inbound.tag.clone(), shutdown_tx.clone());
+                state
+                    .active_inbounds
+                    .insert(inbound.tag.clone(), inbound.clone());
+                owner.wait_ready().await
+            }
+            .await
+            {
                 Ok(()) => {
                     state
                         .listener_stops
@@ -206,16 +232,27 @@ pub(in crate::runtime) async fn reconcile_inbounds(
             )
             .await
             {
-                Ok(bound) => match spawn_inbound_listener_with_state(
-                    protocols,
-                    source_dir,
-                    rollback_runtime_factory,
-                    &previous,
-                    bound,
-                    rollback_tx.clone(),
-                    state.listeners,
-                    true,
-                ) {
+                Ok(bound) => match async {
+                    let owner = spawn_inbound_listener_with_state(
+                        protocols,
+                        source_dir,
+                        rollback_runtime_factory,
+                        &previous,
+                        bound,
+                        rollback_tx.clone(),
+                        state.listeners,
+                        true,
+                    )?;
+                    state
+                        .listener_stops
+                        .insert(previous.tag.clone(), rollback_tx.clone());
+                    state
+                        .active_inbounds
+                        .insert(previous.tag.clone(), previous.clone());
+                    owner.wait_ready().await
+                }
+                .await
+                {
                     Ok(()) => {
                         info!(
                             inbound_tag = %previous.tag,
