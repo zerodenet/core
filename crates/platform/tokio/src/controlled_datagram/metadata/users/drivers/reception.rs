@@ -3,24 +3,24 @@ use tokio::time::{timeout_at, Instant};
 
 /// Unique owning exit receiver. Mere task-status/body observation never calls
 /// its reception operation or acknowledges a hosted local failure.
-pub struct DriverExitReceiver {
-    pub(super) shared: Arc<Shared>,
+pub struct DriverExitReceiver<O: DriverKind, B: Send + Sync + 'static> {
+    pub(super) shared: Arc<Shared<O, B>>,
 }
 /// The same actual joined receipt retained before acknowledging local delivery.
 /// Its source is shared with the original host receipt; host ACK is separate.
-#[derive(Clone, Debug)]
-pub struct DriverDelivery {
+#[derive(Debug)]
+pub struct DriverDelivery<B> {
     pub joined: TaskJoined,
-    pub body: Option<Arc<DriverBody>>,
+    pub body: Option<Arc<B>>,
 }
-impl DriverExitReceiver {
+impl<O: DriverKind, B: Send + Sync + 'static> DriverExitReceiver<O, B> {
     /// Invoke when this real owning receiver accepts this driver's outcome.
     /// Deadline/cancellation keeps the original record and performs no ACK.
     pub async fn receive(
         &mut self,
         id: TaskId,
         deadline: Instant,
-    ) -> Result<DriverDelivery, ChannelError> {
+    ) -> Result<DriverDelivery<B>, ChannelError> {
         let record = self
             .shared
             .state
@@ -67,5 +67,14 @@ impl DriverExitReceiver {
             joined: received,
             body,
         })
+    }
+}
+
+impl<B> Clone for DriverDelivery<B> {
+    fn clone(&self) -> Self {
+        Self {
+            joined: self.joined.clone(),
+            body: self.body.clone(),
+        }
     }
 }

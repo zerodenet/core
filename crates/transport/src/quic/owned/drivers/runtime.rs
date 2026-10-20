@@ -1,9 +1,11 @@
 use super::*;
-use std::{future::Future, pin::Pin};
+use quinn::{DriverExit, DriverFuture};
+use std::{fmt, future::Future, pin::Pin};
 use tracing::Instrument;
+use zero_platform_tokio::contract::{scope::TaskClass, Impact, Reason, Stage};
 
 pub(super) struct OwnedRuntime {
-    pub(super) owner: Weak<Shared>,
+    pub(super) owner: tracked::WeakDrivers<DriverOrigin, DriverBody>,
     pub(super) callbacks: Arc<super::super::callbacks::Broker>,
 }
 impl fmt::Debug for OwnedRuntime {
@@ -38,32 +40,10 @@ impl quinn::Runtime for OwnedRuntime {
         let Some(owner) = self.owner.upgrade() else {
             return;
         };
-        let rejection = {
-            let mut state = owner.state.lock().unwrap();
-            if self.callbacks.failed() {
-                Some(DriverRegistrationReason::ObserverFault)
-            } else if state.retired {
-                Some(DriverRegistrationReason::Retired)
-            } else if state.records.len() + state.pending >= owner.limit.get() {
-                Some(DriverRegistrationReason::LocalCapacity)
-            } else {
-                state.pending += 1;
-                None
-            }
-        };
-        if let Some(reason) = rejection {
-            owner.reject(Some(origin), reason);
-            drop(future);
+        if self.callbacks.failed() {
+            owner.reject(Some(origin), DriverRegistrationReason::ObserverFault);
             return;
         }
-        let record = Arc::new(Record {
-            origin,
-            registration: Mutex::new(None),
-            body: Mutex::new(None),
-            received: Mutex::new(None),
-            delivered: AtomicBool::new(false),
-        });
-        let task_record = record.clone();
         let future = super::super::callbacks::Boundary::new(future, self.callbacks.clone());
         let class = match origin {
             DriverOrigin::Endpoint => TaskClass::Critical,
@@ -71,8 +51,7 @@ impl quinn::Runtime for OwnedRuntime {
         };
         // Owner admission is reserved first, but no owner lock crosses actual
         // scope registration, its external wakeups or destruction of a refusal.
-        let registration = owner.registrar.spawn_tracked(
-            class,
+        let _registration = owner.spawn(origin, class, |slot| {
             async move {
                 let exit = future.await;
                 let body = match exit {
@@ -90,9 +69,8 @@ impl quinn::Runtime for OwnedRuntime {
                         close_reason,
                     },
                 };
-                let body = Arc::new(body);
-                *task_record.body.lock().unwrap() = Some(body.clone());
-                if body.origin != task_record.origin {
+                let body = slot.record(body);
+                if body.origin != slot.origin() {
                     return Err(ChannelError::new(
                         Stage::Close,
                         Reason::Internal,
@@ -112,22 +90,8 @@ impl quinn::Runtime for OwnedRuntime {
                 }
                 Ok(())
             }
-            .instrument(tracing::Span::current()),
-        );
-        match registration {
-            Ok((id, witness)) => {
-                *record.registration.lock().unwrap() = Some((id, witness));
-                let mut state = owner.state.lock().unwrap();
-                state.pending -= 1;
-                state.records.insert(id, record);
-                drop(state);
-                owner.changed.notify_waiters();
-            }
-            Err(source) => {
-                owner.state.lock().unwrap().pending -= 1;
-                owner.reject(Some(origin), DriverRegistrationReason::Scope(source));
-            }
-        }
+            .instrument(tracing::Span::current())
+        });
     }
 }
 #[derive(Debug)]

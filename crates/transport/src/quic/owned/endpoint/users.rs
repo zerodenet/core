@@ -1,15 +1,10 @@
 use super::super::drivers::Admission;
 use zero_platform_tokio::{
     contract::{ChannelError, Impact, Reason, Stage},
-    controlled_datagram::metadata::users::{LogicalUserPermit, LogicalUsers, UserAdmission},
+    controlled_datagram::metadata::users::{LogicalUserPermit, LogicalUsers},
 };
 pub(super) type Users = LogicalUsers<Admission>;
 pub(super) type Permit = LogicalUserPermit<Admission>;
-impl UserAdmission for Admission {
-    fn check(&self) -> Result<(), ChannelError> {
-        Admission::check(self)
-    }
-}
 pub(super) fn error(stage: Stage, reason: Reason) -> ChannelError {
     ChannelError::new(stage, reason, Impact::Session)
 }
