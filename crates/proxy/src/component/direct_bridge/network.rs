@@ -10,33 +10,42 @@ use zero_platform_tokio::contract::{
     BoxFuture, ChannelError, DeliveryState, Impact, Reason, Stage,
 };
 
-pub(super) struct Evidence {
-    pub(super) remote: SocketAddr,
-    pub(super) local: Option<SocketAddr>,
-    pub(super) network: zero_engine::FlowNetworkObservation,
+pub(in crate::component) struct Evidence {
+    pub(in crate::component) remote: SocketAddr,
+    pub(in crate::component) local: Option<SocketAddr>,
+    pub(in crate::component) network: zero_engine::FlowNetworkObservation,
 }
-pub(super) struct FailureEvidence {
-    pub(super) stage: &'static str,
-    pub(super) network: Box<zero_engine::FlowNetworkObservation>,
-    pub(super) legacy_error: zero_core::Error,
+pub(in crate::component) struct FailureEvidence {
+    pub(in crate::component) stage: &'static str,
+    pub(in crate::component) network: Box<zero_engine::FlowNetworkObservation>,
+    pub(in crate::component) legacy_error: zero_core::Error,
 }
-pub(super) struct DirectOpener {
+pub(in crate::component) struct DirectOpener {
     services: UpstreamConnectServices,
     session: Session,
+    business: Option<super::super::business_carrier::BusinessCarrierRequest>,
     evidence: Mutex<Option<Result<Evidence, FailureEvidence>>>,
 }
 impl DirectOpener {
-    pub(super) fn new(services: UpstreamConnectServices, session: Session) -> Self {
+    pub(in crate::component) fn new(services: UpstreamConnectServices, session: Session) -> Self {
         Self {
             services,
             session,
+            business: None,
             evidence: Mutex::new(None),
         }
+    }
+    pub(in crate::component) fn with_business(
+        mut self,
+        business: Option<super::super::business_carrier::BusinessCarrierRequest>,
+    ) -> Self {
+        self.business = business;
+        self
     }
     pub(super) fn generation(&self) -> u64 {
         self.services.network_generation()
     }
-    pub(super) fn take_evidence(&self) -> Option<Result<Evidence, FailureEvidence>> {
+    pub(in crate::component) fn take_evidence(&self) -> Option<Result<Evidence, FailureEvidence>> {
         self.evidence
             .lock()
             .expect("Direct observation poisoned")
@@ -44,6 +53,15 @@ impl DirectOpener {
     }
 }
 impl UpstreamOpener for DirectOpener {
+    fn open_controlled_stream(
+        &self,
+        binding: &UpstreamBinding,
+        request: zero_platform_tokio::contract::network::ControlledStreamRequest,
+    ) -> BoxFuture<'_, Result<BoxStream, ChannelError>> {
+        let binding = binding.clone();
+        Box::pin(async move { self.open_controlled(binding, request).await })
+    }
+
     fn open_stream(
         &self,
         binding: &UpstreamBinding,
@@ -131,3 +149,5 @@ impl UpstreamOpener for DirectOpener {
 #[cfg(test)]
 #[path = "tests/network.rs"]
 mod tests;
+
+mod controlled;

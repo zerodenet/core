@@ -9,7 +9,11 @@
 mod dial_policy_tests;
 mod direct;
 mod direct_dial;
-pub(crate) use direct_dial::open_service_candidates;
+pub(crate) use direct_dial::candidate::{
+    CandidateOpenFailure, CandidateOpened, CandidateOpener, CandidateRefresh, RefreshFuture,
+    RefreshResult,
+};
+pub(crate) use direct_dial::{open_service_candidates, DirectCandidate};
 mod failure;
 mod tcp_outbound;
 mod tcp_relay;

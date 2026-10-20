@@ -47,6 +47,25 @@ impl UpstreamConnectServices {
             .connect_with_policy(session, &self.resolver, &self.egress_interface, policy)
             .await
     }
+    pub(crate) async fn connect_direct_using<D: crate::transport::CandidateOpener>(
+        &self,
+        session: &zero_core::Session,
+        policy: &zero_traits::DialPolicy,
+        opener: &D,
+    ) -> Result<
+        crate::transport::DirectTcpConnection<D::Socket>,
+        crate::transport::DirectTcpConnectFailure,
+    > {
+        self.connector
+            .connect_using(
+                session,
+                &self.resolver,
+                &self.egress_interface,
+                policy,
+                opener,
+            )
+            .await
+    }
     pub(crate) fn with_observer(
         mut self,
         observer: Option<Arc<dyn zero_traits::IoObserver>>,

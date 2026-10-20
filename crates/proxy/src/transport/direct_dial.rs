@@ -6,6 +6,21 @@ pub(crate) use service::open_service_candidates;
 use std::io;
 use std::net::SocketAddr;
 use std::time::Duration;
+use zero_core::component::NetworkGeneration;
+/// Minted only by this candidate scheduler after real selection. It describes
+/// this attempt; it cannot grant native I/O or business admission by itself.
+pub(crate) struct DirectCandidate {
+    peer: SocketAddr,
+    generation: NetworkGeneration,
+}
+impl DirectCandidate {
+    pub(crate) fn peer(&self) -> SocketAddr {
+        self.peer
+    }
+    pub(crate) fn generation(&self) -> NetworkGeneration {
+        self.generation
+    }
+}
 
 use futures_util::stream::{FuturesUnordered, StreamExt};
 use zero_platform_tokio::{EgressInterfaceControl, EgressSelection, TokioSocket};
@@ -47,6 +62,7 @@ pub(super) struct TcpDialFailure {
     pub(super) interface_bound: bool,
     pub(super) local_addr: Option<SocketAddr>,
     pub(super) error: io::Error,
+    os_error: Option<i32>,
     pub(super) attempts: Vec<TcpDialAttempt>,
     candidate_index: usize,
 }
@@ -250,13 +266,25 @@ async fn dial_tcp_candidate<D: CandidateOpener>(
             },
             interface_bound: false,
             local_addr: None,
+            os_error: error.raw_os_error(),
             error,
             attempts: Vec::new(),
             candidate_index,
         }));
     }
 
-    match opener.open(remote, &egress, &selection, &policy).await {
+    match opener
+        .open(
+            DirectCandidate {
+                peer: remote,
+                generation: NetworkGeneration(selection.generation()),
+            },
+            &egress,
+            &selection,
+            &policy,
+        )
+        .await
+    {
         Ok(opened) => Ok(TcpDialSuccess {
             socket: opened.io,
             remote: opened.remote,
@@ -273,6 +301,7 @@ async fn dial_tcp_candidate<D: CandidateOpener>(
             stage: failure.operation,
             interface_bound: failure.interface_bound,
             local_addr: failure.local,
+            os_error: failure.os_error,
             error: failure.source,
             attempts: Vec::new(),
             candidate_index,
@@ -305,7 +334,7 @@ impl TcpDialFailure {
             outcome: "failed",
             interface_bound: self.interface_bound,
             error_kind: Some(io_error_kind_name(self.error.kind())),
-            os_error: self.error.raw_os_error(),
+            os_error: self.os_error,
             error: Some(self.error.to_string()),
             candidate_index: self.candidate_index,
         }

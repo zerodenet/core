@@ -24,6 +24,7 @@ pub(super) struct BusinessCarrierRequest {
     identity: RequestIdentity,
     session: SessionId,
     deadline: Option<Instant>,
+    direct: bool,
     caller_accepted: Option<zero_platform_tokio::AcceptedTcpCaller>,
     #[cfg(feature = "raw-ip-runtime")]
     caller_native:
@@ -40,7 +41,7 @@ impl BusinessCarrierRequest {
         if !slot.recipe.spec().resources.iter().any(|resource| matches!(resource,
             zero_platform_tokio::contract::component::ResourceDeclaration::ControlledOutboundStream {
                 demand: zero_platform_tokio::contract::component::ControlledStreamDemandClass::Business, ..
-            })) { return Ok(None); }
+            } | zero_platform_tokio::contract::component::ResourceDeclaration::ControlledDirectStream { .. })) { return Ok(None); }
         let Some(admitted) = &invocation.admitted else {
             return Ok(None);
         };
@@ -67,6 +68,7 @@ impl BusinessCarrierRequest {
             identity: invocation.identity.clone(),
             session: facts.session,
             deadline: invocation.deadline,
+            direct: slot.recipe.spec().resources.iter().any(|resource| matches!(resource, zero_platform_tokio::contract::component::ResourceDeclaration::ControlledDirectStream { .. })),
             caller_accepted: invocation.caller_accepted.clone(),
             #[cfg(feature = "raw-ip-runtime")]
             caller_native: invocation.caller_native.clone(),
@@ -103,7 +105,78 @@ impl BusinessCarrierRequest {
         }
         Ok(None)
     }
+    pub(super) fn check_direct_destination(
+        &self,
+        destination: &Destination,
+    ) -> Result<(), ChannelError> {
+        if !self.direct
+            || !matches!(&self.identity, RequestIdentity::Business(facts) if facts.target.as_ref() == Some(destination))
+        {
+            return Err(invalid(
+                Reason::StalePlan,
+                "Direct request differs from original admitted destination",
+            ));
+        }
+        self.check()
+    }
+    pub(super) fn check_direct_owner(
+        &self,
+        policy: &zero_traits::DialPolicy,
+        registration: &zero_platform_tokio::controlled_carrier::CarrierOwnerRegistration,
+        tasks: &zero_platform_tokio::contract::scope::WeakTaskRegistrar,
+    ) -> Result<(), ChannelError> {
+        self.check()?;
+        if !self.direct || self.caller_witness()?.is_none() {
+            return Err(invalid(
+                Reason::Unsupported,
+                "controlled Direct requires its actual tracked caller",
+            ));
+        }
+        let slot = self
+            .slot
+            .upgrade()
+            .ok_or_else(|| invalid(Reason::Revoked, "original Direct owner released"))?;
+        slot.check_direct_carrier_owner(
+            &self.identity,
+            policy,
+            registration,
+            &tasks.scope_identity(),
+        )
+    }
+    pub(super) fn authorize_direct(
+        &self,
+        candidate: &crate::transport::DirectCandidate,
+        binding: &UpstreamBinding,
+        grant: &CarrierGrant,
+    ) -> Result<CarrierBusinessGrant, ChannelError> {
+        if !self.direct || candidate.generation() != binding.network_generation {
+            return Err(invalid(
+                Reason::StalePlan,
+                "Direct candidate lacks its original selected generation",
+            ));
+        }
+        let peer = candidate.peer();
+        let address = match peer.ip() {
+            std::net::IpAddr::V4(ip) => zero_core::Address::Ipv4(ip.octets()),
+            std::net::IpAddr::V6(ip) => zero_core::Address::Ipv6(ip.octets()),
+        };
+        self.authorize_selected(&Destination::new(address, peer.port()), binding, grant)
+    }
     pub(super) fn authorize(
+        &self,
+        endpoint: &Destination,
+        binding: &UpstreamBinding,
+        grant: &CarrierGrant,
+    ) -> Result<CarrierBusinessGrant, ChannelError> {
+        if self.direct {
+            return Err(invalid(
+                Reason::Unsupported,
+                "Direct business capability requires an original resolved candidate",
+            ));
+        }
+        self.authorize_selected(endpoint, binding, grant)
+    }
+    fn authorize_selected(
         &self,
         endpoint: &Destination,
         binding: &UpstreamBinding,
@@ -134,7 +207,7 @@ impl BusinessCarrierRequest {
             // the same reservation. Observe it before native preparation/await;
             // the original raw owner alone decides its remaining obligations.
             caller
-                .observe_carrier(grant.adoption())
+                .observe_carrier_with_owner(&authorized.owner_registration(), grant.adoption())
                 .map_err(|mut error| {
                     error.session.get_or_insert(self.session);
                     error
@@ -145,6 +218,14 @@ impl BusinessCarrierRequest {
 }
 impl CarrierBusinessDemand for BusinessCarrierRequest {
     fn check(&self) -> Result<(), ChannelError> {
+        if self.admitted.cancellation().is_cancelled() {
+            let mut error = invalid(
+                Reason::Revoked,
+                "original business demand cancellation was revoked",
+            );
+            error.session = Some(self.session);
+            return Err(error);
+        }
         #[cfg(feature = "raw-ip-runtime")]
         if let Some(caller) = &self.caller_native {
             caller.check_open().map_err(|mut error| {

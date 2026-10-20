@@ -38,6 +38,34 @@ impl ComponentSlot {
             })?
             .check_identity(self.instance_id(), &self.admission_owner, identity)
     }
+    pub(in crate::component) fn check_direct_carrier_owner(
+        &self,
+        identity: &RequestIdentity,
+        policy: &zero_traits::DialPolicy,
+        actual: &zero_platform_tokio::controlled_carrier::CarrierOwnerRegistration,
+        tasks: &zero_platform_tokio::contract::scope::TaskScopeIdentity,
+    ) -> Result<(), ChannelError> {
+        self.check_business_carrier(identity)?;
+        let live = self
+            .live
+            .get()
+            .and_then(|live| live.as_ref().ok())
+            .ok_or_else(|| self.failure(Reason::Revoked, "original Direct owner released"))?;
+        let bound = live
+            .resources
+            .registered_direct_owner(self.instance_id(), policy, actual)?;
+        if !bound
+            .scope_identity()
+            .same_scope(&live.tasks.scope_identity())
+            || !tasks.same_scope(&live.tasks.scope_identity())
+        {
+            return Err(self.failure(
+                Reason::StalePlan,
+                "Direct resource or refresh registrar has a foreign actual scope",
+            ));
+        }
+        self.check_business_carrier(identity)
+    }
     pub(in crate::component) fn issue_business_carrier(
         &self,
         endpoint: &Destination,

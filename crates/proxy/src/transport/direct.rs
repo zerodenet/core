@@ -32,6 +32,7 @@ pub(crate) struct DirectConnector;
 pub(crate) struct DirectTcpConnection<S = TokioSocket> {
     pub(crate) socket: S,
     pub(crate) remote: SocketAddr,
+    pub(crate) local: Option<SocketAddr>,
     pub(crate) network: FlowNetworkObservation,
 }
 
@@ -190,6 +191,7 @@ impl DirectConnector {
                 Ok(DirectTcpConnection {
                     socket,
                     remote: success.remote,
+                    local,
                     network,
                 })
             }
@@ -390,12 +392,10 @@ impl DirectConnector {
         let Some(refresh) = resolution.recovered_candidate_refresh.as_ref() else {
             return Err(failure);
         };
-        // Poll configured DNS from a fresh task stack. Keeping this under the
-        // TUN direct-connect future recursively embeds the DNS underlay path
-        // and can exhaust Tokio's worker stack under transparent flow load.
-        // JoinSet also aborts the refresh if the owning connection is dropped.
-        let mut refresh_tasks = tokio::task::JoinSet::new();
-        {
+        // Keep the original fresh-task-stack boundary. A controlled provider
+        // registers this exact future in its same canonical owner/Scope instead
+        // of importing the legacy JoinSet executor into native ownership.
+        let refresh_work = {
             let refresh = refresh.clone();
             let resolver = Arc::clone(resolver);
             let port = session.port;
@@ -403,7 +403,7 @@ impl DirectConnector {
             let family = policy
                 .effective_family()
                 .unwrap_or(zero_traits::AddressFamily::Auto);
-            refresh_tasks.spawn(async move {
+            Box::pin(async move {
                 refresh_recovered_ipv4_candidates(
                     &refresh,
                     resolver.as_ref(),
@@ -412,12 +412,14 @@ impl DirectConnector {
                     family,
                 )
                 .await
-            });
-        }
-        let candidates = match refresh_tasks
-            .join_next()
+            })
+        };
+        let candidates = match opener
+            .refresh(
+                refresh_work,
+                super::direct_dial::candidate::CandidateRefresh::from_failure(&failure),
+            )
             .await
-            .expect("one trusted-domain refresh task is registered")
         {
             Ok(Ok(candidates)) => candidates,
             Ok(Err(error)) => {

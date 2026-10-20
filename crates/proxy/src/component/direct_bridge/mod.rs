@@ -1,5 +1,6 @@
 //! One temporary boundary from existing probe callers to standard Stream roles.
-mod network;
+pub(super) mod controlled;
+pub(super) mod network;
 use super::{
     instance::{invalid, retained},
     legacy_stream::LegacyStream,
@@ -107,10 +108,16 @@ pub(crate) async fn connect(
             error.session = error.session.or(invocation.identity.session());
             failure("start_component", error)
         })?;
-    let opener = Arc::new(network::DirectOpener::new(
-        services.upstream(),
-        session.clone(),
-    ));
+    let opener = Arc::new(
+        network::DirectOpener::new(services.upstream(), session.clone()).with_business(
+            super::business_carrier::BusinessCarrierRequest::new(
+                services.engine(),
+                &slot,
+                &invocation,
+            )
+            .map_err(|error| failure("prepare_component", error))?,
+        ),
+    );
     let binding = UpstreamBinding {
         prefix: vec![],
         dial: policy.clone(),

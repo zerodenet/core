@@ -1,5 +1,7 @@
 //! Direct's domain decision is made by engine; this role opens its bound carrier.
-use std::sync::Arc;
+use std::{num::NonZeroUsize, sync::Arc, time::Duration};
+mod controlled;
+use controlled::{Control, DirectOwner};
 use zero_core::component::SessionId;
 use zero_platform_tokio::contract::{
     admission::{SessionAdmission, SessionOwner},
@@ -21,17 +23,49 @@ use zero_traits::DialPolicy;
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct DirectOptions {
     pub(super) policy: DialPolicy,
+    control: Option<DirectBudgets>,
 }
 impl DirectOptions {
     pub fn validate(policy: DialPolicy) -> Result<Self, zero_traits::DialPolicyError> {
         policy.validate()?;
-        Ok(Self { policy })
+        Ok(Self {
+            policy,
+            control: None,
+        })
+    }
+    /// Explicit library preparation only. Production decoding supplies no
+    /// socket/task/retirement defaults and retains its current legacy gate.
+    pub fn controlled(
+        mut self,
+        max_sockets: NonZeroUsize,
+        max_refresh_tasks: NonZeroUsize,
+        retirement: Duration,
+    ) -> Result<Self, BuildError> {
+        if retirement.is_zero() {
+            return Err(ChannelError::new(
+                Stage::Prepare,
+                Reason::InvalidConfig,
+                zero_platform_tokio::contract::Impact::Component,
+            ));
+        }
+        self.control = Some(DirectBudgets {
+            max_sockets,
+            max_refresh_tasks,
+            retirement,
+        });
+        Ok(self)
     }
     pub fn policy(&self) -> &DialPolicy {
         &self.policy
     }
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct DirectBudgets {
+    max_sockets: NonZeroUsize,
+    max_refresh_tasks: NonZeroUsize,
+    retirement: Duration,
+}
 pub struct DirectFactory;
 pub(crate) fn decode(
     input: &zero_config::OutboundConfig,
@@ -49,6 +83,7 @@ pub(crate) fn decode(
 pub(super) struct Outbound {
     pub(super) options: Arc<DirectOptions>,
     pub(super) state: Arc<SessionAdmission>,
+    control: Option<Control>,
 }
 pub(super) fn during_open(
     state: &SessionAdmission,
@@ -63,14 +98,21 @@ pub(super) fn during_open(
 impl ComponentFactory for DirectFactory {
     type Options = DirectOptions;
     fn describe(&self, options: &Self::Options) -> ComponentSpec {
+        let mut static_identity = format!("{:?}", options.policy).into_bytes();
+        if let Some(control) = &options.control {
+            static_identity.extend_from_slice(b"controlled");
+            static_identity.extend_from_slice(&control.retirement.as_nanos().to_be_bytes());
+        }
         ComponentSpec {
             owner: ResourceOwner::Component,
-            roles: vec![RoleKind::Stream, RoleKind::Datagram],
+            roles: if options.control.is_some() { vec![RoleKind::Stream] } else { vec![RoleKind::Stream, RoleKind::Datagram] },
             dependencies: vec![],
             // The neutral dial policy contains no credentials.
-            static_identity: format!("{:?}", options.policy).into_bytes().into(),
-            resources: vec![],
-            task_limit: None,
+            static_identity: static_identity.into(),
+            resources: options.control.as_ref().map_or_else(Vec::new, |control| vec![zero_platform_tokio::contract::component::ResourceDeclaration::ControlledDirectStream {
+                dial: options.policy.clone(), max_sockets: control.max_sockets,
+            }]),
+            task_limit: options.control.as_ref().map(|control| control.max_refresh_tasks),
         }
     }
     fn build(
@@ -79,14 +121,24 @@ impl ComponentFactory for DirectFactory {
         context: BuildContext,
     ) -> Result<ComponentInstance, BuildError> {
         let (owner, state) = SessionOwner::new(context.component, &context.cancel);
+        let (owner, control) = DirectOwner::new(owner, options.control.as_ref(), &context);
         Ok(ComponentInstance {
             lifecycle: erase_lifecycle(owner),
             roles: ComponentRoles {
                 stream: Some(erase_stream(Outbound {
                     options: options.clone(),
                     state: state.clone(),
+                    control: control.clone(),
                 })),
-                datagram: Some(erase_datagram(Outbound { options, state })),
+                datagram: if control.is_none() {
+                    Some(erase_datagram(Outbound {
+                        options,
+                        state,
+                        control: None,
+                    }))
+                } else {
+                    None
+                },
                 ..Default::default()
             },
         })
@@ -114,7 +166,18 @@ impl StreamOutbound for Outbound {
             deadline: context.deadline,
             cancel: context.cancel.clone(),
         };
-        let open = context.upstream.open_stream(request.destination, carrier);
+        let open = match &self.control {
+            Some(control) => context.upstream.open_controlled_stream(
+                zero_platform_tokio::contract::network::ControlledStreamRequest {
+                    destination: request.destination,
+                    context: carrier,
+                    grants: control.grants.clone(),
+                    tasks: control.tasks.clone(),
+                    retirement: control.retirement,
+                },
+            ),
+            None => context.upstream.open_stream(request.destination, carrier),
+        };
         let io = tokio::select! {
             biased;
             _ = self.state.cancelled() => return Err(during_open(&self.state, session, Reason::Revoked)),
