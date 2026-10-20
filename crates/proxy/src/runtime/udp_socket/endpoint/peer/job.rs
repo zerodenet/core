@@ -66,9 +66,12 @@ where
             driver.await.map_err(critical)
         },
         result = &mut driver => {
-            result.map_err(critical)?;
+            // Wake the actual peer consumer, let it finalize its tracked
+            // associations, then return the same driver failure to TaskScope.
+            // Dropping consumer here would skip that real cleanup path.
+            driver.stop.cancel();
             ordinary(consumer.await);
-            Ok(())
+            result.map_err(critical)
         },
     }
 }
