@@ -9,6 +9,7 @@ use crate::runtime::udp_dispatch::FlowFailure;
 use crate::runtime::udp_flow::registered::UpstreamAssociationHandler;
 
 mod handler;
+mod native_association;
 mod packet_path;
 mod upstream_association;
 

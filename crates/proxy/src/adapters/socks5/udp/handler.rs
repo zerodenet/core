@@ -1,4 +1,5 @@
-use ::socks5::transport::{Socks5ManagedUdpAssociationTarget, Socks5UpstreamUdpAssociation};
+use super::native_association::NativeAssociation;
+use ::socks5::transport::Socks5ManagedUdpAssociationTarget;
 
 use crate::runtime::udp_flow::registered::{
     boxed_registered_upstream_handler, UpstreamAssociationHandler, UpstreamAssociationStages,
@@ -16,12 +17,11 @@ impl UpstreamAssociationTarget for Socks5ManagedUdpAssociationTarget {
 }
 
 pub(super) fn upstream_association_handler() -> Box<dyn UpstreamAssociationHandler> {
-    boxed_registered_upstream_handler::<
-        Socks5ManagedUdpAssociationTarget,
-        Socks5UpstreamUdpAssociation,
-    >(UpstreamAssociationStages::new(
-        "udp_socks5_proxy",
-        "udp_socks5_resume",
-        "expected SOCKS5 UDP association target",
-    ))
+    boxed_registered_upstream_handler::<Socks5ManagedUdpAssociationTarget, NativeAssociation>(
+        UpstreamAssociationStages::new(
+            "udp_socks5_proxy",
+            "udp_socks5_resume",
+            "expected SOCKS5 UDP association target",
+        ),
+    )
 }

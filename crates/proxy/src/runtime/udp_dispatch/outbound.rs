@@ -1,3 +1,4 @@
+mod retry;
 use zero_core::Session;
 use zero_engine::{EngineError, ResolvedOutbound, RouteMode};
 
@@ -52,7 +53,12 @@ async fn execute_prepared_udp_outbound(
                 .await
                 {
                     Ok(result) => return Ok(result),
-                    Err(failure) => last_failure = Some(failure),
+                    Err(failure) => {
+                        if !retry::permits_fallback(&failure.error) {
+                            return Err(failure);
+                        }
+                        last_failure = Some(failure);
+                    }
                 }
             }
 

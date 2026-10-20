@@ -90,9 +90,10 @@ impl DummyAssociation {
 #[async_trait::async_trait]
 impl UpstreamAssociationTransport<DummyTarget> for DummyAssociation {
     async fn establish(
-        _services: crate::protocol_registry::UdpNetworkServices,
+        _services: crate::protocol_registry::UdpRuntimeServices,
         _target: DummyTarget,
-        _session_id: u64,
+        _session: &zero_core::Session,
+        _inbound_tag: &str,
     ) -> Result<Self, EngineError> {
         panic!("dummy establish should not be called in unit tests")
     }

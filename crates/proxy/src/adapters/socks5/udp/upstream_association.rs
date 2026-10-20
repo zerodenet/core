@@ -1,8 +1,7 @@
 //! SOCKS5 upstream UDP association runtime and transport bridges.
 
 use ::socks5::transport::{
-    establish_packet_path_udp_association, establish_registered_udp_association,
-    Socks5ManagedUdpAssociationTarget, Socks5ManagedUdpPacketPathCarrierBuild,
+    establish_packet_path_udp_association, Socks5ManagedUdpPacketPathCarrierBuild,
     Socks5UdpAssociationRuntime, Socks5UpstreamAssociationCloseReason,
     Socks5UpstreamUdpAssociation,
 };
@@ -144,59 +143,5 @@ impl crate::runtime::udp_flow::packet_path::PacketPathPayloadTransport
                 )
             }))),
         }
-    }
-}
-
-#[async_trait::async_trait]
-impl
-    crate::runtime::udp_flow::registered::UpstreamAssociationTransport<
-        Socks5ManagedUdpAssociationTarget,
-    > for Socks5UpstreamUdpAssociation
-{
-    async fn establish(
-        services: UdpNetworkServices,
-        target: Socks5ManagedUdpAssociationTarget,
-        session_id: u64,
-    ) -> Result<Self, EngineError> {
-        establish_registered_udp_association(
-            ProxySocks5UdpAssociationRuntime::new(services, true),
-            target,
-            session_id,
-        )
-        .await
-        .map_err(Into::into)
-    }
-
-    async fn send_packet(
-        &self,
-        target: &Address,
-        port: u16,
-        payload: &[u8],
-    ) -> Result<usize, EngineError> {
-        self.send_packet(target, port, payload)
-            .await
-            .map_err(Into::into)
-    }
-
-    async fn recv_response_parts(
-        &self,
-        buf: &mut [u8],
-    ) -> Result<(Address, u16, Vec<u8>), EngineError> {
-        self.recv_response_parts(buf).await.map_err(Into::into)
-    }
-
-    fn close(self, reason: crate::runtime::udp_flow::registered::UpstreamAssociationCloseReason) {
-        let reason = match reason {
-            crate::runtime::udp_flow::registered::UpstreamAssociationCloseReason::Closed => {
-                Socks5UpstreamAssociationCloseReason::Closed
-            }
-            crate::runtime::udp_flow::registered::UpstreamAssociationCloseReason::IdleTimeout => {
-                Socks5UpstreamAssociationCloseReason::IdleTimeout
-            }
-            crate::runtime::udp_flow::registered::UpstreamAssociationCloseReason::Dropped => {
-                Socks5UpstreamAssociationCloseReason::Dropped
-            }
-        };
-        self.close(reason);
     }
 }

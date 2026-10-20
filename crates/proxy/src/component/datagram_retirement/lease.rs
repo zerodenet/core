@@ -19,6 +19,10 @@ impl DatagramReservation {
             adopted: false,
         }
     }
+    /// The host reservation allocates the association once, before actual open.
+    pub(crate) fn association(&self) -> zero_core::component::AssociationId {
+        zero_core::component::AssociationId(self.id)
+    }
     /// The actual controller enters its pre-reserved persistent owner before
     /// this reference-only lease can be exposed to a business consumer.
     pub(crate) fn adopt(

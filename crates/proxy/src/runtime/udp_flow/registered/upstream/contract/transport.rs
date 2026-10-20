@@ -4,7 +4,7 @@ use zero_engine::EngineError;
 
 use super::model::UpstreamAssociationCloseReason;
 use super::target::UpstreamAssociationTarget;
-use crate::protocol_registry::UdpNetworkServices;
+use crate::protocol_registry::UdpRuntimeServices;
 
 #[async_trait]
 pub(crate) trait UpstreamAssociationTransport<T>: Send + Sync + Sized
@@ -12,9 +12,10 @@ where
     T: UpstreamAssociationTarget,
 {
     async fn establish(
-        services: UdpNetworkServices,
+        services: UdpRuntimeServices,
         target: T,
-        session_id: u64,
+        session: &zero_core::Session,
+        inbound_tag: &str,
     ) -> Result<Self, EngineError>;
 
     async fn send_packet(
