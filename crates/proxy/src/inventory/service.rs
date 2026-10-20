@@ -11,6 +11,7 @@ pub(crate) use selection::ServiceSelections;
 use std::sync::Arc;
 use zero_core::{request::Destination, Address};
 use zero_engine::ResolvedOutbound;
+use zero_platform_tokio::contract::dns::DnsQueryRole;
 
 pub(crate) struct ServiceNode {
     pub(crate) slot: Arc<ComponentSlot>,

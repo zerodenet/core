@@ -8,7 +8,7 @@ use crate::runtime::inbound_operation::{InboundConnectionContext, TcpInboundList
 use crate::runtime::tcp_ingress::{
     MessageInboundProtocol, MessageRelayContext, MessageRelayOutcome,
 };
-use crate::transport::{ClientStream, TcpRelayStream};
+use crate::transport::TcpRelayStream;
 
 // Keep small fixed request bodies behind the normalized head until the complete
 // prefix can be written upstream. Some servers answer without consuming the
