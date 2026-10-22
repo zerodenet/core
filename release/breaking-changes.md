@@ -36,6 +36,7 @@
 | 版本 | 影响面 | 迁移结论 |
 |------|--------|----------|
 | `Unreleased` | - | No pending compatibility changes <!-- version-contract:unreleased-row --> |
+| `0.0.2-rc.202610222221` | - | No pending compatibility changes |
 | `0.0.2-rc.202610142218` | Connector 持久化状态恢复 | V1 配置、事件与 PUT/ACK 日志格式保持兼容；流式启动扫描与重试压缩降低历史积压的内存和磁盘开销 |
 | `0.0.2-rc.202610100622` | - | No pending compatibility changes |
 | `0.0.2-rc.202610100620` | - | No pending compatibility changes |
@@ -64,6 +65,10 @@
 ## Unreleased
 
 <!-- Record implemented but unsealed compatibility changes here. -->
+
+## 0.0.2-rc.202610222221
+
+<!-- No compatibility changes in this release. -->
 
 ## 0.0.2-rc.202610142218
 
