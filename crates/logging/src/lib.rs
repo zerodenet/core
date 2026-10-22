@@ -13,6 +13,10 @@ use tracing_subscriber::util::SubscriberInitExt;
 use tracing_subscriber::{EnvFilter, Layer};
 use zero_config::LogConfig;
 
+#[cfg(test)]
+#[path = "../tests/rotation/mod.rs"]
+mod rotation_tests;
+
 // ── public API ────────────────────────────────────────────────────────
 
 /// Keeps non-blocking file writers alive and flushes them when dropped.
@@ -215,6 +219,7 @@ impl RotatingWriter {
     }
 
     fn rotate(&mut self) -> io::Result<()> {
+        self.file.flush()?;
         for i in (1..self.max_files).rev() {
             let src = if i == 1 {
                 self.path.clone()
@@ -223,12 +228,13 @@ impl RotatingWriter {
             };
             let dst = self.path.with_extension(format!("{i}"));
             if src.exists() {
-                let _ = fs::rename(&src, &dst);
+                fs::rename(&src, &dst)?;
             }
         }
         self.file = fs::OpenOptions::new()
             .create(true)
-            .append(true)
+            .write(true)
+            .truncate(true)
             .open(&self.path)?;
         self.written = 0;
         Ok(())
@@ -237,7 +243,8 @@ impl RotatingWriter {
 
 impl Write for RotatingWriter {
     fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
-        if self.written + buf.len() as u64 > self.max_bytes {
+        // A single oversized write stays intact; rotate before the next one.
+        if self.written > 0 && self.written.saturating_add(buf.len() as u64) > self.max_bytes {
             self.rotate()?;
         }
 

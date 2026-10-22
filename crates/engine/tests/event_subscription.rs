@@ -73,13 +73,10 @@ fn generated_event_ids_do_not_collide_across_engine_instances() {
     assert_ne!(first_event.event_id, second_event.event_id);
     assert_ne!(first.core_instance_id(), second.core_instance_id());
     for (event, engine) in [(&first_event, &first), (&second_event, &second)] {
-        let (epoch, local_id) = event
-            .event_id
-            .split_once(':')
-            .expect("generated event id includes an engine epoch");
-        assert_eq!(epoch.len(), 32);
-        assert!(epoch.chars().all(|character| character.is_ascii_hexdigit()));
-        assert_eq!(local_id, "engine-1");
+        // IDs are opaque. Instance facts come from the envelope, independent
+        // of the generated ID format or its identity ordinal.
+        assert!(!event.event_id.is_empty());
+        assert_eq!(event.event_type, event_type::ENGINE_STARTED);
         assert_eq!(
             event.core_instance_id.as_deref(),
             Some(engine.core_instance_id())

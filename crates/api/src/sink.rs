@@ -6,6 +6,11 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use crate::{ApiError, ApiErrorCode, ApiResult, EventSink, PublishResult, RawApiEvent};
 use serde::{Deserialize, Serialize};
 
+mod delivery_buffer;
+mod source_buffer;
+pub use delivery_buffer::DeliveryBufferStatus;
+pub use source_buffer::SourceBufferStatus;
+
 pub struct CallbackEventSink<F> {
     name: String,
     callback: F,
@@ -83,12 +88,25 @@ where
             )
         })?;
 
-        let mut frame = serde_json::to_vec(event).map_err(serialization_error)?;
-        frame.push(b'\n');
-        writer.write_all(&frame).map_err(io_error)?;
-        writer.flush().map_err(io_error)?;
-
-        Ok(PublishResult::delivered())
+        // Encode directly into a small I/O buffer. Large borrowed JSON fields
+        // can pass through without retaining a second complete event frame.
+        let mut frame = std::io::BufWriter::new(&mut *writer);
+        let result = (|| {
+            serde_json::to_writer(&mut frame, event).map_err(|error| {
+                if let Some(kind) = error.io_error_kind() {
+                    io_error(std::io::Error::new(kind, error))
+                } else {
+                    serialization_error(error)
+                }
+            })?;
+            frame.write_all(b"\n").map_err(io_error)?;
+            frame.flush().map_err(io_error)?;
+            Ok(PublishResult::delivered())
+        })();
+        // Disarm BufWriter's implicit drop-time retry after a write failure;
+        // only an explicitly confirmed flush may report delivery success.
+        let _ = frame.into_parts();
+        result
     }
 }
 
@@ -186,6 +204,10 @@ pub struct SinkStatus {
     /// to the V1 status contract and is absent on older cores.
     #[serde(default, skip_serializing_if = "SinkDeliveryStatus::is_idle")]
     pub delivery: SinkDeliveryStatus,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub source_buffer: Option<SourceBufferStatus>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub delivery_buffer: Option<DeliveryBufferStatus>,
     pub total_delivered: u64,
     pub total_failed: u64,
     /// Number of detected event-sequence gaps. Unlike `last_error`, this
@@ -358,6 +380,8 @@ impl SinkManager {
                 name: managed.sink.name().to_owned(),
                 pending: 0,
                 delivery: SinkDeliveryStatus::default(),
+                source_buffer: None,
+                delivery_buffer: None,
                 total_delivered: stat.delivered.load(Ordering::Relaxed),
                 total_failed: stat.failed.load(Ordering::Relaxed),
                 replay_gaps: 0,
@@ -489,6 +513,12 @@ impl RotatingFileSink {
     }
 
     fn rotate(&self, writer: &mut RotatingWriter) -> ApiResult<()> {
+        writer.file.flush().map_err(|e| {
+            ApiError::new(
+                ApiErrorCode::Internal,
+                format!("failed to flush rotating sink: {e}"),
+            )
+        })?;
         // Rename existing rotated files: .2 -> .3, .1 -> .2, current -> .1
         for i in (1..self.max_files).rev() {
             let src = if i == 1 {
@@ -498,14 +528,20 @@ impl RotatingFileSink {
             };
             let dst = self.path.with_extension(format!("{i}"));
             if src.exists() {
-                let _ = std::fs::rename(&src, &dst);
+                std::fs::rename(&src, &dst).map_err(|e| {
+                    ApiError::new(
+                        ApiErrorCode::Internal,
+                        format!("failed to rotate sink: {e}"),
+                    )
+                })?;
             }
         }
 
         // Open a fresh file.
         let file = std::fs::OpenOptions::new()
             .create(true)
-            .append(true)
+            .write(true)
+            .truncate(true)
             .open(&self.path)
             .map_err(|e| {
                 ApiError::new(
@@ -539,7 +575,9 @@ impl EventSink for RotatingFileSink {
         })?;
         let frame = [line.as_slice(), b"\n"].concat();
 
-        if writer.bytes_written + frame.len() as u64 > self.max_bytes {
+        if writer.bytes_written > 0
+            && writer.bytes_written.saturating_add(frame.len() as u64) > self.max_bytes
+        {
             self.rotate(&mut writer)?;
         }
 
