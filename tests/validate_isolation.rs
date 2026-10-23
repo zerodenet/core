@@ -1,5 +1,6 @@
 #![cfg(feature = "socks5")]
 
+use std::io::{Read, Write};
 use std::net::{TcpListener, TcpStream};
 use std::path::Path;
 use std::process::{Child, Command, Output, Stdio};
@@ -19,6 +20,24 @@ fn config(port: u16) -> serde_json::Value {
             }
         }
     })
+}
+
+fn socks_ready(address: &std::net::SocketAddr) -> bool {
+    let Ok(mut stream) = TcpStream::connect_timeout(address, Duration::from_millis(50)) else {
+        return false;
+    };
+    if stream
+        .set_read_timeout(Some(Duration::from_millis(50)))
+        .is_err()
+        || stream
+            .set_write_timeout(Some(Duration::from_millis(50)))
+            .is_err()
+        || stream.write_all(&[5, 1, 0]).is_err()
+    {
+        return false;
+    }
+    let mut reply = [0; 2];
+    stream.read_exact(&mut reply).is_ok() && reply == [5, 0]
 }
 
 fn write_config(directory: &Path, value: &serde_json::Value) -> std::path::PathBuf {
@@ -98,6 +117,8 @@ fn validate_succeeds_while_running_kernel_owns_fake_ip_state() {
         std::process::id(),
         address.port()
     ));
+    let runtime_log = directory.path().join("runtime.stderr");
+    let log_file = std::fs::File::create(&runtime_log).unwrap();
     let mut runtime = Running(
         Command::new(env!("CARGO_BIN_EXE_zero"))
             .args(["run", "--parent-lifetime-stdin", "--control-socket"])
@@ -106,7 +127,7 @@ fn validate_succeeds_while_running_kernel_owns_fake_ip_state() {
             .env("ZERO_DNS_STATE_DIR", &state)
             .stdin(Stdio::piped())
             .stdout(Stdio::null())
-            .stderr(Stdio::null())
+            .stderr(Stdio::from(log_file))
             .spawn()
             .unwrap(),
     );
@@ -114,12 +135,22 @@ fn validate_succeeds_while_running_kernel_owns_fake_ip_state() {
     loop {
         assert!(
             runtime.0.try_wait().unwrap().is_none(),
-            "runtime exited before ready"
+            "runtime exited before ready: {}",
+            std::fs::read_to_string(&runtime_log).unwrap_or_default()
         );
-        if TcpStream::connect_timeout(&address, Duration::from_millis(50)).is_ok() {
+        let actual_lease = std::fs::read_dir(&state).is_ok_and(|entries| {
+            entries
+                .filter_map(Result::ok)
+                .any(|entry| entry.path().extension().is_some_and(|ext| ext == "lock"))
+        });
+        if actual_lease && socks_ready(&address) {
             break;
         }
-        assert!(Instant::now() < deadline, "runtime not ready");
+        assert!(
+            Instant::now() < deadline,
+            "runtime not ready; actual lease={actual_lease}; {}",
+            std::fs::read_to_string(&runtime_log).unwrap_or_default()
+        );
         std::thread::sleep(Duration::from_millis(25));
     }
     let snapshot = || {
@@ -167,7 +198,7 @@ fn validate_succeeds_while_running_kernel_owns_fake_ip_state() {
     assert_lease_held();
     assert_eq!(snapshot(), before);
     assert!(runtime.0.try_wait().unwrap().is_none());
-    assert!(TcpStream::connect_timeout(&address, Duration::from_secs(1)).is_ok());
+    assert!(socks_ready(&address));
 }
 
 #[test]

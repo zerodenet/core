@@ -124,6 +124,8 @@ async fn standard_vmess_auth_rejection_never_mints_and_block_or_refusal_adds_no_
             assert!(fixture.probe.completed_sessions().is_empty());
             let after = fixture.probe.engine().mint_session_identity().unwrap();
             assert_eq!(after.id().0, before.id().0 + 1);
+            #[cfg(target_os = "macos")]
+            drop(unavailable); // Release only when the real refusal dial is about to start.
             let (mut client, _) = vmess_client(&fixture, target).await;
             let mut response = Vec::new();
             let _ = client.read_to_end(&mut response).await;

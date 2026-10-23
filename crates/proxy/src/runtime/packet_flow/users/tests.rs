@@ -93,8 +93,14 @@ async fn a_real_join_still_requires_the_transferred_view_to_be_released() {
     let exit = scope.next_receipt().await.unwrap();
     pending(users.shutdown(deadline())).await;
     assert_eq!(users.slots.active(), 1);
-    let read = stream.read_u8().await.unwrap_err();
-    assert_eq!(read.kind(), std::io::ErrorKind::Interrupted);
+    let read = tokio::time::timeout(Duration::from_secs(2), stream.read_u8())
+        .await
+        .expect("retired stream must terminate an AsyncReadExt operation")
+        .unwrap_err();
+    assert_eq!(read.kind(), std::io::ErrorKind::BrokenPipe);
+    let write = stream.write_all(b"retired").await.unwrap_err();
+    assert_eq!(write.kind(), std::io::ErrorKind::BrokenPipe);
+    assert_eq!(users.slots.active(), 1);
     drop(stream);
     assert!(users.shutdown(deadline()).await.unwrap().is_complete());
     assert_eq!(users.slots.active(), 0);

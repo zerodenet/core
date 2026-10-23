@@ -103,22 +103,23 @@ impl DnsOutboundConnector for ProxyDnsOutboundConnector {
             {
                 // A native failure is final here. Falling back to the legacy
                 // bridge after any submission could duplicate a DNS request.
-                let connected = service::connect(
-                    services.execution(),
-                    zero_core::request::Destination::new(
-                        endpoint_address(endpoint.ip()),
-                        endpoint.port(),
-                    ),
-                    plan,
-                    zero_core::request::ServicePurpose::DnsQuery,
-                    zero_platform_tokio::contract::network::CarrierContext {
-                        session: None,
-                        deadline: call.deadline,
-                        cancel: call.cancel,
-                    },
-                )
-                .await
-                .map_err(io::Error::other)?;
+                let connected = protocols
+                    .drive_component_supervision(service::connect(
+                        services.execution(),
+                        zero_core::request::Destination::new(
+                            endpoint_address(endpoint.ip()),
+                            endpoint.port(),
+                        ),
+                        plan,
+                        zero_core::request::ServicePurpose::DnsQuery,
+                        zero_platform_tokio::contract::network::CarrierContext {
+                            session: None,
+                            deadline: call.deadline,
+                            cancel: call.cancel,
+                        },
+                    ))
+                    .await
+                    .map_err(io::Error::other)?;
                 let binding = selections
                     .and_then(|selections| selections.chosen(&connected.binding.tags()))
                     .map(|selections| {

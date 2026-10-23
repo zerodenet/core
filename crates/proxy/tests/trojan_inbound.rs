@@ -169,18 +169,17 @@ async fn standard_trojan_tcp_auth_command_rejection_never_mints_and_host_block_a
 #[tokio::test]
 async fn standard_trojan_tcp_actual_upstream_refusal_never_adds_success_or_error_bytes() {
     timeout(Duration::from_secs(5), async {
-        // Keep the bound, non-listening endpoint owned throughout this test.
+        // Retain the actual non-listening endpoint while preparing the client.
         let unavailable = tokio::net::TcpSocket::new_v4().unwrap();
         unavailable.bind("127.0.0.1:0".parse().unwrap()).unwrap();
+        let unavailable_address = unavailable.local_addr().unwrap();
         let fixture = Fixture::new(Some("configured:trojan"), false);
         let before = fixture.probe.engine().mint_session_identity().unwrap();
         let (mut client, _) = fixture.connect().await;
+        #[cfg(target_os = "macos")]
+        drop(unavailable); // Release immediately before the actual dial; Darwin drops SYNs while bound.
         client
-            .write_all(&request(
-                PASSWORD,
-                CMD_TCP,
-                unavailable.local_addr().unwrap(),
-            ))
+            .write_all(&request(PASSWORD, CMD_TCP, unavailable_address))
             .await
             .unwrap();
         assert_no_response(&mut client).await;

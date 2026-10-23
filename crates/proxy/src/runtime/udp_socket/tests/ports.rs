@@ -1,8 +1,20 @@
 use super::*;
 
-async fn available_port() -> u16 {
-    let reservation = tokio::net::UdpSocket::bind("127.0.0.1:0").await.unwrap();
-    reservation.local_addr().unwrap().port()
+async fn port_reservation() -> tokio::net::UdpSocket {
+    // Keep repeated retirement/rebind off the platform's automatic ephemeral
+    // allocation range, where parallel fixtures can acquire a just-freed port.
+    use std::sync::atomic::{AtomicU16, Ordering};
+    static NEXT: AtomicU16 = AtomicU16::new(20000);
+    for _ in 0..128 {
+        let port = NEXT.fetch_add(1, Ordering::Relaxed);
+        assert!(port < 30000, "finite fixture port range");
+        match tokio::net::UdpSocket::bind(("127.0.0.1", port)).await {
+            Ok(socket) => return socket,
+            Err(error) if error.kind() == std::io::ErrorKind::AddrInUse => {}
+            Err(error) => panic!("reserve actual UDP fixture endpoint: {error}"),
+        }
+    }
+    panic!("fixture reservation budget exhausted");
 }
 
 #[tokio::test]
@@ -10,10 +22,12 @@ async fn default_auto_reuses_preferred_port_through_repeated_final_flow_retireme
     let proxy = proxy();
     let peer = tokio::net::UdpSocket::bind("127.0.0.1:0").await.unwrap();
     let target = peer.local_addr().unwrap();
-    let preferred = available_port().await;
+    let reservation = port_reservation().await;
+    let preferred = reservation.local_addr().unwrap().port();
     let mut sockets = socket_set(&proxy, Some(preferred));
     let policy = policy(&proxy, Some("first"));
     let mut buffer = [0; 32];
+    drop(reservation); // Release immediately before the actual socket-set acquisition.
     for session in 1..=512 {
         sockets
             .send_to_addr(b"new flow", target, session, &policy)
@@ -35,10 +49,12 @@ async fn policy_reload_discards_old_socket_queue_and_allows_normal_port_reuse() 
     let proxy = proxy();
     let peer = tokio::net::UdpSocket::bind("127.0.0.1:0").await.unwrap();
     let target = peer.local_addr().unwrap();
-    let preferred = available_port().await;
+    let reservation = port_reservation().await;
+    let preferred = reservation.local_addr().unwrap().port();
     let mut sockets = socket_set(&proxy, Some(preferred));
     let old_policy = policy(&proxy, Some("first"));
     let mut buffer = [0; 32];
+    drop(reservation); // Release immediately before the actual socket-set acquisition.
     sockets
         .send_to_addr(b"old policy", target, 1, &old_policy)
         .await
@@ -77,10 +93,12 @@ async fn read_reply_token_cannot_revive_after_retire_and_same_port_rebind() {
     let proxy = proxy();
     let peer = tokio::net::UdpSocket::bind("127.0.0.1:0").await.unwrap();
     let target = peer.local_addr().unwrap();
-    let preferred = available_port().await;
+    let reservation = port_reservation().await;
+    let preferred = reservation.local_addr().unwrap().port();
     let mut sockets = socket_set(&proxy, Some(preferred));
     let policy = policy(&proxy, Some("first"));
     let mut buffer = [0; 32];
+    drop(reservation); // Release immediately before the actual socket-set acquisition.
     sockets
         .send_to_addr(b"old flow", target, 1, &policy)
         .await

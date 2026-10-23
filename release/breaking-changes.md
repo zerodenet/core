@@ -49,6 +49,8 @@
 
 ### Raw-IP Direct caller closure uses original native receipts
 
+Standalone TCP and DNS service execution now drive their owning component supervision while connecting. WireGuard key rotation selects a new live crypto owner even on the same listen address. Retired packet-to-flow streams return terminal `BrokenPipe` instead of retryable `Interrupted`, preventing read helpers from spinning after cancellation; actual caller join and transferred-view release remain separate closure requirements. Probe diagnostics classify the original typed establishment error while retaining its outbound/stage metadata. Public configuration and wire identifiers are unchanged.
+
 WireGuard/raw-IP TCP Direct sessions now settle the same controlled carrier registrations after the actual caller Scope join; raw-IP UDP associations use the existing bound Direct provider and retain its matching native/driver/caller completion. Completed covered records can return their quota. Uncovered gateways, DNS work without a controlled root, conflicting owners and incomplete native closes remain Unknown and charged. This does not qualify the remaining cold RuntimeHost or non-Direct protocol migration.
 
 Production Direct decoding now installs the existing controlled stream owner with 4096 native carrier slots, 256 refresh task slots and a five-second retirement budget. An opener with the original tracked Business caller selects it before acquisition; an explicitly selected controlled operation never falls back on failure. Service and untracked calls keep their separate legacy operation and do not establish whole-generation native coverage. Other resourceful cold gates remain closed.

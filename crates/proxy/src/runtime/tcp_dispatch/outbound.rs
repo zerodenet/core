@@ -27,7 +27,16 @@ pub(crate) async fn dispatch_tcp_outbound(
         services
     };
     let prepared = services.prepare_tcp_outbound(&resolved, mode)?;
-    execute_prepared_tcp_outbound(services.execution(), session, prepared, intent).await
+    let operation = Box::pin(execute_prepared_tcp_outbound(
+        services.execution(),
+        session,
+        prepared,
+        intent,
+    ));
+    services
+        .protocols()
+        .drive_component_supervision(operation)
+        .await
 }
 
 async fn execute_prepared_tcp_outbound(

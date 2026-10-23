@@ -141,57 +141,61 @@ fn conflicting_full_resource_settings_discard_the_pass_without_polluting_prior_i
 async fn selected_consumer_failure_discards_requests_and_preserves_the_real_current_plan() {
     let controls = Arc::new(Controls::default());
     let catalog = catalog(&controls);
-    let config = config();
-    let mut baseline = config.as_ref().clone();
-    baseline.outbounds.retain(|input| input.tag == "separate");
-    let baseline = Arc::new(baseline);
-    let deadline = || tokio::time::Instant::now() + std::time::Duration::from_secs(2);
-    let current = catalog.prepare(baseline.clone()).unwrap();
-    catalog.start(baseline.clone(), deadline()).await.unwrap();
-    catalog.commit(&baseline, || Ok(())).unwrap();
-    let original = current
-        .direct(Some("separate"))
-        .unwrap()
-        .stream(deadline())
-        .await
-        .unwrap();
-    controls.fail.store(true, Ordering::SeqCst);
-    let rejected = catalog.prepare(config.clone()).unwrap_err();
-    let failed = *controls.requests.lock().unwrap().first().unwrap();
-    assert!(catalog.prepare(config.clone()).is_err());
-    assert_eq!(
-        controls.conversions.load(Ordering::SeqCst),
-        2,
-        "same failed cold candidate stays failed"
-    );
-    controls.fail.store(false, Ordering::SeqCst);
-    let fresh = catalog
-        .compile_plan(&config, Some((&baseline, &current)))
-        .unwrap();
-    assert_ne!(resource(&fresh).id, failed);
-    assert_eq!(controls.builds.load(Ordering::SeqCst), 0);
-    {
-        let state = catalog.state.lock().unwrap();
-        assert!(state.staged.is_none());
-        assert!(Arc::ptr_eq(
-            state.current.as_ref().unwrap().ready(),
-            &current
-        ));
-        assert!(Arc::ptr_eq(
-            state.cold.as_ref().unwrap().plan.as_ref().unwrap_err(),
-            &rejected
-        ));
-    }
-    assert!(Arc::ptr_eq(
-        &original,
-        &current
-            .direct(Some("separate"))
-            .unwrap()
-            .stream(deadline())
-            .await
-            .unwrap()
-    ));
-    catalog.shutdown(deadline()).await.unwrap();
+    catalog
+        .drive_supervised(async {
+            let config = config();
+            let mut baseline = config.as_ref().clone();
+            baseline.outbounds.retain(|input| input.tag == "separate");
+            let baseline = Arc::new(baseline);
+            let deadline = || tokio::time::Instant::now() + std::time::Duration::from_secs(2);
+            let current = catalog.prepare(baseline.clone()).unwrap();
+            catalog.start(baseline.clone(), deadline()).await.unwrap();
+            catalog.commit(&baseline, || Ok(())).unwrap();
+            let original = current
+                .direct(Some("separate"))
+                .unwrap()
+                .stream(deadline())
+                .await
+                .unwrap();
+            controls.fail.store(true, Ordering::SeqCst);
+            let rejected = catalog.prepare(config.clone()).unwrap_err();
+            let failed = *controls.requests.lock().unwrap().first().unwrap();
+            assert!(catalog.prepare(config.clone()).is_err());
+            assert_eq!(
+                controls.conversions.load(Ordering::SeqCst),
+                2,
+                "same failed cold candidate stays failed"
+            );
+            controls.fail.store(false, Ordering::SeqCst);
+            let fresh = catalog
+                .compile_plan(&config, Some((&baseline, &current)))
+                .unwrap();
+            assert_ne!(resource(&fresh).id, failed);
+            assert_eq!(controls.builds.load(Ordering::SeqCst), 0);
+            {
+                let state = catalog.state.lock().unwrap();
+                assert!(state.staged.is_none());
+                assert!(Arc::ptr_eq(
+                    state.current.as_ref().unwrap().ready(),
+                    &current
+                ));
+                assert!(Arc::ptr_eq(
+                    state.cold.as_ref().unwrap().plan.as_ref().unwrap_err(),
+                    &rejected
+                ));
+            }
+            assert!(Arc::ptr_eq(
+                &original,
+                &current
+                    .direct(Some("separate"))
+                    .unwrap()
+                    .stream(deadline())
+                    .await
+                    .unwrap()
+            ));
+            catalog.shutdown(deadline()).await.unwrap();
+        })
+        .await;
 }
 
 #[test]

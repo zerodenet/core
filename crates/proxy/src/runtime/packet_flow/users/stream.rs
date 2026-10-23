@@ -27,7 +27,9 @@ impl<S> TrackedStream<S> {
     fn check(&mut self, cx: &mut Context<'_>) -> io::Result<()> {
         if self.cancelled.as_mut().poll(cx).is_ready() {
             Err(io::Error::new(
-                io::ErrorKind::Interrupted,
+                // Retirement is terminal. AsyncReadExt retries Interrupted,
+                // which would spin forever after this cancellation completes.
+                io::ErrorKind::BrokenPipe,
                 "packet endpoint retired",
             ))
         } else {

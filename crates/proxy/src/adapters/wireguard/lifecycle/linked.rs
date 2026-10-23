@@ -50,12 +50,13 @@ impl WireguardAdapter {
             } => outer_udp_proxy.as_deref(),
             _ => None,
         };
+        let live = self.passive_inbound_live(inbound)?;
         let existing = self
             .linked_endpoints
             .lock()
             .unwrap_or_else(|error| error.into_inner())
             .get(&inbound.tag)
-            .filter(|link| link.listen == inbound.listen)
+            .filter(|link| link.listen == inbound.listen && Arc::ptr_eq(&link.live, &live))
             .cloned();
         let reusable = existing.as_ref().and_then(|link| {
             let state = link.state.lock().unwrap_or_else(|error| error.into_inner());
@@ -168,7 +169,6 @@ impl WireguardAdapter {
                 }),
             ));
         }
-        let live = self.passive_inbound_live(inbound)?;
         Ok((
             Arc::new(inbound::LinkedEndpoint::new(
                 identity,

@@ -38,7 +38,12 @@ async fn verified_decoy_is_rejected_while_real_scoped_navigation_is_cancelled_an
             // The actual H2 handshake is now waiting for this peer's settings.
             ready.send(()).unwrap();
             let mut wire = Vec::new();
-            io.get_mut().0.read_to_end(&mut wire).await.unwrap();
+            if let Err(error) = io.get_mut().0.read_to_end(&mut wire).await {
+                // Cancelling the pending H2 client closes this actual carrier.
+                // With unread TLS records the peer may observe an OS reset
+                // rather than EOF; neither outcome substitutes for Scope join.
+                assert_eq!(error.kind(), io::ErrorKind::ConnectionReset);
+            }
         });
         let prepared = PreparedRealityClient {
             config: RealityClientConfig {
@@ -76,7 +81,7 @@ async fn verified_decoy_is_rejected_while_real_scoped_navigation_is_cancelled_an
         assert!(report.is_complete());
         assert!(report.failed_tasks.is_empty());
         assert_eq!(report.exited_tasks.len(), 1);
-        server.await.unwrap(); // Actual original TCP carrier observed EOF.
+        server.await.unwrap(); // Actual original TCP carrier reached EOF or reset.
         owner.shutdown(deadline).await.unwrap();
     })
     .await

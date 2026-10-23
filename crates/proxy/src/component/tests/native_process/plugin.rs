@@ -99,7 +99,14 @@ async fn actual_host_slot_grants_one_real_plugin_child_and_joins_its_actual_moni
     host.drive(slot.start(deadline())).await.unwrap();
     assert_eq!(marker.starts(), 1);
     let report = host.drive(slot.shutdown(deadline())).await.unwrap();
-    assert!(report.is_complete());
+    // The protocol reaped its actual Child and the host joined its monitor.
+    // Bare Process grants still have no native provider witness; keep that
+    // declaration explicitly unaccounted rather than infer whole-owner close.
+    assert!(!report.is_complete());
+    assert!(report.unfinished.iter().any(|item| matches!(item,
+        zero_platform_tokio::contract::lifecycle::Unfinished::Resource(message)
+            if message.contains("declaration coverage remains unconfirmed")
+    )));
     assert_eq!(report.exited_tasks.len(), 1);
     assert_eq!(report.released_resources.len(), 1);
     assert!(matches!(

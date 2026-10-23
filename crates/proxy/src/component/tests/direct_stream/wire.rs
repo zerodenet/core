@@ -49,7 +49,8 @@ async fn actual_direct_role_recovers_business_dns_under_same_host_scope_and_clos
                 Network::Tcp,
                 ProtocolType::new("verified"),
             );
-            session.original_target = Some(Address::Ipv4([127, 0, 0, 2]));
+            let original_ip = unavailable_ip();
+            session.original_target = Some(Address::Ipv4(original_ip));
             session.direct_target = session.original_target.clone();
             session.target_host_source = Some(TargetHostSource::TlsSni);
             session.sni = Some("direct.fixture.invalid".into());
@@ -142,11 +143,11 @@ async fn actual_direct_role_recovers_business_dns_under_same_host_scope_and_clos
             assert!(evidence.local.is_some());
             assert_eq!(evidence.network.connection_attempts.len(), 2);
             let first = &evidence.network.connection_attempts[0];
-            assert_eq!(first.remote_address.host, "127.0.0.2");
+            assert_eq!(first.remote_address.host, std::net::Ipv4Addr::from(original_ip).to_string());
             assert_eq!(first.outcome, "failed");
             assert!(
                 first.os_error.is_some(),
-                "the actual refused OS error survives typed native wrapping"
+                "the actual native OS error survives typed native wrapping"
             );
             assert_eq!(
                 evidence.network.connection_attempts[1].remote_address.host,
@@ -233,4 +234,24 @@ async fn actual_direct_role_recovers_business_dns_under_same_host_scope_and_clos
     })
     .await
     .unwrap();
+}
+
+fn unavailable_ip() -> [u8; 4] {
+    #[cfg(target_os = "macos")]
+    {
+        // Darwin has no 127.0.0.2 alias. Use this host's actual other local
+        // address: the fixture listens only on 127.0.0.1, so the first native
+        // candidate is unavailable and the actual DNS answer can recover it.
+        let route = std::net::UdpSocket::bind("0.0.0.0:0").unwrap();
+        route.connect("192.0.2.1:9").unwrap();
+        let std::net::IpAddr::V4(address) = route.local_addr().unwrap().ip() else {
+            unreachable!()
+        };
+        assert!(!address.is_unspecified() && !address.is_loopback());
+        address.octets()
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        [127, 0, 0, 2]
+    }
 }

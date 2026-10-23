@@ -39,7 +39,13 @@ impl OutboundProbeError {
     }
 
     pub(super) fn from_engine(error: EngineError) -> Self {
-        let code = match &error {
+        // Establishment metadata wraps the original typed failure in io::Error.
+        // Classify its source while retaining the enriched message below.
+        let original = crate::transport::establishment::establishment_failure(&error)
+            .and_then(std::error::Error::source)
+            .and_then(|source| source.downcast_ref::<EngineError>())
+            .unwrap_or(&error);
+        let code = match original {
             EngineError::Io(error) => match error.kind() {
                 std::io::ErrorKind::TimedOut => "probe_timeout",
                 std::io::ErrorKind::UnexpectedEof => "empty_response",

@@ -102,33 +102,44 @@ async fn complete_vmess_grpc_recipe_conflicts_and_legacy_real_tcp_udp_relay_entr
         });
         if kind == "relay" {
             let socket = tokio::net::TcpStream::connect(peer).await.unwrap();
-            assert!(leaf
+            let original = leaf
                 .open_tcp_relay_hop(zero_platform_tokio::TcpRelayStream::new(socket), &target)
-                .await
-                .is_err());
+                .await;
+            // gRPC may return its deferred stream before the peer close is
+            // observed. Either outcome retains the same legacy acquisition.
+            drop(original);
         } else if kind == "tcp" {
-            assert!(leaf
+            let original = leaf
                 .open_tcp_stream(&target, move |_, _| async move {
                     tokio::net::TcpStream::connect(peer)
                         .await
                         .map(zero_platform_tokio::TokioSocket::new)
                         .map_err(zero_transport::RuntimeError::from)
                 })
-                .await
-                .is_err());
+                .await;
+            // gRPC may return its deferred stream before the peer close is
+            // observed. Either outcome retains the same legacy acquisition.
+            drop(original);
         } else {
             let resume = ProtocolUdpFlowLeaf::direct_udp_resume(&leaf);
-            assert!(resume
+            let original = resume
                 .open_direct_connection(&target, move |_, _| async move {
                     tokio::net::TcpStream::connect(peer)
                         .await
                         .map(zero_platform_tokio::TokioSocket::new)
                         .map_err(zero_transport::RuntimeError::from)
                 })
-                .await
-                .is_err());
+                .await;
+            // gRPC may return its deferred stream before the peer close is
+            // observed. Either outcome retains the same legacy acquisition.
+            drop(original);
         }
-        server.await.unwrap();
+        timeout(Duration::from_secs(3), server)
+            .await
+            .unwrap_or_else(|_| {
+                panic!("{kind}: actual legacy carrier must reach its retained listener")
+            })
+            .unwrap();
         // Even failure and actual app/leaf Drop provide no old native-control
         // or original driver join receipt, so the negative fence stays sticky.
         drop(leaf);

@@ -199,7 +199,7 @@ async fn direct_component_preserves_existing_refused_probe_code() {
     })
     .unwrap();
     let result = response.result.unwrap();
-    assert_eq!(result["error_code"], "connection_failed");
+    assert_eq!(result["error_code"], "connection_failed", "{result}");
     assert_eq!(result["terminal_status"], "failed");
     assert_eq!(result["reachable"], false);
     assert!(result["error"]
