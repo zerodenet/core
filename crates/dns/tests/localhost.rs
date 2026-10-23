@@ -92,7 +92,10 @@ async fn localhost_service_preserves_family_generation_and_query_retirement() {
     use zero_platform_tokio::contract::dns::{DnsQueryContext, DnsRequest, DnsService};
 
     let mut config = config(true, DnsAddressFamilyPolicy::PreferIpv4);
-    config.policy.node_server = Some("unavailable".into());
+    config
+        .servers
+        .insert("bootstrap".into(), DnsServerConfig::System);
+    config.policy.node_server = Some("bootstrap".into());
     let dns = build(&config);
     let generation = dns.generation();
     for role in [
