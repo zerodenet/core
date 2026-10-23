@@ -27,6 +27,12 @@ impl DnsSystem {
             ));
         }
         let query_name = crate::message::normalize_domain(query_name)?;
+        if crate::localhost::is_localhost(&query_name) {
+            return Ok(EchDnsRecord {
+                config_list: None,
+                ttl_seconds: crate::message::DEFAULT_NEGATIVE_TTL_SECONDS,
+            });
+        }
         let endpoint = url::Url::parse(server).map_err(invalid_endpoint)?;
         let host = endpoint
             .host_str()

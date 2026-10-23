@@ -7,6 +7,87 @@ use zero_engine::EngineError;
 use super::{log_listener_connection_error, INBOUND_ACCEPT_ROUTE_STAGE};
 
 #[test]
+fn resolution_failure_bursts_share_warning_budget_with_session_logging() {
+    // Isolate the global limiter and tracing callsite cache from parallel tests.
+    const CHILD: &str = "ZERO_TEST_RESOLUTION_WARNING_CHILD";
+    if std::env::var_os(CHILD).is_none() {
+        let output = std::process::Command::new(std::env::current_exe().unwrap())
+            .args([
+                "--exact",
+                "logging::listener::tests::resolution_failure_bursts_share_warning_budget_with_session_logging",
+                "--nocapture",
+            ])
+            .env(CHILD, "1")
+            .output()
+            .unwrap();
+        assert!(
+            output.status.success()
+                && String::from_utf8_lossy(&output.stdout).contains("1 passed; 0 failed"),
+            "{}\n{}",
+            String::from_utf8_lossy(&output.stdout),
+            String::from_utf8_lossy(&output.stderr)
+        );
+        return;
+    }
+    let buffer = Arc::new(Mutex::new(Vec::new()));
+    let subscriber = tracing_subscriber::fmt()
+        .with_max_level(tracing::Level::INFO)
+        .with_writer(BufferMakeWriter(buffer.clone()))
+        .with_ansi(false)
+        .without_time()
+        .finish();
+    let error = EngineError::Core(zero_core::Error::Io("failed to resolve direct target"));
+    tracing::subscriber::with_default(subscriber, || {
+        for _ in 0..100 {
+            log_listener_connection_error(
+                INBOUND_ACCEPT_ROUTE_STAGE,
+                "mixed",
+                "mixed-in",
+                &"127.0.0.1:1234",
+                &error,
+            );
+        }
+        let session = zero_core::Session::new(
+            1,
+            zero_core::Address::Domain("phone.local.".to_owned()),
+            49152,
+            zero_core::Network::Tcp,
+            zero_core::ProtocolType::new("socks5"),
+        );
+        crate::logging::session::log_session_failed(
+            &session,
+            None,
+            "route_or_establish",
+            std::time::Duration::ZERO,
+            &error,
+            None,
+        );
+        // Non-environmental errors must remain visible during a DNS storm.
+        log_listener_connection_error(
+            INBOUND_ACCEPT_ROUTE_STAGE,
+            "mixed",
+            "mixed-in",
+            &"127.0.0.1:1234",
+            &EngineError::InvalidPlan {
+                message: "independent route construction failure".to_owned(),
+            },
+        );
+    });
+    let logs = String::from_utf8(buffer.lock().unwrap().clone()).unwrap();
+    assert_eq!(
+        logs.matches("failed to resolve direct target").count(),
+        1,
+        "{logs}"
+    );
+    assert_eq!(logs.matches("connection failed").count(), 2, "{logs}");
+    assert!(logs.contains("suppressed_failures=0"), "{logs}");
+    assert!(
+        logs.contains("independent route construction failure"),
+        "{logs}"
+    );
+}
+
+#[test]
 fn accepted_route_failures_keep_a_stable_stage_across_log_levels() {
     let buffer = Arc::new(Mutex::new(Vec::new()));
     let subscriber = tracing_subscriber::fmt()

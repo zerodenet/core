@@ -24,6 +24,7 @@ use ech::RuntimeEchResolver;
 pub(crate) struct UpstreamConnectServices {
     pub(super) resolver: Arc<DnsSystem>,
     observer: Option<Arc<dyn zero_traits::IoObserver>>,
+    dial_trace: Option<crate::transport::establishment::DialTrace>,
     pub(super) connector: DirectConnector,
     pub(super) egress_interface: zero_platform_tokio::EgressInterfaceControl,
     #[cfg(feature = "tls-ech-runtime")]
@@ -65,6 +66,14 @@ impl UpstreamConnectServices {
                 opener,
             )
             .await
+    }
+
+    pub(crate) fn with_dial_trace(
+        mut self,
+        trace: crate::transport::establishment::DialTrace,
+    ) -> Self {
+        self.dial_trace = Some(trace);
+        self
     }
     pub(crate) fn with_observer(
         mut self,
@@ -109,6 +118,7 @@ impl UpstreamConnectServices {
         Self {
             resolver,
             observer: None,
+            dial_trace: None,
             connector,
             egress_interface,
             #[cfg(feature = "tls-ech-runtime")]
@@ -127,6 +137,7 @@ impl UpstreamConnectServices {
                 port,
                 self.resolver.as_ref(),
                 &self.egress_interface,
+                self.dial_trace.as_ref(),
             )
             .await
             .map(|socket| socket.with_observer(self.observer.clone()))

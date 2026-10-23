@@ -10,6 +10,7 @@ mod coordinator;
 mod ech;
 mod fake_ip;
 mod family;
+mod localhost;
 mod message;
 mod outbound;
 mod owned_root;
@@ -736,6 +737,17 @@ impl DnsSystem {
             Err(_) => return message::build_error_response(query, message::RCODE_FORMERR, false),
         };
         let (snapshot, config_generation) = self.snapshot_with_generation();
+        if localhost::is_localhost(&question.domain) {
+            let policy = snapshot
+                .as_ref()
+                .map(|snapshot| snapshot.policy.address_family)
+                .unwrap_or_default();
+            return message::build_address_response(
+                query,
+                &localhost::addresses(policy),
+                message::DEFAULT_SYNTHETIC_TTL_SECONDS,
+            );
+        }
         let address_policy = snapshot.as_ref().map(|snapshot| {
             response_address_policy(
                 snapshot.policy.address_family,
@@ -991,16 +1003,20 @@ impl DnsResolver for DnsSystem {
             }
         };
 
+        let domain = message::normalize_domain(domain)?;
+        if localhost::is_localhost(&domain) {
+            return resolve_snapshot(&domain, DnsQueryRole::Default, snapshot).await;
+        }
+
         // Fake IP path: return synthetic IP instead of real resolution.
         if let Some(alloc) = &snapshot.fake_ip {
-            if !alloc.is_excluded(domain) {
+            if !alloc.is_excluded(&domain) {
                 let addresses =
-                    allocate_fake_addresses(alloc, domain, snapshot.policy.address_family).await?;
+                    allocate_fake_addresses(alloc, &domain, snapshot.policy.address_family).await?;
                 return Ok(addresses);
             }
         }
 
-        let domain = message::normalize_domain(domain)?;
         resolve_snapshot(&domain, DnsQueryRole::Default, snapshot).await
     }
 }
@@ -1113,6 +1129,13 @@ async fn resolve_snapshot_type(
     snapshot: ResolveSnapshot,
 ) -> io::Result<Vec<IpAddress>> {
     snapshot.query_coordinator.ensure_open()?;
+    if localhost::is_localhost(domain) {
+        return family::filter_addresses(
+            domain,
+            localhost::address_records(query_type),
+            snapshot.family,
+        );
+    }
     // 1. Check cache.
     if let Some(ref cache) = snapshot.cache {
         if let Some(ips) = cache

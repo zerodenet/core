@@ -14,6 +14,8 @@ use zero_api::{
 #[cfg(all(unix, feature = "wireguard"))]
 mod endpoint;
 
+mod events;
+
 #[test]
 fn outbound_diagnostics_are_the_only_reordered_ipc_commands() {
     assert!(command_can_run_concurrently(

@@ -208,7 +208,7 @@ impl DirectConnector {
                 }
                 let error = dial_failure_error(&failure, "failed to connect direct target");
                 Err(DirectTcpConnectFailure {
-                    stage: "connect_direct",
+                    stage: failure.stage,
                     network: Box::new(direct_network_observation(
                         &failure.selection,
                         DirectNetworkDialObservation {
@@ -630,16 +630,7 @@ fn direct_network_observation(
         connection_attempts: dial
             .attempts
             .iter()
-            .map(|attempt| FlowConnectionAttemptObservation {
-                remote_address: socket_endpoint(attempt.remote),
-                local_address: attempt.local_addr.map(socket_endpoint),
-                stage: attempt.stage.to_owned(),
-                outcome: attempt.outcome.to_owned(),
-                interface_bound: attempt.interface_bound,
-                error_kind: attempt.error_kind.map(ToOwned::to_owned),
-                os_error: attempt.os_error,
-                error: attempt.error.clone(),
-            })
+            .map(FlowConnectionAttemptObservation::from)
             .collect(),
         address_family_policy: Some(resolution.address_family_policy.to_owned()),
         address_family_fallback: resolution

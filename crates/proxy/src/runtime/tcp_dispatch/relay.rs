@@ -1,5 +1,6 @@
 #[cfg(feature = "udp-runtime")]
 mod datagram;
+mod failure;
 mod identity;
 pub(in crate::runtime) mod retained;
 use zero_core::Session;
@@ -47,12 +48,7 @@ pub(crate) async fn dispatch_prepared_tcp_relay_chain(
         .operation
         .execute_lazy(services.upstream_observed(&final_hop.tag), carrier, session)
         .await
-        .map_err(|error| TcpOutboundFailure {
-            stage: "relay_last",
-            error,
-            upstream_endpoint: None,
-            network: None,
-        })?;
+        .map_err(|error| failure::hop_failure(&final_hop, error, "relay_last"))?;
 
     Ok(EstablishedTcpOutbound::relay(
         outbound_tag,
@@ -178,21 +174,16 @@ fn execute_relay_prefix_stream(
             #[cfg(feature = "udp-runtime")]
             prepared.datagram_prefixes.pop();
             let upstream = services.upstream_observed(&current.tag);
-            prepared.final_tag = current.tag;
-            prepared.final_protocol = current.protocol;
-            prepared.final_server = current.server;
+            prepared.final_tag = current.tag.clone();
+            prepared.final_protocol = current.protocol.clone();
+            prepared.final_server = current.server.clone();
             prepared.final_port = current.port;
             let carrier = lazy_relay_carrier(services, prepared, intent, identity, generation);
             return current
                 .operation
                 .execute_lazy(upstream, carrier, &session)
                 .await
-                .map_err(|error| TcpOutboundFailure {
-                    stage: "relay_hop",
-                    error,
-                    upstream_endpoint: None,
-                    network: None,
-                });
+                .map_err(|error| failure::hop_failure(&current, error, "relay_hop"));
         }
         super::candidate::dispatch_prepared_tcp_candidate(
             services,

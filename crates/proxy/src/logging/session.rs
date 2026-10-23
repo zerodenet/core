@@ -7,14 +7,20 @@ use zero_engine::{
     CompletedSessionRecord, EngineError, FlowFailureObservation, FlowRemoteEndpoint,
 };
 
-mod rate_limit;
-use rate_limit::{environmental_failure_log_decision, FailureLogDecision};
+use super::rate_limit::{environmental_failure_log_decision, FailureLogDecision};
+use crate::transport::establishment::establishment_failure;
 
 pub(crate) fn session_failure_observation(
     stage: &'static str,
     error: &EngineError,
     upstream: Option<(&str, u16)>,
 ) -> FlowFailureObservation {
+    let establishment = establishment_failure(error);
+    let stage = establishment.map_or(stage, |failure| failure.stage);
+    let upstream = establishment
+        .and_then(|failure| failure.endpoint.as_ref())
+        .map(|(host, port)| (host.as_str(), *port))
+        .or(upstream);
     FlowFailureObservation {
         stage: stage.to_owned(),
         code: Some(error.code().to_owned()),
@@ -96,21 +102,38 @@ pub(crate) fn log_session_failed(
     record: Option<&CompletedSessionRecord>,
     stage: &'static str,
     duration: Duration,
-    error: &impl std::fmt::Display,
+    error: &EngineError,
     upstream: Option<(&str, u16)>,
 ) {
+    let establishment = establishment_failure(error);
+    let stage = establishment.map_or(stage, |failure| failure.stage);
+    let upstream = establishment
+        .and_then(|failure| failure.endpoint.as_ref())
+        .map(|(host, port)| (host.as_str(), *port))
+        .or(upstream);
+    let outbound_tag = establishment
+        .and_then(|failure| failure.tag.as_deref())
+        .or(session.outbound_tag.as_deref())
+        .unwrap_or("-");
+    let dial = establishment.and_then(|failure| failure.dial.as_ref());
+    let dial_ip = dial
+        .and_then(|dial| dial.remote)
+        .map(|address| address.ip().to_string());
+    let dial_port = dial
+        .and_then(|dial| dial.remote)
+        .map(|address| address.port());
     let suppressed_failures = match environmental_failure_log_decision(&error.to_string()) {
         Some(FailureLogDecision::Suppress) => {
             tracing::debug!(
                 session_id = session.id,
                 inbound_tag = session.inbound_tag.as_deref().unwrap_or("-"),
-                outbound_tag = session.outbound_tag.as_deref().unwrap_or("-"),
+                outbound_tag,
                 network = network_name(session.network),
                 target = ?session.target,
                 port = session.port,
                 stage,
                 error = %error,
-                "repeated local TUN egress failure warning suppressed"
+                "repeated environmental session failure warning suppressed"
             );
             return;
         }
@@ -136,7 +159,15 @@ pub(crate) fn log_session_failed(
         Some((server, port)) => warn!(
             session_id = session.id,
             inbound_tag = session.inbound_tag.as_deref().unwrap_or("-"),
-            outbound_tag = session.outbound_tag.as_deref().unwrap_or("-"),
+            outbound_tag,
+            outbound_protocol = establishment.map(|failure| failure.protocol.as_str()),
+            dial_stage = dial.map(|dial| dial.stage),
+            dial_ip = dial_ip.as_deref(),
+            dial_port,
+            local_address = ?dial.and_then(|dial| dial.local),
+            resolved_candidates = ?dial.map(|dial| &dial.candidates),
+            connection_attempts = ?dial.map(|dial| &dial.attempts),
+            os_error = dial.and_then(|dial| dial.os_error),
             protocol = protocol_name(session.protocol),
             network = network_name(session.network),
             mode = mode,
@@ -159,7 +190,15 @@ pub(crate) fn log_session_failed(
         None => warn!(
             session_id = session.id,
             inbound_tag = session.inbound_tag.as_deref().unwrap_or("-"),
-            outbound_tag = session.outbound_tag.as_deref().unwrap_or("-"),
+            outbound_tag,
+            outbound_protocol = establishment.map(|failure| failure.protocol.as_str()),
+            dial_stage = dial.map(|dial| dial.stage),
+            dial_ip = dial_ip.as_deref(),
+            dial_port,
+            local_address = ?dial.and_then(|dial| dial.local),
+            resolved_candidates = ?dial.map(|dial| &dial.candidates),
+            connection_attempts = ?dial.map(|dial| &dial.attempts),
+            os_error = dial.and_then(|dial| dial.os_error),
             protocol = protocol_name(session.protocol),
             network = network_name(session.network),
             mode = mode,

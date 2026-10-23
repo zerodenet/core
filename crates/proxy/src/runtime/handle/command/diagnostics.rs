@@ -54,6 +54,7 @@ pub(super) fn execute_diagnostics_probe_target(
                             port,
                             proxy.resolver.as_ref(),
                             &proxy.egress_interface,
+                            None,
                         ),
                     )
                     .await,

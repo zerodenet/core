@@ -14,6 +14,7 @@ pub(crate) use direct_dial::candidate::{
     RefreshResult,
 };
 pub(crate) use direct_dial::{open_service_candidates, DirectCandidate};
+pub(crate) mod establishment;
 mod failure;
 mod tcp_outbound;
 mod tcp_relay;

@@ -10,6 +10,8 @@ mod dispatch;
 mod ech;
 #[path = "../ech_disabled.rs"]
 mod ech_disabled;
+#[path = "../localhost.rs"]
+mod localhost;
 #[path = "../resolution.rs"]
 mod resolution;
 

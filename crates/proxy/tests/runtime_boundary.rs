@@ -2349,7 +2349,7 @@ fn runtime_tcp_relay_executes_prepared_chain_without_engine_leaf_roundtrip() {
     assert!(runtime_relay.contains(".execute_lazy(upstream, carrier, &session)"));
     assert!(!inventory_relay.contains(".execute("));
     assert!(!inventory_relay.contains(".await"));
-    assert!(runtime_relay.contains("stage: \"relay_last\""));
+    assert!(runtime_relay.contains("failure::hop_failure(&final_hop, error, \"relay_last\")"));
 }
 
 #[test]
