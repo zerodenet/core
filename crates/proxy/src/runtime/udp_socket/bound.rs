@@ -168,7 +168,7 @@ impl DirectUdpSockets {
                 let (error, retry) = failure.into_parts();
                 BoundSocketAttemptFailure {
                     error: std::io::Error::other(error).into(),
-                    retry,
+                    retry: retry.map(Box::new),
                 }
             })?;
         // The provider already holds the original. Install the unique view before
@@ -210,7 +210,8 @@ fn denied(reason: Reason) -> EngineError {
 /// Structured grant result stays outside the diagnostic EngineError wrapper.
 pub(super) struct BoundSocketAttemptFailure {
     pub(super) error: EngineError,
-    pub(super) retry: Option<zero_platform_tokio::contract::component::BoundDatagramRetryReceipt>,
+    pub(super) retry:
+        Option<Box<zero_platform_tokio::contract::component::BoundDatagramRetryReceipt>>,
 }
 impl From<EngineError> for BoundSocketAttemptFailure {
     fn from(error: EngineError) -> Self {

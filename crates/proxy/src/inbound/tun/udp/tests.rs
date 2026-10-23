@@ -15,6 +15,22 @@ use fixtures::run;
 
 #[tokio::test]
 async fn tun_udp_uses_kernel_direct_dispatch_and_writes_raw_response() {
+    direct_loopback().await;
+}
+
+#[test]
+fn tun_udp_direct_loopback_runs_on_a_default_tokio_worker_stack() {
+    let runtime = tokio::runtime::Builder::new_multi_thread()
+        .worker_threads(1)
+        .enable_all()
+        .build()
+        .unwrap();
+    runtime.block_on(async {
+        tokio::spawn(direct_loopback()).await.unwrap();
+    });
+}
+
+async fn direct_loopback() {
     let config = RuntimeConfig::parse(
         r#"{
             "route": {"rules": [], "final": {"type": "direct"}}

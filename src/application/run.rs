@@ -27,13 +27,13 @@ pub async fn execute(command: Command) -> Result<(), Box<dyn Error>> {
     else {
         unreachable!("application routes only run commands here")
     };
-    run(
+    Box::pin(run(
         &config_path,
         status_listen.as_deref(),
         control_socket.as_deref(),
         ipc_hook_socket.as_deref(),
         parent_lifetime_stdin,
-    )
+    ))
     .await
 }
 
@@ -109,8 +109,11 @@ async fn run(
     // task. If listener orchestration exits unexpectedly, surface the error
     // immediately so the process cannot remain control-plane alive while its
     // configured inbound ports have already disappeared.
-    let proxy_result =
-        run_supervised_proxy(&proxy, wait_for_shutdown_signal(parent_lifetime_stdin)).await;
+    let proxy_result = Box::pin(run_supervised_proxy(
+        &proxy,
+        wait_for_shutdown_signal(parent_lifetime_stdin),
+    ))
+    .await;
     if let Err(error) = &proxy_result {
         tracing::error!(
             core_instance_id = engine.core_instance_id(),
@@ -149,7 +152,7 @@ async fn run_supervised_proxy<F>(proxy: &Proxy, shutdown: F) -> Result<(), zero_
 where
     F: Future<Output = ()> + Send,
 {
-    proxy.run_until(shutdown).await
+    Box::pin(proxy.run_until(shutdown)).await
 }
 
 fn proxy_stop_reason(result: &Result<(), zero_engine::EngineError>) -> &'static str {

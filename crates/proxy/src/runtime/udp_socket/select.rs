@@ -104,10 +104,12 @@ impl DirectUdpSockets {
 /// The sole driver receives settled acquisition evidence outside diagnostics.
 pub(super) struct OwnedSendFailure {
     error: EngineError,
-    settled: Option<(
-        zero_platform_tokio::contract::component::BoundDatagramRetryReceipt,
-        zero_platform_tokio::contract::component::BoundDatagramRequest,
-    )>,
+    settled: Option<
+        Box<(
+            zero_platform_tokio::contract::component::BoundDatagramRetryReceipt,
+            zero_platform_tokio::contract::component::BoundDatagramRequest,
+        )>,
+    >,
 }
 impl OwnedSendFailure {
     fn acquisition(
@@ -119,13 +121,13 @@ impl OwnedSendFailure {
             error,
             settled: receipt
                 .filter(|receipt| receipt.matches(&request))
-                .map(|receipt| (receipt, request)),
+                .map(|receipt| Box::new((receipt, request))),
         }
     }
     pub(in crate::runtime::udp_socket) fn settled_acquisition(&self) -> bool {
         self.settled
             .as_ref()
-            .is_some_and(|(receipt, request)| receipt.matches(request))
+            .is_some_and(|settled| settled.0.matches(&settled.1))
     }
     pub(in crate::runtime::udp_socket) fn into_error(self) -> EngineError {
         self.error

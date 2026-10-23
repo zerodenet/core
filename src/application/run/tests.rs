@@ -55,3 +55,20 @@ fn control_api_formats_bare_and_bracketed_ipv6_listeners() {
         assert_eq!(status.grpc_listen, "[::1]:9091");
     }
 }
+
+#[test]
+fn control_commands_and_application_supervision_do_not_embed_the_entire_runtime_state() {
+    let command = crate::application::execute(crate::cli::Command::TunStatus { socket_path: None });
+    assert!(
+        std::mem::size_of_val(&command) < 16 * 1024,
+        "even a synchronous TUN status command must fit the Windows main stack"
+    );
+    let proxy =
+        Proxy::new(RuntimeConfig::parse(r#"{"route":{"final":{"type":"direct"}}}"#).unwrap())
+            .unwrap();
+    let supervised = run_supervised_proxy(&proxy, std::future::pending());
+    assert!(
+        std::mem::size_of_val(&supervised) < 16 * 1024,
+        "application supervision must retain a pointer to runtime state"
+    );
+}

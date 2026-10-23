@@ -96,7 +96,7 @@ impl DirectUdpSockets {
                     if !safe || attempts >= limit || !another_family {
                         return Err(OwnedSendFailure::acquisition(
                             with_previous(previous, failure.error),
-                            failure.retry,
+                            failure.retry.map(|receipt| *receipt),
                             request,
                         ));
                     }

@@ -11,7 +11,7 @@ async fn direct_registration_uses_original_ordinal_owner_fence_and_exact_per_dem
     };
     let resources = HostResources::new_for_instance(
         instance(),
-        &[declaration.clone()],
+        std::slice::from_ref(&declaration),
         fixture.host_cancel.clone(),
         fixture.scope.registrar().scope_identity(),
     )

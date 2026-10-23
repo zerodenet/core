@@ -69,19 +69,20 @@ async fn selected_host_quic_failure_keeps_actual_candidates_and_source_without_n
         .downcast_ref::<Arc<io::Error>>()
         .unwrap();
     assert!(Arc::ptr_eq(returned, &source));
-    let calls = connector.calls.lock().unwrap();
-    assert_eq!(calls.len(), 2);
-    for ((request, context), endpoint) in calls.iter().zip([first, second]) {
-        assert_eq!(request.endpoint, endpoint);
-        assert_eq!(request.server_name, "localhost");
-        assert_eq!(request.alpn, vec![b"doq".to_vec()]);
-        assert!(context.deadline.is_some());
-        assert!(
-            context.cancel.is_cancelled(),
-            "completed attempt drops only its query cancellation guard"
-        );
+    {
+        let calls = connector.calls.lock().unwrap();
+        assert_eq!(calls.len(), 2);
+        for ((request, context), endpoint) in calls.iter().zip([first, second]) {
+            assert_eq!(request.endpoint, endpoint);
+            assert_eq!(request.server_name, "localhost");
+            assert_eq!(request.alpn, vec![b"doq".to_vec()]);
+            assert!(context.deadline.is_some());
+            assert!(
+                context.cancel.is_cancelled(),
+                "completed attempt drops only its query cancellation guard"
+            );
+        }
     }
-    drop(calls);
     let crate::backends::ResolverBackend::Doq(resolver) = backend else {
         unreachable!()
     };

@@ -35,12 +35,15 @@ fn failed_native_duplicate_is_no_acquire_and_retains_the_same_actual_os_error() 
 fn readonly_backend_validation_failure_explicitly_closes_the_original_duplicate_without_runtime() {
     let (host, peer) = std::os::unix::net::UnixDatagram::pair().unwrap();
     host.set_nonblocking(true).unwrap();
+    let expected = Backend::validate_adopt(host.as_raw_fd(), "not-a-tun").unwrap_err();
     let owner = AdoptedTunOwner::new();
     let error = match owner.acquire(host.as_raw_fd(), "not-a-tun") {
         Ok(_) => panic!("socket is not a TUN"),
         Err(error) => error,
     };
-    assert!(error.source.raw_os_error().is_some());
+    assert_eq!(error.source.kind(), expected.kind());
+    assert_eq!(error.source.raw_os_error(), expected.raw_os_error());
+    assert_eq!(error.source.to_string(), expected.to_string());
     assert!(Arc::ptr_eq(
         &owner.acquisition_failure().unwrap(),
         &error.source

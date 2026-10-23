@@ -61,10 +61,11 @@ async fn actual_closed_entry_recycles_single_slot_across_sixty_five_probes() {
         assert!(grant.bind(Ipv4Addr::LOCALHOST.into(), None).is_err());
         assert!(grant.close(&view).unwrap().matches(&view));
     }
-    let state = owner.shared.state();
-    assert_eq!(state.closed_total, 65);
-    assert_eq!(state.status.retained_live, 0);
-    drop(state);
+    {
+        let state = owner.shared.state();
+        assert_eq!(state.closed_total, 65);
+        assert_eq!(state.status.retained_live, 0);
+    }
     let report = owner.shutdown(deadline()).await.unwrap();
     assert_eq!(
         report.closed_io.len(),

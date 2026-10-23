@@ -80,7 +80,9 @@ struct CallerWaker {
     dropped: Arc<AtomicBool>,
 }
 impl Wake for CallerWaker {
-    fn wake(self: Arc<Self>) {}
+    fn wake(self: Arc<Self>) {
+        assert!(!self.owner.wake.test_in_native());
+    }
 }
 impl Drop for CallerWaker {
     fn drop(&mut self) {

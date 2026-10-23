@@ -55,7 +55,7 @@ impl Fixture {
         let host_cancel = CancellationToken::new();
         let resources = HostResources::new_for_instance(
             instance(),
-            &[declaration.clone()],
+            std::slice::from_ref(&declaration),
             host_cancel.clone(),
             scope.registrar().scope_identity(),
         )
