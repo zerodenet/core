@@ -1,5 +1,8 @@
 //! Per-datagram egress for a shared listener, without constraining reception.
-use crate::{EgressInterfaceControl, EgressSelection, PacketSocket};
+use crate::{
+    controlled_datagram::listener::ControlledDatagramListenerTx, EgressInterfaceControl,
+    EgressSelection, PacketSocket,
+};
 use std::{
     collections::HashMap,
     io,
@@ -10,31 +13,55 @@ use tokio::io::Interest;
 
 /// A single listener's send side. The socket and its local port remain shared
 /// with the receive side; only the outgoing datagram carries an interface hint.
-/// Route hints expire after one second and immediately on topology changes.
+/// Legacy route hints expire after one second and on topology changes. A
+/// controlled sender reselects at native submission and explicitly rejects
+/// selections requiring a separately owned route probe.
 /// No protocol framing or endpoint policy belongs here.
 ///
 /// This handle is the socket's sole writer. Other native socket handles may
 /// receive, but must not concurrently send or mutate interface socket options:
 /// Darwin's specifically bound IPv4 fallback uses a synchronous temporary scope.
 pub struct PacketSocketSender {
-    socket: PacketSocket,
+    socket: SenderSocket,
     control: EgressInterfaceControl,
     selections: HashMap<SocketAddr, (EgressSelection, Instant)>,
+}
+
+enum SenderSocket {
+    Legacy(PacketSocket),
+    Controlled(ControlledDatagramListenerTx),
 }
 
 impl PacketSocketSender {
     pub fn new(socket: PacketSocket, control: EgressInterfaceControl) -> Self {
         Self {
-            socket,
+            socket: SenderSocket::Legacy(socket),
+            control,
+            selections: HashMap::new(),
+        }
+    }
+
+    pub(super) fn controlled(
+        socket: ControlledDatagramListenerTx,
+        control: EgressInterfaceControl,
+    ) -> Self {
+        Self {
+            socket: SenderSocket::Controlled(socket),
             control,
             selections: HashMap::new(),
         }
     }
 
     pub async fn send_to(&mut self, bytes: &[u8], peer: SocketAddr) -> io::Result<usize> {
-        let PacketSocket::Udp(socket) = &self.socket else {
-            // An opaque carrier owns its transport's underlay selection.
-            return self.socket.send_to(bytes, peer).await;
+        let socket = match &self.socket {
+            SenderSocket::Controlled(socket) => {
+                return socket.send_packet(bytes, peer, &self.control).await;
+            }
+            SenderSocket::Legacy(PacketSocket::Udp(socket)) => socket,
+            SenderSocket::Legacy(socket) => {
+                // An opaque carrier owns its transport's underlay selection.
+                return socket.send_to(bytes, peer).await;
+            }
         };
         loop {
             socket.writable().await?;

@@ -13,6 +13,18 @@ impl ShadowsocksInbound {
         cipher: crate::shared::CipherKind,
         password: &[u8],
     ) -> Result<ShadowsocksAccept, Error> {
+        self.accept_request_facts(stream, cipher, password)
+            .await
+            .map(ShadowsocksRequest::into_legacy_accept)
+    }
+
+    #[cfg(feature = "crypto")]
+    pub(super) async fn accept_request_facts<S: zero_traits::AsyncSocket>(
+        &self,
+        stream: &mut S,
+        cipher: crate::shared::CipherKind,
+        password: &[u8],
+    ) -> Result<ShadowsocksRequest, Error> {
         if cipher.is_stream() {
             return crate::shared::legacy::accept_request(stream, cipher, password).await;
         }
@@ -36,7 +48,7 @@ impl ShadowsocksInbound {
         cipher: crate::shared::CipherKind,
         identity_password: Option<&[u8]>,
         users: &ShadowsocksAuthorizedUsers,
-    ) -> Result<(ShadowsocksAccept, usize), Error> {
+    ) -> Result<(ShadowsocksRequest, usize), Error> {
         if users.is_empty() {
             return Err(Error::Protocol("ss: no authorized inbound users"));
         }
@@ -48,7 +60,7 @@ impl ShadowsocksInbound {
                     ));
                 }
                 return self
-                    .accept_request(stream, cipher, users[0].password())
+                    .accept_request_facts(stream, cipher, users[0].password())
                     .await
                     .map(|accept| (accept, 0));
             };
@@ -65,7 +77,7 @@ impl ShadowsocksInbound {
         }
         if users.len() == 1 {
             return self
-                .accept_request(stream, cipher, users[0].password())
+                .accept_request_facts(stream, cipher, users[0].password())
                 .await
                 .map(|accept| (accept, 0));
         }

@@ -20,8 +20,12 @@ pub(super) fn send(
     let result = socket2::SockRef::from(socket).send_to(bytes, &socket2::SockAddr::from(peer));
     // Restoration failure takes precedence over the send result. Never retry
     // unbound, and do not leave a temporary scope behind on a send failure.
-    scope.restore()?;
-    result
+    match scope.restore() {
+        Ok(()) => result,
+        Err(restore) => Err(io::Error::other(crate::PacketScopeRestoreFailure::new(
+            result, restore,
+        ))),
+    }
 }
 
 struct Scope {

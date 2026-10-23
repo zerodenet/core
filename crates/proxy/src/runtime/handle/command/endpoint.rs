@@ -65,7 +65,8 @@ impl ProxyHandle {
         };
         // The same lock serializes config.apply, runtime overlays, restart and
         // resource control. Admission and revision checks happen under it.
-        let _guard = self.proxy.reload_apply_lock.lock().await;
+        // The persistent apply owner already holds the shared serialization
+        // guard; waiting HTTP/IPC futures do not own this transaction.
         let previous = self.proxy.engine.runtime_snapshot();
         let previous_source_write = self.proxy.engine.config_source_write_generation();
         self.proxy.engine.check_endpoint_preconditions(
@@ -164,6 +165,29 @@ impl ProxyHandle {
             if revoked.inbound || revoked.outbound {
                 self.wait_endpoint_flows_ended(&binding, revoked).await?;
             }
+            let component_config = self.proxy.engine.runtime_snapshot().config().clone();
+            self.proxy
+                .protocols
+                .scan_components(&component_config, tokio::time::Instant::now() + TIMEOUT)
+                .await
+                .map_err(|error| ApiError::new(ApiErrorCode::Internal, error.to_string()))?;
+            self.proxy
+                .apply_owner
+                .commit(|| {
+                    self.proxy
+                        .protocols
+                        .commit_components(&component_config, || {
+                            if persist {
+                                self.proxy.engine.commit_config_change();
+                            }
+                            Ok(())
+                        })?;
+                    self.proxy
+                        .inbound_owners
+                        .finish_recovery_transition(&component_config);
+                    Ok(())
+                })
+                .map_err(|message| ApiError::new(ApiErrorCode::Internal, message))?;
             Ok::<(), ApiError>(())
         }
         .await;
@@ -203,9 +227,6 @@ impl ProxyHandle {
                 },
             ));
         }
-        if persist {
-            self.proxy.engine.commit_config_change();
-        }
         self.endpoint_command_response(&id, persist)
     }
 
@@ -229,15 +250,32 @@ impl ProxyHandle {
                 .await
                 .map_err(|message| ApiError::new(ApiErrorCode::Internal, message))?;
         }
+        let token = self
+            .retire_prepared_dns(TIMEOUT)
+            .await
+            .map_err(|message| ApiError::new(ApiErrorCode::Internal, message))?;
         self.proxy
-            .resolver
-            .commit_prepared_reload()
-            .map_err(|error| {
-                ApiError::new(
-                    ApiErrorCode::Internal,
-                    format!("endpoint DNS commit failed: {error}"),
-                )
-            })?;
+            .protocols
+            .scan_components(snapshot.config(), tokio::time::Instant::now() + TIMEOUT)
+            .await
+            .map_err(|error| ApiError::new(ApiErrorCode::Internal, error.to_string()))?;
+        self.proxy
+            .apply_owner
+            .commit(|| {
+                self.proxy
+                    .protocols
+                    .commit_components(snapshot.config(), || {
+                        self.proxy
+                            .resolver
+                            .commit_reload_resources(&token)
+                            .map_err(|error| format!("endpoint DNS commit failed: {error}"))
+                    })?;
+                self.proxy
+                    .inbound_owners
+                    .finish_recovery_transition(snapshot.config());
+                Ok(())
+            })
+            .map_err(|message| ApiError::new(ApiErrorCode::Internal, message))?;
         Ok(())
     }
 

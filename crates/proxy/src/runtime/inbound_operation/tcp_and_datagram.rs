@@ -7,14 +7,8 @@ use super::{PreparedInboundListenerOperation, TcpInboundListenerOperation};
 use crate::protocol_registry::BoundInbound;
 use crate::runtime::route_runtime::InboundListenerRuntime;
 
-struct AbortTask(tokio::task::AbortHandle);
-impl Drop for AbortTask {
-    fn drop(&mut self) {
-        self.0.abort();
-    }
-}
-
 pub(crate) struct TcpAndDatagramInboundListenerOperation<R, D, U> {
+    pub(crate) host: Option<crate::runtime::inbound_owners::InboundTaskAccess>,
     pub(crate) carrier: Option<Box<dyn zero_transport::inbound_carrier::InboundCarrierPlan>>,
     pub(crate) protocol_name: &'static str,
     pub(crate) error_protocol_name: &'static str,
@@ -37,6 +31,19 @@ where
     Fut: Future<Output = Result<(), EngineError>> + Send + 'static,
     U: zero_core::InboundDatagramUdpRelay<std::sync::Arc<tokio::net::UdpSocket>> + Send + 'static,
 {
+    fn internal_tasks(&self) -> usize {
+        1
+    }
+    fn install_resources(
+        &mut self,
+        context: &crate::runtime::inbound_owners::InboundInstallContext,
+    ) -> Result<(), EngineError> {
+        if let Some(carrier) = &self.carrier {
+            context.register(carrier.owner())?;
+        }
+        self.host = Some(context.tasks());
+        Ok(())
+    }
     fn execute(
         self: Box<Self>,
         runtime: InboundListenerRuntime,
@@ -46,6 +53,7 @@ where
         Box::pin(async move {
             let TcpAndDatagramInboundListenerOperation {
                 carrier,
+                host,
                 protocol_name,
                 error_protocol_name,
                 listen_address,
@@ -55,7 +63,14 @@ where
                 udp_relay,
             } = *self;
             let (bound, udp_socket, mut completion) = if let Some(carrier) = carrier {
-                let carrier = carrier.activate(bound.into_tcp()).await?;
+                let mut activation_shutdown = shutdown.clone();
+                let carrier = tokio::select! { biased;
+                    _ = async {
+                        if *activation_shutdown.borrow() { return; }
+                        let _ = activation_shutdown.wait_for(|stop| *stop).await;
+                    } => return Ok(()),
+                    activated = carrier.activate(bound.into_tcp()) => activated?,
+                };
                 (
                     BoundInbound::Tcp(carrier.listener),
                     Some(carrier.datagram),
@@ -72,39 +87,65 @@ where
                         as zero_transport::inbound_carrier::CarrierFuture<()>,
                 )
             };
-            let udp_task = udp_socket.as_ref().map(|socket| {
+            let host = host.ok_or_else(|| {
+                EngineError::Io(std::io::Error::other(
+                    "inbound resource owner was not installed",
+                ))
+            })?;
+            if host.cancellation().is_cancelled() || *shutdown.borrow() {
+                return Ok(());
+            }
+            let mut ready_branches = runtime.split_readiness(2)?.into_iter();
+            let tcp_runtime = ready_branches.next().expect("TCP readiness branch");
+            let udp_ready = ready_branches
+                .next()
+                .expect("UDP readiness branch")
+                .readiness();
+            if let Some(socket) = udp_socket.as_ref() {
                 let udp_runtime = runtime.udp_runtime();
                 let inbound_tag = runtime.inbound_tag().to_owned();
                 let socket = socket.clone();
-                tokio::spawn(async move {
-                    crate::runtime::datagram_udp::run_protocol_datagram_udp_relay(
+                let cancel = host.cancellation();
+                host.spawn(async move {
+                    tokio::select! { biased;
+                    _ = cancel.cancelled() => Ok(()),
+                    result = crate::runtime::datagram_udp::run_ready_protocol_datagram_udp_relay(
                         udp_runtime,
                         socket,
                         udp_relay,
                         &inbound_tag,
                         false,
+                        udp_ready,
                     )
-                    .await
-                })
-            });
-
-            let _abort = udp_task.as_ref().map(|task| AbortTask(task.abort_handle()));
-            let tcp = Box::new(TcpInboundListenerOperation {
+                    => result,
+                    }
+                })?;
+            }
+            let mut tcp = Box::new(TcpInboundListenerOperation {
                 protocol_name,
                 error_protocol_name,
                 request: tcp_request,
                 dispatch: tcp_dispatch,
             })
-            .execute(runtime, bound, shutdown);
-            let result = tokio::select! {
-                result = tcp => result,
-                result = &mut completion => result.map_err(EngineError::from),
+            .execute(tcp_runtime, bound, shutdown);
+            let (mut result, tcp_finished) = tokio::select! {
+                result = &mut tcp => (result, true),
+                result = &mut completion => (result.map_err(EngineError::from), false),
             };
 
-            if let Some(task) = udp_task {
-                task.abort();
-                let _ = task.await;
+            // A failed carrier stops acceptance, but the real TCP driver must
+            // still join its accepted connections before its Scope task exits.
+            host.request_stop();
+            if !tcp_finished {
+                if let Err(error) = tcp.await {
+                    if result.is_ok() {
+                        result = Err(error);
+                    } else {
+                        tracing::warn!(%error, "TCP cleanup also failed after carrier exit");
+                    }
+                }
             }
+            // The persistent host owns and joins the actual UDP driver.
             result
         })
     }

@@ -1,5 +1,5 @@
 //! Shared TLS policy materialization for TCP, relays and QUIC.
-use super::certificates::{load_certs, resolve_path};
+use super::certificates::{load_certs, parse_certs, resolve_path};
 use rustls::{ClientConfig, RootCertStore};
 use std::{io, path::Path, sync::Arc};
 use zero_traits::{ClientTlsProfile, TlsParameters};
@@ -99,9 +99,10 @@ pub(super) fn versions(
         .collect())
 }
 
-pub(super) fn roots(
+fn roots_with_material(
     profile: &(impl ClientTlsProfile + ?Sized),
     base_dir: Option<&Path>,
+    ca_pem: Option<&[u8]>,
 ) -> io::Result<(RootCertStore, Vec<u8>)> {
     let options = profile.tls_options();
     let mut roots = if options.disable_system_roots {
@@ -111,7 +112,13 @@ pub(super) fn roots(
     };
     let mut ca_hash = ring::digest::Context::new(&ring::digest::SHA256);
     if let Some(path) = profile.ca_cert_path() {
-        for cert in load_certs(&resolve_path(base_dir, path)).map_err(invalid)? {
+        let path = resolve_path(base_dir, path);
+        let certs = match ca_pem {
+            Some(bytes) => parse_certs(std::io::Cursor::new(bytes), &path),
+            None => load_certs(&path),
+        }
+        .map_err(|source| io::Error::new(io::ErrorKind::InvalidInput, source))?;
+        for cert in certs {
             ca_hash.update(&(cert.len() as u64).to_be_bytes());
             ca_hash.update(cert.as_ref());
             roots.add(cert).map_err(invalid)?;
@@ -125,6 +132,29 @@ pub fn client(
     base_dir: Option<&Path>,
     quic: bool,
 ) -> io::Result<ClientConfig> {
+    client_with_material(profile, base_dir, quic, None)
+}
+
+/// Build the same Rustls policy from material read by an owning File grant.
+/// This entry never reads a path. base_dir preserves path diagnostics/cache
+/// identity; it is not an authorization or path canonicalization mechanism.
+pub fn client_with_ca_pem(
+    profile: &(impl ClientTlsProfile + ?Sized),
+    base_dir: Option<&Path>,
+    quic: bool,
+    ca_pem: &[u8],
+) -> io::Result<ClientConfig> {
+    if profile.ca_cert_path().is_none() {
+        return Err(invalid("CA PEM material requires a declared CA file path"));
+    }
+    client_with_material(profile, base_dir, quic, Some(ca_pem))
+}
+fn client_with_material(
+    profile: &(impl ClientTlsProfile + ?Sized),
+    base_dir: Option<&Path>,
+    quic: bool,
+    ca_pem: Option<&[u8]>,
+) -> io::Result<ClientConfig> {
     let options = profile.tls_options();
     ztls::settings::validate_client(&options, quic).map_err(invalid)?;
     let ech_configured = options.ech.source().map_err(invalid)?.is_some();
@@ -135,7 +165,7 @@ pub fn client(
         provider_parameters.cipher_suites.clear();
     }
     let provider = provider(&provider_parameters, profile.client_fingerprint(), true)?;
-    let (roots, ca_hash) = roots(profile, base_dir)?;
+    let (roots, ca_hash) = roots_with_material(profile, base_dir, ca_pem)?;
     let cache_key = options.parameters.enable_session_resumption.then(|| {
         format!(
             "{:?}|{:?}|{}|{:?}",

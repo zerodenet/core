@@ -36,11 +36,6 @@ impl PreparedTcpConnectOperation for PacketTcpOperation {
                 .0
                 .select(&targets, generation)
                 .map_err(|error| failure("raw_ip_peer", error))?;
-            if let Some(peer_id) = &binding.peer_id {
-                services
-                    .engine()
-                    .bind_session_peer(session.id, &self.0.tag, true, peer_id);
-            }
             let device = &binding.endpoint;
             if network.egress_generation() != generation {
                 return Err(failure(
@@ -48,25 +43,57 @@ impl PreparedTcpConnectOperation for PacketTcpOperation {
                     invalid("network changed during connect admission"),
                 ));
             }
-            let stream = device
-                .open_tcp(
-                    binding.local_ip,
-                    target,
-                    services.outbound_io(&self.0.tag, zero_api::TrafficPlane::Inner),
-                )
-                .await
-                .map_err(|error| failure("raw_ip_tcp_connect", stack_error(error)))?;
+            let users = device.flow_users();
+            let user = match &users {
+                Some(users) => Some(
+                    users
+                        .acquire(
+                            super::users::FlowCaller::from_tcp(&services, session)
+                                .map_err(|error| failure("raw_ip_user", error))?,
+                        )
+                        .map_err(|error| {
+                            failure("raw_ip_user", std::io::Error::other(error).into())
+                        })?,
+                ),
+                None => None,
+            };
+            if let Some(peer_id) = &binding.peer_id {
+                services
+                    .engine()
+                    .bind_session_peer(session.id, &self.0.tag, true, peer_id);
+            }
+            let opening = device.open_tcp_tracked(
+                binding.local_ip,
+                target,
+                services.outbound_io(&self.0.tag, zero_api::TrafficPlane::Inner),
+                user.as_ref(),
+            );
+            let stream = if let Some(users) = &users {
+                tokio::select! {
+                    biased;
+                    result = opening => result.map_err(|error| failure("raw_ip_tcp_connect", stack_error(error)))?,
+                    _ = users.cancellation().cancelled() => return Err(failure("raw_ip_user", invalid("packet endpoint retired during connect"))),
+                }
+            } else {
+                opening
+                    .await
+                    .map_err(|error| failure("raw_ip_tcp_connect", stack_error(error)))?
+            };
             if network.egress_generation() != generation || !device.is_current() {
                 return Err(failure(
                     "raw_ip_device",
                     invalid("peer device changed during connect"),
                 ));
             }
+            let stream = match user {
+                Some(user) => TcpRelayStream::new(super::users::TrackedStream::new(stream, user)),
+                None => TcpRelayStream::new(stream),
+            };
             Ok(EstablishedTcpOutbound::relay(
                 self.0.tag.as_ref(),
                 None,
                 Vec::new(),
-                TcpRelayStream::new(stream),
+                stream,
             ))
         })
     }

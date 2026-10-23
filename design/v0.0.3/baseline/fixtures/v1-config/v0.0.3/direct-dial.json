@@ -1,0 +1,39 @@
+{
+  "inbounds": [
+    {
+      "tag": "socks-ipv4",
+      "listen": { "address": "127.0.0.1", "port": 1080 },
+      "protocol": { "type": "socks5" }
+    },
+    {
+      "tag": "socks-ipv6",
+      "listen": { "address": "127.0.0.1", "port": 1081 },
+      "protocol": { "type": "socks5" }
+    }
+  ],
+  "outbounds": [
+    {
+      "tag": "direct-ipv4",
+      "protocol": { "type": "direct" },
+      "dial": { "address_family": "only_ipv4" }
+    },
+    {
+      "tag": "direct-ipv6",
+      "protocol": { "type": "direct" },
+      "dial": { "address_family": "only_ipv6" }
+    }
+  ],
+  "route": {
+    "rules": [
+      {
+        "condition": { "type": "inbound", "values": ["socks-ipv4"] },
+        "action": { "type": "route", "outbound": "direct-ipv4" }
+      },
+      {
+        "condition": { "type": "inbound", "values": ["socks-ipv6"] },
+        "action": { "type": "route", "outbound": "direct-ipv6" }
+      }
+    ],
+    "final": { "type": "direct" }
+  }
+}

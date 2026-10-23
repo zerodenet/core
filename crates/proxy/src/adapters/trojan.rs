@@ -1,4 +1,6 @@
 #[cfg(feature = "trojan")]
+mod component;
+#[cfg(feature = "trojan")]
 mod listener;
 #[cfg(feature = "trojan")]
 use ::trojan::inbound::TrojanInboundProfileStore;
@@ -6,6 +8,8 @@ use ::trojan::transport::{
     TrojanInboundListenerRequest, TrojanInboundOptionsRef, TrojanInboundUserRef,
     TrojanOutboundBuildOptionsRef, TrojanOutboundLeaf, TrojanOutboundOptionsRef,
 };
+#[cfg(feature = "trojan")]
+pub(crate) use component::{component_options, native_input, LEGACY_CONNECT_STAGE};
 #[cfg(feature = "trojan")]
 use zero_config::InboundConfig;
 use zero_config::{InboundProtocolConfig, OutboundProtocolConfig};
@@ -306,6 +310,14 @@ impl ProtocolMetadata for TrojanAdapter {
 
 #[cfg(feature = "trojan")]
 impl InboundListenerCapability for TrojanAdapter {
+    fn prepare_inbound_bind(
+        &self,
+        inbound: InboundConfig,
+        source_dir: Option<&std::path::Path>,
+    ) -> Result<Option<crate::protocol_registry::PreparedInboundBind>, EngineError> {
+        crate::protocol_registry::prepare_tcp_inbound_bind(self, inbound, source_dir)
+    }
+
     fn prepare_inbound_listener(
         &self,
         inbound: InboundConfig,
@@ -314,7 +326,7 @@ impl InboundListenerCapability for TrojanAdapter {
         Box<dyn crate::runtime::inbound_operation::PreparedInboundListenerOperation>,
         EngineError,
     > {
-        let request = match &inbound.protocol {
+        let (request, profile_update) = match &inbound.protocol {
             InboundProtocolConfig::Trojan {
                 password,
                 users,
@@ -326,8 +338,8 @@ impl InboundListenerCapability for TrojanAdapter {
                 ..
             } => {
                 let user_refs = inbound_user_refs(password, users);
-                let profile = self.inbound_profiles.replace(&inbound.tag, &user_refs);
-                TrojanInboundListenerRequest::from_options_refs(
+                let profile_update = self.inbound_profiles.prepare(&inbound.tag, &user_refs);
+                let request = TrojanInboundListenerRequest::from_options_refs(
                     source_dir,
                     TrojanInboundOptionsRef {
                         users: user_refs.iter().copied(),
@@ -338,8 +350,8 @@ impl InboundListenerCapability for TrojanAdapter {
                     ws.as_deref(),
                     grpc.as_deref(),
                 )
-                .map_err(EngineError::from)?
-                .with_profile(profile)
+                .map_err(EngineError::from)?;
+                (request, profile_update)
             }
             _ => {
                 return Err(EngineError::Io(std::io::Error::new(
@@ -348,7 +360,7 @@ impl InboundListenerCapability for TrojanAdapter {
                 )));
             }
         };
-        Ok(listener::prepare(request))
+        Ok(listener::prepare(request, profile_update))
     }
 }
 

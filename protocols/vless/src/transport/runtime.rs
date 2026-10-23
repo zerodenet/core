@@ -77,6 +77,18 @@ impl VlessTransportRuntime {
             .or_default()
             .clone()
     }
+    #[cfg(feature = "reality")]
+    pub(in crate::transport) fn owns_grpc_pool(
+        &self,
+        pool: &zero_transport::grpc::GrpcPool,
+    ) -> bool {
+        self.grpc_pools
+            .lock()
+            .unwrap()
+            .values()
+            .any(|actual| actual.shares_state(pool))
+    }
+
     pub(super) fn grpc_pool(&self, tag: &str, identity: &str) -> zero_transport::grpc::GrpcPool {
         let mut hash = blake3::Hasher::new();
         hash.update(&(tag.len() as u64).to_be_bytes());

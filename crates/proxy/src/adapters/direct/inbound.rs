@@ -29,6 +29,8 @@ impl DirectAdapter {
         });
         Ok(Box::new(crate::inbound::DirectInboundListenerOperation {
             #[cfg(feature = "managed-datagram-runtime")]
+            peers: None,
+            #[cfg(feature = "managed-datagram-runtime")]
             udp: inbound.udp.enabled,
             target,
             port,

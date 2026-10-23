@@ -1,0 +1,4 @@
+# Private/internal domains – routed directly
+internal.example.local
+*.corp.example.com
+*.intranet.example.net

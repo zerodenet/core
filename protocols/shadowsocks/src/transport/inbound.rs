@@ -36,6 +36,23 @@ impl ShadowsocksInboundTcpAcceptor {
     {
         self.protocol.accept_stream(stream).await
     }
+
+    pub async fn accept_stream_facts<S>(
+        &self,
+        stream: S,
+    ) -> Result<
+        (
+            zero_core::request::Destination,
+            zero_core::SessionAuth,
+            crate::ShadowsocksAeadStream<S>,
+        ),
+        zero_core::Error,
+    >
+    where
+        S: AsyncSocket,
+    {
+        self.protocol.accept_stream_facts(stream).await
+    }
 }
 
 impl ShadowsocksInboundBindings {

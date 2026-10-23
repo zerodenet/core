@@ -20,7 +20,7 @@ use super::observation::{
     FlowRouteObservation,
 };
 use super::traffic::TrafficSampler;
-use super::CompletedSessionRecord;
+use super::{AdmissionLife, CompletedSessionRecord};
 use principal::PrincipalFlowIndex;
 pub(crate) use principal::PrincipalFlowObservation;
 
@@ -56,6 +56,7 @@ pub(crate) struct FinishedSession {
 
 #[derive(Debug)]
 pub(crate) struct InsertedSession {
+    pub(crate) admission: Arc<AdmissionLife>,
     pub(crate) active: ActiveSession,
     pub(crate) principal_observation: Option<PrincipalFlowObservation>,
 }
@@ -93,6 +94,7 @@ impl SessionRegistry {
         state.sessions.insert(active.id, Arc::clone(&active));
         drop(state);
         InsertedSession {
+            admission: active.admission.clone(),
             active: active.snapshot(),
             principal_observation,
         }
@@ -207,6 +209,7 @@ impl SessionRegistry {
     ) -> Option<FinishedSession> {
         let mut state = self.inner.lock().expect("session registry lock poisoned");
         let session = state.sessions.remove(&session_id)?;
+        session.admission.invalidate();
         let principal_observation = state.principal_flows.completed(
             session
                 .auth
@@ -215,6 +218,7 @@ impl SessionRegistry {
             unix_timestamp_ms(),
         );
         drop(state);
+        session.admission.notify();
         if outcome == SessionOutcome::Failed {
             session.record_failure();
         }
@@ -348,6 +352,7 @@ impl SessionRegistry {
 
 #[derive(Debug)]
 struct ActiveSessionEntry {
+    admission: Arc<AdmissionLife>,
     endpoint_traffic: std::sync::RwLock<[Option<Arc<super::accounting::EndpointFlowMeter>>; 2]>,
     peer_traffic_available: AtomicBool,
     peer_traffic: std::sync::RwLock<[Option<Arc<super::accounting::EndpointFlowMeter>>; 2]>,
@@ -409,6 +414,7 @@ impl ActiveSessionEntry {
         let started_at_unix_ms = unix_timestamp_ms();
 
         Self {
+            admission: AdmissionLife::new(),
             endpoint_traffic: Default::default(),
             peer_traffic_available: AtomicBool::new(false),
             peer_traffic: Default::default(),
@@ -480,6 +486,7 @@ impl ActiveSessionEntry {
             return;
         }
         *cancellation_reason = Some(reason.to_owned());
+        self.admission.invalidate();
         self.cancelled.store(true, Ordering::Release);
         drop(cancellation_reason);
         let cancel = self
@@ -488,8 +495,23 @@ impl ActiveSessionEntry {
             .lock()
             .expect("session cancellation lock poisoned")
             .take();
-        if let Some(cancel) = cancel {
-            cancel();
+        // Each receiver runs outside locks, including if the other unwinds.
+        // Never invoke an arbitrary callback from a destructor during unwind.
+        let original = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            if let Some(cancel) = cancel {
+                cancel();
+            }
+        }));
+        let admitted = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            self.admission.notify();
+        }));
+        match (original, admitted) {
+            (Err(payload), secondary) => {
+                drop(secondary);
+                std::panic::resume_unwind(payload);
+            }
+            (Ok(()), Err(payload)) => std::panic::resume_unwind(payload),
+            (Ok(()), Ok(())) => {}
         }
     }
 
@@ -933,3 +955,7 @@ fn unix_timestamp_ms() -> u64 {
         .expect("system clock should be after unix epoch")
         .as_millis() as u64
 }
+
+#[cfg(test)]
+#[path = "registry/tests/admitted.rs"]
+mod admitted_tests;

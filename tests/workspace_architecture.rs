@@ -32,6 +32,14 @@ fn read(path: &Path) -> String {
     fs::read_to_string(path).unwrap_or_else(|error| panic!("read {}: {error}", path.display()))
 }
 
+// These ownership checks cover executable production sources. Config fixtures
+// exercise real protocol options and may name those ADTs without dispatching them.
+fn is_test_source(path: &Path) -> bool {
+    path.components()
+        .any(|component| component.as_os_str() == "tests")
+        || path.file_name().is_some_and(|name| name == "tests.rs")
+}
+
 fn adapter_feature_names() -> Vec<String> {
     let adapters = read(&workspace_root().join("crates/proxy/src/adapters/mod.rs"));
     let mut features = adapters
@@ -163,12 +171,15 @@ fn dns_detours_cross_the_explicit_proxy_runtime_bridge() {
     let config = read(&workspace_root().join("crates/config/src/model/dns.rs"));
     let validation = read(&workspace_root().join("crates/config/src/validate/dns.rs"));
     let dns = read(&workspace_root().join("crates/dns/src/lib.rs"));
+    let outbound = read(&workspace_root().join("crates/dns/src/outbound.rs"));
     let runtime = read(&workspace_root().join("crates/proxy/src/runtime.rs"));
     let bridge = read(&workspace_root().join("crates/proxy/src/runtime/dns_outbound.rs"));
 
     assert!(config.contains("detour: Option<String>"));
     assert!(validation.contains("validate_node_detour_isolation"));
-    assert!(dns.contains("trait DnsOutboundConnector"));
+    assert!(dns.contains("mod outbound;"));
+    assert!(dns.contains("DnsOutboundConnector"));
+    assert!(outbound.contains("trait DnsOutboundConnector"));
     assert!(runtime.contains("set_outbound_connector"));
     assert!(bridge.contains("dispatch_tcp_outbound"));
     assert!(bridge.contains("Address::Ipv4"));
@@ -328,6 +339,9 @@ fn foundational_crates_do_not_depend_on_runtime_or_integration_crates() {
 fn engine_leaf_projection_stops_at_the_inventory_registry_claim_boundary() {
     let proxy = workspace_root().join("crates/proxy/src");
     for path in rust_sources(&proxy) {
+        if is_test_source(&path) {
+            continue;
+        }
         let source = read(&path);
         if !source.contains("ResolvedLeafOutbound") {
             continue;
@@ -335,9 +349,7 @@ fn engine_leaf_projection_stops_at_the_inventory_registry_claim_boundary() {
         let relative = path.strip_prefix(&proxy).expect("proxy-relative path");
         let allowed = relative == Path::new("inventory/runtime.rs")
             || relative == Path::new("inventory/packet.rs")
-            || relative == Path::new("inventory/packet/tests.rs")
-            || relative == Path::new("protocol_registry/registry/outbound.rs")
-            || relative.starts_with("protocol_registry/registry/tests");
+            || relative == Path::new("protocol_registry/registry/outbound.rs");
         assert!(
             allowed,
             "{} must not carry engine leaves past the inventory-to-registry claim boundary",
@@ -346,6 +358,9 @@ fn engine_leaf_projection_stops_at_the_inventory_registry_claim_boundary() {
     }
 
     for path in rust_sources(&proxy.join("adapters")) {
+        if is_test_source(&path) {
+            continue;
+        }
         assert!(
             !read(&path).contains("ResolvedLeafOutbound"),
             "{} must consume registry claim inputs instead of projecting engine leaves",
@@ -599,6 +614,9 @@ fn engine_and_transport_sources_do_not_name_concrete_proxy_protocols() {
         workspace_root().join("crates/transport/src"),
     ] {
         for path in rust_sources(&root) {
+            if is_test_source(&path) {
+                continue;
+            }
             let source = read(&path).to_ascii_lowercase();
             for protocol in &protocols {
                 // FinalMask's pre-existing Wireguard UDP header is a cover

@@ -30,6 +30,32 @@ where
         bound: BoundInbound,
         shutdown: tokio::sync::watch::Receiver<bool>,
     ) -> Pin<Box<dyn Future<Output = Result<(), EngineError>> + Send + 'static>> {
+        self.execute_with_users(
+            runtime,
+            bound,
+            shutdown,
+            crate::runtime::listener_loop::AcceptedHandlerUsers::Unaccounted,
+        )
+    }
+}
+
+impl<R, D, Fut> TcpInboundListenerOperation<R, D>
+where
+    R: Clone + Send + Sync + 'static,
+    D: Fn(R, zero_platform_tokio::TokioSocket, InboundConnectionContext) -> Fut
+        + Clone
+        + Send
+        + Sync
+        + 'static,
+    Fut: Future<Output = Result<(), EngineError>> + Send + 'static,
+{
+    pub(crate) fn execute_with_users(
+        self: Box<Self>,
+        runtime: InboundListenerRuntime,
+        bound: BoundInbound,
+        shutdown: tokio::sync::watch::Receiver<bool>,
+        users: crate::runtime::listener_loop::AcceptedHandlerUsers,
+    ) -> Pin<Box<dyn Future<Output = Result<(), EngineError>> + Send + 'static>> {
         Box::pin(async move {
             let TcpInboundListenerOperation {
                 protocol_name,
@@ -37,21 +63,26 @@ where
                 request,
                 dispatch,
             } = *self;
-            crate::runtime::listener_loop::run_logged_tcp_socket_listener_loop(
-                crate::runtime::listener_loop::LoggedTcpSocketListenerRequest {
-                    runtime_factory: runtime.route_factory(),
-                    protocol_name,
-                    error_protocol_name,
-                    request,
-                    listener: bound.into_tcp(),
-                    shutdown,
-                    dispatch: move |runtime, request, socket| {
-                        let dispatch = dispatch.clone();
-                        async move {
-                            dispatch(request, socket, InboundConnectionContext::new(runtime)).await
-                        }
+            crate::runtime::inbound_owners::InboundReady::poll_optional(
+                runtime.readiness(),
+                crate::runtime::listener_loop::run_logged_tcp_socket_listener_with_users(
+                    crate::runtime::listener_loop::LoggedTcpSocketListenerRequest {
+                        runtime_factory: runtime.route_factory(),
+                        protocol_name,
+                        error_protocol_name,
+                        request,
+                        listener: bound.into_tcp(),
+                        shutdown,
+                        dispatch: move |runtime, request, socket| {
+                            let dispatch = dispatch.clone();
+                            async move {
+                                dispatch(request, socket, InboundConnectionContext::new(runtime))
+                                    .await
+                            }
+                        },
                     },
-                },
+                    users,
+                ),
             )
             .await
         })

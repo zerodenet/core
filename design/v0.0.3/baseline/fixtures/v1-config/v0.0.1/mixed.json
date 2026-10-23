@@ -1,0 +1,46 @@
+{
+  "inbounds": [
+    {
+      "tag": "mixed-in",
+      "listen": {
+        "address": "127.0.0.1",
+        "port": 7890
+      },
+      "protocol": {
+        "type": "mixed"
+      }
+    }
+  ],
+  "outbounds": [
+    {
+      "tag": "direct",
+      "protocol": {
+        "type": "direct"
+      }
+    },
+    {
+      "tag": "block",
+      "protocol": {
+        "type": "block"
+      }
+    }
+  ],
+  "route": {
+    "rules": [
+      {
+        "condition": {
+          "type": "domain",
+          "values": ["blocked.example"]
+        },
+        "action": {
+          "type": "route",
+          "outbound": "block"
+        }
+      }
+    ],
+    "final": {
+      "type": "route",
+      "outbound": "direct"
+    }
+  }
+}

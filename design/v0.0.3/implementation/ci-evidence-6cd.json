@@ -1,0 +1,765 @@
+{
+  "head": "6cd36858201c0285c9e0a450118bab2827e12955",
+  "ci": {
+    "run_id": 39288829266,
+    "job_id": 118189129089,
+    "conclusion": "cancelled",
+    "raw_log": "evidence/pr03-ci-linux-6cd.txt.gz",
+    "stalled_test": "transport::runtime::browser_dialer::tests::prepared_leaf_release_reuses_listener_and_runtime_drop_retires_stream",
+    "job_limit_minutes": 45
+  },
+  "runs": [
+    {
+      "id": 39288828951,
+      "jobs": [
+        {
+          "id": 118183831343,
+          "name": "Select TUN checks",
+          "conclusion": "success",
+          "steps": [
+            {
+              "name": "Set up job",
+              "conclusion": "success"
+            },
+            {
+              "name": "Run actions/checkout@v5",
+              "conclusion": "success"
+            },
+            {
+              "name": "Run ./.github/actions/ci-scope",
+              "conclusion": "success"
+            },
+            {
+              "name": "Post Run actions/checkout@v5",
+              "conclusion": "success"
+            },
+            {
+              "name": "Complete job",
+              "conclusion": "success"
+            }
+          ]
+        },
+        {
+          "id": 118185639123,
+          "name": "hosted-linux",
+          "conclusion": "success",
+          "steps": [
+            {
+              "name": "Set up job",
+              "conclusion": "success"
+            },
+            {
+              "name": "Run actions/checkout@v5",
+              "conclusion": "success"
+            },
+            {
+              "name": "Run dtolnay/rust-toolchain@stable",
+              "conclusion": "success"
+            },
+            {
+              "name": "Run Swatinem/rust-cache@v2",
+              "conclusion": "success"
+            },
+            {
+              "name": "Install build prerequisites",
+              "conclusion": "success"
+            },
+            {
+              "name": "Test route-switch coverage reporting",
+              "conclusion": "success"
+            },
+            {
+              "name": "Run zero-tun tests",
+              "conclusion": "success"
+            },
+            {
+              "name": "Run native Linux route reconciliation E2E",
+              "conclusion": "success"
+            },
+            {
+              "name": "Run privileged TUN smoke test",
+              "conclusion": "skipped"
+            },
+            {
+              "name": "Run direct UDP self-capture E2E",
+              "conclusion": "success"
+            },
+            {
+              "name": "Run Fake-IP DoH underlay E2E",
+              "conclusion": "success"
+            },
+            {
+              "name": "Run disabled DNS with TUN system resolver E2E",
+              "conclusion": "success"
+            },
+            {
+              "name": "Run command-managed egress publication E2E",
+              "conclusion": "success"
+            },
+            {
+              "name": "Run offline dual-stack privileged TUN E2E",
+              "conclusion": "success"
+            },
+            {
+              "name": "Post Run Swatinem/rust-cache@v2",
+              "conclusion": "success"
+            },
+            {
+              "name": "Post Run actions/checkout@v5",
+              "conclusion": "success"
+            },
+            {
+              "name": "Complete job",
+              "conclusion": "success"
+            }
+          ]
+        },
+        {
+          "id": 118185639259,
+          "name": "hosted-windows",
+          "conclusion": "success",
+          "steps": [
+            {
+              "name": "Set up job",
+              "conclusion": "success"
+            },
+            {
+              "name": "Run actions/checkout@v5",
+              "conclusion": "success"
+            },
+            {
+              "name": "Run dtolnay/rust-toolchain@stable",
+              "conclusion": "success"
+            },
+            {
+              "name": "Run Swatinem/rust-cache@v2",
+              "conclusion": "success"
+            },
+            {
+              "name": "Install protoc",
+              "conclusion": "success"
+            },
+            {
+              "name": "Stage pinned Wintun runtime",
+              "conclusion": "success"
+            },
+            {
+              "name": "Run zero-tun tests",
+              "conclusion": "success"
+            },
+            {
+              "name": "Run privileged Wintun address configuration E2E",
+              "conclusion": "success"
+            },
+            {
+              "name": "Run existing host PacketSink Wintun qualification",
+              "conclusion": "success"
+            },
+            {
+              "name": "Check Windows Packet runtime wiring",
+              "conclusion": "success"
+            },
+            {
+              "name": "Capture Windows TUN test packet provenance",
+              "conclusion": "success"
+            },
+            {
+              "name": "Run privileged TUN smoke test",
+              "conclusion": "skipped"
+            },
+            {
+              "name": "Compare controlled HTTP direct and TUN connections",
+              "conclusion": "success"
+            },
+            {
+              "name": "Run direct UDP self-capture E2E",
+              "conclusion": "success"
+            },
+            {
+              "name": "Run Fake-IP DoH and open.bigmodel.cn multi-A fallback E2E",
+              "conclusion": "success"
+            },
+            {
+              "name": "Run command-managed egress publication E2E",
+              "conclusion": "success"
+            },
+            {
+              "name": "Run disabled DNS with TUN system resolver E2E",
+              "conclusion": "success"
+            },
+            {
+              "name": "Attempt native Windows route switching and report fixture coverage",
+              "conclusion": "success"
+            },
+            {
+              "name": "Upload Windows route-switch coverage report",
+              "conclusion": "success"
+            },
+            {
+              "name": "Run IPv4-only trusted-domain fallback E2E",
+              "conclusion": "success"
+            },
+            {
+              "name": "Run offline dual-stack privileged TUN E2E",
+              "conclusion": "success"
+            },
+            {
+              "name": "Collect Windows TUN packet evidence",
+              "conclusion": "success"
+            },
+            {
+              "name": "Upload Windows TUN packet evidence",
+              "conclusion": "success"
+            },
+            {
+              "name": "Post Run Swatinem/rust-cache@v2",
+              "conclusion": "success"
+            },
+            {
+              "name": "Post Run actions/checkout@v5",
+              "conclusion": "success"
+            },
+            {
+              "name": "Complete job",
+              "conclusion": "success"
+            }
+          ]
+        },
+        {
+          "id": 118185639354,
+          "name": "hosted-macos",
+          "conclusion": "success",
+          "steps": [
+            {
+              "name": "Set up job",
+              "conclusion": "success"
+            },
+            {
+              "name": "Run actions/checkout@v5",
+              "conclusion": "success"
+            },
+            {
+              "name": "Run dtolnay/rust-toolchain@stable",
+              "conclusion": "success"
+            },
+            {
+              "name": "Run Swatinem/rust-cache@v2",
+              "conclusion": "success"
+            },
+            {
+              "name": "Record native network topology",
+              "conclusion": "success"
+            },
+            {
+              "name": "Run zero-tun tests",
+              "conclusion": "success"
+            },
+            {
+              "name": "Run native PF_ROUTE lifecycle E2E",
+              "conclusion": "success"
+            },
+            {
+              "name": "Repair lost routes and PF rules without changing the physical interface",
+              "conclusion": "success"
+            },
+            {
+              "name": "Run privileged TUN smoke test",
+              "conclusion": "skipped"
+            },
+            {
+              "name": "Run macOS loopback capture and crash-recovery E2E",
+              "conclusion": "success"
+            },
+            {
+              "name": "Run direct UDP self-capture E2E",
+              "conclusion": "success"
+            },
+            {
+              "name": "Run Fake-IP DoH underlay E2E",
+              "conclusion": "success"
+            },
+            {
+              "name": "Run disabled DNS with TUN system resolver E2E",
+              "conclusion": "success"
+            },
+            {
+              "name": "Run command-managed egress publication E2E",
+              "conclusion": "success"
+            },
+            {
+              "name": "Run offline dual-stack privileged TUN E2E",
+              "conclusion": "skipped"
+            },
+            {
+              "name": "Post Run Swatinem/rust-cache@v2",
+              "conclusion": "success"
+            },
+            {
+              "name": "Post Run actions/checkout@v5",
+              "conclusion": "success"
+            },
+            {
+              "name": "Complete job",
+              "conclusion": "success"
+            }
+          ]
+        },
+        {
+          "id": 118198378778,
+          "name": "TUN E2E result",
+          "conclusion": "success",
+          "steps": [
+            {
+              "name": "Set up job",
+              "conclusion": "success"
+            },
+            {
+              "name": "Require successful selected checks",
+              "conclusion": "success"
+            },
+            {
+              "name": "Complete job",
+              "conclusion": "success"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": 39288829039,
+      "jobs": [
+        {
+          "id": 118183826348,
+          "name": "interop",
+          "conclusion": "success",
+          "steps": [
+            {
+              "name": "Set up job",
+              "conclusion": "success"
+            },
+            {
+              "name": "Run actions/checkout@v5",
+              "conclusion": "success"
+            },
+            {
+              "name": "Run dtolnay/rust-toolchain@stable",
+              "conclusion": "success"
+            },
+            {
+              "name": "Run Swatinem/rust-cache@v2",
+              "conclusion": "success"
+            },
+            {
+              "name": "Run actions/setup-python@v5",
+              "conclusion": "success"
+            },
+            {
+              "name": "Run actions/setup-go@v6",
+              "conclusion": "success"
+            },
+            {
+              "name": "Resolve lockfile and prepare fixed references",
+              "conclusion": "success"
+            },
+            {
+              "name": "Run Xray TLS WebSocket and gRPC matrix",
+              "conclusion": "success"
+            },
+            {
+              "name": "Run Trojan-Go TCP and UDP matrix",
+              "conclusion": "success"
+            },
+            {
+              "name": "Post Run actions/setup-go@v6",
+              "conclusion": "success"
+            },
+            {
+              "name": "Post Run actions/setup-python@v5",
+              "conclusion": "success"
+            },
+            {
+              "name": "Post Run Swatinem/rust-cache@v2",
+              "conclusion": "success"
+            },
+            {
+              "name": "Post Run actions/checkout@v5",
+              "conclusion": "success"
+            },
+            {
+              "name": "Complete job",
+              "conclusion": "success"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": 39288828940,
+      "jobs": [
+        {
+          "id": 118183828275,
+          "name": "interop",
+          "conclusion": "success",
+          "steps": [
+            {
+              "name": "Set up job",
+              "conclusion": "success"
+            },
+            {
+              "name": "Run actions/checkout@v5",
+              "conclusion": "success"
+            },
+            {
+              "name": "Run dtolnay/rust-toolchain@stable",
+              "conclusion": "success"
+            },
+            {
+              "name": "Run Swatinem/rust-cache@v2",
+              "conclusion": "success"
+            },
+            {
+              "name": "Run actions/setup-python@v5",
+              "conclusion": "success"
+            },
+            {
+              "name": "Run actions/setup-go@v6",
+              "conclusion": "success"
+            },
+            {
+              "name": "Protocol timer deadlines and pinned engine regression",
+              "conclusion": "success"
+            },
+            {
+              "name": "Prepare fixed official Xray reference",
+              "conclusion": "success"
+            },
+            {
+              "name": "Bidirectional Zero and Xray WireGuard TCP and UDP interop",
+              "conclusion": "success"
+            },
+            {
+              "name": "Build pinned wireguard-go userspace reference peer",
+              "conclusion": "success"
+            },
+            {
+              "name": "Bidirectional wireguard-go TCP and UDP payload interop",
+              "conclusion": "success"
+            },
+            {
+              "name": "Zero WireGuard inbound TCP and UDP round trips",
+              "conclusion": "success"
+            },
+            {
+              "name": "Live direct ICMP echo from WireGuard inbound",
+              "conclusion": "success"
+            },
+            {
+              "name": "Live IPv4 and IPv6 direct ICMP probes",
+              "conclusion": "success"
+            },
+            {
+              "name": "L3 packet routing through two WireGuard peers",
+              "conclusion": "success"
+            },
+            {
+              "name": "Non-Echo ICMP stays on the WireGuard packet path",
+              "conclusion": "success"
+            },
+            {
+              "name": "Malformed packet from one peer leaves another peer usable",
+              "conclusion": "success"
+            },
+            {
+              "name": "Post Run actions/setup-go@v6",
+              "conclusion": "success"
+            },
+            {
+              "name": "Post Run actions/setup-python@v5",
+              "conclusion": "success"
+            },
+            {
+              "name": "Post Run Swatinem/rust-cache@v2",
+              "conclusion": "success"
+            },
+            {
+              "name": "Post Run actions/checkout@v5",
+              "conclusion": "success"
+            },
+            {
+              "name": "Complete job",
+              "conclusion": "success"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": 39288829010,
+      "jobs": [
+        {
+          "id": 118183825925,
+          "name": "interop",
+          "conclusion": "success",
+          "steps": [
+            {
+              "name": "Set up job",
+              "conclusion": "success"
+            },
+            {
+              "name": "Run actions/checkout@v5",
+              "conclusion": "success"
+            },
+            {
+              "name": "Run dtolnay/rust-toolchain@stable",
+              "conclusion": "success"
+            },
+            {
+              "name": "Run Swatinem/rust-cache@v2",
+              "conclusion": "success"
+            },
+            {
+              "name": "Run actions/setup-python@v5",
+              "conclusion": "success"
+            },
+            {
+              "name": "Resolve workspace lockfile",
+              "conclusion": "success"
+            },
+            {
+              "name": "Prepare fixed official reference",
+              "conclusion": "success"
+            },
+            {
+              "name": "All official release methods in both TCP and UDP directions",
+              "conclusion": "success"
+            },
+            {
+              "name": "Native plugin lifecycle and kernel carrier paths",
+              "conclusion": "success"
+            },
+            {
+              "name": "Bidirectional SIP023 and sustained UDP session",
+              "conclusion": "success"
+            },
+            {
+              "name": "Kernel outbound UDP for all six ciphers",
+              "conclusion": "success"
+            },
+            {
+              "name": "Post Run actions/setup-python@v5",
+              "conclusion": "success"
+            },
+            {
+              "name": "Post Run Swatinem/rust-cache@v2",
+              "conclusion": "success"
+            },
+            {
+              "name": "Post Run actions/checkout@v5",
+              "conclusion": "success"
+            },
+            {
+              "name": "Complete job",
+              "conclusion": "success"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": 39288829064,
+      "jobs": [
+        {
+          "id": 118183826368,
+          "name": "interop",
+          "conclusion": "success",
+          "steps": [
+            {
+              "name": "Set up job",
+              "conclusion": "success"
+            },
+            {
+              "name": "Run actions/checkout@v5",
+              "conclusion": "success"
+            },
+            {
+              "name": "Run dtolnay/rust-toolchain@stable",
+              "conclusion": "success"
+            },
+            {
+              "name": "Run Swatinem/rust-cache@v2",
+              "conclusion": "success"
+            },
+            {
+              "name": "Run actions/setup-python@v5",
+              "conclusion": "success"
+            },
+            {
+              "name": "Resolve workspace lockfile",
+              "conclusion": "success"
+            },
+            {
+              "name": "Prepare fixed official reference",
+              "conclusion": "success"
+            },
+            {
+              "name": "Bidirectional Xray VLESS matrix including REALITY and XHTTP",
+              "conclusion": "success"
+            },
+            {
+              "name": "Encryption, Vision, Early Data and fallback reference matrices",
+              "conclusion": "success"
+            },
+            {
+              "name": "Post Run actions/setup-python@v5",
+              "conclusion": "success"
+            },
+            {
+              "name": "Post Run Swatinem/rust-cache@v2",
+              "conclusion": "success"
+            },
+            {
+              "name": "Post Run actions/checkout@v5",
+              "conclusion": "success"
+            },
+            {
+              "name": "Complete job",
+              "conclusion": "success"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": 39288829004,
+      "jobs": [
+        {
+          "id": 118183833090,
+          "name": "interop",
+          "conclusion": "success",
+          "steps": [
+            {
+              "name": "Set up job",
+              "conclusion": "success"
+            },
+            {
+              "name": "Run actions/checkout@v5",
+              "conclusion": "success"
+            },
+            {
+              "name": "Run dtolnay/rust-toolchain@stable",
+              "conclusion": "success"
+            },
+            {
+              "name": "Run Swatinem/rust-cache@v2",
+              "conclusion": "success"
+            },
+            {
+              "name": "Run actions/setup-python@v5",
+              "conclusion": "success"
+            },
+            {
+              "name": "Resolve and verify fixed Xray baseline",
+              "conclusion": "success"
+            },
+            {
+              "name": "Run standard VMess AEAD and zero bidirectional matrix",
+              "conclusion": "success"
+            },
+            {
+              "name": "Post Run actions/setup-python@v5",
+              "conclusion": "success"
+            },
+            {
+              "name": "Post Run Swatinem/rust-cache@v2",
+              "conclusion": "success"
+            },
+            {
+              "name": "Post Run actions/checkout@v5",
+              "conclusion": "success"
+            },
+            {
+              "name": "Complete job",
+              "conclusion": "success"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": 39288828988,
+      "jobs": [
+        {
+          "id": 118183827350,
+          "name": "Official Mieru package baseline bidirectional TCP/UDP",
+          "conclusion": "success",
+          "steps": [
+            {
+              "name": "Set up job",
+              "conclusion": "success"
+            },
+            {
+              "name": "Run actions/checkout@v5",
+              "conclusion": "success"
+            },
+            {
+              "name": "Run dtolnay/rust-toolchain@stable",
+              "conclusion": "success"
+            },
+            {
+              "name": "Run Swatinem/rust-cache@v2",
+              "conclusion": "success"
+            },
+            {
+              "name": "Run ./.github/actions/setup-protoc",
+              "conclusion": "success"
+            },
+            {
+              "name": "Run actions/setup-go@v6",
+              "conclusion": "success"
+            },
+            {
+              "name": "Verify package reference version",
+              "conclusion": "success"
+            },
+            {
+              "name": "Build fixed official package reference",
+              "conclusion": "success"
+            },
+            {
+              "name": "Verify multiplexed sessions against the official implementation",
+              "conclusion": "success"
+            },
+            {
+              "name": "Post Run actions/setup-go@v6",
+              "conclusion": "success"
+            },
+            {
+              "name": "Post Run Swatinem/rust-cache@v2",
+              "conclusion": "success"
+            },
+            {
+              "name": "Post Run actions/checkout@v5",
+              "conclusion": "success"
+            },
+            {
+              "name": "Complete job",
+              "conclusion": "success"
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "windows_route_switch": [
+    "2026-10-19T17:17:38.4974789Z ZERO_TUN_ROUTE_RECONCILE_RESULT={\"executed\":false,\"reason\":\"no suitable alternate connected interface with a lower metric and no default route is available\",\"scenario\":\"windows-route-switch\",\"status\":\"skipped\"}\r",
+    "2026-10-19T17:17:42.0298268Z ##[warning]Windows route-switch scenario SKIPPED; no network-switch coverage: no suitable alternate connected interface with a lower metric and no default route is available\r"
+  ],
+  "limitations": [
+    "Evidence applies only to6cd, not47cc or later heads.",
+    "All3 independent TUN smoke steps skipped; macOS offline dual-stack skipped.",
+    "Windows route-switch job-step success includes executed:false/skipped, not network-switch coverage.",
+    "Hosted runners do not replace physical GUI/client device qualification.",
+    "Optional surface and representative minimal feature steps did not execute in main CI."
+  ],
+  "recorded_at_utc_date": "2026-10-19"
+}

@@ -13,4 +13,4 @@ mod tests;
 mod with_upstream;
 mod without_upstream;
 
-pub(crate) use relay::run_protocol_datagram_udp_relay;
+pub(crate) use relay::{run_protocol_datagram_udp_relay, run_ready_protocol_datagram_udp_relay};

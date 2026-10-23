@@ -1,13 +1,16 @@
 //! Trojan inbound protocol handler.
 
-use std::collections::HashMap;
-use std::sync::{Arc, Mutex, RwLock};
+use std::sync::{Arc, RwLock};
 
 use zero_core::{Error, InboundStreamUdpRelay, Network, ProtocolType, Session, SessionAuth};
 use zero_traits::AsyncSocket;
 
 use super::shared::{read_password, read_request, CMD_TCP, CMD_UDP};
 use crate::udp::TrojanInboundUdpResponder;
+mod facts;
+pub use facts::TrojanRequestFacts;
+mod profile;
+pub use profile::{TrojanInboundProfileStore, TrojanInboundProfileUpdate};
 
 /// Trojan inbound handler.
 #[derive(Debug, Default, Clone, Copy)]
@@ -222,10 +225,25 @@ impl TrojanInboundProfile {
         inbound: TrojanInbound,
         stream: &mut S,
     ) -> Result<Session, Error> {
+        Ok(self
+            .accept_request_facts(inbound, stream)
+            .await?
+            .into_legacy_session())
+    }
+
+    /// Authenticates and recognizes the wire request without allocating a
+    /// business Session. The host supplies identity for ordinary TCP requests.
+    pub async fn accept_request_facts<S: AsyncSocket>(
+        &self,
+        inbound: TrojanInbound,
+        stream: &mut S,
+    ) -> Result<TrojanRequestFacts, Error> {
         let (accept, auth) = self.accept(inbound, stream).await?;
-        let mut session = accept.session;
-        session.apply_auth(auth);
-        Ok(session)
+        Ok(TrojanRequestFacts {
+            destination: accept.destination,
+            network: accept.network,
+            auth,
+        })
     }
 
     pub async fn accept_client<S: AsyncSocket>(
@@ -260,28 +278,6 @@ impl TrojanInboundProfile {
     }
 }
 
-#[derive(Debug, Clone, Default)]
-pub struct TrojanInboundProfileStore {
-    profiles: Arc<Mutex<HashMap<String, TrojanInboundProfile>>>,
-}
-
-impl TrojanInboundProfileStore {
-    pub fn replace(&self, tag: &str, users: &[TrojanInboundUserRef<'_>]) -> TrojanInboundProfile {
-        let mut profiles = self
-            .profiles
-            .lock()
-            .unwrap_or_else(|error| error.into_inner());
-        if let Some(profile) = profiles.get(tag) {
-            profile.replace_config_users(users.iter().copied());
-            return profile.clone();
-        }
-
-        let profile = TrojanInboundProfile::from_config_users(users.iter().copied());
-        profiles.insert(tag.to_owned(), profile.clone());
-        profile
-    }
-}
-
 pub trait IntoTrojanInboundUserConfig {
     fn into_trojan_inbound_user_config(self) -> TrojanInboundUserConfigParts;
 }
@@ -308,7 +304,8 @@ impl IntoTrojanInboundUserConfig for TrojanInboundUserRef<'_> {
 
 /// Result of accepting a Trojan connection.
 struct TrojanAccept {
-    session: Session,
+    destination: zero_core::request::Destination,
+    network: Network,
     user_index: usize,
 }
 
@@ -485,7 +482,8 @@ impl TrojanInbound {
         };
 
         Ok(TrojanAccept {
-            session: Session::new(0, addr, port, network, ProtocolType::new("trojan")),
+            destination: zero_core::request::Destination::new(addr, port),
+            network,
             user_index,
         })
     }

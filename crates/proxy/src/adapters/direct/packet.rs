@@ -126,7 +126,7 @@ fn prepare_host_device(
                     )
                 })?;
                 let device = zero_tun::adopt(fd, &config.interface)?;
-                return Ok(HostPacketDevice::start(device, config, mtu));
+                return Ok(HostPacketDevice::start_owned(device, config, mtu));
             }
         }
         zero_config::DirectPacketDeviceBackend::Wintun => {

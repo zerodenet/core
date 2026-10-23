@@ -1,3 +1,5 @@
+mod error;
+mod observer;
 mod read;
 mod write;
 use std::io;
@@ -44,6 +46,10 @@ enum ReadState {
 
 pub struct ShadowsocksAeadStream<S> {
     inner: S,
+    connect_observer: Option<(
+        Option<zero_core::component::SessionId>,
+        std::sync::Arc<dyn zero_platform_tokio::contract::context::ConnectObserver>,
+    )>,
     legacy_read: Option<crate::shared::legacy::LegacyCipherState>,
     legacy_write: Option<crate::shared::legacy::LegacyCipherState>,
     replay: crate::shared::legacy_replay::LegacyReplay,
@@ -72,14 +78,6 @@ pub struct ShadowsocksAeadStream<S> {
 }
 
 impl<S> ShadowsocksAeadStream<S> {
-    pub(crate) fn with_replay_guard(
-        mut self,
-        replay: crate::shared::legacy_replay::LegacyReplay,
-    ) -> Self {
-        self.replay = replay;
-        self
-    }
-
     #[allow(clippy::too_many_arguments)]
     pub fn inbound(
         inner: S,
@@ -104,6 +102,7 @@ impl<S> ShadowsocksAeadStream<S> {
         };
         Self {
             inner,
+            connect_observer: None,
             legacy_read: None,
             legacy_write: None,
             replay: crate::shared::legacy_replay::LegacyReplay::new(Default::default(), false),
@@ -131,13 +130,27 @@ impl<S> ShadowsocksAeadStream<S> {
     }
 
     pub fn outbound(inner: S, session: ShadowsocksOutboundSession, password: Vec<u8>) -> Self {
+        Self::outbound_with_replay(
+            inner,
+            session,
+            password,
+            crate::shared::legacy_replay::LegacyReplay::new(Default::default(), false),
+        )
+    }
+    pub(crate) fn outbound_with_replay(
+        inner: S,
+        session: ShadowsocksOutboundSession,
+        password: Vec<u8>,
+        replay: crate::shared::legacy_replay::LegacyReplay,
+    ) -> Self {
         let cipher = session.cipher;
         let is_2022 = cipher.is_blake3();
         Self {
             inner,
+            connect_observer: None,
             legacy_read: None,
             legacy_write: session.legacy,
-            replay: crate::shared::legacy_replay::LegacyReplay::new(Default::default(), false),
+            replay,
             legacy_response_salt: None,
             modern_response_salt: None,
             cipher,
@@ -176,6 +189,30 @@ impl ShadowsocksAccept {
         inner: S,
         password: &[u8],
     ) -> Result<ShadowsocksAeadStream<S>, zero_core::Error> {
+        crate::inbound::ShadowsocksRequest::from(self).into_aead_stream(inner, password)
+    }
+
+    /// Wrap the original accepted TCP stream with an explicit response salt.
+    /// This compatibility entry retains its deterministic protocol-test API.
+    pub fn into_aead_stream_with_response_salt<S>(
+        self,
+        inner: S,
+        password: &[u8],
+        response_salt: Vec<u8>,
+    ) -> Result<ShadowsocksAeadStream<S>, zero_core::Error> {
+        crate::inbound::ShadowsocksRequest::from(self).into_aead_stream_with_response_salt(
+            inner,
+            password,
+            response_salt,
+        )
+    }
+}
+impl crate::inbound::ShadowsocksRequest {
+    pub(crate) fn into_aead_stream<S>(
+        self,
+        inner: S,
+        password: &[u8],
+    ) -> Result<ShadowsocksAeadStream<S>, zero_core::Error> {
         let mut response_salt = vec![0_u8; self.cipher.salt_len()];
         use ring::rand::SecureRandom;
         ring::rand::SystemRandom::new()
@@ -187,7 +224,7 @@ impl ShadowsocksAccept {
     /// Wrap an accepted inbound TCP stream with an explicit response salt.
     ///
     /// This is primarily useful for deterministic protocol tests.
-    pub fn into_aead_stream_with_response_salt<S>(
+    pub(crate) fn into_aead_stream_with_response_salt<S>(
         mut self,
         inner: S,
         password: &[u8],
@@ -238,7 +275,12 @@ where
         cx: &mut Context<'_>,
         buf: &mut ReadBuf<'_>,
     ) -> Poll<io::Result<()>> {
-        Pin::into_inner(self).poll_read_decrypted(cx, buf)
+        let this = Pin::into_inner(self);
+        let result = this.poll_read_decrypted(cx, buf);
+        if matches!(&result, Poll::Ready(Err(_))) {
+            this.report_peer(zero_platform_tokio::contract::context::ConnectFact::PeerRejected);
+        }
+        result
     }
 }
 

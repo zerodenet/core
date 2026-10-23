@@ -21,14 +21,20 @@ const IFF_NO_PI: libc::c_int = 0x1000;
 pub struct LinuxTun {
     name: String,
     fd: AsyncFd<File>,
+    owned: crate::OwnedTunIdentity,
 }
 
 impl LinuxTun {
     pub(crate) fn adopt(fd: std::os::fd::OwnedFd, expected: &str) -> io::Result<Self> {
-        let file = File::from(fd);
+        let name = Self::validate_adopt(fd.as_raw_fd(), expected)?;
+        let identity = crate::OwnedTunIdentity::from_fd(fd.as_raw_fd());
+        Self::register_adopted(fd, name, identity)
+    }
+
+    pub(crate) fn validate_adopt(fd: std::os::fd::RawFd, expected: &str) -> io::Result<String> {
         let mut ifr: libc::ifreq = unsafe { std::mem::zeroed() };
         // SAFETY: TUNGETIFF writes into the initialized ifreq and validates the descriptor.
-        if unsafe { libc::ioctl(file.as_raw_fd(), libc::TUNGETIFF, &mut ifr) } < 0 {
+        if unsafe { libc::ioctl(fd, libc::TUNGETIFF, &mut ifr) } < 0 {
             return Err(io::Error::last_os_error());
         }
         let name = ifr
@@ -47,17 +53,25 @@ impl LinuxTun {
                 "host descriptor is not the requested raw-IP TUN device",
             ));
         }
-        let current = unsafe { libc::fcntl(file.as_raw_fd(), libc::F_GETFL) };
+        let current = unsafe { libc::fcntl(fd, libc::F_GETFL) };
         if current < 0 || current & libc::O_NONBLOCK == 0 {
             return Err(io::Error::new(
                 io::ErrorKind::InvalidInput,
                 "host packet descriptor must already be nonblocking",
             ));
         }
+        Ok(name)
+    }
+
+    pub(crate) fn register_adopted(
+        fd: std::os::fd::OwnedFd,
+        name: String,
+        owned: crate::OwnedTunIdentity,
+    ) -> io::Result<Self> {
         Ok(Self {
             name,
-            // SAFETY: the owned File keeps its descriptor open and stable.
-            fd: unsafe { AsyncFd::register(file) }?,
+            owned,
+            fd: unsafe { AsyncFd::register(File::from(fd)) }?,
         })
     }
 
@@ -118,6 +132,7 @@ impl LinuxTun {
 
         Ok(Self {
             name: actual_name,
+            owned: crate::OwnedTunIdentity::from_fd(async_fd.get_ref().as_raw_fd()),
             fd: async_fd,
         })
     }
@@ -126,6 +141,15 @@ impl LinuxTun {
 impl AsRawFd for LinuxTun {
     fn as_raw_fd(&self) -> std::os::unix::io::RawFd {
         self.fd.get_ref().as_raw_fd()
+    }
+}
+
+impl crate::OwnedTunDevice for LinuxTun {
+    fn owned_identity(&self) -> crate::OwnedTunIdentity {
+        self.owned.clone()
+    }
+    fn close_owned(self) -> io::Result<crate::TunCloseReceipt> {
+        crate::owned::close_fd(self.fd.into_inner(), self.name, self.owned)
     }
 }
 

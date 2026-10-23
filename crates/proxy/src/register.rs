@@ -13,11 +13,45 @@ use crate::runtime::udp_flow::registered::RegisteredUdpHandlers;
 #[cfg(feature = "upstream-association-runtime")]
 use crate::runtime::udp_flow::registered::UpstreamUdpHandlers;
 
-fn compiled_protocol_registry() -> ProtocolRegistry {
+fn compiled_registries() -> (
+    ProtocolRegistry,
+    crate::component::ComponentRegistry<zero_config::OutboundConfig>,
+) {
+    use zero_traits::ProtocolMetadata;
+    let mut components = crate::component::ComponentRegistry::default();
+    components
+        .register(
+            crate::adapters::direct::DirectAdapter::default().descriptor(),
+            crate::component::DirectFactory,
+            crate::adapters::direct::factory::decode,
+        )
+        .expect("unique built-in Direct registration");
+    components
+        .declare("socks5", "socks5")
+        .expect("unique SOCKS5 declaration");
+    components
+        .declare("trojan", "trojan")
+        .expect("unique Trojan declaration");
+    components
+        .declare("vmess", "vmess")
+        .expect("unique VMess declaration");
+    components
+        .declare("vless", "vless")
+        .expect("unique VLESS declaration");
     let mut registry = ProtocolRegistry::default();
     #[cfg(feature = "socks5")]
     {
         use crate::adapters::socks5::Socks5Adapter;
+        components
+            .register(
+                ::socks5::Socks5Protocol.descriptor(),
+                ::socks5::component::Factory,
+                crate::adapters::socks5::component_options,
+            )
+            .expect("unique SOCKS5 component registration");
+        components
+            .set_legacy_connect_stage("socks5", crate::adapters::socks5::LEGACY_CONNECT_STAGE);
+
         registry.register_upstream_capability(
             Arc::new(Socks5Adapter),
             Socks5Adapter::claim_outbound_leaf_impl,
@@ -31,6 +65,15 @@ fn compiled_protocol_registry() -> ProtocolRegistry {
     #[cfg(feature = "vless")]
     {
         use crate::adapters::vless::VlessAdapter;
+        components
+            .register_where(
+                ::vless::metadata::VlessProtocol.descriptor(),
+                ::vless::component::Factory,
+                crate::adapters::vless::native_input,
+                crate::adapters::vless::component_options,
+            )
+            .expect("unique VLESS component registration");
+        components.set_legacy_connect_stage("vless", crate::adapters::vless::LEGACY_CONNECT_STAGE);
         let adapter = Arc::new(VlessAdapter::default());
         registry.register_inbound_service(adapter.clone());
         registry.register_managed_capability(adapter, VlessAdapter::claim_outbound_leaf_impl);
@@ -50,12 +93,31 @@ fn compiled_protocol_registry() -> ProtocolRegistry {
     #[cfg(feature = "trojan")]
     {
         use crate::adapters::trojan::TrojanAdapter;
+        components
+            .register_where(
+                ::trojan::metadata::TrojanProtocol.descriptor(),
+                ::trojan::component::Factory,
+                crate::adapters::trojan::native_input,
+                crate::adapters::trojan::component_options,
+            )
+            .expect("unique Trojan component registration");
+        components
+            .set_legacy_connect_stage("trojan", crate::adapters::trojan::LEGACY_CONNECT_STAGE);
         let adapter = Arc::new(TrojanAdapter::default());
         registry.register_managed_capability(adapter, TrojanAdapter::claim_outbound_leaf_impl);
     }
     #[cfg(feature = "vmess")]
     {
         use crate::adapters::vmess::VmessAdapter;
+        components
+            .register_where(
+                ::vmess::metadata::VmessProtocol.descriptor(),
+                ::vmess::component::Factory,
+                crate::adapters::vmess::native_input,
+                crate::adapters::vmess::component_options,
+            )
+            .expect("unique VMess component registration");
+        components.set_legacy_connect_stage("vmess", crate::adapters::vmess::LEGACY_CONNECT_STAGE);
         let adapter = Arc::new(VmessAdapter::default());
         registry.register_managed_capability(adapter, VmessAdapter::claim_outbound_leaf_impl);
     }
@@ -97,15 +159,27 @@ fn compiled_protocol_registry() -> ProtocolRegistry {
             Some(DirectAdapter::claim_outbound_leaf_impl),
         );
     }
-    registry
+    (registry, components)
+}
+
+pub(crate) fn component_registry(
+) -> crate::component::ComponentRegistry<zero_config::OutboundConfig> {
+    compiled_registries().1
 }
 
 pub(crate) fn protocol_registry() -> ProtocolRegistry {
-    compiled_protocol_registry()
+    let (mut registry, components) = compiled_registries();
+    // Preserve the exact factory state assembled beside the legacy adapters.
+    // Reassembling later would create another protocol pool/resource owner.
+    registry.components = Arc::new(crate::component::catalog::ComponentCatalog::with_factories(
+        components,
+    ));
+    registry
 }
 
 pub(crate) fn compiled_protocol_features() -> Vec<String> {
-    compiled_protocol_registry()
+    compiled_registries()
+        .0
         .compiled_feature_names()
         .into_iter()
         .map(str::to_owned)

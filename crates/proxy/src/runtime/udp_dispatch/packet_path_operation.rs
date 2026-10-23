@@ -1,3 +1,11 @@
+#[cfg_attr(
+    not(test),
+    expect(
+        dead_code,
+        reason = "explicit cold-device library path; production activation requires the owning replacement transaction"
+    )
+)]
+mod owned;
 use std::future::Future;
 use std::pin::Pin;
 use std::sync::Arc;
@@ -31,6 +39,25 @@ pub(crate) struct PreparedDatagramRelayCarrier {
 }
 
 impl PreparedDatagramRelayCarrier {
+    pub(crate) fn retained_admission(&self) -> Result<(), EngineError> {
+        for layer in &self.layers {
+            match layer {
+                PreparedDatagramRelayLayer::Base(operation) => operation.retained_admission()?,
+                PreparedDatagramRelayLayer::Associated {
+                    operation,
+                    tcp_prefix,
+                } => {
+                    operation.retained_admission()?;
+                    crate::runtime::tcp_dispatch::relay::retained::check_owners(tcp_prefix)?;
+                }
+                PreparedDatagramRelayLayer::Codec(_) => {
+                    return Err(unsupported("retained datagram codec owner is not migrated"));
+                }
+            }
+        }
+        Ok(())
+    }
+
     pub(crate) fn new(operation: Box<dyn PreparedUdpPacketPathOperation>) -> Option<Self> {
         let descriptor = operation.carrier_descriptor()?;
         Some(Self {
@@ -62,7 +89,7 @@ impl PreparedDatagramRelayCarrier {
         }
 
         let next = operation.carrier_descriptor()?;
-        let prefix_key = tcp_prefix_key(&tcp_prefix);
+        let prefix_key = owned::tcp_prefix_key(&tcp_prefix);
         let mut layers = current.map_or_else(Vec::new, |current| current.layers);
         layers.push(PreparedDatagramRelayLayer::Associated {
             operation: Arc::from(operation),
@@ -136,6 +163,15 @@ impl PreparedUdpPacketPathOperation for PreparedDatagramRelayCarrier {
     fn carrier_descriptor(&self) -> Option<PacketPathCarrierDescriptor> {
         Some(self.descriptor.clone())
     }
+    fn build_owned_carrier<'a>(
+        &'a self,
+        services: PacketPathExecutionServices,
+        owner: Arc<super::packet_owner::PacketCarrierOwnerSlot>,
+        demand: super::packet_owner::PacketCarrierDemand,
+    ) -> PacketPathCarrierFuture<'a> {
+        Box::pin(owned::build(self, services, owner, demand))
+    }
+
     fn build_carrier<'a>(
         &'a self,
         services: PacketPathExecutionServices,
@@ -156,6 +192,10 @@ impl std::fmt::Debug for PreparedDatagramRelayCarrier {
 }
 
 pub(crate) trait PreparedUdpPacketPathOperation: Send + Sync + 'static {
+    fn retained_admission(&self) -> Result<(), EngineError> {
+        Err(unsupported("retained datagram owner is not migrated"))
+    }
+
     fn carrier_descriptor(&self) -> Option<PacketPathCarrierDescriptor> {
         None
     }
@@ -166,6 +206,24 @@ pub(crate) trait PreparedUdpPacketPathOperation: Send + Sync + 'static {
 
     fn supports_associated_relay_carrier(&self) -> bool {
         false
+    }
+
+    /// Explicit opt-in: an unknown legacy carrier never acquires a grant by
+    /// falling back to its unowned builder.
+    #[cfg_attr(
+        not(test),
+        expect(
+            dead_code,
+            reason = "explicit cold-device library path; production activation requires the owning replacement transaction"
+        )
+    )]
+    fn build_owned_carrier<'a>(
+        &'a self,
+        _services: PacketPathExecutionServices,
+        _owner: Arc<super::packet_owner::PacketCarrierOwnerSlot>,
+        _demand: super::packet_owner::PacketCarrierDemand,
+    ) -> PacketPathCarrierFuture<'a> {
+        Box::pin(async { Err(unsupported("owned UDP packet-path carrier is not migrated")) })
     }
 
     fn build_carrier<'a>(
@@ -211,47 +269,7 @@ fn chained_descriptor(
     }
 }
 
-fn tcp_prefix_key(prefix: &PreparedTcpRelayPrefix) -> String {
-    let mut key = format!("{}:{}", prefix.first.protocol.len(), prefix.first.protocol);
-    if let Some(tag) = &prefix.first.tag {
-        key.push_str(&format!("|{}:{tag}", tag.len()));
-    }
-    if let Some((server, port)) = &prefix.first.endpoint {
-        key.push_str(&format!("|{}:{server}:{port}", server.len()));
-    }
-    for hop in &prefix.relay_hops {
-        key.push_str(&format!(
-            "|{}:{}|{}:{}|{}:{}:{}",
-            hop.tag.len(),
-            hop.tag,
-            hop.protocol.len(),
-            hop.protocol,
-            hop.server.len(),
-            hop.server,
-            hop.port
-        ));
-    }
-    if let Some(Some(datagram)) = prefix.datagram_prefixes.last() {
-        key.push_str(&format!(
-            "|packet:{}:{}",
-            datagram.identity().len(),
-            datagram.identity()
-        ));
-    }
-    key.push_str(&format!(
-        "|{}:{}|{}:{}|{}:{}:{}",
-        prefix.final_tag.len(),
-        prefix.final_tag,
-        prefix.final_protocol.len(),
-        prefix.final_protocol,
-        prefix.final_server.len(),
-        prefix.final_server,
-        prefix.final_port
-    ));
-    key
-}
-
-fn unsupported(message: &'static str) -> EngineError {
+pub(crate) fn unsupported(message: &'static str) -> EngineError {
     EngineError::Io(std::io::Error::new(
         std::io::ErrorKind::Unsupported,
         message,

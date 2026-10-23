@@ -1,5 +1,7 @@
 #![allow(dead_code)]
 
+pub mod listener;
+
 use std::fs;
 use std::io::{Read, Write};
 use std::net::{TcpListener, TcpStream};
@@ -10,7 +12,7 @@ use std::thread;
 use std::time::Duration;
 
 /// Global lock to serialize port allocation and zero process startup.
-/// Prevents TOCTOU port races when tests run in parallel.
+/// Cooperating tests share this lock; it does not reserve OS endpoints.
 static PORT_LOCK: Mutex<()> = Mutex::new(());
 
 /// Acquire the global port lock. Tests that spawn zero must hold this lock

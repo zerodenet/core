@@ -1,6 +1,7 @@
 mod api;
 mod error;
 mod groups;
+pub use groups::{GroupSelectionBinding, GroupSelectionChanged, SelectionChange};
 mod health;
 mod observability;
 mod plan;
@@ -20,22 +21,26 @@ pub use health::{
 };
 pub use observability::SessionOutcome;
 pub use plan::{
-    EnginePlan, FallbackGroupPlan, LoadBalanceGroupPlan, OutboundIdentity, OutboundTarget,
-    ResolvedLeafOutbound, ResolvedOutbound, SelectorGroupPlan, TargetId, TargetKind, TargetNode,
-    UrlTestGroupPlan, UrlTestSelection, UrlTestSelectionReason,
+    EnginePlan, FallbackGroupPlan, LoadBalanceGroupPlan, OutboundIdentity, OutboundStaticBinding,
+    OutboundTarget, ResolvedLeafOutbound, ResolvedOutbound, SelectorGroupPlan, TargetId,
+    TargetKind, TargetNode, UrlTestGroupPlan, UrlTestSelection, UrlTestSelectionReason,
 };
 pub use principal::{
     inspect_principal_quota_state, PrincipalCancellationRegistration, PrincipalDeviceRegistration,
     PrincipalQuotaStateReport, PrincipalQuotaStateStatus,
 };
-pub use runtime::{EndpointAdmission, EndpointChange, Engine, EngineRuntimeSnapshot};
+pub use runtime::{
+    EndpointAdmission, EndpointChange, Engine, EngineRuntimeSnapshot, OutboundHealthObservation,
+    SessionIdentity,
+};
 pub use runtime::{PacketRouteControl, PacketRouteLease};
 pub use runtime::{RouteDecision, RouteEvaluation, RouteTrace};
 pub use session::{
-    ActiveSession, BlockReason, CompletedSessionRecord, FlowAddressFamilyFallbackObservation,
-    FlowConnectionAttemptObservation, FlowContext, FlowEgressObservation, FlowFailureObservation,
-    FlowHook, FlowHookChain, FlowNetworkInterfaceObservation, FlowNetworkObservation,
-    FlowPathObservation, FlowRemoteEndpoint, FlowRouteLookupObservation, FlowRouteObservation,
+    ActiveSession, AdmittedSession, BlockReason, CompletedSessionRecord,
+    FlowAddressFamilyFallbackObservation, FlowConnectionAttemptObservation, FlowContext,
+    FlowEgressObservation, FlowFailureObservation, FlowHook, FlowHookChain,
+    FlowNetworkInterfaceObservation, FlowNetworkObservation, FlowPathObservation,
+    FlowRemoteEndpoint, FlowRouteLookupObservation, FlowRouteObservation,
     FlowSocketBindingObservation, FlowTraffic, MatchedRouteRule, SessionHandle,
 };
 pub use zero_api::{

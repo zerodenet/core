@@ -1,10 +1,9 @@
-use zero_core::Session;
-
-pub(crate) fn select_redirect_target(
+pub(crate) fn select_redirect_destination(
     rules: &[zero_config::UrlRewriteRule],
-    session: &Session,
+    target: &zero_core::Address,
+    port: u16,
 ) -> Option<(u16, String)> {
-    let zero_core::Address::Domain(domain) = &session.target else {
+    let zero_core::Address::Domain(domain) = target else {
         return None;
     };
 
@@ -23,7 +22,7 @@ pub(crate) fn select_redirect_target(
         };
 
         if matched {
-            return Some((status, format!("https://{}:{}", rule.to, session.port)));
+            return Some((status, format!("https://{}:{}", rule.to, port)));
         }
     }
 

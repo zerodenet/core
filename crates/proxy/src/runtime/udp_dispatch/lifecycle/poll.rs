@@ -1,12 +1,11 @@
-use crate::runtime::udp_socket::DirectUdpSockets;
-use tokio::task::JoinSet;
+use super::super::socket::DispatchDirectReceive;
 #[cfg(feature = "upstream-association-runtime")]
 use tokio::time::Instant as TokioInstant;
 
 use crate::logging::log_session_finished;
 use crate::runtime::udp_dispatch::model::UdpFlowCancellation;
 use crate::runtime::udp_dispatch::UdpDispatch;
-use crate::runtime::udp_flow::packet_path::ChainTask;
+use crate::runtime::udp_flow::response_join::ResponseSetLease;
 use crate::runtime::udp_flow::sessions::CompletedUdpFlow;
 #[cfg(feature = "upstream-association-runtime")]
 use crate::runtime::udp_flow::state::UpstreamUdpPoll;
@@ -41,13 +40,13 @@ impl UdpDispatch {
     pub(crate) fn poll_sockets(
         &mut self,
     ) -> (
-        &DirectUdpSockets,
-        &mut JoinSet<ChainTask>,
+        DispatchDirectReceive<'_>,
+        &mut ResponseSetLease,
         &mut tokio::sync::mpsc::UnboundedReceiver<UdpFlowCancellation>,
     ) {
         self.direct_socket.refresh_if_stale();
         (
-            &self.direct_socket,
+            self.direct_socket.receiver(),
             self.flow_state.chain_tasks(),
             &mut self.cancel_rx,
         )
@@ -58,16 +57,20 @@ impl UdpDispatch {
     pub(crate) fn poll_refs(
         &mut self,
     ) -> (
-        &DirectUdpSockets,
+        DispatchDirectReceive<'_>,
         UpstreamUdpPoll<'_>,
         Option<TokioInstant>,
-        &mut JoinSet<ChainTask>,
+        &mut ResponseSetLease,
         &mut tokio::sync::mpsc::UnboundedReceiver<UdpFlowCancellation>,
     ) {
-        let (upstream_udp, upstream_idle_deadline, chain_tasks) = self.flow_state.poll_refs();
+        let services = self.runtime.services();
+        let retired = services.packet_path_execution().tcp().retired_datagrams();
+        let (upstream_udp, upstream_idle_deadline, chain_tasks) = self
+            .flow_state
+            .poll_refs(retired, services.udp_upstream_idle_timeout());
         self.direct_socket.refresh_if_stale();
         (
-            &self.direct_socket,
+            self.direct_socket.receiver(),
             upstream_udp,
             upstream_idle_deadline,
             chain_tasks,

@@ -30,8 +30,10 @@ mod server;
 mod verifier;
 pub use server::server as build_server_config;
 mod peek;
+mod prepared;
 pub use inbound_stream::InboundTlsStream;
 pub use peek::peek_client_hello;
+pub use prepared::PreparedClient;
 mod switchable;
 
 #[derive(Debug, Default, Clone, PartialEq, Eq)]
@@ -190,8 +192,19 @@ where
     }
     let config = config::client(tls, base_dir, false)?;
 
-    let connector = TlsConnector::from(Arc::new(config));
-    let server_name = rustls::pki_types::ServerName::try_from(server_name.as_str())
+    connect_rustls_stream(stream, Arc::new(config), &server_name).await
+}
+
+async fn connect_rustls_stream<S>(
+    stream: S,
+    config: Arc<rustls::ClientConfig>,
+    server_name: &str,
+) -> Result<TcpRelayStream, RuntimeError>
+where
+    S: AsyncRead + AsyncWrite + Unpin + Send + Sync + 'static,
+{
+    let connector = TlsConnector::from(config);
+    let server_name = rustls::pki_types::ServerName::try_from(server_name)
         .map_err(|_| io::Error::new(io::ErrorKind::InvalidInput, "invalid tls server_name"))?
         .to_owned();
 

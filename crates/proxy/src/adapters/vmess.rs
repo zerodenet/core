@@ -1,10 +1,14 @@
 #[cfg(feature = "vmess")]
+mod component;
+#[cfg(feature = "vmess")]
 mod listener;
 use ::vmess::transport::{
     VmessInboundListenerRequest, VmessInboundOptionsRef, VmessInboundUserRef,
     VmessOutboundBuildOptionsRef, VmessOutboundLeaf, VmessOutboundOptionsRef,
     VmessTransportRuntime,
 };
+#[cfg(feature = "vmess")]
+pub(crate) use component::{component_options, native_input, LEGACY_CONNECT_STAGE};
 #[cfg(feature = "vmess")]
 use zero_config::InboundConfig;
 use zero_config::{InboundProtocolConfig, OutboundProtocolConfig};
@@ -298,6 +302,14 @@ impl ProtocolMetadata for VmessAdapter {
 
 #[cfg(feature = "vmess")]
 impl InboundListenerCapability for VmessAdapter {
+    fn prepare_inbound_bind(
+        &self,
+        inbound: InboundConfig,
+        source_dir: Option<&std::path::Path>,
+    ) -> Result<Option<crate::protocol_registry::PreparedInboundBind>, EngineError> {
+        crate::protocol_registry::prepare_tcp_inbound_bind(self, inbound, source_dir)
+    }
+
     fn prepare_inbound_listener(
         &self,
         inbound: InboundConfig,
@@ -316,11 +328,7 @@ impl InboundListenerCapability for VmessAdapter {
                 mux_response_backlog_bytes,
             } => {
                 let user_refs = inbound_user_refs(users);
-                let profile = self
-                    .runtime
-                    .replace_inbound_profile(&inbound.tag, &user_refs)
-                    .map_err(EngineError::from)?;
-                VmessInboundListenerRequest::from_options_refs(
+                VmessInboundListenerRequest::from_options_refs_staged(
                     source_dir,
                     VmessInboundOptionsRef {
                         users: user_refs.iter().copied(),
@@ -330,9 +338,10 @@ impl InboundListenerCapability for VmessAdapter {
                         mux_response_backlog_frames: *mux_response_backlog_frames,
                         mux_response_backlog_bytes: *mux_response_backlog_bytes,
                     },
+                    &self.runtime,
+                    &inbound.tag,
                 )
                 .map_err(EngineError::from)?
-                .with_profile(profile)
             }
             _ => {
                 return Err(EngineError::Io(std::io::Error::new(
@@ -362,3 +371,7 @@ impl ManagedUdpHandlerProvider for VmessAdapter {
 
 #[cfg(feature = "vmess")]
 impl UdpPacketPathCapability for VmessAdapter {}
+
+#[cfg(test)]
+#[path = "vmess/tests.rs"]
+mod tests;

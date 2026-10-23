@@ -1,0 +1,380 @@
+{
+  "base_commit": "1cac93030f3446907887428bb68b23090307d8cd",
+  "code_commit": "9ac2eb8b532b5e984e120c1f5bf4435c37201e09",
+  "tested_git_tree": "70ef18988e97da87b9b14140cb7a453b62c58793",
+  "resolved_lock_sha256": "a003359eb327bd299b675c330e9aeca721156df76d117dd3e55c9c47f711377c",
+  "counts": {
+    "passed": 2729,
+    "failed": 0,
+    "ignored": 159,
+    "libtest_summary_rows": 155
+  },
+  "commands": [
+    {
+      "name": "fmt",
+      "argv": [
+        "cargo",
+        "fmt",
+        "--all",
+        "--check"
+      ],
+      "exit": 0,
+      "seconds": 3.6775213289947715,
+      "log": "/workspace/core-baseline-artifacts/pr04-replay-final-fmt.txt",
+      "head_unchanged": true,
+      "source_clean": true,
+      "lock_unchanged": true
+    },
+    {
+      "name": "check",
+      "argv": [
+        "cargo",
+        "check",
+        "--locked",
+        "--workspace"
+      ],
+      "exit": 0,
+      "seconds": 48.74557850899873,
+      "log": "/workspace/core-baseline-artifacts/pr04-replay-final-check.txt",
+      "head_unchanged": true,
+      "source_clean": true,
+      "lock_unchanged": true
+    },
+    {
+      "name": "test",
+      "argv": [
+        "bash",
+        "scripts/test-workspace.sh"
+      ],
+      "exit": 0,
+      "seconds": 460.95305111799826,
+      "log": "/workspace/core-baseline-artifacts/pr04-replay-final-test.txt",
+      "head_unchanged": true,
+      "source_clean": true,
+      "lock_unchanged": true
+    },
+    {
+      "name": "release",
+      "argv": [
+        "cargo",
+        "build",
+        "--locked",
+        "--release"
+      ],
+      "exit": 0,
+      "seconds": 273.21582636799576,
+      "log": "/workspace/core-baseline-artifacts/pr04-replay-final-release.txt",
+      "head_unchanged": true,
+      "source_clean": true,
+      "lock_unchanged": true
+    },
+    {
+      "name": "no-std",
+      "argv": [
+        "cargo",
+        "check",
+        "--locked",
+        "--target",
+        "thumbv7em-none-eabi",
+        "-p",
+        "zero-traits",
+        "-p",
+        "zero-core"
+      ],
+      "exit": 0,
+      "seconds": 0.3026344280006015,
+      "log": "/workspace/core-baseline-artifacts/pr04-replay-final-no-std.txt",
+      "head_unchanged": true,
+      "source_clean": true,
+      "lock_unchanged": true
+    },
+    {
+      "name": "minimal",
+      "argv": [
+        "cargo",
+        "check",
+        "--locked",
+        "-p",
+        "zero-proxy",
+        "--no-default-features"
+      ],
+      "exit": 0,
+      "seconds": 9.809213926004304,
+      "log": "/workspace/core-baseline-artifacts/pr04-replay-final-minimal.txt",
+      "head_unchanged": true,
+      "source_clean": true,
+      "lock_unchanged": true
+    },
+    {
+      "name": "dependencies",
+      "argv": [
+        "python3",
+        "scripts/check-runtime-contracts.py"
+      ],
+      "exit": 0,
+      "seconds": 0.5958644199999981,
+      "log": "/workspace/core-baseline-artifacts/pr04-replay-final-dependencies.txt",
+      "head_unchanged": true,
+      "source_clean": true,
+      "lock_unchanged": true
+    }
+  ],
+  "strict": {
+    "exit": 0,
+    "tested_tree": "9d1f7810340266c1bbebd3881f60743b453f0588",
+    "postcheck_documentation": [
+      "AGENTS.md",
+      "release/breaking-changes.md"
+    ],
+    "source_sha256": {
+      "crates/platform/tokio/src/contract/scope.rs": "e2f09e2f6aa02e2c06ed8d40b25d2d58442b07b41bde7bfad96d2f9e51058c7b",
+      "protocols/shadowsocks/src/component.rs": "7a4d07d36e41da8ad300a0458c375ce6fbddd117c7fe5c404ad4b0643efbf3dd",
+      "protocols/shadowsocks/src/lib.rs": "b0f88cc1fc7b41220a3c7a2d1d9cc8b3bdadceb303fd530cb061357aacc1a301",
+      "protocols/shadowsocks/src/shared/legacy_replay.rs": "11e00f5d9afbb3eb091f3ae605c5e24bfc351c607e6c17b2ccc6d037139414a0",
+      "protocols/shadowsocks/src/shared/replay.rs": "5507bac04ff24db1c991188c846d85bc20a5c67a624a121fcf0e8a182f24f6b0",
+      "protocols/shadowsocks/src/shared/replay/maintenance.rs": "b2329521ca2621ba5c8c3ef22891294e12a3a1d22ee1d44a3d271945d80f6a02",
+      "protocols/shadowsocks/src/transport/state.rs": "0cf94090a3bde23cc6b0b6b6b07414d81e177b2c63ab00e624323d5485b370c0",
+      "protocols/shadowsocks/tests/component/replay.rs": "32ea4e6e66f0b83e915b6adfe34383974dd0c03057703957415733cbaf7849b6",
+      "protocols/shadowsocks/tests/udp_session/replay_pool.rs": "55fde71aacb6acad8a23f3014da1c0575802fe276457952f84b174e8a0d5e28c"
+    }
+  },
+  "focused": {
+    "ss_lib": {
+      "passed": 30,
+      "failed": 0,
+      "log": "pr04-replay-lib-positive-2.txt"
+    }
+  },
+  "negative": {
+    "log": "pr04-replay-lease-negative-1.txt",
+    "exit": 101,
+    "scope": "Initial uncommitted replay-owner candidate, not old production code",
+    "assertion": "protocol cleanup alone released a still-running registered worker"
+  },
+  "constrained": {
+    "passed": 30,
+    "failed": 0,
+    "seconds": 4.596263479994377,
+    "binary_sha256": "79999267cb1bffadebbdcb2f8aa573dfeddce5b771f4f17d2bd2b4dee42831d3",
+    "argv": [
+      "docker",
+      "run",
+      "--rm",
+      "--cpus=1",
+      "--memory=1g",
+      "--memory-swap=1g",
+      "--network=none",
+      "--user=1000:1000",
+      "-e",
+      "RUST_MIN_STACK=16777216",
+      "-v",
+      "/workspace:/workspace:ro",
+      "-w",
+      "/workspace/core",
+      "python@sha256:a6e34c598f2467ed0e9a8d349809fcd8b5c603269512df273a0bb1784edc11b1",
+      "/workspace/core-baseline-artifacts/pr04-replay-shadowsocks-lib",
+      "--test-threads=4",
+      "--nocapture"
+    ],
+    "scope": "Whole focused SS lib binary built from the nine identical Rust source files before commit. Separate network namespace, read-only workspace,1CPU1GiB/no swap/user1000; not complete RS01 qualification."
+  },
+  "behavior": "One actual adapter-scoped TCP2022 replay pool; pure roleless factory with task_limit1. Legacy worker JoinHandle retained before await and confirmed before registered critical maintenance. Lease belongs to actual worker future until exit; cancellation and protocol hook completion cannot release it early. Valid salt history,61s TTL,30s pruning and full capacity rejection unchanged.",
+  "production_scope": "Real roleless protocol factory and actual adapter-scoped state; not activated by production registry before shared-resource host transactions",
+  "release": {
+    "git_hash": "9ac2eb8b",
+    "binary_sha256": "81dbd5250b50ef9261195f96006dc462de48ea3052052da10ff3f36a3033ce2b",
+    "features": [
+      "status-api",
+      "http",
+      "hysteria2",
+      "mieru",
+      "mixed",
+      "shadowsocks",
+      "socks5",
+      "trojan",
+      "vless",
+      "vmess",
+      "dns"
+    ],
+    "scope": "Actual default release; not optional connector/grpc/WireGuard release qualification."
+  },
+  "artifacts": [
+    {
+      "source": "pr04-replay-final-fmt.txt",
+      "source_bytes": 0,
+      "source_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "artifact": "evidence/replay-pr04-replay-final-fmt.txt.gz",
+      "artifact_bytes": 20,
+      "artifact_sha256": "f61f27bd17de546264aa58f40f3aafaac7021e0ef69c17f6b1b4cd7664a037ec"
+    },
+    {
+      "source": "pr04-replay-final-check.txt",
+      "source_bytes": 1791,
+      "source_sha256": "81f0afaf976df623d286551f1e6c01951ea9da00160b962700591165778cc974",
+      "artifact": "evidence/replay-pr04-replay-final-check.txt.gz",
+      "artifact_bytes": 579,
+      "artifact_sha256": "6041bff5703b199967013df5d73249f97960809ad3c685930d5e14990b210a22"
+    },
+    {
+      "source": "pr04-replay-final-test.txt",
+      "source_bytes": 294540,
+      "source_sha256": "42c20e9353c9d422050325e26da944c12ee3ae5c951bf1da996b7e5945a7c487",
+      "artifact": "evidence/replay-pr04-replay-final-test.txt.gz",
+      "artifact_bytes": 64733,
+      "artifact_sha256": "81e01012356863d0a0df87360fb4572d4e5a767f343ae3946b2455a54957d494"
+    },
+    {
+      "source": "pr04-replay-final-release.txt",
+      "source_bytes": 1554,
+      "source_sha256": "d10340643371a3829ead5b4fc96daa717bfc2e9276d87fbfd08b6ff8e3e71ec3",
+      "artifact": "evidence/replay-pr04-replay-final-release.txt.gz",
+      "artifact_bytes": 548,
+      "artifact_sha256": "01b0d0afed41b806554ccca280703c1331dfeb27747e260c835f3a92b1587fe0"
+    },
+    {
+      "source": "pr04-replay-final-no-std.txt",
+      "source_bytes": 60,
+      "source_sha256": "0c27bed0ddbb48eea172769617d880c7f83b7e6a6ba04e5bc4679bea741f1fb2",
+      "artifact": "evidence/replay-pr04-replay-final-no-std.txt.gz",
+      "artifact_bytes": 80,
+      "artifact_sha256": "e83e2a7a60379b91e3638d3241763afc91ace24b5fa726526161d0087de48879"
+    },
+    {
+      "source": "pr04-replay-final-minimal.txt",
+      "source_bytes": 30806,
+      "source_sha256": "a81f6b875e1a1ff661b9a2ebc952d4e949340558b633e3491dda19d7eac734c3",
+      "artifact": "evidence/replay-pr04-replay-final-minimal.txt.gz",
+      "artifact_bytes": 6032,
+      "artifact_sha256": "7def218ab8b182d1a9ce9e942a15dcd2c2ee34d0df731a13f4cc8c81eb1be1b4"
+    },
+    {
+      "source": "pr04-replay-final-dependencies.txt",
+      "source_bytes": 263,
+      "source_sha256": "9bf298458393fb4315cfa94f3e0d79101b9caf8b2c9292314d989f68905c8ed1",
+      "artifact": "evidence/replay-pr04-replay-final-dependencies.txt.gz",
+      "artifact_bytes": 122,
+      "artifact_sha256": "28f519da20dd12d57e18c3651d837c46e3d60e188b4e79651ec332ff4d459ebc"
+    },
+    {
+      "source": "pr04-replay-final-validation.json",
+      "source_bytes": 2830,
+      "source_sha256": "00efe29f19afbc4a4d234b74bbba7b7a1a1d6c205c9d9ad45f81656ab67315b1",
+      "artifact": "evidence/replay-pr04-replay-final-validation.json.gz",
+      "artifact_bytes": 640,
+      "artifact_sha256": "78c22d5b18b0a9414ab239b86a9cb3b8366c0a21aaee60d2d98d23d945bddd78"
+    },
+    {
+      "source": "pr04-replay-precommit-validation.json",
+      "source_bytes": 2033,
+      "source_sha256": "428c7b8cb72c43f39c0d03dad4648f127c8c05ef00d80334c8092e7239f5d6d1",
+      "artifact": "evidence/replay-pr04-replay-precommit-validation.json.gz",
+      "artifact_bytes": 1035,
+      "artifact_sha256": "4fec1e9ac7939c0db6cc8751c3a7e9e56965271459f31ed15c81ca45ff6a1709"
+    },
+    {
+      "source": "pr04-replay-component-positive-1.txt",
+      "source_bytes": 2613,
+      "source_sha256": "a7080a5ffbf6720ce8d045dc3d55005e0220b007c5e39955958b3e8f1a7978fe",
+      "artifact": "evidence/replay-pr04-replay-component-positive-1.txt.gz",
+      "artifact_bytes": 1075,
+      "artifact_sha256": "459021d3ff1c0107f4ce98fca6e9bac0e5df6533b05050191016d909aef974df"
+    },
+    {
+      "source": "pr04-replay-lib-positive-1.txt",
+      "source_bytes": 3708,
+      "source_sha256": "21c15890f457a6ff34bf9294c1d4bb41afd04739b8b8a989ed808a01db78fe11",
+      "artifact": "evidence/replay-pr04-replay-lib-positive-1.txt.gz",
+      "artifact_bytes": 1454,
+      "artifact_sha256": "0f976ba1a8d0416a2d74ad5e06d5606d81726b6c260b60a47143db6b3714543f"
+    },
+    {
+      "source": "pr04-replay-lib-positive-2.txt",
+      "source_bytes": 3811,
+      "source_sha256": "55bab8c668cafdbe02225b23a7df1e7dee3f2416e1addc4cf0c09af1c2a397f7",
+      "artifact": "evidence/replay-pr04-replay-lib-positive-2.txt.gz",
+      "artifact_bytes": 1484,
+      "artifact_sha256": "c0d2befdca4c221fe2b289618b7b9c473af58879eabf6139e0fca681829c67b5"
+    },
+    {
+      "source": "pr04-replay-lease-negative-1.txt",
+      "source_bytes": 1465,
+      "source_sha256": "270a551abef1b42fb03998dff4df7bc226f35414a02fcff16d2d7044f605e2ae",
+      "artifact": "evidence/replay-pr04-replay-lease-negative-1.txt.gz",
+      "artifact_bytes": 711,
+      "artifact_sha256": "2ba479af7bd7c918a1539da8357926e2b730f6619ee904acaac33449344d433b"
+    },
+    {
+      "source": "pr04-replay-strict-1.txt",
+      "source_bytes": 2688,
+      "source_sha256": "b9f0929cde4911775edf948f7e6eb3f2d525e0d9f307001896d8de1934314e67",
+      "artifact": "evidence/replay-pr04-replay-strict-1.txt.gz",
+      "artifact_bytes": 695,
+      "artifact_sha256": "a35ffa6034630c6e22e25db2e4f3e5e04ce08eb01e9211dbf568d1addbed3094"
+    },
+    {
+      "source": "pr04-replay-constrained-1.txt",
+      "source_bytes": 3182,
+      "source_sha256": "3021a954c53678330abfee23b2f3219c6727cd2c693ea66349ff757cffc07783",
+      "artifact": "evidence/replay-pr04-replay-constrained-1.txt.gz",
+      "artifact_bytes": 1132,
+      "artifact_sha256": "b56c53184cf09c26ea3cc3823a11b8f15b1bdc81a0da8c99b5e1fc0373c5f892"
+    },
+    {
+      "source": "pr04-replay-constrained-1.json",
+      "source_bytes": 1993,
+      "source_sha256": "36b2a024e033a6624fb4da4e2b80336a4024caf477f1f47cfa6a2802fca7c3ee",
+      "artifact": "evidence/replay-pr04-replay-constrained-1.json.gz",
+      "artifact_bytes": 1057,
+      "artifact_sha256": "9c58923d397b25cd342d4d8b52880658ba0a25dab4b706859890d8f6b94c7ac4"
+    },
+    {
+      "source": "pr04-replay-release-build-info.txt",
+      "source_bytes": 5799,
+      "source_sha256": "9e20f11a22229d807f8cd7bfd8e1c2df28da24043c60349a93d079cd616df86c",
+      "artifact": "evidence/replay-pr04-replay-release-build-info.txt.gz",
+      "artifact_bytes": 831,
+      "artifact_sha256": "c4c1d4f1b3b9734b875d1b08fc191785145069593088b0b8fc1aa88169c09951"
+    },
+    {
+      "source": "ci-linux-1cac9303.raw.txt",
+      "source_bytes": 658047,
+      "source_sha256": "fa3e6424fba3419740d3396c761ab97fd1290581f83cf482a3732265c70168be",
+      "artifact": "evidence/replay-ci-linux-1cac9303.raw.txt.gz",
+      "artifact_bytes": 130754,
+      "artifact_sha256": "6693c94c68b698bcc9c36c1a62d4f565d083bf5302bb9294d264833b84a46189"
+    },
+    {
+      "source": "ci-vless-1cac9303.raw.txt",
+      "source_bytes": 272736,
+      "source_sha256": "4ae7ad990ec324159d323f3fd200ef184755f5b8d6b10aef780a717fcfd4f7fc",
+      "artifact": "evidence/replay-ci-vless-1cac9303.raw.txt.gz",
+      "artifact_bytes": 39171,
+      "artifact_sha256": "63c92212a80a990c3f8d84d507d2aff78e29277e7ca44e3ecd7298a1d8bebc89"
+    },
+    {
+      "source": "ci-evidence-1cac9303.json",
+      "source_bytes": 34844,
+      "source_sha256": "d2947ff5cbe359cf79db649c16f9d389430582b30e4e85db5f4a3bea69c749f3",
+      "artifact": "evidence/replay-ci-evidence-1cac9303.json.gz",
+      "artifact_bytes": 2988,
+      "artifact_sha256": "8614cff258384256a02dd69bcbb58742ed6b746bcd0a787a3752176506bdc980"
+    },
+    {
+      "source": "ci-tun-windows-1cac9303.raw.txt",
+      "source_bytes": 7015684,
+      "source_sha256": "d810feada379e231b83d320dcbdab7ef7d8fe3a37add91a3f1172a4e52c23a7d",
+      "artifact": "evidence/replay-ci-tun-windows-1cac9303.raw.txt.gz",
+      "artifact_bytes": 377905,
+      "artifact_sha256": "cf781551a437acee4befd3239a2cad3e63ce39f0d65ab4c3d4a462a559ad1644"
+    },
+    {
+      "source": "qualify-replay.py",
+      "source_bytes": 2176,
+      "source_sha256": "ced641aeec1328a728a257fae71441cf0432582fd97c75120800f89ea79470fb",
+      "artifact": "evidence/replay-qualify-replay.py.gz",
+      "artifact_bytes": 936,
+      "artifact_sha256": "8e43f28fecbd0702a65391aea91634418230203022a1f59b5e6ae567703a2bec"
+    }
+  ],
+  "remaining": "All17 continue on same branch/Draft124. Shared-resource graph and M4 activation, plugin Child ownership/confirmed cleanup, remaining Stream/carrier/Datagram/inbound/Packet, RuntimeHost, old bridges and final consumers/physical devices remain ongoing. Previous CI belongs to1cac only; historical XHTTP/reference qualification and actual Windows route coverage remain separately recorded."
+}

@@ -13,6 +13,14 @@ use zero_engine::EngineError;
 /// adapter's prepared packet-path operation, zero manager changes.
 #[async_trait]
 pub(crate) trait PacketPathCarrier: Send + Sync {
+    /// Only a migrated original physical root can supply this owner. None is
+    /// unknown native ownership; it is never a successful close/no-I/O fact.
+    fn native_owner(
+        &self,
+    ) -> Option<Arc<crate::runtime::udp_dispatch::packet_owner::PacketCarrierOwnerSlot>> {
+        None
+    }
+
     /// Send `payload` to `target:port` through this carrier.
     async fn send_to(&self, target: &Address, port: u16, payload: &[u8])
         -> Result<(), EngineError>;

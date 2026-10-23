@@ -1,0 +1,55 @@
+{
+  "source": "actual old kernel persisted canonical synthetic configuration",
+  "values": [
+    {
+      "path": "inbounds.0.idle_timeout_secs",
+      "observed_default": null
+    },
+    {
+      "path": "runtime.udp_upstream_idle_timeout_seconds",
+      "observed_default": 30
+    },
+    {
+      "path": "runtime.event_log_capacity",
+      "observed_default": 1024
+    },
+    {
+      "path": "runtime.network.udp_receive_queue",
+      "observed_default": {
+        "capacity": 64
+      }
+    },
+    {
+      "path": "runtime.network.udp_receive_queue.capacity",
+      "observed_default": 64
+    },
+    {
+      "path": "runtime.log.rate_limit",
+      "observed_default": null
+    },
+    {
+      "path": "api.dispatcher.max_in_memory_deliveries",
+      "observed_default": 4096
+    },
+    {
+      "path": "api.dispatcher.max_in_memory_delivery_bytes",
+      "observed_default": 16777216
+    },
+    {
+      "path": "api.dispatcher.source_queue_max_bytes",
+      "observed_default": 8388608
+    },
+    {
+      "path": "api.dispatcher.max_retry_attempts",
+      "observed_default": 10
+    },
+    {
+      "path": "api.dispatcher.retry_max_delay_ms",
+      "observed_default": 64000
+    },
+    {
+      "path": "api.dispatcher.webhook_timeout_ms",
+      "observed_default": 10000
+    }
+  ]
+}

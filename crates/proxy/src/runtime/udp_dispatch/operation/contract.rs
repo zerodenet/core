@@ -8,6 +8,11 @@ use crate::runtime::udp_dispatch::UdpDispatch;
 use crate::runtime::udp_flow::result::{FlowFailure, FlowStartResult};
 
 pub(crate) trait PreparedUdpFlowOperation: Send {
+    #[cfg(feature = "raw-ip-runtime")]
+    fn controlled_native_coverage(&self, _session: &Session) -> bool {
+        false
+    }
+
     fn execute<'a>(
         self: Box<Self>,
         dispatch: &'a mut UdpDispatch,

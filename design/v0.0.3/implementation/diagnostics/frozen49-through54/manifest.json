@@ -1,0 +1,1061 @@
+{
+  "overall_passed": false,
+  "scope": "Frozen49 through54 command evidence; no final ALL17 qualification",
+  "rounds": [
+    {
+      "number": 49,
+      "head": "6af5228dcb8e11d2a7c89d27ab3761cd1e53aee2",
+      "tree": "754a5b41f898000c2e17a01c55de16f045e57a2a",
+      "lock_sha256": "cbfa65b5969b78787ea35dfbaae93e44953103d4fd89bdcb8425f2ee9b780cdb",
+      "commands": [
+        {
+          "name": "fmt",
+          "exit": 0,
+          "counts": null,
+          "log_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "coverage_ok": true,
+          "frozen_flags_verified": true
+        },
+        {
+          "name": "workspace-alltargets-check",
+          "exit": 101,
+          "counts": null,
+          "log_sha256": "b83e939be3d769a6fd2d398d560e44f63f2e713cee4ab040473f26d73790fce7",
+          "coverage_ok": true,
+          "frozen_flags_verified": true
+        }
+      ]
+    },
+    {
+      "number": 50,
+      "head": "61f01a2b260adae5228950391b1859bdcd99f037",
+      "tree": "d5a9d27162da5ff807f90cec0fe194bb8d5cce2a",
+      "lock_sha256": "cbfa65b5969b78787ea35dfbaae93e44953103d4fd89bdcb8425f2ee9b780cdb",
+      "commands": [
+        {
+          "name": "fmt",
+          "exit": 0,
+          "counts": null,
+          "log_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "coverage_ok": true,
+          "frozen_flags_verified": true
+        },
+        {
+          "name": "platform-unit",
+          "exit": 0,
+          "counts": [
+            157,
+            0,
+            11
+          ],
+          "log_sha256": "ef4f786a198dced6d4479567da1128744b0e1834784bc5a1c5d6fdb0360c32ee",
+          "coverage_ok": true,
+          "frozen_flags_verified": true
+        },
+        {
+          "name": "proxy-library",
+          "exit": 0,
+          "counts": [
+            679,
+            0,
+            6
+          ],
+          "log_sha256": "9a7a92670f3788ef47c9cb48a42a2b8f84c284936f96724d3e95871c885846e5",
+          "coverage_ok": true,
+          "frozen_flags_verified": true
+        },
+        {
+          "name": "workspace-alltargets-check",
+          "exit": 0,
+          "counts": null,
+          "log_sha256": "d285aaba1a91f9ae72aa1b356200868cfc3fc669590255d0a9946a8e31d27091",
+          "coverage_ok": true,
+          "frozen_flags_verified": true
+        },
+        {
+          "name": "test-layout",
+          "exit": 0,
+          "counts": null,
+          "log_sha256": "0290d88b080b1e36f1795f62fd4cd93acc9edd1782a15a6a817eeffcd22f73bb",
+          "coverage_ok": true,
+          "frozen_flags_verified": true
+        },
+        {
+          "name": "platform-contracts-all",
+          "exit": 0,
+          "counts": [
+            82,
+            0,
+            0
+          ],
+          "log_sha256": "0b12dce8bfd19d4a23217e7ec1c023e4375276a259cc95f27c653e25dc67bc51",
+          "coverage_ok": true,
+          "frozen_flags_verified": true
+        },
+        {
+          "name": "windows-platform",
+          "exit": 0,
+          "counts": null,
+          "log_sha256": "399f922ee5180398daf80763e8af08f0c8c9e013da4edff88d5f6ecfca07ebe5",
+          "coverage_ok": true,
+          "frozen_flags_verified": true
+        },
+        {
+          "name": "transport-library",
+          "exit": 0,
+          "counts": [
+            200,
+            0,
+            1
+          ],
+          "log_sha256": "9ba0756e11c03711b31ab4694207c7e338130ff94b648e4467145e4d83744bee",
+          "coverage_ok": true,
+          "frozen_flags_verified": true
+        },
+        {
+          "name": "vmess-library",
+          "exit": 0,
+          "counts": [
+            27,
+            0,
+            0
+          ],
+          "log_sha256": "757a9837f6ae3621f208c0cbb45e7c1711e092481a6f6efffda1c91885c45401",
+          "coverage_ok": true,
+          "frozen_flags_verified": true
+        },
+        {
+          "name": "source-runtime-guard",
+          "exit": 0,
+          "counts": [
+            189,
+            0,
+            0
+          ],
+          "log_sha256": "c50b00d3c20d44e65ab97228839733ca37c79e5887da542e9cb07c874300d836",
+          "coverage_ok": true,
+          "frozen_flags_verified": true
+        },
+        {
+          "name": "source-architecture-guard",
+          "exit": 0,
+          "counts": [
+            26,
+            0,
+            0
+          ],
+          "log_sha256": "a8c4c5b52977fc9cc41ce810027e732871b50cf3fdc66c45fea63333c55d0f5b",
+          "coverage_ok": true,
+          "frozen_flags_verified": true
+        },
+        {
+          "name": "strict-platform-stack",
+          "exit": 101,
+          "counts": null,
+          "log_sha256": "6ba4d1ab017fff035ef1a4a8ccc655d92dd0446b3101e64aed67cdb7daae7ecc",
+          "coverage_ok": true,
+          "frozen_flags_verified": true
+        }
+      ]
+    },
+    {
+      "number": 51,
+      "head": "f64b490cc3b800147320a413dad94fbe4db14230",
+      "tree": "5ffa785dad7545bbae394fed003c7ec15f7fb97a",
+      "lock_sha256": "cbfa65b5969b78787ea35dfbaae93e44953103d4fd89bdcb8425f2ee9b780cdb",
+      "commands": [
+        {
+          "name": "fmt",
+          "exit": 0,
+          "counts": null,
+          "log_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "coverage_ok": true,
+          "frozen_flags_verified": true
+        },
+        {
+          "name": "platform-unit",
+          "exit": 101,
+          "counts": null,
+          "log_sha256": "4ca86509bfa5806ccfcd5f9da82f4cff8fff4b5dd06a7e8dd515491ad541c9ae",
+          "coverage_ok": false,
+          "frozen_flags_verified": true
+        },
+        {
+          "name": "tun-library",
+          "exit": 0,
+          "counts": [
+            38,
+            0,
+            1
+          ],
+          "log_sha256": "2231950338e6873e83fde56de384da4c35c5a0dbc2502aafc3a6832711d87499",
+          "coverage_ok": true,
+          "frozen_flags_verified": true
+        },
+        {
+          "name": "stack-library",
+          "exit": 0,
+          "counts": [
+            36,
+            0,
+            1
+          ],
+          "log_sha256": "84759d96bf654dd8464c5c427575cf0bb479e5c8147c50180c84b03077ce65eb",
+          "coverage_ok": true,
+          "frozen_flags_verified": true
+        },
+        {
+          "name": "proxy-library",
+          "exit": 101,
+          "counts": null,
+          "log_sha256": "6f51572b6c01d108c8229711f8af579d7d7940d1478721bcfa1042ee624d842c",
+          "coverage_ok": false,
+          "frozen_flags_verified": true
+        },
+        {
+          "name": "workspace-alltargets-check",
+          "exit": 101,
+          "counts": null,
+          "log_sha256": "d4702e8bbc687c00421f65dc067f3f6c19212c2068591d8302194c2806d4cfba",
+          "coverage_ok": true,
+          "frozen_flags_verified": true
+        }
+      ]
+    },
+    {
+      "number": 52,
+      "head": "19913b10f396338a8d4caf0ca02499a54f6dc260",
+      "tree": "061ecf29f74682d6a7be0d20808a4cc837daa941",
+      "lock_sha256": "cbfa65b5969b78787ea35dfbaae93e44953103d4fd89bdcb8425f2ee9b780cdb",
+      "commands": [
+        {
+          "name": "fmt",
+          "exit": 0,
+          "counts": null,
+          "log_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "coverage_ok": true,
+          "frozen_flags_verified": true
+        },
+        {
+          "name": "platform-unit",
+          "exit": 0,
+          "counts": [
+            174,
+            0,
+            11
+          ],
+          "log_sha256": "b5fd364030dc4ccbe5801abae687eff736bf8416dcd2ab1639c84fd47f4a0da5",
+          "coverage_ok": true,
+          "frozen_flags_verified": true
+        },
+        {
+          "name": "engine-library",
+          "exit": 0,
+          "counts": [
+            50,
+            0,
+            0
+          ],
+          "log_sha256": "f37700f8fcc7b744a6f4c22ee42f0fb3a7d36fcaba2de438943d77c1231ff5df",
+          "coverage_ok": true,
+          "frozen_flags_verified": true
+        },
+        {
+          "name": "tun-library",
+          "exit": 0,
+          "counts": [
+            38,
+            0,
+            1
+          ],
+          "log_sha256": "0c05cc66d80f49e9cb0f9ee7190801c87bc7fe5eacefdef34b002a4518c60004",
+          "coverage_ok": true,
+          "frozen_flags_verified": true
+        },
+        {
+          "name": "stack-library",
+          "exit": 0,
+          "counts": [
+            40,
+            0,
+            1
+          ],
+          "log_sha256": "32d5fd669eabd746bc414511aa11b8a2a896118c829398c626f348496cb9c2fc",
+          "coverage_ok": true,
+          "frozen_flags_verified": true
+        },
+        {
+          "name": "proxy-library",
+          "exit": 101,
+          "counts": null,
+          "log_sha256": "6de7a844e0ce4ec3b6e4c785f4a67bb25be7e0562d907213745e370daefac436",
+          "coverage_ok": false,
+          "frozen_flags_verified": true
+        },
+        {
+          "name": "workspace-alltargets-check",
+          "exit": 101,
+          "counts": null,
+          "log_sha256": "86024d5107a6ee37c6460a144bd4433176e0c70ccaa456d273dabfa7c8b8f007",
+          "coverage_ok": true,
+          "frozen_flags_verified": true
+        }
+      ]
+    },
+    {
+      "number": 53,
+      "head": "4f367b5fea867cd854b8cfcb42f582e5eb8b3fdd",
+      "tree": "97eb7c4deb538fe43f714e21408e17eae6b9d3c1",
+      "lock_sha256": "2540f657bb868ae1001889f6ab8fb23097835a3c134b6b14384cfaf2deb83fe6",
+      "commands": [
+        {
+          "name": "fmt",
+          "exit": 0,
+          "counts": null,
+          "log_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "coverage_ok": true,
+          "frozen_flags_verified": true
+        },
+        {
+          "name": "platform-unit",
+          "exit": 101,
+          "counts": null,
+          "log_sha256": "27e2d33375deff63d9fb3fa68224ac6229800fbdb9e702d611322ae8a66510b3",
+          "coverage_ok": false,
+          "frozen_flags_verified": true
+        },
+        {
+          "name": "engine-library",
+          "exit": 0,
+          "counts": [
+            50,
+            0,
+            0
+          ],
+          "log_sha256": "c7fcf9a0417cdc1e5d9fee9470ccedddfad0b918dba2bc19c05d644a096b7b98",
+          "coverage_ok": true,
+          "frozen_flags_verified": true
+        },
+        {
+          "name": "tun-library",
+          "exit": 0,
+          "counts": [
+            41,
+            0,
+            2
+          ],
+          "log_sha256": "f0e8b5d746dca82ebf49345ffa48d88c47b66c3d07fb494eee0b6af4b730275b",
+          "coverage_ok": true,
+          "frozen_flags_verified": true
+        },
+        {
+          "name": "stack-library",
+          "exit": 0,
+          "counts": [
+            40,
+            0,
+            1
+          ],
+          "log_sha256": "0c62741b0edf06707c5c04e9c2c58efaa3d4d11b2fba34ac78ec3a8cf072393c",
+          "coverage_ok": true,
+          "frozen_flags_verified": true
+        },
+        {
+          "name": "proxy-library",
+          "exit": 101,
+          "counts": null,
+          "log_sha256": "59ba812ab80a22ffc3953904971c770d747b4097d45a7e7ac39c2bf7b013dc88",
+          "coverage_ok": false,
+          "frozen_flags_verified": true
+        },
+        {
+          "name": "workspace-alltargets-check",
+          "exit": 101,
+          "counts": null,
+          "log_sha256": "2254723b602c10d8823dd23a41e214d1bafaff10d9e1ba7a567a8bac9a3079b5",
+          "coverage_ok": true,
+          "frozen_flags_verified": true
+        }
+      ]
+    },
+    {
+      "number": 54,
+      "head": "203c65e109e2be68fffc5e6a7d9a68e39c3ed447",
+      "tree": "90e2f4a7b52be8b9709c3123f11e7375a2acdeae",
+      "lock_sha256": "2540f657bb868ae1001889f6ab8fb23097835a3c134b6b14384cfaf2deb83fe6",
+      "commands": [
+        {
+          "name": "fmt",
+          "exit": 0,
+          "counts": null,
+          "log_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "coverage_ok": true,
+          "frozen_flags_verified": true
+        },
+        {
+          "name": "platform-unit",
+          "exit": 101,
+          "counts": [
+            202,
+            1,
+            11
+          ],
+          "log_sha256": "f5e2927201a41e9b5f2e0917cc9739b2433ec16e4000b16e6fbf5868db1b3bba",
+          "coverage_ok": true,
+          "frozen_flags_verified": true
+        },
+        {
+          "name": "engine-library",
+          "exit": 0,
+          "counts": [
+            50,
+            0,
+            0
+          ],
+          "log_sha256": "30b79f2c06a70718f4a339e7f1145a991c3e23b7de0c229b06dc11a25cde5ac1",
+          "coverage_ok": true,
+          "frozen_flags_verified": true
+        },
+        {
+          "name": "tun-library",
+          "exit": 0,
+          "counts": [
+            41,
+            0,
+            2
+          ],
+          "log_sha256": "eb43763d89d72884c8f50ddac0a65caa2345ac76e2ba5f57363e98a426ff1623",
+          "coverage_ok": true,
+          "frozen_flags_verified": true
+        },
+        {
+          "name": "stack-library",
+          "exit": 0,
+          "counts": [
+            40,
+            0,
+            1
+          ],
+          "log_sha256": "51a0a5039adcef673a18f2b82c37a8ecc7627bfee329f0166924cd3ea39a354f",
+          "coverage_ok": true,
+          "frozen_flags_verified": true
+        },
+        {
+          "name": "transport-library",
+          "exit": 101,
+          "counts": null,
+          "log_sha256": "7be0bb479944c974cdb47342e037932ec7005a0f5222425afae959c712b1bc6a",
+          "coverage_ok": false,
+          "frozen_flags_verified": true
+        },
+        {
+          "name": "proxy-library",
+          "exit": 101,
+          "counts": null,
+          "log_sha256": "ba6480d05d09847eccd31e3f0803154fdc034a5d57871dad17ecab6f6550fce9",
+          "coverage_ok": false,
+          "frozen_flags_verified": true
+        },
+        {
+          "name": "workspace-alltargets-check",
+          "exit": 101,
+          "counts": null,
+          "log_sha256": "9b9592fc6eb4ca2260770691ba9435aacca5e54e4624b57dfc8bb03c569523db",
+          "coverage_ok": true,
+          "frozen_flags_verified": true
+        }
+      ]
+    },
+    {
+      "number": "53-windows-tun",
+      "head": "4f367b5fea867cd854b8cfcb42f582e5eb8b3fdd",
+      "tree": "97eb7c4deb538fe43f714e21408e17eae6b9d3c1",
+      "lock_sha256": "2540f657bb868ae1001889f6ab8fb23097835a3c134b6b14384cfaf2deb83fe6",
+      "commands": [
+        {
+          "name": "windows-tun",
+          "exit": 0,
+          "counts": null,
+          "log_sha256": "3be71529c34dffce779ee652c39d4109cbe21b674c5d53b9183db87d0ea0142d",
+          "coverage_ok": true,
+          "frozen_flags_verified": true
+        }
+      ]
+    }
+  ],
+  "records": [
+    {
+      "source": "/workspace/core-baseline-artifacts/pr05-parallel-focused-49-fmt.txt",
+      "path": "evidence/pr05-parallel-focused-49-fmt.txt.gz",
+      "kind": "frozen-command-evidence",
+      "raw_bytes": 0,
+      "raw_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "gzip_bytes": 20,
+      "gzip_sha256": "f61f27bd17de546264aa58f40f3aafaac7021e0ef69c17f6b1b4cd7664a037ec"
+    },
+    {
+      "source": "/workspace/core-baseline-artifacts/pr05-parallel-focused-49-workspace-alltargets-check.txt",
+      "path": "evidence/pr05-parallel-focused-49-workspace-alltargets-check.txt.gz",
+      "kind": "frozen-command-evidence",
+      "raw_bytes": 44715,
+      "raw_sha256": "b83e939be3d769a6fd2d398d560e44f63f2e713cee4ab040473f26d73790fce7",
+      "gzip_bytes": 7289,
+      "gzip_sha256": "7c8620d6357eff998bca4e47d9ba3606fc1d79c5a46cf736f712fcc326862f57"
+    },
+    {
+      "source": "/workspace/core-baseline-artifacts/pr05-parallel-focused-49.json",
+      "path": "evidence/pr05-parallel-focused-49.json.gz",
+      "kind": "frozen-command-evidence",
+      "raw_bytes": 1185,
+      "raw_sha256": "f231a6b82e4dab1b697863d01cbded6d60a679c8ce3ae866f28c35883c77a8db",
+      "gzip_bytes": 450,
+      "gzip_sha256": "767afcec8bc177edded0fbbc55c9eaf6b04ab053587a56ce387625056b806cd9"
+    },
+    {
+      "source": "/workspace/core-baseline-artifacts/pr05-parallel-focused-50-fmt.txt",
+      "path": "evidence/pr05-parallel-focused-50-fmt.txt.gz",
+      "kind": "frozen-command-evidence",
+      "raw_bytes": 0,
+      "raw_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "gzip_bytes": 20,
+      "gzip_sha256": "f61f27bd17de546264aa58f40f3aafaac7021e0ef69c17f6b1b4cd7664a037ec"
+    },
+    {
+      "source": "/workspace/core-baseline-artifacts/pr05-parallel-focused-50-platform-contracts-all.txt",
+      "path": "evidence/pr05-parallel-focused-50-platform-contracts-all.txt.gz",
+      "kind": "frozen-command-evidence",
+      "raw_bytes": 8223,
+      "raw_sha256": "0b12dce8bfd19d4a23217e7ec1c023e4375276a259cc95f27c653e25dc67bc51",
+      "gzip_bytes": 2544,
+      "gzip_sha256": "bc9df8f6e61b76ca01668f40b12ade5ec6088b3a4267a9411435525d85021f9b"
+    },
+    {
+      "source": "/workspace/core-baseline-artifacts/pr05-parallel-focused-50-platform-unit.txt",
+      "path": "evidence/pr05-parallel-focused-50-platform-unit.txt.gz",
+      "kind": "frozen-command-evidence",
+      "raw_bytes": 21406,
+      "raw_sha256": "ef4f786a198dced6d4479567da1128744b0e1834784bc5a1c5d6fdb0360c32ee",
+      "gzip_bytes": 5265,
+      "gzip_sha256": "ce4169e466f86a9a183a30fa3a5e677b4151812895714d5f0b9265f1f09fb737"
+    },
+    {
+      "source": "/workspace/core-baseline-artifacts/pr05-parallel-focused-50-proxy-library.txt",
+      "path": "evidence/pr05-parallel-focused-50-proxy-library.txt.gz",
+      "kind": "frozen-command-evidence",
+      "raw_bytes": 85961,
+      "raw_sha256": "9a7a92670f3788ef47c9cb48a42a2b8f84c284936f96724d3e95871c885846e5",
+      "gzip_bytes": 19625,
+      "gzip_sha256": "d2aeee8e9f3eb390028ca334819dc06ff4fd2b58e13ec8616cb5cde7b1ca4bf4"
+    },
+    {
+      "source": "/workspace/core-baseline-artifacts/pr05-parallel-focused-50-source-architecture-guard.txt",
+      "path": "evidence/pr05-parallel-focused-50-source-architecture-guard.txt.gz",
+      "kind": "frozen-command-evidence",
+      "raw_bytes": 2491,
+      "raw_sha256": "a8c4c5b52977fc9cc41ce810027e732871b50cf3fdc66c45fea63333c55d0f5b",
+      "gzip_bytes": 1104,
+      "gzip_sha256": "227f44bc14d135ea8916a90f32bb89e4bbfc859999cf68182601694f4e1da453"
+    },
+    {
+      "source": "/workspace/core-baseline-artifacts/pr05-parallel-focused-50-source-runtime-guard.txt",
+      "path": "evidence/pr05-parallel-focused-50-source-runtime-guard.txt.gz",
+      "kind": "frozen-command-evidence",
+      "raw_bytes": 13956,
+      "raw_sha256": "c50b00d3c20d44e65ab97228839733ca37c79e5887da542e9cb07c874300d836",
+      "gzip_bytes": 3130,
+      "gzip_sha256": "91ae84ab85d04d8d723cb09c992ea34c66d8966c0992bc1cf226d425a3c99f3f"
+    },
+    {
+      "source": "/workspace/core-baseline-artifacts/pr05-parallel-focused-50-strict-platform-stack.txt",
+      "path": "evidence/pr05-parallel-focused-50-strict-platform-stack.txt.gz",
+      "kind": "frozen-command-evidence",
+      "raw_bytes": 1871,
+      "raw_sha256": "6ba4d1ab017fff035ef1a4a8ccc655d92dd0446b3101e64aed67cdb7daae7ecc",
+      "gzip_bytes": 690,
+      "gzip_sha256": "d41a79bc6e5d3704dc256e911253b7e708418a8034c2b1b8c3ca2c4040d9c03f"
+    },
+    {
+      "source": "/workspace/core-baseline-artifacts/pr05-parallel-focused-50-test-layout.txt",
+      "path": "evidence/pr05-parallel-focused-50-test-layout.txt.gz",
+      "kind": "frozen-command-evidence",
+      "raw_bytes": 59,
+      "raw_sha256": "0290d88b080b1e36f1795f62fd4cd93acc9edd1782a15a6a817eeffcd22f73bb",
+      "gzip_bytes": 77,
+      "gzip_sha256": "079178c46ec27a5e5a4e5e71d1d64e37b4818eb505423729cd211952020997a5"
+    },
+    {
+      "source": "/workspace/core-baseline-artifacts/pr05-parallel-focused-50-transport-library.txt",
+      "path": "evidence/pr05-parallel-focused-50-transport-library.txt.gz",
+      "kind": "frozen-command-evidence",
+      "raw_bytes": 22288,
+      "raw_sha256": "9ba0756e11c03711b31ab4694207c7e338130ff94b648e4467145e4d83744bee",
+      "gzip_bytes": 6366,
+      "gzip_sha256": "61022667e814ce26ce22d5f42ce4fe645f5b0f26b156cad68ee3b07c8ccc21a4"
+    },
+    {
+      "source": "/workspace/core-baseline-artifacts/pr05-parallel-focused-50-vmess-library.txt",
+      "path": "evidence/pr05-parallel-focused-50-vmess-library.txt.gz",
+      "kind": "frozen-command-evidence",
+      "raw_bytes": 21001,
+      "raw_sha256": "757a9837f6ae3621f208c0cbb45e7c1711e092481a6f6efffda1c91885c45401",
+      "gzip_bytes": 4452,
+      "gzip_sha256": "8182e5bd3352fb0879621154a085b42ebc2bcceec6a3cb140aaceedffc9edd6a"
+    },
+    {
+      "source": "/workspace/core-baseline-artifacts/pr05-parallel-focused-50-windows-platform.txt",
+      "path": "evidence/pr05-parallel-focused-50-windows-platform.txt.gz",
+      "kind": "frozen-command-evidence",
+      "raw_bytes": 864,
+      "raw_sha256": "399f922ee5180398daf80763e8af08f0c8c9e013da4edff88d5f6ecfca07ebe5",
+      "gzip_bytes": 468,
+      "gzip_sha256": "f12dc9ba12c8f7c76ab7fc76fa19e4be55931ca51dfec29d10b2af51c00ec482"
+    },
+    {
+      "source": "/workspace/core-baseline-artifacts/pr05-parallel-focused-50-workspace-alltargets-check.txt",
+      "path": "evidence/pr05-parallel-focused-50-workspace-alltargets-check.txt.gz",
+      "kind": "frozen-command-evidence",
+      "raw_bytes": 40902,
+      "raw_sha256": "d285aaba1a91f9ae72aa1b356200868cfc3fc669590255d0a9946a8e31d27091",
+      "gzip_bytes": 6753,
+      "gzip_sha256": "871f6f7cd1cac21991efad6d17a79caffa3e8a66fd9d6b5bbaac3ba00fb7764c"
+    },
+    {
+      "source": "/workspace/core-baseline-artifacts/pr05-parallel-focused-50.json",
+      "path": "evidence/pr05-parallel-focused-50.json.gz",
+      "kind": "frozen-command-evidence",
+      "raw_bytes": 6746,
+      "raw_sha256": "040c54516996473ca17b8d6e81f791a5f117ea4094907c6bce57de4180efb0af",
+      "gzip_bytes": 1003,
+      "gzip_sha256": "6817fcdc6039da868597d351b09a85a96c92d3ec34d75941b9b66be15956330e"
+    },
+    {
+      "source": "/workspace/core-baseline-artifacts/pr05-parallel-focused-51-fmt.txt",
+      "path": "evidence/pr05-parallel-focused-51-fmt.txt.gz",
+      "kind": "frozen-command-evidence",
+      "raw_bytes": 0,
+      "raw_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "gzip_bytes": 20,
+      "gzip_sha256": "f61f27bd17de546264aa58f40f3aafaac7021e0ef69c17f6b1b4cd7664a037ec"
+    },
+    {
+      "source": "/workspace/core-baseline-artifacts/pr05-parallel-focused-51-platform-unit.txt",
+      "path": "evidence/pr05-parallel-focused-51-platform-unit.txt.gz",
+      "kind": "frozen-command-evidence",
+      "raw_bytes": 27902,
+      "raw_sha256": "4ca86509bfa5806ccfcd5f9da82f4cff8fff4b5dd06a7e8dd515491ad541c9ae",
+      "gzip_bytes": 5092,
+      "gzip_sha256": "0583b1813215f1b9d2923cc76b2bc5552e978c53ac90d8bb8d5239900b6e055d"
+    },
+    {
+      "source": "/workspace/core-baseline-artifacts/pr05-parallel-focused-51-proxy-library.txt",
+      "path": "evidence/pr05-parallel-focused-51-proxy-library.txt.gz",
+      "kind": "frozen-command-evidence",
+      "raw_bytes": 2900,
+      "raw_sha256": "6f51572b6c01d108c8229711f8af579d7d7940d1478721bcfa1042ee624d842c",
+      "gzip_bytes": 1027,
+      "gzip_sha256": "18a6405b61066aed9bbe725da5dc2f029288c91ba0e258076bfbf8d4002b5a00"
+    },
+    {
+      "source": "/workspace/core-baseline-artifacts/pr05-parallel-focused-51-stack-library.txt",
+      "path": "evidence/pr05-parallel-focused-51-stack-library.txt.gz",
+      "kind": "frozen-command-evidence",
+      "raw_bytes": 3895,
+      "raw_sha256": "84759d96bf654dd8464c5c427575cf0bb479e5c8147c50180c84b03077ce65eb",
+      "gzip_bytes": 1443,
+      "gzip_sha256": "e399fc0076169989435e7aec6e40005ea8c82821dbec1fee1cfe9767480da0c7"
+    },
+    {
+      "source": "/workspace/core-baseline-artifacts/pr05-parallel-focused-51-tun-library.txt",
+      "path": "evidence/pr05-parallel-focused-51-tun-library.txt.gz",
+      "kind": "frozen-command-evidence",
+      "raw_bytes": 3852,
+      "raw_sha256": "2231950338e6873e83fde56de384da4c35c5a0dbc2502aafc3a6832711d87499",
+      "gzip_bytes": 1373,
+      "gzip_sha256": "6be95500549f7f4e9d027541dcd0657fc0bc027f235e6dfc4b28a934d404797c"
+    },
+    {
+      "source": "/workspace/core-baseline-artifacts/pr05-parallel-focused-51-workspace-alltargets-check.txt",
+      "path": "evidence/pr05-parallel-focused-51-workspace-alltargets-check.txt.gz",
+      "kind": "frozen-command-evidence",
+      "raw_bytes": 41922,
+      "raw_sha256": "d4702e8bbc687c00421f65dc067f3f6c19212c2068591d8302194c2806d4cfba",
+      "gzip_bytes": 7165,
+      "gzip_sha256": "c8d717425de4d762fa8a2672dbea9931c4a7b09c36a03ec512adcb702b814896"
+    },
+    {
+      "source": "/workspace/core-baseline-artifacts/pr05-parallel-focused-51.json",
+      "path": "evidence/pr05-parallel-focused-51.json.gz",
+      "kind": "frozen-command-evidence",
+      "raw_bytes": 3337,
+      "raw_sha256": "c774bdd4f4326eeba9e237248826908c51e25eb20dd7fd85fdafd1c09830c415",
+      "gzip_bytes": 649,
+      "gzip_sha256": "be1377050a75636fc100d23f9067fe3f39c383986f8ef9fcba8d2059f955085d"
+    },
+    {
+      "source": "/workspace/core-baseline-artifacts/pr05-parallel-focused-52-engine-library.txt",
+      "path": "evidence/pr05-parallel-focused-52-engine-library.txt.gz",
+      "kind": "frozen-command-evidence",
+      "raw_bytes": 13052,
+      "raw_sha256": "f37700f8fcc7b744a6f4c22ee42f0fb3a7d36fcaba2de438943d77c1231ff5df",
+      "gzip_bytes": 3774,
+      "gzip_sha256": "80385d086a6c49b5e65a6bb6b1a1b46423b4b4c04fcd950bc9f2b5786c222a4c"
+    },
+    {
+      "source": "/workspace/core-baseline-artifacts/pr05-parallel-focused-52-fmt.txt",
+      "path": "evidence/pr05-parallel-focused-52-fmt.txt.gz",
+      "kind": "frozen-command-evidence",
+      "raw_bytes": 0,
+      "raw_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "gzip_bytes": 20,
+      "gzip_sha256": "f61f27bd17de546264aa58f40f3aafaac7021e0ef69c17f6b1b4cd7664a037ec"
+    },
+    {
+      "source": "/workspace/core-baseline-artifacts/pr05-parallel-focused-52-platform-unit.txt",
+      "path": "evidence/pr05-parallel-focused-52-platform-unit.txt.gz",
+      "kind": "frozen-command-evidence",
+      "raw_bytes": 24205,
+      "raw_sha256": "b5fd364030dc4ccbe5801abae687eff736bf8416dcd2ab1639c84fd47f4a0da5",
+      "gzip_bytes": 5979,
+      "gzip_sha256": "800c856ada4f5e071e2e2c2ca96f35ad37b2b5c2d7552e89b82d46b13d78ae36"
+    },
+    {
+      "source": "/workspace/core-baseline-artifacts/pr05-parallel-focused-52-proxy-library.txt",
+      "path": "evidence/pr05-parallel-focused-52-proxy-library.txt.gz",
+      "kind": "frozen-command-evidence",
+      "raw_bytes": 4203,
+      "raw_sha256": "6de7a844e0ce4ec3b6e4c785f4a67bb25be7e0562d907213745e370daefac436",
+      "gzip_bytes": 1397,
+      "gzip_sha256": "c75072a05931a2d656e157fa498368c767535d86352c501e065799850f2dea32"
+    },
+    {
+      "source": "/workspace/core-baseline-artifacts/pr05-parallel-focused-52-stack-library.txt",
+      "path": "evidence/pr05-parallel-focused-52-stack-library.txt.gz",
+      "kind": "frozen-command-evidence",
+      "raw_bytes": 4445,
+      "raw_sha256": "32d5fd669eabd746bc414511aa11b8a2a896118c829398c626f348496cb9c2fc",
+      "gzip_bytes": 1615,
+      "gzip_sha256": "79f6133fea0ce6197acd641f2920264c1e2ab20c7d1a7f2da526c9b7d2b715f3"
+    },
+    {
+      "source": "/workspace/core-baseline-artifacts/pr05-parallel-focused-52-tun-library.txt",
+      "path": "evidence/pr05-parallel-focused-52-tun-library.txt.gz",
+      "kind": "frozen-command-evidence",
+      "raw_bytes": 3687,
+      "raw_sha256": "0c05cc66d80f49e9cb0f9ee7190801c87bc7fe5eacefdef34b002a4518c60004",
+      "gzip_bytes": 1286,
+      "gzip_sha256": "6af85582bae700a089a8f65ef94f53ce90c755efc278341173ec857900261570"
+    },
+    {
+      "source": "/workspace/core-baseline-artifacts/pr05-parallel-focused-52-workspace-alltargets-check.txt",
+      "path": "evidence/pr05-parallel-focused-52-workspace-alltargets-check.txt.gz",
+      "kind": "frozen-command-evidence",
+      "raw_bytes": 5560,
+      "raw_sha256": "86024d5107a6ee37c6460a144bd4433176e0c70ccaa456d273dabfa7c8b8f007",
+      "gzip_bytes": 1716,
+      "gzip_sha256": "d183a3dd8066c2b13d218abddd0a70a2316092a5fa53685ad4deeee3db6ec763"
+    },
+    {
+      "source": "/workspace/core-baseline-artifacts/pr05-parallel-focused-52.json",
+      "path": "evidence/pr05-parallel-focused-52.json.gz",
+      "kind": "frozen-command-evidence",
+      "raw_bytes": 3931,
+      "raw_sha256": "bed7d1d92604cdd153b69fe418912c16cc3316bb46c5f312eb988bede0f9db96",
+      "gzip_bytes": 695,
+      "gzip_sha256": "be3473b8da0e1ed7f45d0dc7156d330663462efd4170fef80a457db6e31a215a"
+    },
+    {
+      "source": "/workspace/core-baseline-artifacts/pr05-parallel-focused-53-engine-library.txt",
+      "path": "evidence/pr05-parallel-focused-53-engine-library.txt.gz",
+      "kind": "frozen-command-evidence",
+      "raw_bytes": 13833,
+      "raw_sha256": "c7fcf9a0417cdc1e5d9fee9470ccedddfad0b918dba2bc19c05d644a096b7b98",
+      "gzip_bytes": 3905,
+      "gzip_sha256": "67f0bb56f3707b11dc9a76a76971c0997a92f71376be963095c4b390364ba837"
+    },
+    {
+      "source": "/workspace/core-baseline-artifacts/pr05-parallel-focused-53-fmt.txt",
+      "path": "evidence/pr05-parallel-focused-53-fmt.txt.gz",
+      "kind": "frozen-command-evidence",
+      "raw_bytes": 0,
+      "raw_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "gzip_bytes": 20,
+      "gzip_sha256": "f61f27bd17de546264aa58f40f3aafaac7021e0ef69c17f6b1b4cd7664a037ec"
+    },
+    {
+      "source": "/workspace/core-baseline-artifacts/pr05-parallel-focused-53-platform-unit.txt",
+      "path": "evidence/pr05-parallel-focused-53-platform-unit.txt.gz",
+      "kind": "frozen-command-evidence",
+      "raw_bytes": 4769,
+      "raw_sha256": "27e2d33375deff63d9fb3fa68224ac6229800fbdb9e702d611322ae8a66510b3",
+      "gzip_bytes": 1027,
+      "gzip_sha256": "b791661815b7821831833e0efe6f220bbce1cdf997c5ecbe09bd0833ff6b609b"
+    },
+    {
+      "source": "/workspace/core-baseline-artifacts/pr05-parallel-focused-53-proxy-library.txt",
+      "path": "evidence/pr05-parallel-focused-53-proxy-library.txt.gz",
+      "kind": "frozen-command-evidence",
+      "raw_bytes": 5066,
+      "raw_sha256": "59ba812ab80a22ffc3953904971c770d747b4097d45a7e7ac39c2bf7b013dc88",
+      "gzip_bytes": 1159,
+      "gzip_sha256": "4d9cf0d81259397347ad60d43a067210b211b7ffe0db3d653cb57e94c3f8f4f6"
+    },
+    {
+      "source": "/workspace/core-baseline-artifacts/pr05-parallel-focused-53-stack-library.txt",
+      "path": "evidence/pr05-parallel-focused-53-stack-library.txt.gz",
+      "kind": "frozen-command-evidence",
+      "raw_bytes": 4445,
+      "raw_sha256": "0c62741b0edf06707c5c04e9c2c58efaa3d4d11b2fba34ac78ec3a8cf072393c",
+      "gzip_bytes": 1619,
+      "gzip_sha256": "087c6a93b9eaf0dc04c9508072d518f1871ca3ae5d3fda923f054d80109f9956"
+    },
+    {
+      "source": "/workspace/core-baseline-artifacts/pr05-parallel-focused-53-tun-library.txt",
+      "path": "evidence/pr05-parallel-focused-53-tun-library.txt.gz",
+      "kind": "frozen-command-evidence",
+      "raw_bytes": 4240,
+      "raw_sha256": "f0e8b5d746dca82ebf49345ffa48d88c47b66c3d07fb494eee0b6af4b730275b",
+      "gzip_bytes": 1516,
+      "gzip_sha256": "b6fa371f3db66b01dbcd75a5050c1736b659b915f17167219209792f686b577a"
+    },
+    {
+      "source": "/workspace/core-baseline-artifacts/pr05-parallel-focused-53-windows-tun-windows-tun.txt",
+      "path": "evidence/pr05-parallel-focused-53-windows-tun-windows-tun.txt.gz",
+      "kind": "frozen-command-evidence",
+      "raw_bytes": 12042,
+      "raw_sha256": "3be71529c34dffce779ee652c39d4109cbe21b674c5d53b9183db87d0ea0142d",
+      "gzip_bytes": 1511,
+      "gzip_sha256": "9d5b96afd8e5ac45fed6c03c8775eac2b651183f89021ca5af3acc99195a6ef2"
+    },
+    {
+      "source": "/workspace/core-baseline-artifacts/pr05-parallel-focused-53-windows-tun.json",
+      "path": "evidence/pr05-parallel-focused-53-windows-tun.json.gz",
+      "kind": "frozen-command-evidence",
+      "raw_bytes": 768,
+      "raw_sha256": "95f6e4cbcfa088bce5519a481a6daf8969ec5bd5f326f8b908f488ce8b1fd810",
+      "gzip_bytes": 418,
+      "gzip_sha256": "b9c456b381dc2321eff23ef3586295175a9ea9106b828c502e30b86de49cff3b"
+    },
+    {
+      "source": "/workspace/core-baseline-artifacts/pr05-parallel-focused-53-workspace-alltargets-check.txt",
+      "path": "evidence/pr05-parallel-focused-53-workspace-alltargets-check.txt.gz",
+      "kind": "frozen-command-evidence",
+      "raw_bytes": 5515,
+      "raw_sha256": "2254723b602c10d8823dd23a41e214d1bafaff10d9e1ba7a567a8bac9a3079b5",
+      "gzip_bytes": 1209,
+      "gzip_sha256": "832fe6725e6321bcbdd845c0326cf144038aa24b129bf3423c6715aacb5601ef"
+    },
+    {
+      "source": "/workspace/core-baseline-artifacts/pr05-parallel-focused-53.json",
+      "path": "evidence/pr05-parallel-focused-53.json.gz",
+      "kind": "frozen-command-evidence",
+      "raw_bytes": 3891,
+      "raw_sha256": "23db489b37ddea32884041ed65a7ec18240f280a980a472574d78db294f871d7",
+      "gzip_bytes": 683,
+      "gzip_sha256": "6145f94b9380359899c0da606b059e15e99fbb5e2a58949798737dd38d295a0e"
+    },
+    {
+      "source": "/workspace/core-baseline-artifacts/pr05-parallel-focused-54-engine-library.txt",
+      "path": "evidence/pr05-parallel-focused-54-engine-library.txt.gz",
+      "kind": "frozen-command-evidence",
+      "raw_bytes": 12827,
+      "raw_sha256": "30b79f2c06a70718f4a339e7f1145a991c3e23b7de0c229b06dc11a25cde5ac1",
+      "gzip_bytes": 3699,
+      "gzip_sha256": "e078dd499cff846291cd51dc14b04655e9e4457d663b93f69dd5c05c126f22db"
+    },
+    {
+      "source": "/workspace/core-baseline-artifacts/pr05-parallel-focused-54-fmt.txt",
+      "path": "evidence/pr05-parallel-focused-54-fmt.txt.gz",
+      "kind": "frozen-command-evidence",
+      "raw_bytes": 0,
+      "raw_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "gzip_bytes": 20,
+      "gzip_sha256": "f61f27bd17de546264aa58f40f3aafaac7021e0ef69c17f6b1b4cd7664a037ec"
+    },
+    {
+      "source": "/workspace/core-baseline-artifacts/pr05-parallel-focused-54-platform-unit.txt",
+      "path": "evidence/pr05-parallel-focused-54-platform-unit.txt.gz",
+      "kind": "frozen-command-evidence",
+      "raw_bytes": 28340,
+      "raw_sha256": "f5e2927201a41e9b5f2e0917cc9739b2433ec16e4000b16e6fbf5868db1b3bba",
+      "gzip_bytes": 6736,
+      "gzip_sha256": "c13cd3974d7da0cc3996540796e313776dd61e4c5225d84cfefcbd207638551f"
+    },
+    {
+      "source": "/workspace/core-baseline-artifacts/pr05-parallel-focused-54-proxy-library.txt",
+      "path": "evidence/pr05-parallel-focused-54-proxy-library.txt.gz",
+      "kind": "frozen-command-evidence",
+      "raw_bytes": 7184,
+      "raw_sha256": "ba6480d05d09847eccd31e3f0803154fdc034a5d57871dad17ecab6f6550fce9",
+      "gzip_bytes": 2162,
+      "gzip_sha256": "c275dea0a570459d00e70cd6b98e8a23b501435b3d9997f16e291013e4ffdd94"
+    },
+    {
+      "source": "/workspace/core-baseline-artifacts/pr05-parallel-focused-54-stack-library.txt",
+      "path": "evidence/pr05-parallel-focused-54-stack-library.txt.gz",
+      "kind": "frozen-command-evidence",
+      "raw_bytes": 4366,
+      "raw_sha256": "51a0a5039adcef673a18f2b82c37a8ecc7627bfee329f0166924cd3ea39a354f",
+      "gzip_bytes": 1565,
+      "gzip_sha256": "6dfa5667a5d06f694cc9736cb8b051d62aad0ac7f2e776bcddcc6f5374b4aab1"
+    },
+    {
+      "source": "/workspace/core-baseline-artifacts/pr05-parallel-focused-54-transport-library.txt",
+      "path": "evidence/pr05-parallel-focused-54-transport-library.txt.gz",
+      "kind": "frozen-command-evidence",
+      "raw_bytes": 27358,
+      "raw_sha256": "7be0bb479944c974cdb47342e037932ec7005a0f5222425afae959c712b1bc6a",
+      "gzip_bytes": 5725,
+      "gzip_sha256": "c6bd9ed703609f0b5abf23c3ba3422f479b672af444cc6b571b2bfa235d2619d"
+    },
+    {
+      "source": "/workspace/core-baseline-artifacts/pr05-parallel-focused-54-tun-library.txt",
+      "path": "evidence/pr05-parallel-focused-54-tun-library.txt.gz",
+      "kind": "frozen-command-evidence",
+      "raw_bytes": 4165,
+      "raw_sha256": "eb43763d89d72884c8f50ddac0a65caa2345ac76e2ba5f57363e98a426ff1623",
+      "gzip_bytes": 1466,
+      "gzip_sha256": "a2d3349837d45eb0ee0df5cfd704f0e10ebf7a5b3be329309ae038867549cad8"
+    },
+    {
+      "source": "/workspace/core-baseline-artifacts/pr05-parallel-focused-54-workspace-alltargets-check.txt",
+      "path": "evidence/pr05-parallel-focused-54-workspace-alltargets-check.txt.gz",
+      "kind": "frozen-command-evidence",
+      "raw_bytes": 9541,
+      "raw_sha256": "9b9592fc6eb4ca2260770691ba9435aacca5e54e4624b57dfc8bb03c569523db",
+      "gzip_bytes": 2442,
+      "gzip_sha256": "2e4c4b0f7496a4c9585fe3823df4a23e275e540a6ffb97efc32647f28620ad69"
+    },
+    {
+      "source": "/workspace/core-baseline-artifacts/pr05-parallel-focused-54.json",
+      "path": "evidence/pr05-parallel-focused-54.json.gz",
+      "kind": "frozen-command-evidence",
+      "raw_bytes": 4468,
+      "raw_sha256": "0f6f6afd1b485e25cf2937a2681fde9ed3b9a3561b0bd7154844901e5723926f",
+      "gzip_bytes": 736,
+      "gzip_sha256": "995e9fd3544c09d8a704116ee4c332237d1822edcc4f2b58eea2ffb190dd5cf0"
+    },
+    {
+      "source": "/workspace/core-baseline-artifacts/Cargo.lock-before-quinn-wintun-vendor53-cbfa65b5",
+      "path": "evidence/Cargo.lock-before-quinn-wintun-vendor53-cbfa65b5.gz",
+      "kind": "lock-provenance-or-preparation-no-product-execution",
+      "raw_bytes": 107958,
+      "raw_sha256": "cbfa65b5969b78787ea35dfbaae93e44953103d4fd89bdcb8425f2ee9b780cdb",
+      "gzip_bytes": 25899,
+      "gzip_sha256": "960e4e3991d3d4196a60c5bbced980c203b25a09ede2c3ac6986330e311e234c"
+    },
+    {
+      "source": "/workspace/core-baseline-artifacts/pr05-parallel-lock-vendor-53.diff",
+      "path": "evidence/pr05-parallel-lock-vendor-53.diff.gz",
+      "kind": "lock-provenance-or-preparation-no-product-execution",
+      "raw_bytes": 589,
+      "raw_sha256": "aa38f4648c5eab3f3f58109913d3604ef801c063f610d8ef515fa7a6c15c8783",
+      "gzip_bytes": 348,
+      "gzip_sha256": "bd44a0b332814107c90db9aa61c586fc3e57b5a38701195f014028837423373d"
+    },
+    {
+      "source": "/workspace/core-baseline-artifacts/pr05-parallel-resolved-metadata-vendor-53.json",
+      "path": "evidence/pr05-parallel-resolved-metadata-vendor-53.json.gz",
+      "kind": "lock-provenance-or-preparation-no-product-execution",
+      "raw_bytes": 2111215,
+      "raw_sha256": "461b8fa6288ec69657ab9333cfedd0f9ca172422ff65eb65fb67f959a84c66bd",
+      "gzip_bytes": 166511,
+      "gzip_sha256": "a142629d971bba0ce95951e4b4b9a5ad29895744accbdb2e6f0e8ddd2d4b3042"
+    },
+    {
+      "source": "/workspace/core-next/archive-frozen-through54.py",
+      "path": "evidence/archive-frozen-through54.py.gz",
+      "kind": "lock-provenance-or-preparation-no-product-execution",
+      "raw_bytes": 5171,
+      "raw_sha256": "dfd5110e344da837db4b4e24b0286afd2f5b8c314491a02e01782906eff631ac",
+      "gzip_bytes": 2360,
+      "gzip_sha256": "e7c4f4e895be9a868fc0bc6815d69971211868b666774f0673deb7efe69f09a5"
+    },
+    {
+      "source": "/workspace/core-next/focused-parallel-v9.py",
+      "path": "evidence/focused-parallel-v9.py.gz",
+      "kind": "lock-provenance-or-preparation-no-product-execution",
+      "raw_bytes": 15144,
+      "raw_sha256": "765290fa64e5324e69dd23229a82d25ac3a9492ced0d9e01e93296addf02985d",
+      "gzip_bytes": 3168,
+      "gzip_sha256": "1460438c0a2485132c125fd55609f3b9a25b95f50487ab7dece35a9b5c0dd5ca"
+    },
+    {
+      "source": "/workspace/core-next/focused-parallel-v10.py",
+      "path": "evidence/focused-parallel-v10.py.gz",
+      "kind": "lock-provenance-or-preparation-no-product-execution",
+      "raw_bytes": 15235,
+      "raw_sha256": "40dbb91b92c12f29fa7e65b5c26ac60148b52c52f700a62d960cca7ed6b3c6fa",
+      "gzip_bytes": 3180,
+      "gzip_sha256": "5480e2341a23980796a346739ef03d7194ab5cfd7ce0411984a9e054f616496c"
+    },
+    {
+      "source": "/workspace/core-next/focused-parallel-v11.py",
+      "path": "evidence/focused-parallel-v11.py.gz",
+      "kind": "lock-provenance-or-preparation-no-product-execution",
+      "raw_bytes": 15341,
+      "raw_sha256": "0f5f44cba92e0f15816c08fbf5aca86b1fbff0ed229164963b80c7c3678d3951",
+      "gzip_bytes": 3193,
+      "gzip_sha256": "1fc18bf64afc797c5626e4e5c8ddafb7e439d988bc13252467428873f4bd008a"
+    }
+  ],
+  "input_sha256": {
+    "/workspace/core-baseline-artifacts/pr05-parallel-focused-49.json": "f231a6b82e4dab1b697863d01cbded6d60a679c8ce3ae866f28c35883c77a8db",
+    "/workspace/core-baseline-artifacts/pr05-parallel-focused-49-fmt.txt": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "/workspace/core-baseline-artifacts/pr05-parallel-focused-49-workspace-alltargets-check.txt": "b83e939be3d769a6fd2d398d560e44f63f2e713cee4ab040473f26d73790fce7",
+    "/workspace/core-baseline-artifacts/pr05-parallel-focused-50.json": "040c54516996473ca17b8d6e81f791a5f117ea4094907c6bce57de4180efb0af",
+    "/workspace/core-baseline-artifacts/pr05-parallel-focused-50-fmt.txt": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "/workspace/core-baseline-artifacts/pr05-parallel-focused-50-platform-unit.txt": "ef4f786a198dced6d4479567da1128744b0e1834784bc5a1c5d6fdb0360c32ee",
+    "/workspace/core-baseline-artifacts/pr05-parallel-focused-50-proxy-library.txt": "9a7a92670f3788ef47c9cb48a42a2b8f84c284936f96724d3e95871c885846e5",
+    "/workspace/core-baseline-artifacts/pr05-parallel-focused-50-workspace-alltargets-check.txt": "d285aaba1a91f9ae72aa1b356200868cfc3fc669590255d0a9946a8e31d27091",
+    "/workspace/core-baseline-artifacts/pr05-parallel-focused-50-test-layout.txt": "0290d88b080b1e36f1795f62fd4cd93acc9edd1782a15a6a817eeffcd22f73bb",
+    "/workspace/core-baseline-artifacts/pr05-parallel-focused-50-platform-contracts-all.txt": "0b12dce8bfd19d4a23217e7ec1c023e4375276a259cc95f27c653e25dc67bc51",
+    "/workspace/core-baseline-artifacts/pr05-parallel-focused-50-windows-platform.txt": "399f922ee5180398daf80763e8af08f0c8c9e013da4edff88d5f6ecfca07ebe5",
+    "/workspace/core-baseline-artifacts/pr05-parallel-focused-50-transport-library.txt": "9ba0756e11c03711b31ab4694207c7e338130ff94b648e4467145e4d83744bee",
+    "/workspace/core-baseline-artifacts/pr05-parallel-focused-50-vmess-library.txt": "757a9837f6ae3621f208c0cbb45e7c1711e092481a6f6efffda1c91885c45401",
+    "/workspace/core-baseline-artifacts/pr05-parallel-focused-50-source-runtime-guard.txt": "c50b00d3c20d44e65ab97228839733ca37c79e5887da542e9cb07c874300d836",
+    "/workspace/core-baseline-artifacts/pr05-parallel-focused-50-source-architecture-guard.txt": "a8c4c5b52977fc9cc41ce810027e732871b50cf3fdc66c45fea63333c55d0f5b",
+    "/workspace/core-baseline-artifacts/pr05-parallel-focused-50-strict-platform-stack.txt": "6ba4d1ab017fff035ef1a4a8ccc655d92dd0446b3101e64aed67cdb7daae7ecc",
+    "/workspace/core-baseline-artifacts/pr05-parallel-focused-51.json": "c774bdd4f4326eeba9e237248826908c51e25eb20dd7fd85fdafd1c09830c415",
+    "/workspace/core-baseline-artifacts/pr05-parallel-focused-51-fmt.txt": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "/workspace/core-baseline-artifacts/pr05-parallel-focused-51-platform-unit.txt": "4ca86509bfa5806ccfcd5f9da82f4cff8fff4b5dd06a7e8dd515491ad541c9ae",
+    "/workspace/core-baseline-artifacts/pr05-parallel-focused-51-tun-library.txt": "2231950338e6873e83fde56de384da4c35c5a0dbc2502aafc3a6832711d87499",
+    "/workspace/core-baseline-artifacts/pr05-parallel-focused-51-stack-library.txt": "84759d96bf654dd8464c5c427575cf0bb479e5c8147c50180c84b03077ce65eb",
+    "/workspace/core-baseline-artifacts/pr05-parallel-focused-51-proxy-library.txt": "6f51572b6c01d108c8229711f8af579d7d7940d1478721bcfa1042ee624d842c",
+    "/workspace/core-baseline-artifacts/pr05-parallel-focused-51-workspace-alltargets-check.txt": "d4702e8bbc687c00421f65dc067f3f6c19212c2068591d8302194c2806d4cfba",
+    "/workspace/core-baseline-artifacts/pr05-parallel-focused-52.json": "bed7d1d92604cdd153b69fe418912c16cc3316bb46c5f312eb988bede0f9db96",
+    "/workspace/core-baseline-artifacts/pr05-parallel-focused-52-fmt.txt": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "/workspace/core-baseline-artifacts/pr05-parallel-focused-52-platform-unit.txt": "b5fd364030dc4ccbe5801abae687eff736bf8416dcd2ab1639c84fd47f4a0da5",
+    "/workspace/core-baseline-artifacts/pr05-parallel-focused-52-engine-library.txt": "f37700f8fcc7b744a6f4c22ee42f0fb3a7d36fcaba2de438943d77c1231ff5df",
+    "/workspace/core-baseline-artifacts/pr05-parallel-focused-52-tun-library.txt": "0c05cc66d80f49e9cb0f9ee7190801c87bc7fe5eacefdef34b002a4518c60004",
+    "/workspace/core-baseline-artifacts/pr05-parallel-focused-52-stack-library.txt": "32d5fd669eabd746bc414511aa11b8a2a896118c829398c626f348496cb9c2fc",
+    "/workspace/core-baseline-artifacts/pr05-parallel-focused-52-proxy-library.txt": "6de7a844e0ce4ec3b6e4c785f4a67bb25be7e0562d907213745e370daefac436",
+    "/workspace/core-baseline-artifacts/pr05-parallel-focused-52-workspace-alltargets-check.txt": "86024d5107a6ee37c6460a144bd4433176e0c70ccaa456d273dabfa7c8b8f007",
+    "/workspace/core-baseline-artifacts/pr05-parallel-focused-53.json": "23db489b37ddea32884041ed65a7ec18240f280a980a472574d78db294f871d7",
+    "/workspace/core-baseline-artifacts/pr05-parallel-focused-53-fmt.txt": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "/workspace/core-baseline-artifacts/pr05-parallel-focused-53-platform-unit.txt": "27e2d33375deff63d9fb3fa68224ac6229800fbdb9e702d611322ae8a66510b3",
+    "/workspace/core-baseline-artifacts/pr05-parallel-focused-53-engine-library.txt": "c7fcf9a0417cdc1e5d9fee9470ccedddfad0b918dba2bc19c05d644a096b7b98",
+    "/workspace/core-baseline-artifacts/pr05-parallel-focused-53-tun-library.txt": "f0e8b5d746dca82ebf49345ffa48d88c47b66c3d07fb494eee0b6af4b730275b",
+    "/workspace/core-baseline-artifacts/pr05-parallel-focused-53-stack-library.txt": "0c62741b0edf06707c5c04e9c2c58efaa3d4d11b2fba34ac78ec3a8cf072393c",
+    "/workspace/core-baseline-artifacts/pr05-parallel-focused-53-proxy-library.txt": "59ba812ab80a22ffc3953904971c770d747b4097d45a7e7ac39c2bf7b013dc88",
+    "/workspace/core-baseline-artifacts/pr05-parallel-focused-53-workspace-alltargets-check.txt": "2254723b602c10d8823dd23a41e214d1bafaff10d9e1ba7a567a8bac9a3079b5",
+    "/workspace/core-baseline-artifacts/pr05-parallel-focused-53-windows-tun-windows-tun.txt": "3be71529c34dffce779ee652c39d4109cbe21b674c5d53b9183db87d0ea0142d",
+    "/workspace/core-baseline-artifacts/pr05-parallel-focused-53-windows-tun.json": "95f6e4cbcfa088bce5519a481a6daf8969ec5bd5f326f8b908f488ce8b1fd810",
+    "/workspace/core-baseline-artifacts/pr05-parallel-focused-54.json": "0f6f6afd1b485e25cf2937a2681fde9ed3b9a3561b0bd7154844901e5723926f",
+    "/workspace/core-baseline-artifacts/pr05-parallel-focused-54-fmt.txt": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "/workspace/core-baseline-artifacts/pr05-parallel-focused-54-platform-unit.txt": "f5e2927201a41e9b5f2e0917cc9739b2433ec16e4000b16e6fbf5868db1b3bba",
+    "/workspace/core-baseline-artifacts/pr05-parallel-focused-54-engine-library.txt": "30b79f2c06a70718f4a339e7f1145a991c3e23b7de0c229b06dc11a25cde5ac1",
+    "/workspace/core-baseline-artifacts/pr05-parallel-focused-54-tun-library.txt": "eb43763d89d72884c8f50ddac0a65caa2345ac76e2ba5f57363e98a426ff1623",
+    "/workspace/core-baseline-artifacts/pr05-parallel-focused-54-stack-library.txt": "51a0a5039adcef673a18f2b82c37a8ecc7627bfee329f0166924cd3ea39a354f",
+    "/workspace/core-baseline-artifacts/pr05-parallel-focused-54-transport-library.txt": "7be0bb479944c974cdb47342e037932ec7005a0f5222425afae959c712b1bc6a",
+    "/workspace/core-baseline-artifacts/pr05-parallel-focused-54-proxy-library.txt": "ba6480d05d09847eccd31e3f0803154fdc034a5d57871dad17ecab6f6550fce9",
+    "/workspace/core-baseline-artifacts/pr05-parallel-focused-54-workspace-alltargets-check.txt": "9b9592fc6eb4ca2260770691ba9435aacca5e54e4624b57dfc8bb03c569523db",
+    "/workspace/core-baseline-artifacts/Cargo.lock-before-quinn-wintun-vendor53-cbfa65b5": "cbfa65b5969b78787ea35dfbaae93e44953103d4fd89bdcb8425f2ee9b780cdb",
+    "/workspace/core-baseline-artifacts/pr05-parallel-lock-vendor-53.diff": "aa38f4648c5eab3f3f58109913d3604ef801c063f610d8ef515fa7a6c15c8783",
+    "/workspace/core-baseline-artifacts/pr05-parallel-resolved-metadata-vendor-53.json": "461b8fa6288ec69657ab9333cfedd0f9ca172422ff65eb65fb67f959a84c66bd",
+    "/workspace/core-next/archive-frozen-through54.py": "dfd5110e344da837db4b4e24b0286afd2f5b8c314491a02e01782906eff631ac",
+    "/workspace/core-next/focused-parallel-v9.py": "765290fa64e5324e69dd23229a82d25ac3a9492ced0d9e01e93296addf02985d",
+    "/workspace/core-next/focused-parallel-v10.py": "40dbb91b92c12f29fa7e65b5c26ac60148b52c52f700a62d960cca7ed6b3c6fa",
+    "/workspace/core-next/focused-parallel-v11.py": "0f5f44cba92e0f15816c08fbf5aca86b1fbff0ed229164963b80c7c3678d3951",
+    "/workspace/core/design/v0.0.3/implementation/pr05-parallel-progress-validation.json": "5b24d9d706de073bddb1006fc821b4d9fccb548da3f2196ee96855c2b030506e"
+  }
+}

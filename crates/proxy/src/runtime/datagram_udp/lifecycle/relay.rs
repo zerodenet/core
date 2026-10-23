@@ -25,6 +25,22 @@ where
     S: Send,
     R: InboundDatagramUdpRelay<S>,
 {
+    run_ready_protocol_datagram_udp_relay(runtime, source, relay, inbound_tag, poll_upstream, None)
+        .await
+}
+
+pub(crate) async fn run_ready_protocol_datagram_udp_relay<S, R>(
+    runtime: UdpIngressRuntime,
+    source: S,
+    relay: R,
+    inbound_tag: &str,
+    poll_upstream: bool,
+    ready: Option<crate::runtime::inbound_owners::InboundReady>,
+) -> Result<(), EngineError>
+where
+    S: Send,
+    R: InboundDatagramUdpRelay<S>,
+{
     let (responder, auth) = relay.into_datagram_udp_parts();
     run_datagram_udp_relay(
         runtime,
@@ -35,13 +51,15 @@ where
             poll_upstream,
             auth,
         },
+        ready,
     )
     .await
 }
 
-pub(super) async fn run_datagram_udp_relay<S, R>(
+async fn run_datagram_udp_relay<S, R>(
     runtime: UdpIngressRuntime,
     request: DatagramUdpRelayRequest<'_, S, R>,
+    ready: Option<crate::runtime::inbound_owners::InboundReady>,
 ) -> Result<(), EngineError>
 where
     S: Send,
@@ -64,20 +82,35 @@ where
         auth: auth.as_ref(),
     };
 
-    #[cfg(feature = "upstream-association-runtime")]
-    {
-        if poll_upstream {
+    let result = crate::runtime::inbound_owners::InboundReady::poll_optional(ready, async {
+        #[cfg(feature = "upstream-association-runtime")]
+        {
+            if poll_upstream {
+                run_loop(
+                    &context,
+                    &source,
+                    &mut responder,
+                    &mut dispatch,
+                    direct_buf.as_mut_slice(),
+                    upstream_buf.as_mut_slice(),
+                )
+                .await?;
+            } else {
+                super::without_upstream::run_loop(
+                    &context,
+                    &source,
+                    &mut responder,
+                    &mut dispatch,
+                    direct_buf.as_mut_slice(),
+                )
+                .await?;
+            }
+        }
+
+        #[cfg(not(feature = "upstream-association-runtime"))]
+        {
+            let _ = poll_upstream;
             run_loop(
-                &context,
-                &source,
-                &mut responder,
-                &mut dispatch,
-                direct_buf.as_mut_slice(),
-                upstream_buf.as_mut_slice(),
-            )
-            .await?;
-        } else {
-            super::without_upstream::run_loop(
                 &context,
                 &source,
                 &mut responder,
@@ -86,22 +119,12 @@ where
             )
             .await?;
         }
-    }
 
-    #[cfg(not(feature = "upstream-association-runtime"))]
-    {
-        let _ = poll_upstream;
-        run_loop(
-            &context,
-            &source,
-            &mut responder,
-            &mut dispatch,
-            direct_buf.as_mut_slice(),
-        )
-        .await?;
-    }
+        Ok::<(), EngineError>(())
+    })
+    .await;
 
     finish_dispatch(dispatch);
 
-    Ok(())
+    result
 }

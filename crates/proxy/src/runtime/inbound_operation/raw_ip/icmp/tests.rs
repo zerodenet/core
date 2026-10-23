@@ -89,3 +89,11 @@ fn echo_request_v6() -> Vec<u8> {
     );
     packet
 }
+
+#[tokio::test]
+async fn owned_echo_without_native_authority_is_rejected_before_any_socket_acquisition() {
+    let error = super::probe::owned(&echo_request_v4(), 1_420, None, None)
+        .await
+        .unwrap_err();
+    assert_eq!(error.kind(), std::io::ErrorKind::Unsupported);
+}

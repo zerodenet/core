@@ -3,7 +3,7 @@
 
 use std::collections::HashMap;
 use std::net::IpAddr;
-use std::sync::atomic::{AtomicU32, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 use std::sync::{Arc, Mutex};
 
 use tokio::sync::mpsc;
@@ -61,6 +61,7 @@ struct Inner {
     outbound: crate::packet_output::PacketSender,
     mtu: usize,
     next_fragment_id: AtomicU32,
+    closed: AtomicBool,
     drop_observer: Option<Arc<dyn zero_traits::IoObserver>>,
     receive_queue: ClientUdpReceiveQueueConfig,
     receive_budget: Option<Arc<ByteBudget>>,
@@ -151,7 +152,33 @@ impl ClientUdpSocket {
     }
 
     pub async fn recv_event(&mut self) -> Option<ClientUdpEvent> {
-        self.receiver.recv().await.map(QueuedEvent::into_event)
+        if self.inner.closed.load(Ordering::Acquire) {
+            self.discard_queued();
+            return None;
+        }
+        let event = self.receiver.recv().await;
+        if self.inner.closed.load(Ordering::Acquire) {
+            if event.is_some() {
+                self.observe_closed_discard();
+            }
+            drop(event);
+            self.discard_queued();
+            return None;
+        }
+        event.map(QueuedEvent::into_event)
+    }
+    fn observe_closed_discard(&self) {
+        observe_discard(
+            self.observer.as_ref(),
+            self.inner.drop_observer.as_ref(),
+            zero_traits::PacketDropReason::QueueClosed,
+        );
+    }
+    fn discard_queued(&mut self) {
+        self.receiver.close();
+        while self.receiver.try_recv().is_ok() {
+            self.observe_closed_discard();
+        }
     }
 
     /// Receive only payloads; callers that need network errors use

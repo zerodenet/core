@@ -11,6 +11,8 @@ use crate::crypto::{
 use crate::inbound::VmessAccept;
 use crate::shared::VmessOutboundSession;
 use crate::VmessCipher;
+mod confirmation;
+use confirmation::Confirmation;
 
 enum ReadState {
     ResponseHeaderLength {
@@ -50,6 +52,7 @@ pub struct VmessAeadStream<S> {
     write_pos: usize,
     pending_write_len: Option<usize>,
     write_shutdown_sent: bool,
+    confirmation: Confirmation,
 }
 
 enum BodyCodec {
@@ -232,6 +235,17 @@ impl<S> VmessAeadStream<S> {
         })
     }
 
+    pub(crate) fn with_connect_observer(
+        mut self,
+        session: Option<zero_core::component::SessionId>,
+        observer: Option<
+            std::sync::Arc<dyn zero_platform_tokio::contract::context::ConnectObserver>,
+        >,
+    ) -> Self {
+        self.confirmation = Confirmation::new(session, observer);
+        self
+    }
+
     pub fn into_inner(self) -> S {
         self.inner
     }
@@ -327,6 +341,7 @@ impl<S> VmessAeadStream<S> {
             write_pos: 0,
             pending_write_len: None,
             write_shutdown_sent: false,
+            confirmation: Confirmation::default(),
         })
     }
 }
@@ -400,12 +415,12 @@ where
                             response_nonce,
                             &encrypted_len_array,
                         )
-                        .map_err(protocol_error)?;
+                        .map_err(|error| self.confirmation.rejected(protocol_error(error)))?;
                         if expected_len > 256 {
-                            return Poll::Ready(Err(io::Error::new(
+                            return Poll::Ready(Err(self.confirmation.rejected(io::Error::new(
                                 io::ErrorKind::InvalidData,
                                 "vmess response header too large",
-                            )));
+                            ))));
                         }
                         self.read_state = ReadState::ResponseHeaderPayload {
                             expected_header: *expected_header,
@@ -440,12 +455,12 @@ where
                             response_nonce,
                             encrypted_payload,
                         )
-                        .map_err(protocol_error)?;
+                        .map_err(|error| self.confirmation.rejected(protocol_error(error)))?;
                         if plaintext.len() < 4 || plaintext[0] != *expected_header {
-                            return Poll::Ready(Err(io::Error::new(
+                            return Poll::Ready(Err(self.confirmation.rejected(io::Error::new(
                                 io::ErrorKind::InvalidData,
                                 "vmess server rejected connection",
-                            )));
+                            ))));
                         }
                         self.read_state = if self.chunk_stream {
                             ReadState::Length {
@@ -457,6 +472,7 @@ where
                         };
                         self.response_header_key = None;
                         self.response_header_nonce = None;
+                        self.confirmation.confirmed();
                     }
                 },
                 ReadState::Length {

@@ -63,10 +63,19 @@ mod client;
 mod codec;
 mod keepalive;
 mod options;
+mod owned;
+pub use owned::{
+    Demand, NativeGrpcStream, NativePoolFactory, NativePoolOptions, NativePoolSettings,
+};
 mod pool;
-use crate::stream::progress;
+mod prepared;
+mod prepared_stream;
+mod single;
+pub use single::{validate_single_client_profile, PreparedSingleClient, SingleClientDriver};
+mod progress;
 pub use pool::GrpcPool;
 mod read;
+mod response;
 mod server;
 mod stream;
 mod write;
@@ -102,59 +111,14 @@ fn build_grpc_client_stream(
     resp_future: h2::client::ResponseFuture,
     multi: bool,
 ) -> GrpcStream {
-    let (write_tx, write_rx) = mpsc::channel::<Vec<u8>>(16);
-    let (read_tx, read_rx) = mpsc::channel::<io::Result<Vec<u8>>>(64);
-
-    let progress = std::sync::Arc::new(progress::Progress::default());
-    spawn_grpc_write_relay(send_stream, write_rx, progress.clone(), false);
-    tokio::spawn(async move {
-        let resp = match tokio::select! { _ = read_tx.closed() => return, response = resp_future => response }
-        {
-            Ok(resp) => resp,
-            Err(error) => {
-                let _ = read_tx.send(Err(io::Error::other(error))).await;
-                return;
-            }
-        };
-        let status = resp.status();
-        if status != http::StatusCode::OK {
-            let _ = read_tx
-                .send(Err(io::Error::other(format!("gRPC HTTP status {status}"))))
-                .await;
-            return;
-        }
-        let content_type = resp
-            .headers()
-            .get("content-type")
-            .and_then(|value| value.to_str().ok())
-            .unwrap_or("");
-        if !(content_type == "application/grpc"
-            || content_type.starts_with("application/grpc+")
-            || content_type.starts_with("application/grpc;"))
-        {
-            let _ = read_tx
-                .send(Err(io::Error::new(
-                    io::ErrorKind::InvalidData,
-                    "invalid gRPC response content type",
-                )))
-                .await;
-            return;
-        }
-        let header_status = resp.headers().contains_key("grpc-status");
-        if header_status {
-            if let Err(error) = read::status(resp.headers()) {
-                let _ = read_tx.send(Err(error)).await;
-                return;
-            }
-        }
-        read_grpc_hunks(resp.into_body(), read_tx, multi, !header_status).await;
-    });
-
-    GrpcStream::new(
-        read_rx,
-        tokio_util::sync::PollSender::new(write_tx),
-        progress,
-    )
+    let prepared_stream::PreparedStream {
+        stream,
+        read,
+        write,
+    } = prepared_stream::prepare_stream(send_stream, resp_future, multi);
+    tokio::spawn(write);
+    tokio::spawn(read);
+    stream
 }
 
 fn spawn_grpc_read_relay(

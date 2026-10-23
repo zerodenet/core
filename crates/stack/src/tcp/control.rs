@@ -17,6 +17,7 @@ pub(super) struct TcpControlPackets {
     send_gate: Arc<Mutex<()>>,
     _lifetime: Arc<ControlLifetime>,
     worker: Arc<Mutex<Option<ControlWorker>>>,
+    task_spawner: crate::task_owner::TcpTaskSpawner,
 }
 
 struct ControlLifetime {
@@ -39,7 +40,10 @@ struct ControlWorker {
 }
 
 impl TcpControlPackets {
-    pub(super) fn new(outbound: PacketSender) -> Self {
+    pub(super) fn new_with_tasks(
+        outbound: PacketSender,
+        task_spawner: crate::task_owner::TcpTaskSpawner,
+    ) -> Self {
         let (sender, receiver) = mpsc::channel(TCP_CONTROL_QUEUE_CAPACITY);
         let pending = Arc::new(AtomicUsize::new(0));
         let dropped = Arc::new(AtomicU64::new(0));
@@ -47,6 +51,7 @@ impl TcpControlPackets {
         let (shutdown, shutdown_rx) = watch::channel(false);
         Self {
             sender,
+            task_spawner,
             outbound: outbound.clone(),
             pending: Arc::clone(&pending),
             dropped: Arc::clone(&dropped),
@@ -72,15 +77,20 @@ impl TcpControlPackets {
         self
     }
 
-    pub(super) fn ensure_worker(&self) {
+    pub(super) fn ensure_worker(&self) -> bool {
         let worker = self
             .worker
             .lock()
             .expect("TCP control worker lock poisoned")
             .take();
         if let Some(worker) = worker {
-            tokio::spawn(run_control_worker(worker));
+            if !self.task_spawner.spawn(run_control_worker(worker)) {
+                // The host did not accept this original worker; its receiver
+                // is gone, so reject control output instead of spawning around it.
+                self.closed.store(true, Ordering::Release);
+            }
         }
+        !self.closed.load(Ordering::Acquire)
     }
 
     pub(super) fn try_send(&self, packet: Vec<u8>) -> bool {

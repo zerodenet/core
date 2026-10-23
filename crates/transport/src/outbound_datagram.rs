@@ -105,6 +105,70 @@ impl OutboundDatagramSocketFactory {
         zero_platform_tokio::bind_std_datagram_socket_for_peer(peer, interface.as_ref())
     }
 
+    /// Use the caller's already-installed finite original owner. This narrow
+    /// root-wire path cannot silently bypass relay, hopping or UDP transforms.
+    pub fn bind_owned(
+        &self,
+        owner: &mut zero_platform_tokio::controlled_datagram::ControlledDatagramOwner,
+        peer: SocketAddr,
+        policy: &zero_traits::DialPolicy,
+        expected_generation: u64,
+    ) -> Result<
+        zero_platform_tokio::controlled_datagram::ControlledDatagramSocket,
+        zero_platform_tokio::controlled_datagram::DatagramAcquisitionError,
+    > {
+        use zero_platform_tokio::controlled_datagram::{
+            AcquisitionOutcome, DatagramAcquisitionError,
+        };
+        let no_native = |source: io::Error| {
+            DatagramAcquisitionError::unverified(
+                None,
+                AcquisitionOutcome::KnownNoNative,
+                Arc::new(source),
+            )
+        };
+        self.require_direct().map_err(no_native)?;
+        if self.hopping.is_some() || !self.final_mask.udp().is_empty() {
+            return Err(no_native(io::Error::new(
+                io::ErrorKind::Unsupported,
+                "owned UDP wire does not grant hopping or UDP transforms",
+            )));
+        }
+        let selection = self
+            .egress
+            .select_for_peer_with_policy(peer, policy)
+            .map_err(no_native)?;
+        if selection.generation() != expected_generation
+            || self.egress.generation() != expected_generation
+        {
+            return Err(no_native(io::Error::new(
+                io::ErrorKind::Interrupted,
+                "owned UDP wire binding belongs to a stale physical egress generation",
+            )));
+        }
+        let mut socket = owner.acquire(peer, None, policy, &selection)?;
+        let failure = if self.egress.generation() != expected_generation {
+            Some(io::Error::new(
+                io::ErrorKind::Interrupted,
+                "physical egress changed during owned UDP acquisition",
+            ))
+        } else {
+            socket.set_observer(self.observer.clone()).err()
+        };
+        if let Some(source) = failure {
+            let outcome = match socket.close() {
+                Ok(closed) => AcquisitionOutcome::Closed(closed),
+                Err(_) => AcquisitionOutcome::Unknown(socket.reservation()),
+            };
+            return Err(DatagramAcquisitionError::unverified(
+                Some(socket.reservation()),
+                outcome,
+                Arc::new(source),
+            ));
+        }
+        Ok(socket)
+    }
+
     pub async fn bind_tokio(&self, peer: SocketAddr) -> io::Result<TokioDatagramSocket> {
         self.require_direct()?;
         let interface = self.egress.try_current_for_peer(peer)?;

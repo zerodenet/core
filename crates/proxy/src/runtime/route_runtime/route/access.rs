@@ -7,6 +7,12 @@ use super::model::{InboundRouteRuntime, InboundRouteRuntimeFactory};
 use crate::runtime::udp_ingress::UdpIngressRuntime;
 
 impl InboundRouteRuntime {
+    #[cfg(feature = "udp-runtime")]
+    pub(crate) fn with_listener_stop(mut self, stop: super::super::ListenerStop) -> Self {
+        self.udp_runtime = self.udp_runtime.with_listener_stop(stop);
+        self
+    }
+
     pub(crate) fn upstream_services(&self) -> crate::protocol_registry::UpstreamConnectServices {
         self.tcp_runtime.runtime_services().upstream()
     }
@@ -50,9 +56,9 @@ impl InboundRouteRuntime {
 
     pub(crate) fn select_http_redirect(
         &self,
-        session: &zero_core::Session,
+        destination: &zero_core::request::Destination,
     ) -> Option<(u16, String)> {
-        self.tcp_runtime.select_http_redirect(session)
+        self.tcp_runtime.select_http_redirect(destination)
     }
 
     #[cfg(feature = "udp-runtime")]

@@ -1,7 +1,6 @@
 use crate::runtime::udp_socket::DirectUdpResponseSource;
 
 use zero_core::DatagramUdpResponder;
-use zero_engine::EngineError;
 
 use super::relay::DatagramUdpLoopContext;
 use crate::runtime::udp_delivery::{
@@ -10,10 +9,7 @@ use crate::runtime::udp_delivery::{
 };
 use crate::runtime::udp_dispatch::UdpDispatch;
 
-pub(super) type ChainUdpResponseResult = Result<
-    Result<(zero_core::Address, u16, Vec<u8>, Option<u64>), EngineError>,
-    tokio::task::JoinError,
->;
+pub(super) type ChainUdpResponseResult = crate::runtime::udp_flow::response_join::ObservedChainJoin;
 
 pub(super) fn finish_dispatch(dispatch: UdpDispatch) {
     for completed in dispatch.finish_all() {

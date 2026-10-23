@@ -2,6 +2,41 @@ use zero_engine::EngineError;
 
 use crate::protocol_registry::BoundInbound;
 
+/// Thin projection of an existing TCP listener declaration. Only adapters whose
+/// bind shape is exactly one TCP listener opt in. Hostnames retain the legacy
+/// resolving path until the provider has an explicit resolution contract.
+pub(crate) fn prepare_tcp_inbound_bind(
+    adapter: &dyn crate::protocol_registry::InboundListenerCapability,
+    inbound: zero_config::InboundConfig,
+    source_dir: Option<&std::path::Path>,
+) -> Result<Option<crate::protocol_registry::PreparedInboundBind>, EngineError> {
+    use zero_core::{request::Destination, Address};
+    use zero_platform_tokio::contract::component::ResourceDeclaration;
+
+    let Some(address) =
+        zero_core::address::socket_addr(&inbound.listen.address, inbound.listen.port)
+    else {
+        return Ok(None);
+    };
+    let declaration = ResourceDeclaration::TcpListener {
+        accepted: None,
+        destination: Destination::new(
+            match address.ip() {
+                std::net::IpAddr::V4(ip) => Address::Ipv4(ip.octets()),
+                std::net::IpAddr::V6(ip) => Address::Ipv6(ip.octets()),
+            },
+            address.port(),
+        ),
+        max_bind_attempts: std::num::NonZeroUsize::new(50).unwrap(),
+    };
+    let operation = adapter.prepare_inbound_listener(inbound, source_dir)?;
+    crate::protocol_registry::PreparedInboundBind::new(
+        operation,
+        std::sync::Arc::from([declaration]),
+    )
+    .map(Some)
+}
+
 pub(crate) async fn bind_tcp_inbound(
     inbound: &zero_config::InboundConfig,
 ) -> Result<BoundInbound, EngineError> {

@@ -1,5 +1,5 @@
 use std::fs::File;
-use std::io::{self, BufReader};
+use std::io::{self, BufRead, BufReader};
 use std::path::{Path, PathBuf};
 
 use rustls::pki_types::PrivateKeyDer;
@@ -16,7 +16,14 @@ pub(super) fn load_certs(
             ),
         )
     })?;
-    let mut reader = BufReader::new(file);
+    parse_certs(BufReader::new(file), path)
+}
+
+/// Parse already-authorized material; the path is diagnostic only.
+pub(super) fn parse_certs(
+    mut reader: impl BufRead,
+    path: &Path,
+) -> io::Result<Vec<rustls::pki_types::CertificateDer<'static>>> {
     let certs = rustls_pemfile::certs(&mut reader).collect::<Result<Vec<_>, _>>()?;
     if certs.is_empty() {
         return Err(io::Error::new(

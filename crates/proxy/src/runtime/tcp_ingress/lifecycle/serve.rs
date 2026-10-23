@@ -62,6 +62,31 @@ pub(crate) async fn serve_inbound<P: InboundProtocol>(
     client: P::ClientStream,
     protocol: &P,
 ) -> Result<(), EngineError> {
+    serve_with_identity(runtime, session, client, protocol, None).await
+}
+
+pub(crate) async fn serve_with_identity<P: InboundProtocol>(
+    runtime: &TcpIngressRuntime,
+    session: Session,
+    client: P::ClientStream,
+    protocol: &P,
+    identity: Option<&zero_engine::SessionIdentity>,
+) -> Result<(), EngineError> {
+    // One allocation per accepted flow keeps the complete route/establish/relay
+    // state out of every enclosing protocol listener and receive-loop future.
+    Box::pin(serve_with_identity_inner(
+        runtime, session, client, protocol, identity,
+    ))
+    .await
+}
+
+async fn serve_with_identity_inner<P: InboundProtocol>(
+    runtime: &TcpIngressRuntime,
+    session: Session,
+    client: P::ClientStream,
+    protocol: &P,
+    identity: Option<&zero_engine::SessionIdentity>,
+) -> Result<(), EngineError> {
     let mut session = session;
     let mut client = client;
     let started_at = Instant::now();
@@ -71,7 +96,9 @@ pub(crate) async fn serve_inbound<P: InboundProtocol>(
         runtime.apply_url_rewrite(&mut session);
     }
     runtime.apply_kernel_rate_limits(&mut session);
-    runtime.prepare_session(&mut session).await?;
+    let admission = runtime
+        .prepare_session_with_ticket(&mut session, identity)
+        .await?;
     let traffic_rate_limiters = runtime.traffic_rate_limiters(&session);
 
     let mut handle = runtime.track_session(session.id);
@@ -89,9 +116,14 @@ pub(crate) async fn serve_inbound<P: InboundProtocol>(
     handle.register_cancellation(move || {
         let _ = cancel_tx.send(());
     });
+    let demand = crate::component::business_demand::AdmittedTcpDemand::new(
+        runtime.runtime_services().engine(),
+        zero_core::component::SessionId(session.id),
+        admission,
+    )?;
     let mut pipe = TcpPipe::new(runtime);
     let dispatch_result = tokio::select! {
-        result = pipe.dispatch(TcpPipeInput { session: &mut session }) => result,
+        result = pipe.dispatch(TcpPipeInput { session: &mut session, admitted: Some(demand) }) => result,
         _ = &mut cancel_rx => {
             let reason = handle.cancellation_reason().unwrap_or_else(|| "cancelled".to_owned());
             let _ = handle.finish_with_reason(SessionOutcome::Cancelled, Some(reason));

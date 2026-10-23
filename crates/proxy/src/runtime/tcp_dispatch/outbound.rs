@@ -14,8 +14,29 @@ pub(crate) async fn dispatch_tcp_outbound(
     mode: RouteMode,
     intent: TcpDispatchIntent,
 ) -> Result<EstablishedTcpOutbound, TcpOutboundFailure> {
+    let services = if intent == TcpDispatchIntent::Traffic {
+        services
+            .with_business_identity(session)
+            .map_err(|error| TcpOutboundFailure {
+                stage: "request_identity",
+                error,
+                upstream_endpoint: None,
+                network: None,
+            })?
+    } else {
+        services
+    };
     let prepared = services.prepare_tcp_outbound(&resolved, mode)?;
-    execute_prepared_tcp_outbound(services.execution(), session, prepared, intent).await
+    let operation = Box::pin(execute_prepared_tcp_outbound(
+        services.execution(),
+        session,
+        prepared,
+        intent,
+    ));
+    services
+        .protocols()
+        .drive_component_supervision(operation)
+        .await
 }
 
 async fn execute_prepared_tcp_outbound(
@@ -25,6 +46,15 @@ async fn execute_prepared_tcp_outbound(
     intent: TcpDispatchIntent,
 ) -> Result<EstablishedTcpOutbound, TcpOutboundFailure> {
     match prepared {
+        PreparedTcpOutbound::NativeRelay(prepared) => {
+            crate::component::stream_bridge::connect_relay(
+                &services,
+                session,
+                prepared,
+                intent == TcpDispatchIntent::Traffic,
+            )
+            .await
+        }
         PreparedTcpOutbound::Relay(prepared) => {
             super::relay::dispatch_prepared_tcp_relay_chain(services, session, prepared, intent)
                 .await
@@ -40,7 +70,14 @@ async fn execute_prepared_tcp_outbound(
                     .await
                 {
                     Ok(outbound) => return Ok(outbound),
-                    Err(failure) => last_failure = Some(failure),
+                    Err(failure) => {
+                        if crate::transport::channel_failure(&failure.error)
+                            .is_some_and(|error| !error.retry_permitted())
+                        {
+                            return Err(failure);
+                        }
+                        last_failure = Some(failure);
+                    }
                 }
             }
 

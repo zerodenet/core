@@ -1,6 +1,7 @@
 #![recursion_limit = "256"]
 
 mod adapters;
+pub mod component;
 mod groups;
 mod inbound;
 mod inventory;

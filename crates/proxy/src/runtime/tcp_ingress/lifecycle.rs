@@ -5,7 +5,7 @@
 
 mod rate_limit;
 pub(crate) mod result;
-mod serve;
+pub(super) mod serve;
 
 pub(crate) use rate_limit::apply_kernel_rate_limits_from_config;
 pub(crate) use serve::serve_inbound;

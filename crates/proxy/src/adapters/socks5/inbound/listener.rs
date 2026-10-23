@@ -14,13 +14,23 @@ pub(crate) async fn handle_socks5_connection(
     let tcp_context = context.clone();
     let udp_context = context;
     let mut metered = metered;
-    match acceptor.accept_command(&mut metered).await? {
-        ::socks5::Socks5Request::Connect(session) => {
+    let facts = acceptor.accept_command_facts(&mut metered).await?;
+    match facts.command {
+        ::socks5::Socks5Command::Connect(destination) => {
             tcp_context
-                .serve_with_client_response(*session, metered, acceptor.clone())
+                .serve_standard_stream(
+                    ::socks5::Socks5Inbound.protocol(),
+                    destination,
+                    facts.auth,
+                    None,
+                    move |facts| {
+                        ::socks5::component::inbound::ConnectReply::new(metered, facts)
+                            .map(zero_platform_tokio::contract::inbound::accept_stream)
+                    },
+                )
                 .await
         }
-        ::socks5::Socks5Request::UdpAssociate(request) => {
+        ::socks5::Socks5Command::UdpAssociate(request) => {
             let setup = setup_inbound_udp_association(&mut metered, request).await?;
             udp_context
                 .run_udp_association(

@@ -1,0 +1,22 @@
+{
+  "schema_version": 1,
+  "inbounds": [
+    {
+      "tag": "baseline-socks",
+      "listen": {
+        "address": "127.0.0.1",
+        "port": 45413
+      },
+      "protocol": {
+        "type": "socks5"
+      }
+    }
+  ],
+  "outbounds": [],
+  "route": {
+    "rules": [],
+    "final": {
+      "type": "direct"
+    }
+  }
+}

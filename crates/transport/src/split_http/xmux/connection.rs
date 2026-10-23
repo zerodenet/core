@@ -1,7 +1,6 @@
-use super::super::{body::Body, client::carrier};
+use super::super::client::carrier;
 use super::*;
-use hyper_util::rt::{TokioExecutor, TokioIo, TokioTimer};
-use std::time::Duration;
+use hyper_util::rt::TokioExecutor;
 #[derive(Default)]
 pub(super) struct Connections {
     state: tokio::sync::Mutex<Option<Connection>>,
@@ -51,11 +50,10 @@ impl Connections {
         let weak = Arc::downgrade(group);
         let (sender, task) = match carrier {
             XhttpCarrier::Http1(stream) => {
-                let (sender, driver) = hyper::client::conn::http1::handshake(TokioIo::new(stream))
-                    .await
-                    .map_err(io::Error::other)?;
+                let prepared::PreparedConnection { sender, driver } =
+                    prepared::http1(stream).await?;
                 (
-                    carrier::Sender::Http1(sender),
+                    sender,
                     tokio::spawn(async move {
                         let _ = driver.await;
                     })
@@ -63,30 +61,21 @@ impl Connections {
                 )
             }
             XhttpCarrier::Http2(stream) => {
-                let period = if group.keepalive == 0 {
-                    Some(Duration::from_secs(45))
-                } else if group.keepalive > 0 {
-                    Some(Duration::from_secs(group.keepalive as u64))
-                } else {
-                    None
-                };
-                let mut builder = hyper::client::conn::http2::Builder::new(TokioExecutor::new());
-                if let Some(settings) = stream
+                let settings = stream
                     .application_settings()
-                    .filter(|s| s.protocol == b"h2")
-                {
-                    builder.peer_application_settings(&settings.peer);
-                }
-                let (sender, driver) = builder
-                    .timer(TokioTimer::new())
-                    .keep_alive_interval(period)
-                    .keep_alive_timeout(Duration::from_secs(15))
-                    .keep_alive_while_idle(true)
-                    .handshake::<_, Body>(TokioIo::new(stream))
-                    .await
-                    .map_err(io::Error::other)?;
+                    .filter(|settings| settings.protocol == b"h2")
+                    .map(|settings| settings.peer.clone());
+                // The compatibility path explicitly keeps its existing executor.
+                // Managed owners must supply and supervise their own executor.
+                let prepared::PreparedConnection { sender, driver } = prepared::http2(
+                    stream,
+                    settings.as_deref(),
+                    group.keepalive,
+                    TokioExecutor::new(),
+                )
+                .await?;
                 (
-                    carrier::Sender::Http2(sender),
+                    sender,
                     tokio::spawn(async move {
                         let _ = driver.await;
                         if let Some(group) = weak.upgrade() {

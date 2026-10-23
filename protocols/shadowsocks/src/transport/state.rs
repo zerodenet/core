@@ -9,6 +9,34 @@ pub struct ShadowsocksTransportState {
         std::sync::Mutex<std::collections::HashMap<(ReplayPolicy, Option<usize>), LegacyReplay>>,
 }
 impl ShadowsocksTransportState {
+    /// Prepare protocol framing with this actual adapter's nonce history.
+    /// No proxy Session, socket, child or maintenance task is created here.
+    #[cfg(feature = "blake3")]
+    pub fn prepare_tcp(
+        &self,
+        input: crate::component::TcpPreparation<'_>,
+    ) -> Result<crate::component::PreparedTcp, zero_core::Error> {
+        crate::component::PreparedTcp::new(input, |policy, capacity| {
+            self.replay_guard(policy, capacity)
+        })
+    }
+    /// A resource handle sharing the plan used by `with_plugin` leaves.
+    pub fn plugin_resource(
+        &self,
+        host: &str,
+        port: u16,
+        config: crate::validation::PluginConfig,
+    ) -> super::plugin::ShadowsocksPluginResource {
+        super::plugin::ShadowsocksPluginResource::new(self.plugins.plan(host, port, config))
+    }
+    pub fn plugin_component_options(
+        &self,
+        host: &str,
+        port: u16,
+        config: crate::validation::PluginConfig,
+    ) -> crate::component::PluginOptions {
+        crate::component::PluginOptions::new(self.plugin_resource(host, port, config))
+    }
     pub fn clear_plugins(&self) {
         self.plugins.clear();
     }
@@ -26,13 +54,28 @@ impl ShadowsocksTransportState {
         mut leaf: ShadowsocksTransportLeaf,
         policy: ReplayPolicy,
     ) -> ShadowsocksTransportLeaf {
-        let mut guards = self.guards.lock().unwrap();
-        leaf.replay = guards
-            .entry((policy, leaf.limits.tcp_replay_capacity))
-            .or_insert_with(|| {
-                LegacyReplay::new(policy, false).with_tcp_capacity(leaf.limits.tcp_replay_capacity)
-            })
-            .clone();
+        leaf.replay = self.replay_guard(policy, leaf.limits.tcp_replay_capacity);
         leaf
+    }
+    fn replay_guard(&self, policy: ReplayPolicy, capacity: Option<usize>) -> LegacyReplay {
+        self.guards
+            .lock()
+            .unwrap()
+            .entry((policy, capacity))
+            .or_insert_with(|| LegacyReplay::new(policy, false).with_tcp_capacity(capacity))
+            .clone()
+    }
+
+    #[cfg(feature = "blake3")]
+    pub fn replay_component_options(
+        &self,
+        policy: ReplayPolicy,
+        capacity: Option<usize>,
+    ) -> crate::component::ReplayOptions {
+        crate::component::ReplayOptions::new(
+            self.replay_guard(policy, capacity).modern_pool(),
+            policy,
+            capacity,
+        )
     }
 }

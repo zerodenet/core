@@ -1,0 +1,433 @@
+{
+  "metrics": "Tokio num_alive_tasks/global_queue_depth; samples are not linearizable",
+  "phases": [
+    {
+      "phase": "before_proxy",
+      "samples": [
+        {
+          "alive_tasks": 0,
+          "global_queue_depth": 0
+        },
+        {
+          "alive_tasks": 0,
+          "global_queue_depth": 0
+        },
+        {
+          "alive_tasks": 0,
+          "global_queue_depth": 0
+        },
+        {
+          "alive_tasks": 0,
+          "global_queue_depth": 0
+        },
+        {
+          "alive_tasks": 0,
+          "global_queue_depth": 0
+        },
+        {
+          "alive_tasks": 0,
+          "global_queue_depth": 0
+        },
+        {
+          "alive_tasks": 0,
+          "global_queue_depth": 0
+        },
+        {
+          "alive_tasks": 0,
+          "global_queue_depth": 0
+        },
+        {
+          "alive_tasks": 0,
+          "global_queue_depth": 0
+        },
+        {
+          "alive_tasks": 0,
+          "global_queue_depth": 0
+        },
+        {
+          "alive_tasks": 0,
+          "global_queue_depth": 0
+        },
+        {
+          "alive_tasks": 0,
+          "global_queue_depth": 0
+        },
+        {
+          "alive_tasks": 0,
+          "global_queue_depth": 0
+        },
+        {
+          "alive_tasks": 0,
+          "global_queue_depth": 0
+        },
+        {
+          "alive_tasks": 0,
+          "global_queue_depth": 0
+        },
+        {
+          "alive_tasks": 0,
+          "global_queue_depth": 0
+        },
+        {
+          "alive_tasks": 0,
+          "global_queue_depth": 0
+        },
+        {
+          "alive_tasks": 0,
+          "global_queue_depth": 0
+        },
+        {
+          "alive_tasks": 0,
+          "global_queue_depth": 0
+        },
+        {
+          "alive_tasks": 0,
+          "global_queue_depth": 0
+        }
+      ]
+    },
+    {
+      "phase": "ready_idle",
+      "samples": [
+        {
+          "alive_tasks": 3,
+          "global_queue_depth": 0
+        },
+        {
+          "alive_tasks": 3,
+          "global_queue_depth": 0
+        },
+        {
+          "alive_tasks": 3,
+          "global_queue_depth": 0
+        },
+        {
+          "alive_tasks": 3,
+          "global_queue_depth": 0
+        },
+        {
+          "alive_tasks": 3,
+          "global_queue_depth": 0
+        },
+        {
+          "alive_tasks": 3,
+          "global_queue_depth": 0
+        },
+        {
+          "alive_tasks": 3,
+          "global_queue_depth": 0
+        },
+        {
+          "alive_tasks": 3,
+          "global_queue_depth": 0
+        },
+        {
+          "alive_tasks": 3,
+          "global_queue_depth": 0
+        },
+        {
+          "alive_tasks": 3,
+          "global_queue_depth": 0
+        },
+        {
+          "alive_tasks": 3,
+          "global_queue_depth": 0
+        },
+        {
+          "alive_tasks": 3,
+          "global_queue_depth": 0
+        },
+        {
+          "alive_tasks": 3,
+          "global_queue_depth": 0
+        },
+        {
+          "alive_tasks": 3,
+          "global_queue_depth": 0
+        },
+        {
+          "alive_tasks": 3,
+          "global_queue_depth": 0
+        },
+        {
+          "alive_tasks": 3,
+          "global_queue_depth": 0
+        },
+        {
+          "alive_tasks": 3,
+          "global_queue_depth": 0
+        },
+        {
+          "alive_tasks": 3,
+          "global_queue_depth": 0
+        },
+        {
+          "alive_tasks": 3,
+          "global_queue_depth": 0
+        },
+        {
+          "alive_tasks": 3,
+          "global_queue_depth": 0
+        }
+      ]
+    },
+    {
+      "phase": "32_live_streams",
+      "samples": [
+        {
+          "alive_tasks": 35,
+          "global_queue_depth": 0
+        },
+        {
+          "alive_tasks": 35,
+          "global_queue_depth": 0
+        },
+        {
+          "alive_tasks": 35,
+          "global_queue_depth": 0
+        },
+        {
+          "alive_tasks": 35,
+          "global_queue_depth": 0
+        },
+        {
+          "alive_tasks": 35,
+          "global_queue_depth": 0
+        },
+        {
+          "alive_tasks": 35,
+          "global_queue_depth": 0
+        },
+        {
+          "alive_tasks": 35,
+          "global_queue_depth": 0
+        },
+        {
+          "alive_tasks": 35,
+          "global_queue_depth": 0
+        },
+        {
+          "alive_tasks": 35,
+          "global_queue_depth": 0
+        },
+        {
+          "alive_tasks": 35,
+          "global_queue_depth": 0
+        },
+        {
+          "alive_tasks": 35,
+          "global_queue_depth": 0
+        },
+        {
+          "alive_tasks": 35,
+          "global_queue_depth": 0
+        },
+        {
+          "alive_tasks": 35,
+          "global_queue_depth": 0
+        },
+        {
+          "alive_tasks": 35,
+          "global_queue_depth": 0
+        },
+        {
+          "alive_tasks": 35,
+          "global_queue_depth": 0
+        },
+        {
+          "alive_tasks": 35,
+          "global_queue_depth": 0
+        },
+        {
+          "alive_tasks": 35,
+          "global_queue_depth": 0
+        },
+        {
+          "alive_tasks": 35,
+          "global_queue_depth": 0
+        },
+        {
+          "alive_tasks": 35,
+          "global_queue_depth": 0
+        },
+        {
+          "alive_tasks": 35,
+          "global_queue_depth": 0
+        }
+      ]
+    },
+    {
+      "phase": "after_streams_closed",
+      "samples": [
+        {
+          "alive_tasks": 3,
+          "global_queue_depth": 0
+        },
+        {
+          "alive_tasks": 3,
+          "global_queue_depth": 0
+        },
+        {
+          "alive_tasks": 3,
+          "global_queue_depth": 0
+        },
+        {
+          "alive_tasks": 3,
+          "global_queue_depth": 0
+        },
+        {
+          "alive_tasks": 3,
+          "global_queue_depth": 0
+        },
+        {
+          "alive_tasks": 3,
+          "global_queue_depth": 0
+        },
+        {
+          "alive_tasks": 3,
+          "global_queue_depth": 0
+        },
+        {
+          "alive_tasks": 3,
+          "global_queue_depth": 0
+        },
+        {
+          "alive_tasks": 3,
+          "global_queue_depth": 0
+        },
+        {
+          "alive_tasks": 3,
+          "global_queue_depth": 0
+        },
+        {
+          "alive_tasks": 3,
+          "global_queue_depth": 0
+        },
+        {
+          "alive_tasks": 3,
+          "global_queue_depth": 0
+        },
+        {
+          "alive_tasks": 3,
+          "global_queue_depth": 0
+        },
+        {
+          "alive_tasks": 3,
+          "global_queue_depth": 0
+        },
+        {
+          "alive_tasks": 3,
+          "global_queue_depth": 0
+        },
+        {
+          "alive_tasks": 3,
+          "global_queue_depth": 0
+        },
+        {
+          "alive_tasks": 3,
+          "global_queue_depth": 0
+        },
+        {
+          "alive_tasks": 3,
+          "global_queue_depth": 0
+        },
+        {
+          "alive_tasks": 3,
+          "global_queue_depth": 0
+        },
+        {
+          "alive_tasks": 3,
+          "global_queue_depth": 0
+        }
+      ]
+    },
+    {
+      "phase": "after_shutdown_and_owner_drop",
+      "samples": [
+        {
+          "alive_tasks": 0,
+          "global_queue_depth": 0
+        },
+        {
+          "alive_tasks": 0,
+          "global_queue_depth": 0
+        },
+        {
+          "alive_tasks": 0,
+          "global_queue_depth": 0
+        },
+        {
+          "alive_tasks": 0,
+          "global_queue_depth": 0
+        },
+        {
+          "alive_tasks": 0,
+          "global_queue_depth": 0
+        },
+        {
+          "alive_tasks": 0,
+          "global_queue_depth": 0
+        },
+        {
+          "alive_tasks": 0,
+          "global_queue_depth": 0
+        },
+        {
+          "alive_tasks": 0,
+          "global_queue_depth": 0
+        },
+        {
+          "alive_tasks": 0,
+          "global_queue_depth": 0
+        },
+        {
+          "alive_tasks": 0,
+          "global_queue_depth": 0
+        },
+        {
+          "alive_tasks": 0,
+          "global_queue_depth": 0
+        },
+        {
+          "alive_tasks": 0,
+          "global_queue_depth": 0
+        },
+        {
+          "alive_tasks": 0,
+          "global_queue_depth": 0
+        },
+        {
+          "alive_tasks": 0,
+          "global_queue_depth": 0
+        },
+        {
+          "alive_tasks": 0,
+          "global_queue_depth": 0
+        },
+        {
+          "alive_tasks": 0,
+          "global_queue_depth": 0
+        },
+        {
+          "alive_tasks": 0,
+          "global_queue_depth": 0
+        },
+        {
+          "alive_tasks": 0,
+          "global_queue_depth": 0
+        },
+        {
+          "alive_tasks": 0,
+          "global_queue_depth": 0
+        },
+        {
+          "alive_tasks": 0,
+          "global_queue_depth": 0
+        }
+      ]
+    }
+  ],
+  "runtime_workers": 1,
+  "scope": "public proxy library; CLI/IPC/Connector application tasks excluded",
+  "streams": 32
+}

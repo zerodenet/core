@@ -1,0 +1,205 @@
+[
+  {
+    "input": "v1-config/v0.0.1/basic.json",
+    "origin": "v0.0.1/basic.json",
+    "exit_code": 0,
+    "stdout": "config valid: 1 inbounds, 2 outbounds, 0 groups, 3 rules\n",
+    "stderr": ""
+  },
+  {
+    "input": "v1-config/v0.0.1/blocked-route.json",
+    "origin": "v0.0.1/blocked-route.json",
+    "exit_code": 0,
+    "stdout": "config valid: 1 inbounds, 2 outbounds, 0 groups, 2 rules\n",
+    "stderr": ""
+  },
+  {
+    "input": "v1-config/v0.0.1/chained-socks5.json",
+    "origin": "v0.0.1/chained-socks5.json",
+    "exit_code": 0,
+    "stdout": "config valid: 1 inbounds, 1 outbounds, 0 groups, 0 rules\n",
+    "stderr": ""
+  },
+  {
+    "input": "v1-config/v0.0.1/global-selector.json",
+    "origin": "v0.0.1/global-selector.json",
+    "exit_code": 0,
+    "stdout": "config valid: 1 inbounds, 2 outbounds, 1 groups, 0 rules\n",
+    "stderr": ""
+  },
+  {
+    "input": "v1-config/v0.0.1/mixed.json",
+    "origin": "v0.0.1/mixed.json",
+    "exit_code": 0,
+    "stdout": "config valid: 1 inbounds, 2 outbounds, 0 groups, 1 rules\n",
+    "stderr": ""
+  },
+  {
+    "input": "v1-config/v0.0.1/rule-set-files.json",
+    "origin": "v0.0.1/rule-set-files.json",
+    "exit_code": 0,
+    "stdout": "config valid: 1 inbounds, 3 outbounds, 1 groups, 2 rules\n",
+    "stderr": ""
+  },
+  {
+    "input": "v1-config/v0.0.1/server-socks5.json",
+    "origin": "v0.0.1/server-socks5.json",
+    "exit_code": 0,
+    "stdout": "config valid: 1 inbounds, 1 outbounds, 0 groups, 0 rules\n",
+    "stderr": ""
+  },
+  {
+    "input": "v1-config/v0.0.1/udp-socks5.json",
+    "origin": "v0.0.1/udp-socks5.json",
+    "exit_code": 0,
+    "stdout": "config valid: 1 inbounds, 2 outbounds, 0 groups, 0 rules\n",
+    "stderr": ""
+  },
+  {
+    "input": "v1-config/v0.0.2/chained-vless-reality.json",
+    "origin": "v0.0.2/chained-vless-reality.json",
+    "exit_code": 0,
+    "stdout": "config valid: 1 inbounds, 1 outbounds, 0 groups, 0 rules\n",
+    "stderr": ""
+  },
+  {
+    "input": "v1-config/v0.0.2/chained-vless-tls.json",
+    "origin": "v0.0.2/chained-vless-tls.json",
+    "exit_code": 0,
+    "stdout": "config valid: 1 inbounds, 1 outbounds, 0 groups, 0 rules\n",
+    "stderr": ""
+  },
+  {
+    "input": "v1-config/v0.0.2/fallback.json",
+    "origin": "v0.0.2/fallback.json",
+    "exit_code": 0,
+    "stdout": "config valid: 1 inbounds, 2 outbounds, 1 groups, 0 rules\n",
+    "stderr": ""
+  },
+  {
+    "input": "v1-config/v0.0.2/nested-groups.json",
+    "origin": "v0.0.2/nested-groups.json",
+    "exit_code": 0,
+    "stdout": "config valid: 1 inbounds, 2 outbounds, 2 groups, 0 rules\n",
+    "stderr": ""
+  },
+  {
+    "input": "v1-config/v0.0.2/urltest.json",
+    "origin": "v0.0.2/urltest.json",
+    "exit_code": 0,
+    "stdout": "config valid: 1 inbounds, 2 outbounds, 1 groups, 0 rules\n",
+    "stderr": ""
+  },
+  {
+    "input": "v1-config/v0.0.2/vless-tls.json",
+    "origin": "v0.0.2/vless-tls.json",
+    "exit_code": 0,
+    "stdout": "config valid: 1 inbounds, 0 outbounds, 0 groups, 0 rules\n",
+    "stderr": ""
+  },
+  {
+    "input": "v1-config/v0.0.2/vless-ws.json",
+    "origin": "v0.0.2/vless-ws.json",
+    "exit_code": 0,
+    "stdout": "config valid: 1 inbounds, 0 outbounds, 0 groups, 0 rules\n",
+    "stderr": ""
+  },
+  {
+    "input": "v1-config/v0.0.2/vless.json",
+    "origin": "v0.0.2/vless.json",
+    "exit_code": 0,
+    "stdout": "config valid: 1 inbounds, 0 outbounds, 0 groups, 0 rules\n",
+    "stderr": ""
+  },
+  {
+    "input": "v1-config/v0.0.3/direct-dial.json",
+    "origin": "v0.0.3/direct-dial.json",
+    "exit_code": 0,
+    "stdout": "config valid: 2 inbounds, 2 outbounds, 0 groups, 2 rules\n",
+    "stderr": ""
+  },
+  {
+    "input": "v1-config/v0.0.3/vless-grpc.json",
+    "origin": "v0.0.3/vless-grpc.json",
+    "exit_code": 0,
+    "stdout": "config valid: 1 inbounds, 1 outbounds, 0 groups, 0 rules\n",
+    "stderr": ""
+  },
+  {
+    "input": "v1-config/v0.0.3/vless-mux-crypto.json",
+    "origin": "v0.0.3/vless-mux-crypto.json",
+    "exit_code": 0,
+    "stdout": "config valid: 1 inbounds, 2 outbounds, 0 groups, 1 rules\n",
+    "stderr": ""
+  },
+  {
+    "input": "v1-config/v0.0.3/vless-udp-chained.json",
+    "origin": "v0.0.3/vless-udp-chained.json",
+    "exit_code": 1,
+    "stdout": "",
+    "stderr": "2026-10-19T14:41:09.409928Z ERROR zero process terminating with fatal error error=failed to parse config: unknown field `udp`, expected `users` at line 13 column 5\nerror: failed to parse config: unknown field `udp`, expected `users` at line 13 column 5\ncaused by: unknown field `udp`, expected `users` at line 13 column 5\n"
+  },
+  {
+    "input": "v1-config/v0.0.3/vless-udp-inbound.json",
+    "origin": "v0.0.3/vless-udp-inbound.json",
+    "exit_code": 0,
+    "stdout": "config valid: 1 inbounds, 0 outbounds, 0 groups, 0 rules\n",
+    "stderr": ""
+  },
+  {
+    "input": "v1-config/v0.0.3/wireguard-endpoint.json",
+    "origin": "v0.0.3/wireguard-endpoint.json",
+    "exit_code": 0,
+    "stdout": "config valid: 1 inbounds, 1 outbounds, 0 groups, 1 rules\n",
+    "stderr": ""
+  },
+  {
+    "input": "v1-config/v0.1.0/client-full.json",
+    "origin": "v0.1.0/client-full.json",
+    "exit_code": 0,
+    "stdout": "config valid: 1 inbounds, 9 outbounds, 3 groups, 5 rules\n",
+    "stderr": ""
+  },
+  {
+    "input": "v1-config/v0.1.0/hysteria2-website.json",
+    "origin": "v0.1.0/hysteria2-website.json",
+    "exit_code": 0,
+    "stdout": "config valid: 1 inbounds, 0 outbounds, 0 groups, 0 rules\n",
+    "stderr": ""
+  },
+  {
+    "input": "v1-config/v0.1.0/hysteria2.json",
+    "origin": "v0.1.0/hysteria2.json",
+    "exit_code": 0,
+    "stdout": "config valid: 1 inbounds, 2 outbounds, 0 groups, 1 rules\n",
+    "stderr": ""
+  },
+  {
+    "input": "v1-config/v0.1.0/multi-entry-groups.json",
+    "origin": "v0.1.0/multi-entry-groups.json",
+    "exit_code": 0,
+    "stdout": "config valid: 2 inbounds, 4 outbounds, 2 groups, 2 rules\n",
+    "stderr": ""
+  },
+  {
+    "input": "v1-config/v0.1.0/shadowsocks.json",
+    "origin": "v0.1.0/shadowsocks.json",
+    "exit_code": 0,
+    "stdout": "config valid: 1 inbounds, 2 outbounds, 0 groups, 1 rules\n",
+    "stderr": ""
+  },
+  {
+    "input": "v1-config/v0.1.0/trojan.json",
+    "origin": "v0.1.0/trojan.json",
+    "exit_code": 0,
+    "stdout": "config valid: 1 inbounds, 2 outbounds, 0 groups, 1 rules\n",
+    "stderr": ""
+  },
+  {
+    "input": "v1-config/v0.1.0/tun-client.json",
+    "origin": "v0.1.0/tun-client.json",
+    "exit_code": 0,
+    "stdout": "config valid: 0 inbounds, 2 outbounds, 0 groups, 0 rules\n",
+    "stderr": ""
+  }
+]

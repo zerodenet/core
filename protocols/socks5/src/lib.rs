@@ -6,6 +6,8 @@ extern crate alloc;
 extern crate std;
 
 #[cfg(feature = "runtime")]
+pub mod component;
+#[cfg(feature = "runtime")]
 mod inbound;
 mod metadata;
 #[cfg(feature = "runtime")]
@@ -22,8 +24,8 @@ pub mod validation;
 #[cfg(feature = "runtime")]
 pub use inbound::{
     is_socks5_greeting_byte, ConfiguredSocks5PasswordAuth, ConfiguredSocks5User,
-    IntoSocks5AuthUserConfig, NoSocks5PasswordAuth, Socks5Inbound, Socks5InboundTcpAcceptor,
-    Socks5PasswordAuth, Socks5Request,
+    IntoSocks5AuthUserConfig, NoSocks5PasswordAuth, Socks5Command, Socks5CommandFacts,
+    Socks5Inbound, Socks5InboundTcpAcceptor, Socks5PasswordAuth, Socks5Request,
 };
 pub use metadata::Socks5Protocol;
 #[cfg(feature = "runtime")]

@@ -1,0 +1,463 @@
+{
+  "metrics": "Tokio num_alive_tasks/global_queue_depth; samples are not linearizable",
+  "phases": [
+    {
+      "allocation_observation": {
+        "allocation_calls": 221,
+        "live_requested_bytes": 67866,
+        "peak_requested_bytes": 67886,
+        "scope": "observer process and native echo peer Rust heap; not RSS or kernel-only heap"
+      },
+      "phase": "before_proxy",
+      "samples": [
+        {
+          "alive_tasks": 0,
+          "global_queue_depth": 0
+        },
+        {
+          "alive_tasks": 0,
+          "global_queue_depth": 0
+        },
+        {
+          "alive_tasks": 0,
+          "global_queue_depth": 0
+        },
+        {
+          "alive_tasks": 0,
+          "global_queue_depth": 0
+        },
+        {
+          "alive_tasks": 0,
+          "global_queue_depth": 0
+        },
+        {
+          "alive_tasks": 0,
+          "global_queue_depth": 0
+        },
+        {
+          "alive_tasks": 0,
+          "global_queue_depth": 0
+        },
+        {
+          "alive_tasks": 0,
+          "global_queue_depth": 0
+        },
+        {
+          "alive_tasks": 0,
+          "global_queue_depth": 0
+        },
+        {
+          "alive_tasks": 0,
+          "global_queue_depth": 0
+        },
+        {
+          "alive_tasks": 0,
+          "global_queue_depth": 0
+        },
+        {
+          "alive_tasks": 0,
+          "global_queue_depth": 0
+        },
+        {
+          "alive_tasks": 0,
+          "global_queue_depth": 0
+        },
+        {
+          "alive_tasks": 0,
+          "global_queue_depth": 0
+        },
+        {
+          "alive_tasks": 0,
+          "global_queue_depth": 0
+        },
+        {
+          "alive_tasks": 0,
+          "global_queue_depth": 0
+        },
+        {
+          "alive_tasks": 0,
+          "global_queue_depth": 0
+        },
+        {
+          "alive_tasks": 0,
+          "global_queue_depth": 0
+        },
+        {
+          "alive_tasks": 0,
+          "global_queue_depth": 0
+        },
+        {
+          "alive_tasks": 0,
+          "global_queue_depth": 0
+        }
+      ]
+    },
+    {
+      "allocation_observation": {
+        "allocation_calls": 1182,
+        "live_requested_bytes": 528944,
+        "peak_requested_bytes": 559343,
+        "scope": "observer process and native echo peer Rust heap; not RSS or kernel-only heap"
+      },
+      "phase": "ready_idle",
+      "samples": [
+        {
+          "alive_tasks": 3,
+          "global_queue_depth": 0
+        },
+        {
+          "alive_tasks": 3,
+          "global_queue_depth": 0
+        },
+        {
+          "alive_tasks": 3,
+          "global_queue_depth": 0
+        },
+        {
+          "alive_tasks": 3,
+          "global_queue_depth": 0
+        },
+        {
+          "alive_tasks": 3,
+          "global_queue_depth": 0
+        },
+        {
+          "alive_tasks": 3,
+          "global_queue_depth": 0
+        },
+        {
+          "alive_tasks": 3,
+          "global_queue_depth": 0
+        },
+        {
+          "alive_tasks": 3,
+          "global_queue_depth": 0
+        },
+        {
+          "alive_tasks": 3,
+          "global_queue_depth": 0
+        },
+        {
+          "alive_tasks": 3,
+          "global_queue_depth": 0
+        },
+        {
+          "alive_tasks": 3,
+          "global_queue_depth": 0
+        },
+        {
+          "alive_tasks": 3,
+          "global_queue_depth": 0
+        },
+        {
+          "alive_tasks": 3,
+          "global_queue_depth": 0
+        },
+        {
+          "alive_tasks": 3,
+          "global_queue_depth": 0
+        },
+        {
+          "alive_tasks": 3,
+          "global_queue_depth": 0
+        },
+        {
+          "alive_tasks": 3,
+          "global_queue_depth": 0
+        },
+        {
+          "alive_tasks": 3,
+          "global_queue_depth": 0
+        },
+        {
+          "alive_tasks": 3,
+          "global_queue_depth": 0
+        },
+        {
+          "alive_tasks": 3,
+          "global_queue_depth": 0
+        },
+        {
+          "alive_tasks": 3,
+          "global_queue_depth": 0
+        }
+      ]
+    },
+    {
+      "allocation_observation": {
+        "allocation_calls": 33163,
+        "live_requested_bytes": 4432517,
+        "peak_requested_bytes": 4432537,
+        "scope": "observer process and native echo peer Rust heap; not RSS or kernel-only heap"
+      },
+      "phase": "32_live_streams",
+      "samples": [
+        {
+          "alive_tasks": 35,
+          "global_queue_depth": 0
+        },
+        {
+          "alive_tasks": 35,
+          "global_queue_depth": 0
+        },
+        {
+          "alive_tasks": 35,
+          "global_queue_depth": 0
+        },
+        {
+          "alive_tasks": 35,
+          "global_queue_depth": 0
+        },
+        {
+          "alive_tasks": 35,
+          "global_queue_depth": 0
+        },
+        {
+          "alive_tasks": 35,
+          "global_queue_depth": 0
+        },
+        {
+          "alive_tasks": 35,
+          "global_queue_depth": 0
+        },
+        {
+          "alive_tasks": 35,
+          "global_queue_depth": 0
+        },
+        {
+          "alive_tasks": 35,
+          "global_queue_depth": 0
+        },
+        {
+          "alive_tasks": 35,
+          "global_queue_depth": 0
+        },
+        {
+          "alive_tasks": 35,
+          "global_queue_depth": 0
+        },
+        {
+          "alive_tasks": 35,
+          "global_queue_depth": 0
+        },
+        {
+          "alive_tasks": 35,
+          "global_queue_depth": 0
+        },
+        {
+          "alive_tasks": 35,
+          "global_queue_depth": 0
+        },
+        {
+          "alive_tasks": 35,
+          "global_queue_depth": 0
+        },
+        {
+          "alive_tasks": 35,
+          "global_queue_depth": 0
+        },
+        {
+          "alive_tasks": 35,
+          "global_queue_depth": 0
+        },
+        {
+          "alive_tasks": 35,
+          "global_queue_depth": 0
+        },
+        {
+          "alive_tasks": 35,
+          "global_queue_depth": 0
+        },
+        {
+          "alive_tasks": 35,
+          "global_queue_depth": 0
+        }
+      ]
+    },
+    {
+      "allocation_observation": {
+        "allocation_calls": 43257,
+        "live_requested_bytes": 2501311,
+        "peak_requested_bytes": 4447928,
+        "scope": "observer process and native echo peer Rust heap; not RSS or kernel-only heap"
+      },
+      "phase": "after_streams_closed",
+      "samples": [
+        {
+          "alive_tasks": 3,
+          "global_queue_depth": 0
+        },
+        {
+          "alive_tasks": 3,
+          "global_queue_depth": 0
+        },
+        {
+          "alive_tasks": 3,
+          "global_queue_depth": 0
+        },
+        {
+          "alive_tasks": 3,
+          "global_queue_depth": 0
+        },
+        {
+          "alive_tasks": 3,
+          "global_queue_depth": 0
+        },
+        {
+          "alive_tasks": 3,
+          "global_queue_depth": 0
+        },
+        {
+          "alive_tasks": 3,
+          "global_queue_depth": 0
+        },
+        {
+          "alive_tasks": 3,
+          "global_queue_depth": 0
+        },
+        {
+          "alive_tasks": 3,
+          "global_queue_depth": 0
+        },
+        {
+          "alive_tasks": 3,
+          "global_queue_depth": 0
+        },
+        {
+          "alive_tasks": 3,
+          "global_queue_depth": 0
+        },
+        {
+          "alive_tasks": 3,
+          "global_queue_depth": 0
+        },
+        {
+          "alive_tasks": 3,
+          "global_queue_depth": 0
+        },
+        {
+          "alive_tasks": 3,
+          "global_queue_depth": 0
+        },
+        {
+          "alive_tasks": 3,
+          "global_queue_depth": 0
+        },
+        {
+          "alive_tasks": 3,
+          "global_queue_depth": 0
+        },
+        {
+          "alive_tasks": 3,
+          "global_queue_depth": 0
+        },
+        {
+          "alive_tasks": 3,
+          "global_queue_depth": 0
+        },
+        {
+          "alive_tasks": 3,
+          "global_queue_depth": 0
+        },
+        {
+          "alive_tasks": 3,
+          "global_queue_depth": 0
+        }
+      ]
+    },
+    {
+      "allocation_observation": {
+        "allocation_calls": 43408,
+        "live_requested_bytes": 130555,
+        "peak_requested_bytes": 4447928,
+        "scope": "observer process and native echo peer Rust heap; not RSS or kernel-only heap"
+      },
+      "phase": "after_shutdown_and_owner_drop",
+      "samples": [
+        {
+          "alive_tasks": 0,
+          "global_queue_depth": 0
+        },
+        {
+          "alive_tasks": 0,
+          "global_queue_depth": 0
+        },
+        {
+          "alive_tasks": 0,
+          "global_queue_depth": 0
+        },
+        {
+          "alive_tasks": 0,
+          "global_queue_depth": 0
+        },
+        {
+          "alive_tasks": 0,
+          "global_queue_depth": 0
+        },
+        {
+          "alive_tasks": 0,
+          "global_queue_depth": 0
+        },
+        {
+          "alive_tasks": 0,
+          "global_queue_depth": 0
+        },
+        {
+          "alive_tasks": 0,
+          "global_queue_depth": 0
+        },
+        {
+          "alive_tasks": 0,
+          "global_queue_depth": 0
+        },
+        {
+          "alive_tasks": 0,
+          "global_queue_depth": 0
+        },
+        {
+          "alive_tasks": 0,
+          "global_queue_depth": 0
+        },
+        {
+          "alive_tasks": 0,
+          "global_queue_depth": 0
+        },
+        {
+          "alive_tasks": 0,
+          "global_queue_depth": 0
+        },
+        {
+          "alive_tasks": 0,
+          "global_queue_depth": 0
+        },
+        {
+          "alive_tasks": 0,
+          "global_queue_depth": 0
+        },
+        {
+          "alive_tasks": 0,
+          "global_queue_depth": 0
+        },
+        {
+          "alive_tasks": 0,
+          "global_queue_depth": 0
+        },
+        {
+          "alive_tasks": 0,
+          "global_queue_depth": 0
+        },
+        {
+          "alive_tasks": 0,
+          "global_queue_depth": 0
+        },
+        {
+          "alive_tasks": 0,
+          "global_queue_depth": 0
+        }
+      ]
+    }
+  ],
+  "runtime_workers": 1,
+  "scope": "public proxy library; CLI/IPC/Connector application tasks excluded",
+  "streams": 32
+}

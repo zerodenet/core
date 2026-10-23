@@ -1,0 +1,49 @@
+    Checking zero-platform-tokio v0.0.3-dev.202610162206 (/workspace/core/crates/platform/tokio)
+warning: use of deprecated associated function `core::num::<impl u64>::max_value`: replaced by the `MAX` associated constant on this type
+    --> vendor/blake3/src/lib.rs:1817:33
+     |
+1817 |         let max_position = u64::max_value() as i128;
+     |                                 ^^^^^^^^^
+     |
+     = note: `#[warn(deprecated)]` on by default
+
+warning: `blake3` (lib) generated 1 warning
+   Compiling zero-grpc v0.0.3-dev.202610162206 (/workspace/core/crates/grpc)
+   Compiling zero v0.0.3-dev.202610162206 (/workspace/core)
+error[E0624]: method `notify_hosted` is private
+   --> crates/platform/tokio/src/contract/scope/join.rs:179:20
+    |
+179 |             self.0.notify_hosted();
+    |                    ^^^^^^^^^^^^^ private method
+    |
+   ::: crates/platform/tokio/src/contract/scope/hosted.rs:117:5
+    |
+117 |     fn notify_hosted(&self) {
+    |     ----------------------- private method defined here
+
+error[E0624]: method `notify_hosted` is private
+   --> crates/platform/tokio/src/contract/scope/join.rs:188:16
+    |
+188 |         self.0.notify_hosted();
+    |                ^^^^^^^^^^^^^ private method
+    |
+   ::: crates/platform/tokio/src/contract/scope/hosted.rs:117:5
+    |
+117 |     fn notify_hosted(&self) {
+    |     ----------------------- private method defined here
+
+error[E0624]: method `notify_hosted` is private
+   --> crates/platform/tokio/src/contract/scope.rs:263:16
+    |
+263 |         self.0.notify_hosted();
+    |                ^^^^^^^^^^^^^ private method
+    |
+   ::: crates/platform/tokio/src/contract/scope/hosted.rs:117:5
+    |
+117 |     fn notify_hosted(&self) {
+    |     ----------------------- private method defined here
+
+For more information about this error, try `rustc --explain E0624`.
+error: could not compile `zero-platform-tokio` (lib) due to 3 previous errors
+warning: build failed, waiting for other jobs to finish...
+error: could not compile `zero-platform-tokio` (lib test) due to 3 previous errors

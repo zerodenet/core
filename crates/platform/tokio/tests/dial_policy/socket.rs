@@ -131,7 +131,7 @@ async fn explicit_loopback_binding_is_applied_or_fails_without_unbound_retry() {
             #[cfg(target_os = "linux")]
             {
                 use std::os::fd::AsRawFd;
-                let inner = socket.into_inner();
+                let inner = socket.into_inner().unwrap();
                 let mut name = [0u8; libc::IF_NAMESIZE];
                 let mut length = name.len() as libc::socklen_t;
                 // SAFETY: descriptor is live and buffer has the supplied capacity.
@@ -201,7 +201,7 @@ async fn windows_explicit_loopback_interface_binds_tcp_and_udp() {
         .unwrap();
     assert_eq!(&bytes, b"tcp");
 
-    let inner = client.into_inner();
+    let inner = client.into_inner().unwrap();
     let mut index = 0u32;
     let mut length = std::mem::size_of::<u32>() as i32;
     // SAFETY: socket is live, index is a writable u32, and length matches it.

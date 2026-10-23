@@ -13,12 +13,16 @@ use zero_engine::{Engine, EngineError};
 use crate::inventory::ProtocolInventory;
 use crate::protocol_registry::TcpRuntimeServices;
 
+pub(crate) mod current_services;
 #[cfg(feature = "udp-runtime")]
 pub(crate) mod datagram_udp;
+mod diagnostic_service;
 mod dns_outbound;
 mod handle;
 pub(crate) mod http_redirect;
 pub(crate) mod inbound_fallback;
+pub(crate) mod inbound_owners;
+mod packet_close_owner;
 pub(crate) use inbound_fallback::{
     prepare_inbound_route_accept, InboundFallbackTarget, PreparedInboundFallback,
     PreparedInboundRouteAccept,
@@ -44,6 +48,7 @@ pub(crate) mod packet_route;
 #[cfg(feature = "managed-stream-runtime")]
 pub(crate) mod packet_session_udp;
 mod passive_relay_health;
+pub(crate) use passive_relay_health::classify_channel_establishment_failure;
 pub(crate) mod path;
 pub(crate) mod pipe;
 pub(crate) mod principal_rate_limit;
@@ -81,6 +86,7 @@ pub(crate) mod udp_ingress;
 pub(crate) mod udp_socket;
 
 pub use handle::{ConfigApplyReconciler, ConfigReconcileResult, ProxyHandle};
+mod apply_owner;
 pub use running::RunningProxy;
 
 #[derive(Debug, Clone)]
@@ -98,7 +104,12 @@ pub struct Proxy {
     orchestration_ready: tokio::sync::watch::Sender<bool>,
     reload_ack: Arc<std::sync::Mutex<Option<PendingReloadAck>>>,
     reload_apply_lock: Arc<tokio::sync::Mutex<()>>,
+    apply_owner: Arc<apply_owner::ApplyOwner>,
+    packet_close_owner: Arc<packet_close_owner::PacketCloseOwner>,
+    inbound_owners: Arc<inbound_owners::InboundOwnerRegistry>,
+    retired_datagrams: Arc<crate::component::datagram_retirement::RetiredDatagrams>,
     principal_rate_limits: principal_rate_limit::PrincipalRateLimitRegistry,
+    current_services: Arc<current_services::CurrentServiceSource>,
 }
 
 #[derive(Debug)]
@@ -106,6 +117,7 @@ struct PendingReloadAck {
     expected: Arc<zero_engine::EngineRuntimeSnapshot>,
     previous: Arc<zero_engine::EngineRuntimeSnapshot>,
     persist: bool,
+    compensating: bool,
     sender: oneshot::Sender<Result<(), String>>,
 }
 
@@ -157,6 +169,7 @@ impl Proxy {
         let config = engine.config();
         protocols.validate_config(&config)?;
         protocols.validate_dial_environment(&config)?;
+        protocols.validate_components(config.clone())?;
         let egress_interface = zero_platform_tokio::EgressInterfaceControl::default();
         let dns_dispatch = config.compile_dns_dispatch()?;
         let fake_ip_state_path = config
@@ -173,6 +186,25 @@ impl Proxy {
         let (configured_tun_failures, _) = tokio::sync::broadcast::channel(16);
         let resolver = Arc::new(dns);
         let principal_rate_limits = principal_rate_limit::PrincipalRateLimitRegistry::default();
+        // Independent host limit for active + retiring native associations.
+        // This is not the V1 packet queue capacity or a legacy session budget.
+        const RETIRED_DATAGRAM_LIMIT: usize = 4096;
+        let retired_datagrams = Arc::new(
+            crate::component::datagram_retirement::RetiredDatagrams::new(
+                std::num::NonZeroUsize::new(RETIRED_DATAGRAM_LIMIT).unwrap(),
+            ),
+        );
+        let packet_close_owner = Arc::new(packet_close_owner::PacketCloseOwner::new(
+            engine.packet_route_capacity(),
+        ));
+        let current_services = Arc::new(current_services::CurrentServiceSource::new(
+            engine.clone(),
+            &resolver,
+            &protocols,
+            egress_interface.clone(),
+            principal_rate_limits.clone(),
+            &retired_datagrams,
+        ));
         let proxy = Self {
             config,
             engine,
@@ -187,20 +219,27 @@ impl Proxy {
             orchestration_ready,
             reload_ack: Arc::new(std::sync::Mutex::new(None)),
             reload_apply_lock: Arc::new(tokio::sync::Mutex::new(())),
+            apply_owner: Arc::new(apply_owner::ApplyOwner::default()),
+            packet_close_owner,
+            inbound_owners: Arc::default(),
+            retired_datagrams: retired_datagrams.clone(),
             principal_rate_limits: principal_rate_limits.clone(),
+            current_services,
         };
         resolver.set_outbound_connector(Arc::new(dns_outbound::ProxyDnsOutboundConnector::new(
-            proxy.engine.clone(),
-            &resolver,
-            proxy.protocols.clone(),
-            proxy.egress_interface.clone(),
-            principal_rate_limits,
+            proxy.current_service_source(),
         )));
         Ok(proxy)
     }
 
     pub fn engine(&self) -> &Engine {
         &self.engine
+    }
+
+    pub(crate) fn current_service_source(
+        &self,
+    ) -> std::sync::Weak<current_services::CurrentServiceSource> {
+        Arc::downgrade(&self.current_services)
     }
 
     /// Shared physical-egress authority for application-owned network services.
@@ -272,6 +311,17 @@ impl Proxy {
             .is_some_and(|pending| Arc::ptr_eq(&pending.expected, expected))
     }
 
+    pub(crate) fn pending_reload_compensates(
+        &self,
+        expected: &Arc<zero_engine::EngineRuntimeSnapshot>,
+    ) -> bool {
+        self.reload_ack
+            .lock()
+            .expect("reload ack lock poisoned")
+            .as_ref()
+            .is_some_and(|pending| pending.compensating && Arc::ptr_eq(&pending.expected, expected))
+    }
+
     pub(crate) fn tcp_runtime_services(&self) -> TcpRuntimeServices {
         self.tcp_runtime_services_for_snapshot(self.engine.runtime_snapshot())
     }
@@ -287,7 +337,9 @@ impl Proxy {
             self.protocols.clone(),
             self.egress_interface.clone(),
             self.principal_rate_limits.clone(),
+            self.retired_datagrams.clone(),
         )
+        .with_current_service_source(self.current_service_source())
     }
 
     #[cfg(all(test, feature = "udp-runtime"))]
@@ -346,10 +398,15 @@ impl Proxy {
     ) -> Result<u64, EngineError> {
         let request = outbound_probe::OutboundProbeRequest::parse(url)
             .map_err(|error| EngineError::Io(std::io::Error::other(error)))?;
-        outbound_probe::OutboundProbeRuntime::new(self.tcp_runtime_services())
-            .probe_target_tag(target_tag, &request)
-            .await
-            .map_err(|error| EngineError::Io(std::io::Error::other(error)))
+        let proxy = self.clone();
+        let target_tag = target_tag.to_owned();
+        self.with_diagnostic_service(async move {
+            outbound_probe::OutboundProbeRuntime::new(proxy.tcp_runtime_services())
+                .probe_target_tag(&target_tag, &request)
+                .await
+                .map_err(|error| EngineError::Io(std::io::Error::other(error)))
+        })
+        .await?
     }
 }
 

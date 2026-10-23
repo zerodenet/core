@@ -187,11 +187,27 @@ pub(crate) fn build_request(
     port: u16,
     cmd: u8,
 ) -> Result<Vec<u8>, Error> {
-    let mut request = Vec::new();
+    build_request_with_hash(&password_hash(password), addr, port, cmd)
+}
 
+#[cfg(feature = "crypto")]
+pub(crate) fn password_hash(password: &str) -> [u8; PASSWORD_HASH_LEN] {
     use sha2::{Digest, Sha224};
-    let digest = Sha224::digest(password.as_bytes());
-    request.extend_from_slice(hex::encode(&digest).as_bytes());
+    hex::encode(&Sha224::digest(password.as_bytes()))
+        .into_bytes()
+        .try_into()
+        .expect("SHA224 hex is 56 bytes")
+}
+
+#[cfg(feature = "crypto")]
+pub(crate) fn build_request_with_hash(
+    password_hash: &[u8; PASSWORD_HASH_LEN],
+    addr: &Address,
+    port: u16,
+    cmd: u8,
+) -> Result<Vec<u8>, Error> {
+    let mut request = Vec::new();
+    request.extend_from_slice(password_hash);
 
     request.extend_from_slice(CRLF);
     request.push(cmd);

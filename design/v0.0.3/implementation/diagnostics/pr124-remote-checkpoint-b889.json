@@ -1,0 +1,17 @@
+{
+  "metadata": {
+    "url": "https://github.com/zerodenet/core/pull/124",
+    "number": 124,
+    "state": "open",
+    "merged": false,
+    "draft": true,
+    "title": "refactor(v0.0.3): standardize kernel components and data plane (in progress)",
+    "base": "develop",
+    "base_sha": "2eedc2b8d8e2b0e16dffe32d3f83d2f0f2dbcc8a",
+    "head": "codex/v003-pr00-plan",
+    "head_sha": "b889e3b5ecb606806c988644c29803bbd744122c",
+    "updated_at": "2026-10-20T13:41:12Z"
+  },
+  "body": "本变更将组件、Stream/Datagram/Packet 执行及宿主替换迁入统一契约，明确区分真实任务 join、用户视图归还和原生 I/O 关闭，防止取消、Drop 或局部成功被当作整个资源图已关闭。全部17个逻辑检查点继续在同一分支实施；整体未完成，保持 Draft，整套验收前不合并。\n\n当前推送检查点：`b889e3b5ecb606806c988644c29803bbd744122c`，base 为 develop@`2eedc2b8d8e2b0e16dffe32d3f83d2f0f2dbcc8a`。产品版本仍为 `0.0.3-dev.202610162206`，协议 upstream pins 不变；Quinn、quinn-udp、Wintun 使用相同固定版本的保留许可证 vendor 补丁。\n\n目前实现包含：\n\n- 真实 Engine 准入凭证、原调用方 TaskJoinWitness、同组件代际/宿主资源身份和受控 carrier 原生所有者；保持认证、配额、设备/速率策略、原 OS 错误来源、半关闭及转发计量。\n- 同原 Scope 的 raw TCP/UDP 子任务、accepted TCP 有界用户图及真实局部错误接收；普通客户端失败不作为监听器故障。未迁移的 transport/MUX、Direct/DNS 网关仍明确保留 Unaccounted，未用数值 SessionId 或空计数授权。\n- UDP acquisition 私有同源证据和有限的提交前候选回退；Unknown 或业务发送错误不重放载荷。Direct 复用原 DNS、候选调度、恢复与观测，受控动态候选路径正在接线。\n- 元数据 UDP 原 main/probe 所有者、GSO/GRO/ECN、原 Quinn 驱动登记与观察回调边界；已接真实配置 DoQ 查询、TLS/FIN 与取消回归。逻辑用户/驱动唯一账本已下沉中立平台，canonical opaque users 确认仍在接线。\n- 原 listener 驱动在实际工作结束后按逆依赖清理，再独立关闭原生监听器；RetiredDatagrams 取消/poll/最后 Waker Drop 移至元数据锁外。跨 orchestration 取消保留原 observer JoinHandle 的实现仍在后续集成验证。\n- 保留原 Unix TUN 所有者及显式关闭；Wintun provisional Session 在 fallible event setup 前安装，失败显式结束同一原生 session 并保留真实 Windows 来源和结束凭据。Windows 交叉编译不代表原生执行资格。\n\n验证状态必须按源码区分：\n\n- 当前 `b889e3b5` 的 workspace/all-features/all-targets 编译已通过；第67轮运行资格仍在进行，不能称当前 head 全绿。\n- 上一轮 `08da84c3`：transport **222/0/1**、DNS **68/0/0**、platform contracts **82/0/0**，全 target 编译及 Windows platform/TUN 交叉编译通过；Platform **237/1/11**、Proxy **781/4/6**，runtime 守卫 **188/1**，严格 Platform/stack Clippy **1项失败**。实际 configured DoQ 与 accepted/raw VMess TLS 用户图回归通过；失败涉及测试假设、真实 raw TCP 半关闭 RST 等，保留原断言和日志继续定位。这些结果不替代当前 head 运行资格。\n- [59–63轮原始证据](https://github.com/zerodenet/core/blob/b889e3b5ecb606806c988644c29803bbd744122c/design/v0.0.3/implementation/diagnostics/frozen59-through63/README.md)、[55–58轮](https://github.com/zerodenet/core/blob/b889e3b5ecb606806c988644c29803bbd744122c/design/v0.0.3/implementation/diagnostics/frozen55-through58/README.md) 和更早档案保留实际编译失败、SIGABRT、运行失败、忽略及来源 SHA。较新的云端原文将在检查点结束后追加归档，不能用历史2771项通过或旧CI替代新 head。\n\n仍需完成：canonical 全用户/任务/原生图及真正 StopOld→确认清理→BuildNew，普通 Direct/DNS 和 WG PacketFlow 全部真实用户来源，QUIC/H3/HY2/mask/hop 与 Process/Device/后台覆盖，RuntimeHost/M4 与旧 claim/operation/handler/Any 清除，最终同 head workspace/严格 Clippy/release/no_std/最小 feature/协议互通/消费者与 FFI/真实平台/同负载 RS01。资源预算无新增猜测默认值。历史 XHTTP earlyEOF、参考客户端计数及 GUI/物理设备限制继续保留。\n\n[完整方案与17任务卡](https://github.com/zerodenet/core/blob/b889e3b5ecb606806c988644c29803bbd744122c/design/v0.0.3/README.md) · [实际实施记录](https://github.com/zerodenet/core/blob/b889e3b5ecb606806c988644c29803bbd744122c/design/v0.0.3/implementation/README.md) · [整体交付规则](https://github.com/zerodenet/core/blob/b889e3b5ecb606806c988644c29803bbd744122c/design/v0.0.3/delivery-policy.md)\n\n仅在 core 云端环境开发，独立于 znet-sink PR46；不操作用户 Mac，不创建额外 PR，不合并、发版或部署。\n",
+  "qualification": "Remote checkpoint only; not final ALL17 qualification. Actual local round67 results archived separately."
+}

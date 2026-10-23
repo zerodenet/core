@@ -86,3 +86,6 @@ mod relays_udp_through_vless_outbound;
 #[cfg(all(feature = "socks5", feature = "vmess"))]
 #[path = "socks5_udp/relays_udp_through_vmess_to_vmess_relay_chain.rs"]
 mod relays_udp_through_vmess_to_vmess_relay_chain;
+
+#[path = "socks5_udp/standard_datagram.rs"]
+mod standard_datagram;

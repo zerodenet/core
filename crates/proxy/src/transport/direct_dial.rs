@@ -1,12 +1,32 @@
+pub(super) mod candidate;
+pub(crate) use candidate::CandidateOpener;
+use candidate::LegacyCandidateOpener;
+mod service;
+pub(crate) use service::open_service_candidates;
 use std::io;
 use std::net::SocketAddr;
 use std::time::Duration;
+use zero_core::component::NetworkGeneration;
+/// Minted only by this candidate scheduler after real selection. It describes
+/// this attempt; it cannot grant native I/O or business admission by itself.
+pub(crate) struct DirectCandidate {
+    peer: SocketAddr,
+    generation: NetworkGeneration,
+}
+impl DirectCandidate {
+    pub(crate) fn peer(&self) -> SocketAddr {
+        self.peer
+    }
+    pub(crate) fn generation(&self) -> NetworkGeneration {
+        self.generation
+    }
+}
 
 use futures_util::stream::{FuturesUnordered, StreamExt};
-use zero_platform_tokio::{EgressInterfaceControl, EgressSelection, TcpConnectError, TokioSocket};
+use zero_platform_tokio::{EgressInterfaceControl, EgressSelection, TokioSocket};
 
 const CANDIDATE_DELAY: Duration = Duration::from_millis(250);
-const CANDIDATE_TIMEOUT: Duration = Duration::from_secs(10);
+pub(super) const CANDIDATE_TIMEOUT: Duration = Duration::from_secs(10);
 pub(super) const MAX_RECORDED_CONNECTION_ATTEMPTS: usize = 16;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -42,14 +62,14 @@ impl From<&TcpDialAttempt> for zero_engine::FlowConnectionAttemptObservation {
 }
 
 #[derive(Debug)]
-pub(super) struct TcpDialSuccess {
-    pub(super) socket: TokioSocket,
+pub(super) struct TcpDialSuccess<S = TokioSocket> {
+    pub(super) socket: S,
     pub(super) remote: SocketAddr,
     pub(super) resolved_candidates: Vec<SocketAddr>,
     pub(super) selection: EgressSelection,
     pub(super) attempts: Vec<TcpDialAttempt>,
     candidate_index: usize,
-    local_addr: Option<SocketAddr>,
+    pub(super) local_addr: Option<SocketAddr>,
 }
 
 #[derive(Debug)]
@@ -61,6 +81,7 @@ pub(super) struct TcpDialFailure {
     pub(super) interface_bound: bool,
     pub(super) local_addr: Option<SocketAddr>,
     pub(super) error: io::Error,
+    os_error: Option<i32>,
     pub(super) attempts: Vec<TcpDialAttempt>,
     candidate_index: usize,
 }
@@ -77,14 +98,26 @@ pub(super) async fn dial_tcp_candidates_with_policy(
     egress: &EgressInterfaceControl,
     policy: &zero_traits::DialPolicy,
 ) -> Result<TcpDialSuccess, Box<TcpDialFailure>> {
+    dial_tcp_candidates_using(candidates, egress, policy, &LegacyCandidateOpener).await
+}
+
+pub(super) async fn dial_tcp_candidates_using<D: CandidateOpener>(
+    candidates: Vec<SocketAddr>,
+    egress: &EgressInterfaceControl,
+    policy: &zero_traits::DialPolicy,
+    opener: &D,
+) -> Result<TcpDialSuccess<D::Socket>, Box<TcpDialFailure>> {
     let resolved_candidates = interleave_address_families(candidates);
     dial_tcp_candidates_with_history(
         resolved_candidates.clone(),
         egress,
         policy,
-        0,
-        resolved_candidates,
-        Vec::new(),
+        CandidateHistory {
+            offset: 0,
+            resolved_candidates,
+            attempts: Vec::new(),
+        },
+        opener,
     )
     .await
 }
@@ -92,12 +125,23 @@ pub(super) async fn dial_tcp_candidates_with_policy(
 /// Continue one failed dial with newly discovered candidates without retrying
 /// any endpoint that already completed. The returned observation remains one
 /// deterministic candidate/attempt timeline across both phases.
+#[cfg(test)]
 pub(super) async fn dial_tcp_fallback_candidates(
     previous: Box<TcpDialFailure>,
     candidates: Vec<SocketAddr>,
     egress: &EgressInterfaceControl,
     policy: &zero_traits::DialPolicy,
 ) -> Result<TcpDialSuccess, Box<TcpDialFailure>> {
+    dial_tcp_fallback_using(previous, candidates, egress, policy, &LegacyCandidateOpener).await
+}
+
+pub(super) async fn dial_tcp_fallback_using<D: CandidateOpener>(
+    previous: Box<TcpDialFailure>,
+    candidates: Vec<SocketAddr>,
+    egress: &EgressInterfaceControl,
+    policy: &zero_traits::DialPolicy,
+    opener: &D,
+) -> Result<TcpDialSuccess<D::Socket>, Box<TcpDialFailure>> {
     let mut resolved_candidates = previous.resolved_candidates.clone();
     let fallback_candidates = interleave_address_families(candidates)
         .into_iter()
@@ -113,21 +157,33 @@ pub(super) async fn dial_tcp_fallback_candidates(
         fallback_candidates,
         egress,
         policy,
-        candidate_index_offset,
-        resolved_candidates,
-        previous.attempts,
+        CandidateHistory {
+            offset: candidate_index_offset,
+            resolved_candidates,
+            attempts: previous.attempts,
+        },
+        opener,
     )
     .await
 }
 
-async fn dial_tcp_candidates_with_history(
+struct CandidateHistory {
+    offset: usize,
+    resolved_candidates: Vec<SocketAddr>,
+    attempts: Vec<TcpDialAttempt>,
+}
+async fn dial_tcp_candidates_with_history<D: CandidateOpener>(
     candidates: Vec<SocketAddr>,
     egress: &EgressInterfaceControl,
     policy: &zero_traits::DialPolicy,
-    candidate_index_offset: usize,
-    resolved_candidates: Vec<SocketAddr>,
-    mut completed_attempts: Vec<TcpDialAttempt>,
-) -> Result<TcpDialSuccess, Box<TcpDialFailure>> {
+    history: CandidateHistory,
+    opener: &D,
+) -> Result<TcpDialSuccess<D::Socket>, Box<TcpDialFailure>> {
+    let CandidateHistory {
+        offset: candidate_index_offset,
+        resolved_candidates,
+        attempts: mut completed_attempts,
+    } = history;
     let mut next_candidate = candidates
         .iter()
         .copied()
@@ -142,6 +198,7 @@ async fn dial_tcp_candidates_with_history(
         first,
         egress.clone(),
         policy.clone(),
+        opener,
     ));
     let mut last_failure = None;
 
@@ -165,6 +222,7 @@ async fn dial_tcp_candidates_with_history(
                                 candidate,
                                 egress.clone(),
                                 policy.clone(),
+                                opener,
                             ));
                         }
                     }
@@ -175,6 +233,7 @@ async fn dial_tcp_candidates_with_history(
                         candidate,
                         egress.clone(),
                         policy.clone(),
+                        opener,
                     ));
                 }
             }
@@ -203,12 +262,13 @@ async fn dial_tcp_candidates_with_history(
     }
 }
 
-async fn dial_tcp_candidate(
+async fn dial_tcp_candidate<D: CandidateOpener>(
     candidate_index: usize,
     remote: SocketAddr,
     egress: EgressInterfaceControl,
     policy: zero_traits::DialPolicy,
-) -> Result<TcpDialSuccess, Box<TcpDialFailure>> {
+    opener: &D,
+) -> Result<TcpDialSuccess<D::Socket>, Box<TcpDialFailure>> {
     let (selection, selection_error) = match egress.select_for_peer_with_policy(remote, &policy) {
         Ok(selection) => (selection, None),
         Err(error) => (egress.select_for_peer(remote), Some(error)),
@@ -225,65 +285,50 @@ async fn dial_tcp_candidate(
             },
             interface_bound: false,
             local_addr: None,
+            os_error: error.raw_os_error(),
             error,
             attempts: Vec::new(),
             candidate_index,
         }));
     }
 
-    match tokio::time::timeout(
-        CANDIDATE_TIMEOUT,
-        TokioSocket::connect_addr_with_policy_observed(remote, &policy, &selection),
-    )
-    .await
+    match opener
+        .open(
+            DirectCandidate {
+                peer: remote,
+                generation: NetworkGeneration(selection.generation()),
+            },
+            &egress,
+            &selection,
+            &policy,
+        )
+        .await
     {
-        Ok(Ok(socket)) => {
-            let local_addr = socket.local_addr().ok();
-            Ok(TcpDialSuccess {
-                socket,
-                remote,
-                resolved_candidates: Vec::new(),
-                selection,
-                attempts: Vec::new(),
-                candidate_index,
-                local_addr,
-            })
-        }
-        Ok(Err(error)) => Err(connect_failure(candidate_index, remote, selection, error)),
-        Err(_) => Err(Box::new(TcpDialFailure {
+        Ok(opened) => Ok(TcpDialSuccess {
+            socket: opened.io,
+            remote: opened.remote,
+            resolved_candidates: Vec::new(),
+            selection,
+            attempts: Vec::new(),
+            candidate_index,
+            local_addr: Some(opened.local),
+        }),
+        Err(failure) => Err(Box::new(TcpDialFailure {
             remote,
             resolved_candidates: Vec::new(),
-            interface_bound: selection.interface().is_some(),
             selection,
-            stage: "connect_timeout",
-            local_addr: None,
-            error: io::Error::new(io::ErrorKind::TimedOut, "TCP candidate connect timed out"),
+            stage: failure.operation,
+            interface_bound: failure.interface_bound,
+            local_addr: failure.local,
+            os_error: failure.os_error,
+            error: failure.source,
             attempts: Vec::new(),
             candidate_index,
         })),
     }
 }
 
-fn connect_failure(
-    candidate_index: usize,
-    remote: SocketAddr,
-    selection: EgressSelection,
-    error: TcpConnectError,
-) -> Box<TcpDialFailure> {
-    Box::new(TcpDialFailure {
-        remote,
-        resolved_candidates: Vec::new(),
-        selection,
-        stage: error.stage(),
-        interface_bound: error.interface_bound(),
-        local_addr: error.local_addr(),
-        error: error.into_inner(),
-        attempts: Vec::new(),
-        candidate_index,
-    })
-}
-
-impl TcpDialSuccess {
+impl<S> TcpDialSuccess<S> {
     fn observation(&self) -> TcpDialAttempt {
         TcpDialAttempt {
             remote: self.remote,
@@ -308,18 +353,18 @@ impl TcpDialFailure {
             outcome: "failed",
             interface_bound: self.interface_bound,
             error_kind: Some(io_error_kind_name(self.error.kind())),
-            os_error: self.error.raw_os_error(),
+            os_error: self.os_error,
             error: Some(self.error.to_string()),
             candidate_index: self.candidate_index,
         }
     }
 }
 
-fn complete_success(
-    mut success: TcpDialSuccess,
+fn complete_success<S>(
+    mut success: TcpDialSuccess<S>,
     resolved_candidates: Vec<SocketAddr>,
     mut completed_attempts: Vec<TcpDialAttempt>,
-) -> TcpDialSuccess {
+) -> TcpDialSuccess<S> {
     completed_attempts.push(success.observation());
     success.resolved_candidates = resolved_candidates;
     success.attempts = bounded_attempts(completed_attempts, success.candidate_index);

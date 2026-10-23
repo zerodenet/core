@@ -201,9 +201,16 @@ async fn rejected_config_start_restores_stopped_fact_and_records_error_without_a
     assert!(restored.last_error.is_some());
     assert_eq!(endpoint(&handle, "b").generation, original.generation);
     assert!(endpoint(&handle, "b").last_error.is_none());
-    assert!(states(&proxy, "a")
-        .windows(2)
-        .any(|pair| pair == ["starting", "stopped"]));
+    let transitions = states(&proxy, "a");
+    let starting = transitions
+        .iter()
+        .position(|state| state == "starting")
+        .unwrap();
+    let stopped = transitions
+        .iter()
+        .rposition(|state| state == "stopped")
+        .unwrap();
+    assert!(starting < stopped, "actual failed acquisition may publish its failure before compensated Stop: {transitions:?}");
     drop(occupied);
     running.shutdown().await.unwrap();
 }

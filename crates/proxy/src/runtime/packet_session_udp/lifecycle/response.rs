@@ -16,11 +16,10 @@ use crate::runtime::udp_delivery::{
     record_upstream_udp_response_received, write_upstream_response,
 };
 use crate::runtime::udp_dispatch::UdpDispatch;
-use crate::runtime::udp_flow::packet_path::ChainTask;
 #[cfg(feature = "upstream-association-runtime")]
 use crate::runtime::udp_flow::response::UpstreamUdpResponse;
 
-pub(super) type ChainUdpResponseResult = Result<ChainTask, tokio::task::JoinError>;
+pub(super) type ChainUdpResponseResult = crate::runtime::udp_flow::response_join::ObservedChainJoin;
 
 pub(super) async fn handle_direct_response<H>(
     context: &PacketSessionUdpLoopContext<'_>,

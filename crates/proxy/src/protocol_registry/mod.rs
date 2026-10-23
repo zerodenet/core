@@ -46,20 +46,21 @@ pub(crate) use capability::{
 pub(crate) use claim::claim_session_tcp_leaf_with_source;
 #[cfg(any(feature = "tcp-tunnel-runtime", feature = "tcp-session-runtime"))]
 pub(crate) use claim::{claim_socket_tcp_leaf, claim_socket_tcp_leaf_with_relay};
-#[cfg(feature = "raw-ip-runtime")]
-pub(crate) use context::OutboundDevicePreparationContext;
 pub(crate) use context::{
     OutboundAdapterContext, TcpExecutionServices, TcpRuntimeServices, UpstreamConnectServices,
 };
+#[cfg(feature = "raw-ip-runtime")]
+pub(crate) use context::{OutboundDevicePreparationContext, PreparedDevicePacketPath};
 #[cfg(feature = "udp-runtime")]
 pub(crate) use context::{
-    PacketPathExecutionServices, UdpAdapterContext, UdpAssociationCloseKind, UdpNetworkServices,
-    UdpRuntimeServices,
+    PacketPathExecutionServices, UdpAdapterContext, UdpAssociationCloseKind,
+    UdpAssociationObserver, UdpNetworkServices, UdpRuntimeServices,
 };
 #[cfg(feature = "udp-runtime")]
 pub(crate) use defaults::bind_datagram_listener;
+pub(crate) use defaults::prepare_tcp_inbound_bind;
 pub(crate) use defaults::{bind_tcp_inbound, bind_tcp_listener, inbound_listen_addr};
-pub(crate) use model::{BoundInbound, OutboundLeafRuntime};
+pub(crate) use model::{BoundInbound, InboundRecovery, OutboundLeafRuntime, PreparedInboundBind};
 pub(crate) use registry::ClaimedOutboundLeaf;
 pub(crate) use registry::ProtocolRegistry;
 #[cfg(feature = "managed-stream-runtime")]

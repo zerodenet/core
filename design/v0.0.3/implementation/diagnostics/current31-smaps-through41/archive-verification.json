@@ -1,0 +1,11 @@
+{
+  "scope": "archive preparation only; no new Cargo, product, Docker, workload or root writes",
+  "records": 438,
+  "all_gzip_raw_verified": true,
+  "all_original_inputs_and_through39_unchanged": true,
+  "manifest_sha256": "45a558ef2130ec8a2f4b7d824a253f8acbedc9e1d418628c7258e10ab5fc65fc",
+  "gzip_bytes": 2940295,
+  "raw_bytes": 148466971,
+  "nonrecord_files": {},
+  "overall_qualification": false
+}

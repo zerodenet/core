@@ -1,0 +1,463 @@
+{
+  "created": "2026-10-19T21:06:14.885579+00:00",
+  "code_commit": "6a1d8bcb9cc870a9e772904716a85a089c557139",
+  "code_tree": "a9ada0f1b7514175e65051df3b859ade3ddff715",
+  "full_validation": "PASS all10commands on frozen6a1d8bcb treea9ada0f1; full2709/0/159, vendor269/0/0, release/thumb/minimal/dependencyPASS. No source mutation or HEAD changes through release.",
+  "root_lock_sha256": "a003359eb327bd299b675c330e9aeca721156df76d117dd3e55c9c47f711377c",
+  "standalone_vendor_lock_sha256": "720b91b8181e898235f4a07bc26f9d65165febad8421da23f1a4d23ec01788d4",
+  "scope": "Native all-registered Stream relay plus real HY2/QUIC CI progress fixes. Same Draft124; all17 unfinished.",
+  "raw_status": {
+    "pr04-hysteria-small-bdp-negative.txt": "FAIL original min1 actualroot test10.01s;serverwindow1326=MTU1326",
+    "pr04-hysteria-small-bdp-positive.txt": "FAIL min2 alone actualroot test10.01s; filename is historical, not a passing claim",
+    "pr04-hysteria-small-bdp-positive-direct.txt": "FAIL min2 alone10.01s",
+    "pr04-quic-close-negative.txt": "FAIL deterministic productionQuinn pair: peer learns no42/done close whilependingdata+window1",
+    "pr04-quic-close-positive.txt": "FULL standalonevendor269PASS0FAIL0IGNORE0.46s afterclose-only exemption",
+    "pr04-hysteria-both-fixes.txt": "PASS13 actualroot workspacefilteredlibs;originalcaseandsmallBDPcasebothPASS",
+    "pr04-hysteria-both-positive-direct.txt": "PASS actualroot fixedbinary smallBDP2.24s",
+    "pr04-hysteria-close-fixed-min1-negative.txt": "FAIL publicactualFactoryminimum1+fixedclose10s; overrideonlyminimum parameter",
+    "pr04-hysteria-close-fixed-min2-positive.txt": "PASS samepublicprobe binaryFactoryminimum2; actualCLOSEsent",
+    "pr04-hysteria-close-fixed-profile-positive.txt": "PASS samepublicprobe unmodifiedactualProfile defaults; actualCLOSEsent",
+    "pr04-hysteria-a0-stress.jsonl": "800oldoriginalcases8parallelALLPASS; NOTcausalproof oreraseCIfailure",
+    "pr04-hysteria-a0-sequential.jsonl": "100oldoriginalcases sequentialALLPASS; NOTfixclaim",
+    "pr04-hysteria-constrained-stress.jsonl": "ActualDocker1CPU1GiB20original+20smallBDP40PASS0FAIL; NOTfullRS01/performance/otherprotocolqualification"
+  },
+  "references": {
+    "RFC9002": "https://www.rfc-editor.org/rfc/rfc9002.html#section-7.2",
+    "a0_CI": "https://github.com/zerodenet/core/actions/runs/39317685498",
+    "a0_VLESS": "https://github.com/zerodenet/core/actions/runs/39317685387"
+  },
+  "causality_limit": "Captured oldCI phase is pong/EOF versus FIN acknowledgment, not RTT/cwnd telemetry. Real lowBDP reproduces both mechanisms with production code and same10s. Consistency with oldCI is an inference; historicalf90 exact RTT/flight not captured. Preserve failures and newheadCI results separately.",
+  "standalone_vendor_limit": "cargo --manifest-path resolves its own ignored lock (rustls0.23.46); rootmain uses unchanged reviewed dependency lock with patchedrustls0.23.40 andTokio1.54.0. Fullrootactualcarrier regression verifies production graph separately.",
+  "binary_sha256": {
+    "pr04-hysteria-a0-transport": "593a50db7a74322c124faa05ca18be54c993b37f3dbe913d37f04480fba30ca5",
+    "pr04-hysteria-small-bdp-negative": "3182a950b1158c0e6b342eaedd321b06cd7d7fd4286dde05386c4d21bc01da9c",
+    "pr04-hysteria-small-bdp-min2-failed": "2070212ff601a77a2ae8a1211083dc3469792b284a36ccf9f89f8045e38504ee",
+    "pr04-hysteria-both-transport": "466585d247f28f053d9a995b7aa1f1eba320bde597db6925a9a566113b976b35",
+    "pr04-hysteria-progress-probe": "9a62859f5a407f2499f913a5445c67febd496d56b3cb70b42cfcf86b7de6513a",
+    "pr04-hysteria-progress-probe-both": "1dc1565e1e61b97db1c65dc3a0043a612861ab07657c3e88ab5927c219d47018"
+  },
+  "failed_frozen_validation": {
+    "commit": "bae5bfe785baa057ea9d3d2e23703ddab9bc21cd",
+    "tree": "6931d1bea6bca69d67571a840971ce605421ccd8",
+    "workspace_counts": {
+      "passed": 2708,
+      "failed": 1,
+      "ignored": 159,
+      "summaries": 155
+    },
+    "seconds": 397.0728327020006,
+    "failure": "root workspace_architecture::engine_leaf_projection_stops_at_the_inventory_registry_claim_boundary; new inventory/tcp/native.rs carried engine leaf past boundary",
+    "other_checks": "fmt,workspacecheck,strictClippyPASS; all functionaltestsPASS incl originalHY2/smallBDP/Browser/native relay. HEADunchanged/sourceclean throughout.",
+    "not_executed": "No final release/vendor/thumb/minimal/dependency stages after full failure; runner stopped as designed.",
+    "correction": "No guard relaxation: relay assembly consumes already-prepared neutralCandidates; immutable dial facts retained by ComponentSlot coldconstructor. Exact original guard nowPASS, complete new tree qualification pending."
+  },
+  "artifact_digest_records": [
+    {
+      "original": "/workspace/core-baseline-artifacts/ci-linux-a0a012.txt",
+      "original_sha256": "56b9943bd9e2d64dac57bfda01abc54019bbe5801e1f606c6e31ac44b6d2eff1",
+      "bytes": 497720,
+      "evidence": "relay-ci-linux-a0a012.txt.gz",
+      "evidence_sha256": "857d225ba8bc884080d113d64c9f6dc599126a61a6b90aeba5e039798f2603d3"
+    },
+    {
+      "original": "/workspace/core-baseline-artifacts/ci-a0-linux-evidence.json",
+      "original_sha256": "aad87f1630ff3b71725bdfec2336e020cd5ed136082e379f7d438ea24af79763",
+      "bytes": 811,
+      "evidence": "relay-ci-a0-linux-evidence.json.gz",
+      "evidence_sha256": "0f76381c3ef2fdbc338648831f6cff354a0ff91c3348632e5981a399f8feea9b"
+    },
+    {
+      "original": "/workspace/core-baseline-artifacts/ci-vless-a0a012.txt",
+      "original_sha256": "38370f2c6416c6276a11c5a8b2901aa58f5852547b196bcc79b5f48bc2cec483",
+      "bytes": 277645,
+      "evidence": "relay-ci-vless-a0a012.txt.gz",
+      "evidence_sha256": "4883e286768e0677383f5255a43f60d04ea8f0f0a321189feec4f07707c99d60"
+    },
+    {
+      "original": "/workspace/core-baseline-artifacts/ci-a0-vless-evidence.json",
+      "original_sha256": "ebb29e8e57828cbe6672129d5d5bdb6266496270c1e2724c6edd4df4b5b2079d",
+      "bytes": 741,
+      "evidence": "relay-ci-a0-vless-evidence.json.gz",
+      "evidence_sha256": "19e33abc10fc08f511af1b8062b4bc66805ad6eb06904e493117e844fca25cda"
+    },
+    {
+      "original": "/workspace/core-baseline-artifacts/ci-a0-final-jobs.json",
+      "original_sha256": "c972c125ec2027bae341386e0d8e55fb1863bb1d3b317c51ef29041d6f96c0c4",
+      "bytes": 37481,
+      "evidence": "relay-ci-a0-final-jobs.json.gz",
+      "evidence_sha256": "8e5a5d1be5c59123aeab66501d07208716f7bc4c63c0ee5f221c51139081ab54"
+    },
+    {
+      "original": "/workspace/core-baseline-artifacts/pr04-relay-check-1.txt",
+      "original_sha256": "863386234d12eef3cafd8dfd35da6bbf6c6bf19e3f8d56d7105cfa6698c38b06",
+      "bytes": 5312,
+      "evidence": "relay-pr04-relay-check-1.txt.gz",
+      "evidence_sha256": "01c9c70a200d2cc465dc13815a708e6a3459d8898855d303e522a8eff02570b8"
+    },
+    {
+      "original": "/workspace/core-baseline-artifacts/pr04-relay-check-2.txt",
+      "original_sha256": "04e01812808453ce9d282e2ea93044bad685737f524c32a1fcb2f1275d0b4ade",
+      "bytes": 673,
+      "evidence": "relay-pr04-relay-check-2.txt.gz",
+      "evidence_sha256": "899f218e583ff0de9b3d067dbb733fbc88e3bdd23e644b487e081d7d2c0ed3de"
+    },
+    {
+      "original": "/workspace/core-baseline-artifacts/pr04-native-relay-tests-1.txt",
+      "original_sha256": "8a49ee9acd358875424899b58e6f655ac370bef614c81bfab6646617b81c5834",
+      "bytes": 1143,
+      "evidence": "relay-pr04-native-relay-tests-1.txt.gz",
+      "evidence_sha256": "2191f160d6db46a856ad9e20ea91972086ae092e2c8eee9827462f35fbe15f15"
+    },
+    {
+      "original": "/workspace/core-baseline-artifacts/pr04-native-relay-tests-2.txt",
+      "original_sha256": "04ac9c52b5a17e67abbc3273d8141f322341c1ef533fa3f89c512260e0d68c87",
+      "bytes": 7110,
+      "evidence": "relay-pr04-native-relay-tests-2.txt.gz",
+      "evidence_sha256": "a602d9172313eab570f6f7f5487099a4038821fd1e5239435203b2b7550e0798"
+    },
+    {
+      "original": "/workspace/core-baseline-artifacts/pr04-relay-lib-tests-2.txt",
+      "original_sha256": "b187d489df065fbcb864d12ef34114c2c10357ab46885c74650d17ac30bb671a",
+      "bytes": 10560,
+      "evidence": "relay-pr04-relay-lib-tests-2.txt.gz",
+      "evidence_sha256": "9fc916838f1d588f812afdaf36b1703cd315b940b687c924533dc999c177ebb3"
+    },
+    {
+      "original": "/workspace/core-baseline-artifacts/pr04-relay-lib-tests-3.txt",
+      "original_sha256": "89cedf902963a0657115c8e2e3a618252163edf8eec89e4a2eb95c3ccaa20a23",
+      "bytes": 5145,
+      "evidence": "relay-pr04-relay-lib-tests-3.txt.gz",
+      "evidence_sha256": "520da5fdaf617d522e2e9588893a925adb76d31d441e42e346f16b767796495f"
+    },
+    {
+      "original": "/workspace/core-baseline-artifacts/pr04-relay-boundaries.txt",
+      "original_sha256": "7e834103610e381c794299be9253bd36ae7b4a3edc57f7a999aebb686de28841",
+      "bytes": 14163,
+      "evidence": "relay-pr04-relay-boundaries.txt.gz",
+      "evidence_sha256": "7f8bf0c3f9de5ec75e3dbbe13efec9f74df0a1c68fb06fbd4a2714d207600a90"
+    },
+    {
+      "original": "/workspace/core-baseline-artifacts/pr04-relay-clippy-1.txt",
+      "original_sha256": "2f80a1263d09b5513e5af2cd41dfda86c5a18166a8d23b23201dd8964df6e230",
+      "bytes": 1859,
+      "evidence": "relay-pr04-relay-clippy-1.txt.gz",
+      "evidence_sha256": "67f42e2cd07d9c0d83f7b21512d4e2610d9833bf7ed5a81b2e8ca6d8b68ff8d2"
+    },
+    {
+      "original": "/workspace/core-baseline-artifacts/pr04-hysteria-a0-stress.jsonl",
+      "original_sha256": "a14f09b78da07f081e98b08be53fbb19ab9995e6c900f6ef3e08c69b01de0376",
+      "bytes": 225277,
+      "evidence": "relay-pr04-hysteria-a0-stress.jsonl.gz",
+      "evidence_sha256": "983864fdbc38d856ffc91ce2bbafd42a5625559b5d2980afeb4e3b9715db0735"
+    },
+    {
+      "original": "/workspace/core-baseline-artifacts/pr04-hysteria-a0-stress-summary.txt",
+      "original_sha256": "37a40f08d8548dba289b9b0bb35bcf63b359f6d37ee86044ebc6b6da080b9ec1",
+      "bytes": 9,
+      "evidence": "relay-pr04-hysteria-a0-stress-summary.txt.gz",
+      "evidence_sha256": "29b5f629cf3a97bbe06d0569692066f71f3bc8523760f14fbc25ebc2a9edffb0"
+    },
+    {
+      "original": "/workspace/core-baseline-artifacts/pr04-hysteria-a0-sequential.jsonl",
+      "original_sha256": "3f5db32663c4ad66507ef8c3abdddcd1405c96ae72711c78b7d0b6a104cd6e4b",
+      "bytes": 28073,
+      "evidence": "relay-pr04-hysteria-a0-sequential.jsonl.gz",
+      "evidence_sha256": "b91116634531b3d1d37dcf21b50244e9ed13272c08735a3f8e7e3dca73c01366"
+    },
+    {
+      "original": "/workspace/core-baseline-artifacts/pr04-hysteria-small-bdp-negative.txt",
+      "original_sha256": "bbc7d06e1853df6657802893f6459563dae04c5ccfcae05fca33053e0069a761",
+      "bytes": 7787,
+      "evidence": "relay-pr04-hysteria-small-bdp-negative.txt.gz",
+      "evidence_sha256": "68c3906b0d96d425127c9b5ffc1849ed876b4cfe29cc7bc76cf43b0383bcb350"
+    },
+    {
+      "original": "/workspace/core-baseline-artifacts/pr04-hysteria-small-bdp-positive.txt",
+      "original_sha256": "10c05ff12f951eef99a82e031cb55f32d875b1cc4de751877c0509ea56b521a3",
+      "bytes": 8056,
+      "evidence": "relay-pr04-hysteria-small-bdp-positive.txt.gz",
+      "evidence_sha256": "924a226342c65e721ddfcbc38f95d8d9518f5e846d6d009d4f5f9886d09d134b"
+    },
+    {
+      "original": "/workspace/core-baseline-artifacts/pr04-hysteria-small-bdp-positive-direct.txt",
+      "original_sha256": "d7c37111f6c66e52873ed73ab2ac4f99c5e241cadee4bbc9c0b39423622ebc9c",
+      "bytes": 779,
+      "evidence": "relay-pr04-hysteria-small-bdp-positive-direct.txt.gz",
+      "evidence_sha256": "f18cb5292a45d9ec0303fe7561701e312d433570788862c7fa2d78b57bca3bb7"
+    },
+    {
+      "original": "/workspace/core-baseline-artifacts/pr04-hysteria-min2-trace.txt",
+      "original_sha256": "4f8d6919178f0abb4e9bacebf2066b0218d350b4b8cff58e671cb9a79358a11d",
+      "bytes": 54349,
+      "evidence": "relay-pr04-hysteria-min2-trace.txt.gz",
+      "evidence_sha256": "1f2957abef766acdc1fa454fdc41f80ca54238fda57f94e8307d5e62a643fa9d"
+    },
+    {
+      "original": "/workspace/core-baseline-artifacts/pr04-quic-close-negative.txt",
+      "original_sha256": "030bb6eca3700fc7de9b78c9775b4fc22e9933a2b1fef3513c03bd96023fb53f",
+      "bytes": 3529,
+      "evidence": "relay-pr04-quic-close-negative.txt.gz",
+      "evidence_sha256": "4045a5321b100edfe72b3f3ff6b26f4c79f9bd86b921d74cd898acd97556ec86"
+    },
+    {
+      "original": "/workspace/core-baseline-artifacts/pr04-quic-close-positive.txt",
+      "original_sha256": "c6646c0ef0d5806675253ab4e2537f2805e020ebf9be7cabfcd87799c1cd6069",
+      "bytes": 15995,
+      "evidence": "relay-pr04-quic-close-positive.txt.gz",
+      "evidence_sha256": "85d2f55f04685349e166a09b27d567035cc047e23dd6b65820f4925461cb6ade"
+    },
+    {
+      "original": "/workspace/core-baseline-artifacts/pr04-hysteria-both-fixes.txt",
+      "original_sha256": "651627a0b53a4b79be7ca3d74e7f798ee6af781684c2045f5e0aebbfc07508df",
+      "bytes": 9390,
+      "evidence": "relay-pr04-hysteria-both-fixes.txt.gz",
+      "evidence_sha256": "87d9f7e87c633d4d27a1c4b7b6e05102f1a90181b6a014e78b5f1d821107b8df"
+    },
+    {
+      "original": "/workspace/core-baseline-artifacts/pr04-hysteria-both-positive-direct.txt",
+      "original_sha256": "04b9fc83da03aa5d8fed24cd3c2e1c9f4e88d32eb51d3c090e51b1bb48a1d09c",
+      "bytes": 277,
+      "evidence": "relay-pr04-hysteria-both-positive-direct.txt.gz",
+      "evidence_sha256": "656bb11257d6ee40ab7e1ca4dbd905e3d76e64d313c5ec90a7e9b9aa00e6201f"
+    },
+    {
+      "original": "/workspace/core-baseline-artifacts/pr04-hysteria-close-fixed-min1-negative.txt",
+      "original_sha256": "45016a12bcb71a13927c900a496218404549ae7a544454331b7af2fa60e47a94",
+      "bytes": 56135,
+      "evidence": "relay-pr04-hysteria-close-fixed-min1-negative.txt.gz",
+      "evidence_sha256": "740dc8841aae49dd6937e62b5a8799c81d4c33072b17555292bc0cc730769fa7"
+    },
+    {
+      "original": "/workspace/core-baseline-artifacts/pr04-hysteria-close-fixed-min2-positive.txt",
+      "original_sha256": "55b50a88901364e25619fc2e294ca6fcc0ddb11aa2b0348d99697636e42fc6d3",
+      "bytes": 50594,
+      "evidence": "relay-pr04-hysteria-close-fixed-min2-positive.txt.gz",
+      "evidence_sha256": "f7a978866768f0bf3902bc899d716c3b58d1aa29b2e0ae02b21189264dd5d02e"
+    },
+    {
+      "original": "/workspace/core-baseline-artifacts/pr04-hysteria-close-fixed-profile-positive.txt",
+      "original_sha256": "44e66415f1ad17baa33cc3d766dfaa32f41d143ee84c16558a595a3bd2664fc4",
+      "bytes": 46147,
+      "evidence": "relay-pr04-hysteria-close-fixed-profile-positive.txt.gz",
+      "evidence_sha256": "37f2dc22657d1ce7f585e240693ea14be211076a9dfb8ba32991423e1b4b8098"
+    },
+    {
+      "original": "/workspace/core-baseline-artifacts/pr04-hysteria-probe-build.json",
+      "original_sha256": "45a0ff7a3b91db8063eedc2bb47f8e05dd430ce300b66d3fa358ddc536841415",
+      "bytes": 1791,
+      "evidence": "relay-pr04-hysteria-probe-build.json.gz",
+      "evidence_sha256": "0e9fa5b7f7878e2b5643939fd6100be80cf856090aa04b7ba43bcffd0eb637ce"
+    },
+    {
+      "original": "/workspace/core-baseline-artifacts/pr04-hysteria-constrained-stress.py",
+      "original_sha256": "0b9585b5db4b5c1f3a2cd52105033252ee794e31d10dfaafe6c099467a26fa0b",
+      "bytes": 1214,
+      "evidence": "relay-pr04-hysteria-constrained-stress.py.gz",
+      "evidence_sha256": "785b133ef965a4b88536d8427f27817db30db01c78ed358190e57a0b7af900c4"
+    },
+    {
+      "original": "/workspace/core-baseline-artifacts/pr04-hysteria-constrained-stress.jsonl",
+      "original_sha256": "b43ea435bdc892d4b3a2fb8d3480488f7ebc16b72244b79e949950ce49fd44a8",
+      "bytes": 16952,
+      "evidence": "relay-pr04-hysteria-constrained-stress.jsonl.gz",
+      "evidence_sha256": "30ba7a4688bd51be7e35ad0fb5235334f9d9c1e90b94ebef3ed7492631f370ad"
+    },
+    {
+      "original": "/workspace/core-next/hysteria-progress-probe.rs",
+      "original_sha256": "92674cfc5dcbd1fb5190cc69d15b79d38f02e680a2bf2a95e9dbf95cf630bc1b",
+      "bytes": 4156,
+      "evidence": "relay-hysteria-progress-probe.rs.gz",
+      "evidence_sha256": "0b914d72223be2b501ef79fe1259b496f1ba41f5f554b9e2e4d717ac0ac4d421"
+    },
+    {
+      "original": "/workspace/core-next/qualify-relay.py",
+      "original_sha256": "93c704fd51172b8b10f6480c477cc99cf975b34bb9835e57d7ed718d68f05d8a",
+      "bytes": 2401,
+      "evidence": "relay-qualify-relay.py.gz",
+      "evidence_sha256": "17bc2656765bb28ec494b8c5d51a009cd8d4c8c7083d7ca77911aae49af820f5"
+    },
+    {
+      "original": "/workspace/core-baseline-artifacts/pr04-relay-final-fmt.txt",
+      "original_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "bytes": 0,
+      "evidence": "relay-pr04-relay-final-fmt.txt.gz",
+      "evidence_sha256": "f61f27bd17de546264aa58f40f3aafaac7021e0ef69c17f6b1b4cd7664a037ec"
+    },
+    {
+      "original": "/workspace/core-baseline-artifacts/pr04-relay-final-vendor-fmt.txt",
+      "original_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "bytes": 0,
+      "evidence": "relay-pr04-relay-final-vendor-fmt.txt.gz",
+      "evidence_sha256": "f61f27bd17de546264aa58f40f3aafaac7021e0ef69c17f6b1b4cd7664a037ec"
+    },
+    {
+      "original": "/workspace/core-baseline-artifacts/pr04-relay-final-check.txt",
+      "original_sha256": "63b9cf818ee827dc6f9cfe82ceab6fd1c61d59edb22716569119d814c40a1105",
+      "bytes": 1856,
+      "evidence": "relay-pr04-relay-final-check.txt.gz",
+      "evidence_sha256": "256c45ee9ec5fa03affc7a92be285d30f158cdfcf07e85f36abf76c66767bb54"
+    },
+    {
+      "original": "/workspace/core-baseline-artifacts/pr04-relay-final-clippy.txt",
+      "original_sha256": "b67b7cf62e29f37bae15cb0231f75f6fd803593a947e9ebae44a2023b7bd865a",
+      "bytes": 2850,
+      "evidence": "relay-pr04-relay-final-clippy.txt.gz",
+      "evidence_sha256": "b6a3cc002b561245fa5b6a333a4e31c84603d2a9e6005d4cc11146800f8215f5"
+    },
+    {
+      "original": "/workspace/core-baseline-artifacts/pr04-relay-final-test.txt",
+      "original_sha256": "02b4b738bf553619d47138b4445da68d12e3ddc69da812aa300c14d71985fb59",
+      "bytes": 293730,
+      "evidence": "relay-pr04-relay-final-test.txt.gz",
+      "evidence_sha256": "f501df96ad096a927290b0e2427ab7dd6a8e8eedf0396434a8816f0a8d3fa213"
+    },
+    {
+      "original": "/workspace/core-baseline-artifacts/pr04-relay-final-progress.txt",
+      "original_sha256": "d9f21db01ce197675d1e4afb167162ec32a99cda9ae24d05428e7e1ee1dc16a6",
+      "bytes": 1275,
+      "evidence": "relay-pr04-relay-final-progress.txt.gz",
+      "evidence_sha256": "e4104c811d07fa662aa78f4f6c8604737dce224908e5a5ee0032743dafc0b1de"
+    },
+    {
+      "original": "/workspace/core-baseline-artifacts/pr04-relay-final-validation.json",
+      "original_sha256": "2af79d7f8eece4e639fae65d542a22a060c2665127e853abc1b73b27df5b6ccd",
+      "bytes": 1996,
+      "evidence": "relay-pr04-relay-final-validation.json.gz",
+      "evidence_sha256": "e3f3b2708adde86c3e6684ccfcb90e861a441b822ee4900939e04441ad84ae3b"
+    },
+    {
+      "original": "/workspace/core-baseline-artifacts/pr04-relay-neutral-architecture.txt",
+      "original_sha256": "7ec5a5380a0f6870c4af247f1c2d13a46bec77375dafb8f0c68ca04b2e165fa8",
+      "bytes": 990,
+      "evidence": "relay-pr04-relay-neutral-architecture.txt.gz",
+      "evidence_sha256": "27eebe308424b069eb517ec4160bf0d0ab81b095d64e77b53e41577f2add04ff"
+    },
+    {
+      "original": "/workspace/core-baseline-artifacts/pr04-relay-neutral-component.txt",
+      "original_sha256": "e0fa899f7e8caed5042ada31bcf77091e214066e5c1b50f0613707d70ca403b0",
+      "bytes": 9164,
+      "evidence": "relay-pr04-relay-neutral-component.txt.gz",
+      "evidence_sha256": "32369b6073e70fc09bbd58e118520653cb0bdc9e84ee6fa7ebce539e2fdb9b39"
+    },
+    {
+      "original": "/workspace/core-baseline-artifacts/pr04-relay-neutral-final-fmt.txt",
+      "original_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "bytes": 0,
+      "evidence": "relay-pr04-relay-neutral-final-fmt.txt.gz",
+      "evidence_sha256": "f61f27bd17de546264aa58f40f3aafaac7021e0ef69c17f6b1b4cd7664a037ec"
+    },
+    {
+      "original": "/workspace/core-baseline-artifacts/pr04-relay-neutral-final-vendor-fmt.txt",
+      "original_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "bytes": 0,
+      "evidence": "relay-pr04-relay-neutral-final-vendor-fmt.txt.gz",
+      "evidence_sha256": "f61f27bd17de546264aa58f40f3aafaac7021e0ef69c17f6b1b4cd7664a037ec"
+    },
+    {
+      "original": "/workspace/core-baseline-artifacts/pr04-relay-neutral-final-check.txt",
+      "original_sha256": "9d9a34348f8596718be64b94cc8500f79a683997641f9800a75d74ab0d191e1d",
+      "bytes": 673,
+      "evidence": "relay-pr04-relay-neutral-final-check.txt.gz",
+      "evidence_sha256": "a1301b1f93f658c9f9b0757f5bec20e09749b2927e3a57ed82ee2312ed81a70e"
+    },
+    {
+      "original": "/workspace/core-baseline-artifacts/pr04-relay-neutral-final-clippy.txt",
+      "original_sha256": "be8e95a7c5b1cda1036fe63b42eac47234f066d73028d7d9a243d13fd37a8f4b",
+      "bytes": 673,
+      "evidence": "relay-pr04-relay-neutral-final-clippy.txt.gz",
+      "evidence_sha256": "d60c6c2af597bf3f6912540154ac5a361275b21b628eb5047d84ace94730a475"
+    },
+    {
+      "original": "/workspace/core-baseline-artifacts/pr04-relay-neutral-final-test.txt",
+      "original_sha256": "f6f439cbd86cda07d800cb4dd5b05b627106ec2ec0d9dfd85034fa94c8433566",
+      "bytes": 291248,
+      "evidence": "relay-pr04-relay-neutral-final-test.txt.gz",
+      "evidence_sha256": "0d8658b6953972a93200a1d1659a8004b2b5936820437a9751edb90836a2b6ba"
+    },
+    {
+      "original": "/workspace/core-baseline-artifacts/pr04-relay-neutral-final-quinn.txt",
+      "original_sha256": "a0c91640785dc9c67dd786f29b67e62594afa6ba2a634b6f55ac218cf7b50612",
+      "bytes": 15995,
+      "evidence": "relay-pr04-relay-neutral-final-quinn.txt.gz",
+      "evidence_sha256": "3c21573e306e673a9e67c4b9c7c52cbfa2e45c4ec29c63d0b1ff89d707bed84e"
+    },
+    {
+      "original": "/workspace/core-baseline-artifacts/pr04-relay-neutral-final-release.txt",
+      "original_sha256": "7ede2ad2053e16e7aeff709a4769f58b28f624504e9b139754ededb4bca64960",
+      "bytes": 1619,
+      "evidence": "relay-pr04-relay-neutral-final-release.txt.gz",
+      "evidence_sha256": "a9b666ee50f1d1ef78b7caefc09f9cd22fc3bf3077e224ed65ca0ec83875bac7"
+    },
+    {
+      "original": "/workspace/core-baseline-artifacts/pr04-relay-neutral-final-no-std.txt",
+      "original_sha256": "6a981e4e2a0c9af6dead9afee0224555ade213f42082f62ec9b38c4d1fc0dd36",
+      "bytes": 60,
+      "evidence": "relay-pr04-relay-neutral-final-no-std.txt.gz",
+      "evidence_sha256": "bd597cd3da91d0f595480b267ff8477f95924c37db855091f70a87891589a03c"
+    },
+    {
+      "original": "/workspace/core-baseline-artifacts/pr04-relay-neutral-final-minimal.txt",
+      "original_sha256": "11bafd6c3e6acedde4d7c7e9d141b0ea001b6def8c9a26407ea2aad553ba315c",
+      "bytes": 30497,
+      "evidence": "relay-pr04-relay-neutral-final-minimal.txt.gz",
+      "evidence_sha256": "0e059527f7a9de6a9f439c1b567c9ba497117e7abf42ec43aebae4059f8cf98f"
+    },
+    {
+      "original": "/workspace/core-baseline-artifacts/pr04-relay-neutral-final-dependencies.txt",
+      "original_sha256": "9bf298458393fb4315cfa94f3e0d79101b9caf8b2c9292314d989f68905c8ed1",
+      "bytes": 263,
+      "evidence": "relay-pr04-relay-neutral-final-dependencies.txt.gz",
+      "evidence_sha256": "28f519da20dd12d57e18c3651d837c46e3d60e188b4e79651ec332ff4d459ebc"
+    },
+    {
+      "original": "/workspace/core-baseline-artifacts/pr04-relay-neutral-final-validation.json",
+      "original_sha256": "838a764551c1204cb9ea2e9062b25695b411bb41cfa7d3d58e11c6f4f83ca7b0",
+      "bytes": 3899,
+      "evidence": "relay-pr04-relay-neutral-final-validation.json.gz",
+      "evidence_sha256": "e052c755bb44ebbd7d6265d7b851d44c2fafaba7b8a540d743acbe3a22ca03e0"
+    },
+    {
+      "original": "/workspace/core-baseline-artifacts/pr04-relay-neutral-final-progress.txt",
+      "original_sha256": "c8df417fb7f4432ea02b4404bf1a017541b896ab1e3f2b80ed0d13514a03d51f",
+      "bytes": 2665,
+      "evidence": "relay-pr04-relay-neutral-final-progress.txt.gz",
+      "evidence_sha256": "51cd5b4c4338c3007edcabaa7575c31282ecdd48b04c79d1be6e285f5464e327"
+    },
+    {
+      "original": "/workspace/core-baseline-artifacts/pr04-relay-release-build-info.txt",
+      "original_sha256": "00426e9fbafc960ebeef7ef3fb256616e855d8be15e8a06a44d0793ee7c118bf",
+      "bytes": 5799,
+      "evidence": "relay-pr04-relay-release-build-info.txt.gz",
+      "evidence_sha256": "73fe12d553b3ca8d9acf3af23208e523fe066b29369a3524059132053a866d57"
+    },
+    {
+      "original": "/workspace/core-baseline-artifacts/ci-tun-windows-a0a012.txt",
+      "original_sha256": "f739007d18afeb4dacf004a32f21e1e73eb84efb8f4bd6d31839e0dea3e8664c",
+      "bytes": 6997550,
+      "evidence": "relay-ci-tun-windows-a0a012.txt.gz",
+      "evidence_sha256": "91882e009107ec8c78a60f93a75eb75ef99e6ce978c706d82aafedd3cbab4427"
+    },
+    {
+      "original": "/workspace/core-baseline-artifacts/ci-a0-windows-route-switch.json",
+      "original_sha256": "a31a0958c53287f3cfc5c6c13e7e120101ee3ec610de6d85c0626c16d409a53a",
+      "bytes": 405,
+      "evidence": "relay-ci-a0-windows-route-switch.json.gz",
+      "evidence_sha256": "8f7449b38715731846cd5331243f9feb686a114ecfd92a339efd1bf52593a15d"
+    },
+    {
+      "original": "/workspace/core-next/qualify-relay-neutral.py",
+      "original_sha256": "9c29a5ca04cadd7028ef4ff639763e7fa2d99b667135aff93805a3fb8e4340db",
+      "bytes": 2417,
+      "evidence": "relay-qualify-relay-neutral.py.gz",
+      "evidence_sha256": "bc25a4d736f27a37d3135e1d6f77f5138406785749d7c749c5dfc8802415af97"
+    }
+  ],
+  "a0_windows_route_switch": {
+    "executed": false,
+    "reason": "no suitable alternate connected interface with a lower metric and no default route is available",
+    "scenario": "windows-route-switch",
+    "status": "skipped"
+  },
+  "new_head_remote_qualification": "Not yet pushed; olda0successes are not6aCIqualification.",
+  "qualified_at": "2026-10-19T21:30:46.813697+00:00"
+}

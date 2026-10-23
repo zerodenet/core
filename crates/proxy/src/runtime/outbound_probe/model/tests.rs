@@ -25,3 +25,31 @@ fn actual_node_connection_failure_is_not_environmental() {
     )));
     assert!(!error.is_environmental_failure());
 }
+
+#[test]
+fn establishment_metadata_preserves_typed_failure_classification_and_diagnostics() {
+    use crate::transport::establishment::EstablishmentFailure;
+
+    for (source, expected) in [
+        (
+            EngineError::Core(zero_core::Error::Io("failed to connect direct target")),
+            "connection_failed",
+        ),
+        (
+            EngineError::Io(io::Error::from(io::ErrorKind::TimedOut)),
+            "probe_timeout",
+        ),
+    ] {
+        let error = OutboundProbeError::from_engine(EstablishmentFailure::wrap(
+            source,
+            Some("direct".to_owned()),
+            "direct".to_owned(),
+            None,
+            "connect_socket",
+            None,
+        ));
+        assert_eq!(error.code(), expected);
+        assert!(error.message().contains("outbound_tag=direct"));
+        assert!(error.message().contains("stage=connect_socket"));
+    }
+}

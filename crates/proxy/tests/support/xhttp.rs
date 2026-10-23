@@ -207,9 +207,8 @@ pub async fn interop_options(
     let result = timeout(Duration::from_secs(40), async {
         let mut jobs = tokio::task::JoinSet::new();
         for byte in 0..4u8 {
-            let echo = free_port();
             let payload = vec![byte; 131_073];
-            let server = spawn_tcp_echo(echo, payload.len()).await;
+            let (echo, server) = spawn_bound_tcp_echo(payload.len()).await;
             jobs.spawn(async move {
                 let received = socks5_tcp_echo_once(socks, echo, &payload).await?;
                 assert_eq!(received, payload);

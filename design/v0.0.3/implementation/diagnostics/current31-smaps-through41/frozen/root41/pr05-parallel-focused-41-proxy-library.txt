@@ -1,0 +1,734 @@
+   Compiling zero-platform-tokio v0.0.3-dev.202610162206 (/workspace/core/crates/platform/tokio)
+warning: use of deprecated associated function `core::num::<impl u64>::max_value`: replaced by the `MAX` associated constant on this type
+    --> vendor/blake3/src/lib.rs:1817:33
+     |
+1817 |         let max_position = u64::max_value() as i128;
+     |                                 ^^^^^^^^^
+     |
+     = note: `#[warn(deprecated)]` on by default
+
+warning: `blake3` (lib) generated 1 warning
+   Compiling zero-transport v0.0.3-dev.202610162206 (/workspace/core/crates/transport)
+   Compiling http v0.0.1 (/workspace/core/protocols/http)
+   Compiling trojan v0.10.6 (/workspace/core/protocols/trojan)
+   Compiling shadowsocks v1.21.2 (/workspace/core/protocols/shadowsocks)
+   Compiling hysteria2 v2.12.2 (/workspace/core/protocols/hysteria2)
+   Compiling vless v26.3.27 (/workspace/core/protocols/vless)
+   Compiling vmess v26.3.27 (/workspace/core/protocols/vmess)
+   Compiling socks5 v0.0.1 (/workspace/core/protocols/socks5)
+   Compiling mieru v3.33.0 (/workspace/core/protocols/mieru)
+   Compiling zero-config v0.0.3-dev.202610162206 (/workspace/core/crates/config)
+   Compiling zero-engine v0.0.3-dev.202610162206 (/workspace/core/crates/engine)
+   Compiling zero-dns v0.0.3-dev.202610162206 (/workspace/core/crates/dns)
+   Compiling zero-proxy v0.0.3-dev.202610162206 (/workspace/core/crates/proxy)
+warning: unused import: `native::HostIoEvidence`
+  --> crates/proxy/src/component/instance/resources.rs:12:30
+   |
+12 | pub(in crate::component) use native::HostIoEvidence;
+   |                              ^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = note: `#[warn(unused_imports)]` (part of `#[warn(unused)]`) on by default
+
+warning: method `revoke_binding` is never used
+   --> crates/proxy/src/component/bound_datagram.rs:157:19
+    |
+ 52 | impl HostBoundDatagramResources {
+    | ------------------------------- method in this implementation
+...
+157 |     pub(crate) fn revoke_binding(&self, token: &DatagramBindingId) -> Result<(), ChannelError> {
+    |                   ^^^^^^^^^^^^^^
+    |
+    = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: method `native_unconfirmed` is never used
+  --> crates/proxy/src/component/bound_datagram/report.rs:65:19
+   |
+ 3 | impl HostBoundDatagramResources {
+   | ------------------------------- method in this implementation
+...
+65 |     pub(crate) fn native_unconfirmed(&self) -> bool {
+   |                   ^^^^^^^^^^^^^^^^^^
+
+warning: fields `tcp` and `address` are never read
+  --> crates/proxy/src/component/instance/resources/native/evidence.rs:14:9
+   |
+13 | pub(in crate::component) struct NativeIoEvidence {
+   |                                 ---------------- fields in this struct
+14 |     pub tcp: bool,
+   |         ^^^
+15 |     pub address: SocketAddr,
+   |         ^^^^^^^
+   |
+   = note: `NativeIoEvidence` has derived impls for the traits `Debug` and `Clone`, but these are intentionally ignored during dead code analysis
+
+warning: method `direct_peer_driver` is never used
+   --> crates/proxy/src/runtime/udp_ingress/model.rs:115:19
+    |
+ 16 | impl UdpIngressRuntime {
+    | ---------------------- method in this implementation
+...
+115 |     pub(crate) fn direct_peer_driver(
+    |                   ^^^^^^^^^^^^^^^^^^
+
+warning: `zero-proxy` (lib test) generated 5 warnings (run `cargo fix --lib -p zero-proxy --tests` to apply 1 suggestion)
+    Finished `test` profile [unoptimized] target(s) in 2m 53s
+     Running unittests src/lib.rs (/workspace/core-target/debug/deps/zero_proxy-263b2cee0249c6c3)
+
+running 654 tests
+test adapters::socks5::component_tests::business_socks_uses_built_role_and_accounts_only_actual_handshake_bytes ... ok
+test adapters::socks5::component_tests::native_socks_preserves_existing_rejection_code_message_stage_and_endpoint ... ok
+test adapters::socks5::component_tests::fallback_can_try_another_member_before_any_socks_connect_request_is_submitted ... ok
+test adapters::socks5::component_tests::fallback_does_not_replay_an_unconfirmed_submitted_socks_connect ... ok
+test adapters::socks5::component_tests::revoked_socks_role_does_not_fall_back_to_a_per_request_legacy_claim ... ok
+test adapters::socks5::component_tests::stream_only_factory_does_not_bypass_strict_packet_plane_validation ... ok
+test adapters::trojan::component::tests::browser_resource_options_are_never_silently_projected_into_ordinary_websocket ... ok
+test adapters::socks5::relay_tests::revoked_middle_native_role_fails_before_any_carrier_and_retains_business_identity ... ok
+test adapters::trojan::component::tests::grpc_retains_its_existing_driver_owner_while_ordinary_tls_and_websocket_remain_native ... ok
+test adapters::vless::component::tests::ordinary_raw_tls_and_websocket_remain_selected_without_background_carrier_drivers ... ok
+test adapters::trojan::listener::profile::tests::cold_prepare_drop_and_transport_failure_leave_live_users_until_install ... ok
+test adapters::vless::component::tests::reality_library_factory_does_not_activate_production_before_resource_owner_gate ... ok
+test adapters::vless::component::tests::resourceful_styles_are_explicitly_excluded_and_never_dropped_by_direct_options ... ok
+test adapters::vless::component::tests::reverse_input_cannot_be_projected_into_an_ordinary_outbound_role ... ok
+test adapters::socks5::relay_tests::rejection_after_a_real_prefix_preserves_v1_failure_and_actual_identity_without_replay ... ok
+test adapters::vless::component::tests::selected_custom_id_is_parsed_by_protocol_and_invalid_id_never_falls_back ... ok
+test adapters::vless::component::tests::tls_vision_keeps_flow_and_padding_while_invalid_selected_parameters_still_fail ... ok
+test adapters::vmess::component::tests::an_invalid_selected_native_credential_is_an_error_and_never_a_legacy_fallback ... ok
+test adapters::vmess::component::tests::ordinary_raw_tls_and_websocket_remain_selected_without_background_carrier_drivers ... ok
+test adapters::vmess::component::tests::resourceful_styles_remain_excluded_and_direct_options_never_discard_them ... ok
+test adapters::vmess::tests::post_reconcile_hot_callback_still_publishes_to_the_existing_actual_profile ... ok
+test adapters::wireguard::tests::raw_ip::raw_ip_staging_failure_keeps_published_device ... ok
+test adapters::vmess::tests::candidate_prepare_drop_and_tls_failure_never_publish_live_users_but_install_does ... ok
+test adapters::wireguard::tests::raw_ip::wireguard_udp_device_shares_handshake_across_flows ... ok
+test adapters::wireguard::tests::wireguard_adapter_claims_without_mutating_published_profile ... ok
+test adapters::wireguard::tests::wireguard_advertises_packet_with_shared_flow_converters ... ok
+test adapters::wireguard::tests::wireguard_capabilities_report_current_endpoint_limits ... ok
+test adapters::wireguard::tests::wireguard_device_shutdown_releases_protocol_profile ... ok
+test adapters::wireguard::tests::raw_ip::wireguard_opaque_carrier_keeps_bidirectional_udp_payload ... ok
+test component::bound_datagram::tests::cold_or_foreign_binding_is_rejected_without_native_authority ... ok
+test adapters::wireguard::tests::wireguard_health_reports_configured_peer_before_device_start ... ok
+test component::catalog::cold::tests::actual_ss_consumers_and_one_replay_owner_compile_in_the_same_host_union ... ok
+test component::catalog::cold::tests::cold_shared_union_cannot_cross_the_existing_production_gate_or_publish_admission ... ok
+test component::catalog::cold::tests::conflicting_full_resource_settings_discard_the_pass_without_polluting_prior_identity ... ok
+test component::catalog::cold::tests::same_resource_identity_with_changed_full_settings_advances_both_real_consumers_once ... ok
+test component::catalog::cold::tests::unchanged_consumers_redeclare_resources_and_reuse_the_actual_bound_slots ... ok
+test component::catalog::cold::tests::selected_consumer_failure_discards_requests_and_preserves_the_real_current_plan ... ok
+test component::catalog::cold::tests::union_graph_validation_rejects_unknown_shared_dependencies_before_any_build ... ok
+test adapters::wireguard::tests::raw_ip::wireguard_udp_flow_reports_authenticated_icmp_unreachable ... ok
+test component::catalog::replacement::tests::generations::failed_build_generation_is_not_reissued_as_a_cold_recipe ... ok
+test component::catalog::replacement::tests::generations::failed_prepare_cannot_publish_partial_high_watermarks_or_poison_healthy_current ... ok
+test component::catalog::replacement::tests::cancelled_task_retirement_keeps_the_same_batch_real_scope_and_original_join_failure ... ok
+test component::catalog::replacement::tests::generations::revoked_last_good_recovers_above_the_failed_staged_generation_without_rebuilding_unrelated_roles ... ok
+test component::catalog::replacement::tests::generations::failed_staged_generation_is_never_reissued_for_the_same_candidate ... ok
+test component::catalog::replacement::tests::native_declaration_retains_actual_close_receipts_and_scope_fault_without_provider_proof ... ok
+test component::catalog::tests::cancelled_plan_shutdown_retains_actual_join_failure_after_report_consumption ... ok
+test component::catalog::replacement::tests::typed_receipt_reissues_after_publication_error_or_panic_but_cannot_replay_after_consumption ... ok
+test component::datagram_retirement::tests::a_started_open_can_adopt_after_stop_without_losing_its_pre_reserved_controller ... ok
+test component::datagram_retirement::tests::actual_control_failure_keeps_its_source_controller_and_retry_ownership ... ok
+test component::datagram_retirement::tests::a_real_pending_or_failed_tcp_close_does_not_pin_another_closed_udp_reservation ... ok
+test component::datagram_retirement::tests::normal_udp_driver_recycles_capacity_one_for_two_real_socket_batches_without_global_stop ... ok
+test component::datagram_retirement::tests::reservation_bounds_active_and_retiring_and_drop_cannot_claim_native_udp_close ... ok
+test component::datagram_retirement::tests::interrupted_lease_close_and_deadline_retain_the_same_real_tcp_controller ... ok
+test component::instance::resources::grant_tests::controlled::failed_attempt_consumes_exact_udp_budget_without_waiting_for_success ... ok
+test component::instance::resources::grant_tests::controlled::invalid_udp_sender_capacity_is_rejected_cold_and_tcp_failed_attempts_are_also_bounded ... ok
+test component::instance::resources::grant_tests::controlled::udp_failures_explicitly_close_originals_then_success_keeps_all_views_fenced_by_host ... ok
+test component::direct_bridge::network::tests::native_direct_dial_keeps_os_error_and_legacy_classification ... ok
+test component::instance::resources::grant_tests::native_bind_failure_keeps_the_real_os_source_and_the_unused_grant ... ok
+test component::instance::resources::grant_tests::real_listener_grants_enforce_start_phase_protocol_endpoint_and_lifetime_budget ... ok
+test component::instance::resources::native::files::tests::actual_file_failures_keep_their_native_source_and_do_not_restart_jobs ... ok
+test component::datagram_retirement::tests::unadopted_open_stays_unfinished_until_its_actual_reservation_is_released ... ok
+test component::instance::resources::native::files::tests::cleanup::a_confirmed_protocol_close_is_not_repeated_when_file_join_was_interrupted ... ok
+test component::instance::resources::native::files::tests::cleanup::interrupted_protocol_cleanup_retains_actual_file_join_and_scope_receipts ... ok
+test component::instance::resources::native::files::tests::concurrency::a_discarded_last_join_waiter_cannot_steal_the_remaining_file_readers_wakeup ... ok
+test component::instance::resources::native::files::tests::concurrency::actual_blocking_job_panic_retains_its_join_source_and_never_confirms_successful_cleanup ... ok
+test component::instance::resources::native::files::tests::concurrency::cancelling_one_file_waiter_does_not_restart_or_cancel_the_other_actual_reader ... ok
+test component::instance::resources::native::files::tests::declared_file_is_one_bounded_snapshot_and_exact_path_authority_is_start_only ... ok
+test component::instance::resources::native::files::tests::native::actual_file_join_receipt_survives_cancelled_cleanup_while_native_owner_is_busy ... ok
+test component::instance::resources::native::files::tests::native::actual_tcp_and_udp_registration_unknowns_do_not_prevent_file_join_or_lose_original_sources ... ok
+test component::instance::resources::native::files::tests::native::native_receipt_survives_cancelled_cleanup_while_actual_file_job_is_still_pending ... ok
+test component::instance::resources::native::files::tests::native::original_blocking_panic_stays_faulted_while_native_receipt_is_collected_and_retained ... ok
+test component::instance::resources::native::files::tests::cancelling_the_actual_blocking_file_waiter_retains_its_job_until_confirmed_join ... ok
+test component::instance::resources::native::files::tests::physical::no_acquisition_and_read_error_have_distinct_physical_proofs_and_original_sources ... ok
+test component::instance::resources::native::files::tests::physical::post_open_panic_joins_the_actual_worker_then_explicitly_closes_its_original_file ... ok
+test component::instance::resources::native::shutdown::sticky_tests::real_native_close_does_not_delete_an_already_published_original_fault ... ok
+test component::instance::resources::outbound_datagram::tests::access::acquired_socket_stays_in_its_receiver_owner_after_topology_becomes_stale ... ok
+test component::instance::resources::outbound_datagram::tests::access::actual_udp_grant_requires_bound_live_task_exact_request_and_one_native_attempt ... ok
+test component::instance::resources::outbound_datagram::tests::access::existing_static_resources_and_default_access_do_not_grant_dynamic_outbound_sockets ... ok
+test component::instance::resources::outbound_datagram::tests::failures::actual_registration_panic_retains_unknown_state_and_the_real_task_join_error ... ok
+test component::instance::resources::outbound_datagram::tests::failures::actual_tokio_registration_error_keeps_its_source_and_permanent_unknown_native_outcome ... ok
+test component::instance::resources::outbound_datagram::tests::failures::real_network_invalidation_consumes_one_attempt_but_proves_no_native_socket_was_acquired ... ok
+test component::stream_bridge::relay::health::tests::retained_prefix_health_does_not_keep_a_retired_configuration_alive ... ok
+test component::stream_bridge::relay::prefix::datagram::tests::prefix_caller_cancellation_wakes_real_pending_udp_without_claiming_close ... ok
+test component::stream_bridge::relay::prefix::datagram::tests::prefix_guard_preserves_actual_datagrams_association_limits_and_source ... ok
+test component::stream_bridge::relay::prefix::tests::bound_prefix_preserves_actual_business_facts_named_node_target_and_earliest_deadline ... ok
+test component::stream_bridge::relay::prefix::tests::bound_prefix_rejects_wrong_role_generation_endpoint_dial_network_and_session_before_io ... ok
+test component::stream_bridge::relay::prefix::tests::datagram_tests::datagram_prefix_rejects_multiple_missing_role_and_nonshrinking_binding_before_io ... ok
+test component::stream_bridge::relay::prefix::tests::network_change_after_prefix_connect_keeps_unknown_delivery_and_actual_owner ... ok
+test component::instance::resources::native::files::tests::physical::cancelled_post_open_waiter_retains_the_actual_file_and_worker_until_join_and_close ... ok
+test component::stream_bridge::traffic::tests::explicit_protocol_counts_replace_carrier_establishment_bytes_without_double_charging ... ok
+test component::stream_bridge::traffic::tests::explicit_zero_is_not_a_missing_report_and_legacy_roles_keep_the_original_fallback ... ok
+test component::tests::bindings::a_rebuilt_consumer_factory_gets_the_new_actual_dependency_generation ... ok
+test component::stream_bridge::relay::prefix::tests::unrelated_carrier_token_cannot_replace_cancelled_parent_fence ... ok
+test component::tests::bindings::validated_build_receives_the_exact_instances_and_lookup_does_not_require_role_ids ... ok
+test component::tests::bindings::missing_extra_duplicate_and_wrong_dependency_instances_fail_before_factory_build ... ok
+test component::tests::build_gate::actual_slot_denies_build_tasks_then_registers_and_joins_the_real_start_task ... ok
+test component::tests::catalog::changed_static_options_advance_generation_without_identity_reuse ... ok
+test component::tests::catalog::cold_plan_is_cached_and_unrelated_updates_reuse_real_role ... ok
+test component::tests::catalog::expired_caller_cannot_poison_an_unstarted_component ... ok
+test component::tests::catalog::stopped_catalog_builds_fresh_instances_for_a_later_runtime ... ok
+test component::tests::catalog::supplied_factory_state_builds_the_actual_cached_runtime_roles ... ok
+test component::tests::dependencies::duplicate_component_identities_cannot_replace_an_earlier_node ... ok
+test component::tests::dependencies::duplicate_dependency_entries_are_rejected ... ok
+test component::tests::dependencies::self_and_indirect_dependency_cycles_are_rejected_without_starting_a_runtime ... ok
+test component::tests::dependencies::shared_prerequisites_have_one_position_before_each_consumer ... ok
+test component::tests::dependencies::unknown_dependencies_fail_with_the_actual_consumer_identity_before_build ... ok
+test component::tests::generations::a_changed_dependency_rebuilds_each_transitive_consumer_once_and_preserves_other_roles ... ok
+test component::tests::generations::a_local_change_already_assigned_next_generation_is_not_incremented_twice ... ok
+test component::tests::generations::cold_generation_propagation_rejects_invalid_graphs_before_reusing_slots ... ok
+test component::tests::generations::exhausted_component_generation_cannot_wrap_or_publish_a_replacement ... ok
+test component::tests::generations::issued_floor_and_revocation_advance_transitive_dependencies_once_without_rebuilding_other_roles ... ok
+test component::tests::host_admission::cold_validation_never_grants_admission_and_failed_commit_keeps_current_closed ... ok
+test component::tests::host_admission::committing_current_cannot_discard_another_actual_started_candidate ... ok
+test component::tests::host_admission::exact_candidate_survives_cold_cache_replacement_and_cached_old_handles_are_fenced ... ok
+test component::tests::host_cleanup::cancelled_catalog_shutdown_retains_the_actual_started_owners_for_confirmed_retry ... ok
+test component::tests::mieru_stream::two_native_mieru_consumers_bind_one_actual_canonical_roleless_pool_identity ... ok
+test component::tests::native_process::grants::actual_native_grants_require_start_phase_exact_program_and_declared_lifetime_budget ... ok
+test component::tests::native_process::grants::failed_native_spawn_keeps_its_actual_os_source_and_does_not_consume_a_child_start ... ok
+test component::tests::native_process::grants::native_launch_debug_never_exposes_arguments_or_environment_values ... ok
+test component::tests::native_process::grants::the_actual_slot_denies_native_starts_during_build_and_after_start_returns ... ok
+test component::tests::dependencies::deep_dependency_chains_use_no_recursive_validation_stack ... ok
+test component::tests::native_process::plugin::actual_host_slot_grants_one_real_plugin_child_and_joins_its_actual_monitor_before_reporting_exit ... ok
+test adapters::socks5::relay_tests::native_two_and_three_hop_streams_preserve_wire_payload_halfclose_metadata_and_accounting ... ok
+test component::tests::ownership::aborted_start_retains_its_resource_owner_until_cleanup_is_confirmed ... ok
+test component::tests::ownership::an_exhausted_waiter_does_not_cancel_or_restart_the_in_progress_start ... ok
+test component::tests::ownership::failed_start_keeps_owner_and_retries_unconfirmed_cleanup ... ok
+test component::tests::ownership::shutdown_waits_for_in_progress_start_to_retain_its_cleanup_owner ... ok
+test component::tests::native_process::plugin::actual_registered_plugin_monitor_reports_the_actual_child_exit_with_its_real_component_identity ... ok
+test component::tests::preparation::identities::allocated_and_reused_ids_share_the_same_collision_guard ... ok
+test component::tests::preparation::identities::an_identity_index_cannot_retain_the_previous_factory_or_recipe ... ok
+test component::tests::preparation::identities::removed_resource_identities_do_not_resurrect_when_readded ... ok
+test component::tests::preparation::identities::successful_canonical_identity_is_stable_across_passes_without_reallocation ... ok
+test component::tests::preparation::identities::unchanged_shared_identity_reuses_the_running_replay_owner_and_its_one_scope ... ok
+test component::tests::preparation::shared_recipe_uses_persistent_slot_and_cannot_replace_a_running_replay_owner ... ok
+test component::tests::preparation::standalone_registration_cannot_invent_resource_ids_without_a_host_allocator ... ok
+test component::tests::preparation::two_typed_consumers_share_one_real_replay_owner_with_host_assigned_identity ... ok
+test component::tests::preparation::validation::allocator_failure_preserves_original_source_and_invalidates_the_candidate ... ok
+test component::tests::preparation::validation::callable_role_cannot_be_disguised_as_a_shared_roleless_owner ... ok
+test component::tests::preparation::validation::combined_primary_resource_cycle_is_rejected_before_any_build ... ok
+test component::tests::preparation::validation::equal_identity_with_conflicting_dependency_rejects_without_a_second_allocation ... ok
+test component::tests::preparation::validation::failed_consumer_prevents_extracting_prior_successful_resource_requests ... ok
+test component::tests::preparation::validation::independently_owned_protocol_states_are_isolated_by_assembly_namespace ... ok
+test component::tests::preparation::validation::repeated_host_identity_for_distinct_resources_rejects_the_whole_pass ... ok
+test component::tests::native_process::plugin::rejected_native_adoption_and_its_discarded_owner_never_revoke_the_legacy_child ... ok
+test component::tests::request::business_projection_preserves_assigned_identity_auth_and_available_facts ... ok
+test component::tests::request::ingress_owner_identity_survives_clones_and_snapshot_refresh ... ok
+test component::tests::ownership::start_timeout_retains_the_partially_started_owner_for_confirmed_cleanup ... ok
+test component::tests::scoped::protocol_cleanup_and_declared_driver_exit_are_driven_together ... ok
+test component::tests::scoped::protocol_cleanup_failure_retains_the_confirmed_driver_failure_for_retry ... ok
+test component::tests::service_stream::trojan::actual_registered_socks_to_trojan_chain_keeps_tls_and_service_identity_inside_the_selected_prefix ... ok
+test component::tests::scoped::bounded_driver_keeps_io_and_join_ownership_after_cleanup_timeout ... ok
+test component::tests::service_stream::vless::actual_registered_socks_to_tls_vision_chain_keeps_flow_in_the_real_service_dispatcher ... ok
+test component::tests::service_stream::vless::actual_registered_socks_to_vless_chain_keeps_tls_and_service_identity_inside_the_selected_prefix ... ok
+test component::tests::shadowsocks_stream::dependencies::an_id_from_another_adapter_pool_cannot_substitute_for_the_actual_security_history ... ok
+test component::tests::shadowsocks_stream::dependencies::native_2022_cannot_bypass_unstarted_or_wrong_generation_replay_dependencies ... ok
+test component::tests::shadowsocks_stream::dependencies::replay_retirement_revokes_new_native_opens_without_dial_or_unregistered_restart ... ok
+test component::tests::request::business_direct_uses_its_registered_role_and_cannot_fall_back_after_revocation ... ok
+test component::tests::shadowsocks_stream::response::actual_authenticated_wrong_request_echo_is_rejected_before_it_can_pollute_shared_response_history ... ok
+test component::tests::shadowsocks_stream::wire::two_canonical_native_consumers_reject_the_second_authenticated_2022_response_salt_from_the_same_history ... ok
+test component::tests::shadowsocks_stream::wire::actual_native_shadowsocks_plain_legacy_and_2022_keep_wire_traffic_halfclose_and_real_confirmation ... ok
+test component::tests::vless_grpc::two_vless_consumers_use_real_host_canonical_roleless_grpc_pool_with_complete_profile_identity ... ok
+test component::tests::vmess_ca::grpc::native_vmess_ca_grpc_rejects_before_file_owner_read_or_outbound_acquisition ... ok
+test component::tests::service_stream::vmess::actual_registered_socks_to_vmess_chain_keeps_tls_and_service_identity_inside_the_selected_prefix ... ok
+test component::tests::vmess_ca::owned_grpc::admission::controlled_vmess_grpc_unknown_actual_socket_acquisition_keeps_finite_slot_and_original_source ... ok
+test component::tests::vmess_ca::owned_grpc::admission::complete_vmess_grpc_recipe_conflicts_and_legacy_real_tcp_udp_relay_entries_cannot_be_adopted ... ok
+test component::tests::vmess_ca::owned_grpc::faults::controlled_vmess_grpc_logical_reset_preserves_original_h2_source_without_false_peer_confirmation ... ok
+test component::tests::vmess_ca::owned_grpc::faults::pending_real_vmess_tls_cancel_keeps_original_control_until_close_without_fabricating_task_exit ... ok
+test component::tests::vmess_ca::rejected::declared_ca_still_requires_the_real_start_grant_phase ... ok
+test component::tests::vmess_ca::rejected::native_file_ca_failures_preserve_read_and_pem_sources_and_never_admit_streams ... ok
+test component::tests::vmess_ca::rejected::prepared_file_roots_still_reject_an_untrusted_actual_tls_peer_without_vmess_submission ... ok
+test component::tests::vmess_ca::owned_grpc::admission::controlled_vmess_grpc_keeps_the_host_minted_business_identity_and_service_only_provider_refuses_before_io ... ok
+test groups::urltest::tests::automatic_cycle_queues_one_fresh_manual_operation ... ok
+test groups::urltest::tests::overlapping_clicks_join_the_running_manual_operation ... ok
+test inbound::tun::routes::state::tests::strict_failure_withdraws_only_the_managed_family ... ok
+test inbound::tun::routes::tests::network_notifications_invalidate_caches_even_after_a_coalesced_link_flap ... ok
+test inbound::tun::routes::tests::only_platform_events_are_debounced ... ok
+test inbound::tun::routes::tests::route_retry_backoff_starts_small_and_is_bounded ... ok
+test inbound::tun::routes::tests::runtime_spec_tracks_only_managed_address_families ... ok
+test inbound::tun::runtime::tests::secure_dns_boundary::application_doh_remains_opaque_and_only_exposes_the_endpoint_sni ... ok
+test inbound::tun::runtime::tests::secure_dns_boundary::ech_keeps_the_ip_target_and_never_promotes_the_outer_public_name ... ok
+test inbound::tun::runtime::tests::tun_drops_udp_multicast_and_configured_subnet_broadcast ... ok
+test inbound::tun::runtime::tests::tun_http_host_recovers_domain_and_preserves_request ... ok
+test inbound::tun::runtime::tests::tun_keeps_unicast_udp_even_when_address_ends_in_255 ... ok
+test inbound::tun::runtime::tests::tun_non_tls_probe_keeps_ip_target_and_preserves_payload ... ok
+test inbound::tun::runtime::tests::tun_packet_loop_dispatches_owned_fragmented_and_unfragmented_udp ... ok
+test inbound::tun::runtime::tests::tun_task_shutdown_waits_until_owned_resources_are_dropped ... ok
+test component::tests::vmess_ca::owned_grpc::wire::controlled_vmess_grpc_ca_uses_a_fresh_real_client_per_connect_and_preserves_confirmation_and_half_close ... ok
+test inbound::tun::runtime::tests::tun_tcp_uses_kernel_direct_route_and_records_traffic ... ok
+test inbound::tun::runtime::tests::tun_tls_sniff_handles_client_hello_split_across_records ... ok
+test inbound::tun::runtime::tests::tun_tls_sniff_overrides_ip_target_and_preserves_client_hello ... ok
+test inbound::tun::runtime::tests::tun_tls_without_sni_keeps_deterministic_ip_fallback ... ok
+test inbound::tun::sniff::tests::detects_ech_and_does_not_treat_outer_sni_as_the_hidden_name ... ok
+test inbound::tun::sniff::tests::parses_host_header_and_absolute_form_without_accepting_userinfo ... ok
+test inbound::tun::sniff::udp::tests::non_quic_udp_is_forwarded_without_sniff_delay ... ok
+test inbound::tun::statistics::tests::traffic_tun_period_reset_isolated_from_global_packets_and_live_business_usage ... ok
+test inbound::tun::tests::automatic_routes_are_dual_stack_by_default ... ok
+test inbound::tun::tests::command_tun_start_rejects_fake_ip_pool_collision_before_device_creation ... ok
+test inbound::tun::tests::completed_route_cleanup_clears_tun_egress_state ... ok
+test inbound::tun::tests::configured_tun_restarts_when_explicit_route_exclusions_change ... ok
+test inbound::tun::tests::dns_modes::disabled_dns_fails_before_capture_if_system_egress_cannot_be_discovered ... ok
+test inbound::tun::tests::dns_modes::dns_mode_interception_and_capture_matrix_keeps_system_egress_independent ... ok
+test inbound::tun::tests::doh_endpoint_parser_accepts_literal_v4_and_v6_hosts ... ok
+test inbound::tun::tests::explicit_secondary_address_must_be_cidr_and_opposite_family ... ok
+test inbound::tun::tests::loopback_and_link_local_bootstrap_addresses_do_not_get_physical_host_routes ... ok
+test inbound::tun::tests::recovery::explicit_stop_interrupts_recovery_without_waiting_for_its_timeout ... ok
+test inbound::tun::tests::recovery::generation_logs_distinguish_notifications_from_changed_route_policy ... ok
+test inbound::tun::tests::recovery::manual_recovery_requires_a_running_route_runtime ... ok
+test inbound::tun::tests::recovery::manual_recovery_waits_for_the_audit_and_returns_its_failure ... ok
+test inbound::tun::tests::recovery::successful_shutdown_releases_a_previously_fail_closed_egress ... ok
+test inbound::tun::tests::route_cleanup_failure_retains_the_last_physical_egress ... ok
+test inbound::tun::tests::strict_dns_hijack_discovers_and_merges_system_dns_endpoints ... ok
+test inbound::tun::tests::strict_dns_hijack_fails_closed_when_system_dns_discovery_fails ... ok
+test inbound::tun::tests::tun_address_accepts_cidr_and_derives_mask ... ok
+test inbound::tun::tests::tun_address_rejects_invalid_prefix_and_mixed_mask_family ... ok
+test inbound::tun::tests::unexpected_runtime_cleanup_failure_retains_egress_and_error ... ok
+test inbound::tun::tests::unexpected_runtime_exit_waits_for_route_cleanup_before_clearing_egress ... ok
+test inbound::tun::udp::association::tests::active_association_count_has_a_hard_ceiling ... ok
+test inbound::tun::udp::association::tests::failed_source_cannot_recreate_immediately ... ok
+test inbound::tun::udp::association::tests::new_source_churn_is_rate_limited ... ok
+test inbound::tun::udp::association::tests::repeated_source_uses_existing_association_without_waiting ... ok
+test inbound::tun::udp::association::tests::saturated_association_drops_without_blocking_other_sources ... ok
+test inbound::tun::udp::tests::dns_modes::dns_modes_return_real_wire_answers_through_the_tun_packet_pipeline ... ok
+test inbound::tun::udp::tests::repeated_tun_udp_destination_reuses_flow_and_records_real_source ... ok
+test inbound::tun::udp::tests::tun_dns_hijack_answers_with_fake_ip_without_reaching_destination ... ok
+test component::tests::vmess_ca::wire::actual_native_file_grant_prepares_vmess_tls_and_ws_without_reopening_ca_at_connect ... ok
+test inbound::tun::udp::tests::tun_udp_direct_dispatch_supports_ipv6_targets_and_responses ... ok
+test inbound::tun::runtime::tests::tun_tcp_block_route_never_opens_the_destination ... ok
+test inbound::tun::udp::tests::tun_udp_uses_kernel_direct_dispatch_and_writes_raw_response ... ok
+test inventory::dns_dependencies::tests::dynamic_selection_cannot_prove_a_pools_previously_captured_owner_identity ... ok
+test inventory::dns_dependencies::tests::same_native_owners_in_a_different_prefix_order_require_retirement ... ok
+test inventory::dns_dependencies::tests::unrelated_revision_reuses_whole_actual_dns_prefix_but_second_hop_change_retires_it ... ok
+test inventory::packet::tests::automatic_path_keeps_outbound_candidate_order ... ok
+test inventory::packet::tests::constrained_direct_never_uses_native_packet_or_echo ... ok
+test inventory::packet::tests::endpoint::bidirectional_endpoint_preserves_native_packet_selection ... ok
+test inventory::packet::tests::endpoint::outbound_only_packet_ingress_uses_correlated_flows_and_rejects_unsafe_native_returns ... ok
+test inventory::packet::tests::forced_flow_rejects_icmp_without_a_packet_sink ... ok
+test inventory::packet::tests::forced_packet_does_not_reinterpret_direct_flow_or_echo_as_packet_sink ... ok
+test inventory::packet::tests::translated_packet_requires_an_explicit_adapter_and_never_uses_direct_echo ... ok
+test logging::listener::tests::accepted_route_failures_keep_a_stable_stage_across_log_levels ... ok
+test logging::session::rate_limit::tests::address_families_have_independent_warning_windows ... ok
+test logging::session::rate_limit::tests::repeated_family_failure_is_suppressed_with_a_summary_count ... ok
+test protocol_registry::context::udp::datagram::tests::completion_observer_does_not_retain_the_actual_host_or_retirement_owner ... ok
+test protocol_registry::context::upstream::ech::tests::caches_half_query_failure_without_downgrading_a_none_query ... ok
+test protocol_registry::context::upstream::ech::tests::evicts_oldest_entries_at_the_cache_bound ... ok
+test protocol_registry::context::upstream::ech::tests::full_rejects_cached_empty_answer_while_half_uses_plain_tls ... ok
+test protocol_registry::context::upstream::ech::tests::query_failures_never_downgrade_to_plain_tls ... ok
+test protocol_registry::context::upstream::ech::tests::reuses_dns_material_from_the_bounded_runtime_cache ... ok
+test protocol_registry::registry::outbound::tests::auto_keeps_native_flow_priority_and_packet_mode_prepares_only_the_converter ... ok
+test protocol_registry::registry::outbound::tests::packet_only_leaf_requires_no_tcp_or_udp_capability ... ok
+test protocol_registry::registry::outbound::tests::packet_only_leaf_uses_opt_in_converter_without_native_l4_hooks ... ok
+test protocol_registry::registry::tests::endpoint::endpoint_observers_register_without_protocol_named_dispatch ... ok
+test protocol_registry::registry::tests::inbound::compiled_in_inbound_variants_have_exactly_one_registered_adapter ... ok
+test protocol_registry::registry::tests::listener_addresses::datagram_listeners_accept_ipv6_and_preserve_ipv4_hostname_support ... ok
+test protocol_registry::registry::tests::listener_addresses::direct_ipv6_listener_binds_tcp_and_udp_to_the_same_endpoint ... ok
+test protocol_registry::registry::tests::listener_addresses::ipv6_wildcard_records_os_default_ipv4_acceptance ... ok
+test protocol_registry::registry::tests::listener_addresses::registered_packet_adapters_bind_ipv6_literals ... ok
+test protocol_registry::registry::tests::listener_addresses::registered_tcp_adapters_bind_ipv6_literals ... ok
+test protocol_registry::registry::tests::listener_addresses::tcp_listeners_accept_bare_and_bracketed_ipv6 ... ok
+test protocol_registry::registry::tests::listener_addresses::tcp_listeners_preserve_ipv4_and_hostname_support ... ok
+test inbound::tun::udp::tests::tun_udp_port_conflict_falls_back_without_accepting_an_unregistered_sender ... ok
+test protocol_registry::registry::tests::outbound::block_outbound_leaf_is_kernel_fact_not_adapter_protocol ... ok
+test protocol_registry::registry::tests::listener_quic::quic_adapters_bind_bare_and_bracketed_ipv6 ... ok
+test protocol_registry::registry::tests::outbound::compiled_in_outbound_leaf_variants_have_expected_protocol_owners ... ok
+test protocol_registry::registry::tests::outbound::packet_path_leaf_lookup_matches_claim_time_packet_path_projection ... ok
+test protocol_registry::registry::tests::outbound::registry_executes_adapter_claimed_tcp_leaf_operations ... ok
+test protocol_registry::registry::tests::outbound::registry_executes_adapter_claimed_udp_leaf_operations ... ok
+test protocol_registry::registry::tests::outbound::registry_executes_adapter_claimed_udp_packet_path_operations ... ok
+test protocol_registry::registry::tests::outbound::wireguard_packet_leaf_supplies_executable_flow_conversion ... ok
+test protocol_registry::registry::tests::outbound::udp_outbound_leaf_lookup_matches_tcp_claim_policy ... ok
+test protocol_registry::registry::tests::registration::duplicate_protocol_registration_is_rejected_at_the_registry_boundary - should panic ... ok
+test protocol_registry::registry::tests::registration::focused_capability_views_share_one_adapter_instance ... ok
+test protocol_registry::registry::tests::registration::managed_handler_provider_shares_the_registered_adapter_instance ... ok
+test protocol_registry::registry::tests::registration::upstream_handler_provider_shares_the_registered_adapter_instance ... ok
+test runtime::apply_owner::tests::accepted_configuration_task_survives_its_waiter_and_keeps_the_actual_serial_guard ... ok
+test protocol_registry::registry::tests::packet_route::forced_flow_accepts_packet_outbound_with_executable_tcp_udp_conversions ... ok
+test runtime::apply_owner::tests::actual_scope_task_failure_is_retained_and_cannot_be_erased_by_a_later_apply ... ok
+test runtime::apply_owner::tests::cancelling_a_suspended_observer_cannot_consume_the_real_failure_notification ... ok
+test runtime::current_services::tests::a_short_source_borrow_cannot_resurrect_dns_inventory_or_datagram_owners ... ok
+test runtime::current_services::tests::retained_dns_and_callback_cannot_keep_the_engine_config_or_host_source_alive ... ok
+test runtime::apply_owner::tests::interrupted_shutdown_retains_the_accepted_task_until_its_real_exit ... ok
+test runtime::current_services::tests::source_itself_never_pins_the_historical_snapshot_of_a_finished_call ... ok
+test runtime::current_services::tests::source_lives_with_actual_proxy_clones_and_uses_the_current_snapshot_on_each_call ... ok
+test runtime::datagram_udp::lifecycle::tests::datagram_loop_reclaims_idle_upstream_without_new_traffic ... ok
+test runtime::datagram_udp::lifecycle::tests::packet_session::packet_session_loop_reclaims_idle_upstream_before_session_timeout ... ok
+test runtime::dns_outbound::tests::dns_callback_does_not_keep_outbound_pools_alive_after_proxy_drop ... ok
+test inbound::tun::udp::tests::tun_udp_block_route_prevents_stun_network_leak ... ok
+test runtime::dns_outbound::tests::proxy_installs_dns_detour_connector_without_recursive_resolution ... ok
+test runtime::dns_outbound::tests::service::binding::actual_native_carrier_binding_observes_host_generation_and_physical_network_changes ... ok
+test runtime::dns_outbound::tests::service::binding::actual_native_carrier_binding_observes_selector_aba_without_closing_transferred_io ... ok
+test runtime::dns_outbound::tests::service::binding::fallback_receipt_tracks_only_the_branch_that_actually_connected ... ok
+test runtime::dns_outbound::tests::service::binding::native_load_balance_capture_and_reuse_do_not_consume_a_second_scheduling_pick ... ok
+test runtime::dns_outbound::tests::service::native_dns_service_cancels_an_actual_pending_socks_handshake_without_legacy_retry ... ok
+test runtime::dns_outbound::tests::service::native_selected_socks_prefix_transports_actual_dns_without_allocating_business_sessions ... ok
+test runtime::handle::command::diagnostics::maintenance::tests::cancelled_cold_diagnostic_keeps_actual_service_owner_and_never_publishes_business ... ok
+test runtime::handle::command::tests::acknowledged_dns_lookup_runs_from_async_control_plane ... ok
+test runtime::handle::command::tests::fake_ip_clear_command_supports_address_and_all_scopes ... ok
+test runtime::handle::command::tests::fake_ip_clear_rejects_multiple_selectors_before_execution ... ok
+test runtime::handle::command::tests::tun_start_keeps_unclassified_runtime_failures_internal ... ok
+test runtime::handle::command::tests::tun_start_maps_host_permission_failures_to_a_stable_api_error ... ok
+test runtime::handle::configuration::tests::application_reconcile_failure_keeps_committed_fake_ip_mapping ... ok
+test runtime::handle::configuration::tests::owned::cancelled_config_waiter_does_not_abandon_actual_application_and_dns_rollback ... ok
+test runtime::handle::configuration::tests::owned::cancelled_config_waiter_does_not_abandon_actual_dns_commit ... ok
+test runtime::handle::configuration::tests::owned::host_stop_drives_the_accepted_transaction_rollback_and_joins_before_success ... ok
+test runtime::handle::configuration::tests::successful_apply_commits_prepared_fake_ip_pool ... ok
+test runtime::handle::query::tests::running_tun_status_exposes_route_health_and_error ... ok
+test runtime::inbound_operation::raw_ip::icmp::tests::direct_echo_claim_rejects_non_echo_icmp_packets ... ok
+test runtime::inbound_operation::raw_ip::icmp::tests::direct_icmp_echo_probe_returns_real_ipv4_and_ipv6_loopback_replies ... ignored, requires live ICMP sockets
+test runtime::inbound_operation::raw_ip::lifecycle::tests::peer_changes_wake_a_parked_listener_without_packet_io ... ok
+test runtime::inbound_operation::tcp_and_peer_datagram::tests::actual_peer_panic_stops_both_loops_and_retains_its_real_native_join_id_and_source ... ok
+test runtime::inbound_operation::tcp_and_peer_datagram::tests::actual_tcp_failure_stops_peer_admission_and_drains_pending_peer_io_before_driver_exit ... ok
+test runtime::inbound_owners::bind::tests::dropped_partial_reservations_hold_native_fds_until_explicit_batch_cleanup ... ok
+test runtime::inbound_owners::bind::tests::retirement::promotion_failure_retains_native_owner_and_exact_fault_until_confirmed_source_handoff ... ok
+test runtime::inbound_owners::bind::tests::retirement::shutdown_gate_rejects_late_promotion_without_fault_and_reopens_only_after_native_proof ... ok
+test runtime::inbound_owners::bind::tests::same_native_listener_survives_cancelled_real_scope_join_and_closes_before_replacement ... ok
+test runtime::inbound_owners::entry::pending_bound::tests::errors::actual_tcp_close_preserves_genuine_preparation_failure_until_supervisor_consumes_it ... ok
+test runtime::inbound_owners::entry::pending_bound::tests::errors::normal_phase_stop_marker_cannot_hide_an_unsealed_registration_or_nested_task_failure ... ok
+test runtime::inbound_owners::entry::pending_bound::tests::late_production_spawn_confirms_actual_tcp_close_and_zero_task_receipts_after_cancelled_cleanup ... ok
+test runtime::inbound_owners::entry::pending_bound::tests::mixed_pending_native_tree_confirms_tcp_without_dropping_or_claiming_unsupported_udp ... ok
+test runtime::inbound_owners::entry::readiness::tests::pre_ready_actual_task_panic_preserves_original_join_source_and_never_confirms ... ok
+test runtime::inbound_owners::entry::readiness::tests::readiness_waits_for_both_actual_loops_after_pending_initialization_and_survives_waiter_cancel ... ok
+test runtime::inbound_owners::entry::readiness::tests::resource_start_failure_prevents_loop_poll_and_ready_with_original_os_error ... ok
+test runtime::inbound_owners::entry::tests::cancelled_observation_preserves_actual_task_failure_source_for_cleanup ... ok
+test runtime::inbound_owners::entry::tests::cancelling_the_outer_observer_retains_actual_listener_and_udp_drivers_until_host_join ... ok
+test runtime::inbound_owners::entry::tests::peer_binding::actual_cold_factory_panic_rejects_registration_without_poisoning_or_inventing_a_peer_join ... ok
+test runtime::inbound_owners::entry::tests::peer_binding::peer_binding_publishes_only_the_real_dispatched_scope_receipt_and_original_failure ... ok
+test runtime::inbound_owners::entry::tests::peer_resource::actual_peer_resource_survives_cancelled_cleanup_after_real_join_until_native_close ... ok
+test runtime::inbound_owners::entry::tests::peer_resource::failure::real_resource_read_failure_does_not_cancel_another_peers_pending_scope_join ... ok
+test runtime::inbound_owners::entry::tests::peer_resource::recovery::actual_supervisor_consumption_before_publication_preserves_the_original_fault ... ok
+test runtime::inbound_owners::entry::tests::peer_resource::recovery::real_fault_receipt_publishes_before_the_actual_supervisor_consumes_it ... ok
+test runtime::inbound_owners::entry::tests::peers::actual_peer_io_survives_primary_panic_and_cancelled_cleanup_until_its_real_scope_join ... ok
+test runtime::inbound_owners::entry::tests::peers::successful_peer_joins_reclaim_ids_instead_of_growing_the_persistent_report ... ok
+test runtime::inbound_owners::entry::tests::publishing_a_driver_id_after_its_real_scope_exit_preserves_the_join_receipt ... ok
+test runtime::inbound_owners::peers::children::bound_datagram::tests::bound_peer_native_close_continues_after_real_mapping_error_and_cancelled_retry ... ok
+test runtime::inbound_owners::preparing::tests::phase_stop_targets_only_real_unready_candidates_and_fences_late_installation ... ok
+test runtime::inbound_route::mux::tests::mux_route_preserves_mux_objects_and_inbound_tag ... ok
+test runtime::inbound_route::mux::tests::mux_route_preserves_udp_session_and_inbound_tag ... ok
+test runtime::listener_loop::tests::quic_connection_listener_survives_failed_client_handshake ... ok
+test runtime::listener_loop::tests::quic_stream_listener_survives_client_close_before_first_stream ... ok
+test runtime::listener_loop::tests::tcp_listener_accepts_connection_and_stops_on_shutdown ... ok
+test runtime::listener_loop::tests::tcp_listener_waits_for_claimed_udp_dispatch_before_aborting_connections ... ok
+test runtime::listeners::tests::inbound::different_port_waits_for_original_native_cleanup_across_cancelled_reconcile ... ok
+test runtime::listeners::tests::inbound::every_affected_old_owner_closes_before_first_candidate_bind_and_unchanged_arc_serves ... ok
+test runtime::listeners::tests::inbound::hot_users::credential_only_reload_keeps_same_listener_owner_and_actual_profile_authentication ... ok
+test runtime::dns_outbound::tests::doh_binding::selector_change_drains_actual_doh_users_and_driver_before_opening_the_new_socks_carrier ... ok
+test runtime::mux_session::tests::principal_cancellation_ends_mux_carrier_and_aborts_substreams ... ok
+test runtime::dns_outbound::tests::doh_binding::actual_doh_pool_reuse_does_not_advance_round_robin_and_the_next_connection_picks_once ... ok
+test runtime::mux_udp::continuity::tests::detached_authenticated_dispatch_settles_on_principal_cancellation ... ok
+test runtime::mux_udp::continuity::tests::detached_runtime_state_moves_to_the_next_transport_generation ... ok
+test runtime::mux_udp::continuity::tests::detached_authenticated_dispatch_settles_when_shared_quota_is_exhausted ... ok
+test runtime::mux_udp::continuity::tests::expired_detached_entry_is_pruned_and_does_not_reattach ... ok
+test runtime::mux_udp::continuity::tests::explicit_finish_removes_the_generation_without_retention ... ok
+test runtime::mux_udp::continuity::tests::expiry_returns_detached_runtime_state_for_settlement ... ok
+test runtime::mux_udp::continuity::tests::registry_rejects_live_conflict_and_advances_generation_after_detach ... ok
+test runtime::mux_udp::continuity::tests::registry_scopes_the_same_wire_key_by_principal ... ok
+test runtime::mux_udp::continuity::tests::scheduled_expiry_removes_only_the_matching_detached_generation ... ok
+test runtime::mux_udp::continuity::tests::stale_expiry_cannot_remove_a_reattached_generation ... ok
+test runtime::network_graph::tests::flow_only_endpoint_requires_matching_ip_protocol ... ok
+test runtime::network_graph::tests::packet_endpoint_beats_flow_conversion_for_tcp_and_udp ... ok
+test runtime::network_graph::tests::registered_flow_to_packet_edges_choose_native_flow_first ... ok
+test runtime::network_graph::tests::registered_reverse_adapter_can_extend_graph_without_changing_solver ... ok
+test runtime::network_graph::tests::solver_uses_total_conversion_cost_instead_of_edge_order ... ok
+test runtime::orchestration::tests::clean_listener_exit_is_allowed_during_shutdown ... ok
+test runtime::orchestration::tests::clean_urltest_exit_is_allowed_during_shutdown ... ok
+test runtime::orchestration::tests::configured_tun_failure_is_fatal_to_orchestration ... ok
+test runtime::orchestration::tests::duplicate_reload_wakeup_preserves_dns_prepared_for_transaction_commit ... ok
+test runtime::orchestration::tests::expected_listener_exit_is_consumed_during_reconciliation ... ok
+test runtime::orchestration::tests::duplicate_reload_notification_preserves_dns_candidate_owned_by_acknowledged_apply ... ok
+test runtime::orchestration::tests::identical_config_snapshots_do_not_cross_acknowledge_reload_operations ... ok
+test runtime::orchestration::tests::inbound_ready::shutdown::already_requested_shutdown_precedes_zero_listener_startup_and_never_publishes_ready ... ok
+test runtime::orchestration::tests::inbound_ready::shutdown::public_shutdown_during_accepted_candidate_ready_drives_original_compensation_and_child_reap ... ok
+test runtime::orchestration::tests::inbound_ready::shutdown::public_shutdown_during_real_plugin_activation_retains_owner_until_child_reap_without_ready ... ok
+test runtime::orchestration::tests::inbound_recovery::cancelled_reconcile_retains_real_fault_and_native_owner_then_rebuilds_last_good_listener ... ok
+test runtime::orchestration::tests::inbound_recovery::superseding_cancelled_candidate_hands_off_closed_fault_before_fresh_last_good_recovery ... ok
+test runtime::orchestration::tests::lifecycle::cancellation_guard_reports_unconfirmed_failure_instead_of_stale_running ... ok
+test runtime::orchestration::tests::lifecycle::interruption_during_reload_also_terminates_new_candidate_transition ... ok
+test runtime::orchestration::tests::lifecycle::listener_panic_becomes_failed_fact_after_other_owners_end ... ok
+test component::instance::resources::grant_tests::listener_declarations_do_not_imply_dns_and_expired_unpolled_grants_cannot_bind ... ok
+test runtime::orchestration::tests::lifecycle::unexpected_listener_failure_runs_cleanup_before_publishing_failed ... ok
+test runtime::listeners::tests::inbound::switched_port_conflict_recovers_stopped_tags_from_actual_last_good_snapshot ... ok
+test runtime::orchestration::tests::listener_error_is_preserved_during_reconciliation ... ok
+test runtime::orchestration::tests::startup_snapshot::startup_uses_the_same_captured_engine_generation_for_components_and_real_dns ... ok
+test runtime::orchestration::tests::unexpected_clean_listener_exit_is_fatal ... ok
+test runtime::orchestration::tests::unexpected_clean_urltest_exit_is_fatal ... ok
+test runtime::outbound_probe::model::tests::actual_node_connection_failure_is_not_environmental ... ok
+test runtime::outbound_probe::model::tests::local_egress_and_dns_failures_are_inconclusive ... ok
+test runtime::outbound_probe::tests::dropping_the_last_shared_probe_waiter_removes_the_pending_entry ... ok
+test runtime::outbound_probe::tests::probe_deadline_covers_the_complete_node_dns_fallback_chain ... ok
+test runtime::outbound_probe::tests::probe_deadline_reports_when_the_dns_chain_exceeds_the_hard_cap ... ok
+test runtime::outbound_probe::tests::probe_deadline_uses_per_server_timeouts_and_deduplicates_fallbacks ... ok
+test runtime::outbound_probe::tests::shared_probe_identity_separates_policy_and_diagnostic_intents ... ok
+test runtime::packet_close_owner::tests::cancelled_ack_keeps_the_actual_two_part_receipt_and_releases_apply_lock_after_timeout ... ok
+test runtime::packet_close_owner::tests::cancelled_failure_poll_keeps_both_actual_task_ids_and_sources ... ok
+test runtime::packet_close_owner::tests::full_receipt_scope_rejects_before_claiming_another_real_route ... ok
+test runtime::packet_flow::tests::admission::common_converter_selects_a_supported_resolved_target_and_fences_generations ... ok
+test runtime::packet_flow::tests::admission::mismatched_local_address_family_is_rejected_before_packet_io ... ok
+test runtime::packet_flow::tests::admission::runtime_binding_failure_never_falls_through_to_another_target ... ok
+test runtime::packet_flow::tests::tcp::generic_tcp_converter_rejects_generation_change_during_handshake ... ok
+test runtime::packet_flow::tests::tcp::generic_tcp_converter_rejects_network_change_before_device_replacement ... ok
+test runtime::packet_flow::tests::tcp::pure_packet_endpoint_executes_generic_tcp_converter ... ok
+test runtime::packet_flow::tests::udp::cancelling_udp_flow_releases_worker_under_packet_backpressure ... ok
+test runtime::packet_flow::tests::udp::generic_udp_operation_starts_a_managed_flow_on_a_pure_packet_endpoint ... ok
+test runtime::packet_flow::tests::udp::pure_packet_endpoint_preserves_udp_mtu_reply_and_shared_lifetime ... ok
+test runtime::packet_route::host::tests::closing_a_blocked_host_write_preserves_the_shared_device_and_other_paths ... ok
+test runtime::packet_route::host::tests::direct_packet_sink_accepts_other_ip_protocols_and_uses_real_router_address_for_errors ... ok
+test runtime::packet_route::host::tests::fragmented_host_returns_preserve_delivery_and_declare_incomplete_role_measurement ... ok
+test runtime::packet_route::host::tests::host_packet_sink_is_bidirectional_preserves_source_and_waits_for_device_writes ... ok
+test runtime::packet_route::host::tests::ownership::host_shutdown_returns_an_unaccepted_buffer_for_fallback ... ok
+test runtime::packet_route::host::tests::ownership::native_host_write_transfers_and_acknowledges_the_same_buffer ... ok
+test runtime::packet_route::host::tests::ownership::rejected_invalid_header_is_not_repaired_by_rollback ... ok
+test runtime::packet_route::host::tests::staged_host_device_does_not_read_before_publish_and_cancel_confirms_release ... ok
+test runtime::packet_route::session::tests::accepted_packet_pin_keeps_identity_after_buffer_handoff ... ok
+test runtime::packet_route::session::tests::admitted_packet_paths_prepare_observers_once_and_release_them_on_expiry ... ok
+test runtime::packet_route::session::tests::close_wakes_idle_owner_even_when_the_response_consumer_is_blocked ... ok
+test runtime::packet_route::session::tests::closing_one_managed_packet_lease_cancels_its_response_queue_and_preserves_another ... ok
+test runtime::packet_route::session::tests::new_tcp_connection_can_use_new_plane_while_existing_connection_stays_pinned ... ok
+test runtime::packet_route::session::tests::ownership::closing_blocked_managed_route_releases_external_reply_once ... ok
+test runtime::packet_route::session::tests::ownership::managed_reply_pump_keeps_external_storage_until_consumer_finishes ... ok
+test runtime::packet_route::session::tests::packet_plane_stays_pinned_when_route_selection_changes ... ok
+test runtime::packet_route::session::tests::rejected_provisional_packet_path_releases_its_fact_and_permits_fallback ... ok
+test runtime::packet_route::session::tests::role_revocation_releases_only_the_denied_packet_pins ... ok
+test runtime::packet_route::session::tests::traffic_native_packet_pins_count_roles_global_and_peers_once_and_retire_on_drop ... ok
+test runtime::packet_session_udp::lifecycle::tests::direct_replies_require_a_registered_peer_and_keep_valid_flow_alive ... ok
+test runtime::packet_session_udp::lifecycle::tests::preserved_dispatch_reuses_the_same_udp_flow_after_transport_reattach ... ok
+test runtime::passive_relay_health::tests::channel::native_prefix_health_keeps_local_admission_cancellation_and_dns_neutral ... ok
+test runtime::passive_relay_health::tests::channel::native_prefix_health_records_actual_remote_rejection_and_transport_failure ... ok
+test runtime::passive_relay_health::tests::classifies_early_transport_failures_for_tcp_and_udp ... ok
+test runtime::passive_relay_health::tests::client_cancellation_and_local_network_loss_do_not_quarantine_nodes ... ok
+test runtime::passive_relay_health::tests::establishment_failure_still_penalizes_a_real_node_failure ... ok
+test runtime::passive_relay_health::tests::establishment_failures_keep_local_egress_and_dns_errors_neutral ... ok
+test runtime::passive_relay_health::tests::health_gate_rejection_is_not_new_evidence_against_a_policy_member ... ok
+test runtime::passive_relay_health::tests::ignores_late_and_unclassified_failures ... ok
+test runtime::passive_relay_health::tests::local_tun_failures_do_not_penalize_outbound_health ... ok
+test runtime::passive_relay_health::tests::upstream_data_wins_over_a_later_transport_error ... ok
+test runtime::principal_rate_limit::tests::anonymous_sessions_keep_independent_timelines ... ok
+test runtime::principal_rate_limit::tests::final_policy_lease_removes_the_registry_entry ... ok
+test runtime::principal_rate_limit::tests::policy_revision_or_rate_change_starts_a_new_timeline ... ok
+test runtime::principal_rate_limit::tests::same_principal_policy_shares_upload_debt_across_tcp_and_udp ... ok
+test runtime::principal_rate_limit::tests::upload_and_download_share_by_direction_but_not_with_each_other ... ok
+test runtime::principal_rate_limit::tests::zero_and_absent_limits_are_unlimited ... ok
+test runtime::raw_ip::device::maintenance::tests::return_cleanup_scans_twenty_times_less_often_than_protocol_ticks ... ok
+test runtime::raw_ip::device::returns::tests::expired_conversation_cannot_override_the_current_return_route_between_sweeps ... ok
+test runtime::raw_ip::device::returns::tests::full_return_queue_is_a_real_discard_at_endpoint_and_role_boundaries ... ok
+test runtime::raw_ip::device::returns::tests::maintenance::expired_burst_storage_is_reclaimed_without_removing_live_return_or_observation ... ok
+test runtime::raw_ip::device::returns::tests::maintenance::maintenance_preserves_closed_unexpired_returns_and_discard_accounting ... ok
+test runtime::raw_ip::device::returns::tests::native_return_retains_external_owner_on_miss_and_through_delivery ... ok
+test runtime::raw_ip::device::returns::tests::observation_capacity_preserves_forwarding_and_reports_incomplete_rx ... ok
+test runtime::raw_ip::device::returns::tests::owned_native_return_moves_buffer_and_returns_misses_unchanged ... ok
+test runtime::raw_ip::device::returns::tests::packet_returns_deliver_by_original_destination ... ok
+test runtime::raw_ip::device::returns::tests::packet_returns_reject_overlapping_ingress_sources ... ok
+test runtime::raw_ip::device::returns::tests::rejected_ingress_cannot_steal_an_accepted_conversation_observer ... ok
+test runtime::raw_ip::device::returns::tests::shared_packet_source_keeps_distinct_outbound_conversation_observers ... ok
+test runtime::raw_ip::device::tests::authenticated_data_and_stale_handshake_have_distinct_states ... ok
+test runtime::raw_ip::device::tests::configuration::unchanged_queue_policy_reuses_linked_devices_and_aborted_policy_change_preserves_them ... ok
+test runtime::raw_ip::device::tests::endpoint_stack_reconnects_packet_queue_after_listener_restart ... ok
+test runtime::raw_ip::device::tests::owned_packet_handoff_moves_buffers_and_rejects_full_queue_without_consuming ... ok
+test runtime::raw_ip::device::tests::timer::parked_protocol_timer_revives_on_receive_and_send_without_catch_up_bursts ... ok
+test runtime::raw_ip::device::tests::timer::standalone_device_uses_owner_deadline_without_rounding_to_polling_interval ... ok
+test runtime::raw_ip::device::tests::udp_queue::linked_stack_uses_configured_capacity_and_exposes_final_discards_on_existing_meters ... ok
+test runtime::raw_ip::device::tests::wireguard_opaque_carrier_does_not_invent_a_wire_source ... ok
+test runtime::raw_ip::pool::tests::shutdown_reports_stopped_instead_of_not_started ... ok
+test runtime::raw_ip::pool::tests::staged_raw_ip_devices_reject_over_limit_without_publishing ... ok
+test runtime::raw_ip::pool::tests::unresolved_endpoint_is_reported_only_for_matching_configuration ... ok
+test runtime::raw_ip::timer::tests::deadline_heap_keeps_indices_correct_through_reordering_and_removal ... ok
+test runtime::raw_ip::timer::tests::immediate_deadlines_and_parked_waits_preserve_shutdown_selection ... ok
+test runtime::raw_ip::timer::tests::legacy_polling_is_not_starved_by_traffic_or_replayed_after_a_pause ... ok
+test runtime::raw_ip::timer::tests::peer_deadlines_are_independent_and_rearming_retains_no_history ... ok
+test runtime::relay_failure::tests::distinguishes_client_tun_and_upstream_failures ... ok
+test runtime::route_runtime::route::tests::existing_connection_keeps_old_snapshot_and_new_connection_captures_new_snapshot ... ok
+test runtime::route_runtime::route::tests::packet_dns::fake_ip_packets_never_escape_through_a_native_wireguard_packet_sink ... ok
+test runtime::route_runtime::route::tests::packet_dns::fake_ip_packets_restore_domains_before_a_forced_packet_default_reject_is_evaluated ... ok
+test runtime::route_runtime::route::tests::packet_dns::unmapped_fake_ip_packets_use_the_existing_fail_closed_flow_path ... ok
+test runtime::route_runtime::shared::tests::domain_trace_rechecks_resolved_ip_rules ... ok
+test runtime::route_runtime::shared::tests::matched_domain_bypass_never_queries_default_dns_even_when_it_is_unavailable ... ok
+test runtime::route_runtime::shared::tests::resolved_ip_bypass_overrides_an_already_matched_domain_rule ... ok
+test runtime::route_runtime::shared::tests::route_target_drives_rules_without_replacing_outbound_target ... ok
+test runtime::route_runtime::stop::tests::closed_listener_rejects_late_claim_and_cancelled_wait_retains_consumer ... ok
+test runtime::sniff::tests::exclusions_block_exact_and_regex_domains ... ok
+test runtime::sniff::tests::fake_dns_mapping_overrides_target_even_with_route_only_and_honors_exclusion ... ok
+test runtime::sniff::tests::fake_dns_miss_enables_content_fallback_but_metadata_only_does_not_read ... ok
+test runtime::sniff::tests::http_prefix_waits_for_headers_and_extracts_normalized_host ... ok
+test runtime::sniff::tests::metadata_only_mux_tcp_does_not_touch_relay_payload ... ok
+test runtime::sniff::tests::metadata_only_never_requests_payload ... ok
+test runtime::sniff::tests::mux_tcp_reads_split_prefix_before_routing_and_returns_it_for_replay ... ok
+test runtime::sniff::tests::route_only_changes_route_target_without_changing_dial_target ... ok
+test runtime::sniff::tests::tls_client_hello_extracts_sni_for_tcp_and_quic_users ... ok
+test runtime::sniff::udp::tests::cross_target_pressure_releases_oldest_pending_without_dropping_or_reordering ... ok
+test runtime::sniff::udp::tests::metadata_only_udp_never_starts_quic_buffering ... ok
+test runtime::sniff::udp::tests::non_quic_datagram_is_released_immediately_and_cached_as_fallback ... ok
+test runtime::sniff::udp::tests::ready_datagrams_do_not_overtake_an_earlier_pending_sequence ... ok
+test runtime::target::tests::fake_ipv6_fallback::mapped_fake_ipv6_is_forwarded_to_a_proxy_as_the_recovered_domain ... ok
+test runtime::target::tests::fake_ipv6_fallback::mapped_fake_ipv6_recovers_without_sniffing_and_uses_every_ipv4_candidate ... ok
+test runtime::target::tests::live_fake_ip_mapping_is_authoritative_over_sniffed_domain ... ok
+test runtime::target::tests::missing_ipv4_and_ipv6_fake_ip_mappings_fail_closed ... ok
+test runtime::target::tests::packet::packet_literal_targets_preserve_both_families_and_reject_a_missing_port_without_dns ... ok
+test runtime::target::tests::packet::packet_targets_use_dispatch_and_real_answers_without_changing_direct_or_node_roles ... ok
+test runtime::target::tests::recovers_only_transparent_real_ip_targets_and_preserves_direct_ip ... ok
+test runtime::target::tests::sniffed_tcp_and_quic_domains_cannot_bypass_fake_ip_ownership ... ok
+test runtime::tcp_dispatch::candidate::tests::diagnostic_probe_bypasses_quarantine_without_clearing_it ... ok
+test runtime::tcp_dispatch::candidate::tests::dns_detour_bypasses_quarantine_without_mutating_it ... ok
+test runtime::tcp_dispatch::candidate::tests::dns_detour_failures_do_not_quarantine_traffic ... ok
+test runtime::tcp_dispatch::candidate::tests::health_scope::cooling_candidates_return_real_connection_failures_to_traffic ... ok
+test runtime::tcp_dispatch::candidate::tests::health_scope::policy_probes_execute_during_candidate_cooldown_without_recording_connect_success ... ok
+test runtime::tcp_dispatch::candidate::tests::health_scope::traffic_attempts_a_cooling_candidate_and_recovers_on_success ... ok
+test runtime::tcp_dispatch::candidate::tests::local_failures::local_failures_do_not_block_the_first_connection_after_recovery ... ok
+test runtime::tcp_dispatch::candidate::tests::policy_probe_failures_do_not_mutate_shared_outbound_health ... ok
+test runtime::tcp_dispatch::candidate::tests::repeated_diagnostic_probe_failures_do_not_quarantine_traffic ... ok
+test runtime::tcp_dispatch::candidate::tests::traffic_failures_still_update_shared_outbound_health ... ok
+test runtime::tcp_dispatch::relay::retained::tests::actual_protocol_retirement_rejects_even_unchanged_static_configuration ... ok
+test runtime::tcp_dispatch::relay::retained::tests::actual_vless_tcp_reconnect_preserves_selected_prefix_after_unrelated_publication ... ok
+test runtime::tcp_dispatch::relay::retained::tests::committed_selected_option_aba_and_removal_cannot_revive_an_old_recipe ... ok
+test runtime::tcp_dispatch::relay::retained::tests::native::actual_native_socks_prefix_reconnects_with_service_facts_and_stops_on_owner_retirement ... ok
+test runtime::tcp_dispatch::relay::retained::tests::native::demand::real_weak_prefix_cancel_at_socks_greeting_then_new_demand_and_retirement ... ok
+test runtime::tcp_dispatch::relay::retained::tests::native::demand::retained_contextual_prefix_does_not_keep_source_engine_config_or_dns_alive ... ok
+test runtime::tcp_dispatch::relay::retained::tests::native::native_retained_admission_requires_actual_host_grant_and_request_identity ... ok
+test runtime::tcp_dispatch::relay::retained::tests::physical_egress_retirement_and_restore_do_not_reauthorize_the_old_recipe ... ok
+test runtime::tcp_dispatch::relay::retained::tests::retained_connector_and_datagram_resolver_do_not_retain_engine_config_or_dns ... ok
+test runtime::tcp_dispatch::relay::retained::tests::selected_dependencies_allow_rule_and_unrelated_updates_without_reselection ... ok
+test runtime::tcp_dispatch::relay::retained::tests::unknown_owner_is_explicitly_unmigrated_without_default_authority ... ok
+test runtime::tcp_ingress::contract::activity::tests::activity_refreshes_idle_deadline ... ok
+test runtime::tcp_ingress::contract::activity::tests::idle_wait_completes_after_inactivity ... ok
+test runtime::tcp_ingress::lifecycle::rate_limit::tests::hy2_transport_rates_do_not_become_tcp_or_udp_session_budgets ... ok
+test runtime::tcp_ingress::lifecycle::rate_limit::tests::other_protocol_session_defaults_and_explicit_policy_overrides_are_preserved ... ok
+test runtime::tcp_ingress::runtime::tests::active_tcp_relay_is_not_closed_at_absolute_idle_timeout ... ok
+test runtime::tcp_ingress::runtime::tests::fake_ip_restoration_records_success_and_missing_mapping ... ok
+test runtime::tcp_ingress::runtime::tests::ip_target_without_fake_ip_configuration_remains_unannotated ... ok
+test runtime::tcp_ingress::runtime::tests::mux_fake_ip::mux_open_restores_ipv4_fake_ip_and_rewrites_before_only_ipv6_resolution ... ok
+test runtime::tcp_ingress::runtime::tests::mux_fake_ip::mux_open_reverse_miss_fails_closed_and_completes_exactly_once ... ok
+test runtime::tcp_ingress::runtime::tests::tcp_ingress_preserves_selected_packet_route_mode ... ok
+test runtime::tcp_ingress::runtime::tests::tcp_reverse_miss_completes_once_with_stable_target_failure ... ok
+test runtime::tcp_ingress::runtime::tests::unmatched_domain_is_rechecked_against_resolved_ip_rules ... ok
+test runtime::traffic_io::tests::bounded_rx_attribution_loss_does_not_hide_measured_tx ... ok
+test runtime::traffic_io::tests::outer_observer_requires_an_attached_carrier_and_degrades_incomplete_packet_counts ... ok
+test runtime::udp_delivery::helpers::tests::direct_writer_rechecks_policy_generation_after_download_wait ... ok
+test runtime::udp_delivery::helpers::tests::optional_direct_writer_rechecks_retirement_after_download_wait ... ok
+test runtime::udp_dispatch::backoff::tests::repeated_failures_back_off_without_unbounded_state ... ok
+test runtime::udp_dispatch::dispatch::tests::authenticated_udp_flow_applies_bidirectional_session_rate_limits ... ok
+test runtime::udp_dispatch::dispatch::tests::failed_tuple_is_not_recreated_for_every_packet ... ok
+test runtime::udp_dispatch::dispatch::tests::packet_mode_rejects_udp_flow_without_conversion ... ok
+test runtime::udp_dispatch::dispatch::tests::principal_cancellation_interrupts_a_throttled_first_packet_and_closes_carrier ... ok
+test runtime::udp_dispatch::dispatch::tests::raw_and_quic_sniffed_fake_ip_reverse_misses_share_failure_contract ... ok
+test runtime::udp_dispatch::operation::direct::source::tests::actual_direct_source_requires_published_host_session_and_same_registered_peer ... ok
+test runtime::udp_dispatch::operation::direct::source::tests::direct_source_keeps_no_host_config_and_policy_aba_never_revives_old_epoch ... ok
+test runtime::udp_dispatch::outbound::retry::tests::a_legacy_failure_without_standard_retry_metadata_keeps_its_existing_rule ... ok
+test runtime::udp_dispatch::outbound::retry::tests::actual_channel_retry_and_delivery_must_both_allow_replay_across_wrappers ... ok
+test runtime::udp_flow::managed::cache::stream::insert::pre_sent::tests::closed_cached_connection_is_reestablished_and_live_connection_is_reused ... ok
+test runtime::udp_flow::managed::tests::managed_udp_state_registers_and_restores_opaque_resumes ... ok
+test runtime::udp_flow::managed::tests::registered_udp_state_forwards_with_restored_opaque_resume ... ok
+test runtime::udp_flow::packet_path::tuple_flow::tests::concurrent_packets_reuse_target_flow_without_losing_first_reply ... ok
+test runtime::udp_flow::packet_path::tuple_flow::tests::failed_handshakes_do_not_consume_target_capacity ... ok
+test runtime::udp_flow::packet_path::tuple_flow::tests::idle_tuple_flows_are_reclaimed_and_recreated_on_later_send ... ok
+test runtime::udp_flow::packet_path::tuple_flow::tests::target_capacity_rejects_new_flow_without_evicting_existing_association ... ok
+test runtime::udp_flow::packet_path_chain::carriers::encoded::tests::nested_codecs_preserve_hop_order_and_receive_small_plaintext ... ok
+test runtime::udp_flow::rate_limit::tests::absent_or_zero_udp_limits_do_not_delay_packets ... ok
+test runtime::udp_flow::rate_limit::tests::cancelling_udp_flow_wakes_a_rate_limited_packet ... ok
+test runtime::udp_flow::rate_limit::tests::udp_datagram_larger_than_the_burst_is_eventually_admitted ... ok
+test runtime::udp_flow::rate_limit::tests::udp_upload_and_download_have_independent_timelines ... ok
+test runtime::udp_flow::rate_limit::tests::udp_upload_clones_share_one_rate_limit_timeline ... ok
+test runtime::udp_flow::registered::upstream::tests::tracked_upstream_state_matches_target_and_association ... ok
+test runtime::udp_flow::registered::upstream::tests::tracked_upstream_state_take_preserves_target ... ok
+test runtime::udp_flow::registered::upstream::tests::upstream_association_runtime_close_all_uses_closed_reason ... ok
+test runtime::udp_flow::registered::upstream::tests::upstream_association_runtime_reports_outbound_tag_and_closes_idle_association ... ok
+test runtime::udp_flow::sessions::tests::cancelled_udp_flow_finishes_with_reason_and_is_removed_from_lookup ... ok
+test runtime::udp_flow::sessions::tests::fake_ip_udp_flow_keeps_its_inbound_lookup_identity ... ok
+test runtime::udp_flow::sessions::tests::traffic_peer_provenance_is_part_of_udp_flow_identity ... ok
+test runtime::udp_ingress::route::tests::udp_resolution_quarantines_only_the_failing_target_port ... ok
+test runtime::udp_ingress::tests::unmatched_domain_is_rechecked_against_resolved_ip_rules ... ok
+test runtime::udp_socket::endpoint::tests::actual_shared_driver_keeps_source_port_peer_tombstones_and_read_guards ... ok
+test runtime::udp_socket::endpoint::tests::bound::actual_bound_peer_shares_original_ports_preserves_tombstones_and_keeps_healthy_flows_under_pressure ... ok
+test runtime::udp_socket::endpoint::tests::bound::epoch::actual_bound_peer_recycles_one_native_and_binding_slot_across_network_epochs_before_peer_exit ... ok
+test runtime::udp_socket::endpoint::tests::budget::actual_closed_native_slots_reuse_without_a_lifetime_attempt_limit ... ok
+test runtime::udp_socket::endpoint::tests::budget::command_copy_budget_covers_domain_candidates_payload_and_cancelled_owned_queue ... ok
+test runtime::udp_socket::endpoint::tests::budget::same_actual_logical_flow_rotates_network_epochs_with_native_capacity_one ... ok
+test runtime::udp_socket::endpoint::tests::dispatch::typed_fan_in_uses_same_native_socket_and_preserves_final_delivery_guard ... ok
+test runtime::udp_socket::endpoint::tests::failure::typed_rejection_keeps_never_retry_and_unknown_owner_boundary_wins_over_older_context ... ok
+test runtime::udp_socket::endpoint::tests::isolation::opaque_client_session_isolation_survives_the_real_shared_owner ... ok
+test runtime::udp_socket::endpoint::tests::lifecycle::actual_scope_panic_retains_source_and_same_native_state_for_explicit_close ... ok
+test runtime::udp_socket::endpoint::tests::lifecycle::actual_scope_pending_exit_retains_original_socket_across_cancelled_shutdown_wait ... ok
+test runtime::udp_socket::endpoint::tests::lifecycle::actual_scope_task_waiting_for_logical_cleanup_cannot_deadlock_native_close ... ok
+test runtime::udp_socket::endpoint::tests::observer::boundary_callback_panic_keeps_successfully_bound_original_in_same_owner ... ok
+test runtime::udp_socket::endpoint::tests::observer::failed_native_bind_does_not_count_an_uncreated_datagram_boundary ... ok
+test runtime::udp_socket::endpoint::tests::peer::actual_peer_driver_ready_keeps_original_until_real_registered_peer_join ... ok
+test runtime::udp_socket::endpoint::tests::queue::cancel_drains_actual_queued_payload_before_reclaim_while_old_rx_stays_alive ... ok
+test runtime::udp_socket::endpoint::tests::queue::configured_receive_capacity_reports_real_drop_and_cancel_drains_without_resource_shutdown ... ok
+test runtime::udp_socket::endpoint::tests::queue_usage::actual_driver_queue_snapshots_keep_zero_length_entries_and_recycle_after_real_cancel_and_native_close ... ok
+test runtime::udp_socket::endpoint::tests::queue_usage::structural_queue_entry_capacity_overflow_rejects_cold_owner_before_driver_or_native_open ... ok
+test runtime::udp_socket::tests::close::deferred_native_retirement_revokes_guards_but_keeps_original_fds_and_budget ... ok
+test runtime::udp_socket::tests::close::explicit_retirement_keeps_shared_port_tombstones_and_other_peer_alive ... ok
+test runtime::udp_socket::tests::close::native_close_ledger_aggregates_real_success_without_clearing_unreported_receipts_on_reuse ... ok
+test runtime::udp_socket::tests::close::socket_identity_exhaustion_rejects_new_collision_before_bind_and_keeps_live_peer ... ok
+test runtime::udp_socket::tests::direct_udp_binding_identity_includes_effective_source_and_egress ... ok
+test runtime::udp_socket::tests::direct_udp_dispatcher_is_lazy_and_empty_receive_remains_pending ... ok
+test runtime::udp_socket::tests::direct_udp_target_selection_enforces_policy_and_canonicalizes_mapped_ipv4 ... ok
+test runtime::udp_socket::tests::live_selection::warm_socket_rejects_changed_live_interface_policy_then_recovers ... ok
+test runtime::udp_socket::tests::live_selection::warm_socket_revalidates_source_against_new_tun_state_without_sending ... ok
+test runtime::udp_socket::tests::ownership::benchmark::compare_direct_udp_admission_lookup_cost ... ignored, local admission microbenchmark; not throughput or power qualification
+test runtime::udp_socket::tests::ownership::bulk_policy_retirement_keeps_survivor_tables_and_topology_clear_revokes_all ... ok
+test runtime::udp_socket::tests::ownership::live_and_retired_peers_share_the_same_bounded_admission_budget ... ok
+test runtime::udp_socket::tests::ownership::repeated_registration_preserves_owner_and_retirement_revokes_only_its_token ... ok
+test runtime::udp_socket::tests::ownership::retiring_one_session_across_sockets_preserves_an_unrelated_shared_owner ... ok
+test runtime::udp_socket::tests::policy::completed_send_stays_successful_after_reload_without_registering_stale_reply ... ok
+test runtime::udp_socket::tests::policy::default_route_is_distinct_from_explicit_tag_named_direct ... ok
+test runtime::udp_socket::tests::policy::forbidden_family_and_mapped_addresses_never_open_a_socket ... ok
+test runtime::udp_socket::tests::policy::source_ip_survives_preferred_port_collision_and_mapped_peer_normalization ... ok
+test runtime::udp_socket::tests::policy::udp_reload_retires_only_changed_tag_and_rejects_old_policy_completion ... ok
+test runtime::udp_socket::tests::ports::default_auto_reuses_preferred_port_through_repeated_final_flow_retirement ... ok
+test runtime::udp_socket::tests::ports::policy_reload_discards_old_socket_queue_and_allows_normal_port_reuse ... ok
+test runtime::udp_socket::tests::ports::read_reply_token_cannot_revive_after_retire_and_same_port_rebind ... ok
+test runtime::udp_socket::tests::ports::read_reply_token_observes_policy_and_egress_generation_changes ... ok
+test runtime::udp_socket::tests::receive::cancelling_receive_and_queued_reader_does_not_steal_the_next_reply ... ok
+test runtime::udp_socket::tests::receive::concurrent_readers_receive_distinct_datagrams_without_losing_wakeups ... ok
+test runtime::udp_socket::tests::receive::full_buffer_receives_large_and_empty_datagrams_without_scratch_storage ... ok
+test runtime::udp_socket::tests::receive::noisy_unregistered_socket_does_not_starve_a_valid_reply ... ok
+test runtime::udp_socket::tests::receive::short_receive_drains_datagrams_and_shares_one_scratch_across_sockets ... ok
+test runtime::udp_socket::tests::receive::warm_receive_polling_does_not_allocate_a_future_set ... ok
+test runtime::udp_socket::tests::replies::direct_udp_tags_isolate_sockets_and_replies_to_the_same_remote ... ok
+test runtime::udp_socket::tests::replies::retired_peer_delayed_reply_cannot_be_attributed_to_its_replacement_flow ... ok
+test runtime::udp_socket::tests::replies::retired_peer_tombstones_have_bounded_admission_without_expiring_live_owners ... ok
+test runtime::udp_socket::tests::replies::same_policy_remote_collision_keeps_each_logical_flow_on_its_own_socket ... ok
+test runtime::udp_socket::tests::replies::same_policy_reuses_endpoint_independent_mapping_and_scopes_associations ... ok
+test runtime::udp_socket::tests::udp_target_selection_falls_back_to_an_available_family ... ok
+test runtime::udp_socket::tests::udp_target_selection_is_stable_across_same_family_answer_reordering ... ok
+test transport::dial_policy_tests::direct_family_filters_literals_and_normalizes_mapped_addresses ... ok
+test transport::dial_policy_tests::direct_tcp_binds_source_and_observes_actual_local_address ... ok
+test transport::dial_policy_tests::source_family_prevents_wrong_family_connect_before_socket ... ok
+test transport::dial_policy_tests::tun_recovery_may_use_ipv4_only_when_the_leaf_allows_it ... ok
+test transport::failure::tests::local_address_errors_remain_local_without_tun_or_text_matching ... ok
+test transport::failure::tests::provenance_survives_runtime_engine_and_io_wrappers ... ok
+test transport::tcp_relay::tests::attribution::lost_local_address_during_relay_is_not_a_node_failure ... ok
+test transport::tcp_relay::tests::attribution::read_and_write_failures_keep_the_endpoint_that_actually_failed ... ok
+test transport::tcp_relay::tests::separate_tcp_copies_observe_one_shared_upload_timeline ... ok
+test transport::tests::direct_fake_ip_resolves_the_recovered_domain ... ok
+test transport::tests::direct_ipv6_is_preserved_without_an_active_tun_capture ... ok
+test runtime::orchestration::tests::lifecycle::original_failure_does_not_hide_unconfirmed_cleanup_in_observation ... ok
+test transport::tests::direct_tls_sni_keeps_the_original_ipv6_destination ... ok
+test transport::tests::direct_url_rewrite_resolves_the_rewritten_domain ... ok
+test transport::tests::failed_ipv4_reresolution_keeps_the_fallback_diagnostics ... ok
+test transport::tests::recovered_candidate_enrichment_is_bounded ... ok
+test transport::tests::recovered_candidates_preserve_order_and_remove_dns_duplicates ... ok
+test transport::tests::recovered_ipv4_dns_failure_retains_the_original_candidate ... ok
+test transport::tests::literal_ipv6_without_a_recovered_domain_is_not_converted ... ok
+test transport::tests::recovered_ipv4_success_does_not_refresh_trusted_dns ... ok
+test transport::tests::recovered_ipv4_udp_remains_pinned_to_the_original_candidate ... ok
+test transport::tests::recovered_ipv4_without_host_source_remains_literal_only ... ok
+test transport::tests::tcp_dial_candidates_fall_back_after_the_first_address_fails ... ok
+test transport::tests::tcp_dial_candidates_interleave_families_and_remove_duplicates ... ok
+test transport::tests::recovered_ipv4_target_uses_trusted_dns_candidates_after_original_fails ... ok
+test transport::tests::tcp_dial_failure_attempt_observations_are_ordered_and_bounded ... ok
+test transport::tests::tcp_fallback_candidates_do_not_redial_completed_endpoints ... ok
+test transport::tests::tcp_dial_failure_records_the_platform_socket_error ... ok
+test transport::tests::unavailable_tun_ipv6_egress_applies_to_recovered_fake_ip_domains ... ok
+test transport::tests::unavailable_tun_ipv6_egress_reresolves_a_trusted_domain_to_ipv4 ... ok
+test transport::tests::unreachable_native_ipv6_candidate_races_one_trusted_ipv4_fallback ... ok
+test runtime::orchestration::tests::inbound_ready::candidate_ack_waits_for_actual_plugin_activation_and_both_listener_loops ... ok
+test runtime::orchestration::tests::lifecycle::unresponsive_task_is_aborted_and_joined_without_claiming_clean_shutdown ... ok
+
+test result: ok. 652 passed; 0 failed; 2 ignored; 0 measured; 0 filtered out; finished in 6.10s
+

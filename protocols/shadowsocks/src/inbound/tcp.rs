@@ -32,15 +32,19 @@ impl ShadowsocksInboundTcpState {
     }
 
     pub fn check_accept_replay(&self, accept: &ShadowsocksAccept) -> Result<(), Error> {
+        self.check_request_replay(&accept.request_salt)
+    }
+
+    fn check_request_replay(&self, request_salt: &[u8]) -> Result<(), Error> {
         #[cfg(feature = "blake3")]
         {
-            if self.cipher.is_blake3() && !accept.request_salt.is_empty() {
-                self.replay_pool.check_and_insert(&accept.request_salt)?;
+            if self.cipher.is_blake3() && !request_salt.is_empty() {
+                self.replay_pool.check_and_insert(request_salt)?;
             }
         }
         #[cfg(not(feature = "blake3"))]
         {
-            let _ = accept;
+            let _ = request_salt;
         }
         Ok(())
     }
@@ -50,8 +54,8 @@ impl ShadowsocksInboundTcpState {
 ///
 /// This keeps Shadowsocks replay checks, session authentication metadata, and
 /// AEAD stream construction inside the protocol crate. Proxy adapters only
-/// pass the accepted socket in and receive the neutral session plus client
-/// stream back.
+/// pass the accepted socket in and receive destination/authentication facts plus
+/// the original client stream. The old Session-returning API remains available.
 #[cfg(feature = "crypto")]
 #[derive(Clone)]
 pub struct ShadowsocksInboundTcpAcceptor {
@@ -59,6 +63,10 @@ pub struct ShadowsocksInboundTcpAcceptor {
     profile: ShadowsocksInboundProfile,
     tcp_state: ShadowsocksInboundTcpState,
 }
+
+#[cfg(all(test, feature = "blake3"))]
+#[path = "../../tests/inbound/facts.rs"]
+mod facts_tests;
 
 #[cfg(feature = "crypto")]
 impl ShadowsocksInboundTcpAcceptor {
@@ -73,26 +81,53 @@ impl ShadowsocksInboundTcpAcceptor {
 
     pub async fn accept_stream<S>(
         &self,
-        mut stream: S,
+        stream: S,
     ) -> Result<(Session, crate::stream::ShadowsocksAeadStream<S>), Error>
+    where
+        S: zero_traits::AsyncSocket,
+    {
+        let (destination, auth, client) = self.accept_stream_facts(stream).await?;
+        let mut session = Session::new(
+            0,
+            destination.address,
+            destination.port,
+            Network::Tcp,
+            self.inbound.protocol(),
+        );
+        session.apply_auth(auth);
+        Ok((session, client))
+    }
+
+    /// Authentication, replay admission and stream construction complete before
+    /// the host allocates one business identity. This uses the listener's same
+    /// original replay pools and the exact original cipher state/nonces/payload.
+    pub async fn accept_stream_facts<S>(
+        &self,
+        mut stream: S,
+    ) -> Result<
+        (
+            zero_core::request::Destination,
+            SessionAuth,
+            crate::stream::ShadowsocksAeadStream<S>,
+        ),
+        Error,
+    >
     where
         S: zero_traits::AsyncSocket,
     {
         let (accept, user) = self
             .profile
-            .accept_request(&self.inbound, &mut stream)
+            .accept_request_facts(&self.inbound, &mut stream)
             .await?;
 
-        self.tcp_state.check_accept_replay(&accept)?;
+        self.tcp_state.check_request_replay(&accept.request_salt)?;
         if !self.profile.is_2022() {
             self.profile.replay.check(&accept.request_salt)?;
         }
 
-        let mut session = accept.session.clone();
-        session.apply_auth(user.auth());
-
-        let client = self.profile.into_aead_stream(accept, &user, stream)?;
-
-        Ok((session, client))
+        let destination = accept.destination.clone();
+        let auth = user.auth();
+        let client = self.profile.build_request_stream(accept, &user, stream)?;
+        Ok((destination, auth, client))
     }
 }

@@ -191,6 +191,7 @@ fn registry_executes_adapter_claimed_tcp_leaf_operations() {
                 crate::runtime::tcp_dispatch::operation::DirectTcpConnectOperation {
                     dial_policy: Default::default(),
                     tag: "claimed".to_owned(),
+                    configured_tag: None,
                 },
             ))
         }
@@ -382,6 +383,7 @@ fn registry_executes_adapter_claimed_udp_leaf_operations() {
             Ok(Box::new(DirectTcpConnectOperation {
                 dial_policy: Default::default(),
                 tag: "fake-claimed-udp".to_owned(),
+                configured_tag: None,
             }))
         }
     }
@@ -537,6 +539,7 @@ fn registry_executes_adapter_claimed_udp_packet_path_operations() {
             Ok(Box::new(DirectTcpConnectOperation {
                 dial_policy: Default::default(),
                 tag: "fake-claimed-udp-packet-path".to_owned(),
+                configured_tag: None,
             }))
         }
     }

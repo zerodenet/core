@@ -14,6 +14,15 @@ impl OrchestrationState {
         mut result: Result<(), EngineError>,
     ) -> Result<(), EngineError> {
         let mut cleanup_errors = Vec::new();
+        // Error/startup paths reach this method without the normal drain arm.
+        // Stop admission, retain and join the accepted transaction while its
+        // real reconciliation/rollback notifications can still be serviced.
+        if let Err(error) = self.drain_configuration(proxy).await {
+            cleanup_errors.push(error.to_string());
+            if result.is_ok() {
+                result = Err(error);
+            }
+        }
         self.publish_stopping();
         self.propagate_shutdown();
         if let Err(error) = proxy.stop_tun_if_running().await {
@@ -34,7 +43,11 @@ impl OrchestrationState {
         let drained = tokio::time::timeout(Duration::from_secs(5), async {
             self.services.shutdown().await;
             while let Some(task) = self.listeners.join_next().await {
-                task.map_err(|error| EngineError::Io(std::io::Error::other(error)))??;
+                super::lifecycle::handle_listener_result(
+                    Some(task),
+                    true,
+                    &mut self.expected_listener_exits,
+                )?;
             }
             while let Some(task) = self.urltests.join_next().await {
                 task.map_err(|error| EngineError::Io(std::io::Error::other(error)))??;
@@ -59,10 +72,106 @@ impl OrchestrationState {
                 result = Err(error);
             }
         }
-        // Joining after abort confirms resource guards have actually dropped.
-        self.listeners.shutdown().await;
+        // Keep the original observer handles on timeout/cancellation. They
+        // remain the live consumer of the actual persistent listener Scope;
+        // dropping this state returns their same JoinSet to the registry.
         self.urltests.shutdown().await;
         self.services.shutdown().await;
+        if let Err(error) = proxy
+            .inbound_owners
+            .shutdown_all_reported(
+                tokio::time::Instant::now() + Duration::from_secs(5),
+                |tag, terminal| {
+                    self.inbound_runtime_factory
+                        .publish_inbound_terminal(tag, terminal);
+                    Ok(())
+                },
+            )
+            .await
+        {
+            cleanup_errors.push(format!("inbound owner shutdown failed: {error}"));
+            if result.is_ok() {
+                result = Err(error);
+            }
+        }
+        // Accepted configuration compensation and its consumers have drained.
+        // Confirm the actual DNS query/wire workers before retiring components;
+        // this does not claim resolver pools or FakeIP persistence are closed.
+        if let Err(error) = proxy
+            .resolver
+            .shutdown_queries(tokio::time::Instant::now() + Duration::from_secs(5))
+            .await
+        {
+            cleanup_errors.push(format!("DNS query worker shutdown failed: {error}"));
+            if result.is_ok() {
+                result = Err(EngineError::Io(error));
+            }
+        }
+        // This interface confirms only the actual DoH pools/drivers/users.
+        // Other transports require their own precise owner receipts.
+        if let Err(error) = proxy
+            .resolver
+            .shutdown_doh_pools(tokio::time::Instant::now() + Duration::from_secs(5))
+            .await
+        {
+            cleanup_errors.push(format!("DoH pool shutdown failed: {error}"));
+            if result.is_ok() {
+                result = Err(EngineError::Io(error));
+            }
+        }
+        if let Err(error) = proxy
+            .resolver
+            .shutdown_doq_endpoints(tokio::time::Instant::now() + Duration::from_secs(5))
+            .await
+        {
+            cleanup_errors.push(format!("DoQ endpoint shutdown failed: {error}"));
+            if result.is_ok() {
+                result = Err(EngineError::Io(error));
+            }
+        }
+        match proxy
+            .retired_datagrams
+            .wait_closed(tokio::time::Instant::now() + Duration::from_secs(5))
+            .await
+        {
+            Ok(report) if report.is_complete() && report.failed_tasks.is_empty() => {}
+            Ok(mut report) => {
+                if let Some(failure) = report.failed_tasks.pop() {
+                    cleanup_errors.push(format!(
+                        "datagram retirement task failed: {}",
+                        failure.error
+                    ));
+                    if result.is_ok() {
+                        result = Err(EngineError::Io(std::io::Error::other(failure.error)));
+                    }
+                    // The persistent owner retains any unfinished controllers.
+                }
+                let message = format!(
+                    "datagram retirement remains unconfirmed: {:?}",
+                    report.unfinished
+                );
+                cleanup_errors.push(message.clone());
+                if result.is_ok() {
+                    result = Err(std::io::Error::new(std::io::ErrorKind::TimedOut, message).into());
+                }
+            }
+            Err(error) => {
+                cleanup_errors.push(format!("datagram retirement failed: {error}"));
+                if result.is_ok() {
+                    result = Err(EngineError::Io(std::io::Error::other(error)));
+                }
+            }
+        }
+        if let Err(error) = proxy
+            .protocols
+            .shutdown_components(tokio::time::Instant::now() + Duration::from_secs(5))
+            .await
+        {
+            cleanup_errors.push(format!("component shutdown failed: {error}"));
+            if result.is_ok() {
+                result = Err(error);
+            }
+        }
         self.listener_stops.clear();
         self.active_inbounds.clear();
         #[cfg(feature = "raw-ip-runtime")]
@@ -83,6 +192,19 @@ impl OrchestrationState {
                     )
                     .into());
                 }
+            }
+        }
+        // TUN, ingress and outbound-device owners have received stop and been
+        // joined above. Their real route receipts can now complete without an
+        // apply-lock/device dependency cycle.
+        if let Err(message) = proxy
+            .packet_close_owner
+            .shutdown(tokio::time::Instant::now() + Duration::from_secs(5))
+            .await
+        {
+            cleanup_errors.push(message.clone());
+            if result.is_ok() {
+                result = Err(std::io::Error::other(message).into());
             }
         }
         let mut failure = result.as_ref().err().map(ToString::to_string);

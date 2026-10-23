@@ -1,0 +1,41 @@
+{
+  "change": "Only direct stderr stage checkpoints in the existing VLESS lifecycle test. No runtime code, assertions or5sec test deadlines changed. Rootcause remains unconfirmed.",
+  "runtime_validation_commit": "47cc1a137440a69b0775546acd7c2161864e32a7",
+  "checks": {
+    "fmt": 0,
+    "targeted_test": {
+      "passed": 1,
+      "failed": 0
+    },
+    "vless_library_1cpu_1gib": {
+      "log": "evidence/pr03-vless-checkpoints-constrained.txt.gz",
+      "passed": 50,
+      "failed": 0,
+      "ignored": 0,
+      "test_threads": 4
+    },
+    "strict_vless_all_target_all_feature_clippy": 0
+  },
+  "artifacts": {
+    "test": {
+      "path": "evidence/pr03-vless-checkpoints-test.txt.gz",
+      "raw_sha256": "11b6980e75f7adec34213576cd63e8907b297faff13eeb43630a9b3867862114",
+      "gzip_sha256": "267385a8c44a196a8055e800c35c0abfebbcc92169d2a10eea985c320bd445fd"
+    },
+    "constrained": {
+      "path": "evidence/pr03-vless-checkpoints-constrained.txt.gz",
+      "raw_sha256": "7e6c38d70561dee5bfba87d7169e30db4fe4dac051b71e65ecf414eac77f46a8",
+      "gzip_sha256": "5ad6e82fee651219eb8263f4ca66d83869b2e3c799d29e9d394ff229c1aaa54d"
+    },
+    "clippy": {
+      "path": "evidence/pr03-vless-checkpoints-clippy.txt.gz",
+      "raw_sha256": "398f44052518dc0c6af7f47292f7a5ff57ebd645dc82ebc5b5c9859ad6688917",
+      "gzip_sha256": "0005aaee0a96a329085ff0ca71a531cf241f68559d5aaa3b5d19432c1a0451b1"
+    },
+    "fmt": {
+      "path": "evidence/pr03-vless-checkpoints-fmt.txt.gz",
+      "raw_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "gzip_sha256": "f61f27bd17de546264aa58f40f3aafaac7021e0ef69c17f6b1b4cd7664a037ec"
+    }
+  }
+}

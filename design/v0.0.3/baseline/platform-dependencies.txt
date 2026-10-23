@@ -1,0 +1,26 @@
+zero-platform-tokio v0.0.3-dev.202610162206 (${SOURCE}/crates/platform/tokio)
+├── libc v0.2.191
+├── socket2 v0.6.5
+│   └── libc v0.2.191
+├── tokio v1.53.3
+│   ├── bytes v1.12.1
+│   ├── libc v0.2.191
+│   ├── mio v1.2.4
+│   │   └── libc v0.2.191
+│   ├── pin-project-lite v0.2.17
+│   ├── signal-hook-registry v1.4.8
+│   │   ├── errno v0.3.14
+│   │   │   └── libc v0.2.191
+│   │   └── libc v0.2.191
+│   ├── socket2 v0.6.5 (*)
+│   └── tokio-macros v2.7.2 (proc-macro)
+│       ├── proc-macro2 v1.0.107
+│       │   └── unicode-ident v1.0.27
+│       ├── quote v1.0.47
+│       │   └── proc-macro2 v1.0.107 (*)
+│       └── syn v3.0.9
+│           ├── proc-macro2 v1.0.107 (*)
+│           ├── quote v1.0.47 (*)
+│           └── unicode-ident v1.0.27
+└── zero-traits v0.0.3-dev.202610162206 (${SOURCE}/crates/traits)
+    └── bytes v1.12.1

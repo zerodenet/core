@@ -44,6 +44,8 @@ pub struct ShadowsocksAccept {
 }
 
 mod accept;
+mod facts;
+pub(crate) use facts::ShadowsocksRequest;
 mod identity;
 mod legacy;
 mod model;

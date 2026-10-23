@@ -9,6 +9,7 @@ mod leaf;
 pub(crate) mod operation;
 mod outbound;
 pub(crate) mod relay;
+pub(crate) mod service;
 
 pub(crate) use intent::TcpDispatchIntent;
 pub(crate) use leaf::dispatch_tcp;

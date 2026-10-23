@@ -11,11 +11,11 @@ use crate::runtime::udp_flow::{
 };
 use std::sync::{
     atomic::{AtomicBool, Ordering},
-    Arc, Mutex,
+    Arc,
 };
 use tokio::{
     sync::{broadcast, Mutex as AsyncMutex},
-    task::{AbortHandle, JoinSet},
+    task::JoinSet,
 };
 use zero_core::{Address, Session};
 use zero_engine::EngineError;
@@ -26,14 +26,12 @@ pub(crate) struct LogicalConnection(Arc<Connection>);
 struct Connection {
     sender: SharedManagedUdpConnection,
     receiver: Arc<AsyncMutex<broadcast::Receiver<Packet>>>,
-    reader: Mutex<Option<AbortHandle>>,
+    reader: Arc<super::super::response_join::ResponseTask>,
     closed: Arc<AtomicBool>,
 }
 impl Drop for Connection {
     fn drop(&mut self) {
-        if let Some(reader) = self.reader.get_mut().unwrap().take() {
-            reader.abort();
-        }
+        self.reader.cancel();
     }
 }
 impl std::fmt::Debug for LogicalConnection {
@@ -47,7 +45,7 @@ impl LogicalConnection {
         Self(Arc::new(Connection {
             sender: managed_tuple_udp_connection_from_flow(flow),
             receiver: Arc::new(AsyncMutex::new(receiver)),
-            reader: Mutex::new(None),
+            reader: super::super::response_join::ResponseTask::new(),
             closed: Arc::new(AtomicBool::new(false)),
         }))
     }
@@ -68,16 +66,18 @@ impl LogicalConnection {
     }
     // A completed read is rearmed by runtime polling, independently of sends.
     // The receiver itself survives each task, including unsolicited responses.
-    fn poll_response(&self, tasks: &mut JoinSet<ChainTask>, session_id: u64) {
-        let mut reader = self.0.reader.lock().unwrap();
-        if self.0.closed.load(Ordering::Acquire)
-            || reader.as_ref().is_some_and(|task| !task.is_finished())
-        {
+    fn poll_response(
+        &self,
+        tasks: &mut JoinSet<ChainTask>,
+        owner: &super::super::response_join::ResponseTasks,
+        session_id: u64,
+    ) {
+        if self.0.closed.load(Ordering::Acquire) {
             return;
         }
         let receiver = self.0.receiver.clone();
         let closed = self.0.closed.clone();
-        *reader = Some(tasks.spawn(async move {
+        owner.spawn(tasks, &self.0.reader, async move {
             match receiver.lock().await.recv().await {
                 Ok((target, port, payload)) => Ok((target, port, payload, Some(session_id))),
                 Err(error) => {
@@ -85,7 +85,7 @@ impl LogicalConnection {
                     Err(EngineError::Io(std::io::Error::other(error)))
                 }
             }
-        }));
+        });
     }
 }
 impl RegisteredUdpState {
@@ -104,14 +104,18 @@ impl RegisteredUdpState {
             self.managed_resumes.remove(&id);
         }
     }
-    pub(crate) fn poll_logical_responses(&self, tasks: &mut JoinSet<ChainTask>) {
+    pub(crate) fn poll_logical_responses(
+        &self,
+        tasks: &mut JoinSet<ChainTask>,
+        owner: &super::super::response_join::ResponseTasks,
+    ) {
         for (&session_id, id) in &self.logical_sessions {
             if let Some(connection) = self
                 .managed_resumes
                 .get(id)
                 .and_then(|resume| resume.as_ref::<LogicalConnection>())
             {
-                connection.poll_response(tasks, session_id);
+                connection.poll_response(tasks, owner, session_id);
             }
         }
     }

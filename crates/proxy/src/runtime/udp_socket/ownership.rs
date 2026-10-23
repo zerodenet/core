@@ -29,6 +29,11 @@ impl DirectUdpReplies {
         self.flows.entry(peer).or_insert_with(make_flow);
     }
 
+    pub(super) fn retire_all(&mut self) {
+        self.retired
+            .extend(self.flows.drain().map(|(peer, _flow)| peer));
+    }
+
     pub(super) fn is_empty(&self) -> bool {
         self.flows.is_empty()
     }
@@ -47,28 +52,45 @@ impl DirectUdpReplies {
 
 impl DirectUdpSockets {
     pub(crate) fn refresh_if_stale(&mut self) {
-        let generation = self.services.egress_generation();
+        let Some(services) = self.services.clone() else {
+            // Each original carries the precise host binding which authorized it.
+            // Do not retire unrelated healthy bindings when one logical changes.
+            self.close_rotated_sockets(|entry| {
+                entry
+                    .socket
+                    .bound_guard()
+                    .is_none_or(|guard| guard.check_current().is_err())
+            });
+            self.reset_receiver_if_empty();
+            return;
+        };
+        let generation = services.egress_generation();
         if self.generation != generation {
-            self.sockets.clear();
+            self.close_rotated_sockets(|_| true);
             self.generation = generation;
         } else {
             // Keep the policy fence live on every refresh. Socket-owned tables
             // drop their guards without a second global flow-table sweep.
-            self.sockets.retain(|socket| {
-                self.services
-                    .direct_policy_is_current(&socket.binding.policy)
+            self.close_rotated_sockets(|socket| {
+                !services.direct_policy_is_current(&socket.binding.policy)
             });
         }
         self.reset_receiver_if_empty();
     }
 
     pub(crate) fn retire_session(&mut self, session_id: u64) {
+        self.retire_reply_mappings(session_id);
+        self.retire_sockets(|socket| socket.replies.is_empty());
+        self.reset_receiver_if_empty();
+    }
+
+    /// Logical ownership only. A peer resource keeps its original descriptors
+    /// until the actual containing task's joined receipt authorizes close.
+    pub(super) fn retire_reply_mappings(&mut self, session_id: u64) {
         // One bounded table traversal per socket, not a socket search per flow.
         for socket in &mut self.sockets {
             socket.replies.retire_session(session_id);
         }
         self.isolated_sessions.remove(&session_id);
-        self.sockets.retain(|socket| !socket.replies.is_empty());
-        self.reset_receiver_if_empty();
     }
 }

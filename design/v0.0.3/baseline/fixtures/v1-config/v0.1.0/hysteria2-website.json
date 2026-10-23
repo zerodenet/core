@@ -1,0 +1,25 @@
+{
+  "inbounds": [
+    {
+      "tag": "hysteria2-in",
+      "listen": { "address": "0.0.0.0", "port": 443 },
+      "protocol": {
+        "type": "hysteria2",
+        "password": "your-secret-password",
+        "cert_path": "certs/fullchain.pem",
+        "key_path": "certs/privkey.pem",
+        "masquerade": {
+          "type": "proxy",
+          "url": "https://www.example.com/",
+          "rewrite_host": true,
+          "insecure": false,
+          "x_forwarded": false,
+          "http": { "address": "0.0.0.0", "port": 80 },
+          "https": { "address": "0.0.0.0", "port": 443 },
+          "force_https": true
+        }
+      }
+    }
+  ],
+  "route": { "rules": [], "final": { "type": "direct" } }
+}

@@ -10,6 +10,8 @@ use crate::backends::doh::DohDnsResolver;
 use zero_platform_tokio::EgressInterfaceControl;
 
 mod binding;
+mod carrier;
+mod owner;
 
 #[derive(Clone, Copy)]
 enum FirstConnection {
@@ -152,7 +154,7 @@ async fn outer_deadline_cancellation_retires_stalled_doh_connection() {
 }
 
 #[tokio::test]
-async fn cancellation_of_old_connection_preserves_new_generation_connection() {
+async fn retiring_old_users_before_replacement_preserves_the_new_generation_connection() {
     let server = Server::start(FirstConnection::Stalled).await;
     let egress = EgressInterfaceControl::default();
     let resolver = server.resolver(egress.clone());
@@ -165,13 +167,26 @@ async fn cancellation_of_old_connection_preserves_new_generation_connection() {
         .unwrap();
     egress.invalidate_network();
     exchange(&resolver).await.unwrap();
-    first.abort();
-    assert!(first.await.unwrap_err().is_cancelled());
+    let old = tokio::time::timeout(Duration::from_secs(2), first)
+        .await
+        .unwrap()
+        .unwrap();
+    let old = old.expect_err("affected old query must exit before its pool slot is replaced");
+    let mut source: &(dyn std::error::Error + 'static) = &old;
+    loop {
+        if source.downcast_ref::<h2::Error>().is_some() {
+            break;
+        }
+        source = source
+            .source()
+            .expect("pool cancellation must retain the actual H2 failure source");
+    }
+
     exchange(&resolver).await.unwrap();
     assert_eq!(
         server.accepted.load(Ordering::SeqCst),
         2,
-        "old cancellation must not evict a different connection at the same endpoint"
+        "retiring an old slot must not evict the replacement connection"
     );
 }
 

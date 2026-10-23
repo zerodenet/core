@@ -1,0 +1,18 @@
+{
+  "source_commit": "2eedc2b8d8e2b0e16dffe32d3f83d2f0f2dbcc8a",
+  "tool": "strace6.13 -f -k --stack-trace-frame-limit=12 -e trace=futex",
+  "scope": "native futex coordination and available call stacks; includes parking/condition waits, not all waits are mutex contention",
+  "binary": "old debug executable; not the release throughput/RSS baseline",
+  "cgroup": "1CPU/1GiB; default Docker capabilities, no security or host policy modifications",
+  "futex_entries": 604,
+  "wait_entries": 296,
+  "wake_entries": 308,
+  "stack_frames": 7852,
+  "selected_stack_markers": {},
+  "trace": {
+    "path": "evidence/futex-trace.txt.gz",
+    "sha256": "5c3bc5a3712ebcd07254db6787a504b8db2fe8aa9168e2407df685f6cb794ab9",
+    "uncompressed_sha256": "7d4a77ea7ca8d6ccee8f14916d2c7e1f155eb8b33dc9ec6fb21a0efc2b05dae8"
+  },
+  "qualification": "diagnostic profile only; traced parent is strace, so its procfs RSS/threads are not kernel metrics and are excluded from resource gates"
+}

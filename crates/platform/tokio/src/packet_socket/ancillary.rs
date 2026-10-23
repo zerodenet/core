@@ -8,7 +8,7 @@ use std::{io, net::SocketAddr};
 mod macos;
 
 #[cfg(any(target_os = "macos", target_os = "linux", windows))]
-pub(super) fn send(
+pub(crate) fn send(
     socket: &tokio::net::UdpSocket,
     bytes: &[u8],
     peer: SocketAddr,
@@ -40,7 +40,7 @@ pub(super) fn send(
 }
 
 #[cfg(not(any(target_os = "macos", target_os = "linux", windows)))]
-pub(super) fn send(
+pub(crate) fn send(
     socket: &tokio::net::UdpSocket,
     bytes: &[u8],
     peer: SocketAddr,

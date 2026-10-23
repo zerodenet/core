@@ -33,13 +33,22 @@ pub(super) struct Device {
 pub(super) async fn run_device(
     mut device: Device,
     ready: watch::Sender<Option<Result<(), String>>>,
-) {
-    let result = run_device_inner(&mut device, &ready).await;
-    if let Err(error) = result {
+) -> Result<(), EngineError> {
+    let result = match run_device_inner(&mut device, &ready).await {
+        Err(EngineError::Io(error))
+            if device.closed.load(Ordering::Acquire)
+                && super::super::carrier::is_background_stopped(&error) =>
+        {
+            Ok(())
+        }
+        result => result,
+    };
+    if let Err(error) = &result {
         ready.send_replace(Some(Err(error.to_string())));
         tracing::warn!(error = %error, "raw-IP device stopped");
     }
     device.closed.store(true, Ordering::Release);
+    result
 }
 
 async fn run_device_inner(

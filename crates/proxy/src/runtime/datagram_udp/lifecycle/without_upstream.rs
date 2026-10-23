@@ -30,7 +30,7 @@ where
                 let (n, sender) = recv?;
                 handle_direct_response(context, source, responder, dispatch, sender, &direct_buf[..n]).await;
             }
-            Some(chain_result) = chain_tasks.join_next() => {
+            Some(chain_result) = chain_tasks.join_next_with_id() => {
                 handle_chain_result(context, dispatch, source, responder, chain_result).await;
             }
             Some(session_id) = cancel_rx.recv() => {

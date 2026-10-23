@@ -1,0 +1,39 @@
+{
+  "payload_bytes": 1344,
+  "same_config_response": {
+    "api_id": "zero.api.v1",
+    "id": "baseline-8",
+    "ok": true,
+    "result": {
+      "accepted": true,
+      "result": {
+        "application_components": [],
+        "applied": true,
+        "config_revision": 2,
+        "core_instance_id": "ae161d4f9c2ed4e478aef7b1bed71a2e",
+        "persistence": "runtime_only",
+        "reconciled": true
+      }
+    }
+  },
+  "ordinary_update_preserves_stream": true,
+  "invalid_schema_keeps_revision": true,
+  "temporary_apply_keeps_file": true,
+  "persistent_apply_preserves_requested_rules": true,
+  "persistent_apply_normalizes_document": true,
+  "failed_bind_reply": {
+    "api_id": "zero.api.v1",
+    "id": "baseline-19",
+    "ok": false,
+    "error": {
+      "code": "internal",
+      "message": "Address already in use (os error 98)"
+    }
+  },
+  "failed_bind_retains_old_stream": true,
+  "shutdown": {
+    "graceful": true,
+    "exit_code": 0,
+    "elapsed_ns": 323006586
+  }
+}

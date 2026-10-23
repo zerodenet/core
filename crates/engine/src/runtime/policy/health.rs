@@ -6,6 +6,8 @@ use super::{Engine, EngineError, EngineRuntimeSnapshot, TargetId};
 use crate::{UrlTestSelection, UrlTestSelectionReason};
 
 mod availability;
+mod observation;
+pub use observation::OutboundHealthObservation;
 
 impl Engine {
     /// Candidate eligibility for URLTest, never a global dial prohibition.
@@ -70,72 +72,80 @@ impl Engine {
         snapshot: &EngineRuntimeSnapshot,
         group_id: TargetId,
     ) {
-        let plan = snapshot.plan();
-        let group = plan.target(group_id).expect("urltest group");
-        let urltest = group.as_urltest().expect("urltest kind");
-        // Retry a bounded number of times if a concurrent probe changed state.
-        for _ in 0..3 {
-            let Some(state) = snapshot.urltest_state(group_id) else {
-                return;
-            };
-            if self.urltest_member_available(snapshot, state.selected) {
-                return;
-            }
-            let mut candidates = urltest
-                .members()
-                .iter()
-                .copied()
-                .enumerate()
-                .collect::<Vec<_>>();
-            candidates.sort_by_key(|(order, id)| {
-                let member = state.members.iter().find(|member| member.member_id == *id);
-                (
-                    !member.is_some_and(|member| member.healthy),
-                    member
-                        .and_then(|member| member.latency_ms)
-                        .unwrap_or(u64::MAX),
-                    *order,
-                )
-            });
-            let Some((_, selected)) = candidates.into_iter().find(|(_, id)| {
-                *id != state.selected && self.urltest_member_available(snapshot, *id)
-            }) else {
-                return;
-            };
-            let latency_ms = state
-                .members
-                .iter()
-                .find(|member| member.member_id == selected)
-                .filter(|member| member.healthy)
-                .and_then(|member| member.latency_ms);
-            let selection = UrlTestSelection {
-                previous: Some(state.selected),
-                selected,
-                best: Some(selected),
-                current_latency_ms: state.latency_ms,
-                best_latency_ms: latency_ms,
-                tolerance_ms: urltest.tolerance_ms(),
-                switched: true,
-                reason: UrlTestSelectionReason::CurrentUnhealthy,
-            };
-            if !snapshot
-                .outbound_group_state
-                .switch_urltest(group_id, &state, selection)
-            {
-                continue;
-            }
-            let previous = plan.target(state.selected).expect("selected member").tag();
-            let selected = plan.target(selected).expect("replacement member").tag();
-            self.event_log
-                .push_policy_selected(group.tag(), "url_test", selected, Some(previous));
-            info!(
-                group_tag = group.tag(),
-                previous,
-                selected,
-                selection_reason = "current_unhealthy",
-                "urltest carrier failure changed selected target"
-            );
+        reconcile_group_health(snapshot, group_id, &self.outbound_health, &self.event_log);
+    }
+}
+
+fn reconcile_group_health(
+    snapshot: &EngineRuntimeSnapshot,
+    group_id: TargetId,
+    health: &crate::health::OutboundHealth,
+    events: &crate::observability::EngineEventLog,
+) {
+    let plan = snapshot.plan();
+    let group = plan.target(group_id).expect("urltest group");
+    let urltest = group.as_urltest().expect("urltest kind");
+    // Retry a bounded number of times if a concurrent probe changed state.
+    for _ in 0..3 {
+        let Some(state) = snapshot.urltest_state(group_id) else {
+            return;
+        };
+        if availability::member_available(snapshot, state.selected, health) {
             return;
         }
+        let mut candidates = urltest
+            .members()
+            .iter()
+            .copied()
+            .enumerate()
+            .collect::<Vec<_>>();
+        candidates.sort_by_key(|(order, id)| {
+            let member = state.members.iter().find(|member| member.member_id == *id);
+            (
+                !member.is_some_and(|member| member.healthy),
+                member
+                    .and_then(|member| member.latency_ms)
+                    .unwrap_or(u64::MAX),
+                *order,
+            )
+        });
+        let Some((_, selected)) = candidates.into_iter().find(|(_, id)| {
+            *id != state.selected && availability::member_available(snapshot, *id, health)
+        }) else {
+            return;
+        };
+        let latency_ms = state
+            .members
+            .iter()
+            .find(|member| member.member_id == selected)
+            .filter(|member| member.healthy)
+            .and_then(|member| member.latency_ms);
+        let selection = UrlTestSelection {
+            previous: Some(state.selected),
+            selected,
+            best: Some(selected),
+            current_latency_ms: state.latency_ms,
+            best_latency_ms: latency_ms,
+            tolerance_ms: urltest.tolerance_ms(),
+            switched: true,
+            reason: UrlTestSelectionReason::CurrentUnhealthy,
+        };
+        if !snapshot
+            .outbound_group_state
+            .switch_urltest(group_id, &state, selection)
+        {
+            continue;
+        }
+        let previous = plan.target(state.selected).expect("selected member").tag();
+        let selected = plan.target(selected).expect("replacement member").tag();
+        events.push_policy_selected(group.tag(), "url_test", selected, Some(previous));
+        info!(
+            group_tag = group.tag(),
+            previous,
+            selected,
+            selection_reason = "current_unhealthy",
+            "urltest carrier failure changed selected target"
+        );
+        return;
     }
 }

@@ -9,6 +9,7 @@ mod returns;
 #[cfg(test)]
 mod tests;
 mod translation;
+mod workers;
 
 use std::{
     net::{IpAddr, SocketAddr},
@@ -19,10 +20,7 @@ use std::{
     time::Duration,
 };
 
-use tokio::{
-    sync::{mpsc, watch},
-    task::AbortHandle,
-};
+use tokio::sync::{mpsc, watch};
 use zero_api::OutboundDeviceHealthSnapshot;
 use zero_engine::EngineError;
 #[cfg(test)]
@@ -33,7 +31,7 @@ use zero_stack::{client_udp::ClientUdpStack, ClientTcpStack, FragmentReassembler
 use super::DirectRawIpWireCarrier;
 use super::{RawIpTunnel, RawIpWireCarrier};
 use driver::{run_device, Device};
-pub(crate) use endpoint::EndpointPacket;
+pub(crate) use endpoint::{EndpointPacket, EndpointStackOwner, EndpointStackRecipe};
 use health::DeviceHealth;
 pub(crate) use returns::PacketReturns;
 
@@ -53,8 +51,8 @@ pub(crate) struct SharedRawIpDevice {
     health: Arc<Mutex<DeviceHealth>>,
     retired: AtomicBool,
     ready: watch::Receiver<Option<Result<(), String>>>,
-    task: AbortHandle,
-    completed: watch::Receiver<bool>,
+    task: Arc<workers::DeviceWorkers>,
+    carrier: Option<Arc<dyn RawIpWireCarrier>>,
 }
 
 impl SharedRawIpDevice {
@@ -73,7 +71,7 @@ impl SharedRawIpDevice {
         endpoint: SocketAddr,
         socket: TokioDatagramSocket,
         tunnel: Box<dyn RawIpTunnel>,
-    ) -> Result<Arc<Self>, zero_stack::client_udp::ClientUdpStackError> {
+    ) -> Result<Arc<Self>, EngineError> {
         Self::start_with_carrier(
             local_addresses,
             mtu,
@@ -90,7 +88,7 @@ impl SharedRawIpDevice {
         endpoint: SocketAddr,
         carrier: Arc<dyn RawIpWireCarrier>,
         tunnel: Box<dyn RawIpTunnel>,
-    ) -> Result<Arc<Self>, zero_stack::client_udp::ClientUdpStackError> {
+    ) -> Result<Arc<Self>, EngineError> {
         Self::start_metered(
             local_addresses,
             mtu,
@@ -108,7 +106,8 @@ impl SharedRawIpDevice {
         carrier: Arc<dyn RawIpWireCarrier>,
         tunnel: Box<dyn RawIpTunnel>,
         options: super::RawIpStackOptions,
-    ) -> Result<Arc<Self>, zero_stack::client_udp::ClientUdpStackError> {
+    ) -> Result<Arc<Self>, EngineError> {
+        let task = workers::DeviceWorkers::new();
         let traffic = options.traffic;
         let (outbound, raw_packets) =
             mpsc::channel::<zero_stack::packet_output::ObservedPacket>(128);
@@ -119,10 +118,16 @@ impl SharedRawIpDevice {
             mtu,
             Some(Arc::new(traffic.clone())),
             options.udp_receive_queue,
-        )?;
+        )
+        .map_err(stack_udp_error)?;
         let tcp = Arc::new(
-            ClientTcpStack::new_observed(local_addresses, outbound.clone(), mtu)
-                .map_err(|_| zero_stack::client_udp::ClientUdpStackError::InvalidMtu)?,
+            ClientTcpStack::new_observed_with_task_owner(
+                local_addresses,
+                outbound.clone(),
+                mtu,
+                task.clone(),
+            )
+            .map_err(stack_tcp_error)?,
         );
         let returns = Arc::new(PacketReturns::with_drop_observer(Some(Arc::new(
             traffic.clone(),
@@ -130,12 +135,10 @@ impl SharedRawIpDevice {
         let closed = Arc::new(AtomicBool::new(false));
         let health = Arc::new(Mutex::new(DeviceHealth::default()));
         let (ready_tx, ready) = watch::channel(None);
-        let (completed_tx, completed) = watch::channel(false);
-        let completion = completion::Completion(completed_tx);
         let driver = Device {
             traffic,
             endpoint,
-            carrier,
+            carrier: carrier.clone(),
             tunnel,
             udp: udp.clone(),
             tcp: tcp.clone(),
@@ -146,11 +149,7 @@ impl SharedRawIpDevice {
             closed: closed.clone(),
             health: health.clone(),
         };
-        let task = tokio::spawn(async move {
-            let _completion = completion;
-            run_device(driver, ready_tx).await;
-        })
-        .abort_handle();
+        task.spawn_driver(run_device(driver, ready_tx))?;
         Ok(Arc::new(Self {
             incarnation: super::next_incarnation(),
             udp,
@@ -162,7 +161,7 @@ impl SharedRawIpDevice {
             retired: AtomicBool::new(false),
             ready,
             task,
-            completed,
+            carrier: Some(carrier),
         }))
     }
 
@@ -207,6 +206,11 @@ impl SharedRawIpDevice {
     pub(crate) fn close_now(&self) {
         self.retired.store(true, Ordering::Release);
         self.closed.store(true, Ordering::Release);
+        if let Some(carrier) = &self.carrier {
+            drop(carrier.stop_background());
+        }
+        self.tcp.revoke();
+        self.udp.shutdown();
         self.task.abort();
         self.returns.clear();
     }
@@ -236,6 +240,11 @@ impl SharedRawIpDevice {
                 std::io::ErrorKind::BrokenPipe,
                 "raw-IP device closed",
             ));
+        }
+        // Raw packet return subscriptions are another transferred-user lane;
+        // they do not inherit the PacketTcpOperation's caller/view token.
+        if let Some(users) = self.task.flow_users() {
+            users.mark_unaccounted();
         }
         let permit = self
             .forwarded_packets
@@ -277,6 +286,9 @@ impl SharedRawIpDevice {
         if !self.is_usable() {
             return Err(zero_stack::ClientUdpStackError::OutboundClosed);
         }
+        if let Some(users) = self.task.flow_users() {
+            users.mark_unaccounted();
+        }
         self.udp.bind_observed(local_ip, observer)
     }
 
@@ -286,8 +298,40 @@ impl SharedRawIpDevice {
         destination: SocketAddr,
         observer: Option<Arc<dyn zero_traits::IoObserver>>,
     ) -> Result<UserTcpStream, zero_stack::ClientTcpStackError> {
+        if let Some(users) = self.task.flow_users() {
+            users.mark_unaccounted();
+        }
+        self.open_tcp_for_flow(local_ip, destination, observer, None)
+            .await
+    }
+    pub(crate) fn spawn_packet_worker(
+        &self,
+        worker: std::pin::Pin<
+            Box<dyn std::future::Future<Output = Result<(), EngineError>> + Send + 'static>,
+        >,
+    ) -> Result<(), EngineError> {
+        self.task.spawn_driver(worker)
+    }
+    pub(crate) fn flow_users(&self) -> Option<Arc<crate::runtime::packet_flow::FlowUsers>> {
+        self.task.flow_users()
+    }
+    pub(crate) async fn open_tcp_for_flow(
+        &self,
+        local_ip: IpAddr,
+        destination: SocketAddr,
+        observer: Option<Arc<dyn zero_traits::IoObserver>>,
+        user: Option<&crate::runtime::packet_flow::FlowUser>,
+    ) -> Result<UserTcpStream, zero_stack::ClientTcpStackError> {
         if !self.is_usable() {
             return Err(zero_stack::ClientTcpStackError::OutboundClosed);
+        }
+        match (self.task.flow_users(), user) {
+            (Some(users), Some(user)) if !users.validates(user) => {
+                return Err(zero_stack::ClientTcpStackError::OutboundClosed)
+            }
+            (Some(users), None) => users.mark_unaccounted(),
+            (None, Some(_)) => return Err(zero_stack::ClientTcpStackError::OutboundClosed),
+            _ => {}
         }
         self.tcp
             .connect_observed(local_ip, destination, observer)
@@ -299,4 +343,25 @@ impl Drop for SharedRawIpDevice {
     fn drop(&mut self) {
         self.close_now();
     }
+}
+
+#[derive(Debug)]
+enum StackConstructionError {
+    Udp(zero_stack::client_udp::ClientUdpStackError),
+    Tcp(zero_stack::ClientTcpStackError),
+}
+impl std::fmt::Display for StackConstructionError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Udp(error) => write!(f, "raw-IP UDP stack: {error:?}"),
+            Self::Tcp(error) => write!(f, "raw-IP TCP stack: {error:?}"),
+        }
+    }
+}
+impl std::error::Error for StackConstructionError {}
+fn stack_udp_error(error: zero_stack::client_udp::ClientUdpStackError) -> EngineError {
+    EngineError::Io(std::io::Error::other(StackConstructionError::Udp(error)))
+}
+fn stack_tcp_error(error: zero_stack::ClientTcpStackError) -> EngineError {
+    EngineError::Io(std::io::Error::other(StackConstructionError::Tcp(error)))
 }

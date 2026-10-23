@@ -1,6 +1,7 @@
 //! XHTTP transport: normalized path/session/sequence metadata, distinct packet
 //! and stream upload modes, and multiplexed HTTP/1.1/HTTP/2 inbound requests.
 //! HTTP execution belongs here; protocol authentication and route tasks do not.
+pub mod managed_h2;
 mod xmux;
 pub use xmux::{XhttpCarrier, XhttpCarrierFactory, XhttpClientPool, XhttpDownload};
 mod body;

@@ -20,6 +20,7 @@ pub(crate) struct PreparedTcpCandidate {
 
 #[derive(Clone)]
 pub(crate) enum PreparedTcpCandidateExecution {
+    Native(std::sync::Arc<crate::component::instance::ComponentSlot>),
     Block { tag: String },
     Connect(std::sync::Arc<dyn PreparedTcpConnectOperation>),
 }

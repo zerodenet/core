@@ -102,6 +102,28 @@ impl PacketFlowEndpoint for RawIpFlowEndpoint {
     fn is_closed(&self) -> bool {
         self.device.is_closed()
     }
+    fn flow_users(&self) -> Option<Arc<crate::runtime::packet_flow::FlowUsers>> {
+        self.device.flow_users()
+    }
+    async fn open_tcp_tracked(
+        &self,
+        local: IpAddr,
+        target: SocketAddr,
+        observer: Option<Arc<dyn IoObserver>>,
+        user: Option<&crate::runtime::packet_flow::FlowUser>,
+    ) -> Result<UserTcpStream, ClientTcpStackError> {
+        self.device
+            .open_tcp_for_flow(local, target, observer, user)
+            .await
+    }
+    fn spawn_packet_worker(
+        &self,
+        worker: std::pin::Pin<
+            Box<dyn std::future::Future<Output = Result<(), EngineError>> + Send + 'static>,
+        >,
+    ) -> Result<(), EngineError> {
+        self.device.spawn_packet_worker(worker)
+    }
     fn bind_udp(
         &self,
         local: IpAddr,
@@ -128,6 +150,26 @@ impl PacketFlowEndpoint for SharedRawIpDevice {
     }
     fn is_closed(&self) -> bool {
         SharedRawIpDevice::is_closed(self)
+    }
+    fn flow_users(&self) -> Option<Arc<crate::runtime::packet_flow::FlowUsers>> {
+        self.flow_users()
+    }
+    async fn open_tcp_tracked(
+        &self,
+        local: IpAddr,
+        target: SocketAddr,
+        observer: Option<Arc<dyn IoObserver>>,
+        user: Option<&crate::runtime::packet_flow::FlowUser>,
+    ) -> Result<UserTcpStream, ClientTcpStackError> {
+        self.open_tcp_for_flow(local, target, observer, user).await
+    }
+    fn spawn_packet_worker(
+        &self,
+        worker: std::pin::Pin<
+            Box<dyn std::future::Future<Output = Result<(), EngineError>> + Send + 'static>,
+        >,
+    ) -> Result<(), EngineError> {
+        self.spawn_packet_worker(worker)
     }
     fn bind_udp(
         &self,

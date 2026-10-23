@@ -33,6 +33,17 @@ impl ShadowsocksTcpConnectConfig {
     }
 
     pub fn from_config(cipher: &str, password: &str) -> Result<Self, Error> {
+        Self::from_config_with_replay(
+            cipher,
+            password,
+            crate::shared::legacy_replay::LegacyReplay::new(Default::default(), false),
+        )
+    }
+    pub(crate) fn from_config_with_replay(
+        cipher: &str,
+        password: &str,
+        replay: crate::shared::legacy_replay::LegacyReplay,
+    ) -> Result<Self, Error> {
         let cipher = crate::shared::CipherKind::from_str(cipher)
             .ok_or(Error::Protocol("ss: unknown tcp cipher"))?;
         let password = password.as_bytes().to_vec();
@@ -52,8 +63,13 @@ impl ShadowsocksTcpConnectConfig {
             cipher,
             password,
             response_password,
-            replay: crate::shared::legacy_replay::LegacyReplay::new(Default::default(), false),
+            replay,
         })
+    }
+
+    #[cfg(feature = "blake3")]
+    pub(crate) fn is_2022(&self) -> bool {
+        self.cipher.is_blake3()
     }
 
     pub fn tcp_target<'a>(&'a self, session: &'a Session) -> ShadowsocksTcpTarget<'a> {
@@ -72,33 +88,43 @@ impl ShadowsocksTcpConnectConfig {
     where
         S: AsyncSocket,
     {
-        if self.cipher.is_stream() {
-            return crate::shared::legacy::send_request(
+        self.establish_tcp_target(stream, &session.target, session.port)
+            .await
+    }
+
+    /// Establish protocol framing for destination facts without inventing a
+    /// business session. Identity, routing and upstream selection stay in the host.
+    pub async fn establish_tcp_to<S>(
+        &self,
+        stream: &mut S,
+        destination: &zero_core::request::Destination,
+    ) -> Result<ShadowsocksOutboundSession, Error>
+    where
+        S: AsyncSocket,
+    {
+        self.establish_tcp_target(stream, &destination.address, destination.port)
+            .await
+    }
+
+    async fn establish_tcp_target<S>(
+        &self,
+        stream: &mut S,
+        address: &zero_core::Address,
+        port: u16,
+    ) -> Result<ShadowsocksOutboundSession, Error>
+    where
+        S: AsyncSocket,
+    {
+        ShadowsocksOutbound
+            .send_request_to(
                 stream,
-                session,
+                address,
+                port,
                 self.cipher,
                 &self.password,
                 Some(&self.replay),
             )
-            .await;
-        }
-        if !self.cipher.is_blake3() {
-            return ShadowsocksOutbound
-                .send_request_legacy(
-                    stream,
-                    session,
-                    self.cipher,
-                    &self.password,
-                    Some(&self.replay),
-                )
-                .await;
-        }
-        <ShadowsocksOutbound as TcpSessionProtocol<ShadowsocksTcpTarget<'_>>>::establish_tcp_session(
-            &ShadowsocksOutbound,
-            stream,
-            &self.tcp_target(session),
-        )
-        .await
+            .await
     }
 
     pub fn wrap_outbound_stream<S>(
@@ -106,12 +132,12 @@ impl ShadowsocksTcpConnectConfig {
         stream: S,
         session: ShadowsocksOutboundSession,
     ) -> crate::stream::ShadowsocksAeadStream<S> {
-        crate::stream::ShadowsocksAeadStream::outbound(
+        crate::stream::ShadowsocksAeadStream::outbound_with_replay(
             stream,
             session,
             self.response_password.clone(),
+            self.replay.clone(),
         )
-        .with_replay_guard(self.replay.clone())
     }
 }
 

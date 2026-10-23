@@ -41,7 +41,7 @@ fn rejects_an_ipv4_host_route_without_a_peer() {
 #[tokio::test]
 async fn owned_utun_descriptor_preserves_framing_and_closes_on_drop() {
     use std::io::{Read, Write};
-    use std::os::fd::OwnedFd;
+    use std::os::fd::{AsRawFd, OwnedFd};
     use std::os::unix::net::UnixStream;
     use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
@@ -52,6 +52,7 @@ async fn owned_utun_descriptor_preserves_framing_and_closes_on_drop() {
     let fd = unsafe { tokio::io::unix::AsyncFd::register(socket) }.unwrap();
     let mut device = super::Utun {
         name: "test-utun".into(),
+        owned: crate::OwnedTunIdentity::from_fd(fd.get_ref().as_raw_fd()),
         fd,
         read_buffer: vec![0; 65_540],
         read_start: 0,

@@ -28,6 +28,7 @@ const UTUN_OPT_IFNAME: libc::c_int = 2;
 pub struct Utun {
     name: String,
     fd: AsyncFd<OwnedFd>,
+    owned: crate::OwnedTunIdentity,
     read_buffer: Vec<u8>,
     read_start: usize,
     read_end: usize,
@@ -35,24 +36,39 @@ pub struct Utun {
 
 impl Utun {
     pub(crate) fn adopt(fd: std::os::fd::OwnedFd, expected: &str) -> io::Result<Self> {
-        let name = interface_name(fd.as_raw_fd())?;
+        let name = Self::validate_adopt(fd.as_raw_fd(), expected)?;
+        let identity = crate::OwnedTunIdentity::from_fd(fd.as_raw_fd());
+        Self::register_adopted(fd, name, identity)
+    }
+
+    pub(crate) fn validate_adopt(fd: RawFd, expected: &str) -> io::Result<String> {
+        let name = interface_name(fd)?;
         if name != expected {
             return Err(io::Error::new(
                 io::ErrorKind::InvalidInput,
                 "host descriptor interface mismatch",
             ));
         }
-        let flags = unsafe { libc::fcntl(fd.as_raw_fd(), libc::F_GETFL) };
+        let flags = unsafe { libc::fcntl(fd, libc::F_GETFL) };
         if flags < 0 || flags & libc::O_NONBLOCK == 0 {
             return Err(io::Error::new(
                 io::ErrorKind::InvalidInput,
                 "host packet descriptor must already be nonblocking",
             ));
         }
-        // SAFETY: AsyncFd retains the already-owned, validated descriptor.
+        Ok(name)
+    }
+
+    pub(crate) fn register_adopted(
+        fd: OwnedFd,
+        name: String,
+        owned: crate::OwnedTunIdentity,
+    ) -> io::Result<Self> {
+        // SAFETY: the owned original is stable for this async registration.
         let fd = unsafe { AsyncFd::register(fd) }?;
         Ok(Self {
             name,
+            owned,
             fd,
             read_buffer: vec![0; 65_540],
             read_start: 0,
@@ -89,6 +105,7 @@ impl Utun {
         let fd = unsafe { AsyncFd::register(socket) }?;
         Ok(Self {
             name,
+            owned: crate::OwnedTunIdentity::from_fd(fd.get_ref().as_raw_fd()),
             fd,
             read_buffer: vec![0_u8; 65_540],
             read_start: 0,
@@ -201,6 +218,15 @@ fn find_utun_control() -> io::Result<u32> {
 impl AsRawFd for Utun {
     fn as_raw_fd(&self) -> RawFd {
         self.fd.get_ref().as_raw_fd()
+    }
+}
+
+impl crate::OwnedTunDevice for Utun {
+    fn owned_identity(&self) -> crate::OwnedTunIdentity {
+        self.owned.clone()
+    }
+    fn close_owned(self) -> io::Result<crate::TunCloseReceipt> {
+        crate::owned::close_fd(self.fd.into_inner(), self.name, self.owned)
     }
 }
 

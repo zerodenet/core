@@ -13,9 +13,14 @@ default = []
 host-network-stats = []
 
 [dependencies]
+# Native UDP metadata helper only; no Quinn runtime or protocol dependency.
+quinn-udp = { version = "=0.5.16", default-features = false }
 socket2 = { version = "0.6", features = ["all"] }
-tokio.workspace = true
+tokio = { workspace = true, features = ["process"] }
 zero-traits = { path = "../../traits" }
+zero-core = { path = "../../core" }
+zero-error = { path = "../../error" }
+tokio-util = { version = "0.7", features = ["rt"] }
 
 [target.'cfg(unix)'.dependencies]
 libc = "0.2"
@@ -26,7 +31,9 @@ windows-sys = { version = "0.61", features = [
     "Win32_NetworkManagement_IpHelper",
     "Win32_NetworkManagement_Ndis",
     "Win32_Networking_WinSock",
+    "Win32_Storage_FileSystem",
     "Win32_System_Threading",
+    "Win32_System_IO",
 ] }
 
 [target.'cfg(target_os = "macos")'.dependencies]

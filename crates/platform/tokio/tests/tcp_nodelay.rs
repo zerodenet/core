@@ -12,7 +12,8 @@ async fn outbound_tcp_connections_enable_nodelay() {
     let socket = TokioSocket::connect_addr(address)
         .await
         .expect("connect socket")
-        .into_inner();
+        .into_inner()
+        .unwrap();
 
     assert!(socket.nodelay().expect("read TCP_NODELAY"));
     accept.await.expect("accept task");
@@ -29,7 +30,8 @@ async fn hostname_tcp_connections_enable_nodelay() {
     let socket = TokioSocket::connect(&address.to_string())
         .await
         .expect("connect socket")
-        .into_inner();
+        .into_inner()
+        .unwrap();
 
     assert!(socket.nodelay().expect("read TCP_NODELAY"));
     accept.await.expect("accept task");

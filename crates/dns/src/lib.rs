@@ -12,18 +12,24 @@ mod fake_ip;
 mod family;
 mod localhost;
 mod message;
+mod outbound;
+mod owned_root;
+use owned_root::OwnedDnsRoot;
+mod query_tasks;
+pub use query_tasks::OwnedDnsQueryTasks;
 mod reverse;
 mod router;
+mod service;
 mod system;
+#[cfg(feature = "test-support")]
+pub mod test_support;
+mod transport_owners;
 pub mod udp; // DNS wire helpers (build_dns_response, etc.) always available
 
 use std::collections::{BTreeMap, VecDeque};
 use std::fmt;
-use std::future::Future;
 use std::io;
-use std::net::SocketAddr;
 use std::path::PathBuf;
-use std::pin::Pin;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 
@@ -41,16 +47,7 @@ pub use reverse::RealIpReverseLookup;
 use router::DnsDispatcher;
 use system::TokioSystemResolver;
 
-/// Isolation domain for DNS queries emitted by the runtime.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub enum DnsQueryRole {
-    /// Client/intercepted queries and proxy-routed target resolution.
-    Default,
-    /// Targets selected for the direct outbound.
-    Direct,
-    /// Proxy nodes and their carrier endpoints.
-    Node,
-}
+pub use zero_platform_tokio::contract::dns::DnsQueryRole;
 
 /// One backend attempt retained for DNS diagnostics.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -65,44 +62,11 @@ pub struct DnsQueryAttempt {
     pub failure_reason: Option<String>,
 }
 
-/// Future returned by a runtime-provided DNS TCP detour connector.
-pub type DnsOutboundConnectFuture =
-    Pin<Box<dyn Future<Output = io::Result<zero_platform_tokio::TcpRelayStream>> + Send + 'static>>;
-
-/// One DNS datagram exchange through a named outbound.
-pub type DnsOutboundDatagramFuture =
-    Pin<Box<dyn Future<Output = io::Result<Vec<u8>>> + Send + 'static>>;
-
-/// Opens a TCP stream to a deterministic DNS endpoint through a named route
-/// target. The proxy runtime supplies this bridge; standalone DNS users get a
-/// clear error if they configure a detour without installing one.
-pub trait DnsOutboundConnector: fmt::Debug + Send + Sync {
-    fn connect(&self, outbound: String, endpoint: SocketAddr) -> DnsOutboundConnectFuture;
-
-    fn exchange_datagram(
-        &self,
-        _outbound: String,
-        _endpoint: SocketAddr,
-        _query: Vec<u8>,
-    ) -> DnsOutboundDatagramFuture {
-        Box::pin(async {
-            Err(io::Error::new(
-                io::ErrorKind::Unsupported,
-                "outbound does not provide a DNS datagram exchange",
-            ))
-        })
-    }
-}
-
-impl DnsQueryRole {
-    pub fn as_str(self) -> &'static str {
-        match self {
-            Self::Default => "default",
-            Self::Direct => "direct",
-            Self::Node => "node",
-        }
-    }
-}
+pub use outbound::{
+    DnsBindingRevokedFuture, DnsCarrierBinding, DnsConnectContext, DnsOutboundCarrier,
+    DnsOutboundCarrierFuture, DnsOutboundConnectFuture, DnsOutboundConnector,
+    DnsOutboundDatagramFuture, DnsQuicBidiConnector, DnsQuicBidiRequest,
+};
 
 /// The configured DNS subsystem.
 ///
@@ -112,8 +76,9 @@ impl DnsQueryRole {
 /// Inner state is under a read-write lock so DNS config can be
 /// hot-reloaded without restarting the proxy.
 pub struct DnsSystem {
+    owned_root: Option<Arc<OwnedDnsRoot>>,
     inner: std::sync::RwLock<DnsSystemInner>,
-    prepared_reload: std::sync::Mutex<Option<PreparedDnsReload>>,
+    prepared_reload: std::sync::Mutex<Option<Arc<reload::PreparedDnsReload>>>,
     config_generation: Arc<AtomicU64>,
     egress_interface: zero_platform_tokio::EgressInterfaceControl,
     fake_ip_state_path: Option<PathBuf>,
@@ -122,6 +87,7 @@ pub struct DnsSystem {
     query_coordinator: QueryCoordinator<Vec<IpAddress>>,
     wire_query_coordinator: QueryCoordinator<Vec<u8>>,
     outbound_connector: std::sync::RwLock<Option<Arc<dyn DnsOutboundConnector>>>,
+    transport_owners: Arc<transport_owners::TransportOwners>,
 }
 
 impl fmt::Debug for DnsSystem {
@@ -150,14 +116,12 @@ enum DnsSystemInner {
     },
 }
 
-#[derive(Clone)]
-struct PreparedDnsReload {
-    config: Option<DnsConfig>,
-    dispatch: Option<zero_router::DomainDispatcher<String>>,
-}
+mod reload;
+pub use reload::DnsReloadResources;
 
 #[derive(Clone)]
 struct ResolverServer {
+    config: zero_config::DnsServerConfig,
     backend: Arc<ResolverBackend>,
     detour: Option<String>,
 }
@@ -221,6 +185,16 @@ impl DnsSystem {
         egress_interface: zero_platform_tokio::EgressInterfaceControl,
         fake_ip_state_path: Option<PathBuf>,
     ) -> io::Result<Self> {
+        Self::build_internal(config, dispatch, egress_interface, fake_ip_state_path, None)
+    }
+
+    fn build_internal(
+        config: Option<&DnsConfig>,
+        dispatch: Option<zero_router::DomainDispatcher<String>>,
+        egress_interface: zero_platform_tokio::EgressInterfaceControl,
+        fake_ip_state_path: Option<PathBuf>,
+        owned_root: Option<Arc<OwnedDnsRoot>>,
+    ) -> io::Result<Self> {
         let fake_ip_state_lease = if config.and_then(DnsConfig::fake_ip).is_some() {
             fake_ip_state_path
                 .as_ref()
@@ -229,24 +203,47 @@ impl DnsSystem {
         } else {
             None
         };
+        let transport_owners = Arc::new(transport_owners::TransportOwners::default());
+        let servers = config
+            .map(|config| {
+                reload::build_servers(
+                    config,
+                    &BTreeMap::new(),
+                    &Default::default(),
+                    &egress_interface,
+                    &transport_owners,
+                    owned_root.as_deref(),
+                )
+            })
+            .transpose()?
+            .unwrap_or_default();
         let inner = Self::build_inner(
             config,
             dispatch,
-            &egress_interface,
             None,
             None,
             fake_ip_state_lease.clone(),
+            servers,
         )?;
+        let tasks = owned_root.as_ref().map(|root| root.tasks.clone());
+        let query_coordinator = QueryCoordinator::with_graph_and_tasks(
+            Arc::new(std::sync::Mutex::new(Default::default())),
+            tasks.clone(),
+        );
+        let wire_query_coordinator =
+            QueryCoordinator::with_graph_and_tasks(query_coordinator.shared_graph(), tasks);
         Ok(Self {
+            owned_root,
             inner: std::sync::RwLock::new(inner),
+            transport_owners,
             prepared_reload: std::sync::Mutex::new(None),
             config_generation: Arc::new(AtomicU64::new(0)),
             egress_interface,
             fake_ip_state_path,
             fake_ip_state_lease: std::sync::Mutex::new(fake_ip_state_lease),
             query_attempts: Arc::new(std::sync::Mutex::new(VecDeque::new())),
-            query_coordinator: QueryCoordinator::default(),
-            wire_query_coordinator: QueryCoordinator::default(),
+            query_coordinator,
+            wire_query_coordinator,
             outbound_connector: std::sync::RwLock::new(None),
         })
     }
@@ -254,25 +251,14 @@ impl DnsSystem {
     fn build_inner(
         config: Option<&DnsConfig>,
         dispatch: Option<zero_router::DomainDispatcher<String>>,
-        egress_interface: &zero_platform_tokio::EgressInterfaceControl,
         previous_fake_ip: Option<Arc<FakeIpAllocator>>,
         previous_reverse_mapping: Option<RealIpReverseIndex>,
         fake_ip_state_lease: Option<Arc<fake_ip::StateLease>>,
+        servers: BTreeMap<String, ResolverServer>,
     ) -> io::Result<DnsSystemInner> {
         let Some(cfg) = config else {
             return Ok(DnsSystemInner::System(TokioSystemResolver));
         };
-
-        let mut servers = BTreeMap::new();
-        for (tag, server) in &cfg.servers {
-            servers.insert(
-                tag.clone(),
-                ResolverServer {
-                    backend: Arc::new(ResolverBackend::build(server, egress_interface.clone())?),
-                    detour: server.detour().map(ToOwned::to_owned),
-                },
-            );
-        }
 
         let dispatcher = DnsDispatcher::new(dispatch.ok_or_else(|| {
             io::Error::new(io::ErrorKind::InvalidInput, "missing compiled DNS dispatch")
@@ -312,139 +298,6 @@ impl DnsSystem {
             reverse_mapping,
             policy: Box::new(cfg.policy.clone()),
         })
-    }
-
-    /// Hot-reload DNS configuration.
-    ///
-    /// In-flight resolutions continue using the old inner state until they
-    /// complete; new resolutions see the updated config immediately.
-    pub fn reload(&self, config: Option<&DnsConfig>) -> io::Result<()> {
-        let dispatch = compile_standalone_dispatch(config)?;
-        self.reload_with_dispatch(config, dispatch)
-    }
-
-    pub fn reload_with_dispatch(
-        &self,
-        config: Option<&DnsConfig>,
-        dispatch: Option<zero_router::DomainDispatcher<String>>,
-    ) -> io::Result<()> {
-        self.prepare_reload_with_dispatch(config, dispatch)?;
-        let result = self.commit_prepared_reload();
-        if result.is_err() {
-            self.discard_prepared_reload();
-        }
-        result
-    }
-
-    /// Validate and stage a DNS configuration without making it observable or
-    /// replacing the committed Fake-IP journal.
-    ///
-    /// The proxy uses this boundary while the remaining TUN, listener, and
-    /// application components reconcile. It must call
-    /// [`Self::commit_prepared_reload`] only after the complete configuration
-    /// transaction succeeds, or [`Self::discard_prepared_reload`] on failure.
-    pub fn prepare_reload_with_dispatch(
-        &self,
-        config: Option<&DnsConfig>,
-        dispatch: Option<zero_router::DomainDispatcher<String>>,
-    ) -> io::Result<()> {
-        let mut prepared = self
-            .prepared_reload
-            .lock()
-            .expect("DNS prepared reload lock poisoned");
-        if prepared.is_some() {
-            return Err(io::Error::new(
-                io::ErrorKind::AlreadyExists,
-                "another DNS reload is already prepared",
-            ));
-        }
-        let previous_fake_ip = self.snapshot_fake_ip();
-        let previous_reverse_mapping = self.snapshot_reverse_mapping();
-        if config.and_then(DnsConfig::fake_ip).is_some() {
-            let mut guard = self
-                .fake_ip_state_lease
-                .lock()
-                .expect("Fake-IP state lease lock poisoned");
-            if guard.is_none() {
-                *guard = self
-                    .fake_ip_state_path
-                    .as_ref()
-                    .map(|path| fake_ip::StateLease::acquire(path.clone()))
-                    .transpose()?;
-            }
-        }
-
-        // Build once without persistence to validate every candidate backend
-        // and allocator field. Incompatible Fake-IP state is intentionally not
-        // opened here because `open` replaces the durable journal.
-        Self::build_inner(
-            config,
-            dispatch.clone(),
-            &self.egress_interface,
-            previous_fake_ip,
-            previous_reverse_mapping,
-            None,
-        )?;
-        *prepared = Some(PreparedDnsReload {
-            config: config.cloned(),
-            dispatch,
-        });
-        Ok(())
-    }
-
-    /// Commit the staged DNS configuration atomically.
-    ///
-    /// Persistent Fake-IP state is opened only at this point, so a candidate
-    /// that is later rejected cannot erase mappings from the last committed
-    /// configuration.
-    pub fn commit_prepared_reload(&self) -> io::Result<()> {
-        let prepared = self
-            .prepared_reload
-            .lock()
-            .expect("DNS prepared reload lock poisoned")
-            .clone()
-            .ok_or_else(|| io::Error::new(io::ErrorKind::NotFound, "no DNS reload is prepared"))?;
-        let previous_fake_ip = self.snapshot_fake_ip();
-        let previous_reverse_mapping = self.snapshot_reverse_mapping();
-        let fake_ip_state_lease = if prepared
-            .config
-            .as_ref()
-            .and_then(DnsConfig::fake_ip)
-            .is_some()
-        {
-            self.fake_ip_state_lease
-                .lock()
-                .expect("Fake-IP state lease lock poisoned")
-                .clone()
-        } else {
-            None
-        };
-        let new_inner = Self::build_inner(
-            prepared.config.as_ref(),
-            prepared.dispatch,
-            &self.egress_interface,
-            previous_fake_ip,
-            previous_reverse_mapping,
-            fake_ip_state_lease,
-        )?;
-        {
-            let mut inner = self.inner.write().expect("dns system lock poisoned");
-            *inner = new_inner;
-            // Read under the same inner lock when taking a snapshot, so an
-            // old resolver can never carry the new configuration identity.
-            self.config_generation.fetch_add(1, Ordering::AcqRel);
-        }
-        self.discard_prepared_reload();
-        Ok(())
-    }
-
-    /// Drop a staged DNS candidate while retaining the committed resolver and
-    /// Fake-IP journal unchanged.
-    pub fn discard_prepared_reload(&self) {
-        self.prepared_reload
-            .lock()
-            .expect("DNS prepared reload lock poisoned")
-            .take();
     }
 
     /// Install the runtime bridge used by DNS servers that specify a detour.
@@ -721,7 +574,10 @@ impl DnsSystem {
         let domain = message::normalize_domain(domain)?;
         let (snapshot, config_generation) = self.snapshot_with_generation();
         match snapshot {
-            Some(snapshot) => resolve_snapshot(&domain, role, snapshot).await,
+            Some(snapshot) => {
+                snapshot.ensure_query_role(role)?;
+                resolve_snapshot(&domain, role, snapshot).await
+            }
             None => {
                 let (ipv4, ipv6) = tokio::join!(
                     self.resolve_system_type_coordinated(
@@ -798,6 +654,12 @@ impl DnsSystem {
         role: DnsQueryRole,
         config_generation: u64,
     ) -> io::Result<Vec<IpAddress>> {
+        if self.owned_root.is_some() {
+            return Err(io::Error::new(
+                io::ErrorKind::Unsupported,
+                "owned DNS UDP root does not authorize OS resolver work",
+            ));
+        }
         let sys_resolver = {
             let guard = self.inner.read().expect("dns system lock poisoned");
             match &*guard {
@@ -840,6 +702,12 @@ impl DnsSystem {
         family: AddressFamily,
         config_generation: u64,
     ) -> io::Result<Vec<IpAddress>> {
+        if self.owned_root.is_some() {
+            return Err(io::Error::new(
+                io::ErrorKind::Unsupported,
+                "owned DNS UDP root does not authorize OS resolver work",
+            ));
+        }
         let resolver = {
             let guard = self.inner.read().expect("dns system lock poisoned");
             match &*guard {
@@ -861,6 +729,9 @@ impl DnsSystem {
     }
 
     async fn answer_query(&self, query: &[u8]) -> Vec<u8> {
+        if self.wire_query_coordinator.ensure_open().is_err() {
+            return message::build_error_response(query, message::RCODE_SERVFAIL, false);
+        }
         let question = match message::parse_question(query) {
             Ok(question) => question,
             Err(_) => return message::build_error_response(query, message::RCODE_FORMERR, false),
@@ -1068,7 +939,9 @@ impl DnsSystem {
                             .and_then(|snapshot| snapshot.reverse_mapping.as_ref())
                         {
                             reverse_mapping
-                                .record(&question.domain, &parsed.addresses, ttl_seconds)
+                                .record_if(&question.domain, &parsed.addresses, ttl_seconds, || {
+                                    snapshot.as_ref().is_some_and(ResolveSnapshot::is_current)
+                                })
                                 .await;
                         }
                         if let Some(cache) = snapshot
@@ -1119,6 +992,7 @@ impl DnsResolver for DnsSystem {
     type Error = io::Error;
 
     async fn resolve(&self, domain: &str) -> Result<Vec<IpAddress>, Self::Error> {
+        self.query_coordinator.ensure_open()?;
         let (snapshot, config_generation) = self.snapshot_with_generation();
         let snapshot = match snapshot {
             Some(s) => s,
@@ -1254,6 +1128,7 @@ async fn resolve_snapshot_type(
     role: DnsQueryRole,
     snapshot: ResolveSnapshot,
 ) -> io::Result<Vec<IpAddress>> {
+    snapshot.query_coordinator.ensure_open()?;
     if localhost::is_localhost(domain) {
         return family::filter_addresses(
             domain,
@@ -1341,7 +1216,9 @@ async fn resolve_snapshot_type_uncached(
         if topology_is_current && role == DnsQueryRole::Default {
             if let Some(reverse_mapping) = &snapshot.reverse_mapping {
                 reverse_mapping
-                    .record(domain, &resolved.addresses, resolved.ttl_seconds)
+                    .record_if(domain, &resolved.addresses, resolved.ttl_seconds, || {
+                        snapshot.is_current()
+                    })
                     .await;
             }
         }
@@ -1381,13 +1258,15 @@ async fn exchange_snapshot(
                 snapshot.policy.fallback_servers.as_slice(),
             ),
         },
-        DnsQueryRole::Node => match snapshot.policy.node_server.as_deref() {
-            Some(server) => (server, snapshot.policy.node_fallback_servers.as_slice()),
-            None => (
-                snapshot.dispatcher.select(domain),
-                snapshot.policy.fallback_servers.as_slice(),
-            ),
-        },
+        DnsQueryRole::Node | DnsQueryRole::Bootstrap => {
+            match snapshot.policy.node_server.as_deref() {
+                Some(server) => (server, snapshot.policy.node_fallback_servers.as_slice()),
+                None => (
+                    snapshot.dispatcher.select(domain),
+                    snapshot.policy.fallback_servers.as_slice(),
+                ),
+            }
+        }
     };
     let mut tags = Vec::with_capacity(1 + fallbacks.len());
     tags.push(selected);
@@ -1398,32 +1277,26 @@ async fn exchange_snapshot(
     }
 
     let mut last_error = None;
-    for tag in tags {
+    for (index, tag) in tags.iter().copied().enumerate() {
         let server = snapshot.servers.get(tag).ok_or_else(|| {
             io::Error::new(
                 io::ErrorKind::InvalidInput,
                 format!("DNS policy selected undefined backend `{tag}`"),
             )
         })?;
-        let timeout_ms = snapshot.policy.timeout_ms_for(tag);
-        let deadline = std::time::Duration::from_millis(timeout_ms);
-        let attempt = match tokio::time::timeout(
-            deadline,
-            server.backend.exchange(
-                query,
-                server.detour.as_deref(),
-                snapshot.outbound_connector.as_deref(),
-                snapshot.family,
-            ),
+        let next = tags
+            .get(index + 1)
+            .and_then(|next| snapshot.servers.get(*next))
+            .map(|server| server.backend.as_ref());
+        let (attempt, permits_fallback) = owned_root::exchange_backend_attempt(
+            tag,
+            server,
+            query,
+            snapshot,
+            next,
+            snapshot.policy.timeout_ms_for(tag),
         )
-        .await
-        {
-            Ok(result) => result,
-            Err(_) => Err(io::Error::new(
-                io::ErrorKind::TimedOut,
-                format!("DNS backend `{tag}` timed out after {}ms", timeout_ms),
-            )),
-        };
+        .await;
         match attempt.and_then(|response| {
             let parsed = message::parse_response(query, &response)?;
             if let Some(address) = parsed.addresses.iter().find(|address| {
@@ -1467,6 +1340,9 @@ async fn exchange_snapshot(
                     "DNS backend attempt failed"
                 );
                 record_query_attempt(snapshot, domain, role, tag, server, Some(error.to_string()));
+                if !permits_fallback {
+                    return Err(error);
+                }
                 last_error = Some(error);
             }
         }

@@ -1,63 +1,36 @@
-//! Socket reservation precedes live listener mutation during configuration apply.
-use std::{collections::HashMap, path::Path, time::Duration};
+//! Retry entry for acquisitions after the actual old listener retirement barrier.
+use std::path::Path;
 
-use zero_config::{InboundConfig, RuntimeConfig};
+use zero_config::InboundConfig;
 use zero_engine::EngineError;
 
-use super::inbound::bind_inbound_listener;
-use crate::{
-    inventory::ProtocolInventory, protocol_registry::BoundInbound,
-    runtime::route_runtime::InboundListenerRuntimeFactory,
-};
-
-pub(super) async fn reserve_candidates(
-    protocols: &ProtocolInventory,
-    runtime_factory: &InboundListenerRuntimeFactory,
-    source_dir: Option<&Path>,
-    config: &RuntimeConfig,
-    active: &HashMap<String, InboundConfig>,
-) -> Result<HashMap<String, BoundInbound>, EngineError> {
-    let mut reserved = HashMap::new();
-    for inbound in &config.inbounds {
-        if !runtime_factory
-            .endpoint_admission()
-            .listener_enabled(&inbound.tag)
-        {
-            continue;
-        }
-        if active
-            .get(&inbound.tag)
-            .is_none_or(|current| current.listen.port != inbound.listen.port)
-            && !active
-                .values()
-                .any(|current| current.listen.port == inbound.listen.port)
-        {
-            let bound =
-                bind_inbound_with_retry(protocols, runtime_factory, source_dir, inbound).await?;
-            reserved.insert(inbound.tag.clone(), bound);
-        }
-    }
-    // Same-port replacements, including a new tag reusing a removed tag's
-    // port, still use stop/rebind and rollback. Conservatively skip reservation
-    // whenever a live listener uses that port, even for distinct transports.
-    Ok(reserved)
-}
+use super::bind::PendingInbound;
+use crate::{inventory::ProtocolInventory, runtime::route_runtime::InboundListenerRuntimeFactory};
 
 pub(super) async fn bind_inbound_with_retry(
     protocols: &ProtocolInventory,
     runtime_factory: &InboundListenerRuntimeFactory,
     source_dir: Option<&Path>,
     inbound: &InboundConfig,
-) -> Result<BoundInbound, EngineError> {
-    let mut last_error = None;
-    for attempt in 0..50 {
-        match bind_inbound_listener(protocols, runtime_factory, source_dir, inbound).await {
-            Ok(bound) => return Ok(bound),
-            Err(error) => last_error = Some(error),
-        }
-        if attempt < 49 {
-            tokio::time::sleep(Duration::from_millis(10)).await;
-        }
-    }
-    Err(last_error.expect("bind retry loop always attempts at least once"))
+    shutdown: tokio::sync::watch::Sender<bool>,
+) -> Result<PendingInbound, EngineError> {
+    let prepared =
+        match runtime_factory
+            .owners()
+            .prepare_recovery_bind(inbound.clone(), source_dir, true)?
+        {
+            Some(prepared) => Some(prepared),
+            None => protocols
+                .prepare_inbound_bind(runtime_factory.listener_config(inbound), source_dir)?,
+        };
+    super::bind::bind_prepared_listener(
+        protocols,
+        runtime_factory,
+        source_dir,
+        inbound,
+        shutdown,
+        std::num::NonZeroUsize::new(50).unwrap(),
+        prepared,
+    )
+    .await
 }

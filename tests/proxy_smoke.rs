@@ -1,8 +1,8 @@
 use crate::support;
+use support::listener::EchoListener;
 
 use std::fs;
 use std::io::{Read, Write};
-use std::net::TcpListener;
 use std::thread;
 
 use support::{
@@ -14,7 +14,8 @@ use support::{
 fn zero_binary_relays_tcp_through_socks5_direct() {
     let _lock = acquire_port_lock();
     let proxy_port = free_port();
-    let echo_port = free_port();
+    let echo = EchoListener::bind_avoiding(&[proxy_port]);
+    let echo_port = echo.port();
 
     let config = format!(
         r#"{{
@@ -34,7 +35,7 @@ fn zero_binary_relays_tcp_through_socks5_direct() {
     );
     let config_path = write_temp_config(&config, "proxy-smoke-socks5-direct");
 
-    let echo_thread = spawn_echo_server(echo_port);
+    let echo_thread = spawn_echo_server(echo);
     let mut child = spawn_zero(&["run", config_path.to_str().expect("utf-8 config path")]);
 
     wait_for_port(proxy_port);
@@ -55,7 +56,8 @@ fn zero_binary_relays_tcp_through_socks5_direct() {
 fn zero_binary_relays_tcp_through_http() {
     let _lock = acquire_port_lock();
     let proxy_port = free_port();
-    let echo_port = free_port();
+    let echo = EchoListener::bind_avoiding(&[proxy_port]);
+    let echo_port = echo.port();
 
     let config = format!(
         r#"{{
@@ -75,7 +77,7 @@ fn zero_binary_relays_tcp_through_http() {
     );
     let config_path = write_temp_config(&config, "proxy-smoke-http");
 
-    let echo_thread = spawn_echo_server(echo_port);
+    let echo_thread = spawn_echo_server(echo);
     let mut child = spawn_zero(&["run", config_path.to_str().expect("utf-8 config path")]);
 
     wait_for_port(proxy_port);
@@ -97,7 +99,8 @@ fn zero_binary_relays_tcp_through_chained_socks5_outbound() {
     let _lock = acquire_port_lock();
     let outer_port = free_port();
     let upstream_port = free_port();
-    let echo_port = free_port();
+    let echo = EchoListener::bind_avoiding(&[outer_port, upstream_port]);
+    let echo_port = echo.port();
 
     let upstream_config = format!(
         r#"{{
@@ -144,7 +147,7 @@ fn zero_binary_relays_tcp_through_chained_socks5_outbound() {
     );
     let outer_config_path = write_temp_config(&outer_config, "proxy-smoke-outer");
 
-    let echo_thread = spawn_echo_server(echo_port);
+    let echo_thread = spawn_echo_server(echo);
     let mut upstream = spawn_zero(&[
         "run",
         upstream_config_path.to_str().expect("utf-8 config path"),
@@ -202,7 +205,8 @@ fn zero_binary_applies_file_backed_rule_sets() {
     .expect("write CIDR Zero Rule IR");
 
     let proxy_port = free_port();
-    let echo_port = free_port();
+    let echo = EchoListener::bind_avoiding(&[proxy_port]);
+    let echo_port = echo.port();
     let config_path = project_dir.join("config.json");
     let config = format!(
         r#"{{
@@ -254,7 +258,7 @@ fn zero_binary_applies_file_backed_rule_sets() {
     );
     fs::write(&config_path, config).expect("write config");
 
-    let echo_thread = spawn_echo_server(echo_port);
+    let echo_thread = spawn_echo_server(echo);
     let mut child = spawn_zero(&["run", config_path.to_str().expect("utf-8 config path")]);
 
     wait_for_port(proxy_port);
@@ -296,9 +300,9 @@ fn zero_binary_applies_file_backed_rule_sets() {
     remove_temp_dir(&project_dir);
 }
 
-fn spawn_echo_server(port: u16) -> thread::JoinHandle<()> {
+fn spawn_echo_server(echo: EchoListener) -> thread::JoinHandle<()> {
     thread::spawn(move || {
-        let listener = TcpListener::bind(("127.0.0.1", port)).expect("bind echo");
+        let listener = echo.into_listener();
         let (mut stream, _) = listener.accept().expect("accept echo");
         let mut buf = [0_u8; 4];
         stream.read_exact(&mut buf).expect("read echo");

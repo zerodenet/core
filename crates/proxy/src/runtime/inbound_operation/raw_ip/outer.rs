@@ -1,7 +1,7 @@
 //! Optional outer datagram carriers for neutral raw-IP endpoints.
 
 use std::{net::SocketAddr, sync::Arc};
-use tokio::{sync::mpsc, task::JoinSet};
+use tokio::sync::mpsc;
 use zero_stack::FragmentReassembler;
 
 use super::{RawIpInboundAction, RawIpInboundEndpoint};
@@ -15,25 +15,35 @@ pub(super) struct ProxiedWirePacket {
 }
 
 #[allow(clippy::too_many_arguments)]
-pub(super) fn refresh_endpoint_peers(
+pub(super) async fn refresh_endpoint_peers(
     endpoint: Option<&mut RawIpInboundEndpoint>,
     revision: &mut u64,
     initial_endpoints: &mut Vec<Option<SocketAddr>>,
     endpoints: &mut Vec<Option<SocketAddr>>,
     fragments: &mut FragmentReassembler,
     endpoint_fragments: &mut FragmentReassembler,
-    proxied_tasks: &mut JoinSet<()>,
+    owner: &super::tasks::RetainedTasks<()>,
+    proxied_tasks: &mut super::tasks::TasksGuard<'_, ()>,
     proxied_tx: &mpsc::Sender<ProxiedWirePacket>,
     peer_uses_proxy: &mut Vec<bool>,
-) {
+) -> Result<(), zero_engine::EngineError> {
     let Some(endpoint) = endpoint else {
-        return;
+        return Ok(());
     };
     let peers = endpoint.peers.borrow_and_update().clone();
     if *revision == peers.revision {
-        return;
+        return Ok(());
     }
     proxied_tasks.abort_all();
+    // Retire one actual reader generation before admitting its replacement;
+    // rapid peer-watch changes cannot accumulate aborted but unjoined readers.
+    while let Some(joined) = proxied_tasks.join_next().await {
+        if let Err(error) = joined {
+            if !error.is_cancelled() {
+                return Err(std::io::Error::other(owner.remember(error)).into());
+            }
+        }
+    }
     *peer_uses_proxy = peers.carriers.iter().map(Option::is_some).collect();
     for (peer, carrier) in peers.carriers.iter().enumerate() {
         let Some(carrier) = carrier.clone() else {
@@ -41,30 +51,32 @@ pub(super) fn refresh_endpoint_peers(
         };
         let sender = proxied_tx.clone();
         let revision = peers.revision;
-        proxied_tasks.spawn(async move {
-            let mut buffer = vec![0; 65_536];
-            loop {
-                let (size, source) = match carrier.recv(&mut buffer).await {
-                    Ok(value) => value,
-                    Err(error) => {
-                        tracing::debug!(%error, peer, "raw-IP outer carrier stopped");
+        proxied_tasks
+            .spawn(async move {
+                let mut buffer = vec![0; 65_536];
+                loop {
+                    let (size, source) = match carrier.recv(&mut buffer).await {
+                        Ok(value) => value,
+                        Err(error) => {
+                            tracing::debug!(%error, peer, "raw-IP outer carrier stopped");
+                            return;
+                        }
+                    };
+                    if sender
+                        .send(ProxiedWirePacket {
+                            bytes: buffer[..size].to_vec(),
+                            source,
+                            peer,
+                            revision,
+                        })
+                        .await
+                        .is_err()
+                    {
                         return;
                     }
-                };
-                if sender
-                    .send(ProxiedWirePacket {
-                        bytes: buffer[..size].to_vec(),
-                        source,
-                        peer,
-                        revision,
-                    })
-                    .await
-                    .is_err()
-                {
-                    return;
                 }
-            }
-        });
+            })
+            .map_err(std::io::Error::other)?;
     }
     *revision = peers.revision;
     // Preserve an authenticated learned address when the configured initial
@@ -84,6 +96,7 @@ pub(super) fn refresh_endpoint_peers(
         .collect();
     *fragments = FragmentReassembler::new();
     *endpoint_fragments = FragmentReassembler::new();
+    Ok(())
 }
 
 pub(super) fn peer_carrier(

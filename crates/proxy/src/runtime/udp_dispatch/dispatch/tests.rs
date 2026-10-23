@@ -296,3 +296,22 @@ async fn raw_and_quic_sniffed_fake_ip_reverse_misses_share_failure_contract() {
         assert!(failure.remote.is_none());
     }
 }
+
+#[tokio::test]
+async fn receive_loop_dispatch_state_does_not_embed_all_new_flow_protocol_states() {
+    let proxy = crate::runtime::Proxy::new(
+        RuntimeConfig::parse(r#"{"route":{"final":{"type":"direct"}}}"#).unwrap(),
+    )
+    .unwrap();
+    let runtime = UdpIngressRuntime::new(proxy.tcp_runtime_services());
+    let mut dispatch = runtime.new_dispatch("tun-stack-budget").await.unwrap();
+    let auth = SessionAuth::new("test");
+    let future = dispatch.dispatch(input(Address::Ipv4([127, 0, 0, 1]), 9, b"query", &auth));
+    // This future is embedded through several receive/relay/select layers on
+    // Tokio's default 2 MiB workers, including the privileged TUN process.
+    assert!(
+        std::mem::size_of_val(&future) < 16 * 1024,
+        "receive loop must retain a pointer to the new-flow state, not inline it: {} bytes",
+        std::mem::size_of_val(&future)
+    );
+}

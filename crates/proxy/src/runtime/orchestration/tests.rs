@@ -1,4 +1,8 @@
 use zero_engine::EngineError;
+#[cfg(all(unix, feature = "shadowsocks"))]
+mod inbound_ready;
+#[cfg(feature = "managed-stream-runtime")]
+mod startup_snapshot;
 
 use super::lifecycle::{
     handle_configured_tun_failure, handle_listener_result, handle_urltest_result,
@@ -82,6 +86,7 @@ async fn duplicate_reload_notification_preserves_dns_candidate_owned_by_acknowle
         expected: proxy.engine.runtime_snapshot(),
         previous,
         persist: false,
+        compensating: false,
         sender,
     });
     state.reconcile_reload(&proxy).await;
@@ -110,8 +115,11 @@ async fn identical_config_snapshots_do_not_cross_acknowledge_reload_operations()
         expected: candidate.clone(),
         previous: previous.clone(),
         persist: false,
+        compensating: true,
         sender,
     });
+    assert!(!proxy.pending_reload_compensates(&previous));
+    assert!(proxy.pending_reload_compensates(&candidate));
     proxy.complete_reload(&previous, Ok(()));
     assert_eq!(
         receiver.try_recv(),
@@ -119,6 +127,7 @@ async fn identical_config_snapshots_do_not_cross_acknowledge_reload_operations()
     );
     proxy.complete_reload(&candidate, Ok(()));
     receiver.await.unwrap().unwrap();
+    assert!(!proxy.pending_reload_compensates(&candidate));
 }
 
 #[tokio::test]
@@ -155,3 +164,8 @@ async fn duplicate_reload_wakeup_preserves_dns_prepared_for_transaction_commit()
 }
 
 mod lifecycle;
+
+#[cfg(feature = "managed-datagram-runtime")]
+mod inbound_recovery;
+#[cfg(feature = "managed-datagram-runtime")]
+mod observer_handoff;

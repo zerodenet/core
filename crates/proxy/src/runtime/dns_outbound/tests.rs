@@ -8,22 +8,15 @@ fn dns_callback_does_not_keep_outbound_pools_alive_after_proxy_drop() {
     let config =
         zero_config::RuntimeConfig::parse(r#"{"route":{"final":{"type":"direct"}}}"#).unwrap();
     let proxy = Proxy::new(config).unwrap();
-    let resolver = proxy.resolver.clone();
-    let callback = super::ProxyDnsOutboundConnector::new(
-        proxy.engine.clone(),
-        &resolver,
-        proxy.protocols.clone(),
-        proxy.egress_interface.clone(),
-        proxy.principal_rate_limits.clone(),
-    );
-    assert!(callback.runtime_services().is_ok());
+    let _retained_resolver = proxy.resolver.clone();
+    let callback = super::ProxyDnsOutboundConnector::new(proxy.current_service_source());
+    assert!(callback.source().unwrap().runtime_services().is_ok());
     drop(proxy);
     // A retained resolver (as held by an established carrier) may outlive the
     // proxy, but its callback must no longer revive the outbound inventory.
     let error = callback
-        .runtime_services()
-        .err()
-        .expect("inventory retained by DNS callback");
+        .source()
+        .expect_err("inventory retained by DNS callback");
     assert_eq!(error.kind(), std::io::ErrorKind::NotConnected);
 }
 
@@ -74,6 +67,14 @@ async fn proxy_installs_dns_detour_connector_without_recursive_resolution() {
     ))
     .expect("parse DNS detour config");
     let proxy = Proxy::new(config).expect("build proxy");
+    proxy
+        .protocols
+        .start_components(
+            proxy.engine.runtime_snapshot().config().clone(),
+            tokio::time::Instant::now() + std::time::Duration::from_secs(3),
+        )
+        .await
+        .unwrap();
 
     assert_eq!(
         proxy
@@ -89,4 +90,13 @@ async fn proxy_installs_dns_detour_connector_without_recursive_resolution() {
             .recent_query_attempts("detour.example", zero_dns::DnsQueryRole::Default, 1);
     assert_eq!(attempts[0].outbound, "dns-out");
     server.await.unwrap();
+    let deadline = tokio::time::Instant::now() + std::time::Duration::from_secs(3);
+    proxy.resolver.shutdown_queries(deadline).await.unwrap();
+    proxy.protocols.shutdown_components(deadline).await.unwrap();
 }
+
+#[cfg(feature = "socks5")]
+mod service;
+
+#[cfg(feature = "socks5")]
+mod doh_binding;

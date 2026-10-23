@@ -6,7 +6,7 @@ use std::{collections::HashMap, hint::black_box, time::Instant};
 #[ignore = "local admission microbenchmark; not throughput or power qualification"]
 fn compare_direct_udp_admission_lookup_cost() {
     let proxy = proxy();
-    let services = socket_set(&proxy, None).services;
+    let services = socket_set(&proxy, None).services.unwrap();
     let policy = policy(&proxy, Some("first"));
     let generation = services.egress_generation();
     let mut local = Vec::new();

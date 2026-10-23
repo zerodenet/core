@@ -29,7 +29,8 @@ async fn retrying_control_queue_backpressure_is_not_counted_as_packet_loss() {
     let counter = Arc::new(Counts::default());
     let (tx, mut rx) = mpsc::channel::<ObservedPacket>(1);
     let output = PacketSender::from(tx).with_observer(Some(counter.clone()));
-    let control = TcpControlPackets::new(output);
+    let control =
+        TcpControlPackets::new_with_tasks(output, crate::task_owner::TcpTaskSpawner::default());
     assert!(control.try_send(vec![0]));
     for i in 0..TCP_CONTROL_QUEUE_CAPACITY {
         assert!(control.try_send(vec![i as u8]));
@@ -51,8 +52,10 @@ async fn retrying_control_queue_backpressure_is_not_counted_as_packet_loss() {
 fn teardown_counts_accepted_control_packets_still_in_the_retry_queue() {
     let counter = Arc::new(Counts::default());
     let (tx, _rx) = mpsc::channel::<ObservedPacket>(1);
-    let control =
-        TcpControlPackets::new(PacketSender::from(tx).with_observer(Some(counter.clone())));
+    let control = TcpControlPackets::new_with_tasks(
+        PacketSender::from(tx).with_observer(Some(counter.clone())),
+        crate::task_owner::TcpTaskSpawner::default(),
+    );
     assert!(control.try_send(vec![0]));
     assert!(control.try_send(vec![1]));
     assert!(control.try_send(vec![2]));

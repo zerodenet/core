@@ -15,7 +15,11 @@ mod stream_packet;
 pub(crate) mod transport;
 
 pub(crate) use contract::PreparedUdpFlowOperation;
+#[cfg(feature = "managed-datagram-runtime")]
+pub(crate) use direct::DirectSocketSource;
 pub(crate) use direct::DirectUdpFlowOperation;
+#[cfg(all(test, feature = "managed-datagram-runtime"))]
+pub(crate) use direct::LiveDirectSource;
 #[cfg(feature = "managed-datagram-runtime")]
 pub(crate) use managed_datagram::{ManagedDatagramStartPlan, ManagedDatagramUdpOperation};
 #[cfg(feature = "upstream-association-runtime")]

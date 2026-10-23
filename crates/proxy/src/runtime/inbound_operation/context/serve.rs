@@ -3,6 +3,25 @@ use zero_engine::EngineError;
 use super::model::InboundConnectionContext;
 
 impl InboundConnectionContext {
+    #[cfg(feature = "standard-stream-inbound-runtime")]
+    pub(crate) async fn serve_standard_stream(
+        &self,
+        protocol: zero_core::ProtocolType,
+        destination: zero_core::request::Destination,
+        auth: Option<zero_core::SessionAuth>,
+        sni: Option<String>,
+        reply: impl FnOnce(
+                zero_core::request::RequestFacts,
+            ) -> Result<
+                Box<dyn zero_platform_tokio::contract::inbound::AcceptedStream>,
+                zero_platform_tokio::contract::ChannelError,
+            > + Send,
+    ) -> Result<(), EngineError> {
+        self.runtime
+            .serve_standard_stream(protocol, destination, auth, sni, reply)
+            .await
+    }
+
     pub(crate) async fn serve_message<P>(
         &self,
         protocol: &P,
@@ -29,9 +48,9 @@ impl InboundConnectionContext {
 
     pub(crate) fn select_http_redirect(
         &self,
-        session: &zero_core::Session,
+        destination: &zero_core::request::Destination,
     ) -> Option<(u16, String)> {
-        self.runtime.select_http_redirect(session)
+        self.runtime.select_http_redirect(destination)
     }
 
     #[cfg(any(

@@ -1,0 +1,15 @@
+{
+  "argv": [
+    "/workspace/core-baseline-artifacts/zero-transport-root37-hang-original",
+    "grpc::owned::tests::logical::actual_remote_h2_stream_limit_bounds_pending_demands_and_cancellation_preserves_shared_carrier",
+    "--exact",
+    "--nocapture",
+    "--test-threads=1"
+  ],
+  "binary_sha256": "43ad7ac9a302a18946479dbe8e57ef30cb8cb3ac78de8420f66e2dfe26f624a9",
+  "exit": -15,
+  "seconds": 20.13338679500157,
+  "diagnostic_timeout_20s_not_test_timeout_change": true,
+  "source_head": "0ee7c39d",
+  "log": "/workspace/core-baseline-artifacts/pr05-parallel-37-grpc-logical-original-diagnostic.txt"
+}

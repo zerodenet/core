@@ -1,0 +1,180 @@
+{
+  "status": "current25 preparation is historical and not built; root26 is validating, final observer pin waits for freeze27",
+  "current_source": {
+    "source_root": "/workspace/core",
+    "source_commit": "2e7ce766911e48cd1c0216a7358f089c9dcb4e93",
+    "source_lock_sha256": "ffed93de069ad338a786490fc65e5cbc01dfc6a2c9116ab7ba853bc5abbc8764",
+    "exact_direct_dependency_pins": {
+      "tokio": "1.54.0",
+      "serde_json": "1.0.154",
+      "rustls": "0.23.40"
+    },
+    "proxy_features": [
+      "socks5",
+      "http",
+      "mixed",
+      "vless",
+      "hysteria2",
+      "shadowsocks",
+      "trojan",
+      "vmess",
+      "mieru",
+      "wireguard",
+      "dns",
+      "host-network-stats"
+    ],
+    "runtime_workers": 1,
+    "observer_tokio_tasks_spawned": 0,
+    "measurement_scope": "public proxy library; observer process also contains its own bounded Rust metrics storage; not CLI RSS or private-owner payload bytes",
+    "observer_source_sha256": {
+      "driver.rs": "feae84bcc417b7acac6baa1a69d8eb1c7d9bfa038a42d1f93b210bbd5e7ee178",
+      "main.rs": "49b82a0de5ca0d4d85ade43d45e1a5eda936bc4f3cd6b5d26ea0c927432eed36",
+      "metrics.rs": "d66bce4e342960c9467e3c5d56cacce785974154cee1f0c6ad0eb8597e439583"
+    }
+  },
+  "current_manifest": "/workspace/core-next/udp-task-observer-current-2e7ce766-ffed93de/Cargo.toml",
+  "required_target_dir": "/workspace/core-target",
+  "current_frozen_head": "2e7ce766911e48cd1c0216a7358f089c9dcb4e93",
+  "current_frozen_lock_sha256": "ffed93de069ad338a786490fc65e5cbc01dfc6a2c9116ab7ba853bc5abbc8764",
+  "library": {
+    "old_binary": "/workspace/core-baseline-artifacts/zero-udp-task-observer-old-2eed",
+    "old_binary_sha256": "25b58d67bd3e479e9cf375ed21e0bc52098084cb7a7a5339672af33f851c7fff",
+    "old_metadata": {
+      "source_root": "/workspace/core-baseline-source",
+      "source_commit": "2eedc2b8d8e2b0e16dffe32d3f83d2f0f2dbcc8a",
+      "source_lock_sha256": "0275dc0ac51fad8d380056defb4e4fb651edff477d0f8e6cb0166c05ca720cd7",
+      "exact_direct_dependency_pins": {
+        "tokio": "1.53.3",
+        "serde_json": "1.0.154",
+        "rustls": "0.23.40"
+      },
+      "proxy_features": [
+        "socks5",
+        "http",
+        "mixed",
+        "vless",
+        "hysteria2",
+        "shadowsocks",
+        "trojan",
+        "vmess",
+        "mieru",
+        "wireguard",
+        "dns",
+        "host-network-stats"
+      ],
+      "runtime_workers": 1,
+      "observer_tokio_tasks_spawned": 0,
+      "measurement_scope": "public proxy library; observer process also contains its own bounded Rust metrics storage; not CLI RSS or private-owner payload bytes",
+      "observer_source_sha256": {
+        "driver.rs": "feae84bcc417b7acac6baa1a69d8eb1c7d9bfa038a42d1f93b210bbd5e7ee178",
+        "main.rs": "49b82a0de5ca0d4d85ade43d45e1a5eda936bc4f3cd6b5d26ea0c927432eed36",
+        "metrics.rs": "d66bce4e342960c9467e3c5d56cacce785974154cee1f0c6ad0eb8597e439583"
+      }
+    },
+    "old_resolved_lock_sha256": "7e78fe70b928136213e300f9c137d6b19dafbd5adf120684579f622e5f3a6693",
+    "current_binary": null,
+    "current_binary_sha256": null,
+    "current_resolved_lock_sha256": null,
+    "identical_observer_rust_source_hashes": true,
+    "profiles": [
+      "policy-only3trials",
+      "actual EgressControl-generation+policy3trials"
+    ],
+    "old_actual_results": "old-library-observations.json"
+  },
+  "default_cli": {
+    "old_binary": "/workspace/core-baseline-artifacts/zero-release",
+    "old_source": "2eedc2b8d8e2b0e16dffe32d3f83d2f0f2dbcc8a",
+    "old_binary_sha256": "026741152e55cceb6e5f96fc908f6d4585b3d6f6eef378d832c5fe573420be2f",
+    "current_binary": null,
+    "current_binary_sha256": null,
+    "current_source": "2e7ce766911e48cd1c0216a7358f089c9dcb4e93",
+    "feature_match": "pending actual new build-info; do not assume all-features and default build equivalence",
+    "profile": "same16source fixed-domain16policy rotations3trials; distinct from library observer",
+    "old_actual_feature_list": [
+      "status-api",
+      "event-dispatcher",
+      "sink-jsonl",
+      "connector",
+      "grpc-api",
+      "host-network-stats",
+      "http",
+      "hysteria2",
+      "mieru",
+      "mixed",
+      "shadowsocks",
+      "socks5",
+      "trojan",
+      "vless",
+      "vmess",
+      "wireguard",
+      "dns"
+    ],
+    "explicit_matched_feature_build_argv": [
+      "cargo",
+      "build",
+      "-p",
+      "zero",
+      "--release",
+      "--offline",
+      "--locked",
+      "--no-default-features",
+      "--features",
+      "status-api,event-dispatcher,sink-jsonl,connector,grpc-api,host-network-stats,http,hysteria2,mieru,mixed,shadowsocks,socks5,trojan,vless,vmess,wireguard,dns"
+    ],
+    "build_environment": {
+      "CARGO_TARGET_DIR": "/workspace/core-target"
+    },
+    "inspected_root_all_features_extra_keys": [
+      "default",
+      "full"
+    ],
+    "feature_equality_rule": "At inspected25, all-features adds only aliases default/full whose leaves are already all present; recheck the final frozen Cargo.toml and actual build-info, fail any extra/missing concrete feature claim.",
+    "old_actual_build_info_path": "/workspace/core-baseline-artifacts/release-build-info.txt",
+    "old_actual_build_info_sha256": "5161416015a14bffdad97c03aa312e2969c208baef97a227cf52ebd743e7fbc1",
+    "inspected25_root_manifest_sha256": "42a5393d7f030fd4582736e7cb34663dcf3b5e0f0dd74394b65b36a77f37a5a6"
+  },
+  "same_workload": {
+    "source_peers": 16,
+    "configured_domain_targets": 1,
+    "echo_targets": [
+      "127.0.0.1",
+      "127.0.0.2",
+      "::1"
+    ],
+    "payload_bytes": 1024,
+    "stages": 17,
+    "stable_payloads_per_peer_per_stage": 3,
+    "policy_family": "alternating only_ipv4/only_ipv6",
+    "bursts_per_peer": [
+      31,
+      32,
+      33
+    ],
+    "network_mode": "none;loopback only",
+    "cpu.max": "100000 100000",
+    "memory.max": "1073741824",
+    "memory.swap.max": "0",
+    "image": "python@sha256:a6e34c598f2467ed0e9a8d349809fcd8b5c603269512df273a0bb1784edc11b1"
+  },
+  "runtime_checks": [
+    "actual frozen binary/lock SHA",
+    "embedded source metadata equals supplied source.json",
+    "actual container cgroup values",
+    "all steady/reload/burst send+receive payload failures preserved",
+    "actual generation before/after+business records",
+    "async task samples not nativeThreads; no truncation claimed if truncated flag true",
+    "initial and final samples retained including phase transitions",
+    "procfs correlations never replace exact FD acquisition/close accounting"
+  ],
+  "unknowns": [
+    "application owner pending payload bytes",
+    "blocking job/queue census",
+    "exact native acquire attempts",
+    "physical route/interface switching"
+  ],
+  "comparison_policy": "observation only; no guessed capacity defaults or pass thresholds; steady failures and pressure missing reported separately",
+  "scope": "the actual selected default configuration path in each frozen source; no implicit qualification of unused library APIs",
+  "staleness_rule": "a later strict-fix HEAD/lock requires a fresh observer preparation/artifact; current25 data, if run, belongs only to current25",
+  "final_current_source_pending": "root27 exact HEAD+source lock, then fresh preparation/artifact"
+}

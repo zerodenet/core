@@ -4,6 +4,9 @@
 extern crate alloc;
 
 #[cfg(feature = "runtime")]
+pub mod component;
+
+#[cfg(feature = "runtime")]
 mod inbound;
 mod metadata;
 #[cfg(feature = "runtime")]

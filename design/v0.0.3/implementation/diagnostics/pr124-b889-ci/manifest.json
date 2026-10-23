@@ -1,0 +1,40 @@
+{
+  "head": "b889e3b5ecb606806c988644c29803bbd744122c",
+  "overall_passed": false,
+  "records": [
+    {
+      "source": "/workspace/core-baseline-artifacts/pr124-b889-ci-checkpoint.json",
+      "path": "pr124-b889-ci-checkpoint.json.gz",
+      "raw_sha256": "6188cd8065b79d77561123707ea14c4c0d59cc7a896df2c38b4a135824300e34",
+      "gzip_sha256": "eb055243407d40aaa2a8bde216c0754dd4dac3d0b58836e1b878c4375cd330f0",
+      "raw_bytes": 18665
+    },
+    {
+      "source": "/workspace/core-baseline-artifacts/pr124-b889-ci-job-118659643212.txt",
+      "path": "pr124-b889-ci-job-118659643212.txt.gz",
+      "raw_sha256": "d432331f793772105cb4aa3463b7ae48aae36030952ae7d394f9925fbb498575",
+      "gzip_sha256": "dc80178e1213242ff41daaaf1b5177785216c0157c740778a382bc7787725807",
+      "raw_bytes": 24532
+    },
+    {
+      "source": "/workspace/core-baseline-artifacts/pr124-b889-ci-job-118659644203.txt",
+      "path": "pr124-b889-ci-job-118659644203.txt.gz",
+      "raw_sha256": "8fc1698dbf5d684b924124c0a120c7497a9b9f61548a9c00ee59c756e11e1b00",
+      "gzip_sha256": "fd1d8dd29bee6c3d233b584185adf9c301b3547b4af2c0163e7ff868c32930fc",
+      "raw_bytes": 217321
+    },
+    {
+      "source": "/workspace/core-baseline-artifacts/pr124-b889-ci-job-118659732039.txt",
+      "path": "pr124-b889-ci-job-118659732039.txt.gz",
+      "raw_sha256": "faaa2431a8187c9168ce8f7580f9821c003d8f23acc19975af79df65510b79f0",
+      "gzip_sha256": "c5e36d7bc55b1c133e387d07e1ee89a4a9539b8616fa963a9d6d7a04f9df6aeb",
+      "raw_bytes": 45164
+    }
+  ],
+  "diagnosis": {
+    "CI": "type_complexity metadata graph.rs44; fixed in next source, not requalified",
+    "Version Contract": "two Unreleased exact headings; next docs consolidate all pending entries, local release.sh --check passed",
+    "WG Reference": "protocol69/0; actual interop2/1, inbound payload success but shutdown CloseTimeout component4 Unknown; no relaxed shutdown assertion",
+    "other": "seven workflows succeeded; Privileged TUN in_progress at snapshot; later result not inferred"
+  }
+}

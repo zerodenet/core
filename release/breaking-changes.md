@@ -1,36 +1,5 @@
 # 控制面兼容性与破坏性变更
 
-## Unreleased: Host Wintun activation and XHTTP upload receipts
-
-- Existing host-owned Wintun adapters validate their configured addresses and MTU before opening an exclusive packet session, then wait for Preferred address state on the activated link. A dormant Deprecated address is not treated as ready; duplicate, invalid and expired addresses remain errors. Host addresses, routes and MTU are never modified.
-- XHTTP HTTP/1 packet uploads acknowledge completely received, validated and byte-budgeted ownership before waiting for ingress queue capacity. This allows a reused upload connection to deliver a missing sequence instead of waiting for a receipt that depends on that sequence. The admission task retains its request permit, payload reservation and deadline; receipt does not mean business delivery. Queue and listener budgets, duplicate rejection, cancellation and HTTP/2/3 admission backpressure remain enforced. No configuration or public API fields change.
-
-## Unreleased: Shared raw-IP listener egress
-
-- Native shared raw-IP listeners apply the current physical-egress selection at the datagram send boundary. Their outer packets no longer rely on being recaptured and routed through TUN as business flows. Explicit outer proxy carriers keep their existing transport ownership.
-- Per-message interface hints preserve the listener's source port and receive binding. Route hints are bounded and expire after one second or immediately on egress generation changes; unavailable physical egress and failed interface hints do not fall back to an unbound send. Linux firewall marks accompany the individual datagram. No configuration or API fields change. On macOS, specifically addressed IPv4 listeners use a synchronous, checked temporary interface scope instead of IP_PKTINFO, preserving their configured receive address and restoring the previous interface scope before returning to the executor. Send or binding errors never trigger an unbound retry.
-
-## Unreleased: DoH connection recovery after network changes
-
-- DoH HTTP/2 pool identity now includes the existing physical-egress generation for native and detoured queries. Connections prepared before a network change cannot enter the current pool or send a new DNS request afterwards, even when the physical interface name remains unchanged.
-- Failed or cancelled exchanges, including cancellation by the configured backend deadline, retire only their own connection. A delayed cancellation cannot evict a replacement connection. Healthy connection reuse, native platform binding, explicit detours, DNS dispatch, fallback selection and query deadlines retain their existing contracts; this does not introduce automatic query replay or new configuration fields.
-
-## Unreleased: Connector reload recovery and sample delivery
-
-- Tokio 最低版本声明为 1.53.3，Unix TUN 与路由监测使用对应的注册接口，保持描述符直到注销后再关闭；macOS 接收宿主描述符时继续保留其拥有关系。V1 配置、控制面及 TUN 路由语义不变。
-
-- In-process dispatcher replacement retains an instance-qualified replay cursor and its bounded volatile delivery state. Missing retained history is reported through existing replay-gap status. This is not crash recovery without an outbox; receivers still deduplicate at-least-once delivery.
-- Newly admitted `flow.updated`, `stats.sampled`, `stats.scopes_sampled`, `stats.host_interfaces_sampled`, and `endpoint.stats_sampled` are best-effort samples and do not enter the outbox. Samples already persisted by older versions retain their delivery/ACK obligation. Lifecycle facts, `stats.reset`, business usage and quota state are preserved.
-- The source bridge stops receiving while preceding events cannot be admitted. `api.dispatcher.source_queue_max_bytes` defaults to 8 MiB of serialized event bytes, alongside the existing count limit (`replay_batch_size`). Reservations follow live events until sink admission. One existing oversized event may reserve the whole byte budget and enter alone; one event waiting for admission and a single replay/bootstrap event are additional bounds. This is not a heap/RSS ceiling, nor a byte budget for pending/in-flight delivery copies; those remain separately managed. Replay processes one owned event at a time. No existing durable delivery is deleted to enforce these limits.
-- `api.dispatcher.max_in_memory_delivery_bytes` adds a 16 MiB default serialized-byte charge for the combined queued, retry/ACK-retry and in-flight delivery working set (valid 1..=256 MiB). The existing count limit remains independent. Durable entries beyond the budget stay indexed on disk. An older entry waiting for byte room pauses additional live working-set admission so continuous smaller events cannot starve it; volatile facts apply source backpressure. One oversized event is admitted only when the working set is empty. Lowering a reload budget retains inherited volatile facts and stops additional admission until they drain; it never acknowledges or deletes durable obligations.
-- `sinks.delivery_buffer` optionally reports the shared dispatcher `byte_budget`, `reserved_bytes` and `over_budget` state, repeated per sink and not summable. Live charges measure event serialization; recovered charges conservatively include the journal frame. Shared fan-out obligations are charged separately. Carrier bodies, decoding scratch, source buffers, one prepared input, journal indexes and other runtime memory are separate: this is not an RSS limit. Oversized events and inherited state can exceed the configured charge. The application status projection retains its existing refresh interval.
-- Connector workers and asynchronous sinks share immutable event ownership rather than cloning payloads for each handoff. A differing sink `source_id` still materializes a sink-specific event for compatibility; those copies are charged independently once queued. Only the current prepared input is cached during admission retries, avoiding repeated payload copies; reload invalidates that preparation for the new sink settings. Durable paging caches only the last candidate frame length (invalidated on compaction) to avoid rescanning a large record on every admission poll, checks lengths before decoding and does not retain whole encoded frames. Journal/webhook encoding pre-sizes scratch to avoid geometric Vec growth; JSONL delivery streams through a small I/O buffer instead of materializing a complete frame, and failed writes are not retried by buffer drop. JSON decoding and carrier encoding still require bounded-by-record scratch; this is not a zero-copy or arbitrary-size-event memory guarantee. Journal index metadata uses the disk-backed derived index described below.
-- Outbox recovery, inspection, paging and compaction now use an exact disk-backed derived index instead of retaining two full Rust maps of pending identities. JSONL remains the only persistent source of delivery/ACK truth; its format and existing pending obligations are unchanged. Index tables contain identity/offset/count metadata only, not event payloads. SQLite is bundled only with the optional `event-dispatcher` feature; basic metering and querying remain independent of Connector. Each scratch connection targets a 256 KiB page cache with spill enabled and memory mapping disabled. Recovery/index construction commits at most 128 journal operations per batch; paging iterates the offset index without collecting all identities. Compaction temporarily uses two small page caches and streams frames into the replacement journal, preserving latest-offset order, all unconfirmed identities, payloads, attempts and ACKs.
-- Derived indexes use private scratch files in the operating system temporary directory, including on Android where SQLite's anonymous temporary databases would otherwise be forced into memory. Deployments should place the OS temporary directory (for example via TMPDIR) on disk-backed storage when memory pressure matters; tmpfs charges remain system/cgroup memory. This trades RAM for disk I/O and temporary disk capacity proportional to pending metadata; it is not an RSS cap, a disk quota, or constant-cost recovery. Caches, the largest individual identity/frame scratch, configured-sink status projections and SQLite internals still consume memory; OS file cache is separate. Normal close removes scratch files; after abrupt termination leftover private scratch directories are disposable under the OS temporary-file cleanup policy, never a recovery source. Read-only preflight requires temporary storage but does not modify the inspected journal. Scratch allocation, full-disk or index-write failures are reported as index failures, never as journal corruption or successful delivery. The optional Rust Connector API adds `ConnectorError::OutboxIndex`; exhaustive matches must handle it, while control-plane envelopes/configuration stay unchanged. After a durable append whose index update fails, paging/status refuse stale offsets and the next persistence/ACK retry rebuilds the index from JSONL. No pending event is dropped to satisfy memory limits, and Engine cumulative meters, business usage and quotas are unaffected.
-- Connector records are notification/delivery state, not authoritative cumulative traffic counters. Dropped/evicted samples do not decrement Engine counters, business usage or quotas. Consumers recover cumulative observations by queries, checking core instance and statistics epoch; replay gaps cannot restore per-flow detail absent from retained history. Cross-restart billing durability is not implied by in-memory statistics or a best-effort subscription.
-- `sinks` query adds optional `source_buffer` admission gauges: channel capacity, byte budget, current reservations, high-water values, waiting event bytes, oversized admission count and pause state. These describe the shared dispatcher source, are repeated per sink and must not be summed. They exclude replay/handoff payloads and delivery copies, are read independently and reset with dispatcher replacement. `reserved_bytes` is budget charge, not RSS; oversized admission charges the whole budget. Missing fields mean unavailable on older cores or synchronous sinks.
-- Single-file ordinary log rotation (`max_files=1`) now replaces the active file at its size boundary. Rotation errors propagate without resetting length accounting. One oversized write/event remains intact and rotates before the following record. Outbox retention is unchanged.
-- Engine-generated opaque event IDs include an instance-local identity ordinal, preventing same-millisecond facts from colliding in durable deduplication. Identity allocation is separate from published sequence, so subscription snapshots and prepared completion facts create no replay gaps. Persisted IDs and caller-provided external IDs remain unchanged; consumers must treat IDs as opaque.
 
 本文记录会影响 GUI、SDK、面板、事件 Sink 或进程内 Rust 集成的控制面语义变化。公开接口与事件说明由 [ZeroDeNet 文档仓库](https://github.com/zerodenet/docs)维护；本文只维护 Core 的版本边界和迁移要求。
 
@@ -57,7 +26,7 @@
 
 | 版本 | 影响面 | 迁移结论 |
 |------|--------|----------|
-| `Unreleased` | VMess cipher 配置 | 旧私有 `zero` 配置需迁移为 `zero-plus`；`zero` 现为 Xray 标准模式 <!-- version-contract:unreleased-row --> |
+| `Unreleased` | VMess cipher 配置、Raw-IP Direct 资源关闭 | 旧私有 `zero` 配置需迁移为 `zero-plus`；Raw-IP 已覆盖路径使用真实任务与原生关闭凭据 <!-- version-contract:unreleased-row --> |
 | `0.0.1` | 首个统一正式版、TUN 路由恢复 | 发布编号重置；配置与控制面仍为 V1，旧版本需手动安装 |
 | `0.0.16-rc.202609070904` | Direct 入站、监听热更新、构建能力发现 | Direct 默认绑定 TCP 与 UDP；仅需 TCP 时使用现有 `udp.enabled: false`，面板按能力事实判断支持 |
 | `0.0.16-rc.202609060636` | CLI 配置预检查、内核安装器 | `zero validate` 不再启动运行时或访问 Fake-IP / 配额持久化状态；可与运行中的内核并行校验 |
@@ -78,6 +47,165 @@
 
 ## Unreleased
 
+### Raw-IP Direct caller closure uses original native receipts
+
+Standalone TCP and DNS service execution now drive their owning component supervision while connecting. WireGuard key rotation selects a new live crypto owner even on the same listen address. Retired packet-to-flow and owned QUIC streams return terminal `BrokenPipe` instead of retryable `Interrupted`, preventing read helpers from spinning after cancellation; actual caller join and transferred-view release remain separate closure requirements. Probe diagnostics classify the original typed establishment error while retaining its outbound/stage metadata. Public configuration and wire identifiers are unchanged.
+
+WireGuard/raw-IP TCP Direct sessions now settle the same controlled carrier registrations after the actual caller Scope join; raw-IP UDP associations use the existing bound Direct provider and retain its matching native/driver/caller completion. Completed covered records can return their quota. Uncovered gateways, DNS work without a controlled root, conflicting owners and incomplete native closes remain Unknown and charged. This does not qualify the remaining cold RuntimeHost or non-Direct protocol migration.
+
+Production Direct decoding now installs the existing controlled stream owner with 4096 native carrier slots, 256 refresh task slots and a five-second retirement budget. An opener with the original tracked Business caller selects it before acquisition; an explicitly selected controlled operation never falls back on failure. Service and untracked calls keep their separate legacy operation and do not establish whole-generation native coverage. Other resourceful cold gates remain closed.
+
+Each raw-IP UDP association has explicit ceilings of 256 logical sessions, 256 native sockets, one pending native open, 16 MiB pending payloads, 1024 candidates per job and 64 policy/network bindings. Native bind fallback has two pre-I/O family attempts and owner start has a five-second deadline. Exhaustion fails through the existing error path; it never switches to an untracked socket. These are finite safety ceilings, not throughput or production sizing claims. Existing bound-provider budget, source-revocation and original-close regressions cover the provider; raw TCP refusal/success and WireGuard inbound interop cover runtime integration.
+
+Same-address listener candidates use replacement preparation; only explicit rollback selects restoration, because linked outbound dependencies can change without changing inbound fields. Whole-batch compensation now carries that explicit restoration mode through listener preparation after failed candidate reservations are physically retired. A controlled bound UDP listener may use kernel routing when neither TUN nor a forced interface is active, without acquiring a hidden route-probe socket. Active TUN and forced-egress checks remain enforced. Regressions cover WireGuard unlink/relink, physical-egress recovery and the original closed-owner transition.
+
+V1 config/API/events and FFI ABI are unchanged. GUI/SDK consumers need no wire migration; embedding applications must await shutdown and retain unconfirmed generations rather than infer closure from cancellation or Drop.
+
+### Cancellation callback panics retain a usable original tree
+
+The workspace preserves tokio-util 0.7.18 with a local cancellation-tree patch. It publishes the actual cancelled nodes and releases ancestor locks before notifying waiters; a panicking waker cannot poison the parent or prevent sibling notifications, and the original first panic resumes after delivery. Task/native closure still requires the original join/provider receipts. Provenance and the exact local change are recorded in `vendor/tokio-util/UPSTREAM.md`; regressions use actual registrar cancellation and the proxy monitor's pending I/O/real task-exit path. No protocol package baseline, V1 wire format or FFI ABI changes.
+
+### Component task observation stays active during start and shutdown
+
+Hosted component task exits now use the original bounded Scope registration and completed queue throughout Proxy startup, reconciliation, Service diagnostics and shutdown. One inline catalog driver consumes actual native joins while lifecycle start or cleanup is suspended. A Critical failure retains the same TaskId, class and original error Arc before revoking that generation and rejecting pending start; cancellation cannot erase that source. Auxiliary failures keep the owning protocol's local semantics: its bounded receiver must retain the actual joined error before the host acknowledges the exit. Successful deliveries do not form a lifetime TaskId history. The ordinary public TaskScope behavior is unchanged; HostedScope adds only a bounded snapshot of native joins still outstanding.
+
+V1 config/API/events and FFI ABI are unchanged; no GUI/SDK migration is needed. Existing zero-resource cold role handles remain valid handles with invocation admission still fenced. Actual task/native starts require the installed host generation, and asynchronous commit paths scan through the same driver. Scope joins and declared lifecycle completion do not prove accepted-user/native graph closure; resourceful production gates remain closed. Regressions use the actual HostedScope consumer with pending stream reads, native JoinError identity, Auxiliary receiver acknowledgement, nested leases, cancellation takeover and repeated finite-capacity cycles in `component/tests/lifecycle_scope.rs` and `lifecycle_scope/hosted.rs`; build/runtime qualification is recorded separately.
+
+### Listener replacement uses the single-instance StopOld boundary
+
+Changed listeners now prepare cold operation values, stop every affected old listener and confirm its actual retirement before binding any candidate, including candidates on a different port. Unchanged actual listener owners and existing protocol credential hot-update paths continue to be reused. This removes standby port reservation to match `design/v0.0.3/lifecycle.md`; a port conflict can therefore appear during the switch after old connections have stopped. Candidate cleanup and recovery use the actual last-good snapshot, including tags already removed from the active map by a cancelled attempt. A recovered listener is a new generation, not the original FD or a restoration of disconnected sessions. Stateful protocol security history must not be silently replaced; an unconfirmed or unsupported recovery remains an explicit failure. Pending native bind owners, their original failures and Unknown outcomes remain retained across cancellation and block further acquisition until resolved.
+
+V1 configuration/API/events and FFI ABI are unchanged; no caller schema migration is required. A controlled listener close receipt does not establish closure of every accepted child socket or completion of all M4 resources. Validation for this change is recorded separately.
+
+### WireGuard 同实际安全状态的 listener 恢复
+
+WireGuard listener 使用原 canonical UDP native owner 与独立 NativeIcmp 声明；资源、原任务及转交用户仍须由实际宿主图确认关闭。冷准备不再取得 linked receiver 或改变运行设备。最后成功 listener 的 opaque 行为持有同一 LiveInboundDevice；宿主确认确切旧实例 terminal 后，恢复与同私钥端口迁移继续使用该真实 crypto owner，保留原重放、握手、计数、cookie/limiter 与认证源状态。候选依赖必须来自真实 BuildNew，未就绪、Unknown 或已退休 linked 资源不能因 Arc 仍在而复活。不同私钥候选使用独立被动状态，弱缓存只随实际 current/pending/recovery owner 存活并清理 dead entries。
+
+配置、wire、API/events 与 FFI ABI 不变，无 GUI/SDK 迁移；恢复不是原 FD 或已断开会话的复活。本条记录 listener/capsule 接线，完整 linked outbound 冷启动与真实图验证独立交付，不能据此宣称整个 M4 完成。回归见 `adapters/wireguard/tests/inbound_state.rs` 与 `adapters/wireguard/inbound/recovery/tests.rs`；保留原 `wireguard_inbound.rs` 的失败候选后状态/业务断言。
+
+Raw-IP 子 native 义务另在原 gateway 前持久登记，并计入真实 TCP4096、UDP association1024、DNS256 名额。未进入 gateway 的 reservation 可确认无 native attempt；进入未受控 gateway 后，future 返回、取消、socket Drop 和真实任务 join 均不能释放其槽位或签发 native Closed，原始失败与未确认记录继续阻止宿主 terminal/恢复。该门禁明确暴露尚待受控 carrier/UDP/DNS 接线的路径，不是兼容性完成或永久 Unsupported 方案；普通 TUN 的既有路径不变。
+
+Raw-IP UDP association 原 future 现在只登记一次到同一实际 listener Scope 的独立 1024 childgroup；父 Scope 声明为该组上限与原 driver 的 checked sum，不借用旧 Direct peer 的 4096 或 DNS256 额度。完成消息只用于旧 association/backoff 元数据，真实 TaskExit 与同原 native owner 收尾仍独立；未受控 gateway 的义务门禁继续保留。普通 TUN 保留原 JoinSet 路径，内部 raw-ip-runtime 显式依赖既有 managed-datagram-runtime，以取得真实 HostPeerBinding/PeerResourceContext，不新增配置字段或默认 grant。
+
+Raw-IP TCP 原连接 future 同样只登记一次到该 listener Scope 的独立 4096 childgroup，父额度按 TCP4096 + UDP1024 + 原 driver1 的 checked sum（5121）声明。原 Session 占位值仍经既有 Engine.prepare_session 获得真实业务身份及完整认证/策略处理后才进入所选 leaf；真实 caller 的 opaque 同槽观察随原 admitted Invocation 传递，停止或实际 joined caller 撤销同请求取消令牌。观察本身不授予 native open，不替换 selected-outbound/current 检查，也不能因任务结束清除 Unaccounted：最终仍需 C provider 的同原 grant/adoption/native Closed 与实际 caller join。
+
+BoundUDP 的同一持久 peer provider 新增 opaque 完成观察：同一个实际 Scope 消费原 peer TaskExit、协议 mapping 清理与原 native owner 显式关闭全部确认后才发布。完成凭据匹配私有 provider origin，不能由相同数值 ID、任务结束、view Drop 或已关闭部分 FD 代造；等待取消与未知结果继续保留原 owner/错误。本观察不授新 open，不清除尚未完整接入的 raw-IP Unaccounted，也不提供推断的生产容量默认值。
+
+显式调用方 BoundDirectBudget 现在可令原 UdpDispatch 的 Direct 首包、后续包、接收与 retire 共用同一实际 PeerResourceContext 下的 BoundUDP provider；原 selected Direct 操作提取同一 current host/source，协议不能自行选择 policy 或替换 generation。原 raw-IP association 在同一实际任务内驱动原 Direct driver，并保留 consumer 与 driver 同时失败的原 typed source。预算全部由调用方明确传入，不从外层 association1024、队列或测试数值造默认；缺省仍不启受控 grant。共享 resolver、其他 UDP 协议 gateway、原 auto bind-failure family fallback 资格和完整 caller-native coverage 仍须独立闭合，不能凭 Direct provider receipt 清除整个 association 的未知义务。
+
+原 listener inline observer 现在并行推进真实 Scope exit 与已 joined child 的协议/native 清理，不等整个 listener 停止才归还已确切关闭的 child 容量。Pending 清理不会阻挡同一 observer 消费其他实际 TaskExit；取消观察保留原 owner 和 receipts，重入先处理已 joined 的原 child。首次实际清理错误在下一 await 前持久保存并撤销准入，Unknown 槽不回收；此处仍不把 TaskExit、body Ready 或空声明当 native Closed。
+
+BoundUDP 新增独立 default-deny 的 typed acquisition attempt 能力；旧 opener 仅投影原错误，不据 diagnostic source 授权重试。原 UDP owner 的私有身份与不可改写 evidence 绑定真实 acquisition outcome、reservation 和原 SourceArc；相同数值 ID、其他 owner 或改写公开诊断字段不能取得 settled 证明。只有原 owner 已结算 KnownNoNative/明确 Closed、同一私有 binding issuer 核对确切 peer/generation，才提供 opaque pre-I/O receipt；Unknown 不提供。该凭据仍须与调用方有限 attempt/current/cancel 检查结合，不能重放已发送业务 payload。
+
+### 候选入站的真实 Ready 确认
+
+配置应用和启动的 listener 成功确认现在等待同一实际实例的 Ready receipt。协议资源 start 和 carrier activation 必须先完成，随后实际 accept/recv loop 首次 poll 到运行态才由宿主该调用点确认；TCP+UDP 和 listener group 必须确认所有实际分支，登记任务本身不是 Ready。就绪前错误、停止和取消不发布候选成功；取消等待保留实际 owner、候选信息与同一 receipt，旧实例的通知不能确认新实例。协议自有就绪预算保持原样，包括 SIP003 TCP 原十秒预算，不新增通用五秒 Ready 超时。
+
+外部停止现在与原 startup/reconcile future 同时受 poll；停止只撤销该准备阶段记录的实际 pre-Ready 候选，并同步拒绝迟到安装，最后成功监听器不加入该候选集合。宿主继续驱动同一个借用事务完成真实清理与补偿，保留原 DNS candidate、任务/Child owner 和关闭收据；停止后最终发布与 ACK 再校验同一阶段，不能把取消等待或 future Drop 当关闭证明。跟踪元数据只弱引用本阶段实际实例，已完成物理关闭或 Ready 的项被回收，阶段结束不保留历史。回归新增真实 pending SIP003 的 startup/reload 停止与 reap，以及未受候选停止影响的真实 last-good TCP listener。
+
+已经接受的配置事务在停止时仍可完成原补偿：只有私有 restore 操作及其同一实际 snapshot 的 ACK 使用独立恢复阶段，继续等待真实 DNS、组件和 listener Ready 后，再调用 application reconciler 恢复最后成功配置。普通候选和直接 Engine reload 不获得此豁免；全局停止和 Business admission 保持关闭。回归保留 `runtime/handle/configuration/tests/owned.rs` 原 application 回滚调用断言，并核对同一原 snapshot 与 Fake-IP 映射恢复。
+
+过渡保守边界：listener owner 在对 Registry 可见之前先标记安装未封口；只有实际任务登记成功或原生预绑定对象已同步留入持久失败槽，才完成该安装阶段。准备阶段关闭后的迟到安装、已安装 owner 的资源准备失败不会再把原 `BoundInbound` 丢在返回栈上。冷态 TCP 叶节点现在把同一原监听器同步移入受控关闭状态，先持久安装唯一 control，随后才释放 accept view；group 逐叶保留实际关闭进度，等待取消和 deadline 不丢原对象、首个原生错误或已取得的关闭收据。真实空 TaskScope 完成仍记零 joined tasks；TCP 显式原生 close 与 Scope 完成都确认后才允许交付该实例的关闭证明。宿主正常阶段取消的原因单独保留，在真实关闭前仍返回同一 Unknown；关闭完整后它属于预期停止，不伪造 TaskFailure。真正准备、任务或原生错误仍持久交给监督；任意 Interrupted 或嵌套任务错误不能冒充宿主私有取消标记。
+
+尚未迁移的 UDP/QUIC 叶节点仍由原槽持有且保持 Unknown，混合 group 的 TCP 关闭不代表这些独立资源已关闭。实际任务登记失败而 submitted future 已被消费的未封口路径仍不能确认关闭。owner 安装前的 adapter prepare、bind reservation 失败，以及普通活动 listener、SIP003 原生监听器交接、QUIC 隐藏 driver 的完整合同仍是独立缺口；后续必须通过同一宿主资源图的 bind lease 接入实际 control，删除原生未确认的永久持有分支，不能据此宣称 M4 完成。回归见 `runtime/inbound_owners/entry/pending_bound/tests.rs` 及 `tests/errors.rs`：真实 production spawn 迟到拒绝、原 TCP 端口关闭及复用、真实 Scope 等待取消、原 Arc source、混合 UDP 保留和监督交付重试。
+
+单个 literal TCP listener 新增薄 `PreparedInboundBind` 桥：适配器投影同一 `ResourceDeclaration::TcpListener`，宿主沿用实际组件分配器和原任务预算，在第一次 listener socket create 前把 native owner 放进 Registry 持久 reservation；成功后仅转移唯一 accept view，promote 沿用同一 owner/ID/watch channel。原 startup 一次及原重试路径的 50 次/10ms 策略显式传给原生 owner，不新增默认额度；只有原生未创建或原 FD 明确关闭的错误可安全重试，Unknown 保留原 source 和占用。部分预绑定 map 丢失、prepare 失败或取消只请求停止，不移除控制权；恢复和全局停止必须先实际关闭并同步交付原 terminal，再允许新配置批次。reservation 只容纳一个实际配置的 tag 集合，配置身份为 Weak，无无限失败历史。全局停止在快照前线性化关闭 reserve/promote，重新打开要求 active/reserved 均已确认并移除。
+
+此桥首切只覆盖声明的外层 TCP 原 FD，不等于所有 native/File grant：适配器既有证书、key/OCSP 文件读取、已接受载体/会话、共享池、Direct combined UDP、SS/SIP003 监听器交接及 QUIC driver 仍须各自迁移。未选择该能力的旧路径仍是明确旧边界；已选择后的 bind/prepare 错误不允许回退旧 binder。桥不新增独立 Manifest、静态资源 ID 或永久执行器，typed inbound factory 接管后删除。回归 `runtime/inbound_owners/bind/tests.rs` 与 `tests/retirement.rs` 覆盖原 FD、实际注册任务 I/O pending 的 join 取消、部分预留、原 source 交付重试及关闭门禁；不据此宣称整个 M4 完成。
+
+wire、配置 schema 及调用方式不变，无 GUI/SDK 迁移步骤；原调用方可能更晚收到成功，实际初始化失败会进入原补偿路径。此确认描述监听循环已进入运行态，不代替已转交会话、原生 FD 或整个 M4 资源关闭证明。回归见 `runtime/inbound_owners/entry/readiness/tests.rs` 的真实 TCP/UDP pending、取消和原 TaskExit source，以及 `runtime/orchestration/tests/inbound_ready.rs` 的实际 SIP003 Child、超过五秒仍 pending 的初始化、真实 ACK 和明确 reap。
+
+### 启动期间的实际配置代次一致性
+
+宿主先订阅实际 reload 通知，再捕获一次 Engine snapshot；本次启动的 DNS candidate 准备/真实资源退休、组件 start/commit、listener 与服务均使用该同一 snapshot 的配置。启动 await 期间的后续公开 Engine reload 留待原 bridge 逐次 reconcile，不能把后来读取的配置提交到先前启动的组件。启动前已完成 Engine reload 也从捕获的实际配置建立 DNS 与组件。wire 与配置 schema 不变；公开 Engine reload / probe 调用方式不需要迁移。回归保留 `automatic_urltest_rebuilds_runtime_across_large_and_small_reloads`，并新增 `runtime/orchestration/tests/startup_snapshot.rs` 的真实 UDP DNS/HTTP 流量与同一 plan Arc 验证。
+
+### HTTP forward 消息的宿主身份
+
+HTTP forward 请求现在向宿主交付目的地与规范化 wire 元数据，不先制造协议 Session。原消息执行器为每条实际消息签发一个真实身份，继续使用既有准入、头/体改写、redirect、upgrade、取消与流量统计路径。旧 Rust `HttpForwardRequest` 访问器和 `into_parts` 保留在显式兼容包装中。
+
+V1 配置/API/events、wire 响应及 FFI ABI 不变，无 GUI/SDK 迁移。回归见 `protocols/http/tests/inbound.rs` 及 `crates/proxy/tests/http/standard_inbound.rs`；实际验证结果独立记录。
+
+### Shadowsocks 普通 TCP 标准请求移交
+
+普通 SS TCP 入站在原协议解析、用户快照认证及同一 replay authority 检查完成后，把真实 Destination、完整 SessionAuth 和原加密流移交宿主标准 Stream 入口，由宿主唯一分配业务身份。plain/stream、旧 AEAD、SIP022 及 SIP023 EIH 共用此路径；原 salt、nonce、首包剩余明文、响应绑定、跨 acceptor clone 的 replay 保留与容量拒绝规则不变。协议不新增成功响应或提前 flush，SIP003 子进程 owner、UDP 及 listener 资源路径不变。
+
+Rust 新增可选 `accept_stream_facts`；原返回 Session 的 `accept_stream`、公开 `ShadowsocksAccept` 字段及显式 response-salt 构造 API 保持兼容。V1 配置/API/event 与 FFI ABI 无变化，GUI/SDK 无迁移步骤。回归位于 `crates/proxy/tests/shadowsocks_inbound.rs` 和 `protocols/shadowsocks/tests/inbound/facts.rs`；本条记录实现，不代表完整 RuntimeHost 或原生资源关闭资格已通过。
+
+### 冷态公开 outbound 诊断的 Service 生命周期
+
+`ProxyHandle::new` / CLI / FFI 的独立 `diagnostics.probe_outbound` 继续支持尚未运行 listener 的宿主。调用入口显式把冷态探测接受到已有有限宿主任务及配置串行锁，安装并启动实际临时 component plan，仅授予 Service preparing 权限；探测完成后确认该 plan 的实际组件任务/声明资源关闭，全程不发布 Business。调用方取消不再遗弃已接受的组件维护，实际探测仍受原有超时预算限制。冷态维护串行，运行中探测继续使用原有并发上限与实际 runtime owner。
+
+wire、结果码、策略/健康中立性与配置字段不变，无 GUI/SDK 迁移步骤。组件关闭不冒称转交给旧 Stream facade 的全部 native FD 已有关闭收据，该后续 I/O 迁移仍独立。回归保留 `crates/proxy/tests/probe_outbound_diagnostics.rs` 原公开行为断言，并补 `runtime/handle/command/diagnostics/maintenance/tests.rs` 的真实 HTTP pending、取消、Business 拒绝及实际组件关闭验证。
+
+
+### 入站故障的物理关闭与恢复
+
+入站故障不再把已完成的实际任务 join 和原生资源关闭永久视为未确认。宿主保留原实例的任务 ID、类别与原始错误，只有实际物理关闭证明完成、错误同步交付监督及已有 endpoint 健康记录后，才消费该实例收据并允许新一代替换；取消或交付失败保留原 owner 和同一收据供重试。候选替换遇到旧实例故障仍被拒绝，现有补偿路径从最后成功配置重新建立实例。未确认或 Unknown 的资源继续阻止替换。
+
+此项影响配置更新、停止及内部 listener 监督，无配置字段或 API wire 标识变化，无 GUI/SDK 迁移步骤。普通 Direct listener 没有新增 endpoint 状态模型；候选 listener 的 Ready 确认由上述实际监听循环收据独立约束。回归位于 `runtime/inbound_owners/entry/tests/peer_resource/recovery.rs`（真实任务 panic、UDP close、取消、交付失败与重放）及 `runtime/orchestration/tests/inbound_recovery.rs`（真实 listener/UDP 流量与最后成功配置恢复）。
+
+### Native Stream component integration
+
+- HTTP and mixed CONNECT now pass protocol-owned destination facts into the host's standard accepted Stream handoff. The host mints one sealed business identity and retains the existing admission/routing/accounting/half-close pipeline. Protocol-owned replies preserve the established 200/403/502 wire and original carrier failure sources. Rust `http/runtime` gates that reply's Tokio dependencies; default parsing stays runtime independent and the legacy request API remains available. Forward HTTP messages retain the existing executor. V1 config/API/events and FFI ABI are unchanged; regressions live in `protocols/http/tests/component/inbound.rs` and `crates/proxy/tests/http/standard_inbound.rs`. This entry records implementation; validation results are recorded separately.
+
+- Rust `InboundCarrierPlan` now supplies `owner() -> Box<dyn DynResourceLifecycle>` sharing the actual protocol state; the host must retain and start that owner before activation. Dropping activation/completion is no cleanup confirmation. SS inbound plugin activation installs its real Child before readiness can suspend; cancellation requests termination while the separate owner retains the Child for deadline-bound reaping. The report covers the direct child only. Native process grants, socket/task joins and host replacement require their actual host integration; V1 configuration/API and FFI ABI are unchanged.
+- UDP peer 资源关闭（开发期宿主接线）：原有每 listener 4096 个 peer 名额现在覆盖准备、活动及退役阶段；首切每个真实 peer 最多登记一个冷态子资源，不增加任务或 socket 默认额度。宿主独立分配资源 ID 和 association ID，在资源 start 首次 await 前持久保存 owner。原 Scope 的真实 TaskExit 与原生资源明确关闭均确认后才回收名额；取消清理等待仍保留同 owner，Unknown/原始故障阻止新增。未支持的动态 grant/路由继续保留原明确边界，本条不宣称所有 UDP/RuntimeHost M4 已迁移。wire/config 无变化，GUI/SDK 无迁移；回归见 `runtime/inbound_owners/entry/tests/peer_resource.rs`。
+
+- Native DNS detour connections now return the actual successful Service chain's carrier binding. It retains typed roles, endpoints, dial/network facts, observable host admission and only that branch's captured selector/URLTest state; it retains no Engine or configuration snapshot. Reuse and revocation checks are read-only and never advance load-balance scheduling. The existing pool driver must consume revocation and explicitly confirm its users/I/O before replacing the connection; the receipt itself does not close transferred I/O. Legacy paths, ambiguous aliases and graph expansions beyond the actual configured graph budget return no reuse binding. Resourceful component bootstrap and the full RuntimeHost migration remain pending.
+- Direct inbound UDP peers now register in the listener's persistent actual TaskScope using the existing 4096-peer bound plus its outer driver. The host dispatches actual joined receipts individually, so cancellation of an observer or a primary driver panic retains pending peer I/O for explicit shutdown/retry. Successful peer exits reclaim their IDs after supervision; failed IDs/classes/original sources remain bounded and stop admission. This confirms registered task ownership and does not substitute for logical-session control or final datagram-controller I/O retirement.
+- DNS reuse proof on configuration apply covers static native prefixes only. Any reachable selector, URLTest or load-balance group is conservatively affected without re-running its selection. Within one configuration, native DoH reuse additionally checks the actual successful carrier binding and observes its revocation; unknown legacy or ambiguous bindings are not reused. Configuration-apply owner comparison alone is not a carrier identity.
+- Acknowledged configuration and endpoint transactions now confirm retirement of affected persistent DNS backends before publishing the exact prepared backend map. Reuse checks the complete selected native prefix's actual owners and order, including fallback candidates; unavailable legacy identities conservatively retire the backend. Interrupted/failed retirement retains the actual transport owners, and recovery prepares fresh backends for previously closed pools. An already accepted task retains compensation ownership during host stop while Business admission stays closed. Resourceful component bootstrap through a staged DNS map remains pending; resourceful production factories are still rejected. V1 configuration/API/events and FFI ABI are unchanged.
+- Rust `ResourceDeclaration` adds `Process { program, max_starts }`; exhaustive matches must handle it. `ResourceAccess::spawn_process(ProcessRequest)` defaults to denial and returns a native Child synchronously. The actual component slot grants only declared executables and finite per-generation starts during lifecycle start; build, expired or revoked access cannot spawn. Arguments/environment remain protocol-owned and debug-redacted. Platform Tokio explicitly enables native process support. SS exposes a roleless PluginFactory using the original adapter plan, rejects legacy-child adoption and registers its actual monitor; explicit shutdown reaps the direct child. Production resourceful activation, descendant/I/O containment and RuntimeHost replacement remain pending. V1 configuration/API/events and FFI ABI are unchanged.
+- Rust hosts constructing `BuildContext` must provide `dependencies: Arc<[ComponentInstanceId]>`, resolved from their validated component graph; use an empty slice for descriptors without dependencies. `ComponentInstanceId` identifies a component and resource generation without claiming a callable role. `BuildContext::instance/dependency` expose typed identities only. The erased build boundary checks declared dependency identities before factory construction; the actual catalog supplies their selected generations. Existing V1 configuration/API/events and FFI ABI remain unchanged; current-generation admission and confirmed resource replacement remain host responsibilities.
+- Rust hosts can retain `SharedResourceIdentities` across cold passes within the same allocator and compiled assembly. Unchanged canonical resources keep their actual IDs; removed entries are omitted, so re-adding allocates a new ID. The index contains no previous recipes or factories and does not imply protocol cache or security-history reclamation. Actual component plans propagate dependency-generation changes transitively, increment each affected consumer once, and reuse unchanged owners. Resourceful production activation and confirmed host replacement remain pending.
+- Rust registration can request canonical roleless resources through `ResourcePreparation`, using the actual host allocator and the owning factory's typed Options. Shared identities require equal complete descriptions within one assembly namespace; preparation errors invalidate the entire pass. Neutral `ComponentRecipe` uses the same role/identity validation and persistent lifecycle owner as protocol recipes, without invented capability descriptors. Existing production catalog activation and V1/FFI contracts are unchanged; generation propagation and host replacement transactions remain pending.
+- Cold component plans reject unknown/duplicate dependency identities and cycles before building resources, then start in dependency order and invoke protocol cleanup in reverse order. These checks do not activate resourceful factories or replace host confirmation of affected sessions, shared I/O and recovery.
+- Once a SIP003 outbound Child exists, failed or interrupted readiness is terminal for that cached plan. The Child is installed before readiness can suspend, and cancellation requests termination while retaining its handle. Rust integrations can obtain `ShadowsocksPluginResource` from the actual adapter state and call deadline-bound shutdown; only a reaped child produces `PluginTermination::Exited`. Timeout/interruption retains ownership for retry. Errors before Child creation still return their original cause. Resourceful production activation and RuntimeHost replacement transactions remain pending.
+- Rust integrations can prepare a roleless Shadowsocks replay-maintenance component from the existing adapter-scoped salt pool. It declares one registered critical task and retains actual worker ownership across interrupted startup; a replacement cannot claim the pool until the old worker exits. Salt history, the 61-second security window and full-capacity rejection remain unchanged. Production resourceful-factory activation still awaits shared-resource host transactions.
+- SIP003 TCP startup probes verify the actual local/peer endpoint pair and recheck child status before reporting Ready. A Linux socket can connect to itself without a listener; that connection no longer confirms plugin readiness. The original ten-second startup budget and SIP003u UDP readiness behavior remain unchanged, and startup failure still returns an error without direct fallback.
+- Rust integrations can bind `OutboundHealthObservation` to a selected configuration generation without retaining its snapshot or Engine. Retired observations cannot change current health, while current failures preserve immediate URLTest selection and events. Compiled component factories retain the table assembled with their capability adapters so later protocol resource owners share one actual state.
+- Prepared Shadowsocks TCP settings expose `establish_tcp_to` for destination facts without a business Session. The existing Session API and destination API use the same protocol framing, crypto and replay guards; production Shadowsocks shared-resource migration remains pending.
+- Rust component factories now declare `ComponentSpec::task_limit: Option<NonZeroUsize>`; `None` grants no internal tasks. Interrupted start retains the installed owner, protocol cleanup and registered driver shutdown progress together, and interrupted task cleanup retains already collected exit IDs and original failures for retry. Direct/SOCKS5 still declare no internal tasks; this does not change public wire configuration or the FFI ABI.
+- Ordinary Direct and SOCKS5 business streams now use cold-built component roles while retaining V1 configuration, API/event envelopes and existing FFI ABI. SOCKS5 retains protocol-owned credential validation and framing; existing rejection messages, stages and endpoints are covered by direct comparison tests. Internal DNS/UDP and mixed legacy relay migrations remain in progress.
+- Rust runtime integrations must handle the explicit Service request identity and use `Some(existing_deadline)` for an existing absolute OpenContext/CarrierContext deadline. `None` retains native operation budgets; ordinary business connects retain existing DNS and per-candidate socket timers. Resource start/close/accept/handshake deadlines remain explicit.
+- Native SOCKS5 fallback proceeds only when no CONNECT request has been submitted on an empty root prefix. Partial submission, an executed prefix or an unconfirmed request stops replay. Local cancellation, revocation and stale local plans remain neutral to remote health.
+- Relay chains whose network nodes all expose native Stream roles now compose strictly shorter, endpoint-bound prefixes through those roles. They retain actual business/component identities, original named-node wire targets, per-hop Outer observation and existing relay Flow counters. Mixed chains retain their existing executor pending migration; revoked roles cannot fall back to a legacy claim.
+- The Hysteria byte-stream carrier keeps at least two packets of congestion window at small bandwidth-delay products, matching Quinn's full-packet send reservation. QUIC close-only packets bypass the data congestion/pacing gate as required by RFC 9002 section 7.2, so queued application frames cannot strand CONNECTION_CLOSE. Existing authentication, negotiated rates, payload/FIN assertions and deadlines remain unchanged; both failure mechanisms have captured negative regressions.
+- Browser Dialer retirement now reports `io::ErrorKind::ConnectionAborted` with the existing message. Permanent retirement must terminate byte I/O; returning `Interrupted` let retrying I/O helpers spin inside one poll. Existing lifecycle, reuse, peer-close and deadline checks remain.
+- HTTP/1 XHTTP packet upload ownership retains existing request, byte and queue budgets and deadlines, and yields after bounded admission handoff so the consumer can progress before the next pipelined request. The receipt remains bounded ownership acknowledgment. Captured negative/positive regressions and the separate pinned reference-client byte-count qualification issue are recorded under design/v0.0.3/implementation.
+
+### Host Wintun activation and XHTTP upload receipts
+
+- Existing host-owned Wintun adapters validate their configured addresses and MTU before opening an exclusive packet session, then wait for Preferred address state on the activated link. A dormant Deprecated address is not treated as ready; duplicate, invalid and expired addresses remain errors. Host addresses, routes and MTU are never modified.
+- XHTTP HTTP/1 packet uploads acknowledge completely received, validated and byte-budgeted ownership before waiting for ingress queue capacity. This allows a reused upload connection to deliver a missing sequence instead of waiting for a receipt that depends on that sequence. The admission task retains its request permit, payload reservation and deadline; receipt does not mean business delivery. Queue and listener budgets, duplicate rejection, cancellation and HTTP/2/3 admission backpressure remain enforced. No configuration or public API fields change.
+
+### Shared raw-IP listener egress
+
+- Native shared raw-IP listeners apply the current physical-egress selection at the datagram send boundary. Their outer packets no longer rely on being recaptured and routed through TUN as business flows. Explicit outer proxy carriers keep their existing transport ownership.
+- Per-message interface hints preserve the listener's source port and receive binding. Route hints are bounded and expire after one second or immediately on egress generation changes; unavailable physical egress and failed interface hints do not fall back to an unbound send. Linux firewall marks accompany the individual datagram. No configuration or API fields change. On macOS, specifically addressed IPv4 listeners use a synchronous, checked temporary interface scope instead of IP_PKTINFO, preserving their configured receive address and restoring the previous interface scope before returning to the executor. Send or binding errors never trigger an unbound retry.
+
+### DoH connection recovery after network changes
+
+- DoH HTTP/2 pool identity now includes the existing physical-egress generation for native and detoured queries. Connections prepared before a network change cannot enter the current pool or send a new DNS request afterwards, even when the physical interface name remains unchanged.
+- Failed or cancelled exchanges, including cancellation by the configured backend deadline, retire only their own connection. A delayed cancellation cannot evict a replacement connection. Healthy connection reuse, native platform binding, explicit detours, DNS dispatch, fallback selection and query deadlines retain their existing contracts; this does not introduce automatic query replay or new configuration fields.
+
+### Connector reload recovery and sample delivery
+
+- Tokio 最低版本声明为 1.53.3，Unix TUN 与路由监测使用对应的注册接口，保持描述符直到注销后再关闭；macOS 接收宿主描述符时继续保留其拥有关系。V1 配置、控制面及 TUN 路由语义不变。
+
+- In-process dispatcher replacement retains an instance-qualified replay cursor and its bounded volatile delivery state. Missing retained history is reported through existing replay-gap status. This is not crash recovery without an outbox; receivers still deduplicate at-least-once delivery.
+- Newly admitted `flow.updated`, `stats.sampled`, `stats.scopes_sampled`, `stats.host_interfaces_sampled`, and `endpoint.stats_sampled` are best-effort samples and do not enter the outbox. Samples already persisted by older versions retain their delivery/ACK obligation. Lifecycle facts, `stats.reset`, business usage and quota state are preserved.
+- The source bridge stops receiving while preceding events cannot be admitted. `api.dispatcher.source_queue_max_bytes` defaults to 8 MiB of serialized event bytes, alongside the existing count limit (`replay_batch_size`). Reservations follow live events until sink admission. One existing oversized event may reserve the whole byte budget and enter alone; one event waiting for admission and a single replay/bootstrap event are additional bounds. This is not a heap/RSS ceiling, nor a byte budget for pending/in-flight delivery copies; those remain separately managed. Replay processes one owned event at a time. No existing durable delivery is deleted to enforce these limits.
+- `api.dispatcher.max_in_memory_delivery_bytes` adds a 16 MiB default serialized-byte charge for the combined queued, retry/ACK-retry and in-flight delivery working set (valid 1..=256 MiB). The existing count limit remains independent. Durable entries beyond the budget stay indexed on disk. An older entry waiting for byte room pauses additional live working-set admission so continuous smaller events cannot starve it; volatile facts apply source backpressure. One oversized event is admitted only when the working set is empty. Lowering a reload budget retains inherited volatile facts and stops additional admission until they drain; it never acknowledges or deletes durable obligations.
+- `sinks.delivery_buffer` optionally reports the shared dispatcher `byte_budget`, `reserved_bytes` and `over_budget` state, repeated per sink and not summable. Live charges measure event serialization; recovered charges conservatively include the journal frame. Shared fan-out obligations are charged separately. Carrier bodies, decoding scratch, source buffers, one prepared input, journal indexes and other runtime memory are separate: this is not an RSS limit. Oversized events and inherited state can exceed the configured charge. The application status projection retains its existing refresh interval.
+- Connector workers and asynchronous sinks share immutable event ownership rather than cloning payloads for each handoff. A differing sink `source_id` still materializes a sink-specific event for compatibility; those copies are charged independently once queued. Only the current prepared input is cached during admission retries, avoiding repeated payload copies; reload invalidates that preparation for the new sink settings. Durable paging caches only the last candidate frame length (invalidated on compaction) to avoid rescanning a large record on every admission poll, checks lengths before decoding and does not retain whole encoded frames. Journal/webhook encoding pre-sizes scratch to avoid geometric Vec growth; JSONL delivery streams through a small I/O buffer instead of materializing a complete frame, and failed writes are not retried by buffer drop. JSON decoding and carrier encoding still require bounded-by-record scratch; this is not a zero-copy or arbitrary-size-event memory guarantee. Journal index metadata uses the disk-backed derived index described below.
+- Outbox recovery, inspection, paging and compaction now use an exact disk-backed derived index instead of retaining two full Rust maps of pending identities. JSONL remains the only persistent source of delivery/ACK truth; its format and existing pending obligations are unchanged. Index tables contain identity/offset/count metadata only, not event payloads. SQLite is bundled only with the optional `event-dispatcher` feature; basic metering and querying remain independent of Connector. Each scratch connection targets a 256 KiB page cache with spill enabled and memory mapping disabled. Recovery/index construction commits at most 128 journal operations per batch; paging iterates the offset index without collecting all identities. Compaction temporarily uses two small page caches and streams frames into the replacement journal, preserving latest-offset order, all unconfirmed identities, payloads, attempts and ACKs.
+- Derived indexes use private scratch files in the operating system temporary directory, including on Android where SQLite's anonymous temporary databases would otherwise be forced into memory. Deployments should place the OS temporary directory (for example via TMPDIR) on disk-backed storage when memory pressure matters; tmpfs charges remain system/cgroup memory. This trades RAM for disk I/O and temporary disk capacity proportional to pending metadata; it is not an RSS cap, a disk quota, or constant-cost recovery. Caches, the largest individual identity/frame scratch, configured-sink status projections and SQLite internals still consume memory; OS file cache is separate. Normal close removes scratch files; after abrupt termination leftover private scratch directories are disposable under the OS temporary-file cleanup policy, never a recovery source. Read-only preflight requires temporary storage but does not modify the inspected journal. Scratch allocation, full-disk or index-write failures are reported as index failures, never as journal corruption or successful delivery. The optional Rust Connector API adds `ConnectorError::OutboxIndex`; exhaustive matches must handle it, while control-plane envelopes/configuration stay unchanged. After a durable append whose index update fails, paging/status refuse stale offsets and the next persistence/ACK retry rebuilds the index from JSONL. No pending event is dropped to satisfy memory limits, and Engine cumulative meters, business usage and quotas are unaffected.
+- Connector records are notification/delivery state, not authoritative cumulative traffic counters. Dropped/evicted samples do not decrement Engine counters, business usage or quotas. Consumers recover cumulative observations by queries, checking core instance and statistics epoch; replay gaps cannot restore per-flow detail absent from retained history. Cross-restart billing durability is not implied by in-memory statistics or a best-effort subscription.
+- `sinks` query adds optional `source_buffer` admission gauges: channel capacity, byte budget, current reservations, high-water values, waiting event bytes, oversized admission count and pause state. These describe the shared dispatcher source, are repeated per sink and must not be summed. They exclude replay/handoff payloads and delivery copies, are read independently and reset with dispatcher replacement. `reserved_bytes` is budget charge, not RSS; oversized admission charges the whole budget. Missing fields mean unavailable on older cores or synchronous sinks.
+- Single-file ordinary log rotation (`max_files=1`) now replaces the active file at its size boundary. Rotation errors propagate without resetting length accounting. One oversized write/event remains intact and rotates before the following record. Outbox retention is unchanged.
+- Engine-generated opaque event IDs include an instance-local identity ordinal, preventing same-millisecond facts from colliding in durable deduplication. Identity allocation is separate from published sequence, so subscription snapshots and prepared completion facts create no replay gaps. Persisted IDs and caller-provided external IDs remain unchanged; consumers must treat IDs as opaque.
+
 ### Connector 持久化预检与配置热更新
 
 - `zero connector state`、outbox 启动回放、dead-letter 和配额状态检查改为流式读取。预检只检查打开文件时的快照，不申请持久化写锁、不修复文件，也不改变运行中的内核；日志格式及 API/event V1 标识保持不变。
@@ -96,6 +224,169 @@
 <!-- Record implemented but unsealed compatibility changes here. -->
 
 - VMess `cipher: zero` 现采用 Xray 标准的 NONE（0x05）、无 ChunkStream body 语义。此前使用 Zero 私有 0x06 格式的节点必须将配置显式改为 `cipher: zero-plus`，并协调两端升级；不保留含糊别名。标准 `zero` 与私有 `zero-plus` 不可互换。
+
+### VMess ordinary TCP host identity
+
+VMess 普通 TCP 入站现在交付已认证的协议目的地与完整认证事实，由宿主签发一个真实业务身份并进入既有准入、路由、统计、限速和半关闭执行器。原 AuthID replay 状态、单次响应头和 AEAD/body codec 不变；UDP/Mux 与旧公开 Rust Session API 保留显式兼容路径。V1 配置、API、events 与 FFI ABI 不变，无 GUI/SDK 迁移；实际 TLS wire、全认证 sidecar、唯一身份、拒绝与 replay 回归位于 `crates/proxy/tests/vmess_inbound.rs`、`protocols/vmess/tests/auth/mod.rs`。此条记录实现，不代替冻结源码测试结果。
+
+- Hosted task owners can defer Scope callbacks across an enclosing synchronous
+  host lock with `HostedScope::defer_callbacks`. Actual witness notifications and
+  native wake callbacks run after that lock is released; accepted exits retain
+  their original capacity charge until deferred notifications finish. The
+  catalog's inline driver now owns its external wake target, while retained
+  monitors keep only weak relay metadata. These are task-delivery guarantees,
+  not native I/O or transferred-user closure evidence.
+
+- `TaskRegistrar::scope_identity` supplies opaque weak `TaskScopeIdentity`
+  metadata for exact host/provider scope matching. Its `registration_open` check
+  reports only original registration admission, without polling tasks, delivering
+  exits, retaining a Scope or claiming resource/user closure.
+
+- `ResourceAccess::register_controlled_carrier` is a default-deny Rust-only
+  registration hook for the sole declared physical owner, actual declaration
+  ordinal and host TaskRegistrar. HostResources requires the actual component
+  generation and scope before supporting it. The exact owner/fence binding does
+  not provide business admission or transferred-user completion; missing users
+  retain an actual unfinished cleanup obligation. V1 config and FFI are unchanged.
+
+- Internal replacement terminal publication runs outside its state lock. A
+  receiver rejection before acceptance permits retry with the same terminal;
+  callback panic retains an unknown publication outcome, its original owners
+  and fault source, and blocks automatic redelivery. Physical declared closure
+  and successful fault handoff remain distinct facts.
+
+- TokioSocket can carry the same unique accepted TCP byte view while the
+  listener entry retains the sole native control. Its Rust `into_inner` and
+  `into_controlled` conversions, and `ControlledTcpStream::new`, are now fallible:
+  a controlled accepted facade returns itself intact instead of extracting its
+  original FD or creating another owner. Ordinary native callers explicitly
+  unwrap the successful conversion. Metadata, effective addresses, peek and I/O
+  observation preserve the same stream; no V1/FFI/default activation changes.
+
+- An installed inbound driver now explicitly retires its same prebound native
+  TCP/UDP listener after startup/work returns or panics. The original resource
+  owner retains native receipts and cleanup faults before that task exits; the
+  original Scope still must consume its real exit and child/user cleanup remains
+  separate. Cancelling an orchestration observer requests stop without leaving
+  the healthy native listener open indefinitely or claiming a shutdown ACK.
+
+- `TaskRegistrar::downgrade` issues sealed `WeakTaskRegistrar` registration
+  authority. It upgrades only during `spawn`/`spawn_tracked`, preserving the
+  original scope's admission, allocator, budget and exit receipts, and rejects
+  expired owners as closing. Retained task futures can hold this authority
+  without retaining their own Scope; weak identity metadata cannot mint it.
+
+- Hosted ancillary UDP acquisition now uses the canonical `MetadataDatagram`
+  declaration ordinal, exact literal source, complete explicit metadata limits,
+  finite bind-attempt ceiling and the installed instance's actual task-scope
+  identity. The host installs the same main/probe native owner before creation
+  and retains native controls when granting unique RX, bounded TX and unique
+  observation authority. This is separate from plain UDP listener permission.
+  Main/probe native-close evidence and original acquisition/close errors survive
+  retry independently. Provider callbacks run outside HostState/cleanup locks;
+  reentrant access to a busy original returns pending/busy rather than blocking.
+  Canonical metadata coverage remains `Unaccounted` until the actual transferred
+  users and QUIC driver graph are integrated. No default budget, production
+  activation, outbound interface/dial-policy support, or full graph closure is
+  implied by this host grant.
+
+- Logical Datagram retirement keeps the original controller in its existing
+  bounded entry independently of the borrowed close future. The existing
+  waiter remains the only consumer; cancellation and protocol-future polling
+  run outside owner/entry metadata locks. I/O receives an internal weak wake
+  relay, while the actual drive future owns the caller wake target. Synchronous
+  wake, last-Waker Drop and protocol callbacks therefore do not retain a caller
+  task through the retirement owner or run under its parent locks. A cancelled
+  wait restores the same future; a panicked poll propagates the original panic
+  and keeps the controller/entry unconfirmed rather than repolling a poisoned
+  protocol future or refunding capacity. Completed controllers are dropped
+  outside metadata locks before their retained receipts and admission credit
+  are released. This retirement change adds no background cleanup task and does
+  not prove accepted-user closure. Listener observer retention is handled below.
+
+### Interrupted listener Scope observation
+
+- Orchestration borrows the registry's single original listener-observer JoinSet.
+  Cancellation and cleanup timeout return that same set and its actual join
+  handles to the registry instead of aborting the remaining Scope consumers.
+  A concurrent orchestration lease is rejected. Recovery drains the interrupted
+  generation's results and confirms its retained owners before preparing or
+  binding new listeners; its errors never consume the new expected-exit count.
+- The original production observer continues consuming its actual Scope after
+  the primary driver exits. Critical first faults and unexpected successful
+  driver exits can still notify the live supervisor through the same instance's
+  bounded existing error disposition while remaining children are joining.
+  This adds no task, Scope, task-ID registry, detached handle or cleanup actor.
+- The persistent JoinSet stores internal weak-target Wakers. The actual borrowed
+  join future owns the external Waker; retarget/cancellation and synchronous
+  callbacks occur outside the registry parking lock and Tokio join polling.
+- Actual all-task joins, native main/probe/listener closure and transferred-user
+  closure remain distinct obligations. Parking or dropping an orchestration,
+  an observer result, and Scope completion do not acknowledge native/user I/O
+  closure or enable resourceful production factories. Proxy/registry destruction
+  still drops its owned handles without manufacturing close confirmation.
+
+### Weak original Scope collaboration
+
+- `WeakTaskRegistrar::scope_identity()` copies only the original weak identity.
+  `defer_callbacks()` returns the existing original relay's short parent guard
+  after releasing its temporary Scope upgrade; an expired owner returns `None`.
+  The guard retains no Scope, caller Waker, registration or I/O authority.
+  Create it outside enclosing owner/resource locks and drop it after unlocking.
+  Neither method changes admission, task budgets, receipt ACK or closure proof.
+
+- Listener-observer parking additionally retains the current generation's
+  `needs_retirement` bit independently of JoinSet length and error consumption.
+  Startup marks it before preparation; actual registry install/reservation marks
+  it before publishing an owner or native bind capability. Empty Scope/observer
+  completion and forwarding a fault cannot clear it. Recovery clears the bit
+  only after original handle drain and successful actual owner cleanup/source
+  publication, with same-registry/no-pending-owner postconditions serialized
+  against owner insertion. This bit is not native or transferred-user proof.
+
+- `WeakTaskRegistrar::cancellation()` temporarily borrows the same original
+  registrar and returns its existing one-way child cancellation token, or `None`
+  after owner expiry. Actual Scope stop propagates to it; cancelling that child
+  cannot cancel the Scope or siblings. It retains no Scope/runtime/task owner and
+  grants no registration, native authority, join or closure acknowledgement.
+
+### Controlled carrier native-only settlement (library)
+
+- `CarrierAdoption::retire_native` returns an opaque native-stage settlement from
+  the original control only after its physical view returns and registered
+  transport/auxiliary tasks actually join. It does not wait for the external
+  caller's own join, release its logical user lease, remove the charged slot,
+  or issue whole-user/generation completion. Existing retire/shutdown remain full
+  confirmation paths; original successful native reports are consumed there once.
+- This adds no Root service or Business authority, production activation, schema
+  or default budget. The real host issuer and separate user graph remain required.
+
+### Original peer join observation without graph retention
+
+- `HostPeerJoinObserver` shares the existing peer's sole registration/join cell;
+  it does not copy a task registry, allocate identities or construct exits. Its
+  read-only view retains the original `JoinedPeer`/witness/source after Binding
+  removal without retaining Binding, peer group, Registry, runtime, resource
+  owner or cancellation authority. Only the original Scope's actual exit
+  dispatch can write that cell. This view proves neither response-task joins
+  nor native/transferred-user closure.
+
+### Original UDP response Set retirement
+
+- A real peer binding retains at most its dispatcher's one original response
+  JoinSet owner, installed before response spawning. Its read-only join observer
+  shares only the original join cell and cannot retain that response/resource
+  graph. Caller Scope completion does not refund the peer permit while the
+  original response lease or actual response joins remain pending.
+- The existing inline peer cleanup returns to that same Set's unique consumer,
+  persists its opaque task-close receipt, then drives the original child's native
+  cleanup. Cancellation retains the Set, actual Tokio task identities and first
+  fatal source; it neither constructs component TaskIds nor acknowledges native
+  I/O. A confirmed task/native close still delivers the original panic to the
+  listener supervisor. Ordinary response body errors and requested cancellation
+  retain their local handling. This adds no Scope, task, manager or cleanup actor
+  and does not establish the rest of the transferred-user graph or enable any
+  resourceful production factory.
 
 ## 0.0.1
 
@@ -296,3 +587,5 @@ IPC、HTTP SSE 和 gRPC 的 wire 格式保持 `zero.api.v1` / `zero.event.v1`，
 - 对应回归测试位置。
 
 开发期间只在版本矩阵和 `## Unreleased` 下登记，不预判最终发布版本，也不写入 Cargo 的 `-dev.N` 构建号。完整测试通过后，由 `Prepare Release` 工作流或 `scripts/release.sh` 将矩阵行、章节标题和 workspace 版本一起封板；禁止手工分别修改这些位置。
+
+Startup, supervision, reload and transaction-drain futures separate their heap-owned phases to fit the native Windows main stack. A one-MiB-thread regression reaches actual Ready and confirms shutdown; no larger process stack is required by the execution path.

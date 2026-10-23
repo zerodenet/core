@@ -105,3 +105,34 @@ async fn scoped_transmit_does_not_restrict_loopback_receive_to_another_interface
     scope.restore().unwrap();
     assert_eq!(current(&socket), 0);
 }
+
+#[tokio::test]
+async fn actual_send_then_failed_native_restore_keeps_submission_and_restore_source() {
+    let socket = UdpSocket::bind("127.0.0.1:0").await.unwrap();
+    let peer = UdpSocket::bind("127.0.0.1:0").await.unwrap();
+    let result = socket2::SockRef::from(&socket)
+        .send_to(b"", &socket2::SockAddr::from(peer.local_addr().unwrap()));
+    assert_eq!(result.as_ref().unwrap(), &0);
+    let mut bytes = [0; 1];
+    assert_eq!(peer.recv_from(&mut bytes).await.unwrap().0, 0);
+    // Exercise the actual OS restoration failure on this original descriptor;
+    // an invalid interface cannot stand in for a successful restore receipt.
+    let restore = Scope {
+        fd: socket.as_raw_fd(),
+        original: u32::MAX,
+        armed: true,
+    }
+    .restore()
+    .unwrap_err();
+    assert!(restore.raw_os_error().is_some());
+    let error = io::Error::other(crate::PacketScopeRestoreFailure::new(result, restore));
+    assert_eq!(error.kind(), io::ErrorKind::Other);
+    let failure = error
+        .get_ref()
+        .unwrap()
+        .downcast_ref::<crate::PacketScopeRestoreFailure>()
+        .unwrap();
+    assert_eq!(failure.submitted_bytes(), Some(0));
+    assert!(failure.restoration_error().raw_os_error().is_some());
+    assert!(failure.send_error().is_none());
+}

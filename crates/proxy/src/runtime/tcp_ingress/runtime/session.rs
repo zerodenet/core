@@ -46,6 +46,16 @@ impl TcpIngressRuntime {
     }
 
     pub(crate) async fn prepare_session(&self, session: &mut Session) -> Result<(), EngineError> {
+        self.prepare_session_with_ticket(session, None)
+            .await
+            .map(|_| ())
+    }
+
+    pub(crate) async fn prepare_session_with_ticket(
+        &self,
+        session: &mut Session,
+        identity: Option<&zero_engine::SessionIdentity>,
+    ) -> Result<zero_engine::AdmittedSession, EngineError> {
         if session.inbound_local.is_none() {
             session.inbound_local = self.local_addr.map(|addr| {
                 (
@@ -73,9 +83,16 @@ impl TcpIngressRuntime {
             }
         }
 
-        self.services
-            .engine()
-            .prepare_session(session, &self.inbound_tag)
+        match identity {
+            Some(identity) => self
+                .services
+                .engine()
+                .prepare_session_with_identity_admitted(identity, session, &self.inbound_tag),
+            None => self
+                .services
+                .engine()
+                .prepare_session_admitted(session, &self.inbound_tag),
+        }
     }
 
     pub(crate) fn track_session(&self, session_id: u64) -> SessionHandle {

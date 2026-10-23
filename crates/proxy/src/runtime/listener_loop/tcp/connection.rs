@@ -35,6 +35,8 @@ where
     } = request;
     let local_addr = listener.local_addr()?;
     let mut connections = JoinSet::new();
+    #[cfg(feature = "udp-runtime")]
+    let udp_stop = crate::runtime::route_runtime::ListenerStop::default();
 
     info!(
         inbound_tag = %runtime_factory.inbound_tag(),
@@ -70,6 +72,8 @@ where
                         let runtime = runtime_factory.for_connection(
                             remote_addr.map(zero_platform_tokio::socket_address_to_socket_addr),
                         ).with_local_addr(stream.local_addr().ok());
+                        #[cfg(feature = "udp-runtime")]
+                        let runtime = runtime.with_listener_stop(udp_stop.clone());
                         let handler = handler.clone();
                         connections.spawn(handler(runtime, stream));
                     }
@@ -104,6 +108,14 @@ where
         }
     };
 
+    // Close registration under the same lock as a UDP consumer's claim. A
+    // consumer finishes its real dispatch before releasing this guard; generic
+    // streams and incomplete handshakes retain their existing abort behavior.
+    #[cfg(feature = "udp-runtime")]
+    {
+        udp_stop.begin_shutdown();
+        udp_stop.wait_quiescent().await;
+    }
     connections.abort_all();
     while let Some(result) = connections.join_next().await {
         if let Err(error) = result {

@@ -1,0 +1,36 @@
+/workspace/core-baseline-artifacts/zero-matched-current-9e3f3ed3  :
+section                  size       addr
+.interp                    28        736
+.note.ABI-tag              32        764
+.note.gnu.build-id         36        796
+.dynsym                  6792        832
+.gnu.version              566       7624
+.gnu.version_r            544       8192
+.gnu.hash                  28       8736
+.dynstr                  3762       8764
+.rela.dyn             2529240      12528
+.rela.plt                3432    2541768
+.gcc_except_table     3208128    2545200
+.rodata               3934160    5754880
+.eh_frame_hdr          745684    9689040
+.eh_frame             5295212   10434728
+.text                46458748   15734080
+.init                      28   62192828
+.fini                       9   62192856
+.plt                     2304   62192880
+.tdata                    368   62199280
+.tbss                     408   62199648
+.fini_array                32   62199648
+.init_array                24   62199680
+.data.rel.ro          1818984   62199712
+.dynamic                  480   64018696
+.got                    67264   64019176
+.got.plt                 1168   64086440
+.relro_padding           2504   64087608
+.tm_clone_table             0   64091704
+.data                   60104   64091712
+.bss                    33252   64151936
+.comment                  170          0
+Total                64173491
+
+

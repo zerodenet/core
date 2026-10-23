@@ -22,6 +22,23 @@ impl TokioDatagramSocket {
         policy: &DialPolicy,
         selection: &EgressSelection,
     ) -> io::Result<Self> {
+        Self::bind_for_peer_with_policy_preserving_port_sync(
+            peer,
+            preferred_port,
+            policy,
+            selection,
+        )
+    }
+    /// Synchronous native acquisition with no observer callbacks or hidden job.
+    /// A grant owner must reserve its attempt before calling this and install
+    /// success before its next await. An error can consume a native handle (for
+    /// example Tokio registration failure); it is not a native close receipt.
+    pub fn bind_for_peer_with_policy_preserving_port_sync(
+        peer: SocketAddr,
+        preferred_port: Option<u16>,
+        policy: &DialPolicy,
+        selection: &EgressSelection,
+    ) -> io::Result<Self> {
         let dial = prepare(peer, policy, selection)
             .map_err(|error| phase("validate_dial_policy", error))?;
         let mut source = match dial.source {
@@ -58,7 +75,30 @@ impl TokioDatagramSocket {
     }
 }
 fn phase(stage: &'static str, error: io::Error) -> io::Error {
-    io::Error::new(error.kind(), format!("{stage}: {error}"))
+    // The outer error adds context, so its raw_os_error() may be None. Keep the
+    // original error (including its native code or typed payload) in source().
+    io::Error::new(
+        error.kind(),
+        BindPhaseError {
+            stage,
+            source: error,
+        },
+    )
+}
+#[derive(Debug)]
+struct BindPhaseError {
+    stage: &'static str,
+    source: io::Error,
+}
+impl std::fmt::Display for BindPhaseError {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(formatter, "{}: {}", self.stage, self.source)
+    }
+}
+impl std::error::Error for BindPhaseError {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        Some(&self.source)
+    }
 }
 fn bind_native(source: SocketAddr, v6_only: bool) -> io::Result<std::net::UdpSocket> {
     let domain = if source.is_ipv4() {
@@ -74,3 +114,7 @@ fn bind_native(source: SocketAddr, v6_only: bool) -> io::Result<std::net::UdpSoc
     socket.bind(&source.into())?;
     Ok(socket.into())
 }
+
+#[cfg(test)]
+#[path = "../../tests/dial_policy/udp_error.rs"]
+mod tests;

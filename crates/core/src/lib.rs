@@ -4,8 +4,12 @@
 extern crate alloc;
 
 pub mod address;
+pub mod channel;
+pub mod component;
 pub mod error;
 pub mod inbound;
+pub mod packet;
+pub mod request;
 
 pub mod session;
 pub mod udp;

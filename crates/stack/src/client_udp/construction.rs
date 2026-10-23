@@ -2,6 +2,10 @@
 use super::*;
 
 impl ClientUdpStack {
+    /// Actual socket table ceiling; hosts use it to bound the original per-
+    /// socket workers, including retiring workers not yet actually joined.
+    pub const SOCKET_LIMIT: usize = MAX_SOCKETS;
+
     pub fn new(
         local_addresses: Vec<IpAddr>,
         outbound: tokio::sync::mpsc::Sender<Vec<u8>>,
@@ -46,6 +50,29 @@ impl ClientUdpStack {
         drop_observer: Option<Arc<dyn zero_traits::IoObserver>>,
         receive_queue: ClientUdpReceiveQueueConfig,
     ) -> Result<Self, ClientUdpStackError> {
+        Self::validate_configuration(&local_addresses, mtu, receive_queue)?;
+        Ok(Self {
+            inner: Arc::new(Inner {
+                local_addresses,
+                outbound,
+                mtu: usize::from(mtu),
+                next_fragment_id: AtomicU32::new(1),
+                closed: AtomicBool::new(false),
+                drop_observer,
+                receive_queue,
+                receive_budget: receive_queue.max_stack_payload_bytes.map(ByteBudget::new),
+                sockets: Mutex::new(HashMap::new()),
+                fragments: Mutex::new(FragmentReassembler::new()),
+            }),
+        })
+    }
+
+    /// Validate a cold stack recipe without constructing channels, state or I/O.
+    pub fn validate_configuration(
+        local_addresses: &[IpAddr],
+        mtu: u16,
+        receive_queue: ClientUdpReceiveQueueConfig,
+    ) -> Result<(), ClientUdpStackError> {
         receive_queue.validate()?;
         if local_addresses.is_empty() {
             return Err(ClientUdpStackError::MissingLocalAddress);
@@ -60,19 +87,7 @@ impl ClientUdpStack {
         if mtu < 68 || (local_addresses.iter().any(IpAddr::is_ipv6) && mtu < 1_280) {
             return Err(ClientUdpStackError::InvalidMtu);
         }
-        Ok(Self {
-            inner: Arc::new(Inner {
-                local_addresses,
-                outbound,
-                mtu: usize::from(mtu),
-                next_fragment_id: AtomicU32::new(1),
-                drop_observer,
-                receive_queue,
-                receive_budget: receive_queue.max_stack_payload_bytes.map(ByteBudget::new),
-                sockets: Mutex::new(HashMap::new()),
-                fragments: Mutex::new(FragmentReassembler::new()),
-            }),
-        })
+        Ok(())
     }
 
     /// Allocate a bounded receive queue and a randomized ephemeral source port.
@@ -89,6 +104,9 @@ impl ClientUdpStack {
             return Err(ClientUdpStackError::UnknownLocalAddress);
         }
         let mut sockets = self.inner.sockets.lock().unwrap_or_else(|e| e.into_inner());
+        if self.inner.closed.load(Ordering::Acquire) {
+            return Err(ClientUdpStackError::OutboundClosed);
+        }
         if sockets.len() >= MAX_SOCKETS {
             return Err(ClientUdpStackError::SocketLimit);
         }

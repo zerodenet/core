@@ -9,6 +9,11 @@
 mod dial_policy_tests;
 mod direct;
 mod direct_dial;
+pub(crate) use direct_dial::candidate::{
+    CandidateOpenFailure, CandidateOpened, CandidateOpener, CandidateRefresh, RefreshFuture,
+    RefreshResult,
+};
+pub(crate) use direct_dial::{open_service_candidates, DirectCandidate};
 pub(crate) mod establishment;
 mod failure;
 mod tcp_outbound;
@@ -19,7 +24,9 @@ mod tests;
 pub(crate) use direct::{
     DirectConnector, DirectTargetResolution, DirectTcpConnectFailure, DirectTcpConnection,
 };
-pub(crate) use failure::{attributed_error, failure_origin, TransportFailureOrigin};
+pub(crate) use failure::{
+    attributed_error, channel_failure, failure_origin, TransportFailureOrigin,
+};
 pub(crate) use tcp_outbound::{
     extract_tcp_stream, is_block_error, EstablishedTcpOutbound, TcpOutboundFailure, TcpRouteResult,
 };

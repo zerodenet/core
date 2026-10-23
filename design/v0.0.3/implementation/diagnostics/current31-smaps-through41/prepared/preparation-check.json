@@ -1,0 +1,8 @@
+{
+  "static_checks": "PASS",
+  "prepared_only": true,
+  "executed_product": false,
+  "executed_workload": false,
+  "original_clients_ast_identical": true,
+  "parser_fixture_only": true
+}

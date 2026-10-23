@@ -1,0 +1,663 @@
+{
+  "version": "0.0.2-rc.202610142218",
+  "health": {
+    "config_revision": 1,
+    "core_instance_id": "27f5d5a3dd985c8bf9388ab38c6ac327",
+    "engine_build_id": "0.0.2-rc.202610142218",
+    "healthy": true,
+    "started_at_unix_ms": 1792420864915
+  },
+  "capabilities": {
+    "adapters": [
+      {
+        "enabled": true,
+        "kind": "in_process"
+      }
+    ],
+    "api_id": "zero.api.v1",
+    "build_features": [
+      "status-api",
+      "event-dispatcher",
+      "connector",
+      "http",
+      "hysteria2",
+      "mieru",
+      "mixed",
+      "shadowsocks",
+      "socks5",
+      "trojan",
+      "vless",
+      "vmess",
+      "dns"
+    ],
+    "contracts": {
+      "capabilities": {
+        "current": 1,
+        "minimum_supported": 1
+      },
+      "config_schema": {
+        "current": 1,
+        "minimum_supported": 1
+      },
+      "control_api": {
+        "current": 1,
+        "minimum_supported": 1
+      },
+      "error_codes": {
+        "current": 1,
+        "minimum_supported": 1
+      }
+    },
+    "error_codes": [
+      "not_found",
+      "invalid_argument",
+      "permission_denied",
+      "insufficient_os_privilege",
+      "feature_disabled",
+      "conflict",
+      "unsupported",
+      "internal"
+    ],
+    "features": [
+      "config_snapshot",
+      "diagnostic_probe_health_isolation_v1",
+      "direct_tcp_dial_attempt_observability_v1",
+      "direct_tcp_trusted_target_candidate_fallback",
+      "direct_tun_domain_family_fallback",
+      "dns_address_family_policy",
+      "dns_fake_ip_dual_stack",
+      "dns_fake_ip_persistence",
+      "dns_fake_ip_transactional_reload",
+      "dns_real_reverse_mapping",
+      "dns_split_dispatch",
+      "dns_upstream_egress_binding",
+      "dns_wire_ttl_aging",
+      "event_recovery",
+      "flow_snapshot",
+      "operation_correlation",
+      "policy_snapshot",
+      "principal_flow_observations_v1",
+      "query",
+      "route_bypass_v1",
+      "runtime_generation",
+      "runtime_snapshot",
+      "tun_dns_hijack_udp_tcp",
+      "tun_dns_system_auto",
+      "tun_dual_stack_ingress",
+      "tun_family_aware_egress",
+      "tun_runtime_egress_reconciliation",
+      "tun_strict_route",
+      "urltest_tolerance"
+    ],
+    "global_limitations": [
+      "direct_udp_trusted_candidate_retarget_unsupported",
+      "dns_doq_detour_unsupported",
+      "dns_ech_hostname_recovery_unavailable",
+      "dns_encrypted_client_queries_not_intercepted",
+      "tun_bare_ipv6_requires_trusted_domain",
+      "tun_nat64_unsupported"
+    ],
+    "permissions": [
+      "read"
+    ],
+    "protocols": [
+      {
+        "compatibility_baseline": "kernel_builtin",
+        "compiled": true,
+        "feature": "core",
+        "inbound": {
+          "tcp": {
+            "level": "unsupported",
+            "notes": [],
+            "supported": false
+          },
+          "udp": {
+            "level": "unsupported",
+            "notes": [],
+            "supported": false
+          }
+        },
+        "limitations": [],
+        "mux": {
+          "level": "not_applicable",
+          "notes": [],
+          "supported": false
+        },
+        "outbound": {
+          "tcp": {
+            "level": "supported",
+            "notes": [],
+            "supported": true
+          },
+          "udp": {
+            "level": "supported",
+            "notes": [],
+            "supported": true
+          }
+        },
+        "protocol": "block",
+        "status": "supported",
+        "transports": [
+          "tcp",
+          "udp"
+        ]
+      },
+      {
+        "compatibility_baseline": "kernel_builtin",
+        "compiled": true,
+        "feature": "core",
+        "inbound": {
+          "tcp": {
+            "level": "supported",
+            "notes": [],
+            "supported": true
+          },
+          "udp": {
+            "level": "supported",
+            "notes": [],
+            "supported": true
+          }
+        },
+        "limitations": [],
+        "mux": {
+          "level": "not_applicable",
+          "notes": [],
+          "supported": false
+        },
+        "outbound": {
+          "tcp": {
+            "level": "supported",
+            "notes": [],
+            "supported": true
+          },
+          "udp": {
+            "level": "supported",
+            "notes": [],
+            "supported": true
+          }
+        },
+        "protocol": "direct",
+        "status": "supported",
+        "transports": [
+          "tcp",
+          "udp"
+        ]
+      },
+      {
+        "compatibility_baseline": "rfc_7231_connect",
+        "compiled": true,
+        "feature": "http",
+        "inbound": {
+          "tcp": {
+            "level": "supported",
+            "notes": [],
+            "supported": true
+          },
+          "udp": {
+            "level": "not_applicable",
+            "notes": [],
+            "supported": false
+          }
+        },
+        "limitations": [],
+        "mux": {
+          "level": "not_applicable",
+          "notes": [],
+          "supported": false
+        },
+        "outbound": {
+          "tcp": {
+            "level": "unsupported",
+            "notes": [],
+            "supported": false
+          },
+          "udp": {
+            "level": "not_applicable",
+            "notes": [],
+            "supported": false
+          }
+        },
+        "protocol": "http",
+        "status": "supported",
+        "transports": [
+          "tcp"
+        ]
+      },
+      {
+        "compatibility_baseline": "hysteria_app_v2_12_2",
+        "compiled": true,
+        "feature": "hysteria2",
+        "inbound": {
+          "tcp": {
+            "level": "supported",
+            "notes": [],
+            "supported": true
+          },
+          "udp": {
+            "level": "supported",
+            "notes": [],
+            "supported": true
+          }
+        },
+        "limitations": [],
+        "mux": {
+          "level": "unsupported",
+          "notes": [],
+          "supported": false
+        },
+        "outbound": {
+          "tcp": {
+            "level": "supported",
+            "notes": [],
+            "supported": true
+          },
+          "udp": {
+            "level": "supported",
+            "notes": [],
+            "supported": true
+          }
+        },
+        "protocol": "hysteria2",
+        "status": "supported",
+        "transports": [
+          "quic"
+        ]
+      },
+      {
+        "compatibility_baseline": "mieru",
+        "compiled": true,
+        "feature": "mieru",
+        "inbound": {
+          "tcp": {
+            "level": "supported",
+            "notes": [],
+            "supported": true
+          },
+          "udp": {
+            "level": "supported",
+            "notes": [],
+            "supported": true
+          }
+        },
+        "limitations": [
+          "udp_underlay_relay_requires_datagram_carrier",
+          "long_running_recovery_is_not_verified"
+        ],
+        "mux": {
+          "level": "supported",
+          "notes": [],
+          "supported": true
+        },
+        "outbound": {
+          "tcp": {
+            "level": "supported",
+            "notes": [],
+            "supported": true
+          },
+          "udp": {
+            "level": "supported",
+            "notes": [],
+            "supported": true
+          }
+        },
+        "protocol": "mieru",
+        "status": "partial",
+        "transports": [
+          "tcp",
+          "udp"
+        ]
+      },
+      {
+        "compatibility_baseline": "kernel_builtin",
+        "compiled": true,
+        "feature": "mixed",
+        "inbound": {
+          "tcp": {
+            "level": "supported",
+            "notes": [],
+            "supported": true
+          },
+          "udp": {
+            "level": "supported",
+            "notes": [],
+            "supported": true
+          }
+        },
+        "limitations": [],
+        "mux": {
+          "level": "not_applicable",
+          "notes": [],
+          "supported": false
+        },
+        "outbound": {
+          "tcp": {
+            "level": "unsupported",
+            "notes": [],
+            "supported": false
+          },
+          "udp": {
+            "level": "unsupported",
+            "notes": [],
+            "supported": false
+          }
+        },
+        "protocol": "mixed",
+        "status": "supported",
+        "transports": [
+          "tcp"
+        ]
+      },
+      {
+        "compatibility_baseline": "shadowsocks_rust_sip022_sip023",
+        "compiled": true,
+        "feature": "shadowsocks",
+        "inbound": {
+          "tcp": {
+            "level": "supported",
+            "notes": [],
+            "supported": true
+          },
+          "udp": {
+            "level": "supported",
+            "notes": [],
+            "supported": true
+          }
+        },
+        "limitations": [],
+        "mux": {
+          "level": "unsupported",
+          "notes": [],
+          "supported": false
+        },
+        "outbound": {
+          "tcp": {
+            "level": "supported",
+            "notes": [],
+            "supported": true
+          },
+          "udp": {
+            "level": "supported",
+            "notes": [],
+            "supported": true
+          }
+        },
+        "protocol": "shadowsocks",
+        "status": "supported",
+        "transports": [
+          "tcp",
+          "udp"
+        ]
+      },
+      {
+        "compatibility_baseline": "rfc_1928_rfc_1929",
+        "compiled": true,
+        "feature": "socks5",
+        "inbound": {
+          "tcp": {
+            "level": "supported",
+            "notes": [],
+            "supported": true
+          },
+          "udp": {
+            "level": "supported",
+            "notes": [],
+            "supported": true
+          }
+        },
+        "limitations": [],
+        "mux": {
+          "level": "not_applicable",
+          "notes": [],
+          "supported": false
+        },
+        "outbound": {
+          "tcp": {
+            "level": "supported",
+            "notes": [],
+            "supported": true
+          },
+          "udp": {
+            "level": "supported",
+            "notes": [],
+            "supported": true
+          }
+        },
+        "protocol": "socks5",
+        "status": "supported",
+        "transports": [
+          "tcp"
+        ]
+      },
+      {
+        "compatibility_baseline": "trojan_go",
+        "compiled": true,
+        "feature": "trojan",
+        "inbound": {
+          "tcp": {
+            "level": "supported",
+            "notes": [],
+            "supported": true
+          },
+          "udp": {
+            "level": "supported",
+            "notes": [],
+            "supported": true
+          }
+        },
+        "limitations": [],
+        "mux": {
+          "level": "supported",
+          "notes": [],
+          "supported": true
+        },
+        "outbound": {
+          "tcp": {
+            "level": "supported",
+            "notes": [],
+            "supported": true
+          },
+          "udp": {
+            "level": "supported",
+            "notes": [],
+            "supported": true
+          }
+        },
+        "protocol": "trojan",
+        "status": "supported",
+        "transports": [
+          "tcp",
+          "tls",
+          "ws",
+          "grpc"
+        ]
+      },
+      {
+        "compatibility_baseline": "xray_core_vless",
+        "compiled": true,
+        "feature": "vless",
+        "inbound": {
+          "tcp": {
+            "level": "supported",
+            "notes": [],
+            "supported": true
+          },
+          "udp": {
+            "level": "supported",
+            "notes": [],
+            "supported": true
+          }
+        },
+        "limitations": [
+          "vless_quic_transport_deprecated_by_xtls"
+        ],
+        "mux": {
+          "level": "supported",
+          "notes": [],
+          "supported": true
+        },
+        "outbound": {
+          "tcp": {
+            "level": "supported",
+            "notes": [],
+            "supported": true
+          },
+          "udp": {
+            "level": "supported",
+            "notes": [],
+            "supported": true
+          }
+        },
+        "protocol": "vless",
+        "status": "supported",
+        "transports": [
+          "tcp",
+          "tls",
+          "reality",
+          "ws",
+          "grpc",
+          "h2",
+          "http_upgrade",
+          "xhttp",
+          "quic",
+          "mkcp",
+          "hysteria"
+        ]
+      },
+      {
+        "compatibility_baseline": "xray_core_vmess_aead",
+        "compiled": true,
+        "feature": "vmess",
+        "inbound": {
+          "tcp": {
+            "level": "supported",
+            "notes": [],
+            "supported": true
+          },
+          "udp": {
+            "level": "supported",
+            "notes": [],
+            "supported": true
+          }
+        },
+        "limitations": [],
+        "mux": {
+          "level": "supported",
+          "notes": [],
+          "supported": true
+        },
+        "outbound": {
+          "tcp": {
+            "level": "supported",
+            "notes": [],
+            "supported": true
+          },
+          "udp": {
+            "level": "supported",
+            "notes": [],
+            "supported": true
+          }
+        },
+        "protocol": "vmess",
+        "status": "supported",
+        "transports": [
+          "tcp",
+          "tls",
+          "ws",
+          "grpc"
+        ]
+      }
+    ],
+    "schema_id": "zero.event.v1",
+    "sinks": [
+      {
+        "enabled": false,
+        "kind": "none"
+      }
+    ]
+  },
+  "runtime": {
+    "active_sessions": [],
+    "config_path": "/tmp/znet-kernel-compat-c98ayezv/config.json",
+    "config_revision": 1,
+    "core_instance_id": "27f5d5a3dd985c8bf9388ab38c6ac327",
+    "log_files": [],
+    "log_level": "info",
+    "pid": 41141,
+    "recent_completed_sessions": [],
+    "started_at_unix_ms": 1792420864915,
+    "stats": {
+      "active_sessions": 0,
+      "blocked_sessions": 0,
+      "bytes_down": 0,
+      "bytes_up": 0,
+      "chained_sessions": 0,
+      "completed_sessions": 0,
+      "direct_sessions": 0,
+      "failed_sessions": 0,
+      "per_outbound": [],
+      "total_started": 0,
+      "udp_upstream": {
+        "active_associations": 0,
+        "closed_associations": 0,
+        "created_associations": 0,
+        "dropped_associations": 0,
+        "failed_association_attempts": 0,
+        "idle_timeouts": 0,
+        "packets_received": 0,
+        "packets_sent": 0,
+        "recv_failures": 0,
+        "reused_associations": 0,
+        "send_failures": 0
+      }
+    },
+    "udp_enabled": true,
+    "udp_upstream_idle_timeout_seconds": 30
+  },
+  "stats": {
+    "active_sessions": 0,
+    "blocked_sessions": 0,
+    "bytes_down": 0,
+    "bytes_up": 0,
+    "chained_sessions": 0,
+    "completed_sessions": 0,
+    "direct_sessions": 0,
+    "failed_sessions": 0,
+    "per_outbound": [],
+    "total_started": 0,
+    "udp_upstream": {
+      "active_associations": 0,
+      "closed_associations": 0,
+      "created_associations": 0,
+      "dropped_associations": 0,
+      "failed_association_attempts": 0,
+      "idle_timeouts": 0,
+      "packets_received": 0,
+      "packets_sent": 0,
+      "recv_failures": 0,
+      "reused_associations": 0,
+      "send_failures": 0
+    }
+  },
+  "policies": [],
+  "active_flows": [],
+  "tun_status": {
+    "address_family_policy": "prefer_ipv4",
+    "auto_route": false,
+    "dns_hijack": false,
+    "dns_hijacked_queries": 0,
+    "dual_stack": false,
+    "fake_ip_enabled": false,
+    "healthy": false,
+    "ipv4_egress": {
+      "availability": "unknown"
+    },
+    "ipv6_egress": {
+      "availability": "unknown"
+    },
+    "ipv6_to_ipv4_fallbacks": 0,
+    "managed_by_config": false,
+    "network_generation": 0,
+    "running": false,
+    "strict_route": false
+  }
+}

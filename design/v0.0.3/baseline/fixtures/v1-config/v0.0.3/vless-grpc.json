@@ -1,0 +1,30 @@
+{
+  "inbounds": [
+    {
+      "tag": "vless-grpc-in",
+      "listen": { "address": "127.0.0.1", "port": 8443 },
+      "protocol": {
+        "type": "vless",
+        "users": [{ "id": "b831381d-6324-4d53-ad4f-8cda48b30811" }],
+        "tls": {
+          "cert_path": "certs/fullchain.pem",
+          "key_path": "certs/privkey.pem"
+        },
+        "grpc": {
+          "service_names": ["/v2ray.core.proxy.vless.encap.GrpcService/Tun"]
+        }
+      }
+    }
+  ],
+  "outbounds": [
+    {
+      "tag": "direct",
+      "protocol": { "type": "direct" }
+    }
+  ],
+  "mode": { "type": "rule" },
+  "route": {
+    "rules": [],
+    "final": { "type": "direct" }
+  }
+}

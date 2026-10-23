@@ -52,7 +52,7 @@ pub(super) async fn run(
     activity: Activity,
     server: bool,
     active: Arc<std::sync::atomic::AtomicUsize>,
-) {
+) -> io::Result<()> {
     // grpc-go clamps client keepalive to ten seconds. Zero means disabled on
     // clients and the gRPC two-hour default on servers.
     let seconds = if profile.idle_timeout_secs == 0 {
@@ -60,7 +60,7 @@ pub(super) async fn run(
             7200
         } else {
             std::future::pending::<()>().await;
-            return;
+            return Ok(());
         }
     } else if server {
         profile.idle_timeout_secs.max(1)
@@ -86,11 +86,10 @@ pub(super) async fn run(
             tokio::time::sleep(interval).await;
             continue;
         }
-        if !matches!(
-            tokio::time::timeout(deadline, ping.ping(h2::Ping::opaque())).await,
-            Ok(Ok(_))
-        ) {
-            return;
+        match tokio::time::timeout(deadline, ping.ping(h2::Ping::opaque())).await {
+            Ok(Ok(_)) => {}
+            Ok(Err(source)) => return Err(io::Error::other(source)),
+            Err(source) => return Err(io::Error::new(io::ErrorKind::TimedOut, source)),
         }
         activity.touch();
     }

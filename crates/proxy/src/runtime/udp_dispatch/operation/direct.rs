@@ -1,6 +1,13 @@
 use std::future::Future;
 use std::pin::Pin;
 
+#[cfg(feature = "managed-datagram-runtime")]
+mod source;
+#[cfg(all(test, feature = "managed-datagram-runtime"))]
+pub(crate) use source::tests::fixture::Live as LiveDirectSource;
+#[cfg(feature = "managed-datagram-runtime")]
+pub(crate) use source::DirectSocketSource;
+
 use zero_core::Session;
 
 use super::contract::PreparedUdpFlowOperation;
@@ -17,6 +24,15 @@ pub(crate) struct DirectUdpFlowOperation {
 }
 
 impl PreparedUdpFlowOperation for DirectUdpFlowOperation {
+    #[cfg(feature = "raw-ip-runtime")]
+    fn controlled_native_coverage(&self, session: &Session) -> bool {
+        !matches!(session.target, zero_core::Address::Domain(_))
+            && !matches!(
+                session.effective_direct_target(),
+                zero_core::Address::Domain(_)
+            )
+    }
+
     fn execute<'a>(
         self: Box<Self>,
         dispatch: &'a mut UdpDispatch,
@@ -28,6 +44,15 @@ impl PreparedUdpFlowOperation for DirectUdpFlowOperation {
         Self: 'a,
     {
         Box::pin(async move {
+            #[cfg(feature = "managed-datagram-runtime")]
+            dispatch
+                .admit_bound_direct(&self, session)
+                .await
+                .map_err(|error| FlowFailure {
+                    stage: "udp_direct_bound_admission",
+                    error,
+                    upstream: None,
+                })?;
             execute_direct_udp_operation(
                 dispatch,
                 ctx.runtime_services(),

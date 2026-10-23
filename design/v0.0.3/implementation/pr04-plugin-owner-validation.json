@@ -1,0 +1,1573 @@
+{
+  "base_commit": "8fb2c1a40aaa052905ba88c87e3f570059cf43ac",
+  "code_commit": "d9cf1c41202b257ccad6179328aae7f1faa34c82",
+  "tested_git_tree": "ba6a5cb6a6d9cb26de5edbabe277d5e9b45b1597",
+  "resolved_lock_sha256": "a003359eb327bd299b675c330e9aeca721156df76d117dd3e55c9c47f711377c",
+  "counts": {
+    "passed": 2735,
+    "failed": 0,
+    "ignored": 159,
+    "libtest_summary_rows": 155
+  },
+  "commands": [
+    {
+      "name": "fmt",
+      "argv": [
+        "cargo",
+        "fmt",
+        "--all",
+        "--check"
+      ],
+      "exit": 0,
+      "seconds": 3.810714507002558,
+      "log": "/workspace/core-baseline-artifacts/pr04-plugin-owner-final-fmt.txt",
+      "head_unchanged": true,
+      "source_clean": true,
+      "lock_unchanged": true
+    },
+    {
+      "name": "check",
+      "argv": [
+        "cargo",
+        "check",
+        "--locked",
+        "--workspace"
+      ],
+      "exit": 0,
+      "seconds": 42.75864223800454,
+      "log": "/workspace/core-baseline-artifacts/pr04-plugin-owner-final-check.txt",
+      "head_unchanged": true,
+      "source_clean": true,
+      "lock_unchanged": true
+    },
+    {
+      "name": "test",
+      "argv": [
+        "bash",
+        "scripts/test-workspace.sh"
+      ],
+      "exit": 0,
+      "seconds": 391.3596570709997,
+      "log": "/workspace/core-baseline-artifacts/pr04-plugin-owner-final-test.txt",
+      "head_unchanged": true,
+      "source_clean": true,
+      "lock_unchanged": true
+    },
+    {
+      "name": "release",
+      "argv": [
+        "cargo",
+        "build",
+        "--locked",
+        "--release"
+      ],
+      "exit": 0,
+      "seconds": 214.476611625003,
+      "log": "/workspace/core-baseline-artifacts/pr04-plugin-owner-final-release.txt",
+      "head_unchanged": true,
+      "source_clean": true,
+      "lock_unchanged": true
+    },
+    {
+      "name": "no-std",
+      "argv": [
+        "cargo",
+        "check",
+        "--locked",
+        "--target",
+        "thumbv7em-none-eabi",
+        "-p",
+        "zero-traits",
+        "-p",
+        "zero-core"
+      ],
+      "exit": 0,
+      "seconds": 0.26310133100196254,
+      "log": "/workspace/core-baseline-artifacts/pr04-plugin-owner-final-no-std.txt",
+      "head_unchanged": true,
+      "source_clean": true,
+      "lock_unchanged": true
+    },
+    {
+      "name": "minimal",
+      "argv": [
+        "cargo",
+        "check",
+        "--locked",
+        "-p",
+        "zero-proxy",
+        "--no-default-features"
+      ],
+      "exit": 0,
+      "seconds": 0.3189730090016383,
+      "log": "/workspace/core-baseline-artifacts/pr04-plugin-owner-final-minimal.txt",
+      "head_unchanged": true,
+      "source_clean": true,
+      "lock_unchanged": true
+    },
+    {
+      "name": "dependencies",
+      "argv": [
+        "python3",
+        "scripts/check-runtime-contracts.py"
+      ],
+      "exit": 0,
+      "seconds": 0.630701982001483,
+      "log": "/workspace/core-baseline-artifacts/pr04-plugin-owner-final-dependencies.txt",
+      "head_unchanged": true,
+      "source_clean": true,
+      "lock_unchanged": true
+    }
+  ],
+  "strict": {
+    "exit": 0,
+    "tested_tree": "ba6a5cb6a6d9cb26de5edbabe277d5e9b45b1597",
+    "source_sha256": {
+      "protocols/shadowsocks/src/transport/plugin.rs": "a128f39a082929efbe01511e314c8062bc94f35f5254d3f17fb8a13a40ea04d9",
+      "protocols/shadowsocks/src/transport/plugin/outbound.rs": "aceac957848888297ccd2de22caa04b9786d395cb03146680e237fe210ff7238",
+      "protocols/shadowsocks/src/transport/plugin/process.rs": "3aa9a468a231f2e2f71118d95c2fb862e1630abd661077e319dca8f1325f4045",
+      "protocols/shadowsocks/src/transport/state.rs": "0e25894cedc47882fc29bcd98d4ba50bf55a9133214c94f7c40b044abb0714ed",
+      "protocols/shadowsocks/tests/plugin/lifecycle.rs": "9ca3133a36a67486dacc6b58988d663b1b7b3a179ed88b43e97e5c7a254fba47",
+      "protocols/shadowsocks/tests/plugin/process.rs": "a12dc53b20d2683627c40de2964d13d37360f570c83839236012a0e03f3ceaa8",
+      "protocols/shadowsocks/src/transport/plugin/resource.rs": "37b493419b953ac7d2e512c2e6de77d4f208b471e9e445e3cf90990008e1b5ad",
+      "protocols/shadowsocks/tests/plugin/fixtures.rs": "ff79eed63be3b50443c036a1b582587edf6c628f014e2f0aebead17434cba140",
+      "protocols/shadowsocks/tests/plugin/resource.rs": "fdc3228fb954b5e10af473e83d9d870038dae8fcce8e8246254dc57aeb4ab4c2"
+    }
+  },
+  "focused": {
+    "passed": 36,
+    "failed": 0,
+    "log": "pr04-plugin-owner-positive-3.txt"
+  },
+  "negative": {
+    "head": "8fb2c1a40aaa052905ba88c87e3f570059cf43ac",
+    "production_source_sha256": {
+      "protocols/shadowsocks/src/transport/plugin/outbound.rs": "8077b16bf1e3d3943836b8c6e610cd70d8b36492c1125d32da8f3c80caa7b9e2",
+      "protocols/shadowsocks/src/transport/plugin/process.rs": "554ac69a77c7f9a9973f6610f7fb118a79e560b0dc7ad391beae7e488a30cb2e",
+      "protocols/shadowsocks/tests/plugin/lifecycle.rs": "4054c0c4ff13d17fecf272102929a099ab5aae3c1ff7d2ddadcd6bcc968e1c64",
+      "protocols/shadowsocks/tests/plugin/process.rs": "688702342aa2f87f7b66874a263cf0be85a2f315b02b53b26f749323a536e36c"
+    },
+    "new_tests_sha256": "ec4f7fd16c335a1452b94c9c16140220528dacbcc34016795cdc74b3cff0d722",
+    "counts": [
+      6,
+      2,
+      0
+    ],
+    "exit": 101,
+    "assertions": [
+      "aborting readiness discarded the unique child owner",
+      "a failed startup silently spawned the same plugin again: actual2 expected1"
+    ]
+  },
+  "constrained": {
+    "passed": 36,
+    "failed": 0,
+    "seconds": 7.278076291004254,
+    "binary_sha256": "ddf416b217ec8677baaf4429cd1997255a417199e0bc5bec03abe9b45a47d4f2",
+    "argv": [
+      "docker",
+      "run",
+      "--rm",
+      "--cpus=1",
+      "--memory=1g",
+      "--memory-swap=1g",
+      "--network=none",
+      "--user=1000:1000",
+      "-e",
+      "RUST_MIN_STACK=16777216",
+      "-v",
+      "/workspace:/workspace:ro",
+      "-w",
+      "/workspace/core",
+      "python@sha256:a6e34c598f2467ed0e9a8d349809fcd8b5c603269512df273a0bb1784edc11b1",
+      "/workspace/core-baseline-artifacts/pr04-plugin-owner-shadowsocks-lib",
+      "--test-threads=4",
+      "--nocapture"
+    ],
+    "scope": "Actual whole SS lib36 tests; precommit exact Rust bytes, separate network namespace,read-only workspace,1CPU1GiB/no swap/user1000. Not complete RS01."
+  },
+  "behavior": "Actual Child persists in the shared plan before readiness awaits; once created, failed/interrupted readiness is terminal and retains original source/child. Cancellation requests termination without claiming exit. Shared protocol resource shutdown revokes admission, cancels pending readiness and reaps actual Child; timeout/interruption retains ownership for retry. No new per-resource tasks, fake roles or process grants. Existing readiness deadlines/modes/crypto/framing remain.",
+  "production_scope": "Actual outbound Child retained before readiness, terminal failed/aborted readiness once a child has been created, original error source preserved, termination requested on cancellation, shared protocol resource with confirmed reaping and retained timeout/interruption ownership. Native process grants, new resourceful factory registration, global pool.clear/host M4 and inbound activation ownership remain pending.",
+  "runtime_minimal_exit": 0,
+  "previous_head_ci": {
+    "head": "8fb2c1a40aaa052905ba88c87e3f570059cf43ac",
+    "recorded_at": "2026-10-20 00:05:45 UTC",
+    "workflow_runs": [
+      {
+        "id": 39343338784,
+        "name": "Connector Qualification",
+        "status": "completed",
+        "conclusion": "success",
+        "run_number": 128,
+        "jobs_url": "https://api.github.com/repos/zerodenet/core/actions/runs/39343338784/jobs",
+        "logs_url": "https://api.github.com/repos/zerodenet/core/actions/runs/39343338784/logs",
+        "workflow_id": 345941062
+      },
+      {
+        "id": 39343338687,
+        "name": "WireGuard Reference Interop",
+        "status": "completed",
+        "conclusion": "success",
+        "run_number": 62,
+        "jobs_url": "https://api.github.com/repos/zerodenet/core/actions/runs/39343338687/jobs",
+        "logs_url": "https://api.github.com/repos/zerodenet/core/actions/runs/39343338687/logs",
+        "workflow_id": 368192668
+      },
+      {
+        "id": 39343338713,
+        "name": "CI",
+        "status": "in_progress",
+        "conclusion": null,
+        "run_number": 705,
+        "jobs_url": "https://api.github.com/repos/zerodenet/core/actions/runs/39343338713/jobs",
+        "logs_url": "https://api.github.com/repos/zerodenet/core/actions/runs/39343338713/logs",
+        "workflow_id": 282485028
+      },
+      {
+        "id": 39343338773,
+        "name": "Version Contract",
+        "status": "completed",
+        "conclusion": "success",
+        "run_number": 144,
+        "jobs_url": "https://api.github.com/repos/zerodenet/core/actions/runs/39343338773/jobs",
+        "logs_url": "https://api.github.com/repos/zerodenet/core/actions/runs/39343338773/logs",
+        "workflow_id": 317246624
+      },
+      {
+        "id": 39343338766,
+        "name": "Hysteria2 Interop",
+        "status": "completed",
+        "conclusion": "success",
+        "run_number": 114,
+        "jobs_url": "https://api.github.com/repos/zerodenet/core/actions/runs/39343338766/jobs",
+        "logs_url": "https://api.github.com/repos/zerodenet/core/actions/runs/39343338766/logs",
+        "workflow_id": 353265034
+      },
+      {
+        "id": 39343338698,
+        "name": "Trojan Reference Interop",
+        "status": "completed",
+        "conclusion": "success",
+        "run_number": 84,
+        "jobs_url": "https://api.github.com/repos/zerodenet/core/actions/runs/39343338698/jobs",
+        "logs_url": "https://api.github.com/repos/zerodenet/core/actions/runs/39343338698/logs",
+        "workflow_id": 361252222
+      },
+      {
+        "id": 39343338733,
+        "name": "Shadowsocks Interop",
+        "status": "completed",
+        "conclusion": "success",
+        "run_number": 93,
+        "jobs_url": "https://api.github.com/repos/zerodenet/core/actions/runs/39343338733/jobs",
+        "logs_url": "https://api.github.com/repos/zerodenet/core/actions/runs/39343338733/logs",
+        "workflow_id": 357219845
+      },
+      {
+        "id": 39343338722,
+        "name": "Privileged TUN E2E",
+        "status": "in_progress",
+        "conclusion": null,
+        "run_number": 353,
+        "jobs_url": "https://api.github.com/repos/zerodenet/core/actions/runs/39343338722/jobs",
+        "logs_url": "https://api.github.com/repos/zerodenet/core/actions/runs/39343338722/logs",
+        "workflow_id": 332380952
+      },
+      {
+        "id": 39343338741,
+        "name": "Mieru Interop",
+        "status": "completed",
+        "conclusion": "success",
+        "run_number": 99,
+        "jobs_url": "https://api.github.com/repos/zerodenet/core/actions/runs/39343338741/jobs",
+        "logs_url": "https://api.github.com/repos/zerodenet/core/actions/runs/39343338741/logs",
+        "workflow_id": 355388324
+      },
+      {
+        "id": 39343338740,
+        "name": "VMess Reference Interop",
+        "status": "completed",
+        "conclusion": "success",
+        "run_number": 85,
+        "jobs_url": "https://api.github.com/repos/zerodenet/core/actions/runs/39343338740/jobs",
+        "logs_url": "https://api.github.com/repos/zerodenet/core/actions/runs/39343338740/logs",
+        "workflow_id": 361252223
+      },
+      {
+        "id": 39343338664,
+        "name": "VLESS Reference Interop",
+        "status": "completed",
+        "conclusion": "success",
+        "run_number": 91,
+        "jobs_url": "https://api.github.com/repos/zerodenet/core/actions/runs/39343338664/jobs",
+        "logs_url": "https://api.github.com/repos/zerodenet/core/actions/runs/39343338664/logs",
+        "workflow_id": 357219847
+      }
+    ],
+    "ci_jobs": [
+      {
+        "id": 118369933961,
+        "name": "Select CI checks",
+        "status": "completed",
+        "conclusion": "success",
+        "run_id": 39343338713,
+        "logs_url": null,
+        "steps": [
+          {
+            "name": "Set up job",
+            "status": "completed",
+            "conclusion": "success",
+            "number": 1
+          },
+          {
+            "name": "Run actions/checkout@v5",
+            "status": "completed",
+            "conclusion": "success",
+            "number": 2
+          },
+          {
+            "name": "Run ./.github/actions/ci-scope",
+            "status": "completed",
+            "conclusion": "success",
+            "number": 3
+          },
+          {
+            "name": "Post Run actions/checkout@v5",
+            "status": "completed",
+            "conclusion": "success",
+            "number": 6
+          },
+          {
+            "name": "Complete job",
+            "status": "completed",
+            "conclusion": "success",
+            "number": 7
+          }
+        ]
+      },
+      {
+        "id": 118370917076,
+        "name": "Static checks (fmt + clippy)",
+        "status": "completed",
+        "conclusion": "success",
+        "run_id": 39343338713,
+        "logs_url": null,
+        "steps": [
+          {
+            "name": "Set up job",
+            "status": "completed",
+            "conclusion": "success",
+            "number": 1
+          },
+          {
+            "name": "Run actions/checkout@v5",
+            "status": "completed",
+            "conclusion": "success",
+            "number": 2
+          },
+          {
+            "name": "Run dtolnay/rust-toolchain@stable",
+            "status": "completed",
+            "conclusion": "success",
+            "number": 3
+          },
+          {
+            "name": "Run Swatinem/rust-cache@v2",
+            "status": "completed",
+            "conclusion": "success",
+            "number": 4
+          },
+          {
+            "name": "Install protoc",
+            "status": "completed",
+            "conclusion": "success",
+            "number": 5
+          },
+          {
+            "name": "Verify protoc",
+            "status": "completed",
+            "conclusion": "success",
+            "number": 6
+          },
+          {
+            "name": "Format",
+            "status": "completed",
+            "conclusion": "success",
+            "number": 7
+          },
+          {
+            "name": "Test entry and layout guards",
+            "status": "completed",
+            "conclusion": "success",
+            "number": 8
+          },
+          {
+            "name": "Clippy",
+            "status": "completed",
+            "conclusion": "success",
+            "number": 9
+          },
+          {
+            "name": "Runtime contract dependency and no_std boundaries",
+            "status": "completed",
+            "conclusion": "success",
+            "number": 10
+          },
+          {
+            "name": "Post Run Swatinem/rust-cache@v2",
+            "status": "completed",
+            "conclusion": "success",
+            "number": 19
+          },
+          {
+            "name": "Post Run actions/checkout@v5",
+            "status": "completed",
+            "conclusion": "success",
+            "number": 20
+          },
+          {
+            "name": "Complete job",
+            "status": "completed",
+            "conclusion": "success",
+            "number": 21
+          }
+        ]
+      },
+      {
+        "id": 118373225849,
+        "name": "Proxy feature compatibility",
+        "status": "completed",
+        "conclusion": "success",
+        "run_id": 39343338713,
+        "logs_url": null,
+        "steps": [
+          {
+            "name": "Set up job",
+            "status": "completed",
+            "conclusion": "success",
+            "number": 1
+          },
+          {
+            "name": "Run actions/checkout@v5",
+            "status": "completed",
+            "conclusion": "success",
+            "number": 2
+          },
+          {
+            "name": "Run dtolnay/rust-toolchain@stable",
+            "status": "completed",
+            "conclusion": "success",
+            "number": 3
+          },
+          {
+            "name": "Run Swatinem/rust-cache@v2",
+            "status": "completed",
+            "conclusion": "success",
+            "number": 4
+          },
+          {
+            "name": "Install protoc",
+            "status": "completed",
+            "conclusion": "success",
+            "number": 5
+          },
+          {
+            "name": "Verify protoc",
+            "status": "completed",
+            "conclusion": "success",
+            "number": 6
+          },
+          {
+            "name": "Check every minimal proxy protocol feature",
+            "status": "completed",
+            "conclusion": "success",
+            "number": 7
+          },
+          {
+            "name": "Test standalone HTTP client navigation",
+            "status": "completed",
+            "conclusion": "success",
+            "number": 8
+          },
+          {
+            "name": "Post Run Swatinem/rust-cache@v2",
+            "status": "completed",
+            "conclusion": "success",
+            "number": 15
+          },
+          {
+            "name": "Post Run actions/checkout@v5",
+            "status": "completed",
+            "conclusion": "success",
+            "number": 16
+          },
+          {
+            "name": "Complete job",
+            "status": "completed",
+            "conclusion": "success",
+            "number": 17
+          }
+        ]
+      },
+      {
+        "id": 118373225925,
+        "name": "TUN platform check (macos-14)",
+        "status": "completed",
+        "conclusion": "success",
+        "run_id": 39343338713,
+        "logs_url": null,
+        "steps": [
+          {
+            "name": "Set up job",
+            "status": "completed",
+            "conclusion": "success",
+            "number": 1
+          },
+          {
+            "name": "Run actions/checkout@v5",
+            "status": "completed",
+            "conclusion": "success",
+            "number": 2
+          },
+          {
+            "name": "Run dtolnay/rust-toolchain@stable",
+            "status": "completed",
+            "conclusion": "success",
+            "number": 3
+          },
+          {
+            "name": "Run Swatinem/rust-cache@v2",
+            "status": "completed",
+            "conclusion": "success",
+            "number": 4
+          },
+          {
+            "name": "Check native TUN and socket backends",
+            "status": "completed",
+            "conclusion": "success",
+            "number": 5
+          },
+          {
+            "name": "Test native Direct dial policy and socket binding",
+            "status": "completed",
+            "conclusion": "success",
+            "number": 6
+          },
+          {
+            "name": "Check opt-in WireGuard endpoint on this platform",
+            "status": "completed",
+            "conclusion": "success",
+            "number": 7
+          },
+          {
+            "name": "Verify validation alongside a running kernel",
+            "status": "completed",
+            "conclusion": "success",
+            "number": 8
+          },
+          {
+            "name": "Compile privileged TUN E2E harness",
+            "status": "completed",
+            "conclusion": "success",
+            "number": 9
+          },
+          {
+            "name": "Post Run Swatinem/rust-cache@v2",
+            "status": "completed",
+            "conclusion": "success",
+            "number": 17
+          },
+          {
+            "name": "Post Run actions/checkout@v5",
+            "status": "completed",
+            "conclusion": "success",
+            "number": 18
+          },
+          {
+            "name": "Complete job",
+            "status": "completed",
+            "conclusion": "success",
+            "number": 19
+          }
+        ]
+      },
+      {
+        "id": 118373225955,
+        "name": "Build Linux musl compatibility artifact",
+        "status": "completed",
+        "conclusion": "success",
+        "run_id": 39343338713,
+        "logs_url": null,
+        "steps": [
+          {
+            "name": "Set up job",
+            "status": "completed",
+            "conclusion": "success",
+            "number": 1
+          },
+          {
+            "name": "Run actions/checkout@v5",
+            "status": "completed",
+            "conclusion": "success",
+            "number": 2
+          },
+          {
+            "name": "Run dtolnay/rust-toolchain@stable",
+            "status": "completed",
+            "conclusion": "success",
+            "number": 3
+          },
+          {
+            "name": "Run Swatinem/rust-cache@v2",
+            "status": "completed",
+            "conclusion": "success",
+            "number": 4
+          },
+          {
+            "name": "Install cross",
+            "status": "completed",
+            "conclusion": "success",
+            "number": 5
+          },
+          {
+            "name": "Verify cross environment",
+            "status": "completed",
+            "conclusion": "success",
+            "number": 6
+          },
+          {
+            "name": "Build compatibility binary",
+            "status": "completed",
+            "conclusion": "success",
+            "number": 7
+          },
+          {
+            "name": "Verify static linkage",
+            "status": "completed",
+            "conclusion": "success",
+            "number": 8
+          },
+          {
+            "name": "Post Run Swatinem/rust-cache@v2",
+            "status": "completed",
+            "conclusion": "success",
+            "number": 15
+          },
+          {
+            "name": "Post Run actions/checkout@v5",
+            "status": "completed",
+            "conclusion": "success",
+            "number": 16
+          },
+          {
+            "name": "Complete job",
+            "status": "completed",
+            "conclusion": "success",
+            "number": 17
+          }
+        ]
+      },
+      {
+        "id": 118373225960,
+        "name": "TUN platform check (ubuntu-22.04)",
+        "status": "completed",
+        "conclusion": "success",
+        "run_id": 39343338713,
+        "logs_url": null,
+        "steps": [
+          {
+            "name": "Set up job",
+            "status": "completed",
+            "conclusion": "success",
+            "number": 1
+          },
+          {
+            "name": "Run actions/checkout@v5",
+            "status": "completed",
+            "conclusion": "success",
+            "number": 2
+          },
+          {
+            "name": "Run dtolnay/rust-toolchain@stable",
+            "status": "completed",
+            "conclusion": "success",
+            "number": 3
+          },
+          {
+            "name": "Run Swatinem/rust-cache@v2",
+            "status": "completed",
+            "conclusion": "success",
+            "number": 4
+          },
+          {
+            "name": "Check native TUN and socket backends",
+            "status": "completed",
+            "conclusion": "success",
+            "number": 5
+          },
+          {
+            "name": "Test native Direct dial policy and socket binding",
+            "status": "completed",
+            "conclusion": "success",
+            "number": 6
+          },
+          {
+            "name": "Check opt-in WireGuard endpoint on this platform",
+            "status": "completed",
+            "conclusion": "success",
+            "number": 7
+          },
+          {
+            "name": "Verify validation alongside a running kernel",
+            "status": "completed",
+            "conclusion": "success",
+            "number": 8
+          },
+          {
+            "name": "Compile privileged TUN E2E harness",
+            "status": "completed",
+            "conclusion": "success",
+            "number": 9
+          },
+          {
+            "name": "Post Run Swatinem/rust-cache@v2",
+            "status": "completed",
+            "conclusion": "success",
+            "number": 17
+          },
+          {
+            "name": "Post Run actions/checkout@v5",
+            "status": "completed",
+            "conclusion": "success",
+            "number": 18
+          },
+          {
+            "name": "Complete job",
+            "status": "completed",
+            "conclusion": "success",
+            "number": 19
+          }
+        ]
+      },
+      {
+        "id": 118373225980,
+        "name": "Check & Test (Linux)",
+        "status": "in_progress",
+        "conclusion": null,
+        "run_id": 39343338713,
+        "logs_url": null,
+        "steps": [
+          {
+            "name": "Set up job",
+            "status": "completed",
+            "conclusion": "success",
+            "number": 1
+          },
+          {
+            "name": "Run actions/checkout@v5",
+            "status": "completed",
+            "conclusion": "success",
+            "number": 2
+          },
+          {
+            "name": "Run dtolnay/rust-toolchain@stable",
+            "status": "completed",
+            "conclusion": "success",
+            "number": 3
+          },
+          {
+            "name": "Run Swatinem/rust-cache@v2",
+            "status": "completed",
+            "conclusion": "success",
+            "number": 4
+          },
+          {
+            "name": "Install protoc",
+            "status": "completed",
+            "conclusion": "success",
+            "number": 5
+          },
+          {
+            "name": "Verify protoc",
+            "status": "completed",
+            "conclusion": "success",
+            "number": 6
+          },
+          {
+            "name": "Test (workspace, including connector webhook delivery)",
+            "status": "in_progress",
+            "conclusion": null,
+            "number": 7
+          },
+          {
+            "name": "Check representative minimal feature surfaces",
+            "status": "pending",
+            "conclusion": null,
+            "number": 8
+          },
+          {
+            "name": "Post Run Swatinem/rust-cache@v2",
+            "status": "pending",
+            "conclusion": null,
+            "number": 15
+          },
+          {
+            "name": "Post Run actions/checkout@v5",
+            "status": "pending",
+            "conclusion": null,
+            "number": 16
+          }
+        ]
+      },
+      {
+        "id": 118373226144,
+        "name": "TUN platform check (windows-2022)",
+        "status": "in_progress",
+        "conclusion": null,
+        "run_id": 39343338713,
+        "logs_url": null,
+        "steps": [
+          {
+            "name": "Set up job",
+            "status": "completed",
+            "conclusion": "success",
+            "number": 1
+          },
+          {
+            "name": "Run actions/checkout@v5",
+            "status": "completed",
+            "conclusion": "success",
+            "number": 2
+          },
+          {
+            "name": "Run dtolnay/rust-toolchain@stable",
+            "status": "completed",
+            "conclusion": "success",
+            "number": 3
+          },
+          {
+            "name": "Run Swatinem/rust-cache@v2",
+            "status": "completed",
+            "conclusion": "success",
+            "number": 4
+          },
+          {
+            "name": "Check native TUN and socket backends",
+            "status": "completed",
+            "conclusion": "success",
+            "number": 5
+          },
+          {
+            "name": "Test native Direct dial policy and socket binding",
+            "status": "completed",
+            "conclusion": "success",
+            "number": 6
+          },
+          {
+            "name": "Check opt-in WireGuard endpoint on this platform",
+            "status": "completed",
+            "conclusion": "success",
+            "number": 7
+          },
+          {
+            "name": "Verify validation alongside a running kernel",
+            "status": "in_progress",
+            "conclusion": null,
+            "number": 8
+          },
+          {
+            "name": "Compile privileged TUN E2E harness",
+            "status": "pending",
+            "conclusion": null,
+            "number": 9
+          },
+          {
+            "name": "Post Run Swatinem/rust-cache@v2",
+            "status": "pending",
+            "conclusion": null,
+            "number": 17
+          },
+          {
+            "name": "Post Run actions/checkout@v5",
+            "status": "pending",
+            "conclusion": null,
+            "number": 18
+          }
+        ]
+      },
+      {
+        "id": 118373227484,
+        "name": "Optional surface compatibility",
+        "status": "completed",
+        "conclusion": "skipped",
+        "run_id": 39343338713,
+        "logs_url": null,
+        "steps": null
+      }
+    ],
+    "tun_jobs": [
+      {
+        "id": 118369931627,
+        "name": "Select TUN checks",
+        "status": "completed",
+        "conclusion": "success",
+        "run_id": 39343338722,
+        "logs_url": null,
+        "steps": [
+          {
+            "name": "Set up job",
+            "status": "completed",
+            "conclusion": "success",
+            "number": 1
+          },
+          {
+            "name": "Run actions/checkout@v5",
+            "status": "completed",
+            "conclusion": "success",
+            "number": 2
+          },
+          {
+            "name": "Run ./.github/actions/ci-scope",
+            "status": "completed",
+            "conclusion": "success",
+            "number": 3
+          },
+          {
+            "name": "Post Run actions/checkout@v5",
+            "status": "completed",
+            "conclusion": "success",
+            "number": 6
+          },
+          {
+            "name": "Complete job",
+            "status": "completed",
+            "conclusion": "success",
+            "number": 7
+          }
+        ]
+      },
+      {
+        "id": 118370795712,
+        "name": "hosted-linux",
+        "status": "completed",
+        "conclusion": "success",
+        "run_id": 39343338722,
+        "logs_url": null,
+        "steps": [
+          {
+            "name": "Set up job",
+            "status": "completed",
+            "conclusion": "success",
+            "number": 1
+          },
+          {
+            "name": "Run actions/checkout@v5",
+            "status": "completed",
+            "conclusion": "success",
+            "number": 2
+          },
+          {
+            "name": "Run dtolnay/rust-toolchain@stable",
+            "status": "completed",
+            "conclusion": "success",
+            "number": 3
+          },
+          {
+            "name": "Run Swatinem/rust-cache@v2",
+            "status": "completed",
+            "conclusion": "success",
+            "number": 4
+          },
+          {
+            "name": "Install build prerequisites",
+            "status": "completed",
+            "conclusion": "success",
+            "number": 5
+          },
+          {
+            "name": "Test route-switch coverage reporting",
+            "status": "completed",
+            "conclusion": "success",
+            "number": 6
+          },
+          {
+            "name": "Run zero-tun tests",
+            "status": "completed",
+            "conclusion": "success",
+            "number": 7
+          },
+          {
+            "name": "Run native Linux route reconciliation E2E",
+            "status": "completed",
+            "conclusion": "success",
+            "number": 8
+          },
+          {
+            "name": "Run privileged TUN smoke test",
+            "status": "completed",
+            "conclusion": "skipped",
+            "number": 9
+          },
+          {
+            "name": "Run direct UDP self-capture E2E",
+            "status": "completed",
+            "conclusion": "success",
+            "number": 10
+          },
+          {
+            "name": "Run Fake-IP DoH underlay E2E",
+            "status": "completed",
+            "conclusion": "success",
+            "number": 11
+          },
+          {
+            "name": "Run disabled DNS with TUN system resolver E2E",
+            "status": "completed",
+            "conclusion": "success",
+            "number": 12
+          },
+          {
+            "name": "Run command-managed egress publication E2E",
+            "status": "completed",
+            "conclusion": "success",
+            "number": 13
+          },
+          {
+            "name": "Run offline dual-stack privileged TUN E2E",
+            "status": "completed",
+            "conclusion": "success",
+            "number": 14
+          },
+          {
+            "name": "Post Run Swatinem/rust-cache@v2",
+            "status": "completed",
+            "conclusion": "success",
+            "number": 27
+          },
+          {
+            "name": "Post Run actions/checkout@v5",
+            "status": "completed",
+            "conclusion": "success",
+            "number": 28
+          },
+          {
+            "name": "Complete job",
+            "status": "completed",
+            "conclusion": "success",
+            "number": 29
+          }
+        ]
+      },
+      {
+        "id": 118370795747,
+        "name": "hosted-windows",
+        "status": "in_progress",
+        "conclusion": null,
+        "run_id": 39343338722,
+        "logs_url": null,
+        "steps": [
+          {
+            "name": "Set up job",
+            "status": "completed",
+            "conclusion": "success",
+            "number": 1
+          },
+          {
+            "name": "Run actions/checkout@v5",
+            "status": "completed",
+            "conclusion": "success",
+            "number": 2
+          },
+          {
+            "name": "Run dtolnay/rust-toolchain@stable",
+            "status": "completed",
+            "conclusion": "success",
+            "number": 3
+          },
+          {
+            "name": "Run Swatinem/rust-cache@v2",
+            "status": "completed",
+            "conclusion": "success",
+            "number": 4
+          },
+          {
+            "name": "Install protoc",
+            "status": "completed",
+            "conclusion": "success",
+            "number": 5
+          },
+          {
+            "name": "Stage pinned Wintun runtime",
+            "status": "completed",
+            "conclusion": "success",
+            "number": 6
+          },
+          {
+            "name": "Run zero-tun tests",
+            "status": "completed",
+            "conclusion": "success",
+            "number": 7
+          },
+          {
+            "name": "Run privileged Wintun address configuration E2E",
+            "status": "completed",
+            "conclusion": "success",
+            "number": 8
+          },
+          {
+            "name": "Run existing host PacketSink Wintun qualification",
+            "status": "completed",
+            "conclusion": "success",
+            "number": 9
+          },
+          {
+            "name": "Check Windows Packet runtime wiring",
+            "status": "completed",
+            "conclusion": "success",
+            "number": 10
+          },
+          {
+            "name": "Capture Windows TUN test packet provenance",
+            "status": "completed",
+            "conclusion": "success",
+            "number": 11
+          },
+          {
+            "name": "Run privileged TUN smoke test",
+            "status": "completed",
+            "conclusion": "skipped",
+            "number": 12
+          },
+          {
+            "name": "Compare controlled HTTP direct and TUN connections",
+            "status": "in_progress",
+            "conclusion": null,
+            "number": 13
+          },
+          {
+            "name": "Run direct UDP self-capture E2E",
+            "status": "pending",
+            "conclusion": null,
+            "number": 14
+          },
+          {
+            "name": "Run Fake-IP DoH and open.bigmodel.cn multi-A fallback E2E",
+            "status": "pending",
+            "conclusion": null,
+            "number": 15
+          },
+          {
+            "name": "Run command-managed egress publication E2E",
+            "status": "pending",
+            "conclusion": null,
+            "number": 16
+          },
+          {
+            "name": "Run disabled DNS with TUN system resolver E2E",
+            "status": "pending",
+            "conclusion": null,
+            "number": 17
+          },
+          {
+            "name": "Attempt native Windows route switching and report fixture coverage",
+            "status": "pending",
+            "conclusion": null,
+            "number": 18
+          },
+          {
+            "name": "Upload Windows route-switch coverage report",
+            "status": "pending",
+            "conclusion": null,
+            "number": 19
+          },
+          {
+            "name": "Run IPv4-only trusted-domain fallback E2E",
+            "status": "pending",
+            "conclusion": null,
+            "number": 20
+          },
+          {
+            "name": "Run offline dual-stack privileged TUN E2E",
+            "status": "pending",
+            "conclusion": null,
+            "number": 21
+          },
+          {
+            "name": "Collect Windows TUN packet evidence",
+            "status": "pending",
+            "conclusion": null,
+            "number": 22
+          },
+          {
+            "name": "Upload Windows TUN packet evidence",
+            "status": "pending",
+            "conclusion": null,
+            "number": 23
+          },
+          {
+            "name": "Post Run Swatinem/rust-cache@v2",
+            "status": "pending",
+            "conclusion": null,
+            "number": 45
+          },
+          {
+            "name": "Post Run actions/checkout@v5",
+            "status": "pending",
+            "conclusion": null,
+            "number": 46
+          }
+        ]
+      },
+      {
+        "id": 118370795762,
+        "name": "hosted-macos",
+        "status": "completed",
+        "conclusion": "success",
+        "run_id": 39343338722,
+        "logs_url": null,
+        "steps": [
+          {
+            "name": "Set up job",
+            "status": "completed",
+            "conclusion": "success",
+            "number": 1
+          },
+          {
+            "name": "Run actions/checkout@v5",
+            "status": "completed",
+            "conclusion": "success",
+            "number": 2
+          },
+          {
+            "name": "Run dtolnay/rust-toolchain@stable",
+            "status": "completed",
+            "conclusion": "success",
+            "number": 3
+          },
+          {
+            "name": "Run Swatinem/rust-cache@v2",
+            "status": "completed",
+            "conclusion": "success",
+            "number": 4
+          },
+          {
+            "name": "Record native network topology",
+            "status": "completed",
+            "conclusion": "success",
+            "number": 5
+          },
+          {
+            "name": "Run zero-tun tests",
+            "status": "completed",
+            "conclusion": "success",
+            "number": 6
+          },
+          {
+            "name": "Run native PF_ROUTE lifecycle E2E",
+            "status": "completed",
+            "conclusion": "success",
+            "number": 7
+          },
+          {
+            "name": "Repair lost routes and PF rules without changing the physical interface",
+            "status": "completed",
+            "conclusion": "success",
+            "number": 8
+          },
+          {
+            "name": "Run privileged TUN smoke test",
+            "status": "completed",
+            "conclusion": "skipped",
+            "number": 9
+          },
+          {
+            "name": "Run macOS loopback capture and crash-recovery E2E",
+            "status": "completed",
+            "conclusion": "success",
+            "number": 10
+          },
+          {
+            "name": "Run direct UDP self-capture E2E",
+            "status": "completed",
+            "conclusion": "success",
+            "number": 11
+          },
+          {
+            "name": "Run Fake-IP DoH underlay E2E",
+            "status": "completed",
+            "conclusion": "success",
+            "number": 12
+          },
+          {
+            "name": "Run disabled DNS with TUN system resolver E2E",
+            "status": "completed",
+            "conclusion": "success",
+            "number": 13
+          },
+          {
+            "name": "Run command-managed egress publication E2E",
+            "status": "completed",
+            "conclusion": "success",
+            "number": 14
+          },
+          {
+            "name": "Run offline dual-stack privileged TUN E2E",
+            "status": "completed",
+            "conclusion": "skipped",
+            "number": 15
+          },
+          {
+            "name": "Post Run Swatinem/rust-cache@v2",
+            "status": "completed",
+            "conclusion": "success",
+            "number": 29
+          },
+          {
+            "name": "Post Run actions/checkout@v5",
+            "status": "completed",
+            "conclusion": "success",
+            "number": 30
+          },
+          {
+            "name": "Complete job",
+            "status": "completed",
+            "conclusion": "success",
+            "number": 31
+          }
+        ]
+      }
+    ],
+    "linux": {
+      "job": 118373225980,
+      "status": "in_progress",
+      "counts": null,
+      "raw_log_retrieved": false
+    },
+    "vless": {
+      "job": 118369931297,
+      "counts": [
+        251,
+        0,
+        1
+      ],
+      "summary_rows": 15,
+      "file": "ci-vless-8fb2c1a4.raw.txt",
+      "sha256": "2481c8a743308b5170ccb0806813bb0955ab547c445fadc0fa74efd6d269fc00"
+    },
+    "windows_route_switch": null,
+    "windows_route_reason": "Windows hosted job is in progress; no actual route-report raw log retrieved at this snapshot.",
+    "limits": "Snapshot belongs to8fb only: all7 protocol references/Connector/VersionContract success; mainCI and TUN still in progress, not green. Optional surface skipped. Historical XHTTP earlyEOF and fixed-reference byte-count qualification remain. Prior1cac windows executed=false does not prove this run's coverage."
+  },
+  "release": {
+    "git_hash": "d9cf1c41",
+    "binary_sha256": "481f3ba21be7a221a55d9666b3e99e6875d3210215e673ec631522c7dbc5cc7c",
+    "features": [
+      "status-api",
+      "http",
+      "hysteria2",
+      "mieru",
+      "mixed",
+      "shadowsocks",
+      "socks5",
+      "trojan",
+      "vless",
+      "vmess",
+      "dns"
+    ],
+    "scope": "Actual default release; not optional connector/grpc/WireGuard release qualification."
+  },
+  "artifacts": [
+    {
+      "source": "pr04-plugin-owner-final-fmt.txt",
+      "source_bytes": 0,
+      "source_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "artifact": "evidence/plugin-owner-pr04-plugin-owner-final-fmt.txt.gz",
+      "artifact_bytes": 20,
+      "artifact_sha256": "f61f27bd17de546264aa58f40f3aafaac7021e0ef69c17f6b1b4cd7664a037ec"
+    },
+    {
+      "source": "pr04-plugin-owner-final-check.txt",
+      "source_bytes": 1228,
+      "source_sha256": "0d3ae1bd3e6c3122f2ad9b37b26c4e0422905a464c85c3a5c2bcdfb104ecc4cd",
+      "artifact": "evidence/plugin-owner-pr04-plugin-owner-final-check.txt.gz",
+      "artifact_bytes": 465,
+      "artifact_sha256": "a2e93d2eb8d3a617831d654c37505cf0669900a07b630f16a33dbb5d6695d850"
+    },
+    {
+      "source": "pr04-plugin-owner-final-test.txt",
+      "source_bytes": 294679,
+      "source_sha256": "a3a6014ea897e17ebdb661c0ec6bd6e3b1d7af702099b9f1a48d4b54db1b6392",
+      "artifact": "evidence/plugin-owner-pr04-plugin-owner-final-test.txt.gz",
+      "artifact_bytes": 64727,
+      "artifact_sha256": "5c2dc5374b4f2f780f52281621128aa3db4f8511372001ad9a92457c40610d21"
+    },
+    {
+      "source": "pr04-plugin-owner-final-release.txt",
+      "source_bytes": 991,
+      "source_sha256": "183e866790426ce1116bb9539e401af7fe235cb311e02ea1e35e941574ecadb6",
+      "artifact": "evidence/plugin-owner-pr04-plugin-owner-final-release.txt.gz",
+      "artifact_bytes": 432,
+      "artifact_sha256": "625b7cf1c6a8f3159388054bafefb2c71d8d12be890ddf85fff6b171bb9146b8"
+    },
+    {
+      "source": "pr04-plugin-owner-final-no-std.txt",
+      "source_bytes": 60,
+      "source_sha256": "e7a0e788c2f011df0653279f56cd58dcca091a34d28573a86e1b886eaa34b4d9",
+      "artifact": "evidence/plugin-owner-pr04-plugin-owner-final-no-std.txt.gz",
+      "artifact_bytes": 80,
+      "artifact_sha256": "7c00c90321e2c279905ec343718900c1ddea3434d33ea22392d53eeb995e6957"
+    },
+    {
+      "source": "pr04-plugin-owner-final-minimal.txt",
+      "source_bytes": 30233,
+      "source_sha256": "c9bff0d1f39c30414b7978cc6d2ae66de6b6dadbe2dab949f6cd2938e39fad3d",
+      "artifact": "evidence/plugin-owner-pr04-plugin-owner-final-minimal.txt.gz",
+      "artifact_bytes": 5896,
+      "artifact_sha256": "39d071f531f94ba8566b8d946fe990425d4e248bdedf3cb2472d84fa3d3a5ee8"
+    },
+    {
+      "source": "pr04-plugin-owner-final-dependencies.txt",
+      "source_bytes": 263,
+      "source_sha256": "9bf298458393fb4315cfa94f3e0d79101b9caf8b2c9292314d989f68905c8ed1",
+      "artifact": "evidence/plugin-owner-pr04-plugin-owner-final-dependencies.txt.gz",
+      "artifact_bytes": 122,
+      "artifact_sha256": "28f519da20dd12d57e18c3651d837c46e3d60e188b4e79651ec332ff4d459ebc"
+    },
+    {
+      "source": "pr04-plugin-owner-final-validation.json",
+      "source_bytes": 2869,
+      "source_sha256": "6680cc26a63d86edf7bfdf1977555485fb0842de532978289860b868b611a96a",
+      "artifact": "evidence/plugin-owner-pr04-plugin-owner-final-validation.json.gz",
+      "artifact_bytes": 643,
+      "artifact_sha256": "2e3c2bf98e8d78713355291a97bc3426b62d4381c4f1b97e93d8a318a3592934"
+    },
+    {
+      "source": "pr04-plugin-owner-precommit-validation.json",
+      "source_bytes": 5017,
+      "source_sha256": "bf0d425a6ab975904ae66dcf127e7aefdbb6f6175d88c3ce30367d7460d8786d",
+      "artifact": "evidence/plugin-owner-pr04-plugin-owner-precommit-validation.json.gz",
+      "artifact_bytes": 1811,
+      "artifact_sha256": "5b81e79b0d187e7d2b021488b9e7588222d42da2e9dc91fb8f3b1530204cd19f"
+    },
+    {
+      "source": "pr04-plugin-owner-negative-1.txt",
+      "source_bytes": 2945,
+      "source_sha256": "11fb52f8b0ac8db79b186ead8c3e23f08a62a93607984c243fdbcce0d0cac60a",
+      "artifact": "evidence/plugin-owner-pr04-plugin-owner-negative-1.txt.gz",
+      "artifact_bytes": 1087,
+      "artifact_sha256": "69806eab57f937a3a6055523aabb43699d230affdd65b6248d849b65dd5ce14b"
+    },
+    {
+      "source": "pr04-plugin-owner-negative-metadata.json",
+      "source_bytes": 903,
+      "source_sha256": "67b410bbdf8d96b5730d34ab3abb4d64e87640fcbff56a2e18d387376fb2b73d",
+      "artifact": "evidence/plugin-owner-pr04-plugin-owner-negative-metadata.json.gz",
+      "artifact_bytes": 519,
+      "artifact_sha256": "ce0e022c71c627412d7e3f3eb06cb8ca3ed02ea47bf4298f679d517ad7303d68"
+    },
+    {
+      "source": "pr04-plugin-owner-negative-tests.rs",
+      "source_bytes": 7273,
+      "source_sha256": "ec4f7fd16c335a1452b94c9c16140220528dacbcc34016795cdc74b3cff0d722",
+      "artifact": "evidence/plugin-owner-pr04-plugin-owner-negative-tests.rs.gz",
+      "artifact_bytes": 2208,
+      "artifact_sha256": "8587f8a059af5e675ff1f681baa773076873432e32379f03325252981281998e"
+    },
+    {
+      "source": "pr04-plugin-owner-positive-1.txt",
+      "source_bytes": 4053,
+      "source_sha256": "8a3d78b4f45b5f3d76cf2aa6b1a862b8d02e16fc068345a2aacf74e9cd7228e8",
+      "artifact": "evidence/plugin-owner-pr04-plugin-owner-positive-1.txt.gz",
+      "artifact_bytes": 1545,
+      "artifact_sha256": "ebf52926b03ed44fa032fdd8bf827eadf4061fd909488b3b3843aa31ae1e7d2d"
+    },
+    {
+      "source": "pr04-plugin-owner-positive-2.txt",
+      "source_bytes": 4513,
+      "source_sha256": "a614c7b77b45c7e3365b3e9074cb5286461cfe3e9abe68d9b1795be4d48ad743",
+      "artifact": "evidence/plugin-owner-pr04-plugin-owner-positive-2.txt.gz",
+      "artifact_bytes": 1655,
+      "artifact_sha256": "f0f04da58c158b6a015e27e4e7aa6b43bc66b0f447ea2259be696f572efd9093"
+    },
+    {
+      "source": "pr04-plugin-owner-positive-3.txt",
+      "source_bytes": 4513,
+      "source_sha256": "0fc7730e177787d7d7a3aeed1d1108924fdf02422056a152bba2d544f5ea6426",
+      "artifact": "evidence/plugin-owner-pr04-plugin-owner-positive-3.txt.gz",
+      "artifact_bytes": 1654,
+      "artifact_sha256": "4a21929b57fe0a1154fc5dc23a196cc06164b7bb33870e7ca5ec8cc2fa7df999"
+    },
+    {
+      "source": "pr04-plugin-owner-runtime-minimal-1.txt",
+      "source_bytes": 1490,
+      "source_sha256": "bf26a8ce214b99a82f7f9c1e4c05c97b3270fe2d93ac26d2227f6d3fc7b8e11b",
+      "artifact": "evidence/plugin-owner-pr04-plugin-owner-runtime-minimal-1.txt.gz",
+      "artifact_bytes": 527,
+      "artifact_sha256": "766192e5be43583c3dfb8c1d462707d0a42672c11a28ba3dbd189e3df560a57f"
+    },
+    {
+      "source": "pr04-plugin-owner-strict-1.txt",
+      "source_bytes": 1228,
+      "source_sha256": "82d9d8fdd7a231651ccd8dccc9273fa3e9c93e882af1bd108997cfbc6b0f94e5",
+      "artifact": "evidence/plugin-owner-pr04-plugin-owner-strict-1.txt.gz",
+      "artifact_bytes": 465,
+      "artifact_sha256": "71fb2dc2cf042d19982a014d8ef0182bb6938ad1f1d55c2bc2808bcb38fd5483"
+    },
+    {
+      "source": "pr04-plugin-owner-constrained-1.txt",
+      "source_bytes": 3884,
+      "source_sha256": "7cd477c10e57a7d73ce4e611a9be72f4b1402e49b53c7eafc2ad35f729a817e4",
+      "artifact": "evidence/plugin-owner-pr04-plugin-owner-constrained-1.txt.gz",
+      "artifact_bytes": 1299,
+      "artifact_sha256": "c1b2a9b6ea577fa656d1c45fc69ab45b911b816a2b83271d977f59931071d1a5"
+    },
+    {
+      "source": "pr04-plugin-owner-constrained-1.json",
+      "source_bytes": 1981,
+      "source_sha256": "08372360a8b9f9e69a1b9610ded427b6bda158b5dbef458916ec8be5ee92ede7",
+      "artifact": "evidence/plugin-owner-pr04-plugin-owner-constrained-1.json.gz",
+      "artifact_bytes": 999,
+      "artifact_sha256": "48278ae77f1d1694b67f1fd4d84f2f7faac227fc754355baeb51a90586d1e158"
+    },
+    {
+      "source": "pr04-plugin-owner-release-build-info.txt",
+      "source_bytes": 5798,
+      "source_sha256": "1ded7cd39f93903a346d2f6a2abc35c65f44f8e3da7a63c7c62b2ac6681e6565",
+      "artifact": "evidence/plugin-owner-pr04-plugin-owner-release-build-info.txt.gz",
+      "artifact_bytes": 831,
+      "artifact_sha256": "7e7afa3bbf88799c939886e7d2564164db098f1847fbab5c0e34afdd15fa02af"
+    },
+    {
+      "source": "ci-evidence-8fb2c1a4.json",
+      "source_bytes": 32235,
+      "source_sha256": "60e11c6fd7cf51b97553087b0eb62f2fdfc8636607da5820e2ce62aa539beb9a",
+      "artifact": "evidence/plugin-owner-ci-evidence-8fb2c1a4.json.gz",
+      "artifact_bytes": 2836,
+      "artifact_sha256": "d684017064381959d06862fd475f2e0cdcee585ebb36d88a7450db8840605173"
+    },
+    {
+      "source": "ci-vless-8fb2c1a4.raw.txt",
+      "source_bytes": 269546,
+      "source_sha256": "2481c8a743308b5170ccb0806813bb0955ab547c445fadc0fa74efd6d269fc00",
+      "artifact": "evidence/plugin-owner-ci-vless-8fb2c1a4.raw.txt.gz",
+      "artifact_bytes": 39108,
+      "artifact_sha256": "57ea163fdd44a50389b1dfc7e4901d1dca401d24133d30babb1acef86290aba2"
+    },
+    {
+      "source": "qualify-plugin-owner.py",
+      "source_bytes": 2188,
+      "source_sha256": "dda2489a0b6f84769c1ac3711016302e374d9fae8db1ab62e936b08b89f4d8b0",
+      "artifact": "evidence/plugin-owner-qualify-plugin-owner.py.gz",
+      "artifact_bytes": 942,
+      "artifact_sha256": "f90f34a1788a8d82a63d41c9bba02df4f2f6ca4d3e4e35d00527d54840f57ddb"
+    }
+  ],
+  "remaining": "Native process grants, resource graph/planning and complete pool/host replacement are still pending. All17 continue on same branch/Draft124. Shared-resource graph and M4 activation, plugin Child ownership/confirmed cleanup, remaining Stream/carrier/Datagram/inbound/Packet, RuntimeHost, old bridges and final consumers/physical devices remain ongoing. Previous CI belongs to8fb only; historical XHTTP/reference qualification and actual Windows route coverage remain separately recorded.",
+  "post_qualification_documentation": {
+    "files": [
+      "AGENTS.md",
+      "release/breaking-changes.md"
+    ],
+    "reason": "Clarify that terminal failed/interrupted readiness begins once a Child exists; pre-Child creation errors do not own a child. Runtime source unchanged."
+  }
+}

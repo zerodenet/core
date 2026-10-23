@@ -1,3 +1,6 @@
+#[cfg(test)]
+#[path = "udp/tests/owned.rs"]
+mod owned_tests;
 use zero_engine::EngineError;
 
 use crate::adapters::shadowsocks::ShadowsocksAdapter;
@@ -181,6 +184,25 @@ impl PreparedUdpPacketPathOperation for ShadowsocksPacketPathOperation {
 
     fn datagram_source(&self) -> Option<UdpDatagramSource> {
         Some(packet_path_datagram_source(self.plan.clone()))
+    }
+
+    fn build_owned_carrier<'a>(
+        &'a self,
+        services: crate::protocol_registry::PacketPathExecutionServices,
+        owner: std::sync::Arc<crate::runtime::udp_dispatch::packet_owner::PacketCarrierOwnerSlot>,
+        demand: crate::runtime::udp_dispatch::packet_owner::PacketCarrierDemand,
+    ) -> crate::runtime::udp_dispatch::packet_path_operation::PacketPathCarrierFuture<'a> {
+        Box::pin(async move {
+            crate::runtime::udp_flow::packet_path_chain::carriers::udp_socket_carrier::owned::build(
+                &services.network(),
+                owner,
+                demand,
+                self.plan.server(),
+                self.plan.port(),
+                self.plan.carrier_codec(),
+            )
+            .await
+        })
     }
 
     fn build_carrier<'a>(

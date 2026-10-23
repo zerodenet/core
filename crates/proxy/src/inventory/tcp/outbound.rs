@@ -5,6 +5,7 @@ use crate::protocol_registry::OutboundAdapterContext;
 use crate::transport::TcpOutboundFailure;
 
 pub(crate) enum PreparedTcpOutbound {
+    NativeRelay(super::PreparedNativeTcpRelayChain),
     Relay(super::PreparedTcpRelayChain),
     Single(super::PreparedTcpCandidate),
     Fallback(Vec<super::PreparedTcpCandidate>),
@@ -16,7 +17,15 @@ impl ProtocolInventory {
         ctx: OutboundAdapterContext<'a>,
         resolved: &'a ResolvedOutbound<'a>,
         mode: RouteMode,
+        components: Option<&crate::component::catalog::ComponentPlan>,
     ) -> Result<PreparedTcpOutbound, TcpOutboundFailure> {
+        // This migration registers Stream-only factories. Strict Packet mode
+        // continues through the existing executable-plane capability check.
+        let components = if mode == RouteMode::Packet {
+            None
+        } else {
+            components
+        };
         match resolved {
             ResolvedOutbound::Relay { chain } => {
                 if mode == RouteMode::Packet {
@@ -29,6 +38,13 @@ impl ProtocolInventory {
                         upstream_endpoint: None,
                         network: None,
                     });
+                }
+                if let Some(prepared) = Self::prepare_native_tcp_relay_chain(
+                    chain
+                        .iter()
+                        .map(|leaf| self.native_tcp_candidate(ctx, leaf, components)),
+                ) {
+                    return prepared.map(PreparedTcpOutbound::NativeRelay);
                 }
                 let claimed = self.claim_relay_chain(
                     ctx.config(),
@@ -51,6 +67,9 @@ impl ProtocolInventory {
                 ))
             }
             ResolvedOutbound::Single(candidate) => {
+                if let Some(prepared) = self.native_tcp_candidate(ctx, candidate, components) {
+                    return prepared.map(PreparedTcpOutbound::Single);
+                }
                 let claimed = self
                     .claim_outbound_leaf(ctx.config(), candidate.clone())
                     .map_err(|error| TcpOutboundFailure {
@@ -69,15 +88,18 @@ impl ProtocolInventory {
 
                 for candidate in candidates.iter().cloned() {
                     let prepared_candidate = self
-                        .claim_outbound_leaf(ctx.config(), candidate)
-                        .map_err(|error| TcpOutboundFailure {
-                            stage: "outbound_leaf_runtime",
-                            error,
-                            upstream_endpoint: None,
-                            network: None,
-                        })
-                        .and_then(|claimed| {
-                            self.prepare_claimed_tcp_candidate(ctx, &claimed, mode)
+                        .native_tcp_candidate(ctx, &candidate, components)
+                        .unwrap_or_else(|| {
+                            self.claim_outbound_leaf(ctx.config(), candidate)
+                                .map_err(|error| TcpOutboundFailure {
+                                    stage: "outbound_leaf_runtime",
+                                    error,
+                                    upstream_endpoint: None,
+                                    network: None,
+                                })
+                                .and_then(|claimed| {
+                                    self.prepare_claimed_tcp_candidate(ctx, &claimed, mode)
+                                })
                         });
                     match prepared_candidate {
                         Ok(candidate) => prepared.push(candidate),

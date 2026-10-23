@@ -1,7 +1,8 @@
 use crate::support;
+use support::listener::EchoListener;
 
 use std::io::{Read, Write};
-use std::net::{TcpListener, TcpStream};
+use std::net::TcpStream;
 use std::process::{Command, Stdio};
 use std::sync::mpsc;
 use std::thread;
@@ -20,10 +21,9 @@ fn local_status_listener_exposes_live_runtime_view() {
     // With `grpc-api` enabled the run command also binds status_port + 1.
     // Ephemeral ports returned by Windows are commonly consecutive, so avoid
     // accidentally assigning that companion port to the echo server.
-    let mut echo_port = free_port();
-    while echo_port == status_port.saturating_add(1) {
-        echo_port = free_port();
-    }
+    let echo =
+        EchoListener::bind_avoiding(&[socks_port, status_port, status_port.saturating_add(1)]);
+    let echo_port = echo.port();
 
     let config = format!(
         r#"{{
@@ -47,7 +47,7 @@ fn local_status_listener_exposes_live_runtime_view() {
     let (accepted_tx, accepted_rx) = mpsc::channel();
     let (release_tx, release_rx) = mpsc::channel();
     let echo_thread = thread::spawn(move || {
-        let listener = TcpListener::bind(("127.0.0.1", echo_port)).expect("bind echo");
+        let listener = echo.into_listener();
         ready_tx.send(()).expect("notify echo ready");
         let (mut stream, _) = listener.accept().expect("accept echo");
         accepted_tx.send(()).expect("notify echo accepted");
@@ -183,10 +183,9 @@ fn local_status_listener_can_switch_selector_group() {
     let _lock = acquire_port_lock();
     let socks_port = free_port();
     let status_port = free_port();
-    let mut echo_port = free_port();
-    while echo_port == status_port.saturating_add(1) {
-        echo_port = free_port();
-    }
+    let echo =
+        EchoListener::bind_avoiding(&[socks_port, status_port, status_port.saturating_add(1)]);
+    let echo_port = echo.port();
 
     let config = format!(
         r#"{{
@@ -229,7 +228,7 @@ fn local_status_listener_can_switch_selector_group() {
 
     let (ready_tx, ready_rx) = mpsc::channel();
     let echo_thread = thread::spawn(move || {
-        let listener = TcpListener::bind(("127.0.0.1", echo_port)).expect("bind echo");
+        let listener = echo.into_listener();
         ready_tx.send(()).expect("notify echo ready");
         let (mut stream, _) = listener.accept().expect("accept echo");
         let mut buf = [0_u8; 4];

@@ -72,7 +72,18 @@ async fn existing_host_wintun_is_read_only_staged_and_releases_its_reader() {
     assert!(device.reader.is_some());
     device.write_all(&packet[..size]).await.unwrap();
     assert!(device.write_all(&[0; 65536]).await.is_err());
-    drop(device); // Wakes and joins the blocking reader, preserving host configuration.
+    // The old backend Drop still wakes/joins its original reader, but cannot
+    // stand in for an explicit native session close receipt. Retain the actual
+    // session and consume that same original through the pinned backend seam.
+    let session = device.session.clone();
+    let identity = session.owned_identity();
+    drop(device);
+    let session = match Arc::try_unwrap(session) {
+        Ok(session) => session,
+        Err(_) => panic!("joined original reader must release its actual session reference"),
+    };
+    let closed = session.close_owned().unwrap();
+    assert!(closed.identity().same_owner(&identity));
     validate_host_configuration(name, &[address], 1400).unwrap();
     let reopened = ExistingWindowsTun::open(name, &[address], 1400).unwrap();
     drop(reopened);

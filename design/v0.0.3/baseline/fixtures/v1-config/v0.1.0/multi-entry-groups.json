@@ -1,0 +1,48 @@
+{
+  "inbounds": [
+    {
+      "tag": "hk-in",
+      "listen": { "address": "127.0.0.1", "port": 7891 },
+      "protocol": { "type": "mixed" }
+    },
+    {
+      "tag": "jp-in",
+      "listen": { "address": "127.0.0.1", "port": 7892 },
+      "protocol": { "type": "mixed" }
+    }
+  ],
+  "outbounds": [
+    { "tag": "hk-a", "protocol": { "type": "direct" } },
+    { "tag": "hk-b", "protocol": { "type": "direct" } },
+    { "tag": "jp-a", "protocol": { "type": "direct" } },
+    { "tag": "jp-b", "protocol": { "type": "direct" } }
+  ],
+  "outbound_groups": [
+    {
+      "tag": "hk-lb",
+      "type": "load_balance",
+      "outbounds": ["hk-a", "hk-b"],
+      "strategy": "round_robin"
+    },
+    {
+      "tag": "jp-lb",
+      "type": "load_balance",
+      "outbounds": ["jp-a", "jp-b"],
+      "strategy": "round_robin"
+    }
+  ],
+  "mode": { "type": "rule" },
+  "route": {
+    "rules": [
+      {
+        "condition": { "type": "inbound", "values": ["hk-in"] },
+        "action": { "type": "route", "outbound": "hk-lb" }
+      },
+      {
+        "condition": { "type": "inbound", "values": ["jp-in"] },
+        "action": { "type": "route", "outbound": "jp-lb" }
+      }
+    ],
+    "final": { "type": "direct" }
+  }
+}

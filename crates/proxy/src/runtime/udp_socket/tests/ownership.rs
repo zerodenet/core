@@ -7,7 +7,7 @@ mod benchmark;
 #[test]
 fn repeated_registration_preserves_owner_and_retirement_revokes_only_its_token() {
     let proxy = proxy();
-    let services = socket_set(&proxy, None).services;
+    let services = socket_set(&proxy, None).services.unwrap();
     let policy = policy(&proxy, Some("first"));
     let generation = services.egress_generation();
     let mut replies = DirectUdpReplies::default();
@@ -40,7 +40,7 @@ fn repeated_registration_preserves_owner_and_retirement_revokes_only_its_token()
 #[test]
 fn live_and_retired_peers_share_the_same_bounded_admission_budget() {
     let proxy = proxy();
-    let services = socket_set(&proxy, None).services;
+    let services = socket_set(&proxy, None).services.unwrap();
     let policy = policy(&proxy, Some("first"));
     let generation = services.egress_generation();
     let mut replies = DirectUdpReplies::default();

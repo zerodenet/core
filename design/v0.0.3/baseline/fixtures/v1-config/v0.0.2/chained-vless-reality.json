@@ -1,0 +1,42 @@
+{
+  "inbounds": [
+    {
+      "tag": "socks-in",
+      "listen": {
+        "address": "127.0.0.1",
+        "port": 1080
+      },
+      "protocol": {
+        "type": "socks5"
+      }
+    }
+  ],
+  "outbounds": [
+    {
+      "tag": "remote-vless-reality",
+      "protocol": {
+        "type": "vless",
+        "server": "edge.example.com",
+        "port": 443,
+        "id": "11111111-2222-3333-4444-555555555555",
+        "reality": {
+          "public_key": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+          "short_id": "0123456789abcdef",
+          "server_name": "www.cloudflare.com",
+          "cipher_suites": [
+            "TLS_AES_128_GCM_SHA256",
+            "TLS_AES_256_GCM_SHA384",
+            "TLS_CHACHA20_POLY1305_SHA256"
+          ]
+        }
+      }
+    }
+  ],
+  "route": {
+    "rules": [],
+    "final": {
+      "type": "route",
+      "outbound": "remote-vless-reality"
+    }
+  }
+}

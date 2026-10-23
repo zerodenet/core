@@ -32,7 +32,9 @@ impl BrowserStream {
     fn poll_cancelled(&mut self, cx: &mut Context<'_>) -> io::Result<()> {
         if self.cancelled.as_mut().poll(cx).is_ready() {
             Err(io::Error::new(
-                io::ErrorKind::Interrupted,
+                // Retirement is permanent. I/O helpers retry Interrupted;
+                // repeating it can spin inside one poll and starve deadlines.
+                io::ErrorKind::ConnectionAborted,
                 "Browser Dialer retired",
             ))
         } else {

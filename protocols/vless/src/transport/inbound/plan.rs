@@ -184,7 +184,7 @@ impl OwnedVlessInboundTransportPlan {
         })
     }
 
-    async fn accept_tcp_inbound(
+    pub(super) async fn accept_tcp_inbound(
         self,
         socket: TokioSocket,
     ) -> Result<Option<VlessTcpInboundAcceptResult>, RuntimeError> {
@@ -336,7 +336,7 @@ impl OwnedVlessInboundTransportPlan {
     }
 }
 
-enum VlessTcpInboundAcceptResult {
+pub(super) enum VlessTcpInboundAcceptResult {
     Control(Box<dyn zero_core::inbound::InboundControlSession>),
     Stream {
         stream: TcpRelayStream,

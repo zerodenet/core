@@ -1,0 +1,9 @@
+
+running 1 test
+test grpc::owned::tests::logical::actual_remote_h2_stream_limit_bounds_pending_demands_and_cancellation_preserves_shared_carrier ... protocol shutdown poll begins
+shutdown step A before revoke
+shutdown step B after revoke
+shutdown step C before pool retire
+shutdown step D after pool retire
+shutdown step E before native carrier shutdown
+scope shutdown poll begins

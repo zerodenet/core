@@ -13,10 +13,9 @@ use crate::runtime::udp_delivery::{
     write_upstream_response as write_upstream_udp_response,
 };
 use crate::runtime::udp_dispatch::UdpDispatch;
-use crate::runtime::udp_flow::packet_path::ChainTask;
 use crate::runtime::udp_flow::response::UpstreamUdpResponse;
 
-pub(super) type ChainAssociationResult = Result<ChainTask, tokio::task::JoinError>;
+pub(super) type ChainAssociationResult = crate::runtime::udp_flow::response_join::ObservedChainJoin;
 
 pub(super) fn finish_dispatch(dispatch: UdpDispatch) {
     for completed in dispatch.finish_all() {

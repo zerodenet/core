@@ -4,7 +4,7 @@ use std::{
     net::{IpAddr, SocketAddr},
     sync::{
         atomic::{AtomicBool, AtomicU64, Ordering},
-        Arc, Mutex,
+        Arc, Mutex, OnceLock,
     },
 };
 use tokio::sync::{mpsc, watch};
@@ -16,7 +16,9 @@ use wireguard::{
 use zero_config::{InboundConfig, InboundProtocolConfig, WireguardSecret};
 use zero_engine::EngineError;
 
+pub(super) mod cold;
 mod device;
+mod recovery;
 use super::inbound_protocol_identity;
 use crate::runtime::inbound_operation::{
     EndpointPeerState, PreparedInboundListenerOperation, RawIpInboundAction, RawIpInboundDevice,
@@ -34,6 +36,7 @@ pub(super) struct LinkedEndpoint {
     peers: watch::Sender<Arc<EndpointPeerState>>,
     packets: Mutex<Option<mpsc::Receiver<EndpointPacket>>>,
     active: Arc<AtomicBool>,
+    owned_resources: OnceLock<Arc<super::lifecycle::PeerResources>>,
 }
 
 pub(super) struct LinkedEndpointState {
@@ -81,6 +84,55 @@ impl LinkedEndpointUpdate {
 }
 
 impl LinkedEndpoint {
+    pub(super) fn owned_resources(&self) -> Option<Arc<super::lifecycle::PeerResources>> {
+        self.owned_resources.get().cloned()
+    }
+    pub(super) fn install_owned_resources(
+        &self,
+        resources: Arc<super::lifecycle::PeerResources>,
+    ) -> Result<(), EngineError> {
+        if let Some(current) = self.owned_resources.get() {
+            if Arc::ptr_eq(current, &resources) {
+                return Ok(());
+            }
+            return Err(invalid(
+                "linked endpoint already belongs to another resource owner",
+            ));
+        }
+        self.owned_resources
+            .set(resources)
+            .map_err(|_| invalid("linked resource owner changed during installation"))
+    }
+    #[cfg_attr(
+        not(test),
+        expect(
+            dead_code,
+            reason = "explicit cold-device library path; production activation requires the owning replacement transaction"
+        )
+    )]
+    pub(super) fn outer_carriers(&self) -> Vec<Arc<dyn RawIpWireCarrier>> {
+        self.peers
+            .borrow()
+            .carriers
+            .iter()
+            .flatten()
+            .cloned()
+            .collect()
+    }
+    pub(super) fn carrier_owners_match(
+        &self,
+        owners: &[Arc<crate::runtime::udp_dispatch::packet_owner::PacketCarrierOwnerSlot>],
+    ) -> bool {
+        let peers = self.peers.borrow();
+        peers.carriers.len() <= owners.len()
+            && peers.carriers.iter().zip(owners).all(|(carrier, owner)| {
+                carrier.as_ref().is_none_or(|carrier| {
+                    carrier
+                        .native_owner()
+                        .is_some_and(|actual| Arc::ptr_eq(&actual, owner))
+                })
+            })
+    }
     #[allow(clippy::too_many_arguments)]
     pub(super) fn new(
         identity: [u8; 32],
@@ -112,6 +164,7 @@ impl LinkedEndpoint {
             peers,
             packets: Mutex::new(Some(packets)),
             active: Arc::new(AtomicBool::new(false)),
+            owned_resources: OnceLock::new(),
         }
     }
 
@@ -131,48 +184,27 @@ impl LinkedEndpoint {
                 self.sender.send_replace(sender);
                 packets
             });
-        Ok(Box::new(RawIpInboundListenerOperation {
-            device: Box::new(WireguardInboundDevice(self.live.clone())),
-            endpoint: Some(RawIpInboundEndpoint {
+        Ok(Box::new(RawIpInboundListenerOperation::new(
+            Box::new(WireguardInboundDevice(self.live.clone())),
+            Some(RawIpInboundEndpoint {
                 packets,
                 peers: self.peers.subscribe(),
                 lease: self.active.clone(),
             }),
-        }))
+        )))
     }
-}
-
-pub(super) fn prepare(
-    inbound: InboundConfig,
-) -> Result<
-    (
-        Box<dyn PreparedInboundListenerOperation>,
-        Arc<LiveInboundDevice>,
-    ),
-    EngineError,
-> {
-    let device = prepare_device(&inbound)?;
-    let identity = inbound_protocol_identity(&inbound.protocol)
-        .ok_or_else(|| invalid("cannot identify WireGuard inbound"))?;
-    let live = Arc::new(LiveInboundDevice::new(device, identity));
-    Ok((
-        Box::new(RawIpInboundListenerOperation {
-            device: Box::new(WireguardInboundDevice(live.clone())),
-            endpoint: None,
-        }),
-        live,
-    ))
 }
 
 pub(super) fn prepare_unlinked_with_live(
     live: Arc<LiveInboundDevice>,
 ) -> Box<dyn PreparedInboundListenerOperation> {
-    Box::new(RawIpInboundListenerOperation {
-        device: Box::new(WireguardInboundDevice(live)),
-        endpoint: None,
-    })
+    Box::new(RawIpInboundListenerOperation::new(
+        Box::new(WireguardInboundDevice(live)),
+        None,
+    ))
 }
 
+#[cfg(test)]
 pub(super) fn prepare_linked(
     linked: &Arc<LinkedEndpoint>,
 ) -> Result<
@@ -241,6 +273,12 @@ impl RawIpInboundDevice for WireguardInboundDevice {
             .lock()
             .unwrap_or_else(|e| e.into_inner())
             .public_peer_id(peer)
+    }
+
+    fn authenticated_endpoint(&self, peer: usize) -> Option<SocketAddr> {
+        self.0
+            .peer_source(peer)
+            .and_then(|source| source.authenticated_endpoint)
     }
 
     fn generation(&self) -> u64 {
@@ -346,3 +384,6 @@ fn invalid(error: impl std::fmt::Debug) -> EngineError {
         format!("{error:?}"),
     ))
 }
+
+#[cfg(test)]
+mod tests;

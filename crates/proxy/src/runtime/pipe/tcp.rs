@@ -20,6 +20,7 @@ impl<'a> TcpPipe<'a> {
 /// Input for one TCP connection dispatch.
 pub(crate) struct TcpPipeInput<'a> {
     pub(crate) session: &'a mut Session,
+    pub(crate) admitted: Option<crate::component::business_demand::AdmittedTcpDemand>,
 }
 
 impl KernelPipe for TcpPipe<'_> {
@@ -28,6 +29,12 @@ impl KernelPipe for TcpPipe<'_> {
     type Error = EngineError;
 
     async fn dispatch(&mut self, input: Self::Input<'_>) -> Result<Self::Output, Self::Error> {
-        crate::runtime::tcp_dispatch::dispatch_tcp(self.runtime, input.session).await
+        let services = self.runtime.runtime_services();
+        let work = Box::pin(crate::runtime::tcp_dispatch::dispatch_tcp(
+            self.runtime,
+            input.session,
+            input.admitted,
+        ));
+        services.protocols().drive_component_supervision(work).await
     }
 }

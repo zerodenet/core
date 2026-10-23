@@ -1,0 +1,23 @@
+{
+  "head": "7e1b9986bec750905350472f3392e49efdce894b",
+  "tree": "d234bda1a850c56d94413d52f50e21ba7e08beb0",
+  "lock_sha256": "ffed93de069ad338a786490fc65e5cbc01dfc6a2c9116ab7ba853bc5abbc8764",
+  "binary": "/workspace/core-baseline-artifacts/zero-platform-root41-packet-proof",
+  "binary_sha256": "4b12815f90c5106fea998da3b0e48699ce2dc1f12f9712eca9bdaa6af8a30dd5",
+  "argv": [
+    "strace",
+    "-f",
+    "-qq",
+    "-e",
+    "trace=socket,bind,connect,close",
+    "-o",
+    "/workspace/core-baseline-artifacts/pr05-parallel-41-packet-noprobe.strace",
+    "/workspace/core-baseline-artifacts/zero-platform-root41-packet-proof",
+    "--exact",
+    "controlled_datagram::listener::packet::tests::egress::required_native_probe_is_unsupported_without_new_native_attempt",
+    "--test-threads=1"
+  ],
+  "exit": 0,
+  "seconds": 0.018431037999107502,
+  "scope": "exact native syscall proof; not a benchmark or current head whole qualification"
+}

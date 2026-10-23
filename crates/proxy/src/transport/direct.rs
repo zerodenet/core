@@ -14,8 +14,8 @@ use zero_platform_tokio::{
 use zero_traits::IpAddress;
 
 use super::direct_dial::{
-    dial_tcp_candidates, dial_tcp_candidates_with_policy, dial_tcp_fallback_candidates,
-    TcpDialAttempt, TcpDialFailure,
+    candidate::LegacyCandidateOpener, dial_tcp_candidates, dial_tcp_candidates_using,
+    dial_tcp_fallback_using, CandidateOpener, TcpDialAttempt, TcpDialFailure,
 };
 use candidates::{
     literal_direct_target, recovered_ipv4_candidate_refresh, refresh_recovered_ipv4_candidates,
@@ -29,9 +29,10 @@ mod policy;
 #[derive(Debug, Default, Clone, Copy)]
 pub(crate) struct DirectConnector;
 
-pub(crate) struct DirectTcpConnection {
-    pub(crate) socket: TokioSocket,
+pub(crate) struct DirectTcpConnection<S = TokioSocket> {
+    pub(crate) socket: S,
     pub(crate) remote: SocketAddr,
+    pub(crate) local: Option<SocketAddr>,
     pub(crate) network: FlowNetworkObservation,
 }
 
@@ -39,6 +40,9 @@ pub(crate) struct DirectTcpConnectFailure {
     pub(crate) stage: &'static str,
     pub(crate) error: Error,
     pub(crate) network: Box<FlowNetworkObservation>,
+    /// Preserve the native source for standard channels while the legacy
+    /// compatibility result retains its existing coarse Core error.
+    pub(crate) source: Option<std::io::Error>,
 }
 
 #[derive(Debug, Clone)]
@@ -107,6 +111,18 @@ impl DirectConnector {
         egress: &EgressInterfaceControl,
         policy: &zero_traits::DialPolicy,
     ) -> Result<DirectTcpConnection, DirectTcpConnectFailure> {
+        self.connect_using(session, resolver, egress, policy, &LegacyCandidateOpener)
+            .await
+    }
+
+    pub(crate) async fn connect_using<D: CandidateOpener>(
+        &self,
+        session: &Session,
+        resolver: &Arc<DnsSystem>,
+        egress: &EgressInterfaceControl,
+        policy: &zero_traits::DialPolicy,
+        opener: &D,
+    ) -> Result<DirectTcpConnection<D::Socket>, DirectTcpConnectFailure> {
         let resolution = match self
             .resolve_target_addrs_with_policy(session, resolver.as_ref(), egress, policy)
             .await
@@ -116,6 +132,7 @@ impl DirectConnector {
                 return Err(DirectTcpConnectFailure {
                     stage: "resolve_direct_target",
                     error,
+                    source: None,
                     network: Box::new(self.resolution_failure_observation_with_policy(
                         session, resolver, egress, policy,
                     )),
@@ -124,7 +141,7 @@ impl DirectConnector {
         };
 
         let dial =
-            match dial_tcp_candidates_with_policy(resolution.candidates.clone(), egress, policy)
+            match dial_tcp_candidates_using(resolution.candidates.clone(), egress, policy, opener)
                 .await
             {
                 Ok(success) => Ok(success),
@@ -135,7 +152,7 @@ impl DirectConnector {
                         egress,
                         &resolution,
                         failure,
-                        policy,
+                        opener,
                     ))
                     .await
                 }
@@ -144,7 +161,7 @@ impl DirectConnector {
         match dial {
             Ok(success) => {
                 let socket = success.socket;
-                let local = socket.local_addr().ok();
+                let local = opener.local(&socket, success.local_addr);
                 let network = direct_network_observation(
                     &success.selection,
                     DirectNetworkDialObservation {
@@ -174,6 +191,7 @@ impl DirectConnector {
                 Ok(DirectTcpConnection {
                     socket,
                     remote: success.remote,
+                    local,
                     network,
                 })
             }
@@ -204,6 +222,7 @@ impl DirectConnector {
                         &resolution,
                     )),
                     error,
+                    source: Some(failure.error),
                 })
             }
         }
@@ -360,24 +379,23 @@ impl DirectConnector {
         })
     }
 
-    async fn retry_recovered_candidates(
+    async fn retry_recovered_candidates<D: CandidateOpener>(
         &self,
         session: &Session,
         resolver: &Arc<DnsSystem>,
         egress: &EgressInterfaceControl,
         resolution: &DirectTargetResolution,
         failure: Box<TcpDialFailure>,
-        policy: &zero_traits::DialPolicy,
-    ) -> Result<super::direct_dial::TcpDialSuccess, Box<TcpDialFailure>> {
+        opener: &D,
+    ) -> Result<super::direct_dial::TcpDialSuccess<D::Socket>, Box<TcpDialFailure>> {
+        let policy = &resolution.dial_policy;
         let Some(refresh) = resolution.recovered_candidate_refresh.as_ref() else {
             return Err(failure);
         };
-        // Poll configured DNS from a fresh task stack. Keeping this under the
-        // TUN direct-connect future recursively embeds the DNS underlay path
-        // and can exhaust Tokio's worker stack under transparent flow load.
-        // JoinSet also aborts the refresh if the owning connection is dropped.
-        let mut refresh_tasks = tokio::task::JoinSet::new();
-        {
+        // Keep the original fresh-task-stack boundary. A controlled provider
+        // registers this exact future in its same canonical owner/Scope instead
+        // of importing the legacy JoinSet executor into native ownership.
+        let refresh_work = {
             let refresh = refresh.clone();
             let resolver = Arc::clone(resolver);
             let port = session.port;
@@ -385,7 +403,7 @@ impl DirectConnector {
             let family = policy
                 .effective_family()
                 .unwrap_or(zero_traits::AddressFamily::Auto);
-            refresh_tasks.spawn(async move {
+            Box::pin(async move {
                 refresh_recovered_ipv4_candidates(
                     &refresh,
                     resolver.as_ref(),
@@ -394,12 +412,14 @@ impl DirectConnector {
                     family,
                 )
                 .await
-            });
-        }
-        let candidates = match refresh_tasks
-            .join_next()
+            })
+        };
+        let candidates = match opener
+            .refresh(
+                refresh_work,
+                super::direct_dial::candidate::CandidateRefresh::from_failure(&failure),
+            )
             .await
-            .expect("one trusted-domain refresh task is registered")
         {
             Ok(Ok(candidates)) => candidates,
             Ok(Err(error)) => {
@@ -440,7 +460,7 @@ impl DirectConnector {
             candidate_count = resolution.candidates.len() + additional_candidates.len(),
             "original direct endpoint failed; retrying trusted DNS candidates"
         );
-        dial_tcp_fallback_candidates(failure, additional_candidates, egress, policy).await
+        dial_tcp_fallback_using(failure, additional_candidates, egress, policy, opener).await
     }
 
     #[cfg(test)]

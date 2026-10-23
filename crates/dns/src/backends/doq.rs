@@ -3,6 +3,10 @@ use std::net::{IpAddr, SocketAddr};
 use std::sync::Arc;
 use std::time::Duration;
 
+mod hosted;
+pub(super) mod owner;
+mod resources;
+
 const DNS_TIMEOUT: Duration = Duration::from_secs(5);
 
 pub(crate) struct DoqDnsResolver {
@@ -10,6 +14,8 @@ pub(crate) struct DoqDnsResolver {
     server_name: String,
     client: quinn::ClientConfig,
     egress: zero_platform_tokio::EgressInterfaceControl,
+    owners: std::sync::Mutex<Arc<crate::transport_owners::TransportOwners>>,
+    resources: resources::EndpointSet,
 }
 
 impl DoqDnsResolver {
@@ -40,12 +46,11 @@ impl DoqDnsResolver {
             rustls::crypto::ring::default_provider(),
         ))
         .with_protocol_versions(&[&rustls::version::TLS13])
-        .map_err(|error| io::Error::other(format!("DoQ TLS protocol: {error}")))?
+        .map_err(io::Error::other)?
         .with_root_certificates(roots)
         .with_no_client_auth();
         tls.alpn_protocols = vec![b"doq".to_vec()];
-        let quic = QuicClientConfig::try_from(tls)
-            .map_err(|error| io::Error::other(format!("DoQ client config: {error}")))?;
+        let quic = QuicClientConfig::try_from(tls).map_err(io::Error::other)?;
 
         Ok(Self {
             addrs: ips
@@ -55,6 +60,8 @@ impl DoqDnsResolver {
             server_name: server_name.unwrap_or(host),
             client: quinn::ClientConfig::new(Arc::new(quic)),
             egress,
+            owners: std::sync::Mutex::new(Arc::default()),
+            resources: resources::EndpointSet::default(),
         })
     }
 
@@ -75,30 +82,70 @@ impl DoqDnsResolver {
         self.addrs.iter().map(ToString::to_string).collect()
     }
 
-    async fn exchange_with(&self, addr: SocketAddr, query: &[u8]) -> io::Result<Vec<u8>> {
-        let interface = self.egress.try_current_for_peer(addr)?;
-        let socket =
-            zero_platform_tokio::bind_std_datagram_socket_for_peer(addr, interface.as_ref())?;
-        let mut endpoint = quinn::Endpoint::new(
-            quinn::EndpointConfig::default(),
-            None,
-            socket,
-            Arc::new(quinn::TokioRuntime),
-        )
-        .map_err(|error| io::Error::other(format!("DoQ endpoint: {error}")))?;
-        endpoint.set_default_client_config(self.client.clone());
+    pub(super) fn attach_registry(&self, owners: Arc<crate::transport_owners::TransportOwners>) {
+        *self.owners.lock().expect("DoQ resource registry poisoned") = owners;
+    }
 
-        let connecting = endpoint
-            .connect(addr, &self.server_name)
-            .map_err(|error| io::Error::other(format!("DoQ connect: {error}")))?;
+    pub(super) fn resource_admission_open(&self) -> bool {
+        self.resources.open()
+    }
+    pub(super) fn retire_resources(&self) {
+        self.resources.retire();
+    }
+    pub(super) async fn shutdown_resources(
+        &self,
+        deadline: tokio::time::Instant,
+    ) -> io::Result<()> {
+        self.resources.shutdown(deadline).await
+    }
+
+    async fn exchange_with(&self, addr: SocketAddr, query: &[u8]) -> io::Result<Vec<u8>> {
+        let owners = self
+            .owners
+            .lock()
+            .expect("DoQ resource registry poisoned")
+            .clone();
+        let owner = owner::EndpointOwner::new();
+        self.resources.register(owner.clone(), &owners)?;
+        let _close = owner::CloseOnDrop(owner.clone());
+        let deadline = super::ATTEMPT_DEADLINE
+            .try_with(|end| *end)
+            .unwrap_or_else(|_| tokio::time::Instant::now() + DNS_TIMEOUT);
+        owners.drain_retired_doq(deadline).await?;
+        let work = async {
+            let _user = owner.query_user()?;
+            owner.setup(addr, self.client.clone(), &self.egress)?;
+            self.exchange_owned(&owner, addr, query).await
+        };
+        let result = tokio::select! {biased;
+            _=owner.status.cancel.cancelled()=>match owner.status.check() {Err(source)=>Err(source),Ok(())=>Err(io::Error::new(io::ErrorKind::Interrupted,"DoQ query endpoint was cancelled"))},
+            result=tokio::time::timeout_at(deadline, work)=>result
+                .map_err(|source| io::Error::new(io::ErrorKind::TimedOut, source))
+                .and_then(std::convert::identity),
+        };
+        let closed = owner.shutdown(deadline).await;
+        match (result, closed) {
+            (Ok(response), Ok(())) => Ok(response),
+            (Err(source), _) => Err(source),
+            (Ok(_), Err(source)) => Err(source),
+        }
+    }
+
+    async fn exchange_owned(
+        &self,
+        owner: &owner::EndpointOwner,
+        addr: SocketAddr,
+        query: &[u8],
+    ) -> io::Result<Vec<u8>> {
+        let connecting = owner.connect(addr, &self.server_name)?;
         let connection = tokio::time::timeout(DNS_TIMEOUT, connecting)
             .await
             .map_err(|_| io::Error::new(io::ErrorKind::TimedOut, "DoQ connect timeout"))?
-            .map_err(|error| io::Error::other(format!("DoQ connect: {error}")))?;
+            .map_err(io::Error::other)?;
         let (mut send, mut recv) = tokio::time::timeout(DNS_TIMEOUT, connection.open_bi())
             .await
             .map_err(|_| io::Error::new(io::ErrorKind::TimedOut, "DoQ stream timeout"))?
-            .map_err(|error| io::Error::other(format!("DoQ stream: {error}")))?;
+            .map_err(io::Error::other)?;
 
         let length: u16 = query
             .len()
@@ -106,18 +153,15 @@ impl DoqDnsResolver {
             .map_err(|_| io::Error::new(io::ErrorKind::InvalidInput, "DNS message is too large"))?;
         send.write_all(&length.to_be_bytes())
             .await
-            .map_err(|error| io::Error::other(format!("DoQ write length: {error}")))?;
-        send.write_all(query)
-            .await
-            .map_err(|error| io::Error::other(format!("DoQ write query: {error}")))?;
-        send.finish()
-            .map_err(|error| io::Error::other(format!("DoQ finish query: {error}")))?;
+            .map_err(io::Error::other)?;
+        send.write_all(query).await.map_err(io::Error::other)?;
+        send.finish().map_err(io::Error::other)?;
 
         let response = tokio::time::timeout(DNS_TIMEOUT, async {
             let mut length = [0_u8; 2];
             recv.read_exact(&mut length)
                 .await
-                .map_err(|error| io::Error::other(format!("DoQ read response length: {error}")))?;
+                .map_err(io::Error::other)?;
             let length = u16::from_be_bytes(length) as usize;
             if length < 12 {
                 return Err(io::Error::new(
@@ -128,88 +172,14 @@ impl DoqDnsResolver {
             let mut response = vec![0_u8; length];
             recv.read_exact(&mut response)
                 .await
-                .map_err(|error| io::Error::other(format!("DoQ read response: {error}")))?;
+                .map_err(io::Error::other)?;
             Ok(response)
         })
         .await
         .map_err(|_| io::Error::new(io::ErrorKind::TimedOut, "DoQ response timeout"))??;
-        endpoint.close(0_u32.into(), b"complete");
         Ok(response)
     }
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use quinn::crypto::rustls::{QuicClientConfig, QuicServerConfig};
-    use tokio::io::{AsyncReadExt, AsyncWriteExt};
-    use zero_traits::IpAddress;
-
-    #[tokio::test]
-    async fn exchanges_a_framed_dns_message_over_quic() {
-        let certified = rcgen::generate_simple_self_signed(vec!["localhost".to_owned()])
-            .expect("generate certificate");
-        let certificate = certified.cert.der().clone();
-        let key =
-            rustls::pki_types::PrivatePkcs8KeyDer::from(certified.signing_key.serialize_der());
-
-        let mut server_tls = rustls::ServerConfig::builder_with_provider(Arc::new(
-            rustls::crypto::ring::default_provider(),
-        ))
-        .with_protocol_versions(&[&rustls::version::TLS13])
-        .unwrap()
-        .with_no_client_auth()
-        .with_single_cert(vec![certificate.clone()], key.into())
-        .unwrap();
-        server_tls.alpn_protocols = vec![b"doq".to_vec()];
-        let server_quic = QuicServerConfig::try_from(server_tls).unwrap();
-        let endpoint = quinn::Endpoint::server(
-            quinn::ServerConfig::with_crypto(Arc::new(server_quic)),
-            "127.0.0.1:0".parse().unwrap(),
-        )
-        .unwrap();
-        let addr = endpoint.local_addr().unwrap();
-        let server = tokio::spawn(async move {
-            let connection = endpoint.accept().await.unwrap().await.unwrap();
-            let (mut send, mut recv) = connection.accept_bi().await.unwrap();
-            let size = recv.read_u16().await.unwrap() as usize;
-            let mut query = vec![0_u8; size];
-            recv.read_exact(&mut query).await.unwrap();
-            let response = crate::message::build_address_response(
-                &query,
-                &[IpAddress::V4([203, 0, 113, 53])],
-                120,
-            );
-            send.write_u16(response.len() as u16).await.unwrap();
-            send.write_all(&response).await.unwrap();
-            send.finish().unwrap();
-            send.stopped().await.unwrap();
-        });
-
-        let mut roots = rustls::RootCertStore::empty();
-        roots.add(certificate).unwrap();
-        let mut client_tls = rustls::ClientConfig::builder_with_provider(Arc::new(
-            rustls::crypto::ring::default_provider(),
-        ))
-        .with_protocol_versions(&[&rustls::version::TLS13])
-        .unwrap()
-        .with_root_certificates(roots)
-        .with_no_client_auth();
-        client_tls.alpn_protocols = vec![b"doq".to_vec()];
-        let resolver = DoqDnsResolver {
-            addrs: vec![addr],
-            server_name: "localhost".to_owned(),
-            client: quinn::ClientConfig::new(Arc::new(
-                QuicClientConfig::try_from(client_tls).unwrap(),
-            )),
-            egress: zero_platform_tokio::EgressInterfaceControl::default(),
-        };
-        let query = crate::message::build_query("doq.example", crate::message::TYPE_A).unwrap();
-
-        let response = resolver.exchange(&query).await.unwrap();
-
-        let parsed = crate::message::parse_response(&query, &response).unwrap();
-        assert_eq!(parsed.addresses, vec![IpAddress::V4([203, 0, 113, 53])]);
-        server.await.unwrap();
-    }
-}
+mod tests;

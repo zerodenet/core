@@ -1,0 +1,226 @@
+{
+  "source_commit": "2eedc2b8d8e2b0e16dffe32d3f83d2f0f2dbcc8a",
+  "binary_sha256": "026741152e55cceb6e5f96fc908f6d4585b3d6f6eef378d832c5fe573420be2f",
+  "limits": {
+    "cpu.max": "100000 100000",
+    "memory.max": 1073741824,
+    "memory.swap.max": "0"
+  },
+  "profile": {
+    "streams": 32,
+    "payload_bytes": 16384,
+    "rounds": 128,
+    "udp_associations": 16,
+    "udp_payload_bytes": 1024,
+    "udp_rounds": 128,
+    "updates": 50,
+    "idle_seconds": 2,
+    "trials": 5
+  },
+  "container_image": "python@sha256:a6e34c598f2467ed0e9a8d349809fcd8b5c603269512df273a0bb1784edc11b1",
+  "raw_trace": {
+    "path": "evidence/rs01-loopback.json.gz",
+    "sha256": "55fa7316b9cf41e7c9e90ea66a1cb6c87b833750860f601a6587199ec24bb926",
+    "uncompressed_sha256": "0f6e7a6ca6178bf5d6cfd3532f9abb21245bc5062f2cb92d0408f58908245d20"
+  },
+  "trials": [
+    {
+      "trial": 0,
+      "startup_ns": 12513457,
+      "kernel_rss_peak_bytes": 41005056,
+      "native_threads_peak": 8,
+      "fd_peak": 124,
+      "tcp": {
+        "bytes_per_direction": 67108864,
+        "elapsed_ns": 820611976,
+        "bytes_per_second_per_direction": 81779045.3499304,
+        "median_roundtrip_ns": 3568391.5,
+        "p95_roundtrip_ns": 41908377
+      },
+      "udp": {
+        "bytes_per_direction": 2097152,
+        "elapsed_ns": 215544528,
+        "bytes_per_second_per_direction": 9729553.422019603,
+        "median_roundtrip_ns": 787152.5,
+        "p95_roundtrip_ns": 2064450
+      },
+      "ordinary_apply_median_ns": 257905.0,
+      "failed_rebuild_retained_streams": 32,
+      "shutdown": {
+        "graceful": true,
+        "exit_code": 0,
+        "elapsed_ns": 514968727
+      }
+    },
+    {
+      "trial": 1,
+      "startup_ns": 22738277,
+      "kernel_rss_peak_bytes": 41598976,
+      "native_threads_peak": 7,
+      "fd_peak": 124,
+      "tcp": {
+        "bytes_per_direction": 67108864,
+        "elapsed_ns": 1025732650,
+        "bytes_per_second_per_direction": 65425297.71281045,
+        "median_roundtrip_ns": 2982780.5,
+        "p95_roundtrip_ns": 57899250
+      },
+      "udp": {
+        "bytes_per_direction": 2097152,
+        "elapsed_ns": 288780430,
+        "bytes_per_second_per_direction": 7262098.750943753,
+        "median_roundtrip_ns": 968869.0,
+        "p95_roundtrip_ns": 1932405
+      },
+      "ordinary_apply_median_ns": 299077.0,
+      "failed_rebuild_retained_streams": 32,
+      "shutdown": {
+        "graceful": true,
+        "exit_code": 0,
+        "elapsed_ns": 515090606
+      }
+    },
+    {
+      "trial": 2,
+      "startup_ns": 22702224,
+      "kernel_rss_peak_bytes": 40706048,
+      "native_threads_peak": 6,
+      "fd_peak": 124,
+      "tcp": {
+        "bytes_per_direction": 67108864,
+        "elapsed_ns": 963377537,
+        "bytes_per_second_per_direction": 69659984.1937149,
+        "median_roundtrip_ns": 2921258.5,
+        "p95_roundtrip_ns": 58515997
+      },
+      "udp": {
+        "bytes_per_direction": 2097152,
+        "elapsed_ns": 272608680,
+        "bytes_per_second_per_direction": 7692902.515062983,
+        "median_roundtrip_ns": 870321.0,
+        "p95_roundtrip_ns": 1658653
+      },
+      "ordinary_apply_median_ns": 198155.5,
+      "failed_rebuild_retained_streams": 32,
+      "shutdown": {
+        "graceful": true,
+        "exit_code": 0,
+        "elapsed_ns": 529194449
+      }
+    },
+    {
+      "trial": 3,
+      "startup_ns": 46412948,
+      "kernel_rss_peak_bytes": 41996288,
+      "native_threads_peak": 7,
+      "fd_peak": 124,
+      "tcp": {
+        "bytes_per_direction": 67108864,
+        "elapsed_ns": 1723179291,
+        "bytes_per_second_per_direction": 38944794.86290437,
+        "median_roundtrip_ns": 3736919.5,
+        "p95_roundtrip_ns": 64010710
+      },
+      "udp": {
+        "bytes_per_direction": 2097152,
+        "elapsed_ns": 299336098,
+        "bytes_per_second_per_direction": 7006011.015751264,
+        "median_roundtrip_ns": 965533.0,
+        "p95_roundtrip_ns": 2828996
+      },
+      "ordinary_apply_median_ns": 365018.0,
+      "failed_rebuild_retained_streams": 32,
+      "shutdown": {
+        "graceful": true,
+        "exit_code": 0,
+        "elapsed_ns": 523957052
+      }
+    },
+    {
+      "trial": 4,
+      "startup_ns": 23097197,
+      "kernel_rss_peak_bytes": 41385984,
+      "native_threads_peak": 8,
+      "fd_peak": 124,
+      "tcp": {
+        "bytes_per_direction": 67108864,
+        "elapsed_ns": 1036011426,
+        "bytes_per_second_per_direction": 64776181.339142874,
+        "median_roundtrip_ns": 2911551.5,
+        "p95_roundtrip_ns": 59687126
+      },
+      "udp": {
+        "bytes_per_direction": 2097152,
+        "elapsed_ns": 235700383,
+        "bytes_per_second_per_direction": 8897533.272145765,
+        "median_roundtrip_ns": 969599.0,
+        "p95_roundtrip_ns": 1676627
+      },
+      "ordinary_apply_median_ns": 251120.5,
+      "failed_rebuild_retained_streams": 32,
+      "shutdown": {
+        "graceful": true,
+        "exit_code": 0,
+        "elapsed_ns": 573300952
+      }
+    }
+  ],
+  "cgroup_memory_peak_bytes": 73912320,
+  "cgroup_memory_events": "low 0\nhigh 0\nmax 0\noom 0\noom_kill 0\noom_group_kill 0\n",
+  "observed_envelopes": {
+    "kernel_rss_peak_bytes": {
+      "min": 40706048,
+      "median": 41385984,
+      "max": 41996288
+    },
+    "native_threads_peak": {
+      "min": 6,
+      "median": 7,
+      "max": 8
+    },
+    "fd_peak": {
+      "min": 124,
+      "median": 124,
+      "max": 124
+    },
+    "tcp_bytes_per_second_per_direction": {
+      "min": 38944794.86290437,
+      "median": 65425297.71281045,
+      "max": 81779045.3499304
+    },
+    "tcp_p95_roundtrip_ns": {
+      "min": 41908377,
+      "median": 58515997,
+      "max": 64010710
+    },
+    "udp_bytes_per_second_per_direction": {
+      "min": 7006011.015751264,
+      "median": 7692902.515062983,
+      "max": 9729553.422019603
+    },
+    "udp_p95_roundtrip_ns": {
+      "min": 1658653,
+      "median": 1932405,
+      "max": 2828996
+    },
+    "shutdown_ns": {
+      "min": 514968727,
+      "median": 523957052,
+      "max": 573300952
+    }
+  },
+  "comparison_policy": {
+    "same_profile_required": true,
+    "same_limits_required": true,
+    "memory": "target kernel peak must remain within observed old upper envelope; real cgroup must never OOM",
+    "throughput": "target trial median must not fall below observed old lower envelope",
+    "latency": "target trial median of p95 must not exceed observed old upper envelope",
+    "notes": "Empirical fixed-profile gates only; no extrapolation to arbitrary load. Record failure and repeated paired controls before any reviewed threshold amendment."
+  },
+  "unverified_dimensions": [
+    "Packet/native endpoints and protocol-specific resource profiles",
+    "capacity rejection under new explicit limits",
+    "CLI async task census; public proxy tasks separately observed",
+    "kernel-only allocation/individual-lock attribution; observer-process allocation and native futex diagnostics separately recorded"
+  ]
+}

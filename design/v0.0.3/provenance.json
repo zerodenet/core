@@ -1,0 +1,279 @@
+{
+  "schema": 1,
+  "scope": "Complete v0.0.3 design and implementation checkpoints in one branch and PR #124",
+  "repository": "zerodenet/core",
+  "integration_branch": "develop",
+  "pr00_base_sha": "2eedc2b8d8e2b0e16dffe32d3f83d2f0f2dbcc8a",
+  "design_observation_sha": "f0c1cc0930df8c34f1822cdd182928511e319b76",
+  "source": {
+    "title": "Zero v0.0.3 架构设计与云端 PR 实施方案",
+    "page_id": "page_b20205c79b6c8191b93cc373fd831fe4",
+    "url": "https://chatgpt.com/space/page_b20205c79b6c8191b93cc373fd831fe4",
+    "revision": 7,
+    "blocks": 406,
+    "characters": 66787,
+    "utf8_bytes": 131427,
+    "sha256": "2e5bb071f1c51f1767d097a86c0142ac10cc581e1fadd8d0fdf7910d91dc1657",
+    "role": "provenance only; repository documents contain the complete design"
+  },
+  "normalization": [
+    "Core absolute Markdown link targets become ../../repository/path#Lnumber",
+    "GUI absolute Markdown link targets become references.md#consumer-gui; source paths and lines are retained there",
+    "Panel absolute Markdown link targets become references.md#consumer-panel; source paths and lines are retained there",
+    "Only trailing LF separators between top-level sections are normalized; body text and code are otherwise unchanged"
+  ],
+  "sections": [
+    {
+      "id": "00",
+      "title": "设计开篇",
+      "file": "README.md",
+      "characters": 486,
+      "sha256": "0e936a1425b2c8652a2c5d9522a7475e7084e01c409307d610c2b02a18401912",
+      "pr00_snapshot_sha256": "fa328f1e3cdd35df0161938c970e54def61b777db53b1f7e42841fa520a265ce"
+    },
+    {
+      "id": "01",
+      "title": "v0.0.3 目标与完成定义",
+      "file": "README.md",
+      "characters": 1148,
+      "sha256": "418ae1449564e39bd2b0ae7a3d2009f7d3ee3116eb5bc1123513d68f5fd4c7fc",
+      "pr00_snapshot_sha256": "71937750b692d1f039df265d71f2496716d4502a416216a1e5bdb87b284830ac"
+    },
+    {
+      "id": "02",
+      "title": "设计依据与当前问题",
+      "file": "architecture.md",
+      "characters": 2117,
+      "sha256": "9667d3ef7244a67be2ae8a579381a105e3dacca54e08149645567f39a16d4c0c"
+    },
+    {
+      "id": "03",
+      "title": "目标组件与职责",
+      "file": "architecture.md",
+      "characters": 1320,
+      "sha256": "696869956627976fc1f3598a8c2c3330c8feadba52e33fd53ea013ea8e83ee87"
+    },
+    {
+      "id": "04",
+      "title": "crate 归属与依赖规则",
+      "file": "architecture.md",
+      "characters": 2563,
+      "sha256": "1d4f03e841a907b6437c2ece0469403f86af6a491cf8b484ce0f2f32c8d32dc3"
+    },
+    {
+      "id": "05",
+      "title": "标准契约总表",
+      "file": "contracts.md",
+      "characters": 1346,
+      "sha256": "64b8d2fb664f572d18f4d99c659ba8f71a6f2ff98c849f256d4420a0aabf3c67"
+    },
+    {
+      "id": "06",
+      "title": "配置构建与实例契约",
+      "file": "contracts.md",
+      "characters": 1287,
+      "sha256": "fdad9da9cfb709e366100b7885801a4483e6bf24f23310c83c2ed908886ea720"
+    },
+    {
+      "id": "07",
+      "title": "入站与通道契约",
+      "file": "contracts.md",
+      "characters": 1220,
+      "sha256": "4cb2f5b318d2a1487d93cb32accbfbacaaffa2c6734a3f4f7dcd643de7ddbbf4"
+    },
+    {
+      "id": "08",
+      "title": "出站与上游载体契约",
+      "file": "contracts.md",
+      "characters": 1498,
+      "sha256": "f24054954bd617910ae05770c435bcf0b7546aeca01734b5ed00d8efad823ff5"
+    },
+    {
+      "id": "09",
+      "title": "路由 DNS 网络与公共设施契约",
+      "file": "contracts.md",
+      "characters": 982,
+      "sha256": "86bb2b15de48dc94d95125fc9ff5b2364f6f2c741d43a5b0ade25d16767b4734"
+    },
+    {
+      "id": "10",
+      "title": "生命周期配置事务与所有权",
+      "file": "lifecycle.md",
+      "characters": 7314,
+      "sha256": "4fc4ee223e005210648ce33a02b34c823f0fcc37ac0ecc0bb994e1e66180bcb4"
+    },
+    {
+      "id": "11",
+      "title": "Rust 契约表达规则",
+      "file": "rust-contracts.md",
+      "characters": 2025,
+      "sha256": "ea547de94deed9963e1956b75ab4e2f7e1b0517b541fd3ef1540f701b6f4cea2"
+    },
+    {
+      "id": "12",
+      "title": "公共 Rust 契约详细规格",
+      "file": "rust-contracts.md",
+      "characters": 10297,
+      "sha256": "a35275cab8d95d582cac0ac2b53e66ba5971b608668cb4ac6fcdadd1603674a4"
+    },
+    {
+      "id": "13",
+      "title": "路由网络与发送执行规格",
+      "file": "contracts.md",
+      "characters": 3136,
+      "sha256": "abc9084566265521292cd899136ad73a268984a8f9c6d486f926a5b53968040c"
+    },
+    {
+      "id": "14",
+      "title": "控制观测与可靠事件",
+      "file": "contracts.md",
+      "characters": 598,
+      "sha256": "6d79a939d7f1870fa7c96c291b7985b315254399ebe99572a3b412a61268f34c"
+    },
+    {
+      "id": "15",
+      "title": "现有接口保留合并与移除",
+      "file": "migration.md",
+      "characters": 2073,
+      "sha256": "cd0d06f1edcc9cfce2aee8220e996d0cc07e1fce846271b9ce7ee5e9190decb2"
+    },
+    {
+      "id": "16",
+      "title": "客户端面板与嵌入兼容边界",
+      "file": "compatibility.md",
+      "characters": 1717,
+      "sha256": "8595d4fca122ec3510a018f86e6fa237e16df69f3f9a40c87be24bb5f7e3092a"
+    },
+    {
+      "id": "17",
+      "title": "现有代码分阶段迁移",
+      "file": "migration.md",
+      "characters": 7169,
+      "sha256": "0a3aef48c6865dac519106841a6e6be52b77e7e4dac08ecef74b29aec3996be9",
+      "pr00_snapshot_sha256": "7433ee7c0b263588ca4fe9106b0f7f27c5abebaa991af3a5ff4d801458870452"
+    },
+    {
+      "id": "18",
+      "title": "云端 PR 执行计划",
+      "file": "migration.md",
+      "characters": 3482,
+      "sha256": "0678bf1bf6b6472857250e2333e4f8cd96ea9ccb7ebf4f1d48bc615dd561d99a",
+      "pr00_snapshot_sha256": "5025f54dfd9fd7511a6b361e6be85bbc838ce8eb7417dece4ce54b801b29dd30"
+    },
+    {
+      "id": "19",
+      "title": "云端环境与验收分工",
+      "file": "validation.md",
+      "characters": 2485,
+      "sha256": "96a3f23ddc9a799c915689d8dbd565f72dc3f89eb2e9d4451d824a47ceaf5660",
+      "pr00_snapshot_sha256": "09381f2986cfe41e902ae2120b1ca7484ace5a2d5070d8d01ff6389f62d14cbf"
+    },
+    {
+      "id": "20",
+      "title": "云端任务交接",
+      "file": "README.md",
+      "characters": 1267,
+      "sha256": "b04cc7bfcd2d212e4b908a43cdd87a4c5e8c593902b92add8136a3b2ae399414",
+      "pr00_snapshot_sha256": "691b7a05e81dd5f8d65a23e83b315fc513dc1d654207e04e8ccf036283271cb4"
+    },
+    {
+      "id": "21",
+      "title": "标准实现者与新增组件要求",
+      "file": "architecture.md",
+      "characters": 804,
+      "sha256": "2a92b4abbf133d85189582fd5fd1d8f42786a2aa98936a65c2fd6d5eea676e83"
+    },
+    {
+      "id": "22",
+      "title": "验收矩阵与工程检查",
+      "file": "validation.md",
+      "characters": 5326,
+      "sha256": "a0be012ce291759e4ae1d44070da4ba44363c4f50b731a4a26d68bb847af38ec"
+    },
+    {
+      "id": "23",
+      "title": "设计决策与评审重点",
+      "file": "architecture.md",
+      "characters": 1490,
+      "sha256": "a0b1e54a9efee8ca4076f84ec015a714d19212e5d140ea40f158231e8d05d6c1"
+    },
+    {
+      "id": "24",
+      "title": "源码与规范索引",
+      "file": "references.md",
+      "characters": 2301,
+      "sha256": "fe8aeeba1bb3e31de45997659e6be68d7d77d0f8754465dfdca14c46871b6d66"
+    }
+  ],
+  "review_units": [
+    "PR00",
+    "PR01",
+    "PR02",
+    "PR03",
+    "PR04A",
+    "PR04B",
+    "PR05A",
+    "PR05B",
+    "PR06A",
+    "PR06B",
+    "PR07A",
+    "PR07B",
+    "PR08A",
+    "PR08B",
+    "PR09",
+    "PR10",
+    "PR11"
+  ],
+  "gates": [
+    "CF01",
+    "CF02",
+    "LF01",
+    "LF02",
+    "IO01",
+    "IO02",
+    "RT01",
+    "EX01",
+    "RS01",
+    "MIG01"
+  ],
+  "pr00_snapshot_commit": "122eb04b806da6a31495345d79d3e4f591f027b3",
+  "amendments": [
+    {
+      "date": "2026-10-19",
+      "reason": "Explicit user authorization: complete the entire implementation in existing branch/PR; do not merge each step",
+      "sections": [
+        "00",
+        "01",
+        "17",
+        "18",
+        "19",
+        "20"
+      ],
+      "policy": "delivery-policy.md",
+      "technical_contracts": "unchanged; no scope reduction or validation downgrade"
+    },
+    {
+      "date": "2026-10-20",
+      "reason": "Record the already committed cold task-registration gate refinement in 9709229e; this is an explicit amendment, not unchanged Page revision 7 text.",
+      "sections": [
+        "12"
+      ],
+      "implementation_commit": "9709229e",
+      "previous_section": {
+        "id": "12",
+        "title": "公共 Rust 契约详细规格",
+        "file": "rust-contracts.md",
+        "characters": 10160,
+        "sha256": "fb975cbb1a72a50dd19c8c10aea5c881e52eb6979f98672791383fa70561d1f4"
+      },
+      "updated_section": {
+        "id": "12",
+        "title": "公共 Rust 契约详细规格",
+        "file": "rust-contracts.md",
+        "characters": 10297,
+        "sha256": "a35275cab8d95d582cac0ac2b53e66ba5971b608668cb4ac6fcdadd1603674a4"
+      },
+      "technical_contracts": "Suspended component scopes reject task registration until their installed owner enters start; include NotStarted and checked identity exhaustion. Ordinary TaskScope direct registration semantics remain unchanged."
+    }
+  ]
+}

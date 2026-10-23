@@ -6,34 +6,10 @@ impl VlessInbound {
         stream: &mut S,
         users: &A,
     ) -> Result<VlessAcceptedSession, Error> {
-        let (mut session, id, flow, reverse) = read_routed_request(stream).await?;
-        let user = users
-            .find_user(&id)
-            .ok_or(Error::Unsupported("VLESS user is not authorized"))?;
-        // Match the command, never a user-controlled target domain.
-        if reverse != user.reverse_tag.is_some() {
-            return Err(Error::Unsupported(
-                "VLESS reverse user requires the Rvs command",
-            ));
-        }
-        validate_user_flow(user.flow, flow)?;
-        if crate::flow::is_vision_flow(flow) && stream.transport_bypass_control().is_none() {
-            return Err(Error::Unsupported(
-                "Vision requires TLS 1.3, REALITY or VLESS Encryption",
-            ));
-        }
-        let testseed = user.testseed;
-        let mut auth = SessionAuth::new("vless");
-        auth.principal_key = user.principal_key;
-        auth.up_bps = user.up_bps;
-        auth.down_bps = user.down_bps;
-        auth.device_limit = user.device_limit;
-        auth.quota_remaining_bytes = user.quota_remaining_bytes;
-        auth.policy_revision = user.policy_revision;
-        session.apply_auth(auth);
-        let mut accepted = VlessAcceptedSession::new(session, id, flow, testseed);
-        accepted.reverse_tag = user.reverse_tag;
-        Ok(accepted)
+        Ok(self
+            .accept_authenticated_facts(stream, users)
+            .await?
+            .into_legacy())
     }
 }
 

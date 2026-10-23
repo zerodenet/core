@@ -1,0 +1,147 @@
+{
+  "base_commit": "f90f012689dce16cdbe4fa7616492b8fa8e5cc9e",
+  "tested_git_tree": "99c60f08224c6baafed63a0cd03bc95ba3b34b86",
+  "resolved_lock_sha256": "a6982c8ea08da137a5bff756a241b88dc258716a516ff9f3029672051cf4224e",
+  "note": "Staged source tree frozen before checks; no production path switched. Build-info HEAD still base during local working-tree builds.",
+  "code_commit": "4d76d1663d610cf110fc4feeb972600a2055b5ce",
+  "counts": {
+    "passed": 2665,
+    "failed": 0,
+    "ignored": 159
+  },
+  "commands": [
+    {
+      "name": "fmt",
+      "argv": [
+        "cargo",
+        "fmt",
+        "--all",
+        "--check"
+      ],
+      "exit": 0,
+      "elapsed_seconds": 4.142
+    },
+    {
+      "name": "check",
+      "argv": [
+        "cargo",
+        "check",
+        "--locked",
+        "--workspace"
+      ],
+      "exit": 0,
+      "elapsed_seconds": 46.348
+    },
+    {
+      "name": "clippy",
+      "argv": [
+        "cargo",
+        "clippy",
+        "--locked",
+        "--workspace",
+        "--all-targets",
+        "--all-features",
+        "--no-deps",
+        "--",
+        "-D",
+        "warnings"
+      ],
+      "exit": 0,
+      "elapsed_seconds": 61.886
+    },
+    {
+      "name": "test",
+      "argv": [
+        "bash",
+        "scripts/test-workspace.sh"
+      ],
+      "exit": 0,
+      "elapsed_seconds": 438.168
+    },
+    {
+      "name": "release",
+      "argv": [
+        "cargo",
+        "build",
+        "--locked",
+        "--release"
+      ],
+      "exit": 0,
+      "elapsed_seconds": 250.909
+    }
+  ],
+  "artifacts": {
+    "fmt": {
+      "path": "evidence/pr02-fmt.txt.gz",
+      "raw_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "gzip_sha256": "f61f27bd17de546264aa58f40f3aafaac7021e0ef69c17f6b1b4cd7664a037ec",
+      "raw_bytes": 0
+    },
+    "check": {
+      "path": "evidence/pr02-check.txt.gz",
+      "raw_sha256": "456e01a7ec84efda20223995ce911fb4705c041a17e3f15c0107aa85e8a9abf8",
+      "gzip_sha256": "2d4d23c71ae6116edc561b79c8b24c06311cffad260db3f4361c1baf029da38a",
+      "raw_bytes": 2154
+    },
+    "clippy": {
+      "path": "evidence/pr02-clippy.txt.gz",
+      "raw_sha256": "bbca085eef1136155e9bd434ec388ebc94dd9235ea5b2d90e1bf4eafaf7d5a68",
+      "gzip_sha256": "4e42bbdd2796c3586841027d42f6fde85eb200c97e5fa2e976282d7741149125",
+      "raw_bytes": 2154
+    },
+    "test": {
+      "path": "evidence/pr02-test.txt.gz",
+      "raw_sha256": "867d58f7205f523aee4f2270c7542ec2b7d0b11685e3ba22691e2dc79c20d8b5",
+      "gzip_sha256": "da5203d2fc17e2babb714e0ad57dd7f789a11449324e2e7aa94c6132f8df3c45",
+      "raw_bytes": 286585
+    },
+    "release": {
+      "path": "evidence/pr02-release.txt.gz",
+      "raw_sha256": "6742afef36819fc353be02b733ca006ae795db5d86adb0beee6936755091015a",
+      "gzip_sha256": "a2716288674be9675dc3cd534e1fbb212a51848f7f2ddeef07418adf503dfd08",
+      "raw_bytes": 1917
+    },
+    "dependencies": {
+      "path": "evidence/pr02-dependencies.txt.gz",
+      "raw_sha256": "9bf298458393fb4315cfa94f3e0d79101b9caf8b2c9292314d989f68905c8ed1",
+      "gzip_sha256": "28f519da20dd12d57e18c3651d837c46e3d60e188b4e79651ec332ff4d459ebc",
+      "raw_bytes": 263
+    },
+    "no-std": {
+      "path": "evidence/pr02-no-std.txt.gz",
+      "raw_sha256": "bd87eeceefc4210feb4c8cecff3e502f1d64aaa663b43b54effaa03fa13ad616",
+      "gzip_sha256": "625c47f9928fb9a126e72978854d4230939bede0337f5d5308a1f0d464090c81",
+      "raw_bytes": 137
+    },
+    "test-layout": {
+      "path": "evidence/pr02-test-layout.txt.gz",
+      "raw_sha256": "9e4d3de4159bf420da0a237197cb0f2b716e292b41258a801f375b651343e18f",
+      "gzip_sha256": "4d698b1a35136ebc81c3daa548425fbe4a5a8ab7df8224bec072177fb123e89e",
+      "raw_bytes": 59
+    },
+    "design": {
+      "path": "evidence/pr02-design.txt.gz",
+      "raw_sha256": "e9f7c04a0aea5e18380ab011674cdcf60c80056a5efdbb2ae44d38817f34a5c1",
+      "gzip_sha256": "16f3ba1901f358cacf79c67f785ec7f9ecaf8b164568c1a30e637cd4082ac512",
+      "raw_bytes": 375
+    }
+  },
+  "dependency_versions_changed": false,
+  "registry_package_additions": [],
+  "scope": {
+    "production_paths_migrated": false,
+    "protocol_interop_qualified": false,
+    "privileged_tun_qualified_on_this_commit": false,
+    "new_capacity_defaults_selected": false,
+    "whole_refactor_complete": false
+  },
+  "ci": {
+    "status": "pending_push",
+    "note": "Historical f90 CI/TUN evidence is recorded separately and is not qualification of this code commit."
+  },
+  "development_failures_fixed": [
+    "Explicit Future Send assertion exposed a shared control reborrow that incorrectly required Sync; helper now keeps exclusive access.",
+    "Rust 1.99 deprecated fetch_update; checked task identity allocation uses stable compare_exchange_weak instead."
+  ],
+  "pre_review_runs": "Earlier intermediate runs and a failed review compile are retained under /workspace/core-validation; only the frozen tested tree above is used for this checkpoint."
+}

@@ -1,0 +1,240 @@
+{
+  "status": "read-only review of actual pinned Tokio package sources; no Cargo",
+  "observed_metric": "runtime-owned alive async tasks in the observed Handle; weakly consistent sample gauge",
+  "not_covered": [
+    "spawn_blocking jobs, blocking queue and blocking threads",
+    "other runtimes",
+    "actual TaskScope joins/retained failures",
+    "native I/O closure receipts",
+    "UDP application queue bytes"
+  ],
+  "global_queue_scope": "global scheduler injection queue only; excludes worker-local queue and application payload queues",
+  "native_input_bridge": "mpsc blocking_send calls standalone future::block_on; no Tokio task or extra Runtime is spawned by that bridge",
+  "sampler": "actual same-Handle native thread,10ms,30000sample cap; observer source unchanged for old/current pair",
+  "sources": [
+    {
+      "version": "1.53.3",
+      "relative_path": "src/runtime/metrics/runtime.rs",
+      "local_primary_source": "/workspace/core-tools/cargo/registry/src/index.crates.io-1949cf8c6b5b557f/tokio-1.53.3/src/runtime/metrics/runtime.rs",
+      "sha256": "d9160d3bfa15bc56578e5d25758952346ef4f9d53d2b7b78e2f08bf55ca3963e",
+      "matches": [
+        {
+          "line": 74,
+          "text": "pub fn num_alive_tasks(&self) -> usize {"
+        },
+        {
+          "line": 75,
+          "text": "self.handle.inner.num_alive_tasks()"
+        },
+        {
+          "line": 100,
+          "text": "pub fn global_queue_depth(&self) -> usize {"
+        },
+        {
+          "line": 101,
+          "text": "self.handle.inner.injection_queue_depth()"
+        },
+        {
+          "line": 360,
+          "text": "self.handle.inner.injection_queue_depth()"
+        }
+      ]
+    },
+    {
+      "version": "1.53.3",
+      "relative_path": "src/runtime/scheduler/multi_thread/handle/metrics.rs",
+      "local_primary_source": "/workspace/core-tools/cargo/registry/src/index.crates.io-1949cf8c6b5b557f/tokio-1.53.3/src/runtime/scheduler/multi_thread/handle/metrics.rs",
+      "sha256": "b7985cf9e5c07ff3e3bf32d64d9115873c3c397a8525f54d7fffee07fe35adfd",
+      "matches": [
+        {
+          "line": 13,
+          "text": "pub(crate) fn num_alive_tasks(&self) -> usize {"
+        },
+        {
+          "line": 14,
+          "text": "self.shared.owned.num_alive_tasks()"
+        },
+        {
+          "line": 17,
+          "text": "pub(crate) fn injection_queue_depth(&self) -> usize {"
+        },
+        {
+          "line": 18,
+          "text": "self.shared.injection_queue_depth()"
+        }
+      ]
+    },
+    {
+      "version": "1.53.3",
+      "relative_path": "src/runtime/task/list.rs",
+      "local_primary_source": "/workspace/core-tools/cargo/registry/src/index.crates.io-1949cf8c6b5b557f/tokio-1.53.3/src/runtime/task/list.rs",
+      "sha256": "7b39e1941241b6771d15082d4aec2bd4e9e67d1bb15f46f75a5fc858f7ad9971",
+      "matches": [
+        {
+          "line": 190,
+          "text": "pub(crate) fn num_alive_tasks(&self) -> usize {"
+        },
+        {
+          "line": 191,
+          "text": "self.list.len()"
+        }
+      ]
+    },
+    {
+      "version": "1.53.3",
+      "relative_path": "src/runtime/blocking/pool.rs",
+      "local_primary_source": "/workspace/core-tools/cargo/registry/src/index.crates.io-1949cf8c6b5b557f/tokio-1.53.3/src/runtime/blocking/pool.rs",
+      "sha256": "7d860091aee83e2876b6fcfeac1af02de5a95f608dea5fd4530a981f07f612fe",
+      "matches": [
+        {
+          "line": 382,
+          "text": "let (task, handle) = task::unowned("
+        }
+      ]
+    },
+    {
+      "version": "1.53.3",
+      "relative_path": "src/sync/mpsc/bounded.rs",
+      "local_primary_source": "/workspace/core-tools/cargo/registry/src/index.crates.io-1949cf8c6b5b557f/tokio-1.53.3/src/sync/mpsc/bounded.rs",
+      "sha256": "f229ccaa6711bffb17d8021dade6405d17595d5f64dac2f03107c05a4cc381f2",
+      "matches": [
+        {
+          "line": 1046,
+          "text": "pub fn blocking_send(&self, value: T) -> Result<(), SendError<T>> {"
+        },
+        {
+          "line": 1047,
+          "text": "crate::future::block_on(self.send(value))"
+        }
+      ]
+    },
+    {
+      "version": "1.53.3",
+      "relative_path": "src/future/block_on.rs",
+      "local_primary_source": "/workspace/core-tools/cargo/registry/src/index.crates.io-1949cf8c6b5b557f/tokio-1.53.3/src/future/block_on.rs",
+      "sha256": "30bad79b005a1ba7f696bec5639a5886b1f653a152b8948ae5fcd287c05ab8db",
+      "matches": [
+        {
+          "line": 6,
+          "text": "let mut e = crate::runtime::context::try_enter_blocking_region().expect("
+        },
+        {
+          "line": 12,
+          "text": "e.block_on(f).unwrap()"
+        }
+      ]
+    },
+    {
+      "version": "1.54.0",
+      "relative_path": "src/runtime/metrics/runtime.rs",
+      "local_primary_source": "/workspace/core-tools/cargo/registry/src/index.crates.io-1949cf8c6b5b557f/tokio-1.54.0/src/runtime/metrics/runtime.rs",
+      "sha256": "0c14e79fd0288044be41de4dbb1efe490728106597e9a03ff6cc81b3f8240ca4",
+      "matches": [
+        {
+          "line": 74,
+          "text": "pub fn num_alive_tasks(&self) -> usize {"
+        },
+        {
+          "line": 75,
+          "text": "self.handle.inner.num_alive_tasks()"
+        },
+        {
+          "line": 100,
+          "text": "pub fn global_queue_depth(&self) -> usize {"
+        },
+        {
+          "line": 101,
+          "text": "self.handle.inner.injection_queue_depth()"
+        },
+        {
+          "line": 360,
+          "text": "self.handle.inner.injection_queue_depth()"
+        }
+      ]
+    },
+    {
+      "version": "1.54.0",
+      "relative_path": "src/runtime/scheduler/multi_thread/handle/metrics.rs",
+      "local_primary_source": "/workspace/core-tools/cargo/registry/src/index.crates.io-1949cf8c6b5b557f/tokio-1.54.0/src/runtime/scheduler/multi_thread/handle/metrics.rs",
+      "sha256": "90237a94ccb9aa60329313a37268bec967d7c277c129b54485e5058ebc3f1550",
+      "matches": [
+        {
+          "line": 13,
+          "text": "pub(crate) fn num_alive_tasks(&self) -> usize {"
+        },
+        {
+          "line": 14,
+          "text": "self.shared.owned.num_alive_tasks()"
+        },
+        {
+          "line": 17,
+          "text": "pub(crate) fn injection_queue_depth(&self) -> usize {"
+        },
+        {
+          "line": 18,
+          "text": "self.shared.injection_queue_depth()"
+        }
+      ]
+    },
+    {
+      "version": "1.54.0",
+      "relative_path": "src/runtime/task/list.rs",
+      "local_primary_source": "/workspace/core-tools/cargo/registry/src/index.crates.io-1949cf8c6b5b557f/tokio-1.54.0/src/runtime/task/list.rs",
+      "sha256": "b5fd0254dd17c2bd3f86c5754892ec6b0ddc5a07f03bee59c6531c894385d1da",
+      "matches": [
+        {
+          "line": 190,
+          "text": "pub(crate) fn num_alive_tasks(&self) -> usize {"
+        },
+        {
+          "line": 191,
+          "text": "self.list.len()"
+        }
+      ]
+    },
+    {
+      "version": "1.54.0",
+      "relative_path": "src/runtime/blocking/pool.rs",
+      "local_primary_source": "/workspace/core-tools/cargo/registry/src/index.crates.io-1949cf8c6b5b557f/tokio-1.54.0/src/runtime/blocking/pool.rs",
+      "sha256": "8e3c0a4dab069e3664eef33f5d553346dcfa18e78c4918bfc06dc5447ce89fa2",
+      "matches": [
+        {
+          "line": 444,
+          "text": "let (task, handle) = task::unowned("
+        }
+      ]
+    },
+    {
+      "version": "1.54.0",
+      "relative_path": "src/sync/mpsc/bounded.rs",
+      "local_primary_source": "/workspace/core-tools/cargo/registry/src/index.crates.io-1949cf8c6b5b557f/tokio-1.54.0/src/sync/mpsc/bounded.rs",
+      "sha256": "f229ccaa6711bffb17d8021dade6405d17595d5f64dac2f03107c05a4cc381f2",
+      "matches": [
+        {
+          "line": 1046,
+          "text": "pub fn blocking_send(&self, value: T) -> Result<(), SendError<T>> {"
+        },
+        {
+          "line": 1047,
+          "text": "crate::future::block_on(self.send(value))"
+        }
+      ]
+    },
+    {
+      "version": "1.54.0",
+      "relative_path": "src/future/block_on.rs",
+      "local_primary_source": "/workspace/core-tools/cargo/registry/src/index.crates.io-1949cf8c6b5b557f/tokio-1.54.0/src/future/block_on.rs",
+      "sha256": "30bad79b005a1ba7f696bec5639a5886b1f653a152b8948ae5fcd287c05ab8db",
+      "matches": [
+        {
+          "line": 6,
+          "text": "let mut e = crate::runtime::context::try_enter_blocking_region().expect("
+        },
+        {
+          "line": 12,
+          "text": "e.block_on(f).unwrap()"
+        }
+      ]
+    }
+  ]
+}

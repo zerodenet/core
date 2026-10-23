@@ -1,13 +1,18 @@
 //! Neutral raw-IP-over-datagram listener. Protocols own authentication and
 //! packet codecs; this module owns socket, stack, route, and task lifetime.
 
+mod children;
 mod icmp;
 mod lifecycle;
+pub(crate) mod native_obligations;
 mod outer;
 mod route;
 mod run;
+mod socket;
+mod stack_tasks;
 mod statistics;
 use run::run;
+pub(crate) mod tasks;
 mod tcp;
 
 use std::{
@@ -50,6 +55,11 @@ pub(crate) trait RawIpInboundDevice: Send {
     fn peer_identity(&self, _peer: usize) -> Option<String> {
         None
     }
+    /// Only an authenticated protocol-owned source observation may seed roaming
+    /// continuity after the original listener has actually closed.
+    fn authenticated_endpoint(&self, _peer: usize) -> Option<SocketAddr> {
+        None
+    }
     fn generation(&self) -> u64 {
         0
     }
@@ -78,6 +88,25 @@ pub(crate) trait RawIpInboundDevice: Send {
 pub(crate) struct RawIpInboundListenerOperation {
     pub(crate) device: Box<dyn RawIpInboundDevice>,
     pub(crate) endpoint: Option<RawIpInboundEndpoint>,
+    children: children::RawIpChildren,
+}
+impl RawIpInboundListenerOperation {
+    pub(crate) const MAX_ICMP_PROBES: usize = icmp::MAX_ECHO_PROBES;
+    pub(crate) fn internal_task_limit() -> usize {
+        tcp::MAX_CONNECTIONS
+            .checked_add(crate::inbound::tun::udp::OwnedTunUdpTasks::MAX_ASSOCIATIONS)
+            .expect("fixed raw-IP child group sum fits usize")
+    }
+    pub(crate) fn new(
+        device: Box<dyn RawIpInboundDevice>,
+        endpoint: Option<RawIpInboundEndpoint>,
+    ) -> Self {
+        Self {
+            device,
+            endpoint,
+            children: children::RawIpChildren::new(),
+        }
+    }
 }
 
 pub(crate) struct RawIpInboundEndpoint {
@@ -100,19 +129,25 @@ impl Drop for RawIpInboundEndpoint {
 }
 
 impl PreparedInboundListenerOperation for RawIpInboundListenerOperation {
+    fn internal_tasks(&self) -> usize {
+        Self::internal_task_limit()
+    }
+
+    fn install_resources(
+        &mut self,
+        context: &crate::runtime::inbound_owners::InboundInstallContext,
+    ) -> Result<(), EngineError> {
+        self.children.install(context)
+    }
     fn execute(
         self: Box<Self>,
         runtime: InboundListenerRuntime,
         bound: BoundInbound,
         shutdown: watch::Receiver<bool>,
     ) -> Pin<Box<dyn Future<Output = Result<(), EngineError>> + Send + 'static>> {
-        Box::pin(async move {
-            let BoundInbound::Datagram(socket) = bound else {
-                return Err(EngineError::Io(std::io::Error::other(
-                    "expected datagram listener",
-                )));
-            };
-            run(*self, runtime, socket, shutdown).await
-        })
+        Box::pin(async move { run(*self, runtime, bound, shutdown).await })
     }
 }
+
+#[cfg(test)]
+pub(crate) use lifecycle::retained_endpoint as retained_endpoint_for_test;

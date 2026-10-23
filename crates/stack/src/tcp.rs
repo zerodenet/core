@@ -546,15 +546,27 @@ pub struct UserTcpStack {
     outbound: PacketSender,
     control_packets: TcpControlPackets,
     mss: u16,
+    task_spawner: crate::task_owner::TcpTaskSpawner,
 }
 
 impl UserTcpStack {
     pub(crate) fn new(outbound: mpsc::Sender<Vec<u8>>, mss: u16) -> Self {
         Self::new_output(outbound.into(), mss)
     }
+    /// One retransmission worker per existing connection plus its single
+    /// control-packet worker. A host may grant this finite aggregate ceiling.
+    pub const BACKGROUND_TASK_LIMIT: usize = MAX_TCP_CONNECTIONS + 1;
     pub(crate) fn new_output(outbound: PacketSender, mss: u16) -> Self {
+        Self::new_output_with_tasks(outbound, mss, crate::task_owner::TcpTaskSpawner::default())
+    }
+    pub(crate) fn new_output_with_tasks(
+        outbound: PacketSender,
+        mss: u16,
+        task_spawner: crate::task_owner::TcpTaskSpawner,
+    ) -> Self {
         let (tx, rx) = mpsc::channel::<ReadyConn>(64);
-        let control_packets = TcpControlPackets::new(outbound.clone());
+        let control_packets =
+            TcpControlPackets::new_with_tasks(outbound.clone(), task_spawner.clone());
         Self {
             connections: Arc::new(Mutex::new(HashMap::new())),
             accept_tx: tx,
@@ -565,6 +577,7 @@ impl UserTcpStack {
             outbound,
             control_packets,
             mss,
+            task_spawner,
         }
     }
 
@@ -653,7 +666,9 @@ async fn run_retransmission_worker(
 impl UserTcpStack {
     /// Feed authenticated IP input with protocol-neutral peer provenance.
     pub async fn feed_with_peer(&self, packet: &[u8], peer_identity: Option<Arc<str>>) {
-        self.control_packets.ensure_worker();
+        if !self.control_packets.ensure_worker() {
+            return; // No original worker was admitted by this actual owner.
+        }
         if packet::ip_protocol(packet) != Some(packet::IPPROTO_TCP) {
             return;
         }
@@ -903,13 +918,16 @@ impl UserTcpStack {
             },
         );
         send_control.track_segment(iss.wrapping_add(1), syn_ack.clone());
-        tokio::spawn(run_retransmission_worker(
+        if !self.task_spawner.spawn(run_retransmission_worker(
             Arc::downgrade(&self.connections),
             key,
             connection_id,
             Arc::clone(&send_control),
             self.outbound.downgrade(),
-        ));
+        )) {
+            conns.remove(&key);
+            return; // Host denied before any SYN-ACK was submitted.
+        }
         self.send_response(syn_ack);
     }
 }

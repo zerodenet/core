@@ -2,10 +2,9 @@ use crate::validation::PluginConfig;
 use std::{
     io,
     net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr},
-    process::Stdio,
     time::Duration,
 };
-use tokio::process::{Child, Command};
+use tokio::process::Child;
 
 pub(super) fn loopback(host: &str) -> IpAddr {
     match host.parse::<IpAddr>() {
@@ -13,8 +12,15 @@ pub(super) fn loopback(host: &str) -> IpAddr {
         _ => Ipv4Addr::LOCALHOST.into(),
     }
 }
-fn command(config: &PluginConfig, remote: (&str, u16), local: SocketAddr, server: bool) -> Command {
-    let mut command = Command::new(&config.command);
+pub(super) fn request(
+    config: &PluginConfig,
+    remote: (&str, u16),
+    local: SocketAddr,
+    server: bool,
+) -> zero_platform_tokio::contract::component::ProcessRequest {
+    use std::ffi::OsString;
+    use zero_platform_tokio::contract::component::ProcessRequest;
+    let mut request = ProcessRequest::new(&config.command);
     if config.command == "obfsproxy" {
         let remote = if remote.0.contains(':') {
             format!("[{}]:{}", remote.0, remote.1)
@@ -22,46 +28,55 @@ fn command(config: &PluginConfig, remote: (&str, u16), local: SocketAddr, server
             format!("{}:{}", remote.0, remote.1)
         };
         let data_dir = std::env::temp_dir().join(format!("zero-obfsproxy-{}", local.port()));
-        command.arg("--data-dir").arg(data_dir);
+        request
+            .arguments
+            .extend([OsString::from("--data-dir"), data_dir.into_os_string()]);
         if let Some(options) = &config.options {
-            command.args(options.split(' '));
+            request
+                .arguments
+                .extend(options.split(' ').map(OsString::from));
         }
         if server {
-            command
-                .arg("--dest")
-                .arg(local.to_string())
-                .arg("server")
-                .arg(remote);
+            request.arguments.extend([
+                "--dest".into(),
+                local.to_string().into(),
+                "server".into(),
+                remote.into(),
+            ]);
         } else {
-            command
-                .arg("--dest")
-                .arg(remote)
-                .arg("client")
-                .arg(local.to_string());
+            request.arguments.extend([
+                "--dest".into(),
+                remote.into(),
+                "client".into(),
+                local.to_string().into(),
+            ]);
         }
-        command
-            .args(&config.args)
-            .stdin(Stdio::null())
-            .stdout(Stdio::null())
-            .stderr(Stdio::null())
-            .kill_on_drop(true);
-        return command;
+        request
+            .arguments
+            .extend(config.args.iter().map(OsString::from));
+        return request;
     }
-    command
-        .args(&config.args)
-        .env("SS_REMOTE_HOST", remote.0)
-        .env("SS_REMOTE_PORT", remote.1.to_string())
-        .env("SS_LOCAL_HOST", local.ip().to_string())
-        .env("SS_LOCAL_PORT", local.port().to_string())
-        .env_remove("SS_PLUGIN_OPTIONS")
-        .stdin(Stdio::null())
-        .stdout(Stdio::null())
-        .stderr(Stdio::null())
-        .kill_on_drop(true);
-    if let Some(options) = &config.options {
-        command.env("SS_PLUGIN_OPTIONS", options);
+    request
+        .arguments
+        .extend(config.args.iter().map(OsString::from));
+    for (name, value) in [
+        ("SS_REMOTE_HOST", remote.0.to_owned()),
+        ("SS_REMOTE_PORT", remote.1.to_string()),
+        ("SS_LOCAL_HOST", local.ip().to_string()),
+        ("SS_LOCAL_PORT", local.port().to_string()),
+    ] {
+        request.environment.insert(name.into(), Some(value.into()));
     }
-    command
+    request.environment.insert(
+        "SS_PLUGIN_OPTIONS".into(),
+        config.options.as_ref().map(OsString::from),
+    );
+    request
+}
+pub(super) fn spawn_request(
+    request: zero_platform_tokio::contract::component::ProcessRequest,
+) -> io::Result<Child> {
+    request.command().spawn()
 }
 pub(super) fn spawn(
     config: &PluginConfig,
@@ -69,22 +84,46 @@ pub(super) fn spawn(
     local: SocketAddr,
     server: bool,
 ) -> io::Result<Child> {
-    command(config, remote, local, server).spawn()
+    spawn_request(request(config, remote, local, server))
 }
-pub(super) async fn ready(child: &mut Child, endpoint: SocketAddr, tcp: bool) -> io::Result<()> {
+pub(super) async fn ready_with_probe<Status, Probe, Pending>(
+    mut status: Status,
+    endpoint: SocketAddr,
+    tcp: bool,
+    mut probe: Probe,
+) -> io::Result<()>
+where
+    Status: FnMut() -> io::Result<Option<std::process::ExitStatus>>,
+    Probe: FnMut() -> Pending,
+    Pending: std::future::Future<Output = io::Result<tokio::net::TcpStream>>,
+{
     let deadline = tokio::time::Instant::now() + Duration::from_secs(10);
     loop {
-        if child.try_wait()?.is_some() {
+        if status()?.is_some() {
             return Err(io::Error::other("shadowsocks plugin exited during startup"));
         }
         let tcp_ready = !tcp
-            || tokio::time::timeout_at(deadline, tokio::net::TcpStream::connect(endpoint))
+            || tokio::time::timeout_at(deadline, probe())
                 .await
-                .is_ok_and(|value| value.is_ok());
+                .is_ok_and(|value| {
+                    value.is_ok_and(|stream| {
+                        match (stream.local_addr(), stream.peer_addr()) {
+                            (Ok(local), Ok(peer)) if local != peer && peer == endpoint => true,
+                            (Ok(local), Ok(peer)) => {
+                                tracing::debug!(%local, %peer, %endpoint, "plugin startup probe reached an unexpected socket");
+                                false
+                            }
+                            _ => false,
+                        }
+                    })
+                });
         // SIP003u has no UDP readiness handshake. Match the reference: only TCP
         // readiness is probed. Binding the child's UDP endpoint to test readiness
         // would race its own bind and can make a healthy plugin fail to start.
         if tcp_ready {
+            if status()?.is_some() {
+                return Err(io::Error::other("shadowsocks plugin exited during startup"));
+            }
             return Ok(());
         }
         if tokio::time::Instant::now() >= deadline {

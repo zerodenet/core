@@ -3,6 +3,8 @@
 #[path = "../support/mod.rs"]
 mod support;
 
+#[path = "../shadowsocks_inbound.rs"]
+mod shadowsocks_inbound;
 #[path = "../shadowsocks_isolation.rs"]
 mod shadowsocks_isolation;
 #[path = "../shadowsocks_plugins.rs"]

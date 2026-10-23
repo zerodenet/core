@@ -20,11 +20,31 @@ mod datagram;
 pub(crate) struct DirectInboundListenerOperation {
     #[cfg(feature = "managed-datagram-runtime")]
     pub(crate) udp: bool,
+    #[cfg(feature = "managed-datagram-runtime")]
+    pub(crate) peers: Option<std::sync::Arc<crate::runtime::inbound_owners::InboundPeerTasks>>,
     pub(crate) target: Option<Address>,
     pub(crate) port: Option<u16>,
 }
 
 impl PreparedInboundListenerOperation for DirectInboundListenerOperation {
+    fn internal_tasks(&self) -> usize {
+        #[cfg(feature = "managed-datagram-runtime")]
+        if self.udp {
+            return crate::runtime::inbound_owners::MAX_DATAGRAM_PEERS;
+        }
+        0
+    }
+    fn install_resources(
+        &mut self,
+        context: &crate::runtime::inbound_owners::InboundInstallContext,
+    ) -> Result<(), EngineError> {
+        #[cfg(feature = "managed-datagram-runtime")]
+        if self.udp {
+            self.peers = Some(context.peer_tasks());
+        }
+        let _ = context;
+        Ok(())
+    }
     fn execute(
         self: Box<Self>,
         runtime: crate::runtime::route_runtime::InboundListenerRuntime,
@@ -66,12 +86,23 @@ impl PreparedInboundListenerOperation for DirectInboundListenerOperation {
             let combined =
                 crate::runtime::inbound_operation::TcpAndPeerDatagramInboundListenerOperation {
                     tcp: operation,
+                    peers: self
+                        .peers
+                        .expect("peer owner installed before listener execution"),
                     relay_factory: move |peer, packets| {
                         datagram::DirectDatagramRelay::new(target.clone(), port, peer, packets)
                     },
                 };
             return Box::new(combined).execute(runtime, bound, shutdown);
         }
-        Box::new(operation).execute(runtime, bound, shutdown)
+        // This exact fixed-target TCP body owns its original byte view until
+        // the inline relay ends. It starts no TLS/WS/H2/MUX driver or child task.
+        // UDP combinations above deliberately retain their unaccounted plan.
+        Box::new(operation).execute_with_users(
+            runtime,
+            bound,
+            shutdown,
+            crate::runtime::listener_loop::AcceptedHandlerUsers::PrimaryOnly,
+        )
     }
 }

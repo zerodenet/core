@@ -5,6 +5,7 @@ use zero_core::Address;
 use super::{select_stable_udp_target, DirectUdpPolicy, DirectUdpSockets};
 use zero_traits::{AddressFamily, DialPolicy};
 
+mod close;
 mod live_selection;
 mod ownership;
 mod policy;
@@ -55,7 +56,7 @@ fn udp_target_selection_falls_back_to_an_available_family() {
     );
 }
 
-fn proxy() -> crate::runtime::Proxy {
+pub(super) fn proxy() -> crate::runtime::Proxy {
     crate::runtime::Proxy::new(config("auto", "auto")).unwrap()
 }
 
@@ -76,7 +77,7 @@ fn socket_set(proxy: &crate::runtime::Proxy, preferred_port: Option<u16>) -> Dir
     )
 }
 
-fn policy(proxy: &crate::runtime::Proxy, tag: Option<&str>) -> DirectUdpPolicy {
+pub(super) fn policy(proxy: &crate::runtime::Proxy, tag: Option<&str>) -> DirectUdpPolicy {
     let (dial_policy, generation) = proxy.engine().direct_dial_policy(tag).unwrap();
     DirectUdpPolicy {
         tag: tag.map(str::to_owned),

@@ -76,10 +76,12 @@ impl DirectUdpSockets {
     }
 
     fn receive_is_current(&self, entry: &DirectUdpSocket) -> bool {
-        self.generation == self.services.egress_generation()
-            && self
-                .services
-                .direct_policy_is_current(&entry.binding.policy)
+        !entry.retired
+            && if let Some(guard) = entry.socket.bound_guard() {
+                guard.check_current().is_ok()
+            } else {
+                self.policy_is_current(&entry.binding.policy, entry.binding.egress_generation)
+            }
     }
 
     fn poll_receive(

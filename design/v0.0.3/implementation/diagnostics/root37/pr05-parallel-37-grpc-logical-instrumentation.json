@@ -1,0 +1,72 @@
+{
+  "base_head": "0ee7c39d",
+  "original_sha256": "768475968e82d197db9f157448d3a805917c0a4c92bb2cb5d59dc679f16828ac",
+  "instrumented_sha256": "ff405ab37454783209c73e8e8158656cbf4a3470f5b8b3ae4f3fac7412276749",
+  "markers": [
+    [
+      "let mut fixture=Fixture::cold",
+      1
+    ],
+    [
+      "fixture.start().await;",
+      2
+    ],
+    [
+      "let mut first=fixture.options.open",
+      3
+    ],
+    [
+      "let demand=fixture.demand();",
+      4
+    ],
+    [
+      "let mut second=fixture.options.open",
+      5
+    ],
+    [
+      "second.write_all",
+      6
+    ],
+    [
+      "let mut flushing=Box::pin",
+      7
+    ],
+    [
+      "assert_eq!(managed.budget.retained(),2);",
+      8
+    ],
+    [
+      "cancel.cancel();",
+      9
+    ],
+    [
+      "drop(flushing);drop(second);",
+      10
+    ],
+    [
+      "first.write_all(b\"kept\")",
+      11
+    ],
+    [
+      "drop(first);",
+      12
+    ],
+    [
+      "let end=deadline();",
+      13
+    ],
+    [
+      "let report=protocol.unwrap();",
+      14
+    ],
+    [
+      "finish.send(()).unwrap();",
+      15
+    ],
+    [
+      "server.await.unwrap();",
+      16
+    ]
+  ],
+  "scope": "diagnostic only; original7s timeout/wire/assertions unchanged; real native observer thread, no qualification claim"
+}

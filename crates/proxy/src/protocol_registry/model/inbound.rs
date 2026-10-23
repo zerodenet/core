@@ -9,6 +9,8 @@ pub(crate) enum BoundInbound {
     Tcp(zero_platform_tokio::TokioListener),
     #[cfg(feature = "datagram-route-runtime")]
     Datagram(zero_platform_tokio::PacketSocket),
+    #[cfg(feature = "datagram-route-runtime")]
+    ControlledDatagram(zero_platform_tokio::contract::component::GrantedDatagramListener),
     #[cfg(feature = "inbound-listener-group-runtime")]
     Group(Vec<BoundInbound>),
     #[cfg(feature = "managed-datagram-runtime")]
@@ -26,7 +28,9 @@ impl BoundInbound {
         match self {
             Self::Tcp(listener) => listener,
             #[cfg(feature = "datagram-route-runtime")]
-            Self::Datagram(_) => panic!("datagram listener requires peer execution"),
+            Self::Datagram(_) | Self::ControlledDatagram(_) => {
+                panic!("datagram listener requires peer execution")
+            }
             #[cfg(feature = "managed-datagram-runtime")]
             Self::TcpAndDatagram(..) => panic!("combined listener requires datagram execution"),
             #[cfg(feature = "inbound-listener-group-runtime")]

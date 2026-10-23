@@ -1,0 +1,79 @@
+{
+  "source_commit": "2eedc2b8d8e2b0e16dffe32d3f83d2f0f2dbcc8a",
+  "method": "actual existing selectScope evaluated with representative migration paths",
+  "paths": [
+    {
+      "path": "crates/core/src/component.rs",
+      "scope": {
+        "code": true,
+        "compatibility": false,
+        "tun": false,
+        "exhaustive": false
+      }
+    },
+    {
+      "path": "crates/engine/src/runtime/configuration.rs",
+      "scope": {
+        "code": true,
+        "compatibility": false,
+        "tun": false,
+        "exhaustive": false
+      }
+    },
+    {
+      "path": "crates/runtime/src/host.rs",
+      "scope": {
+        "code": true,
+        "compatibility": false,
+        "tun": false,
+        "exhaustive": false
+      }
+    },
+    {
+      "path": "crates/proxy/src/runtime.rs",
+      "scope": {
+        "code": true,
+        "compatibility": false,
+        "tun": true,
+        "exhaustive": false
+      }
+    },
+    {
+      "path": "crates/platform/tokio/src/contract.rs",
+      "scope": {
+        "code": true,
+        "compatibility": true,
+        "tun": true,
+        "exhaustive": false
+      }
+    },
+    {
+      "path": "crates/dns/src/lib.rs",
+      "scope": {
+        "code": true,
+        "compatibility": false,
+        "tun": false,
+        "exhaustive": false
+      }
+    },
+    {
+      "path": "crates/stack/src/lib.rs",
+      "scope": {
+        "code": true,
+        "compatibility": false,
+        "tun": true,
+        "exhaustive": false
+      }
+    },
+    {
+      "path": "crates/ffi/src/lib.rs",
+      "scope": {
+        "code": true,
+        "compatibility": false,
+        "tun": false,
+        "exhaustive": false
+      }
+    }
+  ],
+  "note": "new runtime/core/engine/DNS lifecycle paths require coverage review before migration; this records current policy and does not lower gates"
+}

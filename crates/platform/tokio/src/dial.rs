@@ -1,5 +1,7 @@
 //! Native socket enforcement for neutral dial requirements.
 pub(crate) mod interfaces;
+#[cfg(any(unix, windows))]
+mod owned_tcp;
 mod tcp;
 mod udp;
 use crate::{EgressInterface, EgressSelection};
@@ -15,12 +17,12 @@ use zero_traits::{canonicalize_ip, DialPolicy};
 pub fn validate_dial_policy(policy: &DialPolicy) -> io::Result<()> {
     inventory_for(policy).map(|_| ())
 }
-pub(super) struct PreparedDial {
-    peer: SocketAddr,
-    source: Option<SocketAddr>,
-    interface: Option<EgressInterface>,
+pub(crate) struct PreparedDial {
+    pub(crate) peer: SocketAddr,
+    pub(crate) source: Option<SocketAddr>,
+    pub(crate) interface: Option<EgressInterface>,
 }
-fn prepare(
+pub(crate) fn prepare(
     peer: SocketAddr,
     policy: &DialPolicy,
     selection: &EgressSelection,

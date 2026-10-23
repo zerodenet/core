@@ -1,0 +1,12 @@
+zero-core v0.0.3-dev.202610162206 (${SOURCE}/crates/core)
+├── async-trait v0.1.92 (proc-macro)
+│   ├── proc-macro2 v1.0.107
+│   │   └── unicode-ident v1.0.27
+│   ├── quote v1.0.47
+│   │   └── proc-macro2 v1.0.107 (*)
+│   └── syn v3.0.9
+│       ├── proc-macro2 v1.0.107 (*)
+│       ├── quote v1.0.47 (*)
+│       └── unicode-ident v1.0.27
+└── zero-traits v0.0.3-dev.202610162206 (${SOURCE}/crates/traits)
+    └── bytes v1.12.1

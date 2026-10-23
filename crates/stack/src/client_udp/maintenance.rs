@@ -3,6 +3,16 @@ use super::ClientUdpStack;
 use std::time::Instant;
 
 impl ClientUdpStack {
+    /// Fence bindings, fail pending receive waiters, and release sender ownership.
+    /// This stack owns no native socket and issues no native close receipt.
+    pub fn shutdown(&self) {
+        let mut sockets = self.inner.sockets.lock().unwrap_or_else(|e| e.into_inner());
+        self.inner
+            .closed
+            .store(true, std::sync::atomic::Ordering::Release);
+        sockets.clear();
+    }
+
     /// Expire incomplete fragment assemblies and release oversized port-table
     /// storage. Live sockets, queued replies and destination/MTU state remain.
     /// Returns the number of expired fragment assemblies.

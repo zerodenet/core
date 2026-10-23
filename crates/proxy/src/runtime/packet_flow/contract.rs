@@ -16,6 +16,30 @@ pub(crate) trait PacketFlowEndpoint: Send + Sync {
     fn is_current(&self) -> bool;
     /// Terminal I/O state, distinct from retirement of new-flow admission.
     fn is_closed(&self) -> bool;
+    /// Only installed strict endpoint owners expose a real transferred-user ledger.
+    fn flow_users(&self) -> Option<Arc<super::FlowUsers>> {
+        None
+    }
+    async fn open_tcp_tracked(
+        &self,
+        local_ip: IpAddr,
+        target: SocketAddr,
+        observer: Option<Arc<dyn IoObserver>>,
+        user: Option<&super::FlowUser>,
+    ) -> Result<UserTcpStream, ClientTcpStackError> {
+        if user.is_some() {
+            return Err(ClientTcpStackError::OutboundClosed);
+        }
+        self.open_tcp(local_ip, target, observer).await
+    }
+    /// The original socket worker belongs to the same persistent endpoint
+    /// task owner. Implementations may not detach it or borrow another Scope.
+    fn spawn_packet_worker(
+        &self,
+        worker: std::pin::Pin<
+            Box<dyn std::future::Future<Output = Result<(), EngineError>> + Send + 'static>,
+        >,
+    ) -> Result<(), EngineError>;
     fn bind_udp(
         &self,
         local_ip: IpAddr,

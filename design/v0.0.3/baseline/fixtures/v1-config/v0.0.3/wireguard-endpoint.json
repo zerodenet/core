@@ -1,0 +1,31 @@
+{
+  "endpoints": [
+    {
+      "tag": "wg-example",
+      "enabled": false,
+      "directions": { "inbound": false, "outbound": true },
+      "listen": { "address": "127.0.0.1", "port": 51820 },
+      "protocol": {
+        "type": "wireguard",
+        "private_key": "AQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQE=",
+        "addresses": ["10.0.0.1/32"],
+        "peers": [
+          {
+            "public_key": "AgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgI=",
+            "endpoint": "127.0.0.1:51821",
+            "allowed_ips": ["10.0.0.0/24"]
+          }
+        ]
+      }
+    }
+  ],
+  "route": {
+    "rules": [
+      {
+        "condition": { "type": "ip", "values": ["10.0.0.0/24"] },
+        "action": { "type": "route", "outbound": "wg-example" }
+      }
+    ],
+    "final": { "type": "direct" }
+  }
+}

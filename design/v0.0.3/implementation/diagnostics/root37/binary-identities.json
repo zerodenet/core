@@ -1,0 +1,79 @@
+{
+  "scope": "identity checks only; no binaries copied/executed; originals retained",
+  "root37_fixed_binaries": [
+    {
+      "path": "/workspace/core-baseline-artifacts/zero-transport-root37-hang-instrumented",
+      "sha256": "e40da5f0eb30e567b1db2a9c6297d0336a9c8a68d8657d5836a6231a6f61a5a0",
+      "bytes": 65071816,
+      "mtime_ns": 1792487889806259889,
+      "archived": false,
+      "executed_by_this_preparation": false,
+      "referenced_by": [
+        "pr05-parallel-37-grpc-logical-instrumented-run.json"
+      ]
+    },
+    {
+      "path": "/workspace/core-baseline-artifacts/zero-transport-root37-hang-original",
+      "sha256": "43ad7ac9a302a18946479dbe8e57ef30cb8cb3ac78de8420f66e2dfe26f624a9",
+      "bytes": 65054264,
+      "mtime_ns": 1792487428028969737,
+      "archived": false,
+      "executed_by_this_preparation": false,
+      "referenced_by": [
+        "pr05-parallel-37-grpc-logical-original-diagnostic.json",
+        "pr05-parallel-37-transport-hang.json"
+      ]
+    },
+    {
+      "path": "/workspace/core-baseline-artifacts/zero-transport-root37-scope-instrumented",
+      "sha256": "8e9fe26e5e00a5e6e8cdbb7641d6cc4b0c86090111581869c543b43ae2769876",
+      "bytes": 65075552,
+      "mtime_ns": 1792488240833060917,
+      "archived": false,
+      "executed_by_this_preparation": false,
+      "referenced_by": [
+        "pr05-parallel-37-grpc-scope-instrumented-run.json"
+      ]
+    },
+    {
+      "path": "/workspace/core-baseline-artifacts/zero-transport-root37-shutdown-branches",
+      "sha256": "cb8b83e30a47cf6c8d58fc7fd3b3e088ff4d0c9e1475cbf2b136b3c37c577bcb",
+      "bytes": 65075216,
+      "mtime_ns": 1792488090660434635,
+      "archived": false,
+      "executed_by_this_preparation": false,
+      "referenced_by": [
+        "pr05-parallel-37-grpc-shutdown-branches-run.json"
+      ]
+    },
+    {
+      "path": "/workspace/core-baseline-artifacts/zero-transport-root37-shutdown-instrumented",
+      "sha256": "40a4d57639dfe74b73756b300d4de1d1f9ba75d0ba574653c197ff069bd71a12",
+      "bytes": 65055056,
+      "mtime_ns": 1792488010176359129,
+      "archived": false,
+      "executed_by_this_preparation": false,
+      "referenced_by": [
+        "pr05-parallel-37-grpc-shutdown-instrumented-run.json"
+      ]
+    }
+  ],
+  "prior_current31_binaries_rechecked": [
+    {
+      "path": "/workspace/core-baseline-artifacts/zero-release",
+      "sha256": "026741152e55cceb6e5f96fc908f6d4585b3d6f6eef378d832c5fe573420be2f",
+      "bytes": 58579864,
+      "mtime_ns": 1792421254176281670,
+      "archived": false,
+      "executed_by_this_preparation": false
+    },
+    {
+      "path": "/workspace/core-baseline-artifacts/zero-matched-current-9e3f3ed3",
+      "sha256": "b649836fa7431de38b67f980d30453303b29216e1b3c741073ed8c74e1027dbd",
+      "bytes": 64142136,
+      "mtime_ns": 1792484931520442305,
+      "archived": false,
+      "executed_by_this_preparation": false
+    }
+  ]
+}

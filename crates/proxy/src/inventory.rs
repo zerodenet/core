@@ -1,7 +1,9 @@
 use crate::protocol_registry::ProtocolRegistry;
 
+mod component;
 #[cfg(feature = "raw-ip-runtime")]
 mod device;
+mod dns_dependencies;
 mod endpoint;
 mod inbound;
 mod metadata;
@@ -9,6 +11,7 @@ mod metadata;
 mod packet;
 mod protocols;
 mod runtime;
+pub(crate) mod service;
 mod tcp;
 #[cfg(feature = "udp-runtime")]
 mod udp;
@@ -17,6 +20,7 @@ mod weak;
 #[cfg(feature = "raw-ip-runtime")]
 pub(crate) use packet::PacketRouteTarget;
 pub(crate) use runtime::{ClaimedInventoryLeaf, ClaimedRelayChain};
+pub(crate) use tcp::PreparedNativeTcpRelayChain;
 pub(crate) use tcp::{
     PreparedTcpCandidate, PreparedTcpCandidateExecution, PreparedTcpOutbound, PreparedTcpRelayHop,
 };

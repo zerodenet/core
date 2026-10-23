@@ -20,6 +20,16 @@ pub(super) async fn receive_endpoint_packet(
     }
 }
 
+pub(crate) fn retained_endpoint(
+    device: &dyn RawIpInboundDevice,
+    initial_endpoints: &[Option<SocketAddr>],
+    peer: usize,
+) -> Option<SocketAddr> {
+    device
+        .authenticated_endpoint(peer)
+        .or_else(|| initial_endpoints.get(peer).copied().flatten())
+}
+
 pub(super) fn refresh_device_generation(
     device: &dyn RawIpInboundDevice,
     generation: &mut u64,
@@ -32,7 +42,7 @@ pub(super) fn refresh_device_generation(
     if *generation != current {
         *generation = current;
         *endpoints = (0..device.peer_count())
-            .map(|peer| initial_endpoints.get(peer).copied().flatten())
+            .map(|peer| retained_endpoint(device, initial_endpoints, peer))
             .collect();
         *fragments = FragmentReassembler::new();
         *endpoint_fragments = FragmentReassembler::new();

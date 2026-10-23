@@ -45,6 +45,7 @@ where
             let mut tasks = JoinSet::new();
             let max_packet_size = self.max_packet_size.clamp(1, 65534);
             let mut buffer = vec![0; max_packet_size + 1];
+            crate::runtime::inbound_owners::InboundReady::poll_optional(runtime.readiness(), async {
             loop {
                 tokio::select! {
                     changed=shutdown.changed()=>{if changed.is_err() || *shutdown.borrow() {break;}}
@@ -73,6 +74,8 @@ where
                     }
                 }
             }
+            Ok::<(), EngineError>(())
+            }).await?;
             tasks.shutdown().await;
             Ok(())
         })

@@ -1,0 +1,40 @@
+{
+  "scope": "historical exact restore verified against saved original/instrumented bytes and fixed git objects, not a claim about later mutable HEAD",
+  "restored_three_files": [
+    {
+      "path": "crates/transport/src/grpc/owned/lifecycle.rs",
+      "diagnostic_sha256": "d9fa78fdc3531c9be4f8bde95f8f7810d204bae47d23f247b2324c35b9764753",
+      "restored_sha256": "f263e84638ca03fc651c222a44363569b2d1a3debad64967ca6771fdf6b961bc",
+      "original_artifact": "pr05-parallel-37-grpc-lifecycle-original.rs",
+      "last_instrumented_artifact": "pr05-parallel-37-grpc-lifecycle-instrumented.rs",
+      "fixed_git_sources_verified": {
+        "0ee7c39d971b6656c837c68222cf2213ac210a50": "f263e84638ca03fc651c222a44363569b2d1a3debad64967ca6771fdf6b961bc",
+        "9d08459f5879740890c04742b7b2e92e425829d3": "f263e84638ca03fc651c222a44363569b2d1a3debad64967ca6771fdf6b961bc"
+      }
+    },
+    {
+      "path": "crates/transport/tests/grpc/owned/logical.rs",
+      "diagnostic_sha256": "44ca7ea037f09a732d3119e5b9a4ca3c51607caf0a2b92a0a083f309f69dc2cb",
+      "restored_sha256": "768475968e82d197db9f157448d3a805917c0a4c92bb2cb5d59dc679f16828ac",
+      "original_artifact": "pr05-parallel-37-grpc-logical-original.rs",
+      "last_instrumented_artifact": "pr05-parallel-37-grpc-shutdown-branches-instrumented.rs",
+      "fixed_git_sources_verified": {
+        "0ee7c39d971b6656c837c68222cf2213ac210a50": "768475968e82d197db9f157448d3a805917c0a4c92bb2cb5d59dc679f16828ac",
+        "9d08459f5879740890c04742b7b2e92e425829d3": "768475968e82d197db9f157448d3a805917c0a4c92bb2cb5d59dc679f16828ac"
+      }
+    },
+    {
+      "path": "crates/platform/tokio/src/contract/scope.rs",
+      "diagnostic_sha256": "0d50dc7c8475cc9624347df1bd9960612d7e3fbc0f4e3302d6787b10d1555999",
+      "restored_sha256": "94296a58ea92f883680017b635e910140a207125149bed95a11480652d5fae7e",
+      "original_artifact": "pr05-parallel-37-scope-original.rs",
+      "last_instrumented_artifact": "pr05-parallel-37-scope-instrumented.rs",
+      "fixed_git_sources_verified": {
+        "0ee7c39d971b6656c837c68222cf2213ac210a50": "94296a58ea92f883680017b635e910140a207125149bed95a11480652d5fae7e",
+        "9d08459f5879740890c04742b7b2e92e425829d3": "94296a58ea92f883680017b635e910140a207125149bed95a11480652d5fae7e"
+      }
+    }
+  ],
+  "root38_original_logical_test_byte_identical": true,
+  "original_inner_timeout_seconds": 7
+}

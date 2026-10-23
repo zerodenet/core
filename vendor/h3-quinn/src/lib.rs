@@ -368,7 +368,10 @@ type ReadChunkFuture = ReusableBoxFuture<
 >;
 
 impl RecvStream {
-    fn new(stream: quinn::RecvStream) -> Self {
+    /// Adapt this exact transferred receive stream without cloning it. An
+    /// enclosing owner can retain its logical lease through this adapter's
+    /// pending read-chunk future and until the adapter itself is dropped.
+    pub fn new(stream: quinn::RecvStream) -> Self {
         Self {
             prefix: None,
             stream: Some(stream),
@@ -462,7 +465,10 @@ impl<B> SendStream<B>
 where
     B: Buf,
 {
-    fn new(stream: quinn::SendStream) -> SendStream<B> {
+    /// Adapt this exact transferred send stream without cloning it. An
+    /// enclosing owner can keep its original logical lease until this adapter
+    /// and its buffered write state have both been dropped.
+    pub fn new(stream: quinn::SendStream) -> SendStream<B> {
         Self {
             stream: stream,
             writing: None,

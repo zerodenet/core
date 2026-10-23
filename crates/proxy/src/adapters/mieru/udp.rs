@@ -258,7 +258,7 @@ impl<'a> PreparedUdpRelayOperation<'a> for PreparedMieruUdpRelay {
                     runtime_flow_plan_parts(self.plan.into_parts()),
                     true,
                 ),
-                carrier,
+                carrier: Box::new(carrier),
             },
             // Tuple relay connectors require the narrow runtime network services.
             needs_proxy: true,

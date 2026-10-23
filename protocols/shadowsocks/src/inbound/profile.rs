@@ -183,6 +183,16 @@ impl ShadowsocksInboundProfile {
         inbound: &ShadowsocksInbound,
         stream: &mut S,
     ) -> Result<(ShadowsocksAccept, ShadowsocksUser), Error> {
+        self.accept_request_facts(inbound, stream)
+            .await
+            .map(|(request, user)| (request.into_legacy_accept(), user))
+    }
+
+    pub(super) async fn accept_request_facts<S: zero_traits::AsyncSocket>(
+        &self,
+        inbound: &ShadowsocksInbound,
+        stream: &mut S,
+    ) -> Result<(ShadowsocksRequest, ShadowsocksUser), Error> {
         let users = self.users_snapshot();
         let (accept, index) = inbound
             .accept_request_users(stream, self.cipher, self.identity_password(), &users)
@@ -197,6 +207,15 @@ impl ShadowsocksInboundProfile {
     pub fn into_aead_stream<S>(
         &self,
         accept: ShadowsocksAccept,
+        user: &ShadowsocksUser,
+        inner: S,
+    ) -> Result<crate::stream::ShadowsocksAeadStream<S>, Error> {
+        self.build_request_stream(accept.into(), user, inner)
+    }
+
+    pub(super) fn build_request_stream<S>(
+        &self,
+        accept: ShadowsocksRequest,
         user: &ShadowsocksUser,
         inner: S,
     ) -> Result<crate::stream::ShadowsocksAeadStream<S>, Error> {

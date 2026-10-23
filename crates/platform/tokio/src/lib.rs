@@ -1,24 +1,49 @@
+pub mod contract;
+pub mod controlled_icmp;
+mod tokio_listener;
+mod tokio_socket;
+pub use tokio_listener::TokioListener;
+use tokio_socket::Storage as TcpStorage;
+mod controlled_listener;
+pub mod file;
+pub use controlled_listener::{
+    AcceptedTcp, AcceptedTcpCaller, AcceptedTcpClaim, AcceptedTcpClosed, AcceptedTcpEvidence,
+    AcceptedTcpNativeClosed, AcceptedTcpStream, AcceptedTcpTaskReceiver, AcceptedTcpTasks,
+    AcceptedTcpUsers, ControlledTcpListener, ControlledTcpListenerControl,
+    ControlledTcpListenerOwner,
+};
 #[cfg(feature = "host-network-stats")]
 pub mod network_statistics;
 use std::io;
 mod icmp;
 mod packet_socket;
 pub use icmp::IcmpSocket;
-pub use packet_socket::{PacketSocket, PacketSocketSender};
+pub use packet_socket::{
+    PacketScopeRestoreFailure, PacketSocket, PacketSocketReceiver, PacketSocketSender,
+};
 
 use std::net::{IpAddr, SocketAddr};
 use std::pin::Pin;
 use std::task::{Context, Poll};
 
 use tokio::io::{copy_bidirectional, AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt, ReadBuf};
-use tokio::net::{lookup_host, TcpListener as TokioTcpListener, TcpSocket, TcpStream, UdpSocket};
+use tokio::net::{lookup_host, TcpSocket, TcpStream, UdpSocket};
 use zero_traits::{
     AsyncSocket, DatagramSocket as DatagramSocketTrait, DnsResolver, IpAddress, SocketAddress,
-    TcpListener as TcpListenerTrait, TransportBypassControl,
+    TransportBypassControl,
 };
 
+pub mod controlled_carrier;
+pub mod controlled_datagram;
+mod controlled_tcp;
 mod datagram;
+#[cfg(windows)]
+mod windows_socket;
+#[cfg(any(unix, windows))]
+pub use controlled_tcp::PendingTcpConnect;
+pub use controlled_tcp::{ControlledTcpControl, ControlledTcpStream};
 mod dial;
+mod network_service;
 pub use dial::validate_dial_policy;
 
 mod cpu;
@@ -37,7 +62,7 @@ pub use system_dns::system_dns_servers;
 
 #[derive(Debug)]
 pub struct TokioSocket {
-    inner: TcpStream,
+    inner: TcpStorage,
     effective_addresses: Option<(SocketAddr, SocketAddr)>,
     egress_interface: Option<EgressInterface>,
     observer: Option<std::sync::Arc<dyn zero_traits::IoObserver>>,
@@ -87,7 +112,7 @@ impl TokioSocket {
 
     pub fn new(inner: TcpStream) -> Self {
         Self {
-            inner,
+            inner: TcpStorage::Native(inner),
             effective_addresses: None,
             egress_interface: None,
             observer: None,
@@ -166,15 +191,32 @@ impl TokioSocket {
             error,
         })?;
         Ok(Self {
-            inner: stream,
+            inner: TcpStorage::Native(stream),
             effective_addresses: None,
             egress_interface: interface.cloned(),
             observer: None,
         })
     }
 
-    pub fn into_inner(self) -> TcpStream {
-        self.inner
+    /// Native-only extraction. A controlled accepted view is returned intact;
+    /// its original descriptor/control never escapes the listener's entry.
+    pub fn into_inner(self) -> Result<TcpStream, Box<Self>> {
+        match self.inner {
+            TcpStorage::Native(inner) => Ok(inner),
+            inner => Err(Box::new(Self { inner, ..self })),
+        }
+    }
+    /// Pure view adaptation, without getters, cloning, binding or close rights.
+    pub fn from_accepted(io: AcceptedTcpStream) -> Self {
+        Self {
+            inner: TcpStorage::Accepted(Box::new(io)),
+            effective_addresses: None,
+            egress_interface: None,
+            observer: None,
+        }
+    }
+    pub(crate) fn is_controlled(&self) -> bool {
+        matches!(self.inner, TcpStorage::Accepted(_))
     }
 
     /// Addresses supplied by an explicitly enabled listener prelude.
@@ -358,48 +400,6 @@ impl AsyncWrite for PrefixedSocket {
     }
 }
 
-#[derive(Debug)]
-pub struct TokioListener {
-    inner: TokioTcpListener,
-}
-
-impl TokioListener {
-    pub async fn bind_addr(addr: SocketAddr) -> io::Result<Self> {
-        TokioTcpListener::bind(addr)
-            .await
-            .map(|inner| Self { inner })
-    }
-
-    pub async fn bind(addr: &str) -> io::Result<Self> {
-        TokioTcpListener::bind(addr)
-            .await
-            .map(|inner| Self { inner })
-    }
-
-    pub async fn accept(&self) -> io::Result<(TokioSocket, Option<SocketAddress>)> {
-        <Self as TcpListenerTrait>::accept(self).await
-    }
-
-    pub fn local_addr(&self) -> io::Result<SocketAddr> {
-        self.inner.local_addr()
-    }
-}
-
-impl TcpListenerTrait for TokioListener {
-    type Stream = TokioSocket;
-    type Error = io::Error;
-
-    async fn accept(&self) -> Result<(Self::Stream, Option<SocketAddress>), Self::Error> {
-        let (stream, remote_addr) = self.inner.accept().await?;
-        stream.set_nodelay(true)?;
-
-        Ok((
-            TokioSocket::new(stream),
-            Some(socket_addr_to_socket_address(remote_addr)),
-        ))
-    }
-}
-
 #[derive(Debug, Default, Clone, Copy)]
 pub struct TokioResolver;
 
@@ -436,11 +436,13 @@ fn ip_addr_to_ip(addr: IpAddr) -> IpAddress {
     }
 }
 
-pub async fn relay_bidirectional(left: TokioSocket, right: TokioSocket) -> io::Result<(u64, u64)> {
-    let mut left = left.into_inner();
-    let mut right = right.into_inner();
-
-    copy_bidirectional(&mut left, &mut right).await
+pub async fn relay_bidirectional(
+    mut left: TokioSocket,
+    mut right: TokioSocket,
+) -> io::Result<(u64, u64)> {
+    // Keep the original accepted view/control relationship through relay.
+    // As before, this low-level helper bypasses the facade's optional observer.
+    copy_bidirectional(&mut left.inner, &mut right.inner).await
 }
 
 #[derive(Debug)]
@@ -455,11 +457,17 @@ impl TokioDatagramSocket {
         mut self,
         observer: Option<std::sync::Arc<dyn zero_traits::IoObserver>>,
     ) -> Self {
+        self.set_observer(observer);
+        self
+    }
+
+    /// Attach observation after the unique socket has entered its actual owner.
+    /// A callback panic must not move/drop that owner's original descriptor.
+    pub fn set_observer(&mut self, observer: Option<std::sync::Arc<dyn zero_traits::IoObserver>>) {
         if let Some(observer) = &observer {
             observer.datagram_boundary();
         }
         self.observer = observer;
-        self
     }
 
     pub async fn bind(addr: &str) -> io::Result<Self> {

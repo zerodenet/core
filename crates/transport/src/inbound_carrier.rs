@@ -7,9 +7,13 @@ pub type CarrierFuture<T> = Pin<Box<dyn Future<Output = Result<T, RuntimeError>>
 pub struct InboundCarrier {
     pub listener: TokioListener,
     pub datagram: Arc<tokio::net::UdpSocket>,
-    /// Completes if the carrier exits. Dropping this future closes its resources.
+    /// Observes carrier exit. Dropping this future does not confirm cleanup;
+    /// the separately retained resource owner must still reap its child.
     pub completion: CarrierFuture<()>,
 }
 pub trait InboundCarrierPlan: Send + 'static {
+    /// The host installs this owner before activation can suspend. It shares
+    /// the actual protocol state used by activate, rather than a monitor copy.
+    fn owner(&self) -> Box<dyn zero_platform_tokio::contract::lifecycle::DynResourceLifecycle>;
     fn activate(self: Box<Self>, listener: TokioListener) -> CarrierFuture<InboundCarrier>;
 }

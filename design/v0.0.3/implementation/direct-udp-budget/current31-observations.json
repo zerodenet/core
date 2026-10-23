@@ -1,0 +1,3921 @@
+{
+  "scope": "intermediate current31 observations; not ALL17 qualification, calibration, or defaults",
+  "old_source": "2eedc2b8d8e2b0e16dffe32d3f83d2f0f2dbcc8a",
+  "current_source": "9e3f3ed33024e32f61685b0bff5bb4611f365109",
+  "current_tree": "12fdc3ad23e89a88ccf91ed56a46c0cd04128182",
+  "current_source_lock_sha256": "ffed93de069ad338a786490fc65e5cbc01dfc6a2c9116ab7ba853bc5abbc8764",
+  "library": {
+    "policy": {
+      "old": {
+        "directory": "/workspace/core-next/direct-udp-budget/library-old-policy-25b58d67",
+        "launcher": {
+          "observer_metadata": {
+            "source_root": "/workspace/core-baseline-source",
+            "source_commit": "2eedc2b8d8e2b0e16dffe32d3f83d2f0f2dbcc8a",
+            "source_lock_sha256": "0275dc0ac51fad8d380056defb4e4fb651edff477d0f8e6cb0166c05ca720cd7",
+            "exact_direct_dependency_pins": {
+              "tokio": "1.53.3",
+              "serde_json": "1.0.154",
+              "rustls": "0.23.40"
+            },
+            "proxy_features": [
+              "socks5",
+              "http",
+              "mixed",
+              "vless",
+              "hysteria2",
+              "shadowsocks",
+              "trojan",
+              "vmess",
+              "mieru",
+              "wireguard",
+              "dns",
+              "host-network-stats"
+            ],
+            "runtime_workers": 1,
+            "observer_tokio_tasks_spawned": 0,
+            "measurement_scope": "public proxy library; observer process also contains its own bounded Rust metrics storage; not CLI RSS or private-owner payload bytes",
+            "observer_source_sha256": {
+              "driver.rs": "feae84bcc417b7acac6baa1a69d8eb1c7d9bfa038a42d1f93b210bbd5e7ee178",
+              "main.rs": "49b82a0de5ca0d4d85ade43d45e1a5eda936bc4f3cd6b5d26ea0c927432eed36",
+              "metrics.rs": "d66bce4e342960c9467e3c5d56cacce785974154cee1f0c6ad0eb8597e439583"
+            }
+          },
+          "observer_build_lock_sha256": "7e78fe70b928136213e300f9c137d6b19dafbd5adf120684579f622e5f3a6693",
+          "source_commit": "2eedc2b8d8e2b0e16dffe32d3f83d2f0f2dbcc8a",
+          "binary_sha256": "25b58d67bd3e479e9cf375ed21e0bc52098084cb7a7a5339672af33f851c7fff",
+          "container_image": "python@sha256:a6e34c598f2467ed0e9a8d349809fcd8b5c603269512df273a0bb1784edc11b1",
+          "command": [
+            "docker",
+            "run",
+            "--rm",
+            "--pull=never",
+            "--network=none",
+            "--cpus=1",
+            "--memory=1073741824",
+            "--memory-swap=1073741824",
+            "--mount",
+            "type=bind,src=/workspace/core-next/direct-udp-budget/library-old-policy-25b58d67/kernel,dst=/kernel,readonly",
+            "--mount",
+            "type=bind,src=/workspace/core-parallel/resources/design/v0.0.3/implementation/direct-udp-budget,dst=/probe,readonly",
+            "--mount",
+            "type=bind,src=/workspace/core-next/direct-udp-budget/library-old-policy-25b58d67,dst=/results",
+            "python@sha256:a6e34c598f2467ed0e9a8d349809fcd8b5c603269512df273a0bb1784edc11b1",
+            "python3",
+            "/probe/library_worker.py",
+            "--binary",
+            "/kernel",
+            "--output",
+            "/results/data",
+            "--payload-bytes",
+            "1024",
+            "--trials",
+            "3"
+          ],
+          "scripts_sha256": {
+            "fanin.py": "eea385978d1defdf78fc5a22dc9052d9bce42ebad592b1a515c27b82466df74e",
+            "kernel.py": "d2c2ebf4310543c65c632d426afd775d643258ee5cbbb9fd408b2002aacfcc0c",
+            "library_worker.py": "88f33e207ff5871d77286c245237b4815af7c51e3813fc4cf8999a24fb111be1",
+            "observer_kernel.py": "042d456c3c96880567f3eb440d03630d861d24dc17052d126b0f538485f0f45f",
+            "peers.py": "042d67c4c7bd5bdb16660d0ce967b7f9730fda427fc492235cf697e130a934de",
+            "proc_sample.py": "43645c4cd4202c20ac062f5caa12a6b9a236b946e2eb9786392773d45bdae45b",
+            "run.py": "5206d1df85361783e3a468100aa81e55410bbcdd0016575b6b8300160d4e41ae",
+            "run_default_pair.py": "7b6afd9d32ecbcc8788163b0a4d739f7bc577b2531a338df8b16577c66f1813c",
+            "run_fanin.py": "d70e35ea4bb2cbf5e1c46d00508c684ab12ef93f8b5c6f7242e7a4b59ebec1c6",
+            "run_library.py": "0e26bc5a0e7b74b9b149526f44a07e7dd5bbac66dd226a1b71f8437ade9f24aa",
+            "summarize.py": "c6f36d400a0da1bef669d9fbf51408afa13926ab7c85dd5ddb05e611c89707c3",
+            "summarize_fanin.py": "4a450a41e00e6faae41c7440eda263baa87c1f9a42ff8339c2785c7dd67d9e69",
+            "summarize_library.py": "55b6708b86b8682e35f94a4e813e2c1f3ceecc22cebc4838faa2e2895407fbc2",
+            "worker.py": "5029e6cfeba09f58833efc53d2c29b57da847816415b1faf96bc930099f4abd7"
+          },
+          "compile_processes": "excluded; none started by harness",
+          "reference_processes": "Python echo/DNS/harness share container; accounted separately from kernel PID",
+          "host_context": {
+            "load_average": [
+              0.96240234375,
+              2.22509765625,
+              1.927734375
+            ],
+            "cpu.max": "400000 100000",
+            "memory.max": "17179869184",
+            "concurrent_validation": "parent is validating main; sizing observations only, not isolated RS01 throughput qualification"
+          },
+          "exit_code": 0
+        },
+        "payload_counts": {
+          "steady": {
+            "sent": 2448,
+            "received": 2448,
+            "missing": 0
+          },
+          "overlap": {
+            "sent": 4368,
+            "received": 4248,
+            "missing": 120
+          },
+          "burst": {
+            "sent": 4608,
+            "received": 2016,
+            "missing": 2592
+          }
+        },
+        "trials": [
+          {
+            "trial": 0,
+            "process_vmhwm_bytes": 57516032,
+            "native_threads_peak_sampled": 6,
+            "process_fd_peak_sampled": 27,
+            "process_udp_fd_peak_sampled": 17,
+            "echo_port_correlated_fd_peak_sampled": 16,
+            "historical_correlated_inodes_sampled": 272,
+            "active_business_flows_peak_observed": 16,
+            "historical_business_flow_ids_observed": 272,
+            "own_udp_kernel_rx_queue_peak_sampled_bytes": 2304,
+            "egress_generations_observed": [
+              0
+            ],
+            "samples_omitting_initial_ingress_inode": [],
+            "apply_failures": [],
+            "packet_errors": [],
+            "burst_errors": [],
+            "other_errors": [],
+            "shutdown": {
+              "graceful": true,
+              "exit_code": 0,
+              "elapsed_ns": 317795154,
+              "error": null,
+              "proof_scope": "actual library shutdown result; timeout/forced process termination is failure, never a native close receipt"
+            },
+            "tokio_owned_task_peak_sampled": 20,
+            "scheduler_injection_queue_peak_sampled": 1,
+            "task_samples_truncated": false,
+            "task_first_sample": {
+              "alive_tasks": 0,
+              "application_pending_payload_bytes": null,
+              "elapsed_ns": 1982,
+              "global_queue_depth": 0,
+              "phase": "before_proxy"
+            },
+            "task_final_sample": {
+              "alive_tasks": 0,
+              "application_pending_payload_bytes": null,
+              "elapsed_ns": 7701130119,
+              "global_queue_depth": 0,
+              "phase": "after_shutdown_and_owner_drop"
+            },
+            "task_phase_ranges": {
+              "before_proxy": {
+                "samples": 22,
+                "alive_tasks_min": 0,
+                "alive_tasks_max": 3,
+                "global_queue_depth_max": 0
+              },
+              "policy_epoch_0": {
+                "samples": 11,
+                "alive_tasks_min": 19,
+                "alive_tasks_max": 19,
+                "global_queue_depth_max": 0
+              },
+              "policy_epoch_1": {
+                "samples": 11,
+                "alive_tasks_min": 19,
+                "alive_tasks_max": 19,
+                "global_queue_depth_max": 0
+              },
+              "policy_epoch_2": {
+                "samples": 12,
+                "alive_tasks_min": 19,
+                "alive_tasks_max": 20,
+                "global_queue_depth_max": 0
+              },
+              "policy_epoch_3": {
+                "samples": 11,
+                "alive_tasks_min": 19,
+                "alive_tasks_max": 19,
+                "global_queue_depth_max": 0
+              },
+              "policy_epoch_4": {
+                "samples": 111,
+                "alive_tasks_min": 19,
+                "alive_tasks_max": 19,
+                "global_queue_depth_max": 0
+              },
+              "policy_epoch_5": {
+                "samples": 11,
+                "alive_tasks_min": 19,
+                "alive_tasks_max": 19,
+                "global_queue_depth_max": 0
+              },
+              "policy_epoch_6": {
+                "samples": 12,
+                "alive_tasks_min": 19,
+                "alive_tasks_max": 19,
+                "global_queue_depth_max": 0
+              },
+              "policy_epoch_7": {
+                "samples": 12,
+                "alive_tasks_min": 19,
+                "alive_tasks_max": 19,
+                "global_queue_depth_max": 0
+              },
+              "policy_epoch_8": {
+                "samples": 11,
+                "alive_tasks_min": 19,
+                "alive_tasks_max": 19,
+                "global_queue_depth_max": 0
+              },
+              "policy_epoch_9": {
+                "samples": 12,
+                "alive_tasks_min": 19,
+                "alive_tasks_max": 19,
+                "global_queue_depth_max": 0
+              },
+              "policy_epoch_10": {
+                "samples": 11,
+                "alive_tasks_min": 19,
+                "alive_tasks_max": 19,
+                "global_queue_depth_max": 0
+              },
+              "policy_epoch_11": {
+                "samples": 12,
+                "alive_tasks_min": 19,
+                "alive_tasks_max": 19,
+                "global_queue_depth_max": 0
+              },
+              "policy_epoch_12": {
+                "samples": 11,
+                "alive_tasks_min": 19,
+                "alive_tasks_max": 19,
+                "global_queue_depth_max": 0
+              },
+              "policy_epoch_13": {
+                "samples": 111,
+                "alive_tasks_min": 19,
+                "alive_tasks_max": 20,
+                "global_queue_depth_max": 0
+              },
+              "policy_epoch_14": {
+                "samples": 11,
+                "alive_tasks_min": 19,
+                "alive_tasks_max": 19,
+                "global_queue_depth_max": 0
+              },
+              "policy_epoch_15": {
+                "samples": 12,
+                "alive_tasks_min": 19,
+                "alive_tasks_max": 19,
+                "global_queue_depth_max": 0
+              },
+              "policy_epoch_16": {
+                "samples": 329,
+                "alive_tasks_min": 19,
+                "alive_tasks_max": 20,
+                "global_queue_depth_max": 1
+              },
+              "after_shutdown_and_owner_drop": {
+                "samples": 30,
+                "alive_tasks_min": 0,
+                "alive_tasks_max": 1,
+                "global_queue_depth_max": 0
+              }
+            },
+            "actual_network_invalidations": []
+          },
+          {
+            "trial": 1,
+            "process_vmhwm_bytes": 58843136,
+            "native_threads_peak_sampled": 6,
+            "process_fd_peak_sampled": 27,
+            "process_udp_fd_peak_sampled": 17,
+            "echo_port_correlated_fd_peak_sampled": 16,
+            "historical_correlated_inodes_sampled": 272,
+            "active_business_flows_peak_observed": 16,
+            "historical_business_flow_ids_observed": 272,
+            "own_udp_kernel_rx_queue_peak_sampled_bytes": 85248,
+            "egress_generations_observed": [
+              0
+            ],
+            "samples_omitting_initial_ingress_inode": [],
+            "apply_failures": [],
+            "packet_errors": [],
+            "burst_errors": [],
+            "other_errors": [],
+            "shutdown": {
+              "graceful": true,
+              "exit_code": 0,
+              "elapsed_ns": 354405174,
+              "error": null,
+              "proof_scope": "actual library shutdown result; timeout/forced process termination is failure, never a native close receipt"
+            },
+            "tokio_owned_task_peak_sampled": 21,
+            "scheduler_injection_queue_peak_sampled": 1,
+            "task_samples_truncated": false,
+            "task_first_sample": {
+              "alive_tasks": 0,
+              "application_pending_payload_bytes": null,
+              "elapsed_ns": 6747,
+              "global_queue_depth": 0,
+              "phase": "before_proxy"
+            },
+            "task_final_sample": {
+              "alive_tasks": 0,
+              "application_pending_payload_bytes": null,
+              "elapsed_ns": 10893216551,
+              "global_queue_depth": 0,
+              "phase": "after_shutdown_and_owner_drop"
+            },
+            "task_phase_ranges": {
+              "before_proxy": {
+                "samples": 22,
+                "alive_tasks_min": 0,
+                "alive_tasks_max": 3,
+                "global_queue_depth_max": 1
+              },
+              "policy_epoch_0": {
+                "samples": 10,
+                "alive_tasks_min": 19,
+                "alive_tasks_max": 19,
+                "global_queue_depth_max": 0
+              },
+              "policy_epoch_1": {
+                "samples": 110,
+                "alive_tasks_min": 19,
+                "alive_tasks_max": 19,
+                "global_queue_depth_max": 0
+              },
+              "policy_epoch_2": {
+                "samples": 12,
+                "alive_tasks_min": 19,
+                "alive_tasks_max": 20,
+                "global_queue_depth_max": 0
+              },
+              "policy_epoch_3": {
+                "samples": 111,
+                "alive_tasks_min": 19,
+                "alive_tasks_max": 19,
+                "global_queue_depth_max": 0
+              },
+              "policy_epoch_4": {
+                "samples": 111,
+                "alive_tasks_min": 19,
+                "alive_tasks_max": 21,
+                "global_queue_depth_max": 0
+              },
+              "policy_epoch_5": {
+                "samples": 13,
+                "alive_tasks_min": 19,
+                "alive_tasks_max": 20,
+                "global_queue_depth_max": 0
+              },
+              "policy_epoch_6": {
+                "samples": 12,
+                "alive_tasks_min": 19,
+                "alive_tasks_max": 20,
+                "global_queue_depth_max": 0
+              },
+              "policy_epoch_7": {
+                "samples": 13,
+                "alive_tasks_min": 19,
+                "alive_tasks_max": 20,
+                "global_queue_depth_max": 0
+              },
+              "policy_epoch_8": {
+                "samples": 112,
+                "alive_tasks_min": 19,
+                "alive_tasks_max": 21,
+                "global_queue_depth_max": 0
+              },
+              "policy_epoch_9": {
+                "samples": 12,
+                "alive_tasks_min": 19,
+                "alive_tasks_max": 20,
+                "global_queue_depth_max": 0
+              },
+              "policy_epoch_10": {
+                "samples": 12,
+                "alive_tasks_min": 19,
+                "alive_tasks_max": 20,
+                "global_queue_depth_max": 1
+              },
+              "policy_epoch_11": {
+                "samples": 12,
+                "alive_tasks_min": 19,
+                "alive_tasks_max": 20,
+                "global_queue_depth_max": 0
+              },
+              "policy_epoch_12": {
+                "samples": 111,
+                "alive_tasks_min": 19,
+                "alive_tasks_max": 19,
+                "global_queue_depth_max": 0
+              },
+              "policy_epoch_13": {
+                "samples": 12,
+                "alive_tasks_min": 19,
+                "alive_tasks_max": 20,
+                "global_queue_depth_max": 0
+              },
+              "policy_epoch_14": {
+                "samples": 12,
+                "alive_tasks_min": 19,
+                "alive_tasks_max": 20,
+                "global_queue_depth_max": 0
+              },
+              "policy_epoch_15": {
+                "samples": 12,
+                "alive_tasks_min": 19,
+                "alive_tasks_max": 20,
+                "global_queue_depth_max": 0
+              },
+              "policy_epoch_16": {
+                "samples": 332,
+                "alive_tasks_min": 19,
+                "alive_tasks_max": 20,
+                "global_queue_depth_max": 0
+              },
+              "shutdown_with_sources_live": {
+                "samples": 2,
+                "alive_tasks_min": 0,
+                "alive_tasks_max": 0,
+                "global_queue_depth_max": 0
+              },
+              "after_shutdown_and_owner_drop": {
+                "samples": 29,
+                "alive_tasks_min": 0,
+                "alive_tasks_max": 0,
+                "global_queue_depth_max": 0
+              }
+            },
+            "actual_network_invalidations": []
+          },
+          {
+            "trial": 2,
+            "process_vmhwm_bytes": 58740736,
+            "native_threads_peak_sampled": 6,
+            "process_fd_peak_sampled": 27,
+            "process_udp_fd_peak_sampled": 17,
+            "echo_port_correlated_fd_peak_sampled": 16,
+            "historical_correlated_inodes_sampled": 272,
+            "active_business_flows_peak_observed": 16,
+            "historical_business_flow_ids_observed": 272,
+            "own_udp_kernel_rx_queue_peak_sampled_bytes": 138240,
+            "egress_generations_observed": [
+              0
+            ],
+            "samples_omitting_initial_ingress_inode": [],
+            "apply_failures": [],
+            "packet_errors": [],
+            "burst_errors": [],
+            "other_errors": [],
+            "shutdown": {
+              "graceful": true,
+              "exit_code": 0,
+              "elapsed_ns": 335870720,
+              "error": null,
+              "proof_scope": "actual library shutdown result; timeout/forced process termination is failure, never a native close receipt"
+            },
+            "tokio_owned_task_peak_sampled": 21,
+            "scheduler_injection_queue_peak_sampled": 0,
+            "task_samples_truncated": false,
+            "task_first_sample": {
+              "alive_tasks": 0,
+              "application_pending_payload_bytes": null,
+              "elapsed_ns": 7879,
+              "global_queue_depth": 0,
+              "phase": "before_proxy"
+            },
+            "task_final_sample": {
+              "alive_tasks": 0,
+              "application_pending_payload_bytes": null,
+              "elapsed_ns": 10053436139,
+              "global_queue_depth": 0,
+              "phase": "after_shutdown_and_owner_drop"
+            },
+            "task_phase_ranges": {
+              "before_proxy": {
+                "samples": 21,
+                "alive_tasks_min": 0,
+                "alive_tasks_max": 3,
+                "global_queue_depth_max": 0
+              },
+              "ready_idle": {
+                "samples": 1,
+                "alive_tasks_min": 3,
+                "alive_tasks_max": 3,
+                "global_queue_depth_max": 0
+              },
+              "policy_epoch_0": {
+                "samples": 12,
+                "alive_tasks_min": 19,
+                "alive_tasks_max": 20,
+                "global_queue_depth_max": 0
+              },
+              "policy_epoch_1": {
+                "samples": 11,
+                "alive_tasks_min": 19,
+                "alive_tasks_max": 19,
+                "global_queue_depth_max": 0
+              },
+              "policy_epoch_2": {
+                "samples": 13,
+                "alive_tasks_min": 19,
+                "alive_tasks_max": 19,
+                "global_queue_depth_max": 0
+              },
+              "policy_epoch_3": {
+                "samples": 109,
+                "alive_tasks_min": 19,
+                "alive_tasks_max": 21,
+                "global_queue_depth_max": 0
+              },
+              "policy_epoch_4": {
+                "samples": 15,
+                "alive_tasks_min": 19,
+                "alive_tasks_max": 19,
+                "global_queue_depth_max": 0
+              },
+              "policy_epoch_5": {
+                "samples": 14,
+                "alive_tasks_min": 19,
+                "alive_tasks_max": 20,
+                "global_queue_depth_max": 0
+              },
+              "policy_epoch_6": {
+                "samples": 13,
+                "alive_tasks_min": 19,
+                "alive_tasks_max": 19,
+                "global_queue_depth_max": 0
+              },
+              "policy_epoch_7": {
+                "samples": 14,
+                "alive_tasks_min": 19,
+                "alive_tasks_max": 19,
+                "global_queue_depth_max": 0
+              },
+              "policy_epoch_8": {
+                "samples": 126,
+                "alive_tasks_min": 19,
+                "alive_tasks_max": 20,
+                "global_queue_depth_max": 0
+              },
+              "policy_epoch_9": {
+                "samples": 12,
+                "alive_tasks_min": 19,
+                "alive_tasks_max": 19,
+                "global_queue_depth_max": 0
+              },
+              "policy_epoch_10": {
+                "samples": 111,
+                "alive_tasks_min": 19,
+                "alive_tasks_max": 19,
+                "global_queue_depth_max": 0
+              },
+              "policy_epoch_11": {
+                "samples": 11,
+                "alive_tasks_min": 19,
+                "alive_tasks_max": 19,
+                "global_queue_depth_max": 0
+              },
+              "policy_epoch_12": {
+                "samples": 12,
+                "alive_tasks_min": 19,
+                "alive_tasks_max": 19,
+                "global_queue_depth_max": 0
+              },
+              "policy_epoch_13": {
+                "samples": 111,
+                "alive_tasks_min": 19,
+                "alive_tasks_max": 19,
+                "global_queue_depth_max": 0
+              },
+              "policy_epoch_14": {
+                "samples": 11,
+                "alive_tasks_min": 19,
+                "alive_tasks_max": 19,
+                "global_queue_depth_max": 0
+              },
+              "policy_epoch_15": {
+                "samples": 12,
+                "alive_tasks_min": 19,
+                "alive_tasks_max": 20,
+                "global_queue_depth_max": 0
+              },
+              "policy_epoch_16": {
+                "samples": 330,
+                "alive_tasks_min": 19,
+                "alive_tasks_max": 19,
+                "global_queue_depth_max": 0
+              },
+              "shutdown_with_sources_live": {
+                "samples": 2,
+                "alive_tasks_min": 0,
+                "alive_tasks_max": 0,
+                "global_queue_depth_max": 0
+              },
+              "after_shutdown_and_owner_drop": {
+                "samples": 29,
+                "alive_tasks_min": 0,
+                "alive_tasks_max": 0,
+                "global_queue_depth_max": 0
+              }
+            },
+            "actual_network_invalidations": []
+          }
+        ],
+        "limits_before": {
+          "cpu.max": "100000 100000",
+          "memory.max": "1073741824",
+          "memory.swap.max": "0",
+          "memory.peak": "15618048",
+          "memory.events": "low 0\nhigh 0\nmax 0\noom 0\noom_kill 0\noom_group_kill 0",
+          "cpu.stat": "usage_usec 241221\nuser_usec 204877\nsystem_usec 36343\nnice_usec 0\nnr_periods 3\nnr_throttled 0\nthrottled_usec 0\nnr_bursts 0\nburst_usec 0"
+        },
+        "limits_after": {
+          "cpu.max": "100000 100000",
+          "memory.max": "1073741824",
+          "memory.swap.max": "0",
+          "memory.peak": "222224384",
+          "memory.events": "low 0\nhigh 0\nmax 0\noom 0\noom_kill 0\noom_group_kill 0",
+          "cpu.stat": "usage_usec 14923639\nuser_usec 6159460\nsystem_usec 8764179\nnice_usec 0\nnr_periods 324\nnr_throttled 2\nthrottled_usec 96166\nnr_bursts 0\nburst_usec 0"
+        },
+        "build_info": null,
+        "application_owner_pending_payload_bytes_peak": null,
+        "exact_native_open_attempts": null
+      },
+      "current31": {
+        "directory": "/workspace/core-next/direct-udp-budget/library-current-policy-5ddbf5ac",
+        "launcher": {
+          "observer_metadata": {
+            "source_root": "/workspace/core",
+            "source_commit": "9e3f3ed33024e32f61685b0bff5bb4611f365109",
+            "source_lock_sha256": "ffed93de069ad338a786490fc65e5cbc01dfc6a2c9116ab7ba853bc5abbc8764",
+            "exact_direct_dependency_pins": {
+              "tokio": "1.54.0",
+              "serde_json": "1.0.154",
+              "rustls": "0.23.40"
+            },
+            "proxy_features": [
+              "socks5",
+              "http",
+              "mixed",
+              "vless",
+              "hysteria2",
+              "shadowsocks",
+              "trojan",
+              "vmess",
+              "mieru",
+              "wireguard",
+              "dns",
+              "host-network-stats"
+            ],
+            "runtime_workers": 1,
+            "observer_tokio_tasks_spawned": 0,
+            "measurement_scope": "public proxy library; observer process also contains its own bounded Rust metrics storage; not CLI RSS or private-owner payload bytes",
+            "observer_source_sha256": {
+              "driver.rs": "feae84bcc417b7acac6baa1a69d8eb1c7d9bfa038a42d1f93b210bbd5e7ee178",
+              "main.rs": "49b82a0de5ca0d4d85ade43d45e1a5eda936bc4f3cd6b5d26ea0c927432eed36",
+              "metrics.rs": "d66bce4e342960c9467e3c5d56cacce785974154cee1f0c6ad0eb8597e439583"
+            }
+          },
+          "observer_build_lock_sha256": "33ba651da2fd9d53db89ccd84912046723459fd771dc91d61b9702d20024833a",
+          "source_commit": "9e3f3ed33024e32f61685b0bff5bb4611f365109",
+          "binary_sha256": "5ddbf5ac16ab2b61b7d64a4abcfe643a5e8e1f1427207e60665a833c602650b2",
+          "container_image": "python@sha256:a6e34c598f2467ed0e9a8d349809fcd8b5c603269512df273a0bb1784edc11b1",
+          "command": [
+            "docker",
+            "run",
+            "--rm",
+            "--pull=never",
+            "--network=none",
+            "--cpus=1",
+            "--memory=1073741824",
+            "--memory-swap=1073741824",
+            "--mount",
+            "type=bind,src=/workspace/core-next/direct-udp-budget/library-current-policy-5ddbf5ac/kernel,dst=/kernel,readonly",
+            "--mount",
+            "type=bind,src=/workspace/core-parallel/resources/design/v0.0.3/implementation/direct-udp-budget,dst=/probe,readonly",
+            "--mount",
+            "type=bind,src=/workspace/core-next/direct-udp-budget/library-current-policy-5ddbf5ac,dst=/results",
+            "python@sha256:a6e34c598f2467ed0e9a8d349809fcd8b5c603269512df273a0bb1784edc11b1",
+            "python3",
+            "/probe/library_worker.py",
+            "--binary",
+            "/kernel",
+            "--output",
+            "/results/data",
+            "--payload-bytes",
+            "1024",
+            "--trials",
+            "3"
+          ],
+          "scripts_sha256": {
+            "fanin.py": "eea385978d1defdf78fc5a22dc9052d9bce42ebad592b1a515c27b82466df74e",
+            "kernel.py": "d2c2ebf4310543c65c632d426afd775d643258ee5cbbb9fd408b2002aacfcc0c",
+            "library_worker.py": "88f33e207ff5871d77286c245237b4815af7c51e3813fc4cf8999a24fb111be1",
+            "observer_kernel.py": "042d456c3c96880567f3eb440d03630d861d24dc17052d126b0f538485f0f45f",
+            "peers.py": "042d67c4c7bd5bdb16660d0ce967b7f9730fda427fc492235cf697e130a934de",
+            "proc_sample.py": "43645c4cd4202c20ac062f5caa12a6b9a236b946e2eb9786392773d45bdae45b",
+            "run.py": "5206d1df85361783e3a468100aa81e55410bbcdd0016575b6b8300160d4e41ae",
+            "run_default_pair.py": "7b6afd9d32ecbcc8788163b0a4d739f7bc577b2531a338df8b16577c66f1813c",
+            "run_fanin.py": "d70e35ea4bb2cbf5e1c46d00508c684ab12ef93f8b5c6f7242e7a4b59ebec1c6",
+            "run_library.py": "0e26bc5a0e7b74b9b149526f44a07e7dd5bbac66dd226a1b71f8437ade9f24aa",
+            "summarize.py": "c6f36d400a0da1bef669d9fbf51408afa13926ab7c85dd5ddb05e611c89707c3",
+            "summarize_fanin.py": "4a450a41e00e6faae41c7440eda263baa87c1f9a42ff8339c2785c7dd67d9e69",
+            "summarize_library.py": "55b6708b86b8682e35f94a4e813e2c1f3ceecc22cebc4838faa2e2895407fbc2",
+            "worker.py": "5029e6cfeba09f58833efc53d2c29b57da847816415b1faf96bc930099f4abd7"
+          },
+          "compile_processes": "excluded; none started by harness",
+          "reference_processes": "Python echo/DNS/harness share container; accounted separately from kernel PID",
+          "host_context": {
+            "load_average": [
+              0.8134765625,
+              2.283203125,
+              2.083984375
+            ],
+            "cpu.max": "400000 100000",
+            "memory.max": "17179869184",
+            "concurrent_validation": "parent is validating main; sizing observations only, not isolated RS01 throughput qualification"
+          },
+          "exit_code": 0
+        },
+        "payload_counts": {
+          "steady": {
+            "sent": 2448,
+            "received": 2448,
+            "missing": 0
+          },
+          "overlap": {
+            "sent": 4128,
+            "received": 4013,
+            "missing": 115
+          },
+          "burst": {
+            "sent": 4608,
+            "received": 1267,
+            "missing": 3341
+          }
+        },
+        "trials": [
+          {
+            "trial": 0,
+            "process_vmhwm_bytes": 70189056,
+            "native_threads_peak_sampled": 6,
+            "process_fd_peak_sampled": 27,
+            "process_udp_fd_peak_sampled": 17,
+            "echo_port_correlated_fd_peak_sampled": 16,
+            "historical_correlated_inodes_sampled": 272,
+            "active_business_flows_peak_observed": 16,
+            "historical_business_flow_ids_observed": 272,
+            "own_udp_kernel_rx_queue_peak_sampled_bytes": 82944,
+            "egress_generations_observed": [
+              0
+            ],
+            "samples_omitting_initial_ingress_inode": [],
+            "apply_failures": [],
+            "packet_errors": [],
+            "burst_errors": [],
+            "other_errors": [],
+            "shutdown": {
+              "graceful": true,
+              "exit_code": 0,
+              "elapsed_ns": 362117213,
+              "error": null,
+              "proof_scope": "actual library shutdown result; timeout/forced process termination is failure, never a native close receipt"
+            },
+            "tokio_owned_task_peak_sampled": 21,
+            "scheduler_injection_queue_peak_sampled": 1,
+            "task_samples_truncated": false,
+            "task_first_sample": {
+              "alive_tasks": 0,
+              "application_pending_payload_bytes": null,
+              "elapsed_ns": 1385,
+              "global_queue_depth": 0,
+              "phase": "before_proxy"
+            },
+            "task_final_sample": {
+              "alive_tasks": 0,
+              "application_pending_payload_bytes": null,
+              "elapsed_ns": 15784573962,
+              "global_queue_depth": 0,
+              "phase": "after_shutdown_and_owner_drop"
+            },
+            "task_phase_ranges": {
+              "before_proxy": {
+                "samples": 22,
+                "alive_tasks_min": 0,
+                "alive_tasks_max": 4,
+                "global_queue_depth_max": 0
+              },
+              "policy_epoch_0": {
+                "samples": 11,
+                "alive_tasks_min": 20,
+                "alive_tasks_max": 21,
+                "global_queue_depth_max": 0
+              },
+              "policy_epoch_1": {
+                "samples": 111,
+                "alive_tasks_min": 20,
+                "alive_tasks_max": 20,
+                "global_queue_depth_max": 0
+              },
+              "policy_epoch_2": {
+                "samples": 110,
+                "alive_tasks_min": 20,
+                "alive_tasks_max": 20,
+                "global_queue_depth_max": 0
+              },
+              "policy_epoch_3": {
+                "samples": 111,
+                "alive_tasks_min": 20,
+                "alive_tasks_max": 21,
+                "global_queue_depth_max": 0
+              },
+              "policy_epoch_4": {
+                "samples": 110,
+                "alive_tasks_min": 20,
+                "alive_tasks_max": 20,
+                "global_queue_depth_max": 0
+              },
+              "policy_epoch_5": {
+                "samples": 111,
+                "alive_tasks_min": 20,
+                "alive_tasks_max": 20,
+                "global_queue_depth_max": 0
+              },
+              "policy_epoch_6": {
+                "samples": 111,
+                "alive_tasks_min": 20,
+                "alive_tasks_max": 20,
+                "global_queue_depth_max": 0
+              },
+              "policy_epoch_7": {
+                "samples": 11,
+                "alive_tasks_min": 20,
+                "alive_tasks_max": 20,
+                "global_queue_depth_max": 0
+              },
+              "policy_epoch_8": {
+                "samples": 11,
+                "alive_tasks_min": 20,
+                "alive_tasks_max": 20,
+                "global_queue_depth_max": 0
+              },
+              "policy_epoch_9": {
+                "samples": 111,
+                "alive_tasks_min": 20,
+                "alive_tasks_max": 20,
+                "global_queue_depth_max": 0
+              },
+              "policy_epoch_10": {
+                "samples": 111,
+                "alive_tasks_min": 20,
+                "alive_tasks_max": 20,
+                "global_queue_depth_max": 0
+              },
+              "policy_epoch_11": {
+                "samples": 11,
+                "alive_tasks_min": 20,
+                "alive_tasks_max": 21,
+                "global_queue_depth_max": 0
+              },
+              "policy_epoch_12": {
+                "samples": 12,
+                "alive_tasks_min": 20,
+                "alive_tasks_max": 21,
+                "global_queue_depth_max": 1
+              },
+              "policy_epoch_13": {
+                "samples": 12,
+                "alive_tasks_min": 20,
+                "alive_tasks_max": 21,
+                "global_queue_depth_max": 0
+              },
+              "policy_epoch_14": {
+                "samples": 11,
+                "alive_tasks_min": 20,
+                "alive_tasks_max": 20,
+                "global_queue_depth_max": 0
+              },
+              "policy_epoch_15": {
+                "samples": 111,
+                "alive_tasks_min": 20,
+                "alive_tasks_max": 21,
+                "global_queue_depth_max": 0
+              },
+              "policy_epoch_16": {
+                "samples": 432,
+                "alive_tasks_min": 20,
+                "alive_tasks_max": 20,
+                "global_queue_depth_max": 0
+              },
+              "shutdown_with_sources_live": {
+                "samples": 4,
+                "alive_tasks_min": 0,
+                "alive_tasks_max": 18,
+                "global_queue_depth_max": 0
+              },
+              "after_shutdown_and_owner_drop": {
+                "samples": 30,
+                "alive_tasks_min": 0,
+                "alive_tasks_max": 0,
+                "global_queue_depth_max": 0
+              }
+            },
+            "actual_network_invalidations": []
+          },
+          {
+            "trial": 1,
+            "process_vmhwm_bytes": 66998272,
+            "native_threads_peak_sampled": 6,
+            "process_fd_peak_sampled": 27,
+            "process_udp_fd_peak_sampled": 17,
+            "echo_port_correlated_fd_peak_sampled": 16,
+            "historical_correlated_inodes_sampled": 272,
+            "active_business_flows_peak_observed": 16,
+            "historical_business_flow_ids_observed": 272,
+            "own_udp_kernel_rx_queue_peak_sampled_bytes": 11520,
+            "egress_generations_observed": [
+              0
+            ],
+            "samples_omitting_initial_ingress_inode": [],
+            "apply_failures": [],
+            "packet_errors": [],
+            "burst_errors": [],
+            "other_errors": [],
+            "shutdown": {
+              "graceful": true,
+              "exit_code": 0,
+              "elapsed_ns": 322481715,
+              "error": null,
+              "proof_scope": "actual library shutdown result; timeout/forced process termination is failure, never a native close receipt"
+            },
+            "tokio_owned_task_peak_sampled": 21,
+            "scheduler_injection_queue_peak_sampled": 0,
+            "task_samples_truncated": false,
+            "task_first_sample": {
+              "alive_tasks": 0,
+              "application_pending_payload_bytes": null,
+              "elapsed_ns": 1752,
+              "global_queue_depth": 0,
+              "phase": "before_proxy"
+            },
+            "task_final_sample": {
+              "alive_tasks": 0,
+              "application_pending_payload_bytes": null,
+              "elapsed_ns": 7704860522,
+              "global_queue_depth": 0,
+              "phase": "after_shutdown_and_owner_drop"
+            },
+            "task_phase_ranges": {
+              "before_proxy": {
+                "samples": 22,
+                "alive_tasks_min": 0,
+                "alive_tasks_max": 4,
+                "global_queue_depth_max": 0
+              },
+              "policy_epoch_0": {
+                "samples": 12,
+                "alive_tasks_min": 11,
+                "alive_tasks_max": 20,
+                "global_queue_depth_max": 0
+              },
+              "policy_epoch_1": {
+                "samples": 110,
+                "alive_tasks_min": 20,
+                "alive_tasks_max": 20,
+                "global_queue_depth_max": 0
+              },
+              "policy_epoch_2": {
+                "samples": 12,
+                "alive_tasks_min": 20,
+                "alive_tasks_max": 21,
+                "global_queue_depth_max": 0
+              },
+              "policy_epoch_3": {
+                "samples": 111,
+                "alive_tasks_min": 20,
+                "alive_tasks_max": 20,
+                "global_queue_depth_max": 0
+              },
+              "policy_epoch_4": {
+                "samples": 11,
+                "alive_tasks_min": 20,
+                "alive_tasks_max": 20,
+                "global_queue_depth_max": 0
+              },
+              "policy_epoch_5": {
+                "samples": 12,
+                "alive_tasks_min": 20,
+                "alive_tasks_max": 21,
+                "global_queue_depth_max": 0
+              },
+              "policy_epoch_6": {
+                "samples": 12,
+                "alive_tasks_min": 20,
+                "alive_tasks_max": 20,
+                "global_queue_depth_max": 0
+              },
+              "policy_epoch_7": {
+                "samples": 11,
+                "alive_tasks_min": 20,
+                "alive_tasks_max": 20,
+                "global_queue_depth_max": 0
+              },
+              "policy_epoch_8": {
+                "samples": 12,
+                "alive_tasks_min": 20,
+                "alive_tasks_max": 21,
+                "global_queue_depth_max": 0
+              },
+              "policy_epoch_9": {
+                "samples": 11,
+                "alive_tasks_min": 20,
+                "alive_tasks_max": 20,
+                "global_queue_depth_max": 0
+              },
+              "policy_epoch_10": {
+                "samples": 11,
+                "alive_tasks_min": 20,
+                "alive_tasks_max": 20,
+                "global_queue_depth_max": 0
+              },
+              "policy_epoch_11": {
+                "samples": 12,
+                "alive_tasks_min": 20,
+                "alive_tasks_max": 20,
+                "global_queue_depth_max": 0
+              },
+              "policy_epoch_12": {
+                "samples": 11,
+                "alive_tasks_min": 20,
+                "alive_tasks_max": 20,
+                "global_queue_depth_max": 0
+              },
+              "policy_epoch_13": {
+                "samples": 12,
+                "alive_tasks_min": 20,
+                "alive_tasks_max": 20,
+                "global_queue_depth_max": 0
+              },
+              "policy_epoch_14": {
+                "samples": 11,
+                "alive_tasks_min": 20,
+                "alive_tasks_max": 20,
+                "global_queue_depth_max": 0
+              },
+              "policy_epoch_15": {
+                "samples": 12,
+                "alive_tasks_min": 20,
+                "alive_tasks_max": 21,
+                "global_queue_depth_max": 0
+              },
+              "policy_epoch_16": {
+                "samples": 327,
+                "alive_tasks_min": 20,
+                "alive_tasks_max": 20,
+                "global_queue_depth_max": 0
+              },
+              "after_shutdown_and_owner_drop": {
+                "samples": 30,
+                "alive_tasks_min": 0,
+                "alive_tasks_max": 1,
+                "global_queue_depth_max": 0
+              }
+            },
+            "actual_network_invalidations": []
+          },
+          {
+            "trial": 2,
+            "process_vmhwm_bytes": 66875392,
+            "native_threads_peak_sampled": 6,
+            "process_fd_peak_sampled": 27,
+            "process_udp_fd_peak_sampled": 17,
+            "echo_port_correlated_fd_peak_sampled": 16,
+            "historical_correlated_inodes_sampled": 272,
+            "active_business_flows_peak_observed": 16,
+            "historical_business_flow_ids_observed": 272,
+            "own_udp_kernel_rx_queue_peak_sampled_bytes": 9216,
+            "egress_generations_observed": [
+              0
+            ],
+            "samples_omitting_initial_ingress_inode": [],
+            "apply_failures": [],
+            "packet_errors": [],
+            "burst_errors": [],
+            "other_errors": [],
+            "shutdown": {
+              "graceful": true,
+              "exit_code": 0,
+              "elapsed_ns": 312974834,
+              "error": null,
+              "proof_scope": "actual library shutdown result; timeout/forced process termination is failure, never a native close receipt"
+            },
+            "tokio_owned_task_peak_sampled": 22,
+            "scheduler_injection_queue_peak_sampled": 0,
+            "task_samples_truncated": false,
+            "task_first_sample": {
+              "alive_tasks": 0,
+              "application_pending_payload_bytes": null,
+              "elapsed_ns": 1620,
+              "global_queue_depth": 0,
+              "phase": "before_proxy"
+            },
+            "task_final_sample": {
+              "alive_tasks": 0,
+              "application_pending_payload_bytes": null,
+              "elapsed_ns": 7696459482,
+              "global_queue_depth": 0,
+              "phase": "after_shutdown_and_owner_drop"
+            },
+            "task_phase_ranges": {
+              "before_proxy": {
+                "samples": 22,
+                "alive_tasks_min": 0,
+                "alive_tasks_max": 4,
+                "global_queue_depth_max": 0
+              },
+              "policy_epoch_0": {
+                "samples": 11,
+                "alive_tasks_min": 20,
+                "alive_tasks_max": 20,
+                "global_queue_depth_max": 0
+              },
+              "policy_epoch_1": {
+                "samples": 111,
+                "alive_tasks_min": 20,
+                "alive_tasks_max": 22,
+                "global_queue_depth_max": 0
+              },
+              "policy_epoch_2": {
+                "samples": 12,
+                "alive_tasks_min": 20,
+                "alive_tasks_max": 20,
+                "global_queue_depth_max": 0
+              },
+              "policy_epoch_3": {
+                "samples": 11,
+                "alive_tasks_min": 20,
+                "alive_tasks_max": 20,
+                "global_queue_depth_max": 0
+              },
+              "policy_epoch_4": {
+                "samples": 12,
+                "alive_tasks_min": 20,
+                "alive_tasks_max": 20,
+                "global_queue_depth_max": 0
+              },
+              "policy_epoch_5": {
+                "samples": 11,
+                "alive_tasks_min": 20,
+                "alive_tasks_max": 20,
+                "global_queue_depth_max": 0
+              },
+              "policy_epoch_6": {
+                "samples": 12,
+                "alive_tasks_min": 20,
+                "alive_tasks_max": 20,
+                "global_queue_depth_max": 0
+              },
+              "policy_epoch_7": {
+                "samples": 11,
+                "alive_tasks_min": 20,
+                "alive_tasks_max": 20,
+                "global_queue_depth_max": 0
+              },
+              "policy_epoch_8": {
+                "samples": 12,
+                "alive_tasks_min": 20,
+                "alive_tasks_max": 21,
+                "global_queue_depth_max": 0
+              },
+              "policy_epoch_9": {
+                "samples": 11,
+                "alive_tasks_min": 20,
+                "alive_tasks_max": 20,
+                "global_queue_depth_max": 0
+              },
+              "policy_epoch_10": {
+                "samples": 11,
+                "alive_tasks_min": 20,
+                "alive_tasks_max": 20,
+                "global_queue_depth_max": 0
+              },
+              "policy_epoch_11": {
+                "samples": 12,
+                "alive_tasks_min": 20,
+                "alive_tasks_max": 20,
+                "global_queue_depth_max": 0
+              },
+              "policy_epoch_12": {
+                "samples": 11,
+                "alive_tasks_min": 20,
+                "alive_tasks_max": 20,
+                "global_queue_depth_max": 0
+              },
+              "policy_epoch_13": {
+                "samples": 12,
+                "alive_tasks_min": 20,
+                "alive_tasks_max": 21,
+                "global_queue_depth_max": 0
+              },
+              "policy_epoch_14": {
+                "samples": 12,
+                "alive_tasks_min": 20,
+                "alive_tasks_max": 20,
+                "global_queue_depth_max": 0
+              },
+              "policy_epoch_15": {
+                "samples": 111,
+                "alive_tasks_min": 20,
+                "alive_tasks_max": 21,
+                "global_queue_depth_max": 0
+              },
+              "policy_epoch_16": {
+                "samples": 328,
+                "alive_tasks_min": 20,
+                "alive_tasks_max": 20,
+                "global_queue_depth_max": 0
+              },
+              "after_shutdown_and_owner_drop": {
+                "samples": 30,
+                "alive_tasks_min": 0,
+                "alive_tasks_max": 1,
+                "global_queue_depth_max": 0
+              }
+            },
+            "actual_network_invalidations": []
+          }
+        ],
+        "limits_before": {
+          "cpu.max": "100000 100000",
+          "memory.max": "1073741824",
+          "memory.swap.max": "0",
+          "memory.peak": "15802368",
+          "memory.events": "low 0\nhigh 0\nmax 0\noom 0\noom_kill 0\noom_group_kill 0",
+          "cpu.stat": "usage_usec 235418\nuser_usec 210958\nsystem_usec 24460\nnice_usec 0\nnr_periods 2\nnr_throttled 0\nthrottled_usec 0\nnr_bursts 0\nburst_usec 0"
+        },
+        "limits_after": {
+          "cpu.max": "100000 100000",
+          "memory.max": "1073741824",
+          "memory.swap.max": "0",
+          "memory.peak": "236523520",
+          "memory.events": "low 0\nhigh 0\nmax 0\noom 0\noom_kill 0\noom_group_kill 0",
+          "cpu.stat": "usage_usec 14134427\nuser_usec 5713048\nsystem_usec 8421379\nnice_usec 0\nnr_periods 349\nnr_throttled 2\nthrottled_usec 6931\nnr_bursts 0\nburst_usec 0"
+        },
+        "build_info": null,
+        "application_owner_pending_payload_bytes_peak": null,
+        "exact_native_open_attempts": null
+      }
+    },
+    "network": {
+      "old": {
+        "directory": "/workspace/core-next/direct-udp-budget/library-old-network-25b58d67",
+        "launcher": {
+          "observer_metadata": {
+            "source_root": "/workspace/core-baseline-source",
+            "source_commit": "2eedc2b8d8e2b0e16dffe32d3f83d2f0f2dbcc8a",
+            "source_lock_sha256": "0275dc0ac51fad8d380056defb4e4fb651edff477d0f8e6cb0166c05ca720cd7",
+            "exact_direct_dependency_pins": {
+              "tokio": "1.53.3",
+              "serde_json": "1.0.154",
+              "rustls": "0.23.40"
+            },
+            "proxy_features": [
+              "socks5",
+              "http",
+              "mixed",
+              "vless",
+              "hysteria2",
+              "shadowsocks",
+              "trojan",
+              "vmess",
+              "mieru",
+              "wireguard",
+              "dns",
+              "host-network-stats"
+            ],
+            "runtime_workers": 1,
+            "observer_tokio_tasks_spawned": 0,
+            "measurement_scope": "public proxy library; observer process also contains its own bounded Rust metrics storage; not CLI RSS or private-owner payload bytes",
+            "observer_source_sha256": {
+              "driver.rs": "feae84bcc417b7acac6baa1a69d8eb1c7d9bfa038a42d1f93b210bbd5e7ee178",
+              "main.rs": "49b82a0de5ca0d4d85ade43d45e1a5eda936bc4f3cd6b5d26ea0c927432eed36",
+              "metrics.rs": "d66bce4e342960c9467e3c5d56cacce785974154cee1f0c6ad0eb8597e439583"
+            }
+          },
+          "observer_build_lock_sha256": "7e78fe70b928136213e300f9c137d6b19dafbd5adf120684579f622e5f3a6693",
+          "source_commit": "2eedc2b8d8e2b0e16dffe32d3f83d2f0f2dbcc8a",
+          "binary_sha256": "25b58d67bd3e479e9cf375ed21e0bc52098084cb7a7a5339672af33f851c7fff",
+          "container_image": "python@sha256:a6e34c598f2467ed0e9a8d349809fcd8b5c603269512df273a0bb1784edc11b1",
+          "command": [
+            "docker",
+            "run",
+            "--rm",
+            "--pull=never",
+            "--network=none",
+            "--cpus=1",
+            "--memory=1073741824",
+            "--memory-swap=1073741824",
+            "--mount",
+            "type=bind,src=/workspace/core-next/direct-udp-budget/library-old-network-25b58d67/kernel,dst=/kernel,readonly",
+            "--mount",
+            "type=bind,src=/workspace/core-parallel/resources/design/v0.0.3/implementation/direct-udp-budget,dst=/probe,readonly",
+            "--mount",
+            "type=bind,src=/workspace/core-next/direct-udp-budget/library-old-network-25b58d67,dst=/results",
+            "python@sha256:a6e34c598f2467ed0e9a8d349809fcd8b5c603269512df273a0bb1784edc11b1",
+            "python3",
+            "/probe/library_worker.py",
+            "--binary",
+            "/kernel",
+            "--output",
+            "/results/data",
+            "--payload-bytes",
+            "1024",
+            "--trials",
+            "3",
+            "--invalidate-network"
+          ],
+          "scripts_sha256": {
+            "fanin.py": "eea385978d1defdf78fc5a22dc9052d9bce42ebad592b1a515c27b82466df74e",
+            "kernel.py": "d2c2ebf4310543c65c632d426afd775d643258ee5cbbb9fd408b2002aacfcc0c",
+            "library_worker.py": "88f33e207ff5871d77286c245237b4815af7c51e3813fc4cf8999a24fb111be1",
+            "observer_kernel.py": "042d456c3c96880567f3eb440d03630d861d24dc17052d126b0f538485f0f45f",
+            "peers.py": "042d67c4c7bd5bdb16660d0ce967b7f9730fda427fc492235cf697e130a934de",
+            "proc_sample.py": "43645c4cd4202c20ac062f5caa12a6b9a236b946e2eb9786392773d45bdae45b",
+            "run.py": "5206d1df85361783e3a468100aa81e55410bbcdd0016575b6b8300160d4e41ae",
+            "run_default_pair.py": "7b6afd9d32ecbcc8788163b0a4d739f7bc577b2531a338df8b16577c66f1813c",
+            "run_fanin.py": "d70e35ea4bb2cbf5e1c46d00508c684ab12ef93f8b5c6f7242e7a4b59ebec1c6",
+            "run_library.py": "0e26bc5a0e7b74b9b149526f44a07e7dd5bbac66dd226a1b71f8437ade9f24aa",
+            "summarize.py": "c6f36d400a0da1bef669d9fbf51408afa13926ab7c85dd5ddb05e611c89707c3",
+            "summarize_fanin.py": "4a450a41e00e6faae41c7440eda263baa87c1f9a42ff8339c2785c7dd67d9e69",
+            "summarize_library.py": "55b6708b86b8682e35f94a4e813e2c1f3ceecc22cebc4838faa2e2895407fbc2",
+            "worker.py": "5029e6cfeba09f58833efc53d2c29b57da847816415b1faf96bc930099f4abd7"
+          },
+          "compile_processes": "excluded; none started by harness",
+          "reference_processes": "Python echo/DNS/harness share container; accounted separately from kernel PID",
+          "host_context": {
+            "load_average": [
+              1.1865234375,
+              2.08251953125,
+              1.8935546875
+            ],
+            "cpu.max": "400000 100000",
+            "memory.max": "17179869184",
+            "concurrent_validation": "parent is validating main; sizing observations only, not isolated RS01 throughput qualification"
+          },
+          "exit_code": 0
+        },
+        "payload_counts": {
+          "steady": {
+            "sent": 2448,
+            "received": 2448,
+            "missing": 0
+          },
+          "overlap": {
+            "sent": 4528,
+            "received": 4016,
+            "missing": 512
+          },
+          "burst": {
+            "sent": 4608,
+            "received": 2051,
+            "missing": 2557
+          }
+        },
+        "trials": [
+          {
+            "trial": 0,
+            "process_vmhwm_bytes": 61644800,
+            "native_threads_peak_sampled": 6,
+            "process_fd_peak_sampled": 27,
+            "process_udp_fd_peak_sampled": 17,
+            "echo_port_correlated_fd_peak_sampled": 16,
+            "historical_correlated_inodes_sampled": 273,
+            "active_business_flows_peak_observed": 16,
+            "historical_business_flow_ids_observed": 272,
+            "own_udp_kernel_rx_queue_peak_sampled_bytes": 58432,
+            "egress_generations_observed": [
+              0,
+              1,
+              2,
+              3,
+              4,
+              5,
+              6,
+              7,
+              8,
+              9,
+              10,
+              11,
+              12,
+              13,
+              14,
+              15,
+              16
+            ],
+            "samples_omitting_initial_ingress_inode": [],
+            "apply_failures": [],
+            "packet_errors": [],
+            "burst_errors": [],
+            "other_errors": [],
+            "shutdown": {
+              "graceful": true,
+              "exit_code": 0,
+              "elapsed_ns": 339143399,
+              "error": null,
+              "proof_scope": "actual library shutdown result; timeout/forced process termination is failure, never a native close receipt"
+            },
+            "tokio_owned_task_peak_sampled": 20,
+            "scheduler_injection_queue_peak_sampled": 1,
+            "task_samples_truncated": false,
+            "task_first_sample": {
+              "alive_tasks": 0,
+              "application_pending_payload_bytes": null,
+              "elapsed_ns": 1467,
+              "global_queue_depth": 0,
+              "phase": "before_proxy"
+            },
+            "task_final_sample": {
+              "alive_tasks": 0,
+              "application_pending_payload_bytes": null,
+              "elapsed_ns": 17820565660,
+              "global_queue_depth": 0,
+              "phase": "after_shutdown_and_owner_drop"
+            },
+            "task_phase_ranges": {
+              "before_proxy": {
+                "samples": 22,
+                "alive_tasks_min": 0,
+                "alive_tasks_max": 3,
+                "global_queue_depth_max": 0
+              },
+              "policy_epoch_0": {
+                "samples": 10,
+                "alive_tasks_min": 19,
+                "alive_tasks_max": 19,
+                "global_queue_depth_max": 0
+              },
+              "policy_epoch_1": {
+                "samples": 111,
+                "alive_tasks_min": 19,
+                "alive_tasks_max": 19,
+                "global_queue_depth_max": 0
+              },
+              "policy_epoch_2": {
+                "samples": 110,
+                "alive_tasks_min": 19,
+                "alive_tasks_max": 19,
+                "global_queue_depth_max": 0
+              },
+              "policy_epoch_3": {
+                "samples": 111,
+                "alive_tasks_min": 19,
+                "alive_tasks_max": 19,
+                "global_queue_depth_max": 0
+              },
+              "policy_epoch_4": {
+                "samples": 11,
+                "alive_tasks_min": 19,
+                "alive_tasks_max": 19,
+                "global_queue_depth_max": 0
+              },
+              "policy_epoch_5": {
+                "samples": 11,
+                "alive_tasks_min": 19,
+                "alive_tasks_max": 19,
+                "global_queue_depth_max": 0
+              },
+              "policy_epoch_6": {
+                "samples": 12,
+                "alive_tasks_min": 19,
+                "alive_tasks_max": 19,
+                "global_queue_depth_max": 0
+              },
+              "policy_epoch_7": {
+                "samples": 12,
+                "alive_tasks_min": 19,
+                "alive_tasks_max": 19,
+                "global_queue_depth_max": 0
+              },
+              "policy_epoch_8": {
+                "samples": 111,
+                "alive_tasks_min": 19,
+                "alive_tasks_max": 20,
+                "global_queue_depth_max": 0
+              },
+              "policy_epoch_9": {
+                "samples": 108,
+                "alive_tasks_min": 19,
+                "alive_tasks_max": 19,
+                "global_queue_depth_max": 0
+              },
+              "policy_epoch_10": {
+                "samples": 110,
+                "alive_tasks_min": 19,
+                "alive_tasks_max": 19,
+                "global_queue_depth_max": 0
+              },
+              "policy_epoch_11": {
+                "samples": 110,
+                "alive_tasks_min": 19,
+                "alive_tasks_max": 19,
+                "global_queue_depth_max": 0
+              },
+              "policy_epoch_12": {
+                "samples": 111,
+                "alive_tasks_min": 19,
+                "alive_tasks_max": 19,
+                "global_queue_depth_max": 0
+              },
+              "policy_epoch_13": {
+                "samples": 109,
+                "alive_tasks_min": 19,
+                "alive_tasks_max": 19,
+                "global_queue_depth_max": 0
+              },
+              "policy_epoch_14": {
+                "samples": 104,
+                "alive_tasks_min": 19,
+                "alive_tasks_max": 19,
+                "global_queue_depth_max": 0
+              },
+              "policy_epoch_15": {
+                "samples": 106,
+                "alive_tasks_min": 19,
+                "alive_tasks_max": 19,
+                "global_queue_depth_max": 0
+              },
+              "policy_epoch_16": {
+                "samples": 406,
+                "alive_tasks_min": 19,
+                "alive_tasks_max": 20,
+                "global_queue_depth_max": 1
+              },
+              "shutdown_with_sources_live": {
+                "samples": 2,
+                "alive_tasks_min": 0,
+                "alive_tasks_max": 19,
+                "global_queue_depth_max": 0
+              },
+              "after_shutdown_and_owner_drop": {
+                "samples": 30,
+                "alive_tasks_min": 0,
+                "alive_tasks_max": 0,
+                "global_queue_depth_max": 0
+              }
+            },
+            "actual_network_invalidations": [
+              {
+                "id": "observer-6",
+                "ok": true,
+                "result": {
+                  "action": "actual shared EgressControl invalidation; no system route change",
+                  "generation_after": 1,
+                  "generation_before": 0
+                }
+              },
+              {
+                "id": "observer-10",
+                "ok": true,
+                "result": {
+                  "action": "actual shared EgressControl invalidation; no system route change",
+                  "generation_after": 2,
+                  "generation_before": 1
+                }
+              },
+              {
+                "id": "observer-14",
+                "ok": true,
+                "result": {
+                  "action": "actual shared EgressControl invalidation; no system route change",
+                  "generation_after": 3,
+                  "generation_before": 2
+                }
+              },
+              {
+                "id": "observer-18",
+                "ok": true,
+                "result": {
+                  "action": "actual shared EgressControl invalidation; no system route change",
+                  "generation_after": 4,
+                  "generation_before": 3
+                }
+              },
+              {
+                "id": "observer-22",
+                "ok": true,
+                "result": {
+                  "action": "actual shared EgressControl invalidation; no system route change",
+                  "generation_after": 5,
+                  "generation_before": 4
+                }
+              },
+              {
+                "id": "observer-26",
+                "ok": true,
+                "result": {
+                  "action": "actual shared EgressControl invalidation; no system route change",
+                  "generation_after": 6,
+                  "generation_before": 5
+                }
+              },
+              {
+                "id": "observer-30",
+                "ok": true,
+                "result": {
+                  "action": "actual shared EgressControl invalidation; no system route change",
+                  "generation_after": 7,
+                  "generation_before": 6
+                }
+              },
+              {
+                "id": "observer-34",
+                "ok": true,
+                "result": {
+                  "action": "actual shared EgressControl invalidation; no system route change",
+                  "generation_after": 8,
+                  "generation_before": 7
+                }
+              },
+              {
+                "id": "observer-38",
+                "ok": true,
+                "result": {
+                  "action": "actual shared EgressControl invalidation; no system route change",
+                  "generation_after": 9,
+                  "generation_before": 8
+                }
+              },
+              {
+                "id": "observer-42",
+                "ok": true,
+                "result": {
+                  "action": "actual shared EgressControl invalidation; no system route change",
+                  "generation_after": 10,
+                  "generation_before": 9
+                }
+              },
+              {
+                "id": "observer-46",
+                "ok": true,
+                "result": {
+                  "action": "actual shared EgressControl invalidation; no system route change",
+                  "generation_after": 11,
+                  "generation_before": 10
+                }
+              },
+              {
+                "id": "observer-50",
+                "ok": true,
+                "result": {
+                  "action": "actual shared EgressControl invalidation; no system route change",
+                  "generation_after": 12,
+                  "generation_before": 11
+                }
+              },
+              {
+                "id": "observer-54",
+                "ok": true,
+                "result": {
+                  "action": "actual shared EgressControl invalidation; no system route change",
+                  "generation_after": 13,
+                  "generation_before": 12
+                }
+              },
+              {
+                "id": "observer-58",
+                "ok": true,
+                "result": {
+                  "action": "actual shared EgressControl invalidation; no system route change",
+                  "generation_after": 14,
+                  "generation_before": 13
+                }
+              },
+              {
+                "id": "observer-62",
+                "ok": true,
+                "result": {
+                  "action": "actual shared EgressControl invalidation; no system route change",
+                  "generation_after": 15,
+                  "generation_before": 14
+                }
+              },
+              {
+                "id": "observer-66",
+                "ok": true,
+                "result": {
+                  "action": "actual shared EgressControl invalidation; no system route change",
+                  "generation_after": 16,
+                  "generation_before": 15
+                }
+              }
+            ]
+          },
+          {
+            "trial": 1,
+            "process_vmhwm_bytes": 58855424,
+            "native_threads_peak_sampled": 6,
+            "process_fd_peak_sampled": 27,
+            "process_udp_fd_peak_sampled": 17,
+            "echo_port_correlated_fd_peak_sampled": 16,
+            "historical_correlated_inodes_sampled": 284,
+            "active_business_flows_peak_observed": 16,
+            "historical_business_flow_ids_observed": 272,
+            "own_udp_kernel_rx_queue_peak_sampled_bytes": 211968,
+            "egress_generations_observed": [
+              0,
+              1,
+              2,
+              3,
+              4,
+              5,
+              6,
+              7,
+              8,
+              9,
+              10,
+              11,
+              12,
+              13,
+              14,
+              15,
+              16
+            ],
+            "samples_omitting_initial_ingress_inode": [],
+            "apply_failures": [],
+            "packet_errors": [],
+            "burst_errors": [],
+            "other_errors": [],
+            "shutdown": {
+              "graceful": true,
+              "exit_code": 0,
+              "elapsed_ns": 342970115,
+              "error": null,
+              "proof_scope": "actual library shutdown result; timeout/forced process termination is failure, never a native close receipt"
+            },
+            "tokio_owned_task_peak_sampled": 20,
+            "scheduler_injection_queue_peak_sampled": 1,
+            "task_samples_truncated": false,
+            "task_first_sample": {
+              "alive_tasks": 0,
+              "application_pending_payload_bytes": null,
+              "elapsed_ns": 23505,
+              "global_queue_depth": 0,
+              "phase": "before_proxy"
+            },
+            "task_final_sample": {
+              "alive_tasks": 0,
+              "application_pending_payload_bytes": null,
+              "elapsed_ns": 11864718706,
+              "global_queue_depth": 0,
+              "phase": "after_shutdown_and_owner_drop"
+            },
+            "task_phase_ranges": {
+              "before_proxy": {
+                "samples": 22,
+                "alive_tasks_min": 0,
+                "alive_tasks_max": 3,
+                "global_queue_depth_max": 0
+              },
+              "policy_epoch_0": {
+                "samples": 12,
+                "alive_tasks_min": 18,
+                "alive_tasks_max": 19,
+                "global_queue_depth_max": 0
+              },
+              "policy_epoch_1": {
+                "samples": 111,
+                "alive_tasks_min": 19,
+                "alive_tasks_max": 20,
+                "global_queue_depth_max": 0
+              },
+              "policy_epoch_2": {
+                "samples": 12,
+                "alive_tasks_min": 19,
+                "alive_tasks_max": 19,
+                "global_queue_depth_max": 0
+              },
+              "policy_epoch_3": {
+                "samples": 12,
+                "alive_tasks_min": 19,
+                "alive_tasks_max": 19,
+                "global_queue_depth_max": 0
+              },
+              "policy_epoch_4": {
+                "samples": 109,
+                "alive_tasks_min": 19,
+                "alive_tasks_max": 20,
+                "global_queue_depth_max": 0
+              },
+              "policy_epoch_5": {
+                "samples": 100,
+                "alive_tasks_min": 19,
+                "alive_tasks_max": 20,
+                "global_queue_depth_max": 1
+              },
+              "policy_epoch_6": {
+                "samples": 102,
+                "alive_tasks_min": 19,
+                "alive_tasks_max": 20,
+                "global_queue_depth_max": 0
+              },
+              "policy_epoch_7": {
+                "samples": 12,
+                "alive_tasks_min": 19,
+                "alive_tasks_max": 20,
+                "global_queue_depth_max": 0
+              },
+              "policy_epoch_8": {
+                "samples": 13,
+                "alive_tasks_min": 19,
+                "alive_tasks_max": 19,
+                "global_queue_depth_max": 0
+              },
+              "policy_epoch_9": {
+                "samples": 11,
+                "alive_tasks_min": 19,
+                "alive_tasks_max": 19,
+                "global_queue_depth_max": 0
+              },
+              "policy_epoch_10": {
+                "samples": 12,
+                "alive_tasks_min": 19,
+                "alive_tasks_max": 19,
+                "global_queue_depth_max": 0
+              },
+              "policy_epoch_11": {
+                "samples": 12,
+                "alive_tasks_min": 19,
+                "alive_tasks_max": 19,
+                "global_queue_depth_max": 0
+              },
+              "policy_epoch_12": {
+                "samples": 12,
+                "alive_tasks_min": 19,
+                "alive_tasks_max": 19,
+                "global_queue_depth_max": 0
+              },
+              "policy_epoch_13": {
+                "samples": 110,
+                "alive_tasks_min": 19,
+                "alive_tasks_max": 19,
+                "global_queue_depth_max": 0
+              },
+              "policy_epoch_14": {
+                "samples": 111,
+                "alive_tasks_min": 19,
+                "alive_tasks_max": 19,
+                "global_queue_depth_max": 0
+              },
+              "policy_epoch_15": {
+                "samples": 11,
+                "alive_tasks_min": 19,
+                "alive_tasks_max": 19,
+                "global_queue_depth_max": 0
+              },
+              "policy_epoch_16": {
+                "samples": 323,
+                "alive_tasks_min": 19,
+                "alive_tasks_max": 19,
+                "global_queue_depth_max": 1
+              },
+              "shutdown_with_sources_live": {
+                "samples": 2,
+                "alive_tasks_min": 0,
+                "alive_tasks_max": 0,
+                "global_queue_depth_max": 0
+              },
+              "after_shutdown_and_owner_drop": {
+                "samples": 30,
+                "alive_tasks_min": 0,
+                "alive_tasks_max": 0,
+                "global_queue_depth_max": 0
+              }
+            },
+            "actual_network_invalidations": [
+              {
+                "id": "observer-6",
+                "ok": true,
+                "result": {
+                  "action": "actual shared EgressControl invalidation; no system route change",
+                  "generation_after": 1,
+                  "generation_before": 0
+                }
+              },
+              {
+                "id": "observer-10",
+                "ok": true,
+                "result": {
+                  "action": "actual shared EgressControl invalidation; no system route change",
+                  "generation_after": 2,
+                  "generation_before": 1
+                }
+              },
+              {
+                "id": "observer-14",
+                "ok": true,
+                "result": {
+                  "action": "actual shared EgressControl invalidation; no system route change",
+                  "generation_after": 3,
+                  "generation_before": 2
+                }
+              },
+              {
+                "id": "observer-18",
+                "ok": true,
+                "result": {
+                  "action": "actual shared EgressControl invalidation; no system route change",
+                  "generation_after": 4,
+                  "generation_before": 3
+                }
+              },
+              {
+                "id": "observer-22",
+                "ok": true,
+                "result": {
+                  "action": "actual shared EgressControl invalidation; no system route change",
+                  "generation_after": 5,
+                  "generation_before": 4
+                }
+              },
+              {
+                "id": "observer-26",
+                "ok": true,
+                "result": {
+                  "action": "actual shared EgressControl invalidation; no system route change",
+                  "generation_after": 6,
+                  "generation_before": 5
+                }
+              },
+              {
+                "id": "observer-30",
+                "ok": true,
+                "result": {
+                  "action": "actual shared EgressControl invalidation; no system route change",
+                  "generation_after": 7,
+                  "generation_before": 6
+                }
+              },
+              {
+                "id": "observer-34",
+                "ok": true,
+                "result": {
+                  "action": "actual shared EgressControl invalidation; no system route change",
+                  "generation_after": 8,
+                  "generation_before": 7
+                }
+              },
+              {
+                "id": "observer-38",
+                "ok": true,
+                "result": {
+                  "action": "actual shared EgressControl invalidation; no system route change",
+                  "generation_after": 9,
+                  "generation_before": 8
+                }
+              },
+              {
+                "id": "observer-42",
+                "ok": true,
+                "result": {
+                  "action": "actual shared EgressControl invalidation; no system route change",
+                  "generation_after": 10,
+                  "generation_before": 9
+                }
+              },
+              {
+                "id": "observer-46",
+                "ok": true,
+                "result": {
+                  "action": "actual shared EgressControl invalidation; no system route change",
+                  "generation_after": 11,
+                  "generation_before": 10
+                }
+              },
+              {
+                "id": "observer-50",
+                "ok": true,
+                "result": {
+                  "action": "actual shared EgressControl invalidation; no system route change",
+                  "generation_after": 12,
+                  "generation_before": 11
+                }
+              },
+              {
+                "id": "observer-54",
+                "ok": true,
+                "result": {
+                  "action": "actual shared EgressControl invalidation; no system route change",
+                  "generation_after": 13,
+                  "generation_before": 12
+                }
+              },
+              {
+                "id": "observer-58",
+                "ok": true,
+                "result": {
+                  "action": "actual shared EgressControl invalidation; no system route change",
+                  "generation_after": 14,
+                  "generation_before": 13
+                }
+              },
+              {
+                "id": "observer-62",
+                "ok": true,
+                "result": {
+                  "action": "actual shared EgressControl invalidation; no system route change",
+                  "generation_after": 15,
+                  "generation_before": 14
+                }
+              },
+              {
+                "id": "observer-66",
+                "ok": true,
+                "result": {
+                  "action": "actual shared EgressControl invalidation; no system route change",
+                  "generation_after": 16,
+                  "generation_before": 15
+                }
+              }
+            ]
+          },
+          {
+            "trial": 2,
+            "process_vmhwm_bytes": 61620224,
+            "native_threads_peak_sampled": 6,
+            "process_fd_peak_sampled": 27,
+            "process_udp_fd_peak_sampled": 17,
+            "echo_port_correlated_fd_peak_sampled": 16,
+            "historical_correlated_inodes_sampled": 288,
+            "active_business_flows_peak_observed": 16,
+            "historical_business_flow_ids_observed": 272,
+            "own_udp_kernel_rx_queue_peak_sampled_bytes": 46080,
+            "egress_generations_observed": [
+              0,
+              1,
+              2,
+              3,
+              4,
+              5,
+              6,
+              7,
+              8,
+              9,
+              10,
+              11,
+              12,
+              13,
+              14,
+              15,
+              16
+            ],
+            "samples_omitting_initial_ingress_inode": [
+              "rotation-5"
+            ],
+            "apply_failures": [],
+            "packet_errors": [],
+            "burst_errors": [],
+            "other_errors": [],
+            "shutdown": {
+              "graceful": true,
+              "exit_code": 0,
+              "elapsed_ns": 457847779,
+              "error": null,
+              "proof_scope": "actual library shutdown result; timeout/forced process termination is failure, never a native close receipt"
+            },
+            "tokio_owned_task_peak_sampled": 21,
+            "scheduler_injection_queue_peak_sampled": 1,
+            "task_samples_truncated": false,
+            "task_first_sample": {
+              "alive_tasks": 0,
+              "application_pending_payload_bytes": null,
+              "elapsed_ns": 5426,
+              "global_queue_depth": 0,
+              "phase": "before_proxy"
+            },
+            "task_final_sample": {
+              "alive_tasks": 0,
+              "application_pending_payload_bytes": null,
+              "elapsed_ns": 17047135709,
+              "global_queue_depth": 0,
+              "phase": "after_shutdown_and_owner_drop"
+            },
+            "task_phase_ranges": {
+              "before_proxy": {
+                "samples": 21,
+                "alive_tasks_min": 0,
+                "alive_tasks_max": 0,
+                "global_queue_depth_max": 0
+              },
+              "policy_epoch_0": {
+                "samples": 12,
+                "alive_tasks_min": 8,
+                "alive_tasks_max": 19,
+                "global_queue_depth_max": 0
+              },
+              "policy_epoch_1": {
+                "samples": 111,
+                "alive_tasks_min": 19,
+                "alive_tasks_max": 20,
+                "global_queue_depth_max": 0
+              },
+              "policy_epoch_2": {
+                "samples": 110,
+                "alive_tasks_min": 19,
+                "alive_tasks_max": 19,
+                "global_queue_depth_max": 0
+              },
+              "policy_epoch_3": {
+                "samples": 111,
+                "alive_tasks_min": 19,
+                "alive_tasks_max": 19,
+                "global_queue_depth_max": 0
+              },
+              "policy_epoch_4": {
+                "samples": 110,
+                "alive_tasks_min": 19,
+                "alive_tasks_max": 19,
+                "global_queue_depth_max": 0
+              },
+              "policy_epoch_5": {
+                "samples": 111,
+                "alive_tasks_min": 19,
+                "alive_tasks_max": 20,
+                "global_queue_depth_max": 0
+              },
+              "policy_epoch_6": {
+                "samples": 110,
+                "alive_tasks_min": 19,
+                "alive_tasks_max": 19,
+                "global_queue_depth_max": 0
+              },
+              "policy_epoch_7": {
+                "samples": 107,
+                "alive_tasks_min": 19,
+                "alive_tasks_max": 20,
+                "global_queue_depth_max": 0
+              },
+              "policy_epoch_8": {
+                "samples": 110,
+                "alive_tasks_min": 19,
+                "alive_tasks_max": 21,
+                "global_queue_depth_max": 1
+              },
+              "policy_epoch_9": {
+                "samples": 108,
+                "alive_tasks_min": 19,
+                "alive_tasks_max": 19,
+                "global_queue_depth_max": 0
+              },
+              "policy_epoch_10": {
+                "samples": 12,
+                "alive_tasks_min": 19,
+                "alive_tasks_max": 20,
+                "global_queue_depth_max": 0
+              },
+              "policy_epoch_11": {
+                "samples": 11,
+                "alive_tasks_min": 19,
+                "alive_tasks_max": 19,
+                "global_queue_depth_max": 0
+              },
+              "policy_epoch_12": {
+                "samples": 12,
+                "alive_tasks_min": 19,
+                "alive_tasks_max": 20,
+                "global_queue_depth_max": 0
+              },
+              "policy_epoch_13": {
+                "samples": 109,
+                "alive_tasks_min": 19,
+                "alive_tasks_max": 19,
+                "global_queue_depth_max": 0
+              },
+              "policy_epoch_14": {
+                "samples": 12,
+                "alive_tasks_min": 19,
+                "alive_tasks_max": 20,
+                "global_queue_depth_max": 0
+              },
+              "policy_epoch_15": {
+                "samples": 95,
+                "alive_tasks_min": 19,
+                "alive_tasks_max": 19,
+                "global_queue_depth_max": 0
+              },
+              "policy_epoch_16": {
+                "samples": 333,
+                "alive_tasks_min": 19,
+                "alive_tasks_max": 19,
+                "global_queue_depth_max": 0
+              },
+              "shutdown_with_sources_live": {
+                "samples": 6,
+                "alive_tasks_min": 0,
+                "alive_tasks_max": 6,
+                "global_queue_depth_max": 0
+              },
+              "after_shutdown_and_owner_drop": {
+                "samples": 29,
+                "alive_tasks_min": 0,
+                "alive_tasks_max": 0,
+                "global_queue_depth_max": 0
+              }
+            },
+            "actual_network_invalidations": [
+              {
+                "id": "observer-6",
+                "ok": true,
+                "result": {
+                  "action": "actual shared EgressControl invalidation; no system route change",
+                  "generation_after": 1,
+                  "generation_before": 0
+                }
+              },
+              {
+                "id": "observer-10",
+                "ok": true,
+                "result": {
+                  "action": "actual shared EgressControl invalidation; no system route change",
+                  "generation_after": 2,
+                  "generation_before": 1
+                }
+              },
+              {
+                "id": "observer-14",
+                "ok": true,
+                "result": {
+                  "action": "actual shared EgressControl invalidation; no system route change",
+                  "generation_after": 3,
+                  "generation_before": 2
+                }
+              },
+              {
+                "id": "observer-18",
+                "ok": true,
+                "result": {
+                  "action": "actual shared EgressControl invalidation; no system route change",
+                  "generation_after": 4,
+                  "generation_before": 3
+                }
+              },
+              {
+                "id": "observer-22",
+                "ok": true,
+                "result": {
+                  "action": "actual shared EgressControl invalidation; no system route change",
+                  "generation_after": 5,
+                  "generation_before": 4
+                }
+              },
+              {
+                "id": "observer-26",
+                "ok": true,
+                "result": {
+                  "action": "actual shared EgressControl invalidation; no system route change",
+                  "generation_after": 6,
+                  "generation_before": 5
+                }
+              },
+              {
+                "id": "observer-30",
+                "ok": true,
+                "result": {
+                  "action": "actual shared EgressControl invalidation; no system route change",
+                  "generation_after": 7,
+                  "generation_before": 6
+                }
+              },
+              {
+                "id": "observer-34",
+                "ok": true,
+                "result": {
+                  "action": "actual shared EgressControl invalidation; no system route change",
+                  "generation_after": 8,
+                  "generation_before": 7
+                }
+              },
+              {
+                "id": "observer-38",
+                "ok": true,
+                "result": {
+                  "action": "actual shared EgressControl invalidation; no system route change",
+                  "generation_after": 9,
+                  "generation_before": 8
+                }
+              },
+              {
+                "id": "observer-42",
+                "ok": true,
+                "result": {
+                  "action": "actual shared EgressControl invalidation; no system route change",
+                  "generation_after": 10,
+                  "generation_before": 9
+                }
+              },
+              {
+                "id": "observer-46",
+                "ok": true,
+                "result": {
+                  "action": "actual shared EgressControl invalidation; no system route change",
+                  "generation_after": 11,
+                  "generation_before": 10
+                }
+              },
+              {
+                "id": "observer-50",
+                "ok": true,
+                "result": {
+                  "action": "actual shared EgressControl invalidation; no system route change",
+                  "generation_after": 12,
+                  "generation_before": 11
+                }
+              },
+              {
+                "id": "observer-54",
+                "ok": true,
+                "result": {
+                  "action": "actual shared EgressControl invalidation; no system route change",
+                  "generation_after": 13,
+                  "generation_before": 12
+                }
+              },
+              {
+                "id": "observer-58",
+                "ok": true,
+                "result": {
+                  "action": "actual shared EgressControl invalidation; no system route change",
+                  "generation_after": 14,
+                  "generation_before": 13
+                }
+              },
+              {
+                "id": "observer-62",
+                "ok": true,
+                "result": {
+                  "action": "actual shared EgressControl invalidation; no system route change",
+                  "generation_after": 15,
+                  "generation_before": 14
+                }
+              },
+              {
+                "id": "observer-66",
+                "ok": true,
+                "result": {
+                  "action": "actual shared EgressControl invalidation; no system route change",
+                  "generation_after": 16,
+                  "generation_before": 15
+                }
+              }
+            ]
+          }
+        ],
+        "limits_before": {
+          "cpu.max": "100000 100000",
+          "memory.max": "1073741824",
+          "memory.swap.max": "0",
+          "memory.peak": "15790080",
+          "memory.events": "low 0\nhigh 0\nmax 0\noom 0\noom_kill 0\noom_group_kill 0",
+          "cpu.stat": "usage_usec 272884\nuser_usec 217337\nsystem_usec 55546\nnice_usec 0\nnr_periods 3\nnr_throttled 0\nthrottled_usec 0\nnr_bursts 0\nburst_usec 0"
+        },
+        "limits_after": {
+          "cpu.max": "100000 100000",
+          "memory.max": "1073741824",
+          "memory.swap.max": "0",
+          "memory.peak": "279191552",
+          "memory.events": "low 0\nhigh 0\nmax 0\noom 0\noom_kill 0\noom_group_kill 0",
+          "cpu.stat": "usage_usec 26378697\nuser_usec 11102800\nsystem_usec 15275896\nnice_usec 0\nnr_periods 549\nnr_throttled 7\nthrottled_usec 56483\nnr_bursts 0\nburst_usec 0"
+        },
+        "build_info": null,
+        "application_owner_pending_payload_bytes_peak": null,
+        "exact_native_open_attempts": null
+      },
+      "current31": {
+        "directory": "/workspace/core-next/direct-udp-budget/library-current-network-5ddbf5ac",
+        "launcher": {
+          "observer_metadata": {
+            "source_root": "/workspace/core",
+            "source_commit": "9e3f3ed33024e32f61685b0bff5bb4611f365109",
+            "source_lock_sha256": "ffed93de069ad338a786490fc65e5cbc01dfc6a2c9116ab7ba853bc5abbc8764",
+            "exact_direct_dependency_pins": {
+              "tokio": "1.54.0",
+              "serde_json": "1.0.154",
+              "rustls": "0.23.40"
+            },
+            "proxy_features": [
+              "socks5",
+              "http",
+              "mixed",
+              "vless",
+              "hysteria2",
+              "shadowsocks",
+              "trojan",
+              "vmess",
+              "mieru",
+              "wireguard",
+              "dns",
+              "host-network-stats"
+            ],
+            "runtime_workers": 1,
+            "observer_tokio_tasks_spawned": 0,
+            "measurement_scope": "public proxy library; observer process also contains its own bounded Rust metrics storage; not CLI RSS or private-owner payload bytes",
+            "observer_source_sha256": {
+              "driver.rs": "feae84bcc417b7acac6baa1a69d8eb1c7d9bfa038a42d1f93b210bbd5e7ee178",
+              "main.rs": "49b82a0de5ca0d4d85ade43d45e1a5eda936bc4f3cd6b5d26ea0c927432eed36",
+              "metrics.rs": "d66bce4e342960c9467e3c5d56cacce785974154cee1f0c6ad0eb8597e439583"
+            }
+          },
+          "observer_build_lock_sha256": "33ba651da2fd9d53db89ccd84912046723459fd771dc91d61b9702d20024833a",
+          "source_commit": "9e3f3ed33024e32f61685b0bff5bb4611f365109",
+          "binary_sha256": "5ddbf5ac16ab2b61b7d64a4abcfe643a5e8e1f1427207e60665a833c602650b2",
+          "container_image": "python@sha256:a6e34c598f2467ed0e9a8d349809fcd8b5c603269512df273a0bb1784edc11b1",
+          "command": [
+            "docker",
+            "run",
+            "--rm",
+            "--pull=never",
+            "--network=none",
+            "--cpus=1",
+            "--memory=1073741824",
+            "--memory-swap=1073741824",
+            "--mount",
+            "type=bind,src=/workspace/core-next/direct-udp-budget/library-current-network-5ddbf5ac/kernel,dst=/kernel,readonly",
+            "--mount",
+            "type=bind,src=/workspace/core-parallel/resources/design/v0.0.3/implementation/direct-udp-budget,dst=/probe,readonly",
+            "--mount",
+            "type=bind,src=/workspace/core-next/direct-udp-budget/library-current-network-5ddbf5ac,dst=/results",
+            "python@sha256:a6e34c598f2467ed0e9a8d349809fcd8b5c603269512df273a0bb1784edc11b1",
+            "python3",
+            "/probe/library_worker.py",
+            "--binary",
+            "/kernel",
+            "--output",
+            "/results/data",
+            "--payload-bytes",
+            "1024",
+            "--trials",
+            "3",
+            "--invalidate-network"
+          ],
+          "scripts_sha256": {
+            "fanin.py": "eea385978d1defdf78fc5a22dc9052d9bce42ebad592b1a515c27b82466df74e",
+            "kernel.py": "d2c2ebf4310543c65c632d426afd775d643258ee5cbbb9fd408b2002aacfcc0c",
+            "library_worker.py": "88f33e207ff5871d77286c245237b4815af7c51e3813fc4cf8999a24fb111be1",
+            "observer_kernel.py": "042d456c3c96880567f3eb440d03630d861d24dc17052d126b0f538485f0f45f",
+            "peers.py": "042d67c4c7bd5bdb16660d0ce967b7f9730fda427fc492235cf697e130a934de",
+            "proc_sample.py": "43645c4cd4202c20ac062f5caa12a6b9a236b946e2eb9786392773d45bdae45b",
+            "run.py": "5206d1df85361783e3a468100aa81e55410bbcdd0016575b6b8300160d4e41ae",
+            "run_default_pair.py": "7b6afd9d32ecbcc8788163b0a4d739f7bc577b2531a338df8b16577c66f1813c",
+            "run_fanin.py": "d70e35ea4bb2cbf5e1c46d00508c684ab12ef93f8b5c6f7242e7a4b59ebec1c6",
+            "run_library.py": "0e26bc5a0e7b74b9b149526f44a07e7dd5bbac66dd226a1b71f8437ade9f24aa",
+            "summarize.py": "c6f36d400a0da1bef669d9fbf51408afa13926ab7c85dd5ddb05e611c89707c3",
+            "summarize_fanin.py": "4a450a41e00e6faae41c7440eda263baa87c1f9a42ff8339c2785c7dd67d9e69",
+            "summarize_library.py": "55b6708b86b8682e35f94a4e813e2c1f3ceecc22cebc4838faa2e2895407fbc2",
+            "worker.py": "5029e6cfeba09f58833efc53d2c29b57da847816415b1faf96bc930099f4abd7"
+          },
+          "compile_processes": "excluded; none started by harness",
+          "reference_processes": "Python echo/DNS/harness share container; accounted separately from kernel PID",
+          "host_context": {
+            "load_average": [
+              0.59033203125,
+              1.99072265625,
+              1.9931640625
+            ],
+            "cpu.max": "400000 100000",
+            "memory.max": "17179869184",
+            "concurrent_validation": "parent is validating main; sizing observations only, not isolated RS01 throughput qualification"
+          },
+          "exit_code": 0
+        },
+        "payload_counts": {
+          "steady": {
+            "sent": 2448,
+            "received": 2448,
+            "missing": 0
+          },
+          "overlap": {
+            "sent": 4432,
+            "received": 3992,
+            "missing": 440
+          },
+          "burst": {
+            "sent": 4608,
+            "received": 2722,
+            "missing": 1886
+          }
+        },
+        "trials": [
+          {
+            "trial": 0,
+            "process_vmhwm_bytes": 69488640,
+            "native_threads_peak_sampled": 6,
+            "process_fd_peak_sampled": 27,
+            "process_udp_fd_peak_sampled": 17,
+            "echo_port_correlated_fd_peak_sampled": 16,
+            "historical_correlated_inodes_sampled": 279,
+            "active_business_flows_peak_observed": 16,
+            "historical_business_flow_ids_observed": 272,
+            "own_udp_kernel_rx_queue_peak_sampled_bytes": 94464,
+            "egress_generations_observed": [
+              0,
+              1,
+              2,
+              3,
+              4,
+              5,
+              6,
+              7,
+              8,
+              9,
+              10,
+              11,
+              12,
+              13,
+              14,
+              15,
+              16
+            ],
+            "samples_omitting_initial_ingress_inode": [],
+            "apply_failures": [],
+            "packet_errors": [],
+            "burst_errors": [],
+            "other_errors": [],
+            "shutdown": {
+              "graceful": true,
+              "exit_code": 0,
+              "elapsed_ns": 345349035,
+              "error": null,
+              "proof_scope": "actual library shutdown result; timeout/forced process termination is failure, never a native close receipt"
+            },
+            "tokio_owned_task_peak_sampled": 22,
+            "scheduler_injection_queue_peak_sampled": 1,
+            "task_samples_truncated": false,
+            "task_first_sample": {
+              "alive_tasks": 0,
+              "application_pending_payload_bytes": null,
+              "elapsed_ns": 1323,
+              "global_queue_depth": 0,
+              "phase": "before_proxy"
+            },
+            "task_final_sample": {
+              "alive_tasks": 0,
+              "application_pending_payload_bytes": null,
+              "elapsed_ns": 14896633419,
+              "global_queue_depth": 0,
+              "phase": "after_shutdown_and_owner_drop"
+            },
+            "task_phase_ranges": {
+              "before_proxy": {
+                "samples": 21,
+                "alive_tasks_min": 0,
+                "alive_tasks_max": 0,
+                "global_queue_depth_max": 0
+              },
+              "ready_idle": {
+                "samples": 1,
+                "alive_tasks_min": 4,
+                "alive_tasks_max": 4,
+                "global_queue_depth_max": 0
+              },
+              "policy_epoch_0": {
+                "samples": 14,
+                "alive_tasks_min": 4,
+                "alive_tasks_max": 20,
+                "global_queue_depth_max": 0
+              },
+              "policy_epoch_1": {
+                "samples": 11,
+                "alive_tasks_min": 20,
+                "alive_tasks_max": 20,
+                "global_queue_depth_max": 0
+              },
+              "policy_epoch_2": {
+                "samples": 112,
+                "alive_tasks_min": 20,
+                "alive_tasks_max": 21,
+                "global_queue_depth_max": 1
+              },
+              "policy_epoch_3": {
+                "samples": 12,
+                "alive_tasks_min": 20,
+                "alive_tasks_max": 22,
+                "global_queue_depth_max": 0
+              },
+              "policy_epoch_4": {
+                "samples": 12,
+                "alive_tasks_min": 20,
+                "alive_tasks_max": 21,
+                "global_queue_depth_max": 0
+              },
+              "policy_epoch_5": {
+                "samples": 111,
+                "alive_tasks_min": 20,
+                "alive_tasks_max": 20,
+                "global_queue_depth_max": 0
+              },
+              "policy_epoch_6": {
+                "samples": 110,
+                "alive_tasks_min": 20,
+                "alive_tasks_max": 20,
+                "global_queue_depth_max": 0
+              },
+              "policy_epoch_7": {
+                "samples": 12,
+                "alive_tasks_min": 20,
+                "alive_tasks_max": 21,
+                "global_queue_depth_max": 0
+              },
+              "policy_epoch_8": {
+                "samples": 111,
+                "alive_tasks_min": 20,
+                "alive_tasks_max": 21,
+                "global_queue_depth_max": 0
+              },
+              "policy_epoch_9": {
+                "samples": 13,
+                "alive_tasks_min": 20,
+                "alive_tasks_max": 20,
+                "global_queue_depth_max": 0
+              },
+              "policy_epoch_10": {
+                "samples": 112,
+                "alive_tasks_min": 20,
+                "alive_tasks_max": 21,
+                "global_queue_depth_max": 0
+              },
+              "policy_epoch_11": {
+                "samples": 12,
+                "alive_tasks_min": 20,
+                "alive_tasks_max": 22,
+                "global_queue_depth_max": 0
+              },
+              "policy_epoch_12": {
+                "samples": 12,
+                "alive_tasks_min": 20,
+                "alive_tasks_max": 21,
+                "global_queue_depth_max": 0
+              },
+              "policy_epoch_13": {
+                "samples": 110,
+                "alive_tasks_min": 20,
+                "alive_tasks_max": 21,
+                "global_queue_depth_max": 0
+              },
+              "policy_epoch_14": {
+                "samples": 109,
+                "alive_tasks_min": 20,
+                "alive_tasks_max": 20,
+                "global_queue_depth_max": 0
+              },
+              "policy_epoch_15": {
+                "samples": 101,
+                "alive_tasks_min": 20,
+                "alive_tasks_max": 20,
+                "global_queue_depth_max": 0
+              },
+              "policy_epoch_16": {
+                "samples": 431,
+                "alive_tasks_min": 20,
+                "alive_tasks_max": 21,
+                "global_queue_depth_max": 0
+              },
+              "shutdown_with_sources_live": {
+                "samples": 3,
+                "alive_tasks_min": 0,
+                "alive_tasks_max": 7,
+                "global_queue_depth_max": 0
+              },
+              "after_shutdown_and_owner_drop": {
+                "samples": 30,
+                "alive_tasks_min": 0,
+                "alive_tasks_max": 0,
+                "global_queue_depth_max": 0
+              }
+            },
+            "actual_network_invalidations": [
+              {
+                "id": "observer-6",
+                "ok": true,
+                "result": {
+                  "action": "actual shared EgressControl invalidation; no system route change",
+                  "generation_after": 1,
+                  "generation_before": 0
+                }
+              },
+              {
+                "id": "observer-10",
+                "ok": true,
+                "result": {
+                  "action": "actual shared EgressControl invalidation; no system route change",
+                  "generation_after": 2,
+                  "generation_before": 1
+                }
+              },
+              {
+                "id": "observer-14",
+                "ok": true,
+                "result": {
+                  "action": "actual shared EgressControl invalidation; no system route change",
+                  "generation_after": 3,
+                  "generation_before": 2
+                }
+              },
+              {
+                "id": "observer-18",
+                "ok": true,
+                "result": {
+                  "action": "actual shared EgressControl invalidation; no system route change",
+                  "generation_after": 4,
+                  "generation_before": 3
+                }
+              },
+              {
+                "id": "observer-22",
+                "ok": true,
+                "result": {
+                  "action": "actual shared EgressControl invalidation; no system route change",
+                  "generation_after": 5,
+                  "generation_before": 4
+                }
+              },
+              {
+                "id": "observer-26",
+                "ok": true,
+                "result": {
+                  "action": "actual shared EgressControl invalidation; no system route change",
+                  "generation_after": 6,
+                  "generation_before": 5
+                }
+              },
+              {
+                "id": "observer-30",
+                "ok": true,
+                "result": {
+                  "action": "actual shared EgressControl invalidation; no system route change",
+                  "generation_after": 7,
+                  "generation_before": 6
+                }
+              },
+              {
+                "id": "observer-34",
+                "ok": true,
+                "result": {
+                  "action": "actual shared EgressControl invalidation; no system route change",
+                  "generation_after": 8,
+                  "generation_before": 7
+                }
+              },
+              {
+                "id": "observer-38",
+                "ok": true,
+                "result": {
+                  "action": "actual shared EgressControl invalidation; no system route change",
+                  "generation_after": 9,
+                  "generation_before": 8
+                }
+              },
+              {
+                "id": "observer-42",
+                "ok": true,
+                "result": {
+                  "action": "actual shared EgressControl invalidation; no system route change",
+                  "generation_after": 10,
+                  "generation_before": 9
+                }
+              },
+              {
+                "id": "observer-46",
+                "ok": true,
+                "result": {
+                  "action": "actual shared EgressControl invalidation; no system route change",
+                  "generation_after": 11,
+                  "generation_before": 10
+                }
+              },
+              {
+                "id": "observer-50",
+                "ok": true,
+                "result": {
+                  "action": "actual shared EgressControl invalidation; no system route change",
+                  "generation_after": 12,
+                  "generation_before": 11
+                }
+              },
+              {
+                "id": "observer-54",
+                "ok": true,
+                "result": {
+                  "action": "actual shared EgressControl invalidation; no system route change",
+                  "generation_after": 13,
+                  "generation_before": 12
+                }
+              },
+              {
+                "id": "observer-58",
+                "ok": true,
+                "result": {
+                  "action": "actual shared EgressControl invalidation; no system route change",
+                  "generation_after": 14,
+                  "generation_before": 13
+                }
+              },
+              {
+                "id": "observer-62",
+                "ok": true,
+                "result": {
+                  "action": "actual shared EgressControl invalidation; no system route change",
+                  "generation_after": 15,
+                  "generation_before": 14
+                }
+              },
+              {
+                "id": "observer-66",
+                "ok": true,
+                "result": {
+                  "action": "actual shared EgressControl invalidation; no system route change",
+                  "generation_after": 16,
+                  "generation_before": 15
+                }
+              }
+            ]
+          },
+          {
+            "trial": 1,
+            "process_vmhwm_bytes": 67907584,
+            "native_threads_peak_sampled": 6,
+            "process_fd_peak_sampled": 27,
+            "process_udp_fd_peak_sampled": 17,
+            "echo_port_correlated_fd_peak_sampled": 16,
+            "historical_correlated_inodes_sampled": 273,
+            "active_business_flows_peak_observed": 16,
+            "historical_business_flow_ids_observed": 272,
+            "own_udp_kernel_rx_queue_peak_sampled_bytes": 69120,
+            "egress_generations_observed": [
+              0,
+              1,
+              2,
+              3,
+              4,
+              5,
+              6,
+              7,
+              8,
+              9,
+              10,
+              11,
+              12,
+              13,
+              14,
+              15,
+              16
+            ],
+            "samples_omitting_initial_ingress_inode": [],
+            "apply_failures": [],
+            "packet_errors": [],
+            "burst_errors": [],
+            "other_errors": [],
+            "shutdown": {
+              "graceful": true,
+              "exit_code": 0,
+              "elapsed_ns": 382190418,
+              "error": null,
+              "proof_scope": "actual library shutdown result; timeout/forced process termination is failure, never a native close receipt"
+            },
+            "tokio_owned_task_peak_sampled": 21,
+            "scheduler_injection_queue_peak_sampled": 0,
+            "task_samples_truncated": false,
+            "task_first_sample": {
+              "alive_tasks": 0,
+              "application_pending_payload_bytes": null,
+              "elapsed_ns": 5127,
+              "global_queue_depth": 0,
+              "phase": "before_proxy"
+            },
+            "task_final_sample": {
+              "alive_tasks": 0,
+              "application_pending_payload_bytes": null,
+              "elapsed_ns": 17858297266,
+              "global_queue_depth": 0,
+              "phase": "after_shutdown_and_owner_drop"
+            },
+            "task_phase_ranges": {
+              "before_proxy": {
+                "samples": 22,
+                "alive_tasks_min": 0,
+                "alive_tasks_max": 4,
+                "global_queue_depth_max": 0
+              },
+              "policy_epoch_0": {
+                "samples": 12,
+                "alive_tasks_min": 14,
+                "alive_tasks_max": 20,
+                "global_queue_depth_max": 0
+              },
+              "policy_epoch_1": {
+                "samples": 11,
+                "alive_tasks_min": 20,
+                "alive_tasks_max": 20,
+                "global_queue_depth_max": 0
+              },
+              "policy_epoch_2": {
+                "samples": 110,
+                "alive_tasks_min": 20,
+                "alive_tasks_max": 20,
+                "global_queue_depth_max": 0
+              },
+              "policy_epoch_3": {
+                "samples": 111,
+                "alive_tasks_min": 20,
+                "alive_tasks_max": 21,
+                "global_queue_depth_max": 0
+              },
+              "policy_epoch_4": {
+                "samples": 12,
+                "alive_tasks_min": 20,
+                "alive_tasks_max": 21,
+                "global_queue_depth_max": 0
+              },
+              "policy_epoch_5": {
+                "samples": 110,
+                "alive_tasks_min": 20,
+                "alive_tasks_max": 20,
+                "global_queue_depth_max": 0
+              },
+              "policy_epoch_6": {
+                "samples": 111,
+                "alive_tasks_min": 20,
+                "alive_tasks_max": 20,
+                "global_queue_depth_max": 0
+              },
+              "policy_epoch_7": {
+                "samples": 110,
+                "alive_tasks_min": 20,
+                "alive_tasks_max": 20,
+                "global_queue_depth_max": 0
+              },
+              "policy_epoch_8": {
+                "samples": 111,
+                "alive_tasks_min": 20,
+                "alive_tasks_max": 20,
+                "global_queue_depth_max": 0
+              },
+              "policy_epoch_9": {
+                "samples": 111,
+                "alive_tasks_min": 20,
+                "alive_tasks_max": 21,
+                "global_queue_depth_max": 0
+              },
+              "policy_epoch_10": {
+                "samples": 111,
+                "alive_tasks_min": 20,
+                "alive_tasks_max": 20,
+                "global_queue_depth_max": 0
+              },
+              "policy_epoch_11": {
+                "samples": 112,
+                "alive_tasks_min": 20,
+                "alive_tasks_max": 20,
+                "global_queue_depth_max": 0
+              },
+              "policy_epoch_12": {
+                "samples": 12,
+                "alive_tasks_min": 20,
+                "alive_tasks_max": 20,
+                "global_queue_depth_max": 0
+              },
+              "policy_epoch_13": {
+                "samples": 112,
+                "alive_tasks_min": 20,
+                "alive_tasks_max": 20,
+                "global_queue_depth_max": 0
+              },
+              "policy_epoch_14": {
+                "samples": 12,
+                "alive_tasks_min": 20,
+                "alive_tasks_max": 21,
+                "global_queue_depth_max": 0
+              },
+              "policy_epoch_15": {
+                "samples": 110,
+                "alive_tasks_min": 20,
+                "alive_tasks_max": 20,
+                "global_queue_depth_max": 0
+              },
+              "policy_epoch_16": {
+                "samples": 429,
+                "alive_tasks_min": 20,
+                "alive_tasks_max": 20,
+                "global_queue_depth_max": 0
+              },
+              "shutdown_with_sources_live": {
+                "samples": 3,
+                "alive_tasks_min": 0,
+                "alive_tasks_max": 6,
+                "global_queue_depth_max": 0
+              },
+              "after_shutdown_and_owner_drop": {
+                "samples": 30,
+                "alive_tasks_min": 0,
+                "alive_tasks_max": 0,
+                "global_queue_depth_max": 0
+              }
+            },
+            "actual_network_invalidations": [
+              {
+                "id": "observer-6",
+                "ok": true,
+                "result": {
+                  "action": "actual shared EgressControl invalidation; no system route change",
+                  "generation_after": 1,
+                  "generation_before": 0
+                }
+              },
+              {
+                "id": "observer-10",
+                "ok": true,
+                "result": {
+                  "action": "actual shared EgressControl invalidation; no system route change",
+                  "generation_after": 2,
+                  "generation_before": 1
+                }
+              },
+              {
+                "id": "observer-14",
+                "ok": true,
+                "result": {
+                  "action": "actual shared EgressControl invalidation; no system route change",
+                  "generation_after": 3,
+                  "generation_before": 2
+                }
+              },
+              {
+                "id": "observer-18",
+                "ok": true,
+                "result": {
+                  "action": "actual shared EgressControl invalidation; no system route change",
+                  "generation_after": 4,
+                  "generation_before": 3
+                }
+              },
+              {
+                "id": "observer-22",
+                "ok": true,
+                "result": {
+                  "action": "actual shared EgressControl invalidation; no system route change",
+                  "generation_after": 5,
+                  "generation_before": 4
+                }
+              },
+              {
+                "id": "observer-26",
+                "ok": true,
+                "result": {
+                  "action": "actual shared EgressControl invalidation; no system route change",
+                  "generation_after": 6,
+                  "generation_before": 5
+                }
+              },
+              {
+                "id": "observer-30",
+                "ok": true,
+                "result": {
+                  "action": "actual shared EgressControl invalidation; no system route change",
+                  "generation_after": 7,
+                  "generation_before": 6
+                }
+              },
+              {
+                "id": "observer-34",
+                "ok": true,
+                "result": {
+                  "action": "actual shared EgressControl invalidation; no system route change",
+                  "generation_after": 8,
+                  "generation_before": 7
+                }
+              },
+              {
+                "id": "observer-38",
+                "ok": true,
+                "result": {
+                  "action": "actual shared EgressControl invalidation; no system route change",
+                  "generation_after": 9,
+                  "generation_before": 8
+                }
+              },
+              {
+                "id": "observer-42",
+                "ok": true,
+                "result": {
+                  "action": "actual shared EgressControl invalidation; no system route change",
+                  "generation_after": 10,
+                  "generation_before": 9
+                }
+              },
+              {
+                "id": "observer-46",
+                "ok": true,
+                "result": {
+                  "action": "actual shared EgressControl invalidation; no system route change",
+                  "generation_after": 11,
+                  "generation_before": 10
+                }
+              },
+              {
+                "id": "observer-50",
+                "ok": true,
+                "result": {
+                  "action": "actual shared EgressControl invalidation; no system route change",
+                  "generation_after": 12,
+                  "generation_before": 11
+                }
+              },
+              {
+                "id": "observer-54",
+                "ok": true,
+                "result": {
+                  "action": "actual shared EgressControl invalidation; no system route change",
+                  "generation_after": 13,
+                  "generation_before": 12
+                }
+              },
+              {
+                "id": "observer-58",
+                "ok": true,
+                "result": {
+                  "action": "actual shared EgressControl invalidation; no system route change",
+                  "generation_after": 14,
+                  "generation_before": 13
+                }
+              },
+              {
+                "id": "observer-62",
+                "ok": true,
+                "result": {
+                  "action": "actual shared EgressControl invalidation; no system route change",
+                  "generation_after": 15,
+                  "generation_before": 14
+                }
+              },
+              {
+                "id": "observer-66",
+                "ok": true,
+                "result": {
+                  "action": "actual shared EgressControl invalidation; no system route change",
+                  "generation_after": 16,
+                  "generation_before": 15
+                }
+              }
+            ]
+          },
+          {
+            "trial": 2,
+            "process_vmhwm_bytes": 71094272,
+            "native_threads_peak_sampled": 6,
+            "process_fd_peak_sampled": 27,
+            "process_udp_fd_peak_sampled": 17,
+            "echo_port_correlated_fd_peak_sampled": 16,
+            "historical_correlated_inodes_sampled": 282,
+            "active_business_flows_peak_observed": 16,
+            "historical_business_flow_ids_observed": 272,
+            "own_udp_kernel_rx_queue_peak_sampled_bytes": 34560,
+            "egress_generations_observed": [
+              0,
+              1,
+              2,
+              3,
+              4,
+              5,
+              6,
+              7,
+              8,
+              9,
+              10,
+              11,
+              12,
+              13,
+              14,
+              15,
+              16
+            ],
+            "samples_omitting_initial_ingress_inode": [],
+            "apply_failures": [],
+            "packet_errors": [],
+            "burst_errors": [],
+            "other_errors": [],
+            "shutdown": {
+              "graceful": true,
+              "exit_code": 0,
+              "elapsed_ns": 336629190,
+              "error": null,
+              "proof_scope": "actual library shutdown result; timeout/forced process termination is failure, never a native close receipt"
+            },
+            "tokio_owned_task_peak_sampled": 22,
+            "scheduler_injection_queue_peak_sampled": 1,
+            "task_samples_truncated": false,
+            "task_first_sample": {
+              "alive_tasks": 0,
+              "application_pending_payload_bytes": null,
+              "elapsed_ns": 1769,
+              "global_queue_depth": 0,
+              "phase": "before_proxy"
+            },
+            "task_final_sample": {
+              "alive_tasks": 0,
+              "application_pending_payload_bytes": null,
+              "elapsed_ns": 20761298010,
+              "global_queue_depth": 0,
+              "phase": "after_shutdown_and_owner_drop"
+            },
+            "task_phase_ranges": {
+              "before_proxy": {
+                "samples": 22,
+                "alive_tasks_min": 0,
+                "alive_tasks_max": 4,
+                "global_queue_depth_max": 1
+              },
+              "policy_epoch_0": {
+                "samples": 12,
+                "alive_tasks_min": 10,
+                "alive_tasks_max": 21,
+                "global_queue_depth_max": 0
+              },
+              "policy_epoch_1": {
+                "samples": 110,
+                "alive_tasks_min": 20,
+                "alive_tasks_max": 20,
+                "global_queue_depth_max": 0
+              },
+              "policy_epoch_2": {
+                "samples": 112,
+                "alive_tasks_min": 20,
+                "alive_tasks_max": 20,
+                "global_queue_depth_max": 0
+              },
+              "policy_epoch_3": {
+                "samples": 11,
+                "alive_tasks_min": 20,
+                "alive_tasks_max": 20,
+                "global_queue_depth_max": 0
+              },
+              "policy_epoch_4": {
+                "samples": 111,
+                "alive_tasks_min": 20,
+                "alive_tasks_max": 21,
+                "global_queue_depth_max": 0
+              },
+              "policy_epoch_5": {
+                "samples": 111,
+                "alive_tasks_min": 20,
+                "alive_tasks_max": 21,
+                "global_queue_depth_max": 0
+              },
+              "policy_epoch_6": {
+                "samples": 111,
+                "alive_tasks_min": 20,
+                "alive_tasks_max": 20,
+                "global_queue_depth_max": 0
+              },
+              "policy_epoch_7": {
+                "samples": 110,
+                "alive_tasks_min": 20,
+                "alive_tasks_max": 20,
+                "global_queue_depth_max": 0
+              },
+              "policy_epoch_8": {
+                "samples": 111,
+                "alive_tasks_min": 20,
+                "alive_tasks_max": 20,
+                "global_queue_depth_max": 0
+              },
+              "policy_epoch_9": {
+                "samples": 110,
+                "alive_tasks_min": 20,
+                "alive_tasks_max": 20,
+                "global_queue_depth_max": 0
+              },
+              "policy_epoch_10": {
+                "samples": 110,
+                "alive_tasks_min": 20,
+                "alive_tasks_max": 21,
+                "global_queue_depth_max": 0
+              },
+              "policy_epoch_11": {
+                "samples": 110,
+                "alive_tasks_min": 20,
+                "alive_tasks_max": 20,
+                "global_queue_depth_max": 0
+              },
+              "policy_epoch_12": {
+                "samples": 111,
+                "alive_tasks_min": 20,
+                "alive_tasks_max": 21,
+                "global_queue_depth_max": 0
+              },
+              "policy_epoch_13": {
+                "samples": 107,
+                "alive_tasks_min": 20,
+                "alive_tasks_max": 20,
+                "global_queue_depth_max": 0
+              },
+              "policy_epoch_14": {
+                "samples": 110,
+                "alive_tasks_min": 20,
+                "alive_tasks_max": 20,
+                "global_queue_depth_max": 0
+              },
+              "policy_epoch_15": {
+                "samples": 111,
+                "alive_tasks_min": 20,
+                "alive_tasks_max": 22,
+                "global_queue_depth_max": 0
+              },
+              "policy_epoch_16": {
+                "samples": 428,
+                "alive_tasks_min": 20,
+                "alive_tasks_max": 21,
+                "global_queue_depth_max": 0
+              },
+              "shutdown_with_sources_live": {
+                "samples": 2,
+                "alive_tasks_min": 0,
+                "alive_tasks_max": 0,
+                "global_queue_depth_max": 0
+              },
+              "after_shutdown_and_owner_drop": {
+                "samples": 29,
+                "alive_tasks_min": 0,
+                "alive_tasks_max": 0,
+                "global_queue_depth_max": 0
+              }
+            },
+            "actual_network_invalidations": [
+              {
+                "id": "observer-6",
+                "ok": true,
+                "result": {
+                  "action": "actual shared EgressControl invalidation; no system route change",
+                  "generation_after": 1,
+                  "generation_before": 0
+                }
+              },
+              {
+                "id": "observer-10",
+                "ok": true,
+                "result": {
+                  "action": "actual shared EgressControl invalidation; no system route change",
+                  "generation_after": 2,
+                  "generation_before": 1
+                }
+              },
+              {
+                "id": "observer-14",
+                "ok": true,
+                "result": {
+                  "action": "actual shared EgressControl invalidation; no system route change",
+                  "generation_after": 3,
+                  "generation_before": 2
+                }
+              },
+              {
+                "id": "observer-18",
+                "ok": true,
+                "result": {
+                  "action": "actual shared EgressControl invalidation; no system route change",
+                  "generation_after": 4,
+                  "generation_before": 3
+                }
+              },
+              {
+                "id": "observer-22",
+                "ok": true,
+                "result": {
+                  "action": "actual shared EgressControl invalidation; no system route change",
+                  "generation_after": 5,
+                  "generation_before": 4
+                }
+              },
+              {
+                "id": "observer-26",
+                "ok": true,
+                "result": {
+                  "action": "actual shared EgressControl invalidation; no system route change",
+                  "generation_after": 6,
+                  "generation_before": 5
+                }
+              },
+              {
+                "id": "observer-30",
+                "ok": true,
+                "result": {
+                  "action": "actual shared EgressControl invalidation; no system route change",
+                  "generation_after": 7,
+                  "generation_before": 6
+                }
+              },
+              {
+                "id": "observer-34",
+                "ok": true,
+                "result": {
+                  "action": "actual shared EgressControl invalidation; no system route change",
+                  "generation_after": 8,
+                  "generation_before": 7
+                }
+              },
+              {
+                "id": "observer-38",
+                "ok": true,
+                "result": {
+                  "action": "actual shared EgressControl invalidation; no system route change",
+                  "generation_after": 9,
+                  "generation_before": 8
+                }
+              },
+              {
+                "id": "observer-42",
+                "ok": true,
+                "result": {
+                  "action": "actual shared EgressControl invalidation; no system route change",
+                  "generation_after": 10,
+                  "generation_before": 9
+                }
+              },
+              {
+                "id": "observer-46",
+                "ok": true,
+                "result": {
+                  "action": "actual shared EgressControl invalidation; no system route change",
+                  "generation_after": 11,
+                  "generation_before": 10
+                }
+              },
+              {
+                "id": "observer-50",
+                "ok": true,
+                "result": {
+                  "action": "actual shared EgressControl invalidation; no system route change",
+                  "generation_after": 12,
+                  "generation_before": 11
+                }
+              },
+              {
+                "id": "observer-54",
+                "ok": true,
+                "result": {
+                  "action": "actual shared EgressControl invalidation; no system route change",
+                  "generation_after": 13,
+                  "generation_before": 12
+                }
+              },
+              {
+                "id": "observer-58",
+                "ok": true,
+                "result": {
+                  "action": "actual shared EgressControl invalidation; no system route change",
+                  "generation_after": 14,
+                  "generation_before": 13
+                }
+              },
+              {
+                "id": "observer-62",
+                "ok": true,
+                "result": {
+                  "action": "actual shared EgressControl invalidation; no system route change",
+                  "generation_after": 15,
+                  "generation_before": 14
+                }
+              },
+              {
+                "id": "observer-66",
+                "ok": true,
+                "result": {
+                  "action": "actual shared EgressControl invalidation; no system route change",
+                  "generation_after": 16,
+                  "generation_before": 15
+                }
+              }
+            ]
+          }
+        ],
+        "limits_before": {
+          "cpu.max": "100000 100000",
+          "memory.max": "1073741824",
+          "memory.swap.max": "0",
+          "memory.peak": "15339520",
+          "memory.events": "low 0\nhigh 0\nmax 0\noom 0\noom_kill 0\noom_group_kill 0",
+          "cpu.stat": "usage_usec 264576\nuser_usec 252145\nsystem_usec 12431\nnice_usec 0\nnr_periods 3\nnr_throttled 0\nthrottled_usec 0\nnr_bursts 0\nburst_usec 0"
+        },
+        "limits_after": {
+          "cpu.max": "100000 100000",
+          "memory.max": "1073741824",
+          "memory.swap.max": "0",
+          "memory.peak": "317497344",
+          "memory.events": "low 0\nhigh 0\nmax 0\noom 0\noom_kill 0\noom_group_kill 0",
+          "cpu.stat": "usage_usec 23914621\nuser_usec 8980383\nsystem_usec 14934237\nnice_usec 0\nnr_periods 583\nnr_throttled 3\nthrottled_usec 45280\nnr_bursts 0\nburst_usec 0"
+        },
+        "build_info": null,
+        "application_owner_pending_payload_bytes_peak": null,
+        "exact_native_open_attempts": null
+      }
+    }
+  },
+  "matched_cli_pair": {
+    "old": {
+      "directory": "/workspace/core-next/direct-udp-budget/matched-cli-pair-current31-b649836f/old",
+      "launcher": {
+        "source_commit": "2eedc2b8d8e2b0e16dffe32d3f83d2f0f2dbcc8a",
+        "binary_sha256": "026741152e55cceb6e5f96fc908f6d4585b3d6f6eef378d832c5fe573420be2f",
+        "container_image": "python@sha256:a6e34c598f2467ed0e9a8d349809fcd8b5c603269512df273a0bb1784edc11b1",
+        "command": [
+          "docker",
+          "run",
+          "--rm",
+          "--pull=never",
+          "--network=none",
+          "--cpus=1",
+          "--memory=1073741824",
+          "--memory-swap=1073741824",
+          "--mount",
+          "type=bind,src=/workspace/core-next/direct-udp-budget/matched-cli-pair-current31-b649836f/old/kernel,dst=/kernel,readonly",
+          "--mount",
+          "type=bind,src=/workspace/core-parallel/resources/design/v0.0.3/implementation/direct-udp-budget,dst=/probe,readonly",
+          "--mount",
+          "type=bind,src=/workspace/core-next/direct-udp-budget/matched-cli-pair-current31-b649836f/old,dst=/results",
+          "python@sha256:a6e34c598f2467ed0e9a8d349809fcd8b5c603269512df273a0bb1784edc11b1",
+          "python3",
+          "/probe/fanin.py",
+          "--binary",
+          "/kernel",
+          "--output",
+          "/results/data",
+          "--payload-bytes",
+          "1024",
+          "--trials",
+          "3"
+        ],
+        "scripts_sha256": {
+          "fanin.py": "eea385978d1defdf78fc5a22dc9052d9bce42ebad592b1a515c27b82466df74e",
+          "kernel.py": "d2c2ebf4310543c65c632d426afd775d643258ee5cbbb9fd408b2002aacfcc0c",
+          "library_worker.py": "88f33e207ff5871d77286c245237b4815af7c51e3813fc4cf8999a24fb111be1",
+          "observer_kernel.py": "042d456c3c96880567f3eb440d03630d861d24dc17052d126b0f538485f0f45f",
+          "peers.py": "042d67c4c7bd5bdb16660d0ce967b7f9730fda427fc492235cf697e130a934de",
+          "proc_sample.py": "43645c4cd4202c20ac062f5caa12a6b9a236b946e2eb9786392773d45bdae45b",
+          "run.py": "5206d1df85361783e3a468100aa81e55410bbcdd0016575b6b8300160d4e41ae",
+          "run_default_pair.py": "7b6afd9d32ecbcc8788163b0a4d739f7bc577b2531a338df8b16577c66f1813c",
+          "run_fanin.py": "d70e35ea4bb2cbf5e1c46d00508c684ab12ef93f8b5c6f7242e7a4b59ebec1c6",
+          "run_library.py": "0e26bc5a0e7b74b9b149526f44a07e7dd5bbac66dd226a1b71f8437ade9f24aa",
+          "summarize.py": "c6f36d400a0da1bef669d9fbf51408afa13926ab7c85dd5ddb05e611c89707c3",
+          "summarize_fanin.py": "4a450a41e00e6faae41c7440eda263baa87c1f9a42ff8339c2785c7dd67d9e69",
+          "summarize_library.py": "55b6708b86b8682e35f94a4e813e2c1f3ceecc22cebc4838faa2e2895407fbc2",
+          "worker.py": "5029e6cfeba09f58833efc53d2c29b57da847816415b1faf96bc930099f4abd7"
+        },
+        "compile_processes": "excluded; none started by harness",
+        "reference_processes": "Python echo/DNS/harness share container; accounted separately from kernel PID",
+        "host_context": {
+          "load_average": [
+            0.45654296875,
+            1.6865234375,
+            1.88720703125
+          ],
+          "cpu.max": "400000 100000",
+          "memory.max": "17179869184",
+          "concurrent_validation": "parent is validating main; sizing observations only, not isolated RS01 throughput qualification"
+        },
+        "exit_code": 0
+      },
+      "payload_counts": {
+        "steady": {
+          "sent": 2448,
+          "received": 2448,
+          "missing": 0
+        },
+        "overlap": {
+          "sent": 4368,
+          "received": 4049,
+          "missing": 319
+        },
+        "burst": {
+          "sent": 4608,
+          "received": 1762,
+          "missing": 2846
+        }
+      },
+      "trials": [
+        {
+          "trial": 0,
+          "process_vmhwm_bytes": 60416000,
+          "native_threads_peak_sampled": 5,
+          "process_fd_peak_sampled": 29,
+          "process_udp_fd_peak_sampled": 17,
+          "echo_port_correlated_fd_peak_sampled": 16,
+          "historical_correlated_inodes_sampled": 272,
+          "active_business_flows_peak_observed": 16,
+          "historical_business_flow_ids_observed": 272,
+          "own_udp_kernel_rx_queue_peak_sampled_bytes": 110592,
+          "egress_generations_observed": [
+            0
+          ],
+          "samples_omitting_initial_ingress_inode": [],
+          "apply_failures": [],
+          "packet_errors": [],
+          "burst_errors": [],
+          "other_errors": [],
+          "shutdown": {
+            "graceful": true,
+            "exit_code": 0,
+            "elapsed_ns": 214707668
+          },
+          "tokio_owned_task_peak_sampled": null
+        },
+        {
+          "trial": 1,
+          "process_vmhwm_bytes": 60211200,
+          "native_threads_peak_sampled": 5,
+          "process_fd_peak_sampled": 29,
+          "process_udp_fd_peak_sampled": 17,
+          "echo_port_correlated_fd_peak_sampled": 16,
+          "historical_correlated_inodes_sampled": 272,
+          "active_business_flows_peak_observed": 16,
+          "historical_business_flow_ids_observed": 272,
+          "own_udp_kernel_rx_queue_peak_sampled_bytes": 211968,
+          "egress_generations_observed": [
+            0
+          ],
+          "samples_omitting_initial_ingress_inode": [],
+          "apply_failures": [],
+          "packet_errors": [],
+          "burst_errors": [],
+          "other_errors": [],
+          "shutdown": {
+            "graceful": true,
+            "exit_code": 0,
+            "elapsed_ns": 164358454
+          },
+          "tokio_owned_task_peak_sampled": null
+        },
+        {
+          "trial": 2,
+          "process_vmhwm_bytes": 57253888,
+          "native_threads_peak_sampled": 5,
+          "process_fd_peak_sampled": 29,
+          "process_udp_fd_peak_sampled": 17,
+          "echo_port_correlated_fd_peak_sampled": 16,
+          "historical_correlated_inodes_sampled": 272,
+          "active_business_flows_peak_observed": 16,
+          "historical_business_flow_ids_observed": 272,
+          "own_udp_kernel_rx_queue_peak_sampled_bytes": 110592,
+          "egress_generations_observed": [
+            0
+          ],
+          "samples_omitting_initial_ingress_inode": [],
+          "apply_failures": [],
+          "packet_errors": [],
+          "burst_errors": [],
+          "other_errors": [],
+          "shutdown": {
+            "graceful": true,
+            "exit_code": 0,
+            "elapsed_ns": 213862474
+          },
+          "tokio_owned_task_peak_sampled": null
+        }
+      ],
+      "limits_before": {
+        "cpu.max": "100000 100000",
+        "memory.max": "1073741824",
+        "memory.swap.max": "0",
+        "memory.peak": "16347136",
+        "memory.events": "low 0\nhigh 0\nmax 0\noom 0\noom_kill 0\noom_group_kill 0",
+        "cpu.stat": "usage_usec 358795\nuser_usec 307411\nsystem_usec 51384\nnice_usec 0\nnr_periods 4\nnr_throttled 1\nthrottled_usec 1697\nnr_bursts 0\nburst_usec 0"
+      },
+      "limits_after": {
+        "cpu.max": "100000 100000",
+        "memory.max": "1073741824",
+        "memory.swap.max": "0",
+        "memory.peak": "315596800",
+        "memory.events": "low 0\nhigh 0\nmax 0\noom 0\noom_kill 0\noom_group_kill 0",
+        "cpu.stat": "usage_usec 24129567\nuser_usec 8472603\nsystem_usec 15656964\nnice_usec 0\nnr_periods 596\nnr_throttled 4\nthrottled_usec 9221\nnr_bursts 0\nburst_usec 0"
+      },
+      "build_info": "build_id: 0.0.3-dev.202610162206\nbuild_time: 2026-10-19T14:41:36.837166159Z\nbuild_profile: release\nfeatures: status-api,event-dispatcher,sink-jsonl,connector,grpc-api,host-network-stats,http,hysteria2,mieru,mixed,shadowsocks,socks5,trojan,vless,vmess,wireguard,dns\nprotocol_capabilities: [{\"protocol\":\"block\",\"feature\":\"core\",\"compiled\":true,\"status\":\"supported\",\"compatibility_baseline\":\"kernel_builtin\",\"inbound\":{\"tcp\":{\"supported\":false,\"level\":\"unsupported\",\"notes\":[]},\"udp\":{\"supported\":false,\"level\":\"unsupported\",\"notes\":[]}},\"outbound\":{\"tcp\":{\"supported\":true,\"level\":\"supported\",\"notes\":[]},\"udp\":{\"supported\":true,\"level\":\"supported\",\"notes\":[]}},\"transports\":[\"tcp\",\"udp\"],\"mux\":{\"supported\":false,\"level\":\"not_applicable\",\"notes\":[]},\"limitations\":[]},{\"protocol\":\"direct\",\"feature\":\"core\",\"compiled\":true,\"status\":\"supported\",\"compatibility_baseline\":\"kernel_builtin\",\"inbound\":{\"tcp\":{\"supported\":true,\"level\":\"supported\",\"notes\":[]},\"udp\":{\"supported\":true,\"level\":\"supported\",\"notes\":[]}},\"outbound\":{\"tcp\":{\"supported\":true,\"level\":\"supported\",\"notes\":[]},\"udp\":{\"supported\":true,\"level\":\"supported\",\"notes\":[]}},\"transports\":[\"tcp\",\"udp\"],\"mux\":{\"supported\":false,\"level\":\"not_applicable\",\"notes\":[]},\"limitations\":[\"nondefault_dial_tcp_udp_only\"]},{\"protocol\":\"http\",\"feature\":\"http\",\"compiled\":true,\"status\":\"supported\",\"compatibility_baseline\":\"rfc_7231_connect\",\"inbound\":{\"tcp\":{\"supported\":true,\"level\":\"supported\",\"notes\":[]},\"udp\":{\"supported\":false,\"level\":\"not_applicable\",\"notes\":[]}},\"outbound\":{\"tcp\":{\"supported\":false,\"level\":\"unsupported\",\"notes\":[]},\"udp\":{\"supported\":false,\"level\":\"not_applicable\",\"notes\":[]}},\"transports\":[\"tcp\"],\"mux\":{\"supported\":false,\"level\":\"not_applicable\",\"notes\":[]},\"limitations\":[]},{\"protocol\":\"hysteria2\",\"feature\":\"hysteria2\",\"compiled\":true,\"status\":\"supported\",\"compatibility_baseline\":\"hysteria_app_v2_12_2\",\"inbound\":{\"tcp\":{\"supported\":true,\"level\":\"supported\",\"notes\":[]},\"udp\":{\"supported\":true,\"level\":\"supported\",\"notes\":[]}},\"outbound\":{\"tcp\":{\"supported\":true,\"level\":\"supported\",\"notes\":[]},\"udp\":{\"supported\":true,\"level\":\"supported\",\"notes\":[]}},\"transports\":[\"quic\"],\"mux\":{\"supported\":false,\"level\":\"unsupported\",\"notes\":[]},\"limitations\":[]},{\"protocol\":\"mieru\",\"feature\":\"mieru\",\"compiled\":true,\"status\":\"partial\",\"compatibility_baseline\":\"mieru\",\"inbound\":{\"tcp\":{\"supported\":true,\"level\":\"supported\",\"notes\":[]},\"udp\":{\"supported\":true,\"level\":\"supported\",\"notes\":[]}},\"outbound\":{\"tcp\":{\"supported\":true,\"level\":\"supported\",\"notes\":[]},\"udp\":{\"supported\":true,\"level\":\"supported\",\"notes\":[]}},\"transports\":[\"tcp\",\"udp\"],\"mux\":{\"supported\":true,\"level\":\"supported\",\"notes\":[]},\"limitations\":[\"udp_underlay_relay_requires_datagram_carrier\",\"long_running_recovery_is_not_verified\"]},{\"protocol\":\"mixed\",\"feature\":\"mixed\",\"compiled\":true,\"status\":\"supported\",\"compatibility_baseline\":\"kernel_builtin\",\"inbound\":{\"tcp\":{\"supported\":true,\"level\":\"supported\",\"notes\":[]},\"udp\":{\"supported\":true,\"level\":\"supported\",\"notes\":[]}},\"outbound\":{\"tcp\":{\"supported\":false,\"level\":\"unsupported\",\"notes\":[]},\"udp\":{\"supported\":false,\"level\":\"unsupported\",\"notes\":[]}},\"transports\":[\"tcp\"],\"mux\":{\"supported\":false,\"level\":\"not_applicable\",\"notes\":[]},\"limitations\":[]},{\"protocol\":\"shadowsocks\",\"feature\":\"shadowsocks\",\"compiled\":true,\"status\":\"supported\",\"compatibility_baseline\":\"shadowsocks_rust_sip022_sip023\",\"inbound\":{\"tcp\":{\"supported\":true,\"level\":\"supported\",\"notes\":[]},\"udp\":{\"supported\":true,\"level\":\"supported\",\"notes\":[]}},\"outbound\":{\"tcp\":{\"supported\":true,\"level\":\"supported\",\"notes\":[]},\"udp\":{\"supported\":true,\"level\":\"supported\",\"notes\":[]}},\"transports\":[\"tcp\",\"udp\"],\"mux\":{\"supported\":false,\"level\":\"unsupported\",\"notes\":[]},\"limitations\":[]},{\"protocol\":\"socks5\",\"feature\":\"socks5\",\"compiled\":true,\"status\":\"supported\",\"compatibility_baseline\":\"rfc_1928_rfc_1929\",\"inbound\":{\"tcp\":{\"supported\":true,\"level\":\"supported\",\"notes\":[]},\"udp\":{\"supported\":true,\"level\":\"supported\",\"notes\":[]}},\"outbound\":{\"tcp\":{\"supported\":true,\"level\":\"supported\",\"notes\":[]},\"udp\":{\"supported\":true,\"level\":\"supported\",\"notes\":[]}},\"transports\":[\"tcp\"],\"mux\":{\"supported\":false,\"level\":\"not_applicable\",\"notes\":[]},\"limitations\":[]},{\"protocol\":\"trojan\",\"feature\":\"trojan\",\"compiled\":true,\"status\":\"supported\",\"compatibility_baseline\":\"trojan_go\",\"inbound\":{\"tcp\":{\"supported\":true,\"level\":\"supported\",\"notes\":[]},\"udp\":{\"supported\":true,\"level\":\"supported\",\"notes\":[]}},\"outbound\":{\"tcp\":{\"supported\":true,\"level\":\"supported\",\"notes\":[]},\"udp\":{\"supported\":true,\"level\":\"supported\",\"notes\":[]}},\"transports\":[\"tcp\",\"tls\",\"ws\",\"grpc\"],\"mux\":{\"supported\":true,\"level\":\"supported\",\"notes\":[]},\"limitations\":[]},{\"protocol\":\"vless\",\"feature\":\"vless\",\"compiled\":true,\"status\":\"supported\",\"compatibility_baseline\":\"xray_core_vless\",\"inbound\":{\"tcp\":{\"supported\":true,\"level\":\"supported\",\"notes\":[]},\"udp\":{\"supported\":true,\"level\":\"supported\",\"notes\":[]}},\"outbound\":{\"tcp\":{\"supported\":true,\"level\":\"supported\",\"notes\":[]},\"udp\":{\"supported\":true,\"level\":\"supported\",\"notes\":[]}},\"transports\":[\"tcp\",\"tls\",\"reality\",\"ws\",\"grpc\",\"h2\",\"http_upgrade\",\"xhttp\",\"quic\",\"mkcp\",\"hysteria\"],\"mux\":{\"supported\":true,\"level\":\"supported\",\"notes\":[]},\"limitations\":[\"vless_quic_transport_deprecated_by_xtls\"]},{\"protocol\":\"vmess\",\"feature\":\"vmess\",\"compiled\":true,\"status\":\"supported\",\"compatibility_baseline\":\"xray_core_vmess_aead\",\"inbound\":{\"tcp\":{\"supported\":true,\"level\":\"supported\",\"notes\":[]},\"udp\":{\"supported\":true,\"level\":\"supported\",\"notes\":[]}},\"outbound\":{\"tcp\":{\"supported\":true,\"level\":\"supported\",\"notes\":[]},\"udp\":{\"supported\":true,\"level\":\"supported\",\"notes\":[]}},\"transports\":[\"tcp\",\"tls\",\"ws\",\"grpc\"],\"mux\":{\"supported\":true,\"level\":\"supported\",\"notes\":[]},\"limitations\":[]},{\"protocol\":\"wireguard\",\"feature\":\"wireguard\",\"compiled\":true,\"status\":\"experimental\",\"compatibility_baseline\":\"gotatun_v0.9.2\",\"inbound\":{\"tcp\":{\"supported\":true,\"level\":\"experimental\",\"notes\":[\"authenticated_raw_ip_tcp\"]},\"udp\":{\"supported\":true,\"level\":\"experimental\",\"notes\":[\"authenticated_raw_ip_udp\"]}},\"outbound\":{\"tcp\":{\"supported\":true,\"level\":\"experimental\",\"notes\":[\"shared_peer_tcp_tunnel\"]},\"udp\":{\"supported\":true,\"level\":\"experimental\",\"notes\":[\"shared_peer_udp_tunnel\"]}},\"transports\":[\"udp\"],\"mux\":{\"supported\":false,\"level\":\"not_applicable\",\"notes\":[]},\"limitations\":[\"inbound_peer_identity_has_no_principal_mapping\",\"outer_udp_proxy_requires_bidirectional_packet_path_or_concrete_relay_group\",\"opaque_outer_carrier_has_no_observed_source_for_roaming\"]}]\nbinary_sha256: 026741152e55cceb6e5f96fc908f6d4585b3d6f6eef378d832c5fe573420be2f\ngit: 2eedc2b8\ngit_hash: 2eedc2b8\n",
+      "application_owner_pending_payload_bytes_peak": null,
+      "exact_native_open_attempts": null
+    },
+    "new": {
+      "directory": "/workspace/core-next/direct-udp-budget/matched-cli-pair-current31-b649836f/new",
+      "launcher": {
+        "source_commit": "9e3f3ed33024e32f61685b0bff5bb4611f365109",
+        "binary_sha256": "b649836fa7431de38b67f980d30453303b29216e1b3c741073ed8c74e1027dbd",
+        "container_image": "python@sha256:a6e34c598f2467ed0e9a8d349809fcd8b5c603269512df273a0bb1784edc11b1",
+        "command": [
+          "docker",
+          "run",
+          "--rm",
+          "--pull=never",
+          "--network=none",
+          "--cpus=1",
+          "--memory=1073741824",
+          "--memory-swap=1073741824",
+          "--mount",
+          "type=bind,src=/workspace/core-next/direct-udp-budget/matched-cli-pair-current31-b649836f/new/kernel,dst=/kernel,readonly",
+          "--mount",
+          "type=bind,src=/workspace/core-parallel/resources/design/v0.0.3/implementation/direct-udp-budget,dst=/probe,readonly",
+          "--mount",
+          "type=bind,src=/workspace/core-next/direct-udp-budget/matched-cli-pair-current31-b649836f/new,dst=/results",
+          "python@sha256:a6e34c598f2467ed0e9a8d349809fcd8b5c603269512df273a0bb1784edc11b1",
+          "python3",
+          "/probe/fanin.py",
+          "--binary",
+          "/kernel",
+          "--output",
+          "/results/data",
+          "--payload-bytes",
+          "1024",
+          "--trials",
+          "3"
+        ],
+        "scripts_sha256": {
+          "fanin.py": "eea385978d1defdf78fc5a22dc9052d9bce42ebad592b1a515c27b82466df74e",
+          "kernel.py": "d2c2ebf4310543c65c632d426afd775d643258ee5cbbb9fd408b2002aacfcc0c",
+          "library_worker.py": "88f33e207ff5871d77286c245237b4815af7c51e3813fc4cf8999a24fb111be1",
+          "observer_kernel.py": "042d456c3c96880567f3eb440d03630d861d24dc17052d126b0f538485f0f45f",
+          "peers.py": "042d67c4c7bd5bdb16660d0ce967b7f9730fda427fc492235cf697e130a934de",
+          "proc_sample.py": "43645c4cd4202c20ac062f5caa12a6b9a236b946e2eb9786392773d45bdae45b",
+          "run.py": "5206d1df85361783e3a468100aa81e55410bbcdd0016575b6b8300160d4e41ae",
+          "run_default_pair.py": "7b6afd9d32ecbcc8788163b0a4d739f7bc577b2531a338df8b16577c66f1813c",
+          "run_fanin.py": "d70e35ea4bb2cbf5e1c46d00508c684ab12ef93f8b5c6f7242e7a4b59ebec1c6",
+          "run_library.py": "0e26bc5a0e7b74b9b149526f44a07e7dd5bbac66dd226a1b71f8437ade9f24aa",
+          "summarize.py": "c6f36d400a0da1bef669d9fbf51408afa13926ab7c85dd5ddb05e611c89707c3",
+          "summarize_fanin.py": "4a450a41e00e6faae41c7440eda263baa87c1f9a42ff8339c2785c7dd67d9e69",
+          "summarize_library.py": "55b6708b86b8682e35f94a4e813e2c1f3ceecc22cebc4838faa2e2895407fbc2",
+          "worker.py": "5029e6cfeba09f58833efc53d2c29b57da847816415b1faf96bc930099f4abd7"
+        },
+        "compile_processes": "excluded; none started by harness",
+        "reference_processes": "Python echo/DNS/harness share container; accounted separately from kernel PID",
+        "host_context": {
+          "load_average": [
+            0.89599609375,
+            1.55517578125,
+            1.82421875
+          ],
+          "cpu.max": "400000 100000",
+          "memory.max": "17179869184",
+          "concurrent_validation": "parent is validating main; sizing observations only, not isolated RS01 throughput qualification"
+        },
+        "exit_code": 0
+      },
+      "payload_counts": {
+        "steady": {
+          "sent": 2448,
+          "received": 2448,
+          "missing": 0
+        },
+        "overlap": {
+          "sent": 4288,
+          "received": 3769,
+          "missing": 519
+        },
+        "burst": {
+          "sent": 4608,
+          "received": 2035,
+          "missing": 2573
+        }
+      },
+      "trials": [
+        {
+          "trial": 0,
+          "process_vmhwm_bytes": 69578752,
+          "native_threads_peak_sampled": 5,
+          "process_fd_peak_sampled": 29,
+          "process_udp_fd_peak_sampled": 17,
+          "echo_port_correlated_fd_peak_sampled": 16,
+          "historical_correlated_inodes_sampled": 272,
+          "active_business_flows_peak_observed": 16,
+          "historical_business_flow_ids_observed": 272,
+          "own_udp_kernel_rx_queue_peak_sampled_bytes": 398592,
+          "egress_generations_observed": [
+            0
+          ],
+          "samples_omitting_initial_ingress_inode": [],
+          "apply_failures": [],
+          "packet_errors": [],
+          "burst_errors": [],
+          "other_errors": [],
+          "shutdown": {
+            "graceful": true,
+            "exit_code": 0,
+            "elapsed_ns": 114016964
+          },
+          "tokio_owned_task_peak_sampled": null
+        },
+        {
+          "trial": 1,
+          "process_vmhwm_bytes": 68898816,
+          "native_threads_peak_sampled": 5,
+          "process_fd_peak_sampled": 29,
+          "process_udp_fd_peak_sampled": 17,
+          "echo_port_correlated_fd_peak_sampled": 16,
+          "historical_correlated_inodes_sampled": 272,
+          "active_business_flows_peak_observed": 16,
+          "historical_business_flow_ids_observed": 272,
+          "own_udp_kernel_rx_queue_peak_sampled_bytes": 186624,
+          "egress_generations_observed": [
+            0
+          ],
+          "samples_omitting_initial_ingress_inode": [],
+          "apply_failures": [],
+          "packet_errors": [],
+          "burst_errors": [],
+          "other_errors": [],
+          "shutdown": {
+            "graceful": true,
+            "exit_code": 0,
+            "elapsed_ns": 164115745
+          },
+          "tokio_owned_task_peak_sampled": null
+        },
+        {
+          "trial": 2,
+          "process_vmhwm_bytes": 69578752,
+          "native_threads_peak_sampled": 5,
+          "process_fd_peak_sampled": 29,
+          "process_udp_fd_peak_sampled": 17,
+          "echo_port_correlated_fd_peak_sampled": 16,
+          "historical_correlated_inodes_sampled": 272,
+          "active_business_flows_peak_observed": 16,
+          "historical_business_flow_ids_observed": 272,
+          "own_udp_kernel_rx_queue_peak_sampled_bytes": 36864,
+          "egress_generations_observed": [
+            0
+          ],
+          "samples_omitting_initial_ingress_inode": [],
+          "apply_failures": [],
+          "packet_errors": [],
+          "burst_errors": [],
+          "other_errors": [],
+          "shutdown": {
+            "graceful": true,
+            "exit_code": 0,
+            "elapsed_ns": 214488139
+          },
+          "tokio_owned_task_peak_sampled": null
+        }
+      ],
+      "limits_before": {
+        "cpu.max": "100000 100000",
+        "memory.max": "1073741824",
+        "memory.swap.max": "0",
+        "memory.peak": "16023552",
+        "memory.events": "low 0\nhigh 0\nmax 0\noom 0\noom_kill 0\noom_group_kill 0",
+        "cpu.stat": "usage_usec 240394\nuser_usec 220273\nsystem_usec 20121\nnice_usec 0\nnr_periods 2\nnr_throttled 0\nthrottled_usec 0\nnr_bursts 0\nburst_usec 0"
+      },
+      "limits_after": {
+        "cpu.max": "100000 100000",
+        "memory.max": "1073741824",
+        "memory.swap.max": "0",
+        "memory.peak": "331354112",
+        "memory.events": "low 0\nhigh 0\nmax 0\noom 0\noom_kill 0\noom_group_kill 0",
+        "cpu.stat": "usage_usec 25133043\nuser_usec 8742378\nsystem_usec 16390664\nnice_usec 0\nnr_periods 636\nnr_throttled 0\nthrottled_usec 0\nnr_bursts 0\nburst_usec 0"
+      },
+      "build_info": "build_id: 0.0.3-dev.202610162206\nbuild_time: 2026-10-20T08:22:28.177252338Z\nbuild_profile: release\nfeatures: status-api,event-dispatcher,sink-jsonl,connector,grpc-api,host-network-stats,http,hysteria2,mieru,mixed,shadowsocks,socks5,trojan,vless,vmess,wireguard,dns\nprotocol_capabilities: [{\"protocol\":\"block\",\"feature\":\"core\",\"compiled\":true,\"status\":\"supported\",\"compatibility_baseline\":\"kernel_builtin\",\"inbound\":{\"tcp\":{\"supported\":false,\"level\":\"unsupported\",\"notes\":[]},\"udp\":{\"supported\":false,\"level\":\"unsupported\",\"notes\":[]}},\"outbound\":{\"tcp\":{\"supported\":true,\"level\":\"supported\",\"notes\":[]},\"udp\":{\"supported\":true,\"level\":\"supported\",\"notes\":[]}},\"transports\":[\"tcp\",\"udp\"],\"mux\":{\"supported\":false,\"level\":\"not_applicable\",\"notes\":[]},\"limitations\":[]},{\"protocol\":\"direct\",\"feature\":\"core\",\"compiled\":true,\"status\":\"supported\",\"compatibility_baseline\":\"kernel_builtin\",\"inbound\":{\"tcp\":{\"supported\":true,\"level\":\"supported\",\"notes\":[]},\"udp\":{\"supported\":true,\"level\":\"supported\",\"notes\":[]}},\"outbound\":{\"tcp\":{\"supported\":true,\"level\":\"supported\",\"notes\":[]},\"udp\":{\"supported\":true,\"level\":\"supported\",\"notes\":[]}},\"transports\":[\"tcp\",\"udp\"],\"mux\":{\"supported\":false,\"level\":\"not_applicable\",\"notes\":[]},\"limitations\":[\"nondefault_dial_tcp_udp_only\"]},{\"protocol\":\"http\",\"feature\":\"http\",\"compiled\":true,\"status\":\"supported\",\"compatibility_baseline\":\"rfc_7231_connect\",\"inbound\":{\"tcp\":{\"supported\":true,\"level\":\"supported\",\"notes\":[]},\"udp\":{\"supported\":false,\"level\":\"not_applicable\",\"notes\":[]}},\"outbound\":{\"tcp\":{\"supported\":false,\"level\":\"unsupported\",\"notes\":[]},\"udp\":{\"supported\":false,\"level\":\"not_applicable\",\"notes\":[]}},\"transports\":[\"tcp\"],\"mux\":{\"supported\":false,\"level\":\"not_applicable\",\"notes\":[]},\"limitations\":[]},{\"protocol\":\"hysteria2\",\"feature\":\"hysteria2\",\"compiled\":true,\"status\":\"supported\",\"compatibility_baseline\":\"hysteria_app_v2_12_2\",\"inbound\":{\"tcp\":{\"supported\":true,\"level\":\"supported\",\"notes\":[]},\"udp\":{\"supported\":true,\"level\":\"supported\",\"notes\":[]}},\"outbound\":{\"tcp\":{\"supported\":true,\"level\":\"supported\",\"notes\":[]},\"udp\":{\"supported\":true,\"level\":\"supported\",\"notes\":[]}},\"transports\":[\"quic\"],\"mux\":{\"supported\":false,\"level\":\"unsupported\",\"notes\":[]},\"limitations\":[]},{\"protocol\":\"mieru\",\"feature\":\"mieru\",\"compiled\":true,\"status\":\"partial\",\"compatibility_baseline\":\"mieru\",\"inbound\":{\"tcp\":{\"supported\":true,\"level\":\"supported\",\"notes\":[]},\"udp\":{\"supported\":true,\"level\":\"supported\",\"notes\":[]}},\"outbound\":{\"tcp\":{\"supported\":true,\"level\":\"supported\",\"notes\":[]},\"udp\":{\"supported\":true,\"level\":\"supported\",\"notes\":[]}},\"transports\":[\"tcp\",\"udp\"],\"mux\":{\"supported\":true,\"level\":\"supported\",\"notes\":[]},\"limitations\":[\"udp_underlay_relay_requires_datagram_carrier\",\"long_running_recovery_is_not_verified\"]},{\"protocol\":\"mixed\",\"feature\":\"mixed\",\"compiled\":true,\"status\":\"supported\",\"compatibility_baseline\":\"kernel_builtin\",\"inbound\":{\"tcp\":{\"supported\":true,\"level\":\"supported\",\"notes\":[]},\"udp\":{\"supported\":true,\"level\":\"supported\",\"notes\":[]}},\"outbound\":{\"tcp\":{\"supported\":false,\"level\":\"unsupported\",\"notes\":[]},\"udp\":{\"supported\":false,\"level\":\"unsupported\",\"notes\":[]}},\"transports\":[\"tcp\"],\"mux\":{\"supported\":false,\"level\":\"not_applicable\",\"notes\":[]},\"limitations\":[]},{\"protocol\":\"shadowsocks\",\"feature\":\"shadowsocks\",\"compiled\":true,\"status\":\"supported\",\"compatibility_baseline\":\"shadowsocks_rust_sip022_sip023\",\"inbound\":{\"tcp\":{\"supported\":true,\"level\":\"supported\",\"notes\":[]},\"udp\":{\"supported\":true,\"level\":\"supported\",\"notes\":[]}},\"outbound\":{\"tcp\":{\"supported\":true,\"level\":\"supported\",\"notes\":[]},\"udp\":{\"supported\":true,\"level\":\"supported\",\"notes\":[]}},\"transports\":[\"tcp\",\"udp\"],\"mux\":{\"supported\":false,\"level\":\"unsupported\",\"notes\":[]},\"limitations\":[]},{\"protocol\":\"socks5\",\"feature\":\"socks5\",\"compiled\":true,\"status\":\"supported\",\"compatibility_baseline\":\"rfc_1928_rfc_1929\",\"inbound\":{\"tcp\":{\"supported\":true,\"level\":\"supported\",\"notes\":[]},\"udp\":{\"supported\":true,\"level\":\"supported\",\"notes\":[]}},\"outbound\":{\"tcp\":{\"supported\":true,\"level\":\"supported\",\"notes\":[]},\"udp\":{\"supported\":true,\"level\":\"supported\",\"notes\":[]}},\"transports\":[\"tcp\"],\"mux\":{\"supported\":false,\"level\":\"not_applicable\",\"notes\":[]},\"limitations\":[]},{\"protocol\":\"trojan\",\"feature\":\"trojan\",\"compiled\":true,\"status\":\"supported\",\"compatibility_baseline\":\"trojan_go\",\"inbound\":{\"tcp\":{\"supported\":true,\"level\":\"supported\",\"notes\":[]},\"udp\":{\"supported\":true,\"level\":\"supported\",\"notes\":[]}},\"outbound\":{\"tcp\":{\"supported\":true,\"level\":\"supported\",\"notes\":[]},\"udp\":{\"supported\":true,\"level\":\"supported\",\"notes\":[]}},\"transports\":[\"tcp\",\"tls\",\"ws\",\"grpc\"],\"mux\":{\"supported\":true,\"level\":\"supported\",\"notes\":[]},\"limitations\":[]},{\"protocol\":\"vless\",\"feature\":\"vless\",\"compiled\":true,\"status\":\"supported\",\"compatibility_baseline\":\"xray_core_vless\",\"inbound\":{\"tcp\":{\"supported\":true,\"level\":\"supported\",\"notes\":[]},\"udp\":{\"supported\":true,\"level\":\"supported\",\"notes\":[]}},\"outbound\":{\"tcp\":{\"supported\":true,\"level\":\"supported\",\"notes\":[]},\"udp\":{\"supported\":true,\"level\":\"supported\",\"notes\":[]}},\"transports\":[\"tcp\",\"tls\",\"reality\",\"ws\",\"grpc\",\"h2\",\"http_upgrade\",\"xhttp\",\"quic\",\"mkcp\",\"hysteria\"],\"mux\":{\"supported\":true,\"level\":\"supported\",\"notes\":[]},\"limitations\":[\"vless_quic_transport_deprecated_by_xtls\"]},{\"protocol\":\"vmess\",\"feature\":\"vmess\",\"compiled\":true,\"status\":\"supported\",\"compatibility_baseline\":\"xray_core_vmess_aead\",\"inbound\":{\"tcp\":{\"supported\":true,\"level\":\"supported\",\"notes\":[]},\"udp\":{\"supported\":true,\"level\":\"supported\",\"notes\":[]}},\"outbound\":{\"tcp\":{\"supported\":true,\"level\":\"supported\",\"notes\":[]},\"udp\":{\"supported\":true,\"level\":\"supported\",\"notes\":[]}},\"transports\":[\"tcp\",\"tls\",\"ws\",\"grpc\"],\"mux\":{\"supported\":true,\"level\":\"supported\",\"notes\":[]},\"limitations\":[]},{\"protocol\":\"wireguard\",\"feature\":\"wireguard\",\"compiled\":true,\"status\":\"experimental\",\"compatibility_baseline\":\"gotatun_v0.9.2\",\"inbound\":{\"tcp\":{\"supported\":true,\"level\":\"experimental\",\"notes\":[\"authenticated_raw_ip_tcp\"]},\"udp\":{\"supported\":true,\"level\":\"experimental\",\"notes\":[\"authenticated_raw_ip_udp\"]}},\"outbound\":{\"tcp\":{\"supported\":true,\"level\":\"experimental\",\"notes\":[\"shared_peer_tcp_tunnel\"]},\"udp\":{\"supported\":true,\"level\":\"experimental\",\"notes\":[\"shared_peer_udp_tunnel\"]}},\"transports\":[\"udp\"],\"mux\":{\"supported\":false,\"level\":\"not_applicable\",\"notes\":[]},\"limitations\":[\"inbound_peer_identity_has_no_principal_mapping\",\"outer_udp_proxy_requires_bidirectional_packet_path_or_concrete_relay_group\",\"opaque_outer_carrier_has_no_observed_source_for_roaming\"]}]\nbinary_sha256: b649836fa7431de38b67f980d30453303b29216e1b3c741073ed8c74e1027dbd\ngit: 9e3f3ed3\ngit_hash: 9e3f3ed3\n",
+      "application_owner_pending_payload_bytes_peak": null,
+      "exact_native_open_attempts": null
+    }
+  },
+  "suggested_new_capacity_defaults": null,
+  "measurement_window": "parent explicitly CARGOFINISHED before first run and withheld Cargo until measurement DONE",
+  "raw_label_corrections": [
+    "launcher concurrent_validation is preserved historical generic wording; no parent Cargo ran in this window",
+    "CLI summary.scope legacy old Direct Combined wording applies both artifacts; actual build_info/source/SHA identify each",
+    "default in pair runner means ordinary production execution path, not Cargo default features"
+  ],
+  "caveats": [
+    "historical old library and current library trials were taken at different times; not paired causal regression evidence",
+    "fresh same-window old/new CLI pair has same 17 compiled feature leaves and unchanged fixture",
+    "reload offered counts depend on actual apply interval and real sender schedule; not identical offered traffic or throughput qualification",
+    "library includes bounded Rust sampler and two actual native probe threads; CLI RSS is separate",
+    "task gauge excludes spawn_blocking and CLI tasks; scheduler injection queue is not application payload bytes",
+    "phase before_proxy spans startup until explicit phase command; final owner-drop phase may include a 1-to-0 tail",
+    "UDP API generation invalidation is not physical route rotation",
+    "non-atomic procfs samples and echo-port correlation are not exact open attempts or native close receipts",
+    "current31 endpoint queue library is not production-activated; do not attribute losses to that unused policy",
+    "public shutdown response duration includes fixed 300ms observer tail; not product native shutdown latency"
+  ],
+  "matched_cli_features_exact": [
+    "status-api",
+    "event-dispatcher",
+    "sink-jsonl",
+    "connector",
+    "grpc-api",
+    "host-network-stats",
+    "http",
+    "hysteria2",
+    "mieru",
+    "mixed",
+    "shadowsocks",
+    "socks5",
+    "trojan",
+    "vless",
+    "vmess",
+    "wireguard",
+    "dns"
+  ]
+}

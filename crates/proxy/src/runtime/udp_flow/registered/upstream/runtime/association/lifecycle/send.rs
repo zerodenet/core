@@ -21,7 +21,7 @@ where
         session: &Session,
         payload: &[u8],
     ) -> Result<usize, EngineError> {
-        self.ensure_association(services, inbound_tag, association, session.id)
+        self.ensure_association(services, inbound_tag, association, session)
             .await?;
 
         let association_ref = self
@@ -52,7 +52,7 @@ where
         services: &UdpRuntimeServices,
         inbound_tag: &str,
         association: T,
-        session_id: u64,
+        session: &Session,
     ) -> Result<(), EngineError> {
         let needs_new_association = !self.upstream.matches_target(&association);
 
@@ -74,7 +74,19 @@ where
             self.idle_deadline = None;
         }
 
-        match A::establish(services.network(), association.clone(), session_id).await {
+        // Business facts and ingress identity are derived by the runtime before
+        // crossing into an adapter. The transport never receives the registry.
+        let established = async {
+            let execution = services.datagram_execution(inbound_tag, session)?;
+            A::establish(
+                execution,
+                services.association_observer(),
+                association.clone(),
+            )
+            .await
+        }
+        .await;
+        match established {
             Ok(a) => {
                 services.record_udp_upstream_association_created();
                 self.idle_deadline =

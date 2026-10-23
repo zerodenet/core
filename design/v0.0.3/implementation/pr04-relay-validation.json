@@ -1,0 +1,231 @@
+{
+  "base_commit": "a0a012dfdc8a7de76e944c18210e875f06e1f506",
+  "code_commit": "6a1d8bcb9cc870a9e772904716a85a089c557139",
+  "tested_git_tree": "a9ada0f1b7514175e65051df3b859ade3ddff715",
+  "code_commits": [
+    "acc5410a34a41562a6012ca718cc99ce2ec6c2c4",
+    "bae5bfe785baa057ea9d3d2e23703ddab9bc21cd",
+    "6a1d8bcb9cc870a9e772904716a85a089c557139"
+  ],
+  "resolved_lock_sha256": "a003359eb327bd299b675c330e9aeca721156df76d117dd3e55c9c47f711377c",
+  "counts": {
+    "passed": 2709,
+    "failed": 0,
+    "ignored": 159,
+    "libtest_summary_rows": 155
+  },
+  "quinn_standalone": {
+    "passed": 269,
+    "failed": 0,
+    "ignored": 0,
+    "separate_resolved_lock": "pr04-relay-quinn-resolved-dependencies.toml",
+    "qualification_limit": "Standalone dependency tests resolve their own ignored lock; the production workspace carrier regression runs on the unchanged main reviewed dependency graph."
+  },
+  "commands": [
+    {
+      "name": "fmt",
+      "argv": [
+        "cargo",
+        "fmt",
+        "--all",
+        "--check"
+      ],
+      "exit": 0,
+      "seconds": 4.29351428100199,
+      "log": "/workspace/core-baseline-artifacts/pr04-relay-neutral-final-fmt.txt",
+      "head_unchanged": true,
+      "source_clean": true
+    },
+    {
+      "name": "vendor-fmt",
+      "argv": [
+        "rustfmt",
+        "--check",
+        "--edition",
+        "2021",
+        "vendor/quinn-proto/src/tests/close_progress.rs"
+      ],
+      "exit": 0,
+      "seconds": 0.021478590999322478,
+      "log": "/workspace/core-baseline-artifacts/pr04-relay-neutral-final-vendor-fmt.txt",
+      "head_unchanged": true,
+      "source_clean": true
+    },
+    {
+      "name": "check",
+      "argv": [
+        "cargo",
+        "check",
+        "--locked",
+        "--workspace"
+      ],
+      "exit": 0,
+      "seconds": 40.46717052399981,
+      "log": "/workspace/core-baseline-artifacts/pr04-relay-neutral-final-check.txt",
+      "head_unchanged": true,
+      "source_clean": true
+    },
+    {
+      "name": "clippy",
+      "argv": [
+        "cargo",
+        "clippy",
+        "--locked",
+        "--workspace",
+        "--all-targets",
+        "--all-features",
+        "--no-deps",
+        "--",
+        "-D",
+        "warnings"
+      ],
+      "exit": 0,
+      "seconds": 64.57456805199763,
+      "log": "/workspace/core-baseline-artifacts/pr04-relay-neutral-final-clippy.txt",
+      "head_unchanged": true,
+      "source_clean": true
+    },
+    {
+      "name": "test",
+      "argv": [
+        "bash",
+        "scripts/test-workspace.sh"
+      ],
+      "exit": 0,
+      "seconds": 328.9960019950013,
+      "log": "/workspace/core-baseline-artifacts/pr04-relay-neutral-final-test.txt",
+      "head_unchanged": true,
+      "source_clean": true
+    },
+    {
+      "name": "quinn",
+      "argv": [
+        "cargo",
+        "test",
+        "--manifest-path",
+        "vendor/quinn-proto/Cargo.toml",
+        "--lib"
+      ],
+      "exit": 0,
+      "seconds": 7.092483278000145,
+      "log": "/workspace/core-baseline-artifacts/pr04-relay-neutral-final-quinn.txt",
+      "head_unchanged": true,
+      "source_clean": true
+    },
+    {
+      "name": "release",
+      "argv": [
+        "cargo",
+        "build",
+        "--locked",
+        "--release"
+      ],
+      "exit": 0,
+      "seconds": 344.39220624899826,
+      "log": "/workspace/core-baseline-artifacts/pr04-relay-neutral-final-release.txt",
+      "head_unchanged": true,
+      "source_clean": true
+    },
+    {
+      "name": "no-std",
+      "argv": [
+        "cargo",
+        "check",
+        "--locked",
+        "--target",
+        "thumbv7em-none-eabi",
+        "-p",
+        "zero-traits",
+        "-p",
+        "zero-core"
+      ],
+      "exit": 0,
+      "seconds": 0.21930863200032036,
+      "log": "/workspace/core-baseline-artifacts/pr04-relay-neutral-final-no-std.txt",
+      "head_unchanged": true,
+      "source_clean": true
+    },
+    {
+      "name": "minimal",
+      "argv": [
+        "cargo",
+        "check",
+        "--locked",
+        "-p",
+        "zero-proxy",
+        "--no-default-features"
+      ],
+      "exit": 0,
+      "seconds": 7.959635988001537,
+      "log": "/workspace/core-baseline-artifacts/pr04-relay-neutral-final-minimal.txt",
+      "head_unchanged": true,
+      "source_clean": true
+    },
+    {
+      "name": "dependencies",
+      "argv": [
+        "python3",
+        "scripts/check-runtime-contracts.py"
+      ],
+      "exit": 0,
+      "seconds": 0.5878806740001892,
+      "log": "/workspace/core-baseline-artifacts/pr04-relay-neutral-final-dependencies.txt",
+      "head_unchanged": true,
+      "source_clean": true
+    }
+  ],
+  "release": {
+    "git_hash": "6a1d8bcb",
+    "binary_sha256": "947313e4622f3a7d6e231109045bbfa7ff5dc1ac749baf3c3442adb7647703c4",
+    "features": [
+      "status-api",
+      "http",
+      "hysteria2",
+      "mieru",
+      "mixed",
+      "shadowsocks",
+      "socks5",
+      "trojan",
+      "vless",
+      "vmess",
+      "dns"
+    ],
+    "build_info": "evidence/relay-pr04-relay-release-build-info.txt.gz",
+    "scope": "Actual default-feature release; no optional connector/grpc/WireGuard default-release claim."
+  },
+  "focused": {
+    "unchanged_engine_leaf_boundary": {
+      "passed": 1,
+      "failed": 0
+    },
+    "component_filter": {
+      "passed": 21,
+      "failed": 0
+    },
+    "real_relay_and_health_filter_before_neutral_projection": {
+      "passed": 23,
+      "failed": 0
+    },
+    "real_hysteria_filter": {
+      "passed": 13,
+      "failed": 0
+    },
+    "hysteria_1cpu_1gib": {
+      "passed": 40,
+      "failed": 0,
+      "original_case_rounds": 20,
+      "small_bdp_case_rounds": 20,
+      "scope": "Loopback carrier correctness/progress, not full CLI/RS01 or pinned reference stress qualification."
+    }
+  },
+  "root_causes": "pr04-relay-ci-root-causes.json",
+  "known_remaining": [
+    "All17 checkpoints still in progress; only Direct/SOCKS ordinary streams and fully native registered Stream relay migrated.",
+    "Mixed legacy chains/internal DNS/UDP/other protocols still require migration and real resource ownership.",
+    "Generic resourceful host needs retained aborted-start ownership, explicit real task budgets and confirmed cleanup before resourceful protocols switch.",
+    "RuntimeHost/single-instance transactions/DNS/Network/pure routing/Datagram/inbounds/Packet/legacy removal/final consumers and resource qualification remain.",
+    "Pinned reference client UDP byte-count qualification failures remain in earlier evidence despite a0 VLESS250/0/1 successful workflow.",
+    "a0 mainCI failed2698/1/159; a0 all7reference and hostedTUN success do not qualify this6a head. Three hostedTUNsmokes/macOSoffline skipped; a0WindowsrouteSwitch executed=false.",
+    "No physical user-device/GUI/Mac acceptance claim."
+  ]
+}

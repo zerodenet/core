@@ -111,6 +111,14 @@ impl PacketFlowEndpoint for Endpoint {
     fn is_closed(&self) -> bool {
         self.device.is_closed()
     }
+    fn spawn_packet_worker(
+        &self,
+        worker: std::pin::Pin<
+            Box<dyn std::future::Future<Output = Result<(), EngineError>> + Send + 'static>,
+        >,
+    ) -> Result<(), EngineError> {
+        self.device.spawn_packet_worker(worker)
+    }
     fn bind_udp(
         &self,
         local: IpAddr,

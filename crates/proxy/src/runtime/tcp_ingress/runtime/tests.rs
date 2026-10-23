@@ -42,6 +42,18 @@ async fn active_tcp_relay_is_not_closed_at_absolute_idle_timeout() {
     )
     .expect("parse TCP idle-timeout config");
     let proxy = crate::runtime::Proxy::new(config).expect("build proxy");
+    proxy
+        .protocols
+        .start_components(
+            proxy.engine().config(),
+            tokio::time::Instant::now() + std::time::Duration::from_secs(2),
+        )
+        .await
+        .unwrap();
+    proxy
+        .protocols
+        .commit_components(&proxy.engine().config(), || Ok(()))
+        .unwrap();
     let engine = proxy.engine().clone();
     let runtime = TcpIngressRuntime::new(
         proxy.tcp_runtime_services(),
@@ -154,7 +166,8 @@ async fn tcp_ingress_preserves_selected_packet_route_mode() {
     let trace = runtime.route_trace(&session).await;
     assert_eq!(trace.decision, RouteDecision::Direct);
     assert_eq!(trace.route_mode, RouteMode::Packet);
-    let error = match crate::runtime::tcp_dispatch::dispatch_tcp(&runtime, &mut session).await {
+    let error = match crate::runtime::tcp_dispatch::dispatch_tcp(&runtime, &mut session, None).await
+    {
         Ok(_) => panic!("packet mode cannot silently use direct TCP flow"),
         Err(error) => error,
     };
@@ -359,3 +372,33 @@ fn dns_a_query(domain: &str) -> Vec<u8> {
 #[cfg(all(feature = "managed-stream-runtime", feature = "dns"))]
 #[path = "tests/mux_fake_ip.rs"]
 mod mux_fake_ip;
+
+mod admitted;
+
+#[tokio::test]
+async fn accepted_tcp_state_does_not_embed_the_complete_routing_and_dns_state() {
+    let proxy = crate::runtime::Proxy::new(
+        RuntimeConfig::parse(r#"{"route":{"final":{"type":"direct"}}}"#).unwrap(),
+    )
+    .unwrap();
+    let runtime = TcpIngressRuntime::new(
+        proxy.tcp_runtime_services(),
+        "tcp-stack-budget".into(),
+        None,
+    );
+    let session = Session::new(
+        0,
+        Address::Domain("localhost".into()),
+        9,
+        Network::Tcp,
+        ProtocolType::UNKNOWN,
+    );
+    let (client, _peer) = tokio::io::duplex(64);
+    let protocol = crate::runtime::tcp_ingress::NoClientResponseStreamProtocol::new();
+    let future = runtime.serve(session, client, &protocol);
+    assert!(
+        std::mem::size_of_val(&future) < 16 * 1024,
+        "protocol listener futures must not embed the complete TCP lifecycle: {} bytes",
+        std::mem::size_of_val(&future)
+    );
+}

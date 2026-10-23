@@ -13,7 +13,9 @@ use crate::message::{
 use crate::system::TokioSystemResolver;
 #[cfg(feature = "udp")]
 use crate::udp::UdpDnsResolver;
-use crate::DnsOutboundConnector;
+use crate::{DnsConnectContext, DnsOutboundConnector};
+mod lifecycle;
+tokio::task_local! { pub(crate) static ATTEMPT_DEADLINE:tokio::time::Instant; }
 
 pub(crate) enum ResolverBackend {
     System(TokioSystemResolver),
@@ -103,6 +105,34 @@ impl ResolverBackend {
         }
     }
 
+    #[cfg(feature = "udp")]
+    pub(crate) fn build_owned_udp(
+        server: &DnsServerConfig,
+        egress: zero_platform_tokio::EgressInterfaceControl,
+        owned: std::sync::Arc<crate::udp::OwnedDnsUdp>,
+    ) -> io::Result<Self> {
+        let DnsServerConfig::Udp { port, .. } = server else {
+            return Err(io::Error::new(
+                io::ErrorKind::Unsupported,
+                "owned DNS UDP root does not authorize another transport",
+            ));
+        };
+        let addrs = server_endpoints(server, *port)?;
+        Ok(Self::Udp {
+            resolver: UdpDnsResolver::new_owned(addrs.clone(), egress.clone(), owned)?,
+            tcp_addrs: addrs,
+            egress,
+        })
+    }
+
+    #[cfg(feature = "udp")]
+    pub(crate) fn owned_udp(&self) -> Option<&UdpDnsResolver> {
+        match self {
+            Self::Udp { resolver, .. } if resolver.is_owned() => Some(resolver),
+            _ => None,
+        }
+    }
+
     pub(crate) async fn exchange(
         &self,
         query: &[u8],
@@ -135,6 +165,12 @@ impl ResolverBackend {
                 if !parse_response(query, &response)?.truncated {
                     return Ok(response);
                 }
+                if resolver.is_owned() {
+                    return Err(io::Error::new(
+                        io::ErrorKind::Unsupported,
+                        "truncated owned DNS UDP requires a separately authorized native TCP root",
+                    ));
+                }
                 exchange_tcp_many(tcp_addrs, query, egress, None, None).await
             }
             #[cfg(feature = "doh")]
@@ -142,13 +178,34 @@ impl ResolverBackend {
             #[cfg(feature = "dot")]
             Self::Dot(resolver) => resolver.exchange(query, detour, connector).await,
             #[cfg(feature = "doq")]
-            Self::Doq(resolver) if detour.is_none() => resolver.exchange(query).await,
+            Self::Doq(resolver) if detour.is_none() => {
+                match connector.and_then(|connector| connector.quic_bidi()) {
+                    Some(provider) => resolver.exchange_hosted(query, provider).await,
+                    None => resolver.exchange(query).await,
+                }
+            }
             #[cfg(feature = "doq")]
             Self::Doq(_) => Err(io::Error::new(
                 io::ErrorKind::Unsupported,
                 "DoQ detour requires a proxy-aware UDP/QUIC carrier",
             )),
         }
+    }
+
+    pub(crate) fn register_owners(
+        &self,
+        owners: &std::sync::Arc<crate::transport_owners::TransportOwners>,
+    ) -> io::Result<()> {
+        #[cfg(feature = "doh")]
+        if let Self::Doh(resolver) = self {
+            owners.register_doh(resolver.owner.clone())?;
+        }
+        #[cfg(feature = "doq")]
+        if let Self::Doq(resolver) = self {
+            resolver.attach_registry(owners.clone());
+        }
+        let _ = owners;
+        Ok(())
     }
 
     pub(crate) fn transport_name(&self) -> &'static str {
@@ -303,6 +360,17 @@ async fn connect_tcp(
     detour: Option<&str>,
     connector: Option<&dyn DnsOutboundConnector>,
 ) -> io::Result<zero_platform_tokio::TcpRelayStream> {
+    connect_tcp_carrier(addr, egress, detour, connector)
+        .await
+        .map(|carrier| carrier.stream)
+}
+
+async fn connect_tcp_carrier(
+    addr: SocketAddr,
+    egress: &zero_platform_tokio::EgressInterfaceControl,
+    detour: Option<&str>,
+    connector: Option<&dyn DnsOutboundConnector>,
+) -> io::Result<crate::DnsOutboundCarrier> {
     if let Some(outbound) = detour {
         let connector = connector.ok_or_else(|| {
             io::Error::new(
@@ -310,7 +378,16 @@ async fn connect_tcp(
                 format!("DNS detour `{outbound}` is unavailable outside the proxy runtime"),
             )
         })?;
-        return connector.connect(outbound.to_owned(), addr).await;
+        return connector
+            .connect_carrier_with_context(
+                outbound.to_owned(),
+                addr,
+                DnsConnectContext {
+                    deadline: ATTEMPT_DEADLINE.try_with(|deadline| *deadline).ok(),
+                    cancel: crate::coordinator::current_cancel(),
+                },
+            )
+            .await;
     }
 
     let selection = egress.select_for_peer(addr);
@@ -329,7 +406,10 @@ async fn connect_tcp(
     );
     zero_platform_tokio::TokioSocket::connect_addr_on(addr, interface.as_ref())
         .await
-        .map(zero_platform_tokio::TcpRelayStream::from)
+        .map(|stream| crate::DnsOutboundCarrier {
+            stream: stream.into(),
+            binding: None,
+        })
 }
 
 async fn write_framed<S: tokio::io::AsyncWrite + Unpin>(
@@ -365,6 +445,8 @@ async fn read_framed<S: tokio::io::AsyncRead + Unpin>(stream: &mut S) -> io::Res
 #[cfg(feature = "doh")]
 mod doh;
 #[cfg(feature = "doh")]
+pub(crate) use doh::owner::DriverOwner as DohDriverOwner;
+#[cfg(feature = "doh")]
 pub(crate) use doh::DohDnsResolver;
 
 #[cfg(feature = "dot")]
@@ -374,5 +456,7 @@ use dot::DotDnsResolver;
 
 #[cfg(feature = "doq")]
 mod doq;
+#[cfg(feature = "doq")]
+pub(crate) use doq::owner::EndpointOwner as DoqEndpointOwner;
 #[cfg(feature = "doq")]
 use doq::DoqDnsResolver;

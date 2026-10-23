@@ -13,6 +13,23 @@ pub(super) fn client_tls(
     profile
 }
 
+/// The protocol's reference ALPN policy, shared by legacy and standard roles.
+pub(crate) fn client_tls_for_stream(
+    profile: &(impl zero_traits::ClientTlsProfile + ?Sized),
+    http1: bool,
+    http2: bool,
+) -> zero_transport::profile::OwnedClientTlsProfile {
+    let mut owned = client_tls(profile);
+    if profile.alpn().is_empty() {
+        if http1 {
+            owned.alpn = vec!["http/1.1".into()];
+        } else if http2 {
+            owned.alpn = vec!["h2".into()];
+        }
+    }
+    owned
+}
+
 pub(super) fn server_tls(
     profile: &(impl zero_traits::ServerTlsProfile + ?Sized),
 ) -> zero_transport::profile::OwnedServerTlsProfile {

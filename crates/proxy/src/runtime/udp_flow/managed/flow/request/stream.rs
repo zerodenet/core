@@ -8,7 +8,7 @@ use crate::transport::RelayCarrier;
 
 pub(crate) enum ManagedRelayStreamCarrier<'a> {
     Ready(RelayCarrier),
-    Lazy(LazyTcpRelayCarrier<'a>),
+    Lazy(Box<LazyTcpRelayCarrier<'a>>),
 }
 
 impl From<RelayCarrier> for ManagedRelayStreamCarrier<'_> {
@@ -19,7 +19,7 @@ impl From<RelayCarrier> for ManagedRelayStreamCarrier<'_> {
 
 impl<'a> From<LazyTcpRelayCarrier<'a>> for ManagedRelayStreamCarrier<'a> {
     fn from(carrier: LazyTcpRelayCarrier<'a>) -> Self {
-        Self::Lazy(carrier)
+        Self::Lazy(Box::new(carrier))
     }
 }
 

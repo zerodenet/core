@@ -1,0 +1,29 @@
+{
+  "inbounds": [
+    {
+      "tag": "server-socks5",
+      "listen": {
+        "address": "0.0.0.0",
+        "port": 7890
+      },
+      "protocol": {
+        "type": "socks5"
+      }
+    }
+  ],
+  "outbounds": [
+    {
+      "tag": "direct",
+      "protocol": {
+        "type": "direct"
+      }
+    }
+  ],
+  "route": {
+    "rules": [],
+    "final": {
+      "type": "route",
+      "outbound": "direct"
+    }
+  }
+}

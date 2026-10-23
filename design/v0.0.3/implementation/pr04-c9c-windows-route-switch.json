@@ -1,0 +1,10 @@
+{
+  "source": "https://github.com/zerodenet/core/actions/runs/39302324808/job/118230534146",
+  "head": "c9c06b2a9872918296fa8d10fe233ca17eaa6d49",
+  "full_raw_sha256": "baafe9e1028e5be0d11af7ed227c698a02a6be86b57206d93807e80004c0e02a",
+  "evidence_lines": [
+    "2026-10-19T18:48:56.1960690Z ZERO_TUN_ROUTE_RECONCILE_RESULT={\"executed\":false,\"reason\":\"no suitable alternate connected interface with a lower metric and no default route is available\",\"scenario\":\"windows-route-switch\",\"status\":\"skipped\"}",
+    "2026-10-19T18:48:58.9728564Z ##[warning]Windows route-switch scenario SKIPPED; no network-switch coverage: no suitable alternate connected interface with a lower metric and no default route is available"
+  ],
+  "qualification": "Actual executed:false. Hosted job success is not Windows network-switch qualification."
+}

@@ -16,8 +16,22 @@ use zero_traits::{IpAddress, SocketAddress, UdpStack};
 use super::sniff::udp::TunQuicSniffer;
 use crate::runtime::udp_ingress::UdpIngressRuntime;
 
+#[cfg(feature = "raw-ip-runtime")]
+mod owned;
+#[cfg(feature = "raw-ip-runtime")]
+mod scoped;
+#[cfg(feature = "raw-ip-runtime")]
+pub(crate) use owned::OwnedTunUdpTasks;
 mod association;
+mod run;
+mod task_set;
 use association::{AdmissionRejection, AssociationRegistry, Delivery};
+use run::run_inner;
+
+#[cfg(feature = "raw-ip-runtime")]
+type AssociationBinding = Arc<crate::runtime::inbound_owners::HostPeerBinding>;
+#[cfg(not(feature = "raw-ip-runtime"))]
+type AssociationBinding = ();
 
 const ASSOCIATION_IDLE_TIMEOUT: Duration = Duration::from_secs(120);
 const ASSOCIATION_QUEUE_CAPACITY: usize = 128;
@@ -49,6 +63,8 @@ struct AssociationStart {
     source: SocketAddress,
     id: u64,
     first: TunDatagram,
+    #[cfg(feature = "raw-ip-runtime")]
+    native: Option<crate::runtime::inbound_operation::raw_ip::native_obligations::NativePermit>,
 }
 
 impl InboundDatagramUdpRelay<Arc<UserUdpStack>> for TunUdpRelay {
@@ -121,23 +137,6 @@ impl DatagramUdpResponder<Arc<UserUdpStack>> for TunUdpResponder {
     }
 }
 
-pub(super) async fn run(
-    proxy: crate::runtime::Proxy,
-    stack: Arc<UserUdpStack>,
-    inbound_tag: String,
-    dns_hijack: bool,
-    dns_hijacked_queries: Arc<AtomicU64>,
-) -> Result<(), EngineError> {
-    run_with_runtime(
-        UdpIngressRuntime::new(proxy.tcp_runtime_services()),
-        stack,
-        inbound_tag,
-        dns_hijack,
-        dns_hijacked_queries,
-    )
-    .await
-}
-
 pub(crate) async fn run_with_runtime(
     runtime: UdpIngressRuntime,
     stack: Arc<UserUdpStack>,
@@ -145,155 +144,34 @@ pub(crate) async fn run_with_runtime(
     dns_hijack: bool,
     dns_hijacked_queries: Arc<AtomicU64>,
 ) -> Result<(), EngineError> {
-    let mut buffer = vec![0_u8; 65_535];
-    let mut next_id = 1_u64;
-    let mut associations = AssociationRegistry::new();
-    let mut tasks = JoinSet::new();
-    let mut dns_tasks = JoinSet::new();
-    let mut last_dns_pressure_log = None;
+    run_inner(
+        runtime,
+        stack,
+        inbound_tag,
+        dns_hijack,
+        dns_hijacked_queries,
+        #[cfg(feature = "raw-ip-runtime")]
+        None,
+    )
+    .await
+}
 
-    loop {
-        tokio::select! {
-            received = stack.recv_from_with_peer(&mut buffer) => {
-                let Some((size, source, destination, peer_identity)) = received else {
-                    return Ok(());
-                };
-                if dns_hijack && destination.port == 53 {
-                    dns_hijacked_queries.fetch_add(1, Ordering::Relaxed);
-                    let now = Instant::now();
-                    if dns_tasks.len() >= MAX_CONCURRENT_DNS_QUERIES {
-                        if pressure_log_due(&mut last_dns_pressure_log, now) {
-                            tracing::warn!(
-                                ?source,
-                                ?destination,
-                                active_dns_queries = dns_tasks.len(),
-                                "dropping TUN DNS query at the concurrency limit"
-                            );
-                        }
-                        let response = runtime.resolver().busy_response(&buffer[..size]);
-                        stack.send_to(&response, destination, source).await;
-                        continue;
-                    }
-                    let query_runtime = runtime.clone();
-                    let stack = Arc::clone(&stack);
-                    let query = buffer[..size].to_vec();
-                    dns_tasks.spawn(async move {
-                        let response = query_runtime.resolver().answer_udp_query(&query).await?;
-                        stack.send_to(&response, destination, source).await;
-                        Ok::<(), std::io::Error>(())
-                    });
-                    continue;
-                }
-                let datagram = TunDatagram {
-                    peer_identity,
-                    destination,
-                    payload: buffer[..size].to_vec(),
-                };
-                let now = Instant::now();
-                tracing::trace!(
-                    ?source,
-                    ?destination,
-                    association_id = associations.association_id(source),
-                    active_associations = associations.active_count(),
-                    "TUN UDP ingress"
-                );
-                match associations.deliver(source, datagram) {
-                    Delivery::Delivered => {}
-                    Delivery::Missing(datagram) => match associations.admit(source, now) {
-                        Ok(()) => {
-                            let id = next_id;
-                            spawn_association(
-                                &mut tasks,
-                                &mut associations,
-                                AssociationStart {
-                                    runtime: runtime.clone(),
-                                    stack: Arc::clone(&stack),
-                                    inbound_tag: inbound_tag.clone(),
-                                    source,
-                                    id,
-                                    first: datagram,
-                                },
-                            );
-                            tracing::trace!(
-                                ?source,
-                                ?destination,
-                                association_id = id,
-                                active_associations = associations.active_count(),
-                                "TUN UDP association started"
-                            );
-                            next_id = next_id.wrapping_add(1).max(1);
-                        }
-                        Err(reason) => log_pressure_drop(
-                            &mut associations,
-                            now,
-                            source,
-                            datagram.destination,
-                            reason,
-                            stack.send_unreachable(&datagram.payload, source, datagram.destination),
-                        ),
-                    },
-                    Delivery::Full(datagram) => {
-                        let feedback_sent = stack.send_unreachable(
-                            &datagram.payload,
-                            source,
-                            datagram.destination,
-                        );
-                        if associations.should_log_pressure(now) {
-                            tracing::warn!(
-                                ?source,
-                                ?destination,
-                                feedback_sent,
-                                active_associations = associations.active_count(),
-                                "dropping TUN UDP datagram because its association queue is full"
-                            );
-                        }
-                    }
-                    Delivery::Closed(datagram) => {
-                        let feedback_sent = stack.send_unreachable(
-                            &datagram.payload,
-                            source,
-                            datagram.destination,
-                        );
-                        if associations.remove(source) {
-                            associations.record_failure(source, now);
-                        }
-                        if associations.should_log_pressure(now) {
-                            tracing::warn!(
-                                ?source,
-                                ?destination,
-                                feedback_sent,
-                                active_associations = associations.active_count(),
-                                "TUN UDP association closed; applying recreate backoff"
-                            );
-                        }
-                    }
-                }
-            }
-            Some(completed) = tasks.join_next(), if !tasks.is_empty() => {
-                match completed {
-                    Ok((source, id, Ok(()))) => {
-                        if associations.remove_matching(source, id) {
-                            associations.clear_failure(source);
-                        }
-                    }
-                    Ok((source, id, Err(error))) => {
-                        if associations.remove_matching(source, id) {
-                            associations.record_failure(source, Instant::now());
-                        }
-                        tracing::warn!(error = %error, ?source, "TUN UDP association failed");
-                    }
-                    Err(error) => tracing::warn!(error = %error, "TUN UDP association task panicked"),
-                }
-            }
-            Some(completed) = dns_tasks.join_next(), if !dns_tasks.is_empty() => {
-                match completed {
-                    Ok(Ok(())) => {}
-                    Ok(Err(error)) => tracing::warn!(error = %error, "TUN DNS query failed"),
-                    Err(error) => tracing::warn!(error = %error, "TUN DNS task panicked"),
-                }
-            }
-        }
-    }
+#[cfg(feature = "raw-ip-runtime")]
+pub(crate) async fn run_with_owned_tasks(
+    runtime: UdpIngressRuntime,
+    stack: Arc<UserUdpStack>,
+    inbound_tag: String,
+    owners: OwnedTunUdpTasks,
+) -> Result<(), EngineError> {
+    run_inner(
+        runtime,
+        stack,
+        inbound_tag,
+        false,
+        Arc::new(AtomicU64::new(0)),
+        Some(owners),
+    )
+    .await
 }
 
 fn pressure_log_due(last: &mut Option<Instant>, now: Instant) -> bool {
@@ -305,10 +183,10 @@ fn pressure_log_due(last: &mut Option<Instant>, now: Instant) -> bool {
 }
 
 fn spawn_association(
-    tasks: &mut JoinSet<(SocketAddress, u64, Result<(), EngineError>)>,
+    tasks: &mut task_set::TunTasks<'_, (SocketAddress, u64, Result<(), EngineError>)>,
     associations: &mut AssociationRegistry,
     start: AssociationStart,
-) {
+) -> Result<(), EngineError> {
     let AssociationStart {
         runtime,
         stack,
@@ -316,6 +194,8 @@ fn spawn_association(
         source,
         id,
         first,
+        #[cfg(feature = "raw-ip-runtime")]
+        mut native,
     } = start;
     let (sender, receiver) = mpsc::channel(ASSOCIATION_QUEUE_CAPACITY);
     sender
@@ -325,17 +205,101 @@ fn spawn_association(
     let runtime = runtime.with_source_addr(Some(
         zero_platform_tokio::socket_address_to_socket_addr(source),
     ));
-    tasks.spawn(async move {
-        let result = crate::runtime::datagram_udp::run_protocol_datagram_udp_relay(
+    #[cfg(feature = "raw-ip-runtime")]
+    let scope = tasks.scope();
+    #[cfg(feature = "raw-ip-runtime")]
+    let ingress = scope.as_ref().map(|_| runtime.peer_ingress()).transpose()?;
+    let registered = tasks.spawn_bound(move |binding| async move {
+        #[cfg(feature = "raw-ip-runtime")]
+        let (runtime, driver_job) = match (binding, scope, ingress) {
+            (Some(binding), Some(scope), Some(ingress)) => {
+                if let Err(error) = binding.wait_bound().await {
+                    return (source, id, Err(std::io::Error::other(error).into()));
+                }
+                if let Some(native) = &native {
+                    if let Err(error) = native.bind_caller(binding.clone()) {
+                        return (source, id, Err(std::io::Error::other(error).into()));
+                    }
+                }
+                let (slot, job) =
+                    crate::runtime::udp_socket::endpoint::peer::DirectPeerDriverSlot::channel();
+                (
+                    runtime
+                        .with_peer_resources(scope.group.resource_context(binding, ingress))
+                        .with_direct_peer_driver(slot),
+                    Some(job),
+                )
+            }
+            (None, None, None) => (runtime, None),
+            _ => {
+                return (
+                    source,
+                    id,
+                    Err(std::io::Error::other("raw-IP association Scope origin mismatch").into()),
+                )
+            }
+        };
+        #[cfg(feature = "raw-ip-runtime")]
+        let runtime = if native.is_some() {
+            runtime
+                .with_native(native.as_ref().map(|permit| permit.registration()))
+                .with_bound_direct_budget(owned::direct_budget())
+        } else {
+            runtime
+        };
+        #[cfg(not(feature = "raw-ip-runtime"))]
+        let _ = binding;
+        #[cfg(feature = "raw-ip-runtime")]
+        if let Some(native) = &mut native {
+            if let Err(error) = native.enter() {
+                return (source, id, Err(std::io::Error::other(error).into()));
+            }
+        }
+        #[cfg(feature = "raw-ip-runtime")]
+        let stop = runtime
+            .peer_resources()
+            .map(|context| context.binding().cancellation());
+        let relay = crate::runtime::datagram_udp::run_protocol_datagram_udp_relay(
             runtime,
             stack,
             TunUdpRelay { source, receiver },
             &inbound_tag,
             true,
-        )
-        .await;
+        );
+        #[cfg(feature = "raw-ip-runtime")]
+        let result = {
+            let work = async {
+                match driver_job {
+                    Some(job) => {
+                        crate::runtime::udp_socket::endpoint::peer::job::run_peer_preserving(
+                            relay, job,
+                        )
+                        .await
+                    }
+                    None => relay.await,
+                }
+            };
+            match stop {
+                Some(stop) => tokio::select! { biased;
+                    result = work => result,
+                    _ = stop.cancelled() => Ok(()),
+                },
+                None => work.await,
+            }
+        };
+        #[cfg(not(feature = "raw-ip-runtime"))]
+        let result = relay.await;
+        #[cfg(feature = "raw-ip-runtime")]
+        let result = result.map_err(|error| match &native {
+            Some(native) => EngineError::Io(native.retain_error(error)),
+            None => error,
+        });
         (source, id, result)
     });
+    if registered.is_err() {
+        associations.remove_matching(source, id);
+    }
+    registered
 }
 
 fn log_pressure_drop(

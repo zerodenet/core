@@ -4,6 +4,9 @@ use std::io;
 use bytes::Bytes;
 use zero_transport::RuntimeError;
 
+mod request;
+pub use request::authenticate_http3_request;
+
 type H3RequestSender = h3::client::SendRequest<h3_quinn::OpenStreams, Bytes>;
 /// One authenticated standard Hysteria2 HTTP/3 session.
 ///
@@ -82,17 +85,8 @@ pub async fn authenticate_http3_with_settings(
     password: &str,
     settings: crate::settings::Settings,
 ) -> Result<Hysteria2AuthenticatedConnection, RuntimeError> {
-    let request = http::Request::builder()
-        .method(http::Method::POST)
-        .uri("https://hysteria/auth")
-        .header("Hysteria-Auth", password)
-        .header("Hysteria-CC-RX", settings.download.to_string())
-        .body(())
-        .map_err(|error| {
-            RuntimeError::Io(io::Error::other(format!(
-                "hysteria2 build authentication request: {error}"
-            )))
-        })?;
+    // Preserve validation before the original H3 handshake/driver is created.
+    let request = request::authentication_request(password, settings)?;
     let h3_connection = h3_quinn::Connection::new(connection.clone());
     let (mut driver, request_sender) = h3::client::new(h3_connection)
         .await
@@ -117,50 +111,35 @@ pub async fn authenticate_http3_with_settings(
     else {
         unreachable!()
     };
-    let mut request_stream = request_sender
-        .send_request(request)
-        .await
-        .map_err(h3_error("send authentication request"))?;
-    request_stream
-        .finish()
-        .await
-        .map_err(h3_error("finish authentication request"))?;
-    let response = request_stream
-        .recv_response()
-        .await
-        .map_err(h3_error("receive authentication response"))?;
-    if response.status().as_u16() != 233 {
-        return Err(RuntimeError::Io(io::Error::new(
-            io::ErrorKind::PermissionDenied,
-            format!(
-                "hysteria2 authentication rejected with HTTP status {}",
-                response.status()
-            ),
-        )));
-    }
-    authenticated.negotiated = crate::handshake::AuthResponse::from_headers(
-        response
-            .headers()
-            .get("hysteria-udp")
-            .and_then(|value| value.to_str().ok()),
-        response
-            .headers()
-            .get("hysteria-cc-rx")
-            .and_then(|value| value.to_str().ok()),
-    );
+    authenticated.negotiated = request::exchange(request_sender, request).await?;
     super::congestion::negotiate(
         &authenticated.connection,
         settings.client_send_rate(authenticated.negotiated.receive_bandwidth),
     );
-    drop(request_stream);
     Ok(authenticated)
 }
 
 fn h3_error<E>(stage: &'static str) -> impl FnOnce(E) -> RuntimeError
 where
-    E: std::fmt::Display,
+    E: std::error::Error + Send + Sync + 'static,
 {
-    move |error| RuntimeError::Io(io::Error::other(format!("hysteria2 {stage}: {error}")))
+    move |source| RuntimeError::Io(io::Error::other(H3Error { stage, source }))
+}
+
+#[derive(Debug)]
+struct H3Error<E> {
+    stage: &'static str,
+    source: E,
+}
+impl<E: std::fmt::Display> std::fmt::Display for H3Error<E> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "hysteria2 {}: {}", self.stage, self.source)
+    }
+}
+impl<E: std::error::Error + 'static> std::error::Error for H3Error<E> {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        Some(&self.source)
+    }
 }
 
 #[cfg(test)]

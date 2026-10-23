@@ -152,6 +152,8 @@ async fn pool_reuses_one_connection_and_retirement_preserves_admitted_streams() 
     .expect("gRPC pool lifetime stalled");
 }
 
+mod prepared;
+mod prepared_stream;
 mod read;
 mod reconnect;
 
@@ -177,3 +179,6 @@ fn unknown_protobuf_groups_are_skipped_without_consuming_outer_hunks() {
         "/has%27apostrophe%2Fand%3Fslash/Tun"
     );
 }
+mod keepalive;
+
+mod single;

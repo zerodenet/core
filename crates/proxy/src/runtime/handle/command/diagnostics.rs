@@ -1,3 +1,4 @@
+mod maintenance;
 use crate::runtime::outbound_probe::{OutboundProbeRequest, OutboundProbeRuntime};
 use crate::runtime::route_runtime::route_trace_for_session;
 use tracing::info;
@@ -263,9 +264,7 @@ pub(super) fn execute_diagnostics_probe_outbound(
 }
 
 impl ProxyHandle {
-    /// Run an outbound diagnostic without a blocking-task shell so async
-    /// control-plane transports can cancel it when their client disconnects.
-    pub async fn execute_diagnostics_probe_outbound_command(
+    async fn execute_started_outbound_probe(
         &self,
         cmd: zero_api::command::DiagnosticsProbeOutboundCommand,
     ) -> zero_api::ApiResult<zero_api::CommandResponse> {

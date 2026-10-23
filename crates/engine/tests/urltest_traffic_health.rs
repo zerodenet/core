@@ -5,6 +5,8 @@ use zero_engine::{Engine, ResolvedLeafOutbound, ResolvedOutbound, RouteDecision}
 
 #[path = "urltest_traffic_health/immediate.rs"]
 mod immediate;
+#[path = "urltest_traffic_health/observations.rs"]
+mod observations;
 #[path = "urltest_traffic_health/wrapped.rs"]
 mod wrapped;
 

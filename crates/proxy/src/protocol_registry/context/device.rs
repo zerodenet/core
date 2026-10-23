@@ -20,6 +20,21 @@ pub(crate) struct OutboundDevicePreparationContext {
     pub(crate) disabled_outbounds: Arc<HashSet<String>>,
     pub(crate) upstream: UpstreamConnectServices,
     pub(crate) packet_path_services: PacketPathExecutionServices,
-    pub(crate) packet_paths: Arc<HashMap<String, Arc<dyn PreparedUdpPacketPathOperation>>>,
-    pub(crate) packet_path_identities: Arc<HashMap<String, [u8; 32]>>,
+    pub(crate) packet_paths: Arc<HashMap<String, PreparedDevicePacketPath>>,
+}
+
+/// One inventory-claimed static carrier recipe and its exact physical-root
+/// requirements. This is configuration metadata, never a resource grant.
+#[derive(Clone)]
+pub(crate) struct PreparedDevicePacketPath {
+    pub(crate) operation: Arc<dyn PreparedUdpPacketPathOperation>,
+    pub(crate) identity: [u8; 32],
+    #[cfg_attr(
+        not(test),
+        expect(
+            dead_code,
+            reason = "explicit cold-device library path; production activation requires the owning replacement transaction"
+        )
+    )]
+    pub(crate) root_binding: zero_platform_tokio::contract::network::UpstreamBinding,
 }

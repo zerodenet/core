@@ -21,6 +21,9 @@ use support::{free_port, spawn_engine, wait_for, wait_for_listener};
 const USER_ID: &str = "11111111-2222-3333-4444-555555555555";
 static NEXT_TLS_DIR: AtomicU64 = AtomicU64::new(0);
 
+#[path = "vless/standard_inbound.rs"]
+mod standard_inbound;
+
 #[cfg(feature = "vless")]
 #[path = "vless/relays_tcp_through_vless_chained_outbound.rs"]
 mod relays_tcp_through_vless_chained_outbound;

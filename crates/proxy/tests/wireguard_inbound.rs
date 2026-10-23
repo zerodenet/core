@@ -6,6 +6,8 @@ mod deadline;
 mod egress;
 #[path = "support/host.rs"]
 mod host;
+#[path = "wireguard_inbound/recovery.rs"]
+mod recovery;
 mod support;
 
 use host::non_loopback_host_ipv4;
@@ -39,6 +41,7 @@ fn public_key(private: u8) -> String {
 
 #[tokio::test]
 async fn linked_wireguard_endpoints_share_socket_and_peer_state_in_both_directions() {
+    support::interop::init_logs("wireguard=debug");
     let a_port = free_udp_port();
     let b_port = free_udp_port();
     let a_socks = free_port();
@@ -277,6 +280,7 @@ async fn linked_wireguard_endpoints_share_socket_and_peer_state_in_both_directio
 }
 
 async fn assert_udp_echo_via_peer(host_ip: Ipv4Addr, socks_port: u16, payload: &[u8], stage: &str) {
+    eprintln!("WireGuard continuity stage={stage} SOCKS port={socks_port}");
     let echo = UdpSocket::bind((host_ip, 0)).await.unwrap();
     let port = echo.local_addr().unwrap().port();
     let echo_task = tokio::spawn(async move {

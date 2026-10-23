@@ -108,7 +108,7 @@ pub async fn connect_hysteria2_tcp_outbound(
         .map_err(RuntimeError::Core)?;
     Ok(zero_transport::TcpRelayStream::new(stream))
 }
-pub use auth::Hysteria2AuthenticatedConnection;
+pub use auth::{authenticate_http3_request, Hysteria2AuthenticatedConnection};
 
 #[cfg(test)]
 #[path = "transport/tests/http3.rs"]

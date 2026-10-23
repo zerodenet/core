@@ -5,6 +5,8 @@ use std::task::{Context, Poll};
 use tokio::io::{AsyncRead, AsyncWrite, ReadBuf};
 
 use crate::VLESS_VERSION;
+mod confirmation;
+use confirmation::Confirmation;
 
 enum VlessResponseState {
     Version,
@@ -16,6 +18,7 @@ enum VlessResponseState {
 pub struct DeferredVlessResponseStream<S> {
     inner: S,
     state: VlessResponseState,
+    confirmation: Confirmation,
 }
 
 impl<S> DeferredVlessResponseStream<S> {
@@ -23,7 +26,19 @@ impl<S> DeferredVlessResponseStream<S> {
         Self {
             inner,
             state: VlessResponseState::Version,
+            confirmation: Confirmation::default(),
         }
+    }
+    #[cfg(feature = "reality")]
+    pub(crate) fn with_connect_observer(
+        mut self,
+        session: Option<zero_core::component::SessionId>,
+        observer: Option<
+            std::sync::Arc<dyn zero_platform_tokio::contract::context::ConnectObserver>,
+        >,
+    ) -> Self {
+        self.confirmation = Confirmation::new(session, observer);
+        self
     }
 }
 
@@ -44,10 +59,10 @@ where
                         Poll::Pending => return Poll::Pending,
                     };
                     if version != VLESS_VERSION {
-                        return Poll::Ready(Err(io::Error::new(
+                        return Poll::Ready(Err(self.confirmation.rejected(io::Error::new(
                             io::ErrorKind::InvalidData,
                             "unsupported VLESS response version",
-                        )));
+                        ))));
                     }
                     self.state = VlessResponseState::AddonLength;
                 }
@@ -77,6 +92,7 @@ where
                     };
                 }
                 VlessResponseState::Ready => {
+                    self.confirmation.confirmed();
                     return Pin::new(&mut self.inner).poll_read(cx, buf);
                 }
             }

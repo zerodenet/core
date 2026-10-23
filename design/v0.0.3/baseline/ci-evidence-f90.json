@@ -1,0 +1,129 @@
+{
+  "head": "f90f012689dce16cdbe4fa7616492b8fa8e5cc9e",
+  "base": "2eedc2b8d8e2b0e16dffe32d3f83d2f0f2dbcc8a",
+  "merge_ref": "2739fda9a06f6285af317f3d5dd6e6e1f5427c5d",
+  "ci": {
+    "url": "https://github.com/zerodenet/core/actions/runs/39277867335",
+    "conclusion": "failure",
+    "test_summary": [
+      2634,
+      1,
+      159
+    ],
+    "jobs": [
+      {
+        "id": 118146628120,
+        "name": "Select CI checks",
+        "conclusion": "success",
+        "skipped_steps": []
+      },
+      {
+        "id": 118146891380,
+        "name": "Static checks (fmt + clippy)",
+        "conclusion": "success",
+        "skipped_steps": []
+      },
+      {
+        "id": 118148849186,
+        "name": "TUN platform check (macos-14)",
+        "conclusion": "success",
+        "skipped_steps": []
+      },
+      {
+        "id": 118148849205,
+        "name": "TUN platform check (windows-2022)",
+        "conclusion": "success",
+        "skipped_steps": []
+      },
+      {
+        "id": 118148849337,
+        "name": "Proxy feature compatibility",
+        "conclusion": "success",
+        "skipped_steps": []
+      },
+      {
+        "id": 118148849405,
+        "name": "Check & Test (Linux)",
+        "conclusion": "failure",
+        "skipped_steps": [
+          "Check representative minimal feature surfaces",
+          "Post Run Swatinem/rust-cache@v2"
+        ]
+      },
+      {
+        "id": 118148849445,
+        "name": "TUN platform check (ubuntu-22.04)",
+        "conclusion": "success",
+        "skipped_steps": []
+      },
+      {
+        "id": 118148849474,
+        "name": "Build Linux musl compatibility artifact",
+        "conclusion": "success",
+        "skipped_steps": []
+      },
+      {
+        "id": 118152671675,
+        "name": "CI result",
+        "conclusion": "failure",
+        "skipped_steps": []
+      },
+      {
+        "id": 118153615213,
+        "name": "Optional surface compatibility",
+        "conclusion": "skipped",
+        "skipped_steps": []
+      }
+    ],
+    "failure_excerpt": "---- hysteria::tests::authentication_gates_native_streams_and_negotiates_bandwidth stdout ----\n\nthread 'hysteria::tests::authentication_gates_native_streams_and_negotiates_bandwidth' (22599) panicked at crates/transport/src/../tests/hysteria/mod.rs:105:6:\ncalled `Result::unwrap()` on an `Err` value: Elapsed(())\nnote: run with `RUST_BACKTRACE=1` environment variable to display a backtrace\n\n\nfailures:\n    hysteria::tests::authentication_gates_native_streams_and_negotiates_bandwidth\n\ntest result: FAILED. 143 passed; 1 failed; 1 ignored; 0 measured; 0 filtered out; finished in 10.44s\n\n",
+    "interpretation": "One existing Hysteria authentication test hit its 10-second outer deadline. Root cause remains unconfirmed; runtime source was unchanged by the baseline commit. Do not describe this CI run as green."
+  },
+  "tun": {
+    "url": "https://github.com/zerodenet/core/actions/runs/39277867303",
+    "conclusion": "success",
+    "jobs": [
+      {
+        "id": 118146627919,
+        "name": "Select TUN checks",
+        "conclusion": "success",
+        "skipped_steps": []
+      },
+      {
+        "id": 118146668969,
+        "name": "hosted-linux",
+        "conclusion": "success",
+        "skipped_steps": [
+          "Run privileged TUN smoke test"
+        ]
+      },
+      {
+        "id": 118146669027,
+        "name": "hosted-macos",
+        "conclusion": "success",
+        "skipped_steps": [
+          "Run privileged TUN smoke test",
+          "Run offline dual-stack privileged TUN E2E"
+        ]
+      },
+      {
+        "id": 118146669067,
+        "name": "hosted-windows",
+        "conclusion": "success",
+        "skipped_steps": [
+          "Run privileged TUN smoke test"
+        ]
+      },
+      {
+        "id": 118155605570,
+        "name": "TUN E2E result",
+        "conclusion": "success",
+        "skipped_steps": []
+      }
+    ],
+    "windows_route_switch": [
+      "2026-10-19T15:51:08.5572781Z ZERO_TUN_ROUTE_RECONCILE_RESULT={\"executed\":false,\"reason\":\"no suitable alternate connected interface with a lower metric and no default route is available\",\"scenario\":\"windows-route-switch\",\"status\":\"skipped\"}\r",
+      "2026-10-19T15:51:11.3995758Z ##[warning]Windows route-switch scenario SKIPPED; no network-switch coverage: no suitable alternate connected interface with a lower metric and no default route is available\r"
+    ],
+    "scope": "Hosted runners; not the user's Mac or physical client acceptance. Skipped smoke and route-switch fixtures are not qualified."
+  }
+}

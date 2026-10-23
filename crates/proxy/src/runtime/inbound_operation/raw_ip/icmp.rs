@@ -14,8 +14,10 @@ use zero_platform_tokio::{EgressInterface, IcmpSocket};
 use zero_stack::packet;
 
 use crate::runtime::route_runtime::InboundRouteRuntimeFactory;
+mod probe;
+use probe::probe;
 
-const MAX_ECHO_PROBES: usize = 64;
+pub(super) const MAX_ECHO_PROBES: usize = 64;
 const ECHO_TIMEOUT: Duration = Duration::from_secs(3);
 static NEXT_PROBE_ID: AtomicU16 = AtomicU16::new(1);
 
@@ -24,6 +26,8 @@ pub(crate) struct IcmpEchoRelay {
     route: InboundRouteRuntimeFactory,
     slots: Arc<Semaphore>,
     shutdown: watch::Receiver<bool>,
+    tasks: Option<super::tasks::RetainedTasks<()>>,
+    native: Option<crate::component::instance::HostIcmpProbeGrant>,
 }
 
 impl IcmpEchoRelay {
@@ -41,7 +45,22 @@ impl IcmpEchoRelay {
             route,
             slots: Arc::new(Semaphore::new(MAX_ECHO_PROBES)),
             shutdown,
+            tasks: None,
+            native: None,
         }
+    }
+
+    pub(super) fn new_owned(
+        responses: zero_stack::packet_output::PacketSender,
+        route: InboundRouteRuntimeFactory,
+        shutdown: watch::Receiver<bool>,
+        tasks: super::tasks::RetainedTasks<()>,
+        native: Option<crate::component::instance::HostIcmpProbeGrant>,
+    ) -> Self {
+        let mut relay = Self::new(responses, route, shutdown);
+        relay.tasks = Some(tasks);
+        relay.native = native;
+        relay
     }
 
     /// Returns true when the packet was an echo request, including requests
@@ -66,10 +85,15 @@ impl IcmpEchoRelay {
         let egress = self.route.icmp_egress(request.destination);
         let responses = self.responses.clone();
         let mut shutdown = self.shutdown.clone();
-        tokio::spawn(async move {
+        let owned = self.tasks.is_some();
+        let native = self.native.clone();
+        let probe = async move {
             let _permit = permit;
             let result = tokio::select! {
-                result = probe(&packet, mtu, egress.as_ref()) => result,
+                result = async {
+                    if owned { probe::owned(&packet, mtu, egress.as_ref(), native).await }
+                    else { probe(&packet, mtu, egress.as_ref()).await }
+                } => result,
                 _ = shutdown.changed() => return,
             };
             match result {
@@ -82,52 +106,25 @@ impl IcmpEchoRelay {
                     reject(&responses, &packet, mtu);
                 }
             }
-        });
-        true
-    }
-}
-
-async fn probe(
-    packet: &[u8],
-    mtu: u16,
-    egress: Option<&EgressInterface>,
-) -> std::io::Result<Option<Vec<u8>>> {
-    let Some(request) = packet::parse_icmp_echo_request(packet) else {
-        return Ok(None);
-    };
-    let bind = match request.destination {
-        IpAddr::V4(_) => IpAddr::V4(Ipv4Addr::UNSPECIFIED),
-        IpAddr::V6(_) => IpAddr::V6(Ipv6Addr::UNSPECIFIED),
-    };
-    let socket = IcmpSocket::bind(bind, egress)?;
-    let local = socket.connect(request.destination).await?;
-    let probe_id = NEXT_PROBE_ID.fetch_add(1, Ordering::Relaxed);
-    let Some(message) = packet::build_icmp_echo_probe(&request, probe_id, local) else {
-        return Ok(None);
-    };
-    socket.send(&message).await?;
-    let reply_id = socket.reply_identifier(probe_id)?;
-    let deadline = tokio::time::Instant::now() + ECHO_TIMEOUT;
-    let mut buffer = vec![0_u8; usize::from(mtu).max(1_280)];
-    loop {
-        let received = tokio::time::timeout_at(deadline, socket.recv_from(&mut buffer)).await;
-        let (size, source) = match received {
-            Ok(Ok(value)) => value,
-            Ok(Err(error)) => return Err(error),
-            Err(_) => return Ok(None),
         };
-        if source != request.destination {
-            continue;
+        if let Some(owner) = &self.tasks {
+            let Some(mut tasks) = owner.try_lock() else {
+                return true;
+            };
+            while let Some(joined) = tasks.try_join_next() {
+                if let Err(error) = joined {
+                    let cancelled = error.is_cancelled();
+                    owner.remember(error);
+                    if !cancelled {
+                        return true;
+                    }
+                }
+            }
+            let _ = tasks.spawn(probe);
+        } else {
+            tokio::spawn(probe); // Ordinary TUN retains its existing execution path.
         }
-        if let Some(reply) = packet::build_icmp_echo_reply(
-            &request,
-            reply_id,
-            &buffer[..size],
-            local,
-            usize::from(mtu),
-        ) {
-            return Ok(Some(reply));
-        }
+        true
     }
 }
 

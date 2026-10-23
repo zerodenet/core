@@ -13,12 +13,29 @@ use crate::runtime::passive_relay_health::classify_outbound_establishment_failur
 pub(crate) async fn dispatch_tcp(
     runtime: &TcpIngressRuntime,
     session: &mut Session,
+    admitted: Option<crate::component::business_demand::AdmittedTcpDemand>,
 ) -> Result<TcpRouteResult, EngineError> {
     let trace = runtime.route_trace(session).await;
     let action = trace.decision;
     let (resolved, passive_relay_selections) = runtime.resolve_outbound(&action, session)?;
+    let business_admitted = admitted.is_some();
+    let services = match admitted {
+        Some(demand) => runtime
+            .runtime_services()
+            .with_admitted_business_identity(session, demand)?,
+        None => runtime.runtime_services(),
+    };
+    // Existing multiplex/control callers without an actual B admission retain
+    // their previous path; an accepted primary is not borrowed as a MUX user.
+    let services = if business_admitted {
+        services.with_accepted_caller(runtime.accepted_caller())?
+    } else {
+        services
+    };
+    #[cfg(feature = "raw-ip-runtime")]
+    let services = services.with_caller_native(runtime.caller_native())?;
     let outbound = match super::dispatch_tcp_outbound(
-        runtime.runtime_services(),
+        services,
         session,
         resolved,
         trace.route_mode,

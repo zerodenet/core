@@ -18,6 +18,56 @@ pub(crate) struct SharedIngressRuntimeServices {
 }
 
 impl SharedIngressRuntimeServices {
+    pub(super) fn config_handle(&self) -> std::sync::Arc<zero_config::RuntimeConfig> {
+        self.tcp_services.snapshot().config().clone()
+    }
+
+    pub(super) fn publish_inbound_terminal(
+        &self,
+        tag: &str,
+        terminal: &crate::runtime::inbound_owners::InboundTerminal,
+    ) {
+        if let Some(joined) = terminal.client_failure() {
+            tracing::debug!(inbound_tag = tag, task_id = joined.id().0,
+                task_class = ?joined.class(), error = ?joined.result().err(),
+                "accepted client rejection retained after inbound closure");
+        }
+        let Some(failure) = terminal.failure() else {
+            return;
+        };
+        for source in terminal.native_bound_failures() {
+            tracing::error!(inbound_tag = tag, component = terminal.identity().component.0,
+                generation = terminal.identity().generation.0, error = ?source,
+                reason = "inbound_native_close_fault_physically_closed",
+                "supervisor retained original native close failure after confirmed inbound closure");
+        }
+        for task in terminal.task_failures() {
+            tracing::error!(inbound_tag = tag, component = terminal.identity().component.0,
+                generation = terminal.identity().generation.0, task_id = task.id.0,
+                task_class = ?task.class, error = %task.source, reason = "inbound_fault_physically_closed",
+                "supervisor retained original failed inbound task after physical closure");
+        }
+        for binding in self.tcp_services.config().endpoint_bindings() {
+            if binding.inbound_tags.iter().any(|inbound| inbound == tag) {
+                self.tcp_services.engine().record_endpoint_runtime_error(
+                    &binding.endpoint_id,
+                    &failure.to_string(),
+                    true,
+                );
+            }
+        }
+        tracing::error!(inbound_tag = tag, component = terminal.identity().component.0,
+            joined_tasks = terminal.joined_tasks(), closed_io_receipts = terminal.closed_io_receipts(), error = %failure,
+            reason = "inbound_fault_physically_closed", "inbound fault handed to supervisor after confirmed shutdown");
+    }
+    pub(super) fn for_inbound(mut self, tag: String) -> Self {
+        self.tcp_services = self.tcp_services.for_inbound(tag);
+        #[cfg(feature = "udp-runtime")]
+        {
+            self.udp_runtime = UdpIngressRuntime::new(self.tcp_services.clone());
+        }
+        self
+    }
     pub(super) fn endpoint_admission(&self) -> zero_engine::EndpointAdmission<'_> {
         zero_engine::EndpointAdmission::from_snapshot(self.tcp_services.snapshot())
     }

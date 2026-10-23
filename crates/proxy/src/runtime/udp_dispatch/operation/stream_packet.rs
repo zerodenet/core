@@ -79,7 +79,7 @@ pub(crate) enum PreparedManagedStreamPacketOperation<'op, T> {
     },
     LazyRelayFinalHop {
         plan: ManagedStreamPacketBridgePlan<T>,
-        carrier: LazyTcpRelayCarrier<'op>,
+        carrier: Box<LazyTcpRelayCarrier<'op>>,
     },
 }
 
@@ -152,7 +152,7 @@ where
                     services,
                     &plan.tag,
                     session,
-                    carrier,
+                    *carrier,
                     (&plan.server, plan.port),
                     plan.resume,
                     payload,

@@ -1,8 +1,11 @@
 //! TCP listener plus bounded, independently routed UDP peer associations.
 use std::{collections::HashMap, future::Future, net::SocketAddr, pin::Pin, sync::Arc};
-use tokio::{net::UdpSocket, sync::mpsc, task::JoinSet};
+use tokio::{net::UdpSocket, sync::mpsc};
 use zero_core::InboundDatagramUdpRelay;
 use zero_engine::EngineError;
+mod peers;
+#[cfg(test)]
+mod tests;
 
 use super::{
     InboundConnectionContext, PreparedInboundListenerOperation, TcpInboundListenerOperation,
@@ -12,6 +15,7 @@ use crate::{protocol_registry::BoundInbound, runtime::route_runtime::InboundList
 pub(crate) struct TcpAndPeerDatagramInboundListenerOperation<R, D, F> {
     pub(crate) tcp: TcpInboundListenerOperation<R, D>,
     pub(crate) relay_factory: F,
+    pub(crate) peers: Arc<crate::runtime::inbound_owners::InboundPeerTasks>,
 }
 
 impl<R, D, F, Fut, U> PreparedInboundListenerOperation
@@ -42,57 +46,98 @@ where
             let Self {
                 tcp: tcp_operation,
                 relay_factory,
+                peers,
             } = *self;
-            let udp_runtime = runtime.udp_runtime();
+            let host = runtime
+                .host_control()
+                .cloned()
+                .ok_or_else(|| std::io::Error::other("peer listener owner was not installed"))?;
+            let mut ready_branches = runtime.split_readiness(2)?.into_iter();
+            let tcp_runtime = ready_branches.next().expect("TCP readiness branch");
+            let udp_runtime_state = ready_branches.next().expect("UDP readiness branch");
+            let udp_runtime = udp_runtime_state.udp_runtime();
+            let ingress = udp_runtime.peer_ingress()?;
             let inbound_tag = runtime.inbound_tag().to_owned();
-            let mut udp_shutdown = shutdown.clone();
-            let tcp_loop =
-                Box::new(tcp_operation).execute(runtime, BoundInbound::Tcp(tcp), shutdown);
-            let udp_loop = async move {
-                let mut peers: HashMap<SocketAddr, mpsc::Sender<Vec<u8>>> = HashMap::new();
-                let mut tasks = JoinSet::new();
-                let mut buffer = vec![0; 65535];
-                loop {
-                    tokio::select! {
-                        changed = udp_shutdown.changed() => {
-                            if changed.is_err() || *udp_shutdown.borrow() { break; }
+            let tcp_loop = Box::new(tcp_operation).execute(
+                tcp_runtime,
+                BoundInbound::Tcp(tcp),
+                shutdown.clone(),
+            );
+            let peer_socket = socket.clone();
+            let peer_resources = peers.clone();
+            let udp_loop = crate::runtime::inbound_owners::InboundReady::poll_optional(
+                udp_runtime_state.readiness(),
+                peers::run_bound(
+                    socket,
+                    shutdown,
+                    host.clone(),
+                    peers,
+                    move |peer, packets, binding| {
+                        let relay = (relay_factory)(peer, packets);
+                        let context = peer_resources.resource_context(binding, ingress);
+                        let (slot, driver) =
+                        crate::runtime::udp_socket::endpoint::peer::DirectPeerDriverSlot::channel();
+                        let runtime = udp_runtime
+                            .clone()
+                            .with_peer_resources(context)
+                            .with_direct_peer_driver(slot);
+                        let socket = peer_socket.clone();
+                        let tag = inbound_tag.clone();
+                        async move {
+                            crate::runtime::udp_socket::endpoint::peer::job::run_peer_with_driver(
+                                crate::runtime::datagram_udp::run_protocol_datagram_udp_relay(
+                                    runtime, socket, relay, &tag, true,
+                                ),
+                                driver,
+                            )
+                            .await
                         }
-                        recv = socket.recv_from(&mut buffer) => {
-                            let (size, peer) = recv.map_err(EngineError::Io)?;
-                            peers.retain(|_, sender| !sender.is_closed());
-                            if !peers.contains_key(&peer) {
-                                if peers.len() >= 4096 { continue; }
-                                let (sender, packets) = mpsc::channel(32);
-                                let relay = (relay_factory)(peer, packets);
-                                let runtime = udp_runtime.clone();
-                                let socket = socket.clone();
-                                let tag = inbound_tag.clone();
-                                tasks.spawn(async move {
-                                    crate::runtime::datagram_udp::run_protocol_datagram_udp_relay(
-                                        runtime, socket, relay, &tag, true,
-                                    ).await
-                                });
-                                peers.insert(peer, sender);
-                            }
-                            // Bound memory and drop excess packets instead of blocking other peers.
-                            let _ = peers[&peer].try_send(buffer[..size].to_vec());
-                        }
-                        Some(result) = tasks.join_next() => {
-                            match result {
-                                Ok(Ok(())) => {},
-                                Ok(Err(error)) => tracing::debug!(%error, "UDP peer association ended"),
-                                Err(error) => tracing::warn!(%error, "UDP peer association task failed"),
-                            }
-                            peers.retain(|_, sender| !sender.is_closed());
-                        }
-                    }
-                }
-                tasks.shutdown().await;
-                Ok::<(), EngineError>(())
-            };
-            // Normal shutdown waits for peer tasks to release the listener socket.
-            tokio::try_join!(tcp_loop, udp_loop)?;
-            Ok(())
+                    },
+                ),
+            );
+            run_both(tcp_loop, udp_loop, host).await
         })
+    }
+}
+
+async fn run_both(
+    tcp: impl Future<Output = Result<(), EngineError>>,
+    udp: impl Future<Output = Result<(), EngineError>>,
+    host: crate::runtime::inbound_owners::InboundTaskAccess,
+) -> Result<(), EngineError> {
+    let udp_host = host.clone();
+    let (tcp, udp) = tokio::join!(
+        async {
+            let result = tcp.await;
+            host.request_stop();
+            result
+        },
+        async {
+            let result = udp.await;
+            udp_host.request_stop();
+            result
+        },
+    );
+    // Both real loops have completed their cleanup before returning a failure.
+    // Retain the unexpected peer failure source even when TCP also failed.
+    match (tcp, udp) {
+        (Ok(()), Ok(())) => Ok(()),
+        (Err(error), Ok(())) | (Ok(()), Err(error)) => Err(error),
+        (Err(tcp), Err(udp)) => Err(std::io::Error::other(ListenerFailures { tcp, udp }).into()),
+    }
+}
+#[derive(Debug)]
+struct ListenerFailures {
+    tcp: EngineError,
+    udp: EngineError,
+}
+impl std::fmt::Display for ListenerFailures {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "TCP failed: {}; UDP failed: {}", self.tcp, self.udp)
+    }
+}
+impl std::error::Error for ListenerFailures {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        Some(&self.udp)
     }
 }

@@ -19,6 +19,17 @@ pub struct TrojanInboundListenerRequest {
     mux_response_backlog: crate::validation::MuxResponseBacklogPolicy,
 }
 
+/// Ordinary TCP is handed to the host without a protocol-created Session.
+/// UDP associations and Trojan Mux retain their existing protocol executors.
+pub enum TrojanInboundAcceptedRoute {
+    Tcp {
+        destination: zero_core::request::Destination,
+        auth: zero_core::SessionAuth,
+        stream: Box<TcpRelayStream>,
+    },
+    Legacy(Box<crate::mux::TrojanInboundAcceptedStream<TcpRelayStream>>),
+}
+
 impl TrojanInboundListenerRequest {
     pub const ERROR_PROTOCOL_NAME: &'static str = "trojan";
     pub const UDP_PROTOCOL: &'static str = "trojan_udp";
@@ -128,7 +139,45 @@ impl TrojanInboundListenerRequest {
         self,
         socket: TokioSocket,
     ) -> Result<crate::mux::TrojanInboundAcceptedStream<TcpRelayStream>, RuntimeError> {
-        let stream = zero_transport::inbound_stack::accept_tls_inbound_stream_stack(
+        let stream = self.accept_stream(socket).await?;
+        self.profile
+            .accept_client_owned(
+                crate::inbound::TrojanInbound,
+                stream,
+                self.mux_response_backlog,
+            )
+            .await
+            .map_err(RuntimeError::from)
+    }
+
+    pub async fn accept_standard_route(
+        self,
+        socket: TokioSocket,
+    ) -> Result<TrojanInboundAcceptedRoute, RuntimeError> {
+        let mut stream = self.accept_stream(socket).await?;
+        let facts = self
+            .profile
+            .accept_request_facts(crate::inbound::TrojanInbound, &mut stream)
+            .await?;
+        if facts.network == zero_core::Network::Tcp && !facts.is_mux() {
+            Ok(TrojanInboundAcceptedRoute::Tcp {
+                destination: facts.destination,
+                auth: facts.auth,
+                stream: Box::new(stream),
+            })
+        } else {
+            Ok(TrojanInboundAcceptedRoute::Legacy(Box::new(
+                crate::mux::TrojanInboundAcceptedStream::from_session_stream(
+                    facts.into_legacy_session(),
+                    stream,
+                    self.mux_response_backlog,
+                ),
+            )))
+        }
+    }
+
+    async fn accept_stream(&self, socket: TokioSocket) -> Result<TcpRelayStream, RuntimeError> {
+        zero_transport::inbound_stack::accept_tls_inbound_stream_stack(
             socket,
             &self.tls_acceptor,
             InboundStreamStack {
@@ -138,14 +187,6 @@ impl TrojanInboundListenerRequest {
             },
             "trojan: ws and grpc are mutually exclusive",
         )
-        .await?;
-        self.profile
-            .accept_client_owned(
-                crate::inbound::TrojanInbound,
-                stream,
-                self.mux_response_backlog,
-            )
-            .await
-            .map_err(RuntimeError::from)
+        .await
     }
 }

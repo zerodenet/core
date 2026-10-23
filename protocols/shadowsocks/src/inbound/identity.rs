@@ -7,7 +7,7 @@ impl ShadowsocksInbound {
         cipher: crate::shared::CipherKind,
         identity_password: &[u8],
         users: &ShadowsocksAuthorizedUsers,
-    ) -> Result<(ShadowsocksAccept, usize), Error> {
+    ) -> Result<(ShadowsocksRequest, usize), Error> {
         match self
             .accept_request_2022_eih_probe(stream, cipher, identity_password, users)
             .await
@@ -27,7 +27,7 @@ impl ShadowsocksInbound {
         cipher: crate::shared::CipherKind,
         identity_password: &[u8],
         users: &ShadowsocksAuthorizedUsers,
-    ) -> Result<(ShadowsocksAccept, usize), Error> {
+    ) -> Result<(ShadowsocksRequest, usize), Error> {
         use crate::shared::{
             decrypt_tcp_2022_identity_header, decrypt_tcp_2022_single_chunk, derive_session_key,
             parse_2022_request_fixed_header, parse_2022_request_var_header,
@@ -76,17 +76,10 @@ impl ShadowsocksInbound {
         let var_plain =
             decrypt_tcp_2022_single_chunk(cipher, &key, &mut nonce, &enc_var[..var_size])?;
         let (target, port, initial_payload) = parse_2022_request_var_header(&var_plain)?;
-        let session = Session::new(
-            0,
-            target,
-            port,
-            Network::Tcp,
-            ProtocolType::new("shadowsocks"),
-        );
         Ok((
-            ShadowsocksAccept {
+            ShadowsocksRequest {
                 legacy: None,
-                session,
+                destination: zero_core::request::Destination::new(target, port),
                 remaining_payload: initial_payload,
                 session_key: key,
                 cipher,

@@ -4,7 +4,6 @@ use tokio::time::Instant as TokioInstant;
 #[cfg(feature = "upstream-association-runtime")]
 use zero_engine::EngineError;
 
-use crate::runtime::udp_flow::packet_path::ChainTask;
 #[cfg(feature = "upstream-association-runtime")]
 use crate::runtime::udp_flow::registered::ClosedRegisteredUpstreamAssociation;
 #[cfg(feature = "upstream-association-runtime")]
@@ -12,12 +11,15 @@ use crate::runtime::udp_flow::registered::RegisteredUpstreamAssociationView;
 use crate::runtime::udp_flow::registered::{RegisteredUdpHandlers, RegisteredUdpState};
 #[cfg(feature = "upstream-association-runtime")]
 use crate::runtime::udp_flow::response::UpstreamUdpResponse;
+use crate::runtime::udp_flow::response_join::{ResponseSetLease, ResponseSetOwner};
 
 use super::UdpFlowState;
 
 #[cfg(feature = "upstream-association-runtime")]
 pub(crate) struct UpstreamUdpPoll<'a> {
     registered: &'a RegisteredUdpState,
+    retired: std::sync::Arc<crate::component::datagram_retirement::RetiredDatagrams>,
+    cleanup_budget: std::time::Duration,
 }
 
 #[cfg(feature = "upstream-association-runtime")]
@@ -26,41 +28,65 @@ impl UpstreamUdpPoll<'_> {
         &self,
         buf: &mut [u8],
     ) -> Result<UpstreamUdpResponse, EngineError> {
-        self.registered.recv_upstream_response(buf).await
+        loop {
+            tokio::select! { biased;
+                // Poll retirement first on every rearm. Sustained ready RX
+                // cannot starve actual close progress; no extra task is spawned.
+                retired = self.retired.progress_retired(TokioInstant::now() + self.cleanup_budget) => {
+                    match retired {
+                        Ok(report) => {
+                            tracing::debug!(closed = report.closed_io.len(), unfinished = report.unfinished.len(), "advanced retired Datagram controllers");
+                        }
+                        Err(error) => tracing::warn!(error = %error, "retired Datagram close remains owned"),
+                    }
+                }
+                response = self.registered.recv_upstream_response(buf) => return response,
+            }
+        }
     }
 }
 
 impl UdpFlowState {
     pub(crate) fn new(handlers: RegisteredUdpHandlers) -> Self {
+        let (response_owner, chain_tasks) = ResponseSetOwner::new(JoinSet::new());
         Self {
             registered: RegisteredUdpState::new(handlers),
             packet_path: crate::runtime::udp_flow::packet_path_chain::PacketPathManager::new(),
-            chain_tasks: JoinSet::new(),
+            chain_tasks,
+            response_owner,
         }
     }
 
+    pub(crate) fn response_owner(&self) -> std::sync::Arc<ResponseSetOwner> {
+        self.response_owner.clone()
+    }
+
     #[cfg(feature = "udp-runtime")]
-    pub(crate) fn chain_tasks(&mut self) -> &mut JoinSet<ChainTask> {
+    pub(crate) fn chain_tasks(&mut self) -> &mut ResponseSetLease {
         #[cfg(feature = "managed-stream-runtime")]
         self.registered
-            .poll_logical_responses(&mut self.chain_tasks);
+            .poll_logical_responses(&mut self.chain_tasks, self.response_owner.evidence());
         &mut self.chain_tasks
     }
 
     #[cfg(feature = "upstream-association-runtime")]
     pub(crate) fn poll_refs(
         &mut self,
+        retired: std::sync::Arc<crate::component::datagram_retirement::RetiredDatagrams>,
+        cleanup_budget: std::time::Duration,
     ) -> (
         UpstreamUdpPoll<'_>,
         Option<TokioInstant>,
-        &mut JoinSet<ChainTask>,
+        &mut ResponseSetLease,
     ) {
         #[cfg(feature = "managed-stream-runtime")]
         self.registered
-            .poll_logical_responses(&mut self.chain_tasks);
+            .poll_logical_responses(&mut self.chain_tasks, self.response_owner.evidence());
         (
             UpstreamUdpPoll {
                 registered: &self.registered,
+                retired,
+                cleanup_budget,
             },
             self.registered.upstream_idle_deadline(),
             &mut self.chain_tasks,

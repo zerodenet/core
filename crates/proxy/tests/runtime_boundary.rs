@@ -133,12 +133,15 @@ fn assert_sources_exclude(root: &Path, forbidden: &[&str]) {
     }
 }
 
+fn is_test_source(path: &Path) -> bool {
+    path.components()
+        .any(|component| component.as_os_str() == "tests")
+        || path.file_name().is_some_and(|name| name == "tests.rs")
+}
+
 fn assert_non_test_sources_exclude(root: &Path, forbidden: &[&str]) {
     for path in rust_sources(root) {
-        if path
-            .components()
-            .any(|component| component.as_os_str() == std::ffi::OsStr::new("tests"))
-        {
+        if is_test_source(&path) {
             continue;
         }
         let source = read(&path);
@@ -174,7 +177,7 @@ fn adapters_prepare_protocol_parts_but_do_not_own_runtime_execution() {
 
 #[test]
 fn adapters_do_not_recover_engine_leaves_or_construct_runtime_facts() {
-    assert_sources_exclude(
+    assert_non_test_sources_exclude(
         &proxy_src().join("adapters"),
         &[
             "ResolvedLeafOutbound",
@@ -410,10 +413,7 @@ fn concrete_protocol_feature_gates_exist_only_in_adapters_and_registration() {
     let protocol_feature_tokens = adapter_feature_tokens();
     let proxy = proxy_src();
     for path in rust_sources(&proxy) {
-        if path
-            .components()
-            .any(|component| component.as_os_str() == std::ffi::OsStr::new("tests"))
-        {
+        if is_test_source(&path) {
             continue;
         }
         let source = read(&path);
@@ -578,7 +578,7 @@ fn protocol_identity_is_open_and_engine_does_not_enumerate_protocols() {
     for protocol in adapter_feature_names() {
         assert!(!protocol_identity.contains(protocol.as_str()));
     }
-    assert_sources_exclude(
+    assert_non_test_sources_exclude(
         &workspace_root().join("crates/engine/src"),
         &["ProtocolType::"],
     );
@@ -667,12 +667,12 @@ fn tcp_prepared_operations_are_gated_by_tcp_capabilities_not_udp_runtime() {
 
 #[test]
 fn proxy_runtime_does_not_retain_engine_leaf_types() {
-    assert_sources_exclude(&proxy_src().join("runtime"), &["ResolvedLeafOutbound"]);
+    assert_non_test_sources_exclude(&proxy_src().join("runtime"), &["ResolvedLeafOutbound"]);
 }
 
 #[test]
 fn udp_runtime_dispatch_does_not_retain_engine_leaf_types() {
-    assert_sources_exclude(
+    assert_non_test_sources_exclude(
         &proxy_src().join("runtime/udp_dispatch"),
         &["ResolvedLeafOutbound"],
     );
@@ -747,7 +747,7 @@ fn listener_and_task_lifecycle_are_runtime_owned() {
     let inbound_operation = read_module(&proxy_src().join("runtime/inbound_operation.rs"));
     let listener_loop = read(&proxy_src().join("runtime/listener_loop.rs"));
     let inventory_inbound = read(&proxy_src().join("inventory/inbound.rs"));
-    let runtime_listeners = read(&proxy_src().join("runtime/listeners/inbound.rs"));
+    let runtime_listeners = read_module(&proxy_src().join("runtime/listeners/inbound.rs"));
     assert!(inbound_operation.contains("PreparedInboundListenerOperation"));
     assert!(inbound_operation.contains("InboundConnectionContext"));
     assert!(inbound_operation.contains("JoinSet") || listener_loop.contains("JoinSet"));
@@ -1552,7 +1552,7 @@ fn heavy_protocol_transport_files_do_not_expose_public_config_constructors() {
         ),
         (
             "protocols/vmess/src/transport/inbound.rs",
-            "pub(in crate::transport) fn from_profile_refs",
+            "fn prepare_options",
         ),
         (
             "protocols/vmess/src/transport/leaf.rs",
@@ -1724,20 +1724,57 @@ fn hysteria2_protocol_inbound_surface_stops_at_authenticated_quic_connections() 
 #[test]
 fn shadowsocks_adapter_accepts_protocol_stream_before_runtime_handoff() {
     let listener = read(&proxy_src().join("adapters/shadowsocks/inbound.rs"));
+    let accepted = listener.find(".accept_stream_facts(").expect(
+        "SS adapter must obtain protocol-owned authenticated facts and the original cipher stream",
+    );
+    let handed = listener.find(".serve_standard_stream(").expect(
+        "SS adapter must hand business identity and execution to the standard host ingress",
+    );
     assert!(
-        listener.contains(".accept_stream("),
-        "adapters/shadowsocks/inbound.rs should accept a protocol-owned stream surface before runtime handoff"
+        accepted < handed,
+        "SS protocol acceptance must precede host handoff"
+    );
+    assert!(
+        listener.contains("component::inbound::TcpReply::new"),
+        "SS wire response ownership must stay with the protocol"
     );
     assert!(
         !listener.contains("accept_and_dispatch_stream"),
         "adapters/shadowsocks/inbound.rs must not use legacy accept-and-dispatch helpers"
     );
+    for forbidden in ["Session::new", "NoClientResponseStreamProtocol"] {
+        assert!(
+            !listener.contains(forbidden),
+            "SS adapter must hand actual facts to host identity admission, not `{forbidden}`"
+        );
+    }
 
-    let inbound = read(&workspace_root().join("protocols/shadowsocks/src/inbound.rs"));
+    let inbound = read_module(&workspace_root().join("protocols/shadowsocks/src/inbound.rs"));
+    assert!(
+        inbound.contains("pub async fn accept_stream_facts"),
+        "authenticated SS facts and cipher state must originate in the protocol"
+    );
     assert!(
         !inbound.contains("accept_and_dispatch_stream"),
-        "protocols/shadowsocks/src/inbound.rs must stop at accept_stream instead of owning runtime handoff helpers"
+        "protocols/shadowsocks/src/inbound.rs must stop at accepted facts/stream instead of owning runtime handoff helpers"
     );
+    let standard = read_module(&proxy_src().join("runtime/tcp_ingress/runtime/standard.rs"));
+    for forbidden in [
+        "decrypt_tcp_chunk",
+        "derive_session_key",
+        "parse_target_data",
+        "SS_2022",
+        "ShadowsocksAeadStream",
+    ] {
+        assert!(
+            !listener.contains(forbidden),
+            "SS adapter must not parse wire or own crypto via `{forbidden}`"
+        );
+        assert!(
+            !standard.contains(forbidden),
+            "generic standard ingress must not parse SS wire via `{forbidden}`"
+        );
+    }
 }
 
 #[test]
@@ -1832,21 +1869,28 @@ fn vless_transport_plan_accepts_client_owned_surface_without_callback_wrappers()
 fn socks5_adapter_accepts_protocol_request_before_runtime_handoff() {
     let listener = read(&proxy_src().join("adapters/socks5/inbound/listener.rs"));
     assert!(
-        listener.contains(".accept_command(&mut metered)"),
+        listener.contains(".accept_command_facts(&mut metered)"),
         "adapters/socks5/inbound/listener.rs should accept a protocol-owned request surface before runtime handoff"
     );
     assert!(
-        listener.contains("Socks5Request::Connect"),
+        listener.contains("Socks5Command::Connect"),
         "adapters/socks5/inbound/listener.rs should explicitly branch on accepted SOCKS5 CONNECT requests"
     );
     assert!(
-        listener.contains("Socks5Request::UdpAssociate"),
+        listener.contains("Socks5Command::UdpAssociate"),
         "adapters/socks5/inbound/listener.rs should explicitly branch on accepted SOCKS5 UDP ASSOCIATE requests"
     );
     assert!(
         listener.contains("setup_inbound_udp_association(&mut metered, request)"),
         "adapters/socks5/inbound/listener.rs should keep SOCKS5 UDP associate setup explicit at the adapter/runtime boundary"
     );
+
+    assert!(listener.contains(".serve_standard_stream("));
+    assert!(listener.contains("component::inbound::ConnectReply::new"));
+    assert!(!listener.contains("Session::new"));
+    let standard = read(&proxy_src().join("runtime/tcp_ingress/runtime/standard.rs"));
+    assert!(standard.contains("mint_session_identity()?"));
+    assert!(standard.contains("serve_with_identity("));
 
     let inbound = read(&workspace_root().join("protocols/socks5/src/inbound.rs"));
     assert!(
@@ -2675,7 +2719,7 @@ fn udp_ingress_runtime_collapses_proxy_and_services_for_session_loops() {
     assert!(!inventory_inbound.contains("use crate::runtime::Proxy"));
     assert!(!inventory_inbound.contains("execute(proxy.clone()"));
 
-    let listener_inbound = read(&proxy_src().join("runtime/listeners/inbound.rs"));
+    let listener_inbound = read_module(&proxy_src().join("runtime/listeners/inbound.rs"));
     assert!(listener_inbound.contains("ProtocolInventory"));
     assert!(listener_inbound.contains("InboundListenerRuntimeFactory"));
     assert!(listener_inbound.contains("listeners.spawn("));
@@ -4746,7 +4790,10 @@ fn outbound_execution_state_machines_live_in_runtime_dispatch() {
 fn inventory_runtime_delegates_leaf_claim_logic_to_registry() {
     let runtime = read(&proxy_src().join("inventory/runtime.rs"));
     assert!(runtime.contains("struct ClaimedInventoryLeaf"));
-    assert!(runtime.contains("struct ClaimedRelayChain"));
+    assert!(runtime.contains("mod relay;"));
+    assert!(runtime.contains("pub(crate) use relay::ClaimedRelayChain;"));
+    let relay = read(&proxy_src().join("inventory/runtime/relay.rs"));
+    assert!(relay.contains("struct ClaimedRelayChain"));
     assert!(runtime.contains("fn claim_relay_chain<'a, E, F, G>("));
     assert!(!runtime.contains("enum ClaimedResolvedOutbound"));
     assert!(!runtime.contains("fn claim_tcp_outbound"));

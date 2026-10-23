@@ -1,0 +1,31 @@
+{
+  "inbounds": [
+    {
+      "tag": "mixed-in",
+      "listen": {
+        "address": "127.0.0.1",
+        "port": 7890
+      },
+      "protocol": {
+        "type": "mixed"
+      }
+    }
+  ],
+  "outbounds": [
+    {
+      "tag": "chain",
+      "protocol": {
+        "type": "socks5",
+        "server": "127.0.0.1",
+        "port": 2080
+      }
+    }
+  ],
+  "route": {
+    "rules": [],
+    "final": {
+      "type": "route",
+      "outbound": "chain"
+    }
+  }
+}

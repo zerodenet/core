@@ -1,46 +1,69 @@
 use std::{io, sync::Arc};
 
-use tokio::task::JoinSet;
+use crate::runtime::{
+    inbound_owners::{InboundPeerTasks, InboundTaskAccess},
+    route_runtime::InboundRouteRuntimeFactory,
+    tcp_ingress::NoClientResponseStreamProtocol,
+};
+use crate::transport::ReplayStream;
 use zero_core::{Address, Network, ProtocolType, Session};
 use zero_engine::EngineError;
 use zero_stack::UserTcpStack;
 use zero_traits::{IpAddress, SocketAddress, TcpStack};
 
-use crate::runtime::{
-    route_runtime::InboundRouteRuntimeFactory, tcp_ingress::NoClientResponseStreamProtocol,
-};
-use crate::transport::ReplayStream;
+pub(super) const MAX_CONNECTIONS: usize = 4096;
 
 pub(super) async fn accept(
     tcp: Arc<UserTcpStack>,
     runtime_factory: InboundRouteRuntimeFactory,
+    group: Arc<InboundPeerTasks>,
+    host: InboundTaskAccess,
+    native: super::native_obligations::NativeObligations,
 ) -> Result<(), EngineError> {
-    let mut connections = JoinSet::new();
     loop {
-        tokio::select! {
-            accepted = tcp.accept() => {
-                let Some((stream, source, destination)) = accepted else {
-                    return Err(EngineError::Io(io::Error::new(io::ErrorKind::UnexpectedEof, "raw-IP TCP stack closed")));
-                };
-                if connections.len() >= 4096 { continue; }
-                let source_addr = zero_platform_tokio::socket_address_to_socket_addr(source);
-                let mut session = Session::new(0, socket_address_to_address(destination), destination.port, Network::Tcp, ProtocolType::UNKNOWN);
-                session.inbound_peer_identity = stream.peer_identity();
-                session.transparent_target = true;
-                let runtime = runtime_factory.for_connection(Some(source_addr));
-                connections.spawn(async move {
-                    let stream = ReplayStream::new(stream, Vec::new());
-                    runtime.serve(session, stream, &NoClientResponseStreamProtocol::new()).await
-                });
-            }
-            Some(result) = connections.join_next(), if !connections.is_empty() => {
-                match result {
-                    Ok(Ok(())) => {},
-                    Ok(Err(error)) => tracing::debug!(%error, "raw-IP TCP connection failed"),
-                    Err(error) => tracing::warn!(%error, "raw-IP TCP connection task failed"),
-                }
-            }
+        let Some((stream, source, destination)) = tcp.accept().await else {
+            return Err(EngineError::Io(io::Error::new(
+                io::ErrorKind::UnexpectedEof,
+                "raw-IP TCP stack closed",
+            )));
+        };
+        if group.occupied() >= MAX_CONNECTIONS {
+            continue;
         }
+        let mut native = native
+            .reserve_reclaimed(
+                super::native_obligations::ChildKind::Tcp,
+                tokio::time::Instant::now() + std::time::Duration::from_secs(5),
+            )
+            .await
+            .map_err(std::io::Error::other)?;
+        let source_addr = zero_platform_tokio::socket_address_to_socket_addr(source);
+        // The existing Engine.prepare_session in serve mints the real identity
+        // before dispatch; this preserves its full original admission/auth chain.
+        let mut session = Session::new(
+            0,
+            socket_address_to_address(destination),
+            destination.port,
+            Network::Tcp,
+            ProtocolType::UNKNOWN,
+        );
+        session.inbound_peer_identity = stream.peer_identity();
+        session.transparent_target = true;
+        let runtime = runtime_factory.for_connection(Some(source_addr));
+        group.spawn_bound(&host, move |binding| async move {
+            binding.wait_bound().await.map_err(std::io::Error::other)?;
+            let stop = binding.cancellation();
+            native.bind_caller(binding).map_err(std::io::Error::other)?;
+            let runtime = runtime.with_caller_native(native.registration());
+            let stream = ReplayStream::new(stream, Vec::new());
+            native.enter().map_err(std::io::Error::other)?;
+            let protocol = NoClientResponseStreamProtocol::new();
+            let result = tokio::select! { biased;
+                result = runtime.serve(session, stream, &protocol) => result,
+                _ = stop.cancelled() => Ok(()),
+            };
+            native.consume_business_result(result)
+        })?;
     }
 }
 

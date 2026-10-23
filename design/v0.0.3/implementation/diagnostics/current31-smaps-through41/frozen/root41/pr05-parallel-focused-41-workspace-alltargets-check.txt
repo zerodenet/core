@@ -1,0 +1,1023 @@
+    Checking zero-platform-tokio v0.0.3-dev.202610162206 (/workspace/core/crates/platform/tokio)
+warning: use of deprecated associated function `core::num::<impl u64>::max_value`: replaced by the `MAX` associated constant on this type
+    --> vendor/blake3/src/lib.rs:1817:33
+     |
+1817 |         let max_position = u64::max_value() as i128;
+     |                                 ^^^^^^^^^
+     |
+     = note: `#[warn(deprecated)]` on by default
+
+warning: `blake3` (lib) generated 1 warning
+   Compiling zero-grpc v0.0.3-dev.202610162206 (/workspace/core/crates/grpc)
+   Compiling zero v0.0.3-dev.202610162206 (/workspace/core)
+    Checking zero-transport v0.0.3-dev.202610162206 (/workspace/core/crates/transport)
+    Checking http v0.0.1 (/workspace/core/protocols/http)
+    Checking shadowsocks v1.21.2 (/workspace/core/protocols/shadowsocks)
+    Checking socks5 v0.0.1 (/workspace/core/protocols/socks5)
+    Checking vless v26.3.27 (/workspace/core/protocols/vless)
+    Checking vmess v26.3.27 (/workspace/core/protocols/vmess)
+    Checking trojan v0.10.6 (/workspace/core/protocols/trojan)
+    Checking hysteria2 v2.12.2 (/workspace/core/protocols/hysteria2)
+    Checking mieru v3.33.0 (/workspace/core/protocols/mieru)
+    Checking zero-config v0.0.3-dev.202610162206 (/workspace/core/crates/config)
+    Checking zero-engine v0.0.3-dev.202610162206 (/workspace/core/crates/engine)
+    Checking zero-dns v0.0.3-dev.202610162206 (/workspace/core/crates/dns)
+    Checking zero-connector v0.0.3-dev.202610162206 (/workspace/core/crates/connector)
+    Checking zero-logging v0.0.3-dev.202610162206 (/workspace/core/crates/logging)
+    Checking zero-proxy v0.0.3-dev.202610162206 (/workspace/core/crates/proxy)
+warning: unused import: `native::HostIoEvidence`
+  --> crates/proxy/src/component/instance/resources.rs:12:30
+   |
+12 | pub(in crate::component) use native::HostIoEvidence;
+   |                              ^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = note: `#[warn(unused_imports)]` (part of `#[warn(unused)]`) on by default
+
+    Checking zero-ffi v0.0.3-dev.202610162206 (/workspace/core/crates/ffi)
+warning: struct `HostBoundDatagramResources` is never constructed
+  --> crates/proxy/src/component/bound_datagram.rs:25:19
+   |
+25 | pub(crate) struct HostBoundDatagramResources {
+   |                   ^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: enum `Phase` is never used
+  --> crates/proxy/src/component/bound_datagram.rs:34:6
+   |
+34 | enum Phase {
+   |      ^^^^^
+
+warning: struct `State` is never constructed
+  --> crates/proxy/src/component/bound_datagram.rs:39:8
+   |
+39 | struct State {
+   |        ^^^^^
+
+warning: multiple associated items are never used
+   --> crates/proxy/src/component/bound_datagram.rs:53:19
+    |
+ 52 | impl HostBoundDatagramResources {
+    | ------------------------------- associated items in this implementation
+ 53 |     pub(crate) fn new(
+    |                   ^^^
+...
+ 89 |     fn state(&self) -> MutexGuard<'_, State> {
+    |        ^^^^^
+...
+ 94 |     pub(crate) fn activate(&self, task: TaskId) -> Result<(), ChannelError> {
+    |                   ^^^^^^^^
+...
+115 |     pub(crate) fn authorize(
+    |                   ^^^^^^^^^
+...
+157 |     pub(crate) fn revoke_binding(&self, token: &DatagramBindingId) -> Result<(), ChannelError> {
+    |                   ^^^^^^^^^^^^^^
+...
+172 |     pub(crate) fn fault(&self) -> Option<SharedError> {
+    |                   ^^^^^
+...
+175 |     pub(crate) fn revoke(&self) {
+    |                   ^^^^^^
+...
+179 |     fn ensure_available(&self, state: &State, require_live: bool) -> Result<(), ChannelError> {
+    |        ^^^^^^^^^^^^^^^^
+...
+199 |     fn binding(&self, request: &BoundDatagramRequest) -> Result<Arc<Binding>, ChannelError> {
+    |        ^^^^^^^
+
+warning: function `error` is never used
+   --> crates/proxy/src/component/bound_datagram.rs:217:4
+    |
+217 | fn error(instance: ComponentInstanceId, reason: Reason, message: &'static str) -> ChannelError {
+    |    ^^^^^
+
+warning: struct `Binding` is never constructed
+ --> crates/proxy/src/component/bound_datagram/binding.rs:8:19
+  |
+8 | pub(super) struct Binding {
+  |                   ^^^^^^^
+
+warning: associated items `new`, `revoke`, and `retired` are never used
+  --> crates/proxy/src/component/bound_datagram/binding.rs:16:19
+   |
+15 | impl Binding {
+   | ------------ associated items in this implementation
+16 |     pub(super) fn new(
+   |                   ^^^
+...
+29 |     pub(super) fn revoke(&self) {
+   |                   ^^^^^^
+...
+32 |     pub(super) fn retired(&self) -> bool {
+   |                   ^^^^^^^
+
+warning: methods `collect`, `take_closed_io`, `shutdown_io`, and `native_unconfirmed` are never used
+  --> crates/proxy/src/component/bound_datagram/report.rs:4:19
+   |
+ 3 | impl HostBoundDatagramResources {
+   | ------------------------------- methods in this implementation
+ 4 |     pub(super) fn collect(&self, state: &mut State) {
+   |                   ^^^^^^^
+...
+29 |     pub(crate) fn take_closed_io(&self) -> CloseReport {
+   |                   ^^^^^^^^^^^^^^
+...
+36 |     pub(crate) fn shutdown_io(&self) -> Result<CloseReport, ChannelError> {
+   |                   ^^^^^^^^^^^
+...
+65 |     pub(crate) fn native_unconfirmed(&self) -> bool {
+   |                   ^^^^^^^^^^^^^^^^^^
+
+warning: function `confirmed` is never used
+  --> crates/proxy/src/component/bound_datagram/report.rs:71:4
+   |
+71 | fn confirmed(state: &mut State) -> CloseReport {
+   |    ^^^^^^^^^
+
+warning: field `next_association` is never read
+  --> crates/proxy/src/component/catalog.rs:93:5
+   |
+89 | pub(crate) struct ComponentCatalog {
+   |                   ---------------- field in this struct
+...
+93 |     next_association: AtomicU64,
+   |     ^^^^^^^^^^^^^^^^
+
+warning: method `allocate_association` is never used
+   --> crates/proxy/src/component/catalog.rs:188:19
+    |
+116 | impl ComponentCatalog {
+    | --------------------- method in this implementation
+...
+188 |     pub(crate) fn allocate_association(
+    |                   ^^^^^^^^^^^^^^^^^^^^
+
+warning: struct `HostIoEvidence` is never constructed
+ --> crates/proxy/src/component/instance/resources/native/evidence.rs:7:33
+  |
+7 | pub(in crate::component) struct HostIoEvidence {
+  |                                 ^^^^^^^^^^^^^^
+
+warning: struct `NativeIoEvidence` is never constructed
+  --> crates/proxy/src/component/instance/resources/native/evidence.rs:13:33
+   |
+13 | pub(in crate::component) struct NativeIoEvidence {
+   |                                 ^^^^^^^^^^^^^^^^
+
+warning: method `physical_confirmed` is never used
+  --> crates/proxy/src/component/instance/resources/native/evidence.rs:20:33
+   |
+19 | impl HostIoEvidence {
+   | ------------------- method in this implementation
+20 |     pub(in crate::component) fn physical_confirmed(&self) -> bool {
+   |                                 ^^^^^^^^^^^^^^^^^^
+
+warning: method `io_evidence` is never used
+  --> crates/proxy/src/component/instance/resources/native/evidence.rs:26:33
+   |
+25 | impl HostResources {
+   | ------------------ method in this implementation
+26 |     pub(in crate::component) fn io_evidence(&self) -> HostIoEvidence {
+   |                                 ^^^^^^^^^^^
+
+warning: struct `HostOutboundDatagramResources` is never constructed
+  --> crates/proxy/src/component/instance/resources/outbound_datagram.rs:23:19
+   |
+23 | pub(crate) struct HostOutboundDatagramResources {
+   |                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: enum `Phase` is never used
+  --> crates/proxy/src/component/instance/resources/outbound_datagram.rs:32:6
+   |
+32 | enum Phase {
+   |      ^^^^^
+
+warning: struct `State` is never constructed
+  --> crates/proxy/src/component/instance/resources/outbound_datagram.rs:37:8
+   |
+37 | struct State {
+   |        ^^^^^
+
+warning: multiple associated items are never used
+   --> crates/proxy/src/component/instance/resources/outbound_datagram.rs:44:19
+    |
+ 43 | impl HostOutboundDatagramResources {
+    | ---------------------------------- associated items in this implementation
+ 44 |     pub(crate) fn new(
+    |                   ^^^
+...
+ 83 |     fn state(&self) -> MutexGuard<'_, State> {
+    |        ^^^^^
+...
+ 90 |     pub(crate) fn activate(&self, task: TaskId) -> Result<(), ChannelError> {
+    |                   ^^^^^^^^
+...
+112 |     pub(crate) fn revoke(&self) {
+    |                   ^^^^^^
+...
+118 |     pub(crate) fn fault(&self) -> Option<Arc<ChannelError>> {
+    |                   ^^^^^
+...
+121 |     pub(crate) fn native_unconfirmed(&self) -> bool {
+    |                   ^^^^^^^^^^^^^^^^^^
+...
+130 |     pub(crate) fn shutdown_io(&self) -> Result<CloseReport, ChannelError> {
+    |                   ^^^^^^^^^^^
+...
+146 |     fn acquire(
+    |        ^^^^^^^
+
+warning: function `error` is never used
+   --> crates/proxy/src/component/instance/resources/outbound_datagram.rs:257:4
+    |
+257 | fn error(instance: ComponentInstanceId, reason: Reason, message: &'static str) -> ChannelError {
+    |    ^^^^^
+
+warning: method `allocate_peer_association` is never used
+  --> crates/proxy/src/inventory/component.rs:31:19
+   |
+ 7 | impl super::ProtocolInventory {
+   | ----------------------------- method in this implementation
+...
+31 |     pub(crate) fn allocate_peer_association(
+   |                   ^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: method `install` is never used
+  --> crates/proxy/src/runtime/inbound_owners.rs:91:19
+   |
+75 | impl InboundOwnerRegistry {
+   | ------------------------- method in this implementation
+...
+91 |     pub(crate) fn install(
+   |                   ^^^^^^^
+
+warning: fields `task`, `class`, and `failure` are never read
+  --> crates/proxy/src/runtime/inbound_owners/peer_binding.rs:10:5
+   |
+ 9 | pub(crate) struct JoinedPeer {
+   |                   ---------- fields in this struct
+10 |     task: TaskId,
+   |     ^^^^
+11 |     class: TaskClass,
+   |     ^^^^^
+12 |     failure: Option<SharedError>,
+   |     ^^^^^^^
+   |
+   = note: `JoinedPeer` has a derived impl for the trait `Debug`, but this is intentionally ignored during dead code analysis
+
+warning: methods `task`, `class`, and `failure` are never used
+  --> crates/proxy/src/runtime/inbound_owners/peer_binding.rs:15:19
+   |
+14 | impl JoinedPeer {
+   | --------------- methods in this implementation
+15 |     pub(crate) fn task(&self) -> TaskId {
+   |                   ^^^^
+...
+18 |     pub(crate) fn class(&self) -> TaskClass {
+   |                   ^^^^^
+...
+21 |     pub(crate) fn failure(&self) -> Option<SharedError> {
+   |                   ^^^^^^^
+
+warning: methods `cancellation`, `registration_rejection`, `wait_bound`, `wait_joined`, and `error` are never used
+   --> crates/proxy/src/runtime/inbound_owners/peer_binding.rs:98:19
+    |
+ 47 | impl HostPeerBinding {
+    | -------------------- methods in this implementation
+...
+ 98 |     pub(crate) fn cancellation(&self) -> CancellationToken {
+    |                   ^^^^^^^^^^^^
+...
+104 |     pub(crate) fn registration_rejection(&self) -> Option<SharedError> {
+    |                   ^^^^^^^^^^^^^^^^^^^^^^
+...
+111 |     pub(crate) async fn wait_bound(&self) -> Result<TaskId, ChannelError> {
+    |                         ^^^^^^^^^^
+...
+131 |     pub(crate) async fn wait_joined(
+    |                         ^^^^^^^^^^^
+...
+156 |     fn error(&self, reason: Reason, message: &'static str) -> ChannelError {
+    |        ^^^^^
+
+warning: field `protocols` is never read
+  --> crates/proxy/src/runtime/inbound_owners/peers.rs:25:5
+   |
+23 | pub(crate) struct InboundPeerTasks {
+   |                   ---------------- field in this struct
+24 |     identity: ComponentInstanceId,
+25 |     protocols: ProtocolInventory,
+   |     ^^^^^^^^^
+
+warning: fields `association` and `task` are never read
+  --> crates/proxy/src/runtime/inbound_owners/peers/children.rs:17:16
+   |
+15 | pub(crate) struct PeerChildIdentity {
+   |                   ----------------- fields in this struct
+16 |     pub(crate) instance: ComponentInstanceId,
+17 |     pub(crate) association: AssociationId,
+   |                ^^^^^^^^^^^
+18 |     pub(crate) task: TaskId,
+   |                ^^^^
+   |
+   = note: `PeerChildIdentity` has derived impls for the traits `Clone` and `Debug`, but these are intentionally ignored during dead code analysis
+
+warning: fields `group` and `ingress` are never read
+  --> crates/proxy/src/runtime/inbound_owners/peers/children.rs:29:5
+   |
+28 | pub(crate) struct PeerResourceContext {
+   |                   ------------------- fields in this struct
+29 |     group: Arc<InboundPeerTasks>,
+   |     ^^^^^
+30 |     binding: Arc<HostPeerBinding>,
+31 |     ingress: RoleInstanceId,
+   |     ^^^^^^^
+   |
+   = note: `PeerResourceContext` has a derived impl for the trait `Clone`, but this is intentionally ignored during dead code analysis
+
+warning: struct `ColdClaim` is never constructed
+  --> crates/proxy/src/runtime/inbound_owners/peers/children.rs:40:8
+   |
+40 | struct ColdClaim<'a> {
+   |        ^^^^^^^^^
+
+warning: methods `cold_failure`, `ingress`, `binding`, and `claim` are never used
+  --> crates/proxy/src/runtime/inbound_owners/peers/children.rs:66:8
+   |
+65 | impl PeerResourceContext {
+   | ------------------------ methods in this implementation
+66 |     fn cold_failure(&self, failure: ChannelError) -> ChannelError {
+   |        ^^^^^^^^^^^^
+...
+71 |     pub(crate) fn ingress(&self) -> RoleInstanceId {
+   |                   ^^^^^^^
+...
+74 |     pub(crate) fn binding(&self) -> Arc<HostPeerBinding> {
+   |                   ^^^^^^^
+...
+79 |     pub(crate) async fn claim<T>(
+   |                         ^^^^^
+
+warning: struct `PeerBoundDatagramGrant` is never constructed
+  --> crates/proxy/src/runtime/inbound_owners/peers/children/bound_datagram.rs:19:19
+   |
+19 | pub(crate) struct PeerBoundDatagramGrant {
+   |                   ^^^^^^^^^^^^^^^^^^^^^^
+
+warning: struct `AuthorizedPeerDatagram` is never constructed
+  --> crates/proxy/src/runtime/inbound_owners/peers/children/bound_datagram.rs:24:19
+   |
+24 | pub(crate) struct AuthorizedPeerDatagram {
+   |                   ^^^^^^^^^^^^^^^^^^^^^^
+
+warning: struct `PeerBoundDatagramAuthority` is never constructed
+  --> crates/proxy/src/runtime/inbound_owners/peers/children/bound_datagram.rs:30:19
+   |
+30 | pub(crate) struct PeerBoundDatagramAuthority {
+   |                   ^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: method `authorize` is never used
+  --> crates/proxy/src/runtime/inbound_owners/peers/children/bound_datagram.rs:39:19
+   |
+36 | impl PeerBoundDatagramAuthority {
+   | ------------------------------- method in this implementation
+...
+39 |     pub(crate) fn authorize(
+   |                   ^^^^^^^^^
+
+warning: struct `GrantedBoundPeerResource` is never constructed
+  --> crates/proxy/src/runtime/inbound_owners/peers/children/bound_datagram.rs:79:8
+   |
+79 | struct GrantedBoundPeerResource {
+   |        ^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: method `claim_bound_outbound_datagram` is never used
+  --> crates/proxy/src/runtime/inbound_owners/peers/children/bound_datagram.rs:90:25
+   |
+89 | impl PeerResourceContext {
+   | ------------------------ method in this implementation
+90 |     pub(crate) async fn claim_bound_outbound_datagram<T>(
+   |                         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: method `remember` is never used
+   --> crates/proxy/src/runtime/inbound_owners/peers/children/bound_datagram.rs:139:8
+    |
+138 | impl GrantedBoundPeerResource {
+    | ----------------------------- method in this implementation
+139 |     fn remember(&mut self, source: SharedError) {
+    |        ^^^^^^^^
+
+warning: method `close_joined` is never used
+ --> crates/proxy/src/runtime/inbound_owners/peers/children/bound_datagram/close.rs:4:25
+  |
+3 | impl GrantedBoundPeerResource {
+  | ----------------------------- method in this implementation
+4 |     pub(super) async fn close_joined(
+  |                         ^^^^^^^^^^^^
+
+warning: struct `PeerDatagramGrant` is never constructed
+  --> crates/proxy/src/runtime/inbound_owners/peers/children/datagram.rs:14:19
+   |
+14 | pub(crate) struct PeerDatagramGrant {
+   |                   ^^^^^^^^^^^^^^^^^
+
+warning: struct `GrantedPeerResource` is never constructed
+  --> crates/proxy/src/runtime/inbound_owners/peers/children/datagram.rs:19:8
+   |
+19 | struct GrantedPeerResource {
+   |        ^^^^^^^^^^^^^^^^^^^
+
+warning: method `claim_outbound_datagram` is never used
+  --> crates/proxy/src/runtime/inbound_owners/peers/children/datagram.rs:27:25
+   |
+26 | impl PeerResourceContext {
+   | ------------------------ method in this implementation
+27 |     pub(crate) async fn claim_outbound_datagram<T>(
+   |                         ^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: struct `DirectSocketSource` is never constructed
+  --> crates/proxy/src/runtime/udp_dispatch/operation/direct/source.rs:21:19
+   |
+21 | pub(crate) struct DirectSocketSource {
+   |                   ^^^^^^^^^^^^^^^^^^
+
+warning: method `socket_source` is never used
+  --> crates/proxy/src/runtime/udp_dispatch/operation/direct/source.rs:40:25
+   |
+37 | impl DirectUdpFlowOperation {
+   | --------------------------- method in this implementation
+...
+40 |     pub(crate) async fn socket_source(
+   |                         ^^^^^^^^^^^^^
+
+warning: methods `belongs_to_peer` and `policy_identity` are never used
+   --> crates/proxy/src/runtime/udp_dispatch/operation/direct/source.rs:120:19
+    |
+119 | impl DirectSocketSource {
+    | ----------------------- methods in this implementation
+120 |     pub(crate) fn belongs_to_peer(&self, binding: &Arc<HostPeerBinding>) -> bool {
+    |                   ^^^^^^^^^^^^^^^
+...
+123 |     pub(crate) fn policy_identity(&self) -> crate::runtime::udp_socket::DirectUdpPolicy {
+    |                   ^^^^^^^^^^^^^^^
+
+warning: function `unavailable` is never used
+   --> crates/proxy/src/runtime/udp_dispatch/operation/direct/source.rs:178:4
+    |
+178 | fn unavailable() -> ChannelError {
+    |    ^^^^^^^^^^^
+
+warning: function `error` is never used
+   --> crates/proxy/src/runtime/udp_dispatch/operation/direct/source.rs:184:4
+    |
+184 | fn error(reason: Reason, message: &'static str) -> ChannelError {
+    |    ^^^^^
+
+warning: methods `peer_resources` and `direct_peer_driver` are never used
+   --> crates/proxy/src/runtime/udp_ingress/model.rs:101:19
+    |
+ 16 | impl UdpIngressRuntime {
+    | ---------------------- methods in this implementation
+...
+101 |     pub(crate) fn peer_resources(
+    |                   ^^^^^^^^^^^^^^
+...
+115 |     pub(crate) fn direct_peer_driver(
+    |                   ^^^^^^^^^^^^^^^^^^
+
+warning: method `with_logical_cancel` is never used
+  --> crates/proxy/src/runtime/udp_socket/response.rs:69:19
+   |
+60 | impl DirectUdpResponseGuard {
+   | --------------------------- method in this implementation
+...
+69 |     pub(super) fn with_logical_cancel(
+   |                   ^^^^^^^^^^^^^^^^^^^
+
+warning: method `send_owned_packet` is never used
+  --> crates/proxy/src/runtime/udp_socket/select.rs:25:25
+   |
+ 4 | impl DirectUdpSockets {
+   | --------------------- method in this implementation
+...
+25 |     pub(super) async fn send_owned_packet(
+   |                         ^^^^^^^^^^^^^^^^^
+
+warning: methods `retry_known_open` and `take_report` are never used
+  --> crates/proxy/src/runtime/udp_socket/close.rs:71:8
+   |
+25 | impl NativeCloseLedger {
+   | ---------------------- methods in this implementation
+...
+71 |     fn retry_known_open(&mut self) {
+   |        ^^^^^^^^^^^^^^^^
+...
+97 |     fn take_report(&mut self) -> CloseReport {
+   |        ^^^^^^^^^^^
+
+warning: methods `close_all_native` and `take_native_close_report` are never used
+   --> crates/proxy/src/runtime/udp_socket/close.rs:168:19
+    |
+123 | impl DirectUdpSockets {
+    | --------------------- methods in this implementation
+...
+168 |     pub(crate) fn close_all_native(&mut self) {
+    |                   ^^^^^^^^^^^^^^^^
+...
+185 |     pub(crate) fn take_native_close_report(&mut self) -> CloseReport {
+    |                   ^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: struct `DirectEndpointIdentity` is never constructed
+  --> crates/proxy/src/runtime/udp_socket/endpoint.rs:45:19
+   |
+45 | pub(crate) struct DirectEndpointIdentity {
+   |                   ^^^^^^^^^^^^^^^^^^^^^^
+
+warning: struct `DirectEndpointOwner` is never constructed
+  --> crates/proxy/src/runtime/udp_socket/endpoint.rs:50:19
+   |
+50 | pub(crate) struct DirectEndpointOwner {
+   |                   ^^^^^^^^^^^^^^^^^^^
+
+warning: struct `DirectEndpoint` is never constructed
+  --> crates/proxy/src/runtime/udp_socket/endpoint.rs:65:19
+   |
+65 | pub(crate) struct DirectEndpoint(Arc<Shared>);
+   |                   ^^^^^^^^^^^^^^
+
+warning: struct `DirectEndpointSession` is never constructed
+  --> crates/proxy/src/runtime/udp_socket/endpoint.rs:66:19
+   |
+66 | pub(crate) struct DirectEndpointSession {
+   |                   ^^^^^^^^^^^^^^^^^^^^^
+
+warning: struct `Shared` is never constructed
+  --> crates/proxy/src/runtime/udp_socket/endpoint.rs:71:8
+   |
+71 | struct Shared {
+   |        ^^^^^^
+
+warning: struct `State` is never constructed
+  --> crates/proxy/src/runtime/udp_socket/endpoint.rs:88:8
+   |
+88 | struct State {
+   |        ^^^^^
+
+warning: struct `Entry` is never constructed
+  --> crates/proxy/src/runtime/udp_socket/endpoint.rs:97:8
+   |
+97 | struct Entry {
+   |        ^^^^^
+
+warning: struct `Logical` is never constructed
+   --> crates/proxy/src/runtime/udp_socket/endpoint.rs:101:8
+    |
+101 | struct Logical {
+    |        ^^^^^^^
+
+warning: struct `Response` is never constructed
+   --> crates/proxy/src/runtime/udp_socket/endpoint.rs:114:8
+    |
+114 | struct Response {
+    |        ^^^^^^^^
+
+warning: method `drain_receive_queue` is never used
+   --> crates/proxy/src/runtime/udp_socket/endpoint.rs:121:8
+    |
+120 | impl Logical {
+    | ------------ method in this implementation
+121 |     fn drain_receive_queue(&self) {
+    |        ^^^^^^^^^^^^^^^^^^^
+
+warning: struct `Command` is never constructed
+   --> crates/proxy/src/runtime/udp_socket/endpoint.rs:137:8
+    |
+137 | struct Command {
+    |        ^^^^^^^
+
+warning: function `error` is never used
+   --> crates/proxy/src/runtime/udp_socket/endpoint.rs:145:4
+    |
+145 | fn error(stage: Stage, reason: Reason, delivery: DeliveryState) -> ChannelError {
+    |    ^^^^^
+
+warning: associated items `new` and `endpoint` are never used
+   --> crates/proxy/src/runtime/udp_socket/endpoint.rs:156:19
+    |
+153 | impl DirectEndpointOwner {
+    | ------------------------ associated items in this implementation
+...
+156 |     pub(crate) fn new(
+    |                   ^^^
+...
+184 |     pub(crate) fn endpoint(&self) -> DirectEndpoint {
+    |                   ^^^^^^^^
+
+warning: function `shared` is never used
+   --> crates/proxy/src/runtime/udp_socket/endpoint.rs:188:4
+    |
+188 | fn shared(
+    |    ^^^^^^
+
+warning: struct `DirectCopyUsage` is never constructed
+ --> crates/proxy/src/runtime/udp_socket/endpoint/accounting.rs:7:19
+  |
+7 | pub(crate) struct DirectCopyUsage {
+  |                   ^^^^^^^^^^^^^^^
+
+warning: struct `DirectEndpointQueueUsage` is never constructed
+  --> crates/proxy/src/runtime/udp_socket/endpoint/accounting.rs:12:19
+   |
+12 | pub(crate) struct DirectEndpointQueueUsage {
+   |                   ^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: enum `Phase` is never used
+  --> crates/proxy/src/runtime/udp_socket/endpoint/accounting.rs:26:17
+   |
+26 | pub(super) enum Phase {
+   |                 ^^^^^
+
+warning: struct `CopyAccounting` is never constructed
+  --> crates/proxy/src/runtime/udp_socket/endpoint/accounting.rs:31:19
+   |
+31 | pub(super) struct CopyAccounting(Mutex<DirectEndpointQueueUsage>);
+   |                   ^^^^^^^^^^^^^^
+
+warning: struct `CopyReservation` is never constructed
+  --> crates/proxy/src/runtime/udp_socket/endpoint/accounting.rs:32:19
+   |
+32 | pub(super) struct CopyReservation {
+   |                   ^^^^^^^^^^^^^^^
+
+warning: associated items `new`, `snapshot`, and `reserve` are never used
+  --> crates/proxy/src/runtime/udp_socket/endpoint/accounting.rs:38:19
+   |
+37 | impl CopyAccounting {
+   | ------------------- associated items in this implementation
+38 |     pub(super) fn new(queue: usize, logical: usize, bytes: usize) -> Result<Self, ChannelError> {
+   |                   ^^^
+...
+59 |     pub(super) fn snapshot(&self) -> DirectEndpointQueueUsage {
+   |                   ^^^^^^^^
+...
+65 |     pub(super) fn reserve(self: &Arc<Self>, bytes: usize, phase: Phase) -> Option<CopyReservation> {
+   |                   ^^^^^^^
+
+warning: function `group` is never used
+  --> crates/proxy/src/runtime/udp_socket/endpoint/accounting.rs:96:4
+   |
+96 | fn group(state: &mut DirectEndpointQueueUsage, phase: Phase) -> &mut DirectCopyUsage {
+   |    ^^^^^
+
+warning: function `release` is never used
+   --> crates/proxy/src/runtime/udp_socket/endpoint/accounting.rs:103:4
+    |
+103 | fn release(usage: &mut DirectCopyUsage, bytes: usize) {
+    |    ^^^^^^^
+
+warning: method `start_send` is never used
+   --> crates/proxy/src/runtime/udp_socket/endpoint/accounting.rs:114:19
+    |
+113 | impl CopyReservation {
+    | -------------------- method in this implementation
+114 |     pub(super) fn start_send(&mut self) {
+    |                   ^^^^^^^^^^
+
+warning: struct `DirectEndpointLimits` is never constructed
+ --> crates/proxy/src/runtime/udp_socket/endpoint/budget.rs:5:19
+  |
+5 | pub(crate) struct DirectEndpointLimits {
+  |                   ^^^^^^^^^^^^^^^^^^^^
+
+warning: methods `reserve_copy` and `reserve_command_copy` are never used
+  --> crates/proxy/src/runtime/udp_socket/endpoint/budget.rs:15:19
+   |
+14 | impl Shared {
+   | ----------- methods in this implementation
+15 |     pub(super) fn reserve_copy(&self, bytes: usize) -> Option<CopyReservation> {
+   |                   ^^^^^^^^^^^^
+...
+18 |     pub(super) fn reserve_command_copy(
+   |                   ^^^^^^^^^^^^^^^^^^^^
+
+warning: struct `DirectDispatchEndpoint` is never constructed
+  --> crates/proxy/src/runtime/udp_socket/endpoint/dispatch.rs:15:19
+   |
+15 | pub(crate) struct DirectDispatchEndpoint {
+   |                   ^^^^^^^^^^^^^^^^^^^^^^
+
+warning: struct `Slot` is never constructed
+  --> crates/proxy/src/runtime/udp_socket/endpoint/dispatch.rs:21:8
+   |
+21 | struct Slot {
+   |        ^^^^
+
+warning: struct `Receiver` is never constructed
+  --> crates/proxy/src/runtime/udp_socket/endpoint/dispatch.rs:26:8
+   |
+26 | struct Receiver {
+   |        ^^^^^^^^
+
+warning: methods `remove` and `poll_recv` are never used
+  --> crates/proxy/src/runtime/udp_socket/endpoint/dispatch.rs:31:8
+   |
+30 | impl Receiver {
+   | ------------- methods in this implementation
+31 |     fn remove(&mut self, session: SessionId) {
+   |        ^^^^^^
+...
+44 |     fn poll_recv(
+   |        ^^^^^^^^^
+
+warning: multiple associated items are never used
+   --> crates/proxy/src/runtime/udp_socket/endpoint/dispatch.rs:78:19
+    |
+ 77 | impl DirectDispatchEndpoint {
+    | --------------------------- associated items in this implementation
+ 78 |     pub(crate) fn new(endpoint: DirectEndpoint, retirement: Arc<RetiredDatagrams>) -> Self {
+    |                   ^^^
+...
+ 86 |     pub(crate) fn admit(
+    |                   ^^^^^
+...
+ 97 |     pub(crate) fn admit_bound(
+    |                   ^^^^^^^^^^^
+...
+108 |     fn admit_with(
+    |        ^^^^^^^^^^
+...
+156 |     pub(crate) async fn send_new_packet(
+    |                         ^^^^^^^^^^^^^^^
+...
+174 |     pub(crate) async fn recv_from_addr(
+    |                         ^^^^^^^^^^^^^^
+...
+189 |     pub(crate) fn retire_session(&mut self, session: SessionId) {
+    |                   ^^^^^^^^^^^^^^
+...
+198 |     pub(crate) async fn finish_session(
+    |                         ^^^^^^^^^^^^^^
+
+warning: struct `IoGuard` is never constructed
+ --> crates/proxy/src/runtime/udp_socket/endpoint/driver.rs:9:8
+  |
+9 | struct IoGuard<'a> {
+  |        ^^^^^^^
+
+warning: type alias `CancelWatch` is never used
+  --> crates/proxy/src/runtime/udp_socket/endpoint/driver.rs:44:6
+   |
+44 | type CancelWatch = Pin<Box<dyn Future<Output = (SessionId, AssociationId)> + Send>>;
+   |      ^^^^^^^^^^^
+
+warning: struct `DriverGuard` is never constructed
+  --> crates/proxy/src/runtime/udp_socket/endpoint/driver.rs:45:8
+   |
+45 | struct DriverGuard(Arc<Shared>);
+   |        ^^^^^^^^^^^
+
+warning: methods `maintain`, `deliver`, and `drop_queued` are never used
+   --> crates/proxy/src/runtime/udp_socket/endpoint/driver.rs:71:8
+    |
+ 70 | impl Shared {
+    | ----------- methods in this implementation
+ 71 |     fn maintain(
+    |        ^^^^^^^^
+...
+131 |     fn deliver(&self, bytes: &[u8], mut source: DirectUdpResponseSource) {
+    |        ^^^^^^^
+...
+208 |     fn drop_queued(&self, reason: zero_traits::PacketDropReason) {
+    |        ^^^^^^^^^^^
+
+warning: function `run` is never used
+   --> crates/proxy/src/runtime/udp_socket/endpoint/driver.rs:214:21
+    |
+214 | pub(super) async fn run(
+    |                     ^^^
+
+warning: function `logical_rejection` is never used
+ --> crates/proxy/src/runtime/udp_socket/endpoint/failure.rs:5:15
+  |
+5 | pub(super) fn logical_rejection(error: &EngineError) -> bool {
+  |               ^^^^^^^^^^^^^^^^^
+
+warning: function `channel_rejection` is never used
+ --> crates/proxy/src/runtime/udp_socket/endpoint/failure.rs:8:4
+  |
+8 | fn channel_rejection(error: &(dyn Error + 'static), depth: u8) -> Option<bool> {
+  |    ^^^^^^^^^^^^^^^^^
+
+warning: methods `identity`, `open`, `open_isolated`, `open_bound`, and `open_internal` are never used
+  --> crates/proxy/src/runtime/udp_socket/endpoint/open.rs:4:19
+   |
+ 3 | impl DirectEndpoint {
+   | ------------------- methods in this implementation
+ 4 |     pub(crate) fn identity(&self) -> DirectEndpointIdentity {
+   |                   ^^^^^^^^
+...
+ 9 |     pub(crate) fn open(
+   |                   ^^^^
+...
+20 |     pub(crate) fn open_isolated(
+   |                   ^^^^^^^^^^^^^
+...
+32 |     pub(crate) fn open_bound(
+   |                   ^^^^^^^^^^
+...
+57 |     fn open_internal(
+   |        ^^^^^^^^^^^^^
+
+warning: method `queue_usage` is never used
+   --> crates/proxy/src/runtime/udp_socket/endpoint/open.rs:158:19
+    |
+155 | impl DirectEndpoint {
+    | ------------------- method in this implementation
+...
+158 |     pub(crate) fn queue_usage(&self) -> DirectEndpointQueueUsage {
+    |                   ^^^^^^^^^^^
+
+warning: struct `DirectPeerOptions` is never constructed
+  --> crates/proxy/src/runtime/udp_socket/endpoint/peer.rs:16:19
+   |
+16 | pub(crate) struct DirectPeerOptions {
+   |                   ^^^^^^^^^^^^^^^^^
+
+warning: struct `DirectBoundPeerOptions` is never constructed
+  --> crates/proxy/src/runtime/udp_socket/endpoint/peer.rs:27:19
+   |
+27 | pub(crate) struct DirectBoundPeerOptions {
+   |                   ^^^^^^^^^^^^^^^^^^^^^^
+
+warning: struct `PeerOwner` is never constructed
+  --> crates/proxy/src/runtime/udp_socket/endpoint/peer.rs:33:19
+   |
+33 | pub(super) struct PeerOwner {
+   |                   ^^^^^^^^^
+
+warning: associated functions `for_peer`, `for_bound_peer`, and `build_peer` are never used
+   --> crates/proxy/src/runtime/udp_socket/endpoint/peer.rs:52:19
+    |
+ 51 | impl DirectEndpointOwner {
+    | ------------------------ associated functions in this implementation
+ 52 |     pub(crate) fn for_peer(
+    |                   ^^^^^^^^
+...
+ 96 |     pub(crate) fn for_bound_peer(
+    |                   ^^^^^^^^^^^^^^
+...
+110 |     fn build_peer(
+    |        ^^^^^^^^^^
+
+warning: method `shutdown_peer` is never used
+ --> crates/proxy/src/runtime/udp_socket/endpoint/peer/close.rs:6:35
+  |
+5 | impl DirectEndpointOwner {
+  | ------------------------ method in this implementation
+6 |     pub(in super::super) async fn shutdown_peer(
+  |                                   ^^^^^^^^^^^^^
+
+warning: field `sender` is never read
+ --> crates/proxy/src/runtime/udp_socket/endpoint/peer/job.rs:6:5
+  |
+5 | pub(crate) struct DirectPeerDriverSlot {
+  |                   -------------------- field in this struct
+6 |     sender: Arc<Mutex<Option<oneshot::Sender<DirectPeerDriver>>>>,
+  |     ^^^^^^
+  |
+  = note: `DirectPeerDriverSlot` has a derived impl for the trait `Clone`, but this is intentionally ignored during dead code analysis
+
+warning: method `submit` is never used
+  --> crates/proxy/src/runtime/udp_socket/endpoint/peer/job.rs:21:19
+   |
+ 9 | impl DirectPeerDriverSlot {
+   | ------------------------- method in this implementation
+...
+21 |     pub(crate) fn submit(&self, driver: DirectPeerDriver) -> Result<(), ChannelError> {
+   |                   ^^^^^^
+
+warning: method `refresh_sources` is never used
+ --> crates/proxy/src/runtime/udp_socket/endpoint/refresh.rs:8:25
+  |
+4 | impl DirectEndpoint {
+  | ------------------- method in this implementation
+...
+8 |     pub(crate) async fn refresh_sources(&self, deadline: Instant) -> Result<(), ChannelError> {
+  |                         ^^^^^^^^^^^^^^^
+
+warning: type alias `DirectEndpointReceive` is never used
+  --> crates/proxy/src/runtime/udp_socket/endpoint/session.rs:14:6
+   |
+14 | type DirectEndpointReceive = Result<Option<(Vec<u8>, DirectUdpResponseSource)>, EngineError>;
+   |      ^^^^^^^^^^^^^^^^^^^^^
+
+warning: struct `DirectEndpointTx` is never constructed
+  --> crates/proxy/src/runtime/udp_socket/endpoint/session.rs:16:19
+   |
+16 | pub(crate) struct DirectEndpointTx {
+   |                   ^^^^^^^^^^^^^^^^
+
+warning: struct `DirectEndpointRx` is never constructed
+  --> crates/proxy/src/runtime/udp_socket/endpoint/session.rs:20:19
+   |
+20 | pub(crate) struct DirectEndpointRx {
+   |                   ^^^^^^^^^^^^^^^^
+
+warning: struct `DirectEndpointControl` is never constructed
+  --> crates/proxy/src/runtime/udp_socket/endpoint/session.rs:24:19
+   |
+24 | pub(crate) struct DirectEndpointControl {
+   |                   ^^^^^^^^^^^^^^^^^^^^^
+
+warning: struct `PendingSend` is never constructed
+  --> crates/proxy/src/runtime/udp_socket/endpoint/session.rs:28:8
+   |
+28 | struct PendingSend<'a> {
+   |        ^^^^^^^^^^^
+
+warning: associated items `new` and `send_new_packet` are never used
+  --> crates/proxy/src/runtime/udp_socket/endpoint/session.rs:40:19
+   |
+39 | impl DirectEndpointTx {
+   | --------------------- associated items in this implementation
+40 |     pub(super) fn new(shared: Arc<Shared>, logical: Arc<Logical>) -> Self {
+   |                   ^^^
+...
+45 |     pub(crate) async fn send_new_packet(
+   |                         ^^^^^^^^^^^^^^^
+
+warning: associated items `new`, `recv`, and `poll_recv` are never used
+   --> crates/proxy/src/runtime/udp_socket/endpoint/session.rs:112:19
+    |
+111 | impl DirectEndpointRx {
+    | --------------------- associated items in this implementation
+112 |     pub(super) fn new(logical: Arc<Logical>) -> Self {
+    |                   ^^^
+...
+117 |     pub(crate) async fn recv(&mut self) -> DirectEndpointReceive {
+    |                         ^^^^
+...
+120 |     pub(crate) fn poll_recv(&mut self, cx: &mut Context<'_>) -> Poll<DirectEndpointReceive> {
+    |                   ^^^^^^^^^
+
+warning: associated function `new` is never used
+   --> crates/proxy/src/runtime/udp_socket/endpoint/session.rs:151:19
+    |
+150 | impl DirectEndpointControl {
+    | -------------------------- associated function in this implementation
+151 |     pub(super) fn new(shared: Arc<Shared>, logical: Arc<Logical>) -> Self {
+    |                   ^^^
+
+warning: associated function `new_bound` is never used
+  --> crates/proxy/src/runtime/udp_socket/bound.rs:39:19
+   |
+38 | impl DirectUdpSockets {
+   | --------------------- associated function in this implementation
+39 |     pub(super) fn new_bound(
+   |                   ^^^^^^^^^
+
+warning: `zero-proxy` (lib) generated 108 warnings (run `cargo fix --lib -p zero-proxy` to apply 1 suggestion)
+warning: method `revoke_binding` is never used
+   --> crates/proxy/src/component/bound_datagram.rs:157:19
+    |
+ 52 | impl HostBoundDatagramResources {
+    | ------------------------------- method in this implementation
+...
+157 |     pub(crate) fn revoke_binding(&self, token: &DatagramBindingId) -> Result<(), ChannelError> {
+    |                   ^^^^^^^^^^^^^^
+    |
+    = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: method `native_unconfirmed` is never used
+  --> crates/proxy/src/component/bound_datagram/report.rs:65:19
+   |
+ 3 | impl HostBoundDatagramResources {
+   | ------------------------------- method in this implementation
+...
+65 |     pub(crate) fn native_unconfirmed(&self) -> bool {
+   |                   ^^^^^^^^^^^^^^^^^^
+
+warning: fields `tcp` and `address` are never read
+  --> crates/proxy/src/component/instance/resources/native/evidence.rs:14:9
+   |
+13 | pub(in crate::component) struct NativeIoEvidence {
+   |                                 ---------------- fields in this struct
+14 |     pub tcp: bool,
+   |         ^^^
+15 |     pub address: SocketAddr,
+   |         ^^^^^^^
+   |
+   = note: `NativeIoEvidence` has derived impls for the traits `Debug` and `Clone`, but these are intentionally ignored during dead code analysis
+
+warning: method `direct_peer_driver` is never used
+   --> crates/proxy/src/runtime/udp_ingress/model.rs:115:19
+    |
+ 16 | impl UdpIngressRuntime {
+    | ---------------------- method in this implementation
+...
+115 |     pub(crate) fn direct_peer_driver(
+    |                   ^^^^^^^^^^^^^^^^^^
+
+warning: `zero-proxy` (lib test) generated 5 warnings (1 duplicate)
+    Finished `dev` profile [unoptimized] target(s) in 1m 31s

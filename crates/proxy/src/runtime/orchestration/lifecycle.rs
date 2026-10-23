@@ -12,13 +12,51 @@ pub(in crate::runtime) async fn run_until<F>(proxy: &Proxy, shutdown: F) -> Resu
 where
     F: Future<Output = ()> + Send,
 {
+    proxy
+        .protocols
+        .drive_component_supervision(Box::pin(run_supervised_until(proxy, shutdown)))
+        .await
+}
+
+async fn run_supervised_until<F>(proxy: &Proxy, shutdown: F) -> Result<(), EngineError>
+where
+    F: Future<Output = ()> + Send,
+{
     // An empty configuration is a valid management-only runtime. Keep the
     // reload/shutdown loop alive so a controller can install its first inbound
     // through the same reconciled configuration transaction used on reload.
-    let mut state = OrchestrationState::new(proxy).await?;
+    let mut state = OrchestrationState::assemble(proxy)?;
+    tokio::pin!(shutdown);
+    let preparing = state.preparing_inbounds.clone();
+    let (startup, stopped) = {
+        let startup = Box::pin(state.start(proxy));
+        tokio::pin!(startup);
+        tokio::select! { biased;
+            _ = &mut shutdown => {
+                proxy.apply_owner.begin_shutdown();
+                proxy.protocols.stop_component_admission();
+                preparing.begin_shutdown();
+                // Preserve the same borrowed state and every temporary owner.
+                // Stop is a request; only its original cleanup path can ACK.
+                (startup.await, true)
+            }
+            result = &mut startup => (result, false),
+        }
+    };
+    if stopped || startup.is_err() {
+        let result = match startup {
+            Err(error)
+                if !stopped || !crate::runtime::inbound_owners::preparation_stopped(&error) =>
+            {
+                Err(error)
+            }
+            _ => Ok(()),
+        };
+        return Box::pin(state.finish(proxy, result)).await;
+    }
     let _sampler = super::statistics::Sampler::start(proxy.engine.clone());
-    let result = run_loop(proxy, &mut state, shutdown).await;
-    let result = state.finish(proxy, result).await;
+    let result = Box::pin(run_loop(proxy, &mut state, shutdown)).await;
+    let result = Box::pin(state.finish(proxy, result)).await;
     log_stopped(proxy);
     result
 }
@@ -54,6 +92,12 @@ where
         let network_change = std::future::pending::<()>();
 
         tokio::select! {
+            failure = proxy.protocols.component_failure() => {
+                return Err(failure);
+            }
+            failure = proxy.inbound_owners.observe_listener_failure() => {
+                return Err(failure);
+            }
             _ = &mut shutdown => {
                 info!(
                     core_instance_id = proxy.core_instance_id(),
@@ -61,7 +105,8 @@ where
                     reason = "shutdown_signal",
                     "proxy orchestration shutdown requested"
                 );
-                return Ok(());
+                state.preparing_inbounds.begin_shutdown();
+                return state.drain_configuration(proxy).await;
             }
             Some(()) = state.reload_async_rx.recv() => {
                 info!(
@@ -70,7 +115,30 @@ where
                     reason = "config_reload",
                     "proxy orchestration reload requested"
                 );
-                state.reconcile_reload(proxy).await;
+                let preparing = state.preparing_inbounds.clone();
+                let stopped = {
+                    let reconciliation = Box::pin(state.reconcile_reload(proxy));
+                    tokio::pin!(reconciliation);
+                    tokio::select! { biased;
+                        _ = &mut shutdown => {
+                            proxy.apply_owner.begin_shutdown();
+                            proxy.protocols.stop_component_admission();
+                            preparing.begin_shutdown();
+                            // Drive this exact compensation, including its
+                            // original DNS token and closed-owner receipts.
+                            reconciliation.await;
+                            true
+                        }
+                        _ = &mut reconciliation => false,
+                    }
+                };
+                if stopped { return state.drain_configuration(proxy).await; }
+            }
+            failure = proxy.packet_close_owner.observe_failure() => {
+                return Err(io::Error::other(failure).into());
+            }
+            failure = proxy.apply_owner.observe_failure() => {
+                return Err(io::Error::other(failure).into());
             }
             _ = network_change => {
                 #[cfg(feature = "raw-ip-runtime")]
@@ -156,6 +224,9 @@ pub(super) fn handle_listener_result(
             Ok(())
         }
         Some(Ok(Ok(()))) => Err(EngineError::InboundTaskExited),
+        Some(Ok(Err(error))) if crate::runtime::inbound_owners::consume_reported_error(&error) => {
+            Ok(())
+        }
         Some(Ok(Err(error))) => Err(error),
         Some(Err(error)) => Err(io::Error::other(error).into()),
         None if shutting_down => Ok(()),
@@ -176,3 +247,7 @@ pub(super) fn handle_urltest_result(
         None => Err(EngineError::UrlTestTaskExited),
     }
 }
+
+#[cfg(test)]
+#[path = "tests/stack.rs"]
+mod stack_tests;

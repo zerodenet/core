@@ -2,6 +2,7 @@
 //! drivers and response bodies retain connections independently of those leases.
 mod connection;
 mod group;
+pub(super) mod prepared;
 pub(super) mod request;
 use super::{client, request::Profile, XhttpMode, XhttpStream};
 use group::Group;

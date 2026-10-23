@@ -72,7 +72,7 @@ impl TokioSocket {
             error,
         })?;
         Ok(Self {
-            inner: stream,
+            inner: crate::TcpStorage::Native(stream),
             effective_addresses: None,
             egress_interface: dial.interface,
             observer: None,

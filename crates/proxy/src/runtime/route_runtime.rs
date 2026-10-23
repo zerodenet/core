@@ -9,6 +9,10 @@ mod listener;
 mod mux;
 mod route;
 mod shared;
+#[cfg(feature = "udp-runtime")]
+mod stop;
+#[cfg(feature = "udp-runtime")]
+pub(crate) use stop::{ListenerStop, UdpStopGuard};
 
 pub(crate) use listener::{InboundListenerRuntime, InboundListenerRuntimeFactory};
 #[cfg(feature = "managed-stream-runtime")]

@@ -31,6 +31,7 @@ pub(crate) use outbound::ClaimedOutboundLeaf;
 /// inventory and generic runtime code.
 #[derive(Clone, Default)]
 pub(crate) struct ProtocolRegistry {
+    pub(crate) components: Arc<crate::component::catalog::ComponentCatalog>,
     entries: Vec<RegisteredProtocolEntry>,
     endpoint_observers: Vec<Arc<dyn crate::protocol_registry::EndpointObservationCapability>>,
     endpoint_controllers: Vec<Arc<dyn crate::protocol_registry::EndpointControlCapability>>,

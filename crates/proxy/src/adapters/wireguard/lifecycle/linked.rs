@@ -50,12 +50,13 @@ impl WireguardAdapter {
             } => outer_udp_proxy.as_deref(),
             _ => None,
         };
+        let live = self.passive_inbound_live(inbound)?;
         let existing = self
             .linked_endpoints
             .lock()
             .unwrap_or_else(|error| error.into_inner())
             .get(&inbound.tag)
-            .filter(|link| link.listen == inbound.listen)
+            .filter(|link| link.listen == inbound.listen && Arc::ptr_eq(&link.live, &live))
             .cloned();
         let reusable = existing.as_ref().and_then(|link| {
             let state = link.state.lock().unwrap_or_else(|error| error.into_inner());
@@ -168,14 +169,6 @@ impl WireguardAdapter {
                 }),
             ));
         }
-        let live = self
-            .inbound_devices
-            .lock()
-            .unwrap_or_else(|error| error.into_inner())
-            .get(&inbound.tag)
-            .and_then(std::sync::Weak::upgrade)
-            .filter(|live| live.matches_identity(inbound_identity))
-            .unwrap_or_else(|| Arc::new(inbound::LiveInboundDevice::new(device, inbound_identity)));
         Ok((
             Arc::new(inbound::LinkedEndpoint::new(
                 identity,
@@ -211,6 +204,7 @@ async fn prepare_carriers(
         "WireGuard outer_udp_proxy `{proxy_tag}` has no persistent bidirectional UDP packet path"
     ))
     })?;
+    let operation = &operation.operation;
     let mut carriers = Vec::with_capacity(endpoints.len());
     for _ in endpoints {
         let path = operation

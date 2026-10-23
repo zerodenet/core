@@ -51,7 +51,10 @@ impl UdpDispatch {
                 ),
             });
         }
-        let result = self.start_new_routed_flow(input).await;
+        // A new flow includes routing, DNS and all outbound preparation states.
+        // Keep that state off the enclosing receive loop's stack; established
+        // packets continue through the allocation-free forward path above.
+        let result = Box::pin(self.start_new_routed_flow(input)).await;
         match result {
             Ok(session_id) => {
                 self.flow_start_backoff.clear(&key);

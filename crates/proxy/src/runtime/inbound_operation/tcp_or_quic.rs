@@ -48,12 +48,13 @@ where
                 dispatch_tcp,
                 dispatch_quic,
             } = *self;
+            let readiness = runtime.readiness();
             let runtime_factory = runtime.route_factory();
             match bound {
                 #[cfg(feature = "datagram-route-runtime")]
-                BoundInbound::Datagram(_) => Err(EngineError::Io(std::io::Error::other(
-                    "unexpected datagram listener",
-                ))),
+                BoundInbound::Datagram(_) | BoundInbound::ControlledDatagram(_) => Err(
+                    EngineError::Io(std::io::Error::other("unexpected datagram listener")),
+                ),
                 #[cfg(feature = "inbound-listener-group-runtime")]
                 BoundInbound::Group(_) => Err(EngineError::Io(std::io::Error::other(
                     "nested listener group mismatch",
@@ -64,56 +65,62 @@ where
                     "TCP/QUIC operation received combined datagram listener",
                 ))),
                 BoundInbound::Tcp(listener) => {
-                    crate::runtime::listener_loop::run_logged_tcp_socket_listener_loop(
-                        crate::runtime::listener_loop::LoggedTcpSocketListenerRequest {
-                            runtime_factory,
-                            protocol_name,
-                            error_protocol_name,
-                            request,
-                            listener,
-                            shutdown,
-                            dispatch: move |runtime, request, socket| {
-                                let dispatch = dispatch_tcp.clone();
-                                async move {
-                                    let (socket, runtime) = super::prelude::prepare_socket(
-                                        socket,
-                                        runtime,
-                                        accept_proxy_protocol,
-                                    )
-                                    .await?;
-                                    dispatch(
-                                        request,
-                                        socket,
-                                        InboundConnectionContext::new(runtime),
-                                    )
-                                    .await
-                                }
+                    crate::runtime::inbound_owners::InboundReady::poll_optional(
+                        readiness,
+                        crate::runtime::listener_loop::run_logged_tcp_socket_listener_loop(
+                            crate::runtime::listener_loop::LoggedTcpSocketListenerRequest {
+                                runtime_factory,
+                                protocol_name,
+                                error_protocol_name,
+                                request,
+                                listener,
+                                shutdown,
+                                dispatch: move |runtime, request, socket| {
+                                    let dispatch = dispatch_tcp.clone();
+                                    async move {
+                                        let (socket, runtime) = super::prelude::prepare_socket(
+                                            socket,
+                                            runtime,
+                                            accept_proxy_protocol,
+                                        )
+                                        .await?;
+                                        dispatch(
+                                            request,
+                                            socket,
+                                            InboundConnectionContext::new(runtime),
+                                        )
+                                        .await
+                                    }
+                                },
                             },
-                        },
+                        ),
                     )
                     .await
                 }
                 BoundInbound::Quic(listener) => {
-                    crate::runtime::listener_loop::run_logged_quic_stream_listener_loop(
-                        crate::runtime::listener_loop::LoggedQuicStreamListenerRequest {
-                            runtime_factory,
-                            protocol_name,
-                            error_protocol_name,
-                            request,
-                            listener,
-                            shutdown,
-                            dispatch: move |runtime, request, stream| {
-                                let dispatch = dispatch_quic.clone();
-                                async move {
-                                    dispatch(
-                                        request,
-                                        stream,
-                                        InboundConnectionContext::new(runtime),
-                                    )
-                                    .await
-                                }
+                    crate::runtime::inbound_owners::InboundReady::poll_optional(
+                        readiness,
+                        crate::runtime::listener_loop::run_logged_quic_stream_listener_loop(
+                            crate::runtime::listener_loop::LoggedQuicStreamListenerRequest {
+                                runtime_factory,
+                                protocol_name,
+                                error_protocol_name,
+                                request,
+                                listener,
+                                shutdown,
+                                dispatch: move |runtime, request, stream| {
+                                    let dispatch = dispatch_quic.clone();
+                                    async move {
+                                        dispatch(
+                                            request,
+                                            stream,
+                                            InboundConnectionContext::new(runtime),
+                                        )
+                                        .await
+                                    }
+                                },
                             },
-                        },
+                        ),
                     )
                     .await
                 }

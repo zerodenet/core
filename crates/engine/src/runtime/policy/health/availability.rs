@@ -11,29 +11,37 @@ impl Engine {
         snapshot: &EngineRuntimeSnapshot,
         target_id: TargetId,
     ) -> bool {
-        let Some(target) = snapshot.plan().target(target_id) else {
-            return false;
-        };
-        let available = |id| self.urltest_member_available(snapshot, id);
-        match target.kind() {
-            TargetKind::Outbound(outbound) => {
-                crate::EndpointAdmission::from_snapshot(snapshot)
-                    .outbound_denial(target.tag())
-                    .is_none()
-                    && (outbound.runtime_kind() != OutboundRuntimeKind::Proxy
-                        || self.check_outbound_health(target.tag()).is_ok())
-            }
-            TargetKind::Selector(selector) => available(
-                snapshot
-                    .outbound_group_state
-                    .selector_selected_target(target_id)
-                    .unwrap_or_else(|| selector.initial_member()),
-            ),
-            TargetKind::Fallback(fallback) => fallback.members().iter().copied().any(available),
-            TargetKind::LoadBalance(balance) => balance.members().iter().copied().any(available),
-            TargetKind::UrlTest(urltest) => urltest.members().iter().copied().any(available),
-            // Carrier observations are attributed to the first relay hop.
-            TargetKind::Relay(relay) => relay.chain().first().copied().is_some_and(available),
+        member_available(snapshot, target_id, &self.outbound_health)
+    }
+}
+
+pub(super) fn member_available(
+    snapshot: &EngineRuntimeSnapshot,
+    target_id: TargetId,
+    health: &crate::health::OutboundHealth,
+) -> bool {
+    let Some(target) = snapshot.plan().target(target_id) else {
+        return false;
+    };
+    let available = |id| member_available(snapshot, id, health);
+    match target.kind() {
+        TargetKind::Outbound(outbound) => {
+            crate::EndpointAdmission::from_snapshot(snapshot)
+                .outbound_denial(target.tag())
+                .is_none()
+                && (outbound.runtime_kind() != OutboundRuntimeKind::Proxy
+                    || health.check(target.tag()).is_ok())
         }
+        TargetKind::Selector(selector) => available(
+            snapshot
+                .outbound_group_state
+                .selector_selected_target(target_id)
+                .unwrap_or_else(|| selector.initial_member()),
+        ),
+        TargetKind::Fallback(fallback) => fallback.members().iter().copied().any(available),
+        TargetKind::LoadBalance(balance) => balance.members().iter().copied().any(available),
+        TargetKind::UrlTest(urltest) => urltest.members().iter().copied().any(available),
+        // Carrier observations are attributed to the first relay hop.
+        TargetKind::Relay(relay) => relay.chain().first().copied().is_some_and(available),
     }
 }

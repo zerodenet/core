@@ -2,10 +2,10 @@ use std::net::SocketAddr;
 
 use zero_engine::EngineError;
 
+use super::super::socket::DispatchDirectSockets;
 use crate::runtime::udp_dispatch::UdpDispatch;
 use crate::runtime::udp_flow::sessions::UdpSessionFlows;
 use crate::runtime::udp_flow::state::UdpFlowState;
-use crate::runtime::udp_socket::DirectUdpSockets;
 
 impl UdpDispatch {
     /// Create a dispatcher; Direct sockets are opened only when needed.
@@ -14,8 +14,24 @@ impl UdpDispatch {
         inbound_tag: &str,
         protocols: &crate::inventory::ProtocolInventory,
     ) -> Result<Self, EngineError> {
+        let flow_state = UdpFlowState::new(protocols.registered_udp_handlers());
+        #[cfg(feature = "managed-datagram-runtime")]
+        if let Some(context) = runtime.peer_resources() {
+            context
+                .binding()
+                .install_response_owner(&flow_state.response_owner())
+                .map_err(std::io::Error::other)?;
+        }
         let preferred_port = runtime.source_addr().map(|source| source.port());
-        let direct_socket = DirectUdpSockets::new(runtime.services().network(), preferred_port);
+        let direct_socket = DispatchDirectSockets::new(&runtime, preferred_port).await?;
+        #[cfg(feature = "raw-ip-runtime")]
+        if let Some(native) = runtime.native() {
+            if let DispatchDirectSockets::Bound(socket) = &direct_socket {
+                native
+                    .observe_datagram(socket.registration())
+                    .map_err(std::io::Error::other)?;
+            }
+        }
         let (cancel_tx, cancel_rx) = tokio::sync::mpsc::unbounded_channel();
         Ok(Self {
             runtime,
@@ -23,7 +39,7 @@ impl UdpDispatch {
             flows: UdpSessionFlows::default(),
             flow_start_backoff: Default::default(),
             direct_socket,
-            flow_state: UdpFlowState::new(protocols.registered_udp_handlers()),
+            flow_state,
             cancel_tx,
             cancel_rx,
         })

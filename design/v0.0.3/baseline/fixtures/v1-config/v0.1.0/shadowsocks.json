@@ -1,0 +1,39 @@
+{
+  "inbounds": [
+    {
+      "tag": "ss-in",
+      "listen": { "address": "127.0.0.1", "port": 8388 },
+      "protocol": {
+        "type": "shadowsocks",
+        "password": "your-secret-password",
+        "cipher": "chacha20-ietf-poly1305"
+      }
+    }
+  ],
+  "outbounds": [
+    {
+      "tag": "ss-out",
+      "protocol": {
+        "type": "shadowsocks",
+        "server": "example.com",
+        "port": 8388,
+        "password": "your-secret-password",
+        "cipher": "chacha20-ietf-poly1305"
+      }
+    },
+    {
+      "tag": "direct",
+      "protocol": { "type": "direct" }
+    }
+  ],
+  "mode": { "type": "rule" },
+  "route": {
+    "rules": [
+      {
+        "condition": { "type": "domain", "values": ["traffic-to-proxy.example.com"] },
+        "action": { "type": "route", "outbound": "ss-out" }
+      }
+    ],
+    "final": { "type": "direct" }
+  }
+}

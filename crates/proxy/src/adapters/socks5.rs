@@ -13,8 +13,10 @@ use crate::protocol_registry::{
 use crate::runtime::path::TcpPathCategory;
 use crate::runtime::udp_flow::registered::UpstreamAssociationHandler;
 
+mod component;
 #[cfg(feature = "socks5")]
 pub(super) mod inbound;
+pub(crate) use component::{component_options, LEGACY_CONNECT_STAGE};
 #[cfg(feature = "socks5")]
 mod tcp;
 #[cfg(feature = "socks5")]
@@ -88,6 +90,14 @@ impl UpstreamUdpHandlerProvider for Socks5Adapter {
 
 #[cfg(feature = "socks5")]
 impl InboundListenerCapability for Socks5Adapter {
+    fn prepare_inbound_bind(
+        &self,
+        inbound: InboundConfig,
+        source_dir: Option<&std::path::Path>,
+    ) -> Result<Option<crate::protocol_registry::PreparedInboundBind>, EngineError> {
+        crate::protocol_registry::prepare_tcp_inbound_bind(self, inbound, source_dir)
+    }
+
     fn prepare_inbound_listener(
         &self,
         inbound: InboundConfig,
@@ -128,3 +138,11 @@ impl ProtocolMetadata for Socks5Adapter {
         ::socks5::Socks5Protocol.descriptor()
     }
 }
+
+#[cfg(test)]
+#[path = "../component/tests/socks.rs"]
+mod component_tests;
+
+#[cfg(test)]
+#[path = "../component/tests/relay.rs"]
+mod relay_tests;

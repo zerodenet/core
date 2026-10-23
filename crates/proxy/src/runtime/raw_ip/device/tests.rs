@@ -226,3 +226,5 @@ mod udp_queue;
 
 #[path = "tests/configuration.rs"]
 mod configuration;
+
+mod recipe;

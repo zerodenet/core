@@ -9,6 +9,8 @@ repository.workspace = true
 homepage.workspace = true
 
 [features]
+# Explicit fixture-only CA trust/witness; never a user TLS configuration API.
+test-support = ["doh"]
 default = []
 udp = []
 doh = [

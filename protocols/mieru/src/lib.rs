@@ -13,6 +13,8 @@ pub use mieru_config as config;
 #[cfg(feature = "crypto")]
 pub mod traffic_pattern;
 
+#[cfg(feature = "runtime")]
+pub mod component;
 pub mod metadata;
 pub mod protocol;
 #[cfg(feature = "crypto")]

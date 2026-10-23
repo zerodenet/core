@@ -1,0 +1,37 @@
+{
+  "inbounds": [
+    {
+      "tag": "socks-in",
+      "listen": {
+        "address": "127.0.0.1",
+        "port": 7890
+      },
+      "protocol": {
+        "type": "socks5"
+      }
+    }
+  ],
+  "outbounds": [
+    {
+      "tag": "direct",
+      "protocol": {
+        "type": "direct"
+      }
+    },
+    {
+      "tag": "block",
+      "protocol": {
+        "type": "block"
+      }
+    }
+  ],
+  "runtime": {
+    "udp_upstream_idle_timeout_seconds": 15
+  },
+  "route": {
+    "rules": [],
+    "final": {
+      "type": "direct"
+    }
+  }
+}

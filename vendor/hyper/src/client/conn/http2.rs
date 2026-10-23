@@ -295,6 +295,22 @@ where
         self
     }
 
+    /// Observe the owned HTTP/2 connection error otherwise discarded by the
+    /// delegated connection task. This does not observe individual stream
+    /// resets, change task execution, or change the connection result.
+    ///
+    /// The callback runs synchronously on the connection task and must not block
+    /// or panic. No callback is installed by default.
+    pub fn connection_error_observer<F>(&mut self, observer: F) -> &mut Self
+    where
+        F: Fn(h2::Error) + Send + Sync + 'static,
+    {
+        self.h2_builder.connection_error_observer = Some(
+            proto::h2::client::ConnectionErrorObserver(Arc::new(observer)),
+        );
+        self
+    }
+
     /// Sets the [`SETTINGS_INITIAL_WINDOW_SIZE`][spec] option for HTTP2
     /// stream-level flow control.
     ///

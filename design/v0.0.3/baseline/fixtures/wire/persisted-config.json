@@ -1,0 +1,95 @@
+{
+  "schema_version": 1,
+  "endpoints": [],
+  "inbounds": [
+    {
+      "tag": "baseline-socks",
+      "listen": {
+        "address": "127.0.0.1",
+        "port": 45413
+      },
+      "protocol": {
+        "type": "socks5",
+        "users": []
+      },
+      "udp": {
+        "enabled": true
+      },
+      "idle_timeout_secs": null
+    }
+  ],
+  "outbounds": [],
+  "outbound_groups": [],
+  "runtime": {
+    "udp_upstream_idle_timeout_seconds": 30,
+    "event_log_capacity": 1024,
+    "latency_test_url": null,
+    "principal_quota_state_path": null,
+    "network": {
+      "mtu": 1500,
+      "udp_receive_queue": {
+        "capacity": 64
+      }
+    },
+    "udp": {
+      "enabled": true
+    },
+    "log": {
+      "level": "info",
+      "files": [],
+      "rate_limit": null
+    },
+    "dns": null,
+    "tun": null
+  },
+  "mode": {
+    "type": "rule"
+  },
+  "route": {
+    "rule_sets": [],
+    "rules": [
+      {
+        "condition": {
+          "type": "domain",
+          "values": [
+            "unused-1.invalid"
+          ]
+        },
+        "action": {
+          "type": "reject"
+        }
+      }
+    ],
+    "final": {
+      "type": "direct"
+    },
+    "geoip_database": null,
+    "url_rewrite": []
+  },
+  "api": {
+    "event_sinks": [],
+    "control": {
+      "enabled": false,
+      "listen": null,
+      "api_key": null,
+      "api_key_env": null,
+      "grpc": null
+    },
+    "hooks": [],
+    "dead_letter_path": null,
+    "outbox_path": null,
+    "dispatcher": {
+      "max_in_memory_deliveries": 4096,
+      "max_in_memory_delivery_bytes": 16777216,
+      "replay_batch_size": 4096,
+      "source_queue_max_bytes": 8388608,
+      "max_retry_attempts": 10,
+      "retry_initial_delay_ms": 4000,
+      "retry_max_delay_ms": 64000,
+      "webhook_timeout_ms": 10000,
+      "outbox_min_free_bytes": 1073741824,
+      "outbox_min_free_percent": 5,
+      "exhausted_delivery_policy": "retry_forever"
+    }
+  }
+}

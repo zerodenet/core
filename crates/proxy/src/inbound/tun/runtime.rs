@@ -72,12 +72,11 @@ pub(super) async fn run(
         network_responses,
     } = config;
     let _traffic_role = proxy.engine().register_inbound_traffic(&tag);
+    let ingress_services = proxy.tcp_runtime_services().for_inbound(tag.clone());
     let mut tasks = JoinSet::new();
     #[cfg(feature = "raw-ip-runtime")]
     let packet_route = crate::runtime::route_runtime::InboundRouteRuntimeFactory::new(
-        crate::runtime::route_runtime::SharedIngressRuntimeServices::new(
-            proxy.tcp_runtime_services(),
-        ),
+        crate::runtime::route_runtime::SharedIngressRuntimeServices::new(ingress_services.clone()),
         tag.clone(),
     );
     #[cfg(feature = "raw-ip-runtime")]
@@ -110,7 +109,9 @@ pub(super) async fn run(
             .await,
         )
     });
-    let tcp_proxy = proxy.clone();
+    let tcp_services = ingress_services.clone();
+    #[cfg(feature = "udp-runtime")]
+    let udp_ingress_services = ingress_services;
     let tcp_stack = Arc::clone(&tcp);
     let tcp_tag = tag.clone();
     let tcp_dns_hijacked_queries = Arc::clone(&dns_hijacked_queries);
@@ -118,7 +119,7 @@ pub(super) async fn run(
         (
             "TCP",
             accept_tcp(
-                tcp_proxy,
+                tcp_services,
                 tcp_stack,
                 tcp_tag,
                 dns_hijack,
@@ -133,7 +134,14 @@ pub(super) async fn run(
     tasks.spawn(async move {
         (
             "UDP",
-            super::udp::run(proxy, udp, tag, dns_hijack, dns_hijacked_queries).await,
+            super::udp::run_with_runtime(
+                crate::runtime::udp_ingress::UdpIngressRuntime::new(udp_ingress_services),
+                udp,
+                tag,
+                dns_hijack,
+                dns_hijacked_queries,
+            )
+            .await,
         )
     });
     #[cfg(not(feature = "udp-runtime"))]
@@ -347,12 +355,13 @@ fn should_drop_non_unicast_udp(packet: &[u8], addresses: &[(IpAddr, IpAddr)]) ->
 }
 
 async fn accept_tcp(
-    proxy: Proxy,
+    services: crate::protocol_registry::TcpRuntimeServices,
     tcp: Arc<UserTcpStack>,
     tag: String,
     dns_hijack: bool,
     dns_hijacked_queries: Arc<AtomicU64>,
 ) -> Result<(), EngineError> {
+    let services = services.for_inbound(tag.clone());
     let mut connections = JoinSet::new();
     let mut dns_connections = JoinSet::new();
     loop {
@@ -374,7 +383,7 @@ async fn accept_tcp(
                         );
                         continue;
                     }
-                    let resolver = Arc::clone(&proxy.resolver);
+                    let resolver = services.resolver_handle();
                     dns_connections.spawn(async move {
                         serve_dns_tcp(resolver, stream).await.map_err(EngineError::Io)
                     });
@@ -389,7 +398,7 @@ async fn accept_tcp(
                 );
                 session.transparent_target = true;
                 let runtime = TcpIngressRuntime::new(
-                    proxy.tcp_runtime_services(),
+                    services.with_current_snapshot(),
                     tag.clone(),
                     Some(source_addr),
                 );

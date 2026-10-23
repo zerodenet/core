@@ -32,6 +32,10 @@ impl Plan {
         }
     }
 
+    pub fn check_retained_carrier_owner(&self) -> Result<(), RuntimeError> {
+        self.leaf.check_retained_carrier_owner()
+    }
+
     pub fn descriptor(&self) -> (String, String, u16) {
         (self.key.clone(), self.server.clone(), self.port)
     }

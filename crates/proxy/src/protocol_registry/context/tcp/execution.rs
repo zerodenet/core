@@ -1,4 +1,4 @@
-//! Execution inputs that reusable relay factories may retain without a registry.
+//! Short-lived inputs. Migrated retained factories use a Weak host source.
 use super::super::UpstreamConnectServices;
 use crate::runtime::principal_rate_limit::{PrincipalRateLimitRegistry, TrafficRateLimiters};
 use std::sync::Arc;
@@ -10,10 +10,25 @@ use zero_engine::{Engine, EngineRuntimeSnapshot};
 pub(crate) struct TcpExecutionServices {
     pub(in crate::protocol_registry::context) engine: Engine,
     pub(super) snapshot: Arc<EngineRuntimeSnapshot>,
+    pub(crate) current_source:
+        std::sync::Weak<crate::runtime::current_services::CurrentServiceSource>,
     pub(in crate::protocol_registry::context) upstream: UpstreamConnectServices,
     pub(super) principal_rate_limits: PrincipalRateLimitRegistry,
+    pub(super) retired_datagrams: Arc<crate::component::datagram_retirement::RetiredDatagrams>,
+    pub(crate) components: Result<
+        Arc<crate::component::catalog::ComponentPlan>,
+        crate::component::instance::SharedError,
+    >,
+    pub(crate) invocation: Option<crate::component::direct_bridge::Invocation>,
+    pub(crate) ingress: Option<crate::component::request::IngressIdentity>,
 }
 impl TcpExecutionServices {
+    pub(crate) fn retired_datagrams(
+        &self,
+    ) -> Arc<crate::component::datagram_retirement::RetiredDatagrams> {
+        self.retired_datagrams.clone()
+    }
+
     pub(crate) fn with_dial_trace(
         mut self,
         trace: crate::transport::establishment::DialTrace,
@@ -40,9 +55,15 @@ impl TcpExecutionServices {
     pub(crate) fn snapshot(&self) -> &EngineRuntimeSnapshot {
         self.snapshot.as_ref()
     }
+    pub(crate) fn snapshot_handle(&self) -> Arc<EngineRuntimeSnapshot> {
+        self.snapshot.clone()
+    }
 
     pub(crate) fn resolver(&self) -> &DnsSystem {
         self.upstream.resolver.as_ref()
+    }
+    pub(crate) fn resolver_handle(&self) -> Arc<DnsSystem> {
+        self.upstream.resolver.clone()
     }
 
     pub(crate) fn upstream_observed(&self, tag: &str) -> UpstreamConnectServices {

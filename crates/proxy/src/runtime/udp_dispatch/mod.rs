@@ -55,6 +55,10 @@
 mod backoff;
 mod dispatch;
 #[cfg(feature = "udp-runtime")]
+mod socket;
+#[cfg(feature = "managed-datagram-runtime")]
+pub(crate) use socket::bound::BoundDirectBudget;
+#[cfg(feature = "udp-runtime")]
 mod failure;
 #[cfg(feature = "udp-runtime")]
 mod forward;
@@ -74,5 +78,13 @@ pub(crate) use managed::UpstreamTrackedStart;
 pub(crate) use model::UdpDispatch;
 pub(crate) use outbound::start_udp_resolved_outbound;
 pub(crate) mod operation;
+#[cfg_attr(
+    not(test),
+    expect(
+        dead_code,
+        reason = "explicit cold-device library path; production activation requires the owning replacement transaction"
+    )
+)]
+pub(crate) mod packet_owner;
 pub(crate) mod packet_path_operation;
 pub(crate) mod relay;

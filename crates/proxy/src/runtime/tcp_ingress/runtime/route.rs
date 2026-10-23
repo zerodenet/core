@@ -8,10 +8,14 @@ use crate::logging::log_session_accepted;
 use super::model::TcpIngressRuntime;
 
 impl TcpIngressRuntime {
-    pub(crate) fn select_http_redirect(&self, session: &Session) -> Option<(u16, String)> {
-        crate::runtime::http_redirect::select_redirect_target(
+    pub(crate) fn select_http_redirect(
+        &self,
+        destination: &zero_core::request::Destination,
+    ) -> Option<(u16, String)> {
+        crate::runtime::http_redirect::select_redirect_destination(
             &self.services.config().route.url_rewrite,
-            session,
+            &destination.address,
+            destination.port,
         )
     }
 
