@@ -135,6 +135,19 @@ async fn exact_origin_capsule_survives_interrupted_real_native_close_and_pending
         .unwrap();
     assert!(Arc::ptr_eq(&original_terminal, &observed));
     drop(owner); // The passive capsule is retained by the pending transition.
+    assert!(
+        proxy
+            .inbound_owners
+            .prepare_recovery_bind(last_good.clone(), None, false)
+            .unwrap()
+            .is_none(),
+        "a normal same-address candidate must use replacement preparation"
+    );
+    assert_eq!(
+        calls.load(Ordering::SeqCst),
+        0,
+        "candidate preparation cannot silently select rollback"
+    );
     let cold = proxy
         .inbound_owners
         .prepare_recovery_bind(last_good.clone(), None, true)

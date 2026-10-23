@@ -22,8 +22,6 @@ pub(crate) use entry::{
     consume_reported_error, ClosedInboundReceipt, InboundOwner, InboundReady, InboundTaskAccess,
     InboundTerminal,
 };
-#[cfg(all(test, feature = "managed-datagram-runtime"))]
-pub(crate) use peer_binding::HostPeerJoinObserver;
 #[cfg(feature = "managed-datagram-runtime")]
 pub(crate) use peer_binding::{HostPeerBinding, JoinedPeer};
 #[cfg(feature = "managed-datagram-runtime")]

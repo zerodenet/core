@@ -136,7 +136,10 @@ impl InboundOwnerRegistry {
         }
         let state = retained.state.clone();
         drop(states);
-        if restore || exact {
+        // Equal inbound fields do not imply equal external dependencies. The
+        // accepted candidate may unlink/relink an outbound while preserving
+        // this listener's private identity and address.
+        if restore {
             state.prepare_restore(inbound, source_dir).map(Some)
         } else {
             state.prepare_replacement(inbound, source_dir)

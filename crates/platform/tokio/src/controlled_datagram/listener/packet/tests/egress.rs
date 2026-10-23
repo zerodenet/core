@@ -57,6 +57,10 @@ async fn controlled_packet_rechecks_changed_generation_and_rejects_unowned_probe
     control.replace(Some(actual_interface(target.ip())));
     sender.send_to(b"after", target).await.unwrap();
     receive(&peer, b"after", port).await;
+    // Recovery to ordinary host routing needs no hidden route-probe socket.
+    control.clear();
+    sender.send_to(b"kernel-route", target).await.unwrap();
+    receive(&peer, b"kernel-route", port).await;
     native.close().unwrap();
     assert_eq!(owner.take_report().confirmed_closed, 1);
 }

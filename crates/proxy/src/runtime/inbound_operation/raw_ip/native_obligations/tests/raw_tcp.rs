@@ -14,7 +14,7 @@ use zero_core::Address;
 use zero_stack::{ClientTcpStack, UserNetworkStack};
 use zero_traits::TcpStack;
 mod fixture;
-use fixture::Workers;
+use fixture::{refused_source, trace_source, Workers};
 
 async fn completed(proxy: &Proxy, port: u16) -> zero_engine::CompletedSessionRecord {
     timeout(Duration::from_secs(3), async {
@@ -209,6 +209,13 @@ async fn actual_raw_tcp_accept_serve_refusal_does_not_stop_the_next_admitted_wir
         assert!(joined.failure().is_none());
         assert!(!host.cancellation().is_cancelled());
         assert!(native.0.lock().unwrap().first_source.is_none());
+        let original_carrier = {
+            let state = native.0.lock().unwrap();
+            let record = state.records.get(&registration.id).unwrap();
+            assert!(record.carrier_owner.is_some(), "the production opener retained its actual physical owner");
+            record.carrier.clone().expect("the native refusal used a controlled carrier")
+        };
+        assert!(original_carrier.closed().is_none(), "a returned connect failure alone cannot close the original socket");
 
         assert!(Arc::ptr_eq(
             &source,
@@ -254,6 +261,11 @@ async fn actual_raw_tcp_accept_serve_refusal_does_not_stop_the_next_admitted_wir
             !native.0.lock().unwrap().records.contains_key(&registration.id),
             "the same one-slot quota was reclaimed from the original native/caller receipts"
         );
+        let native_closed = original_carrier.closed().expect("reclaimed original native receipt");
+        assert!(native_closed.matches(&original_carrier) && native_closed.had_native_acquisition());
+        let users_closed = original_carrier.users_closed().expect("same original caller/users receipt");
+        assert!(users_closed.matches(&original_carrier));
+        assert_eq!(users_closed.caller_exit().unwrap().id(), original_exit.id());
         assert_eq!(healthy.outcome, zero_engine::SessionOutcome::DirectRelayed);
         assert!(!host.cancellation().is_cancelled());
         assert!(
@@ -283,54 +295,4 @@ async fn actual_raw_tcp_accept_serve_refusal_does_not_stop_the_next_admitted_wir
     })
     .await
     .unwrap();
-}
-
-// Preserve both boxed std::io payloads and typed Error::source links. A host
-// StalePlan rejection must never masquerade as this real native refusal.
-fn refused_source<'a>(error: &'a (dyn std::error::Error + 'static)) -> Option<&'a std::io::Error> {
-    let mut current = Some(error);
-    for _ in 0..64 {
-        let error = current?;
-        if let Some(io) = error.downcast_ref::<std::io::Error>() {
-            if io.kind() == std::io::ErrorKind::ConnectionRefused {
-                return Some(io);
-            }
-            if let Some(inner) = io.get_ref() {
-                current = Some(inner);
-                continue;
-            }
-        }
-        current = error.source();
-    }
-    None
-}
-
-// Actual retained typed payloads only; never derive a retry/close decision here.
-fn trace_source(error: &(dyn std::error::Error + 'static)) {
-    let mut current = Some(error);
-    for index in 0..64 {
-        let Some(error) = current else { return };
-        eprintln!("raw source[{index}] display={error}, debug={error:?}");
-        if let Some(io) = error.downcast_ref::<std::io::Error>() {
-            eprintln!(
-                "raw source[{index}] io_kind={:?}, raw_os_error={:?}",
-                io.kind(),
-                io.raw_os_error()
-            );
-            if let Some(inner) = io.get_ref() {
-                current = Some(inner);
-                continue;
-            }
-        }
-        if let Some(io) = error.downcast_ref::<Arc<std::io::Error>>() {
-            current = Some(io.as_ref());
-            continue;
-        }
-        if let Some(channel) = error.downcast_ref::<Arc<ChannelError>>() {
-            current = Some(channel.as_ref());
-            continue;
-        }
-        current = error.source();
-    }
-    eprintln!("raw source chain exceeded bounded diagnostic traversal");
 }

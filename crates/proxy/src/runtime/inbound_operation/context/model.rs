@@ -6,11 +6,6 @@ pub(crate) struct InboundConnectionContext {
 }
 
 impl InboundConnectionContext {
-    #[cfg(test)]
-    pub(crate) fn accepted_tasks(&self) -> Option<zero_platform_tokio::AcceptedTcpTasks> {
-        self.runtime.accepted_tasks()
-    }
-
     pub(crate) fn new(runtime: InboundRouteRuntime) -> Self {
         Self { runtime }
     }

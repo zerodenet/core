@@ -11,6 +11,19 @@ fn controlled_selection_preserves_the_original_snapshot_no_probe_cases() {
             .binding_reason(),
         EgressBindingReason::Loopback
     );
+    let ordinary = control
+        .select_packet_without_native_probe("192.0.2.1:9".parse().unwrap())
+        .unwrap();
+    assert_eq!(
+        ordinary.binding_reason(),
+        EgressBindingReason::NoConfiguredInterface
+    );
+    assert!(ordinary.interface().is_none());
+    assert_eq!(
+        ordinary.route_lookup_status(),
+        EgressRouteLookupStatus::Skipped
+    );
+    assert_eq!(ordinary.generation(), control.generation());
     let wildcard: SocketAddr = "0.0.0.0:9".parse().unwrap();
     assert_eq!(
         control

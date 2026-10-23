@@ -8,7 +8,23 @@ impl EgressInterfaceControl {
     ) -> io::Result<EgressSelection> {
         let interfaces = self.0.read().expect("egress interface lock poisoned");
         let snapshot = EgressSelectionSnapshot::capture(&interfaces, peer);
-        without_probe(&snapshot, peer).ok_or_else(|| {
+        let selected = without_probe(&snapshot, peer).or_else(|| {
+            // This existing bound datagram socket can let the kernel select its
+            // route when no tunnel or interface constraint is active. No probe
+            // descriptor is needed or acquired. Keep legacy probe diagnostics
+            // separate, and never use this path for a TUN/forced egress grant.
+            (!snapshot.tun_active && snapshot.configured_interface.is_none()).then(|| {
+                EgressSelection::from_snapshot(
+                    &snapshot,
+                    None,
+                    None,
+                    EgressRouteLookupStatus::Skipped,
+                    None,
+                    EgressBindingReason::NoConfiguredInterface,
+                )
+            })
+        });
+        selected.ok_or_else(|| {
             io::Error::new(
                 io::ErrorKind::Unsupported,
                 "controlled packet selection requires a separately owned native route probe",

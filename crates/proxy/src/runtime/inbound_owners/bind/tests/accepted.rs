@@ -70,7 +70,7 @@ async fn rejected_plain_client_retains_actual_source_without_stopping_same_owned
                     }
                     let mut request = [0];
                     io.read_exact(&mut request).await?;
-                    if request == [b'!'] {
+                    if request == *b"!" {
                         return Err(EngineError::Io(std::io::Error::new(
                             std::io::ErrorKind::InvalidData,
                             "original rejected client",

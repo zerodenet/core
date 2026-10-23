@@ -26,7 +26,7 @@
 
 | 版本 | 影响面 | 迁移结论 |
 |------|--------|----------|
-| `Unreleased` | VMess cipher 配置 | 旧私有 `zero` 配置需迁移为 `zero-plus`；`zero` 现为 Xray 标准模式 <!-- version-contract:unreleased-row --> |
+| `Unreleased` | VMess cipher 配置、Raw-IP Direct 资源关闭 | 旧私有 `zero` 配置需迁移为 `zero-plus`；Raw-IP 已覆盖路径使用真实任务与原生关闭凭据 <!-- version-contract:unreleased-row --> |
 | `0.0.1` | 首个统一正式版、TUN 路由恢复 | 发布编号重置；配置与控制面仍为 V1，旧版本需手动安装 |
 | `0.0.16-rc.202609070904` | Direct 入站、监听热更新、构建能力发现 | Direct 默认绑定 TCP 与 UDP；仅需 TCP 时使用现有 `udp.enabled: false`，面板按能力事实判断支持 |
 | `0.0.16-rc.202609060636` | CLI 配置预检查、内核安装器 | `zero validate` 不再启动运行时或访问 Fake-IP / 配额持久化状态；可与运行中的内核并行校验 |
@@ -54,6 +54,8 @@ WireGuard/raw-IP TCP Direct sessions now settle the same controlled carrier regi
 Production Direct decoding now installs the existing controlled stream owner with 4096 native carrier slots, 256 refresh task slots and a five-second retirement budget. An opener with the original tracked Business caller selects it before acquisition; an explicitly selected controlled operation never falls back on failure. Service and untracked calls keep their separate legacy operation and do not establish whole-generation native coverage. Other resourceful cold gates remain closed.
 
 Each raw-IP UDP association has explicit ceilings of 256 logical sessions, 256 native sockets, one pending native open, 16 MiB pending payloads, 1024 candidates per job and 64 policy/network bindings. Native bind fallback has two pre-I/O family attempts and owner start has a five-second deadline. Exhaustion fails through the existing error path; it never switches to an untracked socket. These are finite safety ceilings, not throughput or production sizing claims. Existing bound-provider budget, source-revocation and original-close regressions cover the provider; raw TCP refusal/success and WireGuard inbound interop cover runtime integration.
+
+Same-address listener candidates use replacement preparation; only explicit rollback selects restoration, because linked outbound dependencies can change without changing inbound fields. A controlled bound UDP listener may use kernel routing when neither TUN nor a forced interface is active, without acquiring a hidden route-probe socket. Active TUN and forced-egress checks remain enforced. Regressions cover WireGuard unlink/relink, physical-egress recovery and the original closed-owner transition.
 
 V1 config/API/events and FFI ABI are unchanged. GUI/SDK consumers need no wire migration; embedding applications must await shutdown and retain unconfirmed generations rather than infer closure from cancellation or Drop.
 

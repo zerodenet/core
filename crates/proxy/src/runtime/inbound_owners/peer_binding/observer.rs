@@ -28,9 +28,11 @@ impl HostPeerBinding {
     }
 }
 impl HostPeerJoinObserver {
+    #[cfg(test)]
     pub(crate) fn belongs_to(&self, binding: &Arc<HostPeerBinding>) -> bool {
         Arc::ptr_eq(&self.join, &binding.join)
     }
+    #[cfg(test)]
     pub(crate) fn observed_join(&self) -> Option<Arc<JoinedPeer>> {
         self.join
             .state
@@ -41,6 +43,7 @@ impl HostPeerJoinObserver {
     }
     /// Same actual spawn_tracked witness, carrying only weak Scope provenance.
     /// Reading it never consumes an exit or acknowledges a response/native I/O.
+    #[cfg(test)]
     pub(crate) fn join_witness(
         &self,
     ) -> Option<zero_platform_tokio::contract::scope::TaskJoinWitness> {

@@ -62,12 +62,6 @@ impl HostBoundDatagramResources {
         }
         Ok(confirmed(&mut state))
     }
-    #[cfg(test)]
-    pub(crate) fn native_unconfirmed(&self) -> bool {
-        let mut state = self.state();
-        self.collect(&mut state);
-        state.unknown
-    }
 }
 fn confirmed(state: &mut State) -> CloseReport {
     let mut report = CloseReport::default();

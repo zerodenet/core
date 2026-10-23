@@ -129,8 +129,13 @@ impl NativeRegistration {
             }
             ChildKind::Udp => Ok(datagram.is_some_and(|provider| {
                 provider.closed().is_some_and(|closed| {
+                    let original = provider.identity();
+                    let actual = closed.identity();
                     closed.matches(&provider)
-                        && closed.identity().task == joined.task()
+                        && actual.instance == original.instance
+                        && actual.association == original.association
+                        && actual.task == original.task
+                        && actual.task == joined.task()
                         && closed.joined().task() == joined.task()
                         && closed.joined().class() == joined.class()
                 })
