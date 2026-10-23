@@ -85,7 +85,8 @@ fn cancelled(future: &mut Pin<Box<WaitForCancellationFutureOwned>>, cx: &mut Con
     future.as_mut().poll(cx).is_ready()
 }
 fn stopped() -> io::Error {
-    io::Error::new(io::ErrorKind::Interrupted, "owned QUIC user was cancelled")
+    // Cancellation is terminal; read helpers retry Interrupted indefinitely.
+    io::Error::new(io::ErrorKind::BrokenPipe, "owned QUIC user was cancelled")
 }
 impl AsyncRead for OwnedRecvStream {
     fn poll_read(

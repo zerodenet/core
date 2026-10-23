@@ -93,6 +93,16 @@ async fn a_real_join_still_requires_the_transferred_view_to_be_released() {
     let exit = scope.next_receipt().await.unwrap();
     pending(users.shutdown(deadline())).await;
     assert_eq!(users.slots.active(), 1);
+    // Check one native trait poll first: a regression to permanently
+    // Interrupted must fail before read helpers can spin inside one poll.
+    let mut bytes = [0; 1];
+    let mut buffer = tokio::io::ReadBuf::new(&mut bytes);
+    let error = std::future::poll_fn(|cx| {
+        tokio::io::AsyncRead::poll_read(std::pin::Pin::new(&mut stream), cx, &mut buffer)
+    })
+    .await
+    .unwrap_err();
+    assert_eq!(error.kind(), std::io::ErrorKind::BrokenPipe);
     let read = tokio::time::timeout(Duration::from_secs(2), stream.read_u8())
         .await
         .expect("retired stream must terminate an AsyncReadExt operation")

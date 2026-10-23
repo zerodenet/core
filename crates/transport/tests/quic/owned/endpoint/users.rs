@@ -54,7 +54,15 @@ async fn actual_sealed_quinn_stream_users_hold_capacity_until_raw_drop_then_real
         })
         .await;
         owner.begin_shutdown();
-        assert_eq!(read.await.unwrap_err().kind(), io::ErrorKind::Interrupted);
+        assert_eq!(read.await.unwrap_err().kind(), io::ErrorKind::BrokenPipe);
+        assert_eq!(
+            receive.read_u8().await.unwrap_err().kind(),
+            io::ErrorKind::BrokenPipe
+        );
+        assert_eq!(
+            send.write_all(b"retired").await.unwrap_err().kind(),
+            io::ErrorKind::BrokenPipe
+        );
         // Cancellation returning does not destroy either original stream.
         assert_eq!(owner.active_users(), 2);
         assert_eq!(
