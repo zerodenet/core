@@ -374,3 +374,31 @@ fn dns_a_query(domain: &str) -> Vec<u8> {
 mod mux_fake_ip;
 
 mod admitted;
+
+#[tokio::test]
+async fn accepted_tcp_state_does_not_embed_the_complete_routing_and_dns_state() {
+    let proxy = crate::runtime::Proxy::new(
+        RuntimeConfig::parse(r#"{"route":{"final":{"type":"direct"}}}"#).unwrap(),
+    )
+    .unwrap();
+    let runtime = TcpIngressRuntime::new(
+        proxy.tcp_runtime_services(),
+        "tcp-stack-budget".into(),
+        None,
+    );
+    let session = Session::new(
+        0,
+        Address::Domain("localhost".into()),
+        9,
+        Network::Tcp,
+        ProtocolType::UNKNOWN,
+    );
+    let (client, _peer) = tokio::io::duplex(64);
+    let protocol = crate::runtime::tcp_ingress::NoClientResponseStreamProtocol::new();
+    let future = runtime.serve(session, client, &protocol);
+    assert!(
+        std::mem::size_of_val(&future) < 16 * 1024,
+        "protocol listener futures must not embed the complete TCP lifecycle: {} bytes",
+        std::mem::size_of_val(&future)
+    );
+}

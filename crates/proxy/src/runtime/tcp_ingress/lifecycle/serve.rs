@@ -72,6 +72,21 @@ pub(crate) async fn serve_with_identity<P: InboundProtocol>(
     protocol: &P,
     identity: Option<&zero_engine::SessionIdentity>,
 ) -> Result<(), EngineError> {
+    // One allocation per accepted flow keeps the complete route/establish/relay
+    // state out of every enclosing protocol listener and receive-loop future.
+    Box::pin(serve_with_identity_inner(
+        runtime, session, client, protocol, identity,
+    ))
+    .await
+}
+
+async fn serve_with_identity_inner<P: InboundProtocol>(
+    runtime: &TcpIngressRuntime,
+    session: Session,
+    client: P::ClientStream,
+    protocol: &P,
+    identity: Option<&zero_engine::SessionIdentity>,
+) -> Result<(), EngineError> {
     let mut session = session;
     let mut client = client;
     let started_at = Instant::now();

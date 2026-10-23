@@ -29,7 +29,11 @@ impl KernelPipe for TcpPipe<'_> {
     type Error = EngineError;
 
     async fn dispatch(&mut self, input: Self::Input<'_>) -> Result<Self::Output, Self::Error> {
-        crate::runtime::tcp_dispatch::dispatch_tcp(self.runtime, input.session, input.admitted)
-            .await
+        Box::pin(crate::runtime::tcp_dispatch::dispatch_tcp(
+            self.runtime,
+            input.session,
+            input.admitted,
+        ))
+        .await
     }
 }
