@@ -14,7 +14,7 @@ where
 {
     proxy
         .protocols
-        .drive_component_supervision(run_supervised_until(proxy, shutdown))
+        .drive_component_supervision(Box::pin(run_supervised_until(proxy, shutdown)))
         .await
 }
 
@@ -29,7 +29,7 @@ where
     tokio::pin!(shutdown);
     let preparing = state.preparing_inbounds.clone();
     let (startup, stopped) = {
-        let startup = state.start(proxy);
+        let startup = Box::pin(state.start(proxy));
         tokio::pin!(startup);
         tokio::select! { biased;
             _ = &mut shutdown => {
@@ -52,11 +52,11 @@ where
             }
             _ => Ok(()),
         };
-        return state.finish(proxy, result).await;
+        return Box::pin(state.finish(proxy, result)).await;
     }
     let _sampler = super::statistics::Sampler::start(proxy.engine.clone());
-    let result = run_loop(proxy, &mut state, shutdown).await;
-    let result = state.finish(proxy, result).await;
+    let result = Box::pin(run_loop(proxy, &mut state, shutdown)).await;
+    let result = Box::pin(state.finish(proxy, result)).await;
     log_stopped(proxy);
     result
 }
@@ -117,7 +117,7 @@ where
                 );
                 let preparing = state.preparing_inbounds.clone();
                 let stopped = {
-                    let reconciliation = state.reconcile_reload(proxy);
+                    let reconciliation = Box::pin(state.reconcile_reload(proxy));
                     tokio::pin!(reconciliation);
                     tokio::select! { biased;
                         _ = &mut shutdown => {
@@ -247,3 +247,7 @@ pub(super) fn handle_urltest_result(
         None => Err(EngineError::UrlTestTaskExited),
     }
 }
+
+#[cfg(test)]
+#[path = "tests/stack.rs"]
+mod stack_tests;

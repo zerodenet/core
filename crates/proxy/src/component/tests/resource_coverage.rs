@@ -8,15 +8,38 @@ fn one() -> NonZeroUsize {
 fn endpoint() -> Destination {
     // Linux routes the entire 127/8 through loopback. Isolate this close/rebind
     // check from parallel tests allocating ephemeral 127.0.0.1 source ports.
-    // Other platforms retain their original configured loopback address.
+    // Darwin has no additional IPv4 loopback aliases by default. Keep its
+    // fixture off the busy IPv4 source-port allocator by using IPv6 loopback.
     #[cfg(target_os = "linux")]
     let host = [127, 53, 22, 1];
-    #[cfg(not(target_os = "linux"))]
-    let host = [127, 0, 0, 1];
-    Destination::new(Address::Ipv4(host), 0)
+    #[cfg(target_os = "linux")]
+    let address = Address::Ipv4(host);
+    #[cfg(target_os = "macos")]
+    let address = Address::Ipv6(std::net::Ipv6Addr::LOCALHOST.octets());
+    #[cfg(not(any(target_os = "linux", target_os = "macos")))]
+    let address = Address::Ipv4([127, 0, 0, 1]);
+    Destination::new(address, 0)
 }
 fn deadline() -> Instant {
     Instant::now() + Duration::from_secs(3)
+}
+async fn rebound<T>(mut bind: impl FnMut() -> std::io::Result<T>) -> T {
+    // A receipt closes our original, but cannot reserve its released ephemeral
+    // endpoint against another parallel fixture. Require an actual replacement
+    // within a finite acquisition budget; this never supplies closure evidence.
+    tokio::time::timeout_at(deadline(), async {
+        loop {
+            match bind() {
+                Ok(socket) => return socket,
+                Err(error) if error.kind() == std::io::ErrorKind::AddrInUse => {
+                    tokio::time::sleep(Duration::from_millis(10)).await;
+                }
+                Err(error) => panic!("actual replacement bind: {error}"),
+            }
+        }
+    })
+    .await
+    .expect("closed endpoint must admit an actual replacement")
 }
 
 #[cfg(unix)]
@@ -143,8 +166,8 @@ async fn canonical_file_tcp_udp_entries_follow_original_ordinals_and_real_closur
         .is_err());
     // Hold both actual replacements through the remainder of the assertions.
     // Rebinding supplements the owner's syscall receipt; it cannot mint one.
-    let _tcp_rebound = std::net::TcpListener::bind(address).unwrap();
-    let _udp_rebound = std::net::UdpSocket::bind(udp_address).unwrap();
+    let _tcp_rebound = rebound(|| std::net::TcpListener::bind(address)).await;
+    let _udp_rebound = rebound(|| std::net::UdpSocket::bind(udp_address)).await;
     let mut missing = closed.clone();
     missing.declarations.clear();
     assert!(

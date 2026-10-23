@@ -62,7 +62,7 @@ impl OrchestrationState {
             ));
         }
 
-        let previous_runtime = self.inbound_runtime_factory.clone();
+        let previous_runtime = self.inbound_runtime_factory.clone().for_recovery();
         // Only pre-existing actual owners may grant one recovery re-entry.
         // This temporary finite set holds IDs, never old owners/configuration
         // history. A failed newly created generation stays fatal/retained.

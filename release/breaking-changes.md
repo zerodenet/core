@@ -55,7 +55,7 @@ Production Direct decoding now installs the existing controlled stream owner wit
 
 Each raw-IP UDP association has explicit ceilings of 256 logical sessions, 256 native sockets, one pending native open, 16 MiB pending payloads, 1024 candidates per job and 64 policy/network bindings. Native bind fallback has two pre-I/O family attempts and owner start has a five-second deadline. Exhaustion fails through the existing error path; it never switches to an untracked socket. These are finite safety ceilings, not throughput or production sizing claims. Existing bound-provider budget, source-revocation and original-close regressions cover the provider; raw TCP refusal/success and WireGuard inbound interop cover runtime integration.
 
-Same-address listener candidates use replacement preparation; only explicit rollback selects restoration, because linked outbound dependencies can change without changing inbound fields. A controlled bound UDP listener may use kernel routing when neither TUN nor a forced interface is active, without acquiring a hidden route-probe socket. Active TUN and forced-egress checks remain enforced. Regressions cover WireGuard unlink/relink, physical-egress recovery and the original closed-owner transition.
+Same-address listener candidates use replacement preparation; only explicit rollback selects restoration, because linked outbound dependencies can change without changing inbound fields. Whole-batch compensation now carries that explicit restoration mode through listener preparation after failed candidate reservations are physically retired. A controlled bound UDP listener may use kernel routing when neither TUN nor a forced interface is active, without acquiring a hidden route-probe socket. Active TUN and forced-egress checks remain enforced. Regressions cover WireGuard unlink/relink, physical-egress recovery and the original closed-owner transition.
 
 V1 config/API/events and FFI ABI are unchanged. GUI/SDK consumers need no wire migration; embedding applications must await shutdown and retain unconfirmed generations rather than infer closure from cancellation or Drop.
 
@@ -585,3 +585,5 @@ IPC、HTTP SSE 和 gRPC 的 wire 格式保持 `zero.api.v1` / `zero.event.v1`，
 - 对应回归测试位置。
 
 开发期间只在版本矩阵和 `## Unreleased` 下登记，不预判最终发布版本，也不写入 Cargo 的 `-dev.N` 构建号。完整测试通过后，由 `Prepare Release` 工作流或 `scripts/release.sh` 将矩阵行、章节标题和 workspace 版本一起封板；禁止手工分别修改这些位置。
+
+Startup, supervision, reload and transaction-drain futures separate their heap-owned phases to fit the native Windows main stack. A one-MiB-thread regression reaches actual Ready and confirms shutdown; no larger process stack is required by the execution path.

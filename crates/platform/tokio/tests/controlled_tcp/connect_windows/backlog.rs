@@ -1,40 +1,8 @@
 //! Bounded local backlog fixture. It must establish actual SYN_SENT; a provider
 //! that refuses full queues does not qualify as a pending-connect test fixture.
 use super::*;
-use windows_sys::Win32::Networking::WinSock::{
-    TCP_INFO_v0, WSAGetLastError, WSAIoctl, SIO_TCP_INFO, SOCKET_ERROR, TCPSTATE_SYN_SENT,
-};
-fn assert_connect_waiting(socket: RawSocket) {
-    let version = 0_u32;
-    let mut info = TCP_INFO_v0::default();
-    let mut returned = 0_u32;
-    // SAFETY: the native owner's live SOCKET is borrowed. Version 0 and the
-    // windows-sys TCP_INFO_v0 layout follow the documented SIO_TCP_INFO ABI.
-    // https://learn.microsoft.com/en-us/windows/win32/winsock/sio-tcp-info
-    // Buffers live through this synchronous stats query; no overlapped request.
-    let result = unsafe {
-        WSAIoctl(
-            socket as _,
-            SIO_TCP_INFO,
-            (&version as *const u32).cast(),
-            std::mem::size_of_val(&version) as _,
-            (&mut info as *mut TCP_INFO_v0).cast(),
-            std::mem::size_of_val(&info) as _,
-            &mut returned,
-            std::ptr::null_mut(),
-            None,
-        )
-    };
-    if result == SOCKET_ERROR {
-        panic!(
-            "Windows pending-connect fixture requires SIO_TCP_INFO: {}",
-            io::Error::from_raw_os_error(unsafe { WSAGetLastError() })
-        );
-    }
-    assert_eq!(result, 0);
-    assert!(returned as usize >= std::mem::size_of::<TCP_INFO_v0>());
-    assert_eq!(info.State, TCPSTATE_SYN_SENT, "must be a real pending native handshake, not delayed reactor readiness after immediate connection");
-}
+mod native_state;
+use native_state::assert_connect_waiting;
 struct Fixture {
     _listener: TcpListener,
     fillers: Vec<(PendingTcpConnect, ControlledTcpControl)>,
@@ -76,7 +44,7 @@ async fn saturated(
             }
             Err(_) => {
                 assert!(owner.started);
-                assert_connect_waiting(original_socket(&owner));
+                assert_connect_waiting(owner.local_addr().unwrap(), owner.peer);
                 return (fixture, owner, control);
             }
         }
@@ -90,6 +58,8 @@ async fn windows_pending_tcp_connect_backlog_drop_retains_same_socket_until_expl
         let parent = CancellationToken::new();
         let (fixture, mut owner, mut control) = saturated(parent.clone()).await;
         let original = original_socket(&owner);
+        let local = owner.local_addr().unwrap();
+        let peer = owner.peer;
         {
             let mut connecting = Box::pin(owner.connect(deadline()));
             poll_fn(|cx| {
@@ -97,11 +67,11 @@ async fn windows_pending_tcp_connect_backlog_drop_retains_same_socket_until_expl
                 Poll::Ready(())
             })
             .await;
-            assert_connect_waiting(original);
+            assert_connect_waiting(local, peer);
         }
         assert!(!parent.is_cancelled());
         assert_eq!(original_socket(&owner), original);
-        assert_connect_waiting(original);
+        assert_connect_waiting(local, peer);
         let source = owner.connect(deadline()).await.err().unwrap();
         assert_eq!(source.error().kind(), io::ErrorKind::ConnectionAborted);
         assert!(Arc::ptr_eq(
@@ -135,6 +105,8 @@ async fn windows_pending_tcp_connect_backlog_cancel_wakes_actual_waiter() {
         let parent = CancellationToken::new();
         let (fixture, mut owner, mut control) = saturated(parent.clone()).await;
         let original = original_socket(&owner);
+        let local = owner.local_addr().unwrap();
+        let peer = owner.peer;
         let entered = Arc::new(tokio::sync::Notify::new());
         let entering = entered.clone();
         let waiter = tokio::spawn(async move {
@@ -153,7 +125,7 @@ async fn windows_pending_tcp_connect_backlog_cancel_wakes_actual_waiter() {
         });
         entered.notified().await;
         assert!(!waiter.is_finished());
-        assert_connect_waiting(original);
+        assert_connect_waiting(local, peer);
         control.cancel(CloseReason::Shutdown);
         let (owner, result) = waiter.await.unwrap();
         assert_eq!(
@@ -162,7 +134,7 @@ async fn windows_pending_tcp_connect_backlog_cancel_wakes_actual_waiter() {
         );
         assert!(!parent.is_cancelled());
         assert_eq!(original_socket(&owner), original);
-        assert_connect_waiting(original);
+        assert_connect_waiting(local, peer);
         assert_eq!(
             control
                 .wait_closed(deadline())
@@ -182,18 +154,20 @@ async fn windows_pending_tcp_connect_backlog_deadline_keeps_original_handle_and_
     timeout(Duration::from_secs(10), async {
         let (fixture, mut owner, mut control) = saturated(CancellationToken::new()).await;
         let original = original_socket(&owner);
+        let local = owner.local_addr().unwrap();
+        let peer = owner.peer;
         let mut connecting = Box::pin(owner.connect(Instant::now() + Duration::from_millis(20)));
         poll_fn(|cx| {
             assert!(connecting.as_mut().poll(cx).is_pending());
             Poll::Ready(())
         })
         .await;
-        assert_connect_waiting(original);
+        assert_connect_waiting(local, peer);
         let source = connecting.await.err().unwrap();
         assert_eq!(source.error().kind(), io::ErrorKind::TimedOut);
         assert_eq!(source.local_addr(), Some(owner.local_addr().unwrap()));
         assert_eq!(original_socket(&owner), original);
-        assert_connect_waiting(original);
+        assert_connect_waiting(local, peer);
         assert!(!control
             .wait_closed(Instant::now())
             .await

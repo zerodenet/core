@@ -223,11 +223,8 @@ async fn exact_candidate_survives_cold_cache_replacement_and_cached_old_handles_
                 .prepare(original)
                 .unwrap()
                 .direct(Some("selected"))
-                .unwrap()
-                .stream(deadline())
-                .await
                 .unwrap();
-            assert!(open(&historical, &root, false).await.is_err());
+            assert!(historical.stream(deadline()).await.is_err());
             open_with_policy(
                 &selected,
                 &root,

@@ -83,12 +83,24 @@ impl InboundListenerRuntime {
 
 #[derive(Clone)]
 pub(crate) struct InboundListenerRuntimeFactory {
+    restoring: bool,
     preparing: Option<std::sync::Arc<crate::runtime::inbound_owners::PreparingInbounds>>,
     owners: std::sync::Arc<crate::runtime::inbound_owners::InboundOwnerRegistry>,
     shared: SharedIngressRuntimeServices,
 }
 
 impl InboundListenerRuntimeFactory {
+    /// Only last-known-good compensation selects restoration; equal inbound
+    /// fields in an ordinary candidate may still change its dependencies.
+    pub(crate) fn for_recovery(mut self) -> Self {
+        self.preparing = None;
+        self.restoring = true;
+        self
+    }
+    pub(crate) fn is_restoring(&self) -> bool {
+        self.restoring
+    }
+
     pub(crate) fn config_handle(&self) -> std::sync::Arc<zero_config::RuntimeConfig> {
         self.shared.config_handle()
     }
@@ -128,6 +140,7 @@ impl InboundListenerRuntimeFactory {
         Self {
             shared,
             owners,
+            restoring: false,
             preparing: None,
         }
     }
