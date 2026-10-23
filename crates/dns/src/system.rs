@@ -14,6 +14,11 @@ impl DnsResolver for TokioSystemResolver {
     type Error = io::Error;
 
     async fn resolve(&self, domain: &str) -> Result<Vec<IpAddress>, Self::Error> {
+        if crate::message::normalize_domain(domain)
+            .is_ok_and(|name| crate::localhost::is_localhost(&name))
+        {
+            return Ok(crate::localhost::addresses(Default::default()));
+        }
         let mut resolved = Vec::new();
         for addr in lookup_host((domain, 0)).await? {
             resolved.push(ip_addr_to_ip(addr.ip()));

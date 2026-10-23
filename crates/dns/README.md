@@ -39,3 +39,53 @@ not reused indefinitely. Cancellation of an older session cannot invalidate its
 replacement. Healthy sessions retain multiplexing and reuse; this does not add
 automatic query replay, change backend deadlines or alter the configured DNS
 dispatch and fallback policy.
+
+## Localhost names
+
+`localhost` and names below `.localhost` resolve locally to `127.0.0.1` and
+`::1` as specified by RFC 6761. Matching is case-insensitive and accepts the
+trailing root dot. These names never allocate Fake-IP, consult response caches,
+or query configured/upstream or OS DNS. This applies to Default, Direct and Node
+resolution, the System fallback, intercepted UDP/TCP queries and ECH lookups.
+Other DNS record types return a local NOERROR/NODATA response.
+
+Explicit IPv4-only/IPv6-only policies still filter local answers; preference
+policies preserve their ordering and per-Direct strict family overrides remain
+isolated. IPv6 loopback does not require an IPv6 Fake-IP pool. Lookalike names
+such as `localhost.example` retain ordinary DNS behavior.
+
+Legacy persistent mappings remain available for reverse lookup until expiry so
+cached clients are not redirected to another domain. New localhost lookups use
+loopback immediately and do not refresh those mappings. System applications
+outside Zero also need the platform's normal localhost/hosts configuration.
+
+## Local discovery names
+
+Names ending in `.local` use link-local discovery (RFC 6762). A public DNS
+backend cannot discover a device advertised on the client's local network.
+Use the existing System backend to delegate these lookups to the OS resolver
+and its platform discovery support. Merge a server entry and a first-match
+dispatch rule into the existing DNS configuration:
+
+```json
+{
+  "servers": { "local-system": { "type": "system" } },
+  "dispatch": [
+    { "condition": { "type": "domain", "values": ["local"] }, "server": "local-system" }
+  ]
+}
+```
+
+This is a configuration fragment; retain the other servers, default backend,
+and rules. An explicit `dns.policy.direct_server` overrides dispatch for Direct
+targets, so that setting must also permit the chosen local resolver. With
+Fake-IP answers, add `*.local` to `dns.answer.exclude_domains` when local
+clients need the device's real address. Keep local device traffic on a Direct
+route, and use the client's system-proxy bypass settings for local discovery
+when those applications should connect through the OS network stack.
+
+System resolution requires OS discovery support and a reachable advertising
+device. Repeated failures remain visible in flow results; the proxy aggregates
+environmental warning logs over a 30-second window, including failures reported
+again by the inbound listener, and reports the suppressed count on the next
+warning.

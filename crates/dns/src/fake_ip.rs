@@ -318,6 +318,9 @@ impl FakeIpAllocator {
         let Ok(domain) = normalize_domain(domain) else {
             return true;
         };
+        if crate::localhost::is_localhost(&domain) {
+            return true;
+        }
         self.exclusions.iter().any(|pattern| match pattern {
             DomainExclusion::Exact(exact) => domain == *exact,
             DomainExclusion::Suffix(suffix) => {
@@ -339,6 +342,9 @@ impl FakeIpAllocator {
 
     async fn alloc(&self, domain: &str, family: AddressFamily) -> io::Result<Option<IpAddress>> {
         let domain = normalize_domain(domain)?;
+        if crate::localhost::is_localhost(&domain) {
+            return Ok(None);
+        }
         let mut state = self.inner.lock().await;
         let now = Instant::now();
         let now_unix_ms = if state.persistence.is_some() {
