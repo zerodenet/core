@@ -85,6 +85,7 @@ impl HostDatagramListenerOwner {
         }
     }
     /// Historical native fault and actual physical completion are independent.
+    #[cfg(test)]
     pub(crate) fn fault(&self) -> Option<Arc<ChannelError>> {
         self.first_fault.clone()
     }

@@ -43,6 +43,13 @@ impl PendingEndpoints {
     }
     /// The exact candidate has been cleaned (or was genuinely never started).
     /// Fence it even when empty so a delayed first poll cannot acquire later.
+    #[cfg_attr(
+        not(test),
+        expect(
+            dead_code,
+            reason = "explicit cold-device library path; production activation requires the owning replacement transaction"
+        )
+    )]
     pub(super) fn release_closed(
         owner: &PendingEndpointMap,
         expected: &Arc<Entries>,

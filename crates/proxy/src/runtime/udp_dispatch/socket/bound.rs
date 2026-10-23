@@ -35,6 +35,9 @@ fn channel(error: ChannelError) -> EngineError {
     std::io::Error::other(error).into()
 }
 impl BoundDirectSockets {
+    pub(crate) fn registration(&self) -> PeerBoundDatagramRegistration {
+        self.authority.registration()
+    }
     pub(super) async fn new(
         runtime: &UdpIngressRuntime,
         budget: BoundDirectBudget,
@@ -104,6 +107,10 @@ impl BoundDirectSockets {
             NetworkGeneration(runtime.services().upstream().egress_control().generation());
         let source = operation
             .socket_source(execution.current_source, runtime, session, context)
+            .await
+            .map_err(channel)?;
+        self.bridge
+            .refresh_sources(tokio::time::Instant::now() + std::time::Duration::from_secs(5))
             .await
             .map_err(channel)?;
         let authorized = self

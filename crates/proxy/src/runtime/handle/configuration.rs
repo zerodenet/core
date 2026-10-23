@@ -210,7 +210,11 @@ impl ProxyHandle {
                         .map_err(|error| format!("DNS config commit failed: {error}"))?;
                     self.proxy.engine.commit_config_change();
                     Ok(())
-                })
+                })?;
+            self.proxy
+                .inbound_owners
+                .finish_recovery_transition(&component_config);
+            Ok(())
         })
     }
 
@@ -265,7 +269,11 @@ impl ProxyHandle {
                         .resolver
                         .commit_reload_resources(&token)
                         .map_err(|error| format!("DNS recovery commit failed: {error}"))
-                })
+                })?;
+            self.proxy
+                .inbound_owners
+                .finish_recovery_transition(&component_config);
+            Ok(())
         })
     }
 }

@@ -56,8 +56,21 @@ impl PeerBoundDatagramAuthority {
         }
         source.check_current(generation)?;
         let policy = source.policy_identity();
+        let expired = {
+            let mut epochs = self.epochs.lock().expect("Direct epoch authority poisoned");
+            epochs
+                .extract_if(.., |epoch| {
+                    epoch.source.check_current(epoch.generation).is_err()
+                })
+                .map(|epoch| epoch.id)
+                .collect::<Vec<_>>()
+        };
+        // Revoke the actual provider bindings before spending another epoch.
+        // Removing a diagnostic epoch alone leaves its original lease live.
+        for binding in expired {
+            self.provider.revoke_binding(&binding)?;
+        }
         let mut epochs = self.epochs.lock().expect("Direct epoch authority poisoned");
-        epochs.retain(|epoch| epoch.source.check_current(epoch.generation).is_ok());
         if let Some(existing) = epochs.iter().find(|epoch| {
             epoch.policy == policy
                 && epoch.generation == generation

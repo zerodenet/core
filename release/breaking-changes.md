@@ -47,6 +47,16 @@
 
 ## Unreleased
 
+### Raw-IP Direct caller closure uses original native receipts
+
+WireGuard/raw-IP TCP Direct sessions now settle the same controlled carrier registrations after the actual caller Scope join; raw-IP UDP associations use the existing bound Direct provider and retain its matching native/driver/caller completion. Completed covered records can return their quota. Uncovered gateways, DNS work without a controlled root, conflicting owners and incomplete native closes remain Unknown and charged. This does not qualify the remaining cold RuntimeHost or non-Direct protocol migration.
+
+Production Direct decoding now installs the existing controlled stream owner with 4096 native carrier slots, 256 refresh task slots and a five-second retirement budget. An opener with the original tracked Business caller selects it before acquisition; an explicitly selected controlled operation never falls back on failure. Service and untracked calls keep their separate legacy operation and do not establish whole-generation native coverage. Other resourceful cold gates remain closed.
+
+Each raw-IP UDP association has explicit ceilings of 256 logical sessions, 256 native sockets, one pending native open, 16 MiB pending payloads, 1024 candidates per job and 64 policy/network bindings. Native bind fallback has two pre-I/O family attempts and owner start has a five-second deadline. Exhaustion fails through the existing error path; it never switches to an untracked socket. These are finite safety ceilings, not throughput or production sizing claims. Existing bound-provider budget, source-revocation and original-close regressions cover the provider; raw TCP refusal/success and WireGuard inbound interop cover runtime integration.
+
+V1 config/API/events and FFI ABI are unchanged. GUI/SDK consumers need no wire migration; embedding applications must await shutdown and retain unconfirmed generations rather than infer closure from cancellation or Drop.
+
 ### Component task observation stays active during start and shutdown
 
 Hosted component task exits now use the original bounded Scope registration and completed queue throughout Proxy startup, reconciliation, Service diagnostics and shutdown. One inline catalog driver consumes actual native joins while lifecycle start or cleanup is suspended. A Critical failure retains the same TaskId, class and original error Arc before revoking that generation and rejecting pending start; cancellation cannot erase that source. Auxiliary failures keep the owning protocol's local semantics: its bounded receiver must retain the actual joined error before the host acknowledges the exit. Successful deliveries do not form a lifetime TaskId history. The ordinary public TaskScope behavior is unchanged; HostedScope adds only a bounded snapshot of native joins still outstanding.

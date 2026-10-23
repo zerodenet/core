@@ -51,17 +51,21 @@ impl HostResources {
         // Neither an IO failure nor a slow file job prevents driving the other
         // actual owners. No tasks are spawned; these futures stay structured.
         tokio::join!(self.drive_native(deadline), self.drive_files(deadline));
-        let mut state = self
-            .state
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        let original_failure = {
+            let state = self
+                .state
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner);
+            state
+                .files
+                .failure
+                .clone()
+                .or_else(|| state.io.failures.values().next().cloned())
+        };
         // Preserve the existing exact JoinError chain. Its real join receipt
         // stays in FileReads on Err, alongside every native receipt and error.
-        if let Some(source) = &state.files.failure {
-            return Err(crate::component::instance::retained(source.clone()));
-        }
-        if let Some(source) = state.io.failures.values().next() {
-            return Err(crate::component::instance::retained(source.clone()));
+        if let Some(source) = original_failure {
+            return Err(crate::component::instance::retained(source));
         }
         if let Some(source) = carriers
             .iter()
@@ -69,12 +73,28 @@ impl HostResources {
         {
             return Err(crate::component::instance::retained(source.clone()));
         }
-        if let Some(source) = roots.iter().find_map(|entry| entry.first_fault.as_ref()) {
-            return Err(crate::component::instance::retained(source.clone()));
+        for entry in &roots {
+            if let Some(source) = &entry.first_fault {
+                tracing::debug!(ordinal = entry.ordinal, query_failure = ?entry.first_query_failure,
+                    first_close_source = ?entry.first_close_source, native_unknown = ?entry.native_unknown,
+                    "retained original root DNS close evidence");
+                return Err(crate::component::instance::retained(source.clone()));
+            }
         }
-        if let Some(source) = metadata.iter().find_map(|entry| entry.first_fault.as_ref()) {
-            return Err(crate::component::instance::retained(source.clone()));
+        for entry in &metadata {
+            if let Some(source) = &entry.first_fault {
+                for original in entry.main.unknown.iter().chain(&entry.probes.unknown) {
+                    tracing::debug!(ordinal = entry.ordinal, reservation = original.reservation.get(),
+                        acquisition_source = ?original.acquisition_source, close_source = ?original.source,
+                        "retained original metadata datagram close evidence");
+                }
+                return Err(crate::component::instance::retained(source.clone()));
+            }
         }
+        let mut state = self
+            .state
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
         let mut report = std::mem::take(&mut state.io.receipts);
         report.append(std::mem::take(&mut state.files.receipts));
         report.unfinished.extend(
@@ -97,7 +117,7 @@ impl HostResources {
         ))));
         drop(state);
         self.metadata.append_receipts(self.component, &mut report);
-        report.unfinished.extend(metadata.iter().filter(|entry| !entry.physical_confirmed()).map(|entry| Unfinished::Resource(format!("component {} metadata declaration {} native_busy={} unconfirmed users={:?} confirmed private user graphs={}",self.component.0,entry.ordinal,entry.busy,entry.unconfirmed_users(),entry.confirmed_users()))));
+        report.unfinished.extend(metadata.iter().filter(|entry| !entry.physical_confirmed()).map(|entry| Unfinished::Resource(format!("component {} metadata declaration {} attempted={} native_busy={} unconfirmed users={:?} confirmed private user graphs={}",self.component.0,entry.ordinal,entry.attempted,entry.busy,entry.unconfirmed_users(),entry.confirmed_users()))));
         self.roots.append_receipts(self.component, &mut report);
         Ok(report)
     }

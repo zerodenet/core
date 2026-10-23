@@ -239,6 +239,14 @@ fn spawn_association(
                 )
             }
         };
+        #[cfg(feature = "raw-ip-runtime")]
+        let runtime = if native.is_some() {
+            runtime
+                .with_native(native.as_ref().map(|permit| permit.registration()))
+                .with_bound_direct_budget(owned::direct_budget())
+        } else {
+            runtime
+        };
         #[cfg(not(feature = "raw-ip-runtime"))]
         let _ = binding;
         #[cfg(feature = "raw-ip-runtime")]

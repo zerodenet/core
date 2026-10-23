@@ -56,6 +56,16 @@ impl InboundPeerTasks {
         child: Arc<PeerChild>,
         deadline: Instant,
     ) -> Result<(), ChannelError> {
+        let joined = child
+            .binding
+            .observed_join()
+            .ok_or_else(|| error(Reason::Revoked, "original child caller is not joined"))?;
+        if joined.task() != task || child.identity.task != task {
+            return Err(error(
+                Reason::InvalidConfig,
+                "child caller receipt belongs to another task",
+            ));
+        }
         let mut owner = tokio::time::timeout_at(deadline, child.owner.lock())
             .await
             .map_err(|source| {

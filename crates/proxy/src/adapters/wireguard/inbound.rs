@@ -103,6 +103,13 @@ impl LinkedEndpoint {
             .set(resources)
             .map_err(|_| invalid("linked resource owner changed during installation"))
     }
+    #[cfg_attr(
+        not(test),
+        expect(
+            dead_code,
+            reason = "explicit cold-device library path; production activation requires the owning replacement transaction"
+        )
+    )]
     pub(super) fn outer_carriers(&self) -> Vec<Arc<dyn RawIpWireCarrier>> {
         self.peers
             .borrow()

@@ -4,15 +4,21 @@ pub(crate) mod job;
 use super::*;
 use crate::runtime::inbound_owners::{HostPeerBinding, JoinedPeer};
 pub(crate) use job::DirectPeerDriverSlot;
+#[cfg(test)]
+use std::net::SocketAddr;
 use std::{
     future::Future,
-    net::SocketAddr,
     pin::Pin,
     task::{Context, Poll},
 };
-use zero_core::component::{NetworkGeneration, TaskId};
-use zero_platform_tokio::contract::{component::ResourceAccess, lifecycle::ComponentError};
+#[cfg(test)]
+use zero_core::component::NetworkGeneration;
+use zero_core::component::TaskId;
+#[cfg(test)]
+use zero_platform_tokio::contract::component::ResourceAccess;
+use zero_platform_tokio::contract::lifecycle::ComponentError;
 
+#[cfg(test)]
 pub(crate) struct DirectPeerOptions {
     pub(crate) identity: DirectEndpointIdentity,
     pub(crate) task: TaskId,
@@ -49,6 +55,7 @@ impl Future for DirectPeerDriver {
     }
 }
 impl DirectEndpointOwner {
+    #[cfg(test)]
     pub(crate) fn for_peer(
         options: DirectPeerOptions,
         services: UdpNetworkServices,

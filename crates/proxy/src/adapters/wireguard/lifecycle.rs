@@ -3,6 +3,13 @@
 mod linked;
 mod pending;
 mod pending_map;
+#[cfg_attr(
+    not(test),
+    expect(
+        dead_code,
+        reason = "explicit cold-device library path; production activation requires the owning replacement transaction"
+    )
+)]
 mod recipe;
 pub(super) use pending::{PeerResources, PendingLinkedEndpoint};
 use pending_map::PendingEndpoints;

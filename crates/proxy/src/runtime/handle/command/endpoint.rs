@@ -181,7 +181,11 @@ impl ProxyHandle {
                                 self.proxy.engine.commit_config_change();
                             }
                             Ok(())
-                        })
+                        })?;
+                    self.proxy
+                        .inbound_owners
+                        .finish_recovery_transition(&component_config);
+                    Ok(())
                 })
                 .map_err(|message| ApiError::new(ApiErrorCode::Internal, message))?;
             Ok::<(), ApiError>(())
@@ -265,7 +269,11 @@ impl ProxyHandle {
                             .resolver
                             .commit_reload_resources(&token)
                             .map_err(|error| format!("endpoint DNS commit failed: {error}"))
-                    })
+                    })?;
+                self.proxy
+                    .inbound_owners
+                    .finish_recovery_transition(snapshot.config());
+                Ok(())
             })
             .map_err(|message| ApiError::new(ApiErrorCode::Internal, message))?;
         Ok(())

@@ -7,6 +7,9 @@ pub(crate) struct UdpIngressRuntime {
     pub(super) local_addr: Option<std::net::SocketAddr>,
     pub(super) source_addr: Option<std::net::SocketAddr>,
     listener_stop: Option<crate::runtime::route_runtime::ListenerStop>,
+    #[cfg(feature = "raw-ip-runtime")]
+    native:
+        Option<crate::runtime::inbound_operation::raw_ip::native_obligations::NativeRegistration>,
     #[cfg(feature = "managed-datagram-runtime")]
     peer_resources: Option<crate::runtime::inbound_owners::PeerResourceContext>,
     #[cfg(feature = "managed-datagram-runtime")]
@@ -24,6 +27,8 @@ impl UdpIngressRuntime {
             source_addr: None,
             local_addr: None,
             listener_stop: None,
+            #[cfg(feature = "raw-ip-runtime")]
+            native: None,
             #[cfg(feature = "managed-datagram-runtime")]
             peer_resources: None,
             #[cfg(feature = "managed-datagram-runtime")]
@@ -42,6 +47,8 @@ impl UdpIngressRuntime {
             tcp_services,
             local_addr: self.local_addr,
             listener_stop: self.listener_stop.clone(),
+            #[cfg(feature = "raw-ip-runtime")]
+            native: self.native.clone(),
             source_addr: self.source_addr,
             #[cfg(feature = "managed-datagram-runtime")]
             peer_resources: self.peer_resources.clone(),
@@ -59,6 +66,8 @@ impl UdpIngressRuntime {
             source_addr,
             local_addr: self.local_addr,
             listener_stop: self.listener_stop.clone(),
+            #[cfg(feature = "raw-ip-runtime")]
+            native: self.native.clone(),
             #[cfg(feature = "managed-datagram-runtime")]
             peer_resources: self.peer_resources.clone(),
             #[cfg(feature = "managed-datagram-runtime")]
@@ -110,6 +119,23 @@ impl UdpIngressRuntime {
         &self,
     ) -> Option<&crate::runtime::inbound_owners::PeerResourceContext> {
         self.peer_resources.as_ref()
+    }
+    #[cfg(feature = "raw-ip-runtime")]
+    pub(crate) fn with_native(
+        mut self,
+        native: Option<
+            crate::runtime::inbound_operation::raw_ip::native_obligations::NativeRegistration,
+        >,
+    ) -> Self {
+        self.native = native;
+        self
+    }
+    #[cfg(feature = "raw-ip-runtime")]
+    pub(crate) fn native(
+        &self,
+    ) -> Option<&crate::runtime::inbound_operation::raw_ip::native_obligations::NativeRegistration>
+    {
+        self.native.as_ref()
     }
     /// Explicit actual caller grant. No default budget is inferred from peer count.
     #[cfg(feature = "managed-datagram-runtime")]

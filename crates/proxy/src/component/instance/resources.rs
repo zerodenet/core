@@ -12,8 +12,14 @@ mod icmp;
 mod native;
 pub(crate) use icmp::{HostIcmpProbeGrant, HostIcmpProbeOwner};
 pub(crate) use native::HostDatagramListenerOwner;
-pub(in crate::component) use native::HostIoEvidence;
 pub(in crate::component) use native::HostResources;
+#[cfg_attr(
+    not(test),
+    expect(
+        dead_code,
+        reason = "explicit cold-device library path; production activation requires the owning replacement transaction"
+    )
+)]
 mod outbound_datagram;
 pub(crate) use outbound_datagram::HostOutboundDatagramResources;
 

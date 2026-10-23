@@ -32,6 +32,10 @@ impl DirectOpener {
             &request.grants.registration(),
             &request.tasks,
         )?;
+        tracing::trace!(
+            session = self.session.id,
+            "Direct controlled request authorized"
+        );
         let candidates = ControlledCandidates::new(
             ControlledDemand {
                 request: business,

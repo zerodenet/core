@@ -5,9 +5,9 @@ use std::collections::BTreeSet;
 use zero_core::component::ComponentInstanceId;
 
 impl ComponentPlan {
-    /// Confirms the actual task/lifecycle subset without native declarations.
-    /// Native declarations keep their real partial reports but require a future
-    /// provider proof. Transferred users require separate owners in all cases.
+    /// The slot combines actual protocol/task receipts with declaration-wide
+    /// provider evidence before returning a complete report. Unknown native or
+    /// transferred users therefore remain charged here.
     pub(super) async fn confirm_instances(
         &self,
         instances: &BTreeSet<ComponentInstanceId>,
@@ -57,30 +57,11 @@ impl ComponentPlan {
                         }
                     }
                     let complete = report.is_complete();
-                    if complete && slot.recipe.spec().resources.is_empty() {
+                    if complete {
                         self.confirmed_declared_close
                             .lock()
                             .expect("component close proof poisoned")
                             .insert(identity);
-                    } else if complete {
-                        // Complete currently includes file-job joins without an
-                        // explicit native File close ledger. No resourceful
-                        // production is enabled; retain every actual receipt,
-                        // but never turn this into a full native close proof.
-                        report.unfinished.push(
-                            zero_platform_tokio::contract::lifecycle::Unfinished::Io(
-                                "native declaration lacks provider physical closure proof".into(),
-                            ),
-                        );
-                        pending.get_or_insert_with(|| {
-                            let mut error = invalid(
-                                Reason::Unsupported,
-                                "native declaration lacks provider physical closure proof",
-                            );
-                            error.stage = zero_platform_tokio::contract::Stage::Close;
-                            error.delivery = zero_platform_tokio::contract::DeliveryState::Unknown;
-                            error
-                        });
                     } else {
                         pending.get_or_insert_with(|| {
                             invalid(Reason::Timeout, "component cleanup remains unfinished")

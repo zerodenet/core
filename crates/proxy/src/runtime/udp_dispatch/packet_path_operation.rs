@@ -1,3 +1,10 @@
+#[cfg_attr(
+    not(test),
+    expect(
+        dead_code,
+        reason = "explicit cold-device library path; production activation requires the owning replacement transaction"
+    )
+)]
 mod owned;
 use std::future::Future;
 use std::pin::Pin;
@@ -203,6 +210,13 @@ pub(crate) trait PreparedUdpPacketPathOperation: Send + Sync + 'static {
 
     /// Explicit opt-in: an unknown legacy carrier never acquires a grant by
     /// falling back to its unowned builder.
+    #[cfg_attr(
+        not(test),
+        expect(
+            dead_code,
+            reason = "explicit cold-device library path; production activation requires the owning replacement transaction"
+        )
+    )]
     fn build_owned_carrier<'a>(
         &'a self,
         _services: PacketPathExecutionServices,

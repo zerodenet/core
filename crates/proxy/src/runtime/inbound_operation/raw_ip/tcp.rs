@@ -31,7 +31,11 @@ pub(super) async fn accept(
             continue;
         }
         let mut native = native
-            .reserve(super::native_obligations::ChildKind::Tcp)
+            .reserve_reclaimed(
+                super::native_obligations::ChildKind::Tcp,
+                tokio::time::Instant::now() + std::time::Duration::from_secs(5),
+            )
+            .await
             .map_err(std::io::Error::other)?;
         let source_addr = zero_platform_tokio::socket_address_to_socket_addr(source);
         // The existing Engine.prepare_session in serve mints the real identity

@@ -105,6 +105,9 @@ impl BusinessCarrierRequest {
         }
         Ok(None)
     }
+    pub(super) fn has_tracked_caller(&self) -> bool {
+        self.caller_witness().is_ok_and(|caller| caller.is_some())
+    }
     pub(super) fn check_direct_destination(
         &self,
         destination: &Destination,

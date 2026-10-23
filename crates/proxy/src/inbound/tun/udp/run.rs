@@ -115,7 +115,13 @@ pub(super) async fn run_inner(
                                         id,
                                         first: datagram,
                                         #[cfg(feature = "raw-ip-runtime")]
-                                        native: owned.as_ref().map(|owner| owner.native.reserve(crate::runtime::inbound_operation::raw_ip::native_obligations::ChildKind::Udp)).transpose().map_err(std::io::Error::other)?,
+                                        native: match &owned {
+                                            Some(owner) => Some(owner.native.reserve_reclaimed(
+                                                crate::runtime::inbound_operation::raw_ip::native_obligations::ChildKind::Udp,
+                                                tokio::time::Instant::now() + Duration::from_secs(5),
+                                            ).await.map_err(std::io::Error::other)?),
+                                            None => None,
+                                        },
                                     },
                                 )?;
                                 tracing::trace!(

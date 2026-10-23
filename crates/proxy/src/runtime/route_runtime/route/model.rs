@@ -33,20 +33,14 @@ impl InboundRouteRuntime {
         self.accepted_tasks = Some(tasks);
         Ok(self)
     }
+    #[cfg(test)]
     pub(in crate::runtime) fn accepted_tasks(
         &self,
     ) -> Option<zero_platform_tokio::AcceptedTcpTasks> {
         self.accepted_tasks.clone()
     }
 
-    pub(crate) fn with_accepted_caller(
-        mut self,
-        caller: zero_platform_tokio::AcceptedTcpCaller,
-    ) -> Self {
-        self.tcp_runtime = self.tcp_runtime.with_accepted_caller(caller);
-        self
-    }
-
+    #[cfg(test)]
     pub(crate) fn accepted_caller(&self) -> Option<zero_platform_tokio::AcceptedTcpCaller> {
         self.tcp_runtime.accepted_caller()
     }

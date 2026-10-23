@@ -89,6 +89,13 @@ impl ComponentPlan {
             .iter()
             .filter(|slot| !self.deferred_devices.contains(&slot.id))
     }
+    #[cfg_attr(
+        not(test),
+        expect(
+            dead_code,
+            reason = "explicit cold-device library path; production activation requires the owning replacement transaction"
+        )
+    )]
     pub(crate) fn device_component(
         &self,
         id: ComponentId,

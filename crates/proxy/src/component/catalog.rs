@@ -1,5 +1,12 @@
 //! Cold preparation and bounded current-plan storage for migrated components.
 mod cold;
+#[cfg_attr(
+    not(test),
+    expect(
+        dead_code,
+        reason = "explicit cold-device library path; production activation requires the owning replacement transaction"
+    )
+)]
 mod devices;
 mod maintenance;
 mod plan;

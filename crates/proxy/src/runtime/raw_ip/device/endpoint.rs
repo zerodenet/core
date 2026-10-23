@@ -1,5 +1,12 @@
 //! Active client stacks attached to a neutral bidirectional IP endpoint.
 
+#[cfg_attr(
+    not(test),
+    expect(
+        dead_code,
+        reason = "explicit cold-device library path; production activation requires the owning replacement transaction"
+    )
+)]
 mod owner;
 mod recipe;
 pub(crate) use owner::EndpointStackOwner;

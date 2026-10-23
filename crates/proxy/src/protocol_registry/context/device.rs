@@ -29,5 +29,12 @@ pub(crate) struct OutboundDevicePreparationContext {
 pub(crate) struct PreparedDevicePacketPath {
     pub(crate) operation: Arc<dyn PreparedUdpPacketPathOperation>,
     pub(crate) identity: [u8; 32],
+    #[cfg_attr(
+        not(test),
+        expect(
+            dead_code,
+            reason = "explicit cold-device library path; production activation requires the owning replacement transaction"
+        )
+    )]
     pub(crate) root_binding: zero_platform_tokio::contract::network::UpstreamBinding,
 }

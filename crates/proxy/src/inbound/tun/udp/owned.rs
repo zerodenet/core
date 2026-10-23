@@ -51,3 +51,22 @@ pub(super) fn lost_completion(output: AssociationExit) -> Result<(), EngineError
         .into_failure()
         .map_or(Ok(()), |source| Err(std::io::Error::other(source).into()))
 }
+
+/// Explicit grants of the raw-IP association owner. The sole synchronous native
+/// issuer permits one pending acquisition; address-family fallback is pre-I/O.
+pub(super) fn direct_budget() -> crate::runtime::udp_dispatch::BoundDirectBudget {
+    use crate::runtime::udp_socket::endpoint::DirectEndpointLimits;
+    use std::num::NonZeroUsize;
+    crate::runtime::udp_dispatch::BoundDirectBudget {
+        limits: DirectEndpointLimits {
+            logical: NonZeroUsize::new(256).unwrap(),
+            native_sockets: NonZeroUsize::new(256).unwrap(),
+            pending_native_opens: NonZeroUsize::MIN,
+            pending_bytes: NonZeroUsize::new(16 * 1024 * 1024).unwrap(),
+            candidates_per_job: NonZeroUsize::new(1024).unwrap(),
+        },
+        max_bindings: NonZeroUsize::new(64).unwrap(),
+        pre_io_bind_attempts: NonZeroUsize::new(2).unwrap(),
+        start_deadline: tokio::time::Instant::now() + std::time::Duration::from_secs(5),
+    }
+}

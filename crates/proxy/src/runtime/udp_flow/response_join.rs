@@ -72,13 +72,18 @@ impl ResponseTask {
         if self.cancelled.load(std::sync::atomic::Ordering::Acquire) {
             return false;
         }
-        match &*state {
-            Registration::Idle | Registration::Joined(_) => {
-                *state = Registration::Pending;
-                true
-            }
-            _ => false,
+        let previous = match &*state {
+            Registration::Idle => None,
+            Registration::Joined(receipt) => Some(receipt.clone()),
+            _ => return false,
+        };
+        *state = Registration::Pending;
+        drop(state);
+        if let Some(receipt) = previous {
+            tracing::trace!(task = %receipt.id(), failure = ?receipt.failure(),
+                "rearming response read after original task join");
         }
+        true
     }
     pub(crate) fn cancel(&self) {
         self.cancelled
@@ -91,12 +96,14 @@ impl ResponseTask {
             task.abort();
         }
     }
+    #[cfg(test)]
     pub(crate) fn joined(&self) -> Option<Arc<ResponseJoined>> {
         match &*self.state.lock().unwrap_or_else(|error| error.into_inner()) {
             Registration::Joined(receipt) => Some(receipt.clone()),
             _ => None,
         }
     }
+    #[cfg(test)]
     pub(crate) async fn wait_joined(&self) -> Arc<ResponseJoined> {
         loop {
             let changed = self.changed.notified();

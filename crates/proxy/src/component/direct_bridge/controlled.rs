@@ -150,7 +150,15 @@ impl ControlledCandidates {
                     "Direct retirement budget exceeds monotonic time range",
                 )
             })?;
+        tracing::trace!(
+            ?remote,
+            "Direct controlled candidate reaping original slots"
+        );
         self.demand.grants.reap_returned(retirement_end).await?;
+        tracing::trace!(
+            ?remote,
+            "Direct controlled candidate reserving original slot"
+        );
         let mut grant = self.demand.grants.reserve()?;
         let user = grant.claim_user_view()?;
         let adoption = grant.adoption();
@@ -168,6 +176,10 @@ impl ControlledCandidates {
                 Arc::new(self.services.egress_control()),
                 None,
             )?;
+            tracing::trace!(
+                ?remote,
+                "Direct controlled candidate starting native connect"
+            );
             let carrier = native
                 .prepare_controlled_stream(&binding, endpoint, self.context.clone(), grant)?
                 .open_with_deadline(self.context.deadline)

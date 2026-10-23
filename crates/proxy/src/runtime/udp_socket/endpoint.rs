@@ -15,6 +15,7 @@ mod tests;
 
 pub(crate) use super::bound::DirectEndpointBinding;
 use super::{DirectUdpPolicy, DirectUdpResponseSource, DirectUdpSentPacket, DirectUdpSockets};
+#[cfg(test)]
 use crate::protocol_registry::UdpNetworkServices;
 pub(crate) use accounting::DirectEndpointQueueUsage;
 use accounting::{CopyAccounting, CopyReservation};
@@ -153,6 +154,7 @@ fn legacy(error: ChannelError) -> EngineError {
 impl DirectEndpointOwner {
     /// `scope` is the actual granted owner, never a second private scope created
     /// during Factory.build. This constructor does not activate a host recipe.
+    #[cfg(test)]
     pub(crate) fn new(
         identity: DirectEndpointIdentity,
         services: UdpNetworkServices,
@@ -194,7 +196,8 @@ fn shared(
     observer: Option<Arc<dyn zero_traits::IoObserver>>,
 ) -> Result<(Arc<Shared>, mpsc::Receiver<Command>), ChannelError> {
     // A per-client-stack byte budget needs that actual stack's shared owner.
-    if NonZeroUsize::new(queue.capacity).is_none()
+    if limits.pending_native_opens.get() != 1
+        || NonZeroUsize::new(queue.capacity).is_none()
         || queue.capacity > 65_536
         || queue.max_payload_bytes.is_some_and(|limit| limit < 65_527)
         || queue.max_stack_payload_bytes.is_some()

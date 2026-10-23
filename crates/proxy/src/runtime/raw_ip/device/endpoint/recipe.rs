@@ -26,6 +26,13 @@ impl EndpointStackRecipe {
         })
     }
 
+    #[cfg_attr(
+        not(test),
+        expect(
+            dead_code,
+            reason = "explicit cold-device library path; production activation requires the owning replacement transaction"
+        )
+    )]
     pub(crate) fn prepare_checked(
         local_addresses: Vec<IpAddr>,
         mtu: u16,

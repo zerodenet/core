@@ -44,6 +44,12 @@ pub struct ControlledStreamRequest {
 /// Host-supplied execution of an already selected prefix. Implementations must
 /// reject stale generations and preserve every hard dial constraint. No direct fallback.
 pub trait UpstreamOpener: Send + Sync {
+    /// Selection hint only. It issues no grant; the controlled open must still
+    /// validate the original request, owner, caller and selected generation.
+    fn supports_controlled_stream(&self) -> bool {
+        false
+    }
+
     /// Multi-candidate resolution/acquisition is opt-in. Reject before legacy
     /// execution or native I/O; an unsupported opener cannot silently fall back.
     fn open_controlled_stream(
@@ -111,6 +117,9 @@ impl UpstreamTransport {
             binding: Arc::new(binding),
             opener,
         }
+    }
+    pub fn supports_controlled_stream(&self) -> bool {
+        self.opener.supports_controlled_stream()
     }
     pub fn binding(&self) -> &UpstreamBinding {
         &self.binding

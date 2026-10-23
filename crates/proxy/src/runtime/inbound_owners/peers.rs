@@ -159,6 +159,16 @@ impl InboundPeerTasks {
         // Never run a protocol/cold-owner factory under the registration lock.
         // Its bounded reservation persists if it panics or stop races it.
         let task = make(binding.clone());
+        let stop = binding.cancellation();
+        // The binding is the peer's actual admission fence. Poll its body in
+        // the same registered task so revoke returns borrowed views before the
+        // original Scope publishes TaskExit and native cleanup can proceed.
+        let task = async move {
+            tokio::select! { biased;
+                result = task => result,
+                _ = stop.cancelled() => Ok(()),
+            }
+        };
         let mut state = self.state.lock().expect("peer task state poisoned");
         if state.closing || self.cancel.is_cancelled() {
             drop(state);

@@ -58,6 +58,13 @@ impl DeviceWorkers {
     pub(super) fn flow_users(&self) -> Option<Arc<crate::runtime::packet_flow::FlowUsers>> {
         self.users.clone()
     }
+    #[cfg_attr(
+        not(test),
+        expect(
+            dead_code,
+            reason = "explicit cold-device library path; production activation requires the owning replacement transaction"
+        )
+    )]
     pub(super) fn bind_scope(&self, registrar: WeakTaskRegistrar) -> Result<(), EngineError> {
         let mut binding = self
             .scope
@@ -118,6 +125,13 @@ impl DeviceWorkers {
             .map(|_| ())
             .map_err(|source| EngineError::Io(std::io::Error::other(source)))
     }
+    #[cfg_attr(
+        not(test),
+        expect(
+            dead_code,
+            reason = "explicit cold-device library path; production activation requires the owning replacement transaction"
+        )
+    )]
     pub(super) fn first_scoped_failure(&self) -> Option<EngineError> {
         self.scoped()
             .and_then(|owner| owner.first_failure())

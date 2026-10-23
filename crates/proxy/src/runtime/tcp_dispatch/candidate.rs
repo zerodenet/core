@@ -17,6 +17,30 @@ pub(crate) async fn dispatch_prepared_tcp_candidate(
     let health_tag = prepared.health_tag.clone();
     let trace = crate::transport::establishment::DialTrace::default();
     let services = services.with_dial_trace(trace.clone());
+    #[cfg(feature = "raw-ip-runtime")]
+    if let Some(caller) = services
+        .invocation
+        .as_ref()
+        .and_then(|invocation| invocation.caller_native.as_ref())
+    {
+        let covered = match &prepared.execution {
+            PreparedTcpCandidateExecution::Native(slot) => {
+                !matches!(session.target, zero_core::Address::Domain(_)) && !matches!(session.effective_direct_target(), zero_core::Address::Domain(_))
+                    && slot.recipe.spec().resources.iter().any(|declaration| matches!(declaration,
+                        zero_platform_tokio::contract::component::ResourceDeclaration::ControlledDirectStream { .. }))
+            }
+            PreparedTcpCandidateExecution::Block { .. } => !matches!(session.target, zero_core::Address::Domain(_)) && !matches!(session.effective_direct_target(), zero_core::Address::Domain(_)),
+            PreparedTcpCandidateExecution::Connect(operation) => operation.controlled_native_coverage(&services, session),
+        };
+        caller
+            .declare_gateway(covered)
+            .map_err(|source| TcpOutboundFailure {
+                stage: "native_gateway_admission",
+                error: std::io::Error::other(source).into(),
+                upstream_endpoint: None,
+                network: None,
+            })?;
+    }
     let result = match &prepared.execution {
         PreparedTcpCandidateExecution::Native(slot) => {
             crate::component::stream_bridge::connect(&services, session, slot, &prepared).await

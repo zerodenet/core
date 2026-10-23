@@ -21,6 +21,7 @@ pub(in crate::component) struct NativeIoEvidence {
     pub address: SocketAddr,
     pub confirmed: bool,
     pub known_no_acquisition: bool,
+    #[cfg(test)]
     pub first_fault: Option<Arc<ChannelError>>,
 }
 impl HostResources {
@@ -50,6 +51,7 @@ impl HostResources {
                         .try_lock()
                         .is_ok_and(|owner| owner.known_no_acquisition())
                 },
+                #[cfg(test)]
                 first_fault: state.io.failures.get(&key).cloned(),
             })
             .collect();

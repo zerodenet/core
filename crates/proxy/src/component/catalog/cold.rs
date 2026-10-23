@@ -1,4 +1,4 @@
-//! One cold union pass; compilation never grants resourceful production start.
+//! One cold union pass; only the integrated controlled Direct resource may start.
 use super::*;
 use crate::component::{ResourcePreparation, SharedResourceIdentities};
 use zero_config::OutboundProtocolConfig;
@@ -14,6 +14,13 @@ impl ComponentCatalog {
     ) -> Result<ComponentPlan, ChannelError> {
         self.prepare_plan_inner(config, previous, issued, false, |_| Ok(Default::default()))
     }
+    #[cfg_attr(
+        not(test),
+        expect(
+            dead_code,
+            reason = "explicit cold-device library path; production activation requires the owning replacement transaction"
+        )
+    )]
     pub(super) fn prepare_plan_with_devices(
         &self,
         config: &RuntimeConfig,
@@ -49,8 +56,11 @@ impl ComponentCatalog {
                 }
                 continue;
             }
-            if !spec.resources.is_empty()
-                || spec.task_limit.is_some()
+            let controlled_direct = !spec.resources.is_empty()
+                && spec.resources.iter().all(|resource| matches!(resource,
+                    zero_platform_tokio::contract::component::ResourceDeclaration::ControlledDirectStream { .. }))
+                && spec.task_limit.is_some();
+            if (!controlled_direct && (!spec.resources.is_empty() || spec.task_limit.is_some()))
                 || spec.roles.is_empty()
                 || spec
                     .roles
@@ -59,7 +69,7 @@ impl ComponentCatalog {
             {
                 return Err(invalid(
                     Reason::Internal,
-                    "migrated component must declare real session-owned roles without shared resources or tasks",
+                    "component resources/tasks require an integrated controlled Direct stream owner",
                 ));
             }
         }

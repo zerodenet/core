@@ -52,6 +52,13 @@ pub(crate) trait RawIpWireCarrier: Send + Sync {
 
     /// Actual original background handles consumed, independent of their fault.
     /// Unknown legacy implementations cannot certify an empty task graph.
+    #[cfg_attr(
+        not(test),
+        expect(
+            dead_code,
+            reason = "explicit cold-device library path; production activation requires the owning replacement transaction"
+        )
+    )]
     fn background_drained(&self) -> bool {
         false
     }

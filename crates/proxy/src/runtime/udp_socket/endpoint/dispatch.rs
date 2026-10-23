@@ -8,9 +8,12 @@ use std::{
 };
 use tokio::time::Instant;
 use zero_platform_tokio::contract::{
-    lifecycle::{erase_control, CloseReport, DynChannelControl},
+    lifecycle::{erase_control, DynChannelControl},
     CloseReason,
 };
+
+#[cfg(test)]
+use zero_platform_tokio::contract::lifecycle::CloseReport;
 
 pub(crate) struct DirectDispatchEndpoint {
     endpoint: DirectEndpoint,
@@ -92,6 +95,7 @@ impl DirectDispatchEndpoint {
             receiver: Mutex::new(Receiver::default()),
         }
     }
+    #[cfg(test)]
     pub(crate) fn admit(
         &mut self,
         session: SessionId,
@@ -178,12 +182,16 @@ impl DirectDispatchEndpoint {
         })?;
         slot.tx.send_new_packet(target, candidates, payload).await
     }
+    pub(crate) async fn refresh_sources(&self, deadline: Instant) -> Result<(), ChannelError> {
+        self.endpoint.refresh_sources(deadline).await
+    }
     /// A receive-only borrow of the same original receiver. Unique Tx/control
     /// handles stay outside this view and need not implement Sync.
     pub(crate) fn receiver(&self) -> DirectDispatchReceive<'_> {
         DirectDispatchReceive(&self.receiver)
     }
     /// Convenience entry for an exclusive bridge consumer.
+    #[cfg(test)]
     pub(crate) async fn recv_from_addr(
         &mut self,
         output: &mut [u8],
@@ -199,6 +207,7 @@ impl DirectDispatchEndpoint {
             slot.control().cancel(CloseReason::Completed);
         }
     }
+    #[cfg(test)]
     pub(crate) async fn finish_session(
         &mut self,
         session: SessionId,

@@ -44,6 +44,7 @@ mod listener;
 mod metadata;
 mod prepare;
 mod root_datagram;
+#[cfg(test)]
 pub(in crate::component) use evidence::HostIoEvidence;
 pub(crate) use listener::HostDatagramListenerOwner;
 mod shutdown;

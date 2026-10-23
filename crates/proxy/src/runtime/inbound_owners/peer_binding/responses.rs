@@ -64,6 +64,15 @@ impl HostPeerBinding {
         owner.revoke();
         let closed = owner.shutdown(deadline).await?;
         assert!(closed.matches(&owner), "original response Set receipt");
+        if let Some(crate::runtime::udp_flow::response_join::ResponseFailure::Body(source)) =
+            owner.first_failure()
+        {
+            tracing::debug!(error = %source, "peer response body failure retained after actual join");
+        }
+        tracing::trace!(
+            response_tasks = closed.joined_tasks(),
+            "original peer response Set joined"
+        );
         // Physical response-task completion and an original fatal source are
         // independent. Persist both before another await/native cleanup.
         let fatal = owner.first_fatal_failure().map(|source| {

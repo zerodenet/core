@@ -3,6 +3,7 @@ use super::*;
 use zero_core::component::ComponentInstanceId;
 use zero_platform_tokio::contract::scope::TaskScopeIdentity;
 impl HostResources {
+    #[cfg(test)]
     pub(in crate::component) fn new(
         component: ComponentId,
         declarations: &[ResourceDeclaration],

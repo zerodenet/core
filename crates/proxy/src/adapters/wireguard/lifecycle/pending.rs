@@ -1,4 +1,11 @@
 //! Passive identity prepared before any replacement stack or listener starts.
+#[cfg_attr(
+    not(test),
+    expect(
+        dead_code,
+        reason = "explicit cold-device library path; production activation requires the owning replacement transaction"
+    )
+)]
 mod close;
 use super::super::inbound::{LinkedEndpoint, LiveInboundDevice};
 use std::sync::{Arc, OnceLock};
@@ -25,6 +32,13 @@ impl PendingLinkedEndpoint {
     }
     /// Pure declaration of exactly the configured peers. The pending map must
     /// retain this object before any peer's owned build can be polled.
+    #[cfg_attr(
+        not(test),
+        expect(
+            dead_code,
+            reason = "explicit cold-device library path; production activation requires the owning replacement transaction"
+        )
+    )]
     pub(in crate::adapters::wireguard) fn with_peer_slots(
         listen: ListenConfig,
         live: Arc<LiveInboundDevice>,
@@ -58,12 +72,26 @@ impl PendingLinkedEndpoint {
             }),
         })
     }
+    #[cfg_attr(
+        not(test),
+        expect(
+            dead_code,
+            reason = "explicit cold-device library path; production activation requires the owning replacement transaction"
+        )
+    )]
     pub(in crate::adapters::wireguard) fn peer_carrier(
         &self,
         peer: usize,
     ) -> Option<Arc<crate::runtime::udp_dispatch::packet_owner::PacketCarrierOwnerSlot>> {
         self.resources.peer_carriers.get(peer).cloned()
     }
+    #[cfg_attr(
+        not(test),
+        expect(
+            dead_code,
+            reason = "explicit cold-device library path; production activation requires the owning replacement transaction"
+        )
+    )]
     pub(in crate::adapters::wireguard) fn peer_stack(
         &self,
         peer: usize,
@@ -83,6 +111,13 @@ impl PendingLinkedEndpoint {
         pending.install(link)?;
         Ok(pending)
     }
+    #[cfg_attr(
+        not(test),
+        expect(
+            dead_code,
+            reason = "explicit cold-device library path; production activation requires the owning replacement transaction"
+        )
+    )]
     pub(super) fn is_usable(&self) -> bool {
         self.resources.is_usable()
     }
@@ -103,6 +138,13 @@ impl PendingLinkedEndpoint {
                     .ready()
                     .is_some_and(|link| !link.carrier_owners_match(&self.resources.peer_carriers)))
     }
+    #[cfg_attr(
+        not(test),
+        expect(
+            dead_code,
+            reason = "explicit cold-device library path; production activation requires the owning replacement transaction"
+        )
+    )]
     pub(in crate::adapters::wireguard) async fn stop_peer_resources(
         &self,
         deadline: tokio::time::Instant,

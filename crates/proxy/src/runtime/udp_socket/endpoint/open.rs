@@ -1,11 +1,13 @@
 use super::*;
 
 impl DirectEndpoint {
+    #[cfg(test)]
     pub(crate) fn identity(&self) -> DirectEndpointIdentity {
         self.0.identity
     }
     /// Actual business and association IDs are supplied by the accepted flow.
     /// No socket opens until the first bounded command is executed.
+    #[cfg(test)]
     pub(crate) fn open(
         &self,
         session: SessionId,
@@ -17,6 +19,7 @@ impl DirectEndpoint {
     }
     /// Preserve the protocol-supplied opaque client-session isolation key.
     /// It is separate from the host-assigned logical association identity.
+    #[cfg(test)]
     pub(crate) fn open_isolated(
         &self,
         session: SessionId,

@@ -78,6 +78,24 @@ pub(crate) async fn execute_prepared_udp_candidate(
     payload: &[u8],
     prepared: PreparedUdpLeafCandidate<'_>,
 ) -> Result<FlowStartResult, FlowFailure> {
+    #[cfg(feature = "raw-ip-runtime")]
+    if let Some(native) = dispatch.runtime.native() {
+        let covered = match &prepared {
+            PreparedUdpLeafCandidate::Block { .. } => {
+                !matches!(session.target, zero_core::Address::Domain(_))
+            }
+            PreparedUdpLeafCandidate::Flow(operation) => {
+                operation.controlled_native_coverage(session)
+            }
+        } && dispatch.bound_direct_registration().is_some();
+        native
+            .declare_gateway(covered)
+            .map_err(|source| FlowFailure {
+                stage: "native_gateway_admission",
+                error: std::io::Error::other(source).into(),
+                upstream: None,
+            })?;
+    }
     match prepared {
         PreparedUdpLeafCandidate::Block { tag } => Ok(FlowStartResult::Blocked { tag }),
         PreparedUdpLeafCandidate::Flow(operation) => {

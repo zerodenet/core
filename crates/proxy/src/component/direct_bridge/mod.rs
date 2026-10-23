@@ -96,6 +96,10 @@ pub(crate) async fn connect(
     let slot = plan
         .direct(configured_tag)
         .map_err(|error| failure("prepare_component", error))?;
+    tracing::trace!(
+        session = session.id,
+        "Direct business waiting for component role"
+    );
     let role = slot
         .stream(
             invocation
@@ -108,6 +112,10 @@ pub(crate) async fn connect(
             error.session = error.session.or(invocation.identity.session());
             failure("start_component", error)
         })?;
+    tracing::trace!(
+        session = session.id,
+        "Direct business acquired component role"
+    );
     let opener = Arc::new(
         network::DirectOpener::new(services.upstream(), session.clone()).with_business(
             super::business_carrier::BusinessCarrierRequest::new(

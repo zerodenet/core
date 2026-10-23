@@ -172,6 +172,13 @@ impl FlowUsers {
     }
     /// Only logical view release and original caller joins. No native/socket,
     /// worker-scope ACK, recovery or replacement authorization is issued here.
+    #[cfg_attr(
+        not(test),
+        expect(
+            dead_code,
+            reason = "explicit cold-device library path; production activation requires the owning replacement transaction"
+        )
+    )]
     pub(crate) async fn shutdown(&self, deadline: Instant) -> Result<CloseReport, ChannelError> {
         self.revoke();
         loop {

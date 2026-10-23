@@ -4,6 +4,7 @@ use crate::component::instance::{retained, SharedError};
 use tokio::sync::Notify;
 mod observer;
 mod responses;
+#[cfg(test)]
 pub(crate) use observer::HostPeerJoinObserver;
 use zero_core::component::TaskId;
 use zero_platform_tokio::contract::{scope::TaskClass, ChannelError, Impact, Reason, Stage};

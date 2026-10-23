@@ -40,6 +40,7 @@ impl NativeRegistration {
     /// to this grant, before native prepare. This carries no new authority.
     /// One exact slot is idempotent. A distinct slot permanently marks this
     /// record unknown and is rejected before its native preparation can begin.
+    #[cfg(test)]
     pub(crate) fn observe_carrier(&self, adoption: CarrierAdoption) -> Result<(), ChannelError> {
         self.check_open()?;
         let owner = self

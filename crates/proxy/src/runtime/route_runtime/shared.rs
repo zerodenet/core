@@ -27,6 +27,11 @@ impl SharedIngressRuntimeServices {
         tag: &str,
         terminal: &crate::runtime::inbound_owners::InboundTerminal,
     ) {
+        if let Some(joined) = terminal.client_failure() {
+            tracing::debug!(inbound_tag = tag, task_id = joined.id().0,
+                task_class = ?joined.class(), error = ?joined.result().err(),
+                "accepted client rejection retained after inbound closure");
+        }
         let Some(failure) = terminal.failure() else {
             return;
         };

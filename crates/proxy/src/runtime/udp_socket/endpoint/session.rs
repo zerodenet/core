@@ -1,7 +1,9 @@
 use super::*;
+#[cfg(test)]
+use std::future::poll_fn;
 use std::sync::atomic::Ordering;
 use std::{
-    future::{poll_fn, Future},
+    future::Future,
     pin::Pin,
     task::{Context, Poll},
 };
@@ -114,6 +116,7 @@ impl DirectEndpointRx {
         Self { logical, cancelled }
     }
     /// Preserve the actual revocable source token through downstream delivery.
+    #[cfg(test)]
     pub(crate) async fn recv(&mut self) -> DirectEndpointReceive {
         poll_fn(|cx| self.poll_recv(cx)).await
     }

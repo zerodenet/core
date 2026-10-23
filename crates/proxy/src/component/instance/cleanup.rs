@@ -81,9 +81,20 @@ impl Owner {
             protocol?;
             io?;
         }
-        Ok(pending_close
+        let evidence = resources.io_evidence();
+        if let Some(source) = evidence.sticky_faults.first() {
+            return Err(super::retained(source.clone()));
+        }
+        let mut report = pending_close
             .take()
             .map(|report| *report)
-            .unwrap_or_default())
+            .unwrap_or_default();
+        if !evidence.admission_closed || !evidence.physical_confirmed() {
+            report.unfinished.push(Unfinished::Resource(format!(
+                "component {} declaration coverage remains unconfirmed",
+                component.0
+            )));
+        }
+        Ok(report)
     }
 }

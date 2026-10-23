@@ -2,7 +2,9 @@
 mod bind;
 mod entry;
 mod observers;
-pub(crate) use bind::{LeasedInbound, NativeListenerView};
+pub(crate) use bind::LeasedInbound;
+#[cfg(test)]
+pub(crate) use bind::NativeListenerView;
 pub(crate) use observers::ListenerObservers;
 #[cfg(feature = "managed-datagram-runtime")]
 mod peer_binding;
@@ -20,8 +22,10 @@ pub(crate) use entry::{
     consume_reported_error, ClosedInboundReceipt, InboundOwner, InboundReady, InboundTaskAccess,
     InboundTerminal,
 };
+#[cfg(all(test, feature = "managed-datagram-runtime"))]
+pub(crate) use peer_binding::HostPeerJoinObserver;
 #[cfg(feature = "managed-datagram-runtime")]
-pub(crate) use peer_binding::{HostPeerBinding, HostPeerJoinObserver, JoinedPeer};
+pub(crate) use peer_binding::{HostPeerBinding, JoinedPeer};
 #[cfg(feature = "managed-datagram-runtime")]
 pub(crate) use peers::{
     children::{PeerBoundDatagramAuthority, PeerBoundDatagramRegistration, PeerResourceContext},
@@ -106,6 +110,7 @@ impl InboundOwnerRegistry {
             .map(|owner| owner.identity())
             .collect()
     }
+    #[cfg(test)]
     pub(crate) fn install(
         &self,
         tag: &str,

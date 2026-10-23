@@ -2,6 +2,13 @@ use super::*;
 impl HostResources {
     /// Actual host factory only. No ServicePurpose, DNS builder or protocol can
     /// obtain this issuer from ResourceAccess. One private root per instance.
+    #[cfg_attr(
+        not(test),
+        expect(
+            dead_code,
+            reason = "explicit root-DNS library path; production activation requires actual host task and resource grants"
+        )
+    )]
     pub(in crate::component) fn issue_datagram_root(
         self: &Arc<Self>,
         ordinals: &[usize],

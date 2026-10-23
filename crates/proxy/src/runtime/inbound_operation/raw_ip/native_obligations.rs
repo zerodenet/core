@@ -44,6 +44,9 @@ struct Record {
     carrier_owner: Option<zero_platform_tokio::controlled_carrier::CarrierOwnerRegistration>,
     additional_carriers: Vec<zero_platform_tokio::controlled_carrier::CarrierAdoption>,
     carrier_conflict: bool,
+    gateways: usize,
+    uncovered_gateway: bool,
+    datagram: Option<crate::runtime::inbound_owners::PeerBoundDatagramRegistration>,
 }
 pub(crate) struct NativePermit {
     owner: NativeObligations,
@@ -96,6 +99,9 @@ impl NativeObligations {
                 carrier_owner: None,
                 additional_carriers: Vec::new(),
                 carrier_conflict: false,
+                gateways: 0,
+                uncovered_gateway: false,
+                datagram: None,
             },
         );
         Ok(NativePermit {
@@ -117,6 +123,7 @@ pub(crate) struct NativeRegistration {
 }
 mod business;
 mod carrier;
+mod completion;
 mod registration;
 impl NativePermit {
     pub(crate) fn registration(&self) -> NativeRegistration {
@@ -216,8 +223,25 @@ impl ResourceLifecycle for NativeObligations {
     fn revoke(&self, _: CloseReason) {
         self.stop();
     }
-    async fn shutdown(&mut self, _: Instant) -> Result<CloseReport, ChannelError> {
+    async fn shutdown(&mut self, deadline: Instant) -> Result<CloseReport, ChannelError> {
         self.stop();
+        loop {
+            self.settle_joined(deadline).await?;
+            let report = self.close_report()?;
+            if report.is_complete() || Instant::now() >= deadline {
+                return Ok(report);
+            }
+            // Original peer/provider receipts are produced by the containing
+            // Scope consumer concurrently. Keep this same owner while they join.
+            tokio::time::sleep_until(
+                deadline.min(Instant::now() + std::time::Duration::from_millis(2)),
+            )
+            .await;
+        }
+    }
+}
+impl NativeObligations {
+    fn close_report(&self) -> Result<CloseReport, ChannelError> {
         // Clone only bounded registration identities before querying original
         // carrier/caller receipts; no ledger lock surrounds other owners.
         let registrations: Vec<_> = self

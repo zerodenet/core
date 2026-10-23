@@ -24,6 +24,15 @@ pub(crate) struct DirectUdpFlowOperation {
 }
 
 impl PreparedUdpFlowOperation for DirectUdpFlowOperation {
+    #[cfg(feature = "raw-ip-runtime")]
+    fn controlled_native_coverage(&self, session: &Session) -> bool {
+        !matches!(session.target, zero_core::Address::Domain(_))
+            && !matches!(
+                session.effective_direct_target(),
+                zero_core::Address::Domain(_)
+            )
+    }
+
     fn execute<'a>(
         self: Box<Self>,
         dispatch: &'a mut UdpDispatch,

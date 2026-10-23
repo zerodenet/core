@@ -39,6 +39,7 @@ impl NativeRegistration {
     }
     /// Wait only on the original host Scope binding. Cancellation of this
     /// waiter leaves both that original binding and the native ledger intact.
+    #[cfg(test)]
     pub(crate) async fn wait_caller_joined(
         &self,
         deadline: Instant,

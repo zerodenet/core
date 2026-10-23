@@ -24,6 +24,14 @@ impl UdpDispatch {
         }
         let preferred_port = runtime.source_addr().map(|source| source.port());
         let direct_socket = DispatchDirectSockets::new(&runtime, preferred_port).await?;
+        #[cfg(feature = "raw-ip-runtime")]
+        if let Some(native) = runtime.native() {
+            if let DispatchDirectSockets::Bound(socket) = &direct_socket {
+                native
+                    .observe_datagram(socket.registration())
+                    .map_err(std::io::Error::other)?;
+            }
+        }
         let (cancel_tx, cancel_rx) = tokio::sync::mpsc::unbounded_channel();
         Ok(Self {
             runtime,

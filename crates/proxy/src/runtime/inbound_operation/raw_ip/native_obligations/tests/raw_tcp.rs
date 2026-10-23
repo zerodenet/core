@@ -36,11 +36,17 @@ async fn completed(proxy: &Proxy, port: u16) -> zero_engine::CompletedSessionRec
 
 #[tokio::test]
 async fn actual_raw_tcp_accept_serve_refusal_does_not_stop_the_next_admitted_wire_session() {
+    if std::env::var_os("ZERO_TEST_LOG").is_some() {
+        let _ = tracing_subscriber::fmt()
+            .with_env_filter("zero_proxy=trace,zero_stack=trace")
+            .try_init();
+    }
     timeout(Duration::from_secs(8), async {
         let proxy = Proxy::new(
             zero_config::RuntimeConfig::parse(r#"{"route":{"final":{"type":"direct"}}}"#).unwrap(),
         )
         .unwrap();
+        proxy.protocols.drive_component_supervision(async {
         // Match real startup: cold Proxy construction is not current host
         // admission for either the refused flow or its healthy successor.
         let config = proxy.engine().runtime_snapshot().config().clone();
@@ -61,8 +67,8 @@ async fn actual_raw_tcp_accept_serve_refusal_does_not_stop_the_next_admitted_wir
         let group = installed
             .child_tasks(NonZeroUsize::new(2).unwrap())
             .unwrap();
-        let native = NativeObligations::new(2, 0, 0);
-        let native_identity = installed.register(native.resource()).unwrap();
+        let native = NativeObligations::new(1, 0, 0);
+        installed.register(native.resource()).unwrap();
         let owner = installed.owner();
         let host = installed.tasks();
         let factory = InboundRouteRuntimeFactory::new(
@@ -123,15 +129,24 @@ async fn actual_raw_tcp_accept_serve_refusal_does_not_stop_the_next_admitted_wir
             let owner = owner.clone();
             tokio::spawn(async move { owner.observe_driver().await })
         };
-        // Exact port remains reserved by a real non-listening native socket.
+        // macOS drops SYN on a bound non-listening socket. Release this
+        // endpoint so this fixture observes a real native refusal instead.
         let refusing = TcpSocket::new_v4().unwrap();
         refusing.bind("127.0.0.1:0".parse().unwrap()).unwrap();
         let refused = refusing.local_addr().unwrap();
+        drop(refusing);
         let mut first = client.connect(client_ip, refused).await.unwrap();
         let mut bytes = [0; 64];
         let closed = timeout(Duration::from_secs(3), first.read(&mut bytes))
             .await
-            .unwrap();
+            .unwrap_or_else(|error| {
+                eprintln!("raw TCP active={:?} completed={:?} monitor_done={}", proxy.engine().active_sessions(), proxy.engine().completed_sessions(), monitor.is_finished());
+                let state = native.0.lock().unwrap();
+                for (id, record) in &state.records {
+                    eprintln!("raw TCP record={id} entered={} retiring={} gateways={} uncovered={} caller_joined={} business={:?}", record.entered, record.retiring, record.gateways, record.uncovered_gateway, record.caller.as_ref().is_some_and(|caller| caller.observed_join().is_some()), record.business_failure);
+                }
+                panic!("raw TCP refusal response: {error}");
+            });
         assert!(
             !matches!(closed, Ok(size) if size != 0),
             "failed establishment cannot yield successful response bytes"
@@ -195,6 +210,20 @@ async fn actual_raw_tcp_accept_serve_refusal_does_not_stop_the_next_admitted_wir
         assert!(!host.cancellation().is_cancelled());
         assert!(native.0.lock().unwrap().first_source.is_none());
 
+        assert!(Arc::ptr_eq(
+            &source,
+            native
+                .0
+                .lock()
+                .unwrap()
+                .records
+                .get(&registration.id)
+                .unwrap()
+                .business_failure
+                .as_ref()
+                .unwrap()
+        ));
+
         let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
         let address = listener.local_addr().unwrap();
         let echo = tokio::spawn(async move {
@@ -221,46 +250,26 @@ async fn actual_raw_tcp_accept_serve_refusal_does_not_stop_the_next_admitted_wir
         assert_eq!(healthy.inbound_tag.as_deref(), Some("raw-wire"));
         assert_eq!(healthy.target, Address::Ipv4([127, 0, 0, 1]));
         assert!(healthy.failure.is_none());
+        assert!(
+            !native.0.lock().unwrap().records.contains_key(&registration.id),
+            "the same one-slot quota was reclaimed from the original native/caller receipts"
+        );
         assert_eq!(healthy.outcome, zero_engine::SessionOutcome::DirectRelayed);
         assert!(!host.cancellation().is_cancelled());
-        assert!(Arc::ptr_eq(
-            &source,
-            native
-                .0
-                .lock()
-                .unwrap()
-                .records
-                .get(&registration.id)
-                .unwrap()
-                .business_failure
-                .as_ref()
-                .unwrap()
-        ));
         assert!(
             !monitor.is_finished(),
             "ordinary flow failures kept the actual listener alive"
         );
         stop_parent.send(()).unwrap();
-        let stopped = monitor.await.unwrap().unwrap_err();
-        let zero_engine::EngineError::Io(stopped) = stopped else {
-            panic!("original resource cleanup boundary");
-        };
-        let cleanup = stopped
-            .get_ref()
-            .unwrap()
-            .downcast_ref::<ChannelError>()
-            .unwrap();
-        assert_eq!(cleanup.stage, Stage::Close);
-        assert_eq!(cleanup.reason, Reason::Timeout);
-        assert_eq!(cleanup.component, Some(native_identity.component));
-        assert!(registry
+        monitor.await.unwrap().unwrap();
+        registry
             .confirm_shutdown("raw-wire", Instant::now() + Duration::from_secs(2))
             .await
-            .is_err());
-        assert_eq!(native.0.lock().unwrap().records.len(), 2);
+            .unwrap();
+        assert!(native.0.lock().unwrap().records.is_empty());
         assert!(
-            owner.terminal_for_test().is_none(),
-            "ordinary flow handling never proves original native closure"
+            owner.terminal_for_test().is_some(),
+            "original native receipts and real caller joins complete the host"
         );
         drop((first, next));
         client.revoke();
@@ -270,6 +279,7 @@ async fn actual_raw_tcp_accept_serve_refusal_does_not_stop_the_next_admitted_wir
             .shutdown_components(Instant::now() + Duration::from_secs(2))
             .await
             .unwrap();
+        }).await;
     })
     .await
     .unwrap();

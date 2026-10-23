@@ -24,6 +24,7 @@ use zero_traits::DialPolicy;
 pub struct DirectOptions {
     pub(super) policy: DialPolicy,
     control: Option<DirectBudgets>,
+    retain_legacy_calls: bool,
 }
 impl DirectOptions {
     pub fn validate(policy: DialPolicy) -> Result<Self, zero_traits::DialPolicyError> {
@@ -31,10 +32,11 @@ impl DirectOptions {
         Ok(Self {
             policy,
             control: None,
+            retain_legacy_calls: false,
         })
     }
-    /// Explicit library preparation only. Production decoding supplies no
-    /// socket/task/retirement defaults and retains its current legacy gate.
+    /// Explicit required capability for library callers. Production decoding
+    /// also retains the separate legacy operation for untracked callers.
     pub fn controlled(
         mut self,
         max_sockets: NonZeroUsize,
@@ -76,9 +78,19 @@ pub(crate) fn decode(
             input.tag
         )));
     }
-    DirectOptions::validate(input.dial.to_policy()).map_err(|error| {
+    let mut options = DirectOptions::validate(input.dial.to_policy()).map_err(|error| {
         zero_config::ConfigError::InvalidOutbound(format!("outbound `{}` dial: {error}", input.tag))
-    })
+    })?;
+    // Explicit host ceilings. Only openers carrying an actual tracked caller
+    // select this capability; existing Service/untracked calls retain their
+    // separate legacy operation, never fallback from a failed controlled open.
+    options.control = Some(DirectBudgets {
+        max_sockets: NonZeroUsize::new(4096).unwrap(),
+        max_refresh_tasks: NonZeroUsize::new(256).unwrap(),
+        retirement: Duration::from_secs(5),
+    });
+    options.retain_legacy_calls = true;
+    Ok(options)
 }
 pub(super) struct Outbound {
     pub(super) options: Arc<DirectOptions>,
@@ -99,13 +111,16 @@ impl ComponentFactory for DirectFactory {
     type Options = DirectOptions;
     fn describe(&self, options: &Self::Options) -> ComponentSpec {
         let mut static_identity = format!("{:?}", options.policy).into_bytes();
+        if options.retain_legacy_calls {
+            static_identity.extend_from_slice(b"legacy-callers");
+        }
         if let Some(control) = &options.control {
             static_identity.extend_from_slice(b"controlled");
             static_identity.extend_from_slice(&control.retirement.as_nanos().to_be_bytes());
         }
         ComponentSpec {
             owner: ResourceOwner::Component,
-            roles: if options.control.is_some() { vec![RoleKind::Stream] } else { vec![RoleKind::Stream, RoleKind::Datagram] },
+            roles: if options.control.is_some() && !options.retain_legacy_calls { vec![RoleKind::Stream] } else { vec![RoleKind::Stream, RoleKind::Datagram] },
             dependencies: vec![],
             // The neutral dial policy contains no credentials.
             static_identity: static_identity.into(),
@@ -130,7 +145,7 @@ impl ComponentFactory for DirectFactory {
                     state: state.clone(),
                     control: control.clone(),
                 })),
-                datagram: if control.is_none() {
+                datagram: if control.is_none() || options.retain_legacy_calls {
                     Some(erase_datagram(Outbound {
                         options,
                         state,
@@ -166,7 +181,10 @@ impl StreamOutbound for Outbound {
             deadline: context.deadline,
             cancel: context.cancel.clone(),
         };
-        let open = match &self.control {
+        let selected_control = self.control.as_ref().filter(|_| {
+            !self.options.retain_legacy_calls || context.upstream.supports_controlled_stream()
+        });
+        let open = match selected_control {
             Some(control) => context.upstream.open_controlled_stream(
                 zero_platform_tokio::contract::network::ControlledStreamRequest {
                     destination: request.destination,

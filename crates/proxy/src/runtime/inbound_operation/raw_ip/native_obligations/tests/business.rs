@@ -36,11 +36,12 @@ async fn real_refused_business_flow_retains_its_caller_source_without_stopping_t
         let owner = owner.clone();
         tokio::spawn(async move { owner.observe_driver().await })
     };
-    // Reserve the exact real TCP port without listening. The OS refuses
-    // connect while this socket prevents another fixture stealing that port.
+    // Reserve then close an endpoint. Keeping a non-listening bound socket
+    // drops SYN on macOS instead of producing the required native refusal.
     let refusing = TcpSocket::new_v4().unwrap();
     refusing.bind("127.0.0.1:0".parse().unwrap()).unwrap();
     let refused_address = refusing.local_addr().unwrap();
+    drop(refusing);
     let mut failed = native.reserve(ChildKind::Tcp).unwrap();
     let failed_registration = failed.registration();
     let (binding_tx, binding_rx) = oneshot::channel();

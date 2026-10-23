@@ -32,6 +32,13 @@ enum Failure {
     Admission(Arc<ChannelError>),
 }
 impl ScopedWorkers {
+    #[cfg_attr(
+        not(test),
+        expect(
+            dead_code,
+            reason = "explicit cold-device library path; production activation requires the owning replacement transaction"
+        )
+    )]
     pub(super) fn new(registrar: WeakTaskRegistrar) -> Self {
         Self {
             registrar,
@@ -115,6 +122,13 @@ impl ScopedWorkers {
             }
         }
     }
+    #[cfg_attr(
+        not(test),
+        expect(
+            dead_code,
+            reason = "explicit cold-device library path; production activation requires the owning replacement transaction"
+        )
+    )]
     pub(super) fn first_failure(&self) -> Option<ChannelError> {
         failure(&self.state.lock().unwrap_or_else(|error| error.into_inner()))
     }

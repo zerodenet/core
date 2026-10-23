@@ -1,4 +1,5 @@
 use super::*;
+#[cfg(target_os = "linux")]
 use std::{future::Future, task::Poll};
 #[tokio::test]
 async fn controlled_carrier_unpolled_open_and_pre_ready_cancel_keep_owner_and_capacity() {

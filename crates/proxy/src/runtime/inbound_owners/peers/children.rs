@@ -2,6 +2,13 @@
 mod bound_datagram;
 pub(crate) use bound_datagram::{PeerBoundDatagramAuthority, PeerBoundDatagramRegistration};
 mod close;
+#[cfg_attr(
+    not(test),
+    expect(
+        dead_code,
+        reason = "explicit single-target grant fixture; live multi-target peers use the bound provider"
+    )
+)]
 mod datagram;
 use super::*;
 use crate::component::instance::{retained, SharedError};

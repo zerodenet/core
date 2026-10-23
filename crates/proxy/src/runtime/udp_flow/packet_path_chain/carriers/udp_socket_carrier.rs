@@ -1,3 +1,10 @@
+#[cfg_attr(
+    not(test),
+    expect(
+        dead_code,
+        reason = "explicit cold-device library path; production activation requires the owning replacement transaction"
+    )
+)]
 pub(crate) mod owned;
 use std::sync::Arc;
 
