@@ -24,7 +24,7 @@ pub(in crate::runtime::inbound_owners) fn proxy() -> Proxy {
         "inbounds":[
             {"tag":"first","listen":{"address":"127.0.0.1","port":0},"udp":{"enabled":false},
              "protocol":{"type":"direct","target":"127.0.0.1","port":9}},
-            {"tag":"second","listen":{"address":"127.0.0.2","port":0},"udp":{"enabled":false},
+            {"tag":"second","listen":{"address":"::1","port":0},"udp":{"enabled":false},
              "protocol":{"type":"direct","target":"127.0.0.1","port":9}}
         ],"route":{"final":{"type":"direct"}}
     }"#,
@@ -46,14 +46,14 @@ pub(in crate::runtime::inbound_owners) fn lease(
         .prepare_inbound_listener(inbound.clone(), None)
         .unwrap();
     let address = match index {
-        0 => [127, 0, 0, 1],
-        _ => [127, 0, 0, 2],
+        0 => Address::Ipv4([127, 0, 0, 1]),
+        _ => Address::Ipv6(std::net::Ipv6Addr::LOCALHOST.octets()),
     };
     let prepared = PreparedInboundBind::new(
         operation,
         Arc::from([ResourceDeclaration::TcpListener {
             accepted: None,
-            destination: Destination::new(Address::Ipv4(address), 0),
+            destination: Destination::new(address, 0),
             max_bind_attempts: std::num::NonZeroUsize::new(50).unwrap(),
         }]),
     )

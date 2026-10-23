@@ -76,7 +76,7 @@ members = [
     "crates/tun",
     "crates/stack",
 ]
-exclude = ["vendor/quinn", "vendor/quinn-udp", "vendor/quinn-proto", "vendor/h3-quinn", "vendor/blake3", "vendor/h2", "vendor/hyper", "vendor/gotatun", "vendor/wintun"]
+exclude = ["vendor/quinn", "vendor/quinn-udp", "vendor/quinn-proto", "vendor/h3-quinn", "vendor/blake3", "vendor/h2", "vendor/hyper", "vendor/gotatun", "vendor/wintun", "vendor/tokio-util"]
 resolver = "2"
 
 [workspace.package]
@@ -143,6 +143,7 @@ tempfile.workspace = true
 zero-platform-tokio = { path = "crates/platform/tokio" }
 
 [patch.crates-io]
+tokio-util = { path = "vendor/tokio-util" }
 wintun = { path = "vendor/wintun" }
 gotatun = { path = "vendor/gotatun" }
 h2 = { path = "vendor/h2" }

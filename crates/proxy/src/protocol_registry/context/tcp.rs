@@ -200,7 +200,6 @@ impl TcpRuntimeServices {
         Ok(self)
     }
 
-    #[cfg(feature = "udp-runtime")]
     pub(crate) fn protocols(&self) -> &ProtocolInventory {
         &self.protocols
     }

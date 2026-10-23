@@ -228,7 +228,7 @@ impl ResourceLifecycle for NativeObligations {
         loop {
             self.settle_joined(deadline).await?;
             let report = self.close_report()?;
-            if report.is_complete() || Instant::now() >= deadline {
+            if report.is_complete() || !self.has_covered_gateway() || Instant::now() >= deadline {
                 return Ok(report);
             }
             // Original peer/provider receipts are produced by the containing

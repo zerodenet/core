@@ -36,6 +36,13 @@ impl InlineSupervisor {
                 if changed.as_mut().poll(cx).is_ready() {
                     changed.set(signal.notified());
                     changed.as_mut().enable();
+                    // enable() enqueues the new waiter without publishing its
+                    // waker. Arm it before work can request another scan. If
+                    // another notification already won, schedule a bounded
+                    // follow-up poll rather than lose the only driver wake.
+                    if changed.as_mut().poll(cx).is_ready() {
+                        cx.waker().wake_by_ref();
+                    }
                 }
                 scan(&target);
             }
@@ -137,3 +144,7 @@ impl ComponentCatalog {
 
 #[cfg(test)]
 pub(crate) mod testing;
+
+#[cfg(test)]
+#[path = "../tests/supervision_wake.rs"]
+mod wake_tests;

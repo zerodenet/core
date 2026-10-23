@@ -154,6 +154,7 @@ async fn controlled_carrier_real_refused_error_source_survives_until_original_cl
         let reserved = tokio::net::TcpSocket::new_v4().unwrap();
         reserved.bind("127.0.0.1:0".parse().unwrap()).unwrap();
         let peer = reserved.local_addr().unwrap();
+        drop(reserved); // macOS otherwise drops SYN rather than refusing it.
         let egress = Arc::new(crate::EgressInterfaceControl::default());
         let binding = UpstreamBinding {
             prefix: vec![],

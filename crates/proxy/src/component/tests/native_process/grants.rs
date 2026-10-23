@@ -171,11 +171,14 @@ async fn the_actual_slot_denies_native_starts_during_build_and_after_start_retur
         access.spawn_process(sleeping()).unwrap_err().reason,
         Reason::InvalidConfig
     );
-    assert!(slot
-        .shutdown(Instant::now() + Duration::from_secs(5))
-        .await
-        .unwrap()
-        .is_complete());
+    assert!(
+        !slot
+            .shutdown(Instant::now() + Duration::from_secs(5))
+            .await
+            .unwrap()
+            .is_complete(),
+        "uncovered Process declarations cannot manufacture native closure"
+    );
     assert_eq!(
         access.spawn_process(sleeping()).unwrap_err().reason,
         Reason::Revoked

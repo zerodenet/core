@@ -90,15 +90,13 @@ async fn pending_tcp_connect_transfers_same_native_io_and_preserves_reverse_half
 #[tokio::test]
 async fn pending_tcp_connect_keeps_original_refused_os_error_and_bound_source_until_close() {
     timeout(Duration::from_secs(3), async {
-        // This bound, non-listening socket reserves the target port throughout
-        // the test, avoiding the usual dropped-listener port-reuse race.
+        // Close the reserved endpoint to get a real refusal on every platform;
+        // macOS drops SYN while a non-listening socket remains bound.
         let reserved = TcpSocket::new_v4().unwrap();
         reserved.bind("127.0.0.1:0".parse().unwrap()).unwrap();
-        let (mut owner, mut control) = prepare(
-            reserved.local_addr().unwrap(),
-            CancellationToken::new(),
-            None,
-        );
+        let refused = reserved.local_addr().unwrap();
+        drop(reserved);
+        let (mut owner, mut control) = prepare(refused, CancellationToken::new(), None);
         let first = owner.connect(deadline()).await.err().unwrap();
         assert_eq!(first.stage(), "connect_socket");
         assert_eq!(first.error().raw_os_error(), Some(libc::ECONNREFUSED));

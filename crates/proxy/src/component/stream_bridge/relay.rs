@@ -16,7 +16,7 @@ use zero_platform_tokio::contract::{
     context::OpenContext,
     network::{UpstreamBinding, UpstreamTransport},
     stream::ConnectRequest,
-    Reason,
+    ChannelError, Reason,
 };
 
 pub(crate) async fn connect(
@@ -29,8 +29,20 @@ pub(crate) async fn connect(
         .nodes
         .first()
         .expect("validated relay has two nodes");
-    let normalize = |error| {
-        let mut failure = super::failure("relay_last", error, &first.endpoint);
+    let normalize = |error: ChannelError| {
+        let failed = error
+            .component
+            .and_then(|id| prepared.nodes.iter().find(|node| node.slot.id == id))
+            .unwrap_or(first);
+        let mut failure = super::failure("relay_last", error, &failed.endpoint);
+        failure.error = crate::transport::establishment::EstablishmentFailure::wrap(
+            failure.error,
+            Some(failed.tag.clone()),
+            failed.protocol.clone(),
+            Some(failed.endpoint.clone()),
+            "relay_last",
+            None,
+        );
         failure.upstream_endpoint = None;
         failure
     };

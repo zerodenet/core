@@ -255,6 +255,10 @@ fn spawn_association(
                 return (source, id, Err(std::io::Error::other(error).into()));
             }
         }
+        #[cfg(feature = "raw-ip-runtime")]
+        let stop = runtime
+            .peer_resources()
+            .map(|context| context.binding().cancellation());
         let relay = crate::runtime::datagram_udp::run_protocol_datagram_udp_relay(
             runtime,
             stack,
@@ -263,12 +267,25 @@ fn spawn_association(
             true,
         );
         #[cfg(feature = "raw-ip-runtime")]
-        let result = match driver_job {
-            Some(job) => {
-                crate::runtime::udp_socket::endpoint::peer::job::run_peer_preserving(relay, job)
-                    .await
+        let result = {
+            let work = async {
+                match driver_job {
+                    Some(job) => {
+                        crate::runtime::udp_socket::endpoint::peer::job::run_peer_preserving(
+                            relay, job,
+                        )
+                        .await
+                    }
+                    None => relay.await,
+                }
+            };
+            match stop {
+                Some(stop) => tokio::select! { biased;
+                    result = work => result,
+                    _ = stop.cancelled() => Ok(()),
+                },
+                None => work.await,
             }
-            None => relay.await,
         };
         #[cfg(not(feature = "raw-ip-runtime"))]
         let result = relay.await;

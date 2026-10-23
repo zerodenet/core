@@ -198,7 +198,7 @@ async fn typed_receipt_reissues_after_unaccepted_publication_error_but_cannot_re
 }
 
 #[tokio::test]
-async fn native_declaration_retains_actual_close_receipts_and_scope_fault_without_provider_proof() {
+async fn native_declaration_confirms_original_close_without_erasing_its_real_scope_fault() {
     let catalog = ComponentCatalog::default();
     let (slot, state) = native::native_slot(&catalog, true).await;
     let original = plan(vec![slot.clone()]);
@@ -215,16 +215,19 @@ async fn native_declaration_retains_actual_close_receipts_and_scope_fault_withou
     let candidate = catalog.prepare(target.clone()).unwrap();
     for _ in 0..2 {
         let error = catalog.start(target.clone(), deadline()).await.unwrap_err();
-        assert_eq!(error.reason, Reason::Unsupported);
+        assert_eq!(error.reason, Reason::Internal);
         assert_eq!(
             error.delivery,
             zero_platform_tokio::contract::DeliveryState::Unknown
         );
         native::assert_released(&state);
-        assert!(!original.confirmed(&BTreeSet::from([slot.instance_id()])));
+        assert!(original.confirmed(&BTreeSet::from([slot.instance_id()])));
         let batch = catalog.state.lock().unwrap().replacement.clone().unwrap();
         assert!(!batch.released());
-        assert!(batch.terminal.get().is_none());
+        assert!(
+            batch.terminal.get().is_some(),
+            "physical closure retains a terminal with the original fault"
+        );
         let evidence = original.close_evidence.lock().unwrap();
         let retained = &evidence[&slot.instance_id()];
         assert_eq!(
@@ -233,7 +236,10 @@ async fn native_declaration_retains_actual_close_receipts_and_scope_fault_withou
             "actual controlled original listener receipt survives retry"
         );
         assert_eq!(retained.exited_tasks, [state.task.lock().unwrap().unwrap()]);
-        assert!(!retained.unfinished.is_empty());
+        assert!(
+            retained.unfinished.is_empty(),
+            "actual native closure is independent of the retained task panic"
+        );
     }
     let failure = original
         .failures

@@ -59,6 +59,10 @@ Same-address listener candidates use replacement preparation; only explicit roll
 
 V1 config/API/events and FFI ABI are unchanged. GUI/SDK consumers need no wire migration; embedding applications must await shutdown and retain unconfirmed generations rather than infer closure from cancellation or Drop.
 
+### Cancellation callback panics retain a usable original tree
+
+The workspace preserves tokio-util 0.7.18 with a local cancellation-tree patch. It publishes the actual cancelled nodes and releases ancestor locks before notifying waiters; a panicking waker cannot poison the parent or prevent sibling notifications, and the original first panic resumes after delivery. Task/native closure still requires the original join/provider receipts. Provenance and the exact local change are recorded in `vendor/tokio-util/UPSTREAM.md`; regressions use actual registrar cancellation and the proxy monitor's pending I/O/real task-exit path. No protocol package baseline, V1 wire format or FFI ABI changes.
+
 ### Component task observation stays active during start and shutdown
 
 Hosted component task exits now use the original bounded Scope registration and completed queue throughout Proxy startup, reconciliation, Service diagnostics and shutdown. One inline catalog driver consumes actual native joins while lifecycle start or cleanup is suspended. A Critical failure retains the same TaskId, class and original error Arc before revoking that generation and rejecting pending start; cancellation cannot erase that source. Auxiliary failures keep the owning protocol's local semantics: its bounded receiver must retain the actual joined error before the host acknowledges the exit. Successful deliveries do not form a lifetime TaskId history. The ordinary public TaskScope behavior is unchanged; HostedScope adds only a bounded snapshot of native joins still outstanding.

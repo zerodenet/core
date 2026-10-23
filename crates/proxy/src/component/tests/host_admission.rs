@@ -118,184 +118,189 @@ async fn open_with_policy(
 #[tokio::test]
 async fn cold_validation_never_grants_admission_and_failed_commit_keeps_current_closed() {
     let catalog = ComponentCatalog::default();
-    let config = config();
-    let plan = catalog.prepare(config.clone()).unwrap();
-    let role = plan
-        .direct(Some("selected"))
-        .unwrap()
-        .stream(deadline())
-        .await
-        .unwrap();
-    let root = Arc::new(Root::default());
-    assert_eq!(
-        open(&role, &root, false).await.err().unwrap().reason,
-        Reason::StalePlan
-    );
-    assert!(
-        catalog.commit(&config, || Ok(())).is_err(),
-        "cold prepare is not a start acknowledgement"
-    );
-    catalog.start(config.clone(), deadline()).await.unwrap();
-    open(&role, &root, false).await.unwrap();
-    let error = open(&role, &root, true).await.err().unwrap();
-    assert_eq!(error.reason, Reason::StalePlan);
-    assert_eq!(error.delivery, DeliveryState::NotSubmitted);
-    assert_eq!(root.calls.load(Ordering::SeqCst), 1);
-    assert!(catalog
-        .commit::<()>(&config, || Err("actual commit failed".into()))
-        .is_err());
-    assert!(open(&role, &root, true).await.is_err());
-    catalog.commit(&config, || Ok(())).unwrap();
-    open(&role, &root, true).await.unwrap();
-    catalog.stop_business();
-    assert!(open(&role, &root, true).await.is_err());
-    open(&role, &root, false).await.unwrap();
-    catalog.shutdown(deadline()).await.unwrap();
-    assert!(open(&role, &root, false).await.is_err());
+    catalog
+        .drive_supervised(async {
+            let config = config();
+            let plan = catalog.prepare(config.clone()).unwrap();
+            let slot = plan.direct(Some("selected")).unwrap();
+            assert!(
+                slot.stream(deadline()).await.is_err(),
+                "cold preparation cannot start its native owner"
+            );
+            let root = Arc::new(Root::default());
+            assert_eq!(root.calls.load(Ordering::SeqCst), 0);
+            assert!(
+                catalog.commit(&config, || Ok(())).is_err(),
+                "cold prepare is not a start acknowledgement"
+            );
+            catalog.start(config.clone(), deadline()).await.unwrap();
+            let role = slot.stream(deadline()).await.unwrap();
+            open(&role, &root, false).await.unwrap();
+            let error = open(&role, &root, true).await.err().unwrap();
+            assert_eq!(error.reason, Reason::StalePlan);
+            assert_eq!(error.delivery, DeliveryState::NotSubmitted);
+            assert_eq!(root.calls.load(Ordering::SeqCst), 1);
+            assert!(catalog
+                .commit::<()>(&config, || Err("actual commit failed".into()))
+                .is_err());
+            assert!(open(&role, &root, true).await.is_err());
+            catalog.commit(&config, || Ok(())).unwrap();
+            open(&role, &root, true).await.unwrap();
+            catalog.stop_business();
+            assert!(open(&role, &root, true).await.is_err());
+            open(&role, &root, false).await.unwrap();
+            catalog.shutdown(deadline()).await.unwrap();
+            assert!(open(&role, &root, false).await.is_err());
+        })
+        .await;
 }
 
 #[tokio::test]
 async fn exact_candidate_survives_cold_cache_replacement_and_cached_old_handles_are_fenced() {
     let catalog = ComponentCatalog::default();
-    let original = config();
-    catalog.start(original.clone(), deadline()).await.unwrap();
-    catalog.commit(&original, || Ok(())).unwrap();
-    let old = catalog
-        .prepare(original.clone())
-        .unwrap()
-        .direct(Some("selected"))
-        .unwrap()
-        .stream(deadline())
-        .await
-        .unwrap();
-    let root = Arc::new(Root::default());
-    let mut transferred = open(&old, &root, true).await.unwrap();
+    catalog
+        .drive_supervised(async {
+            let original = config();
+            catalog.start(original.clone(), deadline()).await.unwrap();
+            catalog.commit(&original, || Ok(())).unwrap();
+            let old = catalog
+                .prepare(original.clone())
+                .unwrap()
+                .direct(Some("selected"))
+                .unwrap()
+                .stream(deadline())
+                .await
+                .unwrap();
+            let root = Arc::new(Root::default());
+            let mut transferred = open(&old, &root, true).await.unwrap();
 
-    let mut candidate = (*original).clone();
-    candidate.outbounds[0].dial.address_family = OutboundAddressFamily::OnlyIpv4;
-    let candidate = Arc::new(candidate);
-    catalog.start(candidate.clone(), deadline()).await.unwrap();
-    let selected = catalog
-        .prepare(candidate.clone())
-        .unwrap()
-        .direct(Some("selected"))
-        .unwrap()
-        .stream(deadline())
-        .await
-        .unwrap();
-    let mut other = (*original).clone();
-    other.outbounds[0].dial.address_family = OutboundAddressFamily::OnlyIpv6;
-    let other = Arc::new(other);
-    let other_plan = catalog.prepare(other.clone()).unwrap();
-    let cold_role = other_plan
-        .direct(Some("selected"))
-        .unwrap()
-        .stream(deadline())
-        .await
-        .unwrap();
-    // Cold alternatives may propose the same next generation. Only the actual
-    // host-selected owner receives the grant; matching numeric IDs is insufficient.
-    assert!(open(&cold_role, &root, false).await.is_err());
-    assert!(catalog.commit(&other, || Ok(())).is_err());
-    catalog.commit(&candidate, || Ok(())).unwrap();
-    assert!(Arc::ptr_eq(
-        &selected,
-        &catalog
-            .prepare(candidate.clone())
-            .unwrap()
-            .direct(Some("selected"))
-            .unwrap()
-            .stream(deadline())
+            let mut candidate = (*original).clone();
+            candidate.outbounds[0].dial.address_family = OutboundAddressFamily::OnlyIpv4;
+            let candidate = Arc::new(candidate);
+            catalog.start(candidate.clone(), deadline()).await.unwrap();
+            let selected = catalog
+                .prepare(candidate.clone())
+                .unwrap()
+                .direct(Some("selected"))
+                .unwrap()
+                .stream(deadline())
+                .await
+                .unwrap();
+            let mut other = (*original).clone();
+            other.outbounds[0].dial.address_family = OutboundAddressFamily::OnlyIpv6;
+            let other = Arc::new(other);
+            let other_plan = catalog.prepare(other.clone()).unwrap();
+            let cold_slot = other_plan.direct(Some("selected")).unwrap();
+            assert!(cold_slot.stream(deadline()).await.is_err());
+            // Cold alternatives may propose the same next generation. Only the actual
+            // host-selected owner receives the grant; matching numeric IDs is insufficient.
+            assert!(cold_slot.stream(deadline()).await.is_err());
+            assert!(catalog.commit(&other, || Ok(())).is_err());
+            catalog.commit(&candidate, || Ok(())).unwrap();
+            assert!(Arc::ptr_eq(
+                &selected,
+                &catalog
+                    .prepare(candidate.clone())
+                    .unwrap()
+                    .direct(Some("selected"))
+                    .unwrap()
+                    .stream(deadline())
+                    .await
+                    .unwrap()
+            ));
+            assert!(open(&old, &root, true).await.is_err());
+            assert!(open(&old, &root, false).await.is_err());
+            assert!(cold_slot.stream(deadline()).await.is_err());
+            open_with_policy(
+                &selected,
+                &root,
+                true,
+                candidate.outbounds[0].dial.to_policy(),
+            )
             .await
-            .unwrap()
-    ));
-    assert!(open(&old, &root, true).await.is_err());
-    assert!(open(&old, &root, false).await.is_err());
-    assert!(open(&cold_role, &root, true).await.is_err());
-    open_with_policy(
-        &selected,
-        &root,
-        true,
-        candidate.outbounds[0].dial.to_policy(),
-    )
-    .await
-    .unwrap();
-    let historical = catalog
-        .prepare(original)
-        .unwrap()
-        .direct(Some("selected"))
-        .unwrap()
-        .stream(deadline())
-        .await
-        .unwrap();
-    assert!(open(&historical, &root, false).await.is_err());
-    open_with_policy(
-        &selected,
-        &root,
-        true,
-        candidate.outbounds[0].dial.to_policy(),
-    )
-    .await
-    .unwrap();
-    // Publishing does not close transferred I/O or pretend to own its session.
-    let mut peer = root.peers.lock().unwrap().remove(0);
-    peer.write_all(b"x").await.unwrap();
-    assert_eq!(transferred.read_u8().await.unwrap(), b'x');
-    catalog.shutdown(deadline()).await.unwrap();
+            .unwrap();
+            let historical = catalog
+                .prepare(original)
+                .unwrap()
+                .direct(Some("selected"))
+                .unwrap()
+                .stream(deadline())
+                .await
+                .unwrap();
+            assert!(open(&historical, &root, false).await.is_err());
+            open_with_policy(
+                &selected,
+                &root,
+                true,
+                candidate.outbounds[0].dial.to_policy(),
+            )
+            .await
+            .unwrap();
+            // Publishing does not close transferred I/O or pretend to own its session.
+            let mut peer = root.peers.lock().unwrap().remove(0);
+            peer.write_all(b"x").await.unwrap();
+            assert_eq!(transferred.read_u8().await.unwrap(), b'x');
+            catalog.shutdown(deadline()).await.unwrap();
+        })
+        .await;
 }
 
 #[tokio::test]
 async fn committing_current_cannot_discard_another_actual_started_candidate() {
     use std::sync::atomic::AtomicBool;
     let catalog = ComponentCatalog::default();
-    let current = config();
-    catalog.start(current.clone(), deadline()).await.unwrap();
-    catalog.commit(&current, || Ok(())).unwrap();
-    let old = catalog
-        .prepare(current.clone())
-        .unwrap()
-        .direct(Some("selected"))
-        .unwrap()
-        .stream(deadline())
-        .await
-        .unwrap();
-    let mut candidate = (*current).clone();
-    candidate.outbounds[0].dial.address_family = OutboundAddressFamily::OnlyIpv4;
-    let candidate = Arc::new(candidate);
-    catalog.start(candidate.clone(), deadline()).await.unwrap();
-    let role = catalog
-        .prepare(candidate.clone())
-        .unwrap()
-        .direct(Some("selected"))
-        .unwrap()
-        .stream(deadline())
-        .await
-        .unwrap();
-    let mutated = AtomicBool::new(false);
-    assert!(catalog
-        .commit(&current, || {
-            mutated.store(true, Ordering::SeqCst);
-            Ok(())
+    catalog
+        .drive_supervised(async {
+            let current = config();
+            catalog.start(current.clone(), deadline()).await.unwrap();
+            catalog.commit(&current, || Ok(())).unwrap();
+            let old = catalog
+                .prepare(current.clone())
+                .unwrap()
+                .direct(Some("selected"))
+                .unwrap()
+                .stream(deadline())
+                .await
+                .unwrap();
+            let mut candidate = (*current).clone();
+            candidate.outbounds[0].dial.address_family = OutboundAddressFamily::OnlyIpv4;
+            let candidate = Arc::new(candidate);
+            catalog.start(candidate.clone(), deadline()).await.unwrap();
+            let role = catalog
+                .prepare(candidate.clone())
+                .unwrap()
+                .direct(Some("selected"))
+                .unwrap()
+                .stream(deadline())
+                .await
+                .unwrap();
+            let mutated = AtomicBool::new(false);
+            assert!(catalog
+                .commit(&current, || {
+                    mutated.store(true, Ordering::SeqCst);
+                    Ok(())
+                })
+                .is_err());
+            assert!(
+                !mutated.load(Ordering::SeqCst),
+                "reject before any commit mutation"
+            );
+            let root = Arc::new(Root::default());
+            open_with_policy(&role, &root, false, candidate.outbounds[0].dial.to_policy())
+                .await
+                .unwrap();
+            open(&old, &root, true).await.unwrap();
+            // The actual recovery path must first confirm candidate retirement. Merely
+            // naming the previous current config cannot discard or replace its owner.
+            catalog.start(current.clone(), deadline()).await.unwrap();
+            assert!(
+                open_with_policy(&role, &root, false, candidate.outbounds[0].dial.to_policy())
+                    .await
+                    .is_err()
+            );
+            catalog.commit(&current, || Ok(())).unwrap();
+            open(&old, &root, true).await.unwrap();
+            catalog.shutdown(deadline()).await.unwrap();
         })
-        .is_err());
-    assert!(
-        !mutated.load(Ordering::SeqCst),
-        "reject before any commit mutation"
-    );
-    let root = Arc::new(Root::default());
-    open_with_policy(&role, &root, false, candidate.outbounds[0].dial.to_policy())
-        .await
-        .unwrap();
-    open(&old, &root, true).await.unwrap();
-    // The actual recovery path must first confirm candidate retirement. Merely
-    // naming the previous current config cannot discard or replace its owner.
-    catalog.start(current.clone(), deadline()).await.unwrap();
-    assert!(
-        open_with_policy(&role, &root, false, candidate.outbounds[0].dial.to_policy())
-            .await
-            .is_err()
-    );
-    catalog.commit(&current, || Ok(())).unwrap();
-    open(&old, &root, true).await.unwrap();
-    catalog.shutdown(deadline()).await.unwrap();
+        .await;
 }

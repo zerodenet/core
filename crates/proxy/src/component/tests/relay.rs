@@ -218,9 +218,15 @@ async fn reject_after_prefix(native: bool) -> (String, String, &'static str) {
     assert!(failure.upstream_endpoint.is_none());
     reject.await.unwrap();
     forward.await.unwrap();
+    let message = failure.error.to_string();
+    let endpoint = format!("upstream_port={port}");
+    assert!(
+        message.contains(&endpoint),
+        "actual failed endpoint retained: {message}"
+    );
     (
         failure.error.code().to_owned(),
-        failure.error.to_string(),
+        message.replace(&endpoint, "upstream_port=<actual-port>"),
         failure.stage,
     )
 }

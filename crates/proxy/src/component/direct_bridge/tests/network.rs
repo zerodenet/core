@@ -49,5 +49,5 @@ async fn native_direct_dial_keeps_os_error_and_legacy_classification() {
     assert_eq!(error.delivery, DeliveryState::NotSubmitted);
     let evidence = opener.take_evidence().unwrap().err().unwrap();
     assert!(matches!(evidence.legacy_error, zero_core::Error::Io(_)));
-    assert_eq!(evidence.stage, "connect_direct");
+    assert_eq!(evidence.stage, "connect_socket");
 }

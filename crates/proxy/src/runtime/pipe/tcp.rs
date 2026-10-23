@@ -29,11 +29,12 @@ impl KernelPipe for TcpPipe<'_> {
     type Error = EngineError;
 
     async fn dispatch(&mut self, input: Self::Input<'_>) -> Result<Self::Output, Self::Error> {
-        Box::pin(crate::runtime::tcp_dispatch::dispatch_tcp(
+        let services = self.runtime.runtime_services();
+        let work = Box::pin(crate::runtime::tcp_dispatch::dispatch_tcp(
             self.runtime,
             input.session,
             input.admitted,
-        ))
-        .await
+        ));
+        services.protocols().drive_component_supervision(work).await
     }
 }

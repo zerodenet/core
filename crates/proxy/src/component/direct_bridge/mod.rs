@@ -1,6 +1,7 @@
 //! One temporary boundary from existing probe callers to standard Stream roles.
 pub(super) mod controlled;
 pub(super) mod network;
+mod source;
 use super::{
     instance::{invalid, retained},
     legacy_stream::LegacyStream,
@@ -131,6 +132,10 @@ pub(crate) async fn connect(
         dial: policy.clone(),
         network_generation: NetworkGeneration(opener.generation()),
     };
+    let retain_native_source =
+        zero_platform_tokio::contract::network::UpstreamOpener::supports_controlled_stream(
+            opener.as_ref(),
+        );
     let cancel = invocation.cancellation();
     let context = OpenContext {
         identity: invocation.identity,
@@ -164,11 +169,17 @@ pub(crate) async fn connect(
         Err(mut error) => {
             error.component = Some(slot.role_id().component);
             if let Some(Err(evidence)) = evidence {
-                // Preserve existing V1 probe codes/messages at the remaining
-                // legacy facade. Standard channel callers keep native sources.
+                // Service probes retain their existing V1 code/message. A
+                // controlled business caller also needs the actual native
+                // source chain; the coarse Core error alone loses that proof.
+                let error = if retain_native_source {
+                    source::retained(evidence.legacy_error, error)
+                } else {
+                    evidence.legacy_error.into()
+                };
                 return Err(TcpOutboundFailure {
                     stage: evidence.stage,
-                    error: evidence.legacy_error.into(),
+                    error,
                     upstream_endpoint: None,
                     network: Some(evidence.network),
                 });

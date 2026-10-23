@@ -146,6 +146,19 @@ impl NativeRegistration {
 }
 
 impl NativeObligations {
+    pub(super) fn has_covered_gateway(&self) -> bool {
+        self.0
+            .lock()
+            .unwrap_or_else(|error| error.into_inner())
+            .records
+            .values()
+            .any(|record| {
+                record.gateways > 0
+                    && !record.uncovered_gateway
+                    && !record.carrier_conflict
+                    && record.kind != ChildKind::Dns
+            })
+    }
     /// A finite quota measures outstanding originals, not lifetime traffic.
     /// Reclaim only after the original caller and every covered native owner
     /// have really completed; an unknown sibling remains charged.

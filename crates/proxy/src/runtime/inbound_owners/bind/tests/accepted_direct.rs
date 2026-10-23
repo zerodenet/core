@@ -5,12 +5,14 @@ use zero_platform_tokio::contract::{component::AcceptedTcpLimits, lifecycle::Tas
 #[tokio::test]
 async fn actual_fixed_direct_handler_keeps_source_join_and_native_close_separate() {
     timeout(Duration::from_secs(8), async {
-        // Hold the target's exact native bound address without listening: the
-        // first real connect gets ConnectionRefused and cannot hit an allocator
-        // reuse. The same original target later transitions to listen.
+        // Keep the real endpoint reserved where a non-listener refuses connects.
+        // Darwin instead drops SYNs to a bound non-listener, so release that
+        // external fixture there to exercise an actual native refusal.
         let target = tokio::net::TcpSocket::new_v4().unwrap();
         target.bind("127.0.0.1:0".parse().unwrap()).unwrap();
         let target_address = target.local_addr().unwrap();
+        #[cfg(target_os = "macos")]
+        drop(target);
         let config = RuntimeConfig::parse(&format!(
             r#"{{
             "inbounds":[{{"tag":"first","listen":{{"address":"127.0.0.1","port":0}},
@@ -23,6 +25,15 @@ async fn actual_fixed_direct_handler_keeps_source_join_and_native_close_separate
         .unwrap();
         let proxy = Proxy::new(config).unwrap();
         let config = proxy.engine().config();
+        proxy
+            .protocols
+            .start_components(config.clone(), Instant::now() + Duration::from_secs(2))
+            .await
+            .unwrap();
+        proxy
+            .protocols
+            .commit_components(&config, || Ok(()))
+            .unwrap();
         let operation = proxy
             .protocols
             .prepare_inbound_listener(config.inbounds[0].clone(), None)
@@ -76,7 +87,10 @@ async fn actual_fixed_direct_handler_keeps_source_join_and_native_close_separate
                 owner.is_running(),
                 "ordinary upstream refusal must not stop listener"
             );
+            #[cfg(not(target_os = "macos"))]
             let target = target.listen(1).unwrap();
+            #[cfg(target_os = "macos")]
+            let target = TcpListener::bind(target_address).await.unwrap();
             let mut client = TcpStream::connect(address).await.unwrap();
             client.write_all(b"same-original").await.unwrap();
             let (mut peer, _) = target.accept().await.unwrap();

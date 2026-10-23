@@ -80,6 +80,12 @@ impl ComponentPlan {
         deadline: tokio::time::Instant,
     ) -> Result<(), ChannelError> {
         for slot in &self.order {
+            if self.deferred_devices.contains(&slot.id)
+                && !slot.has_started()
+                && slot.task_fault().is_none()
+            {
+                continue;
+            }
             slot.scan_tasks(deadline).await?;
         }
         Ok(())

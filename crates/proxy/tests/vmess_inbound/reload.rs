@@ -8,7 +8,7 @@ async fn acknowledged_vmess_credential_reload_preserves_the_live_tls_listener_an
         let target = TcpListener::bind("127.0.0.1:0").await.unwrap();
         let address = target.local_addr().unwrap();
         let worker = tokio::spawn(async move {
-            for expected in [b'1', b'2'] {
+            for expected in *b"12" {
                 let (mut io, _) = target.accept().await.unwrap();
                 let mut request = Vec::new();
                 io.read_to_end(&mut request).await.unwrap();

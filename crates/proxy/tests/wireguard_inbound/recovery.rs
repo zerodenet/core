@@ -195,10 +195,11 @@ async fn exercise(fail: bool) {
     changed["endpoints"][0]["listen"]["port"] = serde_json::json!(new_port);
     let changed = RuntimeConfig::parse(&changed.to_string()).unwrap();
     if fail {
-        assert!(control
+        let error = control
             .apply_config_and_wait(changed, Duration::from_secs(5))
             .await
-            .is_err());
+            .expect_err("occupied candidate must fail without replacing last-good state");
+        eprintln!("expected failed WireGuard port move: {error}");
     } else {
         drop(new_guard);
         control

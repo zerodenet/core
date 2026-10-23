@@ -103,34 +103,45 @@ async fn actual_ancillary_interface_error_keeps_native_source_without_unmarked_r
 
 #[cfg(any(target_os = "linux", target_os = "macos"))]
 fn actual_interface(address: std::net::IpAddr) -> EgressInterface {
-    use std::ffi::CStr;
-    let mut head = std::ptr::null_mut();
-    // The OS owns this null-terminated list until freeifaddrs. Read only the
-    // AF_INET variant; names and sockaddr values remain valid during the loop.
-    assert_eq!(unsafe { libc::getifaddrs(&mut head) }, 0);
-    let mut cursor = head;
-    let mut found = None;
-    while !cursor.is_null() {
-        let entry = unsafe { &*cursor };
-        if !entry.ifa_addr.is_null()
-            && unsafe { (*entry.ifa_addr).sa_family as i32 } == libc::AF_INET
-        {
-            let ipv4 = unsafe { &*entry.ifa_addr.cast::<libc::sockaddr_in>() };
-            let ip = std::net::Ipv4Addr::from(ipv4.sin_addr.s_addr.to_ne_bytes());
-            if std::net::IpAddr::V4(ip) == address {
-                let name = unsafe { CStr::from_ptr(entry.ifa_name) }
-                    .to_string_lossy()
-                    .into_owned();
-                let index = unsafe { libc::if_nametoindex(entry.ifa_name) };
-                found = Some((name, index));
-                break;
-            }
-        }
-        cursor = entry.ifa_next;
+    #[cfg(target_os = "macos")]
+    {
+        // These peers are bound to this host. Darwin's route to a local host
+        // address uses lo0, even when that address belongs to en0/utun.
+        assert!(address.is_ipv4());
+        let index = unsafe { libc::if_nametoindex(c"lo0".as_ptr()) };
+        EgressInterface::new("lo0", index).unwrap()
     }
-    unsafe { libc::freeifaddrs(head) };
-    let (name, index) = found.expect("host source address has a real interface");
-    EgressInterface::new(name, index).unwrap()
+    #[cfg(target_os = "linux")]
+    {
+        use std::ffi::CStr;
+        let mut head = std::ptr::null_mut();
+        // The OS owns this null-terminated list until freeifaddrs. Read only the
+        // AF_INET variant; names and sockaddr values remain valid during the loop.
+        assert_eq!(unsafe { libc::getifaddrs(&mut head) }, 0);
+        let mut cursor = head;
+        let mut found = None;
+        while !cursor.is_null() {
+            let entry = unsafe { &*cursor };
+            if !entry.ifa_addr.is_null()
+                && unsafe { (*entry.ifa_addr).sa_family as i32 } == libc::AF_INET
+            {
+                let ipv4 = unsafe { &*entry.ifa_addr.cast::<libc::sockaddr_in>() };
+                let ip = std::net::Ipv4Addr::from(ipv4.sin_addr.s_addr.to_ne_bytes());
+                if std::net::IpAddr::V4(ip) == address {
+                    let name = unsafe { CStr::from_ptr(entry.ifa_name) }
+                        .to_string_lossy()
+                        .into_owned();
+                    let index = unsafe { libc::if_nametoindex(entry.ifa_name) };
+                    found = Some((name, index));
+                    break;
+                }
+            }
+            cursor = entry.ifa_next;
+        }
+        unsafe { libc::freeifaddrs(head) };
+        let (name, index) = found.expect("host source address has a real interface");
+        EgressInterface::new(name, index).unwrap()
+    }
 }
 #[cfg(any(target_os = "linux", target_os = "macos"))]
 #[tokio::test]
@@ -178,6 +189,7 @@ async fn required_native_probe_is_unsupported_without_new_native_attempt() {
         .unwrap();
     let target: SocketAddr = "192.0.2.1:9".parse().unwrap();
     let control = EgressInterfaceControl::default();
+    control.replace_tunnel_addresses(["10.0.0.1".parse().unwrap()]);
     // Select synchronously before even waiting for native send readiness.
     assert_eq!(
         control

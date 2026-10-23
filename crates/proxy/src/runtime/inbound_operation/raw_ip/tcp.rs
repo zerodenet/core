@@ -52,13 +52,16 @@ pub(super) async fn accept(
         let runtime = runtime_factory.for_connection(Some(source_addr));
         group.spawn_bound(&host, move |binding| async move {
             binding.wait_bound().await.map_err(std::io::Error::other)?;
+            let stop = binding.cancellation();
             native.bind_caller(binding).map_err(std::io::Error::other)?;
             let runtime = runtime.with_caller_native(native.registration());
             let stream = ReplayStream::new(stream, Vec::new());
             native.enter().map_err(std::io::Error::other)?;
-            let result = runtime
-                .serve(session, stream, &NoClientResponseStreamProtocol::new())
-                .await;
+            let protocol = NoClientResponseStreamProtocol::new();
+            let result = tokio::select! { biased;
+                result = runtime.serve(session, stream, &protocol) => result,
+                _ = stop.cancelled() => Ok(()),
+            };
             native.consume_business_result(result)
         })?;
     }

@@ -96,6 +96,16 @@ async fn business_projection_preserves_assigned_identity_auth_and_available_fact
 #[tokio::test]
 async fn business_direct_uses_its_registered_role_and_cannot_fall_back_after_revocation() {
     let proxy = proxy();
+    let config = proxy.engine().config();
+    proxy
+        .protocols
+        .start_components(config.clone(), Instant::now() + Duration::from_secs(1))
+        .await
+        .unwrap();
+    proxy
+        .protocols
+        .commit_components(&config, || Ok(()))
+        .unwrap();
     let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
     let services = proxy.tcp_runtime_services().for_inbound("incoming".into());
     let mut session = Session::new(
@@ -111,7 +121,9 @@ async fn business_direct_uses_its_registered_role_and_cannot_fall_back_after_rev
         .unwrap();
     let plan = services.execution().components.unwrap();
     let slot = plan.direct(None).unwrap();
-    slot.stream(Instant::now() + Duration::from_secs(1))
+    proxy
+        .protocols
+        .drive_component_supervision(slot.stream(Instant::now() + Duration::from_secs(1)))
         .await
         .unwrap();
     slot.revoke();

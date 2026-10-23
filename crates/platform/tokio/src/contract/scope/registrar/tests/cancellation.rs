@@ -77,3 +77,83 @@ async fn actual_scope_stop_wakes_the_same_weak_registered_pending_task_and_only_
     assert_eq!(witness.wait().await.id(), id);
     assert!(scope.next_exit().await.is_none());
 }
+
+#[tokio::test]
+async fn cancellation_callback_panic_does_not_poison_ancestor_or_skip_a_sibling_notification() {
+    use std::{
+        sync::{
+            atomic::{AtomicBool, AtomicUsize, Ordering},
+            Arc,
+        },
+        task::{Context, Wake, Waker},
+    };
+    struct ObservedWake {
+        calls: Arc<AtomicUsize>,
+        panic: AtomicBool,
+    }
+    impl Wake for ObservedWake {
+        fn wake(self: Arc<Self>) {
+            self.wake_by_ref();
+        }
+        fn wake_by_ref(self: &Arc<Self>) {
+            self.calls.fetch_add(1, Ordering::SeqCst);
+            assert!(
+                !self.panic.swap(false, Ordering::SeqCst),
+                "original cancellation callback panic"
+            );
+        }
+    }
+    let mut scope = TaskScope::new(Handle::current(), NonZeroUsize::new(1).unwrap());
+    let first = scope.registrar().cancellation();
+    let sibling = scope.registrar().cancellation();
+    let mut first_wait = Box::pin(first.cancelled());
+    let mut sibling_wait = Box::pin(sibling.cancelled());
+    let calls = Arc::new(AtomicUsize::new(0));
+    let bad = Waker::from(Arc::new(ObservedWake {
+        calls: calls.clone(),
+        panic: AtomicBool::new(true),
+    }));
+    let good = Waker::from(Arc::new(ObservedWake {
+        calls: calls.clone(),
+        panic: AtomicBool::new(false),
+    }));
+    assert!(first_wait
+        .as_mut()
+        .poll(&mut Context::from_waker(&bad))
+        .is_pending());
+    assert!(sibling_wait
+        .as_mut()
+        .poll(&mut Context::from_waker(&good))
+        .is_pending());
+    assert!(
+        std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| scope.begin_shutdown())).is_err()
+    );
+    assert_eq!(
+        calls.load(Ordering::SeqCst),
+        2,
+        "both original children are notified before the first panic resumes"
+    );
+    assert!(first.is_cancelled() && sibling.is_cancelled());
+    assert!(first_wait
+        .as_mut()
+        .poll(&mut Context::from_waker(&bad))
+        .is_ready());
+    assert!(sibling_wait
+        .as_mut()
+        .poll(&mut Context::from_waker(&good))
+        .is_ready());
+    assert!(
+        scope.registrar().cancellation().is_cancelled(),
+        "the original parent remains readable after the callback panic"
+    );
+    assert_eq!(
+        scope
+            .registrar()
+            .spawn(TaskClass::Auxiliary, async { Ok(()) }),
+        Err(SpawnError::Closing)
+    );
+    assert!(scope
+        .shutdown(tokio::time::Instant::now() + Duration::from_secs(1))
+        .await
+        .is_complete());
+}
