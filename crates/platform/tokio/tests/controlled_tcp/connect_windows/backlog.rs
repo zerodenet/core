@@ -1,6 +1,7 @@
 //! Bounded local backlog fixture. It must establish actual SYN_SENT; a provider
 //! that refuses full queues does not qualify as a pending-connect test fixture.
 use super::*;
+#[path = "backlog/native_state.rs"]
 mod native_state;
 use native_state::assert_connect_waiting;
 struct Fixture {
