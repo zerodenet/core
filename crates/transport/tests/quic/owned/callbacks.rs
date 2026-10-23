@@ -8,7 +8,7 @@ use std::{
         atomic::{AtomicUsize, Ordering},
         Weak,
     },
-    task::{Context, Wake, Waker},
+    task::{Context, Waker},
 };
 #[derive(Debug)]
 struct PanicTag(u32);
@@ -48,10 +48,6 @@ impl zero_traits::IoObserver for Panics {
     }
     fn error(&self) {}
     fn dropped(&self) {}
-}
-struct Noop;
-impl Wake for Noop {
-    fn wake(self: Arc<Self>) {}
 }
 fn transmit(target: std::net::SocketAddr) -> quinn::udp::Transmit<'static> {
     quinn::udp::Transmit {
@@ -137,9 +133,9 @@ async fn actual_native_nested_callbacks_keep_first_original_payload_and_do_not_d
         quinn::DriverExit::Endpoint(Ok(()))
     });
     let mut boundary = Box::pin(Boundary::new(future, native.callbacks.clone()));
-    let waker = Waker::from(Arc::new(Noop));
+    let waker = Waker::noop();
     let payload = catch_unwind(AssertUnwindSafe(|| {
-        boundary.as_mut().poll(&mut Context::from_waker(&waker))
+        boundary.as_mut().poll(&mut Context::from_waker(waker))
     }))
     .unwrap_err();
     let original = payload.downcast::<Arc<PanicTag>>().unwrap();

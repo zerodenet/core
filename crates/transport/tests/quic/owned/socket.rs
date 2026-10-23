@@ -160,13 +160,9 @@ impl zero_traits::IoObserver for ReceiveReentry {
         let mut payload = [0; 16];
         let mut buffers = [IoSliceMut::new(&mut payload)];
         let mut meta = [quinn::udp::RecvMeta::default()];
-        struct Noop;
-        impl std::task::Wake for Noop {
-            fn wake(self: Arc<Self>) {}
-        }
-        let waker = std::task::Waker::from(Arc::new(Noop));
+        let waker = std::task::Waker::noop();
         match socket.poll_recv(
-            &mut std::task::Context::from_waker(&waker),
+            &mut std::task::Context::from_waker(waker),
             &mut buffers,
             &mut meta,
         ) {

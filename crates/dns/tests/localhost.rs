@@ -88,6 +88,42 @@ fn query(domain: &str, kind: u16) -> Vec<u8> {
 }
 
 #[tokio::test]
+async fn localhost_service_preserves_family_generation_and_query_retirement() {
+    use zero_platform_tokio::contract::dns::{DnsQueryContext, DnsRequest, DnsService};
+
+    let dns = build(&config(true, DnsAddressFamilyPolicy::PreferIpv4));
+    let generation = dns.generation();
+    for role in [
+        DnsQueryRole::Default,
+        DnsQueryRole::Direct,
+        DnsQueryRole::Node,
+        DnsQueryRole::Bootstrap,
+    ] {
+        let result = DnsService::resolve(
+            &dns,
+            DnsRequest {
+                name: "APP.Localhost.".into(),
+                role,
+                family: AddressFamily::OnlyIpv6,
+            },
+            DnsQueryContext {
+                expected_generation: Some(generation),
+                ..Default::default()
+            },
+        )
+        .await
+        .unwrap();
+        assert_eq!(result.addresses, vec![V6]);
+        assert_eq!(result.generation, generation);
+    }
+    assert_eq!(dns.fake_ip_stats().await.unwrap().live_mappings, 0);
+    dns.shutdown_queries(tokio::time::Instant::now() + std::time::Duration::from_secs(1))
+        .await
+        .unwrap();
+    assert!(dns.resolve_real("app.localhost").await.is_err());
+}
+
+#[tokio::test]
 async fn localhost_names_bypass_fake_ip_and_all_resolution_backends() {
     for fake in [false, true] {
         let dns = build(&config(fake, DnsAddressFamilyPolicy::PreferIpv4));
