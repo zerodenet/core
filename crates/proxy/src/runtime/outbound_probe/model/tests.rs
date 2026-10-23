@@ -32,9 +32,7 @@ fn establishment_metadata_preserves_typed_failure_classification_and_diagnostics
 
     for (source, expected) in [
         (
-            EngineError::Core(zero_core::Error::Io(io::Error::from(
-                io::ErrorKind::ConnectionRefused,
-            ))),
+            EngineError::Core(zero_core::Error::Io("failed to connect direct target")),
             "connection_failed",
         ),
         (
