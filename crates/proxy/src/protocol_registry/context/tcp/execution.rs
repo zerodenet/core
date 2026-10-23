@@ -14,6 +14,13 @@ pub(crate) struct TcpExecutionServices {
     pub(super) principal_rate_limits: PrincipalRateLimitRegistry,
 }
 impl TcpExecutionServices {
+    pub(crate) fn with_dial_trace(
+        mut self,
+        trace: crate::transport::establishment::DialTrace,
+    ) -> Self {
+        self.upstream = self.upstream.with_dial_trace(trace);
+        self
+    }
     pub(crate) fn outbound_io(
         &self,
         tag: &str,

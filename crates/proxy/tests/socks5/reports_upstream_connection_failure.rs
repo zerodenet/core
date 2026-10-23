@@ -77,7 +77,7 @@ async fn reports_upstream_connection_failure_to_client_and_session_history() {
     assert_eq!(completed.payload["record"]["result"]["outcome"], "failed");
     assert_eq!(
         completed.payload["record"]["result"]["failure"]["stage"],
-        "route_or_establish"
+        "connect_socket"
     );
     let network = &completed.payload["record"]["path"]["network"];
     assert_eq!(network["connect_stage"], "connect_socket");

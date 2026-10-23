@@ -30,6 +30,12 @@ pub(crate) async fn dispatch_tcp(
         Err(failure) => {
             let health_outcome =
                 classify_outbound_establishment_failure(&failure.error, failure.network.as_deref());
+            if let Some(context) =
+                crate::transport::establishment::establishment_failure(&failure.error)
+            {
+                session.outbound_tag = context.tag.clone();
+                runtime.set_session_outbound(session, context.endpoint.as_ref(), Vec::new(), None);
+            }
             if let Some(network) = failure.network {
                 runtime.record_session_network(session.id, *network);
             }

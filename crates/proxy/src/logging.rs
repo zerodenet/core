@@ -2,6 +2,7 @@
 
 mod group;
 mod listener;
+mod rate_limit;
 mod session;
 #[cfg(feature = "upstream-association-runtime")]
 mod udp_upstream;

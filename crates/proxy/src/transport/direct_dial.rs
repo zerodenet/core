@@ -22,6 +22,25 @@ pub(super) struct TcpDialAttempt {
     candidate_index: usize,
 }
 
+impl From<&TcpDialAttempt> for zero_engine::FlowConnectionAttemptObservation {
+    fn from(attempt: &TcpDialAttempt) -> Self {
+        let endpoint = |address: SocketAddr| zero_engine::FlowRemoteEndpoint {
+            host: address.ip().to_string(),
+            port: address.port(),
+        };
+        Self {
+            remote_address: endpoint(attempt.remote),
+            local_address: attempt.local_addr.map(endpoint),
+            stage: attempt.stage.to_owned(),
+            outcome: attempt.outcome.to_owned(),
+            interface_bound: attempt.interface_bound,
+            error_kind: attempt.error_kind.map(ToOwned::to_owned),
+            os_error: attempt.os_error,
+            error: attempt.error.clone(),
+        }
+    }
+}
+
 #[derive(Debug)]
 pub(super) struct TcpDialSuccess {
     pub(super) socket: TokioSocket,

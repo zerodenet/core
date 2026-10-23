@@ -1,4 +1,7 @@
 mod support;
+#[cfg(feature = "shadowsocks")]
+#[path = "logging/upstream_failure.rs"]
+mod upstream_failure;
 
 use std::io::{self, Write};
 use std::sync::{Arc, Mutex, Once, OnceLock};
@@ -17,7 +20,6 @@ static LOG_BUFFER: OnceLock<Arc<Mutex<Vec<u8>>>> = OnceLock::new();
 #[tokio::test]
 async fn emits_session_logs_for_successful_proxy_traffic() {
     let buffer = init_test_tracing();
-    buffer.lock().expect("log buffer lock").clear();
 
     let echo_port = free_port();
     let proxy_port = free_port();

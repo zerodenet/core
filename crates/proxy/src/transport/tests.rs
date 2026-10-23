@@ -309,7 +309,7 @@ async fn recovered_ipv4_dns_failure_retains_the_original_candidate() {
         Err(failure) => failure,
     };
 
-    assert_eq!(failure.stage, "connect_direct");
+    assert_eq!(failure.stage, "connect_socket");
     assert_eq!(failure.network.resolved_candidates.len(), 1);
     assert_eq!(
         failure.network.resolved_candidates[0].host,

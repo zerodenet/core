@@ -13,6 +13,7 @@ use crate::transport::{EstablishedTcpOutbound, TcpOutboundFailure};
 
 const HEALTH_TAG: &str = "health-isolation-test";
 
+mod diagnostics;
 mod health_scope;
 mod local_failures;
 

@@ -9,6 +9,7 @@
 mod dial_policy_tests;
 mod direct;
 mod direct_dial;
+pub(crate) mod establishment;
 mod failure;
 mod tcp_outbound;
 mod tcp_relay;
