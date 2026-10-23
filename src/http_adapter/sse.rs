@@ -59,18 +59,25 @@ pub async fn run_sse_stream(
 
     // Offload the blocking recv loop to a dedicated OS thread so that the
     // mpsc Receiver (Send but not Sync) is never held across an await.
-    let (event_tx, mut event_rx) = tokio::sync::mpsc::unbounded_channel();
+    let (event_tx, mut event_rx) = tokio::sync::mpsc::channel(32);
 
     let handle = tokio::task::spawn_blocking(move || {
         let mut last_event_at = std::time::Instant::now();
         loop {
+            if event_tx.is_closed() {
+                break;
+            }
             if let Some(event) = subscriber.try_recv() {
-                if event_tx.send(SseItem::Event(Box::new(event))).is_err() {
+                if event_tx
+                    .blocking_send(SseItem::Event(Box::new(event)))
+                    .is_err()
+                {
                     break;
                 }
                 last_event_at = std::time::Instant::now();
+                continue;
             } else if last_event_at.elapsed() >= heartbeat_interval {
-                if event_tx.send(SseItem::Heartbeat).is_err() {
+                if event_tx.blocking_send(SseItem::Heartbeat).is_err() {
                     break;
                 }
                 last_event_at = std::time::Instant::now();
@@ -86,16 +93,18 @@ pub async fn run_sse_stream(
                 let Some(item) = item else {
                     break;
                 };
-                match item {
-                    SseItem::Event(event) => {
-                        if write_sse_event(&mut stream, event.as_ref()).await.is_err() {
-                            break;
-                        }
+                // A stalled reader must not prevent shutdown while the socket
+                // and bounded bridge are both backpressured.
+                let write = async {
+                    match item {
+                        SseItem::Event(event) => write_sse_event(&mut stream, event.as_ref()).await,
+                        SseItem::Heartbeat => write_sse_heartbeat(&mut stream).await,
                     }
-                    SseItem::Heartbeat => {
-                        if write_sse_heartbeat(&mut stream).await.is_err() {
-                            break;
-                        }
+                };
+                tokio::select! {
+                    _ = &mut shutdown => break,
+                    result = write => {
+                        if result.is_err() { break; }
                     }
                 }
             }
@@ -110,3 +119,6 @@ enum SseItem {
     Event(Box<RawApiEvent>),
     Heartbeat,
 }
+
+#[cfg(test)]
+mod tests;

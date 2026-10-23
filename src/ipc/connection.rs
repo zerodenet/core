@@ -245,7 +245,7 @@ where
                         // Tokio (async) channel so the writer task can
                         // `recv().await` without blocking a worker thread, and so
                         // aborting it cancels at the await point immediately.
-                        let (event_tx, mut event_rx) = tokio::sync::mpsc::unbounded_channel();
+                        let (event_tx, mut event_rx) = tokio::sync::mpsc::channel(32);
 
                         // Cooperative cancel flag. `abort()` does not interrupt a
                         // `spawn_blocking` task mid-sleep, and `try_recv()` returning
@@ -257,12 +257,12 @@ where
                         let cancel = Arc::new(AtomicBool::new(false));
                         let cancel_for_task = cancel.clone();
 
-                        // Poll with `try_recv()` + short sleep rather than a blocking
-                        // `recv()`: the 100ms sleep is a responsive cancel checkpoint
-                        // without holding a worker thread in a blocking call.
+                        // Drain ready events without throttling the subscription.
+                        // Only idle polls sleep; the bounded bridge applies backpressure
+                        // until the writer consumes events or drops its receiver.
                         bg_blocking = Some(tokio::task::spawn_blocking(move || {
                             loop {
-                                if cancel_for_task.load(Ordering::Relaxed) {
+                                if cancel_for_task.load(Ordering::Relaxed) || event_tx.is_closed() {
                                     break;
                                 }
                                 if let Some(event) = subscriber.try_recv() {
@@ -271,10 +271,11 @@ where
                                     // for both channels.
                                     let value = serde_json::to_value(&event);
                                     if let Ok(value) = value {
-                                        if event_tx.send(value).is_err() {
+                                        if event_tx.blocking_send(value).is_err() {
                                             break;
                                         }
                                     }
+                                    continue;
                                 }
                                 std::thread::sleep(Duration::from_millis(100));
                             }
