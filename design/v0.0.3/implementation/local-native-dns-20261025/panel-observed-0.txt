@@ -1,0 +1,1 @@
+{"inbounds":[{"tag":"echo","listen":{"address":"127.0.0.1","port":56086},"protocol":{"type":"direct","target":"127.0.0.1","port":56085}}],"route":{"final":{"type":"direct"}}}

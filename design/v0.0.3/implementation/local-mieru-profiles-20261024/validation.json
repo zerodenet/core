@@ -1,0 +1,168 @@
+{
+  "product_version": "v0.0.3",
+  "branch": "develop",
+  "head": "b963c864a473f68f8d6a8444764e3e88761e6c04",
+  "local_only": true,
+  "index_empty": true,
+  "commit_or_push_performed": false,
+  "source_snapshot": "source-final.json",
+  "source_entries": 404,
+  "source_drift": [],
+  "completed": [
+    "multiple literal TCP endpoints and complete upstream bindings in one actual ClientPool, one aggregate finite physical budget",
+    "complete outbound credential/profile set identity; unrelated unused credential change retires the whole pool; reorder preserves it",
+    "standard Stream and Datagram roles share a TCP-underlay authenticated connection and real driver",
+    "transferred TCP/UDP users, actual TaskScope joins and every original native/users close proof precede successor construction",
+    "protocol client models no longer depend on component/transport modules; bound role identity has constant size"
+  ],
+  "production_registration_enabled": false,
+  "remaining": [
+    "actual node/bootstrap DNS candidate selection, retry/cancellation and resolver/egress generations",
+    "relay-prefix actual role dependencies, transferred logical-carrier return and original root-resource evidence",
+    "UDP underlay original datagram owner, real packet-driver scope joins and native close receipts in the same pool",
+    "complete actual Proxy provider assembly and all-path production registration only after these proofs"
+  ],
+  "checks": {
+    "workspace": {
+      "command": "CARGO_NET_OFFLINE=true RUSTUP_TOOLCHAIN=1.99.0 RUST_MIN_STACK=16777216 bash scripts/test-workspace.sh --jobs 4",
+      "exit": 0,
+      "totals": {
+        "passed": 3778,
+        "failed": 0,
+        "ignored": 175
+      },
+      "targets": 155,
+      "end": "TEST_END 2026-10-24T12:27:19Z exit=0 seconds=499",
+      "log": "workspace-final.txt.gz"
+    },
+    "clippy": {
+      "command": "CARGO_NET_OFFLINE=true cargo +stable clippy --workspace --all-targets --all-features --no-deps --jobs 4 -- -D warnings",
+      "exit": 0,
+      "rustc": "rustc 1.98.0 (88d9e12ae 2026-08-18)",
+      "build": "6m 30s",
+      "log": "clippy-final.txt.gz",
+      "lint_suppressions_added": false
+    },
+    "consumers": {
+      "gui": {
+        "exit": 0,
+        "seconds": 20.9,
+        "command": [
+          "python3",
+          "/tmp/zero-runtime-gui-check.py",
+          "/var/folders/5g/3js9c9b11c3fmfd930s4vkdm0000gn/T/zero-mieru-profiles-consumers-jwuq40mv/zero",
+          "/Volumes/tool/rust/zero/design/v0.0.3/implementation/local-mieru-profiles-20261024/gui-captures"
+        ],
+        "cwd": "/Volumes/tool/rust/zero",
+        "sha256": "16b5582bca591cbe6da4a90f6b3c6122d0ba0dc18fbd0c99ba8d3b659f61423e"
+      },
+      "panel": {
+        "exit": 0,
+        "seconds": 84.26,
+        "command": [
+          "/tmp/zero-v003-boundaries.FGzrzH/zboard-zero.test",
+          "-test.run",
+          "^TestNativePublicationPreservesTrafficAcrossPublisherProcesses$",
+          "-test.v",
+          "-test.timeout",
+          "120s"
+        ],
+        "cwd": "/Volumes/tool/golang/zboard/backend",
+        "sha256": "16b5582bca591cbe6da4a90f6b3c6122d0ba0dc18fbd0c99ba8d3b659f61423e",
+        "native_pid": 19304,
+        "native_core_id": "80290bbb4d5eb7dafeca0513a5460bbf",
+        "revision": 2,
+        "publisher_processes": 3,
+        "deployment_is_fixture": true
+      }
+    },
+    "consumer_heads": {
+      "gui": "d39ad2787fb05052fa15065853ab71526441ccc3",
+      "panel": "658671e9f3978df1c79f4030fdb072a877f10bf5"
+    },
+    "consumer_binary_sha256": "16b5582bca591cbe6da4a90f6b3c6122d0ba0dc18fbd0c99ba8d3b659f61423e",
+    "gui_normal_exit": 0,
+    "gui_forced_signals": [],
+    "runtime_boundary": {
+      "passed": 190,
+      "failed": 0
+    },
+    "workspace_boundary": {
+      "passed": 27,
+      "failed": 0
+    },
+    "ci_scope": {
+      "passed": 21,
+      "failed": 0
+    },
+    "structural": "structural-checks.json"
+  },
+  "failures_preserved": {
+    "same_source_full_rebind_failure": {
+      "exit": 101,
+      "summary": "workspace-failure-summary.json",
+      "analysis": "failure-analysis.json",
+      "log": "workspace-rebind-failure.txt.gz"
+    },
+    "isolated_unchanged_observer_test": {
+      "exit": 0,
+      "passed": 1,
+      "seconds": 0.15,
+      "log": "observer-recheck.txt.gz"
+    },
+    "first_diagnostic_full": {
+      "exit": 0,
+      "passed": 3777,
+      "failed": 0,
+      "ignored": 175,
+      "accepted_as_current_frozen_qualification": false,
+      "reason": "source adjusted during this diagnostic run; final frozen sources and full rerun are separate",
+      "log": "workspace-diagnostic.txt.gz"
+    },
+    "intermediate_hash_one_lint": {
+      "exit": 101,
+      "fix": "use BuildHasher::hash_one directly; no suppression",
+      "log": "clippy-hash-one-failure.txt.gz"
+    },
+    "initial_host_focus": {
+      "exit": 130,
+      "test_compile_errors": 4,
+      "reason": "moved Unfinished import into sibling test module; interrupted only owned obsolete Cargo/rustc jobs after diagnosis",
+      "log": "initial-host-compile-interrupted.txt.gz"
+    }
+  },
+  "preservation": {
+    "previous_qualification": "../local-mieru-20261024/validation.json",
+    "changed_previous_source_entries": [
+      "crates/runtime/src/component/catalog/cold.rs",
+      "crates/runtime/src/component/preparation.rs",
+      "crates/runtime/src/component/tests/mieru_stream.rs",
+      "crates/runtime/src/component/tests/mieru_stream/host.rs",
+      "crates/runtime/src/component/tests/mieru_stream/host/fixtures.rs",
+      "protocols/mieru/src/client/pool/managed.rs",
+      "protocols/mieru/src/client/pool/native.rs",
+      "protocols/mieru/src/component/pool.rs",
+      "protocols/mieru/src/component/pool/options.rs",
+      "protocols/mieru/src/component/stream/options.rs",
+      "protocols/mieru/tests/component/pool.rs",
+      "protocols/mieru/tests/component/pool/controlled.rs"
+    ],
+    "public_api_config_ffi_grpc_engine_cli_unchanged": true,
+    "cargo_lock_preserved": true,
+    "backup": "/var/folders/5g/3js9c9b11c3fmfd930s4vkdm0000gn/T/zero-mieru-complete-before-xel037d3",
+    "backup_sha256": {
+      "untracked.tar.gz": "c1ba300eb86641edde39a5f8d75319ee453a1c716e2fa90437f13361f3e25f4c",
+      "Cargo.lock": "24e8b199302c22ad4ad20b256b7c3914cdaf3bf678ae5b97f064af344777df4c",
+      "before.patch": "e9a392ea68beebd34a6d08b2c7c8ea8c1d5f002b99185162af911590153ad055",
+      "status.txt": "3f31f26476db64d59aad33b925bc370a37bdad67d0812abd30c829d5be0bc17e",
+      "head.txt": "449a5581f1ec2bd979796a625805c8e4a5083c6d64a768fd223bdf0c3ada8497"
+    }
+  },
+  "limits": [
+    "native Mieru production adapters are not enrolled; existing legacy behavior retained",
+    "local client IPC and panel publication fixtures, not real GUI/TUN devices or production deployment",
+    "no 1 CPU/1 GiB pressure qualification",
+    "existing external/privileged ignored tests remain separate qualifications",
+    "one existing supplemental post-close UDP rebind probe failed once; test and native-close code unchanged, isolated and complete rerun passed; competitor identity not observed"
+  ]
+}

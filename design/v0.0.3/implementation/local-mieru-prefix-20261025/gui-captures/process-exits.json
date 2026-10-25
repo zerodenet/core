@@ -1,0 +1,34 @@
+[
+  {
+    "pid": 66926,
+    "args": [
+      "/var/folders/5g/3js9c9b11c3fmfd930s4vkdm0000gn/T/zero-mieru-prefix-consumers-7rk7ph87/zero",
+      "--version"
+    ],
+    "returncode": 0,
+    "signals": []
+  },
+  {
+    "pid": 66951,
+    "args": [
+      "/var/folders/5g/3js9c9b11c3fmfd930s4vkdm0000gn/T/zero-mieru-prefix-consumers-7rk7ph87/zero",
+      "validate",
+      "/tmp/znet-kernel-compat-tu9dz873/config.json"
+    ],
+    "returncode": 0,
+    "signals": []
+  },
+  {
+    "pid": 66952,
+    "args": [
+      "/var/folders/5g/3js9c9b11c3fmfd930s4vkdm0000gn/T/zero-mieru-prefix-consumers-7rk7ph87/zero",
+      "run",
+      "--control-socket",
+      "/tmp/znet-kernel-compat-tu9dz873/control.sock",
+      "--parent-lifetime-stdin",
+      "/tmp/znet-kernel-compat-tu9dz873/config.json"
+    ],
+    "returncode": 0,
+    "signals": []
+  }
+]

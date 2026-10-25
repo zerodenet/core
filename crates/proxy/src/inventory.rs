@@ -32,21 +32,40 @@ pub(crate) use weak::WeakProtocolInventory;
 #[derive(Debug, Clone)]
 pub struct ProtocolInventory {
     registry: std::sync::Arc<ProtocolRegistry>,
+    host: std::sync::Arc<crate::runtime::RuntimeHost>,
 }
 
 impl Default for ProtocolInventory {
     fn default() -> Self {
+        let (registry, factories) = crate::register::compiled_registries();
         Self {
-            registry: std::sync::Arc::new(crate::register::protocol_registry()),
+            registry: std::sync::Arc::new(registry),
+            host: std::sync::Arc::new(crate::runtime::RuntimeHost::new(factories)),
         }
     }
 }
 
-#[cfg(feature = "udp-runtime")]
 impl ProtocolInventory {
+    pub(crate) fn with_background(
+        network: std::sync::Arc<crate::component::background::BackgroundNetwork>,
+    ) -> Self {
+        let (registry, factories) =
+            crate::register::compiled_registries_with_background(Some(network));
+        Self {
+            registry: std::sync::Arc::new(registry),
+            host: std::sync::Arc::new(crate::runtime::RuntimeHost::new(factories)),
+        }
+    }
+    #[cfg(feature = "udp-runtime")]
     pub(crate) fn registered_udp_handlers(
         &self,
     ) -> crate::runtime::udp_flow::registered::RegisteredUdpHandlers {
         crate::register::registered_udp_handlers(&self.registry)
+    }
+}
+
+impl ProtocolInventory {
+    pub(crate) fn runtime_host(&self) -> std::sync::Arc<crate::runtime::RuntimeHost> {
+        self.host.clone()
     }
 }

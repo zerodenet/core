@@ -3,6 +3,127 @@ use std::{future::Future, task::Poll};
 use tokio::io::{AsyncRead, AsyncWrite, AsyncWriteExt};
 
 #[tokio::test]
+async fn interrupted_wait_for_logical_users_preserves_already_received_original_close_report() {
+    tokio::time::timeout(Duration::from_secs(5), async {
+        let pool = Arc::new(ClientPool::default());
+        let (address, server) = echo().await;
+        let (mut scope, ctx) = controlled_context(1, address, Arc::new(Loopback::default()));
+        let actual = ctx.instance();
+        let mut owner = PoolFactory
+            .build(
+                Arc::new(pool.component_options(NonZeroUsize::new(1).unwrap())),
+                ctx,
+            )
+            .unwrap();
+        owner.lifecycle.start(deadline()).await.unwrap();
+        let original = pool.managed(actual).unwrap().carriers[0]
+            .grants
+            .as_ref()
+            .unwrap()
+            .registration();
+        let stream = pool
+            .open_managed_tcp(
+                actual,
+                key_at("cancel-close", address),
+                &Default::default(),
+                Some(deadline()),
+            )
+            .await
+            .unwrap();
+        owner.lifecycle.revoke(CloseReason::Shutdown);
+        let tasks = scope.shutdown(deadline()).await;
+        assert!(tasks.is_complete() && tasks.exited_tasks.len() == 1);
+        let mut closing = Box::pin(owner.lifecycle.shutdown(deadline()));
+        assert!(
+            tokio::time::timeout(Duration::from_millis(30), closing.as_mut())
+                .await
+                .is_err()
+        );
+        assert!(
+            original.closed().unwrap().matches(&original),
+            "the original close actually completed before cancellation"
+        );
+        drop(closing);
+        drop(stream);
+        let report = owner.lifecycle.shutdown(deadline()).await.unwrap();
+        assert!(report.is_complete(), "{report:?}");
+        assert_eq!(
+            report.closed_io.len(),
+            1,
+            "the retained original report is delivered exactly once"
+        );
+        assert!(owner
+            .lifecycle
+            .shutdown(deadline())
+            .await
+            .unwrap()
+            .closed_io
+            .is_empty());
+        server.await.unwrap();
+    })
+    .await
+    .unwrap();
+}
+
+#[tokio::test]
+async fn original_native_close_and_scope_join_do_not_retire_a_transferred_logical_read_half() {
+    tokio::time::timeout(Duration::from_secs(5), async {
+        let pool = Arc::new(ClientPool::default());
+        let opener = Arc::new(Loopback::default());
+        let (address, server) = echo().await;
+        let (mut scope, ctx) = controlled_context(1, address, opener);
+        let actual = ctx.instance();
+        let mut owner = PoolFactory
+            .build(
+                Arc::new(pool.component_options(NonZeroUsize::new(1).unwrap())),
+                ctx,
+            )
+            .unwrap();
+        owner.lifecycle.start(deadline()).await.unwrap();
+        let stream = pool
+            .open_managed_tcp(
+                actual,
+                key_at("retained-user", address),
+                &Default::default(),
+                Some(deadline()),
+            )
+            .await
+            .unwrap();
+        let (read, write) = tokio::io::split(stream);
+        drop(write);
+        owner.lifecycle.revoke(CloseReason::Shutdown);
+        let end = Instant::now() + Duration::from_millis(30);
+        let (protocol, tasks) = tokio::join!(owner.lifecycle.shutdown(end), scope.shutdown(end));
+        let report = protocol.unwrap();
+        assert!(
+            !report.is_complete(),
+            "the actual logical receive view is still held"
+        );
+        assert_eq!(
+            report.closed_io.len(),
+            1,
+            "original FD closure is independent"
+        );
+        assert!(tasks.is_complete());
+        assert_eq!(
+            tasks.exited_tasks.len(),
+            1,
+            "the one real driver was joined"
+        );
+        drop(read);
+        let complete = owner.lifecycle.shutdown(deadline()).await.unwrap();
+        assert!(complete.is_complete(), "{complete:?}");
+        assert!(
+            complete.closed_io.is_empty(),
+            "the original report is never fabricated twice"
+        );
+        server.await.unwrap();
+    })
+    .await
+    .unwrap();
+}
+
+#[tokio::test]
 async fn controlled_same_pool_recycles_only_after_actual_scope_join_and_original_native_close() {
     tokio::time::timeout(Duration::from_secs(5), async {
         let pool = Arc::new(ClientPool::default());

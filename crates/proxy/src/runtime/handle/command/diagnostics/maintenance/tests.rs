@@ -86,7 +86,7 @@ async fn cancelled_cold_diagnostic_keeps_actual_service_owner_and_never_publishe
         .finish(zero_engine::SessionOutcome::Cancelled);
     waiting.abort();
     assert!(waiting.await.unwrap_err().is_cancelled());
-    let mut joining = Box::pin(proxy.apply_owner.wait_idle());
+    let mut joining = Box::pin(proxy.host.apply().wait_idle());
     assert!(futures_util::poll!(joining.as_mut()).is_pending());
     let mut eof = [0; 1];
     {

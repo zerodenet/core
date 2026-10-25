@@ -1,0 +1,1155 @@
+Integration layout: 314 source files, 95 targets, 0 errors
+TEST_SCOPE full (workspace, unit, integration and doctests)
+TEST_START 2026-10-25T06:23:23Z
+warning: trailing semicolon in macro used in expression position
+  --> vendor/quinn-udp/build.rs:5:5
+   |
+ 5 | /     cfg_aliases! {
+ 6 | |         // Platforms
+ 7 | |         apple: {
+ 8 | |             any(
+...  |
+31 | |         wasm_browser: { all(target_family = "wasm", target_os = "unknown") },
+32 | |     }
+   | |_____^
+   |
+   = warning: this was previously accepted by the compiler but is being phased out; it will become a hard error in a future release!
+   = note: for more information, see issue #79813 <https://github.com/rust-lang/rust/issues/79813>
+   = note: `#[warn(semicolon_in_expressions_from_non_local_macros)]` (part of `#[warn(future_incompatible)]`) on by default
+   = note: this warning originates in the macro `$crate::cfg_aliases` which comes from the expansion of the macro `cfg_aliases` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+warning: trailing semicolon in macro used in expression position
+  --> vendor/quinn-udp/build.rs:5:5
+   |
+ 5 | /     cfg_aliases! {
+ 6 | |         // Platforms
+ 7 | |         apple: {
+ 8 | |             any(
+...  |
+31 | |         wasm_browser: { all(target_family = "wasm", target_os = "unknown") },
+32 | |     }
+   | |_____^
+   |
+   = warning: this was previously accepted by the compiler but is being phased out; it will become a hard error in a future release!
+   = note: for more information, see issue #79813 <https://github.com/rust-lang/rust/issues/79813>
+   = note: this warning originates in the macro `$crate::cfg_aliases` which comes from the expansion of the macro `cfg_aliases` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+warning: `quinn-udp` (build script) generated 87 warnings (85 duplicates)
+warning: trailing semicolon in macro used in expression position
+ --> vendor/quinn/build.rs:5:5
+  |
+5 | /     cfg_aliases! {
+6 | |         // Convenience aliases
+7 | |         wasm_browser: { all(target_family = "wasm", target_os = "unknown") },
+8 | |     }
+  | |_____^
+  |
+  = warning: this was previously accepted by the compiler but is being phased out; it will become a hard error in a future release!
+  = note: for more information, see issue #79813 <https://github.com/rust-lang/rust/issues/79813>
+  = note: `#[warn(semicolon_in_expressions_from_non_local_macros)]` (part of `#[warn(future_incompatible)]`) on by default
+  = note: this warning originates in the macro `$crate::cfg_aliases` which comes from the expansion of the macro `cfg_aliases` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+warning: trailing semicolon in macro used in expression position
+ --> vendor/quinn/build.rs:5:5
+  |
+5 | /     cfg_aliases! {
+6 | |         // Convenience aliases
+7 | |         wasm_browser: { all(target_family = "wasm", target_os = "unknown") },
+8 | |     }
+  | |_____^
+  |
+  = warning: this was previously accepted by the compiler but is being phased out; it will become a hard error in a future release!
+  = note: for more information, see issue #79813 <https://github.com/rust-lang/rust/issues/79813>
+  = note: this warning originates in the macro `$crate::cfg_aliases` which comes from the expansion of the macro `cfg_aliases` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+warning: `quinn` (build script) generated 8 warnings (6 duplicates)
+warning: use of deprecated associated function `core::num::<impl u8>::max_value`: replaced by the `MAX` associated constant on this type
+   --> vendor/blake3/src/platform.rs:421:5
+    |
+421 |     cpufeatures::new!(has_avx512, "avx512f", "avx512vl");
+    |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+    = note: `#[warn(deprecated)]` on by default
+    = note: this warning originates in the macro `cpufeatures::new` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+warning: use of deprecated associated function `core::num::<impl u8>::max_value`: replaced by the `MAX` associated constant on this type
+   --> vendor/blake3/src/platform.rs:437:5
+    |
+437 |     cpufeatures::new!(has_avx2, "avx2");
+    |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+    = note: this warning originates in the macro `cpufeatures::new` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+warning: use of deprecated associated function `core::num::<impl u8>::max_value`: replaced by the `MAX` associated constant on this type
+   --> vendor/blake3/src/platform.rs:453:5
+    |
+453 |     cpufeatures::new!(has_sse41, "sse4.1");
+    |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+    = note: this warning originates in the macro `cpufeatures::new` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+warning: use of deprecated associated function `core::num::<impl u8>::max_value`: replaced by the `MAX` associated constant on this type
+   --> vendor/blake3/src/platform.rs:469:5
+    |
+469 |     cpufeatures::new!(has_sse2, "sse2");
+    |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+    = note: this warning originates in the macro `cpufeatures::new` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+warning: use of deprecated associated function `core::num::<impl u64>::max_value`: replaced by the `MAX` associated constant on this type
+    --> vendor/blake3/src/lib.rs:1817:33
+     |
+1817 |         let max_position = u64::max_value() as i128;
+     |                                 ^^^^^^^^^
+
+warning: `blake3` (lib) generated 5 warnings
+   Compiling zero-proxy v0.0.3-dev.202610162206 (/Volumes/tool/rust/zero/crates/proxy)
+   Compiling zero-grpc v0.0.3-dev.202610162206 (/Volumes/tool/rust/zero/crates/grpc)
+   Compiling zero v0.0.3-dev.202610162206 (/Volumes/tool/rust/zero)
+   Compiling zero-runtime v0.0.3-dev.202610162206 (/Volumes/tool/rust/zero/crates/runtime)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 23m 32s
+     Running unittests src/lib.rs (target/debug/deps/http-990d8e1a9e1f8c15)
+
+running 3 tests
+test component::tests::cancelled_actual_pending_reply_does_not_replay_or_hand_over_partial_response ... ok
+test component::tests::response_failure_preserves_the_original_typed_carrier_source_and_identity ... ok
+test component::tests::real_connect_reply_keeps_wire_unread_payload_half_close_and_failure_codes ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+
+     Running tests/inbound.rs (target/debug/deps/inbound-4857df6cfa29c401)
+
+running 11 tests
+test rejects_ambiguous_request_framing ... ok
+test normalizes_forward_proxy_authority_and_hop_headers ... ok
+test classifies_response_body_boundaries_and_upgrade ... ok
+test parses_ipv4_authority ... ok
+test parses_absolute_form_post_with_explicit_port_and_preserves_body ... ok
+test parses_domain_authority ... ok
+test parses_absolute_form_get_and_rewrites_request_target ... ok
+test writes_connection_established_response ... ok
+test native_forward_command_keeps_destination_and_body_without_a_legacy_session ... ok
+test rejects_origin_form_request_without_proxy_target ... ok
+test relays_chunked_body_without_consuming_the_next_message ... ok
+
+test result: ok. 11 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running unittests src/lib.rs (target/debug/deps/hysteria2-8c4ae49999f99db5)
+
+running 24 tests
+test transport::bbr_tests::protocol_profiles_select_shared_bbr_and_forward_packet_feedback ... ok
+test transport::auth::tests::quic_rejects_untrusted_certificate_by_default ... ok
+test transport::auth::tests::cancellation_during_authentication_closes_quic_session ... ok
+test transport::auth::tests::udp_disabled_response_preserves_tcp_session_and_rejects_udp ... ok
+test transport::auth::tests::releasing_udp_flow_closes_connection_even_with_keepalive ... ok
+test transport::auth::tests::bandwidth_headers_select_directional_brutal_rates ... ok
+test transport::http3_tests::masquerade_reverse_proxy_forwards_method_path_and_body ... ok
+test transport::bandwidth_tests::auto_and_zero_bandwidth_keep_configured_adaptive_controller_uncapped ... ok
+test transport::bandwidth_tests::configured_bandwidth_preserves_negotiated_loss_compensation_on_both_peers ... ok
+test transport::http3_tests::website_authentication_and_tcp_share_one_http3_connection ... ok
+test transport::http3_tests::masquerade_static_site_serves_index_and_denies_traversal ... ok
+test transport::website_tests::website_proxy_preserves_host_or_rewrites_and_regenerates_forwarded_headers ... ok
+test transport::pool::shared::egress_generation_change_creates_a_new_connection_and_preserves_old_udp ... ok
+test transport::website_tests::website_proxy_unix_origin_supports_encoded_socket_path ... ok
+test transport::website_tests::website_redirect_preserves_path_query_and_handles_ipv6_and_old_port ... ok
+test udp::dispatch::tests::full_or_unknown_udp_session_does_not_block_or_deliver_to_another_session ... ok
+test transport::website_tests::website_proxy_tls_verifies_by_default_and_insecure_is_explicit ... ok
+test udp::dispatch::tests::session_ids_do_not_wrap_or_reuse_after_close_and_connection_drop_wakes_receivers ... ok
+test transport::pool::shared::disconnect_rebuilds_once_and_reload_retires_without_closing_active_udp ... ok
+test transport::pool::shared::tcp_managed_udp_and_packet_paths_share_one_authentication_without_cross_delivery ... ok
+test transport::pool::tests::tcp_pool_single_flight_reuses_recovers_and_retires_on_reload ... ok
+test transport::pool::shared::shared_connection_identity_preserves_tls_credentials_settings_and_outbound_isolation ... ok
+test transport::pool::shared::lifetime::retiring_logical_resume_closes_cached_udp_handle_without_closing_shared_connection ... ok
+test transport::pool::shared::active_udp_survives_pool_idle_sweep_and_unused_connection_is_reclaimed ... ok
+
+test result: ok. 24 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 12.08s
+
+     Running tests/suites/hysteria2_contracts.rs (target/debug/deps/hysteria2_contracts-3d3a008fc066f553)
+
+running 33 tests
+test settings::settings_enforce_window_and_liveness_bounds ... ok
+test negotiation::authentication_negotiates_udp_and_receive_bandwidth ... ok
+test shared::test_auth_frame_roundtrip ... ok
+test settings::receive_window_ceiling_changes_connection_cache_identity ... ok
+test settings::changed_transport_policy_invalidates_udp_identity ... ok
+test settings::bbr_profile_is_part_of_connection_cache_identity ... ok
+test settings::bandwidth_units_and_negotiation_follow_hysteria ... ok
+test negotiation::udp_caches_separate_trust_policy_and_fingerprint ... ok
+test shared::test_auth_response_err ... ok
+test shared::test_auth_response_ok ... ok
+test shared::test_connect_response_err ... ok
+test shared::test_connect_response_ok ... ok
+test shared::test_tcp_connect_header_roundtrip ... ok
+test shared::test_tcp_connect_ipv4 ... ok
+test settings::website_paths_cannot_escape_the_root ... ok
+test tcp_stream::tcp_request_accepts_every_fragment_boundary ... ok
+test tcp_stream::tcp_request_preserves_coalesced_payload ... ok
+test tcp_stream::tcp_request_rejects_every_truncated_prefix ... ok
+test tcp_stream::tcp_request_consumes_padding_larger_than_old_header_buffer ... ok
+test tcp_stream::tcp_request_accepts_reference_length_limits ... ok
+test tcp_stream::tcp_request_rejects_wrong_type_and_malformed_authority ... ok
+test tcp_stream::tcp_request_rejects_oversized_lengths_before_reading_body ... ok
+test tcp_stream::tcp_response_preserves_coalesced_payload_and_accepts_fragmentation ... ok
+test tcp_stream::tcp_response_rejects_oversized_lengths_before_reading_body ... ok
+test udp::inbound_udp_session_ids_remain_distinct_for_the_same_target ... ok
+test udp::test_udp_datagram_ipv4 ... ok
+test udp::test_udp_datagram_roundtrip ... ok
+test tcp_stream::tcp_request_accepts_all_quic_varint_widths ... ok
+test tcp_stream::tcp_response_accepts_reference_limits_and_rejects_truncation_and_error_status ... ok
+test udp::udp_datagram_framing_trait_roundtrips_packet ... ok
+test udp::udp_flow_codec_roundtrips_payload ... ok
+test user_profile::profile_store_matches_users_and_updates_existing_profile ... ok
+test settings::reverse_proxy_accepts_fixed_http_and_platform_unix_origins ... ok
+
+test result: ok. 33 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running unittests src/lib.rs (target/debug/deps/mieru-f688898a8689ce67)
+
+running 67 tests
+test component::pool::tests::declared_pool_requires_actual_host_registration_before_claim_or_io ... ok
+test component::pool::tests::controlled::strict_controlled_owner_default_denies_old_opener_without_legacy_io_or_fake_join ... ok
+test component::pool::tests::legacy_inflight_pool_cannot_be_adopted_even_after_cache_clear ... ok
+test component::pool::tests::controlled::cancelled_controlled_authentication_closes_original_fd_without_inventing_a_driver_join ... ok
+test component::pool::tests::driver::actual_registration_capacity_failure_never_starts_an_unowned_replacement_driver ... ok
+test component::pool::tests::same_pool_cold_owner_declares_real_background_grant_and_no_default_budget ... ok
+test component::pool::tests::pending_real_handshake_uses_owner_service_grant_and_retires_without_recycling_capacity ... ok
+test component::stream::datagram::tests::a_different_frame_after_partial_send_is_unknown_and_isolates_only_this_session ... ok
+test component::pool::tests::driver::registered_driver_failure_retains_original_io_payload_and_actual_scope_join_result ... ok
+test component::stream::datagram::tests::cancelled_partial_receive_retains_frame_and_zero_payload ... ok
+test component::stream::datagram::tests::fixed_domain_send_targets_preserve_resolved_response_sources ... ok
+test component::stream::tests::genuine_socks_rejection_retains_original_protocol_error_without_confirmation ... ok
+test component::stream::tests::guards::canonical_dependency_generation_and_complete_pool_recipe_are_both_required ... ok
+test component::stream::tests::guards::native_options_preserve_underlay_and_reject_invalid_protocol_options ... ok
+test component::stream::tests::guards::stale_selected_binding_is_rejected_before_the_persistent_grant_can_open_io ... ok
+test component::pool::tests::retry::no_caller_deadline_still_settles_a_real_retired_original_before_reusing_one_slot ... ok
+test crypto::tests::test_derive_key_deterministic ... ok
+test crypto::tests::test_nonce_increment_carry ... ok
+test crypto::tests::test_user_hint ... ok
+test crypto::tests::test_encrypt_decrypt_roundtrip ... ok
+test inbound::multiplex::reader::tests::backlog_stall_timeout_restarts_only_after_consumer_progress ... ok
+test inbound::multiplex::reader::tests::connection_backlog_limit_evicts_only_the_session_that_exceeds_it ... ok
+test component::stream::tests::cancelling_a_pending_real_target_response_preserves_another_canonical_consumer ... ok
+test inbound::multiplex::reader::tests::default_policy_keeps_a_short_stall_and_closes_at_thirty_seconds ... ok
+test inbound::multiplex::reader::tests::incoming_data_refills_a_recovered_consumer_without_waiting_for_the_timer ... ok
+test inbound::multiplex::reader::tests::oversized_new_open_closes_only_that_session_and_preserves_budget ... ok
+test inbound::multiplex::reader::tests::session_backlog_limit_closes_only_the_violating_session ... ok
+test outbound::udp_worker_lifecycle::terminated_worker_closes_existing_and_new_response_waiters ... ok
+test packet::driver::tests::acknowledged_flush_succeeds_when_peer_closes_afterward ... ok
+test packet::driver::tests::crossed_and_repeated_peer_close_complete_an_acked_shutdown_once ... ok
+test packet::driver::tests::missing_close_response_times_out_shutdown_even_after_data_ack ... ok
+test packet::driver::tests::peer_close_fails_an_unacknowledged_flush ... ok
+test inbound::multiplex::reader::tests::continuously_ready_frames_give_a_healthy_consumer_time_to_run ... ok
+test packet::driver::tests::peer_close_wins_race_with_acked_shutdown_before_close_is_sent ... ok
+test packet::driver::tests::shutdown_waits_for_close_handshake_after_data_is_acknowledged ... ok
+test packet::tests::congestion::cubic_loss_follows_the_reference_curve_and_timeout_restarts_slow_start ... ok
+test packet::tests::congestion::cubic_slow_start_and_bounds_match_the_reference ... ok
+test packet::tests::congestion::fast_retransmit_is_loss_but_elapsed_rto_is_timeout ... ok
+test packet::tests::authenticated_open_replay_is_rejected_across_peer_drivers ... ok
+test packet::driver::tests::received_close_fails_pending_flush_and_duplicate_only_answers_tombstone ... ok
+test packet::tests::congestion::reliable_session_applies_each_new_ack_to_cubic_capacity ... ok
+test packet::tests::congestion::retransmission_attempt_limit_returns_timeout_deterministically ... ok
+test packet::tests::duplicate_and_reordered_packets_are_delivered_once_in_sequence ... ok
+test packet::tests::options::receive_accepts_peer_mtu_larger_than_local_send_budget ... ok
+test component::pool::tests::controlled::controlled_same_pool_recycles_only_after_actual_scope_join_and_original_native_close ... ok
+test packet::tests::options::udp_nonce_pattern_first_packet_state_is_shared_with_codec_clones ... ok
+test packet::tests::receive_capacity_is_not_a_sequence_horizon_and_missing_head_has_priority ... ok
+test packet::tests::remote_window_is_additional_capacity_with_packets_in_flight ... ok
+test packet::tests::stateless_packets_reject_corruption_truncation_and_bad_padding ... ok
+test packet::tests::zero_window_blocks_new_data_and_invalid_ack_cannot_discard_pending_bytes ... ok
+test traffic_pattern::tests::enabled_tcp_fragmentation_uses_multiple_writes ... ok
+test traffic_pattern::tests::explicit_fields_override_generated_values_individually ... ok
+test traffic_pattern::tests::fixed_seed_generates_official_locked_defaults ... ok
+test traffic_pattern::tests::fixed_seed_generates_official_unlocked_defaults ... ok
+test traffic_pattern::tests::fixed_without_prefixes_is_random_as_officially_documented ... ok
+test component::pool::tests::controlled::interrupted_wait_for_logical_users_preserves_already_received_original_close_report ... ok
+test traffic_pattern::tests::generated_minimum_is_clamped_when_only_a_small_maximum_is_explicit ... ok
+test traffic_pattern::tests::padding_lengths_stay_within_the_supplied_wire_budget ... ok
+test component::pool::tests::controlled::original_native_close_and_scope_join_do_not_retire_a_transferred_logical_read_half ... ok
+test traffic_pattern::tests::selected_session_padding_bytes_are_written_to_the_wire_tail ... ok
+test component::pool::tests::driver::registered_driver_reuses_same_pool_and_clear_cannot_recycle_even_an_actually_joined_slot ... ok
+test traffic_pattern::tests::fragment_sleep_does_not_deadlock_bidirectional_small_duplex ... ok
+test traffic_pattern::tests::polled_fragmentation_survives_cancelled_flush_short_writes_and_pending ... ok
+test component::stream::tests::actual_encrypted_socks_response_is_complete_before_confirmed_and_flow_stays_zero ... ok
+test packet::tests::congestion::one_to_three_lost_packets_recover_across_a_long_rtt_link ... ok
+test packet::tests::options::udp_wire_stays_within_configured_outer_mtu_for_both_ip_families ... ok
+test packet::tests::lost_segment_retransmits_without_reallocating_sequence ... ok
+
+test result: ok. 67 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.34s
+
+     Running tests/suites/mieru_crypto.rs (target/debug/deps/mieru_crypto-e2f076214a7a12ce)
+
+running 15 tests
+test udp::inbound_udp_packet_decoder_unwraps_socks5_payload ... ok
+test udp::test_udp_associate_roundtrip ... ok
+test udp::test_unwrap_invalid ... ok
+test udp::udp_packet_framing_trait_roundtrips_associate_payload ... ok
+test udp::udp_response_encoder_wraps_socks5_payload ... ok
+test pbkdf2_verify::test_mieru_style_key ... ok
+test outbound::decrypt_server_data_waits_for_complete_segment ... ok
+test udp_framing::session_reader_rejects_eof_inside_a_frame ... ok
+test outbound::decrypt_server_data_does_not_advance_cipher_on_incomplete_implicit_segment ... ok
+test loopback::mieru_inbound_rejects_modified_credentials ... ok
+test loopback::mieru_inbound_uses_the_matched_username_as_default_principal ... ok
+test loopback::mieru_outbound_inbound_handshake_loopback ... ok
+test loopback::mieru_inbound_attributes_the_matched_user ... ok
+test udp_framing::fragmented_udp_frames_survive_cancelled_reads_and_coalescing ... ok
+test udp_framing::session_reader_preserves_partial_frame_when_moved_into_responder ... ok
+
+test result: ok. 15 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.04s
+
+     Running tests/suites/mieru_runtime.rs (target/debug/deps/mieru_runtime-c4a3ec0b33471aa7)
+
+running 22 tests
+test inbound_route::tcp_route_preserves_payload_identity_and_runtime_error ... ok
+test inbound_route::udp_route_preserves_the_protocol_owned_relay_and_authentication ... ok
+test multiplex::cases::lifecycle::peer_close_and_unknown_id_do_not_close_other_sessions ... ok
+test multiplex::cases::lifecycle::dropping_retired_session_cannot_remove_a_reused_wire_id ... ok
+test multiplex::cases::lifecycle::concurrent_tcp_udp_and_incomplete_handshake_are_isolated ... ok
+test multiplex::cases::lifecycle::reserved_or_duplicate_ids_fail_the_underlay_without_cross_delivery ... ok
+test multiplex::cases::framing::fragmented_padding_preserves_nonce_and_next_frame ... ok
+test multiplex::cases::lifecycle::truncated_underlay_and_connection_drop_wake_readers ... ok
+test underlay::cases::pool::concurrency::concurrent_opens_share_one_carrier_and_clear_drains_existing_sessions ... ok
+test multiplex::cases::lifecycle::large_writes_fragment_and_shutdown_is_logical ... ok
+test underlay::cases::pool::lifecycle::cancelled_dial_wakes_an_existing_waiter ... ok
+test underlay::cases::pool::lifecycle::disconnected_connection_is_replaced_without_replaying_application_data ... ok
+test underlay::cases::pool::policy::rejects_invalid_pool_policies ... ok
+test underlay::cases::pool::concurrency::failed_open_on_one_carrier_does_not_block_a_healthy_carrier ... ok
+test underlay::cases::pool::profile::different_transport_profiles_do_not_reuse_the_same_carrier ... ok
+test underlay::cases::pool::policy::grows_on_sustained_load_and_prefers_the_least_loaded_carrier ... ok
+test underlay::cases::pool::lifecycle::clear_detaches_an_inflight_dial_without_closing_its_returned_stream ... ok
+test underlay::cases::pool::policy::retires_aged_carriers_without_interrupting_existing_streams ... ok
+test traffic_stream::configured_public_streams_fragment_large_payloads_in_both_directions ... ok
+test multiplex::cases::lifecycle::flush_waits_for_the_underlay_and_sender_applies_backpressure ... ok
+test multiplex::cases::lifecycle::slow_session_fails_explicitly_while_other_sessions_continue ... ok
+test underlay::cases::packet::native_udp_recovers_loss_reordering_duplicates_and_preserves_sessions ... ok
+
+test result: ok. 22 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.93s
+
+     Running unittests src/lib.rs (target/debug/deps/mieru_config-d812f1398e341659)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/options.rs (target/debug/deps/options-a25da16f4d50b09f)
+
+running 2 tests
+test mtu_budget_includes_outer_ip_udp_and_both_aead_tags ... ok
+test traffic_patterns_and_receive_policy_reject_unsafe_bounds ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running unittests src/lib.rs (target/debug/deps/shadowsocks-ba05335fd78ea844)
+
+running 44 tests
+test component::replay::tests::retired_weak_recipe_cannot_keep_security_state_alive ... ok
+test component::tcp::options::tests::configured_plugins_and_invalid_protocol_values_fail_during_cold_preparation ... ok
+test component::tcp::options::tests::prepared_tcp_reuses_the_adapter_resource_history_without_a_fresh_pool_or_implicit_binding ... ok
+test component::replay::tests::interrupted_legacy_driver_transfer_retains_the_join_handle_until_cleanup ... ok
+test component::replay::tests::a_replacement_cannot_claim_the_pool_before_the_old_registered_task_exits ... ok
+test component::replay::tests::registration_failure_keeps_the_original_capacity_source_and_security_history ... ok
+test component::replay::tests::replay_factory_transfers_the_actual_shared_history_to_one_registered_driver ... ok
+test shared::replay::tests::pool_capacity_never_evicts_live_salts_and_idle_worker_releases_memory ... ok
+test shared::replay::tests::registered_idle_driver_keeps_the_security_window_and_confirms_its_exit ... ok
+test component::tcp::carrier::tests::actual_broken_pipe_preserves_the_original_private_error_payload_across_protocol_error_mapping ... ok
+test transport::plugin::inbound::tests::actual_inbound_spawn_failure_preserves_os_source_and_closed_owner_cannot_activate ... ok
+test transport::plugin::outbound::tests::plugin_cache_distinguishes_missing_options_from_an_explicit_empty_environment_value ... ok
+test inbound::tcp::facts_tests::facts_path_keeps_first_plaintext_tail_nonces_and_original_response_binding_on_native_tcp ... ok
+test inbound::tcp::facts_tests::facts_path_retains_live_2022_salt_and_capacity_across_clone_failure_and_stream_drop ... ok
+test inbound::tcp::facts_tests::facts_and_legacy_clone_entry_share_one_original_replay_authority_after_stream_drop ... ok
+test transport::plugin::process::tests::plugin_environment_is_opaque_and_obfsproxy_uses_reference_arguments ... ok
+test transport::plugin::resource::tests::a_cold_resource_can_close_without_starting_a_process ... ok
+test transport::plugin::outbound::tests::plugin_exit_closes_idle_udp_subscribers_without_another_packet ... ok
+test transport::plugin::outbound::tests::plugin_startup_failure_returns_an_error_without_direct_fallback ... ok
+test transport::plugin::inbound::tests::cancelled_actual_inbound_readiness_retains_the_same_child_for_owner_reaping ... ok
+test transport::plugin::inbound::tests::dropping_inbound_completion_does_not_replace_explicit_reaping_confirmation ... ok
+test transport::plugin::outbound::tests::failed_plugin_start_keeps_its_original_error_and_does_not_spawn_again ... ok
+test udp::client::tests::direction_echo_and_window_are_checked_before_response_delivery ... ok
+test transport::plugin::outbound::tests::interrupted_plugin_start_keeps_the_actual_child_owned_and_never_respawns_it ... ok
+test udp::client::tests::eih_requests_share_state_and_responses_verify_the_user_session ... ok
+test udp::client::tests::repeated_packet_path_builds_allocate_independent_associations ... ok
+test udp::client::tests::resume_packet_api_keeps_its_association_across_clones ... ok
+test udp::inbound::state::tests::identity::sip023_same_wire_session_is_isolated_between_users_and_migrates_per_user ... ok
+test udp::inbound::state::tests::profile_expiry_removes_response_indexes_and_user_removal_cleans_sessions ... ok
+test udp::inbound::state::tests::replay_capacity_never_evicts_a_live_session_and_retains_future_boundary ... ok
+test udp::inbound::state::tests::responder_idle_timer_cleans_state_without_new_packets ... ok
+test udp::inbound::state::tests::response_bindings_do_not_limit_the_targets_of_one_association ... ok
+test udp::inbound::state::tests::terminal_packet_does_not_consume_inbound_capacity ... ok
+test transport::udp_socket::tests::large_response_is_complete_and_drop_releases_idle_socket ... ok
+test udp::session::tests::responses_keep_per_client_counters_and_reclaim_idle_entries ... ok
+test udp::session::tests::sender_keeps_identity_and_fails_closed_at_counter_exhaustion ... ok
+test udp::session::tests::terminal_packet_does_not_consume_receive_capacity ... ok
+test transport::plugin::resource::tests::shutdown_cancels_pending_readiness_and_waits_for_the_retained_child ... ok
+test transport::plugin::resource::tests::interrupted_and_timed_out_cleanup_keep_the_child_for_confirmed_retry ... ok
+test transport::plugin::outbound::tests::plugin_pool_reload_keeps_active_leases_and_exit_is_not_silently_restarted ... ok
+test transport::plugin::resource::tests::shared_plugin_resource_confirms_the_actual_child_exit_and_blocks_later_starts ... ok
+test udp::client::tests::large_2022_payload_is_preserved_by_session_codecs ... ok
+test udp::session::tests::received_windows_preserve_live_entries_at_capacity_and_expire ... ok
+test udp::client::tests::continuous_association_exceeds_old_1024_packet_limit_for_all_2022_ciphers ... ok
+
+test result: ok. 44 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 3.93s
+
+     Running tests/external_sip023.rs (target/debug/deps/external_sip023-264ec6172a1f4049)
+
+running 5 tests
+test shadowsocks_rust_client_reaches_zero_sip023_inbound ... ignored, requires shadowsocks-rust sslocal 1.21.2 on PATH or SS_RUST_BIN_DIR
+test shadowsocks_rust_udp_client_reaches_zero_sip023_inbound ... ignored, requires shadowsocks-rust sslocal 1.21.2 on PATH or SS_RUST_BIN_DIR
+test udp_sessions::official_server_accepts_continuous_session_and_large_response ... ignored, requires fixed shadowsocks-rust 1.21.2
+test zero_sip023_outbound_reaches_shadowsocks_rust_server ... ignored, requires shadowsocks-rust ssserver 1.21.2 on PATH or SS_RUST_BIN_DIR
+test zero_sip023_udp_outbound_reaches_shadowsocks_rust_server ... ignored, requires shadowsocks-rust ssserver 1.21.2 on PATH or SS_RUST_BIN_DIR
+
+test result: ok. 0 passed; 0 failed; 5 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/reference_interop.rs (target/debug/deps/reference_interop-690e1cf4544a5da4)
+
+running 2 tests
+test every_release_method_official_to_zero_tcp_and_udp ... ignored, requires fixed official 1.21.2 binaries in SS_RUST_BIN_DIR
+test every_release_method_zero_to_official_tcp_and_udp ... ignored, requires fixed official 1.21.2 binaries in SS_RUST_BIN_DIR
+
+test result: ok. 0 passed; 0 failed; 2 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/suites/shadowsocks_runtime.rs (target/debug/deps/shadowsocks_runtime-5fb821e2bef9825b)
+
+running 62 tests
+test legacy_replay::truncated_domain_length_is_an_error ... ok
+test outbound::aead_stream_inbound_serves_remaining_payload_and_encrypts_download ... ok
+test outbound::accepted_inbound_stream_constructor_owns_response_key_derivation ... ok
+test legacy_replay::reject_policy_remembers_locally_generated_legacy_salts ... ok
+test legacy_replay::tcp2022_rejects_reused_server_salt_even_with_a_fresh_request_and_ignore_policy ... ok
+test outbound::aead_stream_outbound_encrypts_upload_and_decrypts_download ... ok
+test outbound::outbound_writes_salt_and_first_chunk_in_one_write ... ok
+test outbound::ss_2022_rejects_short_header_probe ... ok
+test legacy_replay::legacy_tcp_target_may_span_authenticated_chunks ... ok
+test outbound::aead_stream_roundtrips_all_supported_ciphers ... ok
+test outbound::tcp_chunks_roundtrip_all_supported_ciphers ... ok
+test outbound::udp_datagram_framing_roundtrips_2022_blake3_packet ... ok
+test outbound::ss_2022_tcp_request_and_accept_roundtrip_all_blake3_ciphers ... ok
+test outbound::ss_2022_tcp_relay_large_payload_spans_multiple_chunks ... ok
+test outbound::udp_datagram_framing_roundtrips_aead_packet ... ok
+test outbound::ss_2022_tcp_full_relay_roundtrips_all_blake3_ciphers ... ok
+test outbound::udp_datagram_helpers_roundtrip_aead_packet ... ok
+test outbound::udp_2022_server_response_flow_all_blake3_ciphers ... ok
+test outbound::udp_datagram_framing_roundtrips_all_supported_ciphers ... ok
+test replay_window::authenticated_udp_codec_rejects_boundary_replays_and_isolates_sessions ... ok
+test replay_window::reference_default_accepts_reordering_through_8128_and_rejects_terminal_id ... ok
+test replay_window::zero_and_inclusive_left_edge_remain_recorded ... ok
+test replay_window::zero_width_and_maximum_packet_ids_never_forget_current_packet ... ok
+test shared::replay_salt_pool_accepts_distinct_salts ... ok
+test shared::replay_salt_pool_evicts_expired_entries ... ok
+test legacy_replay::udp_legacy_policy_checks_authenticated_packets_in_both_directions ... ok
+test shared::replay_salt_pool_rejects_replayed_salt ... ok
+test shared::replay_window_accepts_fresh_increasing_ids ... ok
+test shared::replay_window_accepts_in_order_out_of_order_within_window ... ok
+test shared::replay_window_rejects_duplicate_packet_id ... ok
+test shared::replay_window_rejects_stale_out_of_window ... ok
+test shared::ss_2022_request_fixed_header_byte_layout ... ok
+test shared::ss_2022_request_fixed_header_rejects_bad_length ... ok
+test shared::ss_2022_request_var_header_rejects_no_payload_no_padding ... ok
+test shared::ss_2022_request_var_header_rejects_oversized_padding ... ok
+test shared::ss_2022_request_var_header_roundtrip_with_initial_payload ... ok
+test shared::ss_2022_request_var_header_roundtrip_with_padding ... ok
+test shared::ss_2022_response_header_byte_layout ... ok
+test reference_2022::chacha8_tcp_and_udp_match_the_pinned_optional_reference_backend ... ok
+test shared::ss_2022_response_header_rejects_wrong_type ... ok
+test shared::test_address_roundtrip ... ok
+test shared::test_cipher_key_len ... ok
+test shared::test_cipher_kind_from_str ... ok
+test shared::test_target_data_roundtrip ... ok
+test shared::test_aead_roundtrip ... ok
+test shared::test_tcp_chunk_roundtrip ... ok
+test user_profile::profile_store_updates_existing_listener_profile_atomically ... ok
+test tcp_accept_boundaries::variable_header_fragmentation_is_accepted ... ok
+test tcp_accept_boundaries::drain_uses_one_total_deadline_despite_continued_reads ... ok
+test legacy_replay::tcp_legacy_policy_is_shared_across_connections_and_checks_response_salts ... ok
+test user_profile::sip023_tcp_password_chain_interops_with_the_eih_acceptor ... ok
+test user_profile::sip023_tcp_eih_selects_the_user_psk_for_both_aes_methods ... ok
+test user_profile::sip023_udp_response_uses_the_selected_user_psk ... ok
+test user_profile::sip023_udp_password_chain_interops_with_the_eih_responder ... ok
+test user_profile::sip023_udp_eih_selects_the_user_psk_for_both_aes_methods ... ok
+test user_profile::udp_responder_matches_user_and_exposes_packet_auth ... ok
+test user_profile::sip023_tcp_response_uses_the_selected_user_psk ... ok
+test user_profile::tcp_acceptor_matches_user_and_applies_identity ... ok
+test destination_tcp::destination_only_tcp_framing_preserves_address_port_and_payload_without_session_identity ... ok
+test replay_window::bitmap_matches_an_exact_set_across_rotations_reordering_and_large_jumps ... ok
+test reference_ciphers::complete_v1_catalog_continues_tcp_state_in_both_directions ... ok
+test reference_ciphers::complete_v1_catalog_matches_pinned_reference_datagrams ... ok
+
+test result: ok. 62 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 3.61s
+
+     Running tests/validation.rs (target/debug/deps/validation-5816dccb6da948e1)
+
+running 2 tests
+test validates_2022_passwords ... ok
+test parses_known_ciphers ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running unittests src/lib.rs (target/debug/deps/socks5-79f243a6a764667e)
+
+running 6 tests
+test validation::tests::rejects_empty_credentials ... ok
+test validation::tests::accepts_u8_sized_credentials ... ok
+test validation::tests::rejects_oversized_credentials ... ok
+test component::inbound::tests::cancelled_actual_pending_reply_does_not_replay_or_hand_over_partial_response ... ok
+test component::inbound::tests::response_failure_preserves_the_original_typed_carrier_source_and_identity ... ok
+test component::inbound::tests::real_connect_reply_keeps_wire_unread_payload_half_close_and_failure_codes ... ok
+
+test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+
+     Running tests/handshake.rs (target/debug/deps/handshake-bbd81bf59ff32a5d)
+
+running 21 tests
+test builds_and_parses_udp_packet ... ok
+test inbound_udp_codec_decodes_requests_and_encodes_responses ... ok
+test inbound_udp_association_dispatches_client_packets_through_protocol_dispatcher ... ok
+test inbound_udp_association_dispatches_relay_packet_with_handlers ... ok
+test outbound_establishes_tunnel_for_domain_target ... ok
+test outbound_establishes_tunnel_with_username_password_auth ... ok
+test inbound_udp_association_classifies_relay_packets_in_protocol ... ok
+test inbound_udp_association_sends_peer_response_to_current_client ... ok
+test inbound_udp_association_uses_udp_associate_client_hint_when_present ... ok
+test accepts_username_password_auth_when_configured ... ok
+test outbound_establishes_udp_association ... ok
+test outbound_rejects_upstream_failure_reply ... ok
+test parses_connect_request_with_domain_target ... ok
+test parses_connect_request_with_ipv4_target ... ok
+test parses_udp_associate_request ... ok
+test rejects_invalid_username_password_credentials ... ok
+test rejects_unsupported_auth_method ... ok
+test rejects_no_auth_when_password_is_required ... ok
+test rejects_unsupported_command ... ok
+test udp_relay_rejects_packets_from_unexpected_sender ... ok
+test udp_relay_wraps_socks5_packet_before_send ... ok
+
+test result: ok. 21 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/inbound_facts.rs (target/debug/deps/inbound_facts-950200e0be8b9259)
+
+running 4 tests
+test legacy_udp_preserves_its_authentication_provider_callback_behavior ... ok
+test authenticated_udp_command_retains_hint_and_authentication_without_inventing_target ... ok
+test authenticated_connect_facts_preserve_limits_without_a_business_identity ... ok
+test legacy_connect_uses_same_verified_facts_and_wire ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+
+     Running tests/component.rs (target/debug/deps/socks_component-094323757432b70d)
+
+running 8 tests
+test stream::options_validate_once_and_keep_credentials_out_of_debug_and_static_description ... ok
+test stream::handshake_failure_retains_original_os_error_without_false_confirmation ... ok
+test stream::cancellation_during_handshake_closes_only_the_selected_stream_and_does_not_replay ... ok
+test stream::authenticated_service_uses_selected_prefix_and_preserves_pre_read_and_half_close ... ok
+test stream::authenticated_service_flushes_buffered_prefix_before_waiting_for_peer ... ok
+test datagram::interrupted_socks5_close_retains_the_control_stream_and_actual_raw_close_progress ... ok
+test datagram::socks5_validates_business_association_and_actual_domain_wire_size_before_submission ... ok
+test datagram::actual_socks5_association_preserves_multiple_wire_targets_zero_length_and_closes_both_carriers ... ok
+
+test result: ok. 8 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+
+     Running unittests src/lib.rs (target/debug/deps/trojan-682dab948366dfdd)
+
+running 4 tests
+test mux::tests::different_backlog_policies_do_not_share_a_pool_key ... ok
+test mux::tests::inbound_writer_enforces_frame_and_byte_limits ... ok
+test mux::tests::mux_frame_round_trip_preserves_tcp_target_and_payload ... ok
+test mux::tests::eviction_through_a_clone_removes_cached_connections ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/suites/trojan_contracts.rs (target/debug/deps/trojan_contracts-4576239a3903117d)
+
+running 9 tests
+test outbound::tcp_connect_config_exposes_profile_accessors ... ok
+test outbound::outbound_uses_chrome_fingerprint_when_config_omits_it ... ok
+test outbound::udp_flow_resume_tls_profile_uses_fallback_server_name ... ok
+test user_profile::transport_runtime_atomically_replaces_shared_inbound_users ... ok
+test outbound::outbound_writes_complete_request_in_one_write ... ok
+test outbound::outbound_establishes_udp_packet_tunnel ... ok
+test outbound::udp_stream_framing_roundtrips_packet ... ok
+test outbound::inbound_udp_helpers_roundtrip_response_packet ... ok
+test user_profile::cold_updates_do_not_publish_until_commit_and_keep_actual_inflight_auth_snapshot ... ok
+
+test result: ok. 9 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+
+     Running unittests src/lib.rs (target/debug/deps/vless-0c19177699d7c834)
+
+running 60 tests
+test encryption::tests::both_ciphers_reject_tampered_records ... ok
+test encryption::tests::binary_context_derivation_and_aead_match_official_go ... ok
+test encryption::tests::replay_cache_rejects_duplicates_and_keeps_distinct_requests ... ok
+test mux::tests::inbound_writer_uses_configured_byte_limit ... ok
+test mux::tests::inbound_writer_uses_configured_frame_limit ... ok
+test mux_pool::tests::different_response_backlog_policies_do_not_share_a_pool_key ... ok
+test component::options::tests::actual_native_options_use_the_original_vless_carrier_alpn_defaults_and_keep_explicit_values ... ok
+test mux_pool::tests::different_reality_fingerprints_do_not_share_a_pool_key ... ok
+test mux_pool::tests::response_backlog_byte_overflow_is_explicit_and_releases_reserved_bytes ... ok
+test mux_pool::tests::slow_consumer_is_cut_off_at_the_frame_limit ... ok
+test mux_pool::tests::eviction_through_a_bridge_clone_removes_cached_mux_connections ... ok
+test mux_pool::tests::mux_activity_refreshes_the_idle_timeout_before_the_carrier_closes ... ok
+test mux_pool::tests::xudp_frame_uses_separate_metadata_and_data_lengths ... ok
+test mux_pool::tests::tcp_mux_splits_large_writes_and_shutdown_sends_end_after_payload ... ok
+test component::grpc::tests::bindings::source_runtime_drop_does_not_create_a_replacement_pool_for_a_cold_weak_recipe ... ok
+test component::grpc::tests::bindings::real_dependency_generation_and_complete_recipe_are_required_before_role_start ... ok
+test component::grpc::tests::generations::actual_runtime_reload_revokes_retained_native_recipe_and_owner_bound_role ... ok
+test reality::reality_client_connection::tests::invalid_finished_and_handshake_order_are_rejected_even_with_valid_record_authentication ... ok
+test reality::reality_client_connection::key_update_tests::key_update_rejects_old_epoch_records_and_bad_outer_headers ... ok
+test component::grpc::tests::wire::standard_service_tcp_and_real_udp_wire_share_original_pool_and_defer_only_real_response ... ok
+test reality::reality_server_connection::certificate_tests::client_finished_reassembles_across_encrypted_records ... ok
+test component::grpc::tests::wire::standard_service_and_udp_wire_keep_the_original_tls_h2_profile_and_shared_driver ... ok
+test reality::reality_client_connection::key_update_tests::key_updates_preserve_bidirectional_application_records_for_all_suites ... ok
+test reality::reality_server_connection::certificate_tests::authenticated_handshake_reproduces_target_post_handshake_record_lengths ... ok
+test reality::stream::client_profile::tests::cold_profile_rejects_invalid_keys_short_ids_ciphers_and_spider_without_opening_carrier ... ok
+test reality::stream::profile::decoy_tests::real_site_certificate_completes_tls_but_never_admits_proxy_data ... ok
+test reality::reality_client_connection::tests::fragmented_encrypted_messages_resume_at_incomplete_header_and_body ... ok
+test reality::stream::client_profile::tests::verified_decoy_is_rejected_while_real_scoped_navigation_is_cancelled_and_joined ... ok
+test reality::target::probe::tests::alpn_key_matches_the_three_official_probe_classes ... ok
+test reality::stream::profile::decoy_tests::rustls_key_update_gets_response_while_reality_client_only_reads ... ok
+test reality::target::probe::tests::dropping_the_last_registry_owner_cancels_access_waiters ... ok
+test reality::target::probe::tests::post_handshake_parser_keeps_complete_application_record_lengths ... ok
+test reality::target::probe::tests::post_handshake_parser_rejects_more_than_the_record_bound ... ok
+test reality::target::probe::tests::probe_failure_keeps_the_conservative_ccs_limit ... ok
+test reality::target::probe::tests::recording_starts_at_the_client_finished_flight ... ok
+test transport::profile::tls_tests::reference_tls_alpn_defaults_apply_without_replacing_explicit_protocols ... ok
+test reality::target::probe::tests::registry_reuses_a_completed_probe_and_reload_cancels_an_inflight_probe ... ok
+Browser Dialer lifecycle checkpoint: create runtime and options
+Browser Dialer lifecycle checkpoint: initialize first listener
+Browser Dialer lifecycle checkpoint: register first browser
+test transport::runtime::preconnect::tests::configured_worker_count_opens_that_many_ready_connections ... ok
+test transport::runtime::preconnect::tests::dropping_last_registry_owner_retires_pending_pool_without_restarting_workers ... ok
+test transport::runtime::preconnect::tests::expired_connection_is_discarded_and_replenished ... ok
+test transport::runtime::preconnect::tests::registry_owns_pool_until_reload ... ok
+test transport::runtime::preconnect::tests::registry_reuses_pool_for_the_same_outbound_identity ... ok
+test transport::runtime::preconnect::tests::replenishment_delay_starts_after_a_queued_connection_is_taken ... ok
+test transport::runtime::preconnect::tests::retiring_registry_stops_replenishment_and_releases_waiters ... ok
+Browser Dialer lifecycle checkpoint: open first outbound stream
+test transport::runtime::xhttp::tests::pool_identity_separates_tags_and_relay_paths_without_delimiter_ambiguity ... ok
+test transport::runtime::xhttp::tests::prepared_relay_access_does_not_retain_pool_registry ... ok
+test transport::runtime::xhttp::tests::reload_prevents_old_prepared_flows_from_repopulating_current_pool_registry ... ok
+test transport::runtime::xhttp::tests::retained_access_has_no_default_authority_or_epoch_history ... ok
+test transport::runtime::xhttp::tests::retained_admission_observes_actual_owner_retirement_and_drop ... ok
+Browser Dialer lifecycle checkpoint: drop first prepared leaf
+Browser Dialer lifecycle checkpoint: exchange first payload
+Browser Dialer lifecycle checkpoint: join first browser peer
+Browser Dialer lifecycle checkpoint: drop first stream
+Browser Dialer lifecycle checkpoint: reuse existing listener
+Browser Dialer lifecycle checkpoint: register second browser
+test reality::reality_server_connection::certificate_tests::mldsa65_public_key_matches_pinned_xray_command ... ok
+Browser Dialer lifecycle checkpoint: open second outbound stream
+test udp::pump::tests::inbound_domain_udp_response_accepts_runtime_resolved_endpoint ... ok
+Browser Dialer lifecycle checkpoint: drop second prepared leaf
+Browser Dialer lifecycle checkpoint: drop runtime owner
+Browser Dialer lifecycle checkpoint: read retired stream
+test udp::pump::tests::inbound_udp_response_does_not_discard_a_partially_read_request ... Browser Dialer lifecycle checkpoint: drop retired stream
+ok
+Browser Dialer lifecycle checkpoint: join retired browser peer
+Browser Dialer lifecycle checkpoint: test body complete; runtime teardown follows
+test transport::runtime::browser_dialer::tests::prepared_leaf_release_reuses_listener_and_runtime_drop_retires_stream ... ok
+test udp::pump::tests::sending_preserves_partial_response_addon_length_and_payload ... ok
+test udp::pump::tests::downstream_progresses_while_a_large_upstream_packet_is_backpressured ... ok
+test reality::target::probe::tests::ccs_probe_injects_records_before_the_client_finished_flight ... ok
+test reality::stream::profile::generic_tls_tests::custom_tls_retains_partial_writes_and_answers_key_updates_under_backpressure ... ok
+test reality::reality_server_connection::certificate_tests::mldsa_certificate_binds_authentication_both_hellos_and_ed25519_key ... ok
+test reality::reality_client_connection::key_update_tests::every_versioned_fingerprint_authenticates_and_relays_reality_records ... ok
+test reality::reality_server_connection::certificate_tests::authenticated_fragmented_hello_uses_target_random_record_size_and_mldsa_proof ... ok
+
+test result: ok. 60 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.44s
+
+     Running tests/suites/vless_contracts.rs (target/debug/deps/vless_contracts-f2667a820d46f29b)
+
+running 92 tests
+test common_tests::test_strip_with_padding_all_zeros ... ok
+test common_tests::test_strip_content_type_empty ... ok
+test common_tests::test_strip_with_padding_empty ... ok
+test common_tests::test_strip_content_type_handshake ... ok
+test common_tests::test_strip_content_type_alert ... ok
+test common_tests::test_strip_content_type_preserves_zeros ... ok
+test common_tests::test_strip_content_type_app_data ... ok
+test common_tests::test_strip_with_padding_no_padding ... ok
+test common_tests::test_strip_with_padding_strips_zeros ... ok
+test common_tests::test_strip_content_type_invalid ... ok
+test common_tests::test_strip_with_padding_invalid_type ... ok
+test fallback::fallback_missing_defaults_fail_and_duplicate_rules_use_last_value ... ok
+test encryption::encryption_rejects_invalid_configuration_and_noncanonical_kem_keys ... ok
+test deferred_response::deferred_vless_response_discards_header_before_payload ... ok
+test fallback_replay::matching_alpn_replays_the_recorded_prefix_and_returns_the_client_stream ... ok
+test deferred_response::deferred_vless_response_forwards_writes_before_response_arrives ... ok
+test fallback::fallback_inherits_defaults_with_name_then_alpn_then_path_precedence ... ok
+test fallback_replay::non_matching_alpn_preserves_the_stream_and_prefix_for_tls_acceptance ... ok
+test flow::addons_decoder_skips_unknown_protobuf_fields ... ok
+test flow::no_flow_addons_are_empty ... ok
+test flow::test_parse_flow_invalid ... ok
+test flow::test_parse_flow_valid ... ok
+test flow::test_plain_no_flow ... ok
+test flow::vision_addons_match_xray_protobuf_wire_format ... ok
+test flow::vision_udp443_suffix_is_local_policy_and_never_sent_on_wire ... ok
+test flow::vision_tcp_bundle_does_not_fail_while_materializing_udp_capabilities ... ok
+test handshake::build_udp_packet_with_ipv6 ... ok
+test handshake::build_udp_v2_omit_address ... ok
+test flow::test_flow_roundtrip ... ok
+test handshake::build_udp_v2_with_address ... ok
+test handshake::inbound_udp_decoder_parses_client_packet ... ok
+test handshake::mux_udp_response_encoder_wraps_vless_packet ... ok
+test handshake::outbound_deferred_tcp_tunnel_request_does_not_read_response ... ok
+test handshake::outbound_establishes_tcp_tunnel_for_ipv4_target ... ok
+test handshake::outbound_establishes_udp_packet_tunnel_and_consumes_response ... ok
+test handshake::inbound_accepts_authorized_tcp_request_with_domain_target ... ok
+test handshake::inbound_rejects_unknown_user ... ok
+test handshake::inbound_accepts_authorized_udp_request_with_ipv4_target ... ok
+test handshake::parse_udp_packet_with_domain ... ok
+test handshake::parse_udp_packet_with_ipv4 ... ok
+test handshake::parse_udp_v2_falls_back_to_v1 ... ok
+test handshake::parse_udp_v2_with_address ... ok
+test handshake::parse_udp_v2_without_address_fails_without_cache ... ok
+test handshake::outbound_stream_reports_handshake_traffic ... ok
+test handshake::parse_udp_v2_without_address_reuse_cache ... ok
+test handshake::udp_response_encoder_builds_response_packet ... ok
+test handshake::parses_and_formats_uuid ... ok
+test identity::uuid_group_separators_match_reference ... ok
+test handshake::shared_inbound_profile_atomically_replaces_authorized_users ... ok
+test mux::mux_request_omits_target_fields ... ok
+test identity::custom_id_limit_counts_utf8_bytes ... ok
+test mux::mux_handshake_establishes ... ok
+test mux_crypto::test_counter_increment ... ok
+test identity::custom_ids_match_reference_uuid_v5_vectors ... ok
+test mux_crypto::test_empty_payload ... ok
+test mux_crypto::test_key_derivation_determinism ... ok
+test reverse::monitor_uses_active_workers_and_reference_integer_threshold ... ok
+test mux_crypto::test_roundtrip_both_directions ... ok
+test mux_crypto::test_multiple_streams_independent ... ok
+test mux_crypto::test_wrong_key_fails ... ok
+test reverse::portal_sends_first_and_ten_second_heartbeats_and_drains_once ... ok
+test slide_buffer_tests::test_bufread_trait ... ok
+test reverse::reference_control_vectors_preserve_unknown_fields_and_states ... ok
+test slide_buffer_tests::test_compact ... ok
+test slide_buffer_tests::test_consume ... ok
+test slide_buffer_tests::test_consume_all_resets ... ok
+test slide_buffer_tests::test_extend_from_slice ... ok
+test slide_buffer_tests::test_get_u16_be ... ok
+test slide_buffer_tests::test_indexing ... ok
+test slide_buffer_tests::test_indexing_after_consume ... ok
+test slide_buffer_tests::test_is_empty ... ok
+test slide_buffer_tests::test_maybe_compact ... ok
+test slide_buffer_tests::test_multiple_extend_consume_cycles ... ok
+test slide_buffer_tests::test_new_buffer ... ok
+test slide_buffer_tests::test_partial_consume_and_extend ... ok
+test slide_buffer_tests::test_slice_mut ... ok
+test slide_buffer_tests::test_read_trait ... ok
+test slide_buffer_tests::test_write_slice ... ok
+test vision::tls13_application_data_ends_with_direct_command ... ok
+test vision::vision_combined_continue_frames_consume_one_filter_packet ... ok
+test vision::vision_direct_command_requests_raw_read_transition ... ok
+test vision::vision_does_not_authorize_direct_for_ccm8_or_unknown_ciphers ... ok
+test vision::vision_ends_non_tls_padding_one_packet_before_the_shared_window_expires ... ok
+test vision::vision_non_tls_payload_uses_short_padding_even_on_first_write ... ok
+test vision::vision_reader_handles_fragmented_frames_and_end_command ... ok
+test vision::vision_never_switches_inside_an_application_record ... ok
+test vision::vision_short_unframed_response_does_not_wait_for_a_padding_header ... ok
+test vision::vision_padding_is_bounded_by_the_reference_buffer_size ... ok
+test vision::vision_writer_emits_xray_frame_shape ... ok
+test vision::vision_writer_uses_configured_testseed ... ok
+test encryption::vision_bypass_preserves_fragmented_random_headers ... ok
+test encryption::encryption_all_masks_key_types_chains_and_resumption ... ok
+
+test result: ok. 92 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 2.26s
+
+     Running tests/suites/vless_reality.rs (target/debug/deps/vless_reality-030752ae6b9c7660)
+
+running 68 tests
+test reality_aead_tests::test_decrypt_handshake_message_with_padding ... ok
+test reality_aead_tests::test_decrypt_handshake_message ... ok
+test reality_aead_tests::test_encrypt_empty_plaintext ... ok
+test reality_aead_tests::test_encrypt_decrypt_record ... ok
+test reality_aead_tests::test_aead_key_in_place ... ok
+test reality_aead_tests::test_aead_key_seal_open ... ok
+test reality_aead_tests::test_encrypt_with_sequence_number ... ok
+test reality_aead_tests::test_decrypt_with_wrong_sequence_number ... ok
+test reality_aead_tests::test_encrypt_invalid_iv_length ... ok
+test reality_aead_tests::test_decrypt_with_wrong_aad ... ok
+test reality_aead_tests::test_decrypt_corrupted_ciphertext ... ok
+test reality_aead_tests::test_encrypt_invalid_key_length ... ok
+test reality_aead_tests::test_large_plaintext ... ok
+test reality_auth_tests::test_aes_gcm_roundtrip ... ok
+test reality_auth_tests::test_aes_gcm_wrong_aad_fails ... ok
+test reality_auth_tests::test_aes_gcm_wrong_key_fails ... ok
+test reality_auth_tests::test_create_session_id ... ok
+test reality_auth_tests::test_hkdf ... ok
+test reality_auth_tests::test_timestamp_validation_logic ... ok
+test reality_auth_tests::test_session_id_structure ... ok
+test reality_auth_tests::test_version_comparison ... ok
+test reality_auth_tests::test_validation_scenarios ... ok
+test reality_policy::invalid_version_bounds_fail_during_preparation ... ok
+test reality_policy::authenticated_hello_policy_checks_exact_names_versions_and_millisecond_clock_skew ... ok
+test reality_reader_writer_tests::test_reality_crypto_reader ... ok
+test reality_reader_writer_tests::test_reality_crypto_reader_bufread ... ok
+test reality_reader_writer_tests::test_reality_crypto_reader_close_notify_eof ... ok
+test reality_reader_writer_tests::test_reality_crypto_reader_empty_would_block ... ok
+test reality_reader_writer_tests::test_reality_crypto_writer ... ok
+test reality_records_tests::test_alert_roundtrip ... ok
+test reality_records_tests::test_ciphertext_buf_appends ... ok
+test reality_records_tests::test_encrypt_empty_plaintext ... ok
+test reality_records_tests::test_decryptor_sequence_exhaustion ... ok
+test reality_records_tests::test_encrypt_single_byte ... ok
+test reality_records_tests::test_encrypt_fragmentation_two_records ... ok
+test reality_records_tests::test_encrypt_max_single_record ... ok
+test reality_auth_tests::test_session_id_encryption_preserves_structure ... ok
+test reality_records_tests::test_encrypt_fragmentation_multiple_records ... ok
+test reality_records_tests::test_encrypt_small_plaintext_single_record ... ok
+test reality_records_tests::test_encryptor_sequence_exhaustion ... ok
+test reality_records_tests::test_handshake_encrypt_empty ... ok
+test reality_records_tests::test_handshake_encrypt_fragmentation_two_records ... ok
+test reality_records_tests::test_handshake_encrypt_small_single_record ... ok
+test reality_records_tests::test_handshake_encrypt_max_single_record ... ok
+test reality_records_tests::test_record_decryptor_handshake_roundtrip ... ok
+test reality_records_tests::test_record_decryptor_roundtrip ... ok
+test reality_records_tests::test_record_encryptor_app_data ... ok
+test reality_records_tests::test_record_encryptor_close_notify ... ok
+test reality_records_tests::test_record_encryptor_handshake ... ok
+test reality_records_tests::test_roundtrip_single_byte ... ok
+test reality_auth_tests::ecdh_rejects_low_order_peer_keys ... ok
+test reality_records_tests::test_sequence_number_increments ... ok
+test reality_tls13_keys_tests::test_compute_finished_verify_data ... ok
+test reality_tls13_keys_tests::test_derive_traffic_keys ... ok
+test reality_tls13_keys_tests::test_hkdf_expand_label ... ok
+test reality_tls13_keys_tests::test_hkdf_expand_label_with_context ... ok
+test reality_tls13_keys_tests::test_hkdf_expand_sha256_empty_info ... ok
+test reality_records_tests::test_roundtrip_large_64kb ... ok
+test reality_tls13_keys_tests::test_hkdf_expand_sha256_rfc_vector ... ok
+test reality_auth_tests::test_ecdh ... ok
+test reality_tls13_keys_tests::test_hkdf_extract ... ok
+test reality_tls13_messages_tests::test_construct_finished ... ok
+test reality_tls13_messages_tests::test_write_record_header ... ok
+test reality_util_tests::test_decode_short_id ... ok
+test reality_util_tests::test_decode_public_key ... ok
+test reality_util_tests::test_extract_client_random ... ok
+test reality_spider::spider_ranges_are_removed_from_path_and_resource_bounds_are_validated ... ok
+test reality_tls13_keys_tests::test_hkdf_expand_sha256_max_length ... ok
+
+test result: ok. 68 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+
+     Running unittests src/lib.rs (target/debug/deps/vmess-6239507a0c2a34f4)
+
+running 27 tests
+test auth::tests::replay_retention_covers_future_ids_and_capacity_never_evicts_live_ids ... ok
+test auth::tests::replay_identity_includes_credential ... ok
+test auth::tests::staged::pending_profile_does_not_keep_the_runtime_owner_alive ... ok
+test auth::tests::stale_future_and_invalid_checksum_authids_are_rejected_before_payload ... ok
+test auth::tests::time_window_is_inclusive_and_rejects_negative_wire_timestamps ... ok
+test auth::tests::valid_authid_with_truncated_header_cannot_be_reused ... ok
+test auth::tests::stale_authid_with_fully_valid_aead_payload_is_rejected ... ok
+test auth::tests::multi_user_inbound_matches_authenticated_identity ... ok
+test auth::tests::request_facts_share_the_original_replay_authority_and_full_auth ... ok
+test component::options::tests::incompatible_backend_and_invalid_file_bounds_fail_before_any_resource_acquisition ... ok
+test mux::tests::different_response_backlog_policies_do_not_share_a_pool_key ... ok
+test auth::tests::concurrent_replays_accept_exactly_one_handshake ... ok
+test mux::tests::eviction_through_a_bridge_clone_removes_cached_mux_connections ... ok
+test mux::tests::inbound_writer_uses_configured_byte_limit ... ok
+test mux::tests::inbound_writer_uses_configured_frame_limit ... ok
+test mux::tests::response_backlog_byte_overflow_is_explicit_and_releases_reserved_bytes ... ok
+test auth::tests::replay_is_rejected_across_profile_clones_replacement_and_stateless_apis ... ok
+test validation::tests::accepts_auto_cipher_alias ... ok
+test mux::tests::slow_consumer_is_cut_off_at_the_frame_limit ... ok
+test validation::tests::parses_hyphenated_uuid ... ok
+test validation::tests::rejects_non_ascii_uuid_without_panicking ... ok
+test component::options::tests::explicit_ca_bound_and_lexical_directory_are_part_of_the_cold_resource_contract ... ok
+test auth::tests::staged::activation_updates_the_existing_profile_and_preserves_auth_replay_across_aba ... ok
+test auth::tests::staged::staged_users_do_not_publish_on_prepare_drop_or_invalid_input ... ok
+test component::grpc::tests::hosted_vmess_real_grpc_user_error_accepts_the_original_auxiliary_exit ... ok
+test component::grpc::tests::hosted_vmess_real_grpc_no_user_cleanup_accepts_failure_without_global_revocation ... ok
+test mux::tests::mux_activity_refreshes_the_idle_timeout_before_the_carrier_closes ... ok
+
+test result: ok. 27 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.57s
+
+     Running tests/suites/vmess_contracts.rs (target/debug/deps/vmess_contracts-9322ab3d51e6ac80)
+
+running 11 tests
+test tcp_stream::cipher_auto_maps_to_aead_baseline ... ok
+test cipher_names::private_extension_and_xray_zero_have_distinct_names ... ok
+test tcp_stream::inbound_udp_payload_decoder_falls_back_to_raw_mode ... ok
+test tcp_stream::inbound_profile_allows_an_empty_authorization_set ... ok
+test tcp_stream::inbound_udp_payload_decoder_detects_packet_mode_then_requires_packets ... ok
+test tcp_stream::udp_packet_framing_roundtrips_domain_target ... ok
+test tcp_stream::transport_runtime_atomically_replaces_shared_inbound_users ... ok
+test tcp_stream::udp_response_encoding_wraps_packet_mode_and_preserves_raw_mode ... ok
+test tcp_stream::mux_udp_response_encoding_wraps_packet_mode_before_mux_frame ... ok
+test tcp_stream::tcp_stream_shutdown_sends_body_termination_for_all_ciphers ... ok
+test tcp_stream::tcp_stream_encrypts_body_in_both_directions_for_all_ciphers ... ok
+
+test result: ok. 11 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.02s
+
+     Running unittests src/lib.rs (target/debug/deps/wireguard-0856cb60823eeab0)
+
+running 8 tests
+test runtime::buffer::tests::measure_protocol_owner_transfer_against_vector_copy ... ignored, manual buffer-boundary microbenchmark; not end-to-end performance qualification
+test runtime::timer::tests::actual_engine_expiration_parks_until_authenticated_input_or_outgoing_demand ... ignored, uses the pinned engine's real 90-second handshake expiration clock
+test runtime::buffer::tests::vector_boundary_reclaims_unique_engine_storage_without_new_payload_allocation ... ok
+test runtime::buffer::tests::unpooled_packet_keeps_its_slice_offset_and_disjoint_prefix_until_vector_boundary ... ok
+test runtime::buffer::tests::protocol_packet_keeps_its_pool_owner_until_runtime_drop ... ok
+test runtime::buffer::tests::vector_boundary_preserves_pool_return_guard_when_storage_is_shared ... ok
+test runtime::timer::tests::unexpected_timer_failures_still_propagate_and_wire_errors_remain_rejected ... ok
+test runtime::timer::tests::repeated_expired_timer_results_allow_handshake_and_ip_exchange ... ok
+
+test result: ok. 6 passed; 0 failed; 2 ignored; 0 measured; 0 filtered out; finished in 0.01s
+
+     Running tests/runtime.rs (target/debug/deps/runtime-5bebfb272e9096b9)
+
+running 15 tests
+test inbound_device_rejects_unknown_peer_handshake ... ok
+test oversized_inner_packet_fails_before_encryption ... ok
+test inbound_device_demultiplexes_handshake_and_checks_authenticated_inner_source ... ok
+test authenticated_datagrams_allow_endpoint_roaming_but_replay_does_not ... ok
+test prepared_profile_owns_peer_route_and_keys_after_input_is_dropped ... ok
+test protocol_engine_static_secret_is_zeroized_on_drop ... ok
+test buffer::retained_wire_and_plaintext_actions_survive_tunnel_drop_and_later_packets ... ok
+test transport_data_counter_at_local_rejection_limit_is_rejected ... ok
+test peers_handshake_and_exchange_encrypted_ipv4_payload_both_ways ... ok
+test inbound_device_routes_transport_packets_to_each_authenticated_peer ... ok
+test multi_peer::malformed_data_from_one_peer_does_not_break_another_authenticated_peer ... ok
+test peers_handshake_and_exchange_encrypted_ipv6_payload_both_ways ... ok
+test transport_data_is_padded_and_replay_is_rejected ... ok
+test inbound_handshake_rate_limit_resets_after_one_second ... ok
+test opaque_outer_carrier_rejects_handshakes_at_cookie_threshold ... ok
+
+test result: ok. 15 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.56s
+
+     Running tests/suites/wireguard_model.rs (target/debug/deps/wireguard_model-fac1d29001eb130c)
+
+running 19 tests
+test validation::inbound_peer_table_is_bounded_before_allocating_peer_state ... ok
+test validation::key_debug_output_is_redacted ... ok
+test validation::key_material_can_be_zeroized ... ok
+test validation::only_listening_profiles_allow_learning_a_peer_address ... ok
+test validation::inbound_assigned_addresses_reuse_interface_validation_and_remain_optional ... ok
+test routing::keeps_nested_prefixes_within_one_peer_unambiguous ... ok
+test routing::rejects_spoofed_source_from_less_specific_or_unmatched_peer ... ok
+test routing::selects_longest_prefix_across_peers_and_families ... ok
+test validation::parses_and_matches_ip_networks ... ok
+test validation::parses_domain_ipv4_and_bracketed_ipv6_endpoints ... ok
+test validation::rejects_duplicate_peers_and_ambiguous_allowed_ips ... ok
+test validation::rejects_ipv6_when_mtu_is_below_the_ipv6_minimum ... ok
+test validation::parses_standard_base64_and_hex_keys ... ok
+test validation::rejects_mtu_outside_ip_and_wire_datagram_limits ... ok
+test validation::peer_identity_uses_public_key_bytes_and_is_independent_of_text_encoding ... ok
+test validation::rejects_non_zero_reserved_bytes_before_runtime ... ok
+test validation::validates_a_dual_stack_outbound_profile ... ok
+test validation::validation_errors_do_not_echo_key_material ... ok
+test validation::validates_inbound_peers_and_rejects_ambiguous_source_ownership ... ok
+
+test result: ok. 19 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running unittests src/main.rs (target/debug/deps/zero-29c464cadb380de4)
+
+running 79 tests
+test application::run::tests::proxy_stop_reason_distinguishes_signal_from_runtime_failure ... ok
+test application::run::tests::managed_parent_lifetime_waits_until_pipe_eof ... ok
+test application::services::network::tests::each_connection_observes_the_latest_egress_generation ... ok
+test application::services::network::tests::active_tun_without_physical_egress_fails_closed_for_each_family ... ok
+test application::run::tests::control_api_formats_bare_and_bracketed_ipv6_listeners ... ok
+test application::run::tests::control_commands_and_application_supervision_do_not_embed_the_entire_runtime_state ... ok
+test application::tun::tests::tun_recover_targets_the_selected_control_socket ... ok
+test application::tun::tests::tun_status_decodes_the_query_response_envelope ... ok
+test cli::tests::managed_run_finds_config_after_lifetime_and_socket_options ... ok
+test cli::tests::parses_private_macos_utun_helper_without_treating_socket_as_config ... ok
+test cli::tests::private_macos_utun_helper_requires_a_socket ... ok
+test cli::tests::run_parses_managed_parent_lifetime_flag ... ok
+test http_adapter::response::tests::insufficient_os_privilege_is_forbidden_over_http ... ok
+test application::run::tests::proxy_runtime_error_reaches_application_supervisor ... ok
+test http_adapter::router::tests::endpoint_http_queries_enforce_read_permission_and_return_structured_errors ... ok
+test http_adapter::router::tests::endpoint_http_control_accepts_instance_condition_and_returns_conflict_without_startup ... ok
+test http_adapter::router::tests::endpoint_http_queries_preserve_encoded_resource_identity_and_detail_schema ... ok
+test http_adapter::router::tests::statistics_http_query_and_reset_enforce_permissions_and_epoch_preconditions ... ok
+test http_adapter::sse::tests::sse_event_bursts_drain_in_order_without_per_event_sleep ... ok
+test ipc::connection::tests::concurrent_command_queue_is_bounded_and_cancellable ... ok
+test ipc::connection::tests::concurrent_commands_overlap_and_keep_response_ids_paired ... ok
+test http_adapter::sse::tests::stalled_sse_receiver_does_not_prevent_shutdown ... ok
+test ipc::connection::tests::endpoint::ipc_confirms_all_four_endpoint_operations_and_physical_listener_changes ... ok
+test ipc::connection::tests::endpoint::ipc_endpoint_and_statistics_commands_reject_non_admin_before_execution ... ok
+test ipc::connection::tests::endpoint::ipc_endpoint_commands_reject_stale_instance_and_intent_without_mutating_state ... ok
+test ipc::connection::tests::endpoint::ipc_endpoint_transaction_survives_lost_acknowledgement_and_can_be_queried ... ok
+test application::services::tests::config_apply_rejects_live_control_listener_or_credential_replacement ... ok
+test ipc::connection::tests::endpoint::ipc_queries_and_confirms_a_packet_route_close_without_changing_endpoint_intent ... ok
+test ipc::connection::tests::endpoint::ipc_live_outbound_contraction_preserves_resource_and_checks_stale_intent ... ok
+test application::services::tests::config_apply_registers_complete_webhook_url_in_process ... ok
+test application::services::tests::inbound_apply_keeps_dispatcher_counters_and_status_monitor ... ok
+test ipc::connection::tests::outbound_diagnostics_are_the_only_reordered_ipc_commands ... ok
+test ipc::protocol::tests::bad_json_is_error ... ok
+test ipc::protocol::tests::command_no_id ... ok
+test ipc::protocol::tests::command_type_first ... ok
+test ipc::protocol::tests::command_type_last ... ok
+test ipc::protocol::tests::empty_line_not_tested_here ... ok
+test ipc::protocol::tests::empty_object_is_error ... ok
+test ipc::protocol::tests::goodbye_event_serializes ... ok
+test ipc::protocol::tests::ipc_api_error_with_id ... ok
+test ipc::protocol::tests::ipc_error_no_id ... ok
+test ipc::protocol::tests::ipc_error_with_id_echo ... ok
+test ipc::protocol::tests::ipc_ok_no_id ... ok
+test ipc::protocol::tests::ipc_ok_with_numeric_id ... ok
+test ipc::protocol::tests::ipc_ok_with_string_id ... ok
+test ipc::protocol::tests::large_integer_id_is_preserved ... ok
+test ipc::protocol::tests::missing_type_field_is_error ... ok
+test ipc::protocol::tests::ping_bare ... ok
+test ipc::protocol::tests::ping_string_id_echo ... ok
+test ipc::protocol::tests::ping_type_first ... ok
+test ipc::protocol::tests::ping_type_last ... ok
+test ipc::protocol::tests::ping_type_middle ... ok
+test ipc::protocol::tests::query_all_unit_struct_types_type_last ... ok
+test ipc::protocol::tests::query_capabilities_type_first ... ok
+test ipc::protocol::tests::query_capabilities_type_last ... ok
+test ipc::protocol::tests::query_capabilities_type_middle ... ok
+test ipc::protocol::tests::query_flow_type_last ... ok
+test ipc::protocol::tests::query_no_id ... ok
+test ipc::protocol::tests::query_policy_type_last ... ok
+test ipc::protocol::tests::raw_response_error_with_no_id ... ok
+test ipc::protocol::tests::raw_response_missing_optional_fields ... ok
+test ipc::protocol::tests::raw_response_success_with_id ... ok
+test ipc::protocol::tests::request_id_echoed_in_error_response ... ok
+test ipc::protocol::tests::request_id_echoed_in_success_response ... ok
+test ipc::protocol::tests::round_trip_command ... ok
+test ipc::protocol::tests::round_trip_ping ... ok
+test ipc::protocol::tests::round_trip_subscribe ... ok
+test ipc::protocol::tests::serialize_frame_adds_newline ... ok
+test ipc::protocol::tests::subscribe_no_events ... ok
+test ipc::protocol::tests::subscribe_type_first ... ok
+test ipc::protocol::tests::subscribe_type_last ... ok
+test ipc::protocol::tests::unknown_type_is_error ... ok
+test ipc::connection::tests::events::stalled_ipc_event_receiver_can_disconnect_during_a_burst ... ok
+test ipc::connection::tests::events::ipc_event_bursts_drain_in_order_without_delaying_queries ... ok
+test application::services::tests::first_configured_dispatcher_delivers_engine_started_exactly_once ... ok
+test application::services::tests::config_apply_rebuilds_event_dispatcher_without_process_restart ... ok
+test application::services::tests::recovery::dispatcher_replacement_recovers_facts_after_storage_backpressure ... ok
+test ipc::connection::tests::endpoint::ipc_endpoint_bind_failure_reports_rollback_and_restores_stopped_intent ... ok
+test ipc::connection::tests::endpoint::statistics::ipc_statistics_reset_waits_for_config_and_endpoint_reconciliation ... ok
+
+test result: ok. 79 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.00s
+
+     Running tests/suites/kernel_process.rs (target/debug/deps/kernel_process-f652574282a2b1f3)
+
+running 21 tests
+test listener_ownership::selected_echo_endpoint_remains_owned_until_and_after_worker_handoff ... ok
+test config_errors::status_command_reports_parse_errors_clearly ... ok
+test config_errors::status_command_reports_missing_config_path_clearly ... ok
+test connector_state::connector_state_command_reports_event_outbox_and_fails_closed ... ok
+test live_status::local_status_commands_endpoint_selects_policy ... ok
+test live_status::configured_control_api_requires_api_key ... ok
+test live_status::local_status_listener_can_switch_selector_group ... ok
+test phase1_port_conflict::duplicate_inbound_listen_fails_at_config_load ... ok
+test live_status::local_status_listener_exposes_live_runtime_view ... ok
+test parent_lifetime::managed_kernel_exits_when_parent_lifetime_pipe_closes ... ok
+test management_reload::dispatcher_replacement_acknowledges_under_backpressure_without_closing_existing_connection ... ok
+test management_lifecycle::management_only_start_applies_first_listener_returns_to_idle_and_shuts_down ... ok
+test status::status_command_emits_json_export ... ok
+test status::status_command_supports_text_output ... ok
+test management_reload::inbound_only_apply_preserves_dispatcher_and_existing_connection_under_backpressure ... ok
+test proxy_smoke::zero_binary_applies_file_backed_rule_sets ... ok
+test proxy_smoke::zero_binary_relays_tcp_through_chained_socks5_outbound ... ok
+test proxy_smoke::zero_binary_relays_tcp_through_http ... ok
+test proxy_smoke::zero_binary_relays_tcp_through_socks5_direct ... ok
+test build_info::build_info_exports_registered_protocol_capabilities ... ok
+test build_info::build_info_exposes_the_source_commit_even_for_tagged_builds ... ok
+
+test result: ok. 21 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 45.15s
+
+     Running tests/tun_privileged_e2e.rs (target/debug/deps/tun_privileged_e2e-d0f71a86a0501b72)
+
+running 16 tests
+test dns_disabled::privileged_tun_without_builtin_dns_preserves_system_resolution ... ignored, requires an isolated administrator/root runner, TUN, and working system DNS/internet
+test privileged_command_managed_tun_publishes_egress_before_capture ... ignored, requires administrator/root, a TUN backend, internet access, and a reachable DoH backend
+test privileged_macos_tun_loopback_remains_reachable_across_crash_recovery ... ignored, requires root and the macOS utun backend
+test privileged_tun_dual_stack_configuration_traffic_and_crash_recovery ... ignored, requires administrator/root and a TUN backend
+test privileged_tun_ipv4_config_reload_stun_block_and_crash_recovery ... ignored, requires administrator/root, a TUN backend, internet access, and ZERO_TUN_E2E_STUN_ADDR
+test privileged_tun_ipv4_direct_udp_dns_does_not_self_capture ... ignored, requires administrator/root, a TUN backend, and a reachable external DNS server
+test privileged_tun_ipv4_fake_ip_doh_direct_domain_does_not_self_capture ... ignored, requires administrator/root, a TUN backend, internet access, and reachable Cloudflare DoH
+test privileged_tun_ipv4_smoke_tcp_dns_and_crash_recovery ... ignored, requires administrator/root, a TUN backend, and internet access
+test privileged_tun_ipv6_config_reload_stun_block_and_crash_recovery ... ignored, requires administrator/root, IPv6, a TUN backend, internet access, and ZERO_TUN_E2E_STUN_ADDR_V6
+test flow_ceiling_counts_only_target_tun_udp_sessions_across_lifecycle_states ... ok
+test mock_dns_response_ignores_edns_pseudo_record ... ok
+test tls_responder::tests::incomplete_tls_record_is_an_error_without_a_success_alert ... ok
+test http_control::complete_reader_rejects_truncation_corruption_and_extra_data ... ok
+test offline_dual_stack_config_routes_original_ips_and_recovered_domain ... ok
+test tls_responder::tests::waits_for_delayed_and_fragmented_tls_record_on_nonblocking_accept ... ok
+test http_control::controlled_http_peer_verifies_complete_split_and_early_close_connections ... ok
+
+test result: ok. 7 passed; 0 failed; 9 ignored; 0 measured; 0 filtered out; finished in 1.09s
+
+     Running tests/tun_route_reconcile_e2e.rs (target/debug/deps/tun_route_reconcile_e2e-95eccd101742f523)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/tun_route_reconcile_linux_e2e.rs (target/debug/deps/tun_route_reconcile_linux_e2e-a59ec5080f7057aa)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/tun_route_reconcile_macos_e2e.rs (target/debug/deps/tun_route_reconcile_macos_e2e-cf93a539996b9282)
+
+running 3 tests
+test audit::same_interface_route_loss_recovers_automatically_and_on_manual_request ... ignored, requires root and an isolated macOS runner; removes active TUN routes
+test macos_reconciles_runtime_egress_and_dns_exclusion_without_restarting_tun ... ignored, requires root and an isolated macOS runner with a connected secondary gateway
+test route_reconciliation_fixtures_follow_the_current_dns_schema ... ok
+
+test result: ok. 1 passed; 0 failed; 2 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/validate_isolation.rs (target/debug/deps/validate_isolation-1ae137d6d05914bc)
+
+running 4 tests
+test validate_still_rejects_invalid_dns_and_route_targets ... ok
+test validate_resolves_and_checks_rule_files_relative_to_original_config ... ok
+test validate_does_not_open_runtime_state_or_bind_listeners ... ok
+test validate_succeeds_while_running_kernel_owns_fake_ip_state ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.08s
+
+     Running tests/windows_release_artifact.rs (target/debug/deps/windows_release_artifact-03471700291fd86c)
+
+running 2 tests
+test windows_release_stages_a_pinned_amd64_wintun_distribution ... ok
+test windows_release_requires_and_packages_the_tun_runtime ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/workspace_architecture.rs (target/debug/deps/workspace_architecture-8f1705eaee9fcabf)
+
+running 27 tests
+test config_protocol_dependencies_use_validation_features ... ok
+test connector_webhooks_cross_the_application_egress_boundary ... ok
+test dns_detours_cross_the_explicit_proxy_runtime_bridge ... ok
+test engine_runtime_domains_do_not_regrow_in_the_facade ... ok
+test generic_config_models_do_not_hardcode_protocol_transport_defaults ... ok
+test dns_owned_udp_and_dot_sockets_follow_the_shared_egress_authority ... ok
+test foundational_crates_do_not_depend_on_runtime_or_integration_crates ... ok
+test outbound_carrier_stack_does_not_require_tls_for_other_carrier_features ... ok
+test config_delegates_protocol_private_value_validation ... ok
+test outbound_quic_node_resolution_stays_behind_the_runtime_dns_bridge ... ok
+test protocol_registry_does_not_project_proxy_leaf_runtime_facts ... ok
+test peer_identity_and_process_attribution_stay_in_their_owning_layers ... ok
+test root_process_entrypoint_delegates_command_execution ... ok
+test protocol_crates_keep_runtime_support_deps_optional_and_out_of_config_space ... ok
+test stack_keeps_packet_parsing_separate_from_connection_lifecycle ... ok
+test transport_and_engine_manifests_lock_the_orchestration_dependency_direction ... ok
+test proxy_adapters_materialize_protocol_config_once ... ok
+test runtime_host_has_no_production_dependency_on_proxy_or_protocol_implementations ... ok
+test engine_outbound_leaves_are_protocol_neutral ... ok
+test udp_egress_generation_stays_in_platform_and_proxy_orchestration ... ok
+test transport_does_not_hardcode_protocol_service_or_alpn_defaults ... ok
+test transport_does_not_project_engine_outbound_leaves ... ok
+test generic_transport_carriers_do_not_depend_on_protocol_crates ... ok
+test transport_does_not_depend_on_config_protocol_adts ... ok
+test engine_and_transport_sources_do_not_name_concrete_proxy_protocols ... ok
+test generic_proxy_modules_do_not_repeat_the_complete_protocol_feature_set ... ok
+test engine_leaf_projection_stops_at_the_inventory_registry_claim_boundary ... ok
+
+test result: ok. 27 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.58s
+
+     Running unittests src/lib.rs (target/debug/deps/zero_api-7bcbab41dcb1ced1)
+
+running 1 test
+test command::tests::tun_stop_accepts_and_serializes_empty_object_params ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+TEST_END 2026-10-25T06:56:11Z exit=130 seconds=1968
+::error title=Workspace tests failed (1/2)::%0A     Running tests/tun_route_reconcile_e2e.rs (target/debug/deps/tun_route_reconcile_e2e-95eccd101742f523)%0A%0Arunning 0 tests%0A%0Atest result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s%0A%0A     Running tests/tun_route_reconcile_linux_e2e.rs (target/debug/deps/tun_route_reconcile_linux_e2e-a59ec5080f7057aa)%0A%0Arunning 0 tests%0A%0Atest result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s%0A%0A     Running tests/tun_route_reconcile_macos_e2e.rs (target/debug/deps/tun_route_reconcile_macos_e2e-cf93a539996b9282)%0A%0Arunning 3 tests%0Atest audit::same_interface_route_loss_recovers_automatically_and_on_manual_request ... ignored, requires root and an isolated macOS runner; removes active TUN routes%0Atest macos_reconciles_runtime_egress_and_dns_exclusion_without_restarting_tun ... ignored, requires root and an isolated macOS runner with a connected secondary gateway%0Atest route_reconciliation_fixtures_follow_the_current_dns_schema ... ok%0A%0Atest result: ok. 1 passed; 0 failed; 2 ignored; 0 measured; 0 filtered out; finished in 0.00s%0A%0A     Running tests/validate_isolation.rs (target/debug/deps/validate_isolation-1ae137d6d05914bc)%0A%0Arunning 4 tests%0Atest validate_still_rejects_invalid_dns_and_route_targets ... ok%0Atest validate_resolves_and_checks_rule_files_relative_to_original_config ... ok%0Atest validate_does_not_open_runtime_state_or_bind_listeners ... ok%0Atest validate_succeeds_while_running_kernel_owns_fake_ip_state ... ok%0A%0Atest result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.08s%0A%0A     Running tests/windows_release_artifact.rs (target/debug/deps/windows_release_artifact-03471700291fd86c)%0A%0Arunning 2 tests%0Atest windows_release_stages_a_pinned_amd64_wintun_distribution ... ok%0Atest windows_release_requires_and_packages_the_tun_runtime ... ok%0A%0Atest result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s%0A%0A     Running tests/workspace_architecture.rs (target/debug/deps/workspace_architecture-8f1705eaee9fcabf)%0A%0Arunning 27 tests%0Atest config_protocol_dependencies_use_validation_features ... ok%0Atest connector_webhooks_cross_the_application_egress_boundary ... ok%0Atest dns_detours_cross_the_explicit_proxy_runtime_bridge ... ok%0Atest engine_runtime_domains_do_not_regrow_in_the_facade ... ok%0Atest generic_config_models_do_not_hardcode_protocol_transport_defaults ... ok%0Atest dns_owned_udp_and_dot_sockets_follow_the_shared_egress_authority ... ok%0Atest foundational_crates_do_not_depend_on_runtime_or_integration_crates ... ok%0Atest outbound_carrier_stack_does_not_require_tls_for_other_carrier_features ... ok%0Atest config_delegates_protocol_private_value_validation ... ok%0Atest outbound_quic_node_resolution_stays_behind_the_runtime_dns_bridge ... ok%0Atest protocol_registry_does_not_project_proxy_leaf_runtime_facts ... ok%0Atest peer_identity_and_process_attribution_stay_in_their_owning_layers ... ok%0Atest root_process_entrypoint_delegates_command_execution ... ok%0Ate
+::error title=Workspace tests failed (2/2)::st protocol_crates_keep_runtime_support_deps_optional_and_out_of_config_space ... ok%0Atest stack_keeps_packet_parsing_separate_from_connection_lifecycle ... ok%0Atest transport_and_engine_manifests_lock_the_orchestration_dependency_direction ... ok%0Atest proxy_adapters_materialize_protocol_config_once ... ok%0Atest runtime_host_has_no_production_dependency_on_proxy_or_protocol_implementations ... ok%0Atest engine_outbound_leaves_are_protocol_neutral ... ok%0Atest udp_egress_generation_stays_in_platform_and_proxy_orchestration ... ok%0Atest transport_does_not_hardcode_protocol_service_or_alpn_defaults ... ok%0Atest transport_does_not_project_engine_outbound_leaves ... ok%0Atest generic_transport_carriers_do_not_depend_on_protocol_crates ... ok%0Atest transport_does_not_depend_on_config_protocol_adts ... ok%0Atest engine_and_transport_sources_do_not_name_concrete_proxy_protocols ... ok%0Atest generic_proxy_modules_do_not_repeat_the_complete_protocol_feature_set ... ok%0Atest engine_leaf_projection_stops_at_the_inventory_registry_claim_boundary ... ok%0A%0Atest result: ok. 27 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.58s%0A%0A     Running unittests src/lib.rs (target/debug/deps/zero_api-7bcbab41dcb1ced1)%0A%0Arunning 1 test%0Atest command::tests::tun_stop_accepts_and_serializes_empty_object_params ... ok%0A%0Atest result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s%0A

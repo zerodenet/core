@@ -13,6 +13,7 @@ impl ClientConnection {
             lifecycle::TaskClass, ChannelError, Impact, Reason, Stage,
         };
         let owner = lease.owner.clone();
+        let attempt_cancel = lease.cancellation();
         let preparation = io.prepare_driver(|io| async move {
             let (io, source) = super::super::native_io::Capture::new(io);
             prepare(io, username, password, options)
@@ -20,7 +21,7 @@ impl ClientConnection {
                 .map_err(|error| source.recover(error))
         });
         let prepared = tokio::select! {biased;
-            _=owner.cancel.cancelled()=>return Err(io::ErrorKind::Interrupted.into()),
+            _=attempt_cancel.cancelled()=>return Err(io::ErrorKind::Interrupted.into()),
             _=owner.scope_cancel.cancelled()=>return Err(io::ErrorKind::Interrupted.into()),
             result=preparation=>result?,
         };
@@ -29,7 +30,7 @@ impl ClientConnection {
         }
         let ((first, opens), prepared) =
             prepared.split(|prepared| ((prepared.first, prepared.opens), prepared.driver));
-        let driver = super::super::driver::ManagedDriver::new(owner.cancel.child_token());
+        let driver = super::super::driver::ManagedDriver::new(lease.cancellation());
         let completion = driver.completion();
         let stop = driver.cancel.clone();
         let scope_stop = owner.scope_cancel.clone();
@@ -47,6 +48,9 @@ impl ClientConnection {
             }
         }).map_err(io::Error::other)?;
         driver.registered(witness.clone());
+        driver
+            .attach_original(&adoption)
+            .map_err(io::Error::other)?;
         registration.registered(witness);
         Ok(Self::from_prepared(
             first,
@@ -69,16 +73,17 @@ impl ClientConnection {
             lifecycle::TaskClass, ChannelError, Impact, Reason, Stage,
         };
         let owner = lease.owner.clone();
+        let attempt_cancel = lease.cancellation();
         let (socket, source) = super::super::native_io::Capture::new(socket);
         let prepared = tokio::select! {biased;
-            _=owner.cancel.cancelled()=>return Err(io::ErrorKind::Interrupted.into()),
+            _=attempt_cancel.cancelled()=>return Err(io::ErrorKind::Interrupted.into()),
             _=owner.scope_cancel.cancelled()=>return Err(io::ErrorKind::Interrupted.into()),
             result=prepare(socket, username, password, options)=>result.map_err(|error|source.recover(error))?,
         };
         if !owner.ready() {
             return Err(io::ErrorKind::Interrupted.into());
         }
-        let driver = super::super::driver::ManagedDriver::new(owner.cancel.child_token());
+        let driver = super::super::driver::ManagedDriver::new(lease.cancellation());
         let completion = driver.completion();
         let stop = driver.cancel.clone();
         let scope_stop = owner.scope_cancel.clone();

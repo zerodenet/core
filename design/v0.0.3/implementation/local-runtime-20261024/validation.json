@@ -1,0 +1,124 @@
+{
+  "scope": "Independent RuntimeHost extraction on local develop/v0.0.3. Remaining native protocol migration and ALL17 are not complete.",
+  "recorded_at_utc": "2026-10-24T06:28:22.188492+00:00",
+  "base_head": "b963c864a473f68f8d6a8444764e3e88761e6c04",
+  "branch": "develop",
+  "staged_committed_or_pushed": false,
+  "approved_amendment": {
+    "direction": "zero-proxy -> zero-runtime",
+    "public_proxy_entrypoints_preserved": true,
+    "frozen_source_sections_preserved": 25,
+    "document": "../runtime-extraction.md"
+  },
+  "implemented": [
+    "Moved the actual component catalog, dependency/generation state, native providers, transferred-user census, task supervision and confirmed replacement transactions into zero-runtime. No second host, Tokio runtime or supervisor framework was added.",
+    "RuntimeHost<A> owns the injected actual factory table, ApplyOwner, serial apply lock and generic publication receipt without depending on engine or proxy in production. Proxy retains its own Engine snapshot receipt type.",
+    "Inventory and Proxy share the same Arc host; weak dispatch retains no host/pool. Native protocol parsing, framing, crypto and pool implementation remain protocol-owned.",
+    "Public Proxy/ProxyHandle/RunningProxy and component facade remain available; no config, CLI, V1 API/event, gRPC or FFI schema change. CI scope and all applicable protocol interoperability path filters include the new crate."
+  ],
+  "resource_invariant": "For integrated host resources, revoke consumers first and require actual transferred-user retirement, protocol cleanup, original TaskScope joins and original native-provider closure before replacement construction/start. Timeout/cancellation preserve the same actual owners and receipts. Existing compatibility ownership is not relabelled as fully migrated.",
+  "source_snapshots": {
+    "full_executable_tests_and_consumers": "source-full.json",
+    "final_clippy_and_minimal": "source-final.json",
+    "entries": 229,
+    "post_test_build_differences": [
+      "crates/proxy/src/component/tests.rs",
+      "crates/proxy/src/register.rs",
+      "crates/proxy/src/runtime/tests/host.rs"
+    ],
+    "difference_description": "Remove an unused test helper; restrict the factory-table convenience helper to cfg(test); remove four redundant borrows in shared-host pointer assertions. No executable runtime path, assertion or timeout changed. Full suite was not redundantly repeated for this test/helper cleanup."
+  },
+  "validation": {
+    "workspace_full": {
+      "end": "TEST_END 2026-10-24T06:09:54Z exit=0 seconds=1717",
+      "totals": {
+        "passed": 3764,
+        "failed": 0,
+        "ignored": 175
+      },
+      "targets": 155
+    },
+    "runtime_standalone_test_target_check": {
+      "toolchain": "1.99.0",
+      "exit": 0
+    },
+    "strict_workspace_all_targets_all_features_clippy": {
+      "toolchain": "stable (rustc 1.98.0)",
+      "exit": 0,
+      "no_lint_suppression_added": true
+    },
+    "strict_clippy_1_99": {
+      "exit": 101,
+      "blocker": "Eight pre-existing async-trait-generated double_must_use diagnostics in unchanged zero-core; not a passing check."
+    },
+    "minimal_library_checks": [
+      {
+        "package": "zero-runtime",
+        "exit": 0,
+        "seconds": 44.68,
+        "log": "/tmp/zero-runtime-minimal-extraction-check.txt"
+      },
+      {
+        "package": "zero-proxy",
+        "exit": 0,
+        "seconds": 49.47,
+        "log": "/tmp/zero-proxy-minimal-extraction-check.txt"
+      }
+    ],
+    "minimal_warnings": "Unselected library surfaces still emit 16 runtime and 102 proxy warnings; minimal checks are compilation evidence, not strict-lint qualification. Strict all-features 1.98 qualification passed.",
+    "architecture_tests": {
+      "proxy": 190,
+      "workspace": 27,
+      "failed": 0
+    },
+    "ci_scope": {
+      "passed": 21,
+      "failed": 0
+    },
+    "integration_layout": {
+      "sources": 314,
+      "targets": 95,
+      "errors": 0
+    },
+    "frozen_design": {
+      "source_sections": 25,
+      "logical_task_cards": 17,
+      "passed": true
+    },
+    "test_migration": "test-migration.json"
+  },
+  "compatibility": {
+    "binary": "/tmp/zero-runtime-consumers-vq_kxa5l/zero",
+    "sha256": "706e314bf3187875700923331cc13dd90b14cb0e88b260dfda3a964bbac8f604",
+    "sha_unchanged_after_both_consumers": true,
+    "source_snapshot": "source-full.json",
+    "gui": {
+      "head": "d39ad2787fb05052fa15065853ab71526441ccc3",
+      "clean_unchanged": true,
+      "exit": 0,
+      "covered": "Existing real IPC queries, runtime apply, unknown-schema rollback, route/WireGuard configuration validation. One actual runtime then exited 0 on parent stdin closure, with no terminate/kill.",
+      "captures": "gui-captures/"
+    },
+    "panel": {
+      "head": "658671e9f3978df1c79f4030fdb072a877f10bf5",
+      "clean_unchanged": true,
+      "exit": 0,
+      "seconds": 102.8,
+      "pid": 38520,
+      "core": "ead5e2fcc446d41f685cc29af98839ca",
+      "revision": 2,
+      "covered": "Existing TCP/UDP preserved across three publisher processes, idempotent publication and listener-conflict rejection; no service mutation. Existing compiled acceptance fixture reused from the same unchanged panel source.",
+      "outer_test_timeout_seconds": 180,
+      "actual_duration_below_prior_120_seconds": true
+    },
+    "limits": "Local consumer validation; panel service/SSH/deploy are local shims, GUI WireGuard is config validation. Neither is a real deployment, physical GUI/TUN qualification or universal native-close proof."
+  },
+  "remaining": [
+    "Mieru real shared pool/background carrier registration, binding and complete original-user/native-close evidence before production registration.",
+    "VLESS/VMess pooled gRPC/H2/MUX resource ownership, Hysteria2 QUIC endpoint/driver ownership, WireGuard deferred device transactions, SS SIP003 descendant and transferred-I/O qualification.",
+    "Remaining UDP/packet-path roles and removal of legacy Any/capability paths, physical TUN/device and pinned external-interoperability qualification, dedicated 1 CPU/1 GiB tests."
+  ],
+  "diagnostics": "checks.json retains intermediate compiler failures, interrupted checks, the first strict-clippy redundant-borrow failure, and final results. A mistyped named 1.98.0 toolchain triggered an unnecessary download; interrupted before installation and reran against existing stable 1.98.0. No toolchain/version upgrade or lint bypass was used.",
+  "backup": "/tmp/zero-runtime-extraction-i3avi5q0",
+  "logs": "checks.json"
+}

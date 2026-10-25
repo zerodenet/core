@@ -1,0 +1,9 @@
+{
+  "exit": 0,
+  "log": "clippy-before-reload-fixture.txt",
+  "command": "CARGO_NET_OFFLINE=true RUST_MIN_STACK=16777216 cargo +stable clippy --workspace --all-targets --all-features --no-deps --jobs 4 -- -D warnings",
+  "rustc": "rustc 1.98.0 (88d9e12ae 2026-08-18)",
+  "source_snapshot": "source-before-reload-fixture.json",
+  "source_entries": 534,
+  "source_drift": []
+}

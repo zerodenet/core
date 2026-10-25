@@ -4,7 +4,10 @@ use std::sync::{Arc, Mutex};
 use zero_platform_tokio::contract::scope::TaskJoinWitness;
 use zero_platform_tokio::controlled_carrier::CarrierAdoption;
 
-pub(super) struct CarrierRecord(Mutex<Record>);
+pub(super) struct CarrierRecord(
+    Mutex<Record>,
+    zero_platform_tokio::contract::CancellationToken,
+);
 #[derive(Default)]
 struct Record {
     attempted: bool,
@@ -16,10 +19,14 @@ struct Record {
 pub(crate) struct CarrierLease {
     pub(crate) owner: Arc<ManagedState>,
     record: Arc<CarrierRecord>,
+    pub(crate) view: Option<zero_platform_tokio::controlled_carrier::CarrierUserView>,
 }
 impl CarrierRecord {
-    pub(super) fn new() -> Self {
-        Self(Mutex::new(Record::default()))
+    pub(super) fn new(cancel: zero_platform_tokio::contract::CancellationToken) -> Self {
+        Self(Mutex::new(Record::default()), cancel)
+    }
+    pub(super) fn request_retirement(&self) {
+        self.1.cancel();
     }
     pub(super) fn io_attempted(&self) -> bool {
         self.0.lock().unwrap().attempted
@@ -61,8 +68,15 @@ impl CarrierRecord {
     }
 }
 impl CarrierLease {
+    pub(crate) fn cancellation(&self) -> zero_platform_tokio::contract::CancellationToken {
+        self.record.1.clone()
+    }
     pub(super) fn new(owner: Arc<ManagedState>, record: Arc<CarrierRecord>) -> Self {
-        Self { owner, record }
+        Self {
+            owner,
+            record,
+            view: None,
+        }
     }
     pub(crate) fn attempting_io(&self) {
         self.record.0.lock().unwrap().attempted = true;
@@ -79,14 +93,27 @@ impl CarrierLease {
             ));
         }
         let mut record = self.record.0.lock().unwrap();
-        if record.adoption.is_some() || record.attempted || record.registering || record.finished {
+        if record.registering
+            || record.finished
+            || record.join.is_some()
+            || (record.attempted && record.adoption.is_none())
+            || record.adoption.as_ref().is_some_and(|prior| {
+                prior.closed().is_none_or(|receipt| {
+                    !receipt.matches(prior) || receipt.driver_exit().is_some()
+                })
+            })
+        {
             return Err(zero_platform_tokio::contract::ChannelError::new(
                 zero_platform_tokio::contract::Stage::Prepare,
                 zero_platform_tokio::contract::Reason::InvalidConfig,
                 zero_platform_tokio::contract::Impact::Component,
             ));
         }
-        record.adoption = Some(adoption);
+        // A previous candidate may be replaced only after its same-original
+        // closure was received. Keep no unbounded completed-native history.
+        let previous = record.adoption.replace(adoption);
+        drop(record);
+        drop(previous);
         Ok(())
     }
     pub(crate) fn registering(&self) -> Registration {

@@ -1,0 +1,4 @@
+   Compiling zero-grpc v0.0.3-dev.202610162206 (/Volumes/tool/rust/zero/crates/grpc)
+    Checking zero-proxy v0.0.3-dev.202610162206 (/Volumes/tool/rust/zero/crates/proxy)
+    Checking zero v0.0.3-dev.202610162206 (/Volumes/tool/rust/zero)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 29.18s

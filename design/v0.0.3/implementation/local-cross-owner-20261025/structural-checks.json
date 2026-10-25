@@ -1,0 +1,50 @@
+{
+  "runtime-boundary": {
+    "exit": 0,
+    "seconds": 0.3,
+    "command": [
+      "/tmp/zero-runtime-boundary"
+    ]
+  },
+  "workspace-boundary": {
+    "exit": 0,
+    "seconds": 0.08,
+    "command": [
+      "/tmp/zero-runtime-workspace-boundary"
+    ]
+  },
+  "ci-scope": {
+    "exit": 0,
+    "seconds": 1.26,
+    "command": [
+      "node",
+      "--test",
+      ".github/actions/ci-scope/scope.test.mjs"
+    ]
+  },
+  "test-layout": {
+    "exit": 0,
+    "seconds": 0.27,
+    "command": [
+      "python3",
+      "scripts/check-test-layout.py"
+    ]
+  },
+  "plan": {
+    "exit": 0,
+    "seconds": 0.46,
+    "command": [
+      "python3",
+      "design/v0.0.3/check-plan.py"
+    ]
+  },
+  "diff": {
+    "exit": 0,
+    "seconds": 0.19,
+    "command": [
+      "git",
+      "diff",
+      "--check"
+    ]
+  }
+}

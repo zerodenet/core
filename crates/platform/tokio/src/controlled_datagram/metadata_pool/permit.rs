@@ -1,0 +1,307 @@
+use super::super::metadata::users::MetadataUsersClosedReceipt;
+use super::*;
+pub struct MetadataPoolPermit(pub(super) Arc<Slot>);
+#[derive(Clone)]
+pub struct MetadataPoolOrigin {
+    slot: Weak<Slot>,
+    instance: ComponentInstanceId,
+    ordinal: u64,
+    closed: Arc<OnceLock<bool>>,
+    owner: MetadataPoolRegistration,
+}
+#[derive(Clone)]
+pub struct MetadataPoolClosed {
+    origin: MetadataPoolOrigin,
+}
+impl MetadataPoolPermit {
+    /// Return the unique claim rejected before a user/driver graph existed.
+    /// Retain it until all actual original views are gone; no empty graph or
+    /// invented driver outcome substitutes for this original capability.
+    /// Rejection leaves the caller's unique claim untouched.
+    pub fn return_unbound(
+        &self,
+        claim: &mut Option<super::super::metadata::MetadataViewClaim>,
+        tasks: &TaskRegistrar,
+    ) -> Result<(), ChannelError> {
+        let owner = self
+            .0
+            .owner
+            .upgrade()
+            .ok_or_else(|| error(Reason::Revoked, "metadata pool dropped"))?;
+        let scope = owner
+            .state
+            .lock()
+            .expect("metadata pool poisoned")
+            .bound
+            .as_ref()
+            .map(|bound| bound.scope.clone())
+            .ok_or_else(|| error(Reason::InvalidConfig, "metadata pool unregistered"))?;
+        if !scope.matches(tasks) {
+            return Err(error(Reason::StalePlan, "foreign unbound metadata scope"));
+        }
+        let mut native = self.0.native()?;
+        if native.confirmed.is_some() || native.unbound.is_some() {
+            return Err(error(
+                Reason::InvalidConfig,
+                "metadata claim already returned",
+            ));
+        }
+        if !claim.as_ref().is_some_and(|claim| {
+            native
+                .issuer
+                .as_ref()
+                .is_some_and(|issuer| issuer.owns_claim(claim, tasks))
+        }) {
+            return Err(error(Reason::StalePlan, "foreign original metadata claim"));
+        }
+        native.unbound = Some((
+            claim.take().expect("validated original claim"),
+            tasks.clone(),
+        ));
+        Ok(())
+    }
+    pub fn origin(&self) -> MetadataPoolOrigin {
+        MetadataPoolOrigin {
+            slot: Arc::downgrade(&self.0),
+            instance: self.0.instance,
+            ordinal: self.0.ordinal,
+            closed: self.0.closed.clone(),
+            owner: self.0.registration.clone(),
+        }
+    }
+    pub fn open(
+        &self,
+        query: &TaskJoinWitness,
+        egress: &crate::EgressInterfaceControl,
+        generation: zero_core::component::NetworkGeneration,
+        end: tokio::time::Instant,
+    ) -> Result<GrantedMetadataListener, ChannelError> {
+        let owner = self
+            .0
+            .owner
+            .upgrade()
+            .ok_or_else(|| error(Reason::Revoked, "metadata pool dropped"))?;
+        let bound = owner
+            .state
+            .lock()
+            .expect("metadata pool poisoned")
+            .bound
+            .clone()
+            .ok_or_else(|| error(Reason::InvalidConfig, "unregistered metadata pool"))?;
+        bound.check(&owner, query)?;
+        if !query.same_registration(&self.0.caller) {
+            return Err(error(
+                Reason::StalePlan,
+                "metadata grant belongs to another original query",
+            ));
+        }
+        if tokio::time::Instant::now() >= end {
+            return Err(error(
+                Reason::Timeout,
+                "metadata operation deadline elapsed",
+            ));
+        }
+        let ResourceDeclaration::ControlledMetadataDatagram { endpoint, dial, .. } =
+            &bound.declaration
+        else {
+            unreachable!("validated metadata declaration")
+        };
+        let selection = egress
+            .select_for_peer_with_policy(*endpoint, dial)
+            .map_err(|source| {
+                error(Reason::Io, "metadata egress selection failed").with_source(source)
+            })?;
+        if selection.generation() != generation.0 {
+            return Err(error(Reason::StalePlan, "metadata network changed"));
+        }
+        let mut native = self.0.native()?;
+        if native.attempted || self.0.closed.get().is_some() {
+            return Err(error(
+                Reason::Revoked,
+                "metadata original was already attempted",
+            ));
+        }
+        native.attempted = true;
+        let grant = native
+            .owner
+            .acquire(*endpoint, dial, &selection)
+            .map_err(|source| {
+                error(Reason::Io, "metadata original acquisition failed").with_source(source)
+            })?;
+        let super::super::metadata::GrantedMetadataDatagram { rx, tx, control } = grant;
+        native.control = Some(control);
+        let (issuer, claim) = native
+            .control
+            .as_mut()
+            .expect("installed original control")
+            .claim_views(bound.scope.clone())
+            .map_err(|source| error(Reason::Io, "metadata claim failed").with_source(source))?;
+        native.issuer = Some(issuer);
+        let observation = native
+            .control
+            .as_mut()
+            .expect("installed original control")
+            .take_observation()
+            .map_err(|source| {
+                error(Reason::Io, "metadata observation failed").with_source(source)
+            })?;
+        native.endpoints = Some((
+            tx.local_addr().map_err(|source| {
+                error(Reason::Io, "metadata local address failed").with_source(source)
+            })?,
+            *endpoint,
+        ));
+        bound.check(&owner, query)?;
+        if tokio::time::Instant::now() >= end {
+            return Err(error(
+                Reason::Timeout,
+                "metadata operation deadline elapsed during acquisition",
+            ));
+        }
+        if egress.generation() != generation.0 {
+            return Err(error(
+                Reason::StalePlan,
+                "metadata network changed during acquisition",
+            ));
+        }
+        native.transferred = true;
+        Ok(GrantedMetadataListener {
+            scope: bound.scope.clone(),
+            rx,
+            tx,
+            observation,
+            users_claim: Some(claim),
+        })
+    }
+    pub fn close(
+        &self,
+        receipt: Option<&MetadataUsersClosedReceipt>,
+        tasks: &TaskRegistrar,
+    ) -> Result<MetadataPoolClosed, ChannelError> {
+        let owner = self
+            .0
+            .owner
+            .upgrade()
+            .ok_or_else(|| error(Reason::Revoked, "metadata pool dropped"))?;
+        let bound = owner
+            .state
+            .lock()
+            .expect("metadata pool poisoned")
+            .bound
+            .clone()
+            .ok_or_else(|| error(Reason::InvalidConfig, "metadata original has no binding"))?;
+        if !bound.scope.matches(tasks) {
+            return Err(error(Reason::StalePlan, "foreign metadata close scope"));
+        }
+        if let Some(receipt) = receipt {
+            let mut native = self.0.native()?;
+            if !native
+                .issuer
+                .as_ref()
+                .is_some_and(|issuer| issuer.validates_users(receipt, tasks))
+            {
+                return Err(error(
+                    Reason::StalePlan,
+                    "metadata users receipt belongs to another original",
+                ));
+            }
+            native.confirmed.get_or_insert_with(|| receipt.clone());
+        }
+        self.close_stored()?.ok_or_else(|| {
+            error(
+                Reason::Timeout,
+                "metadata users or native original remains unconfirmed",
+            )
+        })
+    }
+    pub(super) fn close_stored(&self) -> Result<Option<MetadataPoolClosed>, ChannelError> {
+        if let Some(receipt) = self.origin().closed() {
+            return Ok(Some(receipt));
+        }
+        let mut native = self.0.native()?;
+        let returned_unbound = native.unbound.as_ref().is_some_and(|(claim, tasks)| {
+            claim.try_closed().is_some_and(|views| {
+                native
+                    .issuer
+                    .as_ref()
+                    .is_some_and(|issuer| issuer.validates(&views, tasks))
+            })
+        });
+        if native.transferred && native.confirmed.is_none() && !returned_unbound {
+            return Ok(None);
+        }
+        let report = Arc::new(native.owner.close_all());
+        let complete = report.is_complete();
+        let first = report
+            .main
+            .unconfirmed
+            .first()
+            .or_else(|| report.probes.unconfirmed.first())
+            .map(|unknown| unknown.source.clone());
+        native.acquired_confirmed |= report.main.confirmed_closed > 0;
+        let acquired = native.acquired_confirmed;
+        native.report = Some(report);
+        if let Some(source) = first {
+            return Err(error(Reason::Io, "metadata original close is unknown")
+                .with_source(OriginalIo(source)));
+        }
+        if !complete {
+            return Ok(None);
+        }
+        let _ = self.0.closed.set(acquired);
+        drop(native);
+        if let Some(owner) = self.0.owner.upgrade() {
+            let removed = owner
+                .state
+                .lock()
+                .expect("metadata pool poisoned")
+                .slots
+                .remove(&self.0.ordinal);
+            drop(removed);
+        }
+        Ok(self.origin().closed())
+    }
+}
+#[derive(Debug)]
+struct OriginalIo(Arc<std::io::Error>);
+impl std::fmt::Display for OriginalIo {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        std::fmt::Display::fmt(self.0.as_ref(), f)
+    }
+}
+impl std::error::Error for OriginalIo {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        Some(self.0.as_ref())
+    }
+}
+impl MetadataPoolOrigin {
+    pub fn instance(&self) -> ComponentInstanceId {
+        self.instance
+    }
+    pub fn owner(&self) -> &MetadataPoolRegistration {
+        &self.owner
+    }
+    pub fn same_original(&self, other: &Self) -> bool {
+        self.instance == other.instance
+            && self.ordinal == other.ordinal
+            && Arc::ptr_eq(&self.closed, &other.closed)
+    }
+    pub fn closed(&self) -> Option<MetadataPoolClosed> {
+        self.closed.get().map(|_| MetadataPoolClosed {
+            origin: self.clone(),
+        })
+    }
+    pub fn endpoints(&self) -> Option<(std::net::SocketAddr, std::net::SocketAddr)> {
+        let slot = self.slot.upgrade()?;
+        let result = slot.native().ok()?.endpoints;
+        result
+    }
+}
+impl MetadataPoolClosed {
+    pub fn matches(&self, origin: &MetadataPoolOrigin) -> bool {
+        self.origin.same_original(origin) && self.origin.closed.get().is_some()
+    }
+    pub fn had_native_acquisition(&self) -> bool {
+        self.origin.closed.get() == Some(&true)
+    }
+}

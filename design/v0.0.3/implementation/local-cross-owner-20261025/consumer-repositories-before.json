@@ -1,0 +1,12 @@
+{
+  "gui": {
+    "root": "/Volumes/tool/rust/gui",
+    "head": "d39ad2787fb05052fa15065853ab71526441ccc3",
+    "status": []
+  },
+  "panel": {
+    "root": "/Volumes/tool/golang/zboard",
+    "head": "658671e9f3978df1c79f4030fdb072a877f10bf5",
+    "status": []
+  }
+}

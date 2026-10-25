@@ -1,0 +1,45 @@
+{
+  "branch": "develop",
+  "base_head": "b963c864a473f68f8d6a8444764e3e88761e6c04",
+  "status": "fixed_literal_root_host_wiring_qualified",
+  "production_mieru_factory_registered": false,
+  "commit_or_push": false,
+  "frozen_source": "source-final.json",
+  "backup": "/var/folders/5g/3js9c9b11c3fmfd930s4vkdm0000gn/T/zero-mieru-owner-mpr_xj85",
+  "backup_files": {
+    "untracked-before.tar.gz": "6f571f4dc4830c0735cf927580b620bfecaa79bdd340888860da5e2ed223bcd1",
+    "Cargo.lock": "24e8b199302c22ad4ad20b256b7c3914cdaf3bf678ae5b97f064af344777df4c",
+    "status-before.txt": "bad70682572320b6335ba2c8066f27a25c22a8a02b4f3fd7ec265780b09cf9b9",
+    "before.patch": "4add91c0482ec5131d0a1df535b415da1de21f6d9520f14d309367cd577f1d3c"
+  },
+  "product_version": "v0.0.3",
+  "source": "source-final.json",
+  "source_entries": 385,
+  "source_frozen": true,
+  "overall_migration_complete": false,
+  "checks": "checks.json",
+  "binary_sha256": "9a36ad0834130705924b7e598685172fff7aa30c2f31b0e8d33e1de28705700c",
+  "staged_changes": false,
+  "complete": [
+    "explicit fixed literal-root BackgroundControl recipe and original host registration",
+    "same actual protocol pool/driver and host TaskScope",
+    "transferred native logical user accounting including split halves",
+    "original native/users/actual-join close receipts before takeover",
+    "cancel-safe close report retention",
+    "refresh early provider io status only from fresh complete original declaration proof"
+  ],
+  "remaining": [
+    "multi-endpoint and multi-binding pool assembly",
+    "complete credential-set identity and whole-pool replacement",
+    "actual DNS, relay-prefix and changing-network carrier providers",
+    "TCP and UDP same-adapter-pool ownership before production registration",
+    "full production native protocol migration and ALL17 qualification"
+  ],
+  "qualification_limits": [
+    "local protocol-owned peer, not new official upstream interoperability qualification",
+    "GUI repository IPC compatibility, not physical GUI/TUN qualification",
+    "panel publication using local service/SSH/deploy fixtures, not production deployment",
+    "no 1 CPU / 1 GiB or Linux/Windows live egress qualification"
+  ],
+  "embedded_build_time_note": "cached build_time and Git HEAD do not identify dirty source; use binary SHA-256, frozen source manifest and actual logs"
+}

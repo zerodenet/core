@@ -38,7 +38,7 @@ impl Fixture {
     async fn new() -> Self {
         let ingress = tokio::net::UdpSocket::bind("127.0.0.1:0").await.unwrap();
         let proxy = super::super::tests::proxy();
-        let catalog = ComponentCatalog::default();
+        let catalog = ComponentCatalog::with_factories(crate::register::component_registry());
         // A real independent allocator for this fixture host, including its
         // actual UDP ingress. This does not activate the production catalog.
         let inbound = catalog.allocate_id().unwrap();

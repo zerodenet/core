@@ -1,0 +1,34 @@
+[
+  {
+    "pid": 79992,
+    "args": [
+      "/tmp/zero-mieru-final-consumers-heax_f8i/zero",
+      "--version"
+    ],
+    "returncode": 0,
+    "signals": []
+  },
+  {
+    "pid": 80002,
+    "args": [
+      "/tmp/zero-mieru-final-consumers-heax_f8i/zero",
+      "validate",
+      "/tmp/znet-kernel-compat-x2d17d7r/config.json"
+    ],
+    "returncode": 0,
+    "signals": []
+  },
+  {
+    "pid": 80003,
+    "args": [
+      "/tmp/zero-mieru-final-consumers-heax_f8i/zero",
+      "run",
+      "--control-socket",
+      "/tmp/znet-kernel-compat-x2d17d7r/control.sock",
+      "--parent-lifetime-stdin",
+      "/tmp/znet-kernel-compat-x2d17d7r/config.json"
+    ],
+    "returncode": 0,
+    "signals": []
+  }
+]

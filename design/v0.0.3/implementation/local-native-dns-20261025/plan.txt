@@ -1,0 +1,5 @@
+PASS: 25 complete source sections match recorded SHA-256 digests
+PASS: G0-G10, M0-M6, all 10 gates and 17 task cards with required fields
+PASS: 333 local file/anchor/line links; code fences and portable paths
+INFO: 25 HTTPS references have valid URL form; remote availability not tested
+INFO: documentation checks only; no runtime, compile, interop or consumer qualification

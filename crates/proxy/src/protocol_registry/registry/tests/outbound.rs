@@ -168,8 +168,7 @@ fn registry_executes_adapter_claimed_tcp_leaf_operations() {
 
     use crate::protocol_registry::{
         ClaimedTcpOutboundLeaf, ClaimedUdpFlowLeaf, InboundListenerCapability, OutboundLeafClaim,
-        OutboundLeafInput, ProtocolSupportCapability, TcpOutboundCapability, UdpFlowCapability,
-        UdpPacketPathCapability,
+        OutboundLeafInput, ProtocolSupportCapability,
     };
     use crate::runtime::tcp_dispatch::operation::{
         PreparedTcpConnectOperation, PreparedTcpRelayOperation,
@@ -295,15 +294,10 @@ fn registry_executes_adapter_claimed_tcp_leaf_operations() {
         }
     }
 
-    impl TcpOutboundCapability for FakeClaimedAdapter {}
-
-    impl UdpFlowCapability for FakeClaimedAdapter {}
-    impl UdpPacketPathCapability for FakeClaimedAdapter {}
-
     let mut registry = super::super::ProtocolRegistry::default();
-    registry.register_capability(
+    registry.register_core_capability(
         Arc::new(FakeClaimedAdapter),
-        FakeClaimedAdapter::claim_outbound_leaf_impl,
+        Some(FakeClaimedAdapter::claim_outbound_leaf_impl),
     );
 
     let config = socks5_test_config("claimed");
@@ -334,8 +328,7 @@ fn registry_executes_adapter_claimed_udp_leaf_operations() {
 
     use crate::protocol_registry::{
         ClaimedTcpOutboundLeaf, ClaimedUdpFlowLeaf, InboundListenerCapability, OutboundLeafClaim,
-        OutboundLeafInput, ProtocolSupportCapability, TcpOutboundCapability, UdpFlowCapability,
-        UdpPacketPathCapability,
+        OutboundLeafInput, ProtocolSupportCapability,
     };
     use crate::runtime::tcp_dispatch::operation::{
         DirectTcpConnectOperation, PreparedTcpConnectOperation,
@@ -468,16 +461,10 @@ fn registry_executes_adapter_claimed_udp_leaf_operations() {
         }
     }
 
-    impl TcpOutboundCapability for FakeClaimedUdpAdapter {}
-
-    impl UdpFlowCapability for FakeClaimedUdpAdapter {}
-
-    impl UdpPacketPathCapability for FakeClaimedUdpAdapter {}
-
     let mut registry = super::super::ProtocolRegistry::default();
-    registry.register_capability(
+    registry.register_core_capability(
         Arc::new(FakeClaimedUdpAdapter),
-        FakeClaimedUdpAdapter::claim_outbound_leaf_impl,
+        Some(FakeClaimedUdpAdapter::claim_outbound_leaf_impl),
     );
 
     let config = socks5_test_config("claimed-udp");
@@ -516,7 +503,6 @@ fn registry_executes_adapter_claimed_udp_packet_path_operations() {
     use crate::protocol_registry::{
         ClaimedTcpOutboundLeaf, ClaimedUdpFlowLeaf, ClaimedUdpPacketPathLeaf,
         InboundListenerCapability, OutboundLeafClaim, OutboundLeafInput, ProtocolSupportCapability,
-        TcpOutboundCapability, UdpFlowCapability, UdpPacketPathCapability,
     };
     use crate::runtime::tcp_dispatch::operation::{
         DirectTcpConnectOperation, PreparedTcpConnectOperation,
@@ -672,16 +658,10 @@ fn registry_executes_adapter_claimed_udp_packet_path_operations() {
         }
     }
 
-    impl TcpOutboundCapability for FakeClaimedUdpPacketPathAdapter {}
-
-    impl UdpFlowCapability for FakeClaimedUdpPacketPathAdapter {}
-
-    impl UdpPacketPathCapability for FakeClaimedUdpPacketPathAdapter {}
-
     let mut registry = super::super::ProtocolRegistry::default();
-    registry.register_capability(
+    registry.register_core_capability(
         Arc::new(FakeClaimedUdpPacketPathAdapter),
-        FakeClaimedUdpPacketPathAdapter::claim_outbound_leaf_impl,
+        Some(FakeClaimedUdpPacketPathAdapter::claim_outbound_leaf_impl),
     );
 
     let config = socks5_test_config("claimed-udp-packet-path");

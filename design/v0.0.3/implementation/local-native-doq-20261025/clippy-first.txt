@@ -1,0 +1,32 @@
+    Checking zero-platform-tokio v0.0.3-dev.202610162206 (/Volumes/tool/rust/zero/crates/platform/tokio)
+   Compiling zero-grpc v0.0.3-dev.202610162206 (/Volumes/tool/rust/zero/crates/grpc)
+    Checking zero-transport v0.0.3-dev.202610162206 (/Volumes/tool/rust/zero/crates/transport)
+    Checking http v0.0.1 (/Volumes/tool/rust/zero/protocols/http)
+    Checking shadowsocks v1.21.2 (/Volumes/tool/rust/zero/protocols/shadowsocks)
+    Checking socks5 v0.0.1 (/Volumes/tool/rust/zero/protocols/socks5)
+    Checking vless v26.3.27 (/Volumes/tool/rust/zero/protocols/vless)
+    Checking vmess v26.3.27 (/Volumes/tool/rust/zero/protocols/vmess)
+    Checking hysteria2 v2.12.2 (/Volumes/tool/rust/zero/protocols/hysteria2)
+    Checking trojan v0.10.6 (/Volumes/tool/rust/zero/protocols/trojan)
+    Checking mieru v3.33.0 (/Volumes/tool/rust/zero/protocols/mieru)
+    Checking zero-config v0.0.3-dev.202610162206 (/Volumes/tool/rust/zero/crates/config)
+    Checking zero-engine v0.0.3-dev.202610162206 (/Volumes/tool/rust/zero/crates/engine)
+    Checking zero-dns v0.0.3-dev.202610162206 (/Volumes/tool/rust/zero/crates/dns)
+    Checking zero-runtime v0.0.3-dev.202610162206 (/Volumes/tool/rust/zero/crates/runtime)
+    Checking zero-connector v0.0.3-dev.202610162206 (/Volumes/tool/rust/zero/crates/connector)
+error[E0599]: no method named `doq_snapshot` found for struct `std::sync::MutexGuard<'_, std::sync::Arc<transport_owners::TransportOwners>>` in the current scope
+  --> crates/dns/src/backends/doq.rs:43:18
+   |
+39 |               || !self
+   |  _________________-
+40 | |                 .owners
+41 | |                 .lock()
+42 | |                 .expect("DoQ owners poisoned")
+43 | |                 .doq_snapshot()
+   | |                 -^^^^^^^^^^^^ method not found in `std::sync::MutexGuard<'_, std::sync::Arc<transport_owners::TransportOwners>>`
+   | |_________________|
+   |
+
+For more information about this error, try `rustc --explain E0599`.
+error: could not compile `zero-dns` (lib) due to 1 previous error
+warning: build failed, waiting for other jobs to finish...

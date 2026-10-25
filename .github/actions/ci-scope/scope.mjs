@@ -34,7 +34,7 @@ export function selectScope(paths) {
   // domain logic is tested on Linux; scheduled/manual runs check every surface.
   const compatibility = buildChanged || relevant.some(path => startsWithAny(path, [
     'vendor/', 'protocols/', 'crates/platform/', 'crates/tun/',
-    'crates/transport/', 'crates/ztls/',
+    'crates/transport/', 'crates/runtime/', 'crates/ztls/',
     'src/application/inspect.rs', 'crates/proxy/src/validation.rs',
     'crates/proxy/src/adapters/wireguard',
     'crates/proxy/src/runtime/inbound_operation/raw_ip',
@@ -45,7 +45,7 @@ export function selectScope(paths) {
   // It still covers every layer that participates in capture, routing, protocol
   // dispatch, packet handling, or native socket setup.
   const tun = buildChanged || relevant.some(path => startsWithAny(path, [
-    'crates/config/', 'crates/platform/', 'crates/proxy/', 'crates/router/',
+    'crates/config/', 'crates/platform/', 'crates/proxy/', 'crates/runtime/', 'crates/router/',
     'crates/stack/', 'crates/traits/', 'crates/transport/', 'crates/tun/',
     'vendor/', 'crates/ztls/', 'protocols/', 'proto/', 'src/application/tun', 'tests/tun',
   ])) || relevant.includes('scripts/prepare-wintun.ps1')

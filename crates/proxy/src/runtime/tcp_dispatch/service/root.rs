@@ -31,6 +31,37 @@ impl RootOpener {
     }
 }
 impl UpstreamOpener for RootOpener {
+    fn observe_carrier_origin(
+        &self,
+        origin: &zero_platform_tokio::controlled_carrier::CarrierOrigin,
+    ) -> bool {
+        let root = origin.native_origin();
+        let Some((endpoint, binding)) = root.selected_binding() else {
+            return false;
+        };
+        if endpoint != self.endpoint
+            || binding != self.binding
+            || self.services.network_generation() != binding.network_generation.0
+            || root.is_retired()
+        {
+            return false;
+        }
+        let Some(endpoints) = root.endpoints() else {
+            return false;
+        };
+        let Some(local) = endpoints.local() else {
+            return false;
+        };
+        *self
+            .evidence
+            .lock()
+            .expect("service root evidence poisoned") = Some(Evidence {
+            local,
+            peer: endpoints.peer(),
+        });
+        true
+    }
+
     fn open_stream(
         &self,
         binding: &UpstreamBinding,

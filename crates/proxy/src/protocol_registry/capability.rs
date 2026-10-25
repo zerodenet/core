@@ -240,11 +240,6 @@ pub(crate) trait InboundListenerCapability: Send + Sync {
     }
 }
 
-pub(crate) trait TcpOutboundCapability: Send + Sync {}
-
-#[cfg(feature = "udp-runtime")]
-pub(crate) trait UdpFlowCapability: Send + Sync {}
-
 #[cfg(feature = "upstream-association-runtime")]
 pub(crate) trait UpstreamUdpHandlerProvider: Send + Sync {
     fn upstream_association_handler(&self) -> Box<dyn UpstreamAssociationHandler>;
@@ -265,6 +260,3 @@ pub(crate) trait ManagedUdpHandlerProvider: Send + Sync {
         None
     }
 }
-
-#[cfg(feature = "udp-runtime")]
-pub(crate) trait UdpPacketPathCapability: Send + Sync {}

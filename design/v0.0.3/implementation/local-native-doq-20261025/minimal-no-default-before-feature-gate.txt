@@ -1,0 +1,476 @@
+    Checking aws-lc-rs v1.16.3
+    Checking idna v1.1.0
+warning: method `establish_tcp_tunnel_with_traffic` is never used
+  --> protocols/trojan/src/outbound.rs:44:14
+   |
+33 | impl TrojanTcpOutboundProfile {
+   | ----------------------------- method in this implementation
+...
+44 |     async fn establish_tcp_tunnel_with_traffic<S>(
+   |              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: method `udp_direct_flow_plan_with_mux` is never used
+   --> protocols/trojan/src/outbound.rs:305:19
+    |
+199 | impl PreparedTrojanOutboundRequestBundle {
+    | ---------------------------------------- method in this implementation
+...
+305 |     pub(crate) fn udp_direct_flow_plan_with_mux(
+    |                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: method `with_alpn` is never used
+   --> protocols/trojan/src/outbound.rs:419:19
+    |
+385 | impl OwnedTrojanResolvedTlsProfile {
+    | ---------------------------------- method in this implementation
+...
+419 |     pub(crate) fn with_alpn(mut self, alpn: impl IntoIterator<Item = String>) -> Self {
+    |                   ^^^^^^^^^
+
+warning: associated function `new` is never used
+   --> protocols/trojan/src/outbound.rs:503:19
+    |
+502 | impl<S> TrojanTcpStreamOpen<S> {
+    | ------------------------------ associated function in this implementation
+503 |     pub(crate) fn new(stream: S, handshake_written_bytes: u64) -> Self {
+    |                   ^^^
+
+warning: method `establish_tcp_tunnel_with_traffic` is never used
+   --> protocols/trojan/src/outbound.rs:584:14
+    |
+567 | impl TrojanTcpConnectConfig {
+    | --------------------------- method in this implementation
+...
+584 |     async fn establish_tcp_tunnel_with_traffic<S>(
+    |              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: constant `MUX_COOL_DOMAIN` is never used
+  --> protocols/trojan/src/shared.rs:10:11
+   |
+10 | pub const MUX_COOL_DOMAIN: &str = "v1.mux.cool";
+   |           ^^^^^^^^^^^^^^^
+
+warning: constant `MUX_COOL_PORT` is never used
+  --> protocols/trojan/src/shared.rs:11:11
+   |
+11 | pub const MUX_COOL_PORT: u16 = 666;
+   |           ^^^^^^^^^^^^^
+
+warning: function `write_address` is never used
+   --> protocols/trojan/src/shared.rs:131:15
+    |
+131 | pub(crate) fn write_address(buf: &mut Vec<u8>, address: &Address) -> Result<(), Error> {
+    |               ^^^^^^^^^^^^^
+
+warning: function `parse_address_from_bytes` is never used
+   --> protocols/trojan/src/shared.rs:154:15
+    |
+154 | pub(crate) fn parse_address_from_bytes(atyp: u8, bytes: &[u8]) -> Result<Address, Error> {
+    |               ^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: associated function `with_mux_config` is never used
+   --> protocols/trojan/src/udp.rs:932:19
+    |
+926 | impl PreparedTrojanUdpFlowPlan {
+    | ------------------------------ associated function in this implementation
+...
+932 |     pub(crate) fn with_mux_config(
+    |                   ^^^^^^^^^^^^^^^
+
+warning: methods `frames` and `bytes` are never used
+  --> protocols/trojan/src/validation.rs:40:25
+   |
+28 | impl MuxResponseBacklogPolicy {
+   | ----------------------------- methods in this implementation
+...
+40 |     pub(crate) const fn frames(self) -> usize {
+   |                         ^^^^^^
+...
+44 |     pub(crate) const fn bytes(self) -> usize {
+   |                         ^^^^^
+
+warning: `trojan` (lib) generated 11 warnings
+    Checking x509-parser v0.18.1
+    Checking url v2.5.8
+    Checking zero-rule v0.0.3-dev.202610162206 (/Volumes/tool/rust/zero/crates/rule)
+    Checking rustls-webpki v0.103.13
+    Checking rustls-legacy-crypto v0.1.0 (/Volumes/tool/rust/zero/vendor/rustls-legacy-crypto)
+    Checking hysteria2 v2.12.2 (/Volumes/tool/rust/zero/protocols/hysteria2)
+    Checking zero-router v0.0.3-dev.202610162206 (/Volumes/tool/rust/zero/crates/router)
+    Checking rustls v0.23.40 (/Volumes/tool/rust/zero/vendor/rustls)
+warning: unused import: `alloc::borrow::ToOwned`
+ --> protocols/hysteria2/src/outbound.rs:3:5
+  |
+3 | use alloc::borrow::ToOwned;
+  |     ^^^^^^^^^^^^^^^^^^^^^^
+  |
+  = note: `#[warn(unused_imports)]` (part of `#[warn(unused)]`) on by default
+
+warning: unused import: `alloc::string::String`
+ --> protocols/hysteria2/src/outbound.rs:4:5
+  |
+4 | use alloc::string::String;
+  |     ^^^^^^^^^^^^^^^^^^^^^
+
+warning: unused imports: `DatagramUdpResponder`, `InboundDatagramUdpRelay`, and `SessionAuth`
+  --> protocols/hysteria2/src/udp.rs:14:14
+   |
+14 |     Address, DatagramUdpResponder, Error, InboundDatagramUdpRelay, InboundUdpDispatch,
+   |              ^^^^^^^^^^^^^^^^^^^^         ^^^^^^^^^^^^^^^^^^^^^^^
+15 |     ProtocolType, SessionAuth, UdpFlowPacket,
+   |                   ^^^^^^^^^^^
+
+warning: associated items `from_ref` and `auth` are never used
+   --> protocols/hysteria2/src/inbound.rs:362:8
+    |
+361 | impl Hysteria2User {
+    | ------------------ associated items in this implementation
+362 |     fn from_ref(user: Hysteria2InboundUserRef<'_>) -> Self {
+    |        ^^^^^^^^
+...
+374 |     fn auth(&self) -> SessionAuth {
+    |        ^^^^
+    |
+    = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: fields `target` and `port` are never read
+   --> protocols/hysteria2/src/udp.rs:186:5
+    |
+185 | pub struct Hysteria2InboundUdpClientResponse<'a> {
+    |            --------------------------------- fields in this struct
+186 |     target: &'a Address,
+    |     ^^^^^^
+187 |     port: u16,
+    |     ^^^^
+    |
+    = note: `Hysteria2InboundUdpClientResponse` has derived impls for the traits `Clone` and `Debug`, but these are intentionally ignored during dead code analysis
+
+warning: methods `target`, `port`, and `payload` are never used
+   --> protocols/hysteria2/src/udp.rs:204:8
+    |
+191 | impl<'a> Hysteria2InboundUdpClientResponse<'a> {
+    | ---------------------------------------------- methods in this implementation
+...
+204 |     fn target(&self) -> &'a Address {
+    |        ^^^^^^
+...
+208 |     fn port(&self) -> u16 {
+    |        ^^^^
+...
+212 |     fn payload(&self) -> &'a [u8] {
+    |        ^^^^^^^
+
+warning: associated function `from_packet` is never used
+   --> protocols/hysteria2/src/udp.rs:224:8
+    |
+223 | impl Hysteria2InboundUdpRequest {
+    | ------------------------------- associated function in this implementation
+224 |     fn from_packet(packet: Hysteria2UdpPacket) -> Self {
+    |        ^^^^^^^^^^^
+
+warning: static `NEXT_UDP_PACKET_ID` is never used
+   --> protocols/hysteria2/src/udp.rs:584:8
+    |
+584 | static NEXT_UDP_PACKET_ID: AtomicU32 = AtomicU32::new(1);
+    |        ^^^^^^^^^^^^^^^^^^
+
+warning: function `build_udp_fragments` is never used
+   --> protocols/hysteria2/src/udp.rs:586:4
+    |
+586 | fn build_udp_fragments(
+    |    ^^^^^^^^^^^^^^^^^^^
+
+warning: method `password` is never used
+    --> protocols/hysteria2/src/udp.rs:1417:19
+     |
+1405 | impl Hysteria2UdpConnectorProfile {
+     | --------------------------------- method in this implementation
+...
+1417 |     pub(crate) fn password(&self) -> &str {
+     |                   ^^^^^^^^
+
+warning: `hysteria2` (lib) generated 10 warnings (run `cargo fix --lib -p hysteria2` to apply 3 suggestions)
+    Checking ztls v0.0.3-dev.202610162206 (/Volumes/tool/rust/zero/crates/ztls)
+    Checking quinn-proto v0.11.14 (/Volumes/tool/rust/zero/vendor/quinn-proto)
+    Checking tokio-rustls v0.26.4
+    Checking vless v26.3.27 (/Volumes/tool/rust/zero/protocols/vless)
+    Checking quinn v0.11.9 (/Volumes/tool/rust/zero/vendor/quinn)
+    Checking zero-config v0.0.3-dev.202610162206 (/Volumes/tool/rust/zero/crates/config)
+    Checking zero-transport v0.0.3-dev.202610162206 (/Volumes/tool/rust/zero/crates/transport)
+    Checking zero-engine v0.0.3-dev.202610162206 (/Volumes/tool/rust/zero/crates/engine)
+    Checking zero-dns v0.0.3-dev.202610162206 (/Volumes/tool/rust/zero/crates/dns)
+    Checking zero-runtime v0.0.3-dev.202610162206 (/Volumes/tool/rust/zero/crates/runtime)
+warning: unused imports: `HostIcmpProbeGrant` and `HostIcmpProbeOwner`
+  --> crates/runtime/src/component/instance/resources.rs:13:16
+   |
+13 | pub use icmp::{HostIcmpProbeGrant, HostIcmpProbeOwner};
+   |                ^^^^^^^^^^^^^^^^^^  ^^^^^^^^^^^^^^^^^^
+   |
+   = note: `#[warn(unused_imports)]` (part of `#[warn(unused)]`) on by default
+
+warning: unused import: `native::HostDatagramListenerOwner`
+  --> crates/runtime/src/component/instance/resources.rs:14:9
+   |
+14 | pub use native::HostDatagramListenerOwner;
+   |         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: unused import: `parse_response`
+  --> crates/dns/src/backends.rs:10:67
+   |
+10 |     build_address_response, build_error_response, parse_question, parse_response,
+   |                                                                   ^^^^^^^^^^^^^^
+   |
+   = note: `#[warn(unused_imports)]` (part of `#[warn(unused)]`) on by default
+
+warning: unused import: `parse_response`
+ --> crates/dns/src/udp.rs:9:45
+  |
+9 |     build_address_response, parse_question, parse_response, DEFAULT_SYNTHETIC_TTL_SECONDS,
+  |                                             ^^^^^^^^^^^^^^
+
+warning: unused variable: `detour`
+   --> crates/dns/src/backends.rs:178:9
+    |
+178 |         detour: Option<&str>,
+    |         ^^^^^^ help: if this is intentional, prefix it with an underscore: `_detour`
+    |
+    = note: `#[warn(unused_variables)]` (part of `#[warn(unused)]`) on by default
+
+warning: unused variable: `connector`
+   --> crates/dns/src/backends.rs:179:9
+    |
+179 |         connector: Option<&dyn DnsOutboundConnector>,
+    |         ^^^^^^^^^ help: if this is intentional, prefix it with an underscore: `_connector`
+
+warning: struct `HostIcmpProbeOwner` is never constructed
+  --> crates/runtime/src/component/instance/resources/icmp.rs:19:12
+   |
+19 | pub struct HostIcmpProbeOwner {
+   |            ^^^^^^^^^^^^^^^^^^
+   |
+   = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: struct `HostIcmpProbeGrant` is never constructed
+  --> crates/runtime/src/component/instance/resources/icmp.rs:23:12
+   |
+23 | pub struct HostIcmpProbeGrant {
+   |            ^^^^^^^^^^^^^^^^^^
+
+warning: struct `Shared` is never constructed
+  --> crates/runtime/src/component/instance/resources/icmp.rs:27:8
+   |
+27 | struct Shared {
+   |        ^^^^^^
+
+warning: enum `Phase` is never used
+  --> crates/runtime/src/component/instance/resources/icmp.rs:33:6
+   |
+33 | enum Phase {
+   |      ^^^^^
+
+warning: struct `State` is never constructed
+  --> crates/runtime/src/component/instance/resources/icmp.rs:38:8
+   |
+38 | struct State {
+   |        ^^^^^
+
+warning: methods `try_state` and `state` are never used
+  --> crates/runtime/src/component/instance/resources/icmp.rs:47:8
+   |
+46 | impl Shared {
+   | ----------- methods in this implementation
+47 |     fn try_state(&self) -> Result<MutexGuard<'_, State>, ChannelError> {
+   |        ^^^^^^^^^
+...
+59 |     fn state(&self) -> MutexGuard<'_, State> {
+   |        ^^^^^
+
+warning: associated items `new`, `with_limit`, `grant`, `fault`, `physical_confirmed`, and `take_closed_io` are never used
+   --> crates/runtime/src/component/instance/resources/icmp.rs:68:12
+    |
+ 65 | impl HostIcmpProbeOwner {
+    | ----------------------- associated items in this implementation
+...
+ 68 |     pub fn new(
+    |            ^^^
+...
+ 83 |     fn with_limit(
+    |        ^^^^^^^^^^
+...
+104 |     pub fn grant(&self) -> HostIcmpProbeGrant {
+    |            ^^^^^
+...
+110 |     pub fn fault(&self) -> Option<Arc<ChannelError>> {
+    |            ^^^^^
+...
+117 |     pub fn physical_confirmed(&self) -> bool {
+    |            ^^^^^^^^^^^^^^^^^^
+...
+130 |     pub fn take_closed_io(&self) -> CloseReport {
+    |            ^^^^^^^^^^^^^^
+
+warning: methods `harvest`, `take_closed_io`, and `remember` are never used
+   --> crates/runtime/src/component/instance/resources/icmp.rs:141:8
+    |
+140 | impl State {
+    | ---------- methods in this implementation
+141 |     fn harvest(&mut self) {
+    |        ^^^^^^^
+...
+145 |     fn take_closed_io(&mut self, instance: ComponentInstanceId) -> CloseReport {
+    |        ^^^^^^^^^^^^^^
+...
+157 |     fn remember(&mut self, failure: ChannelError) -> ChannelError {
+    |        ^^^^^^^^
+
+warning: function `error` is never used
+   --> crates/runtime/src/component/instance/resources/icmp.rs:163:4
+    |
+163 | fn error(
+    |    ^^^^^
+
+warning: struct `Source` is never constructed
+   --> crates/runtime/src/component/instance/resources/icmp.rs:176:8
+    |
+176 | struct Source(Arc<std::io::Error>);
+    |        ^^^^^^
+
+warning: function `native_error` is never used
+   --> crates/runtime/src/component/instance/resources/icmp.rs:187:4
+    |
+187 | fn native_error(
+    |    ^^^^^^^^^^^^
+
+warning: methods `shared`, `bind`, and `close` are never used
+  --> crates/runtime/src/component/instance/resources/icmp/grant.rs:8:8
+   |
+ 7 | impl HostIcmpProbeGrant {
+   | ----------------------- methods in this implementation
+ 8 |     fn shared(&self) -> Result<Arc<Shared>, ChannelError> {
+   |        ^^^^^^
+...
+29 |     pub fn bind(
+   |            ^^^^
+...
+79 |     pub fn close(&self, view: &ControlledIcmpSocket) -> Result<IcmpCloseReceipt, ChannelError> {
+   |            ^^^^^
+
+warning: struct `HostDatagramListenerOwner` is never constructed
+  --> crates/runtime/src/component/instance/resources/native/listener.rs:10:12
+   |
+10 | pub struct HostDatagramListenerOwner {
+   |            ^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: associated items `new`, `bind_listener`, `revoke`, `shutdown`, and `remember` are never used
+  --> crates/runtime/src/component/instance/resources/native/listener.rs:18:12
+   |
+17 | impl HostDatagramListenerOwner {
+   | ------------------------------ associated items in this implementation
+18 |     pub fn new(
+   |            ^^^
+...
+53 |     pub fn bind_listener(
+   |            ^^^^^^^^^^^^^
+...
+76 |     pub fn revoke(&mut self) {
+   |            ^^^^^^
+...
+80 |     pub fn shutdown(&mut self, deadline: Instant) -> Result<CloseReport, ChannelError> {
+   |            ^^^^^^^^
+...
+92 |     fn remember(&mut self, failure: ChannelError) -> ChannelError {
+   |        ^^^^^^^^
+
+warning: function `connect_tcp` is never used
+   --> crates/dns/src/backends.rs:396:10
+    |
+396 | async fn connect_tcp(
+    |          ^^^^^^^^^^^
+    |
+    = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: function `connect_tcp_carrier` is never used
+   --> crates/dns/src/backends.rs:407:10
+    |
+407 | async fn connect_tcp_carrier(
+    |          ^^^^^^^^^^^^^^^^^^^
+
+warning: function `current_cancel` is never used
+   --> crates/dns/src/coordinator/dependency.rs:127:15
+    |
+127 | pub(crate) fn current_cancel() -> zero_platform_tokio::contract::CancellationToken {
+    |               ^^^^^^^^^^^^^^
+
+warning: `zero-runtime` (lib) generated 16 warnings (run `cargo fix --lib -p zero-runtime` to apply 2 suggestions)
+warning: `zero-dns` (lib) generated 7 warnings (run `cargo fix --lib -p zero-dns` to apply 4 suggestions)
+    Checking zero-proxy v0.0.3-dev.202610162206 (/Volumes/tool/rust/zero/crates/proxy)
+warning: unused import: `defaults::prepare_tcp_inbound_bind`
+  --> crates/proxy/src/protocol_registry/mod.rs:59:16
+   |
+59 | pub(crate) use defaults::prepare_tcp_inbound_bind;
+   |                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = note: `#[warn(unused_imports)]` (part of `#[warn(unused)]`) on by default
+
+warning: unused imports: `bind_tcp_inbound` and `inbound_listen_addr`
+  --> crates/proxy/src/protocol_registry/mod.rs:60:27
+   |
+60 | pub(crate) use defaults::{bind_tcp_inbound, bind_tcp_listener, inbound_listen_addr};
+   |                           ^^^^^^^^^^^^^^^^                     ^^^^^^^^^^^^^^^^^^^
+
+warning: unused imports: `InboundFallbackTarget`, `PreparedInboundFallback`, `PreparedInboundRouteAccept`, and `prepare_inbound_route_accept`
+  --> crates/proxy/src/runtime.rs:27:5
+   |
+27 |     prepare_inbound_route_accept, InboundFallbackTarget, PreparedInboundFallback,
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^  ^^^^^^^^^^^^^^^^^^^^^  ^^^^^^^^^^^^^^^^^^^^^^^
+28 |     PreparedInboundRouteAccept,
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: unused import: `run_logged_tcp_socket_listener_loop`
+  --> crates/proxy/src/runtime/listener_loop.rs:16:5
+   |
+16 |     run_logged_tcp_socket_listener_loop, run_logged_tcp_socket_listener_with_users,
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: unused import: `MessageRelayContext`
+  --> crates/proxy/src/runtime/tcp_ingress.rs:25:51
+   |
+25 | pub(crate) use contract::{MessageInboundProtocol, MessageRelayContext, MessageRelayOutcome};
+   |                                                   ^^^^^^^^^^^^^^^^^^^
+
+warning: unused import: `DirectTargetResolution`
+  --> crates/proxy/src/transport/mod.rs:25:22
+   |
+25 |     DirectConnector, DirectTargetResolution, DirectTcpConnectFailure, DirectTcpConnection,
+   |                      ^^^^^^^^^^^^^^^^^^^^^^
+
+warning: unused import: `zero_transport::PrefixedSocket`
+  --> crates/proxy/src/transport/mod.rs:38:16
+   |
+38 | pub(crate) use zero_transport::PrefixedSocket;
+   |                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+error[E0599]: no associated function or constant named `with_background` found for struct `inventory::ProtocolInventory` in the current scope
+   --> crates/proxy/src/runtime.rs:178:49
+    |
+178 |             Some(network) => ProtocolInventory::with_background(network.clone()),
+    |                                                 ^^^^^^^^^^^^^^^ associated function or constant not found in `inventory::ProtocolInventory`
+    |
+   ::: crates/proxy/src/inventory.rs:33:1
+    |
+ 33 | pub struct ProtocolInventory {
+    | ---------------------------- associated function or constant `with_background` not found for this struct
+
+warning: unused variable: `index`
+  --> crates/proxy/src/inventory/tcp/relay.rs:58:14
+   |
+58 |         for (index, next_hop) in claimed_hops.iter().enumerate() {
+   |              ^^^^^ help: if this is intentional, prefix it with an underscore: `_index`
+   |
+   = note: `#[warn(unused_variables)]` (part of `#[warn(unused)]`) on by default
+
+For more information about this error, try `rustc --explain E0599`.
+warning: `zero-proxy` (lib) generated 8 warnings
+error: could not compile `zero-proxy` (lib) due to 1 previous error; 8 warnings emitted

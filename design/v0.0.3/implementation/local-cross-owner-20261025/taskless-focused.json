@@ -1,0 +1,11 @@
+{
+  "exit": 0,
+  "seconds": 22.48,
+  "command": [
+    "target/debug/deps/zero_platform_tokio-aa3c047d678512b5",
+    "controlled_carrier::tests::taskless",
+    "--nocapture"
+  ],
+  "binary_sha256": "03c0f9ae11fe16e2224cf017cbc16e864b1f638addf098a358c93f0a45c3c52c",
+  "source_snapshot_sha256": "8407524a13fbbdc7daa0acd1b0168daa4d389a1b3782f1f8de5871e6a374d991"
+}

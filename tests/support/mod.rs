@@ -44,6 +44,30 @@ pub fn wait_for_port(port: u16) {
     panic!("port {port} did not open in time");
 }
 
+/// Keep the original startup deadline, but preserve the child's actual failure.
+pub fn wait_for_child_port(child: &mut Child, port: u16, output: &Path) {
+    for _ in 0..120 {
+        if let Some(status) = child.try_wait().expect("inspect zero startup") {
+            panic!(
+                "zero exited before port {port} opened: {status}; output {}:\n{}",
+                output.display(),
+                fs::read_to_string(output).unwrap_or_default()
+            );
+        }
+        if TcpStream::connect(("127.0.0.1", port)).is_ok() {
+            return;
+        }
+        thread::sleep(Duration::from_millis(50));
+    }
+    let _ = child.kill();
+    let status = child.wait().expect("join zero after startup timeout");
+    panic!(
+        "port {port} did not open in time; zero stopped: {status}; output {}:\n{}",
+        output.display(),
+        fs::read_to_string(output).unwrap_or_default()
+    );
+}
+
 pub fn http_get(port: u16, path: &str) -> String {
     let mut stream = TcpStream::connect(("127.0.0.1", port)).expect("connect status port");
     let request =

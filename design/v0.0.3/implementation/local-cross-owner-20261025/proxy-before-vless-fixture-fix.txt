@@ -1,0 +1,22 @@
+
+running 8 tests
+
+thread 'component::tests::mieru::reject::actual_proxy_rejects_unmigrated_cross_owner_role_before_dialing_the_real_donor_listener' (11882644) panicked at crates/proxy/src/component/tests/mieru/reject.rs:19:267:
+called `Result::unwrap()` on an `Err` value: ParseConfig(Error("unknown field `uuid`, expected one of `final_mask`, `hysteria`, `mkcp`, `reverse_tag`, `reverse_sniffing`, `sniffing`, `encryption`, `server`, `port`, `id`, `flow`, `testpre`, `testseed`, `mux_concurrency`, `xudp_concurrency`, `mux_idle_timeout_secs`, `mux_response_backlog_frames`, `mux_response_backlog_bytes`, `tls`, `reality`, `ws`, `grpc`, `h2`, `http_upgrade`, `split_http`, `quic`", line: 1, column: 133))
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+test component::tests::mieru::reject::actual_proxy_rejects_unmigrated_cross_owner_role_before_dialing_the_real_donor_listener ... FAILED
+test component::tests::mieru::ordinary_proxy_accepts_existing_mieru_configuration_and_keeps_unqualified_native_registration_closed ... ok
+test component::tests::mieru::reject::actual_proxy_rejects_unqualified_domain_root_before_opening_a_mieru_carrier ... ok
+test component::tests::mieru::cross_owner::actual_proxy_multiple_taskless_prefix_owners_preserve_the_one_original_and_replacement_debts ... ok
+test component::tests::mieru::actual_proxy_mieru_network_change_closes_original_prefix_before_new_carriers_and_waits_for_retained_control ... ok
+test component::tests::mieru::cross_owner::actual_proxy_cross_owner_taskless_original_retires_transitive_pool_before_replacement ... ok
+test component::tests::mieru::actual_proxy_mieru_three_hop_prefix_retains_originals_and_replacement_waits_for_logical_control ... ok
+test component::tests::mieru::actual_proxy_mieru_three_hop_packet_prefix_and_tcp_udp_share_the_one_real_pool ... ok
+
+failures:
+
+failures:
+    component::tests::mieru::reject::actual_proxy_rejects_unmigrated_cross_owner_role_before_dialing_the_real_donor_listener
+
+test result: FAILED. 7 passed; 1 failed; 0 ignored; 0 measured; 694 filtered out; finished in 0.70s
+

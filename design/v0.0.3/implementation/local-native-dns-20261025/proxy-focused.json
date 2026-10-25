@@ -1,0 +1,14 @@
+{
+  "phase": "finished",
+  "source_snapshot": "source-final.json",
+  "binary": "/Volumes/tool/rust/zero/target/debug/deps/zero_proxy-81dca83fc8a4b0d8",
+  "sha256": "6f7c281e413ac89243673eeda822a94e1069f80d6c5f6365bed36e28b2b8bad5",
+  "command": [
+    "/Volumes/tool/rust/zero/target/debug/deps/zero_proxy-81dca83fc8a4b0d8",
+    "component::tests::mieru::",
+    "--nocapture"
+  ],
+  "source_drift": [],
+  "exit": 0,
+  "seconds": 26.7
+}

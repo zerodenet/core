@@ -30,6 +30,8 @@ pub(crate) struct Entry {
 }
 impl Drop for Entry {
     fn drop(&mut self) {
+        #[cfg(feature = "runtime")]
+        self.status.removed();
         self.status.close(Some(io::ErrorKind::ConnectionReset));
     }
 }

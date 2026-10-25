@@ -58,6 +58,15 @@ pub enum DeviceOwnership {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ResourceDeclaration {
+    /// One declared endpoint/profile and finite carrier budget. The actual host
+    /// provider supplies current network/prefix bindings per acquisition. Root
+    /// originals and logical donor loans retain separate original controllers.
+    ControlledCarrierPool {
+        endpoint: Destination,
+        dial: zero_traits::DialPolicy,
+        datagram: bool,
+        max_sockets: NonZeroUsize,
+    },
     /// Exact service-root UDP peer on the actual host network generation.
     /// Live, retiring and Unknown originals share this caller-assigned bound.
     /// Default dial/no preferred source port only; no business authority.
@@ -84,12 +93,27 @@ pub enum ResourceDeclaration {
         /// Live, retiring and Unknown originals, not lifetime healthy opens.
         max_sockets: NonZeroUsize,
     },
+    /// Packet carrier with the same original-owner, scope and transferred-view
+    /// accounting as a controlled stream. Distinct from service-root queries.
+    ControlledDatagramCarrier {
+        endpoint: Destination,
+        binding: super::network::UpstreamBinding,
+        max_sockets: NonZeroUsize,
+    },
     /// Ancillary UDP originals and their actual capability probes. Distinct
     /// from ordinary UDP listener authority; every count is caller-assigned.
     MetadataDatagram {
         source: std::net::SocketAddr,
         limits: crate::controlled_datagram::metadata::MetadataLimits,
         max_bind_attempts: NonZeroUsize,
+    },
+    /// Reusable on-demand ancillary originals, including owned capability
+    /// probes. Distinct from startup-only listener grants and plain UDP.
+    ControlledMetadataDatagram {
+        endpoint: std::net::SocketAddr,
+        dial: zero_traits::DialPolicy,
+        limits: crate::controlled_datagram::metadata::MetadataLimits,
+        max_origins: NonZeroUsize,
     },
     /// Native RAW/ping ICMP originals, distinct from UDP or device authority.
     /// Counts live, retiring and Unknown sockets, not generation lifetime probes.
@@ -171,6 +195,18 @@ pub struct GrantedDatagramListener {
 /// The host implements access only for resources declared by this component.
 /// Calls are deferred until ResourceLifecycle::start, after ownership is installed.
 pub trait ResourceAccess: Send + Sync {
+    fn register_metadata_pool(
+        &self,
+        _ordinal: usize,
+        _actual: crate::controlled_datagram::metadata_pool::MetadataPoolRegistration,
+        _tasks: &crate::contract::scope::TaskRegistrar,
+    ) -> Result<(), BuildError> {
+        Err(super::ChannelError::new(
+            super::Stage::Prepare,
+            super::Reason::Unsupported,
+            super::Impact::Component,
+        ))
+    }
     fn open_root_datagram(
         &self,
         _request: &RootDatagramRequest,

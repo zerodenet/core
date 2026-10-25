@@ -34,6 +34,16 @@ impl ControlledDatagramOwner {
         policy: &DialPolicy,
         selection: &EgressSelection,
     ) -> Result<ControlledDatagramSocket, DatagramAcquisitionError> {
+        let socket = self.acquire_raw(peer, preferred_port, policy, selection)?;
+        self.register_native(socket)
+    }
+    pub(super) fn acquire_raw(
+        &mut self,
+        peer: SocketAddr,
+        preferred_port: Option<u16>,
+        policy: &DialPolicy,
+        selection: &EgressSelection,
+    ) -> Result<ControlledDatagramSocket, DatagramAcquisitionError> {
         let entry = self.reserve()?;
         let prepared = (|| {
             let dial = dial::prepare(peer, policy, selection)?;
@@ -54,8 +64,7 @@ impl ControlledDatagramOwner {
             Ok(prepared) => prepared,
             Err(source) => return Err(self.no_native(&entry, phase("prepare", source))),
         };
-        let socket = self.acquire_native(entry, source, preferred_port, v6_only, interface)?;
-        self.register_native(socket)
+        self.acquire_native(entry, source, preferred_port, v6_only, interface)
     }
     /// Bind an exact server address without outbound policy or port fallback.
     pub(super) fn bind_native_listener(

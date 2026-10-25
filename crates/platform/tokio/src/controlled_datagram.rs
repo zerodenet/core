@@ -11,6 +11,7 @@ mod flags;
 mod io;
 pub mod listener;
 pub mod metadata;
+pub mod metadata_pool;
 mod observation;
 mod report;
 #[cfg(test)]

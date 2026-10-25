@@ -66,7 +66,7 @@ async fn cancelled_config_waiter_does_not_abandon_actual_dns_commit() {
     request.abort();
     assert!(request.await.unwrap_err().is_cancelled());
     reconciler.release.notify_one();
-    tokio::time::timeout(Duration::from_secs(5), proxy.apply_owner.wait_idle())
+    tokio::time::timeout(Duration::from_secs(5), proxy.host.apply().wait_idle())
         .await
         .unwrap()
         .unwrap();
@@ -108,7 +108,7 @@ async fn cancelled_config_waiter_does_not_abandon_actual_application_and_dns_rol
     request.abort();
     assert!(request.await.unwrap_err().is_cancelled());
     reconciler.release.notify_one();
-    tokio::time::timeout(Duration::from_secs(5), proxy.apply_owner.wait_idle())
+    tokio::time::timeout(Duration::from_secs(5), proxy.host.apply().wait_idle())
         .await
         .unwrap()
         .unwrap();
@@ -149,7 +149,7 @@ async fn host_stop_drives_the_accepted_transaction_rollback_and_joins_before_suc
         .unwrap();
     let stopped = tokio::spawn(async move { running.shutdown().await });
     tokio::time::timeout(Duration::from_secs(3), async {
-        while !proxy.apply_owner.is_closing() {
+        while !proxy.host.apply().is_closing() {
             tokio::task::yield_now().await;
         }
     })
@@ -172,7 +172,7 @@ async fn host_stop_drives_the_accepted_transaction_rollback_and_joins_before_suc
             .as_deref(),
         Some("last-good.example")
     );
-    assert!(proxy.apply_owner.is_closing());
+    assert!(proxy.host.apply().is_closing());
     assert_eq!(
         *reconciler.calls.lock().unwrap(),
         vec!["198.19.0.0/24", "198.18.0.0/24"]

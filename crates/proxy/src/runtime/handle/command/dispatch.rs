@@ -65,7 +65,7 @@ impl zero_api::CommandService for ProxyHandle {
                 return super::packet_route::close(self.clone(), request.clone()).await;
             }
             if let zero_api::CommandRequest::StatsReset(_) = &command {
-                let _guard = self.proxy.reload_apply_lock.lock().await;
+                let _guard = self.proxy.host.apply_lock().lock().await;
                 return self.inner.execute(command);
             }
             if super::endpoint::is_endpoint_command(&command) {
@@ -74,8 +74,9 @@ impl zero_api::CommandService for ProxyHandle {
                 let handle = self.clone();
                 return self
                     .proxy
-                    .apply_owner
-                    .run(self.proxy.reload_apply_lock.clone(), async move {
+                    .host
+                    .apply()
+                    .run(self.proxy.host.apply_lock().clone(), async move {
                         Ok(handle.execute_endpoint(command).await)
                     })
                     .await

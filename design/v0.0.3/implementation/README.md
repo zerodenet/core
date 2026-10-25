@@ -1,6 +1,66 @@
 # 实际执行记录
 
-完整规格及原任务卡保留原始来源；本文件记录后续代码和实际验证。所有检查点继续留在同一分支及 Draft PR124，整体尚未完成，不逐项合并。
+完整规格及原任务卡保留原始来源；本文件记录后续代码和实际验证。PR #124 已于 2026-10-23 合入 develop，集成提交为 `b963c864a473f68f8d6a8444764e3e88761e6c04`。用户随后授权从该提交在本地继续推进。下文各检查点中的 Draft、未合并和当时待验状态保留历史语境；整体架构和 ALL17 验收仍未完成。
+
+2026-10-25 本地检查点的提交范围、已验收证据及剩余功能/资格缺口，集中见[剩余清单 Z003-01 至 Z003-08](outstanding-20261025.md)。本次保存阶段成果；历史段落中的“未提交/未推送”按各批验证时点解释。
+
+最新本地进展接续 [跨 owner / 无 driver 原始转交](cross-owner.md)和[实际 Proxy 原生 DNS 查询所有权](native-dns.md)，见[原生 DoQ 查询](native-doq.md)。同一个 RuntimeHost / DnsSystem 的实际 DoQ endpoint、驱动、通用 metadata 原始所有者和替换接线已完成本批完整回归及同一新二进制的消费者验收；DNS-only / no-default 构造门控也已修正并验证。系统解析、DNS detour、打开失败的类型化重试及池化 DNS 等剩余门槛未闭合，**普通生产登记保持关闭**。
+
+该批[最终验证](local-native-dns-20261025/validation.json)为完整 workspace/all-features **3819/0/175**、155 个目标，严格 Clippy 与同二进制 GUI/面板契约验收通过。默认栈溢出已用按需盒装的原生 TLS/H2 future 修复，新增实际普通子进程默认栈和原生 2 MiB worker 回归，没有提高生产线程栈。失败、中断、编译负载下超时及最终原限额重跑记录分别保留；整体架构仍未完成。
+
+## 本地继续：独立 zero-runtime
+
+后续 Mieru 共享池与标准 TCP 的实际 owner / TaskScope / 原始关闭凭据接线，以及生产登记前仍需完成的边界，单独见 [固定根载体阶段](mieru-pool.md)及后续 [多 endpoint / 完整 profile / 标准 UDP 角色](mieru-profiles.md)、[节点 DNS / UDP underlay 与未完成的 prefix 边界](mieru-carriers.md)。各批资格按自己的源码快照记录，不扩大下述 runtime 提取批次的历史资格。
+
+用户已批准依赖方向改为 `zero-proxy → zero-runtime`，保留 Proxy 公开入口。实际所有权提取与不变的兼容/关闭约束见[依赖方向修订](runtime-extraction.md)。原冻结正文及下文历史检查点继续保留。本轮已提取实际 ComponentCatalog、资源代际、任务监督和共享资源替换事务；RuntimeHost<A> 通过泛型保存 proxy 的发布回执，生产不依赖 engine、proxy 或协议运行模块。Proxy 与 Inventory 仍共享一个宿主，转发桥及协议工厂装配保留在 proxy。
+
+本批[验证记录与源码快照](local-runtime-20261024/validation.json)：Rust 1.99 完整 workspace/all-features **3764/0/175**，155 条目标摘要，1717 秒；旧 868 个 proxy 单元测试完整迁为 proxy 694 + runtime 175，新增一项泛型宿主测试，没有遗漏旧测试。最终 Rust 1.98 严格 workspace/all-targets/all-features Clippy 通过；1.99 严格 Clippy 仍受未改 zero-core 的八项宏生成诊断阻断。全量之后只删除闲置测试辅助函数、将测试专用便捷函数限制为 cfg(test)、修正测试中的多余借用，执行路径与断言不变；full 与 final 源码摘要分开保存。runtime 独立和 proxy 最小生产构建通过，最小组合仍有未使用库表面警告，不算严格 lint 资格。
+
+GUI 与面板使用同一个固定 debug 内核副本 `706e314bf3187875700923331cc13dd90b14cb0e88b260dfda3a964bbac8f604`，实际 IPC/发布兼容检查通过，GUI 所有的内核正常退出 0；面板原 TCP/UDP 跨三个发布进程保持可用，102.8 秒。消费者源码未改，服务部署为本地替身。生产依赖 DAG、190/27 架构边界、21 项 CI 范围、314/95 测试布局及冻结正文检查通过。
+
+本轮完成独立宿主提取，**没有宣布剩余协议或 ALL17 完成**；Mieru、池化载体、QUIC、设备、插件与剩余 UDP 等真实资源所有权仍按补充方案逐项迁移，未集成关闭证据的工厂继续拒绝。未暂存、提交或推送。
+
+## 本地继续：RuntimeHost 与共享资源事务
+
+在首批未提交改动之上继续，分支和实施版本仍为 develop/v0.0.3。`runtime::host::RuntimeHost` 现在实际持有组件目录、受监督的应用任务、串行应用锁和 pending ACK；Inventory/Proxy 复用同一宿主，协议注册表不再拥有生命周期目录。现有公开 Proxy/ProxyHandle、V1 控制协议和 FFI 表面保持原入口；本阶段尚未提取独立 zero-runtime crate，也未宣布 M4 或 ALL17 全部完成。
+
+替换集合包含当前已运行的共享/native 资源及受影响消费者，先撤销准入，再确认使用者、协议清理、TaskScope 和原 provider 的关闭证据；等待取消或超时不会清除实际所有者。一个消费者仍未完成时，不继续清理它的依赖。候选失败后的恢复仍先确认候选退出，再从最后成功配置重建新代际；已确认关闭且无需后续退休的旧计划不再保留到下一次更新。
+
+使用者计数按实际资源代际传播并去重；Stream 与 Datagram 的转交只保留轻量计数/取消状态，不保留旧 Slot、Factory、Engine 或配置。旧协议选项更新可以继续使用未变化的共享池，即使旧角色已经释放；该池后来重建时，历史使用者仍计入原代际，撤销后必须实际退出。计数归零没有被当作原生 I/O 关闭回执。逐包 poll 不新增 Future、管理任务或会话索引。
+
+Shadowsocks 无插件 TCP 通过同一 adapter 状态登记实际 StreamFactory 和规范共享 ReplayFactory，池身份、盐历史及维护逻辑仍由协议拥有；插件保持明确的旧路径。普通 catalog 仅放行已有原生关闭 provider 覆盖的声明及 Stream/Datagram/roleless 角色，未集成的 process/device/ICMP/background native 所有权继续拒绝。
+
+兼容边界包括连接语义：修改 native Direct 的拨号选项会关闭该资源上的旧 TCP，含显式源地址和只改地址族的配置；未变化的出站连接继续可用。V1 配置/控制/事件及 Engine-only FFI ABI 没有更改。客户端、面板无需改 schema，但不能把 apply 的旧 revision 或丢失响应解释成已停止资源仍可使用，也不能为补偿启动第二内核。
+
+首轮全量保留失败：控制 API 子进程端口超时一次，随后九项因端口锁毒化失败；原夹具没有保留子进程日志，根因未定，同配置与原端口的带日志复现均正常，401/200 认证结果正确。夹具现保留 stdout/stderr、实际退出状态，并在启动超时后回收子进程，原六秒截止和断言不变。新句柄释放回归补上宿主监督器；DNS 和两项 Direct 回归由旧“替换时保留资源使用者”预期改为验证撤销、实际 EOF 和未变资源继续工作。
+
+该轮真实 Shadowsocks→SOCKS5 多跳握手挂起，原进程采样和监听/连接现场保留后显式终止该测试目标，不能计为完整通过。新增带 BufWriter 的认证握手回归在原三秒截止产生 Handshake/Timeout；修复 SOCKS5 协议自己的 socket 桥，使 AsyncSocket 握手写入 flush 底层载体，与已有平台流一致，并保留原 I/O 错误来源。修复后该协议组件 8/0，含原有预读、半关闭、取消与 UDP 回归；没有改帧格式、协议版本或依赖。
+
+本批[精确验证与原始日志清单](local-host-20261024/validation.json)保留所有失败、中断诊断和最终结果。Rust 1.99 完整 workspace/all-features 为 **3762/0/175**，153 条主目标摘要，含文档测试，用时 1084 秒；统计排除测试内部子进程摘要。全量之后只把两项新测试中已显式 drop 的 MutexGuard 改为词法块结束持锁，断言和释放位置不变，生产代码、锁文件及产物未变化。`source-full-and-consumers.json` 与最终 `source-final.json` 分开记录这两个测试文件的摘要；没有把全量测试谎称为后一个测试文本上的重复执行。最终默认 Rust 1.98 的 workspace/all-targets/all-features 严格 Clippy 与格式检查通过，未加入 lint 屏蔽。Rust 1.99 严格 Clippy 仍在未修改的 zero-core 中受 async-trait 0.1.89 生成方法的八项 double_must_use 诊断阻断，不能称作通过。
+
+实际全功能 debug 内核副本 SHA-256 为 `65d376358ec88680437b86e04c7d1becc28344f20d7f2f0972596f79926d232b`，客户端与面板顺序使用同一固定副本，验证后摘要不变。GUI `d39ad2787fb05052fa15065853ab71526441ccc3` 的实际 IPC 查询、runtime apply、未知 schema 回滚和 route/WireGuard 配置兼容检查通过；面板 `658671e9f3978df1c79f4030fdb072a877f10bf5` 的现有 native publication 验收通过，103.38 秒，同一 PID/实例/修订下 TCP/UDP 跨三个发布进程保留，重复发布与监听冲突拒绝保持原契约。两个消费者仓库均保持干净。面板服务/SSH/部署为本地替身，GUI 的脚本清理没有单独断言正常退出状态；这些验收不代替原生关闭证明或真实部署。
+
+架构边界 190/0、工作区边界 26/0、314 个集成源文件/95 个入口布局及冻结设计检查通过。74 个 Rust 文件与 Cargo.lock 共 75 项在各自验证快照内核对摘要；没有修改依赖清单、协议 reference/version、V1 控制/事件或 FFI 类型。175 项 ignored、真实设备/TUN、专门的 1 CPU/1 GiB 压力资格、独立 zero-runtime 及其余协议资源迁移继续保留未验/未完成边界。所有改动仍在本地 develop，未暂存、未提交或推送。
+
+## 本地继续（首批）：登记约束与同义转换收敛
+
+起点为干净的 `develop@b963c864`。本批移除三个没有方法的 TCP/UDP/packet-path marker trait、所有适配器空实现及 registry 仅供测试的伪能力视图。入站专用登记直接保存缺失的出站角色，不创建 `NoOutboundClaimer`。普通登记合并到现有 core 入口；managed/upstream 入口只要求其实际 handler 行为。
+
+VLESS、VMess、Trojan 和 Mieru 的 legacy managed-stream metadata 直接通过标准 `From/Into` 转换为现有运行模型，移除 `ManagedStreamConnectorParts`、`ManagedStreamConnectorFlowBuild` 及其转发函数。协议私有 cache key、relay 条件、运行执行器、资源所有者和关闭确认不变。该批没有激活额外资源工厂，也没有完成 RuntimeHost、Any resume 删除或全协议迁移。
+
+源码边界回归实际为 proxy 189/0、workspace 26/0，测试布局 314 个源文件/95 个入口/0 错误；依赖边界和冻结设计检查通过。没有修改消费者、公开配置、API/事件或 FFI。
+
+首次完整 workspace/all-features 测试为 **3750/1/175**，失败在文件资源清理夹具关闭监听后重新绑定原端口的断言，macOS 返回 `AddrInUse`；当时占用者及原始 Drop 的关闭结果没有记录，原因不能推定。夹具现消费已有 `ControlledTcpListenerControl` 对原句柄的实际关闭回执，并检查原视图已退休；保留挂起、取消、文件 join、任务 ID、重复关闭和完整报告断言，没有放宽超时。首次 focused 命令的路径过滤匹配零项，不计验证；修正为实际模块路径后，两项清理回归通过。
+
+最终 Rust 1.99 完整 workspace/all-features 测试为 **3751/0/175**（153 条主目标摘要，包含文档测试，448 秒）。统计取各主目标最后一条摘要，排除测试内部子进程的重复摘要。175 项 ignored 仍需各自环境资格；本地全量通过不代表完整 RS01、TUN、物理设备或全部架构验收。
+
+Rust 1.99 严格 Clippy 在未改动的 `zero-core` 中因 `async-trait 0.1.89` 生成方法触发 8 项 `double_must_use` 错误而停止。同一 core 源码在本机默认 Rust 1.98 的严格 Clippy 下通过；宏依赖版本和校验和与原本地锁一致，未添加 lint 屏蔽或升级依赖。不同工具链的结果分别保留，不将 1.98 的结果称作 1.99 通过。
+
+Rust 1.98 的完整 `clippy --workspace --all-targets --all-features -- -D warnings` 通过，默认格式检查通过。最终测试的 28 个 Rust 修改文件及锁摘要在验证期间未变。同步后陈旧的本地 ignored 锁已离线按现有清单与 vendor patch 重新解析，原锁保留备份；没有修改 Cargo.toml 或执行联网依赖升级。
+
+最终测试产物复制为不可变二进制后，依次通过现有 GUI IPC 兼容脚本和面板原生发布验收。二进制 SHA-256=`2db4e7def161ca2f05ffc460bc533f1c49eef525e3b86e8d938d64692b3202b1`；GUI=`d39ad2787fb05052fa15065853ab71526441ccc3`，面板=`658671e9f3978df1c79f4030fdb072a877f10bf5`，两边工作区均未修改。GUI 覆盖查询、运行时应用、拒绝非法 schema 后回滚及 route/WireGuard 校验；面板实际临时内核在三次 publisher 进程后保持实例身份、既有 TCP/UDP，覆盖重复发布和端口占用拒绝，服务/部署使用本地 shim。没有把这些结果称作真实 SSH 部署、GUI/TUN 设备或关闭资格。
+
+[本批验证清单与原始输出](local-20261024/validation.json)保存首轮失败、零匹配命令、修正后的真实回归、最终全量、两个工具链的 Clippy、消费者输出和源码摘要。改动仅在本地 develop，未提交、推送或建立新 PR；RuntimeHost、真实共享资源图激活和整体迁移继续保持未完成。
 
 ## PR00 / PR01
 

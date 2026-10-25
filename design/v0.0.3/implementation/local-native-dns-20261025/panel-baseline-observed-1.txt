@@ -1,0 +1,3 @@
+2026-10-25T08:54:29.114084Z  WARN failed to bind inbound listener inbound_tag=occupied protocol="socks5" listen_address=127.0.0.1 listen_port=56403 reason="listener_bind_error" error=Close: Revoked (Component, Unknown)
+2026-10-25T08:54:29.114436Z  WARN config reload listener reconciliation failed; restoring last known-good config core_instance_id="6302d50e768c24facbc88b10c64024f6" config_revision=2 reason="listener_reconcile_error" error=Close: Revoked (Component, Unknown)
+2026-10-25T08:54:29.119409Z ERROR inbound fault handed to supervisor after confirmed shutdown inbound_tag="occupied" component=4 joined_tasks=0 closed_io_receipts=1 error=Close: Revoked (Component, Unknown) reason="inbound_fault_physically_closed"

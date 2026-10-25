@@ -1,10 +1,7 @@
 use super::super::super::connection::{
     managed_packet_udp_connection_from_flow, SharedManagedUdpConnection,
 };
-use super::flow::{
-    managed_stream_connector_flow_from_build, ManagedStreamConnectorFlow,
-    ManagedStreamConnectorParts, ManagedStreamFlowConnector,
-};
+use super::flow::{ManagedStreamConnectorFlow, ManagedStreamFlowConnector};
 use super::ManagedPacketUdpResume;
 use crate::protocol_registry::{UdpRuntimeServices, UpstreamConnectServices};
 use crate::runtime::path::OutboundEndpoint;
@@ -19,7 +16,7 @@ use zero_engine::EngineError;
 pub(crate) trait ManagedPacketUdpResumeConnector:
     Clone + Send + Sync + std::fmt::Debug + 'static
 {
-    type ConnectorFlow: ManagedStreamConnectorParts;
+    type ConnectorFlow: Into<ManagedStreamConnectorFlow>;
     type Connection: super::super::super::connection::ManagedPacketUdpFlowConnection;
 
     const ESTABLISH_STAGE: &'static str;
@@ -65,11 +62,9 @@ where
         endpoint: OutboundEndpoint,
         session_id: u64,
     ) -> ManagedStreamConnectorFlow {
-        managed_stream_connector_flow_from_build(self.0.connector_flow(
-            &endpoint.server,
-            endpoint.port,
-            session_id,
-        ))
+        self.0
+            .connector_flow(&endpoint.server, endpoint.port, session_id)
+            .into()
     }
 
     async fn establish_direct(

@@ -155,6 +155,55 @@ async fn query_panic_retains_same_original_join_error_arc_and_blocks_new_admissi
             .unwrap(),
         &original
     ));
+    context
+        .wait_closed(Instant::now() + Duration::from_secs(1))
+        .await
+        .unwrap();
+    let diagnostic = context
+        .close(Instant::now() + Duration::from_secs(1))
+        .await
+        .unwrap_err();
+    assert!(Arc::ptr_eq(
+        diagnostic
+            .get_ref()
+            .unwrap()
+            .downcast_ref::<Arc<ChannelError>>()
+            .unwrap(),
+        &original
+    ));
+}
+
+#[tokio::test]
+async fn critical_query_worker_uses_its_actual_class_and_join_before_resource_cleanup() {
+    let mut scope = TaskScope::new(Handle::current(), NonZeroUsize::new(1).unwrap());
+    let context =
+        OwnedDnsQueryTasks::new_critical(&scope.registrar(), NonZeroUsize::new(1).unwrap());
+    let (entered, entering) = oneshot::channel();
+    context
+        .spawn(
+            async move {
+                entered.send(()).unwrap();
+                panic!("actual critical DNS query")
+            },
+            CancellationToken::new(),
+        )
+        .unwrap();
+    let witness = context.observe().pop().unwrap().task;
+    entering.await.unwrap();
+    assert!(context.wait_closed(Instant::now()).await.is_err());
+    let exit = scope.next_exit().await.unwrap();
+    assert_eq!(exit.class, TaskClass::Critical);
+    let joined = witness.try_joined().unwrap();
+    assert_eq!(joined.id(), exit.id);
+    assert!(joined.result().is_err());
+    context
+        .wait_closed(Instant::now() + Duration::from_secs(1))
+        .await
+        .unwrap();
+    assert!(context
+        .close(Instant::now() + Duration::from_secs(1))
+        .await
+        .is_err());
 }
 
 #[tokio::test]

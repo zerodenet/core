@@ -44,6 +44,94 @@ pub struct ControlledStreamRequest {
 /// Host-supplied execution of an already selected prefix. Implementations must
 /// reject stale generations and preserve every hard dial constraint. No direct fallback.
 pub trait UpstreamOpener: Send + Sync {
+    fn borrow_datagram(
+        &self,
+        _: &UpstreamBinding,
+        _: Destination,
+        _: CarrierContext,
+    ) -> BoxFuture<'_, Result<crate::controlled_carrier::loan::DatagramLoan, ChannelError>> {
+        Box::pin(async {
+            let mut error = ChannelError::new(
+                super::Stage::Prepare,
+                super::Reason::Unsupported,
+                super::Impact::Component,
+            );
+            error.delivery = super::DeliveryState::NotSubmitted;
+            Err(error)
+        })
+    }
+    /// Observation only: retain no I/O authority and issue no close receipt.
+    fn observe_carrier_origin(&self, _: &crate::controlled_carrier::CarrierOrigin) -> bool {
+        false
+    }
+    /// A persistent host provider selects a fresh actual binding, without
+    /// retaining a business opener, registry or historical configuration.
+    fn select_background_carrier(
+        &self,
+        _: Option<UpstreamBinding>,
+        _: CarrierContext,
+    ) -> BoxFuture<'_, Result<UpstreamTransport, ChannelError>> {
+        let mut error = ChannelError::new(
+            super::Stage::Prepare,
+            super::Reason::Unsupported,
+            super::Impact::Component,
+        );
+        error.delivery = super::DeliveryState::NotSubmitted;
+        Box::pin(async move { Err(error) })
+    }
+    /// Opt-in logical borrowing from the selected real donor. An unowned
+    /// BoxStream is never promoted to a controlled carrier after opening it.
+    fn borrow_stream(
+        &self,
+        _: &UpstreamBinding,
+        _: Destination,
+        _: CarrierContext,
+    ) -> BoxFuture<'_, Result<crate::controlled_carrier::loan::StreamLoan, ChannelError>> {
+        let mut error = ChannelError::new(
+            super::Stage::Prepare,
+            super::Reason::Unsupported,
+            super::Impact::Component,
+        );
+        error.delivery = super::DeliveryState::NotSubmitted;
+        Box::pin(async move { Err(error) })
+    }
+    fn carrier_dns_generation(&self) -> Option<super::dns::DnsGeneration> {
+        None
+    }
+    /// Host-owned node resolution only. The result retains the original domain
+    /// and full binding; it can prepare candidates only against that declaration.
+    fn resolve_controlled_carrier(
+        &self,
+        _: &UpstreamBinding,
+        _: Destination,
+        _: CarrierContext,
+    ) -> BoxFuture<'_, Result<crate::controlled_carrier::CarrierCandidates, ChannelError>> {
+        let mut error = ChannelError::new(
+            super::Stage::Prepare,
+            super::Reason::Unsupported,
+            super::Impact::Component,
+        );
+        error.delivery = super::DeliveryState::NotSubmitted;
+        Box::pin(async move { Err(error) })
+    }
+    /// Synchronous original acquisition; the same persistent owner is installed
+    /// before the returned packet view can be polled or moved into a driver.
+    fn prepare_controlled_datagram(
+        &self,
+        _: &UpstreamBinding,
+        _: Destination,
+        _: CarrierContext,
+        grant: crate::controlled_carrier::CarrierGrant,
+    ) -> Result<crate::controlled_carrier::CarrierDatagram, ChannelError> {
+        let mut error = ChannelError::new(
+            super::Stage::Prepare,
+            super::Reason::Unsupported,
+            super::Impact::Component,
+        );
+        error.component = Some(grant.instance().component);
+        error.delivery = super::DeliveryState::NotSubmitted;
+        Err(error)
+    }
     /// Selection hint only. It issues no grant; the controlled open must still
     /// validate the original request, owner, caller and selected generation.
     fn supports_controlled_stream(&self) -> bool {
@@ -112,6 +200,55 @@ pub struct UpstreamTransport {
 }
 
 impl UpstreamTransport {
+    pub fn borrow_datagram(
+        &self,
+        endpoint: Destination,
+        context: CarrierContext,
+    ) -> BoxFuture<'_, Result<crate::controlled_carrier::loan::DatagramLoan, ChannelError>> {
+        self.opener
+            .borrow_datagram(&self.binding, endpoint, context)
+    }
+    pub fn observe_carrier_origin(
+        &self,
+        origin: &crate::controlled_carrier::CarrierOrigin,
+    ) -> bool {
+        self.opener.observe_carrier_origin(origin)
+    }
+    pub fn select_background_carrier(
+        &self,
+        binding: Option<UpstreamBinding>,
+        context: CarrierContext,
+    ) -> BoxFuture<'_, Result<Self, ChannelError>> {
+        self.opener.select_background_carrier(binding, context)
+    }
+    pub fn borrow_stream(
+        &self,
+        destination: Destination,
+        context: CarrierContext,
+    ) -> BoxFuture<'_, Result<crate::controlled_carrier::loan::StreamLoan, ChannelError>> {
+        self.opener
+            .borrow_stream(&self.binding, destination, context)
+    }
+    pub fn carrier_dns_generation(&self) -> Option<super::dns::DnsGeneration> {
+        self.opener.carrier_dns_generation()
+    }
+    pub fn resolve_controlled_carrier(
+        &self,
+        destination: Destination,
+        context: CarrierContext,
+    ) -> BoxFuture<'_, Result<crate::controlled_carrier::CarrierCandidates, ChannelError>> {
+        self.opener
+            .resolve_controlled_carrier(&self.binding, destination, context)
+    }
+    pub fn prepare_controlled_datagram(
+        &self,
+        destination: Destination,
+        context: CarrierContext,
+        grant: crate::controlled_carrier::CarrierGrant,
+    ) -> Result<crate::controlled_carrier::CarrierDatagram, ChannelError> {
+        self.opener
+            .prepare_controlled_datagram(&self.binding, destination, context, grant)
+    }
     pub fn new(binding: UpstreamBinding, opener: Arc<dyn UpstreamOpener>) -> Self {
         Self {
             binding: Arc::new(binding),

@@ -3,26 +3,44 @@ use std::sync::Arc;
 use crate::adapters::direct::DirectAdapter;
 use crate::protocol_registry::ProtocolRegistry;
 
+#[cfg(feature = "http")]
+#[test]
+fn inbound_only_registration_has_no_outbound_executor() {
+    use zero_config::InboundProtocolConfig;
+
+    let adapter = Arc::new(crate::adapters::http::HttpConnectAdapter);
+    let expected = Arc::as_ptr(&adapter) as *const ();
+    let mut registry = ProtocolRegistry::default();
+    registry.register_core_capability(adapter, None);
+
+    let inbound = registry
+        .find_inbound(&InboundProtocolConfig::HttpConnect)
+        .expect("actual HTTP listener is registered");
+    assert_eq!(Arc::as_ptr(&inbound) as *const (), expected);
+    assert!(registry.entries[0].outbound.is_none());
+    assert!(!registry.entries[0].support.has_outbound());
+}
+
 #[test]
 #[should_panic(expected = "protocol capability `direct` registered more than once")]
 fn duplicate_protocol_registration_is_rejected_at_the_registry_boundary() {
     let mut registry = ProtocolRegistry::default();
-    registry.register_capability(
+    registry.register_core_capability(
         Arc::new(DirectAdapter::default()),
-        DirectAdapter::claim_outbound_leaf_impl,
+        Some(DirectAdapter::claim_outbound_leaf_impl),
     );
-    registry.register_capability(
+    registry.register_core_capability(
         Arc::new(DirectAdapter::default()),
-        DirectAdapter::claim_outbound_leaf_impl,
+        Some(DirectAdapter::claim_outbound_leaf_impl),
     );
 }
 
 #[test]
-fn focused_capability_views_share_one_adapter_instance() {
+fn registered_behavior_views_retain_one_adapter_instance() {
     let adapter = Arc::new(DirectAdapter::default());
     let expected = Arc::as_ptr(&adapter) as *const ();
     let mut registry = ProtocolRegistry::default();
-    registry.register_capability(adapter, DirectAdapter::claim_outbound_leaf_impl);
+    registry.register_core_capability(adapter, Some(DirectAdapter::claim_outbound_leaf_impl));
 
     let entry = registry
         .entries
@@ -31,9 +49,6 @@ fn focused_capability_views_share_one_adapter_instance() {
     let pointers = [
         Arc::as_ptr(&entry.support) as *const (),
         Arc::as_ptr(&entry.inbound) as *const (),
-        Arc::as_ptr(&entry.tcp) as *const (),
-        Arc::as_ptr(entry.udp.as_ref().expect("UDP view")) as *const (),
-        Arc::as_ptr(entry.packet_path.as_ref().expect("packet-path view")) as *const (),
     ];
 
     assert!(pointers.into_iter().all(|pointer| pointer == expected));
@@ -60,10 +75,7 @@ fn managed_handler_provider_shares_the_registered_adapter_instance() {
         .expect("managed UDP handler provider view");
 
     assert_eq!(Arc::as_ptr(provider) as *const (), expected);
-    assert_eq!(
-        Arc::as_ptr(entry.udp.as_ref().expect("UDP view")) as *const (),
-        expected
-    );
+    assert_eq!(Arc::as_ptr(&entry.support) as *const (), expected);
 }
 
 #[cfg(feature = "socks5")]
@@ -83,8 +95,5 @@ fn upstream_handler_provider_shares_the_registered_adapter_instance() {
         .as_ref()
         .expect("upstream UDP handler provider view");
     assert_eq!(Arc::as_ptr(provider) as *const (), expected);
-    assert_eq!(
-        Arc::as_ptr(entry.udp.as_ref().expect("UDP view")) as *const (),
-        expected
-    );
+    assert_eq!(Arc::as_ptr(&entry.support) as *const (), expected);
 }

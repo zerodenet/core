@@ -1,0 +1,221 @@
+Integration layout: 314 source files, 95 targets, 0 errors
+TEST_SCOPE full (workspace, unit, integration and doctests)
+TEST_START 2026-10-25T06:12:48Z
+    Blocking waiting for file lock on build directory
+warning: trailing semicolon in macro used in expression position
+  --> vendor/quinn-udp/build.rs:5:5
+   |
+ 5 | /     cfg_aliases! {
+ 6 | |         // Platforms
+ 7 | |         apple: {
+ 8 | |             any(
+...  |
+31 | |         wasm_browser: { all(target_family = "wasm", target_os = "unknown") },
+32 | |     }
+   | |_____^
+   |
+   = warning: this was previously accepted by the compiler but is being phased out; it will become a hard error in a future release!
+   = note: for more information, see issue #79813 <https://github.com/rust-lang/rust/issues/79813>
+   = note: `#[warn(semicolon_in_expressions_from_non_local_macros)]` (part of `#[warn(future_incompatible)]`) on by default
+   = note: this warning originates in the macro `$crate::cfg_aliases` which comes from the expansion of the macro `cfg_aliases` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+warning: trailing semicolon in macro used in expression position
+  --> vendor/quinn-udp/build.rs:5:5
+   |
+ 5 | /     cfg_aliases! {
+ 6 | |         // Platforms
+ 7 | |         apple: {
+ 8 | |             any(
+...  |
+31 | |         wasm_browser: { all(target_family = "wasm", target_os = "unknown") },
+32 | |     }
+   | |_____^
+   |
+   = warning: this was previously accepted by the compiler but is being phased out; it will become a hard error in a future release!
+   = note: for more information, see issue #79813 <https://github.com/rust-lang/rust/issues/79813>
+   = note: this warning originates in the macro `$crate::cfg_aliases` which comes from the expansion of the macro `cfg_aliases` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+warning: `quinn-udp` (build script) generated 87 warnings (85 duplicates)
+warning: trailing semicolon in macro used in expression position
+ --> vendor/quinn/build.rs:5:5
+  |
+5 | /     cfg_aliases! {
+6 | |         // Convenience aliases
+7 | |         wasm_browser: { all(target_family = "wasm", target_os = "unknown") },
+8 | |     }
+  | |_____^
+  |
+  = warning: this was previously accepted by the compiler but is being phased out; it will become a hard error in a future release!
+  = note: for more information, see issue #79813 <https://github.com/rust-lang/rust/issues/79813>
+  = note: `#[warn(semicolon_in_expressions_from_non_local_macros)]` (part of `#[warn(future_incompatible)]`) on by default
+  = note: this warning originates in the macro `$crate::cfg_aliases` which comes from the expansion of the macro `cfg_aliases` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+warning: trailing semicolon in macro used in expression position
+ --> vendor/quinn/build.rs:5:5
+  |
+5 | /     cfg_aliases! {
+6 | |         // Convenience aliases
+7 | |         wasm_browser: { all(target_family = "wasm", target_os = "unknown") },
+8 | |     }
+  | |_____^
+  |
+  = warning: this was previously accepted by the compiler but is being phased out; it will become a hard error in a future release!
+  = note: for more information, see issue #79813 <https://github.com/rust-lang/rust/issues/79813>
+  = note: this warning originates in the macro `$crate::cfg_aliases` which comes from the expansion of the macro `cfg_aliases` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+warning: `quinn` (build script) generated 8 warnings (6 duplicates)
+warning: use of deprecated associated function `core::num::<impl u8>::max_value`: replaced by the `MAX` associated constant on this type
+   --> vendor/blake3/src/platform.rs:421:5
+    |
+421 |     cpufeatures::new!(has_avx512, "avx512f", "avx512vl");
+    |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+    = note: `#[warn(deprecated)]` on by default
+    = note: this warning originates in the macro `cpufeatures::new` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+warning: use of deprecated associated function `core::num::<impl u8>::max_value`: replaced by the `MAX` associated constant on this type
+   --> vendor/blake3/src/platform.rs:437:5
+    |
+437 |     cpufeatures::new!(has_avx2, "avx2");
+    |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+    = note: this warning originates in the macro `cpufeatures::new` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+warning: use of deprecated associated function `core::num::<impl u8>::max_value`: replaced by the `MAX` associated constant on this type
+   --> vendor/blake3/src/platform.rs:453:5
+    |
+453 |     cpufeatures::new!(has_sse41, "sse4.1");
+    |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+    = note: this warning originates in the macro `cpufeatures::new` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+warning: use of deprecated associated function `core::num::<impl u8>::max_value`: replaced by the `MAX` associated constant on this type
+   --> vendor/blake3/src/platform.rs:469:5
+    |
+469 |     cpufeatures::new!(has_sse2, "sse2");
+    |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+    = note: this warning originates in the macro `cpufeatures::new` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+warning: use of deprecated associated function `core::num::<impl u64>::max_value`: replaced by the `MAX` associated constant on this type
+    --> vendor/blake3/src/lib.rs:1817:33
+     |
+1817 |         let max_position = u64::max_value() as i128;
+     |                                 ^^^^^^^^^
+
+warning: `blake3` (lib) generated 5 warnings
+   Compiling zero-dns v0.0.3-dev.202610162206 (/Volumes/tool/rust/zero/crates/dns)
+   Compiling zero-grpc v0.0.3-dev.202610162206 (/Volumes/tool/rust/zero/crates/grpc)
+   Compiling zero-proxy v0.0.3-dev.202610162206 (/Volumes/tool/rust/zero/crates/proxy)
+error[E0609]: no field `dns` on type `zero_config::RuntimeConfig`
+   --> crates/proxy/src/component/tests/mieru/dns/encrypted.rs:152:16
+    |
+152 |         config.dns = Some(dns);
+    |                ^^^ unknown field
+    |
+help: one of the expressions' fields has a field of the same name
+    |
+152 |         config.runtime.dns = Some(dns);
+    |                ++++++++
+
+error[E0609]: no field `dns` on type `zero_config::RuntimeConfig`
+ --> crates/proxy/src/component/tests/mieru/dns/limits.rs:8:16
+  |
+8 |         config.dns = Some(dns.config());
+  |                ^^^ unknown field
+  |
+help: one of the expressions' fields has a field of the same name
+  |
+8 |         config.runtime.dns = Some(dns.config());
+  |                ++++++++
+
+error[E0609]: no field `dns` on type `zero_config::RuntimeConfig`
+  --> crates/proxy/src/component/tests/mieru/dns/limits.rs:77:16
+   |
+77 |         config.dns = Some(settings);
+   |                ^^^ unknown field
+   |
+help: one of the expressions' fields has a field of the same name
+   |
+77 |         config.runtime.dns = Some(settings);
+   |                ++++++++
+
+error[E0609]: no field `dns` on type `zero_config::RuntimeConfig`
+   --> crates/proxy/src/component/tests/mieru/dns/limits.rs:132:20
+    |
+132 |             config.dns = Some(settings);
+    |                    ^^^ unknown field
+    |
+help: one of the expressions' fields has a field of the same name
+    |
+132 |             config.runtime.dns = Some(settings);
+    |                    ++++++++
+
+error[E0609]: no field `dns` on type `zero_config::RuntimeConfig`
+  --> crates/proxy/src/component/tests/mieru/dns/replacement.rs:13:16
+   |
+13 |         config.dns = Some(dns.config());
+   |                ^^^ unknown field
+   |
+help: one of the expressions' fields has a field of the same name
+   |
+13 |         config.runtime.dns = Some(dns.config());
+   |                ++++++++
+
+error[E0609]: no field `dns` on type `zero_config::RuntimeConfig`
+  --> crates/proxy/src/component/tests/mieru/dns/replacement.rs:24:16
+   |
+24 |         config.dns = Some(next.config());
+   |                ^^^ unknown field
+   |
+help: one of the expressions' fields has a field of the same name
+   |
+24 |         config.runtime.dns = Some(next.config());
+   |                ++++++++
+
+error[E0609]: no field `dns` on type `zero_config::RuntimeConfig`
+  --> crates/proxy/src/component/tests/mieru/dns/replacement.rs:96:16
+   |
+96 |         config.dns = Some(dns.config());
+   |                ^^^ unknown field
+   |
+help: one of the expressions' fields has a field of the same name
+   |
+96 |         config.runtime.dns = Some(dns.config());
+   |                ++++++++
+
+error[E0609]: no field `dns` on type `zero_config::RuntimeConfig`
+   --> crates/proxy/src/component/tests/mieru/dns/replacement.rs:146:16
+    |
+146 |         config.dns = Some(dns.config());
+    |                ^^^ unknown field
+    |
+help: one of the expressions' fields has a field of the same name
+    |
+146 |         config.runtime.dns = Some(dns.config());
+    |                ++++++++
+
+error[E0609]: no field `dns` on type `zero_config::RuntimeConfig`
+  --> crates/proxy/src/component/tests/mieru/dns.rs:72:16
+   |
+72 |         config.dns = Some(dns.config());
+   |                ^^^ unknown field
+   |
+help: one of the expressions' fields has a field of the same name
+   |
+72 |         config.runtime.dns = Some(dns.config());
+   |                ++++++++
+
+error[E0609]: no field `dns` on type `zero_config::RuntimeConfig`
+   --> crates/proxy/src/component/tests/mieru/dns.rs:142:16
+    |
+142 |         config.dns = Some(dns);
+    |                ^^^ unknown field
+    |
+help: one of the expressions' fields has a field of the same name
+    |
+142 |         config.runtime.dns = Some(dns);
+    |                ++++++++
+
+TEST_END 2026-10-25T06:23:18Z exit=130 seconds=630
+::error title=Workspace tests failed (1/1)::77 |         config.runtime.dns = Some(settings);%0A   |                ++++++++%0A%0Aerror[E0609]: no field `dns` on type `zero_config::RuntimeConfig`%0A   --> crates/proxy/src/component/tests/mieru/dns/limits.rs:132:20%0A    |%0A132 |             config.dns = Some(settings);%0A    |                    ^^^ unknown field%0A    |%0Ahelp: one of the expressions' fields has a field of the same name%0A    |%0A132 |             config.runtime.dns = Some(settings);%0A    |                    ++++++++%0A%0Aerror[E0609]: no field `dns` on type `zero_config::RuntimeConfig`%0A  --> crates/proxy/src/component/tests/mieru/dns/replacement.rs:13:16%0A   |%0A13 |         config.dns = Some(dns.config());%0A   |                ^^^ unknown field%0A   |%0Ahelp: one of the expressions' fields has a field of the same name%0A   |%0A13 |         config.runtime.dns = Some(dns.config());%0A   |                ++++++++%0A%0Aerror[E0609]: no field `dns` on type `zero_config::RuntimeConfig`%0A  --> crates/proxy/src/component/tests/mieru/dns/replacement.rs:24:16%0A   |%0A24 |         config.dns = Some(next.config());%0A   |                ^^^ unknown field%0A   |%0Ahelp: one of the expressions' fields has a field of the same name%0A   |%0A24 |         config.runtime.dns = Some(next.config());%0A   |                ++++++++%0A%0Aerror[E0609]: no field `dns` on type `zero_config::RuntimeConfig`%0A  --> crates/proxy/src/component/tests/mieru/dns/replacement.rs:96:16%0A   |%0A96 |         config.dns = Some(dns.config());%0A   |                ^^^ unknown field%0A   |%0Ahelp: one of the expressions' fields has a field of the same name%0A   |%0A96 |         config.runtime.dns = Some(dns.config());%0A   |                ++++++++%0A%0Aerror[E0609]: no field `dns` on type `zero_config::RuntimeConfig`%0A   --> crates/proxy/src/component/tests/mieru/dns/replacement.rs:146:16%0A    |%0A146 |         config.dns = Some(dns.config());%0A    |                ^^^ unknown field%0A    |%0Ahelp: one of the expressions' fields has a field of the same name%0A    |%0A146 |         config.runtime.dns = Some(dns.config());%0A    |                ++++++++%0A%0Aerror[E0609]: no field `dns` on type `zero_config::RuntimeConfig`%0A  --> crates/proxy/src/component/tests/mieru/dns.rs:72:16%0A   |%0A72 |         config.dns = Some(dns.config());%0A   |                ^^^ unknown field%0A   |%0Ahelp: one of the expressions' fields has a field of the same name%0A   |%0A72 |         config.runtime.dns = Some(dns.config());%0A   |                ++++++++%0A%0Aerror[E0609]: no field `dns` on type `zero_config::RuntimeConfig`%0A   --> crates/proxy/src/component/tests/mieru/dns.rs:142:16%0A    |%0A142 |         config.dns = Some(dns);%0A    |                ^^^ unknown field%0A    |%0Ahelp: one of the expressions' fields has a field of the same name%0A    |%0A142 |         config.runtime.dns = Some(dns);%0A    |                ++++++++%0A

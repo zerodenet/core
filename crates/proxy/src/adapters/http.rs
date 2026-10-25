@@ -3,7 +3,7 @@ use zero_engine::EngineError;
 use zero_traits::{ProtocolCapabilityDescriptor, ProtocolMetadata};
 
 use crate::adapters::identity::NamedProtocolAdapter;
-use crate::protocol_registry::{InboundListenerCapability, TcpOutboundCapability};
+use crate::protocol_registry::InboundListenerCapability;
 
 #[cfg(feature = "http")]
 pub(super) mod inbound;
@@ -40,9 +40,6 @@ impl InboundListenerCapability for HttpConnectAdapter {
         self.prepare_inbound_listener_impl(inbound)
     }
 }
-
-#[cfg(feature = "http")]
-impl TcpOutboundCapability for HttpConnectAdapter {}
 
 #[cfg(feature = "http")]
 impl ProtocolMetadata for HttpConnectAdapter {

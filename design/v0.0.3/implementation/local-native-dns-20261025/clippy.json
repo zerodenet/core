@@ -1,0 +1,8 @@
+{
+  "exit": 0,
+  "command": "CARGO_NET_OFFLINE=true RUST_MIN_STACK=16777216 cargo +stable clippy --workspace --all-targets --all-features --no-deps --jobs 4 -- -D warnings",
+  "rustc": "1.98.0",
+  "source_snapshot": "source-final.json",
+  "source_entries": 509,
+  "source_drift": []
+}

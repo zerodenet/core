@@ -33,6 +33,18 @@ pub trait StreamOutbound: Send + Sync + 'static {
         request: ConnectRequest,
         context: OpenContext,
     ) -> impl Future<Output = Result<Connected<Self::Stream>, ChannelError>> + Send;
+
+    /// Explicit logical-carrier borrowing. A normal BoxStream cannot stand in
+    /// for an original donor/control chain. Unmigrated roles deny before I/O.
+    fn connect_carrier(
+        &self,
+        _request: ConnectRequest,
+        _context: OpenContext,
+    ) -> impl Future<
+        Output = Result<Connected<crate::controlled_carrier::loan::StreamLoan>, ChannelError>,
+    > + Send {
+        async { Err(unsupported_carrier()) }
+    }
 }
 
 pub trait DynStreamOutbound: Send + Sync {
@@ -41,10 +53,29 @@ pub trait DynStreamOutbound: Send + Sync {
         request: ConnectRequest,
         context: OpenContext,
     ) -> BoxFuture<'_, Result<Connected<BoxStream>, ChannelError>>;
+    fn connect_carrier(
+        &self,
+        _request: ConnectRequest,
+        _context: OpenContext,
+    ) -> BoxFuture<'_, Result<Connected<crate::controlled_carrier::loan::StreamLoan>, ChannelError>>
+    {
+        Box::pin(async { Err(unsupported_carrier()) })
+    }
 }
 
 struct Erased<T>(T);
 impl<T: StreamOutbound> DynStreamOutbound for Erased<T> {
+    fn connect_carrier(
+        &self,
+        request: ConnectRequest,
+        context: OpenContext,
+    ) -> BoxFuture<'_, Result<Connected<crate::controlled_carrier::loan::StreamLoan>, ChannelError>>
+    {
+        Box::pin(async move {
+            context.session_identity()?;
+            self.0.connect_carrier(request, context).await
+        })
+    }
     fn connect(
         &self,
         request: ConnectRequest,
@@ -59,6 +90,16 @@ impl<T: StreamOutbound> DynStreamOutbound for Erased<T> {
             })
         })
     }
+}
+
+fn unsupported_carrier() -> ChannelError {
+    let mut error = ChannelError::new(
+        super::Stage::Prepare,
+        super::Reason::Unsupported,
+        super::Impact::Component,
+    );
+    error.delivery = super::DeliveryState::NotSubmitted;
+    error
 }
 
 pub fn erase_stream(outbound: impl StreamOutbound) -> Arc<dyn DynStreamOutbound> {

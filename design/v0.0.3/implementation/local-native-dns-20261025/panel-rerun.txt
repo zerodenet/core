@@ -1,0 +1,4 @@
+=== RUN   TestNativePublicationPreservesTrafficAcrossPublisherProcesses
+    native_publication_acceptance_test.go:161: read tcp 127.0.0.1:56088->127.0.0.1:56086: read: connection reset by peer
+--- FAIL: TestNativePublicationPreservesTrafficAcrossPublisherProcesses (0.26s)
+FAIL

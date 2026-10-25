@@ -1,0 +1,52 @@
+[package]
+autotests = false
+name = "zero-runtime"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+
+[features]
+default = []
+managed-datagram-runtime = []
+datagram-route-runtime = []
+raw-ip-runtime = []
+# Explicit fixture access to the real hosted scope and native resource providers.
+test-support = []
+
+[dependencies]
+zero-core = { path = "../core" }
+zero-traits = { path = "../traits" }
+zero-platform-tokio = { path = "../platform/tokio" }
+zero-config = { path = "../config" }
+tokio.workspace = true
+futures-util = "0.3"
+tracing.workspace = true
+
+[dev-dependencies]
+zero-proxy = { path = "../proxy", default-features = false }
+zero-transport = { path = "../transport" }
+zero-dns = { path = "../dns", features = ["test-support", "udp", "doh"] }
+socks5 = { path = "../../protocols/socks5", features = ["runtime"] }
+http = { path = "../../protocols/http", features = ["runtime"] }
+vless = { path = "../../protocols/vless", features = ["reality"] }
+vmess = { path = "../../protocols/vmess" }
+trojan = { path = "../../protocols/trojan", features = ["runtime"] }
+shadowsocks = { path = "../../protocols/shadowsocks", features = ["runtime", "blake3"] }
+mieru = { path = "../../protocols/mieru", features = ["runtime"] }
+hysteria2 = { path = "../../protocols/hysteria2", features = ["runtime"] }
+bytes = "1"
+futures-util = "0.3"
+rcgen = "0.14"
+rustls.workspace = true
+tokio-rustls = "0.26"
+tempfile.workspace = true
+h2 = "0.4"
+http_uri = { package = "http", version = "1" }
+tokio = { workspace = true, features = ["test-util"] }
+h3 = "=0.0.8"
+h3-quinn = "=0.0.10"
+quinn = { workspace = true, features = ["rustls-ring", "runtime-tokio"] }
+serde_json.workspace = true

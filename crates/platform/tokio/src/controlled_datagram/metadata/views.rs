@@ -116,6 +116,10 @@ impl MetadataViewClaim {
     }
 }
 impl MetadataViewIssuer {
+    /// Check an unused unique claim without consuming it on rejection.
+    pub fn owns_claim(&self, claim: &MetadataViewClaim, tasks: &TaskRegistrar) -> bool {
+        Arc::ptr_eq(&self.0, &claim.0) && self.0.scope.matches(tasks)
+    }
     /// Users/driver proof from the unique graph bound to this exact original
     /// claim. Native FD closure remains independently owned and verified.
     pub fn validates_users(

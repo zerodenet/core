@@ -19,14 +19,13 @@ use zero_traits::{ProtocolCapabilityDescriptor, ProtocolMetadata, ProtocolUdpFlo
 use crate::adapters::identity::NamedProtocolAdapter;
 use crate::protocol_registry::{
     claim_transport_tcp_leaf, claim_transport_udp_leaf, InboundListenerCapability,
-    ManagedUdpHandlerProvider, OutboundLeafClaim, OutboundLeafInput, TcpOutboundCapability,
-    UdpFlowCapability, UdpPacketPathCapability,
+    ManagedUdpHandlerProvider, OutboundLeafClaim, OutboundLeafInput,
 };
 use crate::runtime::path::TcpPathCategory;
 use crate::runtime::transport_leaf::{ProxyTransportTcpLeaf, ProxyTransportUdpLeaf};
 #[cfg(feature = "vmess")]
 use crate::runtime::udp_flow::managed::{
-    bridge::managed_stream_udp_handler_for_resume, ManagedStreamConnectorParts,
+    bridge::managed_stream_udp_handler_for_resume, ManagedStreamConnectorFlow,
     ManagedStreamHandlerPair, ManagedTupleUdpFlowConnection, ManagedTupleUdpResume,
     ManagedTupleUdpResumeConnector,
 };
@@ -211,9 +210,10 @@ impl ManagedTupleUdpResumeConnector for ::vmess::transport::VmessManagedUdpFlowR
 }
 
 #[cfg(feature = "vmess")]
-impl ManagedStreamConnectorParts for ::vmess::transport::VmessManagedUdpConnectorFlow {
-    fn into_managed_connector_parts(self) -> (String, bool) {
-        self.into_parts()
+impl From<::vmess::transport::VmessManagedUdpConnectorFlow> for ManagedStreamConnectorFlow {
+    fn from(flow: ::vmess::transport::VmessManagedUdpConnectorFlow) -> Self {
+        let (cache_key, requires_relay_upstream) = flow.into_parts();
+        Self::new(cache_key, requires_relay_upstream)
     }
 }
 
@@ -355,12 +355,6 @@ impl InboundListenerCapability for VmessAdapter {
 }
 
 #[cfg(feature = "vmess")]
-impl TcpOutboundCapability for VmessAdapter {}
-
-#[cfg(feature = "vmess")]
-impl UdpFlowCapability for VmessAdapter {}
-
-#[cfg(feature = "vmess")]
 impl ManagedUdpHandlerProvider for VmessAdapter {
     fn managed_stream_udp_handlers(&self) -> Option<ManagedStreamHandlerPair> {
         Some(managed_stream_udp_handler_for_resume::<
@@ -368,9 +362,6 @@ impl ManagedUdpHandlerProvider for VmessAdapter {
         >())
     }
 }
-
-#[cfg(feature = "vmess")]
-impl UdpPacketPathCapability for VmessAdapter {}
 
 #[cfg(test)]
 #[path = "vmess/tests.rs"]

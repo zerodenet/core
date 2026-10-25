@@ -1,0 +1,4 @@
+{
+  "crates/transport/tests/quic/owned/drivers.rs": "595cf6c96732f3694987537426d153e3554f6d765f7414e587611bd4094d439d",
+  "crates/transport/tests/quic/owned/callbacks.rs": "faefdec4b6e79e09b6c4037cc9c1f023e7475f2eed3e36150a68c1e70d3b5d6e"
+}

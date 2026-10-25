@@ -1,8 +1,11 @@
 use super::*;
+use zero_platform_tokio::contract::lifecycle::Unfinished;
 #[path = "pool/controlled.rs"]
 mod controlled;
 #[path = "pool/driver.rs"]
 mod driver;
+#[path = "pool/retry.rs"]
+mod retry;
 use crate::component::test_support::*;
 use std::{
     io,
@@ -57,6 +60,35 @@ async fn same_pool_cold_owner_declares_real_background_grant_and_no_default_budg
     let (protocol, tasks) = tokio::join!(owner.lifecycle.shutdown(end), scope.shutdown(end));
     assert!(protocol.unwrap().is_complete());
     assert!(tasks.is_complete() && tasks.exited_tasks.is_empty());
+}
+
+#[tokio::test]
+async fn declared_pool_requires_actual_host_registration_before_claim_or_io() {
+    let pool = Arc::new(ClientPool::default());
+    let (mut scope, ctx) = context(1);
+    let endpoint =
+        zero_core::request::Destination::new(zero_core::Address::Ipv4([127, 0, 0, 1]), 443);
+    let selected = ctx.background_carrier.as_ref().unwrap().binding().clone();
+    let options = Arc::new(
+        pool.component_options(NonZeroUsize::new(1).unwrap())
+            .with_background_carrier(endpoint.clone(), selected.clone())
+            .unwrap(),
+    );
+    assert_eq!(PoolFactory.describe(&options).resources, vec![ResourceDeclaration::ControlledOutboundStream {
+        endpoint, binding: selected, demand: zero_platform_tokio::contract::component::ControlledStreamDemandClass::BackgroundControl,
+        max_sockets: NonZeroUsize::new(1).unwrap(),
+    }]);
+    let mut owner = PoolFactory.build(options, ctx).unwrap();
+    assert_eq!(
+        owner.lifecycle.start(deadline()).await.unwrap_err().reason,
+        Reason::Unsupported
+    );
+    assert_eq!(pool.snapshot().connections, 0);
+    let (report, tasks) = tokio::join!(
+        owner.lifecycle.shutdown(deadline()),
+        scope.shutdown(deadline())
+    );
+    assert!(report.unwrap().is_complete() && tasks.is_complete());
 }
 
 #[tokio::test]

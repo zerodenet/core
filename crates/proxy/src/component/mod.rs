@@ -1,27 +1,27 @@
 //! Cold component assembly. Data channels stay in platform-tokio::contract.
-mod admission;
-pub(crate) use admission::ServiceAdmission;
-mod bindings;
+pub(crate) mod background;
 pub(crate) mod bound_datagram;
 mod business_carrier;
 pub(crate) mod business_demand;
-pub(crate) mod catalog;
 pub(crate) mod datagram_retirement;
-mod dependencies;
 pub(crate) mod direct_bridge;
-mod generations;
-pub(crate) mod instance;
 pub(crate) mod legacy_stream;
-mod preparation;
-mod recipe;
-mod registry;
 pub(crate) mod request;
 pub(crate) mod stream_bridge;
 
 pub use crate::adapters::direct::factory::{DirectFactory, DirectOptions};
-pub use preparation::{PreparedSharedResource, ResourcePreparation, SharedResourceIdentities};
-pub use recipe::ComponentRecipe;
-pub use registry::{ComponentRegistry, RegistrationError, ValidatedRecipe};
 
 #[cfg(test)]
 mod tests;
+
+pub use crate::adapters::direct::factory::decode as direct_options;
+pub(crate) use zero_runtime::component::{catalog, instance, ServiceAdmission};
+pub use zero_runtime::component::{
+    ComponentRecipe, ComponentRegistry, PreparedSharedResource, RegistrationError,
+    ResourcePreparation, SharedResourceIdentities, ValidatedRecipe,
+};
+pub fn direct_descriptor() -> zero_traits::ProtocolCapabilityDescriptor {
+    zero_traits::ProtocolMetadata::descriptor(&crate::adapters::direct::DirectAdapter::default())
+}
+
+pub(crate) mod native_dns;

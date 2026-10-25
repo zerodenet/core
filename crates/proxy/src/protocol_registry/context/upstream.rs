@@ -32,6 +32,9 @@ pub(crate) struct UpstreamConnectServices {
 }
 
 impl UpstreamConnectServices {
+    pub(crate) fn dns_generation(&self) -> zero_platform_tokio::contract::dns::DnsGeneration {
+        self.resolver.generation()
+    }
     pub(crate) fn network_generation(&self) -> u64 {
         self.egress_interface.generation()
     }

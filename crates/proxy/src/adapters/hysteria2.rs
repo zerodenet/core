@@ -14,8 +14,7 @@ use zero_traits::{ProtocolCapabilityDescriptor, ProtocolMetadata};
 use crate::adapters::identity::NamedProtocolAdapter;
 use crate::protocol_registry::{
     inbound_listen_addr, BoundInbound, InboundListenerCapability, ManagedUdpHandlerProvider,
-    OutboundLeafClaim, OutboundLeafInput, TcpOutboundCapability, UdpFlowCapability,
-    UdpPacketPathCapability,
+    OutboundLeafClaim, OutboundLeafInput,
 };
 use crate::runtime::path::TcpPathCategory;
 use crate::runtime::udp_flow::managed::ManagedDatagramFlowHandler;
@@ -165,12 +164,6 @@ impl Hysteria2Adapter {
 }
 
 #[cfg(feature = "hysteria2")]
-impl UdpPacketPathCapability for Hysteria2Adapter {}
-
-#[cfg(feature = "hysteria2")]
-impl UdpFlowCapability for Hysteria2Adapter {}
-
-#[cfg(feature = "hysteria2")]
 impl ManagedUdpHandlerProvider for Hysteria2Adapter {
     fn managed_datagram_udp_handler(&self) -> Option<Box<dyn ManagedDatagramFlowHandler>> {
         Some(udp::managed_datagram_handler())
@@ -199,9 +192,6 @@ impl InboundListenerCapability for Hysteria2Adapter {
         listener::prepare(self, inbound, source_dir)
     }
 }
-
-#[cfg(feature = "hysteria2")]
-impl TcpOutboundCapability for Hysteria2Adapter {}
 
 #[cfg(feature = "hysteria2")]
 impl ProtocolMetadata for Hysteria2Adapter {

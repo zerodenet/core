@@ -1,0 +1,11 @@
+{
+  "files": [
+    "crates/proxy/src/component/tests/mieru/dns.rs",
+    "crates/proxy/src/component/tests/mieru/dns/encrypted.rs",
+    "crates/proxy/src/component/tests/mieru/dns/limits.rs",
+    "crates/proxy/src/component/tests/mieru/dns/replacement.rs"
+  ],
+  "change": "Use the existing RuntimeConfig.runtime.dns field in new fixtures; no public schema change.",
+  "production_source_drift": [],
+  "qualification": "initial full attempt failed at compilation and is not a passing regression"
+}

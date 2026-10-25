@@ -1,9 +1,9 @@
 //! Protocol registry - eliminates per-protocol match arms in the proxy.
 //!
-//! Each registered protocol contributes focused capability traits for support
-//! metadata, inbound listeners, TCP outbound, UDP flows, and packet-path roles.
-//! The `ProtocolRegistry` collects capability objects at startup and replaces
-//! hard-coded match statements in `ProtocolInventory`.
+//! Migrated protocols expose executable roles through the component registry.
+//! This compatibility registry keeps support metadata, real inbound listeners,
+//! optional outbound projections and remaining UDP handlers. Registration never
+//! requires marker traits for roles an adapter does not implement.
 
 mod capability;
 #[cfg(any(
@@ -36,12 +36,10 @@ pub(crate) use capability::{
 };
 pub(crate) use capability::{
     ClaimedTcpOutboundLeaf, InboundListenerCapability, OutboundLeafClaim, OutboundLeafInput,
-    ProtocolSupportCapability, TcpOutboundCapability,
+    ProtocolSupportCapability,
 };
 #[cfg(feature = "udp-runtime")]
-pub(crate) use capability::{
-    ClaimedUdpFlowLeaf, ClaimedUdpPacketPathLeaf, UdpFlowCapability, UdpPacketPathCapability,
-};
+pub(crate) use capability::{ClaimedUdpFlowLeaf, ClaimedUdpPacketPathLeaf};
 #[cfg(feature = "tcp-transport-session-runtime")]
 pub(crate) use claim::claim_session_tcp_leaf_with_source;
 #[cfg(any(feature = "tcp-tunnel-runtime", feature = "tcp-session-runtime"))]

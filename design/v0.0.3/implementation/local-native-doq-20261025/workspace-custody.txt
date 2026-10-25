@@ -1,0 +1,6 @@
+Integration layout: 314 source files, 95 targets, 0 errors
+TEST_SCOPE full (workspace, unit, integration and doctests)
+TEST_START 2026-10-25T11:45:59Z
+    Blocking waiting for file lock on build directory
+TEST_END 2026-10-25T11:48:03Z exit=130 seconds=124
+::error title=Workspace tests failed (1/1)::    Blocking waiting for file lock on build directory

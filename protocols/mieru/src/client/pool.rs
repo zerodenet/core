@@ -12,6 +12,8 @@ pub(crate) mod managed;
 #[cfg(feature = "runtime")]
 mod native;
 mod policy;
+#[cfg(feature = "runtime")]
+pub(crate) mod profile;
 mod slot;
 
 pub use policy::{ClientPoolPolicy, ClientPoolSnapshot};
@@ -120,6 +122,16 @@ impl ClientPool {
             slot.retire();
         }
         entries.clear();
+    }
+    /// Compatibility reload must not retire the host's newly committed native
+    /// generation. Native cache retirement belongs to its actual lifecycle.
+    #[cfg(feature = "runtime")]
+    pub fn clear_legacy(&self) {
+        let ownership = self.ownership.lock().unwrap();
+        if matches!(*ownership, managed::Ownership::Managed(_)) {
+            return;
+        }
+        self.clear();
     }
     pub async fn open<F, Fut>(&self, key: PoolKey, connect: F) -> io::Result<MieruLogicalStream>
     where

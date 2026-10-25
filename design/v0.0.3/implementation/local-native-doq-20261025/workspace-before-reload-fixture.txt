@@ -1,0 +1,354 @@
+Integration layout: 314 source files, 95 targets, 0 errors
+TEST_SCOPE full (workspace, unit, integration and doctests)
+TEST_START 2026-10-25T11:49:31Z
+    Blocking waiting for file lock on build directory
+warning: trailing semicolon in macro used in expression position
+  --> vendor/quinn-udp/build.rs:5:5
+   |
+ 5 | /     cfg_aliases! {
+ 6 | |         // Platforms
+ 7 | |         apple: {
+ 8 | |             any(
+...  |
+31 | |         wasm_browser: { all(target_family = "wasm", target_os = "unknown") },
+32 | |     }
+   | |_____^
+   |
+   = warning: this was previously accepted by the compiler but is being phased out; it will become a hard error in a future release!
+   = note: for more information, see issue #79813 <https://github.com/rust-lang/rust/issues/79813>
+   = note: `#[warn(semicolon_in_expressions_from_non_local_macros)]` (part of `#[warn(future_incompatible)]`) on by default
+   = note: this warning originates in the macro `$crate::cfg_aliases` which comes from the expansion of the macro `cfg_aliases` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+warning: trailing semicolon in macro used in expression position
+  --> vendor/quinn-udp/build.rs:5:5
+   |
+ 5 | /     cfg_aliases! {
+ 6 | |         // Platforms
+ 7 | |         apple: {
+ 8 | |             any(
+...  |
+31 | |         wasm_browser: { all(target_family = "wasm", target_os = "unknown") },
+32 | |     }
+   | |_____^
+   |
+   = warning: this was previously accepted by the compiler but is being phased out; it will become a hard error in a future release!
+   = note: for more information, see issue #79813 <https://github.com/rust-lang/rust/issues/79813>
+   = note: this warning originates in the macro `$crate::cfg_aliases` which comes from the expansion of the macro `cfg_aliases` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+warning: `quinn-udp` (build script) generated 87 warnings (85 duplicates)
+   Compiling zero-platform-tokio v0.0.3-dev.202610162206 (/Volumes/tool/rust/zero/crates/platform/tokio)
+warning: trailing semicolon in macro used in expression position
+ --> vendor/quinn/build.rs:5:5
+  |
+5 | /     cfg_aliases! {
+6 | |         // Convenience aliases
+7 | |         wasm_browser: { all(target_family = "wasm", target_os = "unknown") },
+8 | |     }
+  | |_____^
+  |
+  = warning: this was previously accepted by the compiler but is being phased out; it will become a hard error in a future release!
+  = note: for more information, see issue #79813 <https://github.com/rust-lang/rust/issues/79813>
+  = note: `#[warn(semicolon_in_expressions_from_non_local_macros)]` (part of `#[warn(future_incompatible)]`) on by default
+  = note: this warning originates in the macro `$crate::cfg_aliases` which comes from the expansion of the macro `cfg_aliases` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+warning: trailing semicolon in macro used in expression position
+ --> vendor/quinn/build.rs:5:5
+  |
+5 | /     cfg_aliases! {
+6 | |         // Convenience aliases
+7 | |         wasm_browser: { all(target_family = "wasm", target_os = "unknown") },
+8 | |     }
+  | |_____^
+  |
+  = warning: this was previously accepted by the compiler but is being phased out; it will become a hard error in a future release!
+  = note: for more information, see issue #79813 <https://github.com/rust-lang/rust/issues/79813>
+  = note: this warning originates in the macro `$crate::cfg_aliases` which comes from the expansion of the macro `cfg_aliases` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+warning: `quinn` (build script) generated 8 warnings (6 duplicates)
+warning: use of deprecated associated function `core::num::<impl u8>::max_value`: replaced by the `MAX` associated constant on this type
+   --> vendor/blake3/src/platform.rs:421:5
+    |
+421 |     cpufeatures::new!(has_avx512, "avx512f", "avx512vl");
+    |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+    = note: `#[warn(deprecated)]` on by default
+    = note: this warning originates in the macro `cpufeatures::new` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+warning: use of deprecated associated function `core::num::<impl u8>::max_value`: replaced by the `MAX` associated constant on this type
+   --> vendor/blake3/src/platform.rs:437:5
+    |
+437 |     cpufeatures::new!(has_avx2, "avx2");
+    |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+    = note: this warning originates in the macro `cpufeatures::new` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+warning: use of deprecated associated function `core::num::<impl u8>::max_value`: replaced by the `MAX` associated constant on this type
+   --> vendor/blake3/src/platform.rs:453:5
+    |
+453 |     cpufeatures::new!(has_sse41, "sse4.1");
+    |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+    = note: this warning originates in the macro `cpufeatures::new` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+warning: use of deprecated associated function `core::num::<impl u8>::max_value`: replaced by the `MAX` associated constant on this type
+   --> vendor/blake3/src/platform.rs:469:5
+    |
+469 |     cpufeatures::new!(has_sse2, "sse2");
+    |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+    = note: this warning originates in the macro `cpufeatures::new` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+warning: use of deprecated associated function `core::num::<impl u64>::max_value`: replaced by the `MAX` associated constant on this type
+    --> vendor/blake3/src/lib.rs:1817:33
+     |
+1817 |         let max_position = u64::max_value() as i128;
+     |                                 ^^^^^^^^^
+
+warning: `blake3` (lib) generated 5 warnings
+   Compiling zero-grpc v0.0.3-dev.202610162206 (/Volumes/tool/rust/zero/crates/grpc)
+   Compiling zero-transport v0.0.3-dev.202610162206 (/Volumes/tool/rust/zero/crates/transport)
+   Compiling http v0.0.1 (/Volumes/tool/rust/zero/protocols/http)
+   Compiling shadowsocks v1.21.2 (/Volumes/tool/rust/zero/protocols/shadowsocks)
+   Compiling socks5 v0.0.1 (/Volumes/tool/rust/zero/protocols/socks5)
+   Compiling vless v26.3.27 (/Volumes/tool/rust/zero/protocols/vless)
+   Compiling vmess v26.3.27 (/Volumes/tool/rust/zero/protocols/vmess)
+   Compiling trojan v0.10.6 (/Volumes/tool/rust/zero/protocols/trojan)
+   Compiling hysteria2 v2.12.2 (/Volumes/tool/rust/zero/protocols/hysteria2)
+   Compiling mieru v3.33.0 (/Volumes/tool/rust/zero/protocols/mieru)
+   Compiling zero-config v0.0.3-dev.202610162206 (/Volumes/tool/rust/zero/crates/config)
+   Compiling zero-engine v0.0.3-dev.202610162206 (/Volumes/tool/rust/zero/crates/engine)
+   Compiling zero-dns v0.0.3-dev.202610162206 (/Volumes/tool/rust/zero/crates/dns)
+   Compiling zero-runtime v0.0.3-dev.202610162206 (/Volumes/tool/rust/zero/crates/runtime)
+   Compiling zero-connector v0.0.3-dev.202610162206 (/Volumes/tool/rust/zero/crates/connector)
+   Compiling zero-proxy v0.0.3-dev.202610162206 (/Volumes/tool/rust/zero/crates/proxy)
+   Compiling zero-logging v0.0.3-dev.202610162206 (/Volumes/tool/rust/zero/crates/logging)
+   Compiling zero-ffi v0.0.3-dev.202610162206 (/Volumes/tool/rust/zero/crates/ffi)
+   Compiling zero v0.0.3-dev.202610162206 (/Volumes/tool/rust/zero)
+    Finished `test` profile [unoptimized] target(s) in 22m 54s
+     Running unittests src/lib.rs (target/debug/deps/http-dbd4f327ba2a10df)
+
+running 3 tests
+test component::tests::response_failure_preserves_the_original_typed_carrier_source_and_identity ... ok
+test component::tests::cancelled_actual_pending_reply_does_not_replay_or_hand_over_partial_response ... ok
+test component::tests::real_connect_reply_keeps_wire_unread_payload_half_close_and_failure_codes ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/inbound.rs (target/debug/deps/inbound-5268e3f03504186f)
+
+running 11 tests
+test parses_ipv4_authority ... ok
+test parses_domain_authority ... ok
+test rejects_ambiguous_request_framing ... ok
+test native_forward_command_keeps_destination_and_body_without_a_legacy_session ... ok
+test normalizes_forward_proxy_authority_and_hop_headers ... ok
+test classifies_response_body_boundaries_and_upgrade ... ok
+test parses_absolute_form_post_with_explicit_port_and_preserves_body ... ok
+test parses_absolute_form_get_and_rewrites_request_target ... ok
+test rejects_origin_form_request_without_proxy_target ... ok
+test writes_connection_established_response ... ok
+test relays_chunked_body_without_consuming_the_next_message ... ok
+
+test result: ok. 11 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running unittests src/lib.rs (target/debug/deps/hysteria2-d247749741408ad8)
+
+running 24 tests
+test transport::bbr_tests::protocol_profiles_select_shared_bbr_and_forward_packet_feedback ... ok
+test transport::auth::tests::quic_rejects_untrusted_certificate_by_default ... ok
+test transport::auth::tests::cancellation_during_authentication_closes_quic_session ... ok
+test transport::auth::tests::udp_disabled_response_preserves_tcp_session_and_rejects_udp ... ok
+test transport::auth::tests::releasing_udp_flow_closes_connection_even_with_keepalive ... ok
+test transport::auth::tests::bandwidth_headers_select_directional_brutal_rates ... ok
+test transport::http3_tests::masquerade_reverse_proxy_forwards_method_path_and_body ... ok
+test transport::bandwidth_tests::configured_bandwidth_preserves_negotiated_loss_compensation_on_both_peers ... ok
+test transport::bandwidth_tests::auto_and_zero_bandwidth_keep_configured_adaptive_controller_uncapped ... ok
+test transport::http3_tests::website_authentication_and_tcp_share_one_http3_connection ... ok
+test transport::http3_tests::masquerade_static_site_serves_index_and_denies_traversal ... ok
+test transport::website_tests::website_proxy_preserves_host_or_rewrites_and_regenerates_forwarded_headers ... ok
+test transport::pool::shared::egress_generation_change_creates_a_new_connection_and_preserves_old_udp ... ok
+test transport::website_tests::website_proxy_tls_verifies_by_default_and_insecure_is_explicit ... ok
+test transport::website_tests::website_redirect_preserves_path_query_and_handles_ipv6_and_old_port ... ok
+test udp::dispatch::tests::full_or_unknown_udp_session_does_not_block_or_deliver_to_another_session ... ok
+test transport::website_tests::website_proxy_unix_origin_supports_encoded_socket_path ... ok
+test udp::dispatch::tests::session_ids_do_not_wrap_or_reuse_after_close_and_connection_drop_wakes_receivers ... ok
+test transport::pool::shared::disconnect_rebuilds_once_and_reload_retires_without_closing_active_udp ... ok
+test transport::pool::shared::tcp_managed_udp_and_packet_paths_share_one_authentication_without_cross_delivery ... ok
+test transport::pool::tests::tcp_pool_single_flight_reuses_recovers_and_retires_on_reload ... ok
+test transport::pool::shared::shared_connection_identity_preserves_tls_credentials_settings_and_outbound_isolation ... ok
+test transport::pool::shared::lifetime::retiring_logical_resume_closes_cached_udp_handle_without_closing_shared_connection ... ok
+test transport::pool::shared::active_udp_survives_pool_idle_sweep_and_unused_connection_is_reclaimed ... ok
+
+test result: ok. 24 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 12.05s
+
+     Running tests/suites/hysteria2_contracts.rs (target/debug/deps/hysteria2_contracts-be91d47ef81ac737)
+
+running 33 tests
+test negotiation::authentication_negotiates_udp_and_receive_bandwidth ... ok
+test settings::bbr_profile_is_part_of_connection_cache_identity ... ok
+test settings::receive_window_ceiling_changes_connection_cache_identity ... ok
+test settings::bandwidth_units_and_negotiation_follow_hysteria ... ok
+test settings::changed_transport_policy_invalidates_udp_identity ... ok
+test settings::settings_enforce_window_and_liveness_bounds ... ok
+test negotiation::udp_caches_separate_trust_policy_and_fingerprint ... ok
+test settings::website_paths_cannot_escape_the_root ... ok
+test shared::test_auth_frame_roundtrip ... ok
+test shared::test_auth_response_err ... ok
+test shared::test_auth_response_ok ... ok
+test settings::reverse_proxy_accepts_fixed_http_and_platform_unix_origins ... ok
+test shared::test_connect_response_err ... ok
+test shared::test_connect_response_ok ... ok
+test shared::test_tcp_connect_header_roundtrip ... ok
+test shared::test_tcp_connect_ipv4 ... ok
+test tcp_stream::tcp_request_preserves_coalesced_payload ... ok
+test tcp_stream::tcp_request_accepts_every_fragment_boundary ... ok
+test tcp_stream::tcp_request_accepts_reference_length_limits ... ok
+test tcp_stream::tcp_request_rejects_oversized_lengths_before_reading_body ... ok
+test tcp_stream::tcp_request_rejects_wrong_type_and_malformed_authority ... ok
+test tcp_stream::tcp_request_consumes_padding_larger_than_old_header_buffer ... ok
+test tcp_stream::tcp_request_rejects_every_truncated_prefix ... ok
+test tcp_stream::tcp_response_rejects_oversized_lengths_before_reading_body ... ok
+test udp::inbound_udp_session_ids_remain_distinct_for_the_same_target ... ok
+test udp::test_udp_datagram_ipv4 ... ok
+test tcp_stream::tcp_response_accepts_reference_limits_and_rejects_truncation_and_error_status ... ok
+test tcp_stream::tcp_response_preserves_coalesced_payload_and_accepts_fragmentation ... ok
+test udp::udp_datagram_framing_trait_roundtrips_packet ... ok
+test udp::test_udp_datagram_roundtrip ... ok
+test tcp_stream::tcp_request_accepts_all_quic_varint_widths ... ok
+test udp::udp_flow_codec_roundtrips_payload ... ok
+test user_profile::profile_store_matches_users_and_updates_existing_profile ... ok
+
+test result: ok. 33 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running unittests src/lib.rs (target/debug/deps/mieru-db5c1a3b543ff9e4)
+
+running 67 tests
+test component::pool::tests::declared_pool_requires_actual_host_registration_before_claim_or_io ... ok
+test component::pool::tests::controlled::strict_controlled_owner_default_denies_old_opener_without_legacy_io_or_fake_join ... ok
+test component::pool::tests::legacy_inflight_pool_cannot_be_adopted_even_after_cache_clear ... ok
+test component::pool::tests::driver::actual_registration_capacity_failure_never_starts_an_unowned_replacement_driver ... ok
+test component::pool::tests::controlled::cancelled_controlled_authentication_closes_original_fd_without_inventing_a_driver_join ... ok
+test component::pool::tests::same_pool_cold_owner_declares_real_background_grant_and_no_default_budget ... ok
+test component::stream::datagram::tests::a_different_frame_after_partial_send_is_unknown_and_isolates_only_this_session ... ok
+test component::stream::datagram::tests::cancelled_partial_receive_retains_frame_and_zero_payload ... ok
+test component::stream::datagram::tests::fixed_domain_send_targets_preserve_resolved_response_sources ... ok
+test component::pool::tests::pending_real_handshake_uses_owner_service_grant_and_retires_without_recycling_capacity ... ok
+test component::pool::tests::driver::registered_driver_failure_retains_original_io_payload_and_actual_scope_join_result ... ok
+test component::stream::tests::genuine_socks_rejection_retains_original_protocol_error_without_confirmation ... ok
+test component::stream::tests::guards::canonical_dependency_generation_and_complete_pool_recipe_are_both_required ... ok
+test component::stream::tests::guards::native_options_preserve_underlay_and_reject_invalid_protocol_options ... ok
+test component::stream::tests::guards::stale_selected_binding_is_rejected_before_the_persistent_grant_can_open_io ... ok
+test crypto::tests::test_derive_key_deterministic ... ok
+test component::stream::tests::cancelling_a_pending_real_target_response_preserves_another_canonical_consumer ... ok
+test component::pool::tests::retry::no_caller_deadline_still_settles_a_real_retired_original_before_reusing_one_slot ... ok
+test crypto::tests::test_nonce_increment_carry ... ok
+test crypto::tests::test_user_hint ... ok
+test crypto::tests::test_encrypt_decrypt_roundtrip ... ok
+test inbound::multiplex::reader::tests::backlog_stall_timeout_restarts_only_after_consumer_progress ... ok
+test inbound::multiplex::reader::tests::connection_backlog_limit_evicts_only_the_session_that_exceeds_it ... ok
+test inbound::multiplex::reader::tests::default_policy_keeps_a_short_stall_and_closes_at_thirty_seconds ... ok
+test inbound::multiplex::reader::tests::incoming_data_refills_a_recovered_consumer_without_waiting_for_the_timer ... ok
+test inbound::multiplex::reader::tests::oversized_new_open_closes_only_that_session_and_preserves_budget ... ok
+test inbound::multiplex::reader::tests::session_backlog_limit_closes_only_the_violating_session ... ok
+test outbound::udp_worker_lifecycle::terminated_worker_closes_existing_and_new_response_waiters ... ok
+test packet::driver::tests::acknowledged_flush_succeeds_when_peer_closes_afterward ... ok
+test packet::driver::tests::crossed_and_repeated_peer_close_complete_an_acked_shutdown_once ... ok
+test packet::driver::tests::missing_close_response_times_out_shutdown_even_after_data_ack ... ok
+test packet::driver::tests::peer_close_fails_an_unacknowledged_flush ... ok
+test packet::driver::tests::peer_close_wins_race_with_acked_shutdown_before_close_is_sent ... ok
+test inbound::multiplex::reader::tests::continuously_ready_frames_give_a_healthy_consumer_time_to_run ... ok
+test packet::driver::tests::shutdown_waits_for_close_handshake_after_data_is_acknowledged ... ok
+test packet::tests::congestion::cubic_loss_follows_the_reference_curve_and_timeout_restarts_slow_start ... ok
+test packet::tests::congestion::cubic_slow_start_and_bounds_match_the_reference ... ok
+test packet::tests::congestion::fast_retransmit_is_loss_but_elapsed_rto_is_timeout ... ok
+test packet::tests::authenticated_open_replay_is_rejected_across_peer_drivers ... ok
+test packet::tests::congestion::reliable_session_applies_each_new_ack_to_cubic_capacity ... ok
+test packet::tests::congestion::retransmission_attempt_limit_returns_timeout_deterministically ... ok
+test packet::driver::tests::received_close_fails_pending_flush_and_duplicate_only_answers_tombstone ... ok
+test packet::tests::duplicate_and_reordered_packets_are_delivered_once_in_sequence ... ok
+test component::pool::tests::controlled::controlled_same_pool_recycles_only_after_actual_scope_join_and_original_native_close ... ok
+test packet::tests::options::receive_accepts_peer_mtu_larger_than_local_send_budget ... ok
+test packet::tests::options::udp_nonce_pattern_first_packet_state_is_shared_with_codec_clones ... ok
+test packet::tests::receive_capacity_is_not_a_sequence_horizon_and_missing_head_has_priority ... ok
+test packet::tests::remote_window_is_additional_capacity_with_packets_in_flight ... ok
+test packet::tests::stateless_packets_reject_corruption_truncation_and_bad_padding ... ok
+test packet::tests::zero_window_blocks_new_data_and_invalid_ack_cannot_discard_pending_bytes ... ok
+test traffic_pattern::tests::enabled_tcp_fragmentation_uses_multiple_writes ... ok
+test traffic_pattern::tests::explicit_fields_override_generated_values_individually ... ok
+test traffic_pattern::tests::fixed_seed_generates_official_locked_defaults ... ok
+test traffic_pattern::tests::fixed_seed_generates_official_unlocked_defaults ... ok
+test traffic_pattern::tests::fixed_without_prefixes_is_random_as_officially_documented ... ok
+test component::pool::tests::controlled::original_native_close_and_scope_join_do_not_retire_a_transferred_logical_read_half ... ok
+test traffic_pattern::tests::generated_minimum_is_clamped_when_only_a_small_maximum_is_explicit ... ok
+test component::pool::tests::controlled::interrupted_wait_for_logical_users_preserves_already_received_original_close_report ... ok
+test component::pool::tests::driver::registered_driver_reuses_same_pool_and_clear_cannot_recycle_even_an_actually_joined_slot ... ok
+test traffic_pattern::tests::padding_lengths_stay_within_the_supplied_wire_budget ... ok
+test traffic_pattern::tests::selected_session_padding_bytes_are_written_to_the_wire_tail ... ok
+test traffic_pattern::tests::fragment_sleep_does_not_deadlock_bidirectional_small_duplex ... ok
+test traffic_pattern::tests::polled_fragmentation_survives_cancelled_flush_short_writes_and_pending ... ok
+test component::stream::tests::actual_encrypted_socks_response_is_complete_before_confirmed_and_flow_stays_zero ... ok
+test packet::tests::congestion::one_to_three_lost_packets_recover_across_a_long_rtt_link ... ok
+test packet::tests::options::udp_wire_stays_within_configured_outer_mtu_for_both_ip_families ... ok
+test packet::tests::lost_segment_retransmits_without_reallocating_sequence ... ok
+
+test result: ok. 67 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.33s
+
+     Running tests/suites/mieru_crypto.rs (target/debug/deps/mieru_crypto-0b1dcbff742e9d0a)
+
+running 15 tests
+test udp::inbound_udp_packet_decoder_unwraps_socks5_payload ... ok
+test pbkdf2_verify::test_mieru_style_key ... ok
+test udp::test_udp_associate_roundtrip ... ok
+test udp::test_unwrap_invalid ... ok
+test udp::udp_packet_framing_trait_roundtrips_associate_payload ... ok
+test udp::udp_response_encoder_wraps_socks5_payload ... ok
+test outbound::decrypt_server_data_waits_for_complete_segment ... ok
+test outbound::decrypt_server_data_does_not_advance_cipher_on_incomplete_implicit_segment ... ok
+test udp_framing::session_reader_rejects_eof_inside_a_frame ... ok
+test loopback::mieru_inbound_uses_the_matched_username_as_default_principal ... ok
+test loopback::mieru_inbound_rejects_modified_credentials ... ok
+test loopback::mieru_outbound_inbound_handshake_loopback ... ok
+test loopback::mieru_inbound_attributes_the_matched_user ... ok
+test udp_framing::fragmented_udp_frames_survive_cancelled_reads_and_coalescing ... ok
+test udp_framing::session_reader_preserves_partial_frame_when_moved_into_responder ... ok
+
+test result: ok. 15 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.04s
+
+     Running tests/suites/mieru_runtime.rs (target/debug/deps/mieru_runtime-5d37232275005711)
+
+running 22 tests
+test inbound_route::udp_route_preserves_the_protocol_owned_relay_and_authentication ... ok
+test inbound_route::tcp_route_preserves_payload_identity_and_runtime_error ... ok
+test multiplex::cases::lifecycle::dropping_retired_session_cannot_remove_a_reused_wire_id ... ok
+test multiplex::cases::lifecycle::peer_close_and_unknown_id_do_not_close_other_sessions ... ok
+test multiplex::cases::lifecycle::reserved_or_duplicate_ids_fail_the_underlay_without_cross_delivery ... ok
+test multiplex::cases::lifecycle::concurrent_tcp_udp_and_incomplete_handshake_are_isolated ... ok
+test multiplex::cases::lifecycle::truncated_underlay_and_connection_drop_wake_readers ... ok
+test multiplex::cases::framing::fragmented_padding_preserves_nonce_and_next_frame ... ok
+test underlay::cases::pool::concurrency::concurrent_opens_share_one_carrier_and_clear_drains_existing_sessions ... ok
+test multiplex::cases::lifecycle::large_writes_fragment_and_shutdown_is_logical ... ok
+test underlay::cases::pool::lifecycle::cancelled_dial_wakes_an_existing_waiter ... ok
+test underlay::cases::pool::lifecycle::disconnected_connection_is_replaced_without_replaying_application_data ... ok
+test underlay::cases::pool::policy::rejects_invalid_pool_policies ... ok
+test underlay::cases::pool::concurrency::failed_open_on_one_carrier_does_not_block_a_healthy_carrier ... ok
+test underlay::cases::pool::policy::grows_on_sustained_load_and_prefers_the_least_loaded_carrier ... ok
+test underlay::cases::pool::profile::different_transport_profiles_do_not_reuse_the_same_carrier ... ok
+test underlay::cases::pool::policy::retires_aged_carriers_without_interrupting_existing_streams ... ok
+test underlay::cases::pool::lifecycle::clear_detaches_an_inflight_dial_without_closing_its_returned_stream ... ok
+test traffic_stream::configured_public_streams_fragment_large_payloads_in_both_directions ... ok
+test multiplex::cases::lifecycle::flush_waits_for_the_underlay_and_sender_applies_backpressure ... ok
+test multiplex::cases::lifecycle::slow_session_fails_explicitly_while_other_sessions_continue ... ok
+test underlay::cases::packet::native_udp_recovers_loss_reordering_duplicates_and_preserves_sessions ... ok
+
+test result: ok. 22 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 2.11s
+
+     Running unittests src/lib.rs (target/debug/deps/mieru_config-6bb57377c2c51f94)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+TEST_END 2026-10-25T12:15:22Z exit=130 seconds=1551
+::error title=Workspace tests failed (1/3)::test packet::tests::options::udp_nonce_pattern_first_packet_state_is_shared_with_codec_clones ... ok%0Atest packet::tests::receive_capacity_is_not_a_sequence_horizon_and_missing_head_has_priority ... ok%0Atest packet::tests::remote_window_is_additional_capacity_with_packets_in_flight ... ok%0Atest packet::tests::stateless_packets_reject_corruption_truncation_and_bad_padding ... ok%0Atest packet::tests::zero_window_blocks_new_data_and_invalid_ack_cannot_discard_pending_bytes ... ok%0Atest traffic_pattern::tests::enabled_tcp_fragmentation_uses_multiple_writes ... ok%0Atest traffic_pattern::tests::explicit_fields_override_generated_values_individually ... ok%0Atest traffic_pattern::tests::fixed_seed_generates_official_locked_defaults ... ok%0Atest traffic_pattern::tests::fixed_seed_generates_official_unlocked_defaults ... ok%0Atest traffic_pattern::tests::fixed_without_prefixes_is_random_as_officially_documented ... ok%0Atest component::pool::tests::controlled::original_native_close_and_scope_join_do_not_retire_a_transferred_logical_read_half ... ok%0Atest traffic_pattern::tests::generated_minimum_is_clamped_when_only_a_small_maximum_is_explicit ... ok%0Atest component::pool::tests::controlled::interrupted_wait_for_logical_users_preserves_already_received_original_close_report ... ok%0Atest component::pool::tests::driver::registered_driver_reuses_same_pool_and_clear_cannot_recycle_even_an_actually_joined_slot ... ok%0Atest traffic_pattern::tests::padding_lengths_stay_within_the_supplied_wire_budget ... ok%0Atest traffic_pattern::tests::selected_session_padding_bytes_are_written_to_the_wire_tail ... ok%0Atest traffic_pattern::tests::fragment_sleep_does_not_deadlock_bidirectional_small_duplex ... ok%0Atest traffic_pattern::tests::polled_fragmentation_survives_cancelled_flush_short_writes_and_pending ... ok%0Atest component::stream::tests::actual_encrypted_socks_response_is_complete_before_confirmed_and_flow_stays_zero ... ok%0Atest packet::tests::congestion::one_to_three_lost_packets_recover_across_a_long_rtt_link ... ok%0Atest packet::tests::options::udp_wire_stays_within_configured_outer_mtu_for_both_ip_families ... ok%0Atest packet::tests::lost_segment_retransmits_without_reallocating_sequence ... ok%0A%0Atest result: ok. 67 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.33s%0A%0A     Running tests/suites/mieru_crypto.rs (target/debug/deps/mieru_crypto-0b1dcbff742e9d0a)%0A%0Arunning 15 tests%0Atest udp::inbound_udp_packet_decoder_unwraps_socks5_payload ... ok%0Atest pbkdf2_verify::test_mieru_style_key ... ok%0Atest udp::test_udp_associate_roundtrip ... ok%0Atest udp::test_unwrap_invalid ... ok%0Atest udp::udp_packet_framing_trait_roundtrips_associate_payload ... ok%0Atest udp::udp_response_encoder_wraps_socks5_payload ... ok%0Atest outbound::decrypt_server_data_waits_for_complete_segment ... ok%0Atest outbound::decrypt_server_data_does_not_advance_cipher_on_incomplete_implicit_segment ... ok%0Atest udp_framing::session_reader_rejects_eof_inside_a_frame ... ok%0Atest loopback::mieru_inbound_uses_th
+::error title=Workspace tests failed (2/3)::e_matched_username_as_default_principal ... ok%0Atest loopback::mieru_inbound_rejects_modified_credentials ... ok%0Atest loopback::mieru_outbound_inbound_handshake_loopback ... ok%0Atest loopback::mieru_inbound_attributes_the_matched_user ... ok%0Atest udp_framing::fragmented_udp_frames_survive_cancelled_reads_and_coalescing ... ok%0Atest udp_framing::session_reader_preserves_partial_frame_when_moved_into_responder ... ok%0A%0Atest result: ok. 15 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.04s%0A%0A     Running tests/suites/mieru_runtime.rs (target/debug/deps/mieru_runtime-5d37232275005711)%0A%0Arunning 22 tests%0Atest inbound_route::udp_route_preserves_the_protocol_owned_relay_and_authentication ... ok%0Atest inbound_route::tcp_route_preserves_payload_identity_and_runtime_error ... ok%0Atest multiplex::cases::lifecycle::dropping_retired_session_cannot_remove_a_reused_wire_id ... ok%0Atest multiplex::cases::lifecycle::peer_close_and_unknown_id_do_not_close_other_sessions ... ok%0Atest multiplex::cases::lifecycle::reserved_or_duplicate_ids_fail_the_underlay_without_cross_delivery ... ok%0Atest multiplex::cases::lifecycle::concurrent_tcp_udp_and_incomplete_handshake_are_isolated ... ok%0Atest multiplex::cases::lifecycle::truncated_underlay_and_connection_drop_wake_readers ... ok%0Atest multiplex::cases::framing::fragmented_padding_preserves_nonce_and_next_frame ... ok%0Atest underlay::cases::pool::concurrency::concurrent_opens_share_one_carrier_and_clear_drains_existing_sessions ... ok%0Atest multiplex::cases::lifecycle::large_writes_fragment_and_shutdown_is_logical ... ok%0Atest underlay::cases::pool::lifecycle::cancelled_dial_wakes_an_existing_waiter ... ok%0Atest underlay::cases::pool::lifecycle::disconnected_connection_is_replaced_without_replaying_application_data ... ok%0Atest underlay::cases::pool::policy::rejects_invalid_pool_policies ... ok%0Atest underlay::cases::pool::concurrency::failed_open_on_one_carrier_does_not_block_a_healthy_carrier ... ok%0Atest underlay::cases::pool::policy::grows_on_sustained_load_and_prefers_the_least_loaded_carrier ... ok%0Atest underlay::cases::pool::profile::different_transport_profiles_do_not_reuse_the_same_carrier ... ok%0Atest underlay::cases::pool::policy::retires_aged_carriers_without_interrupting_existing_streams ... ok%0Atest underlay::cases::pool::lifecycle::clear_detaches_an_inflight_dial_without_closing_its_returned_stream ... ok%0Atest traffic_stream::configured_public_streams_fragment_large_payloads_in_both_directions ... ok%0Atest multiplex::cases::lifecycle::flush_waits_for_the_underlay_and_sender_applies_backpressure ... ok%0Atest multiplex::cases::lifecycle::slow_session_fails_explicitly_while_other_sessions_continue ... ok%0Atest underlay::cases::packet::native_udp_recovers_loss_reordering_duplicates_and_preserves_sessions ... ok%0A%0Atest result: ok. 22 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 2.11s%0A%0A     Running unittests src/lib.rs (target/debug/deps/mieru_config-6bb57377c2c51f94)%0A%0Arunning 0 tests%0A%0Ates
+::error title=Workspace tests failed (3/3)::t result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s%0A

@@ -1,4 +1,3 @@
-#![cfg(feature = "socks5")]
 use super::FirstHopHealth;
 use std::sync::Arc;
 use zero_config::RuntimeConfig;

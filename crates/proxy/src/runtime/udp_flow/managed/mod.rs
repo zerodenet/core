@@ -67,7 +67,7 @@ pub(crate) use model::ManagedStreamHandlerPair;
 pub(crate) use state::{ManagedUdpHandlers, ManagedUdpState};
 #[cfg(feature = "managed-stream-runtime")]
 pub(crate) use stream_manager::{
-    ManagedPacketUdpResume, ManagedPacketUdpResumeConnector, ManagedStreamConnectorParts,
+    ManagedPacketUdpResume, ManagedPacketUdpResumeConnector, ManagedStreamConnectorFlow,
     ManagedTupleUdpResume, ManagedTupleUdpResumeConnector,
 };
 

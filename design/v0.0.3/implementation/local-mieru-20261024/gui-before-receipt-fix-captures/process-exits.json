@@ -1,0 +1,34 @@
+[
+  {
+    "pid": 73654,
+    "args": [
+      "/tmp/zero-mieru-consumers-b_98ej8b/zero",
+      "--version"
+    ],
+    "returncode": 0,
+    "signals": []
+  },
+  {
+    "pid": 73684,
+    "args": [
+      "/tmp/zero-mieru-consumers-b_98ej8b/zero",
+      "validate",
+      "/tmp/znet-kernel-compat-jp48gswr/config.json"
+    ],
+    "returncode": 0,
+    "signals": []
+  },
+  {
+    "pid": 73685,
+    "args": [
+      "/tmp/zero-mieru-consumers-b_98ej8b/zero",
+      "run",
+      "--control-socket",
+      "/tmp/znet-kernel-compat-jp48gswr/control.sock",
+      "--parent-lifetime-stdin",
+      "/tmp/znet-kernel-compat-jp48gswr/config.json"
+    ],
+    "returncode": 0,
+    "signals": []
+  }
+]

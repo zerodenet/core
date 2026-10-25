@@ -82,6 +82,14 @@ pub trait DatagramOutbound: Send + Sync + 'static {
     type Tx: DatagramTx + 'static;
     type Rx: DatagramRx + 'static;
     type Control: ChannelControl + 'static;
+    fn open_carrier(
+        &self,
+        _: DatagramRequest,
+        _: OpenContext,
+    ) -> impl Future<Output = Result<crate::controlled_carrier::loan::DatagramLoan, ChannelError>> + Send
+    {
+        async { Err(unsupported_carrier()) }
+    }
     fn open(
         &self,
         request: DatagramRequest,
@@ -111,6 +119,13 @@ impl<T: DatagramRx + ?Sized> DatagramRx for Pin<Box<T>> {
 }
 
 pub trait DynDatagramOutbound: Send + Sync {
+    fn open_carrier(
+        &self,
+        _: DatagramRequest,
+        _: OpenContext,
+    ) -> BoxFuture<'_, Result<crate::controlled_carrier::loan::DatagramLoan, ChannelError>> {
+        Box::pin(async { Err(unsupported_carrier()) })
+    }
     fn open(
         &self,
         request: DatagramRequest,
@@ -119,6 +134,16 @@ pub trait DynDatagramOutbound: Send + Sync {
 }
 struct Erased<T>(T);
 impl<T: DatagramOutbound> DynDatagramOutbound for Erased<T> {
+    fn open_carrier(
+        &self,
+        request: DatagramRequest,
+        context: OpenContext,
+    ) -> BoxFuture<'_, Result<crate::controlled_carrier::loan::DatagramLoan, ChannelError>> {
+        Box::pin(async move {
+            context.session_identity()?;
+            self.0.open_carrier(request, context).await
+        })
+    }
     fn open(
         &self,
         request: DatagramRequest,
@@ -130,6 +155,15 @@ impl<T: DatagramOutbound> DynDatagramOutbound for Erased<T> {
             Ok(erase_session(session))
         })
     }
+}
+fn unsupported_carrier() -> ChannelError {
+    let mut error = ChannelError::new(
+        super::Stage::Prepare,
+        super::Reason::Unsupported,
+        super::Impact::Component,
+    );
+    error.delivery = super::DeliveryState::NotSubmitted;
+    error
 }
 pub fn erase_session<
     Tx: DatagramTx + 'static,

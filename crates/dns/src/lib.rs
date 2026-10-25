@@ -12,11 +12,12 @@ mod fake_ip;
 mod family;
 mod localhost;
 mod message;
+pub mod native;
 mod outbound;
 mod owned_root;
 use owned_root::OwnedDnsRoot;
 mod query_tasks;
-pub use query_tasks::OwnedDnsQueryTasks;
+pub use query_tasks::{OwnedDnsQueryObservation, OwnedDnsQueryTasks};
 mod reverse;
 mod router;
 mod service;
@@ -77,6 +78,7 @@ pub use outbound::{
 /// hot-reloaded without restarting the proxy.
 pub struct DnsSystem {
     owned_root: Option<Arc<OwnedDnsRoot>>,
+    native_source: Option<Arc<native::NativeDnsSource>>,
     inner: std::sync::RwLock<DnsSystemInner>,
     prepared_reload: std::sync::Mutex<Option<Arc<reload::PreparedDnsReload>>>,
     config_generation: Arc<AtomicU64>,
@@ -130,6 +132,7 @@ struct ResolverServer {
 /// Extracted from the lock so we don't hold it across await points.
 #[derive(Clone)]
 struct ResolveSnapshot {
+    native_source: Option<Arc<native::NativeDnsSource>>,
     servers: BTreeMap<String, ResolverServer>,
     dispatcher: DnsDispatcher,
     cache: Option<DnsCache>,
@@ -188,6 +191,31 @@ impl DnsSystem {
         Self::build_internal(config, dispatch, egress_interface, fake_ip_state_path, None)
     }
 
+    pub fn build_with_native_queries(
+        config: Option<&DnsConfig>,
+        dispatch: Option<zero_router::DomainDispatcher<String>>,
+        egress: zero_platform_tokio::EgressInterfaceControl,
+        state: Option<PathBuf>,
+        source: Arc<native::NativeDnsSource>,
+    ) -> io::Result<Self> {
+        let mut dns = Self::build_internal(config, dispatch, egress, state, None)?;
+        dns.query_coordinator.set_native_source(source.clone());
+        dns.wire_query_coordinator.set_native_source(source.clone());
+        dns.native_source = Some(source);
+        Ok(dns)
+    }
+    pub fn retire_native_queries(&self) {
+        self.query_coordinator.cancel_pending();
+        self.wire_query_coordinator.cancel_pending();
+    }
+    /// Current actual query registrations only; these facts grant no I/O or close authority.
+    pub fn native_query_observations(&self) -> Vec<query_tasks::OwnedDnsQueryObservation> {
+        self.native_source
+            .as_ref()
+            .and_then(|source| source.tasks().ok())
+            .map(|tasks| tasks.observe())
+            .unwrap_or_default()
+    }
     fn build_internal(
         config: Option<&DnsConfig>,
         dispatch: Option<zero_router::DomainDispatcher<String>>,
@@ -234,6 +262,7 @@ impl DnsSystem {
             QueryCoordinator::with_graph_and_tasks(query_coordinator.shared_graph(), tasks);
         Ok(Self {
             owned_root,
+            native_source: None,
             inner: std::sync::RwLock::new(inner),
             transport_owners,
             prepared_reload: std::sync::Mutex::new(None),
@@ -466,6 +495,7 @@ impl DnsSystem {
                 reverse_mapping,
                 policy,
             } => Some(ResolveSnapshot {
+                native_source: self.native_source.clone(),
                 servers: servers.clone(),
                 dispatcher: dispatcher.clone(),
                 cache: cache.clone(),
@@ -654,7 +684,7 @@ impl DnsSystem {
         role: DnsQueryRole,
         config_generation: u64,
     ) -> io::Result<Vec<IpAddress>> {
-        if self.owned_root.is_some() {
+        if self.owned_root.is_some() || self.native_source.is_some() {
             return Err(io::Error::new(
                 io::ErrorKind::Unsupported,
                 "owned DNS UDP root does not authorize OS resolver work",
@@ -702,7 +732,7 @@ impl DnsSystem {
         family: AddressFamily,
         config_generation: u64,
     ) -> io::Result<Vec<IpAddress>> {
-        if self.owned_root.is_some() {
+        if self.owned_root.is_some() || self.native_source.is_some() {
             return Err(io::Error::new(
                 io::ErrorKind::Unsupported,
                 "owned DNS UDP root does not authorize OS resolver work",

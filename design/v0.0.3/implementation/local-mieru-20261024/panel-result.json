@@ -1,0 +1,14 @@
+{
+  "exit": 0,
+  "seconds": 84.16,
+  "command": [
+    "/tmp/zero-v003-boundaries.FGzrzH/zboard-zero.test",
+    "-test.run",
+    "^TestNativePublicationPreservesTrafficAcrossPublisherProcesses$",
+    "-test.v",
+    "-test.timeout",
+    "120s"
+  ],
+  "cwd": "/Volumes/tool/golang/zboard/backend",
+  "binary": "/tmp/zero-mieru-final-consumers-heax_f8i/zero"
+}

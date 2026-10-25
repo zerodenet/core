@@ -6,11 +6,7 @@ use zero_traits::{
 };
 
 use crate::adapters::identity::NamedProtocolAdapter;
-use crate::protocol_registry::{
-    InboundListenerCapability, OutboundLeafClaim, OutboundLeafInput, TcpOutboundCapability,
-};
-#[cfg(feature = "udp-runtime")]
-use crate::protocol_registry::{UdpFlowCapability, UdpPacketPathCapability};
+use crate::protocol_registry::{InboundListenerCapability, OutboundLeafClaim, OutboundLeafInput};
 use crate::runtime::path::TcpPathCategory;
 
 mod datagram;
@@ -100,12 +96,6 @@ impl DirectAdapter {
     }
 }
 
-#[cfg(feature = "udp-runtime")]
-impl UdpFlowCapability for DirectAdapter {}
-
-#[cfg(feature = "udp-runtime")]
-impl UdpPacketPathCapability for DirectAdapter {}
-
 #[async_trait::async_trait]
 impl InboundListenerCapability for DirectAdapter {
     async fn bind_inbound(
@@ -127,8 +117,6 @@ impl InboundListenerCapability for DirectAdapter {
         self.prepare_inbound_listener_impl(inbound)
     }
 }
-
-impl TcpOutboundCapability for DirectAdapter {}
 
 impl ProtocolMetadata for DirectAdapter {
     fn descriptor(&self) -> ProtocolCapabilityDescriptor {

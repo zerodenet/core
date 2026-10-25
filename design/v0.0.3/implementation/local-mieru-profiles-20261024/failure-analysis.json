@@ -1,0 +1,37 @@
+{
+  "full_exit": 101,
+  "summary": {
+    "passed": 3777,
+    "failed": 1,
+    "ignored": 175,
+    "targets": 155,
+    "seconds": 1763
+  },
+  "failed_test": "runtime::orchestration::tests::observer_handoff::interrupted_state_keeps_original_observer_joining_active_peer_and_separate_native_close",
+  "failure": "observer_handoff.rs:208 supplementary UDP rebind returned errno 48 AddrInUse after actual close/join receipt assertions succeeded",
+  "observations": [
+    "The original unique TokioDatagramSocket is consumed by close(); on Unix this calls libc::close on the owned original fd and reports success only on return 0.",
+    "The failure occurred after assertions for the original two joins, one close receipt, exact original failure Arc, and registry owner removal.",
+    "Isolated exact test on the same frozen sources passed, 0.15 seconds.",
+    "Concurrent reuse of the released endpoint is an inference; the competing owner was not captured."
+  ],
+  "source_evidence": [
+    {
+      "path": "crates/proxy/src/runtime/orchestration/tests/observer_handoff.rs",
+      "sha256": "3ebe559328d360b5d3dd51afce4f9035e17510d449b27138bb2122b38f54d1d6",
+      "unchanged_from_start": true
+    },
+    {
+      "path": "crates/proxy/src/runtime/orchestration/tests/observer_handoff/native.rs",
+      "sha256": "e56f388e2a0e800c9a1f7a311bd292cb735f2028b53aeeeffcd0c8c7b5ff285f",
+      "unchanged_from_start": true
+    },
+    {
+      "path": "crates/platform/tokio/src/datagram.rs",
+      "sha256": "2d7135274b7bb5a73d913258c23d4d437d0c129539f7e123c600f65776626cc7",
+      "unchanged_from_start": true
+    }
+  ],
+  "changes_to_failed_test_assertions_deadlines_concurrency_or_skips": false,
+  "followup": "Repeat the complete original all-features workspace command without source or test-policy changes; retain all original results."
+}

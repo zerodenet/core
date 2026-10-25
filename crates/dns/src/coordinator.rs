@@ -70,6 +70,7 @@ pub(super) struct QueryCoordinator<T> {
     state: Arc<Mutex<CoordinatorState<T>>>,
     graph: Arc<Mutex<dependency::Graph>>,
     owned_tasks: Option<crate::query_tasks::OwnedDnsQueryTasks>,
+    native_source: Option<Arc<crate::native::NativeDnsSource>>,
 }
 
 mod state;
@@ -93,6 +94,7 @@ impl<T> QueryCoordinator<T> {
         Self {
             graph,
             owned_tasks,
+            native_source: None,
             state: Arc::new(Mutex::new(CoordinatorState {
                 closing: false,
                 observed_egress_generation: None,
@@ -111,12 +113,38 @@ impl<T> QueryCoordinator<T>
 where
     T: Clone + Send + 'static,
 {
+    pub(crate) fn set_native_source(&mut self, source: Arc<crate::native::NativeDnsSource>) {
+        self.native_source = Some(source);
+    }
+    fn current_tasks(&self) -> io::Result<Option<crate::OwnedDnsQueryTasks>> {
+        match &self.native_source {
+            Some(source) => source.tasks().map(Some),
+            None => Ok(self.owned_tasks.clone()),
+        }
+    }
+    pub(crate) fn cancel_pending(&self) {
+        let flights = {
+            let mut state = self.state.lock().expect("DNS coordinator poisoned");
+            state.failures.clear();
+            state
+                .in_flight
+                .drain()
+                .map(|(_, flight)| flight)
+                .collect::<Vec<_>>()
+        };
+        for flight in flights {
+            flight.cancel(io::Error::new(
+                io::ErrorKind::NotConnected,
+                "native DNS owner retired",
+            ));
+        }
+    }
     pub(crate) fn shared_graph(&self) -> Arc<Mutex<dependency::Graph>> {
         self.graph.clone()
     }
 
     pub(super) fn ensure_open(&self) -> io::Result<()> {
-        if let Some(tasks) = &self.owned_tasks {
+        if let Some(tasks) = self.current_tasks()? {
             tasks.ensure_open()?;
         }
         let mut state = self.state.lock().expect("DNS coordinator poisoned");
@@ -241,11 +269,18 @@ where
                     .get(&admission_key)
                     .is_some_and(|current| Arc::ptr_eq(current, &flight))
             {
-                if let Some(tasks) = &self.owned_tasks {
+                if self.owned_tasks.is_some() || self.native_source.is_some() {
                     // The original job is registered exactly once. No Scope
                     // callbacks or query cancellation run under this state lock.
                     drop(state);
-                    if let Err(error) = tasks.spawn(job, flight.cancel.clone()) {
+                    if let Err(error) = self.current_tasks().and_then(|tasks| {
+                        let tasks = tasks.expect("owned query source");
+                        flight
+                            .native_tasks
+                            .set(tasks.clone())
+                            .expect("one native query admission");
+                        tasks.spawn(job, flight.cancel.clone())
+                    }) {
                         flight.cancel(error);
                     }
                 } else {
@@ -262,6 +297,13 @@ where
         loop {
             tokio::select! { biased;
                 result = flight.wait() => return result.map_err(|error|error.to_io_error()),
+                _ = flight.cancel.cancelled() => {
+                    // The shared native provider may revoke a query from the
+                    // other coordinator during an actual network transition.
+                    // Publish its logical cancellation even when its job was
+                    // dropped before it could finish this flight itself.
+                    flight.complete(Err(io::Error::new(io::ErrorKind::Interrupted,"original DNS query cancelled").into()));
+                },
                 joined = self.next_task_exit() => {
                     // A follower can arrive after flight selection and before
                     // the leader admits its worker. Let the leader/shutdown
@@ -273,15 +315,38 @@ where
     }
 
     async fn next_task_exit(&self) -> bool {
-        if let Some(tasks) = &self.owned_tasks {
+        if self.owned_tasks.is_some() || self.native_source.is_some() {
+            let Some(tasks) = self.current_tasks().ok().flatten() else {
+                return false;
+            };
             let observed = tasks.next_exit().await;
             if let Err(error) = tasks.ensure_open() {
-                let mut state = self.state.lock().expect("DNS coordinator poisoned");
                 let source = SharedError::from(error);
-                for flight in state.in_flight.drain().map(|(_, flight)| flight) {
+                let retired = {
+                    let mut state = self.state.lock().expect("DNS coordinator poisoned");
+                    let keys = state
+                        .in_flight
+                        .iter()
+                        .filter(|(_, flight)| {
+                            flight
+                                .native_tasks
+                                .get()
+                                .is_some_and(|owner| owner.same_owner(&tasks))
+                        })
+                        .map(|(key, _)| key.clone())
+                        .collect::<Vec<_>>();
+                    let retired = keys
+                        .into_iter()
+                        .filter_map(|key| state.in_flight.remove(&key))
+                        .collect::<Vec<_>>();
+                    if self.native_source.is_none() {
+                        state.task_failure.get_or_insert(source.clone());
+                    }
+                    retired
+                };
+                for flight in retired {
                     flight.cancel(source.to_io_error());
                 }
-                state.task_failure.get_or_insert(source);
             }
             return observed;
         }
@@ -313,7 +378,11 @@ where
             }
             state.tasks.abort_all();
         }
-        if let Some(tasks) = &self.owned_tasks {
+        if self.native_source.is_some() {
+            if let Some(tasks) = self.current_tasks().ok().flatten() {
+                return tasks.shutdown(deadline).await;
+            }
+        } else if let Some(tasks) = &self.owned_tasks {
             return tasks.shutdown(deadline).await;
         }
         while tokio::time::timeout_at(deadline, self.next_task_exit())

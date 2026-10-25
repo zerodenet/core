@@ -1,6 +1,10 @@
 use crate::support;
 use support::listener::EchoListener;
 
+#[cfg(unix)]
+#[path = "proxy_smoke/default_stack.rs"]
+mod default_stack;
+
 use std::fs;
 use std::io::{Read, Write};
 use std::thread;

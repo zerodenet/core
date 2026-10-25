@@ -10,7 +10,7 @@ use crate::runtime::udp_dispatch::relay::PreparedUdpRelayOperation;
 use crate::runtime::udp_dispatch::FlowFailure;
 use crate::runtime::udp_flow::managed::{
     bridge::{managed_stream_handler_box, ManagedStreamStages},
-    ManagedStreamConnectorParts, ManagedStreamHandlerPair, ManagedTupleUdpFlowConnection,
+    ManagedStreamConnectorFlow, ManagedStreamHandlerPair, ManagedTupleUdpFlowConnection,
     ManagedTupleUdpResume, ManagedTupleUdpResumeConnector,
 };
 
@@ -90,9 +90,10 @@ impl ManagedTupleUdpResumeConnector for ::mieru::transport::MieruManagedUdpFlowR
     }
 }
 
-impl ManagedStreamConnectorParts for ::mieru::transport::MieruManagedUdpConnectorFlow {
-    fn into_managed_connector_parts(self) -> (String, bool) {
-        self.into_parts()
+impl From<::mieru::transport::MieruManagedUdpConnectorFlow> for ManagedStreamConnectorFlow {
+    fn from(flow: ::mieru::transport::MieruManagedUdpConnectorFlow) -> Self {
+        let (cache_key, requires_relay_upstream) = flow.into_parts();
+        Self::new(cache_key, requires_relay_upstream)
     }
 }
 

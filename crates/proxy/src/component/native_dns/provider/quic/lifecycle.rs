@@ -1,0 +1,104 @@
+use super::*;
+impl Lifecycle {
+    pub(super) fn return_unbound(&mut self) -> std::io::Result<()> {
+        if self.unbound.is_some() {
+            self.permit
+                .return_unbound(&mut self.unbound, &self.tasks)
+                .map_err(std::io::Error::other)?;
+        }
+        Ok(())
+    }
+}
+impl Query {
+    pub(super) async fn close(
+        &self,
+        end: tokio::time::Instant,
+    ) -> std::io::Result<MetadataPoolClosed> {
+        let mut state = tokio::time::timeout_at(end, self.state.lock())
+            .await
+            .map_err(std::io::Error::other)?;
+        if state.closed.is_none() {
+            state.return_unbound()?;
+            if let Some(owner) = &state.owner {
+                owner.begin_shutdown();
+            }
+            let tasks = state
+                .owner
+                .as_ref()
+                .map(|owner| owner.driver_tasks())
+                .unwrap_or_default();
+            for task in tasks {
+                if state
+                    .received
+                    .iter()
+                    .any(|delivery| delivery.joined.id() == task)
+                {
+                    continue;
+                }
+                let delivery = state
+                    .receiver
+                    .as_mut()
+                    .expect("retained actual driver receiver")
+                    .receive(task, end)
+                    .await
+                    .map_err(std::io::Error::other)?;
+                // Each original exit/source persists before another await.
+                state.received.push(delivery);
+            }
+            if let Some(owner) = &state.owner {
+                let report = owner
+                    .shutdown_users(end)
+                    .await
+                    .map_err(std::io::Error::other)?;
+                if !report.users_and_drivers_complete() {
+                    return Err(std::io::Error::new(
+                        std::io::ErrorKind::TimedOut,
+                        "DoQ original users or driver reception remains unconfirmed",
+                    ));
+                }
+            }
+            drop(state.owner.take());
+            let receipt = state
+                .completion
+                .as_ref()
+                .map(|completion| {
+                    completion.try_closed().ok_or_else(|| {
+                        std::io::Error::new(
+                            std::io::ErrorKind::TimedOut,
+                            "DoQ original views remain retained",
+                        )
+                    })
+                })
+                .transpose()?;
+            let native = state
+                .permit
+                .close(receipt.as_ref(), &state.tasks)
+                .map_err(std::io::Error::other)?;
+            state.closed = Some(native);
+        }
+        if let Some(source) = state
+            .received
+            .iter()
+            .find_map(|delivery| delivery.joined.result().err())
+        {
+            return Err(std::io::Error::other(OriginalFailure(source)));
+        }
+        Ok(state
+            .closed
+            .as_ref()
+            .expect("confirmed same original")
+            .clone())
+    }
+}
+#[derive(Debug)]
+struct OriginalFailure(Arc<zero_platform_tokio::contract::ChannelError>);
+impl std::fmt::Display for OriginalFailure {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        std::fmt::Display::fmt(self.0.as_ref(), f)
+    }
+}
+impl std::error::Error for OriginalFailure {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        Some(self.0.as_ref())
+    }
+}

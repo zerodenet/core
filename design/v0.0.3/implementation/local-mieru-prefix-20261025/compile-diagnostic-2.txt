@@ -1,0 +1,352 @@
+warning: trailing semicolon in macro used in expression position
+  --> vendor/quinn-udp/build.rs:5:5
+   |
+ 5 | /     cfg_aliases! {
+ 6 | |         // Platforms
+ 7 | |         apple: {
+ 8 | |             any(
+...  |
+31 | |         wasm_browser: { all(target_family = "wasm", target_os = "unknown") },
+32 | |     }
+   | |_____^
+   |
+   = warning: this was previously accepted by the compiler but is being phased out; it will become a hard error in a future release!
+   = note: for more information, see issue #79813 <https://github.com/rust-lang/rust/issues/79813>
+   = note: `#[warn(semicolon_in_expressions_from_non_local_macros)]` (part of `#[warn(future_incompatible)]`) on by default
+   = note: this warning originates in the macro `$crate::cfg_aliases` which comes from the expansion of the macro `cfg_aliases` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+warning: trailing semicolon in macro used in expression position
+  --> vendor/quinn-udp/build.rs:5:5
+   |
+ 5 | /     cfg_aliases! {
+ 6 | |         // Platforms
+ 7 | |         apple: {
+ 8 | |             any(
+...  |
+31 | |         wasm_browser: { all(target_family = "wasm", target_os = "unknown") },
+32 | |     }
+   | |_____^
+   |
+   = warning: this was previously accepted by the compiler but is being phased out; it will become a hard error in a future release!
+   = note: for more information, see issue #79813 <https://github.com/rust-lang/rust/issues/79813>
+   = note: this warning originates in the macro `$crate::cfg_aliases` which comes from the expansion of the macro `cfg_aliases` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+warning: `quinn-udp` (build script) generated 87 warnings (85 duplicates)
+warning: trailing semicolon in macro used in expression position
+ --> vendor/quinn/build.rs:5:5
+  |
+5 | /     cfg_aliases! {
+6 | |         // Convenience aliases
+7 | |         wasm_browser: { all(target_family = "wasm", target_os = "unknown") },
+8 | |     }
+  | |_____^
+  |
+  = warning: this was previously accepted by the compiler but is being phased out; it will become a hard error in a future release!
+  = note: for more information, see issue #79813 <https://github.com/rust-lang/rust/issues/79813>
+  = note: `#[warn(semicolon_in_expressions_from_non_local_macros)]` (part of `#[warn(future_incompatible)]`) on by default
+  = note: this warning originates in the macro `$crate::cfg_aliases` which comes from the expansion of the macro `cfg_aliases` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+warning: trailing semicolon in macro used in expression position
+ --> vendor/quinn/build.rs:5:5
+  |
+5 | /     cfg_aliases! {
+6 | |         // Convenience aliases
+7 | |         wasm_browser: { all(target_family = "wasm", target_os = "unknown") },
+8 | |     }
+  | |_____^
+  |
+  = warning: this was previously accepted by the compiler but is being phased out; it will become a hard error in a future release!
+  = note: for more information, see issue #79813 <https://github.com/rust-lang/rust/issues/79813>
+  = note: this warning originates in the macro `$crate::cfg_aliases` which comes from the expansion of the macro `cfg_aliases` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+warning: `quinn` (build script) generated 8 warnings (6 duplicates)
+   Compiling zero-platform-tokio v0.0.3-dev.202610162206 (/Volumes/tool/rust/zero/crates/platform/tokio)
+warning: use of deprecated associated function `core::num::<impl u8>::max_value`: replaced by the `MAX` associated constant on this type
+   --> vendor/blake3/src/platform.rs:421:5
+    |
+421 |     cpufeatures::new!(has_avx512, "avx512f", "avx512vl");
+    |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+    = note: `#[warn(deprecated)]` on by default
+    = note: this warning originates in the macro `cpufeatures::new` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+warning: use of deprecated associated function `core::num::<impl u8>::max_value`: replaced by the `MAX` associated constant on this type
+   --> vendor/blake3/src/platform.rs:437:5
+    |
+437 |     cpufeatures::new!(has_avx2, "avx2");
+    |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+    = note: this warning originates in the macro `cpufeatures::new` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+warning: use of deprecated associated function `core::num::<impl u8>::max_value`: replaced by the `MAX` associated constant on this type
+   --> vendor/blake3/src/platform.rs:453:5
+    |
+453 |     cpufeatures::new!(has_sse41, "sse4.1");
+    |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+    = note: this warning originates in the macro `cpufeatures::new` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+warning: use of deprecated associated function `core::num::<impl u8>::max_value`: replaced by the `MAX` associated constant on this type
+   --> vendor/blake3/src/platform.rs:469:5
+    |
+469 |     cpufeatures::new!(has_sse2, "sse2");
+    |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+    = note: this warning originates in the macro `cpufeatures::new` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+warning: use of deprecated associated function `core::num::<impl u64>::max_value`: replaced by the `MAX` associated constant on this type
+    --> vendor/blake3/src/lib.rs:1817:33
+     |
+1817 |         let max_position = u64::max_value() as i128;
+     |                                 ^^^^^^^^^
+
+warning: `blake3` (lib) generated 5 warnings
+   Compiling zero-transport v0.0.3-dev.202610162206 (/Volumes/tool/rust/zero/crates/transport)
+   Compiling http v0.0.1 (/Volumes/tool/rust/zero/protocols/http)
+   Compiling vmess v26.3.27 (/Volumes/tool/rust/zero/protocols/vmess)
+   Compiling vless v26.3.27 (/Volumes/tool/rust/zero/protocols/vless)
+   Compiling shadowsocks v1.21.2 (/Volumes/tool/rust/zero/protocols/shadowsocks)
+   Compiling hysteria2 v2.12.2 (/Volumes/tool/rust/zero/protocols/hysteria2)
+   Compiling trojan v0.10.6 (/Volumes/tool/rust/zero/protocols/trojan)
+   Compiling socks5 v0.0.1 (/Volumes/tool/rust/zero/protocols/socks5)
+   Compiling mieru v3.33.0 (/Volumes/tool/rust/zero/protocols/mieru)
+   Compiling zero-config v0.0.3-dev.202610162206 (/Volumes/tool/rust/zero/crates/config)
+   Compiling zero-dns v0.0.3-dev.202610162206 (/Volumes/tool/rust/zero/crates/dns)
+   Compiling zero-runtime v0.0.3-dev.202610162206 (/Volumes/tool/rust/zero/crates/runtime)
+   Compiling zero-engine v0.0.3-dev.202610162206 (/Volumes/tool/rust/zero/crates/engine)
+   Compiling zero-proxy v0.0.3-dev.202610162206 (/Volumes/tool/rust/zero/crates/proxy)
+error[E0365]: `Server` is private, and cannot be re-exported
+ --> crates/proxy/src/component/tests/mieru/fixtures.rs:3:16
+  |
+3 | pub(super) use server::Server;
+  |                ^^^^^^^^^^^^^^ re-export of private `Server`
+  |
+  = note: consider declaring type or module `Server` with `pub`
+
+error[E0433]: cannot find type `Server` in this scope
+  --> crates/proxy/src/component/tests/mieru.rs:12:17
+   |
+12 |         let a = Server::new(true).await;
+   |                 ^^^^^^ use of undeclared type `Server`
+   |
+note: struct `crate::component::tests::mieru::fixtures::Server` exists but is inaccessible
+  --> crates/proxy/src/component/tests/mieru/fixtures/server.rs:5:1
+   |
+ 5 | pub(super) struct Server {
+   | ^^^^^^^^^^^^^^^^^^^^^^^^ not accessible
+
+error[E0433]: cannot find type `Server` in this scope
+  --> crates/proxy/src/component/tests/mieru.rs:13:17
+   |
+13 |         let b = Server::new(true).await;
+   |                 ^^^^^^ use of undeclared type `Server`
+   |
+note: struct `crate::component::tests::mieru::fixtures::Server` exists but is inaccessible
+  --> crates/proxy/src/component/tests/mieru/fixtures/server.rs:5:1
+   |
+ 5 | pub(super) struct Server {
+   | ^^^^^^^^^^^^^^^^^^^^^^^^ not accessible
+
+error[E0433]: cannot find type `Server` in this scope
+  --> crates/proxy/src/component/tests/mieru.rs:14:17
+   |
+14 |         let c = Server::new(false).await;
+   |                 ^^^^^^ use of undeclared type `Server`
+   |
+note: struct `crate::component::tests::mieru::fixtures::Server` exists but is inaccessible
+  --> crates/proxy/src/component/tests/mieru/fixtures/server.rs:5:1
+   |
+ 5 | pub(super) struct Server {
+   | ^^^^^^^^^^^^^^^^^^^^^^^^ not accessible
+
+error[E0433]: cannot find type `Server` in this scope
+  --> crates/proxy/src/component/tests/mieru.rs:88:17
+   |
+88 |         let a = Server::new(true).await;
+   |                 ^^^^^^ use of undeclared type `Server`
+   |
+note: struct `crate::component::tests::mieru::fixtures::Server` exists but is inaccessible
+  --> crates/proxy/src/component/tests/mieru/fixtures/server.rs:5:1
+   |
+ 5 | pub(super) struct Server {
+   | ^^^^^^^^^^^^^^^^^^^^^^^^ not accessible
+
+error[E0433]: cannot find type `Server` in this scope
+  --> crates/proxy/src/component/tests/mieru.rs:90:13
+   |
+90 |             Server::packet(true).await
+   |             ^^^^^^ use of undeclared type `Server`
+   |
+note: struct `crate::component::tests::mieru::fixtures::Server` exists but is inaccessible
+  --> crates/proxy/src/component/tests/mieru/fixtures/server.rs:5:1
+   |
+ 5 | pub(super) struct Server {
+   | ^^^^^^^^^^^^^^^^^^^^^^^^ not accessible
+
+error[E0433]: cannot find type `Server` in this scope
+  --> crates/proxy/src/component/tests/mieru.rs:92:13
+   |
+92 |             Server::new(true).await
+   |             ^^^^^^ use of undeclared type `Server`
+   |
+note: struct `crate::component::tests::mieru::fixtures::Server` exists but is inaccessible
+  --> crates/proxy/src/component/tests/mieru/fixtures/server.rs:5:1
+   |
+ 5 | pub(super) struct Server {
+   | ^^^^^^^^^^^^^^^^^^^^^^^^ not accessible
+
+error[E0433]: cannot find type `Server` in this scope
+  --> crates/proxy/src/component/tests/mieru.rs:94:17
+   |
+94 |         let c = Server::new(false).await;
+   |                 ^^^^^^ use of undeclared type `Server`
+   |
+note: struct `crate::component::tests::mieru::fixtures::Server` exists but is inaccessible
+  --> crates/proxy/src/component/tests/mieru/fixtures/server.rs:5:1
+   |
+ 5 | pub(super) struct Server {
+   | ^^^^^^^^^^^^^^^^^^^^^^^^ not accessible
+
+warning: unused import: `server::Server`
+ --> crates/proxy/src/component/tests/mieru/fixtures.rs:3:16
+  |
+3 | pub(super) use server::Server;
+  |                ^^^^^^^^^^^^^^
+  |
+  = note: `#[warn(unused_imports)]` (part of `#[warn(unused)]`) on by default
+
+error[E0716]: temporary value dropped while borrowed
+  --> crates/proxy/src/component/tests/mieru/fixtures/server.rs:67:99
+   |
+67 | ...on=tokio::select! {biased;_=cancel.cancelled()=>return,result=profile().accept_packet_peer(socket,peer,receiver)=>result.unwrap()};
+   |       -----------------------------------------------------------^^^^^^^^^-----------------------------------------------------------
+   |       |                                                          |
+   |       |                                                          creates a temporary value which is freed while still in use
+   |       temporary value is freed at the end of this statement
+   |       borrow later used here
+   |
+   = note: consider using a `let` binding to create a longer lived value
+
+warning: use of deprecated method `std::sync::atomic::Atomic::<u64>::fetch_update`: renamed to `try_update` for consistency
+  --> crates/proxy/src/component/stream_bridge/relay/prefix/packet_loan.rs:43:18
+   |
+43 |                 .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |id| id.checked_add(1))
+   |                  ^^^^^^^^^^^^
+   |
+   = note: `#[warn(deprecated)]` on by default
+help: replace the use of the deprecated method
+   |
+43 -                 .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |id| id.checked_add(1))
+43 +                 .try_update(Ordering::Relaxed, Ordering::Relaxed, |id| id.checked_add(1))
+   |
+
+warning: `zero-proxy` (lib test) generated 2 warnings (1 duplicate)
+error: could not compile `zero-proxy` (lib test) due to 9 previous errors; 2 warnings emitted
+warning: build failed, waiting for other jobs to finish...
+error[E0080]: compilation was interrupted
+  --> /rustc/b940084d7eb6a299eb4bfeb8e34901bc051e7ac4/library/core/src/macros/mod.rs:45:23
+   |
+   = note: evaluation of `zero_transport::tls::TlsRecordBoundary::<zero_transport::ReplayStream<zero_transport::TcpRelayStream>>::into_inner` failed here
+   |
+  ::: crates/transport/src/tls/record_boundary.rs:39:9
+   |
+39 |         debug_assert_eq!(self.header_read, 0);
+   |         ------------------------------------- in this macro invocation
+   |
+   = note: this error originates in the macro `$crate::assert_eq` which comes from the expansion of the macro `debug_assert_eq` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+error[E0080]: compilation was interrupted
+  --> /rustc/b940084d7eb6a299eb4bfeb8e34901bc051e7ac4/library/core/src/macros/mod.rs:45:23
+   |
+   = note: evaluation of `zero_transport::tls::TlsRecordBoundary::<zero_transport::ReplayStream<zero_transport::TcpRelayStream>>::into_inner` failed here
+   |
+  ::: crates/transport/src/tls/record_boundary.rs:40:9
+   |
+40 |         debug_assert_eq!(self.remaining, 0);
+   |         ----------------------------------- in this macro invocation
+   |
+   = note: this error originates in the macro `$crate::assert_eq` which comes from the expansion of the macro `debug_assert_eq` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+note: the above error was encountered while instantiating `fn TlsRecordBoundary::<ReplayStream<zero_transport::TcpRelayStream>>::into_inner`
+  --> crates/transport/src/tls/switchable.rs:44:19
+   |
+44 |         Self::new(socket.into_inner(), rustls::Connection::Server(connection))
+   |                   ^^^^^^^^^^^^^^^^^^^
+
+error[E0080]: compilation was interrupted
+  --> crates/transport/src/tls/switchable.rs:26:57
+   |
+26 |         let control = (connection.protocol_version() == Some(rustls::ProtocolVersion::TLSv1_3))
+   |                                                         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ evaluation of `zero_transport::tls::switchable::SwitchableTlsStream::<zero_transport::ReplayStream<zero_transport::TcpRelayStream>>::new` failed here
+
+note: the above error was encountered while instantiating `fn tls::switchable::SwitchableTlsStream::<ReplayStream<zero_transport::TcpRelayStream>>::new`
+  --> crates/transport/src/tls/switchable.rs:44:9
+   |
+44 |         Self::new(socket.into_inner(), rustls::Connection::Server(connection))
+   |         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+error[E0080]: compilation was interrupted
+ --> /rustc/b940084d7eb6a299eb4bfeb8e34901bc051e7ac4/library/core/src/mem/mod.rs:1464:24
+  |
+  = note: evaluation of `<zero_transport::tls::switchable::SwitchableTlsStream<zero_transport::ReplayStream<zero_transport::TcpRelayStream>> as std::mem::SizedTypeProperties>::SIZE` failed here
+
+note: the above error was encountered while instantiating `fn Box::<SwitchableTlsStream<ReplayStream<TcpRelayStream>>>::new`
+  --> crates/transport/src/tls/inbound_stream.rs:43:34
+   |
+43 |               inner: Inner::Rustls(Box::new(super::switchable::SwitchableTlsStream::server(
+   |  __________________________________^
+44 | |                 inner,
+45 | |             ))),
+   | |______________^
+   |
+   = note: the full name for the type has been written to '/Volumes/tool/rust/zero/target/debug/deps/zero_proxy-833fef754341a6e9.long-type-16401488697574759761.txt'
+   = note: consider using `--verbose` to print the full type name to the console
+
+error[E0080]: compilation was interrupted
+   --> crates/transport/src/tls/openssl/stream.rs:180:35
+    |
+180 |     stream.ssl().version_str() == "TLSv1.3"
+    |                                   ^^^^^^^^^ evaluation of `zero_transport::tls::openssl::stream::is_tls13::<zero_transport::tls::TlsRecordBoundary<zero_transport::ReplayStream<zero_transport::TcpRelayStream>>>` failed here
+
+note: the above error was encountered while instantiating `fn is_tls13::<TlsRecordBoundary<ReplayStream<TcpRelayStream>>>`
+  --> crates/transport/src/tls/openssl/stream.rs:36:23
+   |
+36 |         let control = is_tls13(&stream).then_some(control);
+   |                       ^^^^^^^^^^^^^^^^^
+   |
+   = note: the full name for the type has been written to '/Volumes/tool/rust/zero/target/debug/deps/zero_proxy-833fef754341a6e9.long-type-13765076617084832516.txt'
+   = note: consider using `--verbose` to print the full type name to the console
+
+error[E0080]: compilation was interrupted
+ --> /rustc/b940084d7eb6a299eb4bfeb8e34901bc051e7ac4/library/core/src/mem/mod.rs:1464:24
+  |
+  = note: evaluation of `<openssl::ssl::bio::StreamState<tokio_openssl::StreamWrapper<zero_transport::tls::TlsRecordBoundary<zero_transport::ReplayStream<zero_transport::TcpRelayStream>>>> as std::mem::SizedTypeProperties>::SIZE` failed here
+
+note: the above error was encountered while instantiating `fn Box::<StreamState<StreamWrapper<TlsRecordBoundary<_>>>>::new`
+  --> /Users/higanbana/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/openssl-0.10.81/src/ssl/bio.rs:36:17
+   |
+36 |       let state = Box::new(StreamState {
+   |  _________________^
+37 | |         stream,
+38 | |         error: None,
+39 | |         panic: None,
+40 | |         dtls_mtu_size: 0,
+41 | |     });
+   | |______^
+   |
+   = note: the full name for the type has been written to '/Volumes/tool/rust/zero/target/debug/deps/zero_proxy-833fef754341a6e9.long-type-6392270519884168042.txt'
+   = note: consider using `--verbose` to print the full type name to the console
+
+error[E0080]: compilation was interrupted
+ --> /rustc/b940084d7eb6a299eb4bfeb8e34901bc051e7ac4/library/core/src/mem/mod.rs:1464:24
+  |
+  = note: evaluation of `<zero_transport::tls::InboundTlsStream<zero_transport::ReplayStream<zero_transport::TcpRelayStream>> as std::mem::SizedTypeProperties>::SIZE` failed here
+
+note: the above error was encountered while instantiating `fn Box::<InboundTlsStream<ReplayStream<zero_transport::TcpRelayStream>>>::new`
+   --> protocols/vless/src/transport/inbound/carrier.rs:269:66
+    |
+269 |                         stream: VlessInboundTransportStream::Tls(Box::new(tls_stream)),
+    |                                                                  ^^^^^^^^^^^^^^^^^^^^
+
+warning: `zero-proxy` (lib) generated 1 warning
+error: could not compile `zero-proxy` (lib) due to 7 previous errors; 1 warning emitted

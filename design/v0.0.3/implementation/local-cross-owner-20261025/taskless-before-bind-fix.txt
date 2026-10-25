@@ -1,0 +1,18 @@
+
+running 2 tests
+
+thread 'controlled_carrier::tests::taskless::taskless_packet_loan_closes_its_actual_native_original_without_an_invented_worker' (11813923) panicked at crates/platform/tokio/src/../tests/controlled_carrier/taskless.rs:140:5:
+assertion `left == right` failed
+  left: 127.0.0.1:53750
+ right: 0.0.0.0:53750
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+test controlled_carrier::tests::taskless::taskless_packet_loan_closes_its_actual_native_original_without_an_invented_worker ... FAILED
+test controlled_carrier::tests::taskless::taskless_stream_loan_requires_original_control_and_returned_native_custody ... ok
+
+failures:
+
+failures:
+    controlled_carrier::tests::taskless::taskless_packet_loan_closes_its_actual_native_original_without_an_invented_worker
+
+test result: FAILED. 1 passed; 1 failed; 0 ignored; 0 measured; 280 filtered out; finished in 0.02s
+

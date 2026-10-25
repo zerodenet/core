@@ -1,0 +1,9 @@
+
+running 4 tests
+test component::tests::borrowing::cancelled_replacement_keeps_the_loan_fence_until_the_host_stages_actual_owners ... ok
+test component::tests::borrowing::actual_loan_edges_deduplicate_reject_cycles_and_foreign_owner_tokens ... ok
+test component::tests::generations::borrowing::old_generation_loan_edges_cannot_invent_a_cycle_in_the_new_declared_graph ... ok
+test component::tests::generations::borrowing::actual_cross_owner_dependencies_propagate_once_without_becoming_factory_dependencies ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 188 filtered out; finished in 0.00s
+

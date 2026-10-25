@@ -100,7 +100,7 @@ impl CarrierAdoption {
                     DeliveryState::Unknown,
                 ));
             }
-            if state.spawn_attempted {
+            if state.spawn_attempted || state.transferred_origin {
                 return Err(error(
                     self.instance(),
                     Stage::Prepare,
@@ -158,10 +158,19 @@ impl CarrierAdoption {
     }
 }
 impl CarrierClosed {
+    pub fn borrowed_origin(&self) -> Option<super::CarrierOrigin> {
+        self.slot.state().loan_origin.clone()
+    }
     /// False for a private unused reservation receipt. Only the original native
     /// preparation installs this control; caller code cannot fabricate it.
     pub fn had_native_acquisition(&self) -> bool {
-        self.slot.state().control.is_some()
+        let state = self.slot.state();
+        state.control.is_some()
+            || state.packet.is_some()
+            || matches!(
+                state.packet_disposition,
+                Some(crate::controlled_datagram::AcquisitionOutcome::Closed(_))
+            )
     }
     pub fn instance(&self) -> ComponentInstanceId {
         self.slot.instance

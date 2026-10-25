@@ -82,7 +82,7 @@ async fn duplicate_reload_notification_preserves_dns_candidate_owned_by_acknowle
     candidate.runtime.event_log_capacity += 1;
     let (sender, receiver) = tokio::sync::oneshot::channel();
     proxy.engine.stage_runtime_config(candidate).unwrap();
-    *proxy.reload_ack.lock().unwrap() = Some(PendingReloadAck {
+    *proxy.host.reload_ack().lock().unwrap() = Some(PendingReloadAck {
         expected: proxy.engine.runtime_snapshot(),
         previous,
         persist: false,
@@ -111,7 +111,7 @@ async fn identical_config_snapshots_do_not_cross_acknowledge_reload_operations()
     proxy.engine.stage_runtime_config(config).unwrap();
     let candidate = proxy.engine.runtime_snapshot();
     let (sender, mut receiver) = tokio::sync::oneshot::channel();
-    *proxy.reload_ack.lock().unwrap() = Some(PendingReloadAck {
+    *proxy.host.reload_ack().lock().unwrap() = Some(PendingReloadAck {
         expected: candidate.clone(),
         previous: previous.clone(),
         persist: false,

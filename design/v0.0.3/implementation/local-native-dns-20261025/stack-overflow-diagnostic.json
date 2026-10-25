@@ -1,0 +1,12 @@
+{
+  "source_snapshot": "source-before-future-boxing.json",
+  "binary": "consumer-binary.json",
+  "default_stack_failures": [
+    "panel.txt",
+    "panel-rerun.txt"
+  ],
+  "actual_kernel_failure": "panel-observed-1.txt",
+  "failure": "actual tokio worker stack overflow during ordinary direct TCP probe",
+  "qualification": "blocked pending source fix and complete fresh regression",
+  "current_full_rerun_interrupted_after_confirmed_consumer_failure": true
+}

@@ -1,0 +1,253 @@
+   Compiling tokio v1.53.3
+   Compiling bindgen v0.72.1
+warning: trailing semicolon in macro used in expression position
+  --> vendor/quinn-udp/build.rs:5:5
+   |
+ 5 | /     cfg_aliases! {
+ 6 | |         // Platforms
+ 7 | |         apple: {
+ 8 | |             any(
+...  |
+31 | |         wasm_browser: { all(target_family = "wasm", target_os = "unknown") },
+32 | |     }
+   | |_____^
+   |
+   = warning: this was previously accepted by the compiler but is being phased out; it will become a hard error in a future release!
+   = note: for more information, see issue #79813 <https://github.com/rust-lang/rust/issues/79813>
+   = note: `#[warn(semicolon_in_expressions_from_non_local_macros)]` (part of `#[warn(future_incompatible)]`) on by default
+   = note: this warning originates in the macro `$crate::cfg_aliases` which comes from the expansion of the macro `cfg_aliases` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+warning: trailing semicolon in macro used in expression position
+  --> vendor/quinn-udp/build.rs:5:5
+   |
+ 5 | /     cfg_aliases! {
+ 6 | |         // Platforms
+ 7 | |         apple: {
+ 8 | |             any(
+...  |
+31 | |         wasm_browser: { all(target_family = "wasm", target_os = "unknown") },
+32 | |     }
+   | |_____^
+   |
+   = warning: this was previously accepted by the compiler but is being phased out; it will become a hard error in a future release!
+   = note: for more information, see issue #79813 <https://github.com/rust-lang/rust/issues/79813>
+   = note: this warning originates in the macro `$crate::cfg_aliases` which comes from the expansion of the macro `cfg_aliases` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+warning: `quinn-udp` (build script) generated 87 warnings (85 duplicates)
+   Compiling rand v0.8.6
+warning: trailing semicolon in macro used in expression position
+ --> vendor/quinn/build.rs:5:5
+  |
+5 | /     cfg_aliases! {
+6 | |         // Convenience aliases
+7 | |         wasm_browser: { all(target_family = "wasm", target_os = "unknown") },
+8 | |     }
+  | |_____^
+  |
+  = warning: this was previously accepted by the compiler but is being phased out; it will become a hard error in a future release!
+  = note: for more information, see issue #79813 <https://github.com/rust-lang/rust/issues/79813>
+  = note: `#[warn(semicolon_in_expressions_from_non_local_macros)]` (part of `#[warn(future_incompatible)]`) on by default
+  = note: this warning originates in the macro `$crate::cfg_aliases` which comes from the expansion of the macro `cfg_aliases` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+warning: trailing semicolon in macro used in expression position
+ --> vendor/quinn/build.rs:5:5
+  |
+5 | /     cfg_aliases! {
+6 | |         // Convenience aliases
+7 | |         wasm_browser: { all(target_family = "wasm", target_os = "unknown") },
+8 | |     }
+  | |_____^
+  |
+  = warning: this was previously accepted by the compiler but is being phased out; it will become a hard error in a future release!
+  = note: for more information, see issue #79813 <https://github.com/rust-lang/rust/issues/79813>
+  = note: this warning originates in the macro `$crate::cfg_aliases` which comes from the expansion of the macro `cfg_aliases` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+warning: `quinn` (build script) generated 8 warnings (6 duplicates)
+warning: use of deprecated associated function `core::num::<impl u8>::max_value`: replaced by the `MAX` associated constant on this type
+   --> vendor/blake3/src/platform.rs:421:5
+    |
+421 |     cpufeatures::new!(has_avx512, "avx512f", "avx512vl");
+    |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+    = note: `#[warn(deprecated)]` on by default
+    = note: this warning originates in the macro `cpufeatures::new` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+warning: use of deprecated associated function `core::num::<impl u8>::max_value`: replaced by the `MAX` associated constant on this type
+   --> vendor/blake3/src/platform.rs:437:5
+    |
+437 |     cpufeatures::new!(has_avx2, "avx2");
+    |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+    = note: this warning originates in the macro `cpufeatures::new` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+warning: use of deprecated associated function `core::num::<impl u8>::max_value`: replaced by the `MAX` associated constant on this type
+   --> vendor/blake3/src/platform.rs:453:5
+    |
+453 |     cpufeatures::new!(has_sse41, "sse4.1");
+    |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+    = note: this warning originates in the macro `cpufeatures::new` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+warning: use of deprecated associated function `core::num::<impl u8>::max_value`: replaced by the `MAX` associated constant on this type
+   --> vendor/blake3/src/platform.rs:469:5
+    |
+469 |     cpufeatures::new!(has_sse2, "sse2");
+    |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+    = note: this warning originates in the macro `cpufeatures::new` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+warning: use of deprecated associated function `core::num::<impl u64>::max_value`: replaced by the `MAX` associated constant on this type
+    --> vendor/blake3/src/lib.rs:1817:33
+     |
+1817 |         let max_position = u64::max_value() as i128;
+     |                                 ^^^^^^^^^
+
+warning: `blake3` (lib) generated 5 warnings
+   Compiling tungstenite v0.23.0
+   Compiling shadowsocks-crypto v0.5.5
+   Compiling libproc v0.14.11
+   Compiling netstat2 v0.11.2
+   Compiling tokio-util v0.7.18 (/Volumes/tool/rust/zero/vendor/tokio-util)
+   Compiling h2 v0.4.14 (/Volumes/tool/rust/zero/vendor/h2)
+   Compiling tokio-rustls v0.26.4
+   Compiling quinn v0.11.9 (/Volumes/tool/rust/zero/vendor/quinn)
+   Compiling hyper v1.9.0 (/Volumes/tool/rust/zero/vendor/hyper)
+   Compiling h3 v0.0.8
+   Compiling zero-platform-tokio v0.0.3-dev.202610162206 (/Volumes/tool/rust/zero/crates/platform/tokio)
+   Compiling tokio-openssl v0.6.5
+   Compiling hyper-util v0.1.20
+   Compiling h3-quinn v0.0.10 (/Volumes/tool/rust/zero/vendor/h3-quinn)
+   Compiling ztls v0.0.3-dev.202610162206 (/Volumes/tool/rust/zero/crates/ztls)
+   Compiling tokio-tungstenite v0.23.1
+   Compiling hyper-rustls v0.27.9
+   Compiling gotatun v0.9.2 (/Volumes/tool/rust/zero/vendor/gotatun)
+   Compiling zero-transport v0.0.3-dev.202610162206 (/Volumes/tool/rust/zero/crates/transport)
+   Compiling http v0.0.1 (/Volumes/tool/rust/zero/protocols/http)
+   Compiling zero-tun v0.0.3-dev.202610162206 (/Volumes/tool/rust/zero/crates/tun)
+   Compiling zero-stack v0.0.3-dev.202610162206 (/Volumes/tool/rust/zero/crates/stack)
+   Compiling wireguard v0.9.2 (/Volumes/tool/rust/zero/protocols/wireguard)
+   Compiling trojan v0.10.6 (/Volumes/tool/rust/zero/protocols/trojan)
+   Compiling shadowsocks v1.21.2 (/Volumes/tool/rust/zero/protocols/shadowsocks)
+   Compiling vless v26.3.27 (/Volumes/tool/rust/zero/protocols/vless)
+   Compiling hysteria2 v2.12.2 (/Volumes/tool/rust/zero/protocols/hysteria2)
+   Compiling vmess v26.3.27 (/Volumes/tool/rust/zero/protocols/vmess)
+   Compiling socks5 v0.0.1 (/Volumes/tool/rust/zero/protocols/socks5)
+   Compiling zero-config v0.0.3-dev.202610162206 (/Volumes/tool/rust/zero/crates/config)
+   Compiling mieru v3.33.0 (/Volumes/tool/rust/zero/protocols/mieru)
+   Compiling zero-engine v0.0.3-dev.202610162206 (/Volumes/tool/rust/zero/crates/engine)
+   Compiling zero-runtime v0.0.3-dev.202610162206 (/Volumes/tool/rust/zero/crates/runtime)
+   Compiling zero-dns v0.0.3-dev.202610162206 (/Volumes/tool/rust/zero/crates/dns)
+   Compiling zero-proxy v0.0.3-dev.202610162206 (/Volumes/tool/rust/zero/crates/proxy)
+warning: unused imports: `AsyncReadExt` and `AsyncWriteExt`
+  --> crates/proxy/src/component/tests/mieru/fixtures.rs:11:10
+   |
+11 |     io::{AsyncReadExt, AsyncWriteExt},
+   |          ^^^^^^^^^^^^  ^^^^^^^^^^^^^
+   |
+   = note: `#[warn(unused_imports)]` (part of `#[warn(unused)]`) on by default
+
+warning: unused imports: `CloseReason` and `Reason`
+  --> crates/proxy/src/component/tests/mieru/fixtures.rs:24:53
+   |
+24 |         BoxFuture, CancellationToken, ChannelError, CloseReason, Reason,
+   |                                                     ^^^^^^^^^^^  ^^^^^^
+
+error[E0277]: `tcp_outbound::model::TcpOutboundFailure` doesn't implement `Debug`
+   --> crates/proxy/src/component/tests/mieru/fixtures.rs:52:14
+    |
+ 52 |             .unwrap()
+    |              ^^^^^^ the trait `Debug` is not implemented for `tcp_outbound::model::TcpOutboundFailure`
+    |
+note: required by a bound in `Result::<T, E>::unwrap`
+   --> /rustc/b940084d7eb6a299eb4bfeb8e34901bc051e7ac4/library/core/src/result.rs:1226:4
+help: consider annotating `tcp_outbound::model::TcpOutboundFailure` with `#[derive(Debug)]`
+   --> crates/proxy/src/transport/tcp_outbound/model.rs:113:1
+    |
+113 + #[derive(Debug)]
+114 | pub(crate) struct TcpOutboundFailure {
+    |
+
+error[E0046]: not all trait items implemented, missing: `open_datagram`
+  --> crates/proxy/src/component/background.rs:50:1
+   |
+50 | impl UpstreamOpener for BackgroundCarrier {
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ missing `open_datagram` in implementation
+   |
+   = help: implement the missing item: `fn open_datagram(&self, _: &zero_platform_tokio::contract::network::UpstreamBinding, _: zero_platform_tokio::contract::datagram::DatagramRequest, _: zero_platform_tokio::contract::network::CarrierContext) -> std::pin::Pin<Box<dyn futures_util::Future<Output = Result<DatagramSession<std::pin::Pin<Box<(dyn DatagramTx + 'static)>>, std::pin::Pin<Box<(dyn DatagramRx + 'static)>>, Box<(dyn zero_platform_tokio::contract::lifecycle::DynChannelControl + 'static)>>, zero_platform_tokio::contract::ChannelError>> + std::marker::Send>> { todo!() }`
+
+error[E0046]: not all trait items implemented, missing: `open_datagram`
+  --> crates/proxy/src/component/tests/mieru/fixtures.rs:70:1
+   |
+70 | impl UpstreamOpener for Denied {
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ missing `open_datagram` in implementation
+   |
+   = help: implement the missing item: `fn open_datagram(&self, _: &zero_platform_tokio::contract::network::UpstreamBinding, _: zero_platform_tokio::contract::datagram::DatagramRequest, _: zero_platform_tokio::contract::network::CarrierContext) -> std::pin::Pin<Box<dyn futures_util::Future<Output = Result<DatagramSession<std::pin::Pin<Box<(dyn DatagramTx + 'static)>>, std::pin::Pin<Box<(dyn DatagramRx + 'static)>>, Box<(dyn zero_platform_tokio::contract::lifecycle::DynChannelControl + 'static)>>, zero_platform_tokio::contract::ChannelError>> + std::marker::Send>> { todo!() }`
+
+error[E0599]: no associated function or constant named `from_json_str` found for struct `zero_config::RuntimeConfig` in the current scope
+  --> crates/proxy/src/component/tests/mieru/fixtures.rs:36:20
+   |
+36 |     RuntimeConfig::from_json_str(&format!(r#"{{"outbounds":[
+   |                    ^^^^^^^^^^^^^ associated function or constant not found in `zero_config::RuntimeConfig`
+   |
+note: if you're trying to build a new `zero_config::RuntimeConfig` consider using one of the following associated functions:
+      zero_config::RuntimeConfig::parse
+      zero_config::RuntimeConfig::load_from_path
+      zero_config::RuntimeConfig::parse_with_source_dir
+  --> crates/config/src/model/mod.rs:47:5
+   |
+47 |       pub fn parse(raw: &str) -> Result<Self, ConfigError> {
+   |       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+...
+51 |       pub fn load_from_path(path: impl AsRef<Path>) -> Result<Self, ConfigError> {
+   |       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+...
+71 | /     pub fn parse_with_source_dir(
+72 | |         raw: &str,
+73 | |         source_dir: Option<PathBuf>,
+74 | |     ) -> Result<Self, ConfigError> {
+   | |__________________________________^
+
+error[E0599]: no method named `closed` found for struct `CarrierOrigin` in the current scope
+  --> crates/proxy/src/component/tests/mieru.rs:22:35
+   |
+22 |         let original_close=native.closed().expect("original native close and actual transferred-view return");
+   |                                   ^^^^^^
+   |
+help: there is a method `clone` with a similar name
+   |
+22 -         let original_close=native.closed().expect("original native close and actual transferred-view return");
+22 +         let original_close=native.clone().expect("original native close and actual transferred-view return");
+   |
+
+error[E0599]: no method named `closed` found for reference `&CarrierOrigin` in the current scope
+  --> crates/proxy/src/component/tests/mieru.rs:34:69
+   |
+34 |         let final_root=successor.native_origin();assert!(final_root.closed().unwrap().matches(final_root));
+   |                                                                     ^^^^^^
+   |
+help: there is a method `clone` with a similar name
+   |
+34 -         let final_root=successor.native_origin();assert!(final_root.closed().unwrap().matches(final_root));
+34 +         let final_root=successor.native_origin();assert!(final_root.clone().unwrap().matches(final_root));
+   |
+
+error[E0369]: binary operation `==` cannot be applied to type `TaskScopeIdentity`
+  --> crates/proxy/src/component/tests/mieru.rs:78:9
+   |
+78 | /         assert_eq!(
+79 | |             original.driver().scope_identity(),
+80 | |             root.driver().scope_identity()
+81 | |         );
+   | |         ^
+   | |         |
+   | |_________TaskScopeIdentity
+   |           TaskScopeIdentity
+   |
+note: `TaskScopeIdentity` does not implement `PartialEq`
+  --> crates/platform/tokio/src/contract/scope/identity.rs:8:1
+   |
+ 8 | pub struct TaskScopeIdentity(Weak<Shared>);
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^ `TaskScopeIdentity` is defined in another crate
+
+warning: `zero-proxy` (lib test) generated 2 warnings
+error: could not compile `zero-proxy` (lib test) due to 7 previous errors; 2 warnings emitted

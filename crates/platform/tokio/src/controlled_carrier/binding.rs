@@ -37,6 +37,19 @@ impl CarrierOwnerRegistration {
             )
         };
         let limit = match declaration {
+            ResourceDeclaration::ControlledCarrierPool {
+                endpoint,
+                dial,
+                max_sockets,
+                ..
+            } => {
+                if endpoint.port == 0 {
+                    return Err(failure(Reason::InvalidConfig));
+                }
+                dial.validate()
+                    .map_err(|_| failure(Reason::InvalidConfig))?;
+                *max_sockets
+            }
             ResourceDeclaration::ControlledOutboundStream {
                 endpoint,
                 binding,
@@ -46,7 +59,20 @@ impl CarrierOwnerRegistration {
                 if endpoint.port == 0 {
                     return Err(failure(Reason::InvalidConfig));
                 }
-                if !binding.prefix.is_empty() || matches!(endpoint.address, Address::Domain(_)) {
+                if !binding.prefix.is_empty() {
+                    return Err(failure(Reason::Unsupported));
+                }
+                *max_sockets
+            }
+            ResourceDeclaration::ControlledDatagramCarrier {
+                endpoint,
+                binding,
+                max_sockets,
+            } => {
+                if endpoint.port == 0 {
+                    return Err(failure(Reason::InvalidConfig));
+                }
+                if !binding.prefix.is_empty() {
                     return Err(failure(Reason::Unsupported));
                 }
                 *max_sockets
@@ -106,10 +132,38 @@ impl CarrierOwnerRegistration {
     }
 }
 impl BoundAuthority {
-    fn matches(&self, declaration: &ResourceDeclaration, limit: std::num::NonZeroUsize) -> bool {
+    pub(super) fn is_stream(&self) -> bool {
+        matches!(
+            self.declaration,
+            ResourceDeclaration::ControlledOutboundStream { .. }
+                | ResourceDeclaration::ControlledCarrierPool {
+                    datagram: false,
+                    ..
+                }
+                | ResourceDeclaration::ControlledDirectStream { .. }
+        )
+    }
+    pub(super) fn background_custody_available(&self) -> bool {
+        self.available()
+            && matches!(
+                &self.declaration,
+                ResourceDeclaration::ControlledOutboundStream {
+                    demand: ControlledStreamDemandClass::BackgroundControl,
+                    ..
+                } | ResourceDeclaration::ControlledDatagramCarrier { .. }
+                    | ResourceDeclaration::ControlledCarrierPool { .. }
+            )
+    }
+    pub(super) fn matches(
+        &self,
+        declaration: &ResourceDeclaration,
+        limit: std::num::NonZeroUsize,
+    ) -> bool {
         &self.declaration == declaration
             && match declaration {
                 ResourceDeclaration::ControlledOutboundStream { max_sockets, .. }
+                | ResourceDeclaration::ControlledCarrierPool { max_sockets, .. }
+                | ResourceDeclaration::ControlledDatagramCarrier { max_sockets, .. }
                 | ResourceDeclaration::ControlledDirectStream { max_sockets, .. } => {
                     *max_sockets == limit
                 }
@@ -128,6 +182,9 @@ impl BoundAuthority {
         context: &CarrierContext,
     ) -> bool {
         let descriptor = match &self.declaration {
+            ResourceDeclaration::ControlledCarrierPool { endpoint, dial, .. } => {
+                endpoint == destination && dial == &binding.dial && context.session.is_none()
+            }
             ResourceDeclaration::ControlledOutboundStream {
                 endpoint,
                 binding: expected,
@@ -150,12 +207,23 @@ impl BoundAuthority {
                 self.matches_direct(destination, binding)
                     && context.session.is_some_and(|id| id.0 != 0)
             }
+            ResourceDeclaration::ControlledDatagramCarrier {
+                endpoint,
+                binding: expected,
+                ..
+            } => expected == binding && endpoint == destination && context.session.is_none(),
             _ => false,
         };
         !self.host_cancel.is_cancelled() && self.scope.resource_open() && descriptor
     }
     pub(super) fn available(&self) -> bool {
         !self.host_cancel.is_cancelled() && self.scope.resource_open()
+    }
+    pub(super) fn pool_kind(&self) -> Option<bool> {
+        match self.declaration {
+            ResourceDeclaration::ControlledCarrierPool { datagram, .. } => Some(datagram),
+            _ => None,
+        }
     }
     pub(super) fn host_cancelled(&self) -> bool {
         self.host_cancel.is_cancelled()
@@ -196,6 +264,9 @@ impl CarrierOwnerBinding {
         match &self.authority.declaration {
             ResourceDeclaration::ControlledOutboundStream {
                 endpoint, binding, ..
+            }
+            | ResourceDeclaration::ControlledDatagramCarrier {
+                endpoint, binding, ..
             } => Some((endpoint, binding)),
             _ => None,
         }
@@ -208,6 +279,12 @@ impl CarrierOwnerBinding {
             ResourceDeclaration::ControlledOutboundStream { demand, .. } => *demand,
             ResourceDeclaration::ControlledDirectStream { .. } => {
                 ControlledStreamDemandClass::Business
+            }
+            ResourceDeclaration::ControlledDatagramCarrier { .. } => {
+                ControlledStreamDemandClass::BackgroundControl
+            }
+            ResourceDeclaration::ControlledCarrierPool { .. } => {
+                ControlledStreamDemandClass::BackgroundControl
             }
             _ => unreachable!("bound carrier declaration"),
         }

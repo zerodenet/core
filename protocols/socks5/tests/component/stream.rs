@@ -16,9 +16,23 @@ use zero_platform_tokio::contract::{
 
 #[tokio::test]
 async fn authenticated_service_uses_selected_prefix_and_preserves_pre_read_and_half_close() {
+    authenticated_prefix(false).await;
+}
+
+#[tokio::test]
+async fn authenticated_service_flushes_buffered_prefix_before_waiting_for_peer() {
+    authenticated_prefix(true).await;
+}
+
+async fn authenticated_prefix(buffered: bool) {
     let (mut instance, mut scope) = instance(true).await;
     let (client, mut peer) = tokio::io::duplex(1024);
-    let opener = Opener::new(Box::pin(client));
+    let client: zero_platform_tokio::contract::stream::BoxStream = if buffered {
+        Box::pin(tokio::io::BufWriter::new(client))
+    } else {
+        Box::pin(client)
+    };
+    let opener = Opener::new(client);
     let facts = Arc::new(Facts::default());
     let server = tokio::spawn(async move {
         let mut greeting = [0; 3];
@@ -170,6 +184,10 @@ fn options_validate_once_and_keep_credentials_out_of_debug_and_static_descriptio
     )
     .unwrap();
     let spec = socks5::component::Factory.describe(&a);
+    assert!(
+        spec.resources.is_empty() && spec.task_limit.is_none(),
+        "ordinary SOCKS5 assembly does not opt into native background ownership"
+    );
     assert_eq!(spec, socks5::component::Factory.describe(&a));
     assert_ne!(
         spec.static_identity,

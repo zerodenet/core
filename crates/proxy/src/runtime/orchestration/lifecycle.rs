@@ -33,7 +33,7 @@ where
         tokio::pin!(startup);
         tokio::select! { biased;
             _ = &mut shutdown => {
-                proxy.apply_owner.begin_shutdown();
+                proxy.host.apply().begin_shutdown();
                 proxy.protocols.stop_component_admission();
                 preparing.begin_shutdown();
                 // Preserve the same borrowed state and every temporary owner.
@@ -121,7 +121,7 @@ where
                     tokio::pin!(reconciliation);
                     tokio::select! { biased;
                         _ = &mut shutdown => {
-                            proxy.apply_owner.begin_shutdown();
+                            proxy.host.apply().begin_shutdown();
                             proxy.protocols.stop_component_admission();
                             preparing.begin_shutdown();
                             // Drive this exact compensation, including its
@@ -137,7 +137,7 @@ where
             failure = proxy.packet_close_owner.observe_failure() => {
                 return Err(io::Error::other(failure).into());
             }
-            failure = proxy.apply_owner.observe_failure() => {
+            failure = proxy.host.apply().observe_failure() => {
                 return Err(io::Error::other(failure).into());
             }
             _ = network_change => {

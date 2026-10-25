@@ -1,0 +1,28 @@
+{
+  "gui": {
+    "exit": 0,
+    "seconds": 19.18,
+    "command": [
+      "python3",
+      "/tmp/zero-runtime-gui-check.py",
+      "/var/folders/5g/3js9c9b11c3fmfd930s4vkdm0000gn/T/zero-mieru-carriers-consumers-qb_v33st/zero",
+      "/Volumes/tool/rust/zero/design/v0.0.3/implementation/local-mieru-carriers-20261024/gui-captures"
+    ],
+    "cwd": "/Volumes/tool/rust/zero",
+    "sha256": "2f1bd0e18702d7636bdba1e1f2e67364f2a38ef331d6a556430ad77d38bcdc8b"
+  },
+  "panel": {
+    "exit": 0,
+    "seconds": 82.48,
+    "command": [
+      "/tmp/zero-v003-boundaries.FGzrzH/zboard-zero.test",
+      "-test.run",
+      "^TestNativePublicationPreservesTrafficAcrossPublisherProcesses$",
+      "-test.v",
+      "-test.timeout",
+      "120s"
+    ],
+    "cwd": "/Volumes/tool/golang/zboard/backend",
+    "sha256": "2f1bd0e18702d7636bdba1e1f2e67364f2a38ef331d6a556430ad77d38bcdc8b"
+  }
+}

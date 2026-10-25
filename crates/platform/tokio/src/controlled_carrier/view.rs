@@ -67,6 +67,16 @@ impl CarrierIo {
     }
 }
 impl<I> CarrierDriver<I> {
+    /// Materialize protocol state while preserving the actual input origin.
+    pub fn try_map<J, E>(
+        self,
+        prepare: impl FnOnce(I) -> Result<J, E>,
+    ) -> Result<CarrierDriver<J>, E> {
+        Ok(CarrierDriver {
+            io: prepare(self.io)?,
+            slot: self.slot,
+        })
+    }
     /// Split protocol metadata from its prepared driver without changing origin.
     pub fn split<R, J>(self, split: impl FnOnce(I) -> (R, J)) -> (R, CarrierDriver<J>) {
         let (metadata, io) = split(self.io);

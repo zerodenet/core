@@ -25,7 +25,7 @@ impl OrchestrationState {
         let preparing = if compensating {
             std::sync::Arc::new(crate::runtime::inbound_owners::PreparingInbounds::default())
         } else {
-            if proxy.apply_owner.is_closing() {
+            if proxy.host.apply().is_closing() {
                 self.reject_reload(
                     proxy,
                     &new_snapshot,

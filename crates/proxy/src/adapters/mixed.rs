@@ -6,9 +6,7 @@ use zero_traits::{
 };
 
 use crate::adapters::identity::NamedProtocolAdapter;
-use crate::protocol_registry::{
-    InboundListenerCapability, TcpOutboundCapability, UdpFlowCapability, UdpPacketPathCapability,
-};
+use crate::protocol_registry::InboundListenerCapability;
 
 #[cfg(feature = "mixed")]
 mod inbound;
@@ -37,15 +35,6 @@ impl InboundListenerCapability for MixedAdapter {
         self.prepare_inbound_listener_impl(inbound)
     }
 }
-
-#[cfg(feature = "mixed")]
-impl TcpOutboundCapability for MixedAdapter {}
-
-#[cfg(feature = "mixed")]
-impl UdpFlowCapability for MixedAdapter {}
-
-#[cfg(feature = "mixed")]
-impl UdpPacketPathCapability for MixedAdapter {}
 
 #[cfg(feature = "mixed")]
 impl ProtocolMetadata for MixedAdapter {

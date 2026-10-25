@@ -1,0 +1,15 @@
+{
+  "paths": [
+    "crates/api",
+    "crates/config",
+    "crates/engine",
+    "crates/ffi",
+    "crates/grpc",
+    "src",
+    "Cargo.lock"
+  ],
+  "diff_vs_head": [],
+  "production_native_background_default": false,
+  "branch": "develop",
+  "commit_or_push": false
+}

@@ -277,6 +277,7 @@ fn protocol_crates_keep_runtime_support_deps_optional_and_out_of_config_space() 
             "zero-dns",
             "zero-engine",
             "zero-proxy",
+            "zero-runtime",
             "zero-router",
         ] {
             assert!(
@@ -780,5 +781,43 @@ fn root_process_entrypoint_delegates_command_execution() {
             main.contains(implementation),
             "process entrypoint must retain `{implementation}`"
         );
+    }
+}
+
+#[test]
+fn runtime_host_has_no_production_dependency_on_proxy_or_protocol_implementations() {
+    let manifest = read(&workspace_root().join("crates/runtime/Cargo.toml"));
+    let production = manifest.split("[dev-dependencies]").next().unwrap();
+    assert!(!production.contains("zero-proxy"));
+    assert!(!production.contains("protocols/"));
+    assert!(!production.contains("zero-engine"));
+    let proxy = read(&workspace_root().join("crates/proxy/Cargo.toml"));
+    assert!(proxy
+        .split("[dev-dependencies]")
+        .next()
+        .unwrap()
+        .contains("zero-runtime"));
+    for path in rust_sources(&workspace_root().join("crates/runtime/src")) {
+        if is_test_source(&path) {
+            continue;
+        }
+        let source = read(&path);
+        for forbidden in [
+            "crate::adapters",
+            "crate::register",
+            "ResolvedLeafOutbound",
+            "zero_proxy::",
+        ] {
+            // This one import is explicitly test-only reuse of the real Direct factory.
+            if forbidden == "zero_proxy::" && path.ends_with("component/mod.rs") {
+                assert!(source.contains("#[cfg(test)]\npub use zero_proxy::component"));
+                continue;
+            }
+            assert!(
+                !source.contains(forbidden),
+                "{} contains {forbidden}",
+                path.display()
+            );
+        }
     }
 }

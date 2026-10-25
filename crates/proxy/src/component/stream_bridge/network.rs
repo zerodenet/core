@@ -65,6 +65,28 @@ impl CarrierEndpointObserver for ConnectedEvidence {
     }
 }
 impl UpstreamOpener for NodeOpener {
+    fn observe_carrier_origin(
+        &self,
+        origin: &zero_platform_tokio::controlled_carrier::CarrierOrigin,
+    ) -> bool {
+        let root = origin.native_origin();
+        let Some((endpoint, binding)) = root.selected_binding() else {
+            return false;
+        };
+        if endpoint != self.endpoint
+            || !binding.prefix.is_empty()
+            || binding.network_generation.0 != self.generation
+            || self.services.network_generation() != self.generation
+            || root.is_retired()
+        {
+            return false;
+        }
+        let Some(endpoints) = root.endpoints() else {
+            return false;
+        };
+        ConnectedEvidence(self.evidence.clone()).connected(&endpoints);
+        true
+    }
     fn prepare_controlled_stream(
         &self,
         binding: &UpstreamBinding,
@@ -82,18 +104,37 @@ impl UpstreamOpener for NodeOpener {
                 "controlled carrier cannot bypass selected prefix, endpoint or network generation",
             ));
         }
-        let business = self.business.as_ref().ok_or_else(|| {
-            invalid(
-                Reason::Unsupported,
-                "controlled business carrier requires the actual admitted ingress demand",
-            )
-        })?;
-        let ticket = business.authorize(&destination, binding, &grant)?;
-        let native = NativeCarrierOpener::business(
-            ticket,
-            Arc::new(self.services.egress_control()),
-            self.services.observer(),
-        )?;
+        let native = if context.session.is_some() {
+            let business = self.business.as_ref().ok_or_else(|| {
+                invalid(
+                    Reason::Unsupported,
+                    "controlled business carrier requires the actual admitted ingress demand",
+                )
+            })?;
+            NativeCarrierOpener::business(
+                business.authorize(&destination, binding, &grant)?,
+                Arc::new(self.services.egress_control()),
+                self.services.observer(),
+            )?
+        } else {
+            let ip = match destination.address {
+                zero_core::Address::Ipv4(ip) => std::net::IpAddr::from(ip),
+                zero_core::Address::Ipv6(ip) => std::net::IpAddr::from(ip),
+                zero_core::Address::Domain(_) => {
+                    return Err(invalid(
+                        Reason::Unsupported,
+                        "background roots require an actual host-owned DNS provider",
+                    ))
+                }
+            };
+            NativeCarrierOpener::new(
+                grant.instance(),
+                binding.clone(),
+                SocketAddr::new(ip, destination.port),
+                Arc::new(self.services.egress_control()),
+                self.services.observer(),
+            )?
+        };
         native
             .prepare_controlled_stream(binding, destination, context, grant)
             .map(|prepared| {

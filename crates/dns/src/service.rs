@@ -53,6 +53,7 @@ impl DnsService for DnsSystem {
                         io::ErrorKind::TimedOut=>Reason::Timeout,
                         io::ErrorKind::InvalidInput=>Reason::InvalidConfig,
                         io::ErrorKind::Interrupted=>Reason::Cancelled,
+                        io::ErrorKind::Unsupported if self.native_source.is_some()=>Reason::Unsupported,
                         _=>Reason::Io,
                     },true).with_source(source))?,
             };

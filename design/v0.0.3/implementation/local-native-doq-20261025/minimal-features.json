@@ -1,0 +1,34 @@
+{
+  "dns-only": {
+    "exit": 0,
+    "seconds": 31.04,
+    "command": [
+      "cargo",
+      "+stable",
+      "check",
+      "-p",
+      "zero-proxy",
+      "--no-default-features",
+      "--features",
+      "dns"
+    ],
+    "source_snapshot": "source-final.json",
+    "source_snapshot_sha256": "6d067ae7b8c913b3587347275eedc97de1f1de36f8c1652f305ce0635cf098d7",
+    "log": "minimal-dns-only.txt"
+  },
+  "no-default": {
+    "exit": 0,
+    "seconds": 26.29,
+    "command": [
+      "cargo",
+      "+stable",
+      "check",
+      "-p",
+      "zero-proxy",
+      "--no-default-features"
+    ],
+    "source_snapshot": "source-final.json",
+    "source_snapshot_sha256": "6d067ae7b8c913b3587347275eedc97de1f1de36f8c1652f305ce0635cf098d7",
+    "log": "minimal-no-default.txt"
+  }
+}

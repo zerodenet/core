@@ -7,30 +7,10 @@ use crate::protocol_registry::ManagedUdpHandlerProvider;
 use crate::protocol_registry::UpstreamUdpHandlerProvider;
 use crate::protocol_registry::{
     InboundListenerCapability, OutboundLeafClaim, OutboundLeafInput, ProtocolSupportCapability,
-    TcpOutboundCapability,
 };
-#[cfg(feature = "udp-runtime")]
-use crate::protocol_registry::{UdpFlowCapability, UdpPacketPathCapability};
 
 type OutboundLeafClaimFn<T> =
     for<'a> fn(&T, OutboundLeafInput<'a>) -> Option<OutboundLeafClaim<'a>>;
-
-struct NoOutboundClaimer<T> {
-    adapter: Arc<T>,
-}
-
-impl<T> super::OutboundLeafClaimer for NoOutboundClaimer<T>
-where
-    T: TcpOutboundCapability + Send + Sync + 'static,
-{
-    fn claim_outbound_leaf<'a>(
-        &self,
-        _input: OutboundLeafInput<'a>,
-    ) -> Option<OutboundLeafClaim<'a>> {
-        let _ = &self.adapter;
-        None
-    }
-}
 
 struct ProjectedOutboundClaimer<T> {
     adapter: Arc<T>,
@@ -97,60 +77,21 @@ impl ProtocolRegistry {
         adapter: Arc<T>,
         claim: Option<OutboundLeafClaimFn<T>>,
     ) where
-        T: ProtocolSupportCapability + InboundListenerCapability + TcpOutboundCapability + 'static,
+        T: ProtocolSupportCapability + InboundListenerCapability + 'static,
     {
         self.push_registered_entry(super::RegisteredProtocolEntry {
             support: adapter.clone(),
             inbound: adapter.clone(),
-            outbound: match claim {
-                Some(claim) => Arc::new(ProjectedOutboundClaimer {
+            outbound: claim.map(|claim| {
+                Arc::new(ProjectedOutboundClaimer {
                     adapter: adapter.clone(),
                     claim,
-                }),
-                None => Arc::new(NoOutboundClaimer {
-                    adapter: adapter.clone(),
-                }),
-            },
-            #[cfg(test)]
-            tcp: adapter,
-            #[cfg(all(test, feature = "udp-runtime"))]
-            udp: None,
-            #[cfg(feature = "managed-udp-runtime")]
-            managed_udp_handlers: None,
-            #[cfg(feature = "upstream-association-runtime")]
-            upstream_udp_handler: None,
-            #[cfg(all(test, feature = "udp-runtime"))]
-            packet_path: None,
-        });
-    }
-
-    #[cfg(feature = "udp-runtime")]
-    pub(crate) fn register_capability<T>(&mut self, adapter: Arc<T>, claim: OutboundLeafClaimFn<T>)
-    where
-        T: ProtocolSupportCapability
-            + InboundListenerCapability
-            + TcpOutboundCapability
-            + UdpFlowCapability
-            + UdpPacketPathCapability
-            + 'static,
-    {
-        self.push_registered_entry(super::RegisteredProtocolEntry {
-            support: adapter.clone(),
-            inbound: adapter.clone(),
-            outbound: Arc::new(ProjectedOutboundClaimer {
-                adapter: adapter.clone(),
-                claim,
+                }) as Arc<dyn super::OutboundLeafClaimer>
             }),
-            #[cfg(test)]
-            tcp: adapter.clone(),
-            #[cfg(all(test, feature = "udp-runtime"))]
-            udp: Some(adapter.clone()),
             #[cfg(feature = "managed-udp-runtime")]
             managed_udp_handlers: None,
             #[cfg(feature = "upstream-association-runtime")]
             upstream_udp_handler: None,
-            #[cfg(all(test, feature = "udp-runtime"))]
-            packet_path: Some(adapter),
         });
     }
 
@@ -162,28 +103,19 @@ impl ProtocolRegistry {
     ) where
         T: ProtocolSupportCapability
             + InboundListenerCapability
-            + TcpOutboundCapability
-            + UdpFlowCapability
-            + UdpPacketPathCapability
             + UpstreamUdpHandlerProvider
             + 'static,
     {
         self.push_registered_entry(super::RegisteredProtocolEntry {
             support: adapter.clone(),
             inbound: adapter.clone(),
-            outbound: Arc::new(ProjectedOutboundClaimer {
+            outbound: Some(Arc::new(ProjectedOutboundClaimer {
                 adapter: adapter.clone(),
                 claim,
-            }),
-            #[cfg(test)]
-            tcp: adapter.clone(),
-            #[cfg(all(test, feature = "udp-runtime"))]
-            udp: Some(adapter.clone()),
+            })),
             #[cfg(feature = "managed-udp-runtime")]
             managed_udp_handlers: None,
             upstream_udp_handler: Some(adapter.clone()),
-            #[cfg(all(test, feature = "udp-runtime"))]
-            packet_path: Some(adapter),
         });
     }
 
@@ -195,28 +127,19 @@ impl ProtocolRegistry {
     ) where
         T: ProtocolSupportCapability
             + InboundListenerCapability
-            + TcpOutboundCapability
-            + UdpFlowCapability
-            + UdpPacketPathCapability
             + ManagedUdpHandlerProvider
             + 'static,
     {
         self.push_registered_entry(super::RegisteredProtocolEntry {
             support: adapter.clone(),
             inbound: adapter.clone(),
-            outbound: Arc::new(ProjectedOutboundClaimer {
+            outbound: Some(Arc::new(ProjectedOutboundClaimer {
                 adapter: adapter.clone(),
                 claim,
-            }),
-            #[cfg(test)]
-            tcp: adapter.clone(),
-            #[cfg(all(test, feature = "udp-runtime"))]
-            udp: Some(adapter.clone()),
+            })),
             managed_udp_handlers: Some(adapter.clone()),
             #[cfg(feature = "upstream-association-runtime")]
             upstream_udp_handler: None,
-            #[cfg(all(test, feature = "udp-runtime"))]
-            packet_path: Some(adapter),
         });
     }
 

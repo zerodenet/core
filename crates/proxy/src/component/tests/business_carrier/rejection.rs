@@ -27,11 +27,7 @@ async fn real_slot_rejects_preparing_foreign_engine_same_numeric_owner_and_publi
             Reason::StalePlan,
             "preparing is not current Business admission"
         );
-        fixture
-            .slot
-            .host_admission()
-            .unwrap()
-            .publish(std::iter::once(fixture.slot.admission_grant()));
+        host.publish();
         let foreign = proxy();
         let (foreign_session, foreign_invocation) = admitted(&foreign);
         assert_eq!(session.id, foreign_session.id);
@@ -125,11 +121,10 @@ async fn retained_request_rechecks_actual_engine_finish_and_current_host_at_nati
         let fixture = Fixture::new().await;
         let host = TestContext::new([fixture.slot.as_ref()]);
         host.drive(fixture.slot.start(deadline())).await.unwrap();
-        let admission = fixture.slot.host_admission().unwrap();
-        admission.publish(std::iter::once(fixture.slot.admission_grant()));
+        host.publish();
         let (session, invocation) = admitted(&fixture.proxy);
         let opener = fixture.opener(&invocation).unwrap();
-        admission.publish(std::iter::empty());
+        host.withdraw();
         let failure = opener
             .prepare_controlled_stream(
                 &fixture.binding,
@@ -144,7 +139,7 @@ async fn retained_request_rechecks_actual_engine_finish_and_current_host_at_nati
             .err()
             .unwrap();
         assert_eq!(failure.reason, Reason::StalePlan);
-        admission.publish(std::iter::once(fixture.slot.admission_grant()));
+        host.publish();
         fixture
             .proxy
             .engine()

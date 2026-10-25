@@ -2,10 +2,10 @@ name: Shadowsocks Interop
 on:
   push:
     branches: [develop, main]
-    paths: ['protocols/shadowsocks/**', 'crates/proxy/**', 'crates/platform/**', 'crates/traits/**', 'crates/transport/**', 'crates/core/**', 'crates/config/**', 'Cargo.toml', 'Cargo.lock', 'scripts/prepare-ss-interop.py', '.github/workflows/shadowsocks-interop.yml']
+    paths: ['protocols/shadowsocks/**', 'crates/proxy/**', 'crates/runtime/**', 'crates/platform/**', 'crates/traits/**', 'crates/transport/**', 'crates/core/**', 'crates/config/**', 'Cargo.toml', 'Cargo.lock', 'scripts/prepare-ss-interop.py', '.github/workflows/shadowsocks-interop.yml']
   pull_request:
     branches: [develop, main]
-    paths: ['protocols/shadowsocks/**', 'crates/proxy/**', 'crates/platform/**', 'crates/traits/**', 'crates/transport/**', 'crates/core/**', 'crates/config/**', 'Cargo.toml', 'Cargo.lock', 'scripts/prepare-ss-interop.py', '.github/workflows/shadowsocks-interop.yml']
+    paths: ['protocols/shadowsocks/**', 'crates/proxy/**', 'crates/runtime/**', 'crates/platform/**', 'crates/traits/**', 'crates/transport/**', 'crates/core/**', 'crates/config/**', 'Cargo.toml', 'Cargo.lock', 'scripts/prepare-ss-interop.py', '.github/workflows/shadowsocks-interop.yml']
   workflow_dispatch:
 permissions:
   contents: read

@@ -1,4 +1,5 @@
 //! Real Stream roles composed through a strictly shorter selected prefix.
+pub(crate) mod background;
 mod health;
 pub(crate) mod prefix;
 use super::{network::NodeOpener, LegacyStream};

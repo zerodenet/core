@@ -1,0 +1,127 @@
+[
+  {
+    "file": "check.txt.gz",
+    "exit": 101,
+    "sha256": "ecf79e7ec8c26abf6edb26a8342432a3c23e017156bb802c27660b085dda4b6d"
+  },
+  {
+    "file": "check2.txt.gz",
+    "exit": 101,
+    "sha256": "cb6cc38730a22d4a6a75592f9ae07cbdced530be7f60dddd82943ebb21bed730"
+  },
+  {
+    "file": "check3.txt.gz",
+    "exit": 130,
+    "sha256": "0862f50b0ce3840235d29cbc9b149ccdbea8d3980ea09091581b3bc503df5592"
+  },
+  {
+    "file": "check4.txt.gz",
+    "exit": 130,
+    "sha256": "bdb6b898280cf0774e24ac0a4acc44711ca9c971b01c7d3df739810af76f732a"
+  },
+  {
+    "file": "core-check.txt.gz",
+    "exit": 101,
+    "sha256": "3295303c844b66d0169087b34c504c5f5a550b471ae3da68286a351a5a46ad58"
+  },
+  {
+    "file": "core-check2.txt.gz",
+    "exit": 101,
+    "sha256": "e2bd63526c54a232b55e9d9bdd5de53f4211cc5ce7e7afdea20f72950d14300e"
+  },
+  {
+    "file": "core-check3.txt.gz",
+    "exit": 0,
+    "sha256": "1bc9cab9869a7dd409381e5d025ff358d692a4315307e066b84328469f7e2379"
+  },
+  {
+    "file": "runtime-boundary.txt.gz",
+    "exit": 0,
+    "sha256": "bda2a9e719c97bfb99d778ab083c1b6c74ae6e427d8bf9ac8bdd7f0a8ea67b48"
+  },
+  {
+    "file": "workspace-boundary.txt.gz",
+    "exit": 0,
+    "sha256": "a1d9db314f74af2bc04eff1f0d90c3ddba0e9b2d94f1b7bd540caf9f5e6db1ec"
+  },
+  {
+    "file": "ci-scope.txt.gz",
+    "exit": 0,
+    "sha256": "b2323fbe635870d9d409f0a3940925b3c09f24a83cdd478e7ea8f8edf9b5742a"
+  },
+  {
+    "file": "plan.txt.gz",
+    "exit": 0,
+    "sha256": "047349b72d8b6f4a1fab6f1ebfb09adc74109612b518ef26c7d4e487b153c4cf"
+  },
+  {
+    "file": "workspace-full.txt.gz",
+    "exit": 0,
+    "sha256": "217d5894a278f2fae0d8f5009fb66c810cd4ffe9e91cd4bfd855d8c5689e0006"
+  },
+  {
+    "file": "fmt-final.txt.gz",
+    "exit": 0,
+    "sha256": "9ceffb7310338057cfe71a4ae1e2c98d2c485d81cdef906532a801f457a38d64"
+  },
+  {
+    "file": "plan-final.txt.gz",
+    "exit": 0,
+    "sha256": "2f6f8e6d4dc856a87d44c9deb5bba121355f1836d0c68fd316ee74e79868ee23"
+  },
+  {
+    "file": "clippy-1.99.txt.gz",
+    "exit": 101,
+    "sha256": "78d81565810e33012fc89dd71abe36107ebb6e9bc682c9f3929963ab5e110815"
+  },
+  {
+    "file": "wrong-toolchain-name.txt.gz",
+    "exit": -2,
+    "sha256": "5b2e32b097682054a35fe0207fa70205ee714874084eb4940d12d797e030aada"
+  },
+  {
+    "file": "gui-compat.txt.gz",
+    "exit": 0,
+    "sha256": "9184d02519413985df6f03670f8f171a80173e6ea00d2420d2b1555ef04cce1e"
+  },
+  {
+    "file": "panel-compat.txt.gz",
+    "exit": 0,
+    "sha256": "b5b4d4767cbf575c399e4c1b3b7a3a4862d8709c168bb9545838063a41a4780b"
+  },
+  {
+    "file": "clippy-stable-first.txt.gz",
+    "exit": 101,
+    "sha256": "b42bc87f3ae12ce2f69f1c2c822279cc79d1e76a074d4753104f5532dbee7db9"
+  },
+  {
+    "file": "clippy-stable-final.txt.gz",
+    "exit": 0,
+    "sha256": "34111c0031fa1c782741723927b12052c46f61c85766303e9e083152283d2422"
+  },
+  {
+    "file": "runtime-minimal.txt.gz",
+    "exit": 0,
+    "sha256": "396720ba3a6f5a74fafc951cfd9c45535cd1b0ffba962e8e84336c2026d14f68"
+  },
+  {
+    "file": "proxy-minimal.txt.gz",
+    "exit": 0,
+    "sha256": "a137791596a769d10f660034b0625929c7011538a5db0dc7ef9040352c497cb8"
+  },
+  {
+    "file": "fmt-verified.txt.gz",
+    "exit": 0,
+    "sha256": "9ceffb7310338057cfe71a4ae1e2c98d2c485d81cdef906532a801f457a38d64"
+  },
+  {
+    "file": "plan-verified.txt.gz",
+    "exit": 0,
+    "sha256": "c1361d5393a0f1b11bc3c0bcabe49e97fa2b0e79f08ab0b220f194f72a85e8d2"
+  },
+  {
+    "file": "ci-scope-verified.txt.gz",
+    "exit": 0,
+    "sha256": "c02e4f8778e6de45e6e581ad1d5fc59913e4c18f3fc2fcecfb9fea070bdfec8b"
+  }
+]

@@ -1,0 +1,13 @@
+[
+  {
+    "pid": 18939,
+    "args": [
+      "/var/folders/5g/3js9c9b11c3fmfd930s4vkdm0000gn/T/zero-native-dns-consumers-mo5yc8ag/zero",
+      "--version"
+    ],
+    "returncode": -9,
+    "signals": [
+      "kill"
+    ]
+  }
+]

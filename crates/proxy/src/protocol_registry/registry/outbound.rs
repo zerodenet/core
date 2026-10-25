@@ -222,7 +222,10 @@ fn claim_outbound_hooks<'a>(
         packet_path,
         #[cfg(feature = "raw-ip-runtime")]
         packet,
-    }) = entry.outbound.claim_outbound_leaf(input.clone())
+    }) = entry
+        .outbound
+        .as_ref()
+        .and_then(|outbound| outbound.claim_outbound_leaf(input.clone()))
     else {
         return Err(missing_claimed_outbound_leaf(entry.support.name()));
     };

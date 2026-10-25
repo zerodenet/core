@@ -1,0 +1,2 @@
+PASS 0.0.3-dev.202610162206: queries, runtime apply, rejected-schema rollback, route/WireGuard compatibility
+PASS actual GUI-owned runtime exited 0 after parent stdin closure; no terminate/kill

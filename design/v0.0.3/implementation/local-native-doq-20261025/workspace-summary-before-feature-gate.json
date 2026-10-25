@@ -1,0 +1,1096 @@
+{
+  "end": "TEST_END 2026-10-25T13:04:24Z exit=0 seconds=2877",
+  "totals": {
+    "passed": 3832,
+    "failed": 0,
+    "ignored": 175
+  },
+  "targets": 155,
+  "entries": [
+    {
+      "target": "Running unittests src/lib.rs (target/debug/deps/http-dbd4f327ba2a10df)",
+      "status": "ok",
+      "passed": 3,
+      "failed": 0,
+      "ignored": 0
+    },
+    {
+      "target": "Running tests/inbound.rs (target/debug/deps/inbound-5268e3f03504186f)",
+      "status": "ok",
+      "passed": 11,
+      "failed": 0,
+      "ignored": 0
+    },
+    {
+      "target": "Running unittests src/lib.rs (target/debug/deps/hysteria2-d247749741408ad8)",
+      "status": "ok",
+      "passed": 24,
+      "failed": 0,
+      "ignored": 0
+    },
+    {
+      "target": "Running tests/suites/hysteria2_contracts.rs (target/debug/deps/hysteria2_contracts-be91d47ef81ac737)",
+      "status": "ok",
+      "passed": 33,
+      "failed": 0,
+      "ignored": 0
+    },
+    {
+      "target": "Running unittests src/lib.rs (target/debug/deps/mieru-db5c1a3b543ff9e4)",
+      "status": "ok",
+      "passed": 67,
+      "failed": 0,
+      "ignored": 0
+    },
+    {
+      "target": "Running tests/suites/mieru_crypto.rs (target/debug/deps/mieru_crypto-0b1dcbff742e9d0a)",
+      "status": "ok",
+      "passed": 15,
+      "failed": 0,
+      "ignored": 0
+    },
+    {
+      "target": "Running tests/suites/mieru_runtime.rs (target/debug/deps/mieru_runtime-5d37232275005711)",
+      "status": "ok",
+      "passed": 22,
+      "failed": 0,
+      "ignored": 0
+    },
+    {
+      "target": "Running unittests src/lib.rs (target/debug/deps/mieru_config-6bb57377c2c51f94)",
+      "status": "ok",
+      "passed": 0,
+      "failed": 0,
+      "ignored": 0
+    },
+    {
+      "target": "Running tests/options.rs (target/debug/deps/options-5752742e479fd6aa)",
+      "status": "ok",
+      "passed": 2,
+      "failed": 0,
+      "ignored": 0
+    },
+    {
+      "target": "Running unittests src/lib.rs (target/debug/deps/shadowsocks-28fb549c4f2f90d5)",
+      "status": "ok",
+      "passed": 44,
+      "failed": 0,
+      "ignored": 0
+    },
+    {
+      "target": "Running tests/external_sip023.rs (target/debug/deps/external_sip023-570d87b381fafbfc)",
+      "status": "ok",
+      "passed": 0,
+      "failed": 0,
+      "ignored": 5
+    },
+    {
+      "target": "Running tests/reference_interop.rs (target/debug/deps/reference_interop-d1949dc86089876c)",
+      "status": "ok",
+      "passed": 0,
+      "failed": 0,
+      "ignored": 2
+    },
+    {
+      "target": "Running tests/suites/shadowsocks_runtime.rs (target/debug/deps/shadowsocks_runtime-e1aafd6a1aedb173)",
+      "status": "ok",
+      "passed": 62,
+      "failed": 0,
+      "ignored": 0
+    },
+    {
+      "target": "Running tests/validation.rs (target/debug/deps/validation-33b92cadd510e9ed)",
+      "status": "ok",
+      "passed": 2,
+      "failed": 0,
+      "ignored": 0
+    },
+    {
+      "target": "Running unittests src/lib.rs (target/debug/deps/socks5-7d0498767af15019)",
+      "status": "ok",
+      "passed": 6,
+      "failed": 0,
+      "ignored": 0
+    },
+    {
+      "target": "Running tests/handshake.rs (target/debug/deps/handshake-79503a6ffdc92ed0)",
+      "status": "ok",
+      "passed": 21,
+      "failed": 0,
+      "ignored": 0
+    },
+    {
+      "target": "Running tests/inbound_facts.rs (target/debug/deps/inbound_facts-4b6d529d3b119d2c)",
+      "status": "ok",
+      "passed": 4,
+      "failed": 0,
+      "ignored": 0
+    },
+    {
+      "target": "Running tests/component.rs (target/debug/deps/socks_component-72906799c2649fce)",
+      "status": "ok",
+      "passed": 8,
+      "failed": 0,
+      "ignored": 0
+    },
+    {
+      "target": "Running unittests src/lib.rs (target/debug/deps/trojan-4c6a565c6e6671b5)",
+      "status": "ok",
+      "passed": 4,
+      "failed": 0,
+      "ignored": 0
+    },
+    {
+      "target": "Running tests/suites/trojan_contracts.rs (target/debug/deps/trojan_contracts-9ade56e512e3404b)",
+      "status": "ok",
+      "passed": 9,
+      "failed": 0,
+      "ignored": 0
+    },
+    {
+      "target": "Running unittests src/lib.rs (target/debug/deps/vless-0835f05e8f56f0fb)",
+      "status": "ok",
+      "passed": 60,
+      "failed": 0,
+      "ignored": 0
+    },
+    {
+      "target": "Running tests/suites/vless_contracts.rs (target/debug/deps/vless_contracts-6ae987cd1ebd6792)",
+      "status": "ok",
+      "passed": 92,
+      "failed": 0,
+      "ignored": 0
+    },
+    {
+      "target": "Running tests/suites/vless_reality.rs (target/debug/deps/vless_reality-f45a3e19822ab3ec)",
+      "status": "ok",
+      "passed": 68,
+      "failed": 0,
+      "ignored": 0
+    },
+    {
+      "target": "Running unittests src/lib.rs (target/debug/deps/vmess-0974631a364e3dc8)",
+      "status": "ok",
+      "passed": 27,
+      "failed": 0,
+      "ignored": 0
+    },
+    {
+      "target": "Running tests/suites/vmess_contracts.rs (target/debug/deps/vmess_contracts-a973dfd980f365dd)",
+      "status": "ok",
+      "passed": 11,
+      "failed": 0,
+      "ignored": 0
+    },
+    {
+      "target": "Running unittests src/lib.rs (target/debug/deps/wireguard-26c6d01981110632)",
+      "status": "ok",
+      "passed": 6,
+      "failed": 0,
+      "ignored": 2
+    },
+    {
+      "target": "Running tests/runtime.rs (target/debug/deps/runtime-bbef7b5998c702d7)",
+      "status": "ok",
+      "passed": 15,
+      "failed": 0,
+      "ignored": 0
+    },
+    {
+      "target": "Running tests/suites/wireguard_model.rs (target/debug/deps/wireguard_model-0ff707a95ba94b46)",
+      "status": "ok",
+      "passed": 19,
+      "failed": 0,
+      "ignored": 0
+    },
+    {
+      "target": "Running unittests src/main.rs (target/debug/deps/zero-6781113097a0eb65)",
+      "status": "ok",
+      "passed": 79,
+      "failed": 0,
+      "ignored": 0
+    },
+    {
+      "target": "Running tests/suites/kernel_process.rs (target/debug/deps/kernel_process-44ae90471b050bd4)",
+      "status": "ok",
+      "passed": 22,
+      "failed": 0,
+      "ignored": 0
+    },
+    {
+      "target": "Running tests/tun_privileged_e2e.rs (target/debug/deps/tun_privileged_e2e-ec8d457c361220e7)",
+      "status": "ok",
+      "passed": 7,
+      "failed": 0,
+      "ignored": 9
+    },
+    {
+      "target": "Running tests/tun_route_reconcile_e2e.rs (target/debug/deps/tun_route_reconcile_e2e-dd5e355a1e7f1ebf)",
+      "status": "ok",
+      "passed": 0,
+      "failed": 0,
+      "ignored": 0
+    },
+    {
+      "target": "Running tests/tun_route_reconcile_linux_e2e.rs (target/debug/deps/tun_route_reconcile_linux_e2e-b56978593e3d2a78)",
+      "status": "ok",
+      "passed": 0,
+      "failed": 0,
+      "ignored": 0
+    },
+    {
+      "target": "Running tests/tun_route_reconcile_macos_e2e.rs (target/debug/deps/tun_route_reconcile_macos_e2e-9d96543542dd3902)",
+      "status": "ok",
+      "passed": 1,
+      "failed": 0,
+      "ignored": 2
+    },
+    {
+      "target": "Running tests/validate_isolation.rs (target/debug/deps/validate_isolation-81a7bbc111505ffa)",
+      "status": "ok",
+      "passed": 4,
+      "failed": 0,
+      "ignored": 0
+    },
+    {
+      "target": "Running tests/windows_release_artifact.rs (target/debug/deps/windows_release_artifact-f6f40087d272a8fb)",
+      "status": "ok",
+      "passed": 2,
+      "failed": 0,
+      "ignored": 0
+    },
+    {
+      "target": "Running tests/workspace_architecture.rs (target/debug/deps/workspace_architecture-221024841c7b1b02)",
+      "status": "ok",
+      "passed": 27,
+      "failed": 0,
+      "ignored": 0
+    },
+    {
+      "target": "Running unittests src/lib.rs (target/debug/deps/zero_api-6b01e50e7c3a178c)",
+      "status": "ok",
+      "passed": 1,
+      "failed": 0,
+      "ignored": 0
+    },
+    {
+      "target": "Running tests/suites/api_contracts.rs (target/debug/deps/api_contracts-8bf4436af365becf)",
+      "status": "ok",
+      "passed": 53,
+      "failed": 0,
+      "ignored": 0
+    },
+    {
+      "target": "Running tests/suites/api_events.rs (target/debug/deps/api_events-0f75ff1550e9fe9b)",
+      "status": "ok",
+      "passed": 7,
+      "failed": 0,
+      "ignored": 0
+    },
+    {
+      "target": "Running unittests src/lib.rs (target/debug/deps/zero_config-9f586c8ea563647b)",
+      "status": "ok",
+      "passed": 0,
+      "failed": 0,
+      "ignored": 0
+    },
+    {
+      "target": "Running tests/suites/config_contracts.rs (target/debug/deps/config_contracts-4d386e1a0009aa59)",
+      "status": "ok",
+      "passed": 133,
+      "failed": 0,
+      "ignored": 0
+    },
+    {
+      "target": "Running tests/suites/protocol_config.rs (target/debug/deps/protocol_config-58465ec2821bc271)",
+      "status": "ok",
+      "passed": 45,
+      "failed": 0,
+      "ignored": 0
+    },
+    {
+      "target": "Running tests/suites/transport_config.rs (target/debug/deps/transport_config-f8fcbe3ac9826852)",
+      "status": "ok",
+      "passed": 23,
+      "failed": 0,
+      "ignored": 0
+    },
+    {
+      "target": "Running unittests src/lib.rs (target/debug/deps/zero_connector-052900500941096a)",
+      "status": "ok",
+      "passed": 33,
+      "failed": 0,
+      "ignored": 0
+    },
+    {
+      "target": "Running tests/suites/connector_delivery.rs (target/debug/deps/connector_delivery-9624748b99294144)",
+      "status": "ok",
+      "passed": 40,
+      "failed": 0,
+      "ignored": 0
+    },
+    {
+      "target": "Running tests/qualification_outage.rs (target/debug/deps/qualification_outage-735dc4161e83f7b7)",
+      "status": "ok",
+      "passed": 0,
+      "failed": 0,
+      "ignored": 1
+    },
+    {
+      "target": "Running tests/qualification_soak.rs (target/debug/deps/qualification_soak-87f446336de5c715)",
+      "status": "ok",
+      "passed": 0,
+      "failed": 0,
+      "ignored": 1
+    },
+    {
+      "target": "Running unittests src/lib.rs (target/debug/deps/zero_core-239cb640a6bea22a)",
+      "status": "ok",
+      "passed": 2,
+      "failed": 0,
+      "ignored": 0
+    },
+    {
+      "target": "Running tests/channel_contracts.rs (target/debug/deps/channel_contracts-63a5ae18447af557)",
+      "status": "ok",
+      "passed": 4,
+      "failed": 0,
+      "ignored": 0
+    },
+    {
+      "target": "Running tests/listen_address.rs (target/debug/deps/listen_address-3b855b87b585b740)",
+      "status": "ok",
+      "passed": 3,
+      "failed": 0,
+      "ignored": 0
+    },
+    {
+      "target": "Running tests/udp_continuity.rs (target/debug/deps/udp_continuity-d2e07aeb2217db10)",
+      "status": "ok",
+      "passed": 2,
+      "failed": 0,
+      "ignored": 0
+    },
+    {
+      "target": "Running unittests src/lib.rs (target/debug/deps/zero_dns-40aa0ce4dccc658b)",
+      "status": "ok",
+      "passed": 76,
+      "failed": 0,
+      "ignored": 0
+    },
+    {
+      "target": "Running tests/suites/dns_resolution.rs (target/debug/deps/dns_resolution-ae9b2d0d9881f72c)",
+      "status": "ok",
+      "passed": 27,
+      "failed": 0,
+      "ignored": 0
+    },
+    {
+      "target": "Running tests/suites/dns_state.rs (target/debug/deps/dns_state-d9eba0403124f0b2)",
+      "status": "ok",
+      "passed": 20,
+      "failed": 0,
+      "ignored": 0
+    },
+    {
+      "target": "Running tests/suites/dns_wire.rs (target/debug/deps/dns_wire-343c47e16ebccf22)",
+      "status": "ok",
+      "passed": 28,
+      "failed": 0,
+      "ignored": 0
+    },
+    {
+      "target": "Running unittests src/lib.rs (target/debug/deps/zero_engine-1ff45a4a3c903b62)",
+      "status": "ok",
+      "passed": 50,
+      "failed": 0,
+      "ignored": 0
+    },
+    {
+      "target": "Running tests/suites/engine_endpoints.rs (target/debug/deps/engine_endpoints-6b1c5b06aa0e2b77)",
+      "status": "ok",
+      "passed": 16,
+      "failed": 0,
+      "ignored": 0
+    },
+    {
+      "target": "Running tests/suites/engine_observability.rs (target/debug/deps/engine_observability-28a90eaea36538ca)",
+      "status": "ok",
+      "passed": 59,
+      "failed": 0,
+      "ignored": 0
+    },
+    {
+      "target": "Running tests/suites/engine_policy.rs (target/debug/deps/engine_policy-66b0131ccec523f0)",
+      "status": "ok",
+      "passed": 24,
+      "failed": 0,
+      "ignored": 0
+    },
+    {
+      "target": "Running tests/suites/engine_routing.rs (target/debug/deps/engine_routing-72017155efd8f292)",
+      "status": "ok",
+      "passed": 36,
+      "failed": 0,
+      "ignored": 0
+    },
+    {
+      "target": "Running unittests src/lib.rs (target/debug/deps/zero_error-7d8c57a76fd6225b)",
+      "status": "ok",
+      "passed": 0,
+      "failed": 0,
+      "ignored": 0
+    },
+    {
+      "target": "Running tests/channel.rs (target/debug/deps/channel-7a7b1f10cd8aeb5b)",
+      "status": "ok",
+      "passed": 1,
+      "failed": 0,
+      "ignored": 0
+    },
+    {
+      "target": "Running unittests src/lib.rs (target/debug/deps/zero_ffi-79e8fb31b6002a8d)",
+      "status": "ok",
+      "passed": 0,
+      "failed": 0,
+      "ignored": 0
+    },
+    {
+      "target": "Running unittests src/lib.rs (target/debug/deps/zero_grpc-b9a46c245592ce49)",
+      "status": "ok",
+      "passed": 2,
+      "failed": 0,
+      "ignored": 0
+    },
+    {
+      "target": "Running tests/security.rs (target/debug/deps/security-494c48637e7db3da)",
+      "status": "ok",
+      "passed": 4,
+      "failed": 0,
+      "ignored": 0
+    },
+    {
+      "target": "Running unittests src/lib.rs (target/debug/deps/zero_logging-86183aea485b525e)",
+      "status": "ok",
+      "passed": 3,
+      "failed": 0,
+      "ignored": 0
+    },
+    {
+      "target": "Running unittests src/lib.rs (target/debug/deps/zero_platform_tokio-4d962bd136afab89)",
+      "status": "ok",
+      "passed": 271,
+      "failed": 0,
+      "ignored": 11
+    },
+    {
+      "target": "Running tests/icmp_echo.rs (target/debug/deps/icmp_echo-2659fa349955d06e)",
+      "status": "ok",
+      "passed": 1,
+      "failed": 0,
+      "ignored": 0
+    },
+    {
+      "target": "Running tests/suites/platform_contracts.rs (target/debug/deps/platform_contracts-a1e2b7800488d56d)",
+      "status": "ok",
+      "passed": 80,
+      "failed": 0,
+      "ignored": 0
+    },
+    {
+      "target": "Running unittests src/lib.rs (target/debug/deps/zero_proxy-9aad9181f817957f)",
+      "status": "ok",
+      "passed": 724,
+      "failed": 0,
+      "ignored": 2
+    },
+    {
+      "target": "Running tests/component/mod.rs (target/debug/deps/component_contracts-c6b3a9314f7461c9)",
+      "status": "ok",
+      "passed": 35,
+      "failed": 0,
+      "ignored": 0
+    },
+    {
+      "target": "Running tests/endpoint_contracts.rs (target/debug/deps/endpoint_contracts-adadd384df429e76)",
+      "status": "ok",
+      "passed": 25,
+      "failed": 0,
+      "ignored": 0
+    },
+    {
+      "target": "Running tests/hysteria2_official_interop.rs (target/debug/deps/hysteria2_official_interop-b2cbe3f1070b649c)",
+      "status": "ok",
+      "passed": 0,
+      "failed": 0,
+      "ignored": 12
+    },
+    {
+      "target": "Running tests/hysteria2_sing_box_interop.rs (target/debug/deps/hysteria2_sing_box_interop-3cbd55812d6dd102)",
+      "status": "ok",
+      "passed": 0,
+      "failed": 0,
+      "ignored": 6
+    },
+    {
+      "target": "Running tests/logging.rs (target/debug/deps/logging-e30e859ff727b0b4)",
+      "status": "ok",
+      "passed": 2,
+      "failed": 0,
+      "ignored": 0
+    },
+    {
+      "target": "Running tests/mieru_official_interop.rs (target/debug/deps/mieru_official_interop-2e71d7d7b0dfd3d7)",
+      "status": "ok",
+      "passed": 0,
+      "failed": 0,
+      "ignored": 8
+    },
+    {
+      "target": "Running tests/mieru_xray_interop.rs (target/debug/deps/mieru_xray_interop-c931d240e4dac278)",
+      "status": "ok",
+      "passed": 0,
+      "failed": 0,
+      "ignored": 2
+    },
+    {
+      "target": "Running tests/probe_outbound_diagnostics.rs (target/debug/deps/probe_outbound_diagnostics-e790a35b0820eab0)",
+      "status": "ok",
+      "passed": 4,
+      "failed": 0,
+      "ignored": 0
+    },
+    {
+      "target": "Running tests/suites/proxy_control.rs (target/debug/deps/proxy_control-e5e58b852cacd2ca)",
+      "status": "ok",
+      "passed": 35,
+      "failed": 0,
+      "ignored": 0
+    },
+    {
+      "target": "Running tests/suites/proxy_dispatch.rs (target/debug/deps/proxy_dispatch-7871c39103864af5)",
+      "status": "ok",
+      "passed": 99,
+      "failed": 0,
+      "ignored": 0
+    },
+    {
+      "target": "Running tests/suites/proxy_health.rs (target/debug/deps/proxy_health-71f236c17074ddea)",
+      "status": "ok",
+      "passed": 12,
+      "failed": 0,
+      "ignored": 0
+    },
+    {
+      "target": "Running tests/suites/proxy_hysteria2.rs (target/debug/deps/proxy_hysteria2-6b67bea8fe0df171)",
+      "status": "ok",
+      "passed": 9,
+      "failed": 0,
+      "ignored": 0
+    },
+    {
+      "target": "Running tests/suites/proxy_shadowsocks.rs (target/debug/deps/proxy_shadowsocks-4c6cb26dd234fc85)",
+      "status": "ok",
+      "passed": 7,
+      "failed": 0,
+      "ignored": 0
+    },
+    {
+      "target": "Running tests/suites/proxy_vless.rs (target/debug/deps/proxy_vless-22b1db3802f55ce6)",
+      "status": "ok",
+      "passed": 51,
+      "failed": 0,
+      "ignored": 2
+    },
+    {
+      "target": "Running tests/suites/proxy_wireguard.rs (target/debug/deps/proxy_wireguard-c5d8f75a675ef4e1)",
+      "status": "ok",
+      "passed": 13,
+      "failed": 0,
+      "ignored": 0
+    },
+    {
+      "target": "Running tests/runtime_boundary.rs (target/debug/deps/runtime_boundary-6e69c98ec3b68a38)",
+      "status": "ok",
+      "passed": 190,
+      "failed": 0,
+      "ignored": 0
+    },
+    {
+      "target": "Running tests/shadowsocks_xray_interop.rs (target/debug/deps/shadowsocks_xray_interop-03050577cd407df0)",
+      "status": "ok",
+      "passed": 0,
+      "failed": 0,
+      "ignored": 10
+    },
+    {
+      "target": "Running tests/trojan_go_interop.rs (target/debug/deps/trojan_go_interop-c04501d771ed5dbb)",
+      "status": "ok",
+      "passed": 0,
+      "failed": 0,
+      "ignored": 2
+    },
+    {
+      "target": "Running tests/trojan_xray_interop.rs (target/debug/deps/trojan_xray_interop-af3109bd185ac44f)",
+      "status": "ok",
+      "passed": 0,
+      "failed": 0,
+      "ignored": 13
+    },
+    {
+      "target": "Running tests/vless_early_data.rs (target/debug/deps/vless_early_data-76830c53408ef704)",
+      "status": "ok",
+      "passed": 0,
+      "failed": 0,
+      "ignored": 3
+    },
+    {
+      "target": "Running tests/vless_encryption.rs (target/debug/deps/vless_encryption-1f58e55d58d30ec5)",
+      "status": "ok",
+      "passed": 1,
+      "failed": 0,
+      "ignored": 2
+    },
+    {
+      "target": "Running tests/vless_fallback_rules.rs (target/debug/deps/vless_fallback_rules-0575f2f4b073fc67)",
+      "status": "ok",
+      "passed": 1,
+      "failed": 0,
+      "ignored": 1
+    },
+    {
+      "target": "Running tests/vless_tls_vision.rs (target/debug/deps/vless_tls_vision-11b7fb122580639b)",
+      "status": "ok",
+      "passed": 1,
+      "failed": 0,
+      "ignored": 1
+    },
+    {
+      "target": "Running tests/vless_xhttp_h3.rs (target/debug/deps/vless_xhttp_h3-cb01846009ec934d)",
+      "status": "ok",
+      "passed": 0,
+      "failed": 0,
+      "ignored": 1
+    },
+    {
+      "target": "Running tests/vless_xhttp_modes.rs (target/debug/deps/vless_xhttp_modes-d18e82e9ab4b682a)",
+      "status": "ok",
+      "passed": 0,
+      "failed": 0,
+      "ignored": 9
+    },
+    {
+      "target": "Running tests/vless_xhttp_options.rs (target/debug/deps/vless_xhttp_options-79169d430513460f)",
+      "status": "ok",
+      "passed": 0,
+      "failed": 0,
+      "ignored": 6
+    },
+    {
+      "target": "Running tests/vless_xray_interop.rs (target/debug/deps/vless_xray_interop-034afd84c1f230ad)",
+      "status": "ok",
+      "passed": 0,
+      "failed": 0,
+      "ignored": 18
+    },
+    {
+      "target": "Running tests/vmess_xray_interop.rs (target/debug/deps/vmess_xray_interop-f19dfd94419601ad)",
+      "status": "ok",
+      "passed": 0,
+      "failed": 0,
+      "ignored": 17
+    },
+    {
+      "target": "Running tests/wireguard_go_interop.rs (target/debug/deps/wireguard_go_interop-843fb7551a62ecb7)",
+      "status": "ok",
+      "passed": 0,
+      "failed": 0,
+      "ignored": 4
+    },
+    {
+      "target": "Running tests/wireguard_icmp_route.rs (target/debug/deps/wireguard_icmp_route-dac8c543cbdb8856)",
+      "status": "ok",
+      "passed": 0,
+      "failed": 0,
+      "ignored": 7
+    },
+    {
+      "target": "Running tests/wireguard_inbound.rs (target/debug/deps/wireguard_inbound-a2af12ba1b2a9ae2)",
+      "status": "ok",
+      "passed": 10,
+      "failed": 0,
+      "ignored": 1
+    },
+    {
+      "target": "Running tests/wireguard_xray_interop.rs (target/debug/deps/wireguard_xray_interop-345a678717a182f9)",
+      "status": "ok",
+      "passed": 0,
+      "failed": 0,
+      "ignored": 3
+    },
+    {
+      "target": "Running unittests src/lib.rs (target/debug/deps/zero_router-71040cd547b917f1)",
+      "status": "ok",
+      "passed": 6,
+      "failed": 0,
+      "ignored": 0
+    },
+    {
+      "target": "Running tests/routing.rs (target/debug/deps/routing-4bb1ccd0d2f9288a)",
+      "status": "ok",
+      "passed": 7,
+      "failed": 0,
+      "ignored": 0
+    },
+    {
+      "target": "Running unittests src/lib.rs (target/debug/deps/zero_rule-275ab29291cc5acd)",
+      "status": "ok",
+      "passed": 0,
+      "failed": 0,
+      "ignored": 0
+    },
+    {
+      "target": "Running tests/suites/rule_contracts.rs (target/debug/deps/rule_contracts-99449db363f0ec55)",
+      "status": "ok",
+      "passed": 20,
+      "failed": 0,
+      "ignored": 0
+    },
+    {
+      "target": "Running unittests src/lib.rs (target/debug/deps/zero_runtime-d14e7618c3d1ee96)",
+      "status": "ok",
+      "passed": 192,
+      "failed": 0,
+      "ignored": 4
+    },
+    {
+      "target": "Running unittests src/lib.rs (target/debug/deps/zero_stack-71791d76791fe8b2)",
+      "status": "ok",
+      "passed": 40,
+      "failed": 0,
+      "ignored": 1
+    },
+    {
+      "target": "Running tests/suites/stack_io.rs (target/debug/deps/stack_io-719670d9e581c592)",
+      "status": "ok",
+      "passed": 61,
+      "failed": 0,
+      "ignored": 0
+    },
+    {
+      "target": "Running tests/suites/stack_packet.rs (target/debug/deps/stack_packet-38468d2e14cbac08)",
+      "status": "ok",
+      "passed": 52,
+      "failed": 0,
+      "ignored": 1
+    },
+    {
+      "target": "Running unittests src/lib.rs (target/debug/deps/zero_traits-644ddcd79bc771ed)",
+      "status": "ok",
+      "passed": 0,
+      "failed": 0,
+      "ignored": 0
+    },
+    {
+      "target": "Running tests/dial_policy.rs (target/debug/deps/dial_policy-14a8509e8a1829e9)",
+      "status": "ok",
+      "passed": 5,
+      "failed": 0,
+      "ignored": 0
+    },
+    {
+      "target": "Running unittests src/lib.rs (target/debug/deps/zero_transport-055d28d0b73f9371)",
+      "status": "ok",
+      "passed": 224,
+      "failed": 0,
+      "ignored": 1
+    },
+    {
+      "target": "Running tests/browser_dialer_real.rs (target/debug/deps/browser_dialer_real-29c66cabd051f0c2)",
+      "status": "ok",
+      "passed": 0,
+      "failed": 0,
+      "ignored": 1
+    },
+    {
+      "target": "Running tests/suites/carrier_contracts.rs (target/debug/deps/carrier_contracts-99ff72dbd4742409)",
+      "status": "ok",
+      "passed": 11,
+      "failed": 0,
+      "ignored": 0
+    },
+    {
+      "target": "Running tests/suites/quic_contracts.rs (target/debug/deps/quic_contracts-4e85abe64d949811)",
+      "status": "ok",
+      "passed": 3,
+      "failed": 0,
+      "ignored": 0
+    },
+    {
+      "target": "Running tests/suites/tls_contracts.rs (target/debug/deps/tls_contracts-d86ed3329b848f1c)",
+      "status": "ok",
+      "passed": 18,
+      "failed": 0,
+      "ignored": 0
+    },
+    {
+      "target": "Running tests/suites/web_carriers.rs (target/debug/deps/web_carriers-295fc40dd75b1337)",
+      "status": "ok",
+      "passed": 14,
+      "failed": 0,
+      "ignored": 0
+    },
+    {
+      "target": "Running tests/suites/xhttp_contracts.rs (target/debug/deps/xhttp_contracts-b4e2536cc8070199)",
+      "status": "ok",
+      "passed": 22,
+      "failed": 0,
+      "ignored": 0
+    },
+    {
+      "target": "Running unittests src/lib.rs (target/debug/deps/zero_tun-06b7b2965c513c5a)",
+      "status": "ok",
+      "passed": 87,
+      "failed": 0,
+      "ignored": 0
+    },
+    {
+      "target": "Running tests/privileged_configuration.rs (target/debug/deps/privileged_configuration-fe0e3ee2e8ec76c3)",
+      "status": "ok",
+      "passed": 0,
+      "failed": 0,
+      "ignored": 0
+    },
+    {
+      "target": "Running tests/route_monitor_macos_e2e.rs (target/debug/deps/route_monitor_macos_e2e-bcd6890c78d9f25e)",
+      "status": "ok",
+      "passed": 0,
+      "failed": 0,
+      "ignored": 1
+    },
+    {
+      "target": "Running tests/suites/tun_device.rs (target/debug/deps/tun_device-4d26cf19e79d1122)",
+      "status": "ok",
+      "passed": 9,
+      "failed": 0,
+      "ignored": 0
+    },
+    {
+      "target": "Running unittests src/lib.rs (target/debug/deps/ztls-6bb7e84bed8da99f)",
+      "status": "ok",
+      "passed": 11,
+      "failed": 0,
+      "ignored": 0
+    },
+    {
+      "target": "Running tests/suites/ztls_contracts.rs (target/debug/deps/ztls_contracts-91b3697e6a9e74c5)",
+      "status": "ok",
+      "passed": 10,
+      "failed": 0,
+      "ignored": 0
+    },
+    {
+      "target": "Doc-tests http",
+      "status": "ok",
+      "passed": 0,
+      "failed": 0,
+      "ignored": 0
+    },
+    {
+      "target": "Doc-tests hysteria2",
+      "status": "ok",
+      "passed": 0,
+      "failed": 0,
+      "ignored": 0
+    },
+    {
+      "target": "Doc-tests mieru",
+      "status": "ok",
+      "passed": 0,
+      "failed": 0,
+      "ignored": 0
+    },
+    {
+      "target": "Doc-tests mieru_config",
+      "status": "ok",
+      "passed": 0,
+      "failed": 0,
+      "ignored": 0
+    },
+    {
+      "target": "Doc-tests shadowsocks",
+      "status": "ok",
+      "passed": 0,
+      "failed": 0,
+      "ignored": 0
+    },
+    {
+      "target": "Doc-tests socks5",
+      "status": "ok",
+      "passed": 0,
+      "failed": 0,
+      "ignored": 0
+    },
+    {
+      "target": "Doc-tests trojan",
+      "status": "ok",
+      "passed": 0,
+      "failed": 0,
+      "ignored": 0
+    },
+    {
+      "target": "Doc-tests vless",
+      "status": "ok",
+      "passed": 0,
+      "failed": 0,
+      "ignored": 0
+    },
+    {
+      "target": "Doc-tests vmess",
+      "status": "ok",
+      "passed": 0,
+      "failed": 0,
+      "ignored": 0
+    },
+    {
+      "target": "Doc-tests wireguard",
+      "status": "ok",
+      "passed": 0,
+      "failed": 0,
+      "ignored": 0
+    },
+    {
+      "target": "Doc-tests zero_api",
+      "status": "ok",
+      "passed": 0,
+      "failed": 0,
+      "ignored": 0
+    },
+    {
+      "target": "Doc-tests zero_config",
+      "status": "ok",
+      "passed": 0,
+      "failed": 0,
+      "ignored": 0
+    },
+    {
+      "target": "Doc-tests zero_connector",
+      "status": "ok",
+      "passed": 0,
+      "failed": 0,
+      "ignored": 0
+    },
+    {
+      "target": "Doc-tests zero_core",
+      "status": "ok",
+      "passed": 0,
+      "failed": 0,
+      "ignored": 0
+    },
+    {
+      "target": "Doc-tests zero_dns",
+      "status": "ok",
+      "passed": 0,
+      "failed": 0,
+      "ignored": 0
+    },
+    {
+      "target": "Doc-tests zero_engine",
+      "status": "ok",
+      "passed": 0,
+      "failed": 0,
+      "ignored": 0
+    },
+    {
+      "target": "Doc-tests zero_error",
+      "status": "ok",
+      "passed": 0,
+      "failed": 0,
+      "ignored": 0
+    },
+    {
+      "target": "Doc-tests zero_grpc",
+      "status": "ok",
+      "passed": 0,
+      "failed": 0,
+      "ignored": 0
+    },
+    {
+      "target": "Doc-tests zero_logging",
+      "status": "ok",
+      "passed": 0,
+      "failed": 0,
+      "ignored": 0
+    },
+    {
+      "target": "Doc-tests zero_platform_tokio",
+      "status": "ok",
+      "passed": 0,
+      "failed": 0,
+      "ignored": 0
+    },
+    {
+      "target": "Doc-tests zero_proxy",
+      "status": "ok",
+      "passed": 0,
+      "failed": 0,
+      "ignored": 1
+    },
+    {
+      "target": "Doc-tests zero_router",
+      "status": "ok",
+      "passed": 0,
+      "failed": 0,
+      "ignored": 0
+    },
+    {
+      "target": "Doc-tests zero_rule",
+      "status": "ok",
+      "passed": 0,
+      "failed": 0,
+      "ignored": 0
+    },
+    {
+      "target": "Doc-tests zero_runtime",
+      "status": "ok",
+      "passed": 0,
+      "failed": 0,
+      "ignored": 0
+    },
+    {
+      "target": "Doc-tests zero_stack",
+      "status": "ok",
+      "passed": 0,
+      "failed": 0,
+      "ignored": 0
+    },
+    {
+      "target": "Doc-tests zero_traits",
+      "status": "ok",
+      "passed": 0,
+      "failed": 0,
+      "ignored": 0
+    },
+    {
+      "target": "Doc-tests zero_transport",
+      "status": "ok",
+      "passed": 0,
+      "failed": 0,
+      "ignored": 0
+    },
+    {
+      "target": "Doc-tests zero_tun",
+      "status": "ok",
+      "passed": 0,
+      "failed": 0,
+      "ignored": 0
+    },
+    {
+      "target": "Doc-tests ztls",
+      "status": "ok",
+      "passed": 0,
+      "failed": 0,
+      "ignored": 2
+    }
+  ]
+}

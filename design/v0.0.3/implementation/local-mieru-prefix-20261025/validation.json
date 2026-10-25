@@ -1,0 +1,191 @@
+{
+  "status": "qualified_same_owner_mieru_original_loans_and_actual_proxy_fixture_scope",
+  "branch": "develop",
+  "head": "b963c864a473f68f8d6a8444764e3e88761e6c04",
+  "product_version": "v0.0.3",
+  "protocol_reference": "mieru / mieru-config 3.33.0 unchanged",
+  "local_only": true,
+  "commit_or_push_performed": false,
+  "index_empty": true,
+  "source_snapshot": "source-final.json",
+  "source_entries": 471,
+  "source_drift": [],
+  "production_registration_enabled": false,
+  "architecture_tasks_complete": false,
+  "qualification_complete_for_recorded_scope": true,
+  "scope": [
+    "same actual Proxy / RuntimeHost / adapter pool",
+    "Mieru three-hop TCP and packet-prefix borrowing",
+    "ordinary TCP and Datagram roles sharing one pool",
+    "old network originals and logical-control debts before successor acquisition",
+    "real host replacement after complete unused-credential change"
+  ],
+  "remaining_production_gates": [
+    "cross-owner transitive replacement and stateless donor original transfer",
+    "actual Proxy complete native DNS query providers",
+    "native ingress and failure/accounting interoperability matrix",
+    "production resource-limit configuration qualification"
+  ],
+  "checks": {
+    "workspace": {
+      "command": "CARGO_NET_OFFLINE=true RUSTUP_TOOLCHAIN=1.99.0 RUST_MIN_STACK=16777216 bash scripts/test-workspace.sh --jobs 4",
+      "exit": 0,
+      "totals": {
+        "passed": 3794,
+        "failed": 0,
+        "ignored": 175
+      },
+      "targets": 155,
+      "end": "TEST_END 2026-10-24T22:16:20Z exit=0 seconds=1922",
+      "log": "workspace-final.txt.gz"
+    },
+    "new_cases": [
+      "actual_remote_logical_eof_still_requires_the_live_donor_writers_ordered_close_acknowledgement",
+      "retained_logical_loan_controller_blocks_actual_mieru_successor_even_after_view_and_driver_exit",
+      "mieru_tcp_and_packet_loans_return_one_session_without_claiming_or_stopping_the_donor_native",
+      "dropping_logical_loan_control_requests_real_session_retirement_without_orphaning_the_donor_book",
+      "ordinary_proxy_accepts_existing_mieru_configuration_and_keeps_unqualified_native_registration_closed",
+      "actual_proxy_rejects_unqualified_domain_root_before_opening_a_mieru_carrier",
+      "actual_proxy_rejects_cross_owner_prefix_before_dialing_the_real_donor_listener",
+      "actual_proxy_mieru_network_change_closes_original_prefix_before_new_carriers_and_waits_for_retained_control",
+      "actual_proxy_mieru_three_hop_prefix_retains_originals_and_replacement_waits_for_logical_control",
+      "actual_proxy_mieru_three_hop_packet_prefix_and_tcp_udp_share_the_one_real_pool",
+      "actual_incoming_refusal_resumes_original_observer_panic_after_quinn_state_unlock"
+    ],
+    "clippy": {
+      "exit": 0,
+      "rustc": "rustc 1.98.0 (88d9e12ae 2026-08-18)",
+      "command": "CARGO_NET_OFFLINE=true cargo +stable clippy --workspace --all-targets --all-features --no-deps --jobs 4 -- -D warnings",
+      "log": "clippy-final.txt.gz"
+    },
+    "structural": "structural-checks.json",
+    "runtime_boundary": {
+      "passed": 190,
+      "failed": 0
+    },
+    "workspace_boundary": {
+      "passed": 27,
+      "failed": 0
+    },
+    "ci_scope": {
+      "passed": 21,
+      "failed": 0
+    },
+    "consumers": {
+      "gui": {
+        "exit": 0,
+        "seconds": 24.96,
+        "command": [
+          "python3",
+          "/tmp/zero-runtime-gui-check.py",
+          "/var/folders/5g/3js9c9b11c3fmfd930s4vkdm0000gn/T/zero-mieru-prefix-consumers-7rk7ph87/zero",
+          "/Volumes/tool/rust/zero/design/v0.0.3/implementation/local-mieru-prefix-20261025/gui-captures"
+        ],
+        "cwd": "/Volumes/tool/rust/zero",
+        "sha256": "188161cbb10fe8d0f8894904cb3b848376617daad273b13908e07c7763fbddb7"
+      },
+      "panel": {
+        "exit": 0,
+        "seconds": 99.75,
+        "command": [
+          "/tmp/zero-v003-boundaries.FGzrzH/zboard-zero.test",
+          "-test.run",
+          "^TestNativePublicationPreservesTrafficAcrossPublisherProcesses$",
+          "-test.v",
+          "-test.timeout",
+          "120s"
+        ],
+        "cwd": "/Volumes/tool/golang/zboard/backend",
+        "sha256": "188161cbb10fe8d0f8894904cb3b848376617daad273b13908e07c7763fbddb7"
+      }
+    },
+    "consumer_heads": {
+      "gui": "d39ad2787fb05052fa15065853ab71526441ccc3",
+      "panel": "658671e9f3978df1c79f4030fdb072a877f10bf5"
+    },
+    "consumer_binary_sha256": "188161cbb10fe8d0f8894904cb3b848376617daad273b13908e07c7763fbddb7",
+    "gui_normal_exit": 0,
+    "gui_forced_signals": []
+  },
+  "runtime_source_equivalence": "runtime-source-equivalence.json",
+  "diagnostic_regressions_not_qualification": {
+    "mieru_library": {
+      "passed": 67,
+      "failed": 0,
+      "qualification": false,
+      "reason": "artifact predates final FIFO close refinement"
+    },
+    "runtime_original_loans": {
+      "passed": 3,
+      "failed": 1,
+      "qualification": false,
+      "reason": "linked Mieru artifact predates required ordered close barrier; current source retest pending"
+    },
+    "actual_proxy": {
+      "passed": 6,
+      "failed": 0,
+      "qualification": false,
+      "reason": "first compiled artifact; final frozen-source workspace qualification pending"
+    },
+    "runtime_mieru_filtered": {
+      "passed": 13,
+      "failed": 1,
+      "qualification": false,
+      "reason": "Mieru rlib 03:47:07 precedes logical-close source correction 03:54:18 local time; EOF barrier test intentionally fails on this old artifact"
+    },
+    "premature_runtime_probe": {
+      "passed": 3,
+      "failed": 1,
+      "qualification": false,
+      "reason": "Cargo cleared/touched fingerprint at build start; executable remained old 04:13:44. Probe corrected to require both newly linked executable and non-empty completed fingerprint."
+    },
+    "quic_callback_cleanup": {
+      "qualification": false,
+      "reason": "Original foreground panic/lock assertions passed; real driver cleanup raced default three-PTO drain (~3 seconds) against unchanged 3-second join deadline. Loopback fixture now uses actual transport initial RTT 20ms, retaining both joins and original native close assertions.",
+      "old_exact_test_rerun_seconds": 3.06,
+      "old_exact_test_exit": 0,
+      "fixture_only": true
+    },
+    "first_complete_workspace": {
+      "passed": 3793,
+      "failed": 1,
+      "ignored": 175,
+      "targets": 155,
+      "exit": 101,
+      "qualification": false,
+      "source": "source-before-quic-fixture-fix.json",
+      "test_fixture_before": "quic-fixture-before.json",
+      "log": "workspace-before-quic-fixture-fix.txt.gz",
+      "summary": "workspace-before-quic-fixture-fix-summary.json",
+      "reason": "Only failed QUIC callback fixture: default three-PTO drain nearly equals the unchanged 3-second join bound. Fixed the real loopback transport initial RTT, not the deadline/joins/native assertions."
+    }
+  },
+  "preservation": {
+    "backup": "/var/folders/5g/3js9c9b11c3fmfd930s4vkdm0000gn/T/zero-mieru-prefix-before-avk7ffo4",
+    "cargo_lock_preserved": true,
+    "public_api_config_engine_ffi_grpc_cli_unchanged": true,
+    "consumer_sources_clean_unchanged": true
+  },
+  "limits": [
+    "Same actual Mieru shared owner only; normal production enrollment remains closed",
+    "Root literal endpoints in actual Proxy; complete native DNS query provider integration remains gated",
+    "Local GUI IPC and panel publication fixtures, not real GUI/TUN devices or production deployment",
+    "No 1 CPU/1 GiB load qualification or additional official external interoperability claim",
+    "Ignored external and privileged tests remain separate qualifications"
+  ],
+  "final_documentation_check": {
+    "source_drift": [],
+    "plan_log": "plan-after-record.txt",
+    "index_empty": true
+  },
+  "quic_fixture_current_source": {
+    "passed_repetitions": 3,
+    "failed": 0,
+    "unchanged_cleanup_deadline_seconds": 3,
+    "actual_driver_joins": 2,
+    "original_native_close_assertion": true,
+    "loopback_initial_rtt_millis": 20,
+    "runtime_behavior_changed": false,
+    "log": "quic-refusal-fixed-three-runs.txt"
+  }
+}

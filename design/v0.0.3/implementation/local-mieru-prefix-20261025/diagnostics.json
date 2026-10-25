@@ -1,0 +1,22 @@
+{
+  "qualification": false,
+  "notes": [
+    "Checks and early builds preceded subsequent source changes.",
+    "Compile diagnostics were superseded or interrupted after reported errors/source refinements.",
+    "Early package tests are 67 passing tests on an earlier artifact; final frozen workspace qualification remains required.",
+    "No assertion, existing deadline, test thread setting, or workspace feature scope was relaxed."
+  ],
+  "files": [
+    "check-before-latest-edits.txt",
+    "check-during-foundation-edits.txt",
+    "compile-diagnostic-1.txt",
+    "compile-diagnostic-2.txt",
+    "compile-diagnostic-3-superseded.txt",
+    "early-mieru-unit-67.txt",
+    "compiler-sample.txt",
+    "compiler-sample-command.txt",
+    "runtime-boundary.txt",
+    "workspace-boundary.txt",
+    "ci-scope.txt"
+  ]
+}

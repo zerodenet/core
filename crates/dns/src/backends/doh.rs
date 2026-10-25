@@ -27,6 +27,17 @@ pub(super) mod owner;
 use client::DohClient;
 
 impl DohDnsResolver {
+    pub(crate) fn native_tls_config(&self) -> io::Result<Arc<rustls::ClientConfig>> {
+        #[cfg(feature = "test-support")]
+        self.test_io_started
+            .store(true, std::sync::atomic::Ordering::Release);
+        self.tls.clone().ok_or_else(|| {
+            io::Error::new(
+                io::ErrorKind::Unsupported,
+                "native encrypted DNS requires TLS",
+            )
+        })
+    }
     pub(crate) fn new(
         host: String,
         port: u16,
@@ -190,14 +201,7 @@ impl DohDnsResolver {
         connector: Option<&dyn crate::DnsOutboundConnector>,
     ) -> io::Result<Vec<u8>> {
         let mut client = self.ready_client(addr, detour, connector).await?;
-        let request = Request::builder()
-            .method(Method::POST)
-            .uri(self.uri())
-            .header("content-type", "application/dns-message")
-            .header("accept", "application/dns-message")
-            .header("content-length", query.len())
-            .body(())
-            .map_err(|error| context_error("DoH request build failed", error))?;
+        let request = self.request(query.len())?;
         let (response, mut body) = client
             .sender
             .send_request(request, false)
@@ -208,15 +212,20 @@ impl DohDnsResolver {
         let response = response
             .await
             .map_err(|error| context_error("DoH response failed", error))?;
-        if !response.status().is_success() {
-            return Err(io::Error::other(format!(
-                "DoH server returned HTTP {}",
-                response.status()
-            )));
-        }
-        let response = read_body(response.into_body()).await?;
+        let response = read_response(response).await?;
         client.complete()?;
         Ok(response)
+    }
+
+    pub(crate) fn request(&self, length: usize) -> io::Result<Request<()>> {
+        Request::builder()
+            .method(Method::POST)
+            .uri(self.uri())
+            .header("content-type", "application/dns-message")
+            .header("accept", "application/dns-message")
+            .header("content-length", length)
+            .body(())
+            .map_err(|error| context_error("DoH request build failed", error))
     }
 
     fn uri(&self) -> String {
@@ -230,7 +239,14 @@ impl DohDnsResolver {
     }
 }
 
-async fn read_body(mut body: h2::RecvStream) -> io::Result<Vec<u8>> {
+pub(super) async fn read_response(response: http::Response<h2::RecvStream>) -> io::Result<Vec<u8>> {
+    if !response.status().is_success() {
+        return Err(io::Error::other(format!(
+            "DoH server returned HTTP {}",
+            response.status()
+        )));
+    }
+    let mut body = response.into_body();
     let mut response = Vec::new();
     while let Some(chunk) = body.data().await {
         let chunk = chunk.map_err(|error| context_error("DoH read failed", error))?;

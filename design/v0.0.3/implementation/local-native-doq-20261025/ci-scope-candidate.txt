@@ -1,0 +1,137 @@
+TAP version 13
+# Changed-file detection failed; running the full CI scope.
+# Subtest: documentation-only changes skip Rust jobs
+ok 1 - documentation-only changes skip Rust jobs
+  ---
+  duration_ms: 2.176708
+  type: 'test'
+  ...
+# Subtest: every TUN-participating layer retains privileged coverage
+ok 2 - every TUN-participating layer retains privileged coverage
+  ---
+  duration_ms: 1.010326
+  type: 'test'
+  ...
+# Subtest: ordinary application and engine changes stay on the Linux quality gate
+ok 3 - ordinary application and engine changes stay on the Linux quality gate
+  ---
+  duration_ms: 0.265479
+  type: 'test'
+  ...
+# Subtest: domain changes retain ordinary tests without an unrelated compatibility build
+ok 4 - domain changes retain ordinary tests without an unrelated compatibility build
+  ---
+  duration_ms: 0.155148
+  type: 'test'
+  ...
+# Subtest: build, dependency, workflow and native changes require full coverage
+ok 5 - build, dependency, workflow and native changes require full coverage
+  ---
+  duration_ms: 0.436109
+  type: 'test'
+  ...
+# Subtest: TUN test edits keep the privileged gate
+ok 6 - TUN test edits keep the privileged gate
+  ---
+  duration_ms: 0.209775
+  type: 'test'
+  ...
+# Subtest: examples and proto edits cannot bypass ordinary Rust tests
+ok 7 - examples and proto edits cannot bypass ordinary Rust tests
+  ---
+  duration_ms: 0.243508
+  type: 'test'
+  ...
+# Subtest: ordinary test-only changes do not start privileged or compatibility jobs
+ok 8 - ordinary test-only changes do not start privileged or compatibility jobs
+  ---
+  duration_ms: 0.136175
+  type: 'test'
+  ...
+# Subtest: offline validation keeps cross-platform lock coverage
+ok 9 - offline validation keeps cross-platform lock coverage
+  ---
+  duration_ms: 0.428423
+  type: 'test'
+  ...
+# Subtest: WireGuard endpoint changes keep the cross-platform build gate
+ok 10 - WireGuard endpoint changes keep the cross-platform build gate
+  ---
+  duration_ms: 0.653191
+  type: 'test'
+  ...
+# Subtest: manual and scheduled qualification always run everything
+ok 11 - manual and scheduled qualification always run everything
+  ---
+  duration_ms: 0.457143
+  type: 'test'
+  ...
+# Subtest: main pushes and pull requests use their actual diff
+ok 12 - main pushes and pull requests use their actual diff
+  ---
+  duration_ms: 0.587173
+  type: 'test'
+  ...
+# Subtest: push uses the entire before/after diff including old paths of renamed files
+ok 13 - push uses the entire before/after diff including old paths of renamed files
+  ---
+  duration_ms: 0.241394
+  type: 'test'
+  ...
+# Subtest: PRs compare from the merge base, not unrelated base branch changes
+ok 14 - PRs compare from the merge base, not unrelated base branch changes
+  ---
+  duration_ms: 1.601705
+  type: 'test'
+  ...
+# Subtest: missing history, new branches and unknown events fail open to full verification
+ok 15 - missing history, new branches and unknown events fail open to full verification
+  ---
+  duration_ms: 1.605919
+  type: 'test'
+  ...
+# Subtest: large diffs and unusual filenames do not lose relevant paths
+ok 16 - large diffs and unusual filenames do not lose relevant paths
+  ---
+  duration_ms: 9.577586
+  type: 'test'
+  ...
+# Subtest: workflow contracts preserve coverage and avoid root-owned build artifacts
+ok 17 - workflow contracts preserve coverage and avoid root-owned build artifacts
+  ---
+  duration_ms: 2.153818
+  type: 'test'
+  ...
+# Subtest: tag and artifact publishing reuse CI for the same commit
+ok 18 - tag and artifact publishing reuse CI for the same commit
+  ---
+  duration_ms: 1.423681
+  type: 'test'
+  ...
+# Subtest: both result gates propagate failures and cancellations but accept intentional skips
+ok 19 - both result gates propagate failures and cancellations but accept intentional skips
+  ---
+  duration_ms: 596.870296
+  type: 'test'
+  ...
+# Subtest: release gate accepts only successful CI for its exact source commit
+ok 20 - release gate accepts only successful CI for its exact source commit
+  ---
+  duration_ms: 7.175846
+  type: 'test'
+  ...
+# Subtest: minimal feature checks report every result after an earlier failure
+ok 21 - minimal feature checks report every result after an earlier failure
+  ---
+  duration_ms: 18.314133
+  type: 'test'
+  ...
+1..21
+# tests 21
+# suites 0
+# pass 21
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 856.596748

@@ -10,13 +10,13 @@ impl OrchestrationState {
         // remain available while the accepted transaction compensates.
         proxy.protocols.stop_component_admission();
         proxy.packet_close_owner.begin_shutdown();
-        proxy.apply_owner.begin_shutdown();
+        proxy.host.apply().begin_shutdown();
         let deadline = Instant::now() + Duration::from_secs(5);
         loop {
             tokio::select! { biased;
-                result = proxy.apply_owner.wait_idle() => {
+                result = proxy.host.apply().wait_idle() => {
                     result.map_err(|message| EngineError::Io(std::io::Error::other(message)))?;
-                    return proxy.apply_owner.shutdown(deadline).await
+                    return proxy.host.apply().shutdown(deadline).await
                         .map_err(|message| EngineError::Io(std::io::Error::other(message)));
                 }
                 Some(()) = self.reload_async_rx.recv() => Box::pin(self.reconcile_reload(proxy)).await,

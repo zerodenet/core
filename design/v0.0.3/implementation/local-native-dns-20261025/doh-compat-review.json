@@ -1,0 +1,14 @@
+{
+  "status": "fixed_and_validated_on_frozen_source",
+  "required_fix": [
+    "reuse actual backend authority using server_name",
+    "retain Content-Length and existing successful HTTP status handling",
+    "share backend response body bounds and framing",
+    "add real TLS/H2 request authority and length assertions"
+  ],
+  "validation": [
+    "proxy-fixed-focused.txt: actual TLS/H2 authority and Content-Length assertions",
+    "workspace-fixed-final.txt: complete all-feature regression",
+    "clippy-fixed-final.txt: strict all-target lint"
+  ]
+}

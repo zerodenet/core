@@ -35,9 +35,7 @@ async fn actual_direct_role_recovers_business_dns_under_same_host_scope_and_clos
             ));
             let host = TestContext::new([slot.as_ref()]);
             let role = host.drive(slot.stream(deadline())).await.unwrap();
-            slot.host_admission()
-                .unwrap()
-                .publish(std::iter::once(slot.admission_grant()));
+            host.publish();
             let actual = captured.0.lock().unwrap().clone().unwrap();
             assert_eq!(actual.observe().unwrap().retained(), 0);
             let mut callers = Vec::new();

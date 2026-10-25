@@ -1,0 +1,8 @@
+{
+  "changed_after_focused_checks": [
+    "crates/proxy/src/component/tests/mieru/reject.rs"
+  ],
+  "runtime_sources_unchanged": true,
+  "fix": "VLESS negative fixture uses existing id field, not uuid; no public config parsing change",
+  "focused_failure_retained": "proxy-before-vless-fixture-fix.txt"
+}

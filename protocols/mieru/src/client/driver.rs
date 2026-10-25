@@ -20,6 +20,15 @@ impl DriverHandle {
             Self::Managed(driver) => driver.witness.lock().unwrap().clone(),
         }
     }
+    #[cfg(feature = "runtime")]
+    pub(super) fn native_origin(
+        &self,
+    ) -> Option<zero_platform_tokio::controlled_carrier::CarrierOrigin> {
+        match self {
+            Self::Legacy(_) => None,
+            Self::Managed(driver) => driver.original.lock().unwrap().clone(),
+        }
+    }
     pub(super) fn cancel(&self) {
         match self {
             Self::Legacy(task) => task.abort(),
@@ -40,6 +49,7 @@ pub(crate) struct ManagedDriver {
     pub(crate) cancel: zero_platform_tokio::contract::CancellationToken,
     finished: AtomicBool,
     witness: std::sync::Mutex<Option<zero_platform_tokio::contract::scope::TaskJoinWitness>>,
+    original: std::sync::Mutex<Option<zero_platform_tokio::controlled_carrier::CarrierOrigin>>,
 }
 #[cfg(feature = "runtime")]
 impl ManagedDriver {
@@ -48,7 +58,22 @@ impl ManagedDriver {
             cancel,
             finished: AtomicBool::new(false),
             witness: std::sync::Mutex::new(None),
+            original: std::sync::Mutex::new(None),
         })
+    }
+    pub(crate) fn attach_original(
+        &self,
+        adoption: &zero_platform_tokio::controlled_carrier::CarrierAdoption,
+    ) -> Result<(), zero_platform_tokio::contract::ChannelError> {
+        let witness = self
+            .witness
+            .lock()
+            .unwrap()
+            .clone()
+            .expect("registered original driver");
+        let original = adoption.origin(&witness)?;
+        *self.original.lock().unwrap() = Some(original);
+        Ok(())
     }
     pub(crate) fn completion(self: &Arc<Self>) -> Completion {
         Completion(self.clone())

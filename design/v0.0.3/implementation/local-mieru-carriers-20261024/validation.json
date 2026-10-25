@@ -1,0 +1,218 @@
+{
+  "status": "qualified_native_library_and_real_host_fixtures",
+  "product_version": "v0.0.3",
+  "protocol_reference": "mieru / mieru-config 3.33.0 (unchanged)",
+  "branch": "develop",
+  "head": "b963c864a473f68f8d6a8444764e3e88761e6c04",
+  "local_only": true,
+  "index_empty": true,
+  "commit_or_push_performed": false,
+  "source_snapshot": "source-final.json",
+  "source_entries": 431,
+  "source_drift": [],
+  "completed": [
+    "Node DNS using actual DnsService and resolver/network generations; original domain preserved; real owned-UDP DNS wire, cancellation and native close tested",
+    "Failed native candidates must settle against the same original close receipt before the next acquisition; only the current unsettled slot is retained",
+    "Native UDP underlay uses the existing packet driver in the actual TaskScope, with the original persistent datagram owner/controller and one unique view",
+    "Standard Stream and Datagram roles share the same actual ClientPool and finite total budget; retained users and original native/scope evidence block replacement",
+    "No caller deadline still uses the existing Mieru initialization bound for retirement, rather than skipping original cleanup"
+  ],
+  "production_registration_enabled": false,
+  "architecture_tasks_complete": false,
+  "final_qualification_complete": true,
+  "remaining": [
+    "relay-prefix real dependency/loan authority, actual caller scope and original donor closure chain",
+    "same-protocol and dynamically selected prefix ownership graph without false whole-pool cycles or a second pool",
+    "actual Proxy resolver/egress/prefix provider assembly, endpoint/accounting/health facts and coordinated legacy transition",
+    "all-path native production enrollment only after these ownership and compatibility conditions"
+  ],
+  "checks": {
+    "workspace": {
+      "command": "CARGO_NET_OFFLINE=true RUSTUP_TOOLCHAIN=1.99.0 RUST_MIN_STACK=16777216 bash scripts/test-workspace.sh --jobs 4",
+      "exit": 0,
+      "totals": {
+        "passed": 3784,
+        "failed": 0,
+        "ignored": 175
+      },
+      "targets": 155,
+      "end": "TEST_END 2026-10-24T17:25:23Z exit=0 seconds=2174",
+      "log": "workspace-final.txt.gz"
+    },
+    "new_cases": [
+      "resolved_candidate_uses_original_native_close_before_the_next_actual_connection",
+      "controlled_packet_waits_for_its_actual_driver_and_original_native_close",
+      "cancelled_pending_node_dns_returns_pool_reservation_without_inventing_dns_close",
+      "real_node_dns_retries_only_after_original_candidate_close_and_preserves_the_domain",
+      "packet_underlay_shares_real_tcp_udp_roles_and_waits_for_old_users_before_replacement",
+      "no_caller_deadline_still_settles_a_real_retired_original_before_reusing_one_slot"
+    ],
+    "clippy": {
+      "command": "CARGO_NET_OFFLINE=true cargo +stable clippy --workspace --all-targets --all-features --no-deps --jobs 4 -- -D warnings",
+      "exit": 0,
+      "rustc": "rustc 1.98.0 (88d9e12ae 2026-08-18)",
+      "log": "clippy-final.txt.gz"
+    },
+    "structural": "structural-checks.json",
+    "runtime_boundary": {
+      "passed": 190,
+      "failed": 0
+    },
+    "workspace_boundary": {
+      "passed": 27,
+      "failed": 0
+    },
+    "ci_scope": {
+      "passed": 21,
+      "failed": 0
+    },
+    "consumers": {
+      "gui": {
+        "exit": 0,
+        "seconds": 19.18,
+        "command": [
+          "python3",
+          "/tmp/zero-runtime-gui-check.py",
+          "/var/folders/5g/3js9c9b11c3fmfd930s4vkdm0000gn/T/zero-mieru-carriers-consumers-qb_v33st/zero",
+          "/Volumes/tool/rust/zero/design/v0.0.3/implementation/local-mieru-carriers-20261024/gui-captures"
+        ],
+        "cwd": "/Volumes/tool/rust/zero",
+        "sha256": "2f1bd0e18702d7636bdba1e1f2e67364f2a38ef331d6a556430ad77d38bcdc8b"
+      },
+      "panel": {
+        "exit": 0,
+        "seconds": 82.48,
+        "command": [
+          "/tmp/zero-v003-boundaries.FGzrzH/zboard-zero.test",
+          "-test.run",
+          "^TestNativePublicationPreservesTrafficAcrossPublisherProcesses$",
+          "-test.v",
+          "-test.timeout",
+          "120s"
+        ],
+        "cwd": "/Volumes/tool/golang/zboard/backend",
+        "sha256": "2f1bd0e18702d7636bdba1e1f2e67364f2a38ef331d6a556430ad77d38bcdc8b"
+      }
+    },
+    "consumer_heads": {
+      "gui": "d39ad2787fb05052fa15065853ab71526441ccc3",
+      "panel": "658671e9f3978df1c79f4030fdb072a877f10bf5"
+    },
+    "consumer_binary_sha256": "2f1bd0e18702d7636bdba1e1f2e67364f2a38ef331d6a556430ad77d38bcdc8b",
+    "gui_normal_exit": 0,
+    "gui_forced_signals": []
+  },
+  "diagnostics_preserved": {
+    "dns_root_report_assertion": {
+      "exit": 101,
+      "source_snapshot": "source-before-dns-root-report-fix.json",
+      "source_entries": 431,
+      "reason": "existing DNS native provider aggregates two original closes into one bounded per-declaration report; fixture now asserts both the exact two-close label and actual physical_confirmed evidence, instead of incorrectly expecting two entries.",
+      "log": "dns-root-report-first-failure.txt.gz"
+    },
+    "dns_final_report_assertion": {
+      "exit": 101,
+      "source_snapshot": "source-before-dns-report-fix.json",
+      "source_entries": 431,
+      "reason": "fixture incorrectly demanded that the already accepted failed-candidate report be returned again by final lifecycle shutdown; corrected final-only assertion to one without duplicating receipts or retaining unbounded history. Separate native-control regression proves actual failed-original close before the next acquisition.",
+      "log": "dns-direct-first-failure.txt.gz"
+    },
+    "filtered_diagnostic": {
+      "accepted_as_fixed_source_qualification": false,
+      "reason": "stopped redundant zero-filter test-binary launches after compilation; the new platform regression and unchanged Mieru denial regression passed directly. DNS fixture assertions were subsequently corrected before final qualification.",
+      "log": "candidate-focus.txt.gz"
+    },
+    "strict_before_root_fixture": {
+      "exit": 0,
+      "accepted_as_current_source_qualification": false,
+      "reason": "DNS fixture source changed during diagnostic strict run; final strict rerun uses fixed source.",
+      "log": "clippy-before-root-fixture.txt.gz"
+    },
+    "first_frozen_workspace": {
+      "exit": 101,
+      "totals": {
+        "passed": 3781,
+        "failed": 2,
+        "ignored": 175
+      },
+      "source_snapshot": "source-before-delivery-fix.json",
+      "source_entries": 430,
+      "accepted_as_current_source_qualification": false,
+      "reason": "default denial had Unknown delivery despite no I/O; fixed implementation to NotSubmitted without changing negative test. Darwin bound-not-listening candidate silently timed out; replaced fixture with real TCP limited-broadcast failure, retaining deadlines and same-original close assertions. Added separate real native-controller acquisition/close-before-next-candidate regression.",
+      "log": "workspace-first-failure.txt.gz",
+      "summary": "workspace-first-failure-summary.json"
+    }
+  },
+  "earlier_diagnostics_preserved": {
+    "initial_check": {
+      "exit": 101,
+      "reason": "grant borrow captured across transferred assignment; fixed by capturing the actual instance value",
+      "log": "check.txt.gz"
+    },
+    "initial_focus": {
+      "exit": 101,
+      "accepted_as_fixed_source_qualification": false,
+      "reason": "source continued changing during diagnostic compilation; obsolete carrier variant plus private test import and matrix insertion corrected before qualification",
+      "log": "focus.txt.gz"
+    },
+    "packet_fixture": {
+      "exit": 101,
+      "reason": "actual Scope exit had not been consumed; added actual next_exit before original-owner close; assertions and deadline not relaxed",
+      "log": "packet-fixture-failure.txt.gz"
+    },
+    "initial_clippy": {
+      "exit": 101,
+      "reason": "test future retained a server borrow; bounded its lexical lifetime",
+      "log": "clippy-first.txt.gz"
+    },
+    "pre_final_clippy": {
+      "exit": 0,
+      "accepted_as_current_source_qualification": false,
+      "reason": "subsequent read-only review replaced the fixture byte-offset guess with existing EDNS-aware question parsing; final strict rerun covers the frozen source",
+      "log": "clippy-before-dns-fixture.txt.gz"
+    }
+  },
+  "preservation": {
+    "previous_qualification": "../local-mieru-profiles-20261024/validation.json",
+    "changed_previous_source_entries": [
+      "crates/platform/tokio/src/controlled_carrier/binding.rs",
+      "crates/runtime/src/component/instance/resources/native/carrier.rs",
+      "crates/runtime/src/component/instance/resources/native/carrier/register.rs",
+      "crates/runtime/src/component/instance/resources/native/coverage.rs",
+      "crates/runtime/src/component/instance/resources/native/prepare.rs",
+      "crates/runtime/src/component/tests/mieru_stream/host.rs",
+      "crates/runtime/src/component/tests/mieru_stream/host/fixtures.rs",
+      "crates/runtime/src/component/tests/mieru_stream/host/fixtures/server.rs",
+      "crates/runtime/src/component/tests/resource_coverage.rs",
+      "protocols/mieru/src/client.rs",
+      "protocols/mieru/src/client/pool/managed/record.rs",
+      "protocols/mieru/src/client/pool/native.rs",
+      "protocols/mieru/src/client/pool/profile.rs",
+      "protocols/mieru/src/component/README.md",
+      "protocols/mieru/src/component/pool.rs",
+      "protocols/mieru/src/component/pool/options.rs",
+      "protocols/mieru/src/component/stream.rs",
+      "protocols/mieru/src/component/stream/connect.rs",
+      "protocols/mieru/src/component/stream/datagram.rs",
+      "protocols/mieru/src/component/stream/options.rs",
+      "protocols/mieru/tests/component/pool.rs"
+    ],
+    "public_api_config_engine_ffi_grpc_cli_unchanged": true,
+    "consumer_sources_clean_unchanged": true,
+    "cargo_lock_preserved": true,
+    "backup": "/var/folders/5g/3js9c9b11c3fmfd930s4vkdm0000gn/T/zero-mieru-carriers-before-e4v1tn_j",
+    "backup_sha256": {
+      "untracked.tar.gz": "cd346a11fe38f31b652f68df9ba4f01844e92b14f8592df8b83879fc1e322dfe",
+      "Cargo.lock": "24e8b199302c22ad4ad20b256b7c3914cdaf3bf678ae5b97f064af344777df4c",
+      "before.patch": "2723e2559aeec9d23287ac26babd3039c3293d27c3059b387deea99877b642f5",
+      "status.txt": "ba182fcd06599735570ccfdfbfeac05135e4bd84434020223cddd4adc9e4e252",
+      "head.txt": "449a5581f1ec2bd979796a625805c8e4a5083c6d64a768fd223bdf0c3ada8497"
+    }
+  },
+  "limits": [
+    "native Mieru production factories remain unregistered; current adapter retains its one existing legacy pool",
+    "local IPC and panel publication fixtures, not real GUI/TUN devices or production deployment",
+    "no 1 CPU/1 GiB pressure qualification or additional external upstream-tool interoperability claim",
+    "ignored external/privileged tests remain separate qualifications"
+  ]
+}

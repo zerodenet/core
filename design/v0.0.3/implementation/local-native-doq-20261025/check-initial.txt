@@ -1,0 +1,57 @@
+    Checking zero-platform-tokio v0.0.3-dev.202610162206 (/Volumes/tool/rust/zero/crates/platform/tokio)
+   Compiling zero-grpc v0.0.3-dev.202610162206 (/Volumes/tool/rust/zero/crates/grpc)
+    Checking zero-transport v0.0.3-dev.202610162206 (/Volumes/tool/rust/zero/crates/transport)
+    Checking http v0.0.1 (/Volumes/tool/rust/zero/protocols/http)
+    Checking trojan v0.10.6 (/Volumes/tool/rust/zero/protocols/trojan)
+    Checking vless v26.3.27 (/Volumes/tool/rust/zero/protocols/vless)
+    Checking socks5 v0.0.1 (/Volumes/tool/rust/zero/protocols/socks5)
+    Checking vmess v26.3.27 (/Volumes/tool/rust/zero/protocols/vmess)
+    Checking hysteria2 v2.12.2 (/Volumes/tool/rust/zero/protocols/hysteria2)
+    Checking shadowsocks v1.21.2 (/Volumes/tool/rust/zero/protocols/shadowsocks)
+    Checking mieru v3.33.0 (/Volumes/tool/rust/zero/protocols/mieru)
+    Checking zero-config v0.0.3-dev.202610162206 (/Volumes/tool/rust/zero/crates/config)
+    Checking zero-engine v0.0.3-dev.202610162206 (/Volumes/tool/rust/zero/crates/engine)
+    Checking zero-dns v0.0.3-dev.202610162206 (/Volumes/tool/rust/zero/crates/dns)
+    Checking zero-runtime v0.0.3-dev.202610162206 (/Volumes/tool/rust/zero/crates/runtime)
+    Checking zero-connector v0.0.3-dev.202610162206 (/Volumes/tool/rust/zero/crates/connector)
+warning: unused import: `AsyncReadExt`
+ --> crates/dns/src/native/wire/quic.rs:3:17
+  |
+3 | use tokio::io::{AsyncReadExt,AsyncWriteExt};
+  |                 ^^^^^^^^^^^^
+  |
+  = note: `#[warn(unused_imports)]` (part of `#[warn(unused)]`) on by default
+
+    Checking zero-logging v0.0.3-dev.202610162206 (/Volumes/tool/rust/zero/crates/logging)
+error[E0599]: no associated function or constant named `record_metadata` found for struct `query_tasks::OwnedDnsQueryTasks` in the current scope
+  --> crates/dns/src/native/wire/quic.rs:12:44
+   |
+12 |     if let Err(source)=OwnedDnsQueryTasks::record_metadata(owner.original()) {
+   |                                            ^^^^^^^^^^^^^^^ associated function or constant not found in `query_tasks::OwnedDnsQueryTasks`
+   |
+  ::: crates/dns/src/query_tasks.rs:26:1
+   |
+26 | pub struct OwnedDnsQueryTasks(Arc<Shared>);
+   | ----------------------------- associated function or constant `record_metadata` not found for this struct
+   |
+note: if you're trying to build a new `query_tasks::OwnedDnsQueryTasks` consider using one of the following associated functions:
+      query_tasks::OwnedDnsQueryTasks::new
+      query_tasks::OwnedDnsQueryTasks::new_critical
+  --> crates/dns/src/query_tasks.rs:78:5
+   |
+78 |     pub fn new(registrar: &TaskRegistrar, max_queries: NonZeroUsize) -> Self {
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+...
+83 |     pub fn new_critical(registrar: &TaskRegistrar, max_queries: NonZeroUsize) -> Self {
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+help: there is an associated function `size_for_metadata` with a similar name
+   |
+12 -     if let Err(source)=OwnedDnsQueryTasks::record_metadata(owner.original()) {
+12 +     if let Err(source)=OwnedDnsQueryTasks::size_for_metadata(owner.original()) {
+   |
+
+    Checking zero-ffi v0.0.3-dev.202610162206 (/Volumes/tool/rust/zero/crates/ffi)
+For more information about this error, try `rustc --explain E0599`.
+warning: `zero-dns` (lib) generated 1 warning
+error: could not compile `zero-dns` (lib) due to 1 previous error; 1 warning emitted
+warning: build failed, waiting for other jobs to finish...

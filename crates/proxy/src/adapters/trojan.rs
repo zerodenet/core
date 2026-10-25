@@ -20,15 +20,14 @@ use zero_traits::{ProtocolCapabilityDescriptor, ProtocolMetadata, ProtocolUdpFlo
 use crate::adapters::identity::NamedProtocolAdapter;
 use crate::protocol_registry::{
     claim_transport_tcp_leaf, claim_transport_udp_leaf, InboundListenerCapability,
-    ManagedUdpHandlerProvider, OutboundLeafClaim, OutboundLeafInput, TcpOutboundCapability,
-    UdpFlowCapability, UdpPacketPathCapability,
+    ManagedUdpHandlerProvider, OutboundLeafClaim, OutboundLeafInput,
 };
 use crate::runtime::path::TcpPathCategory;
 use crate::runtime::transport_leaf::{ProxyTransportTcpLeaf, ProxyTransportUdpLeaf};
 #[cfg(feature = "trojan")]
 use crate::runtime::udp_flow::managed::{
     bridge::managed_stream_udp_handler_for_resume, ManagedPacketUdpFlowConnection,
-    ManagedPacketUdpResume, ManagedPacketUdpResumeConnector, ManagedStreamConnectorParts,
+    ManagedPacketUdpResume, ManagedPacketUdpResumeConnector, ManagedStreamConnectorFlow,
     ManagedStreamHandlerPair,
 };
 
@@ -224,9 +223,10 @@ impl ManagedPacketUdpResumeConnector for ::trojan::transport::TrojanManagedUdpFl
 }
 
 #[cfg(feature = "trojan")]
-impl ManagedStreamConnectorParts for ::trojan::transport::TrojanManagedUdpConnectorFlow {
-    fn into_managed_connector_parts(self) -> (String, bool) {
-        self.into_parts()
+impl From<::trojan::transport::TrojanManagedUdpConnectorFlow> for ManagedStreamConnectorFlow {
+    fn from(flow: ::trojan::transport::TrojanManagedUdpConnectorFlow) -> Self {
+        let (cache_key, requires_relay_upstream) = flow.into_parts();
+        Self::new(cache_key, requires_relay_upstream)
     }
 }
 
@@ -365,12 +365,6 @@ impl InboundListenerCapability for TrojanAdapter {
 }
 
 #[cfg(feature = "trojan")]
-impl TcpOutboundCapability for TrojanAdapter {}
-
-#[cfg(feature = "trojan")]
-impl UdpFlowCapability for TrojanAdapter {}
-
-#[cfg(feature = "trojan")]
 impl ManagedUdpHandlerProvider for TrojanAdapter {
     fn managed_stream_udp_handlers(&self) -> Option<ManagedStreamHandlerPair> {
         Some(managed_stream_udp_handler_for_resume::<
@@ -378,6 +372,3 @@ impl ManagedUdpHandlerProvider for TrojanAdapter {
         >())
     }
 }
-
-#[cfg(feature = "trojan")]
-impl UdpPacketPathCapability for TrojanAdapter {}

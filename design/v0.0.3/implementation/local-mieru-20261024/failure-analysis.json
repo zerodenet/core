@@ -1,0 +1,15 @@
+{
+  "first_full": {
+    "passed": 3770,
+    "failed": 2,
+    "ignored": 175
+  },
+  "cause": "provider sampled native carrier closure before protocol shutdown and actual scope joins completed; stale io unfinished status survived a later exact-original complete proof",
+  "failed_cases": [
+    "shared_mieru_owner_replacement_waits_for_transferred_streams_and_original_scope_io",
+    "cancelled_mieru_retirement_retains_the_original_pool_and_prevents_new_owner_build"
+  ],
+  "fix": "retain io receipts separately, and supersede only their provisional unfinished flags after fresh admission-closed and complete original-provider evidence; retain all protocol/task/user unfinished states and all actual receipts/failures",
+  "timeouts_or_assertions_weakened": false,
+  "production_background_gate_removed": false
+}

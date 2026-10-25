@@ -1,0 +1,33 @@
+Current fixture repeat 1
+
+running 1 test
+
+thread 'quic::owned::tests::callbacks::actual_incoming_refusal_resumes_original_observer_panic_after_quinn_state_unlock' (11004599) panicked at crates/transport/src/quic/../../tests/quic/owned/callbacks.rs:47:9:
+Box<dyn Any>
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+test quic::owned::tests::callbacks::actual_incoming_refusal_resumes_original_observer_panic_after_quinn_state_unlock ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 224 filtered out; finished in 0.20s
+
+Current fixture repeat 2
+
+running 1 test
+
+thread 'quic::owned::tests::callbacks::actual_incoming_refusal_resumes_original_observer_panic_after_quinn_state_unlock' (11004866) panicked at crates/transport/src/quic/../../tests/quic/owned/callbacks.rs:47:9:
+Box<dyn Any>
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+test quic::owned::tests::callbacks::actual_incoming_refusal_resumes_original_observer_panic_after_quinn_state_unlock ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 224 filtered out; finished in 0.19s
+
+Current fixture repeat 3
+
+running 1 test
+
+thread 'quic::owned::tests::callbacks::actual_incoming_refusal_resumes_original_observer_panic_after_quinn_state_unlock' (11005117) panicked at crates/transport/src/quic/../../tests/quic/owned/callbacks.rs:47:9:
+Box<dyn Any>
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+test quic::owned::tests::callbacks::actual_incoming_refusal_resumes_original_observer_panic_after_quinn_state_unlock ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 224 filtered out; finished in 0.20s
+

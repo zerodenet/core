@@ -1,0 +1,14 @@
+{
+  "source_snapshot": "source-before-feature-gate.json",
+  "full_workspace_before_fix": {
+    "log": "workspace-before-feature-gate.txt",
+    "passed": 3832,
+    "failed": 0,
+    "ignored": 175,
+    "targets": 155,
+    "exit": 0
+  },
+  "minimal_errors": "E0599 ProtocolInventory::with_background wrongly gated behind udp-runtime; both dns-only and no-default failed",
+  "fix": "only the actual registered_udp_handlers method requires udp-runtime; common host construction does not",
+  "production_registration_enabled": false
+}

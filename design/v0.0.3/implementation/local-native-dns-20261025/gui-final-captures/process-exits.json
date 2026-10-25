@@ -1,0 +1,34 @@
+[
+  {
+    "pid": 21828,
+    "args": [
+      "/var/folders/5g/3js9c9b11c3fmfd930s4vkdm0000gn/T/zero-native-dns-consumers-mo5yc8ag/zero",
+      "--version"
+    ],
+    "returncode": 0,
+    "signals": []
+  },
+  {
+    "pid": 21847,
+    "args": [
+      "/var/folders/5g/3js9c9b11c3fmfd930s4vkdm0000gn/T/zero-native-dns-consumers-mo5yc8ag/zero",
+      "validate",
+      "/tmp/znet-kernel-compat-2r0w1vf6/config.json"
+    ],
+    "returncode": 0,
+    "signals": []
+  },
+  {
+    "pid": 21848,
+    "args": [
+      "/var/folders/5g/3js9c9b11c3fmfd930s4vkdm0000gn/T/zero-native-dns-consumers-mo5yc8ag/zero",
+      "run",
+      "--control-socket",
+      "/tmp/znet-kernel-compat-2r0w1vf6/control.sock",
+      "--parent-lifetime-stdin",
+      "/tmp/znet-kernel-compat-2r0w1vf6/config.json"
+    ],
+    "returncode": 0,
+    "signals": []
+  }
+]

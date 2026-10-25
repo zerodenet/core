@@ -34,6 +34,45 @@ pub(crate) enum ResolverBackend {
 }
 
 impl ResolverBackend {
+    #[cfg(feature = "doq")]
+    pub(crate) fn native_quic_profile(&self) -> io::Result<(String, quinn::ClientConfig)> {
+        match self {
+            Self::Doq(resolver) => Ok(resolver.native_profile()),
+            _ => Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "not a DoQ backend",
+            )),
+        }
+    }
+    #[cfg(feature = "doh")]
+    pub(crate) fn native_doh_request(&self, length: usize) -> io::Result<http::Request<()>> {
+        match self {
+            Self::Doh(resolver) => resolver.request(length),
+            _ => Err(io::Error::new(
+                io::ErrorKind::Unsupported,
+                "native backend is not DoH",
+            )),
+        }
+    }
+    #[cfg(feature = "doh")]
+    pub(crate) async fn native_doh_response(
+        response: http::Response<h2::RecvStream>,
+    ) -> io::Result<Vec<u8>> {
+        doh::read_response(response).await
+    }
+    #[cfg(any(feature = "dot", feature = "doh"))]
+    pub(crate) fn native_tls_config(&self) -> io::Result<std::sync::Arc<rustls::ClientConfig>> {
+        match self {
+            #[cfg(feature = "dot")]
+            Self::Dot(resolver) => Ok(resolver.native_tls_config()),
+            #[cfg(feature = "doh")]
+            Self::Doh(resolver) => resolver.native_tls_config(),
+            _ => Err(io::Error::new(
+                io::ErrorKind::Unsupported,
+                "native stream DNS backend has no TLS profile",
+            )),
+        }
+    }
     pub(crate) fn build(
         server: &DnsServerConfig,
         egress: zero_platform_tokio::EgressInterfaceControl,
@@ -294,7 +333,7 @@ async fn system_exchange(
     }
 }
 
-fn server_endpoints(server: &DnsServerConfig, port: u16) -> io::Result<Vec<SocketAddr>> {
+pub(crate) fn server_endpoints(server: &DnsServerConfig, port: u16) -> io::Result<Vec<SocketAddr>> {
     let endpoints = server
         .endpoint_addresses()
         .map_err(|error| io::Error::new(io::ErrorKind::InvalidInput, error))?
@@ -412,7 +451,7 @@ async fn connect_tcp_carrier(
         })
 }
 
-async fn write_framed<S: tokio::io::AsyncWrite + Unpin>(
+pub(crate) async fn write_framed<S: tokio::io::AsyncWrite + Unpin>(
     stream: &mut S,
     message: &[u8],
 ) -> io::Result<()> {
@@ -426,7 +465,9 @@ async fn write_framed<S: tokio::io::AsyncWrite + Unpin>(
     stream.flush().await
 }
 
-async fn read_framed<S: tokio::io::AsyncRead + Unpin>(stream: &mut S) -> io::Result<Vec<u8>> {
+pub(crate) async fn read_framed<S: tokio::io::AsyncRead + Unpin>(
+    stream: &mut S,
+) -> io::Result<Vec<u8>> {
     use tokio::io::AsyncReadExt;
     let mut length = [0_u8; 2];
     stream.read_exact(&mut length).await?;

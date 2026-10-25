@@ -458,17 +458,19 @@ fn configured_control_api_requires_api_key() {
         }}"#
     );
     let config_path = write_temp_config(&config, "configured-control");
+    let output_path = config_path.with_extension("output.txt");
+    let output = std::fs::File::create(&output_path).expect("create startup diagnostics");
 
     let mut child = Command::new(env!("CARGO_BIN_EXE_zero"))
         .args(["run", config_path.to_str().expect("utf-8 config path")])
         .env("ZERO_NODE_API_KEY", "node-secret")
-        .stdout(Stdio::null())
-        .stderr(Stdio::null())
+        .stdout(output.try_clone().expect("clone startup diagnostics"))
+        .stderr(output)
         .spawn()
         .expect("spawn zero run");
 
-    wait_for_port(status_port);
-    wait_for_port(socks_port);
+    support::wait_for_child_port(&mut child, status_port, &output_path);
+    support::wait_for_child_port(&mut child, socks_port, &output_path);
 
     let unauthorized = http_get(status_port, "/api/v1/runtime");
     assert!(unauthorized.starts_with("HTTP/1.1 401 Unauthorized"));
@@ -479,6 +481,7 @@ fn configured_control_api_requires_api_key() {
     child.kill().expect("kill zero process");
     let _ = child.wait();
     remove_temp_file(&config_path);
+    remove_temp_file(&output_path);
 }
 
 fn http_get_with_api_key(port: u16, path: &str, api_key: &str) -> String {

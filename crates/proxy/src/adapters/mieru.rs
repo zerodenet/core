@@ -9,11 +9,11 @@ use zero_traits::{ProtocolCapabilityDescriptor, ProtocolMetadata};
 use crate::adapters::identity::NamedProtocolAdapter;
 use crate::protocol_registry::{
     InboundListenerCapability, ManagedUdpHandlerProvider, OutboundLeafClaim, OutboundLeafInput,
-    TcpOutboundCapability, UdpFlowCapability, UdpPacketPathCapability,
 };
 use crate::runtime::path::TcpPathCategory;
 use crate::runtime::udp_flow::managed::ManagedStreamHandlerPair;
 
+pub(crate) mod component;
 #[cfg(feature = "mieru")]
 mod inbound;
 #[cfg(feature = "mieru")]
@@ -57,7 +57,7 @@ impl NamedProtocolAdapter for MieruAdapter {
     const PROTOCOL_NAME: &'static str = "mieru";
     const FEATURE_NAME: &'static str = "mieru";
     fn on_config_reloaded(&self, _config: &zero_config::RuntimeConfig) {
-        self.pool.clear();
+        self.pool.clear_legacy();
     }
 }
 
@@ -84,9 +84,6 @@ impl MieruAdapter {
 }
 
 #[cfg(feature = "mieru")]
-impl UdpFlowCapability for MieruAdapter {}
-
-#[cfg(feature = "mieru")]
 impl ManagedUdpHandlerProvider for MieruAdapter {
     fn managed_datagram_udp_handler(
         &self,
@@ -98,9 +95,6 @@ impl ManagedUdpHandlerProvider for MieruAdapter {
         Some(udp::managed_stream_handler())
     }
 }
-
-#[cfg(feature = "mieru")]
-impl UdpPacketPathCapability for MieruAdapter {}
 
 #[cfg(feature = "mieru")]
 #[async_trait::async_trait]
@@ -175,9 +169,6 @@ impl InboundListenerCapability for MieruAdapter {
         ))
     }
 }
-
-#[cfg(feature = "mieru")]
-impl TcpOutboundCapability for MieruAdapter {}
 
 #[cfg(feature = "mieru")]
 impl ProtocolMetadata for MieruAdapter {

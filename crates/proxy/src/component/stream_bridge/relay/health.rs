@@ -2,10 +2,7 @@
 use crate::runtime::classify_channel_establishment_failure;
 use std::sync::Arc;
 use zero_engine::{Engine, EngineRuntimeSnapshot, OutboundHealthObservation, PassiveRelayOutcome};
-use zero_platform_tokio::contract::{
-    stream::{BoxStream, Connected},
-    ChannelError,
-};
+use zero_platform_tokio::contract::ChannelError;
 
 pub(super) struct FirstHopHealth {
     observation: OutboundHealthObservation,
@@ -16,7 +13,7 @@ impl FirstHopHealth {
             observation: engine.bind_outbound_health(snapshot, tag),
         }
     }
-    pub(super) fn observe(&self, attempt: &Result<Connected<BoxStream>, ChannelError>) {
+    pub(super) fn observe<T>(&self, attempt: &Result<T, ChannelError>) {
         match attempt {
             Ok(_) => self.observation.record_success(),
             Err(error)

@@ -1,0 +1,28 @@
+{
+  "gui": {
+    "exit": 0,
+    "seconds": 20.47,
+    "command": [
+      "python3",
+      "/tmp/zero-runtime-gui-check.py",
+      "/var/folders/5g/3js9c9b11c3fmfd930s4vkdm0000gn/T/zero-cross-owner-consumers-614ry17w/zero",
+      "/Volumes/tool/rust/zero/design/v0.0.3/implementation/local-cross-owner-20261025/gui-captures"
+    ],
+    "cwd": "/Volumes/tool/rust/zero",
+    "sha256": "fac9a9d250852e4ec43797103d68bc9922032b70cbdabac37f5015f0485658c5"
+  },
+  "panel": {
+    "exit": 0,
+    "seconds": 83.4,
+    "command": [
+      "/tmp/zero-v003-boundaries.FGzrzH/zboard-zero.test",
+      "-test.run",
+      "^TestNativePublicationPreservesTrafficAcrossPublisherProcesses$",
+      "-test.v",
+      "-test.timeout",
+      "120s"
+    ],
+    "cwd": "/Volumes/tool/golang/zboard/backend",
+    "sha256": "fac9a9d250852e4ec43797103d68bc9922032b70cbdabac37f5015f0485658c5"
+  }
+}

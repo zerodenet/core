@@ -172,7 +172,8 @@ impl ProxyHandle {
                 .await
                 .map_err(|error| ApiError::new(ApiErrorCode::Internal, error.to_string()))?;
             self.proxy
-                .apply_owner
+                .host
+                .apply()
                 .commit(|| {
                     self.proxy
                         .protocols
@@ -260,7 +261,8 @@ impl ProxyHandle {
             .await
             .map_err(|error| ApiError::new(ApiErrorCode::Internal, error.to_string()))?;
         self.proxy
-            .apply_owner
+            .host
+            .apply()
             .commit(|| {
                 self.proxy
                     .protocols

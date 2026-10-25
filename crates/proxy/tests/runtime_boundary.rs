@@ -19,6 +19,22 @@ fn proxy_src() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("src")
 }
 
+#[test]
+fn runtime_host_owns_component_lifecycle_and_configuration_work_outside_protocol_lookup() {
+    let registry =
+        fs::read_to_string(proxy_src().join("protocol_registry/registry/mod.rs")).unwrap();
+    let host = fs::read_to_string(workspace_root().join("crates/runtime/src/host.rs")).unwrap();
+    assert!(!registry.contains("ComponentCatalog"));
+    assert!(!registry.contains("ApplyOwner"));
+    assert!(host.contains("components: ComponentCatalog"));
+    assert!(host.contains("apply: Arc<ApplyOwner>"));
+    assert!(host.contains("reload_ack: Mutex<Option<A>>"));
+    assert!(
+        !host.contains("tokio::spawn"),
+        "moving the owner must not create a second worker framework"
+    );
+}
+
 fn rust_sources(root: &Path) -> Vec<PathBuf> {
     let mut sources = Vec::new();
     collect_rust_sources(root, &mut sources);
@@ -766,17 +782,27 @@ fn listener_and_task_lifecycle_are_runtime_owned() {
 }
 
 #[test]
-fn capability_surface_is_split_and_context_is_narrow() {
+fn compatibility_surface_requires_behavior_and_context_is_narrow() {
     let capability = read(&proxy_src().join("protocol_registry/capability.rs"));
     let context = read_module(&proxy_src().join("protocol_registry/context.rs"));
     for capability_name in [
         "ProtocolSupportCapability",
         "InboundListenerCapability",
+        "ClaimedTcpOutboundLeaf",
+        "ClaimedUdpFlowLeaf",
+        "ClaimedUdpPacketPathLeaf",
+    ] {
+        assert!(capability.contains(&format!("trait {capability_name}")));
+    }
+    for marker in [
         "TcpOutboundCapability",
         "UdpFlowCapability",
         "UdpPacketPathCapability",
     ] {
-        assert!(capability.contains(&format!("trait {capability_name}")));
+        assert!(
+            !capability.contains(marker),
+            "empty marker {marker} must stay removed"
+        );
     }
     assert!(!capability.contains("trait ProtocolAdapter"));
     assert!(!capability.contains("proxy: &Proxy"));
@@ -4857,13 +4883,8 @@ fn claimed_outbound_leaf_owns_capability_preparation() {
     assert!(!capability.contains("trait OutboundLeafClaimCapability"));
     assert!(registry_mod.contains("trait OutboundLeafClaimer"));
     assert!(build.contains("type OutboundLeafClaimFn"));
-    assert!(outbound.contains("entry.outbound.claim_outbound_leaf(input.clone())"));
-    assert_eq!(
-        outbound
-            .matches("entry.outbound.claim_outbound_leaf(")
-            .count(),
-        1
-    );
+    assert!(outbound.contains("outbound.claim_outbound_leaf(input.clone())"));
+    assert_eq!(outbound.matches("outbound.claim_outbound_leaf(").count(), 1);
     assert!(outbound.contains("fn claim_outbound_hooks<'a>("));
     assert!(!outbound.contains("claim_tcp_outbound_leaf(leaf.clone())"));
     assert!(!outbound.contains("claim_udp_flow_leaf(leaf.clone())"));
@@ -5000,7 +5021,17 @@ fn managed_stream_udp_handlers_key_off_resume_metadata_not_bridge_types() {
             "{relative} must not route managed stream UDP handler registration through bridge types"
         );
         assert!(source.contains("type RuntimeResume = Managed"));
-        assert!(source.contains("impl ManagedStreamConnectorParts for"));
+        assert!(source.contains("for ManagedStreamConnectorFlow"));
+    }
+
+    let connector_flow =
+        read(&proxy_src().join("runtime/udp_flow/managed/stream_manager/connector/flow.rs"));
+    for removed in [
+        "ManagedStreamConnectorParts",
+        "ManagedStreamConnectorFlowBuild",
+        "managed_stream_connector_flow_from_build",
+    ] {
+        assert!(!connector_flow.contains(removed));
     }
 
     for relative in [

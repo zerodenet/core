@@ -13,17 +13,35 @@ use crate::runtime::udp_flow::registered::RegisteredUdpHandlers;
 #[cfg(feature = "upstream-association-runtime")]
 use crate::runtime::udp_flow::registered::UpstreamUdpHandlers;
 
-fn compiled_registries() -> (
+pub(crate) fn compiled_registries() -> (
     ProtocolRegistry,
     crate::component::ComponentRegistry<zero_config::OutboundConfig>,
 ) {
+    compiled_registries_with_background(None)
+}
+pub(crate) fn compiled_registries_with_background(
+    background: Option<Arc<crate::component::background::BackgroundNetwork>>,
+) -> (
+    ProtocolRegistry,
+    crate::component::ComponentRegistry<zero_config::OutboundConfig>,
+) {
+    let _ = &background;
     use zero_traits::ProtocolMetadata;
     let mut components = crate::component::ComponentRegistry::default();
     components
-        .register(
+        .register_with_resources(
             crate::adapters::direct::DirectAdapter::default().descriptor(),
             crate::component::DirectFactory,
-            crate::adapters::direct::factory::decode,
+            {
+                let background = background.clone();
+                move |input, resources| {
+                    if let Some(network) = &background {
+                        crate::component::native_dns::prepare(resources, network.clone())?;
+                    }
+                    crate::adapters::direct::factory::decode(input)
+                        .map_err(crate::component::RegistrationError::Options)
+                }
+            },
         )
         .expect("unique built-in Direct registration");
     components
@@ -46,7 +64,18 @@ fn compiled_registries() -> (
             .register(
                 ::socks5::Socks5Protocol.descriptor(),
                 ::socks5::component::Factory,
-                crate::adapters::socks5::component_options,
+                {
+                    let native = background.is_some();
+                    move |input| {
+                        crate::adapters::socks5::component_options(input).map(|options| {
+                            if native {
+                                options.with_carrier_limit(std::num::NonZeroUsize::new(4).unwrap())
+                            } else {
+                                options
+                            }
+                        })
+                    }
+                },
             )
             .expect("unique SOCKS5 component registration");
         components
@@ -88,6 +117,19 @@ fn compiled_registries() -> (
     {
         use crate::adapters::shadowsocks::ShadowsocksAdapter;
         let adapter = Arc::new(ShadowsocksAdapter::default());
+        let component_adapter = adapter.clone();
+        let replay_factory = Arc::new(::shadowsocks::component::ReplayFactory);
+        components
+            .register_with_resources_where(
+                ::shadowsocks::ShadowsocksProtocol.descriptor(),
+                ::shadowsocks::component::StreamFactory,
+                crate::adapters::shadowsocks::component::native_input,
+                move |input, resources| {
+                    component_adapter.component_options(input, resources, replay_factory.clone())
+                },
+            )
+            .expect("unique Shadowsocks component registration");
+        components.set_legacy_connect_stage("shadowsocks", "connect_upstream_shadowsocks");
         registry.register_managed_capability(adapter, ShadowsocksAdapter::claim_outbound_leaf_impl);
     }
     #[cfg(feature = "trojan")]
@@ -124,10 +166,21 @@ fn compiled_registries() -> (
     #[cfg(feature = "mieru")]
     {
         use crate::adapters::mieru::MieruAdapter;
-        registry.register_managed_capability(
-            Arc::new(MieruAdapter::default()),
-            MieruAdapter::claim_outbound_leaf_impl,
-        );
+        let adapter = Arc::new(MieruAdapter::default());
+        if let Some(network) = background {
+            let factory = Arc::new(crate::adapters::mieru::component::Factory::new(network));
+            let component_adapter = adapter.clone();
+            components
+                .register_with_resources(
+                    ::mieru::MieruProtocol.descriptor(),
+                    ::mieru::component::StreamFactory,
+                    move |input, resources| {
+                        component_adapter.component_options(input, resources, factory.clone())
+                    },
+                )
+                .expect("unique Mieru component registration");
+        }
+        registry.register_managed_capability(adapter, MieruAdapter::claim_outbound_leaf_impl);
     }
     #[cfg(feature = "wireguard")]
     {
@@ -136,7 +189,8 @@ fn compiled_registries() -> (
         registry.register_endpoint_observer(adapter.clone());
         registry.register_endpoint_controller(adapter.clone());
         registry.register_outbound_device_lifecycle(adapter.clone());
-        registry.register_capability(adapter, WireguardAdapter::claim_outbound_leaf_impl);
+        registry
+            .register_core_capability(adapter, Some(WireguardAdapter::claim_outbound_leaf_impl));
     }
     #[cfg(feature = "mixed")]
     {
@@ -149,7 +203,7 @@ fn compiled_registries() -> (
         let adapter = Arc::new(DirectAdapter::default());
         #[cfg(feature = "raw-ip-runtime")]
         registry.register_outbound_device_lifecycle(adapter.clone());
-        registry.register_capability(adapter, DirectAdapter::claim_outbound_leaf_impl);
+        registry.register_core_capability(adapter, Some(DirectAdapter::claim_outbound_leaf_impl));
     }
     #[cfg(not(feature = "udp-runtime"))]
     {
@@ -162,19 +216,15 @@ fn compiled_registries() -> (
     (registry, components)
 }
 
+#[cfg(test)]
 pub(crate) fn component_registry(
 ) -> crate::component::ComponentRegistry<zero_config::OutboundConfig> {
     compiled_registries().1
 }
 
+#[cfg(test)]
 pub(crate) fn protocol_registry() -> ProtocolRegistry {
-    let (mut registry, components) = compiled_registries();
-    // Preserve the exact factory state assembled beside the legacy adapters.
-    // Reassembling later would create another protocol pool/resource owner.
-    registry.components = Arc::new(crate::component::catalog::ComponentCatalog::with_factories(
-        components,
-    ));
-    registry
+    compiled_registries().0
 }
 
 pub(crate) fn compiled_protocol_features() -> Vec<String> {

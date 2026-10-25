@@ -7,8 +7,7 @@ use zero_traits::{ProtocolCapabilityDescriptor, ProtocolMetadata};
 
 use crate::adapters::identity::NamedProtocolAdapter;
 use crate::protocol_registry::{
-    InboundListenerCapability, OutboundLeafClaim, OutboundLeafInput, TcpOutboundCapability,
-    UdpFlowCapability, UdpPacketPathCapability, UpstreamUdpHandlerProvider,
+    InboundListenerCapability, OutboundLeafClaim, OutboundLeafInput, UpstreamUdpHandlerProvider,
 };
 use crate::runtime::path::TcpPathCategory;
 use crate::runtime::udp_flow::registered::UpstreamAssociationHandler;
@@ -76,12 +75,6 @@ impl Socks5Adapter {
 }
 
 #[cfg(feature = "socks5")]
-impl UdpPacketPathCapability for Socks5Adapter {}
-
-#[cfg(feature = "socks5")]
-impl UdpFlowCapability for Socks5Adapter {}
-
-#[cfg(feature = "socks5")]
 impl UpstreamUdpHandlerProvider for Socks5Adapter {
     fn upstream_association_handler(&self) -> Box<dyn UpstreamAssociationHandler> {
         udp::upstream_association_handler()
@@ -128,9 +121,6 @@ impl InboundListenerCapability for Socks5Adapter {
         Ok(inbound::prepare(acceptor))
     }
 }
-
-#[cfg(feature = "socks5")]
-impl TcpOutboundCapability for Socks5Adapter {}
 
 #[cfg(feature = "socks5")]
 impl ProtocolMetadata for Socks5Adapter {

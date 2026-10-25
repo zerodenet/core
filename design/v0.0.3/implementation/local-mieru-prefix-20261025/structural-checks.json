@@ -1,0 +1,62 @@
+{
+  "fmt": {
+    "command": [
+      "cargo",
+      "+stable",
+      "fmt",
+      "--all",
+      "--",
+      "--check"
+    ],
+    "exit": 0,
+    "log": "fmt.txt"
+  },
+  "layout": {
+    "command": [
+      "python3",
+      "scripts/check-test-layout.py"
+    ],
+    "exit": 0,
+    "log": "layout.txt"
+  },
+  "plan": {
+    "command": [
+      "python3",
+      "design/v0.0.3/check-plan.py"
+    ],
+    "exit": 0,
+    "log": "plan.txt"
+  },
+  "diff": {
+    "command": [
+      "git",
+      "diff",
+      "--check"
+    ],
+    "exit": 0,
+    "log": "diff.txt"
+  },
+  "runtime-boundary": {
+    "command": [
+      "/tmp/zero-runtime-boundary"
+    ],
+    "exit": 0,
+    "log": "runtime-boundary.txt"
+  },
+  "workspace-boundary": {
+    "command": [
+      "/tmp/zero-runtime-workspace-boundary"
+    ],
+    "exit": 0,
+    "log": "workspace-boundary.txt"
+  },
+  "ci-scope": {
+    "command": [
+      "node",
+      "--test",
+      ".github/actions/ci-scope/scope.test.mjs"
+    ],
+    "exit": 0,
+    "log": "ci-scope.txt"
+  }
+}

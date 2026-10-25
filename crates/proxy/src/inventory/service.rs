@@ -29,6 +29,50 @@ pub(crate) enum ServicePlan {
 }
 
 impl ProtocolInventory {
+    pub(crate) fn background_nodes(
+        &self,
+        services: &crate::protocol_registry::TcpExecutionServices,
+        binding: &zero_platform_tokio::contract::network::UpstreamBinding,
+    ) -> Result<Vec<ServiceNode>, zero_platform_tokio::contract::ChannelError> {
+        let invalid = || {
+            crate::component::instance::invalid(
+                zero_platform_tokio::contract::Reason::StalePlan,
+                "background prefix no longer names the actual current roles",
+            )
+        };
+        let components = services
+            .components
+            .as_ref()
+            .map_err(|error| crate::component::instance::retained(error.clone()))?;
+        let ctx = OutboundAdapterContext::new(services.config());
+        binding
+            .prefix
+            .iter()
+            .map(|role| {
+                let tag = components.role_tag(*role).ok_or_else(invalid)?;
+                let id = services
+                    .snapshot()
+                    .plan()
+                    .target_id(tag)
+                    .ok_or_else(invalid)?;
+                let (resolved, _plan) = services
+                    .engine()
+                    .resolve_target_id_in_snapshot(services.snapshot(), id)
+                    .ok_or_else(invalid)?;
+                let ResolvedOutbound::Single(leaf) = resolved else {
+                    return Err(invalid());
+                };
+                let node = self
+                    .service_node(ctx, &leaf, components)
+                    .map_err(|error| invalid().with_source(error.error))?
+                    .ok_or_else(invalid)?;
+                if node.slot.role_id() != *role || node.endpoint.is_none() {
+                    return Err(invalid());
+                }
+                Ok(node)
+            })
+            .collect()
+    }
     pub(crate) fn prepare_service_stream(
         &self,
         ctx: OutboundAdapterContext<'_>,

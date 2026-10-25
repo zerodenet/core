@@ -36,8 +36,7 @@ use crate::adapters::identity::NamedProtocolAdapter;
 use crate::protocol_registry::{
     bind_tcp_inbound, claim_relay_two_stream_transport_udp_leaf, claim_transport_tcp_leaf,
     inbound_listen_addr, BoundInbound, InboundListenerCapability, ManagedUdpHandlerProvider,
-    OutboundLeafClaim, OutboundLeafInput, TcpOutboundCapability, UdpFlowCapability,
-    UdpPacketPathCapability, UpstreamConnectServices,
+    OutboundLeafClaim, OutboundLeafInput, UpstreamConnectServices,
 };
 use crate::runtime::path::TcpPathCategory;
 use crate::runtime::transport_leaf::{
@@ -45,7 +44,7 @@ use crate::runtime::transport_leaf::{
 };
 #[cfg(feature = "vless")]
 use crate::runtime::udp_flow::managed::{
-    bridge::managed_stream_udp_handler_for_resume, ManagedStreamConnectorParts,
+    bridge::managed_stream_udp_handler_for_resume, ManagedStreamConnectorFlow,
     ManagedStreamHandlerPair, ManagedTupleUdpFlowConnection, ManagedTupleUdpResume,
     ManagedTupleUdpResumeConnector,
 };
@@ -360,9 +359,10 @@ impl ManagedTupleUdpResumeConnector for ::vless::transport::VlessManagedUdpFlowR
 }
 
 #[cfg(feature = "vless")]
-impl ManagedStreamConnectorParts for ::vless::transport::VlessManagedUdpConnectorFlow {
-    fn into_managed_connector_parts(self) -> (String, bool) {
-        self.into_parts()
+impl From<::vless::transport::VlessManagedUdpConnectorFlow> for ManagedStreamConnectorFlow {
+    fn from(flow: ::vless::transport::VlessManagedUdpConnectorFlow) -> Self {
+        let (cache_key, requires_relay_upstream) = flow.into_parts();
+        Self::new(cache_key, requires_relay_upstream)
     }
 }
 
@@ -640,12 +640,6 @@ impl InboundListenerCapability for VlessAdapter {
 }
 
 #[cfg(feature = "vless")]
-impl TcpOutboundCapability for VlessAdapter {}
-
-#[cfg(feature = "vless")]
-impl UdpFlowCapability for VlessAdapter {}
-
-#[cfg(feature = "vless")]
 impl ManagedUdpHandlerProvider for VlessAdapter {
     fn managed_stream_udp_handlers(&self) -> Option<ManagedStreamHandlerPair> {
         Some(managed_stream_udp_handler_for_resume::<
@@ -653,8 +647,5 @@ impl ManagedUdpHandlerProvider for VlessAdapter {
         >())
     }
 }
-
-#[cfg(feature = "vless")]
-impl UdpPacketPathCapability for VlessAdapter {}
 
 mod reality;

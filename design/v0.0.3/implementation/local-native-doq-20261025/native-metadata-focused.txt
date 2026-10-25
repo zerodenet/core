@@ -1,0 +1,48 @@
+
+running 27 tests
+test controlled_datagram::metadata::tests::capacity::checked_operation_bound_refuses_overflow_before_any_native_acquisition ... ok
+test controlled_datagram::metadata::tests::observation::accounting_partial_prefix_does_not_count_unsubmitted_suffix ... ok
+
+thread 'controlled_datagram::metadata::tests::capacity::consuming_registration_panic_retains_exact_unknown_and_refuses_replacement' (12836624) panicked at crates/platform/tokio/src/controlled_datagram/acquire.rs:161:19:
+there is no reactor running, must be called from the context of a Tokio 1.x runtime
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+test controlled_datagram::metadata::tests::capacity::consuming_registration_panic_retains_exact_unknown_and_refuses_replacement ... ok
+test controlled_datagram::metadata::tests::observation::actual_observation_identity_rejects_other_metadata_original ... ok
+test controlled_datagram::metadata::tests::failure_origin::actual_native_failure_keeps_os_source_and_local_rejections_do_not_gain_native_origin ... ok
+test controlled_datagram::metadata::tests::actual_original_receives_ecn_destination_and_zero_payload_with_native_close_receipt ... ok
+test controlled_datagram::metadata::tests::observation::actual_send_observer_can_synchronously_close_original_without_early_receipt ... ok
+test controlled_datagram::metadata::tests::observation::actual_receive_observer_can_synchronously_close_original_after_payload_received ... 
+thread 'controlled_datagram::metadata::tests::observation::actual_submission_observer_panic_retains_original_until_explicit_native_close' (12836630) panicked at crates/platform/tokio/src/controlled_datagram/metadata/tests/observation.rs:124:13:
+actual metadata observer callback
+ok
+test controlled_datagram::metadata::tests::capacity::actual_native_error_is_not_logged_as_success_and_zero_segment_never_submits ... ok
+
+thread 'controlled_datagram::metadata::tests::pollers::external_wake_panic_keeps_original_and_allows_real_owner_close_retry' (12836635) panicked at crates/platform/tokio/src/controlled_datagram/metadata/tests/pollers.rs:146:9:
+actual external wake panic
+test controlled_datagram::metadata::tests::capacity::actual_closed_main_and_probes_reuse_finite_slots_while_old_views_stay_revoked ... ok
+test controlled_datagram::metadata::tests::observation::actual_unique_observation_transfer_keeps_native_control_with_host ... ok
+test controlled_datagram::metadata::tests::pollers::bounded_independent_native_pollers_broadcast_revoke_with_original_retained ... ok
+test controlled_datagram::metadata::tests::observation::actual_zero_and_payload_count_native_datagrams_and_oversize_keeps_os_source ... ok
+test controlled_datagram::metadata::tests::observation::actual_submission_observer_panic_retains_original_until_explicit_native_close ... ok
+test controlled_datagram::metadata::tests::pollers::native_writable_wake_reenters_control_only_after_original_gate_releases ... ok
+test controlled_datagram::metadata::tests::pollers::dropped_poller_returns_only_its_slot_and_sender_drop_keeps_same_native_original_live ... ok
+test controlled_datagram::metadata::tests::pollers::external_wake_panic_keeps_original_and_allows_real_owner_close_retry ... ok
+thread 'controlled_datagram::metadata::tests::reports::actual_probe_wake_panic_preserves_preceding_main_native_receipt_for_retry' (12836639) panicked at crates/platform/tokio/src/controlled_datagram/metadata/tests/reports.rs:13:13:
+actual probe receive wake
+
+test controlled_datagram::metadata::tests::reports::actual_main_native_gate_busy_is_pending_without_refund_or_false_unknown ... ok
+test controlled_datagram::metadata::tests::reports::actual_probe_native_gate_busy_keeps_original_until_real_close_retry ... ok
+test controlled_datagram::metadata::tests::reports::actual_report_busy_after_other_original_closed_keeps_undelivered_receipt ... ok
+test controlled_datagram::metadata::tests::views::actual_pending_rx_last_caller_waker_drop_precedes_view_receipt_even_after_native_close ... ok
+
+thread 'controlled_datagram::metadata::users::drivers::tests::actual_ledger_precedes_host_wake_panic_and_retains_original_join_until_real_reception' (12836644) panicked at crates/platform/tokio/src/controlled_datagram/metadata/users/drivers/tests.rs:32:13:
+Box<dyn Any>
+test controlled_datagram::metadata::tests::reports::actual_probe_wake_panic_preserves_preceding_main_native_receipt_for_retry ... ok
+test controlled_datagram::metadata::tests::views::actual_metadata_views_are_released_before_private_receipt_but_native_remains_host_owned ... ok
+test controlled_datagram::metadata::tests::views::actual_same_numeric_reservations_cannot_replay_another_original_view_receipt ... ok
+test controlled_datagram::metadata::users::graph::tests::a_users_receipt_cannot_replay_another_original_or_another_actual_scope ... ok
+test controlled_datagram::metadata::users::drivers::tests::actual_ledger_precedes_host_wake_panic_and_retains_original_join_until_real_reception ... ok
+test controlled_datagram::metadata::users::graph::tests::original_views_and_real_joins_cannot_substitute_held_logical_guards_or_receiver_acceptance ... ok
+
+test result: ok. 27 passed; 0 failed; 0 ignored; 0 measured; 255 filtered out; finished in 0.00s
+

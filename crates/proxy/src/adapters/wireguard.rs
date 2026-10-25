@@ -24,10 +24,7 @@ use zero_traits::{
 };
 
 use crate::adapters::identity::NamedProtocolAdapter;
-use crate::protocol_registry::{
-    InboundListenerCapability, OutboundLeafClaim, OutboundLeafInput, TcpOutboundCapability,
-    UdpFlowCapability, UdpPacketPathCapability,
-};
+use crate::protocol_registry::{InboundListenerCapability, OutboundLeafClaim, OutboundLeafInput};
 use crate::runtime::path::TcpPathCategory;
 use crate::runtime::raw_ip::RawIpDevicePool;
 
@@ -222,10 +219,6 @@ fn invalid(message: &'static str) -> EngineError {
         message,
     ))
 }
-
-impl TcpOutboundCapability for WireguardAdapter {}
-impl UdpFlowCapability for WireguardAdapter {}
-impl UdpPacketPathCapability for WireguardAdapter {}
 
 #[async_trait::async_trait]
 impl InboundListenerCapability for WireguardAdapter {

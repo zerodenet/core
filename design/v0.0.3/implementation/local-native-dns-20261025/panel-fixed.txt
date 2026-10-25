@@ -1,0 +1,180 @@
+=== RUN   TestNativePublicationPreservesTrafficAcrossPublisherProcesses
+panic: test timed out after 2m0s
+	running tests:
+		TestNativePublicationPreservesTrafficAcrossPublisherProcesses (2m0s)
+
+goroutine 26 [running]:
+testing.(*M).startAlarm.func1()
+	/usr/local/Cellar/go/1.27.1/libexec/src/testing/testing.go:2959 +0x34a
+created by time.goFunc
+	/usr/local/Cellar/go/1.27.1/libexec/src/time/sleep.go:182 +0x2d
+
+goroutine 1 [chan receive]:
+testing.(*T).Run(0x3fb6b172e248, {0xc07301f?, 0x3fb6b179faa0?}, 0xc4c4e08)
+	/usr/local/Cellar/go/1.27.1/libexec/src/testing/testing.go:2266 +0x4f2
+testing.runTests.func1(0x3fb6b172e248)
+	/usr/local/Cellar/go/1.27.1/libexec/src/testing/testing.go:2742 +0x37
+testing.tRunner(0x3fb6b172e248, 0x3fb6b179fbc8)
+	/usr/local/Cellar/go/1.27.1/libexec/src/testing/testing.go:2193 +0xea
+testing.runTests({0xc0664c7, 0x23}, {0xc072153, 0x3a}, 0x3fb6b160e1e0, {0xc523a90, 0x3b, 0x3b}, {0xc2af8fc9a5f8b7e8, 0x1bf15db21b, ...})
+	/usr/local/Cellar/go/1.27.1/libexec/src/testing/testing.go:2740 +0x510
+testing.(*M).Run(0x3fb6b167e820)
+	/usr/local/Cellar/go/1.27.1/libexec/src/testing/testing.go:2600 +0x6af
+main.main()
+	_testmain.go:162 +0x9b
+
+goroutine 5 [syscall]:
+syscall.syscalln(0xbcf7b40, {0x3fb6b182d528, 0x6, 0x6})
+	/usr/local/Cellar/go/1.27.1/libexec/src/runtime/sys_darwin.go:27 +0x25
+syscall.syscall6(0x10000000018?, 0x551552c8?, 0xe691800?, 0x90?, 0xc52bac0?, 0x3fb6b16d01b0?, 0x3fb6b182d5c8?)
+	/usr/local/Cellar/go/1.27.1/libexec/src/syscall/syscall_darwin.go:407 +0x37
+syscall.wait4(0x3fb6b182d5f0?, 0xbc77ee5?, 0x90?, 0xc4b5c38?)
+	/usr/local/Cellar/go/1.27.1/libexec/src/syscall/zsyscall_darwin_amd64.go:44 +0x45
+syscall.Wait4(0xc52bac0?, 0x3fb6b182d624, 0x3fb6b169e310?, 0x3fb6b169c320?)
+	/usr/local/Cellar/go/1.27.1/libexec/src/syscall/syscall_bsd.go:144 +0x25
+os.(*Process).pidWait.func1(...)
+	/usr/local/Cellar/go/1.27.1/libexec/src/os/exec_unix.go:64
+os.ignoringEINTR2[...](...)
+	/usr/local/Cellar/go/1.27.1/libexec/src/os/file_posix.go:273
+os.(*Process).pidWait(0x3fb6b16ba240)
+	/usr/local/Cellar/go/1.27.1/libexec/src/os/exec_unix.go:63 +0x85
+os.(*Process).wait(0xc52bac0?)
+	/usr/local/Cellar/go/1.27.1/libexec/src/os/exec_unix.go:28 +0x1a
+os.(*Process).Wait(...)
+	/usr/local/Cellar/go/1.27.1/libexec/src/os/exec.go:347
+os/exec.(*Cmd).Wait(0x3fb6b16b64e0)
+	/usr/local/Cellar/go/1.27.1/libexec/src/os/exec/exec.go:944 +0x45
+os/exec.(*Cmd).Run(0x3fb6b16b64e0)
+	/usr/local/Cellar/go/1.27.1/libexec/src/os/exec/exec.go:643 +0x2d
+os/exec.(*Cmd).CombinedOutput(0x3fb6b16b64e0)
+	/usr/local/Cellar/go/1.27.1/libexec/src/os/exec/exec.go:1061 +0x8f
+github.com/zerodenet/zboard/backend/internal/adapters/zero.TestNativePublicationPreservesTrafficAcrossPublisherProcesses(0x3fb6b172e488)
+	/Volumes/tool/golang/zboard/backend/internal/adapters/zero/native_publication_acceptance_test.go:205 +0x23ac
+testing.tRunner(0x3fb6b172e488, 0xc4c4e08)
+	/usr/local/Cellar/go/1.27.1/libexec/src/testing/testing.go:2193 +0xea
+created by testing.(*T).Run in goroutine 1
+	/usr/local/Cellar/go/1.27.1/libexec/src/testing/testing.go:2258 +0x4d4
+
+goroutine 6 [IO wait]:
+internal/poll.runtime_pollWait(0x55124600, 0x72)
+	/usr/local/Cellar/go/1.27.1/libexec/src/runtime/netpoll.go:351 +0x85
+internal/poll.(*pollDesc).wait(0x3fb6b172a400?, 0x100?, 0x0)
+	/usr/local/Cellar/go/1.27.1/libexec/src/internal/poll/fd_poll_runtime.go:84 +0x27
+internal/poll.(*pollDesc).waitRead(...)
+	/usr/local/Cellar/go/1.27.1/libexec/src/internal/poll/fd_poll_runtime.go:89
+internal/poll.(*FD).Accept(0x3fb6b172a400)
+	/usr/local/Cellar/go/1.27.1/libexec/src/internal/poll/fd_unix.go:618 +0x27d
+net.(*netFD).accept(0x3fb6b172a400)
+	/usr/local/Cellar/go/1.27.1/libexec/src/net/fd_unix.go:149 +0x29
+net.(*TCPListener).accept(0x3fb6b1640c40)
+	/usr/local/Cellar/go/1.27.1/libexec/src/net/tcpsock_posix.go:159 +0x1b
+net.(*TCPListener).Accept(0x3fb6b1640c40)
+	/usr/local/Cellar/go/1.27.1/libexec/src/net/tcpsock.go:387 +0x30
+github.com/zerodenet/zboard/backend/internal/adapters/zero.TestNativePublicationPreservesTrafficAcrossPublisherProcesses.func2()
+	/Volumes/tool/golang/zboard/backend/internal/adapters/zero/native_publication_acceptance_test.go:54 +0x3f
+created by github.com/zerodenet/zboard/backend/internal/adapters/zero.TestNativePublicationPreservesTrafficAcrossPublisherProcesses in goroutine 5
+	/Volumes/tool/golang/zboard/backend/internal/adapters/zero/native_publication_acceptance_test.go:52 +0x7f9
+
+goroutine 7 [IO wait]:
+internal/poll.runtime_pollWait(0x55124400, 0x72)
+	/usr/local/Cellar/go/1.27.1/libexec/src/runtime/netpoll.go:351 +0x85
+internal/poll.(*pollDesc).wait(0x3fb6b172a500?, 0x3fb6b1800000?, 0x0)
+	/usr/local/Cellar/go/1.27.1/libexec/src/internal/poll/fd_poll_runtime.go:84 +0x27
+internal/poll.(*pollDesc).waitRead(...)
+	/usr/local/Cellar/go/1.27.1/libexec/src/internal/poll/fd_poll_runtime.go:89
+internal/poll.(*FD).ReadFromInet4(0x3fb6b172a500, {0x3fb6b1800000, 0x800, 0x800}, 0x3fb6b1668e70)
+	/usr/local/Cellar/go/1.27.1/libexec/src/internal/poll/fd_unix.go:246 +0x1fe
+net.(*netFD).readFromInet4(0x3fb6b172a500, {0x3fb6b1800000?, 0x3fb6b1800000?, 0x0?}, 0x0?)
+	/usr/local/Cellar/go/1.27.1/libexec/src/net/fd_posix.go:79 +0x25
+net.(*UDPConn).readFrom(0x552f4be8?, {0x3fb6b1800000?, 0x11?, 0x3fb6b1688008?}, 0x3fb6b1904000)
+	/usr/local/Cellar/go/1.27.1/libexec/src/net/udpsock_posix.go:52 +0x1a5
+net.(*UDPConn).readFromUDP(0x3fb6b1600140, {0x3fb6b1800000?, 0x800?, 0xc4672f0?}, 0x1?)
+	/usr/local/Cellar/go/1.27.1/libexec/src/net/udpsock.go:146 +0x30
+net.(*UDPConn).ReadFrom(0x3fb6b1600140, {0x3fb6b1800000, 0x800, 0x800})
+	/usr/local/Cellar/go/1.27.1/libexec/src/net/udpsock.go:155 +0x54
+github.com/zerodenet/zboard/backend/internal/adapters/zero.TestNativePublicationPreservesTrafficAcrossPublisherProcesses.func3()
+	/Volumes/tool/golang/zboard/backend/internal/adapters/zero/native_publication_acceptance_test.go:69 +0x82
+created by github.com/zerodenet/zboard/backend/internal/adapters/zero.TestNativePublicationPreservesTrafficAcrossPublisherProcesses in goroutine 5
+	/Volumes/tool/golang/zboard/backend/internal/adapters/zero/native_publication_acceptance_test.go:66 +0x927
+
+goroutine 8 [select]:
+os/exec.(*Cmd).watchCtx(0x3fb6b170e9c0, 0x3fb6b16243f0)
+	/usr/local/Cellar/go/1.27.1/libexec/src/os/exec/exec.go:808 +0xb0
+created by os/exec.(*Cmd).Start in goroutine 5
+	/usr/local/Cellar/go/1.27.1/libexec/src/os/exec/exec.go:794 +0x8f3
+
+goroutine 33 [IO wait]:
+internal/poll.runtime_pollWait(0x55123c00, 0x72)
+	/usr/local/Cellar/go/1.27.1/libexec/src/runtime/netpoll.go:351 +0x85
+internal/poll.(*pollDesc).wait(0x3fb6b1848100?, 0x3fb6b184a000?, 0x0)
+	/usr/local/Cellar/go/1.27.1/libexec/src/internal/poll/fd_poll_runtime.go:84 +0x27
+internal/poll.(*pollDesc).waitRead(...)
+	/usr/local/Cellar/go/1.27.1/libexec/src/internal/poll/fd_poll_runtime.go:89
+internal/poll.(*FD).Read(0x3fb6b1848100, {0x3fb6b184a000, 0x8000, 0x8000})
+	/usr/local/Cellar/go/1.27.1/libexec/src/internal/poll/fd_unix.go:170 +0x2a8
+net.(*netFD).Read(0x3fb6b1848100, {0x3fb6b184a000?, 0x3fb6b16a0c48?, 0xbcdebda?})
+	/usr/local/Cellar/go/1.27.1/libexec/src/net/fd_posix.go:68 +0x25
+net.(*conn).Read(0x3fb6b1806048, {0x3fb6b184a000?, 0xc4672f0?, 0x3fb6b16a0c01?})
+	/usr/local/Cellar/go/1.27.1/libexec/src/net/net.go:196 +0x45
+io.copyBuffer({0xc4c1058, 0x3fb6b1806048}, {0xc4c1038, 0x3fb6b1806048}, {0x0, 0x0, 0x0})
+	/usr/local/Cellar/go/1.27.1/libexec/src/io/io.go:429 +0x190
+io.Copy(...)
+	/usr/local/Cellar/go/1.27.1/libexec/src/io/io.go:388
+net.genericReadFrom(0x3fb6b1848100?, {0xc4c1038?, 0x3fb6b1806048?})
+	/usr/local/Cellar/go/1.27.1/libexec/src/net/net.go:774 +0x35
+net.(*TCPConn).readFrom(0x3fb6b1806048, {0xc4c1038, 0x3fb6b1806048})
+	/usr/local/Cellar/go/1.27.1/libexec/src/net/tcpsock_posix.go:54 +0x45
+net.(*TCPConn).ReadFrom(0x3fb6b1806048, {0xc4c1038?, 0x3fb6b1806048?})
+	/usr/local/Cellar/go/1.27.1/libexec/src/net/tcpsock.go:165 +0x30
+io.copyBuffer({0x552f80f8, 0x3fb6b1806048}, {0xc4c1038, 0x3fb6b1806048}, {0x0, 0x0, 0x0})
+	/usr/local/Cellar/go/1.27.1/libexec/src/io/io.go:415 +0x151
+io.Copy(...)
+	/usr/local/Cellar/go/1.27.1/libexec/src/io/io.go:388
+net.genericWriteTo(0xbc73b86?, {0x552f80f8?, 0x3fb6b1806048?})
+	/usr/local/Cellar/go/1.27.1/libexec/src/net/net.go:798 +0x35
+net.(*TCPConn).writeTo(0xbc7465f?, {0x552f80f8?, 0x3fb6b1806048?})
+	/usr/local/Cellar/go/1.27.1/libexec/src/net/tcpsock_posix.go:61 +0x1f
+net.(*TCPConn).WriteTo(0x3fb6b1806048, {0x552f80f8?, 0x3fb6b1806048?})
+	/usr/local/Cellar/go/1.27.1/libexec/src/net/tcpsock.go:177 +0x30
+io.copyBuffer({0x552f80f8, 0x3fb6b1806048}, {0x552f80d8, 0x3fb6b1806048}, {0x0, 0x0, 0x0})
+	/usr/local/Cellar/go/1.27.1/libexec/src/io/io.go:411 +0x9d
+io.Copy(...)
+	/usr/local/Cellar/go/1.27.1/libexec/src/io/io.go:388
+github.com/zerodenet/zboard/backend/internal/adapters/zero.TestNativePublicationPreservesTrafficAcrossPublisherProcesses.func2.1()
+	/Volumes/tool/golang/zboard/backend/internal/adapters/zero/native_publication_acceptance_test.go:58 +0x97
+created by github.com/zerodenet/zboard/backend/internal/adapters/zero.TestNativePublicationPreservesTrafficAcrossPublisherProcesses.func2 in goroutine 6
+	/Volumes/tool/golang/zboard/backend/internal/adapters/zero/native_publication_acceptance_test.go:58 +0x2f
+
+goroutine 25 [IO wait]:
+internal/poll.runtime_pollWait(0x5515d000, 0x72)
+	/usr/local/Cellar/go/1.27.1/libexec/src/runtime/netpoll.go:351 +0x85
+internal/poll.(*pollDesc).wait(0x3fb6b16b85a0?, 0x3fb6b1930423?, 0x1)
+	/usr/local/Cellar/go/1.27.1/libexec/src/internal/poll/fd_poll_runtime.go:84 +0x27
+internal/poll.(*pollDesc).waitRead(...)
+	/usr/local/Cellar/go/1.27.1/libexec/src/internal/poll/fd_poll_runtime.go:89
+internal/poll.(*FD).Read(0x3fb6b16b85a0, {0x3fb6b1930423, 0x3dd, 0x3dd})
+	/usr/local/Cellar/go/1.27.1/libexec/src/internal/poll/fd_unix.go:170 +0x2a8
+os.(*File).read(...)
+	/usr/local/Cellar/go/1.27.1/libexec/src/os/file_posix.go:30
+os.(*File).Read(0x3fb6b168a108, {0x3fb6b1930423?, 0x0?, 0x23?})
+	/usr/local/Cellar/go/1.27.1/libexec/src/os/file.go:144 +0x4f
+bytes.(*Buffer).ReadFrom(0x3fb6b16ae780, {0xc4c0078, 0x3fb6b168a108})
+	/usr/local/Cellar/go/1.27.1/libexec/src/bytes/buffer.go:229 +0x98
+io.copyBuffer({0xc4c0198, 0x3fb6b16ae780}, {0xc4c0078, 0x3fb6b168a108}, {0x0, 0x0, 0x0})
+	/usr/local/Cellar/go/1.27.1/libexec/src/io/io.go:415 +0x151
+io.Copy(...)
+	/usr/local/Cellar/go/1.27.1/libexec/src/io/io.go:388
+os.genericWriteTo(0x0?, {0xc4c0198?, 0x3fb6b16ae780?})
+	/usr/local/Cellar/go/1.27.1/libexec/src/os/file.go:295 +0x35
+os.(*File).WriteTo(0xc5173f0?, {0xc4c0198?, 0x3fb6b16ae780?})
+	/usr/local/Cellar/go/1.27.1/libexec/src/os/file.go:273 +0x49
+io.copyBuffer({0xc4c0198, 0x3fb6b16ae780}, {0xc4c0138, 0x3fb6b168a108}, {0x0, 0x0, 0x0})
+	/usr/local/Cellar/go/1.27.1/libexec/src/io/io.go:411 +0x9d
+io.Copy(...)
+	/usr/local/Cellar/go/1.27.1/libexec/src/io/io.go:388
+os/exec.(*Cmd).writerDescriptor.func1()
+	/usr/local/Cellar/go/1.27.1/libexec/src/os/exec/exec.go:613 +0x34
+os/exec.(*Cmd).Start.func2(0x0?)
+	/usr/local/Cellar/go/1.27.1/libexec/src/os/exec/exec.go:768 +0x2c
+created by os/exec.(*Cmd).Start in goroutine 5
+	/usr/local/Cellar/go/1.27.1/libexec/src/os/exec/exec.go:767 +0x92b

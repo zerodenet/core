@@ -4,18 +4,25 @@ use crate::protocol_registry::ProtocolRegistry;
 use std::sync::{Arc, Weak};
 
 #[derive(Clone)]
-pub(crate) struct WeakProtocolInventory(Weak<ProtocolRegistry>);
+pub(crate) struct WeakProtocolInventory {
+    registry: Weak<ProtocolRegistry>,
+    host: Weak<crate::runtime::RuntimeHost>,
+}
 
 impl ProtocolInventory {
     pub(crate) fn downgrade(&self) -> WeakProtocolInventory {
-        WeakProtocolInventory(Arc::downgrade(&self.registry))
+        WeakProtocolInventory {
+            registry: Arc::downgrade(&self.registry),
+            host: Arc::downgrade(&self.host),
+        }
     }
 }
 
 impl WeakProtocolInventory {
     pub(crate) fn upgrade(&self) -> Option<ProtocolInventory> {
-        self.0
-            .upgrade()
-            .map(|registry| ProtocolInventory { registry })
+        Some(ProtocolInventory {
+            registry: self.registry.upgrade()?,
+            host: self.host.upgrade()?,
+        })
     }
 }

@@ -1,0 +1,14 @@
+{
+  "phase": "finished",
+  "source_snapshot": "source-final.json",
+  "binary": "/Volumes/tool/rust/zero/target/debug/deps/zero_dns-9c4aae412ccb18e2",
+  "sha256": "ab52a2c60e3dd21ffd0c1b17615a007a33d9e42b4779e8097dd6c07b608d73f8",
+  "command": [
+    "/Volumes/tool/rust/zero/target/debug/deps/zero_dns-9c4aae412ccb18e2",
+    "query_tasks::tests::",
+    "--nocapture"
+  ],
+  "source_drift": [],
+  "exit": 0,
+  "seconds": 25.28
+}

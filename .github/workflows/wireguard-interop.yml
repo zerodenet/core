@@ -3,10 +3,10 @@ name: WireGuard Reference Interop
 on:
   push:
     branches: [develop]
-    paths: ['protocols/wireguard/**', 'vendor/gotatun/**', 'tests/reference/wireguard_go/**', 'crates/stack/**', 'crates/proxy/**', 'crates/config/**', 'crates/core/**', 'crates/dns/**', 'crates/engine/**', 'crates/platform/**', 'crates/traits/**', 'Cargo.toml', 'Cargo.lock', 'scripts/prepare-xhttp-interop.py', '.github/workflows/wireguard-interop.yml']
+    paths: ['protocols/wireguard/**', 'vendor/gotatun/**', 'tests/reference/wireguard_go/**', 'crates/stack/**', 'crates/proxy/**', 'crates/runtime/**', 'crates/config/**', 'crates/core/**', 'crates/dns/**', 'crates/engine/**', 'crates/platform/**', 'crates/traits/**', 'Cargo.toml', 'Cargo.lock', 'scripts/prepare-xhttp-interop.py', '.github/workflows/wireguard-interop.yml']
   pull_request:
     branches: [develop]
-    paths: ['protocols/wireguard/**', 'vendor/gotatun/**', 'tests/reference/wireguard_go/**', 'crates/stack/**', 'crates/proxy/**', 'crates/config/**', 'crates/core/**', 'crates/dns/**', 'crates/engine/**', 'crates/platform/**', 'crates/traits/**', 'Cargo.toml', 'Cargo.lock', 'scripts/prepare-xhttp-interop.py', '.github/workflows/wireguard-interop.yml']
+    paths: ['protocols/wireguard/**', 'vendor/gotatun/**', 'tests/reference/wireguard_go/**', 'crates/stack/**', 'crates/proxy/**', 'crates/runtime/**', 'crates/config/**', 'crates/core/**', 'crates/dns/**', 'crates/engine/**', 'crates/platform/**', 'crates/traits/**', 'Cargo.toml', 'Cargo.lock', 'scripts/prepare-xhttp-interop.py', '.github/workflows/wireguard-interop.yml']
   workflow_dispatch:
 
 permissions:

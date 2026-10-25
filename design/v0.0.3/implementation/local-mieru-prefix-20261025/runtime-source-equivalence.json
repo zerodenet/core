@@ -1,0 +1,13 @@
+{
+  "runtime_source_unchanged": true,
+  "earlier_build_source": "source-before-quic-fixture-fix.json",
+  "current_full_test_source": "source-final.json",
+  "only_changed_paths": [
+    "crates/transport/tests/quic/owned/callbacks.rs",
+    "crates/transport/tests/quic/owned/drivers.rs"
+  ],
+  "changed_paths_are_cfg_test_fixtures": true,
+  "binary_sha256_before_fixture_fix": "ea4def9515f22f446555c43bdd94f8fac3329a134978ba9eb23b56fed94294f2",
+  "binary_sha256_after_second_full": "188161cbb10fe8d0f8894904cb3b848376617daad273b13908e07c7763fbddb7",
+  "note": "The only post-build source changes configure a test-only QUIC loopback fixture. Normal runtime sources are identical, and final full tests and both consumers use the same current Cargo binary."
+}

@@ -52,27 +52,3 @@ impl ManagedStreamConnectorFlow {
         (self.cache_key, self.requires_relay_upstream)
     }
 }
-
-pub(crate) trait ManagedStreamConnectorParts {
-    fn into_managed_connector_parts(self) -> (String, bool);
-}
-
-pub(crate) trait ManagedStreamConnectorFlowBuild {
-    fn into_parts(self) -> (String, bool);
-}
-
-impl<T> ManagedStreamConnectorFlowBuild for T
-where
-    T: ManagedStreamConnectorParts,
-{
-    fn into_parts(self) -> (String, bool) {
-        ManagedStreamConnectorParts::into_managed_connector_parts(self)
-    }
-}
-
-pub(crate) fn managed_stream_connector_flow_from_build(
-    build: impl ManagedStreamConnectorFlowBuild,
-) -> ManagedStreamConnectorFlow {
-    let (cache_key, requires_relay_upstream) = build.into_parts();
-    ManagedStreamConnectorFlow::new(cache_key, requires_relay_upstream)
-}

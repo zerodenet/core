@@ -1,0 +1,151 @@
+Integration layout: 314 source files, 95 targets, 0 errors
+TEST_SCOPE full (workspace, unit, integration and doctests)
+TEST_START 2026-10-25T11:21:37Z
+   Compiling zero-core v0.0.3-dev.202610162206 (/Volumes/tool/rust/zero/crates/core)
+   Compiling tokio-util v0.7.18 (/Volumes/tool/rust/zero/vendor/tokio-util)
+   Compiling quinn-udp v0.5.16 (/Volumes/tool/rust/zero/vendor/quinn-udp)
+   Compiling rustls v0.23.40 (/Volumes/tool/rust/zero/vendor/rustls)
+warning: trailing semicolon in macro used in expression position
+  --> vendor/quinn-udp/build.rs:5:5
+   |
+ 5 | /     cfg_aliases! {
+ 6 | |         // Platforms
+ 7 | |         apple: {
+ 8 | |             any(
+...  |
+31 | |         wasm_browser: { all(target_family = "wasm", target_os = "unknown") },
+32 | |     }
+   | |_____^
+   |
+   = warning: this was previously accepted by the compiler but is being phased out; it will become a hard error in a future release!
+   = note: for more information, see issue #79813 <https://github.com/rust-lang/rust/issues/79813>
+   = note: `#[warn(semicolon_in_expressions_from_non_local_macros)]` (part of `#[warn(future_incompatible)]`) on by default
+   = note: this warning originates in the macro `$crate::cfg_aliases` which comes from the expansion of the macro `cfg_aliases` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+warning: trailing semicolon in macro used in expression position
+  --> vendor/quinn-udp/build.rs:5:5
+   |
+ 5 | /     cfg_aliases! {
+ 6 | |         // Platforms
+ 7 | |         apple: {
+ 8 | |             any(
+...  |
+31 | |         wasm_browser: { all(target_family = "wasm", target_os = "unknown") },
+32 | |     }
+   | |_____^
+   |
+   = warning: this was previously accepted by the compiler but is being phased out; it will become a hard error in a future release!
+   = note: for more information, see issue #79813 <https://github.com/rust-lang/rust/issues/79813>
+   = note: this warning originates in the macro `$crate::cfg_aliases` which comes from the expansion of the macro `cfg_aliases` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+warning: `quinn-udp` (build script) generated 87 warnings (85 duplicates)
+   Compiling zero-error v0.0.3-dev.202610162206 (/Volumes/tool/rust/zero/crates/error)
+   Compiling quinn v0.11.9 (/Volumes/tool/rust/zero/vendor/quinn)
+warning: trailing semicolon in macro used in expression position
+ --> vendor/quinn/build.rs:5:5
+  |
+5 | /     cfg_aliases! {
+6 | |         // Convenience aliases
+7 | |         wasm_browser: { all(target_family = "wasm", target_os = "unknown") },
+8 | |     }
+  | |_____^
+  |
+  = warning: this was previously accepted by the compiler but is being phased out; it will become a hard error in a future release!
+  = note: for more information, see issue #79813 <https://github.com/rust-lang/rust/issues/79813>
+  = note: `#[warn(semicolon_in_expressions_from_non_local_macros)]` (part of `#[warn(future_incompatible)]`) on by default
+  = note: this warning originates in the macro `$crate::cfg_aliases` which comes from the expansion of the macro `cfg_aliases` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+warning: trailing semicolon in macro used in expression position
+ --> vendor/quinn/build.rs:5:5
+  |
+5 | /     cfg_aliases! {
+6 | |         // Convenience aliases
+7 | |         wasm_browser: { all(target_family = "wasm", target_os = "unknown") },
+8 | |     }
+  | |_____^
+  |
+  = warning: this was previously accepted by the compiler but is being phased out; it will become a hard error in a future release!
+  = note: for more information, see issue #79813 <https://github.com/rust-lang/rust/issues/79813>
+  = note: this warning originates in the macro `$crate::cfg_aliases` which comes from the expansion of the macro `cfg_aliases` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+warning: `quinn` (build script) generated 8 warnings (6 duplicates)
+warning: use of deprecated associated function `core::num::<impl u8>::max_value`: replaced by the `MAX` associated constant on this type
+   --> vendor/blake3/src/platform.rs:421:5
+    |
+421 |     cpufeatures::new!(has_avx512, "avx512f", "avx512vl");
+    |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+    = note: `#[warn(deprecated)]` on by default
+    = note: this warning originates in the macro `cpufeatures::new` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+warning: use of deprecated associated function `core::num::<impl u8>::max_value`: replaced by the `MAX` associated constant on this type
+   --> vendor/blake3/src/platform.rs:437:5
+    |
+437 |     cpufeatures::new!(has_avx2, "avx2");
+    |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+    = note: this warning originates in the macro `cpufeatures::new` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+warning: use of deprecated associated function `core::num::<impl u8>::max_value`: replaced by the `MAX` associated constant on this type
+   --> vendor/blake3/src/platform.rs:453:5
+    |
+453 |     cpufeatures::new!(has_sse41, "sse4.1");
+    |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+    = note: this warning originates in the macro `cpufeatures::new` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+warning: use of deprecated associated function `core::num::<impl u8>::max_value`: replaced by the `MAX` associated constant on this type
+   --> vendor/blake3/src/platform.rs:469:5
+    |
+469 |     cpufeatures::new!(has_sse2, "sse2");
+    |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+    = note: this warning originates in the macro `cpufeatures::new` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+warning: use of deprecated associated function `core::num::<impl u64>::max_value`: replaced by the `MAX` associated constant on this type
+    --> vendor/blake3/src/lib.rs:1817:33
+     |
+1817 |         let max_position = u64::max_value() as i128;
+     |                                 ^^^^^^^^^
+
+warning: `blake3` (lib) generated 5 warnings
+   Compiling zero-router v0.0.3-dev.202610162206 (/Volumes/tool/rust/zero/crates/router)
+   Compiling quinn-proto v0.11.14 (/Volumes/tool/rust/zero/vendor/quinn-proto)
+   Compiling zero-platform-tokio v0.0.3-dev.202610162206 (/Volumes/tool/rust/zero/crates/platform/tokio)
+   Compiling h2 v0.4.14 (/Volumes/tool/rust/zero/vendor/h2)
+   Compiling hyper v1.9.0 (/Volumes/tool/rust/zero/vendor/hyper)
+   Compiling hyper-util v0.1.20
+   Compiling ztls v0.0.3-dev.202610162206 (/Volumes/tool/rust/zero/crates/ztls)
+   Compiling tokio-rustls v0.26.4
+   Compiling hyper-rustls v0.27.9
+   Compiling gotatun v0.9.2 (/Volumes/tool/rust/zero/vendor/gotatun)
+   Compiling h3-quinn v0.0.10 (/Volumes/tool/rust/zero/vendor/h3-quinn)
+   Compiling zero-transport v0.0.3-dev.202610162206 (/Volumes/tool/rust/zero/crates/transport)
+   Compiling zero-tun v0.0.3-dev.202610162206 (/Volumes/tool/rust/zero/crates/tun)
+   Compiling zero-stack v0.0.3-dev.202610162206 (/Volumes/tool/rust/zero/crates/stack)
+   Compiling http v0.0.1 (/Volumes/tool/rust/zero/protocols/http)
+   Compiling tower v0.4.13
+   Compiling hyper-timeout v0.5.2
+   Compiling zero-grpc v0.0.3-dev.202610162206 (/Volumes/tool/rust/zero/crates/grpc)
+   Compiling ureq v2.12.1
+   Compiling tonic v0.12.3
+   Compiling zero v0.0.3-dev.202610162206 (/Volumes/tool/rust/zero)
+   Compiling wireguard v0.9.2 (/Volumes/tool/rust/zero/protocols/wireguard)
+   Compiling shadowsocks v1.21.2 (/Volumes/tool/rust/zero/protocols/shadowsocks)
+   Compiling socks5 v0.0.1 (/Volumes/tool/rust/zero/protocols/socks5)
+   Compiling vless v26.3.27 (/Volumes/tool/rust/zero/protocols/vless)
+   Compiling trojan v0.10.6 (/Volumes/tool/rust/zero/protocols/trojan)
+   Compiling hysteria2 v2.12.2 (/Volumes/tool/rust/zero/protocols/hysteria2)
+   Compiling vmess v26.3.27 (/Volumes/tool/rust/zero/protocols/vmess)
+   Compiling mieru v3.33.0 (/Volumes/tool/rust/zero/protocols/mieru)
+   Compiling zero-config v0.0.3-dev.202610162206 (/Volumes/tool/rust/zero/crates/config)
+   Compiling zero-engine v0.0.3-dev.202610162206 (/Volumes/tool/rust/zero/crates/engine)
+   Compiling zero-dns v0.0.3-dev.202610162206 (/Volumes/tool/rust/zero/crates/dns)
+   Compiling zero-runtime v0.0.3-dev.202610162206 (/Volumes/tool/rust/zero/crates/runtime)
+   Compiling zero-connector v0.0.3-dev.202610162206 (/Volumes/tool/rust/zero/crates/connector)
+   Compiling zero-proxy v0.0.3-dev.202610162206 (/Volumes/tool/rust/zero/crates/proxy)
+   Compiling zero-logging v0.0.3-dev.202610162206 (/Volumes/tool/rust/zero/crates/logging)
+   Compiling zero-ffi v0.0.3-dev.202610162206 (/Volumes/tool/rust/zero/crates/ffi)
+TEST_END 2026-10-25T11:43:40Z exit=130 seconds=1323
+::error title=Workspace tests failed (1/2)::  = note: this warning originates in the macro `$crate::cfg_aliases` which comes from the expansion of the macro `cfg_aliases` (in Nightly builds, run with -Z macro-backtrace for more info)%0A%0Awarning: `quinn` (build script) generated 8 warnings (6 duplicates)%0Awarning: use of deprecated associated function `core::num::<impl u8>::max_value`: replaced by the `MAX` associated constant on this type%0A   --> vendor/blake3/src/platform.rs:421:5%0A    |%0A421 |     cpufeatures::new!(has_avx512, "avx512f", "avx512vl");%0A    |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^%0A    |%0A    = note: `#[warn(deprecated)]` on by default%0A    = note: this warning originates in the macro `cpufeatures::new` (in Nightly builds, run with -Z macro-backtrace for more info)%0A%0Awarning: use of deprecated associated function `core::num::<impl u8>::max_value`: replaced by the `MAX` associated constant on this type%0A   --> vendor/blake3/src/platform.rs:437:5%0A    |%0A437 |     cpufeatures::new!(has_avx2, "avx2");%0A    |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^%0A    |%0A    = note: this warning originates in the macro `cpufeatures::new` (in Nightly builds, run with -Z macro-backtrace for more info)%0A%0Awarning: use of deprecated associated function `core::num::<impl u8>::max_value`: replaced by the `MAX` associated constant on this type%0A   --> vendor/blake3/src/platform.rs:453:5%0A    |%0A453 |     cpufeatures::new!(has_sse41, "sse4.1");%0A    |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^%0A    |%0A    = note: this warning originates in the macro `cpufeatures::new` (in Nightly builds, run with -Z macro-backtrace for more info)%0A%0Awarning: use of deprecated associated function `core::num::<impl u8>::max_value`: replaced by the `MAX` associated constant on this type%0A   --> vendor/blake3/src/platform.rs:469:5%0A    |%0A469 |     cpufeatures::new!(has_sse2, "sse2");%0A    |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^%0A    |%0A    = note: this warning originates in the macro `cpufeatures::new` (in Nightly builds, run with -Z macro-backtrace for more info)%0A%0Awarning: use of deprecated associated function `core::num::<impl u64>::max_value`: replaced by the `MAX` associated constant on this type%0A    --> vendor/blake3/src/lib.rs:1817:33%0A     |%0A1817 |         let max_position = u64::max_value() as i128;%0A     |                                 ^^^^^^^^^%0A%0Awarning: `blake3` (lib) generated 5 warnings%0A   Compiling zero-router v0.0.3-dev.202610162206 (/Volumes/tool/rust/zero/crates/router)%0A   Compiling quinn-proto v0.11.14 (/Volumes/tool/rust/zero/vendor/quinn-proto)%0A   Compiling zero-platform-tokio v0.0.3-dev.202610162206 (/Volumes/tool/rust/zero/crates/platform/tokio)%0A   Compiling h2 v0.4.14 (/Volumes/tool/rust/zero/vendor/h2)%0A   Compiling hyper v1.9.0 (/Volumes/tool/rust/zero/vendor/hyper)%0A   Compiling hyper-util v0.1.20%0A   Compiling ztls v0.0.3-dev.202610162206 (/Volumes/tool/rust/zero/crates/ztls)%0A   Compiling tokio-rustls v0.26.4%0A   Compiling hyper-rustls v0.27.9%0A   Compiling gotatun v0.9.2 (/Volumes/tool/rust/zero/vendor/gotatu
+::error title=Workspace tests failed (2/2)::n)%0A   Compiling h3-quinn v0.0.10 (/Volumes/tool/rust/zero/vendor/h3-quinn)%0A   Compiling zero-transport v0.0.3-dev.202610162206 (/Volumes/tool/rust/zero/crates/transport)%0A   Compiling zero-tun v0.0.3-dev.202610162206 (/Volumes/tool/rust/zero/crates/tun)%0A   Compiling zero-stack v0.0.3-dev.202610162206 (/Volumes/tool/rust/zero/crates/stack)%0A   Compiling http v0.0.1 (/Volumes/tool/rust/zero/protocols/http)%0A   Compiling tower v0.4.13%0A   Compiling hyper-timeout v0.5.2%0A   Compiling zero-grpc v0.0.3-dev.202610162206 (/Volumes/tool/rust/zero/crates/grpc)%0A   Compiling ureq v2.12.1%0A   Compiling tonic v0.12.3%0A   Compiling zero v0.0.3-dev.202610162206 (/Volumes/tool/rust/zero)%0A   Compiling wireguard v0.9.2 (/Volumes/tool/rust/zero/protocols/wireguard)%0A   Compiling shadowsocks v1.21.2 (/Volumes/tool/rust/zero/protocols/shadowsocks)%0A   Compiling socks5 v0.0.1 (/Volumes/tool/rust/zero/protocols/socks5)%0A   Compiling vless v26.3.27 (/Volumes/tool/rust/zero/protocols/vless)%0A   Compiling trojan v0.10.6 (/Volumes/tool/rust/zero/protocols/trojan)%0A   Compiling hysteria2 v2.12.2 (/Volumes/tool/rust/zero/protocols/hysteria2)%0A   Compiling vmess v26.3.27 (/Volumes/tool/rust/zero/protocols/vmess)%0A   Compiling mieru v3.33.0 (/Volumes/tool/rust/zero/protocols/mieru)%0A   Compiling zero-config v0.0.3-dev.202610162206 (/Volumes/tool/rust/zero/crates/config)%0A   Compiling zero-engine v0.0.3-dev.202610162206 (/Volumes/tool/rust/zero/crates/engine)%0A   Compiling zero-dns v0.0.3-dev.202610162206 (/Volumes/tool/rust/zero/crates/dns)%0A   Compiling zero-runtime v0.0.3-dev.202610162206 (/Volumes/tool/rust/zero/crates/runtime)%0A   Compiling zero-connector v0.0.3-dev.202610162206 (/Volumes/tool/rust/zero/crates/connector)%0A   Compiling zero-proxy v0.0.3-dev.202610162206 (/Volumes/tool/rust/zero/crates/proxy)%0A   Compiling zero-logging v0.0.3-dev.202610162206 (/Volumes/tool/rust/zero/crates/logging)%0A   Compiling zero-ffi v0.0.3-dev.202610162206 (/Volumes/tool/rust/zero/crates/ffi)

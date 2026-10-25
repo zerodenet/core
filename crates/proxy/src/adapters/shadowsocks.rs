@@ -11,11 +11,11 @@ use zero_traits::{ProtocolCapabilityDescriptor, ProtocolMetadata};
 use crate::adapters::identity::NamedProtocolAdapter;
 use crate::protocol_registry::{
     InboundListenerCapability, ManagedUdpHandlerProvider, OutboundLeafClaim, OutboundLeafInput,
-    TcpOutboundCapability, UdpFlowCapability, UdpPacketPathCapability,
 };
 use crate::runtime::path::TcpPathCategory;
 use crate::runtime::udp_flow::managed::ManagedDatagramFlowHandler;
 
+pub(crate) mod component;
 #[cfg(feature = "shadowsocks")]
 mod inbound;
 #[cfg(feature = "shadowsocks")]
@@ -151,12 +151,6 @@ impl ShadowsocksAdapter {
 }
 
 #[cfg(feature = "shadowsocks")]
-impl UdpPacketPathCapability for ShadowsocksAdapter {}
-
-#[cfg(feature = "shadowsocks")]
-impl UdpFlowCapability for ShadowsocksAdapter {}
-
-#[cfg(feature = "shadowsocks")]
 impl ManagedUdpHandlerProvider for ShadowsocksAdapter {
     fn managed_datagram_udp_handler(&self) -> Option<Box<dyn ManagedDatagramFlowHandler>> {
         Some(udp::managed_datagram_handler())
@@ -225,9 +219,6 @@ impl InboundListenerCapability for ShadowsocksAdapter {
         ))
     }
 }
-
-#[cfg(feature = "shadowsocks")]
-impl TcpOutboundCapability for ShadowsocksAdapter {}
 
 #[cfg(feature = "shadowsocks")]
 impl ProtocolMetadata for ShadowsocksAdapter {

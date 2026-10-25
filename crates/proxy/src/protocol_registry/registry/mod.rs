@@ -3,15 +3,11 @@ use std::sync::Arc;
 
 #[cfg(feature = "managed-udp-runtime")]
 use crate::protocol_registry::ManagedUdpHandlerProvider;
-#[cfg(test)]
-use crate::protocol_registry::TcpOutboundCapability;
 #[cfg(feature = "upstream-association-runtime")]
 use crate::protocol_registry::UpstreamUdpHandlerProvider;
 use crate::protocol_registry::{
     InboundListenerCapability, OutboundLeafClaim, OutboundLeafInput, ProtocolSupportCapability,
 };
-#[cfg(all(test, feature = "udp-runtime"))]
-use crate::protocol_registry::{UdpFlowCapability, UdpPacketPathCapability};
 
 mod build;
 mod inbound;
@@ -31,7 +27,6 @@ pub(crate) use outbound::ClaimedOutboundLeaf;
 /// inventory and generic runtime code.
 #[derive(Clone, Default)]
 pub(crate) struct ProtocolRegistry {
-    pub(crate) components: Arc<crate::component::catalog::ComponentCatalog>,
     entries: Vec<RegisteredProtocolEntry>,
     endpoint_observers: Vec<Arc<dyn crate::protocol_registry::EndpointObservationCapability>>,
     endpoint_controllers: Vec<Arc<dyn crate::protocol_registry::EndpointControlCapability>>,
@@ -52,17 +47,11 @@ pub(crate) trait OutboundLeafClaimer: Send + Sync {
 struct RegisteredProtocolEntry {
     support: Arc<dyn ProtocolSupportCapability>,
     inbound: Arc<dyn InboundListenerCapability>,
-    outbound: Arc<dyn OutboundLeafClaimer>,
-    #[cfg(test)]
-    tcp: Arc<dyn TcpOutboundCapability>,
-    #[cfg(all(test, feature = "udp-runtime"))]
-    udp: Option<Arc<dyn UdpFlowCapability>>,
+    outbound: Option<Arc<dyn OutboundLeafClaimer>>,
     #[cfg(feature = "managed-udp-runtime")]
     managed_udp_handlers: Option<Arc<dyn ManagedUdpHandlerProvider>>,
     #[cfg(feature = "upstream-association-runtime")]
     upstream_udp_handler: Option<Arc<dyn UpstreamUdpHandlerProvider>>,
-    #[cfg(all(test, feature = "udp-runtime"))]
-    packet_path: Option<Arc<dyn UdpPacketPathCapability>>,
 }
 
 impl fmt::Debug for ProtocolRegistry {

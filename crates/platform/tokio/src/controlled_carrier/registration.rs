@@ -164,7 +164,7 @@ impl CarrierOwnerRegistration {
         let slots = slots
             .into_iter()
             .map(|slot| {
-                let (mut observation, native) = {
+                let (mut observation, native, packet) = {
                     let state = slot.state();
                     (
                         CarrierSlotObservation {
@@ -178,6 +178,7 @@ impl CarrierOwnerRegistration {
                             native: None,
                         },
                         state.close_observer.clone(),
+                        state.packet.clone(),
                     )
                 };
                 // No carrier/scope/control lock surrounds the original TCP getter.
@@ -189,6 +190,15 @@ impl CarrierOwnerRegistration {
                         operation_pending: native.operation_pending,
                     }
                 });
+                if let Some(packet) = packet {
+                    let native = packet.observe();
+                    observation.native = Some(CarrierNativeCloseObservation {
+                        closed: native.native_closed,
+                        first_fault: native.unknown.clone(),
+                        disposition_unknown: native.unknown,
+                        operation_pending: native.operation_pending,
+                    });
+                }
                 observation
             })
             .collect();

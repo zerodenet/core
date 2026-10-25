@@ -7,9 +7,18 @@ pub(super) fn endpoint(
     drivers: &QuinnDriverOwner,
     native: &MetadataSocketOwner,
 ) -> quinn::Endpoint {
+    endpoint_with_transport(drivers, native, Arc::new(quinn::TransportConfig::default()))
+}
+pub(super) fn endpoint_with_transport(
+    drivers: &QuinnDriverOwner,
+    native: &MetadataSocketOwner,
+    transport: Arc<quinn::TransportConfig>,
+) -> quinn::Endpoint {
     let cert = rcgen::generate_simple_self_signed(vec!["localhost".into()]).unwrap();
     let key = rustls::pki_types::PrivateKeyDer::Pkcs8(cert.signing_key.serialize_der().into());
-    let config = quinn::ServerConfig::with_single_cert(vec![cert.cert.der().clone()], key).unwrap();
+    let mut config =
+        quinn::ServerConfig::with_single_cert(vec![cert.cert.der().clone()], key).unwrap();
+    config.transport_config(transport.clone());
     let mut roots = rustls::RootCertStore::empty();
     roots.add(cert.cert.der().clone()).unwrap();
     let mut endpoint = quinn::Endpoint::new_with_abstract_socket(
@@ -19,9 +28,9 @@ pub(super) fn endpoint(
         drivers.runtime(native),
     )
     .unwrap();
-    endpoint.set_default_client_config(
-        quinn::ClientConfig::with_root_certificates(Arc::new(roots)).unwrap(),
-    );
+    let mut client = quinn::ClientConfig::with_root_certificates(Arc::new(roots)).unwrap();
+    client.transport_config(transport);
+    endpoint.set_default_client_config(client);
     endpoint
 }
 #[tokio::test]
