@@ -34,11 +34,7 @@ impl UdpDispatch {
             .upstream()
             .expect("relay flow should expose upstream endpoint");
         #[cfg(feature = "upstream-association-runtime")]
-        let resume = self
-            .managed_flow_resume(managed)
-            .expect("managed relay flow should have protocol resume");
-        #[cfg(feature = "upstream-association-runtime")]
-        if self.flow_state.handles_upstream_resume(&resume) {
+        if let Some(target) = self.flow_state.upstream_flow_target(managed) {
             return self
                 .flow_state
                 .start_upstream_flow(
@@ -48,7 +44,7 @@ impl UdpDispatch {
                         session: &flow.session,
                         server: upstream.server,
                         port: upstream.port,
-                        resume,
+                        target,
                         payload,
                     },
                 )

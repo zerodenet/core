@@ -3,8 +3,6 @@ use std::sync::Arc;
 
 #[cfg(feature = "managed-udp-runtime")]
 use crate::protocol_registry::ManagedUdpHandlerProvider;
-#[cfg(feature = "upstream-association-runtime")]
-use crate::protocol_registry::UpstreamUdpHandlerProvider;
 use crate::protocol_registry::{
     InboundListenerCapability, OutboundLeafClaim, OutboundLeafInput, ProtocolSupportCapability,
 };
@@ -50,8 +48,6 @@ struct RegisteredProtocolEntry {
     outbound: Option<Arc<dyn OutboundLeafClaimer>>,
     #[cfg(feature = "managed-udp-runtime")]
     managed_udp_handlers: Option<Arc<dyn ManagedUdpHandlerProvider>>,
-    #[cfg(feature = "upstream-association-runtime")]
-    upstream_udp_handler: Option<Arc<dyn UpstreamUdpHandlerProvider>>,
 }
 
 impl fmt::Debug for ProtocolRegistry {

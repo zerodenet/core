@@ -8,7 +8,7 @@ use crate::runtime::udp_flow::managed::ManagedUdpState;
 use crate::runtime::udp_flow::registered::upstream::UpstreamAssociationState;
 
 impl RegisteredUdpState {
-    pub(crate) fn new(handlers: RegisteredUdpHandlers) -> Self {
+    pub(crate) fn new(_handlers: RegisteredUdpHandlers) -> Self {
         Self {
             #[cfg(feature = "managed-stream-runtime")]
             logical_sessions: Default::default(),
@@ -16,10 +16,10 @@ impl RegisteredUdpState {
                 feature = "managed-stream-runtime",
                 feature = "managed-datagram-runtime"
             ))]
-            managed: ManagedUdpState::new(handlers.managed),
+            managed: ManagedUdpState::new(_handlers.managed),
             #[cfg(feature = "upstream-association-runtime")]
-            upstream: UpstreamAssociationState::new(handlers.upstream),
-            managed_resumes: std::collections::HashMap::new(),
+            upstream: UpstreamAssociationState::default(),
+            connections: std::collections::HashMap::new(),
             next_managed_flow_id: 1,
         }
     }

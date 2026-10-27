@@ -6,10 +6,7 @@ use crate::protocol_registry::{ClaimedUdpFlowLeaf, ClaimedUdpPacketPathLeaf};
 use crate::runtime::udp_dispatch::operation::PreparedUdpFlowOperation;
 use crate::runtime::udp_dispatch::packet_path_operation::PreparedUdpPacketPathOperation;
 use crate::runtime::udp_dispatch::FlowFailure;
-use crate::runtime::udp_flow::registered::UpstreamAssociationHandler;
 
-mod handler;
-mod native_association;
 mod packet_path;
 mod upstream_association;
 
@@ -21,24 +18,16 @@ struct ClaimedSocks5PacketPathLeaf {
     plan: Socks5ManagedUdpPacketPathPlan,
 }
 
-struct ClaimedSocks5UdpLeaf {
-    leaf: ::socks5::transport::Socks5TransportLeaf,
-}
-
-impl<'a> ClaimedUdpFlowLeaf<'a> for ClaimedSocks5UdpLeaf {
+// The operation already owns all neutral execution facts; do not allocate a
+// separate protocol leaf solely to reproduce them during preparation.
+impl<'a> ClaimedUdpFlowLeaf<'a>
+    for crate::runtime::udp_dispatch::operation::RegisteredAssociationUdpOperation
+{
     fn prepare_udp_flow(
         &self,
         _source_dir: Option<&std::path::Path>,
     ) -> Result<Box<dyn PreparedUdpFlowOperation + 'a>, FlowFailure> {
-        let (tag, server, port, resume) = self.leaf.clone().udp_flow_plan().into_parts();
-        Ok(Box::new(
-            crate::runtime::udp_dispatch::operation::RegisteredAssociationUdpOperation {
-                tag,
-                server,
-                port,
-                resume,
-            },
-        ))
+        Ok(Box::new(self.clone()))
     }
 }
 
@@ -82,18 +71,7 @@ impl PreparedUdpPacketPathOperation for Socks5PacketPathOperation {
     }
 }
 
-pub(crate) fn upstream_association_handler() -> Box<dyn UpstreamAssociationHandler> {
-    handler::upstream_association_handler()
-}
-
 impl Socks5Adapter {
-    pub(super) fn claim_udp_flow_leaf_impl<'a>(
-        &self,
-        leaf: ::socks5::transport::Socks5TransportLeaf,
-    ) -> Box<dyn ClaimedUdpFlowLeaf<'a> + 'a> {
-        Box::new(ClaimedSocks5UdpLeaf { leaf })
-    }
-
     pub(super) fn claim_udp_packet_path_leaf_impl<'a>(
         &self,
         leaf: ::socks5::transport::Socks5TransportLeaf,

@@ -1,4 +1,5 @@
-pub(super) mod handlers;
+mod association;
+pub(in crate::runtime::udp_flow::registered) use association::UpstreamAssociationState;
 #[cfg(feature = "upstream-association-runtime")]
 mod tracked;
 

@@ -22,6 +22,17 @@ pub(crate) struct ClosedRegisteredUpstreamAssociation {
     pub(crate) port: u16,
 }
 
+/// Standard sessions remain executable values. Only unmigrated paths carry
+/// an opaque legacy resume and participate in handler lookup.
+#[derive(Clone)]
+pub(in crate::runtime::udp_flow::registered) enum RegisteredUdpConnection {
+    #[cfg(feature = "managed-stream-runtime")]
+    Logical(super::super::LogicalConnection),
+    #[cfg(feature = "upstream-association-runtime")]
+    Upstream(super::super::upstream::DatagramAssociationTarget),
+    Legacy(ManagedUdpFlowResume),
+}
+
 pub(crate) struct RegisteredUdpState {
     #[cfg(feature = "managed-stream-runtime")]
     pub(in crate::runtime::udp_flow::registered) logical_sessions: HashMap<u64, ManagedUdpFlowRef>,
@@ -32,8 +43,8 @@ pub(crate) struct RegisteredUdpState {
     pub(in crate::runtime::udp_flow::registered) managed: ManagedUdpState,
     #[cfg(feature = "upstream-association-runtime")]
     pub(in crate::runtime::udp_flow::registered) upstream: UpstreamAssociationState,
-    pub(in crate::runtime::udp_flow::registered) managed_resumes:
-        HashMap<ManagedUdpFlowRef, ManagedUdpFlowResume>,
+    pub(in crate::runtime::udp_flow::registered) connections:
+        HashMap<ManagedUdpFlowRef, RegisteredUdpConnection>,
     pub(in crate::runtime::udp_flow::registered) next_managed_flow_id: u64,
 }
 
@@ -43,6 +54,4 @@ pub(crate) struct RegisteredUdpHandlers {
         feature = "managed-datagram-runtime"
     ))]
     pub(crate) managed: ManagedUdpHandlers,
-    #[cfg(feature = "upstream-association-runtime")]
-    pub(crate) upstream: super::super::upstream::UpstreamUdpHandlers,
 }

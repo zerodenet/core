@@ -1,4 +1,4 @@
-use super::RegisteredUdpState;
+use super::{state::RegisteredUdpConnection, RegisteredUdpState};
 use crate::protocol_registry::UdpRuntimeServices;
 use crate::runtime::udp_flow::managed::ManagedExistingFlowForward;
 use crate::runtime::udp_flow::packet_path::ChainTask;
@@ -18,19 +18,22 @@ impl RegisteredUdpState {
                 "protocol UDP flow has no managed resume reference",
             ));
         };
-        let Some(resume) = self.managed_flow_resume(flow_ref) else {
+        let Some(connection) = self.connections.get(&flow_ref).cloned() else {
             return Err(unavailable("managed UDP flow resume was dropped"));
         };
-        #[cfg(feature = "managed-stream-runtime")]
-        if let Some(connection) = resume.as_ref::<super::LogicalConnection>() {
-            return connection.send(&request.0.session, request.1).await;
-        }
-        #[cfg(feature = "upstream-association-runtime")]
-        if self.upstream.handles_resume(&resume) {
-            return Err(unavailable(
-                "upstream association flows are handled by generic UDP dispatch",
-            ));
-        }
+        let resume = match connection {
+            #[cfg(feature = "managed-stream-runtime")]
+            RegisteredUdpConnection::Logical(connection) => {
+                return connection.send(&request.0.session, request.1).await;
+            }
+            #[cfg(feature = "upstream-association-runtime")]
+            RegisteredUdpConnection::Upstream(_) => {
+                return Err(unavailable(
+                    "upstream association flows are handled by generic UDP dispatch",
+                ))
+            }
+            RegisteredUdpConnection::Legacy(resume) => resume,
+        };
 
         #[cfg(any(
             feature = "managed-stream-runtime",

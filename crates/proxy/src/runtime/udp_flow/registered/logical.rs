@@ -1,9 +1,9 @@
 //! Endpoint-free packet connections with one bounded receive queue per session.
-use super::RegisteredUdpState;
+use super::{state::RegisteredUdpConnection, RegisteredUdpState};
 use crate::runtime::udp_flow::{
     managed::{
         managed_tuple_udp_connection_from_flow, ManagedTupleUdpFlowConnection,
-        ManagedUdpFlowResume, SharedManagedUdpConnection,
+        SharedManagedUdpConnection,
     },
     outbound::ManagedUdpFlowRef,
     packet_path::ChainTask,
@@ -95,13 +95,13 @@ impl RegisteredUdpState {
         connection: LogicalConnection,
     ) -> ManagedUdpFlowRef {
         self.release_logical_session(session_id);
-        let id = self.register_managed_flow(ManagedUdpFlowResume::new(connection));
+        let id = self.register_connection(RegisteredUdpConnection::Logical(connection));
         self.logical_sessions.insert(session_id, id);
         id
     }
     pub(crate) fn release_logical_session(&mut self, session_id: u64) {
         if let Some(id) = self.logical_sessions.remove(&session_id) {
-            self.managed_resumes.remove(&id);
+            self.connections.remove(&id);
         }
     }
     pub(crate) fn poll_logical_responses(
@@ -110,13 +110,12 @@ impl RegisteredUdpState {
         owner: &super::super::response_join::ResponseTasks,
     ) {
         for (&session_id, id) in &self.logical_sessions {
-            if let Some(connection) = self
-                .managed_resumes
-                .get(id)
-                .and_then(|resume| resume.as_ref::<LogicalConnection>())
-            {
+            if let Some(RegisteredUdpConnection::Logical(connection)) = self.connections.get(id) {
                 connection.poll_response(tasks, owner, session_id);
             }
         }
     }
 }
+
+#[cfg(test)]
+mod tests;

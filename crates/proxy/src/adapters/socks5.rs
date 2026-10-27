@@ -6,11 +6,8 @@ use zero_engine::EngineError;
 use zero_traits::{ProtocolCapabilityDescriptor, ProtocolMetadata};
 
 use crate::adapters::identity::NamedProtocolAdapter;
-use crate::protocol_registry::{
-    InboundListenerCapability, OutboundLeafClaim, OutboundLeafInput, UpstreamUdpHandlerProvider,
-};
+use crate::protocol_registry::{InboundListenerCapability, OutboundLeafClaim, OutboundLeafInput};
 use crate::runtime::path::TcpPathCategory;
-use crate::runtime::udp_flow::registered::UpstreamAssociationHandler;
 
 mod component;
 #[cfg(feature = "socks5")]
@@ -66,18 +63,17 @@ impl Socks5Adapter {
         Some(OutboundLeafClaim {
             tcp_path: TcpPathCategory::Tunnel,
             tcp: Some(tcp),
-            udp: Some(self.claim_udp_flow_leaf_impl(leaf.clone())),
+            udp: Some(Box::new(
+                crate::runtime::udp_dispatch::operation::RegisteredAssociationUdpOperation {
+                    tag: leaf.tag().to_owned(),
+                    server: leaf.server().to_owned(),
+                    port: leaf.port(),
+                },
+            )),
             #[cfg(feature = "raw-ip-runtime")]
             packet: None,
             packet_path: self.claim_udp_packet_path_leaf_impl(leaf),
         })
-    }
-}
-
-#[cfg(feature = "socks5")]
-impl UpstreamUdpHandlerProvider for Socks5Adapter {
-    fn upstream_association_handler(&self) -> Box<dyn UpstreamAssociationHandler> {
-        udp::upstream_association_handler()
     }
 }
 
@@ -135,4 +131,4 @@ mod component_tests;
 
 #[cfg(test)]
 #[path = "../component/tests/relay.rs"]
-mod relay_tests;
+pub(crate) mod relay_tests;

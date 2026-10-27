@@ -3,8 +3,6 @@ use std::sync::Arc;
 use super::ProtocolRegistry;
 #[cfg(feature = "managed-udp-runtime")]
 use crate::protocol_registry::ManagedUdpHandlerProvider;
-#[cfg(feature = "upstream-association-runtime")]
-use crate::protocol_registry::UpstreamUdpHandlerProvider;
 use crate::protocol_registry::{
     InboundListenerCapability, OutboundLeafClaim, OutboundLeafInput, ProtocolSupportCapability,
 };
@@ -90,32 +88,6 @@ impl ProtocolRegistry {
             }),
             #[cfg(feature = "managed-udp-runtime")]
             managed_udp_handlers: None,
-            #[cfg(feature = "upstream-association-runtime")]
-            upstream_udp_handler: None,
-        });
-    }
-
-    #[cfg(feature = "upstream-association-runtime")]
-    pub(crate) fn register_upstream_capability<T>(
-        &mut self,
-        adapter: Arc<T>,
-        claim: OutboundLeafClaimFn<T>,
-    ) where
-        T: ProtocolSupportCapability
-            + InboundListenerCapability
-            + UpstreamUdpHandlerProvider
-            + 'static,
-    {
-        self.push_registered_entry(super::RegisteredProtocolEntry {
-            support: adapter.clone(),
-            inbound: adapter.clone(),
-            outbound: Some(Arc::new(ProjectedOutboundClaimer {
-                adapter: adapter.clone(),
-                claim,
-            })),
-            #[cfg(feature = "managed-udp-runtime")]
-            managed_udp_handlers: None,
-            upstream_udp_handler: Some(adapter.clone()),
         });
     }
 
@@ -138,8 +110,6 @@ impl ProtocolRegistry {
                 claim,
             })),
             managed_udp_handlers: Some(adapter.clone()),
-            #[cfg(feature = "upstream-association-runtime")]
-            upstream_udp_handler: None,
         });
     }
 
@@ -150,14 +120,5 @@ impl ProtocolRegistry {
         self.entries
             .iter()
             .filter_map(|entry| entry.managed_udp_handlers.as_ref())
-    }
-
-    #[cfg(feature = "upstream-association-runtime")]
-    pub(crate) fn upstream_udp_handler_providers(
-        &self,
-    ) -> impl Iterator<Item = &Arc<dyn UpstreamUdpHandlerProvider>> {
-        self.entries
-            .iter()
-            .filter_map(|entry| entry.upstream_udp_handler.as_ref())
     }
 }

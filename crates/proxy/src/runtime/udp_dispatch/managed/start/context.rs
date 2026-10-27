@@ -10,7 +10,7 @@ use crate::runtime::udp_flow::state::UdpFlowStartContext;
 
 impl UdpDispatch {
     pub(crate) fn flow_start_context(&mut self) -> UdpFlowStartContext<'_> {
-        UdpFlowStartContext::new(&self.inbound_tag, &mut self.flow_state)
+        UdpFlowStartContext::new(&mut self.flow_state)
     }
 
     #[cfg(any(
@@ -21,9 +21,7 @@ impl UdpDispatch {
         &mut self,
         request: ManagedUdpFlowRequest<'_>,
     ) -> Result<usize, crate::runtime::udp_dispatch::FlowFailure> {
-        self.flow_state
-            .start_managed_flow(&self.inbound_tag, request)
-            .await
+        self.flow_state.start_managed_flow(request).await
     }
 
     #[cfg(any(
@@ -35,16 +33,5 @@ impl UdpDispatch {
         resume: ManagedUdpFlowResume,
     ) -> ManagedUdpFlowRef {
         self.flow_state.register_managed_flow(resume)
-    }
-
-    #[cfg(any(
-        feature = "upstream-association-runtime",
-        feature = "managed-stream-runtime"
-    ))]
-    pub(crate) fn managed_flow_resume(
-        &self,
-        flow_ref: ManagedUdpFlowRef,
-    ) -> Option<ManagedUdpFlowResume> {
-        self.flow_state.managed_flow_resume(flow_ref)
     }
 }

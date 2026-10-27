@@ -10,13 +10,12 @@ use crate::runtime::udp_flow::result::FlowFailure;
 use super::UdpFlowState;
 
 pub(crate) struct UdpFlowStartContext<'a> {
-    inbound_tag: &'a str,
     pub(super) state: &'a mut UdpFlowState,
 }
 
 impl<'a> UdpFlowStartContext<'a> {
-    pub(crate) fn new(inbound_tag: &'a str, state: &'a mut UdpFlowState) -> Self {
-        Self { inbound_tag, state }
+    pub(crate) fn new(state: &'a mut UdpFlowState) -> Self {
+        Self { state }
     }
 
     #[cfg(any(
@@ -27,9 +26,7 @@ impl<'a> UdpFlowStartContext<'a> {
         &mut self,
         request: ManagedUdpFlowRequest<'_>,
     ) -> Result<usize, FlowFailure> {
-        self.state
-            .start_managed_flow(self.inbound_tag, request)
-            .await
+        self.state.start_managed_flow(request).await
     }
 
     pub(crate) fn register_managed_flow(

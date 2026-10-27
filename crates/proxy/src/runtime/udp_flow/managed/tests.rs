@@ -5,9 +5,7 @@ use super::model::ManagedDatagramExistingSend;
 use super::ManagedDatagramFlowHandler;
 use super::{ManagedUdpFlowResume, ManagedUdpHandlers};
 use crate::runtime::udp_flow::outbound::{ManagedUdpFlowRef, UdpFlowOutbound};
-use crate::runtime::udp_flow::registered::{
-    RegisteredUdpHandlers, RegisteredUdpState, UpstreamUdpHandlers,
-};
+use crate::runtime::udp_flow::registered::{RegisteredUdpHandlers, RegisteredUdpState};
 use crate::runtime::udp_flow::result::FlowFailure;
 use crate::runtime::udp_flow::sessions::UdpFlowKey;
 use crate::runtime::udp_flow::snapshot::UdpFlowSnapshot;
@@ -57,9 +55,6 @@ fn managed_udp_state_registers_and_restores_opaque_resumes() {
             stream_packet: Vec::new(),
             relay: Vec::new(),
         },
-        upstream: UpstreamUdpHandlers {
-            upstream: Vec::new(),
-        },
     });
     let first = FakeResume {
         connection_id: 7,
@@ -101,9 +96,6 @@ async fn registered_udp_state_forwards_with_restored_opaque_resume() {
             })],
             stream_packet: Vec::new(),
             relay: Vec::new(),
-        },
-        upstream: UpstreamUdpHandlers {
-            upstream: Vec::new(),
         },
     });
     let flow_ref = state.register_managed_flow(ManagedUdpFlowResume::new(FakeResume {

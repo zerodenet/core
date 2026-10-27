@@ -19,8 +19,6 @@ use crate::runtime::udp_dispatch::relay::PreparedUdpRelayOperation;
 use crate::runtime::udp_flow::managed::model::ManagedDatagramFlowHandler;
 #[cfg(feature = "managed-stream-runtime")]
 use crate::runtime::udp_flow::managed::ManagedStreamHandlerPair;
-#[cfg(feature = "upstream-association-runtime")]
-use crate::runtime::udp_flow::registered::UpstreamAssociationHandler;
 use crate::transport::TcpOutboundFailure;
 
 pub(crate) trait ClaimedTcpOutboundLeaf<'a>: Send + Sync {
@@ -238,11 +236,6 @@ pub(crate) trait InboundListenerCapability: Send + Sync {
     > {
         self.prepare_inbound_listener(inbound, source_dir)
     }
-}
-
-#[cfg(feature = "upstream-association-runtime")]
-pub(crate) trait UpstreamUdpHandlerProvider: Send + Sync {
-    fn upstream_association_handler(&self) -> Box<dyn UpstreamAssociationHandler>;
 }
 
 #[cfg(any(

@@ -28,13 +28,10 @@ impl UdpFlowState {
     ))]
     pub(crate) async fn start_managed_flow(
         &mut self,
-        inbound_tag: &str,
         mut request: ManagedUdpFlowRequest<'_>,
     ) -> Result<usize, FlowFailure> {
         request.chain_tasks = Some(&mut self.chain_tasks);
-        self.registered
-            .start_managed_udp_flow(inbound_tag, request)
-            .await
+        self.registered.start_managed_udp_flow(request).await
     }
 
     #[cfg(feature = "upstream-association-runtime")]
@@ -49,8 +46,18 @@ impl UdpFlowState {
     }
 
     #[cfg(feature = "upstream-association-runtime")]
-    pub(crate) fn handles_upstream_resume(&self, resume: &ManagedUdpFlowResume) -> bool {
-        self.registered.handles_upstream_resume(resume)
+    pub(crate) fn upstream_flow_target(
+        &self,
+        id: ManagedUdpFlowRef,
+    ) -> Option<super::super::registered::DatagramAssociationTarget> {
+        self.registered.upstream_flow_target(id)
+    }
+    #[cfg(feature = "upstream-association-runtime")]
+    pub(crate) fn register_upstream_flow(
+        &mut self,
+        target: super::super::registered::DatagramAssociationTarget,
+    ) -> ManagedUdpFlowRef {
+        self.registered.register_upstream_flow(target)
     }
 
     pub(crate) fn register_managed_flow(
@@ -58,17 +65,6 @@ impl UdpFlowState {
         resume: ManagedUdpFlowResume,
     ) -> ManagedUdpFlowRef {
         self.registered.register_managed_flow(resume)
-    }
-
-    #[cfg(any(
-        feature = "upstream-association-runtime",
-        feature = "managed-stream-runtime"
-    ))]
-    pub(crate) fn managed_flow_resume(
-        &self,
-        flow_ref: ManagedUdpFlowRef,
-    ) -> Option<ManagedUdpFlowResume> {
-        self.registered.managed_flow_resume(flow_ref)
     }
 
     #[cfg(any(

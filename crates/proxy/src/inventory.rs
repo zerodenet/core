@@ -16,6 +16,8 @@ mod tcp;
 #[cfg(feature = "udp-runtime")]
 mod udp;
 mod weak;
+#[cfg(feature = "upstream-association-runtime")]
+pub(crate) use udp::DatagramAssociationTarget;
 
 #[cfg(feature = "raw-ip-runtime")]
 pub(crate) use packet::PacketRouteTarget;

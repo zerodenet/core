@@ -18,16 +18,10 @@ pub(crate) use state::RegisteredUpstreamAssociationView;
 #[cfg(feature = "udp-runtime")]
 pub(crate) use state::{RegisteredUdpHandlers, RegisteredUdpState};
 #[cfg(feature = "upstream-association-runtime")]
-pub(crate) use upstream::boxed_registered_upstream_handler;
-#[cfg(feature = "upstream-association-runtime")]
-pub(crate) use upstream::UpstreamAssociationHandler;
-#[cfg(feature = "upstream-association-runtime")]
 pub(crate) use upstream::UpstreamAssociationSend;
 #[cfg(feature = "upstream-association-runtime")]
-pub(crate) use upstream::UpstreamUdpHandlers;
-#[cfg(feature = "upstream-association-runtime")]
 pub(crate) use upstream::{
-    UpstreamAssociationCloseReason, UpstreamAssociationStages, UpstreamAssociationTarget,
+    DatagramAssociationTarget, UpstreamAssociationCloseReason, UpstreamAssociationTarget,
     UpstreamAssociationTransport,
 };
 

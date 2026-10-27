@@ -80,20 +80,15 @@ fn managed_handler_provider_shares_the_registered_adapter_instance() {
 
 #[cfg(feature = "socks5")]
 #[test]
-fn upstream_handler_provider_shares_the_registered_adapter_instance() {
+fn standard_datagram_adapter_requires_no_upstream_handler_registration() {
     let adapter = Arc::new(crate::adapters::socks5::Socks5Adapter);
     let expected = Arc::as_ptr(&adapter) as *const ();
     let mut registry = ProtocolRegistry::default();
-    registry.register_upstream_capability(
+    registry.register_core_capability(
         adapter,
-        crate::adapters::socks5::Socks5Adapter::claim_outbound_leaf_impl,
+        Some(crate::adapters::socks5::Socks5Adapter::claim_outbound_leaf_impl),
     );
-
     let entry = registry.entries.first().expect("registered adapter entry");
-    let provider = entry
-        .upstream_udp_handler
-        .as_ref()
-        .expect("upstream UDP handler provider view");
-    assert_eq!(Arc::as_ptr(provider) as *const (), expected);
+    assert!(entry.outbound.is_some());
     assert_eq!(Arc::as_ptr(&entry.support) as *const (), expected);
 }

@@ -4545,10 +4545,7 @@ fn udp_flow_registered_root_stays_facade_only() {
     for expected in [
         "pub(crate) struct RegisteredUdpHandlers",
         "pub(crate) struct RegisteredUdpState",
-        "pub(crate) trait UpstreamAssociationHandler",
         "pub(crate) struct UpstreamAssociationSend",
-        "fn boxed_registered_upstream_handler<",
-        "pub(crate) struct UpstreamUdpHandlers",
     ] {
         assert!(
             registered.contains(expected),
@@ -4578,10 +4575,7 @@ fn udp_flow_registered_upstream_root_stays_facade_only() {
         );
     }
     for expected in [
-        "pub(crate) trait UpstreamAssociationHandler",
         "pub(crate) struct UpstreamAssociationSend",
-        "pub(crate) struct UpstreamUdpHandlers",
-        "fn boxed_registered_upstream_handler<",
         "pub(crate) struct UpstreamAssociationRuntime",
         "pub(crate) struct TrackedUpstreamAssociationState",
     ] {
@@ -4593,70 +4587,58 @@ fn udp_flow_registered_upstream_root_stays_facade_only() {
 }
 
 #[test]
-fn udp_flow_registered_upstream_runtime_handler_root_stays_facade_only() {
-    let handler_root =
-        read(&proxy_src().join("runtime/udp_flow/registered/upstream/runtime/handler.rs"));
-    let handler =
-        read_module(&proxy_src().join("runtime/udp_flow/registered/upstream/runtime/handler.rs"));
-    for module_name in ["mod build;", "mod dispatch;", "mod model;"] {
-        assert!(handler_root.contains(module_name));
-    }
-    for forbidden in [
-        "pub(crate) struct RegisteredUpstreamAssociationHandler",
-        "pub(crate) fn new(stages: UpstreamAssociationStages) -> Self",
-        "async fn send_upstream(",
-        "fn close_all_upstreams(&mut self)",
-        "fn boxed_registered_upstream_handler<",
-    ] {
-        assert!(
-            !handler_root.contains(forbidden),
-            "udp_flow registered upstream runtime handler facade root must not keep `{forbidden}` inline"
-        );
-    }
-    for expected in [
-        "pub(crate) struct RegisteredUpstreamAssociationHandler",
-        "pub(crate) fn new(stages: UpstreamAssociationStages) -> Self",
-        "async fn send_upstream(",
-        "fn close_all_upstreams(&mut self)",
-        "fn boxed_registered_upstream_handler<",
-    ] {
-        assert!(
-            handler.contains(expected),
-            "udp_flow registered upstream runtime handler module tree must still provide `{expected}`"
-        );
-    }
+fn standard_upstream_datagram_sessions_do_not_restore_the_handler_spi() {
+    let registry = read_module(&proxy_src().join("protocol_registry"));
+    assert_non_test_sources_exclude(
+        &proxy_src().join("runtime/udp_flow/registered/upstream"),
+        &[
+            "ManagedUdpFlowResume",
+            "supports_upstream_resume",
+            "execution.config()",
+            ".protocol.endpoint()",
+            "downcast_ref",
+            "UpstreamAssociationHandler",
+            "UpstreamUdpHandlers",
+            "boxed_registered_upstream_handler",
+        ],
+    );
+    assert!(!registry.contains("UpstreamUdpHandlerProvider"));
+    let adapter = read_module(&proxy_src().join("adapters/socks5"));
+    assert!(adapter.contains("RegisteredAssociationUdpOperation"));
+    assert!(!adapter.contains("claim_udp_flow_leaf_impl"));
+    assert!(!adapter.contains("ClaimedSocks5UdpLeaf"));
+    assert!(!adapter.contains("Socks5ManagedUdpAssociationTarget"));
+    assert!(!proxy_src()
+        .join("adapters/socks5/udp/native_association.rs")
+        .exists());
+    assert!(!proxy_src().join("adapters/socks5/udp/handler.rs").exists());
+    let native = read(&proxy_src().join("runtime/udp_flow/registered/upstream/native.rs"));
+    assert!(native.contains("stream_bridge::datagram::open"));
+    assert!(native.contains("self.control"));
+    let close = read(
+        &proxy_src()
+            .join("runtime/udp_flow/registered/upstream/runtime/association/lifecycle/close.rs"),
+    );
+    assert!(close.contains(".wait_closed(deadline)"));
+    assert!(close.contains("report.is_complete()"));
+    assert!(!native.contains("::socks5"));
 }
 
 #[test]
-fn udp_flow_registered_upstream_runtime_control_root_stays_facade_only() {
-    let control_root =
-        read(&proxy_src().join("runtime/udp_flow/registered/upstream/runtime/control.rs"));
-    let control =
-        read_module(&proxy_src().join("runtime/udp_flow/registered/upstream/runtime/control.rs"));
-    for module_name in ["mod close;", "mod start;"] {
-        assert!(control_root.contains(module_name));
-    }
-    for forbidden in [
-        "async fn start_registered_upstream_flow<",
-        "fn close_registered_dropped_upstream<",
-        "fn close_registered_idle_upstream<",
-        "fn registered_target_log_parts<",
+fn standard_upstream_association_keeps_one_typed_runtime_without_handler_shells() {
+    let state = read_module(&proxy_src().join("runtime/udp_flow/registered/upstream/state"));
+    assert!(
+        state.contains("UpstreamAssociationRuntime<DatagramAssociationTarget, NativeAssociation>")
+    );
+    for removed in [
+        "runtime/handler.rs",
+        "runtime/control.rs",
+        "state/handlers.rs",
     ] {
-        assert!(
-            !control_root.contains(forbidden),
-            "udp_flow registered upstream runtime control facade root must not keep `{forbidden}` inline"
-        );
-    }
-    for expected in [
-        "async fn start_registered_upstream_flow<",
-        "fn close_registered_dropped_upstream<",
-        "fn close_registered_idle_upstream<",
-        "fn registered_target_log_parts<",
-    ] {
-        assert!(
-            control.contains(expected),
-            "udp_flow registered upstream runtime control module tree must still provide `{expected}`"
-        );
+        assert!(!proxy_src()
+            .join("runtime/udp_flow/registered/upstream")
+            .join(removed)
+            .exists());
     }
 }
 
@@ -4720,16 +4702,16 @@ fn udp_flow_registered_state_start_root_stays_facade_only() {
     }
     for expected in [
         "pub(crate) async fn start_upstream_udp_flow(",
-        "pub(crate) fn handles_upstream_resume(",
         "pub(crate) async fn start_managed_udp_flow(",
         "fn unhandled_managed_flow(",
-        "fn upstream_send(",
     ] {
         assert!(
             start.contains(expected),
             "udp_flow registered state start module tree must still provide `{expected}`"
         );
     }
+    assert!(!start.contains("fn handles_upstream_resume("));
+    assert!(!start.contains("fn upstream_send("));
 }
 
 #[test]
@@ -5300,7 +5282,6 @@ fn non_transport_bridge_adapters_offer_claim_time_udp_projection() {
 
     for relative in [
         "adapters/direct/udp.rs",
-        "adapters/socks5/udp.rs",
         "adapters/shadowsocks/udp.rs",
         "adapters/hysteria2/udp.rs",
         "adapters/mieru/udp.rs",

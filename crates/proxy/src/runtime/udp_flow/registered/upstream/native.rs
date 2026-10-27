@@ -1,10 +1,10 @@
-//! The legacy shared-association holder now invokes the actual Datagram role.
+//! Execute an actual standard Datagram role, independent of protocol wire state.
 mod control;
+use super::contract::{DatagramAssociationTarget, UpstreamAssociationTarget};
 use crate::{
     protocol_registry::{TcpExecutionServices, UdpAssociationObserver},
     runtime::udp_flow::registered::{UpstreamAssociationCloseReason, UpstreamAssociationTransport},
 };
-use ::socks5::transport::Socks5ManagedUdpAssociationTarget;
 use control::ObservedControl;
 use std::{
     pin::Pin,
@@ -27,8 +27,8 @@ use zero_platform_tokio::contract::{
     ChannelError, CloseReason, Impact, Reason, Stage,
 };
 pub(super) struct NativeAssociation {
-    tx: Mutex<Pin<Box<dyn DatagramTx>>>,
-    rx: Mutex<Pin<Box<dyn DatagramRx>>>,
+    tx: Mutex<Option<Pin<Box<dyn DatagramTx>>>>,
+    rx: Mutex<Option<Pin<Box<dyn DatagramRx>>>>,
     control: Mutex<Box<dyn DynChannelControl>>,
     limits: DatagramLimits,
     association: AssociationId,
@@ -46,50 +46,14 @@ fn address(server: &str) -> Address {
     }
 }
 #[async_trait::async_trait]
-impl UpstreamAssociationTransport<Socks5ManagedUdpAssociationTarget> for NativeAssociation {
+impl UpstreamAssociationTransport<DatagramAssociationTarget> for NativeAssociation {
     async fn establish(
         execution: TcpExecutionServices,
         observer: UdpAssociationObserver,
-        target: Socks5ManagedUdpAssociationTarget,
+        target: DatagramAssociationTarget,
     ) -> Result<Self, EngineError> {
         let (tag, server, port) = target.log_parts();
-        let input = execution
-            .config()
-            .outbounds
-            .iter()
-            .find(|input| input.tag == tag)
-            .ok_or_else(|| {
-                legacy(ChannelError::new(
-                    Stage::Prepare,
-                    Reason::StalePlan,
-                    Impact::Session,
-                ))
-            })?;
-        if input.protocol.endpoint() != Some((server, port)) {
-            return Err(legacy(ChannelError::new(
-                Stage::Prepare,
-                Reason::StalePlan,
-                Impact::Session,
-            )));
-        }
-        if let Some((reason, endpoint)) =
-            zero_engine::EndpointAdmission::from_config(execution.config()).outbound_denial(tag)
-        {
-            return Err(EngineError::InvalidPlan {
-                message: format!("{reason}: {endpoint}"),
-            });
-        }
-        let plan = execution
-            .components
-            .as_ref()
-            .map_err(|error| legacy(crate::component::instance::retained(error.clone())))?;
-        let slot = plan.configured(tag).ok_or_else(|| {
-            legacy(ChannelError::new(
-                Stage::Prepare,
-                Reason::Unsupported,
-                Impact::Session,
-            ))
-        })?;
+        let slot = target.current_slot(&execution)?;
         // Reserve before any role admission can open its native TCP carrier.
         let reservation = execution.retired_datagrams().reserve().map_err(legacy)?;
         let association = reservation.association();
@@ -114,8 +78,8 @@ impl UpstreamAssociationTransport<Socks5ManagedUdpAssociationTarget> for NativeA
         ));
         let control = reservation.adopt(actual);
         Ok(Self {
-            tx: Mutex::new(channel.tx),
-            rx: Mutex::new(channel.rx),
+            tx: Mutex::new(Some(channel.tx)),
+            rx: Mutex::new(Some(channel.rx)),
             control: Mutex::new(control),
             limits: channel.limits,
             association,
@@ -137,7 +101,13 @@ impl UpstreamAssociationTransport<Socks5ManagedUdpAssociationTarget> for NativeA
         let mut tx = self.tx.lock().await;
         let mut control = self.control.lock().await;
         self.wire.take_sent();
-        let result = send(tx.as_mut(), control.as_mut(), &frame, &self.limits).await;
+        let result = send(
+            tx.as_mut().ok_or_else(retiring)?.as_mut(),
+            control.as_mut(),
+            &frame,
+            &self.limits,
+        )
+        .await;
         let actual_wire = self.wire.take_sent();
         result.map_err(|failure| legacy(failure.error))?;
         if actual_wire == 0 || actual_wire < payload.len() {
@@ -156,12 +126,15 @@ impl UpstreamAssociationTransport<Socks5ManagedUdpAssociationTarget> for NativeA
         buf: &mut [u8],
     ) -> Result<(Address, u16, Vec<u8>), EngineError> {
         let mut rx = self.rx.lock().await;
-        let frame = recv(rx.as_mut()).await.map_err(legacy)?.ok_or_else(|| {
-            EngineError::Io(std::io::Error::new(
-                std::io::ErrorKind::BrokenPipe,
-                "SOCKS5 Datagram session reached actual EOF",
-            ))
-        })?;
+        let frame = recv(rx.as_mut().ok_or_else(retiring)?.as_mut())
+            .await
+            .map_err(legacy)?
+            .ok_or_else(|| {
+                EngineError::Io(std::io::Error::new(
+                    std::io::ErrorKind::BrokenPipe,
+                    "upstream Datagram session reached actual EOF",
+                ))
+            })?;
         if frame.association != self.association {
             return Err(legacy(ChannelError::new(
                 Stage::Receive,
@@ -182,7 +155,7 @@ impl UpstreamAssociationTransport<Socks5ManagedUdpAssociationTarget> for NativeA
             frame.payload.to_vec(),
         ))
     }
-    fn close(mut self, reason: UpstreamAssociationCloseReason) {
+    fn request_close(&mut self, reason: UpstreamAssociationCloseReason) {
         let (value, close) = match reason {
             UpstreamAssociationCloseReason::Closed => (1, CloseReason::Completed),
             UpstreamAssociationCloseReason::IdleTimeout => (2, CloseReason::Completed),
@@ -191,10 +164,30 @@ impl UpstreamAssociationTransport<Socks5ManagedUdpAssociationTarget> for NativeA
         let _ = self
             .reason
             .compare_exchange(0, value, Ordering::AcqRel, Ordering::Acquire);
+        // Relinquish actual transferred users before awaiting their original
+        // controller. These drops are custody release, not close evidence.
+        self.tx.get_mut().take();
+        self.rx.get_mut().take();
         self.control.get_mut().cancel(close);
-        // Drop only the reference lease. The actual controller and its future
-        // remain in the application owner until an observed complete report.
+        // The original controller stays with the application owner; this
+        // retained lease drives its receipt before replacement is admitted.
     }
+    async fn wait_closed(
+        &mut self,
+        deadline: tokio::time::Instant,
+    ) -> Result<zero_platform_tokio::contract::lifecycle::CloseReport, EngineError> {
+        self.control
+            .get_mut()
+            .wait_closed(deadline)
+            .await
+            .map_err(legacy)
+    }
+}
+fn retiring() -> EngineError {
+    EngineError::Io(std::io::Error::new(
+        std::io::ErrorKind::BrokenPipe,
+        "upstream Datagram is retiring",
+    ))
 }
 impl Drop for NativeAssociation {
     fn drop(&mut self) {

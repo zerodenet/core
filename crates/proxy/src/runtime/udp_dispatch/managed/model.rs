@@ -33,12 +33,11 @@ pub(crate) struct ManagedDatagramStart<'a, T> {
 }
 
 #[cfg(feature = "upstream-association-runtime")]
-pub(crate) struct UpstreamTrackedStart<'a, T> {
+pub(crate) struct UpstreamTrackedStart<'a> {
     pub(crate) services: Option<crate::protocol_registry::UdpRuntimeServices>,
     pub(crate) tag: &'a str,
     pub(crate) session: &'a Session,
     pub(crate) server: &'a str,
     pub(crate) port: u16,
-    pub(crate) resume: T,
     pub(crate) payload: &'a [u8],
 }

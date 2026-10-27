@@ -10,8 +10,6 @@ use crate::protocol_registry::ProtocolRegistry;
 use crate::runtime::udp_flow::managed::ManagedUdpHandlers;
 #[cfg(feature = "udp-runtime")]
 use crate::runtime::udp_flow::registered::RegisteredUdpHandlers;
-#[cfg(feature = "upstream-association-runtime")]
-use crate::runtime::udp_flow::registered::UpstreamUdpHandlers;
 
 pub(crate) fn compiled_registries() -> (
     ProtocolRegistry,
@@ -81,9 +79,9 @@ pub(crate) fn compiled_registries_with_background(
         components
             .set_legacy_connect_stage("socks5", crate::adapters::socks5::LEGACY_CONNECT_STAGE);
 
-        registry.register_upstream_capability(
+        registry.register_core_capability(
             Arc::new(Socks5Adapter),
-            Socks5Adapter::claim_outbound_leaf_impl,
+            Some(Socks5Adapter::claim_outbound_leaf_impl),
         );
     }
     #[cfg(feature = "http")]
@@ -260,13 +258,6 @@ pub(crate) fn registered_udp_handlers(registry: &ProtocolRegistry) -> Registered
             stream_packet,
             #[cfg(feature = "managed-stream-runtime")]
             relay,
-        },
-        #[cfg(feature = "upstream-association-runtime")]
-        upstream: UpstreamUdpHandlers {
-            upstream: registry
-                .upstream_udp_handler_providers()
-                .map(|provider| provider.upstream_association_handler())
-                .collect(),
         },
     }
 }
