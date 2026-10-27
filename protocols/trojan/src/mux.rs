@@ -48,9 +48,12 @@ pub(crate) struct TrojanMuxPoolKey {
     response_backlog: MuxResponseBacklogPolicy,
 }
 
+type PoolEntries = HashMap<(Option<Arc<str>>, TrojanMuxPoolKey), Arc<TrojanMuxConn>>;
+
 #[derive(Clone)]
 pub struct TrojanMuxConnectionPool {
-    pool: Arc<Mutex<HashMap<TrojanMuxPoolKey, Arc<TrojanMuxConn>>>>,
+    pool: Arc<Mutex<PoolEntries>>,
+    scope: Option<Arc<str>>,
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -119,6 +122,16 @@ impl TrojanMuxConnectionPool {
     pub fn new() -> Self {
         Self {
             pool: Arc::new(Mutex::new(HashMap::new())),
+            scope: None,
+        }
+    }
+
+    /// A cold view of the same actual adapter pool. Scope is private protocol
+    /// state, never a new pool/worker or a native resource-close receipt.
+    pub(crate) fn scoped(&self, tag: &str, transport: impl std::fmt::Debug) -> Self {
+        Self {
+            pool: self.pool.clone(),
+            scope: Some(format!("{tag:?}:{transport:?}").into()),
         }
     }
 
@@ -217,11 +230,12 @@ impl TrojanMuxConnectionPool {
         F: FnOnce(TrojanMuxPoolKey, u32) -> Fut,
         Fut: Future<Output = Result<TrojanMuxConn, E>>,
     {
+        let lookup = (self.scope.clone(), key.clone());
         let cached = self
             .pool
             .lock()
             .expect("trojan mux pool poisoned")
-            .get(&key)
+            .get(&lookup)
             .cloned();
 
         if let Some(conn) = cached {
@@ -237,7 +251,7 @@ impl TrojanMuxConnectionPool {
         self.pool
             .lock()
             .expect("trojan mux pool poisoned")
-            .insert(key, conn.clone());
+            .insert(lookup, conn.clone());
         Ok((conn, session_id))
     }
 }

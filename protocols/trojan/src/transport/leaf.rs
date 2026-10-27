@@ -56,6 +56,11 @@ impl TrojanOutboundLeaf {
                 mux_response_backlog_bytes,
             )?;
         let transport = OwnedTrojanOutboundTlsPlan::from_parts(source_dir, server, port, ws, grpc);
+        let mux_pool = if mux_concurrency.is_some() {
+            mux_pool.scoped(tag, &transport)
+        } else {
+            mux_pool
+        };
         Ok(Self::new(tag, server, port, transport, protocol, mux_pool))
     }
 

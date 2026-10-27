@@ -77,9 +77,12 @@ pub(crate) struct OwnedMuxTransportProfile {
     reality_client_fingerprint: Option<String>,
 }
 
+type PoolEntries = HashMap<(Option<Arc<str>>, PoolKey), Arc<MuxPoolConn>>;
+
 #[derive(Clone)]
 pub struct MuxConnectionPool {
-    pool: Arc<Mutex<HashMap<PoolKey, Arc<MuxPoolConn>>>>,
+    pool: Arc<Mutex<PoolEntries>>,
+    scope: Option<Arc<str>>,
 }
 
 struct PoolKeyConfig {
@@ -395,6 +398,16 @@ impl MuxConnectionPool {
     pub fn new() -> Self {
         Self {
             pool: Arc::new(Mutex::new(HashMap::new())),
+            scope: None,
+        }
+    }
+
+    /// A cold view of the same actual adapter pool. Scope is private protocol
+    /// state, never a new pool/worker or a native resource-close receipt.
+    pub(crate) fn scoped(&self, tag: &str, transport: impl std::fmt::Debug) -> Self {
+        Self {
+            pool: self.pool.clone(),
+            scope: Some(format!("{tag:?}:{transport:?}").into()),
         }
     }
 
@@ -469,9 +482,10 @@ impl MuxConnectionPool {
         F: FnOnce(PoolKey, u32) -> Fut,
         Fut: Future<Output = Result<MuxPoolConn, E>>,
     {
+        let lookup = (self.scope.clone(), key.clone());
         let cached = {
             let pool = self.pool.lock().expect("mux pool lock poisoned");
-            pool.get(&key).cloned()
+            pool.get(&lookup).cloned()
         };
 
         if let Some(conn) = cached {
@@ -487,7 +501,7 @@ impl MuxConnectionPool {
         self.pool
             .lock()
             .expect("mux pool lock poisoned")
-            .insert(key, conn.clone());
+            .insert(lookup, conn.clone());
         Ok((conn, sid))
     }
 }

@@ -123,6 +123,9 @@ impl VlessOutboundLeaf {
             );
             leaf.mux_pool = runtime.encryption_mux_pool(tag, &identity);
         }
+        if protocol.mux_concurrency.is_some() || protocol.xudp_concurrency.is_some() {
+            leaf.mux_pool = leaf.mux_pool.scoped(tag, preconnect_identity);
+        }
         Ok(leaf)
     }
 

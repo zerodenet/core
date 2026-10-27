@@ -71,6 +71,14 @@ pub struct OwnedVmessOutboundTransportPlan {
 }
 
 impl OwnedVmessOutboundTransportPlan {
+    pub(in crate::transport) fn scoped_mux_pool(
+        &self,
+        tag: &str,
+        pool: &crate::mux::VmessMuxConnectionPool,
+    ) -> crate::mux::VmessMuxConnectionPool {
+        pool.scoped(tag, &self.transport)
+    }
+
     pub(in crate::transport) fn from_profile_refs<TTls, TWs, TGrpc>(
         source_dir: Option<&Path>,
         server: &str,

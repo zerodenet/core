@@ -86,7 +86,7 @@ fn inbound_writer_enforces_frame_and_byte_limits() {
 #[tokio::test]
 async fn eviction_through_a_clone_removes_cached_connections() {
     let pool = TrojanMuxConnectionPool::new();
-    let bridge = pool.clone();
+    let bridge = pool.scoped("owner", "complete transport material");
     let key = pool_key_from_config(
         "trojan.test",
         443,
@@ -99,7 +99,10 @@ async fn eviction_through_a_clone_removes_cached_connections() {
     );
     let (stream, _peer) = tokio::io::duplex(64);
     let connection = Arc::new(key.clone().into_pool_conn(stream, 4));
-    pool.pool.lock().expect("pool lock").insert(key, connection);
+    pool.pool
+        .lock()
+        .expect("pool lock")
+        .insert((bridge.scope.clone(), key), connection);
     bridge.evict_all();
     assert!(pool.pool.lock().expect("pool lock").is_empty());
 }

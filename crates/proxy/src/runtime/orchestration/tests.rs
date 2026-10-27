@@ -169,3 +169,6 @@ mod lifecycle;
 mod inbound_recovery;
 #[cfg(feature = "managed-datagram-runtime")]
 mod observer_handoff;
+
+#[cfg(all(feature = "vless", feature = "vmess", feature = "trojan"))]
+mod tcp_transport;
