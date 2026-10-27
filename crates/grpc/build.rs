@@ -3,9 +3,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         "{}/../../proto",
         std::env::var("CARGO_MANIFEST_DIR").unwrap()
     );
+    let control_proto = format!("{proto_dir}/zero/api/v1/control.proto");
     tonic_build::configure()
         .build_server(true)
         .build_client(false)
-        .compile_protos(&["zero/api/v1/control.proto"], &[&proto_dir])?;
+        .compile_protos(&[&control_proto], &[&proto_dir])?;
     Ok(())
 }
