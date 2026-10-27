@@ -10,7 +10,9 @@ use zero_platform_tokio::{
     contract::{scope::TaskJoinWitness, BoxFuture, CancellationToken},
     controlled_carrier::loan::{DatagramLoan, StreamLoan},
 };
+mod open_failure;
 mod wire;
+pub use open_failure::NativeDnsOpenFailure;
 pub use wire::native_endpoints;
 #[cfg(feature = "doq")]
 pub use wire::native_quic_endpoints;

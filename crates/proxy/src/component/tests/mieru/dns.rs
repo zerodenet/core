@@ -7,6 +7,7 @@ use fixture::Dns;
 mod encrypted;
 mod faults;
 mod limits;
+mod open_failure;
 mod quic;
 mod replacement;
 

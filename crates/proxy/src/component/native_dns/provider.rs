@@ -183,26 +183,34 @@ impl NativeDnsProvider for Provider {
         Box::pin(async move {
             let (grant, view, opener, binding) =
                 self.grant(peer, false, caller, cancel.clone(), end).await?;
-            let carrier = opener
-                .prepare_controlled_stream(
-                    &binding,
-                    destination(peer),
-                    CarrierContext {
-                        session: None,
-                        deadline: Some(end),
-                        cancel,
-                    },
-                    grant,
-                )
-                .map_err(std::io::Error::other)?
-                .open(end)
-                .await
-                .map_err(std::io::Error::other)?;
-            carrier
-                .into_parts()
-                .0
-                .into_stream_loan(view)
-                .map_err(std::io::Error::other)
+            let original = grant.adoption();
+            let result = async {
+                let carrier = opener
+                    .prepare_controlled_stream(
+                        &binding,
+                        destination(peer),
+                        CarrierContext {
+                            session: None,
+                            deadline: Some(end),
+                            cancel,
+                        },
+                        grant,
+                    )
+                    .map_err(std::io::Error::other)?
+                    .open(end)
+                    .await
+                    .map_err(std::io::Error::other)?;
+                carrier
+                    .into_parts()
+                    .0
+                    .into_stream_loan(view)
+                    .map_err(std::io::Error::other)
+            }
+            .await;
+            match result {
+                Ok(loan) => Ok(loan),
+                Err(source) => Err(self.failed_open(source, &original, end).await),
+            }
         })
     }
     fn datagram(

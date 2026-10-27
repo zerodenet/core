@@ -164,7 +164,7 @@ async fn exchange_peer(
         .await
     {
         Ok(loan) => loan,
-        Err(source) => return Attempt::blocked(source),
+        Err(source) => return Attempt::open_failed(source),
     };
     let (mut io, mut owner) = (loan.io, loan.owner);
     if let Err(source) = OwnedDnsQueryTasks::record_native(owner.original()) {

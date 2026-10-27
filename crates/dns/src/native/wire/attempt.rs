@@ -7,6 +7,7 @@ pub(crate) struct Attempt {
     closed: Option<Proof>,
 }
 enum Proof {
+    FailedOpen(zero_platform_tokio::controlled_carrier::CarrierClosed),
     Carrier(LoanClosed, CarrierOriginClosed),
     #[cfg(feature = "doq")]
     Metadata(
@@ -15,6 +16,16 @@ enum Proof {
     ),
 }
 impl Attempt {
+    pub(super) fn open_failed(source: io::Error) -> Self {
+        let closed = source
+            .get_ref()
+            .and_then(|source| source.downcast_ref::<crate::native::NativeDnsOpenFailure>())
+            .map(|failure| Proof::FailedOpen(failure.original_close().clone()));
+        Self {
+            result: Err(source),
+            closed,
+        }
+    }
     pub(crate) fn blocked(source: io::Error) -> Self {
         Self {
             result: Err(source),
@@ -23,6 +34,7 @@ impl Attempt {
     }
     pub(super) fn can_retry(&self) -> bool {
         self.closed.as_ref().is_some_and(|proof| match proof {
+            Proof::FailedOpen(closed) => closed.had_native_acquisition(),
             Proof::Carrier(logical, native) => {
                 native.matches(logical.original()) && native.had_native_acquisition()
             }
@@ -128,3 +140,7 @@ impl std::error::Error for CloseFailure {
         Some(&self.close)
     }
 }
+
+#[cfg(test)]
+#[path = "../tests/open_failure.rs"]
+mod tests;
