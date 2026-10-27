@@ -1,9 +1,0 @@
-{
-  "original_proxy_tests": 868,
-  "new_proxy_tests": 694,
-  "new_runtime_tests": 175,
-  "missing_migrated_tests": [],
-  "new_tests": [
-    "host::tests::generic_host_retains_private_publication_without_exposing_it_in_debug"
-  ]
-}

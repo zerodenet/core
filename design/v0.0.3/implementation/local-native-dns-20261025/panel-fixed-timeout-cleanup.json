@@ -1,8 +1,0 @@
-{
-  "pid": 19014,
-  "command": "/var/folders/5g/3js9c9b11c3fmfd930s4vkdm0000gn/T/zero-native-dns-consumers-mo5yc8ag/zero run --control-socket /tmp/zb-native-454393099/control.sock /tmp/zb-native-454393099/etc/current.json",
-  "reason": "Go test 120s alarm exited without running fixture cleanup",
-  "native_close_receipt_claimed": false,
-  "signal": "SIGTERM",
-  "process_absent": true
-}

@@ -1,7 +1,0 @@
-{
-  "phase": "cancelled_wait_for_fresh_artifact",
-  "source_snapshot": "source-candidate.json",
-  "filter": "resource_metapool",
-  "debug_symbols": false,
-  "reason": "confirmed static ownership issue: return_unbound consumed the unique original claim on rejected scope/original validation; correction requires new source snapshot"
-}

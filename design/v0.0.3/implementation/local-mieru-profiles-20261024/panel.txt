@@ -1,4 +1,0 @@
-=== RUN   TestNativePublicationPreservesTrafficAcrossPublisherProcesses
-    native_publication_acceptance_test.go:220: verified native PID=19304 core=80290bbb4d5eb7dafeca0513a5460bbf revision=2, existing TCP/UDP survive three publisher processes
---- PASS: TestNativePublicationPreservesTrafficAcrossPublisherProcesses (84.15s)
-PASS

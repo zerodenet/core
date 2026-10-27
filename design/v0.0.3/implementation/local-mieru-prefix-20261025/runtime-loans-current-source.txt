@@ -1,9 +1,0 @@
-
-running 4 tests
-test component::tests::mieru_stream::host::loan::actual_remote_logical_eof_still_requires_the_live_donor_writers_ordered_close_acknowledgement ... ok
-test component::tests::mieru_stream::host::loan::retained_logical_loan_controller_blocks_actual_mieru_successor_even_after_view_and_driver_exit ... ok
-test component::tests::mieru_stream::host::loan::mieru_tcp_and_packet_loans_return_one_session_without_claiming_or_stopping_the_donor_native ... ok
-test component::tests::mieru_stream::host::loan::dropping_logical_loan_control_requests_real_session_retirement_without_orphaning_the_donor_book ... ok
-
-test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 184 filtered out; finished in 2.91s
-

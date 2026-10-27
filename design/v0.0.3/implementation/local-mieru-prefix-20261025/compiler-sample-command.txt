@@ -1,3 +1,0 @@
-Sampling process 53484 for 1 second with 1 millisecond of run time between samples
-Sampling completed, processing symbols...
-Sample analysis of process 53484 written to file /tmp/zero-mieru-prefix-rustc-sample.txt

@@ -1,7 +1,0 @@
-
-running 2 tests
-test controlled_carrier::tests::taskless::taskless_packet_loan_closes_its_actual_native_original_without_an_invented_worker ... ok
-test controlled_carrier::tests::taskless::taskless_stream_loan_requires_original_control_and_returned_native_custody ... ok
-
-test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 280 filtered out; finished in 0.02s
-

@@ -1,6 +1,3 @@
 # Git hooks must keep LF line endings — CRLF breaks the `#!/bin/sh`
 # shebang on Unix and under Git Bash on Windows.
 scripts/hooks/* text eol=lf
-
-# Keep captured command output byte-for-byte; source and prose keep normal checks.
-design/v0.0.3/implementation/local-*/**/*.txt -whitespace

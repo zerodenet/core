@@ -1,9 +1,0 @@
-{
-  "preserved_preexisting_untracked_files": 522,
-  "missing": [],
-  "edited_in_place": [
-    "crates/proxy/src/adapters/mieru/component.rs",
-    "crates/proxy/src/component/background.rs",
-    "crates/proxy/src/component/tests/mieru.rs"
-  ]
-}

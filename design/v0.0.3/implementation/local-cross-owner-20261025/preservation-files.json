@@ -1,7 +1,0 @@
-{
-  "before_backup": "/var/folders/5g/3js9c9b11c3fmfd930s4vkdm0000gn/T/zero-cross-owner-before-l5648d_c",
-  "untracked_before": 469,
-  "missing_existing_untracked": [],
-  "cargo_lock_identical_to_before": true,
-  "source_drift": []
-}

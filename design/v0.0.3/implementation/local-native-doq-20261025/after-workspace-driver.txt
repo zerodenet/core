@@ -1,7 +1,0 @@
-dns-only {'exit': 101, 'seconds': 95.02, 'command': ['cargo', '+stable', 'check', '-p', 'zero-proxy', '--no-default-features', '--features', 'dns'], 'source_snapshot': 'source-final.json', 'log': 'minimal-dns-only.txt'}
-no-default {'exit': 101, 'seconds': 77.28, 'command': ['cargo', '+stable', 'check', '-p', 'zero-proxy', '--no-default-features'], 'source_snapshot': 'source-final.json', 'log': 'minimal-no-default.txt'}
-Traceback (most recent call last):
-  File "/tmp/zero-native-doq-after-workspace.py", line 18, in <module>
-    assert all(c['exit']==0 for c in checks.values()),checks
-           ~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-AssertionError: {'dns-only': {'exit': 101, 'seconds': 95.02, 'command': ['cargo', '+stable', 'check', '-p', 'zero-proxy', '--no-default-features', '--features', 'dns'], 'source_snapshot': 'source-final.json', 'log': 'minimal-dns-only.txt'}, 'no-default': {'exit': 101, 'seconds': 77.28, 'command': ['cargo', '+stable', 'check', '-p', 'zero-proxy', '--no-default-features'], 'source_snapshot': 'source-final.json', 'log': 'minimal-no-default.txt'}}

@@ -1,9 +1,0 @@
-{
-  "source_snapshot": "source-candidate.json",
-  "status": "interrupted_before_qualification",
-  "reason": "confirmed static ownership issue: return_unbound consumed the unique original claim on rejected scope/original validation; correction requires new source snapshot",
-  "cargo_pid": 28378,
-  "compile_errors": false,
-  "full_test_result_claimed": false,
-  "metadata_existing_focused": "27 passed at candidate source; independent of interrupted full build"
-}

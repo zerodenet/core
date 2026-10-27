@@ -1,3 +1,0 @@
-
-thread 'tokio-rt-worker' (12452071) has overflowed its stack
-fatal runtime error: stack overflow, aborting

@@ -1,9 +1,0 @@
-
-running 4 tests
-test component::instance::resources::native::metapool::tests::rejected_unbound_claim_keeps_original_custody_and_does_not_poison_the_other_slot ... ok
-test component::instance::resources::native::metapool::tests::actual_metadata_pool_keeps_original_views_and_prevents_native_send_outside_its_declared_peer ... ok
-test component::instance::resources::native::metapool::tests::actual_metadata_pool_requires_its_scope_and_returns_the_same_unused_original_before_capacity_reuse ... ok
-test component::instance::resources::native::metapool::tests::actual_metadata_pool_reuses_confirmed_capacity_without_a_lifetime_bind_budget_or_private_history ... ok
-
-test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 192 filtered out; finished in 0.01s
-
