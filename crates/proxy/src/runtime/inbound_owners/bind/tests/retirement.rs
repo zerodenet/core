@@ -157,3 +157,74 @@ async fn shutdown_gate_rejects_late_promotion_without_fault_and_reopens_only_aft
         .await
         .unwrap();
 }
+
+#[tokio::test]
+async fn a_published_closed_fault_cannot_hide_another_original_pending_scope() {
+    let proxy = proxy();
+    let config = proxy.engine().config();
+    let first = lease(&proxy, &config, 0);
+    let closed = first.owner();
+    let original_first = first.context().listen_tcp().unwrap();
+    let source = TcpStream::connect(("127.0.0.1", 0)).await.unwrap_err();
+    first.reject(source.into());
+    drop(first);
+    assert!(closed
+        .shutdown(Instant::now() + Duration::from_secs(2))
+        .await
+        .is_err());
+    assert_eq!(closed.terminal_for_test().unwrap().closed_io_receipts(), 1);
+
+    let second = lease(&proxy, &config, 1);
+    let pending_owner = second.owner();
+    let identity = pending_owner.identity();
+    let mut original_second = second.context().listen_tcp().unwrap();
+    let mut client = TcpStream::connect(original_second.local_addr().unwrap())
+        .await
+        .unwrap();
+    let (mut stream, _) = original_second.accept().await.unwrap();
+    let entered = Arc::new(Notify::new());
+    let pending = entered.clone();
+    pending_owner
+        .spawn_driver(async move {
+            let read = stream.read_u8();
+            tokio::pin!(read);
+            let value = std::future::poll_fn(|cx| match read.as_mut().poll(cx) {
+                Poll::Pending => {
+                    pending.notify_one();
+                    Poll::Pending
+                }
+                Poll::Ready(result) => Poll::Ready(result),
+            })
+            .await?;
+            assert_eq!(value, 42);
+            Ok(())
+        })
+        .unwrap();
+    pending_owner.seal_listener_installation();
+    timeout(Duration::from_secs(2), entered.notified())
+        .await
+        .unwrap();
+    drop(second);
+    let error = proxy
+        .inbound_owners
+        .retire_bind_reservations_reported(Instant::now(), |_, _| Ok(()))
+        .await
+        .unwrap_err();
+    assert!(
+        crate::runtime::inbound_owners::released_fault_identity(&error).is_none(),
+        "a complete first fault must not mask actual unconfirmed native/scope cleanup"
+    );
+    assert!(original_first.local_addr().is_err());
+    assert!(pending_owner.terminal_for_test().is_none());
+    assert!(proxy.inbound_owners.identities().contains(&identity));
+    client.write_u8(42).await.unwrap();
+    proxy
+        .inbound_owners
+        .retire_bind_reservations_reported(Instant::now() + Duration::from_secs(2), |_, _| Ok(()))
+        .await
+        .unwrap();
+    let terminal = pending_owner.terminal_for_test().unwrap();
+    assert_eq!(terminal.closed_io_receipts(), 1);
+    assert_eq!(terminal.joined_tasks(), 1);
+    assert!(original_second.local_addr().is_err());
+}

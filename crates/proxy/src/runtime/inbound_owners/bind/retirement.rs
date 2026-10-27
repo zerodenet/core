@@ -72,7 +72,13 @@ impl InboundOwnerRegistry {
                 })
                 .await
             {
-                failure.get_or_insert(error);
+                // A closed/reported fault must not hide another owner's
+                // incomplete cleanup. Recovery may consume only the former.
+                if failure.as_ref().is_none_or(|previous| {
+                    super::super::released_fault::released_fault_identity(previous).is_some()
+                }) {
+                    failure = Some(error);
+                }
             }
         }
         failure.map_or(Ok(()), Err)
