@@ -337,7 +337,7 @@ fn foundational_crates_do_not_depend_on_runtime_or_integration_crates() {
 }
 
 #[test]
-fn engine_leaf_projection_stops_at_the_inventory_registry_claim_boundary() {
+fn engine_leaf_projection_stops_at_the_inventory_registry_preparation_boundary() {
     let proxy = workspace_root().join("crates/proxy/src");
     for path in rust_sources(&proxy) {
         if is_test_source(&path) {
@@ -350,11 +350,30 @@ fn engine_leaf_projection_stops_at_the_inventory_registry_claim_boundary() {
         let relative = path.strip_prefix(&proxy).expect("proxy-relative path");
         let allowed = relative == Path::new("inventory/runtime.rs")
             || relative == Path::new("inventory/packet.rs")
+            || relative == Path::new("inventory/tcp/selection.rs")
             || relative == Path::new("protocol_registry/registry/outbound.rs");
         assert!(
             allowed,
-            "{} must not carry engine leaves past the inventory-to-registry claim boundary",
+            "{} must not carry engine leaves past inventory/registry preparation",
             path.display()
+        );
+    }
+
+    // Standard TCP nodes are selected inside inventory, without requiring a
+    // compatibility claim. The new preparation boundary still performs no I/O
+    // and must not interpret protocol-private configuration.
+    let selection = read(&proxy.join("inventory/tcp/selection.rs"));
+    assert!(selection.contains("prepare_tcp_relay_chain"));
+    assert!(selection.contains("native_tcp_candidate"));
+    for forbidden in [
+        "OutboundProtocolConfig::",
+        "Proxy",
+        ".await",
+        "tokio::spawn",
+    ] {
+        assert!(
+            !selection.contains(forbidden),
+            "TCP inventory preparation must not contain `{forbidden}`"
         );
     }
 
@@ -485,7 +504,9 @@ fn protocol_registry_does_not_project_proxy_leaf_runtime_facts() {
         1,
         "registry must resolve the configured proxy endpoint exactly once before claim"
     );
-    assert!(registry.contains("OutboundLeafInput::Proxy { outbound, endpoint }"));
+    assert!(registry.contains("Some(endpoint) => OutboundLeafInput::Proxy {"));
+    assert!(registry.contains("outbound,\n                        endpoint,"));
+    assert!(registry.contains("source_dir: config.source_dir(),"));
 }
 
 #[test]

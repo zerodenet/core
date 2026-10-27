@@ -108,6 +108,7 @@ async fn relays_tcp_through_socks5_to_mieru_relay_chain_with_pooling() {
     let outer_handle = spawn_engine(outer_engine);
     wait_for_listener(outer_port).await;
 
+    let carriers_before = first_hop_probe.stats_snapshot().total_started;
     let first = connect_echo(outer_port, echo_port, b"one1").await;
     let second = connect_echo(outer_port, echo_port, b"two2").await;
 
@@ -125,6 +126,12 @@ async fn relays_tcp_through_socks5_to_mieru_relay_chain_with_pooling() {
         },
     )
     .await;
+
+    assert_eq!(
+        first_hop_probe.stats_snapshot().total_started - carriers_before,
+        1,
+        "a pool hit must not open and discard another prefix carrier",
+    );
 
     release_echo.notify_one();
     drop(first);

@@ -259,6 +259,7 @@ fn claim_outbound_hooks<'a>(
         OutboundLeafInput::Proxy {
             outbound,
             endpoint: (server, port),
+            ..
         } => {
             OutboundLeafRuntime::proxy(outbound.tag(), entry.support.name(), server, port, tcp_path)
         }
@@ -340,7 +341,11 @@ impl ProtocolRegistry {
                     .outbound_protocol_entry(protocol)
                     .ok_or_else(|| unsupported_outbound_leaf(protocol))?;
                 let input = match outbound.protocol.endpoint() {
-                    Some(endpoint) => OutboundLeafInput::Proxy { outbound, endpoint },
+                    Some(endpoint) => OutboundLeafInput::Proxy {
+                        outbound,
+                        endpoint,
+                        source_dir: config.source_dir(),
+                    },
                     None => OutboundLeafInput::Virtual { outbound },
                 };
                 claim_outbound_hooks(entry, input)

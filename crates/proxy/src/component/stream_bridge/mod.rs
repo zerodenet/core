@@ -129,7 +129,7 @@ impl Error for LegacyError {
         Some(&self.0)
     }
 }
-fn failure(
+pub(crate) fn failure(
     stage: &'static str,
     error: ChannelError,
     endpoint: &(String, u16),

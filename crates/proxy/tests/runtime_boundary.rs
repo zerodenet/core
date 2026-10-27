@@ -173,7 +173,7 @@ fn assert_non_test_sources_exclude(root: &Path, forbidden: &[&str]) {
 
 #[test]
 fn adapters_prepare_protocol_parts_but_do_not_own_runtime_execution() {
-    assert_sources_exclude(
+    assert_non_test_sources_exclude(
         &proxy_src().join("adapters"),
         &[
             "crate::runtime::Proxy",
@@ -836,9 +836,32 @@ fn transport_leaf_operations_are_generic() {
     let tcp = read_module(&proxy_src().join("runtime/tcp_dispatch/operation.rs"));
     let udp = read_module(&proxy_src().join("runtime/udp_dispatch/operation.rs"));
     let udp_claim = read(&proxy_src().join("protocol_registry/transport_leaf/udp.rs"));
-    assert!(tcp.contains("TransportLeafTcpConnectOperation"));
-    assert!(tcp.contains("TransportLeafTcpRelayOperation"));
-    assert!(tcp.contains("PreparedTransportLeaf"));
+    assert!(tcp.contains("struct TransportLeafTcpOperation"));
+    assert!(!tcp.contains("struct TransportLeafTcpConnectOperation"));
+    assert!(!tcp.contains("struct TransportLeafTcpRelayOperation"));
+    assert!(!tcp.contains("PreparedTransportLeaf"));
+    assert!(tcp.contains("pub(crate) leaf: TLeaf"));
+    let tcp_claim = read(&proxy_src().join("protocol_registry/transport_leaf/tcp.rs"));
+    assert!(!tcp_claim.contains("PreparedTransportLeaf"));
+    assert!(!tcp_claim.contains("fn prepare_transport_tcp_"));
+    let socket = read(&proxy_src().join("runtime/tcp_dispatch/operation/socket.rs"));
+    let mieru = read(&proxy_src().join("adapters/mieru/tcp.rs"));
+    let claims = read(&proxy_src().join("protocol_registry/claim.rs"));
+    assert!(socket.contains("struct SocketTcpOperation"));
+    assert!(!socket.contains("struct SocketTcpConnectOperation"));
+    assert!(!socket.contains("struct SocketTcpRelayOperation"));
+    assert!(socket.contains("fn execute_lazy"));
+    assert!(socket.contains("carrier.with_observer(services.observer())"));
+    assert!(mieru.contains("open_tcp_relay_hop_lazy"));
+    assert!(!mieru.contains("PreparedMieruTcpRelay"));
+    assert!(!mieru.contains("impl PreparedTcpRelayOperation"));
+    assert!(!claims.contains("claim_socket_tcp_leaf_with_relay"));
+    assert!(!claims.contains("struct ClaimedSocketTcpLeaf"));
+    assert!(!claims.contains("struct ClaimedSessionTcpLeaf"));
+    assert!(!claims.contains("claim_session_tcp_leaf_with_source"));
+    assert!(!socket.contains("struct PreparedSocketTcpOperation"));
+    let session = read(&proxy_src().join("runtime/tcp_dispatch/operation/session.rs"));
+    assert!(!session.contains("struct PreparedSessionTcpOperation"));
     assert!(udp.contains("prepare_transport_udp_direct"));
     assert!(udp.contains("prepare_transport_udp_relay_two_stream"));
     assert!(!udp_claim.contains("impl<TLeaf> PreparedUdpFlowOperation"));
@@ -2235,8 +2258,8 @@ fn heavy_transport_bridge_adapters_use_protocol_owned_outbound_options_directly(
             "{relative} should expose one claim-time outbound helper"
         );
         assert!(
-            source.contains("OutboundLeafInput::Proxy { outbound, endpoint }"),
-            "{relative} should consume the registry-resolved endpoint"
+            source.contains("OutboundLeafInput::Proxy {\n            outbound,\n            endpoint,\n            source_dir,\n        }"),
+            "{relative} should consume the registry-resolved endpoint and configuration source"
         );
         assert!(
             !source.contains("fn endpoint(&self)"),
@@ -2298,8 +2321,9 @@ fn inventory_udp_dispatch_keeps_relay_choreography_outside_candidate_root() {
 }
 
 #[test]
-fn inventory_tcp_dispatch_claims_resolved_outbound_before_prepare() {
+fn inventory_tcp_dispatch_selects_standard_nodes_without_a_whole_chain_claim() {
     let dispatch = read(&proxy_src().join("inventory/tcp/outbound.rs"));
+    let selection = read(&proxy_src().join("inventory/tcp/selection.rs"));
     assert!(!dispatch.contains("ClaimedResolvedOutbound"));
     assert!(!dispatch.contains("claim_tcp_outbound(resolved)?"));
     assert!(dispatch.contains("match resolved"));
@@ -2308,7 +2332,14 @@ fn inventory_tcp_dispatch_claims_resolved_outbound_before_prepare() {
     assert!(!dispatch.contains(".await"));
     assert!(!dispatch.contains(".execute("));
     assert!(!dispatch.contains("prepare_tcp_candidate("));
-    assert!(!dispatch.contains("prepare_tcp_relay_chain("));
+    assert!(dispatch.contains("prepare_tcp_relay_chain("));
+    assert!(!dispatch.contains("claim_relay_chain("));
+    assert!(selection.contains("native_tcp_candidate"));
+    assert!(selection.contains("PreparedTcpRelayExecution::Native"));
+    assert!(selection.contains("last_legacy"));
+    assert!(!selection.contains(".await"));
+    assert!(!selection.contains(".execute("));
+    assert!(!selection.contains("&Proxy"));
     assert!(!dispatch.contains("ResolvedLeafOutbound"));
     assert!(!dispatch.contains(".outbound_leaf_runtime("));
 }
@@ -2361,6 +2392,7 @@ fn inventory_udp_packet_path_builder_stays_prepared_operation_scoped() {
 fn runtime_tcp_relay_executes_prepared_chain_without_engine_leaf_roundtrip() {
     let inventory_relay = read(&proxy_src().join("inventory/tcp/relay.rs"));
     let runtime_relay = read(&proxy_src().join("runtime/tcp_dispatch/relay.rs"));
+    let runtime_hop = read(&proxy_src().join("runtime/tcp_dispatch/relay/hop.rs"));
     assert!(
         !runtime_relay.contains("apply_tcp_relay_hop("),
         "tcp relay execution should consume the final prepared hop directly"
@@ -2372,7 +2404,11 @@ fn runtime_tcp_relay_executes_prepared_chain_without_engine_leaf_roundtrip() {
     assert!(!inventory_relay.contains("current_prepared"));
     assert!(!inventory_relay.contains("stage: \"relay_last\""));
     assert!(runtime_relay.contains("prepared.relay_hops.pop()"));
-    assert!(runtime_relay.contains(".execute_lazy(upstream, carrier, &session)"));
+    assert!(runtime_relay.contains("hop::execute(&services, &current, carrier, &session)"));
+    assert!(runtime_hop.contains("PreparedTcpRelayExecution::Native(selected)"));
+    assert!(runtime_hop.contains("PreparedTcpRelayExecution::Legacy(operation)"));
+    assert!(runtime_hop
+        .contains(".execute_lazy(services.upstream_observed(&hop.tag), carrier, session)"));
     assert!(!inventory_relay.contains(".execute("));
     assert!(!inventory_relay.contains(".await"));
     assert!(runtime_relay.contains("failure::hop_failure(&final_hop, error, \"relay_last\")"));
@@ -4898,7 +4934,9 @@ fn claimed_outbound_leaf_owns_capability_preparation() {
 #[test]
 fn transport_bridge_adapters_offer_claim_time_tcp_projection() {
     let helper = read(&proxy_src().join("protocol_registry/transport_leaf/tcp.rs"));
-    assert!(helper.contains("struct ClaimedTransportTcpLeaf"));
+    assert!(!helper.contains("struct ClaimedTransportTcpLeaf"));
+    assert!(!helper.contains("prepare_leaf: F"));
+    assert!(helper.contains("for TransportLeafTcpOperation<"));
     assert!(helper.contains("claim_transport_tcp_leaf"));
 
     for relative in [
@@ -4915,6 +4953,8 @@ fn transport_bridge_adapters_offer_claim_time_tcp_projection() {
             source.contains("claim_transport_tcp_leaf("),
             "{relative} should project into the shared claimed transport leaf helper"
         );
+        assert!(!source.contains("let tcp_runtime ="));
+        assert!(!source.contains("claim_transport_tcp_leaf(endpoint, move |source_dir|"));
     }
 }
 

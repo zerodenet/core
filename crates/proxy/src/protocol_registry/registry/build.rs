@@ -28,6 +28,15 @@ where
 }
 
 impl ProtocolRegistry {
+    #[cfg(test)]
+    pub(crate) fn without_outbound_projection(mut self, protocol: &str) -> Self {
+        self.entries
+            .iter_mut()
+            .find(|entry| entry.support.name() == protocol)
+            .expect("real compiled protocol")
+            .outbound = None;
+        self
+    }
     // Endpoint hooks are kept neutral even in builds without a registered
     // endpoint protocol. WireGuard is the current opt-in implementation.
     #[allow(dead_code, reason = "some builds register no endpoint controller")]

@@ -126,6 +126,7 @@ pub(crate) trait ProxyRelayTwoStreamTransportLeaf:
     }
 }
 
+#[cfg(feature = "managed-stream-runtime")]
 #[derive(Clone, Copy)]
 pub(crate) struct PreparedTransportEndpoint<'a> {
     pub(crate) tag: &'a str,
@@ -133,16 +134,19 @@ pub(crate) struct PreparedTransportEndpoint<'a> {
     pub(crate) port: u16,
 }
 
+#[cfg(feature = "managed-stream-runtime")]
 pub(crate) struct PreparedTransportLeaf<TLeaf> {
     leaf: TLeaf,
 }
 
+#[cfg(feature = "managed-stream-runtime")]
 impl<TLeaf> PreparedTransportLeaf<TLeaf> {
     pub(crate) fn new(leaf: TLeaf) -> Self {
         Self { leaf }
     }
 }
 
+#[cfg(feature = "managed-stream-runtime")]
 impl<TLeaf> PreparedTransportLeaf<TLeaf>
 where
     TLeaf: ProxyTransportLeaf,
@@ -158,47 +162,6 @@ where
     #[cfg(feature = "managed-stream-runtime")]
     pub(crate) fn validate_udp_relay_final_hop(&self) -> Result<(), RuntimeError> {
         self.leaf.validate_udp_relay_final_hop()
-    }
-}
-
-#[cfg(any(feature = "tcp-tunnel-runtime", feature = "tcp-session-runtime"))]
-impl<TLeaf> PreparedTransportLeaf<TLeaf>
-where
-    TLeaf: ProxyTransportTcpLeaf,
-{
-    pub(crate) fn retained_admission(&self) -> Result<(), zero_engine::EngineError> {
-        self.leaf.retained_admission()
-    }
-
-    pub(crate) async fn open_tcp_stream(
-        &self,
-        services: UpstreamConnectServices,
-        session: &Session,
-    ) -> Result<(TcpRelayStream, StreamTraffic), RuntimeError> {
-        self.leaf.open_tcp_stream(services, session).await
-    }
-
-    pub(crate) async fn open_tcp_relay_hop(
-        &self,
-        services: UpstreamConnectServices,
-        stream: TcpRelayStream,
-        session: &Session,
-    ) -> Result<TcpRelayStream, RuntimeError> {
-        let stream = services.observe_stream(stream);
-        self.leaf
-            .open_tcp_relay_hop(services, stream, session)
-            .await
-    }
-    pub(crate) async fn open_tcp_relay_carrier(
-        &self,
-        services: UpstreamConnectServices,
-        carrier: crate::runtime::tcp_dispatch::operation::LazyTcpRelayCarrier<'_>,
-        session: &Session,
-    ) -> Result<TcpRelayStream, zero_engine::EngineError> {
-        let carrier = carrier.with_observer(services.observer());
-        self.leaf
-            .open_tcp_relay_carrier(services, carrier, session)
-            .await
     }
 }
 

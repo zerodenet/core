@@ -400,7 +400,12 @@ impl VlessAdapter {
         if let OutboundLeafInput::Virtual { outbound } = input {
             return reverse::claim(&self.runtime, outbound);
         }
-        let OutboundLeafInput::Proxy { outbound, endpoint } = input else {
+        let OutboundLeafInput::Proxy {
+            outbound,
+            endpoint,
+            source_dir,
+        } = input
+        else {
             return None;
         };
         let options = outbound_options(outbound.tag(), endpoint, &outbound.protocol)?;
@@ -410,13 +415,13 @@ impl VlessAdapter {
         let packet_identity =
             serde_json::to_string(&(outbound.tag(), endpoint, &outbound.protocol)).ok()?;
         let endpoint = Some(endpoint);
-        let tcp_runtime = self.runtime.clone();
         let udp_runtime = self.runtime.clone();
         Some(OutboundLeafClaim {
             tcp_path: TCP_PATH,
-            tcp: Some(claim_transport_tcp_leaf(endpoint, move |source_dir| {
-                VlessOutboundLeaf::from_options_refs(source_dir, tcp_options.clone(), &tcp_runtime)
-            })),
+            tcp: Some(claim_transport_tcp_leaf(
+                endpoint,
+                VlessOutboundLeaf::from_options_refs(source_dir, tcp_options, &self.runtime),
+            )),
             udp: Some(claim_relay_two_stream_transport_udp_leaf(
                 endpoint,
                 move |source_dir| {

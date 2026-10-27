@@ -6,7 +6,7 @@ use tokio::{
 };
 use zero_core::{Address, Network, ProtocolType, Session};
 
-pub(super) async fn setup(count: usize) -> (Proxy, Session, TcpRuntimeServices, Vec<TcpListener>) {
+pub(crate) async fn setup(count: usize) -> (Proxy, Session, TcpRuntimeServices, Vec<TcpListener>) {
     let mut listeners = Vec::new();
     let mut outbounds = Vec::new();
     let mut tags = Vec::new();
@@ -54,12 +54,12 @@ pub(super) async fn setup(count: usize) -> (Proxy, Session, TcpRuntimeServices, 
     (proxy, session, services, listeners)
 }
 
-pub(super) async fn greeting(io: &mut TcpStream) {
+pub(crate) async fn greeting(io: &mut TcpStream) {
     let mut greeting = [0; 3];
     io.read_exact(&mut greeting).await.unwrap();
     assert_eq!(greeting, [5, 1, 0]);
 }
-pub(super) async fn request(io: &mut TcpStream) -> (Address, u16) {
+pub(crate) async fn request(io: &mut TcpStream) -> (Address, u16) {
     greeting(io).await;
     io.write_all(&[5, 0]).await.unwrap();
     let mut header = [0; 4];
@@ -82,12 +82,12 @@ pub(super) async fn request(io: &mut TcpStream) -> (Address, u16) {
     let port = io.read_u16().await.unwrap();
     (address, port)
 }
-pub(super) async fn accept(io: &mut TcpStream) {
+pub(crate) async fn accept(io: &mut TcpStream) {
     io.write_all(&[5, 0, 0, 1, 127, 0, 0, 1, 0, 0])
         .await
         .unwrap();
 }
-pub(super) fn servers(listeners: Vec<TcpListener>) -> JoinSet<()> {
+pub(crate) fn servers(listeners: Vec<TcpListener>) -> JoinSet<()> {
     let ports: Vec<_> = listeners
         .iter()
         .map(|l| l.local_addr().unwrap().port())

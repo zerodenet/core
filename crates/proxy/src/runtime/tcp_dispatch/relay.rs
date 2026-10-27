@@ -1,6 +1,7 @@
 #[cfg(feature = "udp-runtime")]
 mod datagram;
 mod failure;
+mod hop;
 mod identity;
 pub(in crate::runtime) mod retained;
 use zero_core::Session;
@@ -44,9 +45,7 @@ pub(crate) async fn dispatch_prepared_tcp_relay_chain(
     let relay_identity = relay_chain_identity(&prepared, generation);
     let (prefix, final_hop) = split_relay_prefix(prepared);
     let carrier = lazy_relay_carrier(services.clone(), prefix, intent, relay_identity, generation);
-    let stream = final_hop
-        .operation
-        .execute_lazy(services.upstream_observed(&final_hop.tag), carrier, session)
+    let stream = hop::execute(&services, &final_hop, carrier, session)
         .await
         .map_err(|error| failure::hop_failure(&final_hop, error, "relay_last"))?;
 
@@ -173,15 +172,13 @@ fn execute_relay_prefix_stream(
             let current = prepared.relay_hops.pop().unwrap();
             #[cfg(feature = "udp-runtime")]
             prepared.datagram_prefixes.pop();
-            let upstream = services.upstream_observed(&current.tag);
             prepared.final_tag = current.tag.clone();
             prepared.final_protocol = current.protocol.clone();
             prepared.final_server = current.server.clone();
             prepared.final_port = current.port;
-            let carrier = lazy_relay_carrier(services, prepared, intent, identity, generation);
-            return current
-                .operation
-                .execute_lazy(upstream, carrier, &session)
+            let carrier =
+                lazy_relay_carrier(services.clone(), prepared, intent, identity, generation);
+            return hop::execute(&services, &current, carrier, &session)
                 .await
                 .map_err(|error| failure::hop_failure(&current, error, "relay_hop"));
         }
@@ -219,13 +216,13 @@ fn egress_generation(services: &TcpExecutionServices) -> u64 {
         .egress_generation()
 }
 
-fn lazy_relay_carrier<'a>(
+fn lazy_relay_carrier(
     services: TcpExecutionServices,
     prefix: PreparedTcpRelayPrefix,
     intent: TcpDispatchIntent,
     identity: String,
     generation: u64,
-) -> LazyTcpRelayCarrier<'a> {
+) -> LazyTcpRelayCarrier<'static> {
     let endpoint = (prefix.final_server.clone(), prefix.final_port);
     let retained = retained::RetainedSource::capture(&services, &prefix);
     #[cfg(feature = "udp-runtime")]

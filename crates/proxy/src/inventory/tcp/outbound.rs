@@ -46,24 +46,8 @@ impl ProtocolInventory {
                 ) {
                     return prepared.map(PreparedTcpOutbound::NativeRelay);
                 }
-                let claimed = self.claim_relay_chain(
-                    ctx.config(),
-                    chain.iter().cloned(),
-                    |error| TcpOutboundFailure {
-                        stage: "outbound_leaf_runtime",
-                        error,
-                        upstream_endpoint: None,
-                        network: None,
-                    },
-                    |error| TcpOutboundFailure {
-                        stage: "relay_prepare",
-                        error,
-                        upstream_endpoint: None,
-                        network: None,
-                    },
-                )?;
                 Ok(PreparedTcpOutbound::Relay(
-                    self.prepare_claimed_tcp_relay_chain(ctx, &claimed)?,
+                    self.prepare_tcp_relay_chain(ctx, chain, components)?,
                 ))
             }
             ResolvedOutbound::Single(candidate) => {

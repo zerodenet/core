@@ -248,18 +248,23 @@ impl VmessAdapter {
         &self,
         input: OutboundLeafInput<'a>,
     ) -> Option<OutboundLeafClaim<'a>> {
-        let OutboundLeafInput::Proxy { outbound, endpoint } = input else {
+        let OutboundLeafInput::Proxy {
+            outbound,
+            endpoint,
+            source_dir,
+        } = input
+        else {
             return None;
         };
         let options = outbound_options(outbound.tag(), endpoint, &outbound.protocol)?;
         let endpoint = Some(endpoint);
-        let tcp_runtime = self.runtime.clone();
         let udp_runtime = self.runtime.clone();
         Some(OutboundLeafClaim {
             tcp_path: TCP_PATH,
-            tcp: Some(claim_transport_tcp_leaf(endpoint, move |source_dir| {
-                VmessOutboundLeaf::from_options_refs(source_dir, options, &tcp_runtime)
-            })),
+            tcp: Some(claim_transport_tcp_leaf(
+                endpoint,
+                VmessOutboundLeaf::from_options_refs(source_dir, options, &self.runtime),
+            )),
             udp: Some(claim_transport_udp_leaf(endpoint, move |source_dir| {
                 VmessOutboundLeaf::from_options_refs(source_dir, options, &udp_runtime)
             })),

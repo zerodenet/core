@@ -196,6 +196,14 @@ impl ProtocolInventory {
         };
         let outbound = ctx.config().outbounds.get(identity.config_index())?;
         let slot = components?.configured(&outbound.tag)?;
+        if !slot
+            .recipe
+            .spec()
+            .roles
+            .contains(&zero_platform_tokio::contract::component::RoleKind::Stream)
+        {
+            return None;
+        }
         let failure = |error| crate::transport::TcpOutboundFailure {
             stage: "outbound_leaf_runtime",
             error,

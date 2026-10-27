@@ -10,6 +10,11 @@ use crate::transport::{EstablishedTcpOutbound, TcpOutboundFailure};
 
 #[async_trait::async_trait]
 pub(crate) trait SessionTcpHandshake: Send + Sync {
+    // Protocol-owned materialization retains the actual shared connection pool.
+    fn prepare_for_source(&self, source_dir: Option<&std::path::Path>) -> Self
+    where
+        Self: Sized;
+
     fn tag(&self) -> &str;
 
     fn server(&self) -> &str;
@@ -42,45 +47,23 @@ where
         Self: 'a,
     {
         Box::pin(async move {
-            execute_session_tcp_connect_operation(
-                services,
-                session,
-                PreparedSessionTcpOperation {
-                    handshake: &self.handshake,
-                },
-            )
-            .await
+            let handshake = &self.handshake;
+            let endpoint = (handshake.server().to_owned(), handshake.port());
+            let stream = handshake
+                .open_tcp_stream(services.upstream_observed(handshake.tag()), session)
+                .await
+                .map_err(|error| TcpOutboundFailure {
+                    stage: handshake.connect_stage(),
+                    error: error.into(),
+                    upstream_endpoint: Some(Box::new(endpoint.clone())),
+                    network: None,
+                })?;
+            Ok(EstablishedTcpOutbound::proxied(
+                handshake.tag().to_owned(),
+                endpoint.0,
+                endpoint.1,
+                stream,
+            ))
         })
     }
-}
-
-struct PreparedSessionTcpOperation<'leaf, T> {
-    handshake: &'leaf T,
-}
-
-async fn execute_session_tcp_connect_operation<T>(
-    services: TcpExecutionServices,
-    session: &Session,
-    operation: PreparedSessionTcpOperation<'_, T>,
-) -> Result<EstablishedTcpOutbound, TcpOutboundFailure>
-where
-    T: SessionTcpHandshake,
-{
-    let handshake = operation.handshake;
-    let endpoint = (handshake.server().to_owned(), handshake.port());
-    let stream = handshake
-        .open_tcp_stream(services.upstream_observed(handshake.tag()), session)
-        .await
-        .map_err(|error| TcpOutboundFailure {
-            stage: handshake.connect_stage(),
-            error: error.into(),
-            upstream_endpoint: Some(Box::new(endpoint.clone())),
-            network: None,
-        })?;
-    Ok(EstablishedTcpOutbound::proxied(
-        handshake.tag().to_owned(),
-        endpoint.0,
-        endpoint.1,
-        stream,
-    ))
 }

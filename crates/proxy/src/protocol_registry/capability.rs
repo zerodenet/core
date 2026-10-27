@@ -119,6 +119,8 @@ pub(crate) enum OutboundLeafInput<'a> {
     Proxy {
         outbound: &'a OutboundConfig,
         endpoint: (&'a str, u16),
+        #[allow(dead_code, reason = "used by materialized transport capabilities")]
+        source_dir: Option<&'a std::path::Path>,
     },
     Virtual {
         outbound: &'a OutboundConfig,

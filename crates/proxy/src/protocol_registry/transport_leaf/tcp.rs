@@ -4,78 +4,59 @@ use zero_engine::EngineError;
 
 use super::super::ClaimedTcpOutboundLeaf;
 use crate::runtime::tcp_dispatch::operation::{
-    PreparedTcpConnectOperation, PreparedTcpRelayOperation,
+    PreparedTcpConnectOperation, PreparedTcpRelayOperation, TransportLeafTcpOperation,
 };
-use crate::runtime::transport_leaf::{
-    PreparedTransportLeaf, ProxyTransportLeaf, ProxyTransportTcpLeaf,
-};
+use crate::runtime::transport_leaf::ProxyTransportTcpLeaf;
 use crate::transport::TcpOutboundFailure;
 
-pub(crate) fn claim_transport_tcp_leaf<'a, TLeaf, F, E>(
+pub(crate) fn claim_transport_tcp_leaf<'a, TLeaf, E>(
     upstream: Option<(&'a str, u16)>,
-    prepare_leaf: F,
+    leaf: Result<TLeaf, E>,
 ) -> Box<dyn ClaimedTcpOutboundLeaf<'a> + 'a>
 where
-    TLeaf: ProxyTransportLeaf + ProxyTransportTcpLeaf + Send + Sync + 'static,
-    F: Fn(Option<&Path>) -> Result<TLeaf, E> + Send + Sync + 'a,
-    E: std::fmt::Display,
+    TLeaf: ProxyTransportTcpLeaf + Clone + 'static,
+    E: std::fmt::Display + Send + Sync + 'a,
 {
-    Box::new(ClaimedTransportTcpLeaf {
-        upstream,
-        prepare_leaf,
+    Box::new(TransportLeafTcpOperation {
+        leaf: (upstream, leaf),
     })
 }
 
-struct ClaimedTransportTcpLeaf<'a, F> {
-    upstream: Option<(&'a str, u16)>,
-    prepare_leaf: F,
-}
-
-impl<'a, TLeaf, F, E> ClaimedTcpOutboundLeaf<'a> for ClaimedTransportTcpLeaf<'a, F>
+// Cold projection materializes once with the actual configuration source. An
+// unused TCP error must not reject a UDP/Packet selection. The same operation
+// owns either that cold result or its executable protocol leaf; no factory
+// closure retains the adapter's entire runtime until execution.
+impl<'a, TLeaf, E> ClaimedTcpOutboundLeaf<'a>
+    for TransportLeafTcpOperation<(Option<(&'a str, u16)>, Result<TLeaf, E>)>
 where
-    TLeaf: ProxyTransportLeaf + ProxyTransportTcpLeaf + Send + Sync + 'static,
-    F: Fn(Option<&Path>) -> Result<TLeaf, E> + Send + Sync + 'a,
-    E: std::fmt::Display,
+    TLeaf: ProxyTransportTcpLeaf + Clone + 'static,
+    E: std::fmt::Display + Send + Sync + 'a,
 {
     fn prepare_tcp_connect(
         &self,
-        source_dir: Option<&Path>,
+        _source_dir: Option<&Path>,
     ) -> Result<Box<dyn PreparedTcpConnectOperation>, TcpOutboundFailure> {
-        let prepared = (self.prepare_leaf)(source_dir)
-            .map(PreparedTransportLeaf::new)
-            .map_err(|error| {
-                transport_tcp_connect_claim_prepare_failure::<TLeaf, _>(self.upstream, error)
-            })?;
-        Ok(prepare_transport_tcp_connect(prepared))
+        let prepared = self.leaf.1.as_ref().map_err(|error| {
+            transport_tcp_connect_claim_prepare_failure::<TLeaf, _>(self.leaf.0, error)
+        })?;
+        Ok(Box::new(TransportLeafTcpOperation {
+            leaf: prepared.clone(),
+        }))
     }
 
     fn prepare_tcp_relay_hop(
         &self,
-        source_dir: Option<&Path>,
+        _source_dir: Option<&Path>,
     ) -> Result<Box<dyn PreparedTcpRelayOperation>, EngineError> {
-        let prepared = (self.prepare_leaf)(source_dir)
-            .map(PreparedTransportLeaf::new)
+        let prepared = self
+            .leaf
+            .1
+            .as_ref()
             .map_err(transport_tcp_relay_claim_prepare_error::<TLeaf, _>)?;
-        Ok(prepare_transport_tcp_relay(prepared))
+        Ok(Box::new(TransportLeafTcpOperation {
+            leaf: prepared.clone(),
+        }))
     }
-}
-
-pub(crate) fn prepare_transport_tcp_connect<TLeaf>(
-    prepared: PreparedTransportLeaf<TLeaf>,
-) -> Box<dyn crate::runtime::tcp_dispatch::operation::PreparedTcpConnectOperation>
-where
-    TLeaf: ProxyTransportLeaf + ProxyTransportTcpLeaf + Send + Sync + 'static,
-{
-    Box::new(crate::runtime::tcp_dispatch::operation::TransportLeafTcpConnectOperation { prepared })
-}
-
-pub(crate) fn prepare_transport_tcp_relay<TLeaf>(
-    prepared: PreparedTransportLeaf<TLeaf>,
-) -> Box<dyn crate::runtime::tcp_dispatch::operation::PreparedTcpRelayOperation>
-where
-    TLeaf: ProxyTransportTcpLeaf + Send + Sync + 'static,
-{
-    Box::new(crate::runtime::tcp_dispatch::operation::TransportLeafTcpRelayOperation { prepared })
 }
 
 fn transport_tcp_connect_claim_prepare_failure<TLeaf, E>(

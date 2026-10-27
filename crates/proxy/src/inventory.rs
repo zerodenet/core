@@ -24,7 +24,8 @@ pub(crate) use packet::PacketRouteTarget;
 pub(crate) use runtime::{ClaimedInventoryLeaf, ClaimedRelayChain};
 pub(crate) use tcp::PreparedNativeTcpRelayChain;
 pub(crate) use tcp::{
-    PreparedTcpCandidate, PreparedTcpCandidateExecution, PreparedTcpOutbound, PreparedTcpRelayHop,
+    PreparedTcpCandidate, PreparedTcpCandidateExecution, PreparedTcpOutbound,
+    PreparedTcpRelayExecution, PreparedTcpRelayHop, StreamRoleRef,
 };
 pub(crate) use tcp::{PreparedTcpRelayChain, PreparedTcpRelayPrefix};
 #[cfg(feature = "udp-runtime")]

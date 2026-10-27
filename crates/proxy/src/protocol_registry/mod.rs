@@ -39,9 +39,9 @@ pub(crate) use capability::{
 #[cfg(feature = "udp-runtime")]
 pub(crate) use capability::{ClaimedUdpFlowLeaf, ClaimedUdpPacketPathLeaf};
 #[cfg(feature = "tcp-transport-session-runtime")]
-pub(crate) use claim::claim_session_tcp_leaf_with_source;
+pub(crate) use claim::claim_session_tcp_leaf;
 #[cfg(any(feature = "tcp-tunnel-runtime", feature = "tcp-session-runtime"))]
-pub(crate) use claim::{claim_socket_tcp_leaf, claim_socket_tcp_leaf_with_relay};
+pub(crate) use claim::claim_socket_tcp_leaf;
 pub(crate) use context::{
     OutboundAdapterContext, TcpExecutionServices, TcpRuntimeServices, UpstreamConnectServices,
 };

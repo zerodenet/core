@@ -34,6 +34,9 @@ fn identity(
     if let Some((server, port)) = &first.endpoint {
         identity.push_str(&format!("|{}:{server}:{port}", server.len()));
     }
+    if let crate::inventory::PreparedTcpCandidateExecution::Native(slot) = &first.execution {
+        identity.push_str(&format!("|instance={:?}", slot.instance_id()));
+    }
     for hop in relay_hops {
         push_hop(
             &mut identity,
@@ -42,6 +45,9 @@ fn identity(
             &hop.server,
             hop.port,
         );
+        if let crate::inventory::PreparedTcpRelayExecution::Native(selected) = &hop.execution {
+            identity.push_str(&format!("|instance={:?}", selected.instance()));
+        }
     }
     if let Some((tag, protocol, server, port)) = final_hop {
         push_hop(&mut identity, tag, protocol, server, port);

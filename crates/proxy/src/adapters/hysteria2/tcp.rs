@@ -1,9 +1,13 @@
 use crate::adapters::hysteria2::Hysteria2Adapter;
-use crate::protocol_registry::{claim_session_tcp_leaf_with_source, ClaimedTcpOutboundLeaf};
+use crate::protocol_registry::{claim_session_tcp_leaf, ClaimedTcpOutboundLeaf};
 use crate::runtime::tcp_dispatch::operation::SessionTcpHandshake;
 
 #[async_trait::async_trait]
 impl SessionTcpHandshake for ::hysteria2::transport::Hysteria2TransportLeaf {
+    fn prepare_for_source(&self, source_dir: Option<&std::path::Path>) -> Self {
+        self.clone().with_source_dir(source_dir)
+    }
+
     fn tag(&self) -> &str {
         self.tag()
     }
@@ -36,8 +40,10 @@ impl Hysteria2Adapter {
         &self,
         leaf: ::hysteria2::transport::Hysteria2TransportLeaf,
     ) -> Box<dyn ClaimedTcpOutboundLeaf<'a> + 'a> {
-        claim_session_tcp_leaf_with_source(leaf, |leaf, source_dir| {
-            leaf.with_source_dir(source_dir)
-        })
+        claim_session_tcp_leaf(leaf)
     }
 }
+
+#[cfg(test)]
+#[path = "tcp/tests.rs"]
+mod tests;

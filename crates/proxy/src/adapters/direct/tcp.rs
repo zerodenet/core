@@ -5,13 +5,7 @@ use crate::runtime::tcp_dispatch::operation::{
 };
 use crate::transport::TcpOutboundFailure;
 
-struct ClaimedDirectTcpLeaf {
-    tag: String,
-    configured_tag: Option<String>,
-    dial_policy: zero_traits::DialPolicy,
-}
-
-impl<'a> ClaimedTcpOutboundLeaf<'a> for ClaimedDirectTcpLeaf {
+impl<'a> ClaimedTcpOutboundLeaf<'a> for DirectTcpConnectOperation {
     fn prepare_tcp_connect(
         &self,
         _source_dir: Option<&std::path::Path>,
@@ -39,7 +33,7 @@ impl DirectAdapter {
         configured_tag: Option<String>,
         dial_policy: zero_traits::DialPolicy,
     ) -> Box<dyn ClaimedTcpOutboundLeaf<'a> + 'a> {
-        Box::new(ClaimedDirectTcpLeaf {
+        Box::new(DirectTcpConnectOperation {
             tag,
             configured_tag,
             dial_policy,

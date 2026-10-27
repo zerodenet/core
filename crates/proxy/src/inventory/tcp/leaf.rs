@@ -31,7 +31,13 @@ pub(crate) struct PreparedTcpRelayHop {
     pub(crate) protocol: String,
     pub(crate) server: String,
     pub(crate) port: u16,
-    pub(crate) operation: std::sync::Arc<dyn PreparedTcpRelayOperation>,
+    pub(crate) execution: PreparedTcpRelayExecution,
+}
+
+#[derive(Clone)]
+pub(crate) enum PreparedTcpRelayExecution {
+    Native(super::native::StreamRoleRef),
+    Legacy(std::sync::Arc<dyn PreparedTcpRelayOperation>),
 }
 
 impl PreparedTcpRelayHop {
@@ -81,7 +87,7 @@ impl ProtocolInventory {
             protocol: runtime.protocol,
             server,
             port,
-            operation: operation.into(),
+            execution: PreparedTcpRelayExecution::Legacy(operation.into()),
         })
     }
 }

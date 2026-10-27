@@ -259,18 +259,23 @@ impl TrojanAdapter {
         &self,
         input: OutboundLeafInput<'a>,
     ) -> Option<OutboundLeafClaim<'a>> {
-        let OutboundLeafInput::Proxy { outbound, endpoint } = input else {
+        let OutboundLeafInput::Proxy {
+            outbound,
+            endpoint,
+            source_dir,
+        } = input
+        else {
             return None;
         };
         let options = outbound_options(outbound.tag(), endpoint, &outbound.protocol)?;
         let endpoint = Some(endpoint);
-        let tcp_mux_pool = self.mux_pool.clone();
         let udp_mux_pool = self.mux_pool.clone();
         Some(OutboundLeafClaim {
             tcp_path: TCP_PATH,
-            tcp: Some(claim_transport_tcp_leaf(endpoint, move |source_dir| {
-                TrojanOutboundLeaf::from_options_refs(source_dir, options, tcp_mux_pool.clone())
-            })),
+            tcp: Some(claim_transport_tcp_leaf(
+                endpoint,
+                TrojanOutboundLeaf::from_options_refs(source_dir, options, self.mux_pool.clone()),
+            )),
             udp: Some(claim_transport_udp_leaf(endpoint, move |source_dir| {
                 TrojanOutboundLeaf::from_options_refs(source_dir, options, udp_mux_pool.clone())
             })),
