@@ -33,9 +33,9 @@ Datagram TX 保留部分写入和 flush 状态；部分发送后更换帧会隔�
 
 ## 本批固定源码验证
 
-[验证记录与逐文件源码摘要](local-mieru-profiles-20261024/validation.json)对应 404 项本地源码/锁状态；HEAD 为 `b963c864`，源码仍未提交。Rust 1.99 完整 workspace / all-features / 16 MiB test stack 最终为 **3778 通过、0 失败、175 跳过**，155 个目标，499 秒。Rust 1.98 严格 workspace / all-targets / all-features Clippy（`-D warnings`）通过，未加 lint suppression；格式、314/95 测试布局、190/27 分层边界、21 项 CI 范围及冻结正文校验通过。
+验证记录与逐文件源码摘要（历史材料见检查点 `8acd1cca`）对应 404 项本地源码/锁状态；HEAD 为 `b963c864`，源码仍未提交。Rust 1.99 完整 workspace / all-features / 16 MiB test stack 最终为 **3778 通过、0 失败、175 跳过**，155 个目标，499 秒。Rust 1.98 严格 workspace / all-targets / all-features Clippy（`-D warnings`）通过，未加 lint suppression；格式、314/95 测试布局、190/27 分层边界、21 项 CI 范围及冻结正文校验通过。
 
-诊断阶段完整回归为 3777/0/175，当时继续整理了源码，不计为最终固定源码资格。固定源码首次完整回归为 3777/1/175：既有 observer_handoff 用例已取得实际原始关闭和 join 回执后，在末尾重新绑定 UDP 端口时遇到 `AddrInUse`。原测试与 native close 实现均未改；同一源码的单项复跑及原并发完整重跑通过，没有改断言、截止时间、并发或跳过条件。竞争端口复用是推断，未捕获竞争者身份；原始失败、源码及[分析](local-mieru-profiles-20261024/failure-analysis.json)完整保留。中间一次严格 lint 指出手写 hash_one，已改用标准库 `BuildHasher::hash_one` 后重新检查。
+诊断阶段完整回归为 3777/0/175，当时继续整理了源码，不计为最终固定源码资格。固定源码首次完整回归为 3777/1/175：既有 observer_handoff 用例已取得实际原始关闭和 join 回执后，在末尾重新绑定 UDP 端口时遇到 `AddrInUse`。原测试与 native close 实现均未改；同一源码的单项复跑及原并发完整重跑通过，没有改断言、截止时间、并发或跳过条件。竞争端口复用是推断，未捕获竞争者身份；原始失败、源码及分析（历史材料见检查点 `8acd1cca`）完整保留。中间一次严格 lint 指出手写 hash_one，已改用标准库 `BuildHasher::hash_one` 后重新检查。
 
 客户端 IPC 与面板使用同一个只读内核副本，SHA-256 为 `16b5582bca591cbe6da4a90f6b3c6122d0ba0dc18fbd0c99ba8d3b659f61423e`。客户端原有 IPC / apply / 拒绝与回滚检查通过，20.90 秒，内核随父输入关闭正常退出 0，无 terminate / kill。面板原发布回归通过，84.26 秒：PID 19304、core `80290bbb4d5eb7dafeca0513a5460bbf`、revision 2，TCP / UDP 跨三个发布进程保持可用。两个消费者仓库均保持原清洁 HEAD；API / config / engine / FFI / gRPC / CLI、依赖锁和上阶段其余源码均保持原状态，所列 Mieru / 通用冷装配修改除外。
 

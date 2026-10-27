@@ -56,7 +56,7 @@ NativeDnsSource 只撤下身份匹配的原 provider；旧 owner 的重复 revok
 
 ## 本批资格与验证
 
-[最终验收记录](local-native-dns-20261025/validation.json)与 [修复后源码快照](local-native-dns-20261025/source-fixed-final.json)对应同一份本地源码，没有测试后再修改生产代码。
+最终验收记录（历史材料见检查点 `8acd1cca`）与 修复后源码快照（历史材料见检查点 `8acd1cca`）对应同一份本地源码，没有测试后再修改生产代码。
 
 - Rust 1.99.0 完整 workspace/all-features：155 个目标，**3819 通过 / 0 失败 / 175 忽略**，保留原并发方式和 16 MiB 测试线程栈，实际结束码 0。新增普通子进程回归主动移除该测试栈覆盖，真实转发后通过父管道 EOF 自然退出；原生 DoT/DoH 在显式 2 MiB worker 上完成查询和原始关闭。
 - Rust 1.98.0 的严格 workspace/all-targets/all-features Clippy、格式、190/27 分层守卫、21 项 CI 范围检查、314/95 集成布局以及冻结正文和本地链接检查通过。清单依赖边的检查不冒充独立 no_std 或最小 feature 编译资格。
@@ -68,3 +68,11 @@ NativeDnsSource 只撤下身份匹配的原 provider；旧 owner 的重复 revok
 本批只取得上述范围的资格，**普通生产登记保持关闭，整体 ALL17 仍未完成**。未暂存、未提交、未推送。
 
 后续 DoQ 的实际 endpoint、驱动和原始 metadata 关闭链已另行完成本地范围验收，见[原生 DoQ 查询](native-doq.md)。本文保留当时 UDP/TCP/DoT/DoH 检查点及原始诊断。
+
+## TCP 打开失败后的既有后备查询
+
+在检查点 `8acd1cca` 之后，原生 TCP provider 在打开前保留真实 adoption。打开失败后，先归还实际 view，再以原期限驱动同一原始控制器的完整 retire；只有匹配的 native acquisition、原始关闭和 users-closed 凭据齐备，才通过私有字段的 `NativeDnsOpenFailure` 保留打开错误和关闭证明。DNS 的后备逻辑只消费这个类型化结果；单独的错误码、取消或未使用的 reservation 都不能授权重试。清理未完成时保留打开与清理错误，继续阻断后备拨号，不延长期限。
+
+新增回归使用内核拒绝 TCP 连接的广播目的地址，检查真实 socket 的原始错误和关闭凭据；另一条先保持 15 个实际 UDP 查询暂停于 I/O，确认失败的第 16 个 TCP 原始槽位清理后，既有 UDP 后备才可获得额度。初版夹具把“绑定但不监听”视为立即拒连，在 macOS 实际等待超时，已据真实失败修正，不扩大限额。普通错误种类的负向回归不构造成功关闭凭据。此变更不补造 DoQ failed-open、system resolver、detour 或池化资格；普通生产登记保持关闭。
+
+2026-10-26，修正后的 Mieru/DNS 定向 34 项、错误种类负向回归及完整工作区验收通过；完整结果和同二进制客户端/面板兼容结果见[当前状态](README.md)。本轮原始输出仅留在系统临时目录，源码、公开契约与消费者状态在测试后复核；未提交、未推送。

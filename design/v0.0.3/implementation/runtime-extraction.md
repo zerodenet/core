@@ -1,6 +1,6 @@
 # RuntimeHost 独立 crate：批准的依赖方向修订
 
-分支 `develop`，产品阶段 v0.0.3。本地实现，未经提交或推送。
+分支 `develop`，产品阶段 v0.0.3。已有本地检查点 `8acd1cca`；本轮续作尚未提交或推送。
 
 ## 决策来源
 
@@ -32,15 +32,15 @@
 
 | 范围 | 已有实际入口 | 下一项必须具备的条件 |
 | --- | --- | --- |
-| Direct / SOCKS5 普通流，VLESS / VMess / Trojan 已支持的非池化流，SS 无插件 TCP | 现有生产 ComponentFactory 登记，随同一个宿主迁入 runtime | 保留各自 native_input 的真实覆盖及旧路径，不能将部分 native 支持写成全协议完成 |
+| Direct / SOCKS5 普通流，VLESS / VMess / Trojan 已支持的非池化流，SS 无插件 TCP | 现有生产 ComponentFactory 登记，随同一个宿主迁入 runtime；混合 TCP 链直接选择最后一个未迁移节点之后的普通 Stream 后缀，标准 hop 用真实代际弱引用和前缀 I/O 前的宿主许可，普通 socket/Direct 重复 claim 包装收敛，socket/transport TCP 拥有式执行操作合并 | 未迁移池化节点及其更短前缀仍保留原兼容 owner，不能把请求流借作长期载体；保留各自 native_input 的真实覆盖；HY2 source-relative claim 已复用实际拥有式操作并删除准备闭包；其他 transport/池化与 UDP/device TCP 前缀仍待迁移，本批全量与当前消费者缺口见 README，不能将部分 native 支持写成全协议完成 |
 | HTTP / Mixed | HTTP CONNECT 入站回复及入站复用，现有协议握手和统一入站执行 | 它们没有已支持的 HTTP 出站配置，不为“完成迁移”新增出站协议或改变客户端 schema |
-| Mieru 池 / TCP / UDP role | 已有分批真实资格：多 endpoint/profile 共池、UDP underlay、同/跨 owner prefix、无 driver 原始转交和传递替换；实际 Proxy DNS 查询 owner 见 [DNS 记录](native-dns.md)，DoQ 原始资源与驱动链见 [DoQ 验收](native-doq.md)；尚未生产登记 | 继续闭合 system/detour、打开失败类型化重试及池化 DNS，完成业务/故障/计量/互通和可配置资源预算验收后再统一登记；不得并行建立 legacy/native 池 |
+| Mieru 池 / TCP / UDP role | 已有分批真实资格：多 endpoint/profile 共池、UDP underlay、同/跨 owner prefix、无 driver 原始转交和传递替换；实际 Proxy DNS 查询 owner 见 [DNS 记录](native-dns.md)，DoQ 原始资源与驱动链见 [DoQ 验收](native-doq.md)；实际兼容 TCP 池化 relay 已接公共 socket 执行器并删除 adapter 专用 prepared 壳，池与 prefix 代际保持；尚未生产登记 | 继续闭合 system/detour、打开失败类型化重试及池化 DNS，完成业务/故障/计量/互通和可配置资源预算验收后再统一登记；不得并行建立 legacy/native 池 |
 | VLESS / VMess gRPC / H2 / MUX | 协议拥有冷计划、驱动和部分受控载体库 | 实际池所有者、原生载体 provider 与 host 转交使用者闭合后登记；不能用协议 CloseReport 替代原始 provider 凭据 |
 | Hysteria2 / 其他 QUIC | 现有真实认证会话与 QUIC endpoint 池 | 同一 endpoint / packet I/O / 驱动 / task / 转交用户的完整关闭链，然后使用标准角色；不能另开一个 endpoint 演示 native |
-| WireGuard | 真实协议设备与 raw-IP 所有者、冷依赖图 | deferred device 阶段与实际设备替换事务接通，peer 身份与密钥仍归协议；没有确认关闭前不启动新设备 |
-| SS SIP003 插件 | 真实 Child owner、readiness 取消保留、同 adapter 插件计划 | 除直接子进程 reaped 外，还需后代与转交 I/O 的真实关闭范围；保持未资格路径拒绝，不能用新 SessionOwner 包装完成 |
-| 其余 UDP / packet-path | 既有中立执行桥与协议自有 framing/resume | 按同一标准登记真实角色及资源 owner，保留 datagram 原始关闭凭据、实际使用者和限额；逐路径移除 Any/旧兼容接口 |
+| WireGuard | 真实协议设备与 raw-IP 所有者、冷依赖图；失败候选原始关闭优先于 last-good 资源恢复，Noise 状态恢复原回归已通过 | deferred device 阶段与实际设备替换事务接通，peer 身份与密钥仍归协议；没有确认关闭前不启动新设备 |
+| SS SIP003 插件 | 真实 Child owner、readiness 取消保留、同 adapter 插件计划；挂起探针时的真实退出监督和原错误保留已补齐 | 除直接子进程 reaped 外，还需后代与转交 I/O 的真实关闭范围；保持未资格路径拒绝，不能用新 SessionOwner 包装完成 |
+| 其余 UDP / packet-path | 逻辑会话已有显式类型登记、直接发送与响应读取，覆盖 VLESS reverse UDP 和 Packet/Flow，移除该路径的 Any 包装与两个 downcast；SOCKS5 标准 Datagram 关联另已移除 handler/provider 与 Any 恢复链，其他路径仍有中立执行桥及协议自有 framing/resume | 按同一标准登记真实角色及资源 owner，保留 datagram 原始关闭凭据、实际使用者和限额；继续逐路径移除 Any/旧兼容接口，不能把本次局部收敛记为 UDP 整体迁移完成 |
 
 顺序优先实际所有权闭合，再启用登记，再用真实业务与消费者验收移除旧接口。不通过新增协议分支、重写内核控制逻辑或全量删除兼容路径来压缩迁移步骤。
 
-本轮提取的[实际验证、源码快照与剩余范围](local-runtime-20261024/validation.json)单独保存；其中全量执行产物与随后测试辅助代码清理后的严格检查源码分别标识，不能将其误读为剩余协议已完成迁移。
+本轮提取的实际验证、源码快照与剩余范围（历史材料见检查点 `8acd1cca`）单独保存；其中全量执行产物与随后测试辅助代码清理后的严格检查源码分别标识，不能将其误读为剩余协议已完成迁移。

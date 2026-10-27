@@ -1,6 +1,6 @@
 # 实际 Proxy 的原生 DoQ 查询
 
-接续 [原生 DNS 查询所有权](native-dns.md)。本批位于本地 develop / v0.0.3，Mieru / mieru-config 的 3.33.0 基线与既有公开配置、API、IPC、HTTP、gRPC、FFI 形状保持原约定。实际 Proxy 的 DoQ 原始所有权链已完成本批回归和消费者验收，结果见[验证清单](local-native-doq-20261025/validation.json)。普通生产登记继续关闭；未暂存、未提交、未推送。
+接续 [原生 DNS 查询所有权](native-dns.md)。本批位于本地 develop / v0.0.3，Mieru / mieru-config 的 3.33.0 基线与既有公开配置、API、IPC、HTTP、gRPC、FFI 形状保持原约定。实际 Proxy 的 DoQ 原始所有权链已完成本批回归和消费者验收，结果见验证清单（历史材料见检查点 `8acd1cca`）。普通生产登记继续关闭；未暂存、未提交、未推送。
 
 ## 通用 metadata 所有权
 
@@ -36,12 +36,12 @@ DNS 仍最多登记 16 个查询。普通 TCP/UDP 原始槽位计一份；metada
 
 最终结果以 `local-native-doq-20261025` 中的本批源码快照和日志为准；编译失败不记为行为负向证明。完整 workspace/all-features 使用未优化、关闭调试符号的测试构建，保留所有断言、原并发和 16 MiB 测试线程栈；2 MiB 用例保持显式限制。消费者使用同一新二进制和原有截止，不增加生产线程栈。
 
-- [最终源码快照](local-native-doq-20261025/source-final.json)含 534 个路径：394 个实际文件、140 个预期不存在的历史迁移路径，校验无漂移。普通入口仍关闭 native background 登记。
+- 最终源码快照（历史材料见检查点 `8acd1cca`）含 534 个路径：394 个实际文件、140 个预期不存在的历史迁移路径，校验无漂移。普通入口仍关闭 native background 登记。
 - Rust 1.99.0 完整 workspace/all-features：155 个目标，**3832 通过 / 0 失败 / 175 忽略**，实际结束码 0。原忽略项保留；普通子进程默认栈转发、父 stdin EOF 退出和 bind 失败重试均通过。
 - Rust 1.98.0 严格 workspace/all-targets/all-features Clippy、DNS-only / no-default 编译、格式、190/27 分层守卫、21 项 CI 范围检查、314/95 集成布局及冻结方案检查通过。功能开关编译日志保留各条件编译警告。
-- Proxy 聚焦测试 **32/0**，包含新增 9 项 DoQ；通用 metadata pool **4/0**，平台 metadata **27/0**。后两组源码在夹具与构造门控修正期间保持一致，原始快照及[复用核对](local-native-doq-20261025/focused-source-reuse.json)保留，最终完整回归也执行了这些用例。
+- Proxy 聚焦测试 **32/0**，包含新增 9 项 DoQ；通用 metadata pool **4/0**，平台 metadata **27/0**。后两组源码在夹具与构造门控修正期间保持一致，原始快照及复用核对（历史材料见检查点 `8acd1cca`）保留，最终完整回归也执行了这些用例。
 - GUI 原契约脚本 **12.70 秒**通过，唯一实际运行实例退出 0，无 terminate/kill。面板原发布流程 **53.44 秒**通过：同一 PID / core / revision 2，TCP/UDP 跨三个发布进程保留。两个仓库保持原提交且干净，面板沿用摘要不变的已编译验收入口。
-- 消费者使用[同一个只读新二进制](local-native-doq-20261025/consumer-binary.json)，均不设置 `RUST_MIN_STACK`；GUI 的 30 秒和面板的 120 秒原限额保持不变。
+- 消费者使用同一个只读新二进制（历史材料见检查点 `8acd1cca`），均不设置 `RUST_MIN_STACK`；GUI 的 30 秒和面板的 120 秒原限额保持不变。
 
 候选编译中断、唯一 claim 交接修正、子模块方法可见性、空过滤器、冷启动 CA 夹具误用和通用构造误受 UDP 门控的诊断均保留。空过滤器未计入测试资格；CA 夹具修正继续使用原 TLS 后端，保留真实证书名称校验和原始关闭断言。功能门控修正后重新完成完整回归和两个消费者验收。
 

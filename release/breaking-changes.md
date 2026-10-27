@@ -47,6 +47,26 @@
 
 ## Unreleased
 
+### Protocol-owned TCP preparation and MUX owner isolation
+
+VLESS/VMess/Trojan compatibility TCP preparation now materializes its protocol leaf from the actual configuration source, without retaining an adapter-runtime factory closure. TCP errors remain deferred until TCP selection. The same real protocol MUX map distinguishes outbound owners and their complete static transport configuration: an existing carrier cannot bypass changed TLS/WS authentication or attribute another outbound's I/O to the original owner. Same-owner TCP/UDP reuse remains supported. Public config, API, events, FFI and protocol framing are unchanged; clients/panels need no adaptation. Cache isolation/eviction is not native close confirmation; existing confirmed replacement and production admission gates remain in effect.
+
+### Rejection cleanup and protocol startup supervision
+
+Configuration rejection confirms and reports the failed candidate's original bind-owner cleanup before rebuilding last-good component, TUN or DNS resources. Incomplete cleanup continues to block acquisition, and published closed faults cannot mask another pending original. WireGuard recovery retains its original crypto state. SIP003 startup observes actual child exit while its TCP readiness probe is pending and retains the same failure/child owner without respawning. Source-relative HY2 TCP preparation removes another claim wrapper while retaining the same protocol-owned pool and CA path semantics. Public configuration, control API and protocol framing are unchanged; native production gates remain in effect.
+
+### TCP pooled compatibility execution convergence
+
+Mieru pooled TCP relays now use the common socket executor and the existing protocol-owned lazy pool lookup. Socket and transport TCP connect/relay contracts share one owned operation per kind; TCP no longer adds the forwarding-only prepared transport wrapper. This removes adapter-specific relay preparation/execution shells while preserving the actual pool, prefix identity, generation and single-use carrier behavior. Pool-open errors retain their original typed source. Public configuration, API and wire framing are unchanged; native production admission and confirmed old-resource cleanup remain required.
+
+### Mixed TCP relays select standard Stream suffixes
+
+Mixed TCP relay chains select the ordinary Stream suffix after the last unmigrated node directly from the actual catalog, without requiring standard nodes to provide legacy TCP claimers. Unmigrated pools retain their original shorter prefixes until actual carrier borrowing and closure qualify. Standard hops retain actual generation references and check host admission before opening the selected prefix. A failed component catalog for an explicit request returns its original error instead of silently choosing legacy TCP. The compatibility prefix grants no new native ownership or direct fallback; possibly submitted failures cannot replay. Ordinary socket and Direct preparation remove redundant claim wrappers. Public configuration, API schemas and protocol framing are unchanged. UDP/device prefix callers and unqualified resource owners retain their existing explicit migration gates; no additional production factory is enabled.
+
+### Standard outbound Datagram association execution
+
+SOCKS5 UDP association dispatch now consumes the compiled standard Datagram role through a protocol-neutral runtime owner. The upstream handler-provider registry and opaque resume probing are removed. Endpoint references use actual component generations without retaining credentials or previous configurations. Reopening after replacement, idle expiry or send failure waits for the retained original session controller's complete close receipt; cancellation and incomplete cleanup retain that owner and block acquisition. Stale plan errors keep their structured channel cause, and local cleanup errors retain the original source without penalizing an unattempted upstream. The internal `upstream-association-runtime` feature now declares its required UDP response support, without relying on SOCKS5 to enable it. Existing public protocol feature sets, configuration, control-plane schemas, protocol framing and wire-byte accounting remain unchanged. This does not qualify missing native dual-original providers or enable additional production factories.
+
 ### Background carrier borrowing tracks actual cross-owner generations
 
 The develop/v0.0.3 internal qualification assembly records actual background borrowing dependencies before I/O. A changed or removed donor propagates retirement through its consumers; confirmed original closure, task joins and transferred control/user settlement still precede candidate start. Taskless native stream/datagram custody retains its actual original controller and explicitly has no driver. In-process users of `zero_platform_tokio::controlled_carrier::CarrierOrigin::driver` must handle `Option<&TaskJoinWitness>`; `None` cannot substitute for native close evidence.

@@ -40,7 +40,7 @@ Mieru 的逻辑 TCP 控制拥有原 session ID、真实 writer barrier、reader 
 
 ## 本批验证
 
-证据目录：[validation.json](local-mieru-prefix-20261025/validation.json)，源码冻结为 471 项记录。本批同池 Mieru 与实际 Proxy 内部资格装配已完成以下本地回归；普通生产登记仍关闭，前述剩余条件没有因此豁免。
+证据目录：validation.json（历史材料见检查点 `8acd1cca`），源码冻结为 471 项记录。本批同池 Mieru 与实际 Proxy 内部资格装配已完成以下本地回归；普通生产登记仍关闭，前述剩余条件没有因此豁免。
 
 - 工作区全部特性、正常测试并发、16 MiB 测试线程栈：155 个目标，3,794 通过、0 失败、175 项既有忽略；`TEST_END exit=0`。10 项新增 Mieru 宿主／实际 Proxy 回归均包含在完整结果中。
 - 稳定版 Rust 1.98 的全部目标／全部特性严格 Clippy（`-D warnings`）通过；运行时边界 190 项、工作区边界 27 项、CI 范围 21 项，以及格式、测试布局、方案链接和 diff 检查通过。

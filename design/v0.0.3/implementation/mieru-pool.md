@@ -17,9 +17,9 @@ runtime 新增测试使用真正的 ComponentCatalog 冷装配、规范共享 ID
 
 协议侧另行验证：实际原 FD 和 driver 都关闭后，保留一个逻辑 read half 仍使池关闭不完整。平台侧验证：driver-custody 凭据依赖原始 native close 与实际 scope join，未登记、Business 和 Service 声明不能取得这种能力。原来的 unaccounted acquisition 拒绝证明继续保留。
 
-实际命令、通过/失败、源码摘要和消费者检查以本批 [验证记录](local-mieru-20261024/validation.json) 为准。历史全量和旧二进制不覆盖本批源码。
+实际命令、通过/失败、源码摘要和消费者检查以本批 验证记录（历史材料见检查点 `8acd1cca`） 为准。历史全量和旧二进制不覆盖本批源码。
 
-首次完整回归为 3770 通过、2 失败、175 跳过；两项新宿主测试暴露上述旧 I/O 快照问题。原始结果及[根因记录](local-mieru-20261024/failure-analysis.json)保留，修复前后源码、二进制和检查分别标识。未调整断言、超时或跳过条件。
+首次完整回归为 3770 通过、2 失败、175 跳过；两项新宿主测试暴露上述旧 I/O 快照问题。原始结果及根因记录（历史材料见检查点 `8acd1cca`）保留，修复前后源码、二进制和检查分别标识。未调整断言、超时或跳过条件。
 
 最终同一源码在 Rust 1.99 的完整 workspace/all-features 回归为 **3772 通过、0 失败、175 跳过**，155 个目标，837 秒；Rust 1.98 的严格 workspace/all-targets/all-features Clippy（`-D warnings`）通过，格式检查通过。GUI 和面板使用同一固定内核副本 `9a36ad0834130705924b7e598685172fff7aa30c2f31b0e8d33e1de28705700c`：GUI 原有 IPC/apply/回滚检查通过，内核正常退出 0，无 terminate/kill；面板原有发布回归通过，84.10 秒，同一 PID 的 TCP/UDP 跨三个发布进程保持可用。消费者源码未改，部署/SSH/service 为本地替身，未验证真实 GUI/TUN 设备、生产部署或 1 CPU/1 GiB 压力。
 
