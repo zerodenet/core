@@ -2,7 +2,7 @@
 
 版本 v0.0.3，分支 develop。云端 PR #124 的合入点是 `b963c864`；后续本地检查点为 `8acd1cca`。ALL17 / G0–G10 整体尚未完成，普通 Mieru native background 生产登记保持关闭。
 
-该检查点之后的本地变动现已按职责分组提交到 develop，尚未推送；具体分组见 `git log 8acd1cca..develop`。下文各历史批次的“未提交”仅记录其验证时状态，不代表当前 Git 状态。分组提交没有改变已验证的内核源码或扩大生产准入范围。
+截至 `f1bf1b6f` 的上一批本地变动已按职责分组提交到 develop。2026-10-28 的 MUX 原始所有权迁移亦已按基础设施 `b1fd79a8`、协议实现 `12133be4`、Proxy 装配与回归 `91b3a2a7` 分组提交；工程规则与本记录随文档提交保存。全部仅为本地检查点，未推送。下文各历史批次的“未提交”仅记录其验证时状态，不代表当前 Git 状态。分组提交没有改变已验证的内核源码或扩大生产准入范围。
 
 ## 当前实现
 
@@ -11,7 +11,7 @@
 - [原生 DNS](native-dns.md)已覆盖 UDP/TCP/DoT/DoH，[DoQ](native-doq.md)已接通实际 endpoint、驱动、用户/视图及原始 main/probe 关闭凭据。
 - 剩余功能和验收条件见[清单](outstanding-20261025.md)。迁移仅覆盖既有能力；池化保留现有语义，插件清理覆盖实际拥有的进程/I/O，不扩成通用资源调度或进程沙箱。
 
-## 对照原方案的整体进度（2026-10-27 复核）
+## 对照原方案的整体进度（2026-10-28 复核）
 
 原 Page revision 7 的 M0–M6 / G0–G10 是完成标准；17 张任务卡是逻辑交付边界，旧的“未开始”和检查点状态不代表当前代码进度。现在是基础骨架已落地、多条生产路径已迁移，但协议与其他层的职责迁移仍在进行，不能记为“架构完成、仅剩验收”。
 
@@ -19,7 +19,7 @@
 | --- | --- | --- |
 | M0 / G0 基线 | 版本化完整方案、任务卡、固定消费者与部分行为基线 | 完整资源/性能与平台基线仍有缺项；旧数字不能替代最终源码的比较 |
 | M1 / G1 中立契约 | 公共组件、角色、通道、网络、错误与生命周期契约已有实际调用；traits/core 保持 no_std | 旧接入与出站接口仍有生产调用，契约存在不等于所有协议已迁完 |
-| M2 / G2–G3 实例与出站 | 实际工厂、代际、依赖和普通 Stream 路径；Engine 目标解析返回中立身份；混合 TCP 正在收敛 | source-relative、池化、复杂载体与部分 TCP/UDP 前缀仍走兼容路径 |
+| M2 / G2–G3 实例与出站 | 实际工厂、代际、依赖和普通 Stream 路径；Engine 目标解析返回中立身份；混合 TCP 已部分收敛，受控 MUX TCP/TLS/WS 子集已接入实际宿主及标准 Stream | 剩余池化、复杂载体与部分 TCP/UDP 前缀仍走兼容路径；MUX/Mieru 的普通 native 登记未开启 |
 | M3 / G3–G4 UDP 与接入 | 逻辑 UDP 显式会话、SOCKS5 标准 Datagram；统一接入循环与协议自有握手已有迁移 | 其余 Any/resume/handler、InboundListenerCapability 及 MUX/QUIC 接入的整体标准化未关闭 |
 | M4 / G5 宿主与事务 | 独立 RuntimeHost、配置操作所有权、任务监督、资源代际，以及已接管资源的确认停旧替换事务 | Engine 仍发起路由/计划编译与文件持久化，宿主准备/提交职责未全部迁出；领域快照安装与 revision 仍应由 Engine 保留 |
 | M5 / G6–G7 基础服务与 Packet | DNS 原始查询 owner、Network 契约、公共 Flow/Packet 转换与设备接线已有覆盖 | system/detour/池化 DNS、config 资源加载、完整设备替换和系统恢复仍有实际实现缺口 |
@@ -30,6 +30,24 @@
 Z003-07 也包含实现工作：例如 `component/native_dns.rs` 的查询/原始资源上限仍为内部常量 16，适用上限尚需接入既定生产配置管理，再做 1 CPU/1 GiB 资格；不能全部归为“只待验收”。按用户决策保持保守默认和按需分配，不为配置上限再增加通用资源管理框架。
 
 当前传输层没有 config/engine/proxy/具体协议的生产依赖，runtime 对 proxy 的依赖只在测试侧；不能把已解除的依赖重新列作缺陷。原 Page 的 `runtime → proxy` 已按用户批准调整为 `proxy → runtime`，见[修订](runtime-extraction.md)，不是未批准的目标偏移。上述表格不折算任意完成百分比，也不将部分协议迁移或本地测试通过算作 G0–G10 整体关闭。
+
+## MUX 原始宿主所有权迁移（2026-10-28，本地提交检查点）
+
+VLESS / VMess / Trojan 增加协议自有 MUX `ComponentFactory` 和标准 Stream 角色，依赖同一个实际 adapter map 的 roleless 池 owner。物理连接的读、写、空闲监视先组成不启动任务的 driver，再由该 owner 的实际 `TaskRegistrar` 登记；VLESS TCP 不再启动每条逻辑流的上传任务。公共载体生命周期复用 `CarrierOwner`、原始 native controller、唯一 driver view 和实际 `TaskJoinWitness`；协议继续拥有 framing、握手、缓存 key 和逻辑流。原始槽在第一次等待拨号前持有，取消/Drop、任务退出或缓存删除均不能签发原始关闭凭据。只读 observation 保留实际原始控制器的完成元数据，不持有旧 I/O、池或配置。
+
+真实 Proxy 的既有私有 background 装配入口已接入这个 TCP 子集，标准角色通过既有 `CarrierOrigin` 把实际物理来源交回选定 upstream 校验，没有新增 TCP claimer 或第二套载体信息契约。缓存重载保留宿主拥有的 entry，仅在实际池关闭后回收该代；网络/DNS 代际变化先关闭旧原始载体并等待旧逻辑使用归还，再申请新载体。配置替换继续使用宿主确认停旧后才能构造/启动新代的事务。
+
+**普通生产登记继续关闭。** 当前接线范围为 literal root、已支持的 TCP/TLS/WS MUX 及明确有限的内部载体上限/打开预算。原生 Datagram/TCP-UDP 共池、复杂 relay prefix、hostname DNS、其余载体/资源和生产可配置上限尚未完成，不能删除这些路径的 claim/prepared 或把它们伪装成标准角色。生产 `Proxy::new` 保留既有入口和配置/API/FFI；本批仅修改内核。完整迁移和客户端/面板兼容性仍以本批源码的实际回归为准，上一批数字不自动沿用。
+
+本批最终源码完整 workspace/all-features：**3864 通过、0 失败、175 忽略，155 个 Cargo 顶层目标，结束码 0**（`TEST_END 2026-10-28T13:04:52Z`）。嵌套子进程的单独报告不重复计入目标/通过数。4501 项源码与构建输入（含 Cargo.lock）前后无漂移，输入清单 SHA-256 为 `eccff2db50ad254713e9edf1360d1707e9052267caf5c4a626b65ef7d3d8fb98`。新增 6 条实际 Proxy 回归覆盖三个协议的物理复用/饱和、真实任务与原始控制器关闭、网络换代、实际配置事务停旧、TLS 准备取消及清理中断重试；另有 2 条冷身份/越权与 legacy 暴露拒绝检查。原协议 TCP/UDP/MUX、WireGuard 恢复和进程回归保持通过。
+
+首次实际接线的 5 条失败均在拨号前被拒绝：所选 `ResolvingCarrierOpener` 只提供受控候选，不能调用其未授予的同步打开入口。现消费同一实际 provider 的候选与 `prepare_stream(0)` 原始授权，并在准备和逻辑交付前复核实际 DNS 代际；没有直接拨号后备。修正后定向及最终全量均通过。早期夹具借用/Copy 检查错误与该失败保存在仓库外日志中，不计通过。
+
+Rust 1.98 严格 workspace/all-targets/all-features Clippy、常规 workspace check、Trojan tokio-only、core/traits no-default/no_std、格式和集成测试布局检查通过。完整测试使用 Rust 1.99、未优化且关闭调试符号、默认测试并发与 16 MiB 测试线程栈；通过既有夹具参数提供已验证 UDP 自收发的物理地址 `192.168.50.138`（不是产品默认配置）。
+
+同一只读二进制 SHA-256 `9997470eeb872e69295aac74c22506e98e40d38c68fff563609440a1b33bfe32` 通过冻结消费者入口：GUI **20.04 秒、结束码 0**，实际运行实例在父 stdin 关闭后自然退出 0、无 terminate/kill；面板 **63.29 秒、结束码 0**（Go 目标 62.42 秒），同一 PID/core/revision 2 的 TCP/UDP 跨三个发布进程保持。GUI HEAD `d39ad2787fb05052fa15065853ab71526441ccc3` 的既有 Rust 修改保留，仅运行只依赖标准库的冻结契约脚本，不验收这些外部工作区改动；面板 HEAD `658671e9f3978df1c79f4030fdb072a877f10bf5` 且工作区干净。两个工作区状态、冻结入口摘要及二进制摘要前后未变；消费者没有设置 RUST_MIN_STACK 或物理 host 覆盖，原 30/120 秒时限保持。未修改消费者源码，公开 config/API/FFI 与 Cargo.lock 相对 `f1bf1b6f` 无变动。
+
+本批原始输出保存在仓库外 `/Users/higanbana/.codex/task-artifacts/zero-mux-owner-20261028/`。这些通过不代表普通 native MUX/Mieru 准入、真实 GUI/TUN、完整官方工具矩阵、1 CPU/1 GiB 或整体架构完成。内核代码已固定在上述三个本地提交，未推送。验证发生在提交前的相同源码上；提交没有修改已验证实现，不将这些镜像标成按新提交重新构建的产物或远端 CI。
 
 ## VLESS / VMess / Trojan TCP 与 MUX 收敛（2026-10-27）
 
