@@ -1,5 +1,6 @@
 //! Pure selection and cold projection; resourceful styles keep their real owner.
 //! gRPC stays with its existing driver until a native task/resource owner exists.
+pub(crate) mod mux;
 use zero_config::{ConfigError, OutboundConfig, OutboundProtocolConfig};
 pub(crate) const LEGACY_CONNECT_STAGE: &str = "connect_upstream_vmess";
 

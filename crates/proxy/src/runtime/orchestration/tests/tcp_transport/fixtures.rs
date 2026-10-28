@@ -14,23 +14,23 @@ use tokio::{
 };
 use zero_platform_tokio::contract::CancellationToken;
 
-pub(super) fn credentials(protocol: &str) -> Value {
+pub(crate) fn credentials(protocol: &str) -> Value {
     if protocol == "trojan" {
         json!({"type":protocol,"password":"mux-password"})
     } else {
         json!({"type":protocol,"id":"11111111-2222-3333-4444-555555555555"})
     }
 }
-pub(super) fn inbound_credentials(protocol: &str) -> Value {
+pub(crate) fn inbound_credentials(protocol: &str) -> Value {
     let mut user = credentials(protocol);
     user.as_object_mut().unwrap().remove("type");
     json!({"type":protocol,"users":[user]})
 }
-pub(super) fn config_at(value: Value, path: &Path) -> zero_config::RuntimeConfig {
+pub(crate) fn config_at(value: Value, path: &Path) -> zero_config::RuntimeConfig {
     zero_config::RuntimeConfig::parse_with_source_dir(&value.to_string(), Some(path.to_owned()))
         .unwrap()
 }
-pub(super) fn material() -> tempfile::TempDir {
+pub(crate) fn material() -> tempfile::TempDir {
     let dir = tempfile::tempdir().unwrap();
     let cert = rcgen::generate_simple_self_signed(vec!["localhost".into()]).unwrap();
     std::fs::write(dir.path().join("ca.pem"), cert.cert.pem()).unwrap();
@@ -39,15 +39,15 @@ pub(super) fn material() -> tempfile::TempDir {
     std::fs::write(dir.path().join("untrusted.pem"), other.cert.pem()).unwrap();
     dir
 }
-pub(super) struct Fixture {
-    pub(super) front: SocketAddr,
-    pub(super) echo: SocketAddr,
+pub(crate) struct Fixture {
+    pub(crate) front: SocketAddr,
+    pub(crate) echo: SocketAddr,
     connections: Arc<AtomicUsize>,
     cancel: CancellationToken,
     workers: Vec<JoinHandle<()>>,
 }
 impl Fixture {
-    pub(super) async fn start(upstream: SocketAddr) -> Self {
+    pub(crate) async fn start(upstream: SocketAddr) -> Self {
         let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
         let front = listener.local_addr().unwrap();
         let echo_listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
@@ -116,10 +116,10 @@ impl Fixture {
             workers: vec![front_worker, echo_worker],
         }
     }
-    pub(super) fn connections(&self) -> usize {
+    pub(crate) fn connections(&self) -> usize {
         self.connections.load(Ordering::SeqCst)
     }
-    pub(super) async fn finish(self) {
+    pub(crate) async fn finish(self) {
         self.cancel.cancel();
         for worker in self.workers {
             worker.await.unwrap();

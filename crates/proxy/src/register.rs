@@ -92,16 +92,31 @@ pub(crate) fn compiled_registries_with_background(
     #[cfg(feature = "vless")]
     {
         use crate::adapters::vless::VlessAdapter;
-        components
-            .register_where(
-                ::vless::metadata::VlessProtocol.descriptor(),
-                ::vless::component::Factory,
-                crate::adapters::vless::native_input,
-                crate::adapters::vless::component_options,
-            )
-            .expect("unique VLESS component registration");
-        components.set_legacy_connect_stage("vless", crate::adapters::vless::LEGACY_CONNECT_STAGE);
         let adapter = Arc::new(VlessAdapter::default());
+        if let Some(network) = background.clone() {
+            let factory = Arc::new(crate::component::background::pool::Factory::new(network));
+            let projected = adapter.clone();
+            components
+                .register_with_resources_where(
+                    ::vless::metadata::VlessProtocol.descriptor(),
+                    crate::adapters::vless::component::mux::Factory,
+                    crate::adapters::vless::component::mux::eligible,
+                    move |input, resources| {
+                        projected.owned_mux_options(input, resources, factory.clone())
+                    },
+                )
+                .expect("unique owned vless component registration");
+        } else {
+            components
+                .register_where(
+                    ::vless::metadata::VlessProtocol.descriptor(),
+                    ::vless::component::Factory,
+                    crate::adapters::vless::native_input,
+                    crate::adapters::vless::component_options,
+                )
+                .expect("unique VLESS component registration");
+        }
+        components.set_legacy_connect_stage("vless", crate::adapters::vless::LEGACY_CONNECT_STAGE);
         registry.register_inbound_service(adapter.clone());
         registry.register_managed_capability(adapter, VlessAdapter::claim_outbound_leaf_impl);
     }
@@ -133,32 +148,62 @@ pub(crate) fn compiled_registries_with_background(
     #[cfg(feature = "trojan")]
     {
         use crate::adapters::trojan::TrojanAdapter;
-        components
-            .register_where(
-                ::trojan::metadata::TrojanProtocol.descriptor(),
-                ::trojan::component::Factory,
-                crate::adapters::trojan::native_input,
-                crate::adapters::trojan::component_options,
-            )
-            .expect("unique Trojan component registration");
+        let adapter = Arc::new(TrojanAdapter::default());
+        if let Some(network) = background.clone() {
+            let factory = Arc::new(crate::component::background::pool::Factory::new(network));
+            let projected = adapter.clone();
+            components
+                .register_with_resources_where(
+                    ::trojan::metadata::TrojanProtocol.descriptor(),
+                    crate::adapters::trojan::component::mux::Factory,
+                    crate::adapters::trojan::component::mux::eligible,
+                    move |input, resources| {
+                        projected.owned_mux_options(input, resources, factory.clone())
+                    },
+                )
+                .expect("unique owned trojan component registration");
+        } else {
+            components
+                .register_where(
+                    ::trojan::metadata::TrojanProtocol.descriptor(),
+                    ::trojan::component::Factory,
+                    crate::adapters::trojan::native_input,
+                    crate::adapters::trojan::component_options,
+                )
+                .expect("unique Trojan component registration");
+        }
         components
             .set_legacy_connect_stage("trojan", crate::adapters::trojan::LEGACY_CONNECT_STAGE);
-        let adapter = Arc::new(TrojanAdapter::default());
         registry.register_managed_capability(adapter, TrojanAdapter::claim_outbound_leaf_impl);
     }
     #[cfg(feature = "vmess")]
     {
         use crate::adapters::vmess::VmessAdapter;
-        components
-            .register_where(
-                ::vmess::metadata::VmessProtocol.descriptor(),
-                ::vmess::component::Factory,
-                crate::adapters::vmess::native_input,
-                crate::adapters::vmess::component_options,
-            )
-            .expect("unique VMess component registration");
-        components.set_legacy_connect_stage("vmess", crate::adapters::vmess::LEGACY_CONNECT_STAGE);
         let adapter = Arc::new(VmessAdapter::default());
+        if let Some(network) = background.clone() {
+            let factory = Arc::new(crate::component::background::pool::Factory::new(network));
+            let projected = adapter.clone();
+            components
+                .register_with_resources_where(
+                    ::vmess::metadata::VmessProtocol.descriptor(),
+                    crate::adapters::vmess::component::mux::Factory,
+                    crate::adapters::vmess::component::mux::eligible,
+                    move |input, resources| {
+                        projected.owned_mux_options(input, resources, factory.clone())
+                    },
+                )
+                .expect("unique owned vmess component registration");
+        } else {
+            components
+                .register_where(
+                    ::vmess::metadata::VmessProtocol.descriptor(),
+                    ::vmess::component::Factory,
+                    crate::adapters::vmess::native_input,
+                    crate::adapters::vmess::component_options,
+                )
+                .expect("unique VMess component registration");
+        }
+        components.set_legacy_connect_stage("vmess", crate::adapters::vmess::LEGACY_CONNECT_STAGE);
         registry.register_managed_capability(adapter, VmessAdapter::claim_outbound_leaf_impl);
     }
     #[cfg(feature = "mieru")]

@@ -1,4 +1,4 @@
-mod fixtures;
+pub(super) mod fixtures;
 use crate::{protocol_registry::OutboundAdapterContext, Proxy};
 use fixtures::*;
 use serde_json::json;

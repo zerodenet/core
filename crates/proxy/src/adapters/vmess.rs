@@ -1,5 +1,5 @@
 #[cfg(feature = "vmess")]
-mod component;
+pub(crate) mod component;
 #[cfg(feature = "vmess")]
 mod listener;
 use ::vmess::transport::{

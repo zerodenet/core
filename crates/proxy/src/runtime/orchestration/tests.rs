@@ -172,3 +172,6 @@ mod observer_handoff;
 
 #[cfg(all(feature = "vless", feature = "vmess", feature = "trojan"))]
 mod tcp_transport;
+
+#[cfg(all(feature = "vless", feature = "vmess", feature = "trojan"))]
+mod native_mux;

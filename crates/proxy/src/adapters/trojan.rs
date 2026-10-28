@@ -1,5 +1,5 @@
 #[cfg(feature = "trojan")]
-mod component;
+pub(crate) mod component;
 #[cfg(feature = "trojan")]
 mod listener;
 #[cfg(feature = "trojan")]

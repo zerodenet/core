@@ -1,5 +1,5 @@
 #[cfg(feature = "vless")]
-mod component;
+pub(crate) mod component;
 #[cfg(feature = "vless")]
 pub(crate) use component::{component_options, native_input, LEGACY_CONNECT_STAGE};
 #[cfg(feature = "vless")]

@@ -16,6 +16,8 @@ use zero_platform_tokio::{
     EgressInterfaceControl,
 };
 
+pub(crate) mod pool;
+
 pub(crate) struct BackgroundNetwork {
     pub(crate) egress: EgressInterfaceControl,
     pub(super) resolver: OnceLock<Weak<DnsSystem>>,

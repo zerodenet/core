@@ -1,5 +1,6 @@
 //! Cold ordinary Stream selection; every excluded style retains its actual owner.
 //! gRPC/H2 keep their legacy pool/driver until the real shared owner is migrated.
+pub(crate) mod mux;
 use zero_config::{ConfigError, OutboundConfig, OutboundProtocolConfig};
 pub(crate) const LEGACY_CONNECT_STAGE: &str = "connect_upstream_vless";
 pub(crate) fn native_input(input: &OutboundConfig) -> bool {
