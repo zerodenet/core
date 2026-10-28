@@ -3,6 +3,7 @@
 //! Types that are pure VLESS MUX protocol logic live here.
 //! Connection establishment (raw TCP, transport wrapping) stays in the
 //! proxy crate which owns the I/O infrastructure.
+mod native;
 
 use core::future::Future;
 use std::collections::HashMap;
@@ -31,7 +32,7 @@ mod tests;
 // ── Pool key types ──
 
 /// Identifies a unique upstream endpoint including transport.
-#[derive(Clone, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub(crate) struct PoolKey {
     server: String,
     port: u16,
@@ -41,14 +42,14 @@ pub(crate) struct PoolKey {
     response_backlog: MuxResponseBacklogPolicy,
 }
 
-#[derive(Clone, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub(crate) struct MuxIdentity {
     uuid: [u8; 16],
     vision: bool,
     vision_testseed: [u32; 4],
 }
 
-#[derive(Clone, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 enum TransportKey {
     Raw,
     Tls {
@@ -81,6 +82,7 @@ type PoolEntries = HashMap<(Option<Arc<str>>, PoolKey), Arc<MuxPoolConn>>;
 
 #[derive(Clone)]
 pub struct MuxConnectionPool {
+    control: zero_transport::pooled_driver::PoolControl,
     pool: Arc<Mutex<PoolEntries>>,
     scope: Option<Arc<str>>,
 }
@@ -365,6 +367,38 @@ impl PoolKey {
             true,
         )
     }
+    fn prepare_pool_conn<S>(
+        self,
+        stream: S,
+        max_concurrency: u32,
+    ) -> (MuxPoolConn, zero_transport::pooled_driver::Driver)
+    where
+        S: AsyncRead + AsyncWrite + Unpin + Send + 'static,
+    {
+        if self.identity.vision {
+            return MuxPoolConn::prepare(
+                crate::vision::VisionStream::with_testseed(
+                    crate::deferred_response::DeferredVlessResponseStream::new(stream),
+                    *self.uuid(),
+                    None,
+                    self.identity.vision_testseed,
+                ),
+                self.uuid(),
+                max_concurrency,
+                self.idle_timeout,
+                self.response_backlog,
+                false,
+            );
+        }
+        MuxPoolConn::prepare(
+            stream,
+            self.uuid(),
+            max_concurrency,
+            self.idle_timeout,
+            self.response_backlog,
+            true,
+        )
+    }
 }
 
 pub async fn establish_outbound_mux_connection<S>(
@@ -399,20 +433,26 @@ impl MuxConnectionPool {
         Self {
             pool: Arc::new(Mutex::new(HashMap::new())),
             scope: None,
+            control: Default::default(),
         }
     }
 
     /// A cold view of the same actual adapter pool. Scope is private protocol
     /// state, never a new pool/worker or a native resource-close receipt.
     pub(crate) fn scoped(&self, tag: &str, transport: impl std::fmt::Debug) -> Self {
+        let scope: Arc<str> = format!("{tag:?}:{transport:?}").into();
         Self {
             pool: self.pool.clone(),
-            scope: Some(format!("{tag:?}:{transport:?}").into()),
+            control: self.control.scoped(scope.clone()),
+            scope: Some(scope),
         }
     }
 
     pub fn evict_all(&self) {
-        self.pool.lock().expect("mux pool lock poisoned").clear();
+        self.pool
+            .lock()
+            .expect("mux pool lock poisoned")
+            .retain(|_, connection| connection.original.is_some());
     }
 
     pub(crate) async fn open_tcp_stream<S, OpenStream, OpenStreamFut, E>(
@@ -429,6 +469,9 @@ impl MuxConnectionPool {
         OpenStreamFut: Future<Output = Result<S, E>>,
         E: From<Error>,
     {
+        self.control
+            .enter_legacy()
+            .map_err(|_| E::from(Error::Io("MUX pool has an installed native owner")))?;
         let (conn, sid) = self
             .get_or_create_conn(key, max_concurrency, |key, max_concurrency| async move {
                 let mut stream = match open_stream().await {
@@ -457,6 +500,9 @@ impl MuxConnectionPool {
         OpenStreamFut: Future<Output = Result<S, E>>,
         E: From<Error>,
     {
+        self.control
+            .enter_legacy()
+            .map_err(|_| E::from(Error::Io("MUX pool has an installed native owner")))?;
         let (conn, sid) = self
             .get_or_create_conn(key, max_concurrency, |key, max_concurrency| async move {
                 let mut stream = match open_stream().await {
@@ -481,6 +527,7 @@ impl MuxConnectionPool {
     where
         F: FnOnce(PoolKey, u32) -> Fut,
         Fut: Future<Output = Result<MuxPoolConn, E>>,
+        E: From<Error>,
     {
         let lookup = (self.scope.clone(), key.clone());
         let cached = {
@@ -497,7 +544,7 @@ impl MuxConnectionPool {
         let conn = Arc::new(create_conn(key.clone(), max_concurrency).await?);
         let sid = conn
             .try_reserve_stream_id()
-            .expect("new VLESS MUX connection accepts its first stream");
+            .ok_or_else(|| E::from(Error::Io("MUX connection retired during preparation")))?;
         self.pool
             .lock()
             .expect("mux pool lock poisoned")
@@ -510,6 +557,7 @@ impl MuxConnectionPool {
 
 /// A single MUX connection to an upstream, shared by multiple streams.
 pub(crate) struct MuxPoolConn {
+    original: Option<Arc<zero_transport::pooled_driver::Physical>>,
     write_tx: mpsc::UnboundedSender<Vec<u8>>,
     streams: Arc<Mutex<HashMap<u16, MuxClientStreamState>>>,
     next_id: Mutex<u16>,
@@ -549,6 +597,29 @@ impl MuxPoolConn {
     where
         S: AsyncRead + AsyncWrite + Unpin + Send + 'static,
     {
+        let (connection, driver) = Self::prepare(
+            stream,
+            uuid,
+            max_concurrency,
+            idle_timeout,
+            response_backlog_policy,
+            response_pending,
+        );
+        tokio::spawn(driver);
+        connection
+    }
+
+    fn prepare<S>(
+        stream: S,
+        uuid: &[u8; 16],
+        max_concurrency: u32,
+        idle_timeout: Option<Duration>,
+        response_backlog_policy: MuxResponseBacklogPolicy,
+        response_pending: bool,
+    ) -> (Self, zero_transport::pooled_driver::Driver)
+    where
+        S: AsyncRead + AsyncWrite + Unpin + Send + 'static,
+    {
         let (read_half, write_half) = tokio::io::split(stream);
         let (write_tx, write_rx) = mpsc::unbounded_channel::<Vec<u8>>();
         let streams: Arc<Mutex<HashMap<u16, MuxClientStreamState>>> =
@@ -556,19 +627,21 @@ impl MuxPoolConn {
         let closed = Arc::new(AtomicBool::new(false));
         let response_backlog = MuxResponseBacklog::from_policy(response_backlog_policy);
         let (shutdown_tx, shutdown_rx) = watch::channel(false);
-        let activity_tx = idle_timeout.map(|idle_timeout| {
-            let (activity_tx, activity_rx) = watch::channel(tokio::time::Instant::now());
-            spawn_mux_idle_monitor(
-                idle_timeout,
-                activity_rx,
-                closed.clone(),
-                shutdown_tx.clone(),
-            );
-            activity_tx
-        });
-        let _ = uuid;
-
-        spawn_mux_write_relay(
+        let (activity_tx, activity_rx) = if idle_timeout.is_some() {
+            let (tx, rx) = watch::channel(tokio::time::Instant::now());
+            (Some(tx), Some(rx))
+        } else {
+            (None, None)
+        };
+        let idle_shutdown = shutdown_rx.clone();
+        let idle_closed = closed.clone();
+        let idle_tx = shutdown_tx.clone();
+        let idle = async move {
+            if let (Some(timeout), Some(activity)) = (idle_timeout, activity_rx) {
+                run_mux_idle_monitor(timeout, activity, idle_closed, idle_tx, idle_shutdown).await;
+            }
+        };
+        let write = run_mux_write_relay(
             write_half,
             write_rx,
             closed.clone(),
@@ -576,28 +649,41 @@ impl MuxPoolConn {
             shutdown_rx.clone(),
             activity_tx.clone(),
         );
-        spawn_mux_read_relay(
+        let read = run_mux_read_relay(
             read_half,
             streams.clone(),
             closed.clone(),
             (shutdown_tx.clone(), shutdown_rx),
             activity_tx.clone(),
-            response_backlog.clone(),
+            response_backlog,
             response_pending,
         );
+        let stopping = closed.clone();
+        let stop = shutdown_tx.clone();
+        let outputs = streams.clone();
+        let driver = zero_transport::pooled_driver::join(read, write, idle, move || {
+            stopping.store(true, Ordering::Release);
+            let _ = stop.send(true);
+            outputs.lock().unwrap().clear();
+        });
+        let _ = uuid;
 
-        Self {
-            write_tx,
-            streams,
-            next_id: Mutex::new(1),
-            active: Mutex::new(0),
-            max_concurrency,
-            closed,
-            activity_tx,
-            response_backlog_frames: response_backlog_policy.frames(),
-            total: AtomicU32::new(0),
-            shutdown: shutdown_tx,
-        }
+        (
+            Self {
+                original: None,
+                write_tx,
+                streams,
+                next_id: Mutex::new(1),
+                active: Mutex::new(0),
+                max_concurrency,
+                closed,
+                activity_tx,
+                response_backlog_frames: response_backlog_policy.frames(),
+                total: AtomicU32::new(0),
+                shutdown: shutdown_tx,
+            },
+            driver,
+        )
     }
 
     pub(crate) fn open_tcp_stream(
@@ -615,7 +701,6 @@ impl MuxPoolConn {
         address: &Address,
         origin: Option<&crate::mux::origin::Origin>,
     ) -> Result<impl AsyncRead + AsyncWrite + Send + Unpin + 'static, Error> {
-        let (up_tx, up_rx) = mpsc::unbounded_channel::<Vec<u8>>();
         let (down_tx, down_rx) = mpsc::channel(self.response_backlog_frames + 1);
 
         self.streams.lock().unwrap().insert(
@@ -635,10 +720,8 @@ impl MuxPoolConn {
             return Err(Error::Io("failed to write VLESS MUX new stream request"));
         }
 
-        spawn_mux_tcp_upload_relay(self.clone(), sid, up_rx);
-
         Ok(MuxStreamRelay {
-            up_tx: Some(up_tx),
+            write_open: true,
             sid,
             down_rx: Some(down_rx),
             read_pending: Vec::new(),
@@ -747,7 +830,7 @@ impl MuxPoolConn {
 /// A single MUX stream — implements `AsyncRead` + `AsyncWrite` over the
 /// shared MUX connection.
 struct MuxStreamRelay {
-    up_tx: Option<mpsc::UnboundedSender<Vec<u8>>>,
+    write_open: bool,
     sid: u16,
     down_rx: Option<mpsc::Receiver<MuxDownlink<Vec<u8>>>>,
     read_pending: Vec<u8>,
@@ -755,8 +838,20 @@ struct MuxStreamRelay {
     conn: Arc<MuxPoolConn>,
 }
 
+impl MuxStreamRelay {
+    fn end_upload(&mut self) {
+        if self.write_open {
+            self.write_open = false;
+            if let Ok(end) = encode_mux_end_frame(self.sid) {
+                let _ = self.conn.write_tx.send(end);
+            }
+        }
+    }
+}
+
 impl Drop for MuxStreamRelay {
     fn drop(&mut self) {
+        self.end_upload();
         self.conn.release_stream(self.sid);
     }
 }
@@ -816,53 +911,34 @@ impl AsyncWrite for MuxStreamRelay {
         if count == 0 {
             return Poll::Ready(Ok(0));
         }
-        let Some(sender) = &self.up_tx else {
+        if !self.write_open || self.conn.closed() {
             return Poll::Ready(Err(io::Error::new(
                 io::ErrorKind::BrokenPipe,
                 "MUX upload is closed",
             )));
+        }
+        let frame = match encode_mux_data_frame(self.sid, &buf[..count]) {
+            Ok(frame) => frame,
+            Err(source) => return Poll::Ready(Err(io::Error::other(source))),
         };
-        sender
-            .send(buf[..count].to_vec())
-            .map(|_| Poll::Ready(Ok(count)))
-            .unwrap_or_else(|_| {
-                Poll::Ready(Err(io::Error::new(
-                    io::ErrorKind::BrokenPipe,
-                    "MUX upstream closed",
-                )))
-            })
+        Poll::Ready(
+            self.conn
+                .write_tx
+                .send(frame)
+                .map(|_| count)
+                .map_err(|_| io::Error::new(io::ErrorKind::BrokenPipe, "MUX upstream closed")),
+        )
     }
     fn poll_flush(self: Pin<&mut Self>, _: &mut Context<'_>) -> Poll<Result<(), io::Error>> {
         Poll::Ready(Ok(()))
     }
     fn poll_shutdown(mut self: Pin<&mut Self>, _: &mut Context<'_>) -> Poll<Result<(), io::Error>> {
-        self.up_tx.take();
+        self.end_upload();
         Poll::Ready(Ok(()))
     }
 }
 
 // ── Mux.Cool stream relays ──
-
-fn spawn_mux_tcp_upload_relay(
-    conn: Arc<MuxPoolConn>,
-    sid: u16,
-    mut up_rx: mpsc::UnboundedReceiver<Vec<u8>>,
-) {
-    let write = conn.write_tx.clone();
-    tokio::spawn(async move {
-        while let Some(payload) = up_rx.recv().await {
-            let Ok(frame) = encode_mux_data_frame(sid, &payload) else {
-                break;
-            };
-            if write.send(frame).is_err() {
-                break;
-            }
-        }
-        if let Ok(close_frame) = encode_mux_end_frame(sid) {
-            let _ = write.send(close_frame);
-        }
-    });
-}
 
 fn spawn_mux_udp_upload_relay(
     conn: Arc<MuxPoolConn>,
@@ -917,7 +993,7 @@ fn spawn_mux_udp_upload_relay(
     });
 }
 
-fn spawn_mux_write_relay<W>(
+async fn run_mux_write_relay<W>(
     mut writer: W,
     mut write_rx: mpsc::UnboundedReceiver<Vec<u8>>,
     closed: Arc<AtomicBool>,
@@ -927,35 +1003,33 @@ fn spawn_mux_write_relay<W>(
 ) where
     W: AsyncWrite + Unpin + Send + 'static,
 {
-    tokio::spawn(async move {
-        loop {
-            tokio::select! {
-                biased;
-                changed = shutdown_rx.changed() => {
-                    if changed.is_err() || *shutdown_rx.borrow() {
-                        break;
-                    }
+    loop {
+        tokio::select! {
+            biased;
+            changed = shutdown_rx.changed() => {
+                if changed.is_err() || *shutdown_rx.borrow() {
+                    break;
                 }
-                frame = write_rx.recv() => {
-                    let Some(frame) = frame else {
-                        break;
-                    };
-                    if writer.write_all(&frame).await.is_err() || writer.flush().await.is_err() {
-                        break;
-                    }
-                    if let Some(activity_tx) = &activity_tx {
-                        activity_tx.send_replace(tokio::time::Instant::now());
-                    }
+            }
+            frame = write_rx.recv() => {
+                let Some(frame) = frame else {
+                    break;
+                };
+                if writer.write_all(&frame).await.is_err() || writer.flush().await.is_err() {
+                    break;
+                }
+                if let Some(activity_tx) = &activity_tx {
+                    activity_tx.send_replace(tokio::time::Instant::now());
                 }
             }
         }
-        let _ = writer.shutdown().await;
-        closed.store(true, Ordering::Release);
-        let _ = shutdown_tx.send(true);
-    });
+    }
+    let _ = writer.shutdown().await;
+    closed.store(true, Ordering::Release);
+    let _ = shutdown_tx.send(true);
 }
 
-fn spawn_mux_read_relay<R>(
+async fn run_mux_read_relay<R>(
     mut reader: R,
     streams: Arc<Mutex<HashMap<u16, MuxClientStreamState>>>,
     closed: Arc<AtomicBool>,
@@ -967,95 +1041,93 @@ fn spawn_mux_read_relay<R>(
     R: AsyncRead + Unpin + Send + 'static,
 {
     let (shutdown_tx, mut shutdown_rx) = shutdown;
-    tokio::spawn(async move {
-        if response_pending {
-            tokio::select! {
-                changed = shutdown_rx.changed() => {
-                    if changed.is_err() || *shutdown_rx.borrow() {
-                        closed.store(true, Ordering::Release);
-                        let _ = shutdown_tx.send(true);
-                        streams.lock().unwrap().clear();
-                        return;
-                    }
+    if response_pending {
+        tokio::select! {
+            changed = shutdown_rx.changed() => {
+                if changed.is_err() || *shutdown_rx.borrow() {
+                    closed.store(true, Ordering::Release);
+                    let _ = shutdown_tx.send(true);
+                    streams.lock().unwrap().clear();
+                    return;
                 }
-                response = crate::udp::read_vless_response_tokio(&mut reader) => {
-                    if response.is_err() {
-                        closed.store(true, Ordering::Release);
-                        let _ = shutdown_tx.send(true);
-                        streams.lock().unwrap().clear();
-                        return;
-                    }
+            }
+            response = crate::udp::read_vless_response_tokio(&mut reader) => {
+                if response.is_err() {
+                    closed.store(true, Ordering::Release);
+                    let _ = shutdown_tx.send(true);
+                    streams.lock().unwrap().clear();
+                    return;
                 }
             }
         }
-        loop {
-            let frame = tokio::select! {
-                biased;
-                changed = shutdown_rx.changed() => {
-                    if changed.is_err() || *shutdown_rx.borrow() {
-                        break;
-                    }
+    }
+    loop {
+        let frame = tokio::select! {
+            biased;
+            changed = shutdown_rx.changed() => {
+                if changed.is_err() || *shutdown_rx.borrow() {
+                    break;
+                }
+                continue;
+            }
+            frame = crate::mux::read_mux_frame_tokio(&mut reader) => {
+                match frame {
+                    Ok(frame) => frame,
+                    Err(_) => break,
+                }
+            }
+        };
+        if let Some(activity_tx) = &activity_tx {
+            activity_tx.send_replace(tokio::time::Instant::now());
+        }
+        if frame.session_id == 0 {
+            continue;
+        }
+        if frame.status == crate::mux::STATUS_END {
+            streams.lock().unwrap().remove(&frame.session_id);
+            continue;
+        }
+        if frame.options & crate::mux::OPTION_DATA == 0 {
+            continue;
+        }
+
+        let session_id = frame.session_id;
+        let mut streams = streams.lock().unwrap();
+        let Some(state) = streams.get_mut(&session_id) else {
+            continue;
+        };
+        let queued = match &state.downlink {
+            MuxClientDownlink::Tcp(tx) => {
+                if frame.payload.is_empty() {
                     continue;
                 }
-                frame = crate::mux::read_mux_frame_tokio(&mut reader) => {
-                    match frame {
-                        Ok(frame) => frame,
-                        Err(_) => break,
-                    }
+                let payload_len = frame.payload.len();
+                try_queue_mux_response(&response_backlog, tx, frame.payload, payload_len)
+            }
+            MuxClientDownlink::Udp(tx) => {
+                if let Some(target) = frame.target {
+                    state.target = Some((target.address, target.port));
                 }
-            };
-            if let Some(activity_tx) = &activity_tx {
-                activity_tx.send_replace(tokio::time::Instant::now());
-            }
-            if frame.session_id == 0 {
-                continue;
-            }
-            if frame.status == crate::mux::STATUS_END {
-                streams.lock().unwrap().remove(&frame.session_id);
-                continue;
-            }
-            if frame.options & crate::mux::OPTION_DATA == 0 {
-                continue;
-            }
-
-            let session_id = frame.session_id;
-            let mut streams = streams.lock().unwrap();
-            let Some(state) = streams.get_mut(&session_id) else {
-                continue;
-            };
-            let queued = match &state.downlink {
-                MuxClientDownlink::Tcp(tx) => {
-                    if frame.payload.is_empty() {
-                        continue;
-                    }
+                if let Some((target, port)) = &state.target {
                     let payload_len = frame.payload.len();
-                    try_queue_mux_response(&response_backlog, tx, frame.payload, payload_len)
+                    try_queue_mux_response(
+                        &response_backlog,
+                        tx,
+                        UdpFlowPacket::new(target.clone(), *port, frame.payload),
+                        payload_len,
+                    )
+                } else {
+                    true
                 }
-                MuxClientDownlink::Udp(tx) => {
-                    if let Some(target) = frame.target {
-                        state.target = Some((target.address, target.port));
-                    }
-                    if let Some((target, port)) = &state.target {
-                        let payload_len = frame.payload.len();
-                        try_queue_mux_response(
-                            &response_backlog,
-                            tx,
-                            UdpFlowPacket::new(target.clone(), *port, frame.payload),
-                            payload_len,
-                        )
-                    } else {
-                        true
-                    }
-                }
-            };
-            if !queued {
-                streams.remove(&session_id);
             }
+        };
+        if !queued {
+            streams.remove(&session_id);
         }
-        closed.store(true, Ordering::Release);
-        let _ = shutdown_tx.send(true);
-        streams.lock().unwrap().clear();
-    });
+    }
+    closed.store(true, Ordering::Release);
+    let _ = shutdown_tx.send(true);
+    streams.lock().unwrap().clear();
 }
 
 fn try_queue_mux_response<T>(
@@ -1079,33 +1151,35 @@ fn try_queue_mux_response<T>(
     true
 }
 
-fn spawn_mux_idle_monitor(
+async fn run_mux_idle_monitor(
     idle_timeout: Duration,
     mut activity_rx: watch::Receiver<tokio::time::Instant>,
     closed: Arc<AtomicBool>,
     shutdown_tx: watch::Sender<bool>,
+    mut shutdown_rx: watch::Receiver<bool>,
 ) {
-    tokio::spawn(async move {
-        loop {
-            let deadline = *activity_rx.borrow() + idle_timeout;
-            tokio::select! {
-                changed = activity_rx.changed() => {
-                    if changed.is_err() {
-                        return;
-                    }
-                }
-                _ = tokio::time::sleep_until(deadline) => {
-                    if tokio::time::Instant::now() < *activity_rx.borrow() + idle_timeout {
-                        continue;
-                    }
-                    if !closed.swap(true, Ordering::AcqRel) {
-                        let _ = shutdown_tx.send(true);
-                    }
+    loop {
+        let deadline = *activity_rx.borrow() + idle_timeout;
+        tokio::select! {
+            changed = shutdown_rx.changed() => {
+                if changed.is_err() || *shutdown_rx.borrow() { return; }
+            }
+            changed = activity_rx.changed() => {
+                if changed.is_err() {
                     return;
                 }
             }
+            _ = tokio::time::sleep_until(deadline) => {
+                if tokio::time::Instant::now() < *activity_rx.borrow() + idle_timeout {
+                    continue;
+                }
+                if !closed.swap(true, Ordering::AcqRel) {
+                    let _ = shutdown_tx.send(true);
+                }
+                return;
+            }
         }
-    });
+    }
 }
 
 fn encode_mux_new_stream(

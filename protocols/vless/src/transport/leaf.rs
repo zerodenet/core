@@ -1,3 +1,4 @@
+mod native;
 mod relay;
 mod reverse;
 pub use reverse::VlessReverseBridge;

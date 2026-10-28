@@ -2,6 +2,7 @@
 mod carrier;
 pub mod grpc;
 pub mod inbound;
+pub mod mux;
 mod options;
 mod owner;
 mod submit;

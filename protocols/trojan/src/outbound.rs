@@ -197,6 +197,19 @@ pub struct PreparedTrojanOutboundRequestBundle {
 }
 
 impl PreparedTrojanOutboundRequestBundle {
+    #[cfg(feature = "runtime")]
+    pub(crate) fn native_mux_plan(
+        &self,
+        server: &str,
+        port: u16,
+    ) -> Result<(crate::mux::TrojanMuxPoolKey, u32), Error> {
+        let concurrency = self
+            .requests
+            .mux_concurrency
+            .ok_or(Error::Config("native MUX requires enabled concurrency"))?;
+        Ok((self.requests.mux_pool_key(server, port), concurrency))
+    }
+
     pub fn from_config(
         password: &str,
         sni: Option<&str>,

@@ -3,6 +3,8 @@ mod carrier;
 mod connect;
 pub mod grpc;
 pub mod inbound;
+#[cfg(feature = "reality")]
+pub mod mux;
 pub(crate) mod navigation;
 mod options;
 pub use options::Options;

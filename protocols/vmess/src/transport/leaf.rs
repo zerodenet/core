@@ -1,3 +1,4 @@
+mod native;
 use std::future::Future;
 use std::path::Path;
 
