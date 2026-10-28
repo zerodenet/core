@@ -33,8 +33,8 @@ pub use owner::CarrierOwner;
 pub use packet::CarrierDatagram;
 pub use prepared::{ControlledCarrier, PreparedCarrier};
 pub use registration::{
-    CarrierNativeCloseObservation, CarrierOwnerClosed, CarrierOwnerObservation,
-    CarrierOwnerRegistration, CarrierSlotObservation,
+    CarrierNativeCloseObservation, CarrierOriginObservation, CarrierOwnerClosed,
+    CarrierOwnerObservation, CarrierOwnerRegistration, CarrierSlotObservation,
 };
 pub use resolution::{CarrierCandidates, ResolvingCarrierOpener};
 pub use service::{CarrierServiceGrant, CarrierServiceIssuer};

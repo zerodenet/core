@@ -55,6 +55,14 @@ impl CarrierIoEvidence {
     }
 }
 impl CarrierDeclarations {
+    pub(super) fn original_registration(&self, ordinal: usize) -> Option<CarrierOwnerRegistration> {
+        self.records
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .get(&ordinal)
+            .filter(|record| record.bound.is_some())
+            .map(|record| record.actual.clone())
+    }
     pub(super) fn new(
         component: ComponentId,
         declarations: &[ResourceDeclaration],

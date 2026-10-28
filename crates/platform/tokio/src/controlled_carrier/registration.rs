@@ -52,6 +52,7 @@ pub struct CarrierOwnerObservation {
 /// Bounded current-slot facts. No historical errors/tasks or user-completion
 /// claims: physical_view_live describes the original carrier view, not business users.
 pub struct CarrierSlotObservation {
+    original: CarrierOriginObservation,
     ordinal: u64,
     opening: bool,
     spawning: bool,
@@ -60,6 +61,28 @@ pub struct CarrierSlotObservation {
     auxiliary: Option<TaskJoinWitness>,
     acquisition_unknown: Option<Arc<ChannelError>>,
     native: Option<CarrierNativeCloseObservation>,
+}
+/// Weak original identity only. Observation cannot retire, borrow, open or
+/// register a driver. Expiry means unavailable, never implicitly closed.
+#[derive(Clone)]
+pub struct CarrierOriginObservation {
+    slot: Weak<super::slot::Slot>,
+    completion: Arc<std::sync::OnceLock<bool>>,
+}
+impl CarrierOriginObservation {
+    /// The actual original controller's durable disposition. Only native
+    /// settlement installs this cell; expired Weak and Drop never do.
+    pub fn closed(&self) -> Option<super::CarrierOriginClosed> {
+        self.completion.get().map(|_| super::CarrierOriginClosed {
+            completion: self.completion.clone(),
+        })
+    }
+    pub fn matches_closed(&self, proof: &super::CarrierOriginClosed) -> bool {
+        Arc::ptr_eq(&self.completion, &proof.completion) && self.completion.get().is_some()
+    }
+    pub fn same_original(&self, other: &Self) -> bool {
+        self.slot.ptr_eq(&other.slot) && Arc::ptr_eq(&self.completion, &other.completion)
+    }
 }
 pub struct CarrierNativeCloseObservation {
     closed: bool,
@@ -82,6 +105,9 @@ impl CarrierNativeCloseObservation {
     }
 }
 impl CarrierSlotObservation {
+    pub fn original(&self) -> &CarrierOriginObservation {
+        &self.original
+    }
     pub fn ordinal(&self) -> u64 {
         self.ordinal
     }
@@ -168,6 +194,10 @@ impl CarrierOwnerRegistration {
                     let state = slot.state();
                     (
                         CarrierSlotObservation {
+                            original: CarrierOriginObservation {
+                                slot: Arc::downgrade(&slot),
+                                completion: slot.completion.clone(),
+                            },
                             ordinal: slot.ordinal,
                             opening: state.opening,
                             spawning: state.spawning,

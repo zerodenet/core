@@ -101,6 +101,21 @@ impl Drop for StartCancellation<'_> {
 }
 
 impl ComponentSlot {
+    /// Observe the installed original for one declared ordinal. This weak
+    /// identity grants no acquisition, cleanup or task authority; absence is
+    /// unavailable evidence, never a successful close. Its opaque receipts
+    /// remain independently matchable after the host retires this slot.
+    pub fn original_carrier_owner(
+        &self,
+        ordinal: usize,
+    ) -> Option<zero_platform_tokio::controlled_carrier::CarrierOwnerRegistration> {
+        self.live
+            .get()?
+            .as_ref()
+            .ok()?
+            .resources
+            .original_carrier_owner(ordinal)
+    }
     pub fn new(
         id: ComponentId,
         generation: ResourceGeneration,

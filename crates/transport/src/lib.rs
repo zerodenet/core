@@ -21,6 +21,7 @@ pub mod outbound_datagram;
     feature = "http_upgrade"
 ))]
 pub mod outbound_stack;
+pub mod pooled_driver;
 pub mod profile;
 pub mod proxy_protocol;
 #[cfg(feature = "quic")]

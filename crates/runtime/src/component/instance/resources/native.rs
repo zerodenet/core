@@ -26,6 +26,14 @@ pub struct HostResources {
     changed: Arc<tokio::sync::Notify>,
     cleanup: AsyncMutex<()>,
 }
+impl HostResources {
+    pub(in crate::component) fn original_carrier_owner(
+        &self,
+        ordinal: usize,
+    ) -> Option<zero_platform_tokio::controlled_carrier::CarrierOwnerRegistration> {
+        self.carriers.original_registration(ordinal)
+    }
+}
 struct State {
     closed: bool,
     start_deadline: Option<Instant>,

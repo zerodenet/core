@@ -56,6 +56,18 @@ impl std::fmt::Debug for ComponentPlan {
     }
 }
 impl ComponentPlan {
+    /// Exact original-resource observation, including roleless dependencies.
+    /// No role identity is fabricated and no owner is started by this lookup.
+    pub fn original_carrier_owner(
+        &self,
+        instance: zero_core::component::ComponentInstanceId,
+        ordinal: usize,
+    ) -> Option<zero_platform_tokio::controlled_carrier::CarrierOwnerRegistration> {
+        self.order
+            .iter()
+            .find(|slot| slot.instance_id() == instance)?
+            .original_carrier_owner(ordinal)
+    }
     /// Register only actual current/preparing generations before a background
     /// acquisition. This grants no socket/task and is not a close receipt.
     pub fn authorize_carrier_prefix(

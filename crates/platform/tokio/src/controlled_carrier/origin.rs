@@ -201,7 +201,7 @@ impl CarrierOrigin {
 }
 #[derive(Clone)]
 pub struct CarrierOriginClosed {
-    completion: Arc<std::sync::OnceLock<bool>>,
+    pub(super) completion: Arc<std::sync::OnceLock<bool>>,
 }
 impl CarrierOriginClosed {
     pub fn matches(&self, origin: &CarrierOrigin) -> bool {
