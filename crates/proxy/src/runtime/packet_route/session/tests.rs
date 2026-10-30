@@ -458,3 +458,6 @@ async fn close_wakes_idle_owner_even_when_the_response_consumer_is_blocked() {
 
 #[path = "tests/ownership.rs"]
 mod ownership;
+
+#[path = "tests/expiry.rs"]
+mod expiry;

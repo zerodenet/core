@@ -2,9 +2,6 @@
 use std::net::IpAddr;
 use std::net::SocketAddr;
 
-#[cfg(feature = "raw-ip-runtime")]
-use zero_core::Address;
-
 use crate::runtime::tcp_ingress::TcpIngressRuntime;
 #[cfg(feature = "udp-runtime")]
 use crate::runtime::udp_ingress::UdpIngressRuntime;
@@ -74,6 +71,8 @@ impl InboundRouteRuntime {
 pub(crate) struct InboundRouteRuntimeFactory {
     pub(super) shared: SharedIngressRuntimeServices,
     pub(super) inbound_tag: String,
+    #[cfg(feature = "raw-ip-runtime")]
+    ip_routes: std::sync::Arc<std::sync::Mutex<zero_engine::IpRouteCache>>,
 }
 
 impl InboundRouteRuntimeFactory {
@@ -81,6 +80,8 @@ impl InboundRouteRuntimeFactory {
         Self {
             shared: shared.for_inbound(inbound_tag.clone()),
             inbound_tag,
+            #[cfg(feature = "raw-ip-runtime")]
+            ip_routes: Default::default(),
         }
     }
 
@@ -90,8 +91,10 @@ impl InboundRouteRuntimeFactory {
         destination: IpAddr,
         protocol: Option<u8>,
     ) -> crate::inventory::PacketRouteTarget {
-        let shared = self.shared.with_current_snapshot();
-        let services = shared.tcp_services();
+        // Packet classification only needs the live engine snapshot. Rebuilding
+        // TCP/UDP execution services also prepares component plans, even though
+        // none of those execution owners are consumed by this lookup.
+        let services = self.shared.tcp_services();
         if services.resolver().fake_ip_contains(destination) {
             // A synthetic DNS address is a logical target, never a native
             // packet destination. Restore it in the existing session path
@@ -104,25 +107,32 @@ impl InboundRouteRuntimeFactory {
                 _ => crate::inventory::PacketRouteTarget::Unsupported,
             };
         }
-        let address = match destination {
-            IpAddr::V4(ip) => Address::Ipv4(ip.octets()),
-            IpAddr::V6(ip) => Address::Ipv6(ip.octets()),
-        };
         let engine = services.engine();
-        let snapshot = services.snapshot();
+        let snapshot = engine.runtime_snapshot();
         let trace = engine
-            .evaluate_route_in_snapshot(snapshot, &address, None, Some(&self.inbound_tag), &[])
+            .evaluate_ip_route_cached_in_snapshot(
+                &snapshot,
+                destination,
+                Some(&self.inbound_tag),
+                &mut self
+                    .ip_routes
+                    .lock()
+                    .unwrap_or_else(|error| error.into_inner()),
+            )
             .trace;
-        let Ok((resolved, _)) = engine.resolve_route_decision_in_snapshot(snapshot, trace.decision)
+        // Group scheduling, endpoint admission and executable capability
+        // preparation remain live on every packet; a Flow pin is not a bypass.
+        let Ok((resolved, _)) =
+            engine.resolve_route_decision_in_snapshot(&snapshot, trace.decision)
         else {
             return crate::inventory::PacketRouteTarget::Unsupported;
         };
         services.protocols().prepare_packet_route_target_admitted(
-            services.config(),
+            snapshot.config(),
             resolved,
             protocol,
             trace.route_mode,
-            &zero_engine::EndpointAdmission::from_snapshot(snapshot),
+            &zero_engine::EndpointAdmission::from_snapshot(&snapshot),
         )
     }
 

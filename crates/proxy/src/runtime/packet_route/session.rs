@@ -38,6 +38,11 @@ struct RoutePin {
 #[derive(Default)]
 pub(crate) struct PacketSessionPins {
     entries: HashMap<RouteKey, RoutePin>,
+    // A lower bound: touching/removing a pin may leave an earlier deadline,
+    // but inserting a pin must never move this past its actual expiry.
+    next_expiry: Option<Instant>,
+    #[cfg(test)]
+    expiry_scans: usize,
     meters: Option<MeterProvider>,
     management: Option<(zero_engine::Engine, String)>,
     management_changed: std::sync::Arc<tokio::sync::Notify>,
@@ -103,17 +108,30 @@ impl PacketSessionPins {
 
     pub(crate) fn with_meters(meters: MeterProvider) -> Self {
         Self {
-            entries: Default::default(),
             meters: Some(meters),
-            management: None,
-            management_changed: Default::default(),
+            ..Self::default()
         }
     }
     pub(crate) fn expire(&mut self) {
         self.retire_closed();
-        let now = Instant::now();
-        self.entries
-            .retain(|_, pin| now.duration_since(pin.touched) < IDLE_TIMEOUT);
+        self.expire_at(Instant::now());
+    }
+
+    fn expire_at(&mut self, now: Instant) {
+        #[cfg(test)]
+        {
+            self.expiry_scans += 1;
+        }
+        let mut next_expiry = None;
+        self.entries.retain(|_, pin| {
+            let expiry = pin.touched + IDLE_TIMEOUT;
+            if expiry <= now {
+                return false;
+            }
+            next_expiry = Some(next_expiry.map_or(expiry, |next: Instant| next.min(expiry)));
+            true
+        });
+        self.next_expiry = next_expiry;
     }
 
     pub(crate) fn retain_admitted(&mut self, mut admitted: impl FnMut(&PacketPlane) -> bool) {
@@ -132,10 +150,14 @@ impl PacketSessionPins {
         let Some(key) = key(packet, peer) else {
             return false;
         };
-        let now = Instant::now();
-        self.entries
-            .retain(|_, pin| now.duration_since(pin.touched) < IDLE_TIMEOUT);
-        match self.entries.get(&key) {
+        self.permits_key_at(&key, plane, Instant::now())
+    }
+
+    fn permits_key_at(&mut self, key: &RouteKey, plane: &PacketPlane, now: Instant) -> bool {
+        if self.next_expiry.is_some_and(|expiry| expiry <= now) {
+            self.expire_at(now);
+        }
+        match self.entries.get(key) {
             Some(pin) => {
                 &pin.plane == plane && !pin.control.as_ref().is_some_and(|c| c.is_closed())
             }
@@ -168,6 +190,23 @@ impl PacketSessionPins {
         inbound_peer: Option<std::sync::Arc<str>>,
         outbound_peer: Option<std::sync::Arc<str>>,
     ) -> bool {
+        self.record_peers_key_at(
+            packet_key,
+            plane,
+            inbound_peer,
+            outbound_peer,
+            Instant::now(),
+        )
+    }
+
+    fn record_peers_key_at(
+        &mut self,
+        packet_key: Option<packet::PacketConversationKey>,
+        plane: PacketPlane,
+        inbound_peer: Option<std::sync::Arc<str>>,
+        outbound_peer: Option<std::sync::Arc<str>>,
+        now: Instant,
+    ) -> bool {
         let Some(key) = packet_key.map(|key| (key, inbound_peer.clone())) else {
             return false;
         };
@@ -186,7 +225,7 @@ impl PacketSessionPins {
                 pin.outbound_peer = outbound_peer;
             }
             pin.accepted = true;
-            pin.touched = Instant::now();
+            pin.touched = now;
             return true;
         }
         if self.entries.len() >= MAX_PINNED_ROUTES {
@@ -205,13 +244,15 @@ impl PacketSessionPins {
                 outbound_peer,
                 observer: None,
                 plane,
-                touched: Instant::now(),
+                touched: now,
                 accepted: true,
                 managed: None,
                 control: None,
                 replies: None,
             },
         );
+        let expiry = now + IDLE_TIMEOUT;
+        self.next_expiry = Some(self.next_expiry.map_or(expiry, |next| next.min(expiry)));
         true
     }
 }
