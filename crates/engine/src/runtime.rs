@@ -41,7 +41,7 @@ mod traffic;
 
 pub(crate) use endpoint::Fact as EndpointFact;
 pub use endpoint::{EndpointAdmission, EndpointChange};
-pub use route::RouteEvaluation;
+pub use route::{IpRouteCache, RouteEvaluation};
 pub use snapshot::EngineRuntimeSnapshot;
 
 #[derive(Debug, Clone)]
