@@ -1,7 +1,7 @@
 use super::*;
 use std::{
     pin::Pin,
-    sync::atomic::{AtomicUsize, Ordering},
+    sync::atomic::Ordering,
     task::{Context, Poll},
 };
 use zero_core::{component::AssociationId, packet::Datagram};
