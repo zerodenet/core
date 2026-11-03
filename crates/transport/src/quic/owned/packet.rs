@@ -174,7 +174,7 @@ impl PacketSegment {
         let task=self.graph.drivers().spawn(origin,zero_platform_tokio::contract::scope::TaskClass::Auxiliary,move |slot| async move {
             let socket=source.socket();
             let callbacks=source.callbacks.clone();
-            let work=Box::pin(async {
+            let work=Box::pin(async move {
                 let channels=queue.channels.as_mut().unwrap();
                 loop {
                     tokio::select! {biased;
@@ -190,7 +190,7 @@ impl PacketSegment {
                 }
             });
             let result=callbacks::Boundary::new(work,callbacks).await;
-            drop(socket);drop(source);drop(queue);
+            drop(source);
             let body=slot.record(DriverBody {origin,io_error:result.err().map(Arc::new),close_reason:None,
                 #[cfg(any(feature="split_http",feature="hysteria",feature="quic_h3"))] http3:None});
             match &body.io_error {Some(source)=>Err(error(Reason::Io).with_source(Original(source.clone()))),None=>Ok(())}
