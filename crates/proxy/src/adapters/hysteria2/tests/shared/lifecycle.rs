@@ -112,3 +112,70 @@ async fn hysteria2_network_replacement_waits_for_the_actual_historical_stream_gu
         drop(replacement);proxy.protocols.shutdown_components(end()).await.unwrap();server.close().await;
     }).await.unwrap();
 }
+
+#[tokio::test]
+async fn hysteria2_actual_node_candidates_fall_back_and_concurrent_users_share_the_survivor() {
+    tokio::time::timeout(Duration::from_secs(20), async {
+        let server = Server::new().await;
+        // The first real candidate refuses its QUIC handshake. It cannot
+        // authenticate, and the next candidate is the actual HY2 fixture.
+        let refused = zero_transport::quic::QuicInbound::bind(
+            &format!("127.0.0.2:{}", server.port),
+            "cert.pem",
+            "key.pem",
+            Some(server._material.path()),
+            &[b"h3".to_vec()],
+        )
+        .await
+        .unwrap();
+        let mut dns = crate::dns_fixture::Dns::new().await;
+        let mut config = zero_config::RuntimeConfig::parse(
+            &serde_json::json!({
+                "outbounds":[{"tag":"hy","protocol":{"type":"hysteria2",
+                    "server":"candidates.test","server_name":"localhost",
+                    "port":server.port,"password":"p","insecure":true}}],
+                "route":{"final":{"type":"route","outbound":"hy"}}
+            })
+            .to_string(),
+        )
+        .unwrap();
+        config.runtime.dns = Some(dns.config());
+        let proxy = Proxy::new(config).unwrap();
+        start(&proxy).await;
+        let exchanges = async { tokio::join!(connect(&proxy, "hy"), connect(&proxy, "hy")) };
+        tokio::pin!(exchanges);
+        let request = tokio::select! {
+            request = dns.request() => request,
+            _ = &mut exchanges => panic!("domain dialing bypassed the actual Node resolver"),
+        };
+        request.answer_ips(
+            false,
+            false,
+            &[
+                zero_traits::IpAddress::V4([127, 0, 0, 2]),
+                zero_traits::IpAddress::V4([127, 0, 0, 1]),
+            ],
+        );
+        let incoming = tokio::select! {
+            incoming = refused.accept_incoming() => incoming.unwrap(),
+            _ = &mut exchanges => panic!("the first actual candidate was skipped"),
+        };
+        assert_eq!(server.authenticated.load(Ordering::SeqCst), 0);
+        incoming.refuse();
+        let (first, second) = exchanges.await;
+        assert_eq!(
+            server.authenticated.load(Ordering::SeqCst),
+            1,
+            "failed candidate cleanup precedes one shared surviving authentication"
+        );
+        drop(first);
+        drop(second);
+        proxy.protocols.shutdown_components(end()).await.unwrap();
+        proxy.resolver.shutdown_queries(end()).await.unwrap();
+        drop(refused);
+        dns.close().await;
+        server.close().await;
+    })
+    .await
+    .unwrap();
+}
