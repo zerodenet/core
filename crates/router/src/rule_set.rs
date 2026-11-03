@@ -57,11 +57,11 @@ impl fmt::Debug for RuleSetMatcher {
 impl PartialEq for RuleSetMatcher {
     fn eq(&self, other: &Self) -> bool {
         self.tag == other.tag
-            && (Arc::ptr_eq(&self.matcher, &other.matcher)
-                || self
-                    .source_digest
-                    .zip(other.source_digest)
-                    .is_some_and(|(a, b)| a == b))
+            && match (self.source_digest, other.source_digest) {
+                (Some(left), Some(right)) => left == right,
+                (None, None) => Arc::ptr_eq(&self.matcher, &other.matcher),
+                _ => false,
+            }
     }
 }
 
