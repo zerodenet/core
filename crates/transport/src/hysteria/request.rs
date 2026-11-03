@@ -41,7 +41,7 @@ where
 }
 async fn serve_using<S>(
     request: http::Request<()>,
-    stream: h3::server::RequestStream<S, Bytes>,
+    mut stream: h3::server::RequestStream<S, Bytes>,
     profile: &Profile,
     authenticated: &AtomicBool,
     negotiate: impl Fn(u64),
