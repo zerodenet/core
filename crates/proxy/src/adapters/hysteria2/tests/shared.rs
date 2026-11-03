@@ -129,6 +129,7 @@ async fn standard_hysteria2_proxy_tcp_udp_empty_multitarget_and_packet_paths_sha
         let returns=Arc::new(crate::component::datagram_retirement::DatagramReturns::default());
         let runtime=crate::runtime::udp_ingress::UdpIngressRuntime::new(proxy.tcp_runtime_services()).with_datagram_returns(returns.clone());
         let mut dispatch=runtime.new_dispatch("incoming").await.unwrap();
+        let mut flow_bytes=BTreeMap::new();
         for (target,payload) in [(Address::Ipv4([203,0,113,1]),Vec::new()),(Address::Ipv4([203,0,113,1]),b"flow".to_vec()),(Address::Ipv4([203,0,113,2]),vec![7;1600])] {
             let id=dispatch.dispatch(crate::runtime::pipe::UdpPipeInput {peer_identity:None,target:target.clone(),port:53,payload:&payload,route_target:None,sniffed_original_target:None,sniffed_host_source:None,skip_fake_ip_restore:false,protocol:ProtocolType::new("test"),auth:None,source_addr:None,client_session_id:None,transparent_target:false,transparent_original_target:None,transparent_host_source:None}).await.unwrap();
             let (_,tasks,_)=dispatch.poll_sockets();let packet=tasks.join_next_with_id().await.unwrap().unwrap().unwrap();
@@ -136,7 +137,9 @@ async fn standard_hysteria2_proxy_tcp_udp_empty_multitarget_and_packet_paths_sha
             crate::runtime::udp_delivery::record_chain_udp_response_parts(&proxy.udp_runtime_services(),&dispatch,packet.0,packet.1,packet.2,packet.3);
             let active=proxy.engine().active_sessions().into_iter().find(|session|session.id==id).unwrap();
             assert_eq!(active.outbound_tag.as_deref(),Some("hy"));
-            assert_eq!(active.outbound_tx_bytes,server.wire.lock().unwrap()[&(target.clone(),53)],"Flow TX preserves actual protocol-framed datagram bytes");
+            let expected=flow_bytes.entry(target.clone()).or_insert(0u64);*expected+=payload.len() as u64;
+            assert_eq!(active.outbound_tx_bytes,*expected,"HY2 Flow TX preserves payload-only accounting");
+            assert!(server.wire.lock().unwrap()[&(target.clone(),53)]>*expected,"real framed bytes remain distinct from payload Flow");
         }
         #[cfg(feature="raw-ip-runtime")]
         {

@@ -14,13 +14,7 @@ use crate::{
         udp_flow::packet_path::{PacketPathCarrier, PacketPathCarrierDescriptor},
     },
 };
-use std::{
-    pin::Pin,
-    sync::{
-        atomic::{AtomicU64, Ordering},
-        Arc,
-    },
-};
+use std::{pin::Pin, sync::Arc};
 use zero_core::{
     component::{AssociationId, NetworkGeneration},
     request::{DatagramTargets, Destination, ServiceOrigin, ServicePurpose, ServiceRequestFacts},
@@ -97,18 +91,10 @@ impl PreparedUdpPacketPathOperation for StandardPacketPath {
                 self.descriptor.port,
             );
             let root = NodeOpener::new(execution.upstream_observed(tag), endpoint);
-            static NEXT: AtomicU64 = AtomicU64::new(1);
-            let association = AssociationId(
-                NEXT.fetch_update(Ordering::Relaxed, Ordering::Relaxed, |n| n.checked_add(1))
-                    .map_err(|_| {
-                        failure(invalid(
-                            Reason::Capacity,
-                            "packet association identity exhausted",
-                        ))
-                    })?,
-            );
+            let reservation = execution.reserve_datagram().map_err(failure)?;
+            let association = reservation.association();
             let stop = CancellationToken::new();
-            let session = role
+            let mut session = role
                 .open(
                     DatagramRequest {
                         association,
@@ -136,6 +122,7 @@ impl PreparedUdpPacketPathOperation for StandardPacketPath {
                 )
                 .await
                 .map_err(failure)?;
+            session.control = reservation.adopt(session.control);
             Ok(Arc::new(Path::new(session, association, stop)) as Arc<dyn PacketPathCarrier>)
         })
     }

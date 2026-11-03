@@ -185,7 +185,14 @@ impl DatagramOutbound for Role {
         context.upstream.observe_carrier_origin(&original);
         let association = request.association;
         let channel = auth.open_udp()?;
-        let session = datagram::session(channel, request, context)?;
+        let generation = self
+            .options
+            .pool
+            .upgrade()
+            .ok_or_else(|| error(Stage::Prepare, Reason::Revoked))?
+            .generation(self.generation)?;
+        let session =
+            datagram::session(channel, request, context, generation, self.options.profile)?;
         Ok(
             zero_platform_tokio::controlled_carrier::loan::DatagramLoan::new_metadata_pool(
                 zero_platform_tokio::contract::datagram::erase_session(session),
@@ -202,7 +209,13 @@ impl DatagramOutbound for Role {
     ) -> Result<DatagramSession<Self::Tx, Self::Rx, Self::Control>, ChannelError> {
         let auth = self.acquire(&context).await?;
         let channel = auth.open_udp()?;
-        datagram::session(channel, request, context)
+        let generation = self
+            .options
+            .pool
+            .upgrade()
+            .ok_or_else(|| error(Stage::Prepare, Reason::Revoked))?
+            .generation(self.generation)?;
+        datagram::session(channel, request, context, generation, self.options.profile)
     }
 }
 mod datagram;

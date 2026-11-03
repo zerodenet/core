@@ -141,7 +141,10 @@ impl OwnedAuthentication {
         .await;
         if let Some(observer) = &observer {
             let traffic = stream.drain_traffic();
-            observer.protocol_traffic(session, traffic.read_bytes, traffic.written_bytes);
+            // The existing HY2 Session path reports application Flow bytes
+            // only. Actual authentication/request bytes remain Outer traffic.
+            let _ = traffic;
+            observer.protocol_traffic(session, 0, 0);
             match &result {
                 Ok(()) => observer.record(session, ConnectFact::PeerConfirmed),
                 Err(error) if error.reason == Reason::Protocol => {

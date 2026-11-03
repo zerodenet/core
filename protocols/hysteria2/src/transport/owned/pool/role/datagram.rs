@@ -10,17 +10,11 @@ use zero_platform_tokio::contract::{
     lifecycle::ChannelControl,
     BoxFuture, CancellationToken, SendFailure, SendReceipt,
 };
-struct Shared {
-    channel: Mutex<Option<Arc<OwnedUdpChannel>>>,
-    views: AtomicUsize,
-    changed: tokio::sync::Notify,
-    stop: CancellationToken,
-}
-impl Shared {
-    fn returned(&self) {
-        self.views.fetch_sub(1, Ordering::AcqRel);
-        self.changed.notify_waiters();
-    }
+mod shared;
+use shared::Shared;
+struct PendingSend {
+    frame: Datagram,
+    future: BoxFuture<'static, Result<usize, SendFailure>>,
 }
 pub struct Tx {
     shared: Arc<Shared>,
@@ -28,6 +22,7 @@ pub struct Tx {
     limits: DatagramLimits,
     observer: Option<Arc<dyn zero_platform_tokio::contract::context::ConnectObserver>>,
     session: Option<zero_core::component::SessionId>,
+    pending: Option<PendingSend>,
 }
 pub struct Rx {
     shared: Arc<Shared>,
@@ -41,18 +36,21 @@ pub(super) fn session(
     channel: OwnedUdpChannel,
     request: DatagramRequest,
     context: OpenContext,
+    generation: Arc<Generation>,
+    profile: usize,
 ) -> Result<DatagramSession<Tx, Rx, Control>, ChannelError> {
     let limits = DatagramLimits {
         max_payload: 65535,
-        queued_bytes: 0,
+        queued_bytes: 65535,
         targets: request.targets,
     };
-    let shared = Arc::new(Shared {
-        channel: Mutex::new(Some(Arc::new(channel))),
-        views: AtomicUsize::new(2),
-        changed: Default::default(),
-        stop: context.cancel.child_token(),
-    });
+    let shared = Shared::new(
+        channel,
+        &generation,
+        profile,
+        context.upstream.binding().clone(),
+        context.cancel.child_token(),
+    );
     Ok(DatagramSession {
         tx: Tx {
             shared: shared.clone(),
@@ -60,6 +58,7 @@ pub(super) fn session(
             limits: limits.clone(),
             observer: context.observer.clone(),
             session: context.session_identity()?,
+            pending: None,
         },
         rx: Rx {
             shared: shared.clone(),
@@ -73,33 +72,44 @@ pub(super) fn session(
 impl DatagramTx for Tx {
     fn poll_send(
         self: Pin<&mut Self>,
-        _: &mut Context<'_>,
+        cx: &mut Context<'_>,
         frame: &Datagram,
     ) -> Poll<Result<SendReceipt, SendFailure>> {
         let this = self.get_mut();
         let reject =
             |reason| SendFailure::new(error(Stage::Send, reason), DeliveryState::NotSubmitted);
         if this.shared.stop.is_cancelled() {
+            this.pending = None;
             return Poll::Ready(Err(reject(Reason::Cancelled)));
         }
         this.limits.validate(frame)?;
         if frame.association != this.association {
             return Poll::Ready(Err(reject(Reason::Protocol)));
         }
-        let channel = this
-            .shared
-            .channel
-            .lock()
-            .unwrap()
-            .as_ref()
-            .cloned()
-            .ok_or_else(|| reject(Reason::Revoked))?;
-        let encoded = channel.send(&frame.address.address, frame.address.port, &frame.payload)?;
+        if let Some(pending) = &this.pending {
+            if pending.frame != *frame {
+                this.shared.stop.cancel();
+                return Poll::Ready(Err(reject(Reason::Protocol)));
+            }
+        } else {
+            let shared = this.shared.clone();
+            let target = frame.address.clone();
+            let payload = frame.payload.to_vec();
+            this.pending = Some(PendingSend {
+                frame: frame.clone(),
+                future: Box::pin(async move { shared.send(target, payload).await }),
+            });
+        }
+        let result = std::task::ready!(this.pending.as_mut().unwrap().future.as_mut().poll(cx));
+        this.pending = None;
+        let sent = result?;
+        // HY2's existing managed Flow accounting is payload-only. QUIC and
+        // native framing remains counted once at the actual Outer provider.
         if let Some(observer) = &this.observer {
-            observer.datagram_sent(this.session, encoded as u64);
+            observer.datagram_sent(this.session, sent as u64);
         }
         Poll::Ready(Ok(SendReceipt {
-            accepted_bytes: frame.payload.len(),
+            accepted_bytes: sent,
             delivery: DeliveryState::LocallyAccepted,
         }))
     }
@@ -113,18 +123,8 @@ impl DatagramRx for Rx {
         let future = if let Some(pending) = &mut this.pending {
             pending
         } else {
-            let channel = this
-                .shared
-                .channel
-                .lock()
-                .unwrap()
-                .as_ref()
-                .cloned()
-                .ok_or_else(|| error(Stage::Receive, Reason::Revoked))?;
-            let stop = this.shared.stop.clone();
-            this.pending = Some(Box::pin(async move {
-                tokio::select! {biased;_=stop.cancelled()=>Err(error(Stage::Receive,Reason::Cancelled)),result=channel.receive()=>result}
-            }));
+            let shared = this.shared.clone();
+            this.pending = Some(Box::pin(async move { shared.receive().await }));
             this.pending.as_mut().unwrap()
         };
         let result = std::task::ready!(future.as_mut().poll(cx));
@@ -139,6 +139,7 @@ impl DatagramRx for Rx {
 }
 impl Drop for Tx {
     fn drop(&mut self) {
+        self.pending = None;
         self.shared.returned();
     }
 }
@@ -159,7 +160,7 @@ impl ChannelControl for Control {
             tokio::pin!(changed);
             changed.as_mut().enable();
             if self.shared.views.load(Ordering::Acquire) == 0 {
-                drop(self.shared.channel.lock().unwrap().take());
+                self.shared.release()?;
                 return Ok(CloseReport::default());
             }
             tokio::time::timeout_at(end, changed)

@@ -127,6 +127,25 @@ pub struct OwnedUdpChannel {
     receive: tokio::sync::Mutex<Receive>,
 }
 impl OwnedUdpChannel {
+    /// Explicitly retire this original logical registration after its unique
+    /// receiver and all transferred channel guards have returned. Native QUIC
+    /// and UDP closure remain the pool owner's separate obligations.
+    pub fn retire(mut self) -> zero_platform_tokio::contract::lifecycle::CloseReport {
+        self.state.lock().unwrap().sessions.remove(&self.id);
+        let receive = self.receive.get_mut();
+        receive.rx.close();
+        while receive.rx.try_recv().is_ok() {}
+        zero_platform_tokio::contract::lifecycle::CloseReport {
+            released_resources: vec![format!(
+                "Hysteria2 original UDP logical registration {}",
+                self.id
+            )],
+            ..Default::default()
+        }
+    }
+    pub fn is_closed(&self) -> bool {
+        !self.connection.is_ready()
+    }
     pub fn send(
         &self,
         target: &zero_core::Address,

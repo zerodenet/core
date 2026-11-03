@@ -26,14 +26,21 @@ fn input(payload: &[u8]) -> UdpPipeInput<'_> {
     }
 }
 async fn exchange(proxy: &Proxy, payloads: &[&[u8]]) {
+    let returns =
+        std::sync::Arc::new(crate::component::datagram_retirement::DatagramReturns::default());
     let mut dispatch = UdpIngressRuntime::new(proxy.tcp_runtime_services())
+        .with_datagram_returns(returns.clone())
         .new_dispatch("incoming")
         .await
         .unwrap();
     let mut previous = None;
     let mut total = 0;
     for payload in payloads {
-        let id = dispatch.dispatch(input(payload)).await.unwrap();
+        let id = proxy
+            .protocols
+            .drive_component_supervision(dispatch.dispatch(input(payload)))
+            .await
+            .unwrap();
         if let Some(previous) = previous {
             assert_eq!(id, previous);
         }
@@ -61,7 +68,19 @@ async fn exchange(proxy: &Proxy, payloads: &[&[u8]]) {
         assert_eq!(active.outbound_tx_bytes, total);
         assert_eq!(active.outbound_rx_bytes, total);
     }
-    dispatch.finish_all();
+    let (_, mut sockets, responses) = dispatch.finish_retaining_io();
+    let end = tokio::time::Instant::now() + Duration::from_secs(5);
+    let receipt = responses.shutdown(end).await.unwrap();
+    assert!(receipt.matches(&responses));
+    assert!(sockets.close_originals().is_complete());
+    assert!(proxy
+        .tcp_runtime_services()
+        .execution()
+        .retired_datagrams()
+        .wait_returns(&returns, end)
+        .await
+        .unwrap()
+        .is_complete());
 }
 #[cfg(feature = "shadowsocks")]
 #[tokio::test]
@@ -124,8 +143,11 @@ async fn hysteria2_actual_udp_preserves_pre_sent_first_packet_reuse_tls_and_acco
                 "password":"typed-password","server_name":"localhost","ca_cert_path":"ca.pem"}}],
             "route":{"final":{"type":"route","outbound":"node"}}
         }).to_string(),Some(material.path().to_owned())).unwrap();
-        let proxy=Proxy::new(config).unwrap();exchange(&proxy,&[b"first",b"second"]).await;
-        done.send(()).unwrap();worker.await.unwrap();
+        let proxy=Proxy::new(config).unwrap();
+        let config=proxy.engine().runtime_snapshot().config().clone();let end=tokio::time::Instant::now()+Duration::from_secs(5);
+        proxy.protocols.start_components(config.clone(),end).await.unwrap();proxy.protocols.commit_components(&config,||Ok(())).unwrap();
+        exchange(&proxy,&[b"first",b"second"]).await;
+        done.send(()).unwrap();worker.await.unwrap();proxy.protocols.shutdown_components(tokio::time::Instant::now()+Duration::from_secs(5)).await.unwrap();
     }).await.unwrap();
 }
 
@@ -136,7 +158,6 @@ async fn typed_hysteria2_connection_reopens_after_actual_logical_end_without_res
     use ::hysteria2::transport::{
         Hysteria2AuthenticatedInboundProfile, Hysteria2InboundBindOptionsRef,
         Hysteria2InboundBindPlan, Hysteria2InboundOptionsRef, Hysteria2InboundUserRef,
-        Hysteria2ManagedUdpFlowConfig,
     };
     timeout(Duration::from_secs(25), async {
         let material = tempfile::tempdir().unwrap();
@@ -197,47 +218,30 @@ async fn typed_hysteria2_connection_reopens_after_actual_logical_end_without_res
                 closed.send(()).await.unwrap();
             }
         });
-        let config =
-            zero_config::RuntimeConfig::parse(r#"{"route":{"final":{"type":"direct"}}}"#).unwrap();
-        let proxy = Proxy::new(config).unwrap();
-        let plan =
-            Hysteria2ManagedUdpFlowConfig::new("node", "127.0.0.1", port, "typed-password", None)
-                .with_insecure(true)
-                .flow_resume();
-        let connection = super::datagram_manager::connection_from_plan(
-            plan,
-            crate::runtime::path::OutboundEndpoint {
-                server: "127.0.0.1".into(),
-                port,
-            },
-        );
-        let mut tasks = tokio::task::JoinSet::new();
-        for payload in [b"first".as_slice(), b"second".as_slice()] {
-            assert_eq!(
-                connection
-                    .send_datagram(
-                        &mut tasks,
-                        Some(proxy.udp_runtime_services()),
-                        77,
-                        &Address::Ipv4([203, 0, 113, 1]),
-                        443,
-                        payload
-                    )
-                    .await
-                    .unwrap(),
-                payload.len()
-            );
-            let packet = tasks.join_next().await.unwrap().unwrap().unwrap();
-            assert_eq!(packet.2, payload);
-            finish.send(()).await.unwrap();
-            closures.recv().await.unwrap();
-            // Observe the protocol's actual queue retirement, never a delay or
-            // a fabricated native-close report. This test qualifies logical
-            // reconstruction only; original native admission gates stay closed.
-            while !connection.is_closed() {
-                tokio::task::yield_now().await;
-            }
+        let config=zero_config::RuntimeConfig::parse(&serde_json::json!({
+            "outbounds":[{"tag":"node","protocol":{"type":"hysteria2","server":"127.0.0.1","port":port,"password":"typed-password","server_name":"localhost","insecure":true}}],
+            "route":{"final":{"type":"route","outbound":"node"}}
+        }).to_string()).unwrap();
+        let proxy=Proxy::new(config).unwrap();let config=proxy.engine().runtime_snapshot().config().clone();
+        let deadline=||tokio::time::Instant::now()+Duration::from_secs(5);
+        proxy.protocols.start_components(config.clone(),deadline()).await.unwrap();proxy.protocols.commit_components(&config,||Ok(())).unwrap();
+        let returns=std::sync::Arc::new(crate::component::datagram_retirement::DatagramReturns::default());
+        let mut dispatch=UdpIngressRuntime::new(proxy.tcp_runtime_services()).with_datagram_returns(returns.clone()).new_dispatch("incoming").await.unwrap();
+        let mut original_id=None;
+        for payload in [b"first".as_slice(),b"second".as_slice()] {
+            let id=proxy.protocols.drive_component_supervision(dispatch.dispatch(input(payload))).await.unwrap();
+            if let Some(original)=original_id{assert_eq!(id,original,"same logical business association survives actual pooled carrier reconstruction");}original_id=Some(id);
+            let (_,tasks,_)=dispatch.poll_sockets();let packet=tasks.join_next_with_id().await.unwrap().unwrap().unwrap();assert_eq!(packet.2,payload);
+            finish.send(()).await.unwrap();closures.recv().await.unwrap();
+            // The original response task observes the client's actual QUIC /
+            // dispatcher EOF, not only the server's local-close notification.
+            let (_,tasks,_)=dispatch.poll_sockets();
+            let closed=proxy.protocols.drive_component_supervision(tasks.join_next_with_id()).await.unwrap();
+            assert!(matches!(closed,Ok(Err(_))),"real response body confirms closure without a fabricated success or a task panic");
         }
+        let (_,mut sockets,responses)=dispatch.finish_retaining_io();let receipt=responses.shutdown(deadline()).await.unwrap();assert!(receipt.matches(&responses));assert!(sockets.close_originals().is_complete());
+        assert!(proxy.tcp_runtime_services().execution().retired_datagrams().wait_returns(&returns,deadline()).await.unwrap().is_complete());
+        proxy.protocols.shutdown_components(deadline()).await.unwrap();
         worker.await.unwrap();
     })
     .await
