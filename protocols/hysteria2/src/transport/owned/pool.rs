@@ -11,7 +11,7 @@ use zero_core::component::{ComponentId, ComponentInstanceId};
 use zero_platform_tokio::{
     contract::{
         component::*,
-        lifecycle::{erase_lifecycle, BuildError, CloseReport, ResourceLifecycle, Unfinished},
+        lifecycle::{erase_lifecycle, BuildError, CloseReport, ResourceLifecycle},
         network::{CarrierContext, UpstreamBinding, UpstreamTransport},
         scope::{TaskClass, TaskJoinWitness},
         CloseReason,
