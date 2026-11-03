@@ -86,11 +86,26 @@ impl InboundOwner {
             }
             joined
         });
-        if let Some(joined) = &accepted {
-            #[cfg(test)]
-            {
-                *self.last_accepted_join.lock().unwrap() = Some(joined.clone());
+        #[cfg(test)]
+        {
+            // This method is called only after the real containing Scope
+            // consumed TaskExit. Simple Direct UDP peers have no nested peer
+            // scope; observe their original spawn_tracked witness as well.
+            #[cfg(feature = "managed-datagram-runtime")]
+            let actual = accepted.clone().or_else(|| {
+                self.peers
+                    .lock()
+                    .unwrap()
+                    .iter()
+                    .find_map(|group| group.observe_primary_joined_for_test(exit.id))
+            });
+            #[cfg(not(feature = "managed-datagram-runtime"))]
+            let actual = accepted.clone();
+            if let Some(joined) = actual {
+                *self.last_accepted_join.lock().unwrap() = Some(joined);
             }
+        }
+        if let Some(joined) = &accepted {
             if joined.result().is_err() {
                 self.client_failure.get_or_init(|| joined.clone());
             }
