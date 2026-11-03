@@ -177,7 +177,8 @@ fn engine_only_persistent_stage_and_restore_keep_their_existing_source_scope() {
 fn engine_only_v1_validate_prepares_relative_resources_without_installing_or_persisting() {
     let directory = tempfile::tempdir().unwrap();
     let path = directory.path().join("zero.json");
-    std::fs::write(&path, b"{}").unwrap();
+    let original = br#"{"route":{"final":{"type":"direct"}}}"#;
+    std::fs::write(&path, original).unwrap();
     let engine = Engine::from_path(&path).unwrap();
     let previous = engine.runtime_snapshot();
     let handle = zero_engine::EngineHandle::new(engine.clone());
@@ -197,7 +198,7 @@ fn engine_only_v1_validate_prepares_relative_resources_without_installing_or_per
         &engine.runtime_snapshot(),
         &previous
     ));
-    assert_eq!(std::fs::read(&path).unwrap(), b"{}");
+    assert_eq!(std::fs::read(&path).unwrap(), original);
     std::fs::write(directory.path().join("domains.txt"), b"example.test\n").unwrap();
     let accepted = zero_api::CommandService::execute(
         &handle,
@@ -222,5 +223,5 @@ fn engine_only_v1_validate_prepares_relative_resources_without_installing_or_per
         &engine.runtime_snapshot(),
         &previous
     ));
-    assert_eq!(std::fs::read(path).unwrap(), b"{}");
+    assert_eq!(std::fs::read(path).unwrap(), original);
 }

@@ -106,7 +106,10 @@ fn recovery_backup_and_record_preserve_source_permissions() {
     std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o640)).unwrap();
     let source = super::ConfigurationSource::new(path.clone());
     source
-        .persist_ready(&RuntimeConfig::parse("{}").unwrap(), "permission-test")
+        .persist_ready(
+            &RuntimeConfig::parse(r#"{"route":{"final":{"type":"direct"}}}"#).unwrap(),
+            "permission-test",
+        )
         .unwrap();
     for name in [
         "zero.json",
