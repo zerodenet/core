@@ -136,6 +136,7 @@ zero-stack = { path = "../stack" }
 zero-transport = { path = "../transport" }
 
 [dev-dependencies]
+zero-router = { path = "../router" }
 zero-runtime = { path = "../runtime", features = ["test-support"] }
 bytes = "1"
 h3 = "=0.0.8"
