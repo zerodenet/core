@@ -19,7 +19,7 @@ use zero_core::{
 use zero_platform_tokio::{
     contract::{
         component::{AcceptedTcpLimits, ResourceDeclaration},
-        lifecycle::TaskClass,
+        lifecycle::{CloseReport, TaskClass},
         scope::{TaskJoinWitness, TaskScope},
         CancellationToken, ChannelError, Impact, Reason, Stage,
     },
@@ -43,6 +43,7 @@ pub(in crate::component) struct Caller {
     source: AcceptedCaller,
     witness: TaskJoinWitness,
     complete: Option<oneshot::Sender<()>>,
+    close_report: Option<CloseReport>,
     pub(in crate::component) session: Session,
     pub(in crate::component) invocation: Invocation,
 }
@@ -170,12 +171,16 @@ impl Caller {
             source,
             witness,
             complete: Some(complete),
+            close_report: None,
             session,
             invocation,
         }
     }
     pub(in crate::component) fn witness(&self) -> TaskJoinWitness {
         self.witness.clone()
+    }
+    pub(in crate::component) fn close_report(&self) -> Option<&CloseReport> {
+        self.close_report.as_ref()
     }
     pub(in crate::component) fn verify_carrier_completion(&self) {
         assert!(self.witness.is_joined());
@@ -218,7 +223,9 @@ impl Caller {
             .matches(&self.claim));
         assert_eq!(self.peer.read(&mut [0; 1]).await.unwrap(), 0);
         drop(self.listener.take());
-        assert!(self.owner.wait_closed(end()).await.unwrap().is_complete());
+        let report = self.owner.wait_closed(end()).await.unwrap();
+        assert!(report.is_complete());
+        self.close_report = Some(report);
         assert!(self.owner.accepted_evidence().unwrap().provider_confirmed());
         assert!(self.scope.shutdown(end()).await.is_complete());
     }
