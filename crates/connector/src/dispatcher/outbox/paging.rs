@@ -43,7 +43,7 @@ impl DeliveryOutbox {
                 waiting_for_bytes: false,
             });
         }
-        let mut reader = BufReader::new(open_reader(&self.path)?);
+        let mut reader = BufReader::new(open_reader(&self.path, &self.resources)?);
         let mut deliveries = Vec::new();
         let mut waiting_for_bytes = false;
         self.pending.visit(|offset, key| {
@@ -79,7 +79,11 @@ impl DeliveryOutbox {
     }
 }
 
-fn frame_length(path: &Path, reader: &mut BufReader<File>, offset: u64) -> ConnectorResult<u64> {
+fn frame_length(
+    path: &Path,
+    reader: &mut BufReader<FileView>,
+    offset: u64,
+) -> ConnectorResult<u64> {
     reader
         .seek(SeekFrom::Start(offset))
         .map_err(|e| read_error(path, e))?;
@@ -104,7 +108,7 @@ fn frame_length(path: &Path, reader: &mut BufReader<File>, offset: u64) -> Conne
 
 fn read_delivery_at(
     path: &Path,
-    reader: &mut BufReader<File>,
+    reader: &mut BufReader<FileView>,
     offset: u64,
     size: u64,
 ) -> ConnectorResult<OutboxDelivery> {

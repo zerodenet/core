@@ -5,7 +5,9 @@
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
-use rusqlite::{params, Connection, OptionalExtension};
+use crate::resources::{DispatcherResources, OriginalDatabase};
+use rusqlite::{params, OptionalExtension};
+use std::sync::{Arc, Mutex};
 
 use crate::{ConnectorError, ConnectorResult};
 
@@ -15,26 +17,35 @@ mod cursor;
 mod tests;
 
 pub(super) struct PendingIndex {
-    db: Connection,
+    db: Arc<Mutex<OriginalDatabase>>,
     // Explicit file rather than SQLite's empty-name temporary database:
     // Android's bundled SQLite forces temporary databases into memory.
     // Field order closes SQLite before removing its private directory.
-    _scratch: tempfile::TempDir,
+    #[cfg(test)]
+    resources: DispatcherResources,
     path: PathBuf,
     len: usize,
     batch_records: usize,
 }
 
 impl PendingIndex {
+    #[cfg(test)]
     pub(super) fn new(path: &Path) -> ConnectorResult<Self> {
+        Self::new_owned(path, DispatcherResources::default())
+    }
+    pub(super) fn new_owned(path: &Path, resources: DispatcherResources) -> ConnectorResult<Self> {
         let scratch = tempfile::Builder::new()
             .prefix("zero-outbox-index-")
             .tempdir()
             .map_err(|e| error(path, e))?;
-        let db =
-            Connection::open(scratch.path().join("index.sqlite")).map_err(|e| error(path, e))?;
-        db.execute_batch(
-            "PRAGMA temp_store=FILE;
+        let db = resources.database(scratch).map_err(|e| error(path, e))?;
+        db.lock()
+            .unwrap()
+            .connection
+            .as_ref()
+            .expect("live original database")
+            .execute_batch(
+                "PRAGMA temp_store=FILE;
              PRAGMA cache_size=-256;
              PRAGMA cache_spill=ON;
              PRAGMA mmap_size=0;
@@ -48,11 +59,12 @@ impl PendingIndex {
              CREATE TABLE sink_counts (
                  sink TEXT PRIMARY KEY NOT NULL, count INTEGER NOT NULL
              ) WITHOUT ROWID;",
-        )
-        .map_err(|e| error(path, e))?;
+            )
+            .map_err(|e| error(path, e))?;
         Ok(Self {
             db,
-            _scratch: scratch,
+            #[cfg(test)]
+            resources,
             path: path.to_owned(),
             len: 0,
             batch_records: 0,
@@ -67,9 +79,13 @@ impl PendingIndex {
         &self,
         sinks: impl IntoIterator<Item = &'a str>,
     ) -> ConnectorResult<BTreeMap<String, usize>> {
+        let original = self.db.lock().unwrap();
+        let db = original
+            .connection
+            .as_ref()
+            .expect("live original database");
         let mut counts = BTreeMap::new();
-        let mut statement = self
-            .db
+        let mut statement = db
             .prepare_cached("SELECT count FROM sink_counts WHERE sink=?1")
             .map_err(|e| self.error(e))?;
         for sink in sinks {
@@ -89,8 +105,12 @@ impl PendingIndex {
 
     #[cfg(test)]
     pub(super) fn counts(&self) -> ConnectorResult<BTreeMap<String, usize>> {
-        let mut statement = self
-            .db
+        let original = self.db.lock().unwrap();
+        let db = original
+            .connection
+            .as_ref()
+            .expect("live original database");
+        let mut statement = db
             .prepare("SELECT sink,count FROM sink_counts")
             .map_err(|e| self.error(e))?;
         let mut rows = statement.query([]).map_err(|e| self.error(e))?;
@@ -108,17 +128,35 @@ impl PendingIndex {
     // Replay/compaction use bounded transactions. A giant transaction keeps
     // dirty-page/rollback metadata alive even with a small page cache.
     pub(super) fn begin_batch(&mut self) -> ConnectorResult<()> {
-        self.db.execute_batch("BEGIN").map_err(|e| self.error(e))?;
+        let original = self.db.lock().unwrap();
+        let db = original
+            .connection
+            .as_ref()
+            .expect("live original database");
+        db.execute_batch("BEGIN").map_err(|e| self.error(e))?;
         self.batch_records = 0;
         Ok(())
     }
 
     pub(super) fn finish_batch(&mut self) -> ConnectorResult<()> {
-        self.db.execute_batch("COMMIT").map_err(|e| self.error(e))
+        let original = self.db.lock().unwrap();
+        let db = original
+            .connection
+            .as_ref()
+            .expect("live original database");
+        db.execute_batch("COMMIT").map_err(|e| self.error(e))
     }
 
     fn advanced(&mut self) -> ConnectorResult<()> {
-        if !self.db.is_autocommit() {
+        let in_batch = !self
+            .db
+            .lock()
+            .unwrap()
+            .connection
+            .as_ref()
+            .expect("live original database")
+            .is_autocommit();
+        if in_batch {
             self.batch_records += 1;
             if self.batch_records == 128 {
                 self.finish_batch()?;
@@ -129,9 +167,13 @@ impl PendingIndex {
     }
 
     pub(super) fn insert(&mut self, sink: &str, event: &str, offset: u64) -> ConnectorResult<()> {
+        let original = self.db.lock().unwrap();
+        let db = original
+            .connection
+            .as_ref()
+            .expect("live original database");
         let offset = i64::try_from(offset).map_err(|e| self.error(e))?;
-        let existed = self
-            .db
+        let existed = db
             .query_row(
                 "SELECT 1 FROM pending WHERE sink=?1 AND event=?2",
                 params![sink, event],
@@ -140,39 +182,42 @@ impl PendingIndex {
             .optional()
             .map_err(|e| self.error(e))?
             .is_some();
-        self.db
-            .prepare_cached(
-                "INSERT INTO pending VALUES (?1,?2,?3)
+        db.prepare_cached(
+            "INSERT INTO pending VALUES (?1,?2,?3)
                  ON CONFLICT(sink,event) DO UPDATE SET offset=excluded.offset",
-            )
-            .and_then(|mut s| s.execute(params![sink, event, offset]))
-            .map_err(|e| self.error(e))?;
+        )
+        .and_then(|mut s| s.execute(params![sink, event, offset]))
+        .map_err(|e| self.error(e))?;
         if !existed {
             self.len += 1;
-            self.db.prepare_cached(
+            db.prepare_cached(
                 "INSERT INTO sink_counts VALUES (?1,1) ON CONFLICT(sink) DO UPDATE SET count=count+1"
             ).and_then(|mut s| s.execute([sink])).map_err(|e| self.error(e))?;
         }
+        drop(original);
         self.advanced()
     }
 
     pub(super) fn remove(&mut self, sink: &str, event: &str) -> ConnectorResult<()> {
-        let removed = self
-            .db
+        let original = self.db.lock().unwrap();
+        let db = original
+            .connection
+            .as_ref()
+            .expect("live original database");
+        let removed = db
             .prepare_cached("DELETE FROM pending WHERE sink=?1 AND event=?2")
             .and_then(|mut s| s.execute(params![sink, event]))
             .map_err(|e| self.error(e))?;
         if removed != 0 {
             self.len -= 1;
-            self.db
-                .prepare_cached("UPDATE sink_counts SET count=count-1 WHERE sink=?1")
+            db.prepare_cached("UPDATE sink_counts SET count=count-1 WHERE sink=?1")
                 .and_then(|mut s| s.execute([sink]))
                 .map_err(|e| self.error(e))?;
-            self.db
-                .prepare_cached("DELETE FROM sink_counts WHERE sink=?1 AND count=0")
+            db.prepare_cached("DELETE FROM sink_counts WHERE sink=?1 AND count=0")
                 .and_then(|mut s| s.execute([sink]))
                 .map_err(|e| self.error(e))?;
         }
+        drop(original);
         self.advanced()
     }
 
@@ -182,25 +227,29 @@ impl PendingIndex {
 
     #[cfg(test)]
     pub(super) fn reject_writes(&self) {
-        self.db
-            .execute_batch(
-                "CREATE TRIGGER fail_put BEFORE INSERT ON pending
+        let original = self.db.lock().unwrap();
+        let db = original
+            .connection
+            .as_ref()
+            .expect("live original database");
+        db.execute_batch(
+            "CREATE TRIGGER fail_put BEFORE INSERT ON pending
              BEGIN SELECT RAISE(ABORT,'injected scratch index failure'); END;
              CREATE TRIGGER fail_ack BEFORE DELETE ON pending
              BEGIN SELECT RAISE(ABORT,'injected scratch index failure'); END;",
-            )
-            .unwrap();
+        )
+        .unwrap();
     }
 
     #[cfg(test)]
     pub(super) fn cap_disk_pages(&self) {
-        let pages: i64 = self
-            .db
-            .query_row("PRAGMA page_count", [], |r| r.get(0))
-            .unwrap();
-        self.db
-            .pragma_update(None, "max_page_count", pages)
-            .unwrap();
+        let original = self.db.lock().unwrap();
+        let db = original
+            .connection
+            .as_ref()
+            .expect("live original database");
+        let pages: i64 = db.query_row("PRAGMA page_count", [], |r| r.get(0)).unwrap();
+        db.pragma_update(None, "max_page_count", pages).unwrap();
     }
 }
 

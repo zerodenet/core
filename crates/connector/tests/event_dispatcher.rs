@@ -1,5 +1,8 @@
 #![cfg(feature = "sink-jsonl")]
 
+#[path = "event_dispatcher/paused.rs"]
+mod paused;
+
 use std::collections::VecDeque;
 use std::fs;
 use std::io::Write;

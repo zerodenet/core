@@ -20,11 +20,16 @@ impl OrchestrationState {
         let mut can_restore = retired.is_ok();
         self.pending_dns_reload = None;
         proxy.resolver.discard_prepared_reload();
-        let persist = proxy.pending_reload_persists(rejected);
-        let previous = proxy
-            .pending_reload_snapshot(rejected)
-            .unwrap_or_else(|| self.applied_snapshot.clone());
-        let rollback = proxy.engine.restore_staged_snapshot(previous, persist);
+        let previous = if !rejected.configuration_publication().is_committed() {
+            proxy.engine.runtime_snapshot()
+        } else {
+            proxy
+                .pending_reload_snapshot(rejected)
+                .unwrap_or_else(|| self.applied_snapshot.clone())
+        };
+        let rollback = proxy
+            .engine
+            .restore_staged_snapshot(previous.clone(), false);
         let mut acknowledgement = message;
         if let Err(error) = retired {
             acknowledgement.push_str(&format!("; candidate cleanup remains unconfirmed: {error}"));
@@ -58,6 +63,7 @@ impl OrchestrationState {
                 acknowledgement.push_str(&format!("; TUN rollback failed: {error}"));
             }
         }
+        self.applied_snapshot = previous;
         let previous_config = self.applied_snapshot.config().clone();
         if can_restore {
             if let Err(error) = proxy
@@ -77,7 +83,7 @@ impl OrchestrationState {
         // Devices may resolve peer names. Rebuild the original DNS dependency
         // before any last-good device/listener can acquire a fresh carrier.
         if recover_dns && can_restore {
-            if let Err(error) = restore_dns(proxy, &previous_config).await {
+            if let Err(error) = restore_dns(proxy, &self.applied_snapshot).await {
                 can_restore = false;
                 acknowledgement.push_str(&format!("; DNS recovery remains unconfirmed: {error}"));
             }
@@ -147,11 +153,10 @@ impl OrchestrationState {
 
 async fn restore_dns(
     proxy: &Proxy,
-    config: &std::sync::Arc<zero_config::RuntimeConfig>,
+    snapshot: &std::sync::Arc<zero_engine::EngineRuntimeSnapshot>,
 ) -> Result<(), String> {
-    let dispatch = config
-        .compile_dns_dispatch()
-        .map_err(|error| error.to_string())?;
+    let config = snapshot.config();
+    let dispatch = snapshot.dns_dispatch();
     let token = proxy
         .resolver
         .prepare_reload_resources_with_dispatch(

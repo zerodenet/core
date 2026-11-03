@@ -87,6 +87,14 @@ struct FailOnceReconciler(AtomicBool);
 
 #[async_trait::async_trait]
 impl ConfigApplyReconciler for FailOnceReconciler {
+    // This fixture owns only domain values/notifications, no native I/O or tasks.
+    async fn retire_candidate(
+        &self,
+        _target: std::sync::Arc<zero_config::RuntimeConfig>,
+    ) -> Result<(), String> {
+        Ok(())
+    }
+
     fn validate(&self, _: &RuntimeConfig, _: &RuntimeConfig) -> Result<(), String> {
         Ok(())
     }

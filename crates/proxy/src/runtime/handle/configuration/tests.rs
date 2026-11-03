@@ -8,6 +8,8 @@ use zero_traits::{DnsResolver, IpAddress};
 use super::{ConfigApplyReconciler, ConfigReconcileResult, ProxyHandle};
 use crate::runtime::Proxy;
 mod owned;
+mod persistence;
+mod policy;
 
 struct RejectChangedFakeIpPool {
     calls: Mutex<Vec<String>>,
@@ -15,6 +17,14 @@ struct RejectChangedFakeIpPool {
 
 #[async_trait::async_trait]
 impl ConfigApplyReconciler for RejectChangedFakeIpPool {
+    // This fixture owns only domain values/notifications, no native I/O or tasks.
+    async fn retire_candidate(
+        &self,
+        _target: std::sync::Arc<zero_config::RuntimeConfig>,
+    ) -> Result<(), String> {
+        Ok(())
+    }
+
     fn validate(&self, _current: &RuntimeConfig, _candidate: &RuntimeConfig) -> Result<(), String> {
         Ok(())
     }

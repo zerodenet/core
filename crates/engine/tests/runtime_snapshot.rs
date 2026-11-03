@@ -114,3 +114,131 @@ fn config_with_outbounds(count: usize) -> RuntimeConfig {
     )
     .expect("parse generated config")
 }
+
+#[test]
+fn engine_only_persistent_stage_and_restore_keep_their_existing_source_scope() {
+    let directory = tempfile::tempdir().unwrap();
+    let path = directory.path().join("zero.json");
+    let original = config_with_outbounds(1);
+    std::fs::write(&path, serde_json::to_vec_pretty(&original).unwrap()).unwrap();
+    let engine = Engine::new_with_config_path(original, &path).unwrap();
+    let previous = engine.runtime_snapshot();
+    let revision = engine.config_revision();
+    engine.stage_config(config_with_outbounds(2)).unwrap();
+    assert_eq!(
+        RuntimeConfig::load_from_path(&path)
+            .unwrap()
+            .outbounds
+            .len(),
+        2
+    );
+    assert_eq!(engine.config_revision(), revision);
+    engine
+        .restore_staged_snapshot(previous.clone(), true)
+        .unwrap();
+    assert!(std::sync::Arc::ptr_eq(
+        &engine.runtime_snapshot(),
+        &previous
+    ));
+    assert_eq!(
+        RuntimeConfig::load_from_path(&path)
+            .unwrap()
+            .outbounds
+            .len(),
+        1
+    );
+    engine
+        .stage_runtime_config(config_with_outbounds(3))
+        .unwrap();
+    assert_eq!(
+        RuntimeConfig::load_from_path(&path)
+            .unwrap()
+            .outbounds
+            .len(),
+        1
+    );
+    engine.restore_staged_snapshot(previous, false).unwrap();
+    engine.reload_config(config_with_outbounds(2)).unwrap();
+    assert_eq!(engine.config_revision(), revision + 1);
+    assert!(!directory.path().join("zero.json.zero-recovery").exists());
+    assert!(!directory.path().join("zero.json.zero-last-good").exists());
+    // A normal operator edit is accepted after the actual source commit ends.
+    std::fs::write(
+        &path,
+        serde_json::to_vec_pretty(&config_with_outbounds(4)).unwrap(),
+    )
+    .unwrap();
+    let restarted = Engine::from_path(&path).unwrap();
+    assert_eq!(restarted.config_path(), Some(path.as_path()));
+    restarted
+        .configuration_source()
+        .confirm_original_io_closed()
+        .unwrap();
+    assert_eq!(restarted.config().source_dir(), Some(directory.path()));
+    assert_eq!(restarted.config().outbounds.len(), 4);
+    assert_ne!(restarted.core_instance_id(), engine.core_instance_id());
+}
+
+#[test]
+fn engine_only_v1_validate_prepares_relative_resources_without_installing_or_persisting() {
+    let directory = tempfile::tempdir().unwrap();
+    let path = directory.path().join("zero.json");
+    let original = br#"{"route":{"final":{"type":"direct"}}}"#;
+    std::fs::write(&path, original).unwrap();
+    let engine = Engine::from_path(&path).unwrap();
+    let previous = engine.runtime_snapshot();
+    let handle = zero_engine::EngineHandle::new(engine.clone());
+    let candidate = serde_json::json!({"route":{
+        "rule_sets":[{"tag":"domains","type":"file","path":"domains.txt","format":"domain_list"}],
+        "rules":[{"condition":{"type":"rule_set","tag":"domains"},"action":{"type":"reject"}}],
+        "final":{"type":"direct"}}});
+    let error = zero_api::CommandService::execute(
+        &handle,
+        zero_api::CommandRequest::ConfigValidate(zero_api::ConfigValidateCommand {
+            config: candidate.clone(),
+        }),
+    )
+    .unwrap_err();
+    // V1 keeps its stable summary; actual resource identity and the original
+    // OS error belong to the existing cause/details fields.
+    assert_eq!(error.code, zero_api::ApiErrorCode::InvalidArgument);
+    assert_eq!(error.message, "config validation failed");
+    assert_eq!(error.field_path, None);
+    let cause = error.cause.as_deref().expect("original resource IO cause");
+    assert!(cause.contains("domains.txt"));
+    let original_io = std::fs::read(directory.path().join("domains.txt")).unwrap_err();
+    assert!(cause.contains(&original_io.to_string()));
+    assert_eq!(error.details.len(), 1);
+    assert_eq!(error.details[0].field_path.as_deref(), Some("rule_sets"));
+    assert!(error.details[0].message.contains("domains.txt"));
+    assert!(std::sync::Arc::ptr_eq(
+        &engine.runtime_snapshot(),
+        &previous
+    ));
+    assert_eq!(std::fs::read(&path).unwrap(), original);
+    std::fs::write(directory.path().join("domains.txt"), b"example.test\n").unwrap();
+    let accepted = zero_api::CommandService::execute(
+        &handle,
+        zero_api::CommandRequest::ConfigValidate(zero_api::ConfigValidateCommand {
+            config: candidate.clone(),
+        }),
+    )
+    .unwrap();
+    assert!(accepted.accepted);
+    assert!(std::sync::Arc::ptr_eq(
+        &engine.runtime_snapshot(),
+        &previous
+    ));
+    assert_eq!(engine.config_source_write_generation(), 0);
+    std::fs::remove_file(directory.path().join("domains.txt")).unwrap();
+    assert!(zero_api::CommandService::execute(
+        &handle,
+        zero_api::CommandRequest::ConfigApply(zero_api::ConfigApplyCommand { config: candidate })
+    )
+    .is_err());
+    assert!(std::sync::Arc::ptr_eq(
+        &engine.runtime_snapshot(),
+        &previous
+    ));
+    assert_eq!(std::fs::read(path).unwrap(), original);
+}

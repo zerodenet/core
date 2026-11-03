@@ -8,16 +8,58 @@ use zero_engine::FlowHookChain;
 
 type WarningHandler = Arc<dyn Fn(&str, &str) + Send + Sync>;
 
-/// Build the hook chain from CLI option and config file.
+pub(crate) struct PreparedHooks {
+    chain: Option<FlowHookChain>,
+    originals: Vec<Arc<ipc::IpcFlowHook>>,
+    retired: bool,
+}
+impl PreparedHooks {
+    #[cfg(test)]
+    pub(crate) fn originals_for_test(&self) -> &[Arc<ipc::IpcFlowHook>] {
+        &self.originals
+    }
+    pub(crate) fn confirm_original_io_closed(&self) -> std::io::Result<()> {
+        for original in &self.originals {
+            original.confirm_original_io_closed()?;
+        }
+        Ok(())
+    }
+    pub(crate) fn is_ready(&self) -> bool {
+        !self.retired
+            && self.originals.iter().all(|hook| !hook.is_retired())
+            && self.confirm_original_io_closed().is_ok()
+    }
+    pub(crate) fn take_chain(&mut self) -> Option<FlowHookChain> {
+        self.chain.take().filter(|chain| !chain.is_empty())
+    }
+    pub(crate) fn retire(&mut self) -> std::io::Result<()> {
+        self.retired = true;
+        let mut failure = None;
+        for original in &self.originals {
+            if let Err(error) = original.retire() {
+                if failure.is_none() {
+                    failure = Some(error);
+                }
+            }
+        }
+        failure.map_or(Ok(()), Err)
+    }
+}
+
+/// Prepare cold hook values and retain their concrete original owners.
 ///
 /// CLI `ipc_socket` takes precedence.  Config `api.hooks` entries are
 /// added after the CLI hook.
-pub fn build_hook_chain(
+pub(crate) fn prepare_hooks(
     ipc_socket: Option<&str>,
     api_config: &ApiConfig,
     on_warning: Option<WarningHandler>,
-) -> FlowHookChain {
-    let mut chain = FlowHookChain::empty();
+) -> PreparedHooks {
+    let mut chain = PreparedHooks {
+        chain: Some(FlowHookChain::empty()),
+        originals: Vec::new(),
+        retired: false,
+    };
 
     // CLI override: single IPC hook.
     if let Some(socket_path) = ipc_socket {
@@ -39,7 +81,7 @@ pub fn build_hook_chain(
 }
 
 fn push_ipc_hook(
-    chain: &mut FlowHookChain,
+    chain: &mut PreparedHooks,
     socket_path: &str,
     timeout_ms: u64,
     on_warning: &Option<WarningHandler>,
@@ -49,6 +91,8 @@ fn push_ipc_hook(
         let h = Arc::clone(handler);
         hook = hook.with_warning_handler(move |code, msg| h(code, msg));
     }
-    chain.push(Arc::new(hook));
+    let original = Arc::new(hook);
+    chain.chain.as_mut().unwrap().push(original.clone());
+    chain.originals.push(original);
     tracing::info!(socket = %socket_path, timeout_ms, "ipc flow hook enabled");
 }

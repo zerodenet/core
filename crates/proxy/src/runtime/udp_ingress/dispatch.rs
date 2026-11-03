@@ -7,6 +7,7 @@ use crate::runtime::udp_dispatch::UdpDispatch;
 
 impl UdpIngressRuntime {
     pub(crate) async fn new_dispatch(&self, inbound_tag: &str) -> Result<UdpDispatch, EngineError> {
+        self.tcp_services.ensure_configuration_committed()?;
         UdpDispatch::new(self.clone(), inbound_tag).await
     }
 
@@ -17,6 +18,7 @@ impl UdpIngressRuntime {
         auth: Option<&SessionAuth>,
         source_addr: Option<std::net::SocketAddr>,
     ) -> Result<u64, EngineError> {
+        self.tcp_services.ensure_configuration_committed()?;
         if !self.udp_enabled_for_inbound(dispatch.inbound_tag()) {
             return Err(EngineError::Io(std::io::Error::other(
                 "udp disabled for inbound",

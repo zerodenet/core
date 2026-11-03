@@ -107,7 +107,21 @@ impl MappedRuleSet {
             });
         }
         // SAFETY: this creates a read-only map whose ownership is retained by every section view.
-        let mmap = Arc::new(unsafe { Mmap::map(&file)? });
+        let mmap = unsafe { Mmap::map(&file)? };
+        Self::from_mmap(mmap, mode)
+    }
+
+    /// Parse an already owned immutable map without opening another file.
+    /// The caller retains the same immutable backing-file contract as `open`.
+    pub fn from_mmap(mmap: Mmap, mode: VerifyMode) -> Result<Self, ZrsError> {
+        if mmap.len() as u64 > super::MAX_FILE_SIZE {
+            return Err(ZrsError::ResourceLimit {
+                resource: "file size",
+                actual: mmap.len() as u64,
+                maximum: super::MAX_FILE_SIZE,
+            });
+        }
+        let mmap = Arc::new(mmap);
         let layout = verify_layout(&mmap, mode)?;
         let exact = Set::new(MappedSection::new(Arc::clone(&mmap), layout.exact))
             .map_err(ZrsError::InvalidFst)?;

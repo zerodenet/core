@@ -106,19 +106,17 @@ impl RuleConditionConfig {
                 }
                 Ok(())
             }
-            Self::DomainKeyword { values } => {
-                if values.is_empty() {
-                    return Err(ConfigError::InvalidRuleCondition(
-                        "`domain_keyword` condition requires at least one value".to_owned(),
-                    ));
-                }
-                Ok(())
-            }
+            Self::DomainKeyword { values } => validate_values("domain", values),
             Self::DomainRegex { values } => {
                 if values.is_empty() {
                     return Err(ConfigError::InvalidRuleCondition(
                         "`domain_regex` condition requires at least one pattern".to_owned(),
                     ));
+                }
+                for pattern in values {
+                    zero_router::CompiledRegex::new(pattern.clone()).map_err(|error| {
+                        ConfigError::InvalidRuleCondition(format!("invalid regex pattern: {error}"))
+                    })?;
                 }
                 Ok(())
             }
@@ -130,14 +128,7 @@ impl RuleConditionConfig {
                 }
                 Ok(())
             }
-            Self::Sni { values } => {
-                if values.is_empty() {
-                    return Err(ConfigError::InvalidRuleCondition(
-                        "`sni` condition requires at least one domain pattern".to_owned(),
-                    ));
-                }
-                Ok(())
-            }
+            Self::Sni { values } => validate_values("domain", values),
             Self::And { items } => {
                 validate_nested_condition("and", items, inbound_tags, rule_set_tags)
             }

@@ -74,6 +74,19 @@ impl std::fmt::Debug for InboundPeerTasks {
     }
 }
 impl InboundPeerTasks {
+    #[cfg(test)]
+    pub(super) fn observe_primary_joined_for_test(
+        &self,
+        task: TaskId,
+    ) -> Option<zero_platform_tokio::contract::scope::TaskJoined> {
+        self.state
+            .lock()
+            .unwrap()
+            .active
+            .get(&task)?
+            .join_witness()?
+            .try_joined()
+    }
     pub(super) fn observe_peer_joined(
         &self,
         task: TaskId,

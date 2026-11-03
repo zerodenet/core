@@ -55,3 +55,33 @@ fn json_line_event_sink_writes_normalized_events() {
     assert_eq!(second["event_id"], "event-2");
     assert_eq!(second["event_type"], "stats.sampled");
 }
+
+#[test]
+fn poisoned_jsonl_writer_is_returned_with_failure_and_original_identity() {
+    struct PanicWriter {
+        identity: Arc<()>,
+    }
+    impl std::io::Write for PanicWriter {
+        fn write(&mut self, _: &[u8]) -> std::io::Result<usize> {
+            panic!("actual writer panic while original lock is held")
+        }
+        fn flush(&mut self) -> std::io::Result<()> {
+            Ok(())
+        }
+    }
+    let identity = Arc::new(());
+    let sink = JsonLineEventSink::new(PanicWriter {
+        identity: identity.clone(),
+    });
+    assert!(std::panic::catch_unwind(std::panic::AssertUnwindSafe(
+        || sink.publish(&event("panic", "test.fact"))
+    ))
+    .is_err());
+    match sink.into_inner_recover() {
+        Ok(_) => panic!("original poisoned mutex was reported as success"),
+        Err((writer, error)) => {
+            assert!(Arc::ptr_eq(&identity, &writer.identity));
+            assert!(error.message.contains("poisoned"));
+        }
+    }
+}

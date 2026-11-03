@@ -43,17 +43,20 @@ async fn dispatcher_replacement_recovers_facts_after_storage_backpressure() {
         *path = blocked_path.display().to_string();
     }
     assert!(services
-        .reconcile(std::sync::Arc::new(failed))
+        .reconcile(std::sync::Arc::new(failed.clone()))
         .await
         .is_err());
 
-    tokio::time::timeout(
-        Duration::from_secs(2),
-        services.reconcile(std::sync::Arc::new(config)),
-    )
-    .await
-    .unwrap()
-    .unwrap();
+    services
+        .retire_candidate(std::sync::Arc::new(failed))
+        .await
+        .unwrap();
+    let config = std::sync::Arc::new(config);
+    tokio::time::timeout(Duration::from_secs(2), services.reconcile(config.clone()))
+        .await
+        .unwrap()
+        .unwrap();
+    services.committed(config).await.unwrap();
     wait_for_file_text(&events, "recover-23").await;
     let content = std::fs::read_to_string(&events).unwrap();
     let rows = content
@@ -69,6 +72,59 @@ async fn dispatcher_replacement_recovers_facts_after_storage_backpressure() {
             1
         );
     }
-    services.shutdown_status_monitor().await;
-    services.shutdown_dispatcher().await;
+    services.shutdown_status_monitor().await.unwrap();
+    services.shutdown_dispatcher().await.unwrap();
+}
+
+#[tokio::test]
+async fn monitor_original_join_failure_is_retained_and_blocks_replacement() {
+    let dir = tempfile::tempdir().unwrap();
+    let config = RuntimeConfig::parse(&config_json("first.jsonl", 0)).unwrap();
+    let mut config = config;
+    config.source_dir = Some(dir.path().to_owned());
+    let engine = Engine::new(config.clone()).unwrap();
+    let services = ApplicationServices::start(engine, None).await.unwrap();
+    {
+        let mut state = services.state.lock().await;
+        ApplicationServices::stop_status_monitor(&mut state)
+            .await
+            .unwrap();
+        assert!(matches!(state.monitor_exit, Some(Err(ref error)) if error.is_cancelled()));
+        state.monitor_exit = None;
+        state.status_monitor = Some(tokio::spawn(async {
+            panic!("actual original monitor failure")
+        }));
+    }
+    // Let the real original task run to its own terminal panic; no injected
+    // success, timeout or abort is used as the join acknowledgement.
+    tokio::task::yield_now().await;
+    assert!(services.shutdown_status_monitor().await.is_err());
+    let failure = {
+        let state = services.state.lock().await;
+        match state.monitor_exit.as_ref().unwrap() {
+            Err(error) => error.clone(),
+            Ok(()) => panic!("original monitor panic was lost"),
+        }
+    };
+    let committed = config.clone();
+    config.api.event_sinks.clear();
+    assert!(services
+        .validate(&committed, &config)
+        .unwrap_err()
+        .contains("original application cleanup"));
+    assert!(services
+        .reconcile(std::sync::Arc::new(config))
+        .await
+        .is_err());
+    assert!(services.shutdown_status_monitor().await.is_err());
+    let state = services.state.lock().await;
+    assert!(
+        matches!(state.monitor_exit.as_ref(), Some(Err(error)) if std::sync::Arc::ptr_eq(&failure, error))
+    );
+    assert!(state.cleanup_fault.is_some());
+    drop(state);
+    // Even after a monitor fault, independently drive the real dispatcher and
+    // native obligations; this does not clear the sticky monitor failure.
+    assert!(services.shutdown_dispatcher().await.is_err());
+    assert!(!services.state.lock().await.network_generation_started);
 }

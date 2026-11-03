@@ -1,5 +1,6 @@
+use super::io::ConfigurationIo;
 use std::collections::HashMap;
-use std::fs;
+use std::fs::File;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
@@ -9,7 +10,7 @@ use zero_rule::protocol::decode_json;
 use zero_rule::zrs::{MappedRuleSet, PrewarmPolicy, VerifyMode};
 use zero_rule::{Rule, RuleMatcher, RuleSet, RuleSetCompiler};
 
-use crate::{ConfigError, RouteRuleSetConfig, RuleSetFormatConfig};
+use zero_config::{ConfigError, RouteRuleSetConfig, RuleSetFormatConfig};
 
 pub type CompiledRuleSets = HashMap<String, RuleSetMatcher>;
 
@@ -17,12 +18,19 @@ pub fn compile_rule_sets(
     rule_sets: &[RouteRuleSetConfig],
     base_dir: Option<&Path>,
 ) -> Result<CompiledRuleSets, ConfigError> {
+    super::with_cold_io(|owner| compile_rule_sets_owned(rule_sets, base_dir, owner))
+}
+pub(super) fn compile_rule_sets_owned(
+    rule_sets: &[RouteRuleSetConfig],
+    base_dir: Option<&Path>,
+    owner: &ConfigurationIo,
+) -> Result<CompiledRuleSets, ConfigError> {
     let mut compiled = HashMap::with_capacity(rule_sets.len());
 
     for rule_set in rule_sets {
         compiled.insert(
             rule_set.tag.clone(),
-            compile_rule_set(&rule_set.tag, rule_set, base_dir)?,
+            compile_rule_set(&rule_set.tag, rule_set, base_dir, owner)?,
         );
     }
 
@@ -33,30 +41,71 @@ fn compile_rule_set(
     tag: &str,
     rule_set: &RouteRuleSetConfig,
     base_dir: Option<&Path>,
+    owner: &ConfigurationIo,
 ) -> Result<RuleSetMatcher, ConfigError> {
     let path = resolve_rule_set_path(rule_set.source_path(), base_dir);
     let matcher: Arc<dyn RuleMatcher> = match rule_set.format {
         RuleSetFormatConfig::DomainList => {
-            let raw = read_text_rule_set(&path)?;
+            let raw = read_text_rule_set(&path, owner)?;
             compile_semantic_rule_set(tag, parse_domain_list(tag, &raw)?)?
         }
         RuleSetFormatConfig::CidrList => {
-            let raw = read_text_rule_set(&path)?;
+            let raw = read_text_rule_set(&path, owner)?;
             compile_semantic_rule_set(tag, parse_cidr_list(tag, &raw)?)?
         }
         RuleSetFormatConfig::ZeroRuleIr => {
-            let raw = read_rule_set(&path)?;
+            let raw = read_rule_set(&path, owner)?;
             let semantic = decode_json(&raw)
                 .map_err(|error| invalid_rule_set(tag, format!("invalid Zero Rule IR: {error}")))?;
             compile_semantic_rule_set(tag, semantic)?
         }
         RuleSetFormatConfig::Zrs => {
-            let mapped = MappedRuleSet::open(&path, VerifyMode::FullChecksum).map_err(|error| {
-                invalid_rule_set(
-                    tag,
-                    format!("failed to open ZRS `{}`: {error}", path.display()),
+            let mmap = owner
+                .with_file(
+                    || File::open(&path),
+                    |file| {
+                        let size = file.metadata()?.len();
+                        if size > zero_rule::zrs::MAX_FILE_SIZE {
+                            return Err(std::io::Error::other(
+                                zero_rule::zrs::ZrsError::ResourceLimit {
+                                    resource: "file size",
+                                    actual: size,
+                                    maximum: zero_rule::zrs::MAX_FILE_SIZE,
+                                },
+                            ));
+                        }
+                        // SAFETY: preserve ZRS's existing immutable published-file contract.
+                        unsafe { file.map_readonly() }
+                    },
                 )
-            })?;
+                .map_err(|error| {
+                    if error
+                        .get_ref()
+                        .is_some_and(|source| source.is::<zero_rule::zrs::ZrsError>())
+                    {
+                        *error
+                            .into_inner()
+                            .unwrap()
+                            .downcast::<zero_rule::zrs::ZrsError>()
+                            .expect("checked original ZRS error")
+                    } else {
+                        zero_rule::zrs::ZrsError::Io(error)
+                    }
+                })
+                .map_err(|error| {
+                    invalid_rule_set(
+                        tag,
+                        format!("failed to open ZRS `{}`: {error}", path.display()),
+                    )
+                })?;
+            // The actual file close has been confirmed before domain handoff.
+            let mapped =
+                MappedRuleSet::from_mmap(mmap, VerifyMode::FullChecksum).map_err(|error| {
+                    invalid_rule_set(
+                        tag,
+                        format!("failed to open ZRS `{}`: {error}", path.display()),
+                    )
+                })?;
             mapped.prewarm(PrewarmPolicy::Roots);
             Arc::new(mapped)
         }
@@ -111,8 +160,8 @@ fn ensure_not_empty(tag: &str, rules: &[Rule]) -> Result<(), ConfigError> {
     Ok(())
 }
 
-fn read_text_rule_set(path: &Path) -> Result<String, ConfigError> {
-    let raw = read_rule_set(path)?;
+fn read_text_rule_set(path: &Path, owner: &ConfigurationIo) -> Result<String, ConfigError> {
+    let raw = read_rule_set(path, owner)?;
     String::from_utf8(raw).map_err(|error| {
         ConfigError::InvalidRuleSet(format!(
             "rule set at `{}` is not valid UTF-8: {error}",
@@ -121,8 +170,8 @@ fn read_text_rule_set(path: &Path) -> Result<String, ConfigError> {
     })
 }
 
-fn read_rule_set(path: &Path) -> Result<Vec<u8>, ConfigError> {
-    fs::read(path).map_err(|source| ConfigError::ReadRuleSet {
+fn read_rule_set(path: &Path, owner: &ConfigurationIo) -> Result<Vec<u8>, ConfigError> {
+    owner.read(path).map_err(|source| ConfigError::ReadRuleSet {
         path: path.display().to_string(),
         source,
     })

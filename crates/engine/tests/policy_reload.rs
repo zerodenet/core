@@ -260,3 +260,35 @@ fn rejected_staging_restores_the_original_policy_state_and_snapshot() {
     engine.commit_config_change();
     assert!(engine.restore_staged_snapshot(rejected, false).is_err());
 }
+
+#[test]
+fn explicit_embedded_restore_keeps_the_original_choices_after_staged_selector_ack() {
+    let original_config = config(&["a", "b", "c"], json!([selector(&["a", "b", "c"], "a")]));
+    let engine = Engine::new(original_config.clone()).unwrap();
+    engine.set_selector_target("select", "b").unwrap();
+    let original = engine.runtime_snapshot();
+    let mut staged = original_config;
+    staged.runtime.event_log_capacity += 1;
+    engine.stage_runtime_config(staged).unwrap();
+    engine.set_selector_target("select", "c").unwrap();
+    assert_eq!(
+        engine.export_status().config.outbound_groups[0]
+            .selected
+            .as_deref(),
+        Some("c")
+    );
+    engine
+        .restore_staged_snapshot(original.clone(), false)
+        .unwrap();
+    assert!(std::sync::Arc::ptr_eq(
+        &original,
+        &engine.runtime_snapshot()
+    ));
+    assert_eq!(
+        engine.export_status().config.outbound_groups[0]
+            .selected
+            .as_deref(),
+        Some("b")
+    );
+    assert_eq!(engine.config_revision(), 1);
+}

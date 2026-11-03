@@ -16,8 +16,13 @@ impl OrchestrationState {
             tokio::select! { biased;
                 result = proxy.host.apply().wait_idle() => {
                     result.map_err(|message| EngineError::Io(std::io::Error::other(message)))?;
-                    return proxy.host.apply().shutdown(deadline).await
-                        .map_err(|message| EngineError::Io(std::io::Error::other(message)));
+                    proxy.host.apply().shutdown(deadline).await
+                        .map_err(|message| EngineError::Io(std::io::Error::other(message)))?;
+                    // The accepted operation's actual Scope is joined above.
+                    // Source originals have their own independent close gate;
+                    // catalog or task success does not authorize a false ACK.
+                    return proxy.engine.configuration_source()
+                        .confirm_original_io_closed().map_err(EngineError::Io);
                 }
                 Some(()) = self.reload_async_rx.recv() => Box::pin(self.reconcile_reload(proxy)).await,
                 _ = tokio::time::sleep_until(deadline) => return Err(std::io::Error::new(

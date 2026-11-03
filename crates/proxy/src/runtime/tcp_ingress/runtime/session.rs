@@ -9,6 +9,7 @@ impl TcpIngressRuntime {
         &self,
         session: &mut Session,
     ) -> Result<(), EngineError> {
+        self.services.ensure_configuration_committed()?;
         crate::runtime::target::resolve_dns_target(self.services.resolver(), session).await
     }
 
@@ -56,6 +57,7 @@ impl TcpIngressRuntime {
         session: &mut Session,
         identity: Option<&zero_engine::SessionIdentity>,
     ) -> Result<zero_engine::AdmittedSession, EngineError> {
+        self.services.ensure_configuration_committed()?;
         if session.inbound_local.is_none() {
             session.inbound_local = self.local_addr.map(|addr| {
                 (

@@ -44,11 +44,24 @@ fn disk_index_keeps_exact_identity_order_and_removes_empty_sink_labels() {
 }
 
 #[test]
-fn disk_index_spills_pages_uses_offset_index_and_cleans_scratch_on_drop() {
+fn disk_index_spills_pages_uses_offset_index_and_explicitly_closes_original() {
     let mut index = PendingIndex::new(Path::new("test-journal")).unwrap();
-    let scratch = index._scratch.path().to_owned();
+    let scratch = index
+        .db
+        .lock()
+        .unwrap()
+        .scratch
+        .as_ref()
+        .unwrap()
+        .path()
+        .to_owned();
     let cache: i64 = index
         .db
+        .lock()
+        .unwrap()
+        .connection
+        .as_ref()
+        .unwrap()
         .query_row("PRAGMA cache_size", [], |r| r.get(0))
         .unwrap();
     assert_eq!(cache, -256);
@@ -71,6 +84,11 @@ fn disk_index_spills_pages_uses_offset_index_and_cleans_scratch_on_drop() {
     );
     let plan: String = index
         .db
+        .lock()
+        .unwrap()
+        .connection
+        .as_ref()
+        .unwrap()
         .query_row(
             "EXPLAIN QUERY PLAN SELECT offset,sink,event FROM pending ORDER BY offset",
             [],
@@ -78,6 +96,8 @@ fn disk_index_spills_pages_uses_offset_index_and_cleans_scratch_on_drop() {
         )
         .unwrap();
     assert!(plan.contains("pending_offset"), "{plan}");
-    drop(index);
+    let resources = index.resources.clone();
+    drop(index); // view retirement only
+    resources.close().unwrap(); // real SQLite Connection.close first
     assert!(!scratch.exists());
 }

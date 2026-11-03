@@ -94,7 +94,7 @@ impl OrchestrationState {
         let snapshot = self.applied_snapshot.clone();
         let config = snapshot.config().clone();
         proxy.protocols.validate_dial_environment(&config)?;
-        dns::prepare(proxy, &config).await?;
+        dns::prepare(proxy, &snapshot).await?;
         self.preparing_inbounds.ensure_open()?;
         // Reuse the existing orchestration grace period. The migrated Direct
         // component starts no I/O or tasks; this is not a new admission budget.

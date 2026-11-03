@@ -133,6 +133,7 @@ zero-core = { path = "crates/core" }
 zero-traits = { path = "crates/traits" }
 zero-engine = { path = "crates/engine", default-features = false }
 zero-logging = { path = "crates/logging" }
+zero-runtime = { path = "crates/runtime" }
 zero-platform-tokio = { path = "crates/platform/tokio" }
 zero-proxy = { path = "crates/proxy", default-features = false }
 zero-connector = { path = "crates/connector", optional = true, default-features = false }

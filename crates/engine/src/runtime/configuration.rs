@@ -1,15 +1,11 @@
-use std::io::{self, Write};
-use std::path::Path;
 use std::sync::Arc;
 
-use tracing::info;
 use zero_config::{ModeConfig, RuntimeConfig};
 
 use super::Engine;
 use crate::{EngineError, EnginePlan};
 
 mod source;
-pub(super) use source::ConfigWriteFact;
 
 impl Engine {
     /// Rebuild and atomically install the route/config plan, persist it when
@@ -17,6 +13,9 @@ impl Engine {
     pub fn reload_config(&self, new_config: RuntimeConfig) -> Result<(), EngineError> {
         self.reload_config_inner(new_config, true)?;
         self.commit_config_change();
+        self.config_source
+            .finalize_committed()
+            .map_err(std::io::Error::from)?;
         Ok(())
     }
 
@@ -36,7 +35,13 @@ impl Engine {
     /// The proxy transaction calls [`Self::commit_config_change`] only after
     /// listener and application-service reconciliation succeeds.
     pub fn stage_config(&self, new_config: RuntimeConfig) -> Result<(), EngineError> {
-        self.reload_config_inner(new_config, true)
+        // Embedded callers retain their existing synchronous persistence scope.
+        // Proxy uses pure snapshot preparation and its own final Ready gate.
+        self.reload_config_inner(new_config, true)?;
+        self.config_source
+            .finalize_committed()
+            .map_err(std::io::Error::from)?;
+        Ok(())
     }
 
     /// Install an ephemeral candidate without publishing a committed revision.
@@ -59,88 +64,178 @@ impl Engine {
             });
         }
         if persist {
-            if let Some(path) = &self.config_path {
-                self.persist_config_to_file(path, snapshot.config())?;
+            self.config_source
+                .ensure_available()
+                .map_err(std::io::Error::from)?;
+            if let Err(error) = self
+                .config_source
+                .persist_ready(snapshot.config(), "engine-only-restore")
+            {
+                if error.disposition != zero_runtime::configuration::SourceDisposition::Unknown {
+                    self.config_source
+                        .rollback_pending()
+                        .map_err(std::io::Error::from)?;
+                }
+                return Err(std::io::Error::from(error).into());
             }
         }
-        *self.mode.lock().unwrap_or_else(|error| error.into_inner()) = snapshot.config.mode.clone();
-        self.principal_policies
-            .replace_from_config(snapshot.config());
-        self.event_log
-            .set_capacity(snapshot.config.runtime.event_log_capacity);
-        *self
-            .runtime_snapshot
-            .write()
-            .expect("runtime snapshot lock poisoned") = snapshot;
+        // The public embedded restore reinstalls this exact historical domain
+        // snapshot, including its original selector state. It is distinct from
+        // publishing a hidden host candidate against the still-committed state.
+        self.install_prepared_snapshot(snapshot, false)?;
+        if persist {
+            self.config_source
+                .finalize_committed()
+                .map_err(std::io::Error::from)?;
+        }
         self.traffic
             .reconcile(&self.config(), self.config_revision());
-        self.passive_relay_health.clear();
         self.notify_reload();
         Ok(())
     }
 
-    fn reload_config_inner(
+    fn reload_config_inner(&self, config: RuntimeConfig, persist: bool) -> Result<(), EngineError> {
+        self.config_source
+            .ensure_available()
+            .map_err(std::io::Error::from)?;
+        let prepared = zero_runtime::configuration::PreparedConfiguration::prepare_owned(
+            config,
+            self.config_source.clone(),
+        )?;
+        let snapshot = self.prepare_configuration_snapshot(prepared)?;
+        if persist {
+            if let Err(error) = self
+                .config_source
+                .persist_ready(snapshot.config(), "engine-only-apply")
+            {
+                if error.disposition != zero_runtime::configuration::SourceDisposition::Unknown {
+                    self.config_source
+                        .rollback_pending()
+                        .map_err(std::io::Error::from)?;
+                }
+                return Err(std::io::Error::from(error).into());
+            }
+        }
+        self.publish_prepared_snapshot(snapshot)?;
+        self.notify_reload();
+        Ok(())
+    }
+
+    /// Existing embedded staging entry point. Proxy transactions instead retain
+    /// the returned inert snapshot in their same persistent host operation.
+    pub fn stage_prepared_config(
         &self,
-        mut new_config: RuntimeConfig,
-        persist: bool,
+        prepared: zero_runtime::configuration::PreparedConfiguration,
     ) -> Result<(), EngineError> {
-        new_config.materialize_endpoints()?;
-        let event_log_capacity = new_config.runtime.event_log_capacity;
-        if self.config().runtime.principal_quota_state_path
-            != new_config.runtime.principal_quota_state_path
+        let snapshot = self.prepare_configuration_snapshot(prepared)?;
+        self.publish_prepared_snapshot(snapshot)?;
+        self.notify_reload();
+        Ok(())
+    }
+
+    /// Build only domain values; no live configuration or policy is published.
+    pub fn prepare_configuration_snapshot(
+        &self,
+        prepared: zero_runtime::configuration::PreparedConfiguration,
+    ) -> Result<Arc<super::EngineRuntimeSnapshot>, EngineError> {
+        let zero_runtime::configuration::PreparedConfiguration {
+            config,
+            routing,
+            source: _,
+        } = prepared;
+        let current = self.runtime_snapshot();
+        if current.config.runtime.principal_quota_state_path
+            != config.runtime.principal_quota_state_path
         {
             return Err(EngineError::InvalidPlan {
                 message: "runtime.principal_quota_state_path cannot change during live reload"
                     .to_owned(),
             });
         }
-        let new_router = Arc::new(new_config.compile_route()?);
-        let bypass = Arc::new(new_config.compile_route_bypass()?);
-        let mut new_plan = EnginePlan::build(&new_config)?;
+        let mut plan = EnginePlan::build(&config)?;
         let endpoint_intents = Arc::new(
-            super::endpoint::EndpointIntents::for_config(
-                &new_config,
-                Some(&self.runtime_snapshot().endpoint_intents),
-            )
-            .map_err(|error| EngineError::InvalidPlan {
-                message: error.message,
-            })?,
+            super::endpoint::EndpointIntents::for_config(&config, Some(&current.endpoint_intents))
+                .map_err(|error| EngineError::InvalidPlan {
+                    message: error.message,
+                })?,
         );
-        if persist {
-            if let Some(path) = &self.config_path {
-                self.persist_config_to_file(path, &new_config)?;
-                info!(path = %path.display(), "config persisted");
-            }
-        }
+        plan.reconcile_direct_dial_generations(Some(&current.plan), &self.next_dial_generation);
+        plan.reconcile_outbound_static(&config, &current.plan, &current.config);
+        let plan = Arc::new(plan);
+        let outbound_group_state = crate::groups::OutboundGroupStateStore::for_plan(
+            &plan,
+            Some((&current.plan, &current.outbound_group_state)),
+        );
+        Ok(Arc::new(super::EngineRuntimeSnapshot {
+            config_revision: Arc::new(std::sync::atomic::AtomicU64::new(current.config_revision())),
+            publication: super::ConfigurationPublication::pending(),
+            config: Arc::new(config),
+            endpoint_intents,
+            plan,
+            router: routing.router,
+            bypass: routing.bypass,
+            dns_dispatch: routing.dns_dispatch,
+            outbound_group_state,
+        }))
+    }
 
-        *self.mode.lock().unwrap_or_else(|error| error.into_inner()) = new_config.mode.clone();
+    /// Install under the accepted operation's final publication gate. Source
+    /// persistence and original resource cleanup have already been confirmed.
+    pub fn publish_prepared_snapshot(
+        &self,
+        snapshot: Arc<super::EngineRuntimeSnapshot>,
+    ) -> Result<(), EngineError> {
+        self.install_prepared_snapshot(snapshot, true)
+    }
 
-        self.principal_policies.replace_from_config(&new_config);
+    fn install_prepared_snapshot(
+        &self,
+        snapshot: Arc<super::EngineRuntimeSnapshot>,
+        reconcile_live_choices: bool,
+    ) -> Result<(), EngineError> {
         let mut current = self
             .runtime_snapshot
             .write()
             .expect("runtime snapshot lock poisoned");
-        new_plan.reconcile_direct_dial_generations(Some(&current.plan), &self.next_dial_generation);
-        new_plan.reconcile_outbound_static(&new_config, &current.plan, &current.config);
-        let new_plan = Arc::new(new_plan);
-        let outbound_group_state = crate::groups::OutboundGroupStateStore::for_plan(
-            &new_plan,
-            Some((&current.plan, &current.outbound_group_state)),
-        );
-        *current = Arc::new(super::EngineRuntimeSnapshot {
-            config_revision: Arc::new(std::sync::atomic::AtomicU64::new(current.config_revision())),
-            config: Arc::new(new_config),
-            endpoint_intents,
-            plan: new_plan,
-            router: new_router,
-            bypass,
-            outbound_group_state,
-        });
+        if snapshot.config_revision() != current.config_revision() {
+            return Err(EngineError::InvalidPlan {
+                message: "cannot publish a snapshot across a committed configuration change"
+                    .to_owned(),
+            });
+        }
+        let waiters = if reconcile_live_choices
+            && !Arc::ptr_eq(
+                &snapshot.outbound_group_state,
+                &current.outbound_group_state,
+            ) {
+            snapshot.outbound_group_state.reconcile_live_selectors(
+                &snapshot.plan,
+                &current.plan,
+                &current.outbound_group_state,
+            )
+        } else {
+            Vec::new()
+        };
+        *self.mode.lock().unwrap_or_else(|error| error.into_inner()) = snapshot.config.mode.clone();
+        self.principal_policies
+            .replace_from_config(snapshot.config());
+        self.event_log
+            .set_capacity(snapshot.config.runtime.event_log_capacity);
+        let publication = snapshot.publication.clone();
+        *current = snapshot;
         drop(current);
+        publication.publish();
+        for waiter in waiters {
+            waiter.wake();
+        }
         self.passive_relay_health.clear();
-        self.event_log.set_capacity(event_log_capacity);
-        self.notify_reload();
         Ok(())
+    }
+
+    /// Wake the existing host reconciler without exposing its pending candidate
+    /// through the committed control-plane snapshot.
+    pub fn notify_configuration_reconcile(&self) {
+        self.notify_reload();
     }
 
     fn notify_reload(&self) {
@@ -184,9 +279,11 @@ impl Engine {
             .write()
             .expect("runtime snapshot lock poisoned") = Arc::new(super::EngineRuntimeSnapshot {
             config_revision: Arc::new(std::sync::atomic::AtomicU64::new(revision)),
+            publication: current.publication.clone(),
             config: Arc::new(config),
             endpoint_intents: current.endpoint_intents.clone(),
             plan: current.plan.clone(),
+            dns_dispatch: current.dns_dispatch.clone(),
             router: current.router.clone(),
             bypass: current.bypass.clone(),
             outbound_group_state: current.outbound_group_state.clone(),
@@ -205,19 +302,4 @@ impl Engine {
             .push(sender);
         receiver
     }
-}
-
-fn write_config_to_file(path: &Path, config: &RuntimeConfig) -> Result<(), io::Error> {
-    let json = serde_json::to_string_pretty(config).map_err(|error| {
-        io::Error::new(
-            io::ErrorKind::InvalidData,
-            format!("serialize config: {error}"),
-        )
-    })?;
-    let parent = path.parent().unwrap_or_else(|| Path::new("."));
-    let mut temporary = tempfile::NamedTempFile::new_in(parent)?;
-    temporary.write_all(json.as_bytes())?;
-    temporary.as_file_mut().sync_all()?;
-    temporary.persist(path).map_err(|error| error.error)?;
-    Ok(())
 }

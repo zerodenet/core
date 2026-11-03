@@ -16,6 +16,7 @@ impl TcpIngressRuntime {
         authentication: Option<SessionAuth>,
         identity: &zero_engine::SessionIdentity,
     ) -> Result<Session, EngineError> {
+        self.services.ensure_configuration_committed()?;
         let ingress = self
             .services
             .execution()
@@ -82,6 +83,7 @@ impl TcpIngressRuntime {
         sni: Option<String>,
         reply: impl FnOnce(RequestFacts) -> Result<Box<dyn AcceptedStream>, ChannelError> + Send,
     ) -> Result<(), EngineError> {
+        self.services.ensure_configuration_committed()?;
         // Mint only for a recognized business request. The sealed ticket stays
         // here; protocol code sees only its immutable actual request identity.
         let identity = self.services.engine().mint_session_identity()?;

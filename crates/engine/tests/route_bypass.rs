@@ -2,6 +2,7 @@ use serde_json::{json, Value};
 use zero_config::{ModeConfig, RuntimeConfig};
 use zero_core::Address;
 use zero_engine::{Engine, RouteDecision};
+use zero_runtime::configuration::RuntimeConfigPreparation;
 
 fn config(bypass: Value) -> RuntimeConfig {
     RuntimeConfig::parse(
@@ -92,7 +93,10 @@ fn reloading_bypass_does_not_change_old_snapshot_and_rejects_invalid_conditions(
             .decision,
         RouteDecision::Reject
     );
-    let invalid = config(json!([{"type":"domain_regex","values":["["]}]));
+    let mut invalid = config(json!([]));
+    // Typed callers must also fail preparation without publishing a snapshot.
+    invalid.route.bypass =
+        serde_json::from_value(json!([{"type":"domain_regex","values":["["]}])).unwrap();
     assert!(invalid.compile_route_bypass().is_err());
     let current = engine.runtime_snapshot();
     assert!(engine.reload_runtime_config(invalid).is_err());

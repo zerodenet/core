@@ -5,7 +5,6 @@ use tokio::sync::oneshot;
 pub(crate) struct PendingReloadAck {
     pub(super) expected: Arc<zero_engine::EngineRuntimeSnapshot>,
     pub(super) previous: Arc<zero_engine::EngineRuntimeSnapshot>,
-    pub(super) persist: bool,
     pub(super) compensating: bool,
     pub(super) sender: oneshot::Sender<Result<(), String>>,
 }

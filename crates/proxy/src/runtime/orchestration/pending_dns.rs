@@ -29,9 +29,7 @@ impl OrchestrationState {
             };
         }
         let config = snapshot.config();
-        let dispatch = config
-            .compile_dns_dispatch()
-            .map_err(|source| io::Error::new(io::ErrorKind::InvalidInput, source))?;
+        let dispatch = snapshot.dns_dispatch();
         let resources = proxy.resolver.prepare_reload_resources_with_dispatch(
             config.runtime.dns.as_ref(),
             dispatch,

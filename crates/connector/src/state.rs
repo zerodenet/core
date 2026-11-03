@@ -43,11 +43,14 @@ pub enum ConnectorStateStatus {
 
 #[derive(Debug)]
 pub(crate) struct PersistentStateLease {
-    _file: File,
+    _file: crate::resources::FileView,
 }
 
 impl PersistentStateLease {
-    pub(crate) fn acquire(path: &Path) -> ConnectorResult<Self> {
+    pub(crate) fn acquire(
+        path: &Path,
+        resources: &crate::resources::DispatcherResources,
+    ) -> ConnectorResult<Self> {
         let lock_path = lock_path(path);
         if let Some(parent) = lock_path.parent() {
             std::fs::create_dir_all(parent).map_err(|source| {
@@ -58,12 +61,15 @@ impl PersistentStateLease {
                 }
             })?;
         }
-        let file = OpenOptions::new()
-            .create(true)
-            .truncate(false)
-            .read(true)
-            .write(true)
-            .open(&lock_path)
+        let file = resources
+            .open(|| {
+                OpenOptions::new()
+                    .create(true)
+                    .truncate(false)
+                    .read(true)
+                    .write(true)
+                    .open(&lock_path)
+            })
             .map_err(|source| ConnectorError::LockPersistentState {
                 path: path.display().to_string(),
                 lock_path: lock_path.display().to_string(),
