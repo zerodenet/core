@@ -73,3 +73,5 @@ Hysteria2 的根出站和既有 first-Datagram 路径通过实际标准角色消
 V1 配置/API/events、CLI、FFI ABI 和协议上游版本未调整。原始错误、投递信封、最终 ACK 与源文件恢复边界保持；GUI/面板真实组合和各平台资格仍须用最终候选本地验证，不能用编译或历史结果代替。此记录不关闭 TEMP-WG-OUTER-UDP-01 或其他原方案职责域。
 
 Rust `MessageTransfer::Upgraded.upstream` 改为 `Box<TcpRelayStream>`，降低常见 Complete 值的枚举体积；构造方显式装箱，消费方继续使用同一个实际流，原始 I/O 所有权和 V1 wire 不变。TCP source 的 `next` 实现改用等价 async fn；有限原件计数使用溢出检查 CAS，兼容旧 Rust 并避免 1.99 的原方法弃用。
+
+配置通知直接使用 runtime 提供的具体通知值，Engine 保留原同步 `subscribe_reload` 语义并提供同一领域通知视图；删除旧 blocking 线程桥，没有新增任务、Host 或 provider。DNS 仅在完整配置、实际 compiled dispatch 和原 backend 均相同时保留同一代次、cache 和 lease；真实依赖变化仍换代。Root HY2 将真实 CA 字节纳入身份，无变化公开 reload 保留活跃连接。恢复精确已发布 recipe 时创建新代次和取消域，旧配方 crypto 可达，不重新读取仍损坏的路径。

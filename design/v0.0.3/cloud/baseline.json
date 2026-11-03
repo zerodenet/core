@@ -75,7 +75,7 @@
     "release/deploy",
     "expand protocol combinations"
   ],
-  "agents_started": false,
+  "agents_started": true,
   "execution_topology": {
     "cloud_environments": 1,
     "main_agent": "C",
@@ -88,5 +88,32 @@
     "parallel": "implementation and lightweight static checks",
     "serialized": "shared-contract writes, build plus corresponding test run, integration branch writes",
     "startup": "launch C once with cloud/README.md; C spawns A/B in the same environment"
+  },
+  "task_baseline_sha": "c9b28431bea6e5124fa48ee810aa9d2272e7b4e7",
+  "preparation_checks_scope": "Historical cloud handoff preparation only; not the implementation candidate or its final qualification.",
+  "execution": {
+    "historical_preparation_agents_started": false,
+    "environment_count": 1,
+    "coordinator": "C",
+    "initial_checkout": {
+      "branch": "work",
+      "sha": "5338c727acee537762cfdd95531f6e5130274200",
+      "preserved": true
+    },
+    "remote": {
+      "name": "origin",
+      "url": "https://github.com/zerodenet/core.git"
+    },
+    "worktrees": {
+      "C": "/workspace/core",
+      "A": "/workspace/core-agent-a",
+      "B": "/workspace/core-agent-b",
+      "frozen_validation": "/workspace/core-validation"
+    },
+    "rust": "1.99.1 (58cf8f9c3 2026-10-13)",
+    "serialization": "C exclusively schedules Cargo build plus its resulting tests on one shared target; no force push or develop/main integration.",
+    "implementation_record": "execution.md",
+    "exact_candidate_and_command_results": "https://github.com/zerodenet/core/pull/127",
+    "qualification_note": "Only the C frozen-candidate validation record at its precise SHA qualifies the candidate. Intermediate head results and preparation checks do not transfer automatically."
   }
 }
