@@ -318,6 +318,8 @@ async fn hysteria2_finite_original_udp_session_capacity_refuses_then_reclaims_ac
     }).await.unwrap();
 }
 
+#[path = "lifecycle/budget.rs"]
+mod budget;
 #[path = "lifecycle/hop.rs"]
 mod hop;
 #[path = "lifecycle/pending.rs"]

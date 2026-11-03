@@ -26,7 +26,7 @@ impl Generation {
             drop(state);
             if failed || (idle && expired) {
                 entry.close(end).await?;
-                self.remove_entry(&key, &entry);
+                self.remove_entry(&key, &entry).await?;
             } else if hop {
                 self.rotate(key.profile, &entry, end).await?;
             }
@@ -65,9 +65,23 @@ impl Generation {
             .as_ref()
             .unwrap()
             .close(state.receipt.as_ref(), &self.tasks)?;
+        let failure = state
+            .segment
+            .as_ref()
+            .and_then(|segment| segment.task_exit())
+            .filter(|exit| exit.joined.result().is_err())
+            .map(|exit| exit.joined.clone());
         drop(state.segment.take());
         drop(state.permit.take());
         state.receipt = None;
+        if let Some(failure) = failure {
+            state.retired_application.push(failure.clone());
+            // A failed original worker is a real task fault. Retain its actual
+            // group for the same host's final report instead of adding an
+            // unbounded stream of failures to one still-live logical entry.
+            return Err(error(Stage::Close, Reason::Io)
+                .with_source(OriginalChannel(failure.result().unwrap_err())));
+        }
         let permit = self.metadata[profile]
             .grants()
             .reserve(state.caller.as_ref().unwrap())?;

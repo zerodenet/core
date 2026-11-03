@@ -9,11 +9,12 @@ impl Entry {
             return Ok(());
         }
         state.retire_endpoint(end).await?;
-        if let Some(caller) = &state.caller {
+        if let Some(caller) = state.caller.clone() {
             let joined = tokio::time::timeout_at(end, caller.wait())
                 .await
                 .map_err(|source| error(Stage::Close, Reason::Timeout).with_source(source))?;
             if joined.result().is_err() {
+                state.retired_application.push(joined.clone());
                 caller
                     .acknowledge_hosted_failure(&joined)
                     .map_err(|source| error(Stage::Close, Reason::Internal).with_source(source))?;
@@ -101,13 +102,24 @@ impl EntryState {
         }
         if let Some(segment) = &self.segment {
             if let Some(exit) = segment.task_exit() {
-                self.retired_application.push(exit.joined.clone());
+                if exit.joined.result().is_err() {
+                    self.retired_application.push(exit.joined.clone());
+                }
             }
         }
         if let Some(exit) = &self.udp_exit {
-            self.retired_application.push(exit.clone());
+            if exit.result().is_err() {
+                self.retired_application.push(exit.clone());
+            }
         }
-        self.retired_drivers.append(&mut self.received);
+        // Every original user/driver/native gate above has completed. Success
+        // records are settled facts, not lifetime task history. Failed sources
+        // remain actual owned debt until the host publication consumes them.
+        self.retired_drivers.extend(
+            self.received
+                .drain(..)
+                .filter(|delivery| delivery.joined.result().is_err()),
+        );
         drop(self.owner.take());
         self.receiver = None;
         self.segment = None;

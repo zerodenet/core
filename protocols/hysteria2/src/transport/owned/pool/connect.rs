@@ -37,11 +37,12 @@ impl Generation {
             .collect::<Vec<_>>();
         for (old, entry) in stale {
             entry.close(end).await?;
-            self.remove_entry(&old, &entry);
+            self.remove_entry(&old, &entry).await?;
         }
         let pressured = {
             let entries = self.entries.lock().unwrap();
-            entries.len() >= 256 && !entries.contains_key(&key)
+            entries.len() + self.failures.lock().unwrap().len() >= ledger::ENTRY_LIMIT
+                && !entries.contains_key(&key)
         };
         if pressured {
             let mut candidates = self
@@ -60,7 +61,7 @@ impl Generation {
                     .is_some_and(|state| state.idle());
                 if idle {
                     entry.close(end).await?;
-                    self.remove_entry(&old, &entry);
+                    self.remove_entry(&old, &entry).await?;
                     break;
                 }
             }
@@ -70,7 +71,7 @@ impl Generation {
             if let Some(entry) = entries.get(&key) {
                 entry.clone()
             } else {
-                if entries.len() >= 256 {
+                if entries.len() + self.failures.lock().unwrap().len() >= ledger::ENTRY_LIMIT {
                     return Err(error(Stage::Prepare, Reason::Capacity));
                 }
                 let entry = Arc::new(Entry {
@@ -82,6 +83,7 @@ impl Generation {
                 entry
             }
         };
+        self.trace_budget();
         *entry.touched.lock().unwrap() = Instant::now();
         let mut state = entry.state.lock().await;
         if let Some(auth) = &state.auth {
@@ -92,7 +94,7 @@ impl Generation {
         if state.attempted {
             drop(state);
             entry.close(end).await?;
-            self.remove_entry(&key, &entry);
+            self.remove_entry(&key, &entry).await?;
             return Box::pin(self.acquire(profile, key.binding.clone(), end)).await;
         }
         state.attempted = true;
@@ -128,6 +130,7 @@ impl Generation {
         let count = state.candidates.as_ref().unwrap().len();
         let mut connected = None;
         for index in 0..count {
+            self.retain_failed_candidate(&mut state)?;
             match self
                 .open_candidate(&mut state, profile, index, &client, end)
                 .await
@@ -181,15 +184,6 @@ impl Generation {
     }
 }
 impl Generation {
-    pub(super) fn remove_entry(&self, key: &Key, entry: &Arc<Entry>) {
-        let mut entries = self.entries.lock().unwrap();
-        if entries
-            .get(key)
-            .is_some_and(|current| Arc::ptr_eq(current, entry))
-        {
-            entries.remove(key);
-        }
-    }
     async fn open_candidate(
         &self,
         state: &mut EntryState,

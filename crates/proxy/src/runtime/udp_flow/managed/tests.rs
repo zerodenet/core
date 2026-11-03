@@ -241,7 +241,16 @@ async fn typed_hysteria2_connection_reopens_after_actual_logical_end_without_res
         }
         let (_,mut sockets,responses)=dispatch.finish_retaining_io();let receipt=responses.shutdown(deadline()).await.unwrap();assert!(receipt.matches(&responses));assert!(sockets.close_originals().is_complete());
         assert!(proxy.tcp_runtime_services().execution().retired_datagrams().wait_returns(&returns,deadline()).await.unwrap().is_complete());
-        proxy.protocols.shutdown_components(deadline()).await.unwrap();
+        let failed=proxy.protocols.shutdown_components(deadline()).await.unwrap_err();
+        let channel=crate::transport::channel_failure(&failed).expect("actual peer-close task fault reaches the existing host receiver");
+        assert_eq!((channel.stage,channel.reason),(zero_platform_tokio::contract::Stage::Receive,zero_platform_tokio::contract::Reason::Protocol));
+        let mut original:Option<&(dyn std::error::Error+'static)>=Some(&failed);
+        let mut peer_closed=false;
+        while let Some(source)=original {
+            peer_closed|=matches!(source.downcast_ref::<quinn::ConnectionError>(),Some(quinn::ConnectionError::ApplicationClosed(_)));
+            original=source.source();
+        }
+        assert!(peer_closed,"the original typed QUIC failure must survive actual reconstruction and host publication");
         worker.await.unwrap();
     })
     .await

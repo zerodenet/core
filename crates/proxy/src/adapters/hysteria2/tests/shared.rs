@@ -29,6 +29,7 @@ struct Server {
     wire: Arc<Mutex<HashMap<(Address, u16), u64>>>,
     sessions: Arc<Mutex<BTreeSet<u32>>>,
     stop: tokio::sync::oneshot::Sender<()>,
+    retire: tokio::sync::mpsc::Sender<()>,
     task: tokio::task::JoinHandle<()>,
     _material: tempfile::TempDir,
 }
@@ -64,11 +65,14 @@ impl Server {
         let sessions = Arc::new(Mutex::new(BTreeSet::new()));
         let ids = sessions.clone();
         let (stop, mut stopping) = tokio::sync::oneshot::channel();
+        let (retire, mut retiring) = tokio::sync::mpsc::channel(1);
         let task = tokio::spawn(async move {
             let mut clients = tokio::task::JoinSet::new();
-            let mut originals = Vec::new();
+            let mut originals: Vec<quinn::Connection> = Vec::new();
             loop {
-                let raw = tokio::select! {biased;_=&mut stopping=>break,raw=endpoint.accept_connection()=>raw.unwrap()};
+                let raw = tokio::select! {biased;_=&mut stopping=>break,
+                _=retiring.recv()=>{originals.last().unwrap().close(0u32.into(),b"actual peer retirement");continue},
+                raw=endpoint.accept_connection()=>raw.unwrap()};
                 originals.push(raw.clone());
                 let count = count.clone();
                 let observed = observed.clone();
@@ -110,6 +114,7 @@ impl Server {
             wire,
             sessions,
             stop,
+            retire,
             task,
             _material: material,
         }
@@ -134,6 +139,10 @@ impl Server {
     async fn close(self) {
         self.stop.send(()).unwrap();
         self.task.await.unwrap();
+    }
+    async fn retire_current(&self, closed: usize) {
+        self.retire.send(()).await.unwrap();
+        self.wait_closed(closed).await;
     }
 }
 #[tokio::test]

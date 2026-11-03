@@ -170,18 +170,38 @@ impl OwnedAuthentication {
         {
             return Err(error(Stage::Prepare, Reason::Unsupported));
         }
-        let mut dispatcher = self.udp.lock().await;
-        if dispatcher.is_none() {
-            *dispatcher = Some(OwnedUdpDispatcher::prepare(
-                self.connection.try_clone()?,
-                self.tasks
-                    .as_ref()
-                    .ok_or_else(|| error(Stage::Prepare, Reason::Revoked))?,
-                self.udp_cancel.child_token(),
-            ));
+        let tasks = self
+            .tasks
+            .as_ref()
+            .ok_or_else(|| error(Stage::Prepare, Reason::Revoked))?;
+        loop {
+            // Enter the original scope's existing callback relay outside the
+            // install gate. No deferral guard crosses await. Publish the real
+            // registration/witness and unlock before allowing external wakers.
+            let callbacks = tasks
+                .defer_callbacks()
+                .ok_or_else(|| error(Stage::Prepare, Reason::Revoked))?;
+            if let Ok(mut dispatcher) = self.udp.try_lock() {
+                let opened = (|| {
+                    if dispatcher.is_none() {
+                        *dispatcher = Some(OwnedUdpDispatcher::prepare(
+                            self.connection.try_clone()?,
+                            tasks,
+                            self.udp_cancel.child_token(),
+                        ));
+                    }
+                    dispatcher.as_mut().unwrap().start()?;
+                    dispatcher.as_ref().unwrap().open(self.clone())
+                })();
+                drop(dispatcher);
+                drop(callbacks);
+                return opened;
+            }
+            drop(callbacks);
+            // Contending requests share this same prepared dispatcher. They
+            // wait instead of allocating another one or reporting false EOF.
+            drop(self.udp.lock().await);
         }
-        dispatcher.as_mut().unwrap().start()?;
-        dispatcher.as_ref().unwrap().open(self.clone())
     }
     pub(super) async fn udp_witness(
         &self,
