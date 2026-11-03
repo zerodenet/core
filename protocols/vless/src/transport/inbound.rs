@@ -1,6 +1,6 @@
 use std::path::Path;
 
-use zero_platform_tokio::{ClientStream, TcpRelayStream};
+use zero_platform_tokio::{ClientStream, TcpRelayStream, TokioSocket};
 use zero_traits::{
     GrpcTransportProfile, H2TransportProfile, HttpUpgradeTransportProfile, InboundFallbackProfile,
     ServerTlsProfile, SplitHttpTransportProfile, WebSocketTransportProfile,

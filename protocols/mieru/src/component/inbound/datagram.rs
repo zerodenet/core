@@ -116,17 +116,17 @@ impl DatagramReply for Reply {
         }))
     }
 }
+type PendingWrite = BoxFuture<
+    'static,
+    (
+        WriteHalf<TcpRelayStream>,
+        Result<InboundDatagramReceipt, SendFailure>,
+    ),
+>;
+
 pub(crate) struct Tx {
     writer: Option<WriteHalf<TcpRelayStream>>,
-    pending: Option<
-        BoxFuture<
-            'static,
-            (
-                WriteHalf<TcpRelayStream>,
-                Result<InboundDatagramReceipt, SendFailure>,
-            ),
-        >,
-    >,
+    pending: Option<PendingWrite>,
     _usage: Use,
 }
 impl<'a> DatagramTx<InboundDatagramResponse<'a>, InboundDatagramReceipt> for Tx {
@@ -186,17 +186,17 @@ struct Input {
     reader: ReadHalf<TcpRelayStream>,
     codec: crate::udp::MieruInboundUdpSession,
 }
+type PendingInput = BoxFuture<
+    'static,
+    (
+        Input,
+        Result<Option<zero_core::InboundUdpDispatch>, zero_core::Error>,
+    ),
+>;
+
 pub(crate) struct Rx {
     reader: Option<Input>,
-    pending: Option<
-        BoxFuture<
-            'static,
-            (
-                Input,
-                Result<Option<zero_core::InboundUdpDispatch>, zero_core::Error>,
-            ),
-        >,
-    >,
+    pending: Option<PendingInput>,
     sender: std::net::SocketAddr,
     _usage: Use,
 }

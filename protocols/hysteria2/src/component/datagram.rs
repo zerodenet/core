@@ -199,17 +199,17 @@ struct State {
     first: Option<Bytes>,
     wire_bytes: u64,
 }
+type PendingInput = BoxFuture<
+    'static,
+    (
+        State,
+        Result<Option<(zero_core::InboundUdpDispatch, u64)>, ChannelError>,
+    ),
+>;
+
 struct Rx {
     state: Option<State>,
-    pending: Option<
-        BoxFuture<
-            'static,
-            (
-                State,
-                Result<Option<(zero_core::InboundUdpDispatch, u64)>, ChannelError>,
-            ),
-        >,
-    >,
+    pending: Option<PendingInput>,
     sender: std::net::SocketAddr,
     usage: Usage,
 }

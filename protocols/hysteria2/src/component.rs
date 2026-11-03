@@ -28,6 +28,10 @@ pub struct Options {
     identity: Arc<[u8]>,
 }
 impl Options {
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "existing cold options keep native bind, authentication, website and immutable identity explicit"
+    )]
     pub fn new(
         listen: std::net::SocketAddr,
         bind: Hysteria2InboundBindPlan,
