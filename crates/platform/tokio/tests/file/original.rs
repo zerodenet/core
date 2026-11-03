@@ -28,3 +28,19 @@ fn native_file_receipt_matches_only_the_same_original_and_fences_io() {
     let other = second.close().unwrap();
     assert!(!first.matches_closed(&other));
 }
+
+#[test]
+fn readonly_mapping_keeps_domain_data_after_the_same_original_file_closes() {
+    let directory = tempfile::tempdir().unwrap();
+    let path = directory.path().join("immutable-rule-data");
+    std::fs::write(&path, b"immutable rule snapshot").unwrap();
+    let mut original = OriginalFile::adopt(File::open(&path).unwrap());
+    // SAFETY: this test never changes/truncates the backing file while mapped.
+    let mapping = unsafe { original.map_readonly() }.unwrap();
+    let receipt = original.close().unwrap();
+    assert!(original.matches_closed(&receipt));
+    assert_eq!(&mapping[..], b"immutable rule snapshot");
+    assert!(original.read(&mut [0]).is_err());
+    // The descriptor receipt makes no claim about this distinct mapping.
+    drop(mapping);
+}
