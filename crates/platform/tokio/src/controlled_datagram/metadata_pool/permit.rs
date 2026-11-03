@@ -152,6 +152,11 @@ impl MetadataPoolPermit {
         self.0.retired.cancel();
         drop(native);
         if let Some(owner) = self.0.owner.upgrade() {
+            if acquired {
+                owner
+                    .confirmed_native
+                    .store(true, std::sync::atomic::Ordering::Release);
+            }
             let removed = owner
                 .state
                 .lock()

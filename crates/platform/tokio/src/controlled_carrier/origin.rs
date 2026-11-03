@@ -12,7 +12,14 @@ pub struct CarrierOrigin(Arc<Original>);
 enum Original {
     Carrier(ActualOriginal),
     Metadata(crate::controlled_datagram::metadata_pool::MetadataPoolOrigin),
+    MetadataPool {
+        owner: crate::controlled_datagram::metadata_pool::MetadataPoolRegistration,
+        admitted: bool,
+    },
 }
+mod close;
+pub use close::CarrierOriginClosed;
+use close::ClosedOriginal;
 mod owner;
 pub use owner::{CarrierOriginOwner, CarrierOriginOwnerClosed, CarrierOriginUsersClosed};
 struct ActualOriginal {
@@ -95,6 +102,15 @@ impl CarrierOrigin {
     ) -> Self {
         Self(Arc::new(Original::Metadata(original)))
     }
+    pub fn from_metadata_pool(
+        actual: crate::controlled_datagram::metadata_pool::MetadataPoolOrigin,
+    ) -> Self {
+        let admitted = !actual.is_retired() && actual.endpoints().is_some();
+        Self(Arc::new(Original::MetadataPool {
+            owner: actual.owner().clone(),
+            admitted,
+        }))
+    }
     pub fn metadata(
         &self,
     ) -> Option<&crate::controlled_datagram::metadata_pool::MetadataPoolOrigin> {
@@ -112,12 +128,21 @@ impl CarrierOrigin {
             Original::Metadata(origin) => origin
                 .closed()
                 .map(|closed| CarrierOriginClosed(ClosedOriginal::Metadata(closed))),
+            Original::MetadataPool {
+                owner,
+                admitted: true,
+            } => owner
+                .closed()
+                .map(|closed| CarrierOriginClosed(ClosedOriginal::MetadataPool(closed))),
+            Original::MetadataPool {
+                admitted: false, ..
+            } => None,
         }
     }
     pub fn parent(&self) -> Option<&Self> {
         match self.0.as_ref() {
             Original::Carrier(origin) => origin.parent.as_ref(),
-            Original::Metadata(_) => None,
+            Original::Metadata(_) | Original::MetadataPool { .. } => None,
         }
     }
     pub fn native_origin(&self) -> &Self {
@@ -130,6 +155,17 @@ impl CarrierOrigin {
     pub fn endpoints(&self) -> Option<super::CarrierEndpoints> {
         match self.native_origin().0.as_ref() {
             Original::Carrier(origin) => origin.slot.upgrade()?.state().endpoints.clone(),
+            Original::MetadataPool {
+                owner,
+                admitted: true,
+            } => {
+                let origin = owner.current_original()?;
+                let (local, peer) = origin.endpoints()?;
+                Some(super::CarrierEndpoints::metadata(origin, local, peer))
+            }
+            Original::MetadataPool {
+                admitted: false, ..
+            } => None,
             Original::Metadata(origin) => {
                 let (local, peer) = origin.endpoints()?;
                 Some(super::CarrierEndpoints::metadata(
@@ -153,6 +189,13 @@ impl CarrierOrigin {
                 Some((state.endpoint.clone()?, state.binding.clone()?))
             }
             Original::Metadata(origin) => origin.selected_binding(),
+            Original::MetadataPool {
+                owner,
+                admitted: true,
+            } => owner.current_original()?.selected_binding(),
+            Original::MetadataPool {
+                admitted: false, ..
+            } => None,
         }
     }
     pub fn instance(&self) -> ComponentInstanceId {
@@ -162,13 +205,14 @@ impl CarrierOrigin {
         match self.0.as_ref() {
             Original::Carrier(origin) => CarrierOriginOwner::Carrier(&origin.owner),
             Original::Metadata(origin) => CarrierOriginOwner::Metadata(origin.owner()),
+            Original::MetadataPool { owner, .. } => CarrierOriginOwner::Metadata(owner),
         }
     }
     /// None is unavailable/taskless observation, never a fabricated join.
     pub fn driver(&self) -> Option<&TaskJoinWitness> {
         match self.0.as_ref() {
             Original::Carrier(origin) => origin.driver.as_ref(),
-            Original::Metadata(_) => None,
+            Original::Metadata(_) | Original::MetadataPool { .. } => None,
         }
     }
     pub fn same_original(&self, other: &Self) -> bool {
@@ -183,6 +227,16 @@ impl CarrierOrigin {
                     && a.owner.same_owner(&b.owner)
             }
             (Original::Metadata(a), Original::Metadata(b)) => a.same_original(b),
+            (
+                Original::MetadataPool {
+                    owner: a,
+                    admitted: aa,
+                },
+                Original::MetadataPool {
+                    owner: b,
+                    admitted: ba,
+                },
+            ) => aa == ba && a.same_owner(b),
             _ => false,
         }
     }
@@ -195,6 +249,7 @@ impl CarrierOrigin {
                     .upgrade()
                     .is_none_or(|slot| slot.cancel.is_cancelled()),
                 Original::Metadata(origin) => origin.is_retired(),
+                Original::MetadataPool { owner, admitted } => !admitted || owner.is_retired(),
             };
             if retired {
                 return true;
@@ -216,6 +271,13 @@ impl CarrierOrigin {
                     waits.push(Box::pin(slot.cancel.clone().cancelled_owned()));
                 }
                 Original::Metadata(origin) => waits.push(Box::pin(origin.retired())),
+                Original::MetadataPool {
+                    owner,
+                    admitted: true,
+                } => waits.push(Box::pin(owner.retired())),
+                Original::MetadataPool {
+                    admitted: false, ..
+                } => return,
             }
             current = original.parent();
         }
@@ -228,40 +290,5 @@ impl CarrierOrigin {
             std::task::Poll::Pending
         })
         .await;
-    }
-}
-#[derive(Clone)]
-pub struct CarrierOriginClosed(ClosedOriginal);
-#[derive(Clone)]
-enum ClosedOriginal {
-    Carrier(Arc<std::sync::OnceLock<bool>>),
-    Metadata(crate::controlled_datagram::metadata_pool::MetadataPoolClosed),
-}
-impl CarrierOriginClosed {
-    pub(super) fn carrier(completion: Arc<std::sync::OnceLock<bool>>) -> Self {
-        Self(ClosedOriginal::Carrier(completion))
-    }
-    pub(super) fn carrier_completion(&self) -> Option<&Arc<std::sync::OnceLock<bool>>> {
-        match &self.0 {
-            ClosedOriginal::Carrier(completion) => Some(completion),
-            _ => None,
-        }
-    }
-    pub fn matches(&self, origin: &CarrierOrigin) -> bool {
-        match (&self.0, origin.0.as_ref()) {
-            (ClosedOriginal::Carrier(completion), Original::Carrier(origin)) => {
-                Arc::ptr_eq(completion, &origin.completion) && completion.get().is_some()
-            }
-            (ClosedOriginal::Metadata(closed), Original::Metadata(origin)) => {
-                closed.matches(origin)
-            }
-            _ => false,
-        }
-    }
-    pub fn had_native_acquisition(&self) -> bool {
-        match &self.0 {
-            ClosedOriginal::Carrier(completion) => completion.get() == Some(&true),
-            ClosedOriginal::Metadata(closed) => closed.had_native_acquisition(),
-        }
     }
 }
