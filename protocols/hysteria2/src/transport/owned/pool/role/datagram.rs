@@ -25,10 +25,11 @@ pub struct Tx {
     session: Option<zero_core::component::SessionId>,
     pending: Option<PendingSend>,
 }
+type PendingReceive = BoxFuture<'static, Result<(zero_core::Address, u16, Vec<u8>), ChannelError>>;
 pub struct Rx {
     shared: Arc<Shared>,
     association: AssociationId,
-    pending: Option<BoxFuture<'static, Result<(zero_core::Address, u16, Vec<u8>), ChannelError>>>,
+    pending: Option<PendingReceive>,
 }
 pub struct Control {
     shared: Arc<Shared>,

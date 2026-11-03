@@ -92,35 +92,32 @@ impl EntryState {
                 return Err(error(Stage::Close, Reason::Timeout));
             }
         }
-        if self.permit.is_some() {
-            if self.receipt.is_none() {
-                if let Some(segment) = &mut self.segment {
-                    let (queues, receipt) = segment.retire(end).await?;
-                    self.queues = Some(queues);
-                    self.receipt = Some(receipt);
-                } else {
-                    if let Some(grant) = self.unbound.take() {
-                        match grant.return_unstarted() {
-                            Ok(completion) => self.unstarted = Some(completion),
-                            Err(grant) => {
-                                self.unbound = Some(grant);
-                                return Err(error(Stage::Close, Reason::Internal));
-                            }
+        if self.permit.is_some() && self.receipt.is_none() {
+            if let Some(segment) = &mut self.segment {
+                let (queues, receipt) = segment.retire(end).await?;
+                self.queues = Some(queues);
+                self.receipt = Some(receipt);
+            } else {
+                if let Some(grant) = self.unbound.take() {
+                    match grant.return_unstarted() {
+                        Ok(completion) => self.unstarted = Some(completion),
+                        Err(grant) => {
+                            self.unbound = Some(grant);
+                            return Err(error(Stage::Close, Reason::Internal));
                         }
                     }
-                    if let Some(unstarted) = &self.unstarted {
-                        self.receipt = Some(
-                            unstarted
-                                .try_closed()
-                                .ok_or_else(|| error(Stage::Close, Reason::Timeout))?,
-                        );
-                    }
+                }
+                if let Some(unstarted) = &self.unstarted {
+                    self.receipt = Some(
+                        unstarted
+                            .try_closed()
+                            .ok_or_else(|| error(Stage::Close, Reason::Timeout))?,
+                    );
                 }
             }
-            self.permit
-                .as_ref()
-                .unwrap()
-                .close(self.receipt.as_ref(), self.tasks.as_ref().unwrap())?;
+        }
+        if let Some(permit) = &self.permit {
+            permit.close(self.receipt.as_ref(), self.tasks.as_ref().unwrap())?;
         }
         if let Some(segment) = &self.segment {
             if let Some(exit) = segment.task_exit() {
