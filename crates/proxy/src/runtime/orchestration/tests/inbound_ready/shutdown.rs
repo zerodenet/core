@@ -5,7 +5,10 @@ fn assert_original_prepare_cancellation(
     error: &zero_engine::EngineError,
     component: zero_core::component::ComponentId,
 ) {
-    fn find(error: &(dyn std::error::Error + 'static), depth: usize) -> Option<&ChannelError> {
+    fn find<'a>(
+        error: &'a (dyn std::error::Error + 'static),
+        depth: usize,
+    ) -> Option<&'a ChannelError> {
         assert!(depth < 64, "bounded original error chain");
         if let Some(error) = error.downcast_ref::<ChannelError>() {
             return Some(error);
