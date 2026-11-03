@@ -8,6 +8,7 @@ use std::{
     time::Duration,
 };
 use tokio::time::Instant;
+#[cfg(feature = "event-dispatcher")]
 use zero_connector::{EventSinkTcpConnectFuture, EventSinkTcpDialer};
 use zero_platform_tokio::EgressInterfaceControl;
 mod epoch;
@@ -15,14 +16,15 @@ mod stream;
 #[cfg(test)]
 mod tests;
 
+#[cfg(feature = "event-dispatcher")]
 const CANDIDATE_TIMEOUT: Duration = Duration::from_secs(10);
-pub(super) struct ApplicationEventSinkTcpDialer {
+pub(crate) struct ApplicationEventSinkTcpDialer {
     egress: EgressInterfaceControl,
     epoch: Mutex<Option<Arc<Epoch>>>,
     transition: tokio::sync::Mutex<()>,
 }
 impl ApplicationEventSinkTcpDialer {
-    pub(super) fn new(egress: EgressInterfaceControl) -> Self {
+    pub(crate) fn new(egress: EgressInterfaceControl) -> Self {
         Self {
             egress,
             epoch: Mutex::new(None),
@@ -37,8 +39,8 @@ impl ApplicationEventSinkTcpDialer {
             .ok_or_else(|| io::Error::other("event network generation not started"))
     }
 }
-impl EventSinkTcpDialer for ApplicationEventSinkTcpDialer {
-    fn begin_generation(&self) -> io::Result<()> {
+impl ApplicationEventSinkTcpDialer {
+    pub(crate) fn begin_generation(&self) -> io::Result<()> {
         let mut state = self.epoch.lock().unwrap();
         if state.as_ref().is_some_and(|old| !old.closed()) {
             return Err(io::Error::other(
@@ -50,7 +52,7 @@ impl EventSinkTcpDialer for ApplicationEventSinkTcpDialer {
         drop(retired);
         Ok(())
     }
-    fn retire_generation(
+    pub(crate) fn retire_generation(
         &self,
         deadline: Instant,
     ) -> std::pin::Pin<Box<dyn std::future::Future<Output = io::Result<()>> + Send + '_>> {
@@ -60,7 +62,8 @@ impl EventSinkTcpDialer for ApplicationEventSinkTcpDialer {
             original.retire(deadline).await
         })
     }
-    fn prepare_request(
+    #[cfg(feature = "event-dispatcher")]
+    fn prepare_request_owned(
         &self,
         deadline: Instant,
     ) -> std::pin::Pin<Box<dyn std::future::Future<Output = io::Result<()>> + Send + '_>> {
@@ -75,6 +78,24 @@ impl EventSinkTcpDialer for ApplicationEventSinkTcpDialer {
             }
             Ok(())
         })
+    }
+}
+#[cfg(feature = "event-dispatcher")]
+impl EventSinkTcpDialer for ApplicationEventSinkTcpDialer {
+    fn begin_generation(&self) -> io::Result<()> {
+        Self::begin_generation(self)
+    }
+    fn retire_generation(
+        &self,
+        deadline: Instant,
+    ) -> std::pin::Pin<Box<dyn std::future::Future<Output = io::Result<()>> + Send + '_>> {
+        Self::retire_generation(self, deadline)
+    }
+    fn prepare_request(
+        &self,
+        deadline: Instant,
+    ) -> std::pin::Pin<Box<dyn std::future::Future<Output = io::Result<()>> + Send + '_>> {
+        self.prepare_request_owned(deadline)
     }
     fn spawn_event_task(
         &self,
@@ -105,7 +126,9 @@ impl EventSinkTcpDialer for ApplicationEventSinkTcpDialer {
                     .connect(candidate, &egress, Instant::now() + CANDIDATE_TIMEOUT)
                     .await
                 {
-                    Ok(stream) => return Ok(stream),
+                    Ok(stream) => {
+                        return Ok(Box::new(stream) as Box<dyn zero_connector::EventSinkTcpStream>)
+                    }
                     Err(error) => {
                         epoch.reap().await?;
                         if epoch.generation != egress.generation() {
@@ -124,6 +147,7 @@ impl EventSinkTcpDialer for ApplicationEventSinkTcpDialer {
         })
     }
 }
+pub(crate) mod download;
 fn unique_candidates(values: impl Iterator<Item = SocketAddr>) -> Vec<SocketAddr> {
     let mut unique = HashSet::new();
     values

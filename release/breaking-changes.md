@@ -75,6 +75,10 @@ VLESS 入站仅登记实际标准 ComponentFactory/InboundSource，删除 adapte
 
 Config 的运行资源编译迁入 `zero-runtime::configuration`。Rust 嵌入者应消费准备值；Engine 保留领域快照/策略/revision 与原有公开入口，资源持久化和恢复委托同一个 ConfigurationSource。Proxy 的跨组件提交仍使用唯一 RuntimeHost 的 ApplyOwner，已受理操作由宿主持有到最终 ACK；应用 reconciler 必须确认失败候选真实退休后才恢复。Engine-only/FFI 不扩大为网络宿主。
 
+Rust `RuntimeConfig::load_from_path` 的文档 I/O 入口删除，嵌入调用方改用 `ConfigurationSource::load_document`；需要继续准备或持久化时，持同一 `Arc<ConfigurationSource>` 调用 `load_initial_configuration` 并传入 `PreparedConfiguration::prepare_startup`。已有 `validate_config` 保留；已准备输入可用 `validate_prepared_configuration`，避免重复打开规则资源。CLI validate、connector-state 与 reload 的文档读取也使用真实源原件，V1 校验和控制消息形状不变。
+
+初始 URL 规则预取复用既有应用 TCP 原件和 TaskScope 实现，下载为有限队列的流式 HTTP/HTTPS，保留相对路径、验证 TLS、GET 重定向、URL Basic 认证与新鲜/陈旧缓存语义。网络转交用户、任务 join 与原始 native 控制器实际关闭后才重定向或使用缓存；临时文件同步及原件 close/matches 后才安装不可变缓存，取消不丢原件或凭 Drop 放行 Engine 构建。
+
 Root Hysteria2 出站统一到协议拥有的同一真实认证池和标准角色；删除私有 TCP/UDP 桥及最后无调用者的 SessionTcpHandshake/SessionTcpConnectOperation。保留协议库公开 standalone convenience 范围，不作为 root 回退。CA 材料在同一启动准备中读取，旧配方恢复使用已准备的原 crypto；原始用户归还、TaskScope join 和 native close 独立确认。
 
 没有改变 V1 配置/API/events、CLI、FFI ABI 或协议基线，也没有增加协议组合。GUI/面板、特权 TUN、其他平台及 1 CPU/1 GiB 仍待最终候选真实验收；TEMP-WG-OUTER-UDP-01 保留未关闭。
