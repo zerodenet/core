@@ -1,10 +1,10 @@
 //! The existing authentication/framing over sealed, originally owned Quinn I/O.
 //! The caller retains the endpoint owner, driver receiver and native controller.
 use std::sync::Arc;
-use zero_platform_tokio::contract::{ChannelError, Impact, Reason, Stage, scope::TaskRegistrar};
+use zero_platform_tokio::contract::{scope::TaskRegistrar, ChannelError, Impact, Reason, Stage};
 use zero_transport::quic::owned::{
-    OwnedBiStream, OwnedConnection, OwnedEndpointOwner,
     h3::{PendingHttp3, RequestSender},
+    OwnedBiStream, OwnedConnection, OwnedEndpointOwner,
 };
 
 mod udp;

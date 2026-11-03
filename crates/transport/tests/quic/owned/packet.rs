@@ -77,7 +77,7 @@ async fn packet_segment_returns_real_views_and_join_before_original_native_close
         "TaskScope join and returned views are not native close"
     );
     let original = grant.control.close().unwrap();
-    assert!(original.matches(&grant.control));
+    assert_eq!(original.reservation(), grant.control.reservation());
     assert_eq!(native.take_report().main.confirmed_closed, 1);
     assert!(scope.is_drained());
 }

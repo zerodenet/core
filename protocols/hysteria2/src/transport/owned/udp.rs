@@ -4,8 +4,8 @@ use std::{collections::BTreeMap, sync::Mutex};
 use tokio::sync::mpsc;
 use zero_core::component::TaskId;
 use zero_platform_tokio::contract::{
-    CancellationToken,
     scope::{TaskClass, TaskJoinWitness, TaskJoined},
+    CancellationToken,
 };
 #[derive(Default)]
 struct State {
