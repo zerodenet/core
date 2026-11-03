@@ -15,8 +15,7 @@ use dispatcher::{changed_components, dispatcher_enabled};
 #[cfg(feature = "event-dispatcher")]
 use dispatcher::{dispatcher_changed, spawn_status_monitor};
 
-#[cfg(feature = "event-dispatcher")]
-mod network;
+pub(crate) mod network;
 
 #[cfg(feature = "event-dispatcher")]
 use network::ApplicationEventSinkTcpDialer;

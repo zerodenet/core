@@ -13,8 +13,14 @@ pub fn execute(command: Command) -> Result<(), Box<dyn Error>> {
             socket_path,
         } => status(config_path.as_deref(), json, socket_path.as_deref()),
         Command::Validate { config_path } => {
-            let config = zero_config::RuntimeConfig::load_from_path(&config_path)?;
-            zero_proxy::validate_config(&config)?;
+            let source =
+                std::sync::Arc::new(zero_runtime::configuration::ConfigurationSource::default());
+            let config = source.load_initial_configuration(&config_path)?;
+            let prepared = zero_runtime::configuration::PreparedConfiguration::prepare_startup(
+                config, source,
+            )?;
+            zero_proxy::validate_prepared_configuration(&prepared)?;
+            let config = &prepared.config;
             println!(
                 "config valid: {} inbounds, {} outbounds, {} groups, {} rules",
                 config.inbounds.len(),
@@ -67,7 +73,7 @@ fn connector_state(config_path: &str, json: bool) -> Result<(), Box<dyn Error>> 
         principal_quota: Option<&'a zero_engine::PrincipalQuotaStateReport>,
     }
 
-    let config = zero_config::RuntimeConfig::load_from_path(config_path)?;
+    let config = zero_runtime::configuration::ConfigurationSource::load_document(config_path)?;
     let connector = zero_connector::inspect_persistent_state(&config);
     let principal_quota = zero_engine::inspect_principal_quota_state(&config);
     let compatible = connector.compatible

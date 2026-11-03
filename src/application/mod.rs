@@ -5,7 +5,7 @@ use crate::cli::Command;
 mod control;
 mod inspect;
 mod run;
-mod services;
+pub(crate) mod services;
 mod tun;
 
 pub async fn execute(command: Command) -> Result<(), Box<dyn Error>> {

@@ -3341,7 +3341,8 @@ fn loads_rule_set_from_relative_file_path() {
     )
     .expect("write config");
 
-    let config = RuntimeConfig::load_from_path(&config_path).expect("load config");
+    let config = zero_runtime::configuration::ConfigurationSource::load_document(&config_path)
+        .expect("load config");
 
     assert_eq!(config.source_dir(), Some(project_dir.as_path()));
     assert!(matches!(
@@ -3409,7 +3410,8 @@ fn shares_one_domain_rule_set_between_dns_dispatch_and_traffic_route() {
     )
     .expect("write config");
 
-    let config = RuntimeConfig::load_from_path(&config_path).expect("load shared rule set");
+    let config = zero_runtime::configuration::ConfigurationSource::load_document(&config_path)
+        .expect("load shared rule set");
     let dispatch = config
         .compile_dns_dispatch()
         .expect("compile DNS dispatch")
@@ -3546,7 +3548,7 @@ fn rejects_invalid_cidr_rule_set_entry() {
     )
     .expect("write config");
 
-    let config = RuntimeConfig::load_from_path(&config_path)
+    let config = zero_runtime::configuration::ConfigurationSource::load_document(&config_path)
         .expect("structural validation does not read rule resources");
     let error = config
         .compile_route()

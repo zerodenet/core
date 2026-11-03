@@ -75,3 +75,7 @@ V1 配置/API/events、CLI、FFI ABI 和协议上游版本未调整。原始错�
 Rust `MessageTransfer::Upgraded.upstream` 改为 `Box<TcpRelayStream>`，降低常见 Complete 值的枚举体积；构造方显式装箱，消费方继续使用同一个实际流，原始 I/O 所有权和 V1 wire 不变。TCP source 的 `next` 实现改用等价 async fn；有限原件计数使用溢出检查 CAS，兼容旧 Rust 并避免 1.99 的原方法弃用。
 
 配置通知直接使用 runtime 提供的具体通知值，Engine 保留原同步 `subscribe_reload` 语义并提供同一领域通知视图；删除旧 blocking 线程桥，没有新增任务、Host 或 provider。DNS 仅在完整配置、实际 compiled dispatch 和原 backend 均相同时保留同一代次、cache 和 lease；真实依赖变化仍换代。Root HY2 将真实 CA 字节纳入身份，无变化公开 reload 保留活跃连接。恢复精确已发布 recipe 时创建新代次和取消域，旧配方 crypto 可达，不重新读取仍损坏的路径。
+
+Config 的 Rust 便利文档加载 `RuntimeConfig::load_from_path` 删除；调用方改用 runtime 的 `ConfigurationSource::load_document`，或保留同一源 Arc 经 `load_initial_configuration`、`PreparedConfiguration::prepare_startup` 交付 Engine。Config 的生产依赖不反向依赖 runtime。已准备校验可使用 `zero_proxy::validate_prepared_configuration`，既有 `validate_config` 保留。CLI validate/connector-state/reload 使用原始文件真实关闭后的文档，V1 和 FFI 没有新增字段或符号。
+
+启动 URL 规则下载移除隐藏 native 所有权的 ureq 调用链。现有应用原始 TCP/TaskScope 实现也服务启动下载，有限流式队列、同原件关闭后重定向和不可变缓存保留既有能力；不是新 provider、第二 RuntimeHost 或兼容池。缓存原件、HTTP/TLS 任务和转交用户分别确认后才交付启动配置。

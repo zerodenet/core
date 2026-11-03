@@ -126,7 +126,15 @@ tokio.workspace = true
 tracing.workspace = true
 tracing-subscriber.workspace = true
 rustls.workspace = true
-ureq = { version = "2", default-features = false, features = ["tls"] }
+base64 = "0.22"
+bytes = "1"
+http = "1"
+http-body-util = "0.1"
+hyper = { version = "=1.9.0", default-features = false, features = ["client", "http1"] }
+hyper-util = { version = "0.1", default-features = false, features = ["tokio"] }
+tokio-rustls = { version = "0.26", default-features = false }
+url = "2"
+webpki-roots = "1"
 zero-api = { path = "crates/api" }
 zero-config = { path = "crates/config" }
 zero-core = { path = "crates/core" }
@@ -143,6 +151,7 @@ zero-grpc = { path = "crates/grpc", optional = true }
 zero-tun = { path = "crates/tun" }
 
 [dev-dependencies]
+rcgen = "0.14"
 socket2 = "0.6"
 tempfile.workspace = true
 zero-platform-tokio = { path = "crates/platform/tokio" }

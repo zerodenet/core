@@ -101,7 +101,7 @@ fn source_writability_is_unknown_until_actual_persistence_and_recovers_after_io_
     assert_eq!(saved.writable, Some(true));
     assert_eq!(saved.reason, None);
     assert!(saved.writable_observed_at_unix_ms.is_some());
-    assert!(RuntimeConfig::load_from_path(path).is_ok());
+    assert!(zero_runtime::configuration::ConfigurationSource::load_document(path).is_ok());
 }
 
 #[test]

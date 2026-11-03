@@ -46,7 +46,7 @@ async fn persistent_candidate_keeps_actual_last_good_source_until_application_re
     request.await.unwrap().unwrap();
     assert_eq!(proxy.engine().config_revision(), revision + 1);
     assert_eq!(proxy.engine().config_source_write_generation(), 1);
-    let persisted = zero_config::RuntimeConfig::load_from_path(&path).unwrap();
+    let persisted = zero_runtime::configuration::ConfigurationSource::load_document(&path).unwrap();
     assert_eq!(
         persisted
             .runtime

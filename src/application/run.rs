@@ -47,8 +47,7 @@ async fn run(
     let source = std::sync::Arc::new(zero_runtime::configuration::ConfigurationSource::new(
         config_path,
     ));
-    let mut config = source.load_initial_configuration(config_path)?;
-    rule_set_fetch::pre_fetch_rule_sets(&mut config.route.rule_sets, config.source_dir.as_deref());
+    let config = rule_set_fetch::load_initial_configuration(source.clone(), config_path).await?;
     let prepared = zero_runtime::configuration::PreparedConfiguration::prepare_startup(
         config,
         source.clone(),

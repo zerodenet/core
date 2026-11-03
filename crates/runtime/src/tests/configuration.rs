@@ -16,7 +16,7 @@ fn one_preparation_retains_relative_resource_for_route_bypass_and_dns() {
             "rules":[{"condition":{"type":"rule_set","tag":"domains"},"action":{"type":"direct"}}],
             "bypass":[{"type":"rule_set","tag":"domains"}],"final":{"type":"reject"}}
     }"#).unwrap();
-    let config = RuntimeConfig::load_from_path(&source).unwrap();
+    let config = crate::configuration::ConfigurationSource::load_document(&source).unwrap();
     let owner = super::ConfigurationSource::new(&source);
     let prepared = PreparedRouting::prepare_owned(&config, &owner).unwrap();
     assert_eq!(owner.io.original_observation(), (1, 1, false, false));
