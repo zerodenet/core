@@ -34,7 +34,7 @@ pub(super) struct OrchestrationState {
     pub(super) active_inbounds: HashMap<String, InboundConfig>,
     pub(super) urltests: JoinSet<Result<(), EngineError>>,
     pub(super) services: crate::runtime::inbound_service::InboundServices,
-    pub(super) reload_async_rx: tokio::sync::mpsc::UnboundedReceiver<()>,
+    pub(super) reload_changes: watch::Receiver<()>,
     pub(super) source_dir: Option<PathBuf>,
     pub(super) urltest_runtime: UrlTestRuntime,
     pub(super) inbound_runtime_factory: InboundListenerRuntimeFactory,

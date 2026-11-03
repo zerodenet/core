@@ -7,6 +7,7 @@ use zero_traits::{DnsResolver, IpAddress};
 
 use super::{ConfigApplyReconciler, ConfigReconcileResult, ProxyHandle};
 use crate::runtime::Proxy;
+mod notifications;
 mod owned;
 mod persistence;
 mod policy;

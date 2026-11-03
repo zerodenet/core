@@ -4,7 +4,7 @@ mod observers;
 use super::{logging::log_started, state::OrchestrationState};
 use crate::groups::UrlTestRuntime;
 use crate::runtime::route_runtime::{InboundListenerRuntimeFactory, SharedIngressRuntimeServices};
-use crate::runtime::{listeners, reload, Proxy};
+use crate::runtime::{listeners, Proxy};
 use std::collections::HashMap;
 use tokio::sync::watch;
 use tokio::task::JoinSet;
@@ -26,7 +26,7 @@ impl OrchestrationState {
         let (shutdown_tx, shutdown_rx) = watch::channel(false);
         // Subscribe before capturing: a later direct Engine reload is queued
         // for reconciliation instead of being lost during startup awaits.
-        let reload_async_rx = reload::subscribe_reload_bridge(proxy.engine.subscribe_reload());
+        let reload_changes = proxy.engine.subscribe_configuration_reconcile();
         let applied_snapshot = proxy.engine.runtime_snapshot();
         let source_dir = applied_snapshot
             .config()
@@ -73,7 +73,7 @@ impl OrchestrationState {
                 .collect(),
             urltests: JoinSet::new(),
             services: Default::default(),
-            reload_async_rx,
+            reload_changes,
             source_dir,
             urltest_runtime,
             inbound_runtime_factory,

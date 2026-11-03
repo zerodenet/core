@@ -24,7 +24,7 @@ impl OrchestrationState {
                     return proxy.engine.configuration_source()
                         .confirm_original_io_closed().map_err(EngineError::Io);
                 }
-                Some(()) = self.reload_async_rx.recv() => Box::pin(self.reconcile_reload(proxy)).await,
+                Ok(()) = self.reload_changes.changed() => Box::pin(self.reconcile_reload(proxy)).await,
                 _ = tokio::time::sleep_until(deadline) => return Err(std::io::Error::new(
                     std::io::ErrorKind::TimedOut,
                     "configuration transaction shutdown remains unconfirmed",

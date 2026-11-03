@@ -71,6 +71,8 @@ pub struct Engine {
     /// Reload notification channel: wakes the proxy's main loop when
     /// `reload_config` atomically swaps the plan / router / config.
     reload_notify: Arc<std::sync::Mutex<Vec<std::sync::mpsc::Sender<()>>>>,
+    /// Concrete domain wake-up state consumed directly by the existing host.
+    reload_changes: tokio::sync::watch::Sender<()>,
     /// Source path of the running config.  When set, `reload_config`
     /// writes the new config back to this path so it survives restarts.
     config_source: Arc<zero_runtime::configuration::ConfigurationSource>,
@@ -225,6 +227,7 @@ impl Engine {
             flow_completion_sink: Arc::new(std::sync::RwLock::new(None)),
             udp_upstream_idle_timeout,
             reload_notify: Arc::new(std::sync::Mutex::new(Vec::new())),
+            reload_changes: tokio::sync::watch::channel(()).0,
             config_source: source,
             started_at_unix_ms: started_at_unix_ms(),
             pid: std::process::id(),
