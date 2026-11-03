@@ -205,8 +205,8 @@
       "id": "24",
       "title": "源码与规范索引",
       "file": "references.md",
-      "characters": 2375,
-      "sha256": "1e9c98bde124c69741060644351aecb9cd4291efe0aa515dadaff0601a1a825a",
+      "characters": 2449,
+      "sha256": "7dd40ac66a215b68d15b427f12dc4863366777e0d9a6388a17936f538073ada9",
       "pre_cloud_handoff_sha256": "fe8aeeba1bb3e31de45997659e6be68d7d77d0f8754465dfdca14c46871b6d66"
     }
   ],
@@ -320,6 +320,31 @@
       },
       "verified_source": "f0c1cc0930df8c34f1822cdd182928511e319b76:crates/config/src/compile.rs",
       "technical_contracts": "unchanged; link normalization only"
+    },
+    {
+      "date": "2026-11-03",
+      "scope": "Normalize the matching historical compiler index after Config resource I/O moves to runtime; preserve design-observation text and goals.",
+      "updated_sections": [
+        "24"
+      ],
+      "previous_section": {
+        "id": "24",
+        "title": "源码与规范索引",
+        "file": "references.md",
+        "characters": 2375,
+        "sha256": "1e9c98bde124c69741060644351aecb9cd4291efe0aa515dadaff0601a1a825a",
+        "pre_cloud_handoff_sha256": "fe8aeeba1bb3e31de45997659e6be68d7d77d0f8754465dfdca14c46871b6d66"
+      },
+      "updated_section": {
+        "id": "24",
+        "title": "源码与规范索引",
+        "file": "references.md",
+        "characters": 2449,
+        "sha256": "7dd40ac66a215b68d15b427f12dc4863366777e0d9a6388a17936f538073ada9",
+        "pre_cloud_handoff_sha256": "fe8aeeba1bb3e31de45997659e6be68d7d77d0f8754465dfdca14c46871b6d66"
+      },
+      "verified_source": "f0c1cc0930df8c34f1822cdd182928511e319b76:crates/config/src/compile.rs",
+      "technical_contracts": "unchanged; immutable historical source link only"
     }
   ]
 }
