@@ -1,6 +1,6 @@
 use super::{
     stream::{OwnedRecvStream, OwnedSendStream},
-    users::{error, protocol, Permit},
+    users::{Permit, error, protocol},
 };
 use zero_platform_tokio::contract::{ChannelError, Reason, Stage};
 /// No raw Connection, Clone or control getter escapes this wrapper. Each

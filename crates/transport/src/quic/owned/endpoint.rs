@@ -1,25 +1,26 @@
 //! Sealed Quinn user handles over the same actual driver/native owners.
 use super::{
-    drivers::Admission, DriverExitReceiver, DriverTaskStatus, MetadataSocketOwner, QuinnDriverOwner,
+    DriverExitReceiver, DriverTaskStatus, MetadataSocketOwner, QuinnDriverOwner, drivers::Admission,
 };
 use std::{
     collections::BTreeMap,
     io,
     num::NonZeroUsize,
     sync::{
-        atomic::{AtomicU8, Ordering},
         Arc, Mutex, Weak,
+        atomic::{AtomicU8, Ordering},
     },
 };
 use tokio::time::Instant;
 use zero_platform_tokio::{
     contract::{
-        scope::{TaskJoined, TaskRegistrar},
         ChannelError, Impact, Reason, Stage,
+        scope::{TaskJoined, TaskRegistrar},
     },
-    controlled_datagram::{metadata::MetadataOwnerReport, DatagramReservationId},
+    controlled_datagram::{DatagramReservationId, metadata::MetadataOwnerReport},
 };
 mod bidi;
+mod borrowed;
 #[cfg(any(feature = "split_http", feature = "hysteria", feature = "quic_h3"))]
 pub mod h3;
 pub use bidi::OwnedBiStream;
@@ -33,7 +34,7 @@ mod users;
 pub use connection::OwnedConnection;
 pub use handle::{OwnedEndpointHandle, OwnedIncoming};
 pub use stream::{OwnedRecvStream, OwnedSendStream};
-use users::{error, Users};
+use users::{Users, error};
 
 /// Caller-assigned finite counts. No production configuration is implied.
 #[derive(Clone, Copy, Debug)]
@@ -138,6 +139,14 @@ impl OwnedEndpointOwner {
             .phase
             .compare_exchange(0, 1, Ordering::AcqRel, Ordering::Acquire)
             .map_err(|_| error(Stage::Prepare, Reason::Revoked))?;
+        if let Native::Borrowed(native) = &mut self.native {
+            if let Some(driver) = native.driver.take() {
+                if let Err(error) = self.drivers.start_carrier(driver) {
+                    self.begin_shutdown();
+                    return Err(error);
+                }
+            }
+        }
         let result = quinn::Endpoint::new_with_abstract_socket(
             config,
             server,
@@ -189,6 +198,12 @@ impl OwnedEndpointOwner {
     pub fn begin_shutdown(&self) {
         self.shared.phase.store(3, Ordering::Release);
         self.shared.users.cancellation().cancel();
+        if let Native::Borrowed(native) = &self.native {
+            native.stop.cancel();
+            native
+                .loan
+                .cancel(zero_platform_tokio::contract::CloseReason::Shutdown);
+        }
         self.drivers.revoke_registration();
         let endpoint = self.shared.endpoint.lock().unwrap().take();
         if let Some(endpoint) = endpoint {
