@@ -23,3 +23,21 @@ impl PoolOptions {
         Ok(self)
     }
 }
+
+impl Pool {
+    /// Pure role binding to the assembly's already prepared shared resource.
+    /// Actual dependency generation and profile identity are checked on use.
+    pub fn bind_prepared_profile(
+        self: &Arc<Self>,
+        profile: usize,
+        owner: ComponentId,
+        identity: Arc<[u8]>,
+    ) -> RoleOptions {
+        RoleOptions {
+            pool: Arc::downgrade(self),
+            profile,
+            owner,
+            identity,
+        }
+    }
+}

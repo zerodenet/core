@@ -76,9 +76,15 @@ impl ResourceLifecycle for Owner {
         let weak = Arc::downgrade(&self.generation);
         let stop = self.generation.cancel.clone();
         let (_,witness)=self.generation.tasks.spawn_tracked(TaskClass::Critical,async move {
-            loop {tokio::select! {biased;_=stop.cancelled()=>return Ok(()),_=tokio::time::sleep(Duration::from_secs(1))=>{}}
+            let mut immediate = false;
+            loop {
+                if immediate {
+                    tokio::select! {biased;_=stop.cancelled()=>return Ok(()),_=tokio::task::yield_now()=>{}}
+                } else {
+                    tokio::select! {biased;_=stop.cancelled()=>return Ok(()),_=tokio::time::sleep(Duration::from_secs(1))=>{}}
+                }
                 let Some(generation)=weak.upgrade() else{return Ok(())};
-                generation.maintain(Instant::now()+Duration::from_secs(5)).await?;
+                immediate=generation.maintain(Instant::now()+Duration::from_secs(5)).await?;
             }
         }).map_err(|source|error(Stage::Prepare,Reason::Capacity).with_source(source))?;
         *self.generation.maintenance.lock().unwrap() = Some(witness);

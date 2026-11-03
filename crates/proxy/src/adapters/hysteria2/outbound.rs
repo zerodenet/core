@@ -59,6 +59,30 @@ impl Hysteria2Adapter {
         let config = resources
             .candidate()
             .ok_or_else(|| options_error("complete Hysteria2 candidate is required"))?;
+        let index = config
+            .outbounds
+            .iter()
+            .filter(|outbound| {
+                matches!(&outbound.protocol, OutboundProtocolConfig::Hysteria2 { .. })
+            })
+            .position(|outbound| outbound.tag() == input.tag())
+            .ok_or_else(|| options_error("expected Hysteria2 outbound profile"))?;
+        let prepared = resources.resources().find(|resource| {
+            let spec = resource.recipe().spec();
+            spec.roles.is_empty() && matches!(&spec.owner,
+                zero_platform_tokio::contract::component::ResourceOwner::Endpoint(name) if name == "hysteria2.authenticated_pool")
+        }).map(|resource|resource.component());
+        if let Some(owner) = prepared {
+            let mut bytes = serde_json::to_vec(input).map_err(options_error)?;
+            if let Some(source) = resources.source_dir() {
+                bytes.extend(source.as_os_str().as_encoded_bytes());
+            }
+            return Ok(self.outbound_pool.bind_prepared_profile(
+                index,
+                owner,
+                identity(&bytes, &[]),
+            ));
+        }
         let profiles = config
             .outbounds
             .iter()
@@ -86,10 +110,6 @@ impl Hysteria2Adapter {
                 .with_source_dir(resources.source_dir()))
             })
             .collect::<Result<Vec<_>, RegistrationError>>()?;
-        let index = profiles
-            .iter()
-            .position(|profile| profile.tag() == input.tag())
-            .ok_or_else(|| options_error("expected Hysteria2 outbound profile"))?;
         let mut bytes = Vec::new();
         bytes.extend((Arc::as_ptr(&self.outbound_pool) as usize).to_le_bytes());
         let mut files = std::collections::BTreeMap::new();

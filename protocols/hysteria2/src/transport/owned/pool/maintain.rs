@@ -1,13 +1,17 @@
 use super::*;
 impl Generation {
-    pub(super) async fn maintain(&self, end: Instant) -> Result<(), ChannelError> {
-        let entries = self
+    pub(super) async fn maintain(&self, end: Instant) -> Result<bool, ChannelError> {
+        let mut entries = self
             .entries
             .lock()
             .unwrap()
             .iter()
             .map(|(key, entry)| (key.clone(), entry.clone()))
             .collect::<Vec<_>>();
+        entries.sort_by_key(|(key, _)| key.profile);
+        let cursor = *self.maintenance_cursor.lock().unwrap();
+        let pivot = entries.partition_point(|(key, _)| key.profile < cursor);
+        entries.rotate_left(pivot);
         for (key, entry) in entries {
             let Ok(state) = entry.state.try_lock() else {
                 continue;
@@ -24,28 +28,45 @@ impl Generation {
             let failed = state.attempted && state.auth.is_none();
             let hop = state.next_hop.is_some_and(|time| Instant::now() >= time);
             drop(state);
-            if failed {
+            let worked = if failed {
                 entry.close(end).await?;
                 self.remove_entry(&key, &entry).await?;
+                true
             } else if idle && expired {
                 if entry.close_if_idle(end).await? {
                     self.remove_entry(&key, &entry).await?;
+                    true
+                } else {
+                    false
                 }
             } else if hop {
-                self.rotate(key.profile, &entry, end).await?;
+                self.rotate(key.profile, &entry, end).await?
+            } else {
+                false
+            };
+            if worked {
+                // One actual original per five-second slice. A successful
+                // slice resumes from the next profile, including busy pools.
+                *self.maintenance_cursor.lock().unwrap() = if key.profile + 1 == self.profiles.len()
+                {
+                    0
+                } else {
+                    key.profile + 1
+                };
+                return Ok(true);
             }
         }
-        Ok(())
+        Ok(false)
     }
     async fn rotate(
         &self,
         profile: usize,
         entry: &Entry,
         end: Instant,
-    ) -> Result<(), ChannelError> {
+    ) -> Result<bool, ChannelError> {
         let options = &self.profiles[profile];
         let Some(hop) = &options.leaf.node.udp_hop else {
-            return Ok(());
+            return Ok(false);
         };
         let mut state = tokio::time::timeout_at(end, entry.state.lock())
             .await
@@ -65,7 +86,7 @@ impl Generation {
             // Sealed DNS/network authority changed. Preserve this original;
             // only a fresh acquire may retire all old users/drivers/native and
             // then resolve/acquire a replacement with its actual new key.
-            return Ok(());
+            return Ok(false);
         }
         if state.receipt.is_none() {
             let segment = state
@@ -146,7 +167,7 @@ impl Generation {
             *auth.native_origin.lock().unwrap() = state.origin.clone();
         }
         state.next_hop = Some(Instant::now() + hop.next_interval());
-        Ok(())
+        Ok(true)
     }
 }
 

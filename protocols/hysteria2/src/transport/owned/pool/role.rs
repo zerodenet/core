@@ -93,6 +93,18 @@ impl Role {
             .upgrade()
             .ok_or_else(|| error(Stage::Prepare, Reason::Revoked))?;
         let generation = pool.generation(self.generation)?;
+        if generation
+            .profiles
+            .get(self.options.profile)
+            .is_none_or(|profile| profile.identity != self.options.identity)
+        {
+            return Err(self.admission.error(
+                session,
+                Stage::Prepare,
+                Reason::StalePlan,
+                DeliveryState::NotSubmitted,
+            ));
+        }
         let end = context
             .deadline
             .unwrap_or_else(|| Instant::now() + Duration::from_secs(30));

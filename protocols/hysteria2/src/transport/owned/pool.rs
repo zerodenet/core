@@ -163,6 +163,7 @@ impl PoolFactory {
             entries: Mutex::new(HashMap::new()),
             failures: Mutex::new(Vec::new()),
             maintenance: Mutex::new(None),
+            maintenance_cursor: Mutex::new(0),
             clients: options.prepared_clients.clone(),
             prepared_ca: options.prepared_ca.clone(),
         });
@@ -193,6 +194,7 @@ pub(super) struct Generation {
     entries: Mutex<HashMap<Key, Arc<Entry>>>,
     failures: Mutex<Vec<ledger::FailedGroup>>,
     maintenance: Mutex<Option<TaskJoinWitness>>,
+    maintenance_cursor: Mutex<usize>,
     clients: Arc<OnceLock<Arc<[quinn::ClientConfig]>>>,
     prepared_ca: Option<material::PreparedCa>,
 }
