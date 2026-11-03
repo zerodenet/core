@@ -417,8 +417,9 @@ fn validate_config_command(
     command: ConfigValidateCommand,
 ) -> zero_api::ApiResult<CommandResponse> {
     let raw = serde_json::to_string(&command.config).map_err(to_internal_error)?;
-    let _config = RuntimeConfig::parse_with_source_dir(&raw, engine.config().source_dir.clone())
+    let config = RuntimeConfig::parse_with_source_dir(&raw, engine.config().source_dir.clone())
         .map_err(config_error_to_api)?;
+    zero_runtime::configuration::PreparedRouting::prepare(&config).map_err(config_error_to_api)?;
 
     Ok(CommandResponse {
         accepted: true,

@@ -172,3 +172,55 @@ fn engine_only_persistent_stage_and_restore_keep_their_existing_source_scope() {
     assert_eq!(restarted.config().outbounds.len(), 4);
     assert_ne!(restarted.core_instance_id(), engine.core_instance_id());
 }
+
+#[test]
+fn engine_only_v1_validate_prepares_relative_resources_without_installing_or_persisting() {
+    let directory = tempfile::tempdir().unwrap();
+    let path = directory.path().join("zero.json");
+    std::fs::write(&path, b"{}").unwrap();
+    let engine = Engine::from_path(&path).unwrap();
+    let previous = engine.runtime_snapshot();
+    let handle = zero_engine::EngineHandle::new(engine.clone());
+    let candidate = serde_json::json!({"route":{
+        "rule_sets":[{"tag":"domains","type":"file","path":"domains.txt","format":"domain_list"}],
+        "rules":[{"condition":{"type":"rule_set","tag":"domains"},"action":{"type":"reject"}}],
+        "final":{"type":"direct"}}});
+    let error = zero_api::CommandService::execute(
+        &handle,
+        zero_api::CommandRequest::ConfigValidate(zero_api::ConfigValidateCommand {
+            config: candidate.clone(),
+        }),
+    )
+    .unwrap_err();
+    assert!(error.message.contains("domains.txt"));
+    assert!(std::sync::Arc::ptr_eq(
+        &engine.runtime_snapshot(),
+        &previous
+    ));
+    assert_eq!(std::fs::read(&path).unwrap(), b"{}");
+    std::fs::write(directory.path().join("domains.txt"), b"example.test\n").unwrap();
+    let accepted = zero_api::CommandService::execute(
+        &handle,
+        zero_api::CommandRequest::ConfigValidate(zero_api::ConfigValidateCommand {
+            config: candidate.clone(),
+        }),
+    )
+    .unwrap();
+    assert!(accepted.accepted);
+    assert!(std::sync::Arc::ptr_eq(
+        &engine.runtime_snapshot(),
+        &previous
+    ));
+    assert_eq!(engine.config_source_write_generation(), 0);
+    std::fs::remove_file(directory.path().join("domains.txt")).unwrap();
+    assert!(zero_api::CommandService::execute(
+        &handle,
+        zero_api::CommandRequest::ConfigApply(zero_api::ConfigApplyCommand { config: candidate })
+    )
+    .is_err());
+    assert!(std::sync::Arc::ptr_eq(
+        &engine.runtime_snapshot(),
+        &previous
+    ));
+    assert_eq!(std::fs::read(path).unwrap(), b"{}");
+}
