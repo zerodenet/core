@@ -110,7 +110,10 @@ impl Fixture {
         .await
     }
     async fn declared(declaration: ResourceDeclaration, cap: usize) -> Self {
-        let catalog = ComponentCatalog::default();
+        // All fixtures model components in one host namespace, as production
+        // does. Independent allocators may intentionally reuse numeric IDs.
+        static CATALOG: std::sync::OnceLock<ComponentCatalog> = std::sync::OnceLock::new();
+        let catalog = CATALOG.get_or_init(ComponentCatalog::default);
         let id = catalog.allocate_id().unwrap();
         let issued = Arc::new(Issued::default());
         let recipe = ComponentRecipe::from_validated(
