@@ -1,3 +1,5 @@
+#[cfg(feature = "managed-datagram-runtime")]
+mod publication;
 use zero_engine::EngineError;
 use zero_runtime::configuration::RuntimeConfigPreparation;
 #[cfg(all(unix, feature = "shadowsocks"))]

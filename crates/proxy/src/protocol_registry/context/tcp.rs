@@ -67,6 +67,7 @@ impl TcpRuntimeServices {
         Self {
             execution: TcpExecutionServices {
                 engine,
+                configuration_publication: snapshot.configuration_publication(),
                 snapshot,
                 current_source: std::sync::Weak::new(),
                 upstream: UpstreamConnectServices::new(

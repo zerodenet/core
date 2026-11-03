@@ -68,7 +68,11 @@ impl ProxyHandle {
         // The persistent apply owner already holds the shared serialization
         // guard; waiting HTTP/IPC futures do not own this transaction.
         let previous = self.proxy.engine.runtime_snapshot();
-        let previous_source_write = self.proxy.engine.config_source_write_generation();
+        self.proxy
+            .engine
+            .configuration_source()
+            .ensure_available()
+            .map_err(|error| ApiError::new(ApiErrorCode::Internal, error.to_string()))?;
         self.proxy.engine.check_endpoint_preconditions(
             &previous,
             &id,
@@ -210,6 +214,7 @@ impl ProxyHandle {
                     Ok(())
                 })
                 .map_err(|message| ApiError::new(ApiErrorCode::Internal, message))?;
+            self.proxy.engine.configuration_source().finalize_committed().map_err(|error| ApiError::new(ApiErrorCode::Internal, format!("endpoint committed; source finalization failed: {error}; query current state")))?;
             Ok::<(), ApiError>(())
         }
         .await;
@@ -217,29 +222,11 @@ impl ProxyHandle {
             // The candidate resolver is staged until application reconciliation
             // succeeds. Release that stage before preparing the old config.
             self.proxy.resolver.discard_prepared_reload();
-            // A failed first write leaves the old source intact. Only rewrite
-            // it when this transaction actually replaced it; runtime resources
-            // still need reconciliation in either case.
-            let rollback_persist = persist
-                && self.proxy.engine.config_source_write_generation() != previous_source_write;
-            let rollback = async {
-                self.apply_endpoint_snapshot(previous.clone(), true).await?;
-                if rollback_persist {
-                    self.proxy
-                        .host
-                        .apply()
-                        .compensate(|| {
-                            self.proxy
-                                .engine
-                                .configuration_source()
-                                .persist_ready(previous.config(), "endpoint-source-compensation")
-                                .map_err(|error| error.to_string())
-                        })
-                        .map_err(|message| ApiError::new(ApiErrorCode::Internal, message))?;
-                }
-                Ok::<(), ApiError>(())
-            }
-            .await;
+            self.confirm_source_compensation(&previous)
+                .map_err(|recovery| {
+                    ApiError::new(error.code, format!("{}; {recovery}", error.message))
+                })?;
+            let rollback = self.apply_endpoint_snapshot(previous.clone(), true).await;
             self.proxy.resolver.discard_prepared_reload();
             self.proxy.engine.record_endpoint_runtime_error(
                 &id,

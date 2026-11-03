@@ -3,7 +3,9 @@ mod compile;
 mod rule_sets;
 mod source;
 pub use compile::{DnsConfigPreparation, RuntimeConfigPreparation};
-pub use source::{ConfigurationSource, SourceWriteObservation};
+pub use source::{
+    ConfigurationSource, SourceDisposition, SourcePersistError, SourceWriteObservation,
+};
 use std::sync::Arc;
 use zero_config::{ConfigError, RuntimeConfig};
 use zero_router::{DomainDispatcher, RuleSet};

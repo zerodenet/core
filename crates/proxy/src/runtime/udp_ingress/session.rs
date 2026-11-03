@@ -7,7 +7,9 @@ use crate::runtime::tcp_ingress::apply_kernel_rate_limits_from_config;
 
 impl UdpIngressRuntime {
     pub(crate) async fn resolve_local_dns(&self, domain: &str) {
-        let _ = self.tcp_services.resolver().resolve(domain).await;
+        if self.tcp_services.ensure_configuration_committed().is_ok() {
+            let _ = self.tcp_services.resolver().resolve(domain).await;
+        }
     }
 
     pub(crate) async fn prepare_udp_session(
@@ -15,6 +17,7 @@ impl UdpIngressRuntime {
         session: &mut Session,
         inbound_tag: &str,
     ) -> Result<crate::component::business_demand::AdmittedBusinessDemand, EngineError> {
+        self.tcp_services.ensure_configuration_committed()?;
         if session.inbound_local.is_none() {
             session.inbound_local = self.local_addr.map(|addr| {
                 (
@@ -70,6 +73,7 @@ impl UdpIngressRuntime {
         &self,
         session: &mut Session,
     ) -> Result<(), EngineError> {
+        self.tcp_services.ensure_configuration_committed()?;
         crate::runtime::target::resolve_dns_target(self.tcp_services.resolver(), session).await
     }
 

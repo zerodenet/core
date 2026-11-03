@@ -42,7 +42,7 @@ mod traffic;
 pub(crate) use endpoint::Fact as EndpointFact;
 pub use endpoint::{EndpointAdmission, EndpointChange};
 pub use route::{IpRouteCache, RouteEvaluation};
-pub use snapshot::EngineRuntimeSnapshot;
+pub use snapshot::{ConfigurationPublication, EngineRuntimeSnapshot};
 
 #[derive(Debug, Clone)]
 pub struct Engine {
@@ -181,6 +181,7 @@ impl Engine {
         let engine = Self {
             runtime_snapshot: Arc::new(std::sync::RwLock::new(Arc::new(EngineRuntimeSnapshot {
                 config_revision: Arc::new(AtomicU64::new(1)),
+                publication: ConfigurationPublication::committed(),
                 endpoint_intents: Arc::new(
                     endpoint::EndpointIntents::for_config(&config, None).map_err(|error| {
                         EngineError::InvalidPlan {
@@ -246,6 +247,7 @@ impl Engine {
         engine.config_source = Arc::new(zero_runtime::configuration::ConfigurationSource::new(
             path.as_ref().to_owned(),
         ));
+        engine.config_source.complete_recovered_boot()?;
         Ok(engine)
     }
 

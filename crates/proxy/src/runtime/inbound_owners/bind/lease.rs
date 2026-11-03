@@ -87,6 +87,10 @@ impl InboundBindLease {
             return Err(io("listener lease already received its native view"));
         }
         self.listener = Some(self.grant.bind()?);
+        #[cfg(test)]
+        if let Ok(address) = self.listener.as_ref().unwrap().local_addr() {
+            let _ = self.owner.original_listener_address.set(address);
+        }
         Ok(())
     }
     pub(crate) async fn resolve_native(&mut self) -> Result<(), EngineError> {

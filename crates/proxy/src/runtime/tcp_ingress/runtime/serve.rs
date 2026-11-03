@@ -57,6 +57,7 @@ impl TcpIngressRuntime {
         R: zero_core::InboundFallbackReplay + 'static,
         R::Stream: crate::transport::ClientStream,
     {
+        self.services.ensure_configuration_committed()?;
         crate::runtime::inbound_fallback::relay_recorded_fallback_replay(
             self.runtime_services(),
             fallback,

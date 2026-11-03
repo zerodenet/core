@@ -23,6 +23,13 @@ pub(super) async fn feed_inner_packet(
     pins: &mut PacketSessionPins,
     fragments: &mut FragmentReassembler,
 ) {
+    if route.ensure_configuration_committed().is_err() {
+        traffic.drop_inner(
+            peer_identity.as_deref(),
+            zero_api::TrafficDropReason::PolicyRejected,
+        );
+        return;
+    }
     let (mut packet, reassembled) = match fragments.process_buffer(packet, Instant::now()) {
         OwnedFragmentOutcome::Packet {
             packet,

@@ -1,10 +1,29 @@
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::Arc;
 
 use zero_config::RuntimeConfig;
 use zero_router::RuleSet;
 
 use crate::EnginePlan;
+
+/// A lightweight publication fact. Retained ingress services keep no historical
+/// snapshot or native resource alive merely to enforce the candidate gate.
+#[derive(Debug, Clone)]
+pub struct ConfigurationPublication(Arc<AtomicBool>);
+impl ConfigurationPublication {
+    pub fn is_committed(&self) -> bool {
+        self.0.load(Ordering::Acquire)
+    }
+    pub(super) fn pending() -> Self {
+        Self(Arc::new(AtomicBool::new(false)))
+    }
+    pub(super) fn committed() -> Self {
+        Self(Arc::new(AtomicBool::new(true)))
+    }
+    pub(super) fn publish(&self) {
+        self.0.store(true, Ordering::Release);
+    }
+}
 
 /// One immutable generation of the configuration-derived engine state.
 ///
@@ -15,6 +34,7 @@ use crate::EnginePlan;
 #[derive(Debug)]
 pub struct EngineRuntimeSnapshot {
     pub(super) config_revision: Arc<AtomicU64>,
+    pub(super) publication: ConfigurationPublication,
     pub(super) config: Arc<RuntimeConfig>,
     pub(super) endpoint_intents: Arc<super::endpoint::EndpointIntents>,
     pub(super) plan: Arc<EnginePlan>,
@@ -25,6 +45,10 @@ pub struct EngineRuntimeSnapshot {
 }
 
 impl EngineRuntimeSnapshot {
+    pub fn configuration_publication(&self) -> ConfigurationPublication {
+        self.publication.clone()
+    }
+
     /// DNS dispatch shares the actual prepared matcher resources of this snapshot.
     pub fn dns_dispatch(&self) -> Option<zero_router::DomainDispatcher<String>> {
         self.dns_dispatch.clone()

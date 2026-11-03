@@ -120,10 +120,14 @@ impl ProxyHandle {
         persist: bool,
     ) -> Result<Option<ConfigReconcileResult>, String> {
         let previous = self.proxy.engine.runtime_snapshot();
-        let previous_source_write = self.proxy.engine.config_source_write_generation();
         if expected_current.is_some_and(|expected| expected != previous.config().as_ref()) {
             return Ok(None);
         }
+        self.proxy
+            .engine
+            .configuration_source()
+            .ensure_available()
+            .map_err(|error| error.to_string())?;
         if let Some(reconciler) = &self.config_reconciler {
             reconciler.validate(previous.config().as_ref(), &candidate)?;
         }
@@ -141,15 +145,9 @@ impl ProxyHandle {
                 .commit_configuration(prepared.clone(), timeout, persist)
                 .await
             {
-                let rollback = self
-                    .rollback_proxy_dns_under_guard(
-                        previous,
-                        timeout,
-                        persist
-                            && self.proxy.engine.config_source_write_generation()
-                                != previous_source_write,
-                    )
-                    .await;
+                self.confirm_source_compensation(&previous)
+                    .map_err(|recovery| format!("{error}; {recovery}"))?;
+                let rollback = self.rollback_proxy_dns_under_guard(previous, timeout).await;
                 let mut message = error;
                 if let Err(error) = rollback {
                     message.push_str(&format!("; proxy rollback failed: {error}"));
@@ -167,14 +165,10 @@ impl ProxyHandle {
                     .commit_configuration(prepared.clone(), timeout, persist)
                     .await
                 {
+                    self.confirm_source_compensation(&previous)
+                        .map_err(|recovery| format!("{error}; {recovery}"))?;
                     let proxy_rollback = self
-                        .rollback_proxy_dns_under_guard(
-                            previous.clone(),
-                            timeout,
-                            persist
-                                && self.proxy.engine.config_source_write_generation()
-                                    != previous_source_write,
-                        )
+                        .rollback_proxy_dns_under_guard(previous.clone(), timeout)
                         .await;
                     let app_rollback = if proxy_rollback.is_ok() {
                         reconciler.reconcile(previous.config().clone()).await
@@ -195,14 +189,14 @@ impl ProxyHandle {
                 Ok(Some(result))
             }
             Err(apply_error) => {
+                self.confirm_source_compensation(&previous)
+                    .map_err(|recovery| {
+                        format!(
+                            "application service reconciliation failed: {apply_error}; {recovery}"
+                        )
+                    })?;
                 let proxy_rollback = self
-                    .rollback_proxy_dns_under_guard(
-                        previous.clone(),
-                        timeout,
-                        persist
-                            && self.proxy.engine.config_source_write_generation()
-                                != previous_source_write,
-                    )
+                    .rollback_proxy_dns_under_guard(previous.clone(), timeout)
                     .await;
                 let app_rollback = if proxy_rollback.is_ok() {
                     reconciler.reconcile(previous.config().clone()).await
@@ -224,7 +218,7 @@ impl ProxyHandle {
         }
     }
 
-    async fn commit_configuration(
+    pub(in crate::runtime) async fn commit_configuration(
         &self,
         snapshot: Arc<zero_engine::EngineRuntimeSnapshot>,
         timeout: Duration,
@@ -273,7 +267,27 @@ impl ProxyHandle {
                 .inbound_owners
                 .finish_recovery_transition(&component_config);
             Ok(())
-        })
+        })?;
+        self.proxy.engine.configuration_source().finalize_committed()
+            .map_err(|error| format!("configuration committed; source finalization failed: {error}; query current state"))
+    }
+
+    pub(super) fn confirm_source_compensation(
+        &self,
+        previous: &Arc<zero_engine::EngineRuntimeSnapshot>,
+    ) -> Result<(), String> {
+        if !Arc::ptr_eq(&self.proxy.engine.runtime_snapshot(), previous) {
+            return Err("configuration was already committed; query current state; resource rollback was not attempted".to_owned());
+        }
+        self.proxy
+            .engine
+            .configuration_source()
+            .rollback_pending()
+            .map_err(|error| {
+                format!(
+                    "source recovery remains unconfirmed: {error}; resource recovery is blocked"
+                )
+            })
     }
 
     pub(super) async fn retire_prepared_dns(
@@ -297,7 +311,6 @@ impl ProxyHandle {
         &self,
         previous: Arc<zero_engine::EngineRuntimeSnapshot>,
         timeout: Duration,
-        persist: bool,
     ) -> Result<(), String> {
         self.proxy.resolver.discard_prepared_reload();
         let result = self
@@ -320,20 +333,6 @@ impl ProxyHandle {
             .await
             .map_err(|error| error.to_string())?;
         self.proxy.host.apply().compensate(|| {
-            if persist {
-                self.proxy
-                    .engine
-                    .configuration_source()
-                    .persist_ready(
-                        &component_config,
-                        &format!(
-                            "{}:compensate:{}",
-                            self.proxy.engine.core_instance_id(),
-                            self.proxy.engine.config_revision()
-                        ),
-                    )
-                    .map_err(|error| format!("configuration source recovery failed: {error}"))?;
-            }
             self.proxy
                 .protocols
                 .commit_components(&component_config, || {

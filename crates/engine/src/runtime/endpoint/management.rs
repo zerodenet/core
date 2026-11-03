@@ -133,6 +133,7 @@ impl Engine {
         }
         Ok(Arc::new(EngineRuntimeSnapshot {
             config_revision: Arc::new(std::sync::atomic::AtomicU64::new(current.config_revision())),
+            publication: super::super::ConfigurationPublication::pending(),
             config,
             endpoint_intents: Arc::new(intents),
             plan: current.plan.clone(),

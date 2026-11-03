@@ -114,3 +114,61 @@ fn config_with_outbounds(count: usize) -> RuntimeConfig {
     )
     .expect("parse generated config")
 }
+
+#[test]
+fn engine_only_persistent_stage_and_restore_keep_their_existing_source_scope() {
+    let directory = tempfile::tempdir().unwrap();
+    let path = directory.path().join("zero.json");
+    let original = config_with_outbounds(1);
+    std::fs::write(&path, serde_json::to_vec_pretty(&original).unwrap()).unwrap();
+    let engine = Engine::new_with_config_path(original, &path).unwrap();
+    let previous = engine.runtime_snapshot();
+    let revision = engine.config_revision();
+    engine.stage_config(config_with_outbounds(2)).unwrap();
+    assert_eq!(
+        RuntimeConfig::load_from_path(&path)
+            .unwrap()
+            .outbounds
+            .len(),
+        2
+    );
+    assert_eq!(engine.config_revision(), revision);
+    engine
+        .restore_staged_snapshot(previous.clone(), true)
+        .unwrap();
+    assert!(std::sync::Arc::ptr_eq(
+        &engine.runtime_snapshot(),
+        &previous
+    ));
+    assert_eq!(
+        RuntimeConfig::load_from_path(&path)
+            .unwrap()
+            .outbounds
+            .len(),
+        1
+    );
+    engine
+        .stage_runtime_config(config_with_outbounds(3))
+        .unwrap();
+    assert_eq!(
+        RuntimeConfig::load_from_path(&path)
+            .unwrap()
+            .outbounds
+            .len(),
+        1
+    );
+    engine.restore_staged_snapshot(previous, false).unwrap();
+    engine.reload_config(config_with_outbounds(2)).unwrap();
+    assert_eq!(engine.config_revision(), revision + 1);
+    assert!(!directory.path().join("zero.json.zero-recovery").exists());
+    assert!(!directory.path().join("zero.json.zero-last-good").exists());
+    // A normal operator edit is accepted after the actual source commit ends.
+    std::fs::write(
+        &path,
+        serde_json::to_vec_pretty(&config_with_outbounds(4)).unwrap(),
+    )
+    .unwrap();
+    let restarted = Engine::from_path(&path).unwrap();
+    assert_eq!(restarted.config().outbounds.len(), 4);
+    assert_ne!(restarted.core_instance_id(), engine.core_instance_id());
+}

@@ -1,82 +1,77 @@
-//! Atomic deployment source persistence and the minimal crash-recovery record.
-//! Records contain digests and phase facts, never configuration credentials.
-use serde::{Deserialize, Serialize};
-use sha2::{Digest, Sha256};
+//! Atomic source persistence with retained original bytes and explicit outcomes.
+//! The same accepted host operation drives persist, commit, or compensation.
+mod files;
+mod model;
+mod transaction;
+pub use model::{SourceDisposition, SourcePersistError, SourceWriteObservation};
 use std::{
-    io::{self, Write},
+    io,
     path::{Path, PathBuf},
     sync::Mutex,
 };
+use transaction::{PendingSource, RecoveryRecord};
 use zero_config::RuntimeConfig;
 
-#[derive(Debug, Clone, Default)]
-pub struct SourceWriteObservation {
-    pub successful_writes: u64,
-    pub writable: Option<bool>,
-    pub observed_at_unix_ms: Option<u64>,
-    pub reason: Option<String>,
+#[derive(Default)]
+struct SourceState {
+    observation: SourceWriteObservation,
+    pending: Option<PendingSource>,
 }
-#[derive(Debug, Default)]
+#[derive(Default)]
 pub struct ConfigurationSource {
     path: Option<PathBuf>,
-    observation: Mutex<SourceWriteObservation>,
+    state: Mutex<SourceState>,
 }
-#[derive(Serialize, Deserialize)]
-struct RecoveryRecord {
-    schema: u8,
-    attempt: String,
-    old_digest: Option<String>,
-    candidate_digest: String,
-    persistent: bool,
-    completed_phase: String,
-    compensation_identity: String,
-}
-fn digest(bytes: &[u8]) -> String {
-    format!("{:x}", Sha256::digest(bytes))
-}
-fn sidecar(path: &Path, suffix: &str) -> PathBuf {
-    let mut name = path.as_os_str().to_os_string();
-    name.push(suffix);
-    PathBuf::from(name)
+impl std::fmt::Debug for ConfigurationSource {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter
+            .debug_struct("ConfigurationSource")
+            .field("path", &self.path)
+            .finish_non_exhaustive()
+    }
 }
 impl ConfigurationSource {
     pub fn new(path: impl Into<PathBuf>) -> Self {
         Self {
             path: Some(path.into()),
-            observation: Mutex::default(),
+            state: Mutex::default(),
         }
     }
     pub fn path(&self) -> Option<&Path> {
         self.path.as_deref()
     }
     pub fn observation(&self) -> SourceWriteObservation {
-        self.observation
+        self.state
             .lock()
             .unwrap_or_else(|error| error.into_inner())
+            .observation
             .clone()
     }
-    /// Reconcile an interrupted durable attempt against the actual source.
-    /// Before replacement the old source wins; after replacement the candidate
-    /// wins. Neither case asserts the old caller received an acknowledgement.
     pub fn verify_recovery(path: &Path) -> io::Result<()> {
-        let record_path = sidecar(path, ".zero-recovery");
-        let raw = match std::fs::read(&record_path) {
-            Ok(raw) => raw,
-            Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(()),
-            Err(error) => return Err(error),
+        let Some(raw) = files::read_optional(&files::sidecar(path, ".zero-recovery"))? else {
+            return Ok(());
         };
         let record: RecoveryRecord = serde_json::from_slice(&raw).map_err(io::Error::other)?;
         if record.schema != 1
             || !record.persistent
-            || !matches!(record.completed_phase.as_str(), "ready" | "persisted")
+            || !matches!(
+                record.completed_phase.as_str(),
+                "ready" | "persisted" | "restored" | "committed"
+            )
         {
             return Err(io::Error::new(
                 io::ErrorKind::InvalidData,
                 "unsupported configuration recovery record",
             ));
         }
-        let actual = std::fs::read(path).map(|bytes| digest(&bytes))?;
-        if actual != record.candidate_digest && record.old_digest.as_ref() != Some(&actual) {
+        // Completed records have no authority over a later operator edit.
+        if record.completed_phase == "committed" {
+            return Ok(());
+        }
+        let actual = files::read_optional(path)?
+            .as_ref()
+            .map(|bytes| files::digest(bytes));
+        if actual.as_ref() != Some(&record.candidate_digest) && actual != record.old_digest {
             return Err(io::Error::new(
                 io::ErrorKind::InvalidData,
                 "configuration source does not match its recovery record",
@@ -84,113 +79,151 @@ impl ConfigurationSource {
         }
         Ok(())
     }
-    /// Call only after the owning operation has observed candidate Ready.
-    /// Engine-only callers have no proxy resources and retain their narrower
-    /// synchronous preparation/persistence contract.
-    pub fn persist_ready(&self, config: &RuntimeConfig, identity: &str) -> io::Result<()> {
+    /// A newly constructed kernel has consumed and validated the authoritative
+    /// old/candidate source named by an interrupted attempt. It has a new core
+    /// instance and never claims the previous caller received an ACK.
+    pub fn complete_recovered_boot(&self) -> io::Result<()> {
         let Some(path) = self.path() else {
             return Ok(());
         };
-        // Serialize before touching the only last-good deployment source.
-        let candidate = serde_json::to_vec_pretty(config).map_err(io::Error::other)?;
-        let mut observation = self
-            .observation
-            .lock()
-            .unwrap_or_else(|error| error.into_inner());
-        let result = self.persist(path, &candidate, identity);
-        observation.observed_at_unix_ms = Some(now_ms());
+        Self::verify_recovery(path)?;
+        let record_path = files::sidecar(path, ".zero-recovery");
+        let Some(raw) = files::read_optional(&record_path)? else {
+            return Ok(());
+        };
+        let mut record: RecoveryRecord = serde_json::from_slice(&raw).map_err(io::Error::other)?;
+        record.completed_phase = "committed".into();
+        let permissions = std::fs::metadata(path)?.permissions();
+        files::atomic_write(
+            &record_path,
+            &serde_json::to_vec(&record).map_err(io::Error::other)?,
+            Some(permissions),
+        )?;
+        files::remove_sidecars(path)
+    }
+
+    /// Refuse further resource mutation while an earlier source result is
+    /// Unknown. A committed metadata cleanup can be retried without replaying
+    /// the already committed runtime operation.
+    pub fn ensure_available(&self) -> Result<(), SourcePersistError> {
+        let Some(path) = self.path() else {
+            return Ok(());
+        };
+        let mut state = self.state.lock().unwrap_or_else(|error| error.into_inner());
+        if state
+            .pending
+            .as_ref()
+            .is_some_and(|pending| pending.disposition == SourceDisposition::Committed)
+        {
+            state.pending.as_mut().unwrap().finalize_committed(path)?;
+            state.pending = None;
+            state.observation.reason = None;
+        }
+        if let Some(pending) = &state.pending {
+            return Err(SourcePersistError::new(
+                pending.disposition,
+                io::Error::other("configuration source has an unresolved original attempt"),
+            ));
+        }
+        Ok(())
+    }
+    /// Only invoke after actual candidate Ready. Original bytes remain owned
+    /// until final domain commit or confirmed source compensation.
+    pub fn persist_ready(
+        &self,
+        config: &RuntimeConfig,
+        identity: &str,
+    ) -> Result<(), SourcePersistError> {
+        let Some(path) = self.path() else {
+            return Ok(());
+        };
+        let mut state = self.state.lock().unwrap_or_else(|error| error.into_inner());
+        if let Some(pending) = &state.pending {
+            return Err(SourcePersistError::new(
+                pending.disposition,
+                io::Error::other("another actual source attempt is still retained"),
+            ));
+        }
+        let prepared = serde_json::to_vec_pretty(config)
+            .map_err(io::Error::other)
+            .and_then(|candidate| {
+                PendingSource::prepare(path, &candidate, identity)
+                    .map(|pending| (candidate, pending))
+            });
+        let result = match prepared {
+            Ok((candidate, pending)) => {
+                state.pending = Some(pending);
+                state.pending.as_mut().unwrap().persist(path, &candidate)
+            }
+            Err(error) => Err(SourcePersistError::new(SourceDisposition::Unchanged, error)),
+        };
+        let disposition = state
+            .pending
+            .as_ref()
+            .map_or(SourceDisposition::Unchanged, |pending| pending.disposition);
+        state.observation.disposition = disposition;
+        state.observation.observed_at_unix_ms = Some(now_ms());
         match &result {
             Ok(()) => {
-                observation.successful_writes = observation.successful_writes.wrapping_add(1);
-                observation.writable = Some(true);
-                observation.reason = None;
+                state.observation.successful_writes =
+                    state.observation.successful_writes.wrapping_add(1);
+                state.observation.writable = Some(true);
+                state.observation.reason = None;
             }
             Err(error) if error.kind() == io::ErrorKind::PermissionDenied => {
-                observation.writable = Some(false);
-                observation.reason = Some("source_write_permission_denied".into());
+                state.observation.writable = Some(false);
+                state.observation.reason = Some("source_write_permission_denied".into());
             }
             Err(_) => {
-                observation.writable = None;
-                observation.reason = Some("source_write_failed".into());
+                state.observation.writable = None;
+                state.observation.reason = Some("source_write_failed".into());
             }
         }
         result
     }
-    fn persist(&self, path: &Path, candidate: &[u8], identity: &str) -> io::Result<()> {
-        let previous = match std::fs::read(path) {
-            Ok(raw) => Some(raw),
-            Err(error) if error.kind() == io::ErrorKind::NotFound => None,
-            Err(error) => return Err(error),
+    pub fn rollback_pending(&self) -> Result<(), SourcePersistError> {
+        let Some(path) = self.path() else {
+            return Ok(());
         };
-        let permissions = std::fs::metadata(path)
-            .ok()
-            .map(|metadata| metadata.permissions());
-        if let Some(previous) = previous.as_ref() {
-            atomic_write(
-                &sidecar(path, ".zero-last-good"),
-                previous,
-                permissions.clone(),
-            )?;
-        }
-        let mut record = RecoveryRecord {
-            schema: 1,
-            attempt: format!(
-                "{identity}:{}:{}",
-                std::process::id(),
-                std::time::SystemTime::now()
-                    .duration_since(std::time::UNIX_EPOCH)
-                    .unwrap_or_default()
-                    .as_nanos()
-            ),
-            old_digest: previous.as_ref().map(|bytes| digest(bytes)),
-            candidate_digest: digest(candidate),
-            persistent: true,
-            completed_phase: "ready".into(),
-            compensation_identity: identity.into(),
+        let mut state = self.state.lock().unwrap_or_else(|error| error.into_inner());
+        let Some(pending) = state.pending.as_mut() else {
+            return Ok(());
         };
-        let record_path = sidecar(path, ".zero-recovery");
-        atomic_write(
-            &record_path,
-            &serde_json::to_vec(&record).map_err(io::Error::other)?,
-            permissions.clone(),
-        )?;
-        if let Err(error) = atomic_write(path, candidate, permissions.clone()) {
-            // Rename can succeed before a directory-sync error. Inspect the
-            // actual file and restore the original before reporting failure.
-            match std::fs::read(path) {
-                Ok(actual) if digest(&actual) == record.candidate_digest => {
-                    if let Some(previous) = previous.as_ref() {
-                        atomic_write(path, previous, permissions.clone()).map_err(|restore| io::Error::other(format!("source replacement failed: {error}; original source recovery failed: {restore}")))?;
-                    } else {
-                        std::fs::remove_file(path)?;
-                    }
-                }
-                Ok(actual) if record.old_digest.as_ref() == Some(&digest(&actual)) => {}
-                Err(missing) if missing.kind() == io::ErrorKind::NotFound && previous.is_none() => {
-                }
-                Ok(_) | Err(_) => {
-                    return Err(io::Error::other(format!(
-                    "source replacement failed: {error}; actual source outcome remains unconfirmed"
-                )))
-                }
-            }
-            return Err(error);
+        if pending.disposition == SourceDisposition::Committed {
+            return Err(SourcePersistError::new(
+                SourceDisposition::Committed,
+                io::Error::other(
+                    "published source commit cannot be rolled back as an uncommitted attempt",
+                ),
+            ));
         }
-        record.completed_phase = "persisted".into();
-        // If this final record update fails, inspect the source on restart. The
-        // ready record already names both possible atomic replacement results.
-        // Restore the old deployment before returning a pre-commit failure.
-        if let Err(error) = atomic_write(
-            &record_path,
-            &serde_json::to_vec(&record).map_err(io::Error::other)?,
-            permissions.clone(),
-        ) {
-            if let Some(previous) = previous {
-                atomic_write(path, &previous, permissions)?;
-            }
-            return Err(error);
+        let result = pending
+            .restore_original(path)
+            .map_err(|error| SourcePersistError::new(pending.disposition, error));
+        state.observation.disposition = state.pending.as_ref().unwrap().disposition;
+        result?;
+        // Sidecar cleanup cannot erase the independently confirmed original
+        // source outcome. Retained records still name that same original.
+        let cleanup = files::remove_sidecars(path);
+        state.pending = None;
+        cleanup.map_err(|error| SourcePersistError::new(SourceDisposition::Restored, error))
+    }
+    pub fn finalize_committed(&self) -> Result<(), SourcePersistError> {
+        let Some(path) = self.path() else {
+            return Ok(());
+        };
+        let mut state = self.state.lock().unwrap_or_else(|error| error.into_inner());
+        let Some(pending) = state.pending.as_mut() else {
+            return Ok(());
+        };
+        let result = pending.finalize_committed(path);
+        state.observation.disposition = SourceDisposition::Committed;
+        if result.is_ok() {
+            state.pending = None;
+        } else {
+            state.observation.reason = Some("source_commit_metadata_pending".into());
         }
-        Ok(())
+        result
     }
 }
 fn now_ms() -> u64 {
@@ -199,23 +232,7 @@ fn now_ms() -> u64 {
         .unwrap_or_default()
         .as_millis() as u64
 }
-fn atomic_write(
-    path: &Path,
-    bytes: &[u8],
-    permissions: Option<std::fs::Permissions>,
-) -> io::Result<()> {
-    let parent = path
-        .parent()
-        .filter(|path| !path.as_os_str().is_empty())
-        .unwrap_or_else(|| Path::new("."));
-    let mut temporary = tempfile::NamedTempFile::new_in(parent)?;
-    if let Some(permissions) = permissions {
-        temporary.as_file().set_permissions(permissions)?;
-    }
-    temporary.write_all(bytes)?;
-    temporary.as_file_mut().sync_all()?;
-    temporary.persist(path).map_err(|error| error.error)?;
-    #[cfg(unix)]
-    std::fs::File::open(parent)?.sync_all()?;
-    Ok(())
-}
+
+#[cfg(test)]
+#[path = "../tests/configuration_source.rs"]
+mod tests;

@@ -13,6 +13,9 @@ impl Engine {
     pub fn reload_config(&self, new_config: RuntimeConfig) -> Result<(), EngineError> {
         self.reload_config_inner(new_config, true)?;
         self.commit_config_change();
+        self.config_source
+            .finalize_committed()
+            .map_err(std::io::Error::from)?;
         Ok(())
     }
 
@@ -32,7 +35,13 @@ impl Engine {
     /// The proxy transaction calls [`Self::commit_config_change`] only after
     /// listener and application-service reconciliation succeeds.
     pub fn stage_config(&self, new_config: RuntimeConfig) -> Result<(), EngineError> {
-        self.reload_config_inner(new_config, false)
+        // Embedded callers retain their existing synchronous persistence scope.
+        // Proxy uses pure snapshot preparation and its own final Ready gate.
+        self.reload_config_inner(new_config, true)?;
+        self.config_source
+            .finalize_committed()
+            .map_err(std::io::Error::from)?;
+        Ok(())
     }
 
     /// Install an ephemeral candidate without publishing a committed revision.
@@ -56,9 +65,26 @@ impl Engine {
         }
         if persist {
             self.config_source
-                .persist_ready(snapshot.config(), "engine-only-restore")?;
+                .ensure_available()
+                .map_err(std::io::Error::from)?;
+            if let Err(error) = self
+                .config_source
+                .persist_ready(snapshot.config(), "engine-only-restore")
+            {
+                if error.disposition != zero_runtime::configuration::SourceDisposition::Unknown {
+                    self.config_source
+                        .rollback_pending()
+                        .map_err(std::io::Error::from)?;
+                }
+                return Err(std::io::Error::from(error).into());
+            }
         }
         self.publish_prepared_snapshot(snapshot)?;
+        if persist {
+            self.config_source
+                .finalize_committed()
+                .map_err(std::io::Error::from)?;
+        }
         self.traffic
             .reconcile(&self.config(), self.config_revision());
         self.notify_reload();
@@ -66,11 +92,25 @@ impl Engine {
     }
 
     fn reload_config_inner(&self, config: RuntimeConfig, persist: bool) -> Result<(), EngineError> {
+        if persist {
+            self.config_source
+                .ensure_available()
+                .map_err(std::io::Error::from)?;
+        }
         let prepared = zero_runtime::configuration::PreparedConfiguration::prepare(config)?;
         let snapshot = self.prepare_configuration_snapshot(prepared)?;
         if persist {
-            self.config_source
-                .persist_ready(snapshot.config(), "engine-only-apply")?;
+            if let Err(error) = self
+                .config_source
+                .persist_ready(snapshot.config(), "engine-only-apply")
+            {
+                if error.disposition != zero_runtime::configuration::SourceDisposition::Unknown {
+                    self.config_source
+                        .rollback_pending()
+                        .map_err(std::io::Error::from)?;
+                }
+                return Err(std::io::Error::from(error).into());
+            }
         }
         self.publish_prepared_snapshot(snapshot)?;
         self.notify_reload();
@@ -120,6 +160,7 @@ impl Engine {
         );
         Ok(Arc::new(super::EngineRuntimeSnapshot {
             config_revision: Arc::new(std::sync::atomic::AtomicU64::new(current.config_revision())),
+            publication: super::ConfigurationPublication::pending(),
             config: Arc::new(config),
             endpoint_intents,
             plan,
@@ -147,10 +188,12 @@ impl Engine {
             .replace_from_config(snapshot.config());
         self.event_log
             .set_capacity(snapshot.config.runtime.event_log_capacity);
+        let publication = snapshot.publication.clone();
         *self
             .runtime_snapshot
             .write()
             .expect("runtime snapshot lock poisoned") = snapshot;
+        publication.publish();
         self.passive_relay_health.clear();
         Ok(())
     }
@@ -202,6 +245,7 @@ impl Engine {
             .write()
             .expect("runtime snapshot lock poisoned") = Arc::new(super::EngineRuntimeSnapshot {
             config_revision: Arc::new(std::sync::atomic::AtomicU64::new(revision)),
+            publication: current.publication.clone(),
             config: Arc::new(config),
             endpoint_intents: current.endpoint_intents.clone(),
             plan: current.plan.clone(),

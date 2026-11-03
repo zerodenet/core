@@ -30,8 +30,8 @@ pub use principal::{
     PrincipalQuotaStateReport, PrincipalQuotaStateStatus,
 };
 pub use runtime::{
-    EndpointAdmission, EndpointChange, Engine, EngineRuntimeSnapshot, OutboundHealthObservation,
-    SessionIdentity,
+    ConfigurationPublication, EndpointAdmission, EndpointChange, Engine, EngineRuntimeSnapshot,
+    OutboundHealthObservation, SessionIdentity,
 };
 pub use runtime::{IpRouteCache, RouteDecision, RouteEvaluation, RouteTrace};
 pub use runtime::{PacketRouteControl, PacketRouteLease};

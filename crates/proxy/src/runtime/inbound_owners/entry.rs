@@ -43,6 +43,8 @@ struct Resource {
     exit_fault: OnceLock<SharedError>,
 }
 pub(crate) struct InboundOwner {
+    #[cfg(test)]
+    pub(crate) original_listener_address: OnceLock<std::net::SocketAddr>,
     #[cfg(feature = "raw-ip-runtime")]
     pub(super) packet_source:
         Arc<Mutex<Option<crate::runtime::inbound_operation::raw_ip::PacketSourceContext>>>,
@@ -194,6 +196,8 @@ impl InboundOwner {
             task_failures: Mutex::default(),
             terminal: OnceLock::new(),
             observation: Arc::new(observation::ObservationDisposition::new(identity)),
+            #[cfg(test)]
+            original_listener_address: OnceLock::new(),
             ready: InboundReady::new(),
             installation_complete: AtomicBool::new(true),
             pending_native_bound: Mutex::new(None),

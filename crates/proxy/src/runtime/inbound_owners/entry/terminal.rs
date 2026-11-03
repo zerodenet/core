@@ -242,6 +242,13 @@ impl InboundOwner {
         true
     }
     #[cfg(test)]
+    pub(crate) fn client_failure_for_test(
+        &self,
+    ) -> Option<zero_platform_tokio::contract::scope::TaskJoined> {
+        self.client_failure.get().cloned()
+    }
+
+    #[cfg(test)]
     pub(crate) fn terminal_for_test(&self) -> Option<Arc<InboundTerminal>> {
         self.terminal()
     }
