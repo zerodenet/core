@@ -2,11 +2,7 @@ use super::*;
 
 impl EventDispatcherHandle {
     pub async fn shutdown(mut self) {
-        if let Some(shutdown) = self.shutdown.take() {
-            let _ = shutdown.send(ShutdownMode::Drain);
-        }
-
-        let _ = self.observe_shutdown().await;
+        let _ = self.shutdown_retained().await;
     }
 
     pub async fn shutdown_retained(&mut self) -> ConnectorResult<()> {
@@ -16,7 +12,11 @@ impl EventDispatcherHandle {
         self.observe_shutdown().await.map_err(|error| {
             ConnectorError::Config(format!("dispatcher shutdown failed: {error}"))
         })?;
-        self.confirm_child_joins()
+        let children = self.confirm_child_joins();
+        let files = self.resources.close().map_err(|error| {
+            ConnectorError::Config(format!("original file cleanup failed: {error}"))
+        });
+        children.and(files)
     }
 
     /// Observe this same original JoinHandle without moving it out of the

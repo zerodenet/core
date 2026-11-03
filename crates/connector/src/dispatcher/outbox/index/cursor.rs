@@ -5,9 +5,13 @@ impl PendingIndex {
         &self,
         mut visitor: impl FnMut(u64, (String, String)) -> ConnectorResult<bool>,
     ) -> ConnectorResult<()> {
+        let original = self.db.lock().unwrap();
+        let db = original
+            .connection
+            .as_ref()
+            .expect("live original database");
         // Covering index iteration has no ORDER BY sort or full-key Vec.
-        let mut statement = self
-            .db
+        let mut statement = db
             .prepare("SELECT offset,sink,event FROM pending ORDER BY offset")
             .map_err(|e| self.error(e))?;
         let mut rows = statement.query([]).map_err(|e| self.error(e))?;

@@ -37,3 +37,6 @@ pub use state::{
 
 #[cfg(feature = "event-dispatcher")]
 mod encoding;
+
+#[cfg(feature = "event-dispatcher")]
+mod resources;

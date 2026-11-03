@@ -8,14 +8,14 @@ use std::time::{Duration, Instant};
 use tokio::task::JoinHandle;
 use tracing::{debug, warn};
 use zero_api::{
-    event_type, DeadLetterSink, EventFilter, EventSink, EventSource, EventStream,
-    EventStreamReceive, OutboxRecoveryStatus, OutboxStorageStatus, RawApiEvent, SinkDeliveryStatus,
-    SinkStatus,
+    event_type, EventFilter, EventSink, EventSource, EventStream, EventStreamReceive,
+    OutboxRecoveryStatus, OutboxStorageStatus, RawApiEvent, SinkDeliveryStatus, SinkStatus,
 };
 use zero_config::{ApiConfig, EventDispatcherConfig};
 
 use crate::network::EventDispatcherNetwork;
 use crate::registry::{build_event_sinks, resolve_path, ConfiguredEventSink};
+use crate::resources::{DispatcherResources, RetainedDeadLetter};
 use crate::{ConnectorError, ConnectorResult};
 
 mod admission;
@@ -150,6 +150,7 @@ pub struct EventDispatcherHandle {
     task: JoinHandle<Option<EventDispatcherContinuation>>,
     task_exit: Option<DispatcherTaskExit>,
     child_failures: Arc<Mutex<DispatcherChildFailures>>,
+    resources: DispatcherResources,
     init_rx: Option<mpsc::Receiver<ConnectorResult<bool>>>,
     init_notify: Arc<tokio::sync::Notify>,
     init_result: Option<Result<bool, Arc<ConnectorError>>>,
@@ -331,6 +332,8 @@ where
     let stats_for_thread = sink_stats.clone();
     let child_failures = Arc::new(Mutex::new(DispatcherChildFailures::default()));
     let worker_failures = child_failures.clone();
+    let resources = DispatcherResources::default();
+    let worker_resources = resources.clone();
 
     let task = tokio::task::spawn_blocking(move || {
         let core_instance_id = match source.since(0, 0, EventFilter::default()) {
@@ -346,13 +349,14 @@ where
                 return None;
             }
         }
-        let sinks = match build_event_sinks(&api, source_dir.as_deref(), &network) {
-            Ok(sinks) => sinks,
-            Err(error) => {
-                let _ = init_tx.send(Err(error));
-                return None;
-            }
-        };
+        let sinks =
+            match build_event_sinks(&api, source_dir.as_deref(), &network, &worker_resources) {
+                Ok(sinks) => sinks,
+                Err(error) => {
+                    let _ = init_tx.send(Err(error));
+                    return None;
+                }
+            };
 
         if sinks.is_empty() && dead_letter_path.is_none() {
             let _ = init_tx.send(Ok(false));
@@ -370,14 +374,15 @@ where
         let (dead_letter, _dead_letter_lease) = match dead_letter_path {
             Some(path) => {
                 let path = resolve_path(&path, source_dir.as_deref());
-                let lease = match crate::state::PersistentStateLease::acquire(&path) {
-                    Ok(lease) => lease,
-                    Err(error) => {
-                        let _ = init_tx.send(Err(error));
-                        return None;
-                    }
-                };
-                let sink = match DeadLetterSink::new(&path) {
+                let lease =
+                    match crate::state::PersistentStateLease::acquire(&path, &worker_resources) {
+                        Ok(lease) => lease,
+                        Err(error) => {
+                            let _ = init_tx.send(Err(error));
+                            return None;
+                        }
+                    };
+                let sink = match RetainedDeadLetter::new(&path, &worker_resources) {
                     Ok(sink) => sink,
                     Err(error) => {
                         let _ = init_tx.send(Err(error.into()));
@@ -392,7 +397,8 @@ where
 
         let dispatcher_config = api.dispatcher;
         let mut outbox = match outbox_path {
-            Some(path) => match DeliveryOutbox::open(
+            Some(path) => match DeliveryOutbox::open_owned(
+                worker_resources.clone(),
                 &path,
                 source_dir.as_deref(),
                 dispatcher_config.outbox_min_free_bytes,
@@ -489,6 +495,7 @@ where
         task,
         task_exit: None,
         child_failures,
+        resources,
         init_rx: Some(init_rx),
         init_notify,
         init_result: None,
@@ -506,7 +513,7 @@ async fn run_event_dispatcher<S>(
     stats: &SharedSinkStats,
     options: EventDispatcherOptions,
     mut shutdown: tokio::sync::oneshot::Receiver<ShutdownMode>,
-    dead_letter: Option<DeadLetterSink>,
+    dead_letter: Option<Arc<RetainedDeadLetter>>,
     outbox: &mut Option<DeliveryOutbox>,
     dispatcher_config: EventDispatcherConfig,
     core_instance_id: String,
@@ -580,7 +587,7 @@ where
             stats,
             &mut pending,
             max_retry_attempts,
-            dead_letter.as_ref(),
+            dead_letter.as_deref(),
             outbox,
             dispatcher_config,
             &mut result_rx,
@@ -614,7 +621,7 @@ where
                 &mut workers,
                 stats,
                 &mut pending,
-                dead_letter.as_ref(),
+                dead_letter.as_deref(),
                 outbox,
                 dispatcher_config,
                 !shutting_down,
@@ -728,7 +735,7 @@ where
         stats,
         &mut pending,
         max_retry_attempts,
-        dead_letter.as_ref(),
+        dead_letter.as_deref(),
         outbox,
         dispatcher_config,
         &mut result_rx,
@@ -860,7 +867,7 @@ fn submit_pending(
     workers: &mut [SinkWorker],
     stats: &SharedSinkStats,
     pending: &mut VecDeque<PendingDelivery>,
-    dead_letter: Option<&DeadLetterSink>,
+    dead_letter: Option<&RetainedDeadLetter>,
     outbox: &mut Option<DeliveryOutbox>,
     dispatcher_config: EventDispatcherConfig,
     allow_durable: bool,
@@ -924,7 +931,7 @@ fn drain_worker_results(
     stats: &SharedSinkStats,
     pending: &mut VecDeque<PendingDelivery>,
     max_attempts: u32,
-    dead_letter: Option<&DeadLetterSink>,
+    dead_letter: Option<&RetainedDeadLetter>,
     outbox: &mut Option<DeliveryOutbox>,
     dispatcher_config: EventDispatcherConfig,
     result_rx: &mut tokio::sync::mpsc::UnboundedReceiver<SinkWorkerResult>,
@@ -1017,7 +1024,7 @@ fn handle_publish_result(
     stats: &SharedSinkStats,
     pending: &mut VecDeque<PendingDelivery>,
     max_attempts: u32,
-    dead_letter: Option<&DeadLetterSink>,
+    dead_letter: Option<&RetainedDeadLetter>,
     outbox: &mut Option<DeliveryOutbox>,
     dispatcher_config: EventDispatcherConfig,
     mut delivery: PendingDelivery,

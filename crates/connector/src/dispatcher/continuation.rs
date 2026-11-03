@@ -97,7 +97,11 @@ impl EventDispatcherHandle {
         let result = self.observe_shutdown().await.map_err(|error| {
             ConnectorError::Config(format!("dispatcher handoff failed: {error}"))
         })?;
-        self.confirm_child_joins()?;
+        let children = self.confirm_child_joins();
+        let files = self.resources.close().map_err(|error| {
+            ConnectorError::Config(format!("original file cleanup failed: {error}"))
+        });
+        children.and(files)?;
         if matches!(self.init_result, Some(Ok(true))) && result.is_none() {
             return Err(ConnectorError::Config(
                 "Ready dispatcher stopped without continuation".into(),

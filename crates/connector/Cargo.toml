@@ -10,7 +10,7 @@ homepage.workspace = true
 
 [features]
 default = []
-event-dispatcher = ["dep:rusqlite"]
+event-dispatcher = ["dep:rusqlite", "dep:zero-platform-tokio"]
 sink-jsonl = ["event-dispatcher"]
 webhook = [
     "event-dispatcher",
@@ -46,6 +46,7 @@ tracing.workspace = true
 webpki-roots = { version = "1", optional = true }
 zero-api = { path = "../api" }
 zero-config = { path = "../config" }
+zero-platform-tokio = { path = "../platform/tokio", optional = true }
 
 [dev-dependencies]
 rcgen = "0.14"
