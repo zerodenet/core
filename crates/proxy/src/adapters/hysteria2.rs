@@ -10,21 +10,17 @@ use zero_engine::EngineError;
 use zero_traits::{ProtocolCapabilityDescriptor, ProtocolMetadata};
 
 use crate::adapters::identity::NamedProtocolAdapter;
-use crate::protocol_registry::{OutboundLeafClaim, OutboundLeafInput};
-use crate::runtime::path::TcpPathCategory;
 
 #[cfg(feature = "hysteria2")]
 mod component;
 #[cfg(feature = "hysteria2")]
-mod tcp;
-#[cfg(feature = "hysteria2")]
-pub(crate) mod udp;
+pub(crate) mod outbound;
 
 #[cfg(feature = "hysteria2")]
 #[derive(Debug, Default)]
 pub(crate) struct Hysteria2Adapter {
     inbound_profiles: Hysteria2InboundProfileStore,
-    outbound_pool: ::hysteria2::transport::Hysteria2ConnectionPool,
+    outbound_pool: std::sync::Arc<::hysteria2::transport::owned::Pool>,
 }
 
 #[cfg(feature = "hysteria2")]
@@ -119,7 +115,6 @@ impl NamedProtocolAdapter for Hysteria2Adapter {
     const FEATURE_NAME: &'static str = "hysteria2";
 
     fn on_config_reloaded(&self, config: &zero_config::RuntimeConfig) {
-        self.outbound_pool.clear();
         for inbound in &config.inbounds {
             let InboundProtocolConfig::Hysteria2 {
                 password, users, ..
@@ -130,40 +125,6 @@ impl NamedProtocolAdapter for Hysteria2Adapter {
             let users = inbound_user_refs(password, users);
             self.inbound_profiles.replace(&inbound.tag, &users);
         }
-    }
-}
-
-#[cfg(feature = "hysteria2")]
-impl Hysteria2Adapter {
-    pub(crate) fn claim_outbound_leaf_impl<'a>(
-        &self,
-        input: OutboundLeafInput<'a>,
-    ) -> Option<OutboundLeafClaim<'a>> {
-        let OutboundLeafInput::Proxy {
-            outbound,
-            source_dir,
-            ..
-        } = input
-        else {
-            return None;
-        };
-        let leaf = transport_leaf(outbound.tag(), &outbound.protocol)?
-            .with_pool(self.outbound_pool.clone());
-        let tcp = std::sync::Arc::new(
-            crate::runtime::tcp_dispatch::operation::SessionTcpConnectOperation {
-                handshake: leaf.clone().with_source_dir(source_dir),
-            },
-        );
-        Some(OutboundLeafClaim {
-            tcp_path: TcpPathCategory::TransportSession,
-            tcp: Some(Ok(tcp)),
-            tcp_relay: None,
-            udp: Some(self.udp_flow_operation(leaf.clone(), source_dir)),
-            udp_relay: None,
-            #[cfg(feature = "raw-ip-runtime")]
-            packet: None,
-            packet_path: self.udp_packet_path_operation(leaf, source_dir),
-        })
     }
 }
 

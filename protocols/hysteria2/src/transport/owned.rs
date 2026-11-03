@@ -19,6 +19,8 @@ pub use udp::{OwnedUdpChannel, OwnedUdpDispatcher};
 /// endpoint/driver/native receipts before that entry can be replaced.
 pub struct OwnedAuthentication {
     connection: OwnedConnection,
+    native_origin:
+        Option<zero_platform_tokio::controlled_datagram::metadata_pool::MetadataPoolOrigin>,
     pending_http3: Option<PendingHttp3>,
     sender: Option<RequestSender>,
     legacy_stream: Option<OwnedBiStream>,
@@ -40,6 +42,7 @@ impl OwnedAuthentication {
         };
         Ok(Self {
             connection,
+            native_origin: None,
             pending_http3,
             sender: None,
             legacy_stream: None,

@@ -20,7 +20,6 @@ use zero_platform_tokio::{
     controlled_datagram::{metadata::MetadataOwnerReport, DatagramReservationId},
 };
 mod bidi;
-mod borrowed;
 #[cfg(any(feature = "split_http", feature = "hysteria", feature = "quic_h3"))]
 pub mod h3;
 pub use bidi::OwnedBiStream;
@@ -148,14 +147,6 @@ impl OwnedEndpointOwner {
             .phase
             .compare_exchange(0, 1, Ordering::AcqRel, Ordering::Acquire)
             .map_err(|_| error(Stage::Prepare, Reason::Revoked))?;
-        if let Native::Borrowed(native) = &mut self.native {
-            if let Some(driver) = native.driver.get_mut().unwrap().take() {
-                if let Err(error) = self.drivers.start_carrier(driver) {
-                    self.begin_shutdown();
-                    return Err(error);
-                }
-            }
-        }
         let result = quinn::Endpoint::new_with_abstract_socket(
             config,
             server,
@@ -207,12 +198,6 @@ impl OwnedEndpointOwner {
     pub fn begin_shutdown(&self) {
         self.shared.phase.store(3, Ordering::Release);
         self.shared.users.cancellation().cancel();
-        if let Native::Borrowed(native) = &self.native {
-            native.stop.cancel();
-            if let Ok(loan) = native.loan.try_lock() {
-                loan.cancel(zero_platform_tokio::contract::CloseReason::Shutdown);
-            }
-        }
         self.drivers.revoke_registration();
         let endpoint = self.shared.endpoint.lock().unwrap().take();
         if let Some(endpoint) = endpoint {

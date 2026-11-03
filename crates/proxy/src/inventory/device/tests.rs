@@ -25,6 +25,7 @@ fn static_device_recipe_keeps_actual_first_root_binding_and_identity_together_wi
             &config,
             &zero_engine::EndpointAdmission::from_config(&config),
             generation,
+            None,
         )
         .unwrap();
     let single = paths.get("a").expect("actual claimed single carrier");
@@ -47,6 +48,7 @@ fn static_device_recipe_keeps_actual_first_root_binding_and_identity_together_wi
             &reversed,
             &zero_engine::EndpointAdmission::from_config(&reversed),
             generation,
+            None,
         )
         .unwrap();
     assert_eq!(

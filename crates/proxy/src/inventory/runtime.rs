@@ -277,6 +277,7 @@ impl ProtocolInventory {
             config,
             &admission,
             zero_core::component::NetworkGeneration(services.upstream().egress_generation()),
+            services.execution().components.as_deref().ok(),
         )?;
         let context = crate::adapters::devices::OutboundDevicePreparationContext {
             traffic: services.engine().clone(),

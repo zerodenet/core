@@ -19,16 +19,21 @@ impl ProtocolInventory {
         config: &RuntimeConfig,
         admission: &zero_engine::EndpointAdmission<'_>,
         network_generation: zero_core::component::NetworkGeneration,
+        components: Option<&crate::component::catalog::ComponentPlan>,
     ) -> Result<PacketPaths, EngineError> {
         let mut paths: PacketPaths = HashMap::new();
         for (index, outbound) in config.outbounds.iter().enumerate() {
             if !outbound.udp.enabled || admission.outbound_denial(&outbound.tag).is_some() {
                 continue;
             }
-            let Ok(claimed) = self.claim_config_outbound(config, index) else {
-                continue;
+            let leaf = zero_engine::ResolvedLeafOutbound::Proxy {
+                identity: zero_engine::OutboundIdentity::from_config_index(index),
             };
-            if let Some(operation) = claimed.udp_packet_path() {
+            if let Some(operation) = self.optional_tcp_packet_path(
+                OutboundAdapterContext::new(config),
+                &leaf,
+                components,
+            ) {
                 paths.insert(
                     outbound.tag.clone(),
                     PreparedDevicePacketPath {
@@ -66,7 +71,8 @@ impl ProtocolInventory {
             }) {
                 continue;
             }
-            let Ok(operation) = self.prepare_relay_device_packet_path(config, &indices) else {
+            let Ok(operation) = self.prepare_relay_device_packet_path(config, &indices, components)
+            else {
                 continue;
             };
             paths.insert(
@@ -85,18 +91,27 @@ impl ProtocolInventory {
         &self,
         config: &RuntimeConfig,
         indices: &[usize],
+        components: Option<&crate::component::catalog::ComponentPlan>,
     ) -> Result<PreparedDatagramRelayCarrier, EngineError> {
-        let claimed = self.claim_config_relay_chain(config, indices)?;
+        let leaves = indices
+            .iter()
+            .map(|index| zero_engine::ResolvedLeafOutbound::Proxy {
+                identity: zero_engine::OutboundIdentity::from_config_index(*index),
+            })
+            .collect::<Vec<_>>();
         let prepared = self
-            .prepare_claimed_tcp_relay_chain(OutboundAdapterContext::new(config), &claimed)
+            .prepare_tcp_relay_chain(OutboundAdapterContext::new(config), &leaves, components)
             .map_err(|failure| failure.error)?;
         let final_hop = prepared
             .relay_hops
             .last()
             .expect("validated relay group has at least two members");
-        let final_operation = claimed
-            .final_hop()
-            .udp_packet_path()
+        let final_operation = self
+            .optional_tcp_packet_path(
+                OutboundAdapterContext::new(config),
+                leaves.last().unwrap(),
+                components,
+            )
             .ok_or_else(|| invalid("outer UDP relay final hop has no packet-path capability"))?;
         let prefix = PreparedTcpRelayPrefix {
             first: prepared.first,

@@ -166,6 +166,35 @@ impl DatagramOutbound for Role {
     type Tx = datagram::Tx;
     type Rx = datagram::Rx;
     type Control = datagram::Control;
+    async fn open_carrier(
+        &self,
+        request: DatagramRequest,
+        context: OpenContext,
+    ) -> Result<zero_platform_tokio::controlled_carrier::loan::DatagramLoan, ChannelError> {
+        let zero_core::request::DatagramTargets::Fixed(endpoint) = request.targets.clone() else {
+            return Err(error(Stage::Prepare, Reason::Unsupported));
+        };
+        let auth = self.acquire(&context).await?;
+        let origin = auth
+            .native_origin
+            .clone()
+            .ok_or_else(|| error(Stage::Prepare, Reason::StalePlan))?;
+        let original = zero_platform_tokio::controlled_carrier::CarrierOrigin::from_metadata_pool(
+            origin.clone(),
+        );
+        context.upstream.observe_carrier_origin(&original);
+        let association = request.association;
+        let channel = auth.open_udp()?;
+        let session = datagram::session(channel, request, context)?;
+        Ok(
+            zero_platform_tokio::controlled_carrier::loan::DatagramLoan::new_metadata_pool(
+                zero_platform_tokio::contract::datagram::erase_session(session),
+                origin,
+                association,
+                endpoint,
+            ),
+        )
+    }
     async fn open(
         &self,
         request: DatagramRequest,

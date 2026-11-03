@@ -315,6 +315,9 @@ impl Generation {
         binding: UpstreamBinding,
         end: Instant,
     ) -> Result<Arc<OwnedAuthentication>, ChannelError> {
+        if !binding.prefix.is_empty() {
+            return Err(error(Stage::Prepare, Reason::Unsupported));
+        }
         let options = self
             .profiles
             .get(profile)
@@ -478,54 +481,7 @@ impl Generation {
                 )
                 .await?
         } else {
-            if options.leaf.node.udp_hop.is_some() {
-                return Err(error(Stage::Prepare, Reason::Unsupported));
-            }
-            let loan = upstream
-                .borrow_datagram(options.endpoint.clone(), call)
-                .await?;
-            let peer = match options.endpoint.address {
-                zero_core::Address::Ipv4(ip) => std::net::SocketAddr::new(
-                    std::net::Ipv4Addr::from(ip).into(),
-                    options.endpoint.port,
-                ),
-                zero_core::Address::Ipv6(ip) => std::net::SocketAddr::new(
-                    std::net::Ipv6Addr::from(ip).into(),
-                    options.endpoint.port,
-                ),
-                _ => std::net::SocketAddr::new(
-                    std::net::Ipv4Addr::UNSPECIFIED.into(),
-                    options.endpoint.port,
-                ),
-            };
-            let (owner, receiver) = OwnedEndpointOwner::new_borrowed(
-                loan,
-                peer,
-                self.tasks.clone(),
-                OwnedEndpointLimits {
-                    drivers: n(4),
-                    users: n(65536),
-                },
-            )
-            .map_err(|(source, _)| error(Stage::Prepare, Reason::Io).with_source(source))?;
-            state.owner = Some(owner);
-            state.receiver = Some(receiver);
-            let handle =
-                state
-                    .owner
-                    .as_mut()
-                    .unwrap()
-                    .start(Default::default(), None, Some(client))?;
-            handle
-                .connect(
-                    peer,
-                    options
-                        .leaf
-                        .server_name
-                        .as_deref()
-                        .unwrap_or(&options.leaf.server),
-                )
-                .await?
+            return Err(error(Stage::Prepare, Reason::Unsupported));
         };
         state.pending = Some(OwnedAuthentication::prepare(
             endpoint,
@@ -537,6 +493,7 @@ impl Generation {
             .unwrap()
             .authenticate(&options.leaf.password, options.leaf.settings, &self.tasks)
             .await?;
+        state.pending.as_mut().unwrap().native_origin = state.origin.clone();
         let auth = Arc::new(state.pending.take().unwrap());
         state.udp_join = auth.udp_witness();
         state.baseline = state.owner.as_ref().unwrap().active_users();
@@ -627,11 +584,6 @@ impl Entry {
                 .as_ref()
                 .unwrap()
                 .close(state.receipt.as_ref(), state.tasks.as_ref().unwrap())?;
-        } else if let Some(owner) = &mut state.owner {
-            let report = owner.shutdown_borrowed(end).await?;
-            if !report.is_complete() {
-                return Err(error(Stage::Close, Reason::Timeout));
-            }
         }
         if let Some(caller) = &state.caller {
             let joined = tokio::time::timeout_at(end, caller.wait())

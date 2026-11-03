@@ -123,48 +123,6 @@ impl QuinnDriverOwner {
                 .with_source(source)
             })
     }
-    pub(super) fn start_carrier(
-        &self,
-        driver: crate::datagram_driver::PreparedIoDriver,
-    ) -> Result<(), ChannelError> {
-        let origin = OwnedDriverOrigin::Carrier;
-        self.ledger
-            .spawn(
-                origin,
-                zero_platform_tokio::contract::scope::TaskClass::Critical,
-                |slot| async move {
-                    let body = slot.record(DriverBody {
-                        origin,
-                        io_error: driver.future.await.err().map(Arc::new),
-                        close_reason: None,
-                        #[cfg(any(
-                            feature = "split_http",
-                            feature = "hysteria",
-                            feature = "quic_h3"
-                        ))]
-                        http3: None,
-                    });
-                    match &body.io_error {
-                        Some(source) => Err(ChannelError::new(
-                            zero_platform_tokio::contract::Stage::Close,
-                            zero_platform_tokio::contract::Reason::Io,
-                            zero_platform_tokio::contract::Impact::Component,
-                        )
-                        .with_source(runtime::OriginalIo(source.clone()))),
-                        None => Ok(()),
-                    }
-                },
-            )
-            .map(|_| ())
-            .map_err(|source| {
-                ChannelError::new(
-                    zero_platform_tokio::contract::Stage::Prepare,
-                    zero_platform_tokio::contract::Reason::Capacity,
-                    zero_platform_tokio::contract::Impact::Component,
-                )
-                .with_source(source)
-            })
-    }
     pub fn revoke_registration(&self) {
         self.ledger.revoke_registration();
     }

@@ -190,8 +190,21 @@ pub(crate) fn compiled_registries_with_network(
                 move |input, resources| projected.inbound_options(input, resources.source_dir()),
             )
             .expect("unique standard Hysteria2 inbound registration");
-        registry
-            .register_standard_protocol(adapter, Some(Hysteria2Adapter::claim_outbound_leaf_impl));
+        if let Some(network) = node_network.clone() {
+            let factory = Arc::new(crate::adapters::hysteria2::outbound::Factory::new(network));
+            let projected = adapter.clone();
+            components
+                .register_with_resources(
+                    ::hysteria2::Hysteria2Protocol.descriptor(),
+                    ::hysteria2::transport::owned::RoleFactory,
+                    move |input, resources| {
+                        projected.outbound_options(input, resources, factory.clone())
+                    },
+                )
+                .expect("unique standard Hysteria2 outbound registration");
+            components.set_legacy_connect_stage("hysteria2", "connect_upstream_hysteria2");
+        }
+        registry.register_standard_protocol(adapter, None);
     }
     #[cfg(feature = "shadowsocks")]
     {

@@ -67,6 +67,14 @@ impl ProtocolInventory {
                     return selected
                         .map(|selected| PreparedUdpOutbound::DatagramRelay(Box::new(selected)));
                 }
+                if chain.first().is_some_and(|first| {
+                    self.claim_outbound_leaf(ctx.config(), first.clone())
+                        .is_err()
+                }) {
+                    return self
+                        .prepare_standard_first_udp_relay(ctx, session, chain, payload)
+                        .map(|selected| PreparedUdpOutbound::Relay(Box::new(selected)));
+                }
                 let claimed = self.claim_relay_chain(
                     ctx.config(),
                     chain.iter().cloned(),
