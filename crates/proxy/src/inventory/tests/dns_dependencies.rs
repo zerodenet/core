@@ -47,7 +47,12 @@ async fn unrelated_revision_reuses_whole_actual_dns_prefix_but_second_hop_change
         .affected_dns_detours(proxy.engine(), &previous, &same, &plan)
         .is_empty());
     let mut updated = (**same.config()).clone();
-    updated.outbounds[1].dial.address_family = zero_config::OutboundAddressFamily::OnlyIpv4;
+    let zero_config::OutboundProtocolConfig::Socks5 { port, .. } =
+        &mut updated.outbounds[1].protocol
+    else {
+        panic!("SOCKS5 dependency fixture")
+    };
+    *port += 1;
     proxy.engine().stage_runtime_config(updated).unwrap();
     let changed = proxy.engine().runtime_snapshot();
     let plan = proxy
