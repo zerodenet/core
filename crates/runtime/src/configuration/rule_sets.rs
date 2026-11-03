@@ -5,6 +5,7 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use ipnet::IpNet;
+use sha2::{Digest, Sha256};
 use zero_router::RuleSetMatcher;
 use zero_rule::protocol::decode_json;
 use zero_rule::zrs::{MappedRuleSet, PrewarmPolicy, VerifyMode};
@@ -44,20 +45,29 @@ fn compile_rule_set(
     owner: &ConfigurationIo,
 ) -> Result<RuleSetMatcher, ConfigError> {
     let path = resolve_rule_set_path(rule_set.source_path(), base_dir);
-    let matcher: Arc<dyn RuleMatcher> = match rule_set.format {
+    let (matcher, digest): (Arc<dyn RuleMatcher>, [u8; 32]) = match rule_set.format {
         RuleSetFormatConfig::DomainList => {
             let raw = read_text_rule_set(&path, owner)?;
-            compile_semantic_rule_set(tag, parse_domain_list(tag, &raw)?)?
+            (
+                compile_semantic_rule_set(tag, parse_domain_list(tag, &raw)?)?,
+                source_digest(0, raw.as_bytes()),
+            )
         }
         RuleSetFormatConfig::CidrList => {
             let raw = read_text_rule_set(&path, owner)?;
-            compile_semantic_rule_set(tag, parse_cidr_list(tag, &raw)?)?
+            (
+                compile_semantic_rule_set(tag, parse_cidr_list(tag, &raw)?)?,
+                source_digest(1, raw.as_bytes()),
+            )
         }
         RuleSetFormatConfig::ZeroRuleIr => {
             let raw = read_rule_set(&path, owner)?;
             let semantic = decode_json(&raw)
                 .map_err(|error| invalid_rule_set(tag, format!("invalid Zero Rule IR: {error}")))?;
-            compile_semantic_rule_set(tag, semantic)?
+            (
+                compile_semantic_rule_set(tag, semantic)?,
+                source_digest(2, &raw),
+            )
         }
         RuleSetFormatConfig::Zrs => {
             let mmap = owner
@@ -98,6 +108,9 @@ fn compile_rule_set(
                         format!("failed to open ZRS `{}`: {error}", path.display()),
                     )
                 })?;
+            // Hash the actual retained mapping after its original FD closes;
+            // neither a path, timestamp nor a config tag establishes equality.
+            let digest = source_digest(3, &mmap);
             // The actual file close has been confirmed before domain handoff.
             let mapped =
                 MappedRuleSet::from_mmap(mmap, VerifyMode::FullChecksum).map_err(|error| {
@@ -107,11 +120,19 @@ fn compile_rule_set(
                     )
                 })?;
             mapped.prewarm(PrewarmPolicy::Roots);
-            Arc::new(mapped)
+            (Arc::new(mapped), digest)
         }
     };
 
-    Ok(RuleSetMatcher::new(tag.to_owned(), matcher))
+    Ok(RuleSetMatcher::new(tag.to_owned(), matcher).with_source_digest(digest))
+}
+
+fn source_digest(format: u8, bytes: &[u8]) -> [u8; 32] {
+    let mut digest = Sha256::new();
+    digest.update(b"zero.prepared-rule-set.v1");
+    digest.update([format]);
+    digest.update(bytes);
+    digest.finalize().into()
 }
 
 fn compile_semantic_rule_set(
