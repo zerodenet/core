@@ -106,7 +106,12 @@ async fn monitor_original_join_failure_is_retained_and_blocks_replacement() {
             Ok(()) => panic!("original monitor panic was lost"),
         }
     };
+    let committed = config.clone();
     config.api.event_sinks.clear();
+    assert!(services
+        .validate(&committed, &config)
+        .unwrap_err()
+        .contains("original application cleanup"));
     assert!(services
         .reconcile(std::sync::Arc::new(config))
         .await
