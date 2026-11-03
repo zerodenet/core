@@ -6,6 +6,7 @@ use zero_transport::RuntimeError;
 
 mod auth;
 mod http3;
+pub mod owned;
 pub use http3::Masquerade as Hysteria2Masquerade;
 mod congestion;
 mod pool;

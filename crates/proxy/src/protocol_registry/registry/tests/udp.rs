@@ -7,7 +7,15 @@ fn cold_udp_projection_moves_existing_operations_without_a_runtime_or_second_pre
     let registry = crate::register::protocol_registry();
     for (config, leaf, _) in compiled_in_outbound_leaves() {
         let protocol = outbound_leaf_name(&config, &leaf);
-        let claimed = registry.claim_outbound_leaf(&config, leaf).unwrap();
+        let claimed = registry.claim_outbound_leaf(&config, leaf);
+        if protocol == "hysteria2" {
+            assert!(
+                claimed.is_err(),
+                "HY2 must not restore its retired compatibility projection"
+            );
+            continue;
+        }
+        let claimed = claimed.unwrap();
         let has_udp = claimed.has_udp_flow_capability();
         let expected = matches!(
             protocol,
@@ -33,7 +41,15 @@ fn cold_udp_relay_results_keep_the_existing_binding_capabilities() {
     let registry = crate::register::protocol_registry();
     for (config, leaf, _) in compiled_in_outbound_leaves() {
         let protocol = outbound_leaf_name(&config, &leaf);
-        let claimed = registry.claim_outbound_leaf(&config, leaf).unwrap();
+        let claimed = registry.claim_outbound_leaf(&config, leaf);
+        if protocol == "hysteria2" {
+            assert!(
+                claimed.is_err(),
+                "HY2 must not restore its retired compatibility projection"
+            );
+            continue;
+        }
+        let claimed = claimed.unwrap();
         let relay = claimed.into_udp_relay();
         assert_eq!(
             relay.is_ok(),

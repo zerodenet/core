@@ -180,10 +180,12 @@ impl PacketPathCarrier for TupleCarrier {
                         };
                         let (packet, failed) = match response {
                             Ok((source, port, data)) => (Ok((source, port, data)), false),
-                            Err(_) => (
-                                Err(failure(
-                                    "packet carrier logical connection closed or overflowed",
-                                )),
+                            // A bounded UDP subscriber may drop datagrams. Its
+                            // live logical connection remains usable; reliable
+                            // carriers above it perform their own retransmit.
+                            Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => continue,
+                            Err(tokio::sync::broadcast::error::RecvError::Closed) => (
+                                Err(failure("packet carrier logical connection closed")),
                                 true,
                             ),
                         };

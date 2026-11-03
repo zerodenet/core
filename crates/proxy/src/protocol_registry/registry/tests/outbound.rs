@@ -22,6 +22,13 @@ fn compiled_in_outbound_leaf_variants_have_expected_protocol_owners() {
         );
 
         let claimed = registry.claim_outbound_leaf(&config, leaf.clone());
+        if protocol == "hysteria2" {
+            assert!(
+                claimed.is_err(),
+                "HY2 must only execute its registered standard roles"
+            );
+            continue;
+        }
         assert_eq!(
             claimed
                 .as_ref()
@@ -78,6 +85,13 @@ fn udp_compatibility_claims_exclude_migrated_datagram_roles() {
     for (config, leaf, expected_claims) in compiled_in_outbound_leaves() {
         let protocol = outbound_leaf_name(&config, &leaf);
         let claimed = registry.claim_outbound_leaf(&config, leaf.clone());
+        if protocol == "hysteria2" {
+            assert!(
+                claimed.is_err(),
+                "HY2 must only execute its registered standard roles"
+            );
+            continue;
+        }
         assert_eq!(
             claimed
                 .as_ref()
@@ -117,6 +131,13 @@ fn packet_path_leaf_lookup_matches_claim_time_packet_path_projection() {
         let expected_packet_path =
             matches!(protocol, "socks5" | "hysteria2" | "shadowsocks" | "vless");
         let claimed = registry.claim_outbound_leaf(&config, leaf.clone());
+        if protocol == "hysteria2" {
+            assert!(
+                claimed.is_err(),
+                "HY2 must only execute its registered standard roles"
+            );
+            continue;
+        }
         assert_eq!(
             claimed
                 .as_ref()

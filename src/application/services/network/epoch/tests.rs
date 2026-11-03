@@ -1,12 +1,13 @@
 use super::*;
 use std::future::Future;
 use tokio::{io::AsyncReadExt, sync::Notify};
-use zero_connector::EventSinkTcpStream;
 use zero_platform_tokio::EgressInterfaceControl;
 fn end() -> Instant {
     Instant::now() + std::time::Duration::from_secs(3)
 }
-async fn connected(epoch: &Arc<Epoch>) -> (Box<dyn EventSinkTcpStream>, tokio::net::TcpStream) {
+async fn connected(
+    epoch: &Arc<Epoch>,
+) -> (super::super::stream::EventStream, tokio::net::TcpStream) {
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let peer = listener.local_addr().unwrap();
     let egress = EgressInterfaceControl::default();
@@ -103,6 +104,66 @@ async fn pending_http_user_requires_real_scope_join_before_original_close() {
         .is_empty());
     let mut byte = [0];
     assert_eq!(peer.read(&mut byte).await.unwrap(), 0);
+}
+
+#[tokio::test]
+async fn bootstrap_http_uses_the_same_original_task_users_and_native_controller_receipt() {
+    use super::super::{download::DownloadEvent, ApplicationEventSinkTcpDialer};
+    use tokio::io::AsyncWriteExt;
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let address = listener.local_addr().unwrap();
+    let network = ApplicationEventSinkTcpDialer::new(EgressInterfaceControl::default());
+    network.begin_generation().unwrap();
+    let epoch = network.current().unwrap();
+    let peer = tokio::spawn(async move {
+        let (mut stream, _) = listener.accept().await.unwrap();
+        let mut header = Vec::new();
+        while !header.ends_with(b"\r\n\r\n") {
+            header.push(stream.read_u8().await.unwrap());
+        }
+        stream
+            .write_all(b"HTTP/1.1 200 OK\r\nContent-Length: 4\r\n\r\nreal")
+            .await
+            .unwrap();
+        let mut byte = [0];
+        assert_eq!(stream.read(&mut byte).await.unwrap(), 0);
+    });
+    let mut download = network
+        .download(format!("http://{address}/rules").parse().unwrap())
+        .unwrap();
+    let mut actual = Vec::new();
+    while let Some(event) = download.next().await.unwrap() {
+        match event {
+            DownloadEvent::Data(bytes) => actual.extend_from_slice(&bytes),
+            DownloadEvent::Redirect(_) => panic!("actual origin did not redirect"),
+        }
+    }
+    assert_eq!(actual, b"real");
+    drop(download);
+    let original = epoch.originals.lock().unwrap()[0].clone();
+    assert!(
+        original.receipt.lock().unwrap().is_none(),
+        "HTTP EOF is not native close"
+    );
+    network.retire_generation(end()).await.unwrap();
+    assert!(epoch.closed());
+    assert!(original.custody.returned_and_joined());
+    assert!(original
+        .custody
+        .users
+        .lock()
+        .unwrap()
+        .iter()
+        .all(TaskJoinWitness::is_joined));
+    assert!(!original
+        .receipt
+        .lock()
+        .unwrap()
+        .as_ref()
+        .unwrap()
+        .closed_io
+        .is_empty());
+    peer.await.unwrap();
 }
 
 #[cfg(feature = "connector")]

@@ -674,13 +674,16 @@ struct FragmentAssembly {
 
 #[cfg(feature = "tokio")]
 #[derive(Default)]
-struct Hysteria2UdpReassembler {
+pub(crate) struct Hysteria2UdpReassembler {
     pending: BTreeMap<(u32, u16), FragmentAssembly>,
 }
 
 #[cfg(feature = "tokio")]
 impl Hysteria2UdpReassembler {
-    fn push(&mut self, packet: Hysteria2UdpPacket) -> Result<Option<Hysteria2UdpPacket>, Error> {
+    pub(crate) fn push(
+        &mut self,
+        packet: Hysteria2UdpPacket,
+    ) -> Result<Option<Hysteria2UdpPacket>, Error> {
         if packet.fragment_count == 1 {
             return Ok(Some(packet));
         }

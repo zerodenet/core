@@ -20,7 +20,7 @@ fn one_preparation_retains_relative_resource_for_route_bypass_and_dns() {
     let owner = super::ConfigurationSource::new(&source);
     let prepared = PreparedRouting::prepare_owned(&config, &owner).unwrap();
     assert_eq!(owner.io.original_observation(), (1, 1, false, false));
-    // Equality compares actual matcher Arc identity, not just the config tag.
+    // Route/bypass/DNS retain the same actual prepared matcher and source.
     assert_eq!(
         prepared.router.rules[0].condition,
         prepared.bypass.rules[0].condition
@@ -59,6 +59,29 @@ fn one_preparation_retains_relative_resource_for_route_bypass_and_dns() {
         PreparedRouting::prepare(&config).unwrap_err(),
         zero_config::ConfigError::ReadRuleSet { .. }
     ));
+}
+
+#[test]
+fn same_actual_rule_bytes_preserve_dns_identity_but_same_path_changes_are_observed() {
+    let directory = tempfile::tempdir().unwrap();
+    let file = directory.path().join("domains.txt");
+    std::fs::write(&file, b"example.test\n").unwrap();
+    let config = RuntimeConfig::parse_with_source_dir(r#"{
+        "runtime":{"dns":{"default_server":"local","servers":{"local":{"type":"system"}},
+            "dispatch":[{"condition":{"type":"rule_set","tag":"domains"},"server":"local"}]}},
+        "route":{"rule_sets":[{"tag":"domains","type":"file","path":"domains.txt","format":"domain_list"}],"final":{"type":"direct"}}
+    }"#, Some(directory.path().to_owned())).unwrap();
+    let source = super::ConfigurationSource::default();
+    let first = PreparedRouting::prepare_owned(&config, &source).unwrap();
+    let same = PreparedRouting::prepare_owned(&config, &source).unwrap();
+    assert_eq!(source.io.original_observation(), (2, 2, false, false));
+    assert_eq!(first.dns_dispatch, same.dns_dispatch);
+    // The same pathname and exact same length are not an identity shortcut.
+    std::fs::write(&file, b"changed.test\n").unwrap();
+    let changed = PreparedRouting::prepare_owned(&config, &source).unwrap();
+    assert_eq!(source.io.original_observation(), (3, 3, false, false));
+    assert_ne!(same.dns_dispatch, changed.dns_dispatch);
+    source.confirm_original_io_closed().unwrap();
 }
 
 #[test]

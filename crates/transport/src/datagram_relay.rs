@@ -77,6 +77,7 @@ pub(crate) fn socket_observed(
                         .send(crate::datagram_queue::Packet {
                             bytes: bytes[..length].to_vec(),
                             peer,
+                            metadata: None,
                         })
                         .await
                         .is_err()

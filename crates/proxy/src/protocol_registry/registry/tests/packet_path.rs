@@ -9,7 +9,15 @@ fn packet_path_operations_are_cold_and_shared_across_leaf_clones() {
     let registry = crate::register::protocol_registry();
     for (config, leaf, _) in compiled_in_outbound_leaves() {
         let protocol = outbound_leaf_name(&config, &leaf);
-        let claimed = registry.claim_outbound_leaf(&config, leaf).unwrap();
+        let claimed = registry.claim_outbound_leaf(&config, leaf);
+        if protocol == "hysteria2" {
+            assert!(
+                claimed.is_err(),
+                "HY2 must not restore its retired compatibility projection"
+            );
+            continue;
+        }
+        let claimed = claimed.unwrap();
         let Some(operation) = claimed.udp_packet_path() else {
             assert!(!matches!(
                 protocol,
@@ -32,7 +40,7 @@ fn packet_path_source_identity_is_fixed_at_the_actual_config_boundary() {
     let registry = crate::register::protocol_registry();
     for (mut config, leaf, _) in compiled_in_outbound_leaves() {
         let protocol = outbound_leaf_name(&config, &leaf);
-        if !matches!(protocol, "vless" | "hysteria2") {
+        if protocol != "vless" {
             continue;
         }
         // No directory or CA I/O is needed to materialize the source-aware

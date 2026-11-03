@@ -42,6 +42,4 @@ pub(crate) enum TcpPathCategory {
     Tunnel,
     #[cfg(feature = "tcp-session-runtime")]
     Session,
-    #[cfg(feature = "tcp-transport-session-runtime")]
-    TransportSession,
 }

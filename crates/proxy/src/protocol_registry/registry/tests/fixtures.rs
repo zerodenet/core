@@ -124,7 +124,11 @@ pub(super) fn compiled_in_inbound_configs() -> Vec<InboundProtocolConfig> {
     #[cfg(feature = "mieru")]
     configs.push(InboundProtocolConfig::Mieru {
         options: Default::default(),
-        users: Vec::new(),
+        users: vec![zero_config::MieruUserConfig {
+            username: "ipv6-fixture".into(),
+            password: "ipv6-fixture-password".into(),
+            principal_key: None,
+        }],
         transport: Default::default(),
     });
 

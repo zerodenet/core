@@ -22,6 +22,8 @@ pub enum OwnedDriverOrigin {
     },
     #[cfg(any(feature = "split_http", feature = "hysteria", feature = "quic_h3"))]
     Http3,
+    /// Actual bounded packet relay worker, in this endpoint's original Scope.
+    Carrier,
 }
 impl From<quinn::DriverOrigin> for OwnedDriverOrigin {
     fn from(origin: quinn::DriverOrigin) -> Self {

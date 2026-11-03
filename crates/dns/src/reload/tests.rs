@@ -106,8 +106,14 @@ async fn cold_prepare_leaves_current_pool_open_and_requires_retirement_before_re
 fn no_op_commit_preserves_actual_dns_generation_and_backend_and_dispatch_identity() {
     let system = DnsSystem::build(None).unwrap();
     let generation = system.config_generation.load(Ordering::Acquire);
-    system.reload(None).unwrap();
+    system.prepare_reload_with_dispatch(None, None).unwrap();
+    system.commit_prepared_reload().unwrap();
     assert_eq!(system.config_generation.load(Ordering::Acquire), generation);
+    system.reload(None).unwrap();
+    assert_eq!(
+        system.config_generation.load(Ordering::Acquire),
+        generation + 1
+    );
 
     let config = config();
     let dns = DnsSystem::build(Some(&config)).unwrap();

@@ -139,3 +139,29 @@ async fn failed_handshakes_do_not_consume_target_capacity() {
         assert!(carrier.slots.lock().unwrap().is_empty());
     }
 }
+
+#[tokio::test]
+async fn bounded_udp_response_loss_keeps_the_same_logical_connection_usable() {
+    let (carrier, opened, closed) = carrier(Duration::from_secs(60));
+    let target = Address::Domain("destination.test".into());
+    // Current-thread sends fill the actual bounded broadcast before its reader
+    // is scheduled. Lag means packet loss, not retirement of this connection.
+    for value in 0..64u8 {
+        carrier.send_to(&target, 53, &[value]).await.unwrap();
+    }
+    let mut packet = [0; 8];
+    for expected in 48..64u8 {
+        let count = tokio::time::timeout(Duration::from_secs(1), carrier.recv_from(&mut packet))
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!((count, packet[0]), (1, expected));
+    }
+    carrier.send_to(&target, 53, b"later").await.unwrap();
+    assert_eq!(carrier.recv_from(&mut packet).await.unwrap(), 5);
+    assert_eq!(&packet[..5], b"later");
+    assert_eq!(opened.load(Ordering::SeqCst), 1);
+    assert_eq!(closed.load(Ordering::SeqCst), 0);
+    drop(carrier);
+    assert_eq!(closed.load(Ordering::SeqCst), 1);
+}

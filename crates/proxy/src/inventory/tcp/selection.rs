@@ -27,7 +27,10 @@ impl ProtocolInventory {
             .rposition(|leaf| self.native_tcp_candidate(ctx, leaf, components).is_none());
         let native_at = |index: usize, leaf: &ResolvedLeafOutbound<'a>| {
             let selected = self.native_tcp_candidate(ctx, leaf, components);
-            if last_legacy.is_some_and(|last| index < last) && matches!(selected, Some(Ok(_))) {
+            if last_legacy.is_some_and(|last| index < last)
+                && matches!(selected, Some(Ok(_)))
+                && self.claim_outbound_leaf(ctx.config(), leaf.clone()).is_ok()
+            {
                 None
             } else {
                 selected
@@ -39,7 +42,7 @@ impl ProtocolInventory {
             let candidate = native?;
             #[cfg(feature = "udp-runtime")]
             {
-                first_datagram = self.optional_tcp_packet_path(ctx, first_leaf);
+                first_datagram = self.optional_tcp_packet_path(ctx, first_leaf, components);
             }
             candidate
         } else {
@@ -69,7 +72,7 @@ impl ProtocolInventory {
                 #[cfg(feature = "udp-runtime")]
                 {
                     packet = if index + 1 < leaves.len() {
-                        self.optional_tcp_packet_path(ctx, leaf)
+                        self.optional_tcp_packet_path(ctx, leaf, components)
                     } else {
                         None
                     };
@@ -102,18 +105,45 @@ impl ProtocolInventory {
     /// Optional, unmigrated Datagram-carrier projection only. Its absence
     /// cannot require a standard Stream protocol to implement a legacy SPI.
     #[cfg(feature = "udp-runtime")]
-    fn optional_tcp_packet_path(
+    pub(in crate::inventory) fn optional_tcp_packet_path(
         &self,
         ctx: OutboundAdapterContext<'_>,
         leaf: &ResolvedLeafOutbound<'_>,
+        components: Option<&crate::component::catalog::ComponentPlan>,
     ) -> Option<
         std::sync::Arc<
             dyn crate::runtime::udp_dispatch::packet_path_operation::PreparedUdpPacketPathOperation,
         >,
     > {
-        self.claim_outbound_leaf(ctx.config(), leaf.clone())
-            .ok()?
-            .udp_packet_path()
+        if let Some(operation) = self
+            .claim_outbound_leaf(ctx.config(), leaf.clone())
+            .ok()
+            .and_then(|claim| claim.udp_packet_path())
+        {
+            return Some(operation);
+        }
+        let ResolvedLeafOutbound::Proxy { identity } = leaf else {
+            return None;
+        };
+        let input = ctx.config().outbounds.get(identity.config_index())?;
+        let slot = components?.configured(input.tag())?;
+        if !slot
+            .recipe
+            .spec()
+            .roles
+            .contains(&zero_platform_tokio::contract::component::RoleKind::Datagram)
+        {
+            return None;
+        }
+        let (server, port) = input.protocol.endpoint()?;
+        Some(
+            crate::component::stream_bridge::datagram::packet_path::StandardPacketPath::prepare(
+                &slot,
+                input.tag(),
+                server,
+                port,
+            ),
+        )
     }
 }
 

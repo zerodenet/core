@@ -55,7 +55,6 @@ pub(crate) mod route_runtime;
 mod running;
 pub(crate) mod sniff;
 #[cfg(feature = "managed-stream-runtime")]
-pub(crate) mod stream_udp;
 mod target;
 #[cfg(feature = "raw-ip-runtime")]
 pub(crate) use target::resolve_packet_targets;

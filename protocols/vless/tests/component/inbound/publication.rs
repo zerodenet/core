@@ -60,7 +60,7 @@ fn standard_fallback_remains_cold_before_credential_publication() {
 }
 
 #[test]
-fn standard_quic_rejects_unowned_appearance_before_credential_publication() {
+fn standard_quic_projects_owned_appearance_before_credential_publication() {
     let runtime = crate::transport::VlessTransportRuntime::default();
     let current = request(USER, false)
         .prepare_publication(&runtime, "profile")
@@ -75,6 +75,15 @@ fn standard_quic_rejects_unowned_appearance_before_credential_publication() {
                 ),
         ))
         .prepare_publication(&runtime, "profile");
-    assert!(candidate.validate_standard_quic_source().is_err());
+    candidate.validate_standard_quic_source().unwrap();
+    assert_eq!(
+        candidate.target_endpoints(),
+        vec![zero_traits::FallbackEndpoint::Tcp {
+            server: "127.0.0.1".into(),
+            port: 9,
+        }]
+    );
+    // The integrated source declares this exact endpoint for scoped origin I/O;
+    // cold projection must still leave the live credential profile untouched.
     assert_eq!(current.profile.user_count(), 1);
 }

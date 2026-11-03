@@ -4,6 +4,7 @@
 mod callbacks;
 mod drivers;
 mod endpoint;
+pub mod packet;
 #[cfg(any(feature = "split_http", feature = "hysteria", feature = "quic_h3"))]
 pub use endpoint::h3;
 pub use endpoint::{

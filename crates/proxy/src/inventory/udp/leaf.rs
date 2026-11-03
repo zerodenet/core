@@ -1,6 +1,6 @@
 use super::super::ProtocolInventory;
 use crate::inventory::ClaimedInventoryLeaf;
-use crate::protocol_registry::UdpAdapterContext;
+use crate::protocol_registry::{OutboundAdapterContext, UdpAdapterContext};
 use crate::runtime::path::TcpPathCategory;
 use crate::runtime::udp_dispatch::operation::PreparedUdpFlowOperation;
 use crate::runtime::udp_dispatch::FlowFailure;
@@ -70,5 +70,60 @@ impl ProtocolInventory {
 
         let operation = claimed.into_udp_flow_for_route(mode)?;
         Ok(PreparedUdpLeafCandidate::Flow(operation))
+    }
+}
+
+impl ProtocolInventory {
+    /// Project raw relay leaves once at the owning inventory preparation boundary.
+    /// The continuation only receives existing prepared carriers and final claim.
+    pub(super) fn prepare_standard_first_udp_relay<'a>(
+        &self,
+        ctx: UdpAdapterContext<'a>,
+        session: &'a zero_core::Session,
+        chain: &[ResolvedLeafOutbound<'a>],
+        payload: &'a [u8],
+    ) -> Result<crate::runtime::udp_dispatch::relay::PreparedUdpRelayChain<'a>, FlowFailure> {
+        for leaf in chain {
+            if let ResolvedLeafOutbound::Proxy { identity } = leaf {
+                let input = ctx
+                    .config()
+                    .outbounds
+                    .get(identity.config_index())
+                    .ok_or_else(|| FlowFailure {
+                        stage: "relay_prepare",
+                        error: std::io::Error::other("relay outbound retired").into(),
+                        upstream: None,
+                    })?;
+                if !ctx.udp_enabled_for_outbound(Some(input.tag())) {
+                    return Err(FlowFailure {
+                        stage: "udp_policy",
+                        error: std::io::Error::other("udp disabled for relay chain outbound")
+                            .into(),
+                        upstream: None,
+                    });
+                }
+            }
+        }
+        let execution = ctx.packet_path_execution_services().tcp();
+        let prepared = self
+            .prepare_tcp_relay_chain(
+                OutboundAdapterContext::new(ctx.config()),
+                chain,
+                execution.components.as_deref().ok(),
+            )
+            .map_err(|failure| FlowFailure {
+                stage: failure.stage,
+                error: failure.error,
+                upstream: failure.upstream_endpoint.map(|endpoint| *endpoint),
+            })?;
+        let last = chain.last().expect("validated relay has final hop");
+        let claimed = self
+            .claim_outbound_leaf(ctx.config(), last.clone())
+            .map_err(|error| FlowFailure {
+                stage: "relay_prepare",
+                error,
+                upstream: None,
+            })?;
+        self.prepare_udp_relay_continuation(session, prepared, claimed, payload)
     }
 }

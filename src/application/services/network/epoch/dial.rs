@@ -1,7 +1,6 @@
 use super::*;
 use crate::application::services::network::{stream::EventStream, unique_candidates};
 use std::net::ToSocketAddrs;
-use zero_connector::EventSinkTcpStream;
 use zero_platform_tokio::{EgressInterfaceControl, PendingTcpConnect};
 use zero_traits::DialPolicy;
 
@@ -54,7 +53,7 @@ impl Epoch {
         peer: SocketAddr,
         egress: &EgressInterfaceControl,
         deadline: Instant,
-    ) -> io::Result<Box<dyn EventSinkTcpStream>> {
+    ) -> io::Result<EventStream> {
         if self.closing.load(Ordering::Acquire)
             || self.failed.load(Ordering::Acquire)
             || !self.faults.lock().unwrap().is_empty()
@@ -152,7 +151,7 @@ impl Epoch {
                         "event dial completed on a retired network generation",
                     ));
                 }
-                Ok(Box::new(stream))
+                Ok(stream)
             }
             Err(error) => {
                 self.close_returned(deadline).await?;
