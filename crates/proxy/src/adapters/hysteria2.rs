@@ -3,28 +3,23 @@ use ::hysteria2::inbound::Hysteria2InboundProfileStore;
 use ::hysteria2::transport::{
     Hysteria2AuthenticatedInboundProfile, Hysteria2InboundBindOptionsRef, Hysteria2InboundBindPlan,
     Hysteria2InboundOptionsRef, Hysteria2InboundUserRef, Hysteria2OutboundOptionsRef,
-    Hysteria2TransportLeaf,
 };
 use zero_config::{InboundConfig, InboundProtocolConfig, OutboundProtocolConfig};
 use zero_engine::EngineError;
 use zero_traits::{ProtocolCapabilityDescriptor, ProtocolMetadata};
 
 use crate::adapters::identity::NamedProtocolAdapter;
-use crate::protocol_registry::{OutboundLeafClaim, OutboundLeafInput};
-use crate::runtime::path::TcpPathCategory;
 
 #[cfg(feature = "hysteria2")]
 mod component;
 #[cfg(feature = "hysteria2")]
-mod tcp;
-#[cfg(feature = "hysteria2")]
-pub(crate) mod udp;
+pub(crate) mod outbound;
 
 #[cfg(feature = "hysteria2")]
 #[derive(Debug, Default)]
 pub(crate) struct Hysteria2Adapter {
     inbound_profiles: Hysteria2InboundProfileStore,
-    outbound_pool: ::hysteria2::transport::Hysteria2ConnectionPool,
+    outbound_pool: std::sync::Arc<::hysteria2::transport::owned::Pool>,
 }
 
 #[cfg(feature = "hysteria2")]
@@ -60,7 +55,12 @@ fn inbound_user_refs<'a>(
         .collect()
 }
 
-fn transport_leaf(tag: &str, protocol: &OutboundProtocolConfig) -> Option<Hysteria2TransportLeaf> {
+fn pool_profile(
+    tag: &str,
+    protocol: &OutboundProtocolConfig,
+    binding: zero_platform_tokio::contract::network::UpstreamBinding,
+    identity: std::sync::Arc<[u8]>,
+) -> Option<::hysteria2::transport::owned::PoolProfile> {
     let OutboundProtocolConfig::Hysteria2 {
         server,
         server_name,
@@ -87,7 +87,7 @@ fn transport_leaf(tag: &str, protocol: &OutboundProtocolConfig) -> Option<Hyster
         .expect("validated hysteria2 UDP hopping settings")
     });
     Some(
-        Hysteria2TransportLeaf::from_options_refs(
+        ::hysteria2::transport::owned::PoolProfile::new(
             tag,
             server,
             *port,
@@ -100,6 +100,8 @@ fn transport_leaf(tag: &str, protocol: &OutboundProtocolConfig) -> Option<Hyster
                 insecure: *insecure,
                 client_fingerprint: client_fingerprint.as_deref(),
             },
+            binding,
+            identity,
         )
         .with_ca_cert_path(ca_cert_path.as_deref())
         .with_tls_options(tls_options.to_options())
@@ -119,7 +121,6 @@ impl NamedProtocolAdapter for Hysteria2Adapter {
     const FEATURE_NAME: &'static str = "hysteria2";
 
     fn on_config_reloaded(&self, config: &zero_config::RuntimeConfig) {
-        self.outbound_pool.clear();
         for inbound in &config.inbounds {
             let InboundProtocolConfig::Hysteria2 {
                 password, users, ..
@@ -134,42 +135,12 @@ impl NamedProtocolAdapter for Hysteria2Adapter {
 }
 
 #[cfg(feature = "hysteria2")]
-impl Hysteria2Adapter {
-    pub(crate) fn claim_outbound_leaf_impl<'a>(
-        &self,
-        input: OutboundLeafInput<'a>,
-    ) -> Option<OutboundLeafClaim<'a>> {
-        let OutboundLeafInput::Proxy {
-            outbound,
-            source_dir,
-            ..
-        } = input
-        else {
-            return None;
-        };
-        let leaf = transport_leaf(outbound.tag(), &outbound.protocol)?
-            .with_pool(self.outbound_pool.clone());
-        let tcp = std::sync::Arc::new(
-            crate::runtime::tcp_dispatch::operation::SessionTcpConnectOperation {
-                handshake: leaf.clone().with_source_dir(source_dir),
-            },
-        );
-        Some(OutboundLeafClaim {
-            tcp_path: TcpPathCategory::TransportSession,
-            tcp: Some(Ok(tcp)),
-            tcp_relay: None,
-            udp: Some(self.udp_flow_operation(leaf.clone(), source_dir)),
-            udp_relay: None,
-            #[cfg(feature = "raw-ip-runtime")]
-            packet: None,
-            packet_path: self.udp_packet_path_operation(leaf, source_dir),
-        })
-    }
-}
-
-#[cfg(feature = "hysteria2")]
 impl ProtocolMetadata for Hysteria2Adapter {
     fn descriptor(&self) -> ProtocolCapabilityDescriptor {
         ::hysteria2::Hysteria2Protocol.descriptor()
     }
 }
+
+#[cfg(test)]
+#[path = "hysteria2/tests.rs"]
+mod tests;

@@ -87,6 +87,15 @@ impl OwnedEndpointOwner {
         }
         Ok(Self::construct(Native::Hosted(native), registrar, limits))
     }
+    /// The packet view contains queues only. Each actual native segment has
+    /// its separate original graph/worker/controller in this same host Scope.
+    pub fn new_packet(
+        socket: super::packet::PacketSocket,
+        registrar: TaskRegistrar,
+        limits: OwnedEndpointLimits,
+    ) -> (Self, DriverExitReceiver) {
+        Self::construct(Native::Packet(socket), registrar, limits)
+    }
     fn construct(
         native: Native,
         registrar: TaskRegistrar,

@@ -119,7 +119,7 @@ async fn client(
                 let (n,source)=received?;
                 let decoded=state.lock().unwrap().response(&wire[..n],source);
                 if let Ok(Some((bytes,peer)))=decoded {
-                    let _=channels.incoming.try_send(Packet {bytes,peer});
+                    let _=channels.incoming.try_send(Packet {bytes,peer,metadata:None});
                     if let Some(peer)=destination {let bytes=state.lock().unwrap().query(&[],peer)?;raw.send_to(&bytes,peer.ip()).await?;}
                     delay=Duration::from_millis(500);timer.as_mut().reset(tokio::time::Instant::now()+delay);
                 }

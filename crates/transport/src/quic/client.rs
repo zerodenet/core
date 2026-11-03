@@ -67,6 +67,56 @@ pub fn client_config_with_options(
     Ok(config)
 }
 
+/// The same QUIC TLS policy from material read by the host's File grant.
+/// A declared CA never falls back to a filesystem read through this entry.
+#[allow(clippy::too_many_arguments)]
+pub fn client_config_with_ca_material(
+    insecure: bool,
+    fingerprint: Option<&str>,
+    alpn: &[Vec<u8>],
+    datagram_receive_buffer_size: Option<usize>,
+    ca_cert_path: Option<&std::path::Path>,
+    options: &zero_traits::ClientTlsOptions,
+    ca_pem: Option<&[u8]>,
+) -> Result<quinn::ClientConfig, RuntimeError> {
+    let profile = crate::profile::OwnedClientTlsProfile {
+        options: options.clone(),
+        server_name: None,
+        disable_sni: false,
+        ca_cert_path: ca_cert_path.map(|p| p.to_string_lossy().into_owned()),
+        insecure,
+        alpn: vec![],
+        client_fingerprint: fingerprint.map(str::to_owned),
+    };
+    let mut tls = match (ca_cert_path, ca_pem) {
+        (Some(_), Some(material)) => {
+            crate::tls::config::client_with_ca_pem(&profile, None, true, material)?
+        }
+        (Some(_), None) => {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "declared QUIC CA material was not prepared",
+            )
+            .into())
+        }
+        (None, Some(_)) => {
+            return Err(
+                io::Error::new(io::ErrorKind::InvalidInput, "unexpected QUIC CA material").into(),
+            )
+        }
+        (None, None) => crate::tls::config::client(&profile, None, true)?,
+    };
+    tls.alpn_protocols = alpn.to_vec();
+    let crypto =
+        quinn::crypto::rustls::QuicClientConfig::try_from(tls).map_err(io::Error::other)?;
+    let mut config = quinn::ClientConfig::new(Arc::new(crypto));
+    let mut transport = quinn::TransportConfig::default();
+    transport.max_idle_timeout(Some(std::time::Duration::from_secs(30).try_into().unwrap()));
+    transport.datagram_receive_buffer_size(datagram_receive_buffer_size);
+    config.transport_config(Arc::new(transport));
+    Ok(config)
+}
+
 pub async fn connect_quic_endpoint(
     server: &str,
     port: u16,

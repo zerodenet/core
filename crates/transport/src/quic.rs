@@ -22,8 +22,8 @@ pub use stream::QuicStream;
 mod rate_limit;
 mod receive_window;
 pub use client::{
-    client_config, client_config_with_ca, client_config_with_options, connect_quic_endpoint,
-    connect_quic_endpoint_masked,
+    client_config, client_config_with_ca, client_config_with_ca_material,
+    client_config_with_options, connect_quic_endpoint, connect_quic_endpoint_masked,
 };
 pub use options::QuicTransportOptions;
 pub use quinn::{

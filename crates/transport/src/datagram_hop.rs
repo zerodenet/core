@@ -51,6 +51,15 @@ impl Profile {
             max,
         })
     }
+    pub fn ports(&self) -> &[u16] {
+        &self.ports
+    }
+    pub fn next_port(&self) -> u16 {
+        self.ports[rand::rng().random_range(0..self.ports.len())]
+    }
+    pub fn next_interval(&self) -> Duration {
+        self.interval()
+    }
     fn peer(&self, mut peer: SocketAddr) -> SocketAddr {
         peer.set_port(self.ports[rand::rng().random_range(0..self.ports.len())]);
         peer
