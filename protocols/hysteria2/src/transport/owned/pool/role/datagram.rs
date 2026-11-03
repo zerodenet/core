@@ -32,6 +32,7 @@ pub struct Rx {
 }
 pub struct Control {
     shared: Arc<Shared>,
+    closed: bool,
 }
 pub(super) fn session(
     channel: OwnedUdpChannel,
@@ -66,7 +67,10 @@ pub(super) fn session(
             association: request.association,
             pending: None,
         },
-        control: Control { shared },
+        control: Control {
+            shared,
+            closed: false,
+        },
         limits,
     })
 }
@@ -160,12 +164,18 @@ impl ChannelControl for Control {
     }
     async fn wait_closed(&mut self, end: Instant) -> Result<CloseReport, ChannelError> {
         self.cancel(CloseReason::Shutdown);
+        if self.closed {
+            // The unique original report was already handed to this caller.
+            return Ok(CloseReport::default());
+        }
         loop {
             let changed = self.shared.changed.notified();
             tokio::pin!(changed);
             changed.as_mut().enable();
             if self.shared.views.load(Ordering::Acquire) == 0 {
-                return self.shared.release();
+                let report = self.shared.release()?;
+                self.closed = report.is_complete();
+                return Ok(report);
             }
             tokio::time::timeout_at(end, changed)
                 .await

@@ -115,7 +115,7 @@ impl Shared {
         self.last_retirement
             .lock()
             .unwrap()
-            .clone()
+            .take()
             .ok_or_else(|| error(Stage::Close, Reason::Internal))
     }
     pub(super) async fn send(
