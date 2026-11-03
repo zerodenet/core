@@ -1,6 +1,7 @@
 use super::*;
 use std::future::Future;
 use tokio::{io::AsyncReadExt, sync::Notify};
+use zero_connector::EventSinkTcpStream;
 use zero_platform_tokio::EgressInterfaceControl;
 fn end() -> Instant {
     Instant::now() + std::time::Duration::from_secs(3)
