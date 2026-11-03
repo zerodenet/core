@@ -106,6 +106,9 @@ impl EventSinkTcpDialer for ApplicationEventSinkTcpDialer {
                     Ok(stream) => return Ok(stream),
                     Err(error) => {
                         epoch.reap().await?;
+                        if epoch.generation != egress.generation() {
+                            return Err(error);
+                        }
                         last = Some(error);
                     }
                 }
