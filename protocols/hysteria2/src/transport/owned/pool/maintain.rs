@@ -24,9 +24,13 @@ impl Generation {
             let failed = state.attempted && state.auth.is_none();
             let hop = state.next_hop.is_some_and(|time| Instant::now() >= time);
             drop(state);
-            if failed || (idle && expired) {
+            if failed {
                 entry.close(end).await?;
                 self.remove_entry(&key, &entry).await?;
+            } else if idle && expired {
+                if entry.close_if_idle(end).await? {
+                    self.remove_entry(&key, &entry).await?;
+                }
             } else if hop {
                 self.rotate(key.profile, &entry, end).await?;
             }
@@ -151,10 +155,5 @@ impl EntryState {
         self.auth
             .as_ref()
             .is_some_and(|auth| Arc::strong_count(auth) == 1)
-            && self.owner.as_ref().is_some_and(|owner| {
-                owner.active_users()
-                    <= self.baseline
-                        + usize::from(self.auth.as_ref().is_some_and(|auth| auth.has_udp()))
-            })
     }
 }

@@ -212,13 +212,11 @@ impl OwnedAuthentication {
             None => Ok(None),
         }
     }
-    pub(super) fn has_udp(&self) -> bool {
-        // Admission only needs a conservative occupied-user census here. The
-        // close path separately waits on the actual install gate and witness.
-        self.udp.try_lock().map_or(true, |udp| udp.is_some())
+    pub(super) fn request_udp_stop(&self) {
+        self.udp_cancel.cancel();
     }
     pub fn stop(&self) {
-        self.udp_cancel.cancel();
+        self.request_udp_stop();
         self.connection.close(0x100u32.into(), b"owner retirement");
     }
 }

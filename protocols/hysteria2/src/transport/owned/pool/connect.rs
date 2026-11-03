@@ -58,13 +58,7 @@ impl Generation {
                 .collect::<Vec<_>>();
             candidates.sort_by_key(|(_, _, touched)| *touched);
             for (old, entry, _) in candidates {
-                let idle = entry
-                    .state
-                    .try_lock()
-                    .ok()
-                    .is_some_and(|state| state.idle());
-                if idle {
-                    entry.close(end).await?;
+                if entry.close_if_idle(end).await? {
                     self.remove_entry(&old, &entry).await?;
                     break;
                 }
@@ -91,7 +85,7 @@ impl Generation {
         *entry.touched.lock().unwrap() = Instant::now();
         let mut state = entry.state.lock().await;
         if let Some(auth) = &state.auth {
-            if auth.is_ready() {
+            if auth.is_ready() && !entry.cancel.is_cancelled() && !state.closed {
                 return Ok(auth.clone());
             }
         }
@@ -185,7 +179,6 @@ impl Generation {
             .unwrap() = state.origin.clone();
         let auth = Arc::new(state.pending.take().unwrap());
         state.udp_join = auth.udp_witness().await?;
-        state.baseline = state.owner.as_ref().unwrap().active_users();
         state.auth = Some(auth.clone());
         Ok(auth)
     }

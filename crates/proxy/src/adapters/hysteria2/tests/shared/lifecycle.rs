@@ -90,7 +90,7 @@ async fn hysteria2_identity_isolation_and_historical_role_revocation_use_actual_
             identity:RequestIdentity::Service(Arc::new(zero_core::request::ServiceRequestFacts {origin:zero_core::request::ServiceOrigin::Runtime,purpose:zero_core::request::ServicePurpose::DiagnosticProbe})),
             deadline:Some(end()),cancel:CancellationToken::new(),upstream:UpstreamTransport::new(binding,Arc::new(Denied)),observer:None,
         }).await;
-        let error=match result{Err(error)=>error,Ok(_)=>panic!("historical role reopened a retired pool")};assert_eq!(error.reason,zero_platform_tokio::contract::Reason::Revoked);
+        let error=match result{Err(error)=>error,Ok(_)=>panic!("historical role reopened a retired pool")};assert_eq!(error.reason,zero_platform_tokio::contract::Reason::StalePlan);assert_eq!(error.component,Some(slot.id));
         assert_eq!(server.authenticated.load(Ordering::SeqCst),2,"cached role cannot reach a replacement authentication");server.close().await;
     }).await.unwrap();
 }

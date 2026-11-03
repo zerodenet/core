@@ -182,7 +182,7 @@ async fn hysteria2_healthy_confirmed_evictions_reuse_more_than_twice_the_entry_c
         let mut first=None;
         for id in 0..513 {
             let slot=plan.configured(&format!("hy-{id}")).unwrap();let role=slot.datagram(end()).await.unwrap();
-            let loan=proxy.protocols.drive_component_supervision(role.open_carrier(DatagramRequest {association:AssociationId(id as u64+1),targets:DatagramTargets::Fixed(Destination::new(Address::Ipv4([203,0,113,12]),53))},context(&proxy,&slot))).await.unwrap();
+            let loan=proxy.protocols.drive_component_supervision(role.open_carrier(DatagramRequest {association:AssociationId(id as u64+1),targets:DatagramTargets::Fixed(Destination::new(Address::Ipv4([203,0,113,12]),53))},context(&proxy,&slot))).await.unwrap_or_else(|error|panic!("healthy admission round {id}: {error}; actual budget {:?}",budgets.0.lock().unwrap().last()));
             if first.is_none() {first=Some(match loan.owner.original().owner() {CarrierOriginOwner::Metadata(owner)=>owner.current_original().unwrap(),_=>panic!("actual HY2 metadata original")});}
             let zero_platform_tokio::controlled_carrier::loan::DatagramLoan {io,mut owner}=loan;drop(io);
             assert!(owner.close(end()).await.unwrap().is_complete());drop(owner);

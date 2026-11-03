@@ -1,5 +1,19 @@
 use super::*;
 impl Entry {
+    pub(super) async fn close_if_idle(&self, end: Instant) -> Result<bool, ChannelError> {
+        let Ok(state) = self.state.try_lock() else {
+            return Ok(false);
+        };
+        if !state.idle() {
+            return Ok(false);
+        }
+        // Reserve retirement under the same admission lock. The idle hint is
+        // never a user/task/native receipt; close below still collects each.
+        self.cancel.cancel();
+        drop(state);
+        self.close(end).await?;
+        Ok(true)
+    }
     pub(super) async fn close(&self, end: Instant) -> Result<(), ChannelError> {
         self.cancel.cancel();
         let mut state = tokio::time::timeout_at(end, self.state.lock())
@@ -27,6 +41,17 @@ impl Entry {
 impl EntryState {
     pub(super) async fn retire_endpoint(&mut self, end: Instant) -> Result<(), ChannelError> {
         if let Some(auth) = &self.auth {
+            auth.request_udp_stop();
+        }
+        if let Some(auth) = &self.pending {
+            auth.request_udp_stop();
+        }
+        // The actual H3 owner requests cancellation before local raw close;
+        // peer failures already recorded in its real ledger stay failures.
+        if let Some(owner) = &self.owner {
+            owner.begin_shutdown();
+        }
+        if let Some(auth) = &self.auth {
             auth.stop();
             self.udp_join = auth.udp_witness().await?;
         }
@@ -50,9 +75,6 @@ impl EntryState {
         }
         drop(self.auth.take());
         drop(self.pending.take());
-        if let Some(owner) = &self.owner {
-            owner.begin_shutdown();
-        }
         let tasks = self
             .owner
             .as_ref()

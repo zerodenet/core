@@ -225,7 +225,6 @@ struct EntryState {
     retired_drivers: Vec<DriverDelivery>,
     retired_application: Vec<zero_platform_tokio::contract::scope::TaskJoined>,
     candidate_failures: Vec<Arc<ChannelError>>,
-    baseline: usize,
     udp_join: Option<TaskJoinWitness>,
     udp_exit: Option<zero_platform_tokio::contract::scope::TaskJoined>,
     candidates: Option<zero_platform_tokio::controlled_carrier::CarrierCandidates>,
