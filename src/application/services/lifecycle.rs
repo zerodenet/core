@@ -37,13 +37,14 @@ impl ApplicationServices {
                 }
             }
         }
-        self.engine.update_sink_status(Vec::new());
         if let Some(error) = &state.cleanup_fault {
             return Err(format!(
                 "original application cleanup remains unresolved: {error}"
             ));
         }
-        hooks
+        hooks?;
+        self.engine.update_sink_status(Vec::new());
+        Ok(())
     }
 
     #[cfg(feature = "event-dispatcher")]
