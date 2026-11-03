@@ -106,7 +106,12 @@ impl Generation {
             })
             .map_err(|source| error(Stage::Prepare, Reason::Capacity).with_source(source))?;
         state.caller = Some(caller);
-        let client = options.client_config()?;
+        let client = self
+            .clients
+            .get()
+            .and_then(|clients| clients.get(profile))
+            .ok_or_else(|| error(Stage::Prepare, Reason::Revoked))?
+            .clone();
         let mut resolve = call.clone();
         resolve.deadline = None;
         resolve.cancel = entry.cancel.clone();

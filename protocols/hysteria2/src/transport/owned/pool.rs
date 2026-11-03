@@ -3,7 +3,7 @@ use super::*;
 use std::{
     collections::HashMap,
     num::NonZeroUsize,
-    sync::{Mutex, Weak},
+    sync::{Mutex, OnceLock, Weak},
     time::Duration,
 };
 use tokio::time::Instant;
@@ -81,23 +81,33 @@ pub fn metadata_limits() -> MetadataLimits {
 impl ComponentFactory for PoolFactory {
     type Options = PoolOptions;
     fn describe(&self, options: &PoolOptions) -> ComponentSpec {
+        let mut resources = options
+            .profiles
+            .iter()
+            .map(|profile| ResourceDeclaration::ControlledMetadataCarrier {
+                endpoint: profile.endpoint.clone(),
+                dial: profile.binding.dial.clone(),
+                ports: profile.ports(),
+                limits: metadata_limits(),
+                max_origins: n(256),
+            })
+            .collect::<Vec<_>>();
+        let files = options
+            .profiles
+            .iter()
+            .filter_map(|profile| profile.leaf.node.ca_cert_path())
+            .collect::<std::collections::BTreeSet<_>>();
+        resources.extend(files.into_iter().map(|path| ResourceDeclaration::File {
+            path,
+            max_bytes: 16 * 1024 * 1024,
+        }));
         ComponentSpec {
             owner: ResourceOwner::Endpoint("hysteria2.authenticated_pool".into()),
             roles: vec![],
             dependencies: vec![],
             static_identity: options.identity.clone(),
             task_limit: Some(n(2049)),
-            resources: options
-                .profiles
-                .iter()
-                .map(|profile| ResourceDeclaration::ControlledMetadataCarrier {
-                    endpoint: profile.endpoint.clone(),
-                    dial: profile.binding.dial.clone(),
-                    ports: profile.ports(),
-                    limits: metadata_limits(),
-                    max_origins: n(256),
-                })
-                .collect(),
+            resources,
         }
     }
     fn build(
@@ -146,6 +156,7 @@ impl PoolFactory {
             cancel: context.cancel,
             entries: Mutex::new(HashMap::new()),
             maintenance: Mutex::new(None),
+            clients: OnceLock::new(),
         });
         Ok(ComponentInstance {
             roles: Default::default(),
@@ -173,6 +184,7 @@ pub(super) struct Generation {
     cancel: zero_platform_tokio::contract::CancellationToken,
     entries: Mutex<HashMap<Key, Arc<Entry>>>,
     maintenance: Mutex<Option<TaskJoinWitness>>,
+    clients: OnceLock<Arc<[quinn::ClientConfig]>>,
 }
 #[derive(Clone, PartialEq, Eq, Hash)]
 struct Key {
@@ -236,6 +248,18 @@ impl ResourceLifecycle for Owner {
         {
             return Err(error(Stage::Prepare, Reason::StalePlan));
         }
+        let mut clients = Vec::new();
+        for profile in self.generation.profiles.iter() {
+            let material = match profile.leaf.node.ca_cert_path() {
+                Some(path) => Some(self.resources.read_file(path, 16 * 1024 * 1024).await?),
+                None => None,
+            };
+            clients.push(profile.client_config(material.as_deref())?);
+        }
+        self.generation
+            .clients
+            .set(clients.into())
+            .map_err(|_| error(Stage::Prepare, Reason::Revoked))?;
         for (ordinal, owner) in self.generation.metadata.iter().enumerate() {
             self.resources.register_metadata_pool(
                 ordinal,

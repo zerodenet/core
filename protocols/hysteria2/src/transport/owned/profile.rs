@@ -68,15 +68,19 @@ impl PoolProfile {
     pub fn tag(&self) -> &str {
         &self.leaf.tag
     }
-    pub(super) fn client_config(&self) -> Result<quinn::ClientConfig, ChannelError> {
+    pub(super) fn client_config(
+        &self,
+        ca_pem: Option<&[u8]>,
+    ) -> Result<quinn::ClientConfig, ChannelError> {
         let leaf = &self.leaf;
-        let mut config = zero_transport::quic::client_config_with_options(
+        let mut config = zero_transport::quic::client_config_with_ca_material(
             leaf.insecure,
             leaf.client_fingerprint.as_deref(),
             &super::super::outbound_quic_alpn_protocols(),
             Some(65536),
             leaf.node.ca_cert_path().as_deref(),
             &leaf.node.tls_options,
+            ca_pem,
         )
         .map_err(|source| error(Stage::Prepare, Reason::InvalidConfig).with_source(source))?;
         config.transport_config(Arc::new(
