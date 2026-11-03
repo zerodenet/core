@@ -9,7 +9,7 @@ use std::{
 };
 use tokio::time::Instant;
 use zero_connector::{EventSinkTcpConnectFuture, EventSinkTcpDialer};
-use zero_platform_tokio::{EgressInterface, EgressInterfaceControl};
+use zero_platform_tokio::EgressInterfaceControl;
 mod epoch;
 mod stream;
 #[cfg(test)]
@@ -125,10 +125,11 @@ fn unique_candidates(values: impl Iterator<Item = SocketAddr>) -> Vec<SocketAddr
         .filter(|candidate| unique.insert(*candidate))
         .collect()
 }
+#[cfg(test)]
 fn select_candidate_egress(
     candidate: SocketAddr,
     egress: &EgressInterfaceControl,
-) -> io::Result<Option<EgressInterface>> {
+) -> io::Result<Option<zero_platform_tokio::EgressInterface>> {
     let selection = egress.select_for_peer(candidate);
     selection.ensure_connectable()?;
     Ok(selection.interface().cloned())
