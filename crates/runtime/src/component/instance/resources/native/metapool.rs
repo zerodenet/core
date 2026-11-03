@@ -52,7 +52,13 @@ impl MetadataPools {
         let declarations: BTreeMap<_, _> = declarations
             .iter()
             .enumerate()
-            .filter(|(_, d)| matches!(d, ResourceDeclaration::ControlledMetadataDatagram { .. }))
+            .filter(|(_, d)| {
+                matches!(
+                    d,
+                    ResourceDeclaration::ControlledMetadataDatagram { .. }
+                        | ResourceDeclaration::ControlledMetadataCarrier { .. }
+                )
+            })
             .map(|(n, d)| (n, d.clone()))
             .collect();
         if !declarations.is_empty() && identity.is_none() {

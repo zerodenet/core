@@ -151,6 +151,7 @@ impl HostResources {
                 | ResourceDeclaration::ControlledOutboundStream { .. }
                 | ResourceDeclaration::ControlledCarrierPool { .. }
                 | ResourceDeclaration::ControlledMetadataDatagram { .. }
+                | ResourceDeclaration::ControlledMetadataCarrier { .. }
                 | ResourceDeclaration::ControlledDatagramCarrier { .. }
                 | ResourceDeclaration::ControlledNodeStream { .. }
                 | ResourceDeclaration::ControlledDirectStream { .. }

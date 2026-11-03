@@ -84,7 +84,8 @@ impl CoverageBinding {
                 ))
             }
             ResourceDeclaration::MetadataDatagram { .. } => Self::Metadata,
-            ResourceDeclaration::ControlledMetadataDatagram { .. } => Self::MetadataPool,
+            ResourceDeclaration::ControlledMetadataDatagram { .. }
+            | ResourceDeclaration::ControlledMetadataCarrier { .. } => Self::MetadataPool,
             ResourceDeclaration::NativeIcmp { .. } => {
                 Self::Unaccounted(DeclaredResourceKind::NativeIcmp)
             }

@@ -18,6 +18,7 @@ use zero_core::component::ComponentInstanceId;
 mod binding;
 mod permit;
 mod registration;
+pub(crate) use permit::MetadataCandidate;
 pub use permit::{MetadataPoolClosed, MetadataPoolOrigin, MetadataPoolPermit};
 pub use registration::{MetadataPoolOwnerClosed, MetadataPoolRegistration};
 

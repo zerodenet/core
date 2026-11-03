@@ -21,7 +21,7 @@ struct Issued {
     current: Mutex<Option<(MetadataPoolGrants, TaskRegistrar)>>,
 }
 struct Factory {
-    peer: SocketAddr,
+    declaration: ResourceDeclaration,
     issued: Arc<Issued>,
     cap: std::num::NonZeroUsize,
 }
@@ -39,12 +39,7 @@ impl ComponentFactory for Factory {
             dependencies: vec![],
             static_identity: Arc::from([]),
             task_limit: Some(n(4)),
-            resources: vec![ResourceDeclaration::ControlledMetadataDatagram {
-                endpoint: self.peer,
-                dial: Default::default(),
-                limits: limits(),
-                max_origins: self.cap,
-            }],
+            resources: vec![self.declaration.clone()],
         }
     }
     fn build(&self, _: Arc<()>, context: BuildContext) -> Result<ComponentInstance, ChannelError> {
@@ -86,12 +81,41 @@ pub(super) struct Fixture {
 }
 impl Fixture {
     pub async fn new(peer: SocketAddr, cap: usize) -> Self {
+        Self::declared(
+            ResourceDeclaration::ControlledMetadataDatagram {
+                endpoint: peer,
+                dial: Default::default(),
+                limits: limits(),
+                max_origins: n(cap),
+            },
+            cap,
+        )
+        .await
+    }
+    pub async fn dynamic(
+        endpoint: zero_core::request::Destination,
+        ports: Vec<u16>,
+        cap: usize,
+    ) -> Self {
+        Self::declared(
+            ResourceDeclaration::ControlledMetadataCarrier {
+                endpoint,
+                dial: Default::default(),
+                ports,
+                limits: limits(),
+                max_origins: n(cap),
+            },
+            cap,
+        )
+        .await
+    }
+    async fn declared(declaration: ResourceDeclaration, cap: usize) -> Self {
         let catalog = ComponentCatalog::default();
         let id = catalog.allocate_id().unwrap();
         let issued = Arc::new(Issued::default());
         let recipe = ComponentRecipe::from_validated(
             Arc::new(Factory {
-                peer,
+                declaration,
                 issued: issued.clone(),
                 cap: n(cap),
             }),
