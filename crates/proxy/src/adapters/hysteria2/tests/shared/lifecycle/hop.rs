@@ -13,7 +13,7 @@ async fn hysteria2_native_hop_closes_the_actual_old_original_and_new_donors_use_
             "outbounds":[{"tag":"hy","protocol":{"type":"hysteria2","server":"127.0.0.1",
                 "port":server.port,"password":"p","insecure":true,"transport":{
                     "udp_hop":{"ports":[server.port],"interval_min_secs":5,"interval_max_secs":5},
-                    "quic":{"keep_alive_interval_secs":1}}}}],
+                    "quic":{"keep_alive_interval_secs":2}}}}],
             "route":{"final":{"type":"route","outbound":"hy"}}
         }).to_string()).unwrap()).unwrap();
         start(&proxy).await;

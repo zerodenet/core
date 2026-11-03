@@ -34,7 +34,7 @@ async fn connect(proxy: &Proxy, tag: &str) -> zero_platform_tokio::TcpRelayStrea
         .resolve_route_decision(RouteDecision::Route(tag.into()))
         .unwrap();
     let established = crate::runtime::tcp_dispatch::dispatch_tcp_outbound(
-        proxy.tcp_runtime_services(),
+        proxy.tcp_runtime_services().for_inbound("incoming".into()),
         &session,
         resolved,
         zero_engine::RouteMode::Flow,

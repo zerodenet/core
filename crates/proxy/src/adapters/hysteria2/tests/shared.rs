@@ -146,7 +146,7 @@ async fn standard_hysteria2_proxy_tcp_udp_empty_multitarget_and_packet_paths_sha
         let mut session=Session::new(0,Address::Ipv4([203,0,113,1]),443,Network::Tcp,ProtocolType::new("test"));
         proxy.engine().prepare_session(&mut session,"incoming").unwrap();
         let (resolved,_)=proxy.engine().resolve_route_decision(RouteDecision::Route("hy".into())).unwrap();
-        let established=crate::runtime::tcp_dispatch::dispatch_tcp_outbound(proxy.tcp_runtime_services(),&session,resolved,zero_engine::RouteMode::Flow,crate::runtime::tcp_dispatch::TcpDispatchIntent::Traffic).await.map_err(|failure|failure.error).unwrap();
+        let established=crate::runtime::tcp_dispatch::dispatch_tcp_outbound(proxy.tcp_runtime_services().for_inbound("incoming".into()),&session,resolved,zero_engine::RouteMode::Flow,crate::runtime::tcp_dispatch::TcpDispatchIntent::Traffic).await.map_err(|failure|failure.error).unwrap();
         let mut stream=established.into_relay_stream().unwrap();stream.write_all(b"ping").await.unwrap();let mut response=[0;4];stream.read_exact(&mut response).await.unwrap();assert_eq!(&response,b"ping");
         let returns=Arc::new(crate::component::datagram_retirement::DatagramReturns::default());
         let runtime=crate::runtime::udp_ingress::UdpIngressRuntime::new(proxy.tcp_runtime_services()).with_datagram_returns(returns.clone());

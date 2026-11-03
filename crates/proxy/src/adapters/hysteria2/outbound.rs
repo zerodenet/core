@@ -59,6 +59,9 @@ impl Hysteria2Adapter {
         let config = resources
             .candidate()
             .ok_or_else(|| options_error("complete Hysteria2 candidate is required"))?;
+        let preparation_revision = resources
+            .preparation_revision()
+            .ok_or_else(|| options_error("actual Hysteria2 preparation revision is required"))?;
         let profiles = config
             .outbounds
             .iter()
@@ -92,6 +95,7 @@ impl Hysteria2Adapter {
             .ok_or_else(|| options_error("expected Hysteria2 outbound profile"))?;
         let mut bytes = Vec::new();
         bytes.extend((Arc::as_ptr(&self.outbound_pool) as usize).to_le_bytes());
+        bytes.extend(preparation_revision.to_le_bytes());
         for outbound in &config.outbounds {
             if matches!(&outbound.protocol, OutboundProtocolConfig::Hysteria2 { .. }) {
                 bytes.extend(serde_json::to_vec(outbound).map_err(options_error)?);

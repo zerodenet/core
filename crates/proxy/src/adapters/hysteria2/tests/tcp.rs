@@ -57,11 +57,11 @@ async fn source_relative_tcp_preparation_reuses_the_actual_authenticated_pool() 
         proxy.protocols.commit_components(&config,||Ok(())).unwrap();
         for _ in 0..2 {
             let (resolved,_) = proxy.engine().resolve_route_decision(RouteDecision::Route("pool".into())).unwrap();
-            let services=proxy.tcp_runtime_services();
-            assert!(matches!(services.prepare_tcp_outbound(&resolved,zero_engine::RouteMode::Flow).unwrap_or_else(|failure|panic!("{}",failure.error)),
-                crate::inventory::PreparedTcpOutbound::Single(crate::inventory::PreparedTcpCandidate {execution:crate::inventory::PreparedTcpCandidateExecution::Native(_),..})));
             let mut session = Session::new(0,Address::Ipv4([203,0,113,1]),443,Network::Tcp,ProtocolType::new("test"));
             proxy.engine().prepare_session(&mut session,"incoming").unwrap();
+            let services=proxy.tcp_runtime_services().for_inbound("incoming".into()).with_business_identity(&session).unwrap();
+            assert!(matches!(services.prepare_tcp_outbound(&resolved,zero_engine::RouteMode::Flow).unwrap_or_else(|failure|panic!("{}",failure.error)),
+                crate::inventory::PreparedTcpOutbound::Single(crate::inventory::PreparedTcpCandidate {execution:crate::inventory::PreparedTcpCandidateExecution::Native(_),..})));
             let established=crate::runtime::tcp_dispatch::dispatch_tcp_outbound(services,&session,resolved,zero_engine::RouteMode::Flow,crate::runtime::tcp_dispatch::TcpDispatchIntent::Traffic).await
                 .map_err(|failure|failure.error).unwrap();
             let mut stream = established.into_relay_stream().unwrap();
