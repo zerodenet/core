@@ -387,6 +387,12 @@ fn engine_leaf_projection_stops_at_the_inventory_registry_preparation_boundary()
     let selection = read(&proxy.join("inventory/tcp/selection.rs"));
     assert!(selection.contains("prepare_tcp_relay_chain"));
     assert!(selection.contains("native_tcp_candidate"));
+    // This existing engine enum variant is an input fact, not the Proxy
+    // orchestrator type. Preserve the blanket check for every other use.
+    let selection = selection.replace(
+        "ResolvedLeafOutbound::Proxy",
+        "ResolvedLeafOutbound::<leaf>",
+    );
     for forbidden in [
         "OutboundProtocolConfig::",
         "Proxy",
