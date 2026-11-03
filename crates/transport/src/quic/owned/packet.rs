@@ -41,6 +41,16 @@ pub struct RejectedPacketSegment {
     pub queues: PacketQueues,
 }
 impl PacketSocket {
+    /// HY2's existing stateless Salamander masks stay protocol-selected. No
+    /// additional native worker or unowned mask task can be started here.
+    pub fn with_stateless_masks(
+        mut self,
+        masks: &[crate::finalmask::udp::Mask],
+    ) -> io::Result<Self> {
+        super::HostedMetadataSocket::validate_stateless_masks(masks)?;
+        self.socket = crate::finalmask::Socket::wrap(self.socket, masks, false)?;
+        Ok(self)
+    }
     pub fn prepare(logical: SocketAddr) -> io::Result<(Self, PacketQueues)> {
         let callbacks = callbacks::Broker::new(1)?;
         let local = SocketAddr::new(

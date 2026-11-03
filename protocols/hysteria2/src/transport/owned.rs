@@ -7,7 +7,11 @@ use zero_transport::quic::owned::{
     OwnedBiStream, OwnedConnection, OwnedEndpointOwner,
 };
 
+mod pool;
+mod profile;
+pub use pool::{Pool, PoolFactory, PoolOptions, RoleFactory, RoleOptions};
 mod udp;
+pub use profile::PoolProfile;
 pub use udp::{OwnedUdpChannel, OwnedUdpDispatcher};
 
 /// Installed in the actual pool entry before authentication can suspend.
