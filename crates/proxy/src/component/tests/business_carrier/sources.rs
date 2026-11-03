@@ -67,6 +67,15 @@ impl Caller {
             Self::Raw(caller) => caller.witness(),
         }
     }
+    pub(in crate::component) fn close_report(
+        &self,
+    ) -> Option<&zero_platform_tokio::contract::lifecycle::CloseReport> {
+        match self {
+            Self::Accepted(caller) => caller.close_report(),
+            #[cfg(feature = "raw-ip-runtime")]
+            Self::Raw(_) => None,
+        }
+    }
     pub(in crate::component) fn verify_carrier_completion(&self) {
         match self {
             Self::Accepted(caller) => caller.verify_carrier_completion(),
