@@ -101,6 +101,19 @@ pub(super) fn original(root: &CarrierOrigin) -> MetadataPoolOrigin {
     }
 }
 
+fn admission(proxy: &Proxy) -> zero_runtime::component::ServiceAdmission {
+    proxy
+        .tcp_runtime_services()
+        .execution()
+        .components
+        .as_ref()
+        .unwrap()
+        .configured("hy")
+        .unwrap()
+        .service_admission()
+        .unwrap()
+}
+
 async fn return_views(
     stream: zero_platform_tokio::TcpRelayStream,
     held: DatagramLoan,
@@ -156,13 +169,19 @@ async fn hysteria2_public_reload_waits_for_active_tcp_udp_views_and_original_con
         let root = held_udp.owner.original().clone();
         let prior = original(&root);
         let revision = proxy.engine().config_revision();
+        let original_admission = admission(&proxy);
         let candidate = config(&next, None);
         let applying = tokio::spawn(async move {
             handle
                 .apply_runtime_config_and_wait(candidate, Duration::from_secs(5))
                 .await
         });
-        previous.wait_closed(1).await;
+        let revoked = original_admission.revoked().await;
+        assert_eq!(
+            revoked.reason,
+            zero_platform_tokio::contract::Reason::StalePlan
+        );
+        eprintln!("actual prior HY2 role admission retired; original users/control retained");
         assert_eq!(
             proxy.engine().config_revision(),
             revision,
@@ -172,7 +191,9 @@ async fn hysteria2_public_reload_waits_for_active_tcp_udp_views_and_original_con
         return_views(held_tcp, held_udp, &prior, &applying).await;
         applying.await.unwrap().unwrap();
         closed(&root, &prior);
+        eprintln!("actual old HY2 native/pool close receipts match before successor traffic");
         assert_eq!(proxy.engine().config_revision(), revision + 1);
+        previous.wait_closed(1).await;
         let successor_tcp = connect(&proxy, "hy").await;
         let successor_udp = loan(&proxy, 911).await;
         assert_eq!(
@@ -210,6 +231,7 @@ async fn hysteria2_public_same_path_bad_ca_reload_restores_last_good_prepared_cr
         let root = held_udp.owner.original().clone();
         let prior = original(&root);
         let revision = proxy.engine().config_revision();
+        let original_admission = admission(&proxy);
         std::fs::write(&ca, b"invalid replacement CA material").unwrap();
         let candidate = config.clone();
         let applying = tokio::spawn(async move {
@@ -217,7 +239,14 @@ async fn hysteria2_public_same_path_bad_ca_reload_restores_last_good_prepared_cr
                 .apply_runtime_config_and_wait(candidate, Duration::from_secs(5))
                 .await
         });
-        server.wait_closed(1).await;
+        let revoked = original_admission.revoked().await;
+        assert_eq!(
+            revoked.reason,
+            zero_platform_tokio::contract::Reason::StalePlan
+        );
+        eprintln!(
+            "actual prior CA-backed HY2 role admission retired; original users/control retained"
+        );
         assert_eq!(server.authenticated.load(Ordering::SeqCst), 1);
         return_views(held_tcp, held_udp, &prior, &applying).await;
         let failure = applying
@@ -233,6 +262,7 @@ async fn hysteria2_public_same_path_bad_ca_reload_restores_last_good_prepared_cr
             "failed-candidate cleanup and last-good recovery must finish before ACK: {failure}"
         );
         closed(&root, &prior);
+        eprintln!("actual old HY2 native/pool close receipts match before successor traffic");
         assert_eq!(
             proxy.engine().config_revision(),
             revision,
@@ -247,6 +277,7 @@ async fn hysteria2_public_same_path_bad_ca_reload_restores_last_good_prepared_cr
         // These real certificate-verified new connections can succeed only
         // through the old recipe's prepared crypto, after failed-candidate
         // cleanup. The old native endpoint is already physically closed.
+        server.wait_closed(1).await;
         let restored_tcp = connect(&proxy, "hy").await;
         let restored_udp = loan(&proxy, 921).await;
         assert_eq!(server.authenticated.load(Ordering::SeqCst), 2);
