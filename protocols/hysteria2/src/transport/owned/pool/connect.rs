@@ -156,12 +156,16 @@ impl Generation {
             endpoint,
             state.owner.as_ref().unwrap(),
         )?);
-        state
-            .pending
-            .as_mut()
-            .unwrap()
-            .authenticate(&options.leaf.password, options.leaf.settings, &self.tasks)
-            .await?;
+        tokio::time::timeout_at(
+            end,
+            state.pending.as_mut().unwrap().authenticate(
+                &options.leaf.password,
+                options.leaf.settings,
+                &self.tasks,
+            ),
+        )
+        .await
+        .map_err(|source| error(Stage::Handshake, Reason::Timeout).with_source(source))??;
         state.pending.as_mut().unwrap().native_origin = state.origin.clone();
         let auth = Arc::new(state.pending.take().unwrap());
         state.udp_join = auth.udp_witness();
