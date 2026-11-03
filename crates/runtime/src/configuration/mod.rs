@@ -8,7 +8,8 @@ mod startup;
 pub use compile::{DnsConfigPreparation, RuntimeConfigPreparation};
 pub use notifications::{ConfigurationReconcileChanges, ConfigurationReconcileNotifications};
 pub use source::{
-    ConfigurationSource, SourceDisposition, SourcePersistError, SourceWriteObservation,
+    ConfigurationSource, RuleSetCacheDownload, SourceDisposition, SourcePersistError,
+    SourceWriteObservation, MAX_RULE_SET_CACHE_BYTES,
 };
 use std::sync::Arc;
 use zero_config::{ConfigError, RuntimeConfig};
@@ -25,7 +26,7 @@ pub struct PreparedRouting {
 impl PreparedRouting {
     pub fn prepare(config: &RuntimeConfig) -> Result<Self, ConfigError> {
         let source = Arc::new(ConfigurationSource::default());
-        startup::with_source(source.clone(), || Self::prepare_owned(config, &source)).map_err(
+        startup::with_source(source.clone(), || Self::prepare_after_gate(config, &source)).map_err(
             |source| ConfigError::ReadConfig {
                 path: "configuration resource preparation".into(),
                 source,
@@ -36,9 +37,18 @@ impl PreparedRouting {
         config: &RuntimeConfig,
         source: &ConfigurationSource,
     ) -> Result<Self, ConfigError> {
+        startup::confirm_closed().map_err(|source| ConfigError::ReadConfig {
+            path: "configuration resource preparation".into(),
+            source,
+        })?;
+        Self::prepare_after_gate(config, source)
+    }
+    fn prepare_after_gate(
+        config: &RuntimeConfig,
+        source: &ConfigurationSource,
+    ) -> Result<Self, ConfigError> {
         source
-            .io
-            .ensure_available()
+            .ensure_resource_io_available()
             .map_err(|source| ConfigError::ReadConfig {
                 path: "configuration resource preparation".into(),
                 source,
@@ -47,10 +57,6 @@ impl PreparedRouting {
         compile::prepare(config, &source.io)
     }
 }
-
-#[cfg(test)]
-#[path = "../tests/configuration.rs"]
-mod tests;
 
 /// An inert, once-prepared input. No engine/proxy type crosses the runtime boundary.
 #[derive(Debug)]
@@ -68,7 +74,7 @@ impl PreparedConfiguration {
         source: Arc<ConfigurationSource>,
     ) -> Result<Self, ConfigError> {
         startup::with_source(source.clone(), || {
-            Self::prepare_owned(config, source.clone())
+            Self::prepare_after_gate(config, source.clone())
         })
         .map_err(|source| ConfigError::ReadConfig {
             path: "configuration startup".into(),
@@ -76,11 +82,21 @@ impl PreparedConfiguration {
         })?
     }
     pub fn prepare_owned(
+        config: RuntimeConfig,
+        source: Arc<ConfigurationSource>,
+    ) -> Result<Self, ConfigError> {
+        startup::confirm_closed().map_err(|source| ConfigError::ReadConfig {
+            path: "configuration resource preparation".into(),
+            source,
+        })?;
+        Self::prepare_after_gate(config, source)
+    }
+    fn prepare_after_gate(
         mut config: RuntimeConfig,
         source: Arc<ConfigurationSource>,
     ) -> Result<Self, ConfigError> {
         config.materialize_endpoints()?;
-        let routing = PreparedRouting::prepare_owned(&config, &source)?;
+        let routing = PreparedRouting::prepare_after_gate(&config, &source)?;
         Ok(Self {
             config,
             routing,
@@ -100,3 +116,13 @@ fn with_cold_io<T>(
         }
     })?
 }
+
+/// A recipe, including restoration, cannot bypass an unrelated cold original
+/// whose native cleanup remains unconfirmed.
+pub(crate) fn confirm_preparation_io_closed() -> std::io::Result<()> {
+    startup::confirm_closed()
+}
+
+#[cfg(test)]
+#[path = "../tests/configuration.rs"]
+mod tests;

@@ -1,9 +1,11 @@
 //! Atomic source persistence with retained original bytes and explicit outcomes.
 //! The same accepted host operation drives persist, commit, or compensation.
+mod cache;
 mod document;
 mod files;
 mod model;
 mod transaction;
+pub use cache::{RuleSetCacheDownload, MAX_RULE_SET_CACHE_BYTES};
 pub use model::{SourceDisposition, SourcePersistError, SourceWriteObservation};
 use std::{
     io,
@@ -22,6 +24,7 @@ struct SourceState {
 pub struct ConfigurationSource {
     path: Option<PathBuf>,
     state: Mutex<SourceState>,
+    cache: cache::CacheState,
     pub(super) io: super::io::ConfigurationIo,
 }
 impl std::fmt::Debug for ConfigurationSource {
@@ -38,6 +41,7 @@ impl ConfigurationSource {
             path: Some(path.into()),
             state: Mutex::default(),
             io: super::io::ConfigurationIo::default(),
+            cache: Default::default(),
         }
     }
     pub fn path(&self) -> Option<&Path> {
@@ -50,7 +54,7 @@ impl ConfigurationSource {
             .unwrap_or_else(|error| error.into_inner())
             .observation
             .clone();
-        if self.io.ensure_available().is_err() {
+        if self.ensure_resource_io_available().is_err() {
             observation.disposition = SourceDisposition::Unknown;
             observation.writable = None;
             observation.reason = Some("source_file_cleanup_unconfirmed".into());
@@ -60,6 +64,14 @@ impl ConfigurationSource {
     /// An independent final observation after the accepted task's real joins.
     /// This performs no file open, persistence, recovery, or replacement.
     pub fn confirm_original_io_closed(&self) -> io::Result<()> {
+        self.ensure_resource_io_available()?;
+        super::startup::confirm_closed()
+    }
+    pub(super) fn has_retained_cache(&self) -> bool {
+        cache::is_retained(&self.cache)
+    }
+    pub(super) fn ensure_resource_io_available(&self) -> io::Result<()> {
+        cache::ensure_idle(&self.cache)?;
         self.io.ensure_available()
     }
     pub fn verify_recovery(path: &Path) -> io::Result<()> {
@@ -129,8 +141,9 @@ impl ConfigurationSource {
     /// Unknown. A committed metadata cleanup can be retried without replaying
     /// the already committed runtime operation.
     pub fn ensure_available(&self) -> Result<(), SourcePersistError> {
-        self.io
-            .ensure_available()
+        super::startup::confirm_closed()
+            .map_err(|error| SourcePersistError::new(SourceDisposition::Unknown, error))?;
+        self.ensure_resource_io_available()
             .map_err(|error| SourcePersistError::new(SourceDisposition::Unknown, error))?;
         let Some(path) = self.path() else {
             return Ok(());
@@ -164,8 +177,9 @@ impl ConfigurationSource {
         config: &RuntimeConfig,
         identity: &str,
     ) -> Result<(), SourcePersistError> {
-        self.io
-            .ensure_available()
+        super::startup::confirm_closed()
+            .map_err(|error| SourcePersistError::new(SourceDisposition::Unknown, error))?;
+        self.ensure_resource_io_available()
             .map_err(|error| SourcePersistError::new(SourceDisposition::Unknown, error))?;
         let Some(path) = self.path() else {
             return Ok(());
@@ -230,8 +244,9 @@ impl ConfigurationSource {
         result
     }
     pub fn rollback_pending(&self) -> Result<(), SourcePersistError> {
-        self.io
-            .ensure_available()
+        super::startup::confirm_closed()
+            .map_err(|error| SourcePersistError::new(SourceDisposition::Unknown, error))?;
+        self.ensure_resource_io_available()
             .map_err(|error| SourcePersistError::new(SourceDisposition::Unknown, error))?;
         let Some(path) = self.path() else {
             return Ok(());
@@ -266,8 +281,9 @@ impl ConfigurationSource {
         cleanup.map_err(|error| SourcePersistError::new(disposition, error))
     }
     pub fn finalize_committed(&self) -> Result<(), SourcePersistError> {
-        self.io
-            .ensure_available()
+        super::startup::confirm_closed()
+            .map_err(|error| SourcePersistError::new(SourceDisposition::Unknown, error))?;
+        self.ensure_resource_io_available()
             .map_err(|error| SourcePersistError::new(SourceDisposition::Unknown, error))?;
         let Some(path) = self.path() else {
             return Ok(());
