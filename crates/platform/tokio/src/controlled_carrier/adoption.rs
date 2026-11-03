@@ -23,6 +23,10 @@ pub struct CarrierClosed {
     slot: Arc<Slot>,
 }
 impl CarrierAdoption {
+    pub(crate) fn request_retirement(&self) {
+        self.slot.cancel.cancel();
+        self.slot.notify();
+    }
     /// Same original reservation identity; observation grants no native I/O,
     /// driver registration, transferred-user completion or close permission.
     pub fn same_slot(&self, other: &Self) -> bool {

@@ -3,6 +3,48 @@ use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use zero_platform_tokio::contract::lifecycle::TaskClass;
 
 #[tokio::test]
+async fn actual_auxiliary_caller_failure_stays_diagnostic_and_critical_failure_remains_native_fault(
+) {
+    for class in [TaskClass::Auxiliary, TaskClass::Critical] {
+        let mut scope = TaskScope::new(tokio::runtime::Handle::current(), one());
+        let original = Arc::new(
+            tokio::net::TcpStream::connect(("127.0.0.1", 0))
+                .await
+                .unwrap_err(),
+        );
+        let retained = original.clone();
+        let (_, witness) = scope
+            .registrar()
+            .spawn_tracked(class, async move {
+                Err(ChannelError::new(
+                    zero_platform_tokio::contract::Stage::Receive,
+                    Reason::Io,
+                    zero_platform_tokio::contract::Impact::Session,
+                )
+                .with_source(retained))
+            })
+            .unwrap();
+        scope.next_exit().await.unwrap();
+        let joined = witness.wait().await;
+        let diagnostic = joined.result().unwrap_err();
+        assert!(Arc::ptr_eq(
+            std::error::Error::source(diagnostic.as_ref())
+                .unwrap()
+                .downcast_ref::<Arc<std::io::Error>>()
+                .unwrap(),
+            &original
+        ));
+        let native =
+            crate::component::instance::resources::native::carrier::critical_caller_fault(&joined);
+        match class {
+            TaskClass::Auxiliary => assert!(native.is_none()),
+            TaskClass::Critical => assert!(Arc::ptr_eq(&native.unwrap(), &diagnostic)),
+        }
+        assert!(scope.shutdown(deadline()).await.is_complete());
+    }
+}
+
+#[tokio::test]
 async fn original_driver_join_and_native_eof_remain_distinct_from_unaccounted_users() {
     tokio::time::timeout(Duration::from_secs(3), async {
         let mut fixture = Fixture::new().await;

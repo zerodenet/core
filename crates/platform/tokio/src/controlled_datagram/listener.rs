@@ -135,7 +135,19 @@ impl ControlledDatagramListenerRx {
         }
     }
 }
+/// Weak actual-original identity, never I/O or native-close permission.
+#[derive(Clone)]
+pub struct DatagramListenerIdentity(std::sync::Weak<Shared>);
+impl DatagramListenerIdentity {
+    pub fn same_listener(&self, other: &Self) -> bool {
+        self.0.ptr_eq(&other.0)
+    }
+}
 impl ControlledDatagramListenerTx {
+    pub fn identity(&self) -> DatagramListenerIdentity {
+        DatagramListenerIdentity(Arc::downgrade(&self.shared))
+    }
+
     pub fn local_addr(&self) -> std_io::Result<SocketAddr> {
         self.shared.socket.local_addr()
     }

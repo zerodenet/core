@@ -5,10 +5,60 @@ use crate::contract::scope::{TaskClass, TaskJoined};
 /// Weak access to the same listener's bounded entry table. No second task map,
 /// scope owner, task joiner, or permission to fabricate TaskJoined is created.
 #[derive(Clone)]
-pub struct AcceptedTcpTaskReceiver(Weak<Pool>);
+pub struct AcceptedTcpTaskReceiver(Weak<Pool>, Arc<std::sync::atomic::AtomicUsize>);
 impl AcceptedTcpTaskReceiver {
+    /// Retire logical originals even when their waiting caller was cancelled.
+    /// Only the original Scope's consumed witnesses permit this operation.
+    pub async fn retire_logical_resources(&self, deadline: Instant) -> Result<(), ChannelError> {
+        let Some(pool) = self.0.upgrade() else {
+            // This proves no remaining logical custody only. It is recorded
+            // after original cleanup, never from Pool Drop or a native-TCP claim.
+            return if self.1.load(Ordering::Acquire) == 0 {
+                Ok(())
+            } else {
+                Err(failure(
+                    Stage::Close,
+                    Reason::Revoked,
+                    "accepted logical originals disappeared without cleanup",
+                ))
+            };
+        };
+        let users: Vec<_> = pool
+            .state()
+            .entries
+            .values()
+            .filter_map(|entry| entry.users.clone())
+            .collect();
+        for users in users {
+            if !users.logical_dirty.swap(false, Ordering::AcqRel) {
+                continue;
+            }
+            if let Err(error) = users.retire_joined_logical_resources(deadline).await {
+                users.logical_dirty.store(true, Ordering::Release);
+                return Err(error);
+            }
+            if !users.retire_joined_carriers(deadline).await {
+                users.logical_dirty.store(true, Ordering::Release);
+                let source = users
+                    .entry
+                    .upgrade()
+                    .and_then(|entry| entry.state().failure.clone());
+                return Err(source.map_or_else(
+                    || {
+                        failure(
+                            Stage::Close,
+                            Reason::Timeout,
+                            "joined caller carrier cleanup remains pending",
+                        )
+                    },
+                    retained,
+                ));
+            }
+        }
+        Ok(())
+    }
     pub(in crate::controlled_listener::accepted) fn new(pool: &Arc<Pool>) -> Self {
-        Self(Arc::downgrade(pool))
+        Self(Arc::downgrade(pool), pool.logical_custody.clone())
     }
     pub fn limit(&self) -> Option<NonZeroUsize> {
         self.0.upgrade().map(|pool| pool.limit)
@@ -51,10 +101,18 @@ impl Users {
         if let Err(source) = joined.result() {
             // Persist original ID/class/Arc before accepting a local client
             // rejection. This bounded first receipt survives slot reuse.
-            let pool = self.pool.upgrade()?;
-            pool.state()
-                .first_user_failure
-                .get_or_insert_with(|| joined.clone());
+            if let Some(pool) = self.pool.upgrade() {
+                pool.state()
+                    .first_user_failure
+                    .get_or_insert_with(|| joined.clone());
+            } else if let Some(peer) = &self.peer {
+                peer.user_failure
+                    .lock()
+                    .unwrap()
+                    .get_or_insert_with(|| joined.clone());
+            } else {
+                return None;
+            }
             if joined.class() == TaskClass::Auxiliary {
                 // Hosted local delivery is distinct from the host's actual
                 // non-cloneable acknowledgement and never refunds Scope credit.
@@ -64,10 +122,25 @@ impl Users {
             }
             drop(source);
         }
+        let carrier = self.has_carrier_caller(&node.witness);
         let removed = {
             let mut state = self.state();
             if node.primary {
                 state.sealed = true;
+            }
+            if carrier
+                || state.resources.iter().any(|resource| {
+                    let Some(creator) = &resource.logical_owner else {
+                        return false;
+                    };
+                    (match resource.driver.get() {
+                        Some(driver) => driver.get(),
+                        None => creator.get(),
+                    })
+                    .is_some_and(|(driver, _)| *driver == id)
+                })
+            {
+                self.logical_dirty.store(true, Ordering::Release);
             }
             state.tasks.remove(&id)
         };

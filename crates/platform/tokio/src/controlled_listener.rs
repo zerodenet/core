@@ -1,10 +1,10 @@
 //! One actual listener, a cancel-safe accept view, and explicit close ownership.
-mod accepted;
+pub(crate) mod accepted;
 mod control;
 pub use accepted::{
-    AcceptedTcp, AcceptedTcpCaller, AcceptedTcpClaim, AcceptedTcpClosed, AcceptedTcpEvidence,
-    AcceptedTcpNativeClosed, AcceptedTcpStream, AcceptedTcpTaskReceiver, AcceptedTcpTasks,
-    AcceptedTcpUsers,
+    AcceptedCaller, AcceptedOrigin, AcceptedPeerScope, AcceptedResource, AcceptedTasks,
+    AcceptedTcp, AcceptedTcpClaim, AcceptedTcpClosed, AcceptedTcpEvidence, AcceptedTcpNativeClosed,
+    AcceptedTcpStream, AcceptedTcpTaskReceiver, AcceptedTcpUsers,
 };
 mod native;
 mod owner;

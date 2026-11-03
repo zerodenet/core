@@ -26,7 +26,12 @@ pub struct NativeCarrierOpener {
     observer: Option<Arc<dyn IoObserver>>,
     business: Option<super::CarrierBusinessGrant>,
     service: Option<super::CarrierServiceGrant>,
+    dns: Option<(
+        Arc<dyn crate::contract::dns::DnsService>,
+        crate::contract::dns::DnsGeneration,
+    )>,
 }
+mod relay;
 impl NativeCarrierOpener {
     pub fn new(
         grantee: ComponentInstanceId,
@@ -55,6 +60,7 @@ impl NativeCarrierOpener {
             observer,
             business: None,
             service: None,
+            dns: None,
         })
     }
     /// A distinct host capability, pinned to the original registered slot. The
@@ -87,6 +93,38 @@ impl NativeCarrierOpener {
             observer,
         )?;
         native.business = Some(grant);
+        Ok(native)
+    }
+    /// Host-only selection from its actual Node DNS answer. The sealed business
+    /// ticket keeps the original domain, caller, slot and binding authoritative;
+    /// a selected address does not mint another endpoint or host permission.
+    pub fn business_resolved(
+        grant: super::CarrierBusinessGrant,
+        peer: SocketAddr,
+        resolver: Arc<dyn crate::contract::dns::DnsService>,
+        generation: crate::contract::dns::DnsGeneration,
+        egress: Arc<EgressInterfaceControl>,
+        observer: Option<Arc<dyn IoObserver>>,
+    ) -> Result<Self, ChannelError> {
+        grant.check_liveness()?;
+        let instance = grant.binding().registration().instance();
+        let endpoint = grant.endpoint().clone();
+        if !matches!(endpoint.address, Address::Domain(_))
+            || endpoint.port != peer.port()
+            || peer.ip().is_unspecified()
+            || resolver.generation() != generation
+        {
+            return Err(error(
+                instance,
+                Stage::Prepare,
+                Reason::StalePlan,
+                DeliveryState::NotSubmitted,
+            ));
+        }
+        let mut native = Self::new(instance, grant.upstream().clone(), peer, egress, observer)?;
+        native.endpoint = endpoint;
+        native.business = Some(grant);
+        native.dns = Some((resolver, generation));
         Ok(native)
     }
     /// Actual Service-root ticket, already bound to its original caller/view.

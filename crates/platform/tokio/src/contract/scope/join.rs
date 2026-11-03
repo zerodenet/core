@@ -10,6 +10,7 @@ pub(super) struct Registration {
     witness: Option<Weak<JoinedState>>,
 }
 struct JoinedState {
+    task: std::sync::OnceLock<TaskId>,
     hosted: bool,
     owner: Weak<Shared>,
     joined: Mutex<Option<TaskJoined>>,
@@ -34,6 +35,10 @@ impl std::fmt::Debug for JoinedState {
 #[derive(Clone, Debug)]
 pub struct TaskJoinWitness(Arc<JoinedState>);
 impl TaskJoinWitness {
+    /// Original registration identity, published before spawn_tracked returns.
+    pub fn task_id(&self) -> Option<TaskId> {
+        self.0.task.get().copied()
+    }
     /// Weak identity of this actual registration's original scope. This does
     /// not join, acknowledge, retain the scope or grant another registration.
     pub fn scope_identity(&self) -> super::TaskScopeIdentity {
@@ -54,6 +59,7 @@ impl TaskJoinWitness {
         let hosted = owner.lock_state().hosted;
         Self(Arc::new(JoinedState {
             hosted,
+            task: std::sync::OnceLock::new(),
             owner: Arc::downgrade(owner),
             joined: Mutex::new(None),
             changed: Notify::new(),
@@ -207,6 +213,7 @@ impl TaskRegistrar {
     ) -> Result<(TaskId, TaskJoinWitness), SpawnError> {
         let witness = TaskJoinWitness::new(&self.0);
         let id = self.register(class, task, Some(Arc::downgrade(&witness.0)))?;
+        let _ = witness.0.task.set(id);
         Ok((id, witness))
     }
     fn register(
@@ -215,6 +222,9 @@ impl TaskRegistrar {
         task: impl Future<Output = Result<(), ComponentError>> + Send + 'static,
         witness: Option<Weak<JoinedState>>,
     ) -> Result<TaskId, SpawnError> {
+        if self.1 {
+            return Err(SpawnError::Capacity);
+        }
         let mut state = self.0.lock_state();
         if state.closing {
             return Err(SpawnError::Closing);

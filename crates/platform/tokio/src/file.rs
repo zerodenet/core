@@ -72,3 +72,5 @@ mod tests;
 #[cfg(all(test, windows))]
 #[path = "../tests/file/windows.rs"]
 mod windows_tests;
+
+pub mod tree;

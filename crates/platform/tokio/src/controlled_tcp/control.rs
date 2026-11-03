@@ -25,6 +25,10 @@ pub(crate) struct TcpCloseObservation {
     pub(crate) operation_pending: bool,
 }
 impl ControlledTcpControl {
+    /// Stop observation only; it is never an original-close receipt.
+    pub fn is_cancelled(&self) -> bool {
+        self.shared.cancel.is_cancelled()
+    }
     pub(crate) fn close_observer(&self) -> ControlledTcpCloseObserver {
         ControlledTcpCloseObserver(Arc::downgrade(&self.shared))
     }

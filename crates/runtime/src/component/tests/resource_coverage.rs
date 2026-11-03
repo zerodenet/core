@@ -104,6 +104,7 @@ async fn canonical_file_tcp_udp_entries_follow_original_ordinals_and_real_closur
     let _file = FileCleanup(path.clone());
     let declarations = [
         ResourceDeclaration::DatagramListener {
+            accepted: None,
             destination: endpoint(),
             max_bind_attempts: one(),
             max_pending_sends: one(),

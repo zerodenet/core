@@ -128,10 +128,11 @@ impl ComponentCatalog {
         )?;
         let mut outbounds = BTreeMap::new();
         for input in &config.outbounds {
-            if !self
-                .factories()
-                .has_factory_for(input.protocol.protocol_name(), input)
-            {
+            if !self.factories().has_factory_for_candidate(
+                input.protocol.protocol_name(),
+                input,
+                Some(&config),
+            ) {
                 continue;
             }
             let old = previous.and_then(|(old, plan)| {

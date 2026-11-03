@@ -5,6 +5,7 @@ use zero_platform_tokio::contract::DeliveryState;
 
 fn udp(destination: Destination, attempts: usize) -> ResourceDeclaration {
     ResourceDeclaration::DatagramListener {
+        accepted: None,
         destination,
         max_bind_attempts: std::num::NonZeroUsize::new(attempts).unwrap(),
         max_pending_sends: std::num::NonZeroUsize::new(1).unwrap(),
@@ -136,6 +137,7 @@ async fn failed_attempt_consumes_exact_udp_budget_without_waiting_for_success() 
 async fn invalid_udp_sender_capacity_is_rejected_cold_and_tcp_failed_attempts_are_also_bounded() {
     let destination = endpoint("127.0.0.1:0".parse().unwrap());
     let invalid = ResourceDeclaration::DatagramListener {
+        accepted: None,
         destination: destination.clone(),
         max_bind_attempts: std::num::NonZeroUsize::new(1).unwrap(),
         max_pending_sends: std::num::NonZeroUsize::new(tokio::sync::Semaphore::MAX_PERMITS + 1)

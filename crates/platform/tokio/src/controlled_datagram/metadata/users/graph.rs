@@ -93,5 +93,33 @@ impl<O: DriverKind, B: Send + Sync + 'static> MetadataUsersCompletion<O, B> {
     }
 }
 
+/// Completion of a unique, unused grant returned before native consumers exist.
+/// The constructor consumes the original non-Clone RX and matching TX/claim.
+/// This is distinct from retiring an endpoint/user graph and proves no FD close.
+pub struct UnstartedMetadataCompletion(MetadataViewClaim);
+impl UnstartedMetadataCompletion {
+    pub fn try_closed(&self) -> Option<MetadataUsersClosedReceipt> {
+        Some(MetadataUsersClosedReceipt {
+            views: self.0.try_closed()?,
+        })
+    }
+}
+impl crate::contract::component::GrantedMetadataListener {
+    /// Return the original unique RX before it is moved into an endpoint/socket.
+    /// Any outstanding TX clones/pollers still block completion. Rejection keeps
+    /// the entire grant and never claims a user/task/native outcome.
+    pub fn return_unstarted(mut self) -> Result<UnstartedMetadataCompletion, Self> {
+        let Some(claim) = self.users_claim.take() else {
+            return Err(self);
+        };
+        if !claim.matches(&self.rx, &self.tx) {
+            self.users_claim = Some(claim);
+            return Err(self);
+        }
+        drop(self);
+        Ok(UnstartedMetadataCompletion(claim))
+    }
+}
+
 #[cfg(test)]
 mod tests;

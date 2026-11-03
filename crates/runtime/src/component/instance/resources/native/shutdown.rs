@@ -22,6 +22,25 @@ impl HostResources {
             state.closed = true;
             state.start_deadline = None;
         }
+        // Persist each original receipt before the first cancellation point.
+        // The same native owner retains Unknown and original failure sources.
+        let icmp_result = self
+            .icmp
+            .as_ref()
+            .map(|icmp| icmp.shutdown_originals(deadline));
+        let icmp_failure = match icmp_result {
+            Some(Ok(report)) => {
+                self.state
+                    .lock()
+                    .unwrap_or_else(std::sync::PoisonError::into_inner)
+                    .io
+                    .receipts
+                    .append(report);
+                None
+            }
+            Some(Err(error)) => Some(error),
+            None => None,
+        };
         // Fence the actual registered physical owner as well as new access.
         // Cancellation callbacks run after the durable closed phase is installed
         // and outside every host resource/cleanup lock.
@@ -61,6 +80,9 @@ impl HostResources {
                 .clone()
                 .or_else(|| state.io.failures.values().next().cloned())
         };
+        if let Some(error) = icmp_failure {
+            return Err(error);
+        }
         // Preserve the existing exact JoinError chain. Its real join receipt
         // stays in FileReads on Err, alongside every native receipt and error.
         if let Some(source) = original_failure {
@@ -128,6 +150,15 @@ impl HostResources {
                 }),
         );
         report.unfinished.extend(metadata.iter().filter(|entry| !entry.physical_confirmed()).map(|entry| Unfinished::Resource(format!("component {} metadata declaration {} attempted={} native_busy={} unconfirmed users={:?} confirmed private user graphs={}",self.component.0,entry.ordinal,entry.attempted,entry.busy,entry.unconfirmed_users(),entry.confirmed_users()))));
+        if self
+            .icmp
+            .as_ref()
+            .is_some_and(|owner| !owner.physical_confirmed())
+        {
+            report.unfinished.push(Unfinished::Io(
+                "original ICMP close remains unconfirmed".into(),
+            ));
+        }
         self.roots.append_receipts(self.component, &mut report);
         Ok(report)
     }

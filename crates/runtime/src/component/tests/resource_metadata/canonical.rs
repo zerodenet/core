@@ -172,3 +172,35 @@ async fn actual_slot_start_grants_the_canonical_original_scope_but_does_not_forg
     assert!(!grant.scope.registration_open());
     drop(retained);
 }
+
+#[tokio::test]
+async fn unstarted_original_rx_return_requires_remaining_views_and_native_provider_close() {
+    let (fixture, grant, tasks) = CanonicalMetadata::start(loopback(), limits(), n(1)).await;
+    let retained = grant.tx.clone();
+    let completion = grant
+        .return_unstarted()
+        .ok()
+        .expect("same original unique grant");
+    assert!(
+        completion.try_closed().is_none(),
+        "a real retained TX is still issued"
+    );
+    drop(retained);
+    let receipt = completion
+        .try_closed()
+        .expect("all original views returned");
+    fixture.confirm_users(receipt, &tasks).unwrap();
+    // Only the canonical actual original provider, not view return, closes IO.
+    let report = fixture.shutdown().await;
+    assert!(report.is_complete(), "{report:?}");
+    assert!(
+        report
+            .closed_io
+            .iter()
+            .any(|line| line.contains("metadata declaration 0 main")),
+        "{report:?}"
+    );
+}
+
+#[path = "canonical/unstarted_source.rs"]
+mod unstarted_source;

@@ -160,6 +160,26 @@ pub trait UpstreamOpener: Send + Sync {
         })
     }
 
+    /// Acquire controlled I/O under the caller's original reservation, whether
+    /// native or borrowed. The default consumes synchronous native preparation;
+    /// async DNS and logical loans implement this same acquisition boundary.
+    fn acquire_controlled_stream(
+        &self,
+        binding: &UpstreamBinding,
+        destination: Destination,
+        context: CarrierContext,
+        grant: crate::controlled_carrier::CarrierGrant,
+    ) -> BoxFuture<'_, Result<crate::controlled_carrier::CarrierIo, ChannelError>> {
+        let prepared = self.prepare_controlled_stream(binding, destination, context.clone(), grant);
+        Box::pin(async move {
+            let prepared = prepared?;
+            Ok(prepared
+                .open_with_deadline(context.deadline)
+                .await?
+                .into_parts()
+                .0)
+        })
+    }
     /// Controlled capability is opt-in. Reject before any legacy opener or I/O.
     fn prepare_controlled_stream(
         &self,
@@ -270,6 +290,16 @@ impl UpstreamTransport {
         self.opener
             .prepare_controlled_stream(&self.binding, destination, context, grant)
     }
+    pub fn acquire_controlled_stream(
+        &self,
+        destination: Destination,
+        context: CarrierContext,
+        grant: crate::controlled_carrier::CarrierGrant,
+    ) -> BoxFuture<'_, Result<crate::controlled_carrier::CarrierIo, ChannelError>> {
+        self.opener
+            .acquire_controlled_stream(&self.binding, destination, context, grant)
+    }
+
     pub fn open_controlled_stream(
         &self,
         request: ControlledStreamRequest,

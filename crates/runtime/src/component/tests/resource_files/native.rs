@@ -149,6 +149,7 @@ fn actual_tcp_and_udp_registration_unknowns_do_not_prevent_file_join_or_lose_ori
         &[
             tcp(),
             ResourceDeclaration::DatagramListener {
+                accepted: None,
                 destination: destination(),
                 max_bind_attempts: std::num::NonZeroUsize::new(1).unwrap(),
                 max_pending_sends: std::num::NonZeroUsize::new(1).unwrap(),

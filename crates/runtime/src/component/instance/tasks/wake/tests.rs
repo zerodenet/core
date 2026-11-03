@@ -138,6 +138,11 @@ fn actual_zero_budget_join_self_wake_reenters_monitor_only_after_both_locks_rele
                 })
                 .unwrap();
             observed.await.unwrap();
+            // The send happens before the task returns. With one worker and
+            // no suspension after that send, a subsequent real task can only
+            // finish after the original task has returned to the scheduler.
+            // Keep the original join unconsumed for the zero-budget poll.
+            rt.spawn(async {}).await.unwrap();
             let (waker, calls) = caller(&monitor, false);
             let target = target(&waker);
             while tokio::task::coop::has_budget_remaining() {

@@ -35,7 +35,7 @@ impl CarrierGrant {
         crate::controlled_carrier::users::acquired(&self.slot);
         self.transferred = true;
         let io = CarrierIo {
-            io: Box::pin(loan.io),
+            io: Some(Box::pin(loan.io)),
             slot: self.slot.clone(),
         };
         let bound = self

@@ -44,6 +44,7 @@ pub struct ResourcePreparation<'a> {
     failed: Cell<bool>,
     previous: SharedResourceIdentities,
     candidate: Option<&'a zero_config::RuntimeConfig>,
+    source_dir: Option<&'a std::path::Path>,
 }
 impl<'a> ResourcePreparation<'a> {
     pub fn new(allocate: &'a mut dyn FnMut() -> Result<ComponentId, BuildError>) -> Self {
@@ -54,14 +55,25 @@ impl<'a> ResourcePreparation<'a> {
             failed: Cell::new(false),
             previous: SharedResourceIdentities::default(),
             candidate: None,
+            source_dir: None,
         }
     }
 
     /// Borrow the whole current candidate for assembly-owned shared profile sets.
     /// This reference cannot escape this cold pass into a resource recipe.
     pub(super) fn with_candidate(mut self, candidate: &'a zero_config::RuntimeConfig) -> Self {
+        self.source_dir = candidate.source_dir();
         self.candidate = Some(candidate);
         self
+    }
+    /// Borrow only for this cold pass; owned protocol profiles resolve their
+    /// own paths and cannot retain a previous configuration document.
+    pub fn with_source_dir(mut self, directory: Option<&'a std::path::Path>) -> Self {
+        self.source_dir = directory;
+        self
+    }
+    pub fn source_dir(&self) -> Option<&std::path::Path> {
+        self.source_dir
     }
     pub fn candidate(&self) -> Option<&zero_config::RuntimeConfig> {
         self.candidate

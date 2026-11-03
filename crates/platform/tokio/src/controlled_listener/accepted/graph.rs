@@ -12,9 +12,16 @@ use std::{
 };
 use zero_core::component::TaskId;
 mod caller;
+mod peer;
+pub use peer::AcceptedPeerScope;
+mod carriers;
+mod inbound;
 mod receiver;
+pub(super) mod resources;
+pub use resources::AcceptedResource;
 mod spawn;
-pub use caller::AcceptedTcpCaller;
+pub use caller::{AcceptedCaller, AcceptedOrigin};
+pub(crate) use inbound::PendingTcp;
 pub use receiver::AcceptedTcpTaskReceiver;
 
 #[derive(Clone)]
@@ -22,6 +29,7 @@ pub(super) struct Authority {
     scope: TaskScopeIdentity,
     registrar: WeakTaskRegistrar,
     max_tasks: NonZeroUsize,
+    pub(super) max_resources: usize,
 }
 impl Authority {
     pub(super) fn new(registrar: &TaskRegistrar, max_tasks: NonZeroUsize) -> Self {
@@ -29,17 +37,22 @@ impl Authority {
             scope: registrar.scope_identity(),
             registrar: registrar.downgrade(),
             max_tasks,
+            max_resources: 0,
         }
     }
 }
 pub(super) struct Users {
     authority: Authority,
+    peer: Option<Arc<peer::Ledger>>,
     entry: Weak<Entry>,
     pool: Weak<Pool>,
     cancel: CancellationToken,
     state: Mutex<State>,
     view_live: AtomicBool,
     changed: tokio::sync::Notify,
+    logical_dirty: AtomicBool,
+    carrier_cleanup: AsyncMutex<()>,
+    local: OnceLock<std::net::SocketAddr>,
 }
 #[derive(Default)]
 struct State {
@@ -48,6 +61,8 @@ struct State {
     sealed: bool,
     unaccounted: bool,
     tasks: BTreeMap<TaskId, Node>,
+    resources: Vec<Arc<resources::Retained>>,
+    carriers: Vec<carriers::CarrierUse>,
 }
 #[derive(Clone)]
 struct Node {
@@ -65,7 +80,7 @@ impl Drop for ViewUse {
 /// Descendant registration in the exact already installed accepted entry/scope.
 /// It retains neither its owner, original FD, protocol future nor task scope.
 #[derive(Clone)]
-pub struct AcceptedTcpTasks {
+pub struct AcceptedTasks {
     users: Weak<Users>,
     task: Arc<OnceLock<(TaskId, TaskJoinWitness)>>,
 }
@@ -78,12 +93,16 @@ impl Users {
     ) -> Self {
         Self {
             authority,
+            peer: None,
             entry,
             pool,
             cancel,
             state: Mutex::new(State::default()),
             view_live: AtomicBool::new(false),
             changed: tokio::sync::Notify::new(),
+            logical_dirty: AtomicBool::new(false),
+            carrier_cleanup: AsyncMutex::new(()),
+            local: OnceLock::new(),
         }
     }
     fn state(&self) -> std::sync::MutexGuard<'_, State> {
@@ -102,7 +121,7 @@ impl Users {
         self.state().unaccounted = true;
     }
     pub(super) fn status(&self) -> AcceptedTcpUsers {
-        let (sealed, pending, unaccounted, tasks) = {
+        let (sealed, pending, unaccounted, tasks, resources, carriers) = {
             let state = self.state();
             (
                 state.sealed,
@@ -113,12 +132,20 @@ impl Users {
                     .values()
                     .map(|node| node.witness.clone())
                     .collect::<Vec<_>>(),
+                state.resources.clone(),
+                !state.carriers.is_empty(),
             )
         };
         if unaccounted {
             return AcceptedTcpUsers::Unaccounted;
         }
-        if !sealed || pending || self.view_live.load(Ordering::Acquire) || !tasks.is_empty() {
+        if !sealed
+            || pending
+            || self.view_live.load(Ordering::Acquire)
+            || !tasks.is_empty()
+            || resources.iter().any(|resource| !resource.complete())
+            || carriers
+        {
             AcceptedTcpUsers::Pending
         } else {
             AcceptedTcpUsers::Confirmed
@@ -130,6 +157,8 @@ impl Users {
     pub(super) async fn retire(&self, deadline: Instant) -> bool {
         self.state().sealed = true;
         self.cancel.cancel();
+        self.revoke_resources();
+        self.revoke_carriers();
         let tasks: Vec<_> = self
             .state()
             .tasks
@@ -155,6 +184,12 @@ impl Users {
                     && !self.view_live.load(Ordering::Acquire)
             };
             if ready {
+                if !self.close_resources(deadline).await {
+                    return false;
+                }
+                if !self.close_carriers(deadline).await {
+                    return false;
+                }
                 return self.complete();
             }
             if tokio::time::timeout_at(deadline, changed).await.is_err() {
@@ -163,6 +198,12 @@ impl Users {
         }
     }
     fn remember(&self, source: Arc<ChannelError>) {
+        if let Some(peer) = &self.peer {
+            peer.failure
+                .lock()
+                .unwrap()
+                .get_or_insert_with(|| source.clone());
+        }
         if let Some(entry) = self.entry.upgrade() {
             entry.state().failure.get_or_insert_with(|| source.clone());
         }
@@ -179,7 +220,7 @@ impl AcceptedTcp {
         make: F,
     ) -> Result<(TaskId, TaskJoinWitness), ChannelError>
     where
-        F: FnOnce(crate::TokioSocket, AcceptedTcpTasks) -> Fut,
+        F: FnOnce(crate::TokioSocket, AcceptedTasks) -> Fut,
         Fut: Future<Output = Result<(), ChannelError>> + Send + 'static,
     {
         let AcceptedTcp { io, claim } = self;
@@ -208,7 +249,7 @@ impl AcceptedTcp {
         make: F,
     ) -> Result<(TaskId, TaskJoinWitness), ChannelError>
     where
-        F: FnOnce(crate::TokioSocket, AcceptedTcpTasks) -> Fut,
+        F: FnOnce(crate::TokioSocket, AcceptedTasks) -> Fut,
         Fut: Future<Output = Result<(), ChannelError>> + Send + 'static,
     {
         let AcceptedTcp { io, claim } = self;
@@ -224,7 +265,7 @@ impl AcceptedTcp {
         })
     }
 }
-impl AcceptedTcpTasks {
+impl AcceptedTasks {
     /// The exact original registration, published before the first task poll.
     /// Its witness remains pending until the original Scope consumes the exit.
     pub fn current_task(&self) -> Option<(TaskId, TaskJoinWitness)> {
@@ -236,7 +277,7 @@ impl AcceptedTcpTasks {
         make: F,
     ) -> Result<(TaskId, TaskJoinWitness), ChannelError>
     where
-        F: FnOnce(AcceptedTcpTasks) -> Fut,
+        F: FnOnce(AcceptedTasks) -> Fut,
         Fut: Future<Output = Result<(), ChannelError>> + Send + 'static,
     {
         let users = self.users.upgrade().ok_or_else(|| {

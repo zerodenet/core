@@ -47,15 +47,15 @@ impl CarrierGrant {
         })
     }
 
-    /// Unique taskless custody. Only an actual background native owner may
-    /// grant this mode; view return is never a task exit or native-close proof.
+    /// Unique taskless custody from an actual background owner or a declared
+    /// node Datagram owner. Return is never a task exit or native-close proof.
     pub fn claim_transferred_view(&mut self) -> Result<CarrierUserView, ChannelError> {
         let bound = self
             .slot
             .owner
             .upgrade()
             .and_then(|owner| owner.state().binding.clone());
-        if !bound.is_some_and(|bound| bound.background_custody_available()) {
+        if !bound.is_some_and(|bound| bound.transferred_custody_available()) {
             return Err(error(
                 self.instance(),
                 Stage::Prepare,
@@ -194,6 +194,14 @@ impl CarrierUsersClosed {
     }
 }
 impl CarrierAdoption {
+    pub(crate) fn matches_bound_caller(&self, caller: &TaskJoinWitness) -> bool {
+        self.slot
+            .state()
+            .users
+            .as_ref()
+            .and_then(|users| users.caller.as_ref())
+            .is_some_and(|actual| actual.same_registration(caller))
+    }
     pub fn users_closed(&self) -> Option<CarrierUsersClosed> {
         let (closed, users) = {
             let state = self.slot.state();

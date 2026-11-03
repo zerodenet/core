@@ -6,6 +6,7 @@ fn nz(value: usize) -> NonZeroUsize {
 }
 fn declaration(address: SocketAddr, attempts: usize) -> ResourceDeclaration {
     ResourceDeclaration::DatagramListener {
+        accepted: None,
         destination: Destination::new(Address::Ipv4([127, 0, 0, 1]), address.port()),
         max_bind_attempts: nz(attempts),
         max_pending_sends: nz(1),
@@ -120,6 +121,7 @@ async fn shared_owner_actual_startup_budget_one_is_not_the_declaration_ceiling()
 #[test]
 fn shared_owner_rejects_domain_and_non_listener_declarations_without_native_creation() {
     let domain = ResourceDeclaration::DatagramListener {
+        accepted: None,
         destination: Destination::new(Address::Domain("localhost".into()), 9),
         max_bind_attempts: nz(1),
         max_pending_sends: nz(1),

@@ -12,20 +12,20 @@ use super::{
     BoxFuture, ChannelError, CloseReason, SendFailure, SendReceipt,
 };
 
-pub trait DatagramTx: Send {
+pub trait DatagramTx<Frame = Datagram, Receipt = SendReceipt>: Send {
     /// While pending, retain framing state and require the same frame on re-poll.
     fn poll_send(
         self: Pin<&mut Self>,
         cx: &mut Context<'_>,
-        frame: &Datagram,
-    ) -> Poll<Result<SendReceipt, SendFailure>>;
+        frame: &Frame,
+    ) -> Poll<Result<Receipt, SendFailure>>;
 }
-pub trait DatagramRx: Send {
+pub trait DatagramRx<Frame = Datagram>: Send {
     /// Cancellation preserves unconsumed state; Some(empty) is valid, None is EOF.
     fn poll_recv(
         self: Pin<&mut Self>,
         cx: &mut Context<'_>,
-    ) -> Poll<Result<Option<Datagram>, ChannelError>>;
+    ) -> Poll<Result<Option<Frame>, ChannelError>>;
 }
 
 pub struct DatagramSession<Tx, Rx, Control> {
@@ -100,20 +100,22 @@ pub trait DatagramOutbound: Send + Sync + 'static {
 pub type BoxDatagramSession =
     DatagramSession<Pin<Box<dyn DatagramTx>>, Pin<Box<dyn DatagramRx>>, Box<dyn DynChannelControl>>;
 
-impl<T: DatagramTx + ?Sized> DatagramTx for Pin<Box<T>> {
+impl<Frame, Receipt, T: DatagramTx<Frame, Receipt> + ?Sized> DatagramTx<Frame, Receipt>
+    for Pin<Box<T>>
+{
     fn poll_send(
         self: Pin<&mut Self>,
         cx: &mut Context<'_>,
-        frame: &Datagram,
-    ) -> Poll<Result<SendReceipt, SendFailure>> {
+        frame: &Frame,
+    ) -> Poll<Result<Receipt, SendFailure>> {
         self.get_mut().as_mut().poll_send(cx, frame)
     }
 }
-impl<T: DatagramRx + ?Sized> DatagramRx for Pin<Box<T>> {
+impl<Frame, T: DatagramRx<Frame> + ?Sized> DatagramRx<Frame> for Pin<Box<T>> {
     fn poll_recv(
         self: Pin<&mut Self>,
         cx: &mut Context<'_>,
-    ) -> Poll<Result<Option<Datagram>, ChannelError>> {
+    ) -> Poll<Result<Option<Frame>, ChannelError>> {
         self.get_mut().as_mut().poll_recv(cx)
     }
 }
@@ -245,9 +247,9 @@ pub(super) fn check_failure(
     failure
 }
 
-pub async fn recv<R: DatagramRx + ?Sized>(
+pub async fn recv<Frame, R: DatagramRx<Frame> + ?Sized>(
     mut rx: Pin<&mut R>,
-) -> Result<Option<Datagram>, ChannelError> {
+) -> Result<Option<Frame>, ChannelError> {
     poll_fn(|cx| rx.as_mut().poll_recv(cx)).await
 }
 

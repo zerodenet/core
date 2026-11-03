@@ -16,6 +16,7 @@ use zero_platform_tokio::contract::{
 
 pub struct HostResources {
     component: ComponentId,
+    icmp: Option<super::icmp::HostIcmpProbeOwner>,
     coverage: Vec<coverage::CoverageBinding>,
     carriers: carrier::CarrierDeclarations,
     metadata: metadata::MetadataDeclarations,
@@ -91,8 +92,12 @@ impl HostResources {
         }
         state.start_deadline = Some(deadline);
         drop(state);
+        let access = StartAccess(self.clone());
+        if let Some(icmp) = &self.icmp {
+            icmp.activate(deadline)?;
+        }
         self.roots.activate();
-        Ok(StartAccess(self.clone()))
+        Ok(access)
     }
     fn denied(&self) -> ChannelError {
         error(
@@ -103,6 +108,33 @@ impl HostResources {
     }
 }
 impl ResourceAccess for HostResources {
+    fn bind_inbound_icmp(
+        &self,
+        source: std::net::IpAddr,
+    ) -> Result<zero_platform_tokio::controlled_icmp::ControlledIcmpSocket, ChannelError> {
+        {
+            let state = self
+                .state
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner);
+            if state.closed
+                || self.cancel.is_cancelled()
+                || state.start_deadline.is_none_or(|d| Instant::now() >= d)
+            {
+                return Err(error(
+                    self.component,
+                    Reason::Revoked,
+                    "ICMP bind requires the actual bounded lifecycle start",
+                ));
+            }
+        }
+        self.icmp
+            .as_ref()
+            .ok_or_else(|| self.denied())?
+            .grant()
+            .bind(source, None)
+    }
+
     fn register_metadata_pool(
         &self,
         ordinal: usize,

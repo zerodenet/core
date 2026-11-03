@@ -3,8 +3,11 @@
 //! same-Scope joins; native-only or escaped-user paths remain Unaccounted.
 mod accept;
 mod close;
-mod graph;
-pub use graph::{AcceptedTcpCaller, AcceptedTcpTaskReceiver, AcceptedTcpTasks};
+pub(crate) mod graph;
+pub use graph::{
+    AcceptedCaller, AcceptedOrigin, AcceptedPeerScope, AcceptedResource, AcceptedTasks,
+    AcceptedTcpTaskReceiver,
+};
 mod owner;
 mod pool;
 mod relay;
@@ -109,12 +112,14 @@ pub(super) struct Pool {
     state: Mutex<PoolState>,
     relay: Arc<relay::AcceptRelay>,
     graph: Option<graph::Authority>,
+    logical_custody: Arc<std::sync::atomic::AtomicUsize>,
 }
 struct PoolState {
     next: u64,
     entries: BTreeMap<u64, Arc<Entry>>,
     closed: u64,
     reported: u64,
+    child_reports: graph::resources::ChildReports,
     transferred: bool,
     first_failure: Option<Arc<ChannelError>>,
     first_close_failure: Option<Arc<ChannelError>>,

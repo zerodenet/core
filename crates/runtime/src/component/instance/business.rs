@@ -78,12 +78,21 @@ impl ComponentSlot {
             .get()
             .and_then(|live| live.as_ref().ok())
             .ok_or_else(|| self.failure(Reason::Revoked, "business carrier owner was released"))?;
-        let (registered, issuer) = live.resources.registered_business_issuer(
-            self.instance_id(),
-            endpoint,
-            binding,
-            grant,
-        )?;
+        let (registered, issuer) = if binding.prefix.is_empty() {
+            live.resources.registered_business_issuer(
+                self.instance_id(),
+                endpoint,
+                binding,
+                grant,
+            )?
+        } else {
+            live.resources.registered_relay_business_issuer(
+                self.instance_id(),
+                endpoint,
+                binding,
+                grant,
+            )?
+        };
         if !registered
             .scope_identity()
             .same_scope(&live.tasks.scope_identity())

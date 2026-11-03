@@ -35,6 +35,7 @@ async fn real_listener_grants_enforce_start_phase_protocol_endpoint_and_lifetime
                 max_bind_attempts: std::num::NonZeroUsize::new(1).unwrap(),
             },
             ResourceDeclaration::DatagramListener {
+                accepted: None,
                 destination: address.clone(),
                 max_bind_attempts: std::num::NonZeroUsize::new(1).unwrap(),
                 max_pending_sends: std::num::NonZeroUsize::new(1).unwrap(),
@@ -208,6 +209,7 @@ async fn listener_declarations_do_not_imply_dns_and_expired_unpolled_grants_cann
     let grants = HostResources::new(
         ComponentId(103),
         &[ResourceDeclaration::DatagramListener {
+            accepted: None,
             destination: address.clone(),
             max_bind_attempts: std::num::NonZeroUsize::new(1).unwrap(),
             max_pending_sends: std::num::NonZeroUsize::new(1).unwrap(),

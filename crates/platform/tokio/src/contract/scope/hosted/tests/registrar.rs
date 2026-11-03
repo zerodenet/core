@@ -21,7 +21,9 @@ impl Wake for InstalledWake {
         let (id, witness) = installed
             .as_ref()
             .expect("registration was installed first");
-        assert!(witness.scope_identity().matches(&TaskRegistrar(original)));
+        assert!(witness
+            .scope_identity()
+            .matches(&TaskRegistrar(original, false)));
         assert!(id.0 > 0);
         drop(installed);
         let before = self.calls.fetch_add(1, Ordering::SeqCst);

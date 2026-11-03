@@ -3,8 +3,8 @@ use zero_platform_tokio::contract::{
     lifecycle::{ResourceLifecycle, Unfinished},
     CloseReason,
 };
-impl ResourceLifecycle for HostIcmpProbeOwner {
-    async fn start(&mut self, deadline: Instant) -> Result<(), ChannelError> {
+impl HostIcmpProbeOwner {
+    pub fn activate(&self, deadline: Instant) -> Result<(), ChannelError> {
         if self.shared.cancel.is_cancelled() {
             return Err(error(
                 self.shared.instance,
@@ -33,6 +33,14 @@ impl ResourceLifecycle for HostIcmpProbeOwner {
         state.phase = Phase::Live;
         Ok(())
     }
+    pub fn shutdown_originals(&self, deadline: Instant) -> Result<CloseReport, ChannelError> {
+        self.shutdown_native(deadline)
+    }
+}
+impl ResourceLifecycle for HostIcmpProbeOwner {
+    async fn start(&mut self, deadline: Instant) -> Result<(), ChannelError> {
+        self.activate(deadline)
+    }
     fn revoke(&self, _: CloseReason) {
         // Actual cancellation wakes outside the state mutex. Phase writes can
         // be retried by shutdown; the token already fences every bind.
@@ -43,6 +51,11 @@ impl ResourceLifecycle for HostIcmpProbeOwner {
         }
     }
     async fn shutdown(&mut self, deadline: Instant) -> Result<CloseReport, ChannelError> {
+        self.shutdown_native(deadline)
+    }
+}
+impl HostIcmpProbeOwner {
+    fn shutdown_native(&self, deadline: Instant) -> Result<CloseReport, ChannelError> {
         self.revoke(CloseReason::Shutdown);
         let mut state = self.shared.state();
         state.phase = Phase::Revoked;

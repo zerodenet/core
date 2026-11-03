@@ -57,7 +57,8 @@ impl HostResources {
             Some((expected_endpoint, expected_binding))
                 if expected_endpoint == endpoint && expected_binding == binding => {}
             None if demand == ControlledStreamDemandClass::Business
-                && bound.matches_direct(endpoint, binding) => {}
+                && (bound.matches_direct(endpoint, binding)
+                    || bound.matches_node(endpoint, binding)) => {}
             _ => return Err(fail()),
         }
         // Both getters may finally release original owners or flush I/O wakes.
@@ -90,6 +91,36 @@ impl HostResources {
 }
 
 impl HostResources {
+    pub(in crate::component) fn registered_relay_business_issuer(
+        &self,
+        instance: ComponentInstanceId,
+        endpoint: &Destination,
+        binding: &UpstreamBinding,
+        grant: &CarrierGrant,
+    ) -> Result<
+        (
+            CarrierOwnerBinding,
+            zero_platform_tokio::controlled_carrier::CarrierBusinessIssuer,
+        ),
+        ChannelError,
+    > {
+        let mut root = binding.clone();
+        root.prefix.clear();
+        let bound = self.registered_carrier(
+            instance,
+            endpoint,
+            &root,
+            ControlledStreamDemandClass::Business,
+            grant,
+        )?;
+        let fence = self
+            .carriers
+            .host_cancel
+            .as_ref()
+            .ok_or_else(|| self.denied())?;
+        let issuer = bound.node_relay_business_issuer(fence, grant, endpoint, binding)?;
+        Ok((bound, issuer))
+    }
     /// Private host-side minting only. ResourceAccess never returns this issuer;
     /// actual Slot/Engine start, membership and demand validation remain required.
     pub(in crate::component) fn registered_business_issuer(
@@ -121,6 +152,8 @@ impl HostResources {
         // or bound descriptor. A caller-created cancellation fence cannot match.
         let issuer = if bound.fixed_endpoint_binding().is_some() {
             bound.business_issuer(host_cancel, grant)?
+        } else if bound.matches_node(endpoint, binding) {
+            bound.node_business_issuer(host_cancel, grant, endpoint, binding)?
         } else {
             bound.direct_business_issuer(host_cancel, grant, endpoint, binding)?
         };

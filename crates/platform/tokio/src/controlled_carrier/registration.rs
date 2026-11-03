@@ -52,6 +52,7 @@ pub struct CarrierOwnerObservation {
 /// Bounded current-slot facts. No historical errors/tasks or user-completion
 /// claims: physical_view_live describes the original carrier view, not business users.
 pub struct CarrierSlotObservation {
+    borrowed: Option<super::CarrierOrigin>,
     original: CarrierOriginObservation,
     ordinal: u64,
     opening: bool,
@@ -105,6 +106,10 @@ impl CarrierNativeCloseObservation {
     }
 }
 impl CarrierSlotObservation {
+    /// Read-only lineage; logical return never substitutes for donor closure.
+    pub fn borrowed_origin(&self) -> Option<&super::CarrierOrigin> {
+        self.borrowed.as_ref()
+    }
     pub fn original(&self) -> &CarrierOriginObservation {
         &self.original
     }
@@ -194,6 +199,7 @@ impl CarrierOwnerRegistration {
                     let state = slot.state();
                     (
                         CarrierSlotObservation {
+                            borrowed: state.loan_origin.clone(),
                             original: CarrierOriginObservation {
                                 slot: Arc::downgrade(&slot),
                                 completion: slot.completion.clone(),

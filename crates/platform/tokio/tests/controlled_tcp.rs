@@ -234,3 +234,7 @@ async fn controlled_tcp_cancellation_wakes_a_real_backpressured_write_without_re
     .await
     .unwrap();
 }
+
+#[cfg(unix)]
+#[path = "controlled_tcp/unix_target.rs"]
+mod unix_target;

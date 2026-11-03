@@ -86,7 +86,7 @@ struct Shared {
 
 /// Cloneable registration authority. It cannot declare resources closed.
 #[derive(Clone)]
-pub struct TaskRegistrar(Arc<Shared>);
+pub struct TaskRegistrar(Arc<Shared>, bool);
 pub struct TaskScope(Arc<Shared>);
 
 // Reports can combine component, handshake and connection scopes.
@@ -234,7 +234,7 @@ impl TaskScope {
     }
 
     pub fn registrar(&self) -> TaskRegistrar {
-        TaskRegistrar(self.0.clone())
+        TaskRegistrar(self.0.clone(), false)
     }
 
     /// The supervisor lives outside the scope it supervises.

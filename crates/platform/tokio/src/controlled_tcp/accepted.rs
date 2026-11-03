@@ -17,6 +17,11 @@ impl ControlledTcpStream {
             return Err(closed());
         };
         match &*socket {
+            #[cfg(unix)]
+            Socket::Unix(_) => Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "not an accepted TCP original",
+            )),
             Socket::Tokio(socket) => socket.inner.native()?.set_nodelay(true),
             #[cfg(any(unix, windows))]
             Socket::Native(_) => Err(io::Error::new(

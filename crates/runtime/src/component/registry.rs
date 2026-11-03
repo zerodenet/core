@@ -73,7 +73,8 @@ where
     }
 }
 
-type InputAcceptance<Input> = Arc<dyn Fn(&Input) -> bool + Send + Sync>;
+type InputAcceptance<Input> =
+    Arc<dyn Fn(&Input, Option<&zero_config::RuntimeConfig>) -> bool + Send + Sync>;
 
 struct Entry<Input> {
     legacy_connect_stage: &'static str,
@@ -252,7 +253,7 @@ impl<Input: 'static> ComponentRegistry<Input> {
         if entry
             .accepts
             .as_ref()
-            .is_some_and(|accepts| !accepts(input))
+            .is_some_and(|accepts| !accepts(input, resources.candidate()))
         {
             return Err(RegistrationError::Options(ConfigError::InvalidOutbound(
                 format!("protocol `{name}` input is not selected for native component execution"),

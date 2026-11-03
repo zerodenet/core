@@ -11,7 +11,7 @@ impl HostResources {
     ) -> Result<Arc<Self>, ChannelError> {
         Self::construct(component, declarations, cancel, None)
     }
-    pub(in crate::component) fn new_for_instance(
+    pub fn new_for_instance(
         instance: ComponentInstanceId,
         declarations: &[ResourceDeclaration],
         cancel: CancellationToken,
@@ -40,14 +40,41 @@ impl HostResources {
             identity.clone(),
             cancel.clone(),
         )?;
-        let metapools =
-            metapool::MetadataPools::new(component, declarations, identity, cancel.clone())?;
+        let metapools = metapool::MetadataPools::new(
+            component,
+            declarations,
+            identity.clone(),
+            cancel.clone(),
+        )?;
+        let mut icmp = None;
         let mut remaining = BTreeMap::new();
         let mut tcp = BTreeMap::new();
         let mut datagram = BTreeMap::new();
         let mut files = files::FileReads::default();
         for declaration in declarations {
             match declaration {
+                ResourceDeclaration::NativeIcmp { .. } => {
+                    if icmp.is_some() {
+                        return Err(error(
+                            component,
+                            Reason::InvalidConfig,
+                            "duplicate native ICMP declaration",
+                        ));
+                    }
+                    let (instance, _) = identity.as_ref().ok_or_else(|| {
+                        error(
+                            component,
+                            Reason::InvalidConfig,
+                            "ICMP requires an actual instance and Scope",
+                        )
+                    })?;
+                    icmp = Some(super::super::icmp::HostIcmpProbeOwner::new_inbound_carrier(
+                        *instance,
+                        declaration,
+                        cancel.clone(),
+                    )?);
+                }
+
                 ResourceDeclaration::Process {
                     program,
                     max_starts,
@@ -98,6 +125,7 @@ impl HostResources {
                     destination,
                     max_bind_attempts,
                     max_pending_sends,
+                    ..
                 } => {
                     let address = sockets::literal(component, destination)?;
                     let owner = sockets::DatagramGrant::new(
@@ -124,6 +152,7 @@ impl HostResources {
                 | ResourceDeclaration::ControlledCarrierPool { .. }
                 | ResourceDeclaration::ControlledMetadataDatagram { .. }
                 | ResourceDeclaration::ControlledDatagramCarrier { .. }
+                | ResourceDeclaration::ControlledNodeStream { .. }
                 | ResourceDeclaration::ControlledDirectStream { .. }
                 | ResourceDeclaration::MetadataDatagram { .. } => {}
                 ResourceDeclaration::OutboundDatagram { .. } => {
@@ -148,6 +177,7 @@ impl HostResources {
             .collect::<Result<Vec<_>, _>>()?;
         Ok(Arc::new(Self {
             component,
+            icmp,
             coverage,
             carriers,
             metadata,

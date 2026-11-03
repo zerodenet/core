@@ -4,6 +4,35 @@ use crate::contract::{
     lifecycle::{ChannelControl, Unfinished},
 };
 impl ControlledTcpListenerOwner {
+    /// Same original listener/pool/Scope as literal binding. The host must
+    /// freeze real DNS results before any native creation is authorized.
+    pub fn new_resolving_with_accepted_graph(
+        declaration: &ResourceDeclaration,
+        attempts: NonZeroUsize,
+        parent: CancellationToken,
+        accepted_limit: NonZeroUsize,
+        per_entry_tasks: NonZeroUsize,
+        registrar: &crate::contract::scope::TaskRegistrar,
+    ) -> Result<Self, ChannelError> {
+        let mut owner = Self::resolving(declaration, attempts, parent)?;
+        let shared = Arc::get_mut(&mut owner.control.shared).expect("cold unique listener owner");
+        shared.accepted = Some(Arc::new(Pool::new(
+            accepted_limit,
+            shared.cancel.child_token(),
+        )));
+        let pool =
+            Arc::get_mut(shared.accepted.as_mut().unwrap()).expect("cold unique accepted pool");
+        let mut authority = graph::Authority::new(registrar, per_entry_tasks);
+        if let ResourceDeclaration::TcpListener {
+            accepted: Some(limits),
+            ..
+        } = declaration
+        {
+            authority.max_resources = limits.max_resources_per_socket;
+        }
+        pool.graph = Some(authority);
+        Ok(owner)
+    }
     /// Library opt-in only. No accepted default or canonical/config change.
     pub fn new_with_accepted_limit(
         declaration: &ResourceDeclaration,
@@ -34,7 +63,15 @@ impl ControlledTcpListenerOwner {
         let shared = Arc::get_mut(&mut owner.control.shared).expect("cold unique listener owner");
         let pool = Arc::get_mut(shared.accepted.as_mut().expect("accepted owner installed"))
             .expect("cold unique accepted pool");
-        pool.graph = Some(graph::Authority::new(registrar, per_entry_tasks));
+        let mut authority = graph::Authority::new(registrar, per_entry_tasks);
+        if let ResourceDeclaration::TcpListener {
+            accepted: Some(limits),
+            ..
+        } = declaration
+        {
+            authority.max_resources = limits.max_resources_per_socket;
+        }
+        pool.graph = Some(authority);
         Ok(owner)
     }
     /// A weak receiver for this original entry table, not another task map.

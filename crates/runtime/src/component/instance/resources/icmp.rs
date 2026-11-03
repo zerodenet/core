@@ -1,5 +1,6 @@
-//! Same-instance host authority for one actual controlled ICMP pool. Not a
-//! ResourceAccess implementation, UDP grant or second owner of a declaration.
+//! Same-instance host authority for one actual controlled ICMP pool. Never a
+//! UDP grant or second owner of a declaration. Inbound mask access delegates
+//! to this same original owner during its bounded host start phase.
 mod grant;
 mod lifecycle;
 use std::{
@@ -78,12 +79,31 @@ impl HostIcmpProbeOwner {
                 "not a native ICMP declaration",
             ));
         };
-        Ok(Self::with_limit(instance, *max_sockets, parent))
+        Ok(Self::with_limit(instance, *max_sockets, parent, false))
+    }
+    /// Carrier consumers drain before their dependencies. Parent cancellation
+    /// fences acquisition; the retained provider explicitly revokes original IO
+    /// only after the consumer's actual task/user closure has been confirmed.
+    pub(in crate::component) fn new_inbound_carrier(
+        instance: ComponentInstanceId,
+        declaration: &ResourceDeclaration,
+        parent: CancellationToken,
+    ) -> Result<Self, ChannelError> {
+        let ResourceDeclaration::NativeIcmp { max_sockets } = declaration else {
+            return Err(error(
+                instance,
+                Stage::Prepare,
+                Reason::InvalidConfig,
+                "not a native ICMP declaration",
+            ));
+        };
+        Ok(Self::with_limit(instance, *max_sockets, parent, true))
     }
     fn with_limit(
         instance: ComponentInstanceId,
         limit: NonZeroUsize,
         parent: CancellationToken,
+        drain_consumers: bool,
     ) -> Self {
         let cancel = parent.child_token();
         Self {
@@ -92,7 +112,14 @@ impl HostIcmpProbeOwner {
                 cancel: cancel.clone(),
                 state: Mutex::new(State {
                     phase: Phase::Cold,
-                    native: ControlledIcmpOwner::new(limit, cancel),
+                    native: ControlledIcmpOwner::new(
+                        limit,
+                        if drain_consumers {
+                            CancellationToken::new()
+                        } else {
+                            cancel
+                        },
+                    ),
                     status: IcmpOwnerReport::default(),
                     closed_total: 0,
                     reported_total: 0,

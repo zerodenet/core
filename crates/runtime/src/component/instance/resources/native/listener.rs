@@ -10,6 +10,7 @@ use zero_platform_tokio::contract::lifecycle::CloseReport;
 pub struct HostDatagramListenerOwner {
     component: ComponentId,
     address: SocketAddr,
+    addresses: Arc<[SocketAddr]>,
     native: sockets::DatagramGrant,
     revoked: bool,
     first_fault: Option<Arc<ChannelError>>,
@@ -24,6 +25,7 @@ impl HostDatagramListenerOwner {
             destination,
             max_bind_attempts,
             max_pending_sends,
+            ..
         } = declaration
         else {
             return Err(error(
@@ -43,10 +45,53 @@ impl HostDatagramListenerOwner {
         Ok(Self {
             component,
             address,
+            addresses: Arc::from([address]),
             native: sockets::DatagramGrant::new(component, actual_attempts, *max_pending_sends)?,
             revoked: false,
             first_fault: None,
         })
+    }
+    /// The configuration host supplies its bounded, already joined system
+    /// lookup. This does not resolve names or acquire a second native owner.
+    pub fn new_resolved(
+        component: ComponentId,
+        declaration: &ResourceDeclaration,
+        attempts: NonZeroUsize,
+        addresses: Arc<[SocketAddr]>,
+    ) -> Result<Self, ChannelError> {
+        let ResourceDeclaration::DatagramListener {
+            destination,
+            max_bind_attempts,
+            ..
+        } = declaration
+        else {
+            return Err(error(
+                component,
+                Reason::InvalidConfig,
+                "not a datagram declaration",
+            ));
+        };
+        if !matches!(destination.address, zero_core::Address::Domain(_))
+            || addresses.is_empty()
+            || addresses.len() > max_bind_attempts.get()
+            || addresses.iter().any(|a| a.port() != destination.port)
+        {
+            return Err(error(
+                component,
+                Reason::InvalidConfig,
+                "invalid resolved listener addresses",
+            ));
+        }
+        let mut literal = declaration.clone();
+        if let ResourceDeclaration::DatagramListener { destination, .. } = &mut literal {
+            destination.address = match addresses[0].ip() {
+                std::net::IpAddr::V4(ip) => zero_core::Address::Ipv4(ip.octets()),
+                std::net::IpAddr::V6(ip) => zero_core::Address::Ipv6(ip.octets()),
+            };
+        }
+        let mut owner = Self::new(component, &literal, attempts)?;
+        owner.addresses = addresses;
+        Ok(owner)
     }
     /// No await, clone, rebind or alternate control. Wrong-address/retired
     /// requests are rejected before consuming any original native attempt.
@@ -61,7 +106,7 @@ impl HostDatagramListenerOwner {
                 "datagram listener owner was revoked",
             ));
         }
-        if address != self.address {
+        if !self.addresses.contains(&address) {
             return Err(error(
                 self.component,
                 Reason::InvalidConfig,
@@ -69,7 +114,10 @@ impl HostDatagramListenerOwner {
             ));
         }
         match self.native.bind(self.component, address) {
-            Ok(view) => Ok(view),
+            Ok(view) => {
+                self.address = address;
+                Ok(view)
+            }
             Err(failure) => Err(self.remember(failure)),
         }
     }

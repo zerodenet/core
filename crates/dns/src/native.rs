@@ -13,9 +13,9 @@ use zero_platform_tokio::{
 mod open_failure;
 mod wire;
 pub use open_failure::NativeDnsOpenFailure;
-pub use wire::native_endpoints;
 #[cfg(feature = "doq")]
 pub use wire::native_quic_endpoints;
+pub use wire::{native_endpoints, validate_node_config, validate_node_server};
 #[cfg(feature = "doq")]
 pub struct NativeDnsQuicLoan {
     pub io: zero_platform_tokio::TcpRelayStream,

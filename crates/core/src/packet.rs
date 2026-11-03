@@ -40,7 +40,15 @@ pub struct ReturnAssociation {
 pub struct IpPacket {
     payload: PacketBuffer,
     family: IpFamily,
+    ingress: Option<PacketIngress>,
     pub return_association: ReturnAssociation,
+}
+
+/// Endpoint facts captured after authentication, never transport-flow parsing.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct PacketIngress {
+    pub local_destination: bool,
+    pub mtu: u16,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -80,10 +88,18 @@ impl IpPacket {
         Ok(Self {
             payload,
             family,
+            ingress: None,
             return_association,
         })
     }
 
+    pub fn with_ingress(mut self, ingress: PacketIngress) -> Self {
+        self.ingress = Some(ingress);
+        self
+    }
+    pub fn ingress(&self) -> Option<PacketIngress> {
+        self.ingress
+    }
     pub fn payload(&self) -> &[u8] {
         &self.payload
     }

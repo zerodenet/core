@@ -7,6 +7,18 @@ impl NativeCarrierOpener {
         context: CarrierContext,
         mut grant: CarrierGrant,
     ) -> Result<PreparedCarrier, ChannelError> {
+        if self
+            .dns
+            .as_ref()
+            .is_some_and(|(resolver, generation)| resolver.generation() != *generation)
+        {
+            return Err(error(
+                grant.instance(),
+                Stage::Prepare,
+                Reason::StalePlan,
+                DeliveryState::NotSubmitted,
+            ));
+        }
         grant.check()?;
         if let Some(business) = &self.business {
             business.check(&grant, binding, &destination, &context)?;
@@ -21,7 +33,11 @@ impl NativeCarrierOpener {
             state.binding.clone()
         });
         if bound.as_ref().is_some_and(|bound| {
-            !bound.is_stream() || !bound.permits_native(binding, &destination, &context)
+            !bound.is_stream()
+                || (!bound.permits_native(binding, &destination, &context)
+                    && !self.business.as_ref().is_some_and(|business| {
+                        business.is_relay() && business.binding().matches_authority(bound)
+                    }))
         }) {
             return Err(error(
                 grant.instance(),
@@ -160,6 +176,8 @@ impl NativeCarrierOpener {
             service: self.service.clone(),
             session: context.session,
             transferred: false,
+            dns: self.dns.clone(),
+            preparation: None,
         })
     }
 }

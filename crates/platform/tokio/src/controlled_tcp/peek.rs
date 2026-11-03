@@ -13,6 +13,11 @@ impl ControlledTcpStream {
                 return Poll::Ready(Err(closed()));
             }
             self.shared.poll_io(|socket| match socket {
+                #[cfg(unix)]
+                Socket::Unix(_) => Poll::Ready(Err(io::Error::new(
+                    io::ErrorKind::Unsupported,
+                    "accepted peek requires TCP",
+                ))),
                 Socket::Tokio(socket) => {
                     let mut buffer = ReadBuf::new(bytes);
                     socket.inner.native()?.poll_peek(&mut native, &mut buffer)

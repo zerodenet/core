@@ -78,6 +78,7 @@ impl CarrierDeclarations {
                     ResourceDeclaration::ControlledOutboundStream { .. }
                         | ResourceDeclaration::ControlledCarrierPool { .. }
                         | ResourceDeclaration::ControlledDatagramCarrier { .. }
+                        | ResourceDeclaration::ControlledNodeStream { .. }
                         | ResourceDeclaration::ControlledDirectStream { .. }
                 )
             })
@@ -135,6 +136,9 @@ impl CarrierDeclarations {
                         ResourceDeclaration::ControlledDatagramCarrier { .. } => {
                             coverage::DeclaredResourceKind::ControlledDatagramCarrier
                         }
+                        ResourceDeclaration::ControlledNodeStream { .. } => {
+                            coverage::DeclaredResourceKind::ControlledNodeStream
+                        }
                         ResourceDeclaration::ControlledDirectStream { .. } => {
                             coverage::DeclaredResourceKind::ControlledDirectStream
                         }
@@ -170,7 +174,7 @@ impl CarrierDeclarations {
                             proof.first_fault = proof
                                 .first_caller_failure
                                 .as_ref()
-                                .and_then(|joined| joined.result().err());
+                                .and_then(critical_caller_fault);
                         }
                     }
                     if let Some(observation) = actual.observe() {
@@ -231,6 +235,17 @@ impl CarrierDeclarations {
             })
             .collect()
     }
+}
+
+// The caller's real failure remains in first_caller_failure. Business Auxiliary
+// errors do not turn a successfully closed shared carrier into a native fault;
+// actual Critical worker failures still fail the owning resource.
+pub(in crate::component) fn critical_caller_fault(
+    joined: &zero_platform_tokio::contract::scope::TaskJoined,
+) -> Option<Arc<ChannelError>> {
+    (joined.class() == zero_platform_tokio::contract::lifecycle::TaskClass::Critical)
+        .then(|| joined.result().err())
+        .flatten()
 }
 
 #[derive(Debug)]

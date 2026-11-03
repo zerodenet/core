@@ -31,7 +31,7 @@ pub use native_settlement::CarrierNativeSettlement;
 pub use origin::{CarrierOrigin, CarrierOriginClosed};
 pub use owner::CarrierOwner;
 pub use packet::CarrierDatagram;
-pub use prepared::{ControlledCarrier, PreparedCarrier};
+pub use prepared::{CarrierStreamPreparation, ControlledCarrier, PreparedCarrier};
 pub use registration::{
     CarrierNativeCloseObservation, CarrierOriginObservation, CarrierOwnerClosed,
     CarrierOwnerObservation, CarrierOwnerRegistration, CarrierSlotObservation,

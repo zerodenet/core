@@ -78,3 +78,63 @@ impl<B> Clone for DriverDelivery<B> {
         }
     }
 }
+
+impl<O: DriverKind, B: Send + Sync + 'static> DriverExitReceiver<O, B> {
+    /// Wait for any actual original join, retaining its record across cancellation.
+    /// No task or new registry is created; the real host still consumes JoinSet.
+    pub async fn receive_next(&mut self) -> Result<DriverDelivery<B>, ChannelError> {
+        use std::{
+            future::{poll_fn, Future},
+            task::Poll,
+        };
+        let shared = self.shared.clone();
+        loop {
+            let changed = shared.changed.notified();
+            tokio::pin!(changed);
+            changed.as_mut().enable();
+            let records = self
+                .shared
+                .state
+                .lock()
+                .unwrap()
+                .records
+                .iter()
+                .filter(|(_, r)| !r.delivered.load(Ordering::Acquire))
+                .map(|(id, r)| {
+                    (
+                        *id,
+                        r.registration
+                            .lock()
+                            .unwrap()
+                            .as_ref()
+                            .map(|(_, w)| w.clone()),
+                    )
+                })
+                .collect::<Vec<_>>();
+            let mut joins = Vec::new();
+            for (id, witness) in records {
+                if let Some(witness) = witness {
+                    joins.push(Box::pin(async move {
+                        witness.wait().await;
+                        id
+                    }));
+                }
+            }
+            let any_joins = !joins.is_empty();
+            let waiting = poll_fn(|cx| {
+                for join in &mut joins {
+                    if let Poll::Ready(id) = join.as_mut().poll(cx) {
+                        return Poll::Ready(Some(id));
+                    }
+                }
+                Poll::Pending
+            });
+            let id = tokio::select! { id=waiting, if any_joins=>id, _=&mut changed=>None };
+            if let Some(id) = id {
+                return self
+                    .receive(id, Instant::now() + std::time::Duration::from_secs(5))
+                    .await;
+            }
+        }
+    }
+}

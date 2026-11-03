@@ -18,6 +18,7 @@ mod owned_root;
 use owned_root::OwnedDnsRoot;
 mod query_tasks;
 pub use query_tasks::{OwnedDnsQueryObservation, OwnedDnsQueryTasks};
+mod native_node;
 mod reverse;
 mod router;
 mod service;
@@ -77,6 +78,7 @@ pub use outbound::{
 /// Inner state is under a read-write lock so DNS config can be
 /// hot-reloaded without restarting the proxy.
 pub struct DnsSystem {
+    node_queries: Option<native_node::NodeQueries>,
     owned_root: Option<Arc<OwnedDnsRoot>>,
     native_source: Option<Arc<native::NativeDnsSource>>,
     inner: std::sync::RwLock<DnsSystemInner>,
@@ -205,6 +207,9 @@ impl DnsSystem {
         Ok(dns)
     }
     pub fn retire_native_queries(&self) {
+        if let Some(node) = &self.node_queries {
+            node.coordinator.cancel_pending();
+        }
         self.query_coordinator.cancel_pending();
         self.wire_query_coordinator.cancel_pending();
     }
@@ -212,6 +217,7 @@ impl DnsSystem {
     pub fn native_query_observations(&self) -> Vec<query_tasks::OwnedDnsQueryObservation> {
         self.native_source
             .as_ref()
+            .or_else(|| self.node_queries.as_ref().map(|node| &node.source))
             .and_then(|source| source.tasks().ok())
             .map(|tasks| tasks.observe())
             .unwrap_or_default()
@@ -261,6 +267,7 @@ impl DnsSystem {
         let wire_query_coordinator =
             QueryCoordinator::with_graph_and_tasks(query_coordinator.shared_graph(), tasks);
         Ok(Self {
+            node_queries: None,
             owned_root,
             native_source: None,
             inner: std::sync::RwLock::new(inner),

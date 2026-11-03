@@ -7,13 +7,13 @@ mod roles;
 mod start;
 mod tasks;
 pub(in crate::component) mod users;
-#[cfg(feature = "datagram-route-runtime")]
+#[cfg(any(
+    feature = "datagram-route-runtime",
+    feature = "managed-datagram-runtime"
+))]
 pub use resources::HostDatagramListenerOwner;
 pub use resources::HostOutboundDatagramResources;
-#[cfg(any(test, feature = "test-support"))]
 pub use resources::HostResources;
-#[cfg(not(any(test, feature = "test-support")))]
-use resources::HostResources;
 #[cfg(any(test, feature = "test-support"))]
 pub use resources::NoResources;
 #[cfg(feature = "raw-ip-runtime")]

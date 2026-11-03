@@ -19,6 +19,8 @@ use zero_platform_tokio::contract::{
     inbound::*,
     ChannelError,
 };
+#[path = "contract_inbound/native.rs"]
+mod native;
 
 struct Reply {
     facts: RequestFacts,
@@ -145,7 +147,7 @@ async fn slow_pending_handshake_does_not_block_accepting_another_request() {
         .into(),
     ));
     let context = AcceptContext {
-        deadline: Instant::now() + Duration::from_secs(1),
+        deadline: Some(Instant::now() + Duration::from_secs(1)),
         cancel: CancellationToken::new(),
     };
     let first = source.next(context.clone()).await.unwrap().unwrap();
@@ -153,6 +155,8 @@ async fn slow_pending_handshake_does_not_block_accepting_another_request() {
     let completed = timeout(
         Duration::from_secs(1),
         second.complete(HandshakeContext {
+            accepted: None,
+            connection: None,
             inbound: support::inbound(),
             identities: Arc::new(Identity),
             deadline: Instant::now() + Duration::from_secs(1),
@@ -202,6 +206,8 @@ async fn control_handoff_and_cancellation_do_not_allocate_a_business_identity() 
     let cancel = CancellationToken::new();
     let request = PendingInbound::new(ControlHandshake)
         .complete(HandshakeContext {
+            accepted: None,
+            connection: None,
             inbound: support::inbound(),
             identities: Arc::new(NoBusinessIdentity),
             deadline: Instant::now() + Duration::from_secs(1),
@@ -218,3 +224,20 @@ async fn control_handoff_and_cancellation_do_not_allocate_a_business_identity() 
         .unwrap()
         .unwrap();
 }
+
+#[test]
+fn allocator_without_authentication_support_never_silently_discards_anonymous_policy() {
+    use zero_platform_tokio::contract::context::SessionIdentitySource;
+    let mut auth = zero_core::SessionAuth::new("contract-policy");
+    auth.up_bps = Some(1);
+    auth.down_bps = Some(2);
+    let error = Identity.allocate_authenticated(Some(auth)).unwrap_err();
+    assert_eq!(
+        error.reason,
+        zero_platform_tokio::contract::Reason::Unsupported
+    );
+    assert_eq!(Identity.allocate_authenticated(None).unwrap(), SessionId(2));
+}
+
+#[path = "contract_inbound/cancellation.rs"]
+mod cancellation;

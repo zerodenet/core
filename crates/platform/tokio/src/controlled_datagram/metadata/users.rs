@@ -6,4 +6,5 @@ pub use logical::{LogicalUserPermit, LogicalUsers, UserAdmission};
 mod graph;
 pub use graph::{
     BoundMetadataUsers, MetadataUserGraph, MetadataUsersClosedReceipt, MetadataUsersCompletion,
+    UnstartedMetadataCompletion,
 };

@@ -1,4 +1,5 @@
 //! Dependency-ordered start and confirmed retirement of the actual owners.
+mod carrier;
 use super::*;
 use zero_platform_tokio::contract::lifecycle::TaskFailure;
 
@@ -86,7 +87,7 @@ impl ComponentPlan {
                 )
             })?;
         if !owner.recipe.spec().resources.iter().any(|resource| matches!(resource,
-            zero_platform_tokio::contract::component::ResourceDeclaration::ControlledCarrierPool { .. })) {
+            zero_platform_tokio::contract::component::ResourceDeclaration::ControlledCarrierPool { .. } | zero_platform_tokio::contract::component::ResourceDeclaration::ControlledNodeStream { .. })) {
             return Err(invalid(Reason::Unsupported, "background owner has no finite controlled declaration"));
         }
         let mut donors = Vec::new();

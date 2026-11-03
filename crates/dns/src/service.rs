@@ -94,7 +94,11 @@ impl DnsSystem {
             self.query_coordinator.shutdown(deadline),
             self.wire_query_coordinator.shutdown(deadline)
         );
-        names.and(wire)
+        let node = match &self.node_queries {
+            Some(node) => node.coordinator.shutdown(deadline).await,
+            None => Ok(()),
+        };
+        names.and(wire).and(node)
     }
 }
 

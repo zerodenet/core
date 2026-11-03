@@ -16,6 +16,21 @@ use tokio::net::TcpSocket;
 use tokio_util::sync::CancellationToken;
 use zero_traits::{DialPolicy, IoObserver};
 impl PendingTcpConnect {
+    /// Original-controlled readiness I/O to a host-selected local listener.
+    /// Selection is pure: no second, unowned UDP route-probe descriptor.
+    pub fn prepare_listener_probe(
+        peer: SocketAddr,
+        parent: CancellationToken,
+    ) -> Result<(Self, ControlledTcpControl), TcpConnectError> {
+        let selection = EgressSelection::local_service(peer).map_err(|error| TcpConnectError {
+            stage: "validate_dial_policy",
+            interface_bound: false,
+            local_addr: None,
+            error,
+        })?;
+        Self::prepare(peer, &DialPolicy::default(), &selection, parent, None)
+    }
+
     /// Reuses the production policy validation, source and interface binding.
     /// Transfers (never duplicates) the raw socket into a persistent owner before
     /// any connect future exists. A Tokio runtime with I/O is required when

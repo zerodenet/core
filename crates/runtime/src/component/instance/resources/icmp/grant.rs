@@ -25,7 +25,8 @@ impl HostIcmpProbeGrant {
         Ok(shared)
     }
     /// Host routing supplies the actual bind family/egress; this capability is
-    /// crate-private and is never given to arbitrary protocol ResourceAccess.
+    /// owner-specific. Inbound ResourceAccess delegates only during the actual
+    /// finite lifecycle start phase; cleanup authority stays at this provider.
     pub fn bind(
         &self,
         bind: IpAddr,

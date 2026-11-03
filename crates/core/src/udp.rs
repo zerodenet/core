@@ -347,58 +347,6 @@ where
     ) -> Result<Option<usize>, Error>;
 }
 
-#[allow(async_fn_in_trait)]
-pub trait InboundUdpAssociationDispatcher {
-    type Error;
-
-    async fn dispatch_local_dns(&mut self, domain: &str) -> Result<(), Self::Error>;
-
-    async fn dispatch_inbound_packet(
-        &mut self,
-        dispatch: InboundUdpDispatch,
-        protocol_overhead_bytes: u64,
-    ) -> Result<(), Self::Error>;
-
-    async fn dispatch_peer_response(
-        &mut self,
-        sender: SocketAddress,
-        payload: &[u8],
-    ) -> Result<(), Self::Error>;
-
-    async fn dispatch_unexpected_sender(
-        &mut self,
-        sender: SocketAddress,
-    ) -> Result<(), Self::Error>;
-}
-
-#[allow(async_fn_in_trait)]
-pub trait InboundUdpAssociation: Send {
-    async fn dispatch_datagram<D>(
-        &mut self,
-        sender: SocketAddress,
-        packet: &[u8],
-        dispatcher: &mut D,
-    ) -> Result<(), D::Error>
-    where
-        D: InboundUdpAssociationDispatcher,
-        D::Error: From<Error>;
-}
-
-pub trait InboundUdpAssociationResponder: Send {
-    fn build_response_for_target(
-        &self,
-        target: &Address,
-        port: u16,
-        payload: &[u8],
-    ) -> Result<Option<InboundUdpAssociationResponse>, Error>;
-
-    fn build_peer_response(
-        &self,
-        sender: SocketAddress,
-        payload: &[u8],
-    ) -> Result<Option<InboundUdpAssociationResponse>, Error>;
-}
-
 impl InboundUdpDispatch {
     pub fn with_peer_identity(mut self, peer: Option<Arc<str>>) -> Self {
         self.peer_identity = peer;

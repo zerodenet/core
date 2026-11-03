@@ -8,7 +8,7 @@ use std::{
 };
 use tokio::io::{AsyncRead, AsyncWrite, ReadBuf};
 pub struct CarrierIo {
-    pub(super) io: BoxStream,
+    pub(super) io: Option<BoxStream>,
     pub(super) slot: Arc<Slot>,
 }
 impl AsyncRead for CarrierIo {
@@ -17,7 +17,11 @@ impl AsyncRead for CarrierIo {
         cx: &mut Context<'_>,
         buf: &mut ReadBuf<'_>,
     ) -> Poll<io::Result<()>> {
-        self.io.as_mut().poll_read(cx, buf)
+        self.io
+            .as_mut()
+            .expect("carrier body installed")
+            .as_mut()
+            .poll_read(cx, buf)
     }
 }
 impl AsyncWrite for CarrierIo {
@@ -26,13 +30,25 @@ impl AsyncWrite for CarrierIo {
         cx: &mut Context<'_>,
         bytes: &[u8],
     ) -> Poll<io::Result<usize>> {
-        self.io.as_mut().poll_write(cx, bytes)
+        self.io
+            .as_mut()
+            .expect("carrier body installed")
+            .as_mut()
+            .poll_write(cx, bytes)
     }
     fn poll_flush(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
-        self.io.as_mut().poll_flush(cx)
+        self.io
+            .as_mut()
+            .expect("carrier body installed")
+            .as_mut()
+            .poll_flush(cx)
     }
     fn poll_shutdown(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
-        self.io.as_mut().poll_shutdown(cx)
+        self.io
+            .as_mut()
+            .expect("carrier body installed")
+            .as_mut()
+            .poll_shutdown(cx)
     }
 }
 impl Drop for CarrierIo {
@@ -51,6 +67,16 @@ pub struct CarrierDriver<I> {
     pub(super) slot: Arc<Slot>,
 }
 impl CarrierIo {
+    /// Inline wrapping retains the same view guard and original reservation.
+    /// A cancelled or failed preparation leaves its controller with the owner.
+    pub async fn prepare_stream(
+        mut self,
+        prepare: super::prepared::CarrierStreamPreparation,
+    ) -> Result<Self, crate::contract::ChannelError> {
+        let body = self.io.take().expect("original carrier body");
+        self.io = Some(prepare(body).await?);
+        Ok(self)
+    }
     pub fn into_driver(self) -> CarrierDriver<Self> {
         CarrierDriver {
             slot: self.slot.clone(),

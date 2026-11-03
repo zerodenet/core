@@ -9,12 +9,17 @@ pub(in crate::component) enum DeclaredResourceKind {
     ControlledDatagramCarrier,
     ControlledOutboundDatagram,
     ControlledDirectStream,
+    ControlledNodeStream,
     NativeIcmp,
     MetadataDatagram,
     ControlledMetadataDatagram,
     File,
+    FileTree,
     TcpListener,
     DatagramListener,
+    AcceptedDatagram,
+    DatagramAssociations,
+    InboundTargets,
     Process,
     Device,
     BackgroundCarrier,
@@ -65,13 +70,26 @@ impl CoverageBinding {
             ResourceDeclaration::ControlledDatagramCarrier { .. } => {
                 Self::Carrier(DeclaredResourceKind::ControlledDatagramCarrier)
             }
+            ResourceDeclaration::ControlledNodeStream { .. } => {
+                Self::Carrier(DeclaredResourceKind::ControlledNodeStream)
+            }
             ResourceDeclaration::ControlledDirectStream { .. } => {
                 Self::Carrier(DeclaredResourceKind::ControlledDirectStream)
+            }
+            ResourceDeclaration::ListenerHandoff { .. } => {
+                return Err(super::error(
+                    component,
+                    zero_platform_tokio::contract::Reason::Unsupported,
+                    "listener handoff requires its actual inbound host originals",
+                ))
             }
             ResourceDeclaration::MetadataDatagram { .. } => Self::Metadata,
             ResourceDeclaration::ControlledMetadataDatagram { .. } => Self::MetadataPool,
             ResourceDeclaration::NativeIcmp { .. } => {
                 Self::Unaccounted(DeclaredResourceKind::NativeIcmp)
+            }
+            ResourceDeclaration::FileTree { .. } => {
+                Self::Unaccounted(DeclaredResourceKind::FileTree)
             }
             ResourceDeclaration::File { path, .. } => Self::File(path.clone()),
             ResourceDeclaration::TcpListener { destination, .. } => {
@@ -79,6 +97,17 @@ impl CoverageBinding {
             }
             ResourceDeclaration::DatagramListener { destination, .. } => {
                 Self::Datagram(sockets::literal(component, destination)?)
+            }
+            // This requires the actual accepted entry's original provider.
+            // A normal catalog declaration alone must never qualify it.
+            ResourceDeclaration::InboundTargets { .. } => {
+                Self::Unaccounted(DeclaredResourceKind::InboundTargets)
+            }
+            ResourceDeclaration::DatagramAssociations { .. } => {
+                Self::Unaccounted(DeclaredResourceKind::DatagramAssociations)
+            }
+            ResourceDeclaration::AcceptedDatagram { .. } => {
+                Self::Unaccounted(DeclaredResourceKind::AcceptedDatagram)
             }
             ResourceDeclaration::Process { .. } => Self::Unaccounted(DeclaredResourceKind::Process),
             ResourceDeclaration::Device { .. } => Self::Unaccounted(DeclaredResourceKind::Device),
@@ -196,6 +225,7 @@ impl evidence::HostIoEvidence {
                         DeclaredResourceKind::ControlledOutboundStream
                             | DeclaredResourceKind::ControlledCarrierPool
                             | DeclaredResourceKind::ControlledDatagramCarrier
+                            | DeclaredResourceKind::ControlledNodeStream
                             | DeclaredResourceKind::ControlledDirectStream
                     ) =>
                 {

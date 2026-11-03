@@ -14,6 +14,22 @@ struct Query<'a> {
     end: Instant,
 }
 
+/// Pure admission for native Node resolution; never select System/detour I/O.
+pub fn validate_node_server(server: &DnsServerConfig) -> io::Result<()> {
+    if validated_peers(server)?.is_empty() {
+        return Err(unsupported("node DNS has no native peers"));
+    }
+    Ok(())
+}
+pub fn validate_node_config(config: Option<&zero_config::DnsConfig>) -> io::Result<()> {
+    let config = config
+        .filter(|config| !config.servers.is_empty())
+        .ok_or_else(|| unsupported("node DNS requires configured native servers"))?;
+    for server in config.servers.values() {
+        validate_node_server(server)?;
+    }
+    Ok(())
+}
 pub fn native_endpoints(
     config: Option<&zero_config::DnsConfig>,
 ) -> io::Result<Vec<(SocketAddr, bool)>> {
@@ -105,6 +121,14 @@ fn validated_peers(config: &DnsServerConfig) -> io::Result<Vec<SocketAddr>> {
         return Err(unsupported(
             "native DoQ requires its original QUIC endpoint provider",
         ));
+    }
+    #[cfg(not(feature = "dot"))]
+    if matches!(config, DnsServerConfig::Dot { .. }) {
+        return Err(unsupported("native DoT feature is disabled"));
+    }
+    #[cfg(not(feature = "doh"))]
+    if matches!(config, DnsServerConfig::Doh { .. }) {
+        return Err(unsupported("native DoH feature is disabled"));
     }
     crate::backends::server_endpoints(config, port)
 }

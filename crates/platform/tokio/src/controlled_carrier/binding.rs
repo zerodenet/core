@@ -77,6 +77,18 @@ impl CarrierOwnerRegistration {
                 }
                 *max_sockets
             }
+            ResourceDeclaration::ControlledNodeStream {
+                endpoint,
+                dial,
+                max_sockets,
+            } => {
+                if endpoint.port == 0 {
+                    return Err(failure(Reason::InvalidConfig));
+                }
+                dial.validate()
+                    .map_err(|_| failure(Reason::InvalidConfig))?;
+                *max_sockets
+            }
             ResourceDeclaration::ControlledDirectStream { dial, max_sockets } => {
                 dial.validate()
                     .map_err(|_| failure(Reason::InvalidConfig))?;
@@ -141,6 +153,7 @@ impl BoundAuthority {
                     ..
                 }
                 | ResourceDeclaration::ControlledDirectStream { .. }
+                | ResourceDeclaration::ControlledNodeStream { .. }
         )
     }
     pub(super) fn background_custody_available(&self) -> bool {
@@ -153,6 +166,14 @@ impl BoundAuthority {
                 } | ResourceDeclaration::ControlledDatagramCarrier { .. }
                     | ResourceDeclaration::ControlledCarrierPool { .. }
             )
+    }
+    pub(super) fn transferred_custody_available(&self) -> bool {
+        self.background_custody_available()
+            || (self.available()
+                && matches!(
+                    self.declaration,
+                    ResourceDeclaration::ControlledNodeStream { .. }
+                ))
     }
     pub(super) fn matches(
         &self,
@@ -167,6 +188,9 @@ impl BoundAuthority {
                 | ResourceDeclaration::ControlledDirectStream { max_sockets, .. } => {
                     *max_sockets == limit
                 }
+                ResourceDeclaration::ControlledNodeStream { max_sockets, .. } => {
+                    *max_sockets == limit
+                }
                 _ => false,
             }
     }
@@ -174,6 +198,10 @@ impl BoundAuthority {
         matches!(&self.declaration, ResourceDeclaration::ControlledDirectStream { dial, .. }
             if dial == &binding.dial && binding.prefix.is_empty() && destination.port != 0
             && !matches!(destination.address, Address::Domain(_)))
+    }
+    fn matches_node(&self, destination: &Destination, binding: &UpstreamBinding) -> bool {
+        matches!(&self.declaration, ResourceDeclaration::ControlledNodeStream { endpoint, dial, .. }
+            if endpoint == destination && dial == &binding.dial && binding.prefix.is_empty())
     }
     pub(super) fn permits_native(
         &self,
@@ -205,6 +233,10 @@ impl BoundAuthority {
             }
             ResourceDeclaration::ControlledDirectStream { .. } => {
                 self.matches_direct(destination, binding)
+                    && context.session.is_some_and(|id| id.0 != 0)
+            }
+            ResourceDeclaration::ControlledNodeStream { .. } => {
+                self.matches_node(destination, binding)
                     && context.session.is_some_and(|id| id.0 != 0)
             }
             ResourceDeclaration::ControlledDatagramCarrier {
@@ -243,6 +275,9 @@ impl BoundAuthority {
     }
 }
 impl CarrierOwnerBinding {
+    pub(super) fn matches_authority(&self, actual: &Arc<BoundAuthority>) -> bool {
+        Arc::ptr_eq(&self.authority, actual)
+    }
     pub(super) fn registration(&self) -> &CarrierOwnerRegistration {
         &self.registration
     }
@@ -274,10 +309,14 @@ impl CarrierOwnerBinding {
     pub fn matches_direct(&self, destination: &Destination, binding: &UpstreamBinding) -> bool {
         self.authority.matches_direct(destination, binding)
     }
+    pub fn matches_node(&self, destination: &Destination, binding: &UpstreamBinding) -> bool {
+        self.authority.matches_node(destination, binding)
+    }
     pub fn demand(&self) -> ControlledStreamDemandClass {
         match &self.authority.declaration {
             ResourceDeclaration::ControlledOutboundStream { demand, .. } => *demand,
-            ResourceDeclaration::ControlledDirectStream { .. } => {
+            ResourceDeclaration::ControlledDirectStream { .. }
+            | ResourceDeclaration::ControlledNodeStream { .. } => {
                 ControlledStreamDemandClass::Business
             }
             ResourceDeclaration::ControlledDatagramCarrier { .. } => {

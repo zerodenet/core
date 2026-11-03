@@ -213,6 +213,16 @@ impl<O: DriverKind, B: Send + Sync + 'static> DriverOwner<O, B> {
             .copied()
             .collect()
     }
+    /// Original registration metadata, including before the body completes.
+    pub fn origin(&self, id: TaskId) -> Option<O> {
+        self.shared
+            .state
+            .lock()
+            .unwrap()
+            .records
+            .get(&id)
+            .map(|record| record.origin)
+    }
     pub fn body(&self, id: TaskId) -> Option<Arc<B>> {
         let record = self.shared.state.lock().unwrap().records.get(&id)?.clone();
         let body = record.body.lock().unwrap().clone();
