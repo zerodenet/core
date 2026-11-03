@@ -1,6 +1,8 @@
 //! Real caller/transport scopes and one original native slot. These library
 //! checks exercise closure facts, not production Engine or host admission.
 use super::*;
+#[path = "users/driver.rs"]
+mod driver;
 
 #[tokio::test]
 async fn caller_join_logical_view_return_driver_join_and_native_close_are_distinct_and_cancel_safe()

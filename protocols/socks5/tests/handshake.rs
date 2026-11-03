@@ -9,10 +9,7 @@ use socks5::udp::{
 use socks5::{
     Socks5Inbound, Socks5Outbound, Socks5OutboundAuth, Socks5PasswordAuth, Socks5Request,
 };
-use zero_core::{
-    Address, Error, InboundUdpAssociationDispatcher, InboundUdpDispatch, Network, ProtocolType,
-    Session,
-};
+use zero_core::{Address, Error, Network, ProtocolType, Session};
 use zero_traits::{AsyncSocket, DatagramSocket, IpAddress};
 
 #[derive(Debug, Default)]
@@ -135,47 +132,6 @@ fn test_established_udp_association(
             port: 1080,
         },
     )
-}
-
-#[derive(Debug, Default)]
-struct CaptureInboundUdpDispatch {
-    local_dns: Vec<String>,
-    packets: Vec<(Address, u16, Vec<u8>, Option<u64>)>,
-}
-
-impl InboundUdpAssociationDispatcher for CaptureInboundUdpDispatch {
-    type Error = Error;
-
-    async fn dispatch_local_dns(&mut self, domain: &str) -> Result<(), Self::Error> {
-        self.local_dns.push(domain.to_owned());
-        Ok(())
-    }
-
-    async fn dispatch_inbound_packet(
-        &mut self,
-        dispatch: InboundUdpDispatch,
-        _protocol_overhead_bytes: u64,
-    ) -> Result<(), Self::Error> {
-        let (_, target, port, payload, client_session_id) = dispatch.into_parts();
-        self.packets
-            .push((target, port, payload, client_session_id));
-        Ok(())
-    }
-
-    async fn dispatch_peer_response(
-        &mut self,
-        _sender: zero_traits::SocketAddress,
-        _payload: &[u8],
-    ) -> Result<(), Self::Error> {
-        unreachable!("client-packet dispatcher should not receive peer responses")
-    }
-
-    async fn dispatch_unexpected_sender(
-        &mut self,
-        _sender: zero_traits::SocketAddress,
-    ) -> Result<(), Self::Error> {
-        unreachable!("client-packet dispatcher should not receive unexpected senders")
-    }
 }
 
 #[derive(Debug, Default)]
@@ -512,38 +468,45 @@ fn inbound_udp_codec_decodes_requests_and_encodes_responses() {
     assert_eq!(decoded_response.payload(), b"pong");
 }
 
-#[tokio::test]
-async fn inbound_udp_association_dispatches_client_packets_through_protocol_dispatcher() {
-    let association = Socks5InboundUdpAssociationSession::new();
+#[test]
+fn inbound_udp_association_decodes_standard_packet_facts_and_local_dns() {
+    use zero_platform_tokio::contract::inbound::InboundDatagramEvent;
+    let mut association = Socks5InboundUdpAssociationSession::new();
     let codec = Socks5InboundUdpCodec;
-    let mut dispatch = CaptureInboundUdpDispatch::default();
-
+    let sender = zero_traits::SocketAddress {
+        ip: IpAddress::V4([127, 0, 0, 1]),
+        port: 10000,
+    };
     let packet = codec
         .encode_response_to_client(&Address::Domain("example.com".into()), 5353, b"ping")
-        .expect("build request");
-    association
-        .dispatch_client_packet(&packet, &mut dispatch)
-        .await
-        .expect("dispatch packet");
-
-    let dns_packet = codec
+        .unwrap();
+    let event = association
+        .decode_datagram_event(sender, &packet)
+        .unwrap()
+        .unwrap();
+    let InboundDatagramEvent::Packet {
+        dispatch,
+        sender: actual,
+        protocol_bytes,
+    } = event
+    else {
+        panic!("expected a business packet");
+    };
+    assert_eq!(actual, "127.0.0.1:10000".parse().unwrap());
+    assert_eq!(protocol_bytes as usize, packet.len() - 4);
+    assert_eq!(dispatch.target(), &Address::Domain("example.com".into()));
+    assert_eq!(dispatch.port(), 5353);
+    assert_eq!(dispatch.payload(), b"ping");
+    assert_eq!(dispatch.client_session_id(), None);
+    let packet = codec
         .encode_response_to_client(&Address::Domain("dns.example".into()), 53, b"dns")
-        .expect("build dns request");
-    association
-        .dispatch_client_packet(&dns_packet, &mut dispatch)
-        .await
-        .expect("dispatch dns packet");
-
+        .unwrap();
     assert_eq!(
-        dispatch.packets,
-        vec![(
-            Address::Domain("example.com".into()),
-            5353,
-            b"ping".to_vec(),
-            None,
-        )]
+        association.decode_datagram_event(sender, &packet).unwrap(),
+        Some(InboundDatagramEvent::Resolve {
+            domain: "dns.example".into()
+        })
     );
-    assert_eq!(dispatch.local_dns, vec!["dns.example".to_owned()]);
 }
 
 #[tokio::test]

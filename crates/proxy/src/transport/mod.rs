@@ -46,7 +46,3 @@ pub(crate) use zero_transport::TcpRelayStream;
 
 // Re-export transport implementations from zero-transport.
 // Only items used directly by proxy code are listed.
-#[cfg(feature = "transport_quic")]
-pub(crate) use zero_transport::quic::QuicInbound;
-#[cfg(feature = "transport_quic")]
-pub(crate) use zero_transport::quic::QuicStream;

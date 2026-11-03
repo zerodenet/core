@@ -15,6 +15,17 @@ pub(crate) mod host;
 mod session;
 pub(crate) use session::{PacketPlane, PacketSessionPins};
 
+/// Inert, already materialized executors. This data grants no device access;
+/// each executor still checks the actual pool generation at execution.
+#[derive(Clone)]
+pub(crate) struct PacketRouteOperations {
+    pub(crate) native: std::sync::Arc<dyn PreparedPacketRouteOperation>,
+    pub(crate) translated: Option<std::sync::Arc<dyn PreparedPacketRouteOperation>>,
+    pub(crate) datagram: Option<std::sync::Arc<dyn PreparedDatagramExchangeOperation>>,
+    pub(crate) flow: Option<crate::runtime::packet_flow::PacketFlowAdapter>,
+    pub(crate) correlated_returns: bool,
+}
+
 /// Facts from the actual packet execution, with no protocol-private state.
 #[derive(Debug)]
 pub(crate) struct PacketForwardObservation {

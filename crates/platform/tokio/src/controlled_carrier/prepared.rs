@@ -8,7 +8,17 @@ use tokio::time::Instant;
 use zero_core::component::NetworkGeneration;
 /// The persistent owner already holds the original native control. Dropping an
 /// unpolled or pending open retires the slot; it never drops the sole control.
+pub type CarrierStreamPreparation = Arc<
+    dyn Fn(
+            crate::contract::stream::BoxStream,
+        ) -> crate::contract::BoxFuture<
+            'static,
+            Result<crate::contract::stream::BoxStream, ChannelError>,
+        > + Send
+        + Sync,
+>;
 pub struct PreparedCarrier {
+    pub(super) preparation: Option<CarrierStreamPreparation>,
     pub(super) pending: PendingTcpConnect,
     pub(super) slot: Arc<Slot>,
     pub(super) egress: Arc<EgressInterfaceControl>,
@@ -21,6 +31,10 @@ pub struct PreparedCarrier {
     pub(super) business: Option<super::CarrierBusinessGrant>,
     pub(super) service: Option<super::CarrierServiceGrant>,
     pub(super) transferred: bool,
+    pub(super) dns: Option<(
+        Arc<dyn crate::contract::dns::DnsService>,
+        crate::contract::dns::DnsGeneration,
+    )>,
 }
 pub struct ControlledCarrier {
     io: CarrierIo,
@@ -39,6 +53,28 @@ impl ControlledCarrier {
     }
 }
 impl PreparedCarrier {
+    /// Host-selected protocol wrapping runs with the same original control and
+    /// view-live guard installed; cancellation retains that original for close.
+    pub fn with_stream_preparation(
+        mut self,
+        prepare: CarrierStreamPreparation,
+    ) -> Result<Self, ChannelError> {
+        if self.preparation.is_some()
+            || !self
+                .business
+                .as_ref()
+                .is_some_and(|business| business.is_relay())
+        {
+            return Err(error(
+                self.slot.instance,
+                Stage::Prepare,
+                Reason::InvalidConfig,
+                DeliveryState::NotSubmitted,
+            ));
+        }
+        self.preparation = Some(prepare);
+        Ok(self)
+    }
     pub fn with_endpoint_observer(
         mut self,
         observer: Arc<dyn super::CarrierEndpointObserver>,
@@ -67,13 +103,31 @@ impl PreparedCarrier {
         mut self,
         deadline: Option<Instant>,
     ) -> Result<ControlledCarrier, ChannelError> {
+        if self
+            .business
+            .as_ref()
+            .is_some_and(|business| business.is_relay())
+            && self.preparation.is_none()
+        {
+            return Err(error(
+                self.slot.instance,
+                Stage::Prepare,
+                Reason::InvalidConfig,
+                DeliveryState::NotSubmitted,
+            ));
+        }
         if let Some(business) = &self.business {
             business.check_liveness()?;
         }
         if let Some(service) = &self.service {
             service.check_liveness()?;
         }
-        if self.egress.generation() != self.generation.0 {
+        if self.egress.generation() != self.generation.0
+            || self
+                .dns
+                .as_ref()
+                .is_some_and(|(resolver, generation)| resolver.generation() != *generation)
+        {
             return Err(error(
                 self.slot.instance,
                 Stage::Dial,
@@ -120,7 +174,12 @@ impl PreparedCarrier {
                 DeliveryState::Unknown,
             ));
         }
-        if self.egress.generation() != self.generation.0 {
+        if self.egress.generation() != self.generation.0
+            || self
+                .dns
+                .as_ref()
+                .is_some_and(|(resolver, generation)| resolver.generation() != *generation)
+        {
             return Err(error(
                 self.slot.instance,
                 Stage::Dial,
@@ -168,9 +227,9 @@ impl PreparedCarrier {
             state.view_live = true;
             state.endpoints = Some(endpoints.clone());
         }
-        let carrier = ControlledCarrier {
+        let mut carrier = ControlledCarrier {
             io: CarrierIo {
-                io: Box::pin(socket),
+                io: Some(Box::pin(socket)),
                 slot: self.slot.clone(),
             },
             adoption: CarrierAdoption {
@@ -182,6 +241,24 @@ impl PreparedCarrier {
         // view accounting while retaining the original native control.
         if let Some(observer) = &self.endpoint_observer {
             observer.connected(&carrier.endpoints);
+        }
+        if let Some(prepare) = &self.preparation {
+            let body = carrier.io.io.take().expect("original carrier body");
+            let work = prepare(body);
+            let fail = |reason| {
+                error(
+                    self.slot.instance,
+                    Stage::Dial,
+                    reason,
+                    DeliveryState::Unknown,
+                )
+            };
+            let body = tokio::select! { biased;
+                _=self.cancel.cancelled()=>return Err(fail(Reason::Cancelled)),
+                _=self.slot.cancel.cancelled()=>return Err(fail(Reason::Revoked)),
+                value=crate::contract::context::with_deadline(deadline, work)=>value.map_err(|source|fail(Reason::Timeout).with_source(source))??,
+            };
+            carrier.io.io = Some(body);
         }
         self.transferred = true;
         Ok(carrier)

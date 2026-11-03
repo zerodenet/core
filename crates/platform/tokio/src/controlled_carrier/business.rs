@@ -24,6 +24,7 @@ pub struct CarrierBusinessIssuer {
     slot: Weak<Slot>,
     endpoint: Destination,
     upstream: UpstreamBinding,
+    relay: bool,
 }
 #[derive(Clone)]
 pub struct CarrierBusinessGrant {
@@ -32,6 +33,7 @@ pub struct CarrierBusinessGrant {
     demand: Arc<dyn CarrierBusinessDemand>,
     endpoint: Destination,
     upstream: UpstreamBinding,
+    relay: bool,
     caller: Option<crate::contract::scope::TaskJoinWitness>,
 }
 impl CarrierOwnerBinding {
@@ -73,6 +75,48 @@ impl CarrierOwnerBinding {
         }
         self.issuer_for(host_fence, grant, endpoint.clone(), binding.clone())
     }
+    /// The host validates the fixed node and current network before issuing.
+    pub fn node_business_issuer(
+        &self,
+        host_fence: &Arc<CancellationToken>,
+        grant: &CarrierGrant,
+        endpoint: &Destination,
+        binding: &UpstreamBinding,
+    ) -> Result<CarrierBusinessIssuer, ChannelError> {
+        if !self.matches_node(endpoint, binding) {
+            return Err(error(
+                grant.instance(),
+                Stage::Prepare,
+                Reason::StalePlan,
+                DeliveryState::NotSubmitted,
+            ));
+        }
+        self.issuer_for(host_fence, grant, endpoint.clone(), binding.clone())
+    }
+    /// Only the real host, after binding the exact current prefix, may issue
+    /// this ticket. Ordinary node/root issuers still reject nonempty prefixes.
+    pub fn node_relay_business_issuer(
+        &self,
+        host_fence: &Arc<CancellationToken>,
+        grant: &CarrierGrant,
+        endpoint: &Destination,
+        binding: &UpstreamBinding,
+    ) -> Result<CarrierBusinessIssuer, ChannelError> {
+        let mut root = binding.clone();
+        root.prefix.clear();
+        if binding.prefix.is_empty() || !self.matches_node(endpoint, &root) {
+            return Err(error(
+                grant.instance(),
+                Stage::Prepare,
+                Reason::StalePlan,
+                DeliveryState::NotSubmitted,
+            ));
+        }
+        let mut issuer = self.issuer_for(host_fence, grant, endpoint.clone(), root)?;
+        issuer.upstream = binding.clone();
+        issuer.relay = true;
+        Ok(issuer)
+    }
     fn issuer_for(
         &self,
         host_fence: &Arc<CancellationToken>,
@@ -99,6 +143,7 @@ impl CarrierOwnerBinding {
             slot: Arc::downgrade(&grant.slot),
             endpoint,
             upstream,
+            relay: false,
         })
     }
 }
@@ -130,6 +175,7 @@ impl CarrierBusinessIssuer {
             endpoint: self.endpoint,
             upstream: self.upstream,
             caller,
+            relay: self.relay,
         };
         grant.check_liveness()?;
         let slot = grant.slot.upgrade().ok_or_else(|| {
@@ -148,6 +194,9 @@ impl CarrierBusinessIssuer {
     }
 }
 impl CarrierBusinessGrant {
+    pub(super) fn is_relay(&self) -> bool {
+        self.relay
+    }
     /// Weak evidence of this exact issued ticket's original owner. This cannot
     /// construct another ticket, native control, task or completion receipt.
     pub fn owner_registration(&self) -> super::CarrierOwnerRegistration {

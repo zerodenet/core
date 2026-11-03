@@ -1,5 +1,5 @@
 #[path = "relay/fixtures.rs"]
-mod fixtures;
+pub(crate) mod fixtures;
 use crate::{
     inventory::PreparedTcpOutbound,
     runtime::tcp_dispatch::{dispatch_tcp_outbound, TcpDispatchIntent},

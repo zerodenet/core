@@ -1,4 +1,5 @@
-//! Native logical errors wait for the exact driver join and retain its failure Arc.
+//! Native logical errors and loans retain the exact original driver lineage.
+mod loan;
 use crate::inbound::multiplex::stream::MieruLogicalStream;
 use std::{
     error::Error,
@@ -18,6 +19,8 @@ pub struct NativeTcpStream {
     join: TaskJoinWitness,
     driver: tokio::sync::mpsc::Sender<super::OpenRequest>,
     error: Option<Pin<Box<dyn Future<Output = io::Error> + Send>>>,
+    user: super::pool::managed::UserLease,
+    original: Option<zero_platform_tokio::controlled_carrier::CarrierOrigin>,
 }
 #[derive(Debug)]
 struct DriverFailure(Arc<ChannelError>);
@@ -36,12 +39,16 @@ impl NativeTcpStream {
         stream: MieruLogicalStream,
         join: TaskJoinWitness,
         driver: tokio::sync::mpsc::Sender<super::OpenRequest>,
+        user: super::pool::managed::UserLease,
+        original: Option<zero_platform_tokio::controlled_carrier::CarrierOrigin>,
     ) -> Self {
         Self {
             stream,
             join,
             driver,
             error: None,
+            user,
+            original,
         }
     }
     fn failed(&mut self, cx: &mut Context<'_>, fallback: Option<io::Error>) -> Poll<io::Error> {

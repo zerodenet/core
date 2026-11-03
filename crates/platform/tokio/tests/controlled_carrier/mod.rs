@@ -115,6 +115,7 @@ mod lifecycle;
 mod opening;
 #[path = "origin.rs"]
 mod origin;
+mod taskless;
 
 mod registration;
 
@@ -131,6 +132,8 @@ mod reap;
 mod request;
 
 mod native_settlement;
+mod packet;
+mod resolution;
 
 #[path = "service.rs"]
 mod service;

@@ -6,6 +6,8 @@ use crate::protocol_registry::UdpAdapterContext;
 use crate::runtime::udp_dispatch::FlowFailure;
 
 pub(crate) enum PreparedUdpOutbound<'a> {
+    #[cfg(feature = "managed-stream-runtime")]
+    DatagramRelay(Box<super::PreparedDatagramRelay>),
     Relay(Box<crate::runtime::udp_dispatch::relay::PreparedUdpRelayChain<'a>>),
     Single(super::leaf::PreparedUdpLeafCandidate<'a>),
     Fallback(Vec<super::leaf::PreparedUdpLeafCandidate<'a>>),
@@ -21,33 +23,16 @@ impl ProtocolInventory {
         mode: RouteMode,
     ) -> Result<PreparedUdpOutbound<'a>, FlowFailure> {
         match resolved {
-            ResolvedOutbound::Single(candidate) => {
-                let claimed = self
-                    .claim_outbound_leaf(ctx.config(), candidate.clone())
-                    .map_err(|error| FlowFailure {
-                        stage: "outbound_leaf_runtime",
-                        error,
-                        upstream: None,
-                    })?;
-                Ok(PreparedUdpOutbound::Single(
-                    self.prepare_claimed_udp_leaf_candidate(ctx, &claimed, mode)?,
-                ))
-            }
+            ResolvedOutbound::Single(candidate) => Ok(PreparedUdpOutbound::Single(
+                self.prepare_udp_candidate(ctx, candidate, mode)?,
+            )),
             ResolvedOutbound::Fallback { candidates } => {
                 let mut prepared = Vec::with_capacity(candidates.len());
                 let mut last_failure = None;
 
-                for candidate in candidates.iter().cloned() {
-                    let prepared_candidate = self
-                        .claim_outbound_leaf(ctx.config(), candidate)
-                        .map_err(|error| FlowFailure {
-                            stage: "outbound_leaf_runtime",
-                            error,
-                            upstream: None,
-                        })
-                        .and_then(|claimed| {
-                            self.prepare_claimed_udp_leaf_candidate(ctx.clone(), &claimed, mode)
-                        });
+                for candidate in candidates {
+                    let prepared_candidate =
+                        self.prepare_udp_candidate(ctx.clone(), candidate, mode);
                     match prepared_candidate {
                         Ok(candidate) => prepared.push(candidate),
                         Err(failure) => last_failure = Some(failure),
@@ -77,6 +62,11 @@ impl ProtocolInventory {
                         upstream: None,
                     });
                 }
+                #[cfg(feature = "managed-stream-runtime")]
+                if let Some(selected) = self.prepare_standard_datagram_relay(&ctx, chain) {
+                    return selected
+                        .map(|selected| PreparedUdpOutbound::DatagramRelay(Box::new(selected)));
+                }
                 let claimed = self.claim_relay_chain(
                     ctx.config(),
                     chain.iter().cloned(),
@@ -92,7 +82,7 @@ impl ProtocolInventory {
                     },
                 )?;
                 Ok(PreparedUdpOutbound::Relay(Box::new(
-                    self.prepare_claimed_udp_relay_chain(ctx, session, &claimed, payload)?,
+                    self.prepare_claimed_udp_relay_chain(ctx, session, claimed, payload)?,
                 )))
             }
         }

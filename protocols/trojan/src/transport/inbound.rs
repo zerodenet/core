@@ -176,6 +176,78 @@ impl TrojanInboundListenerRequest {
         }
     }
 
+    pub async fn accept_standard_request(
+        self,
+        socket: TokioSocket,
+        context: zero_platform_tokio::contract::context::HandshakeContext,
+    ) -> Result<
+        zero_platform_tokio::contract::inbound::AcceptedRequest,
+        zero_platform_tokio::contract::ChannelError,
+    > {
+        use zero_platform_tokio::contract::{context::InboundConnectionFacts, inbound::*};
+        let connection = InboundConnectionFacts::from_stream(&socket);
+        let caller = context.accepted.as_ref().ok_or_else(|| {
+            zero_platform_tokio::contract::ChannelError::new(
+                zero_platform_tokio::contract::Stage::Prepare,
+                zero_platform_tokio::contract::Reason::Revoked,
+                zero_platform_tokio::contract::Impact::Session,
+            )
+        })?;
+        let mut stream = zero_transport::inbound_stack::accept_tls_inbound_stream_stack_scoped(
+            socket,
+            &self.tls_acceptor,
+            InboundStreamStack {
+                ws: self.ws.as_ref(),
+                grpc: self.grpc.as_ref(),
+                h2: None::<&OwnedH2Profile>,
+            },
+            "trojan: ws and grpc are mutually exclusive",
+            caller,
+        )
+        .await
+        .map_err(crate::component::inbound::datagram::failure)?;
+        let request = self
+            .profile
+            .accept_request_facts(crate::inbound::TrojanInbound, &mut stream)
+            .await
+            .map_err(crate::component::inbound::datagram::failure)?;
+        if request.is_mux() {
+            return crate::mux::standard_source(
+                stream,
+                request.auth,
+                self.mux_response_backlog,
+                &context,
+                connection,
+            );
+        }
+        let facts = connection.request(
+            &context,
+            zero_core::ProtocolType::new("trojan"),
+            Some(request.destination),
+            Some(request.auth),
+        )?;
+        if request.network == zero_core::Network::Tcp {
+            Ok(AcceptedRequest::Stream(accept_stream(
+                crate::component::inbound::TcpReply::new(stream, facts)?,
+            )))
+        } else {
+            let sender = connection.effective_source.ok_or_else(|| {
+                zero_platform_tokio::contract::ChannelError::new(
+                    zero_platform_tokio::contract::Stage::Prepare,
+                    zero_platform_tokio::contract::Reason::InvalidConfig,
+                    zero_platform_tokio::contract::Impact::Session,
+                )
+            })?;
+            Ok(AcceptedRequest::Datagram(accept_datagram(
+                crate::component::inbound::datagram::Reply {
+                    stream,
+                    facts,
+                    sender,
+                },
+            )))
+        }
+    }
+
     async fn accept_stream(&self, socket: TokioSocket) -> Result<TcpRelayStream, RuntimeError> {
         zero_transport::inbound_stack::accept_tls_inbound_stream_stack(
             socket,

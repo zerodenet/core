@@ -83,9 +83,8 @@ impl UdpDispatch {
     /// flow on an already-authenticated carrier.
     pub(crate) fn finish_cancelled_flow(&mut self, cancellation: UdpFlowCancellation) -> bool {
         self.direct_socket.retire_session(cancellation.session_id);
-        #[cfg(feature = "managed-stream-runtime")]
-        self.flow_state
-            .release_logical_session(cancellation.session_id);
+        #[cfg(feature = "managed-udp-runtime")]
+        self.flow_state.release_session(cancellation.session_id);
         let Some(completed) = self.flows.finish_cancelled(cancellation.session_id) else {
             return cancellation.close_association;
         };
@@ -152,7 +151,20 @@ impl UdpDispatch {
     }
 
     /// Finish all tracked flows and close upstreams.
-    pub(crate) fn finish_all(mut self) -> Vec<CompletedUdpFlow> {
+    pub(crate) fn finish_all(self) -> Vec<CompletedUdpFlow> {
+        self.finish_retaining_io().0
+    }
+
+    /// The standard accepted owner retains the exact native set/response Set
+    /// after finishing flows. Cancellation never discards their close ledgers.
+    pub(crate) fn finish_retaining_io(
+        mut self,
+    ) -> (
+        Vec<CompletedUdpFlow>,
+        super::super::socket::DispatchDirectSockets,
+        std::sync::Arc<crate::runtime::udp_flow::response_join::ResponseSetOwner>,
+    ) {
+        let responses = self.flow_state.response_owner();
         #[cfg(feature = "upstream-association-runtime")]
         self.flow_state.close_all_upstreams();
 
@@ -167,6 +179,6 @@ impl UdpDispatch {
                 );
             }
         }
-        completed
+        (completed, self.direct_socket, responses)
     }
 }

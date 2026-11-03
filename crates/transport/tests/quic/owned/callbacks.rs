@@ -216,7 +216,13 @@ async fn actual_incoming_refusal_resumes_original_observer_panic_after_quinn_sta
     let mut scope = TaskScope::new(tokio::runtime::Handle::current(), bound(2));
     let (drivers, mut receiver) = QuinnDriverOwner::new(scope.registrar(), bound(2));
     let mut native = socket();
-    let endpoint = super::drivers::endpoint(&drivers, &native);
+    // No handshake RTT sample exists after refusal. The default initial RTT
+    // leaves a three-PTO drain almost exactly on our three-second join bound.
+    // Configure the real loopback transport; keep the same join deadline and
+    // demand both actual exits and the original native close below.
+    let mut transport = quinn::TransportConfig::default();
+    transport.initial_rtt(std::time::Duration::from_millis(20));
+    let endpoint = super::drivers::endpoint_with_transport(&drivers, &native, Arc::new(transport));
     let target = endpoint.local_addr().unwrap();
     let connecting = endpoint.connect(target, "localhost").unwrap();
     let incoming = tokio::time::timeout(std::time::Duration::from_secs(2), endpoint.accept())

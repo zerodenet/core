@@ -5,7 +5,9 @@ use zero_core::Session;
 use zero_engine::EngineError;
 use zero_transport::{RuntimeError, StreamTraffic};
 
-use super::contract::{PreparedTcpConnectOperation, PreparedTcpRelayOperation};
+use super::contract::{
+    LazyTcpRelayCarrier, PreparedTcpConnectOperation, PreparedTcpRelayOperation,
+};
 use crate::protocol_registry::{TcpExecutionServices, UpstreamConnectServices};
 use crate::transport::{EstablishedTcpOutbound, TcpOutboundFailure, TcpRelayStream};
 
@@ -30,13 +32,23 @@ pub(crate) trait SocketTcpHandshake: Send + Sync {
         stream: TcpRelayStream,
         session: &Session,
     ) -> Result<TcpRelayStream, RuntimeError>;
+
+    async fn open_tcp_relay_carrier(
+        &self,
+        carrier: LazyTcpRelayCarrier<'_>,
+        session: &Session,
+    ) -> Result<TcpRelayStream, EngineError> {
+        self.open_tcp_relay_hop(carrier.open().await?, session)
+            .await
+            .map_err(Into::into)
+    }
 }
 
-pub(crate) struct SocketTcpConnectOperation<T> {
+pub(crate) struct SocketTcpOperation<T> {
     pub(crate) handshake: T,
 }
 
-impl<T> PreparedTcpConnectOperation for SocketTcpConnectOperation<T>
+impl<T> PreparedTcpConnectOperation for SocketTcpOperation<T>
 where
     T: SocketTcpHandshake + Send + Sync,
 {
@@ -49,23 +61,31 @@ where
         Self: 'a,
     {
         Box::pin(async move {
-            execute_socket_tcp_connect_operation(
-                services,
-                session,
-                PreparedSocketTcpOperation {
-                    handshake: &self.handshake,
-                },
-            )
-            .await
+            let handshake = &self.handshake;
+            let endpoint = (handshake.server().to_owned(), handshake.port());
+            let (stream, traffic) = handshake
+                .open_tcp_stream(services.upstream_observed(handshake.tag()), session)
+                .await
+                .map_err(|error| TcpOutboundFailure {
+                    stage: handshake.connect_stage(),
+                    error: error.into(),
+                    upstream_endpoint: Some(Box::new(endpoint.clone())),
+                    network: None,
+                })?;
+            if !traffic.is_empty() {
+                services.record_control_traffic(session.id, traffic);
+            }
+            Ok(EstablishedTcpOutbound::proxied(
+                handshake.tag().to_owned(),
+                endpoint.0,
+                endpoint.1,
+                stream,
+            ))
         })
     }
 }
 
-pub(crate) struct SocketTcpRelayOperation<T> {
-    pub(crate) handshake: T,
-}
-
-impl<T> PreparedTcpRelayOperation for SocketTcpRelayOperation<T>
+impl<T> PreparedTcpRelayOperation for SocketTcpOperation<T>
 where
     T: SocketTcpHandshake + Send + Sync,
 {
@@ -79,63 +99,25 @@ where
         Self: 'a,
     {
         Box::pin(async move {
-            execute_socket_tcp_relay_hop_operation(
-                services.observe_stream(stream),
-                session,
-                PreparedSocketTcpOperation {
-                    handshake: &self.handshake,
-                },
-            )
-            .await
+            self.handshake
+                .open_tcp_relay_hop(services.observe_stream(stream), session)
+                .await
+                .map_err(Into::into)
         })
     }
-}
-
-struct PreparedSocketTcpOperation<'leaf, T> {
-    handshake: &'leaf T,
-}
-
-async fn execute_socket_tcp_connect_operation<T>(
-    services: TcpExecutionServices,
-    session: &Session,
-    operation: PreparedSocketTcpOperation<'_, T>,
-) -> Result<EstablishedTcpOutbound, TcpOutboundFailure>
-where
-    T: SocketTcpHandshake,
-{
-    let handshake = operation.handshake;
-    let endpoint = (handshake.server().to_owned(), handshake.port());
-    let (stream, traffic) = handshake
-        .open_tcp_stream(services.upstream_observed(handshake.tag()), session)
-        .await
-        .map_err(|error| TcpOutboundFailure {
-            stage: handshake.connect_stage(),
-            error: error.into(),
-            upstream_endpoint: Some(Box::new(endpoint.clone())),
-            network: None,
-        })?;
-    if !traffic.is_empty() {
-        services.record_control_traffic(session.id, traffic);
+    fn execute_lazy<'a>(
+        &'a self,
+        services: UpstreamConnectServices,
+        carrier: LazyTcpRelayCarrier<'a>,
+        session: &'a Session,
+    ) -> Pin<Box<dyn Future<Output = Result<TcpRelayStream, EngineError>> + Send + 'a>>
+    where
+        Self: 'a,
+    {
+        Box::pin(async move {
+            self.handshake
+                .open_tcp_relay_carrier(carrier.with_observer(services.observer()), session)
+                .await
+        })
     }
-    Ok(EstablishedTcpOutbound::proxied(
-        handshake.tag().to_owned(),
-        endpoint.0,
-        endpoint.1,
-        stream,
-    ))
-}
-
-async fn execute_socket_tcp_relay_hop_operation<T>(
-    stream: TcpRelayStream,
-    session: &Session,
-    operation: PreparedSocketTcpOperation<'_, T>,
-) -> Result<TcpRelayStream, EngineError>
-where
-    T: SocketTcpHandshake,
-{
-    operation
-        .handshake
-        .open_tcp_relay_hop(stream, session)
-        .await
-        .map_err(Into::into)
 }

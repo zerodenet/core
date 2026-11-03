@@ -76,7 +76,7 @@ impl SharedRawIpDevice {
             local_addresses,
             mtu,
             endpoint,
-            Arc::new(DirectRawIpWireCarrier(socket)),
+            Arc::new(DirectRawIpWireCarrier::new(socket)),
             tunnel,
         )
     }

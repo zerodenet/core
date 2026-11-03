@@ -54,6 +54,7 @@ members = [
     "crates/connector",
     "crates/logging",
     "crates/proxy",
+    "crates/runtime",
     "crates/router",
     "crates/rule",
     "crates/platform/tokio",

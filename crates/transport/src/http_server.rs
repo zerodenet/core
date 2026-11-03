@@ -1,7 +1,13 @@
 //! HTTP/1 and HTTP/2 carriers. Listener ownership stays with the calling runtime.
 use bytes::Bytes;
 use http_body_util::BodyExt;
-use hyper_util::rt::{TokioExecutor, TokioIo, TokioTimer};
+use hyper_util::rt::{TokioIo, TokioTimer};
+use zero_platform_tokio::{
+    contract::{lifecycle::TaskClass, CancellationToken},
+    AcceptedCaller,
+};
+mod executor;
+use executor::{Executor, TaskStop};
 use std::{
     io,
     net::SocketAddr,
@@ -76,10 +82,38 @@ pub async fn serve_connection<S>(
 where
     S: tokio::io::AsyncRead + tokio::io::AsyncWrite + Unpin + Send + 'static,
 {
+    serve_using(stream, context, handler, Executor::Legacy).await
+}
+/// Actual caller Scope owns every HTTP/2 and request task; cancellation is
+/// a request only, and original resource/Scope receipts remain host-owned.
+pub async fn serve_connection_scoped<S>(
+    stream: S,
+    context: RequestContext,
+    handler: Arc<dyn HttpHandler>,
+    caller: AcceptedCaller,
+) -> io::Result<()>
+where
+    S: tokio::io::AsyncRead + tokio::io::AsyncWrite + Unpin + Send + 'static,
+{
+    let stop = CancellationToken::new();
+    let _guard = stop.clone().drop_guard();
+    serve_using(stream, context, handler, Executor::Owned { caller, stop }).await
+}
+async fn serve_using<S>(
+    stream: S,
+    context: RequestContext,
+    handler: Arc<dyn HttpHandler>,
+    executor: Executor,
+) -> io::Result<()>
+where
+    S: tokio::io::AsyncRead + tokio::io::AsyncWrite + Unpin + Send + 'static,
+{
     let permits = Arc::new(Semaphore::new(64));
+    let execute = executor.clone();
     let service =
         hyper::service::service_fn(move |request: http::Request<hyper::body::Incoming>| {
             let handler = handler.clone();
+            let execute = execute.clone();
             let permit = permits.clone().try_acquire_owned();
             async move {
                 let (headers_tx, headers_rx) = oneshot::channel();
@@ -88,7 +122,7 @@ where
                 parts.extensions.insert(context);
                 let failed = Arc::new(AtomicBool::new(false));
                 let task_failed = failed.clone();
-                let task = tokio::spawn(async move {
+                let task = execute.spawn(async move {
                     let _permit = match permit {
                         Ok(permit) => permit,
                         Err(_) => {
@@ -110,11 +144,11 @@ where
                     if !matches!(result, Ok(Ok(()))) {
                         task_failed.store(true, Ordering::Release);
                     }
-                });
+                })?;
                 // The body owns cancellation even while the handler is still producing headers.
                 let body = ResponseBody {
                     receiver: rx,
-                    task: task.abort_handle(),
+                    task,
                     failed,
                 };
                 let response = headers_rx
@@ -123,7 +157,7 @@ where
                 Ok::<_, io::Error>(response.map(|_| body))
             }
         });
-    let mut builder = hyper_util::server::conn::auto::Builder::new(TokioExecutor::new());
+    let mut builder = hyper_util::server::conn::auto::Builder::new(executor);
     builder
         .http1()
         .timer(TokioTimer::new())

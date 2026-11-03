@@ -19,7 +19,7 @@ pub(crate) struct UdpFlowKey {
     /// `client_session_id` are treated as independent relay sessions (for example, HY2 or SIP022).
     /// When `None`, the existing
     /// `(target, port)` keying is preserved.
-    client_session_id: Option<u64>,
+    pub(super) client_session_id: Option<u64>,
     peer_identity: Option<std::sync::Arc<str>>,
 }
 

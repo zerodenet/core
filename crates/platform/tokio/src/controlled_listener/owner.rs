@@ -9,6 +9,7 @@ use std::{net::IpAddr, num::NonZeroUsize};
 use tokio::time::Instant;
 use zero_core::Address;
 mod acquire;
+mod addresses;
 mod create;
 
 /// One exact declaration, bounded actual creation attempts, and one successful
@@ -16,7 +17,8 @@ mod create;
 /// Failed attempts with real close confirmation may retry within the original
 /// budget. Unknown native outcomes remain charged and forbid replacement.
 pub struct ControlledTcpListenerOwner {
-    address: SocketAddr,
+    addresses: Arc<[SocketAddr]>,
+    resolution_port: Option<u16>,
     remaining: usize,
     acquired: bool,
     pub(super) control: ControlledTcpListenerControl,
@@ -59,6 +61,39 @@ impl ControlledTcpListenerOwner {
             }
         };
         let address = SocketAddr::new(ip, destination.port);
+        Self::construct(
+            declaration,
+            max_bind_attempts,
+            parent,
+            Arc::from([address]),
+            None,
+        )
+    }
+
+    fn construct(
+        declaration: &ResourceDeclaration,
+        max_bind_attempts: NonZeroUsize,
+        parent: CancellationToken,
+        addresses: Arc<[SocketAddr]>,
+        resolution_port: Option<u16>,
+    ) -> Result<Self, ChannelError> {
+        let ResourceDeclaration::TcpListener {
+            max_bind_attempts: ceiling,
+            destination,
+            ..
+        } = declaration
+        else {
+            return Err(denied(
+                Reason::InvalidConfig,
+                "not a TCP listener declaration",
+            ));
+        };
+        if max_bind_attempts > *ceiling {
+            return Err(denied(
+                Reason::InvalidConfig,
+                "TCP listener attempt budget exceeds declaration",
+            ));
+        }
         let shared = Arc::new(Shared {
             accepted: None,
             state: Mutex::new(State {
@@ -70,10 +105,11 @@ impl ControlledTcpListenerOwner {
                 error: None,
             }),
             cancel: parent.child_token(),
-            label: format!("native TCP listener {address}"),
+            label: format!("native TCP listener {destination:?}"),
         });
         Ok(Self {
-            address,
+            addresses,
+            resolution_port,
             remaining: max_bind_attempts.get(),
             acquired: false,
             control: ControlledTcpListenerControl {
@@ -92,7 +128,7 @@ impl ControlledTcpListenerOwner {
         &mut self,
         address: SocketAddr,
     ) -> Result<ControlledTcpListener, ChannelError> {
-        if address != self.address {
+        if !self.addresses.contains(&address) {
             return Err(denied(
                 Reason::InvalidConfig,
                 "TCP listener address differs from declaration",

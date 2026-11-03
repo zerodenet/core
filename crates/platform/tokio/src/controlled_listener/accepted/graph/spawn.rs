@@ -30,7 +30,7 @@ impl Users {
         make: F,
     ) -> Result<(TaskId, TaskJoinWitness), ChannelError>
     where
-        F: FnOnce(AcceptedTcpTasks) -> Fut,
+        F: FnOnce(AcceptedTasks) -> Fut,
         Fut: Future<Output = Result<(), ChannelError>> + Send + 'static,
     {
         // Scope admission and any last-owner drops happen outside graph locks.
@@ -71,7 +71,7 @@ impl Users {
             registration_attempted: false,
         };
         let task = Arc::new(OnceLock::new());
-        let work = make(AcceptedTcpTasks {
+        let work = make(AcceptedTasks {
             users: Arc::downgrade(self),
             task: task.clone(),
         });

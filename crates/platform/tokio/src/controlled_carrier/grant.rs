@@ -58,6 +58,7 @@ impl CarrierGrants {
         })?;
         state.next = next;
         let slot = Arc::new(Slot {
+            completion: Default::default(),
             instance: self.0.instance,
             ordinal: next,
             owner: Arc::downgrade(&self.0),

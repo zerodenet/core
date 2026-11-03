@@ -74,28 +74,14 @@ pub(super) async fn initial_listener(
     state: &mut OrchestrationState,
     target: u16,
 ) -> std::net::SocketAddr {
-    let mut config = zero_config::RuntimeConfig::parse(&serde_json::json!({
-        "inbounds":[{"tag":"recover-direct","listen":{"address":"127.0.0.1","port":0},"udp":{"enabled":true},
+    // Keep a real endpoint reserved through config/component preparation.
+    let reservation = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let address = reservation.local_addr().unwrap();
+    let config = zero_config::RuntimeConfig::parse(&serde_json::json!({
+        "inbounds":[{"tag":"recover-direct","listen":{"address":"127.0.0.1","port":address.port()},"udp":{"enabled":true},
             "protocol":{"type":"direct","target":"127.0.0.1","port":target}}],
         "route":{"final":{"type":"direct"}}
     }).to_string()).unwrap();
-    let bound = crate::runtime::listeners::bind_inbound_listener(
-        &proxy.protocols,
-        &state.inbound_runtime_factory,
-        None,
-        &config.inbounds[0],
-        tokio::sync::watch::channel(false).0,
-    )
-    .await
-    .unwrap();
-    let crate::runtime::listeners::PendingInbound::Legacy(
-        crate::protocol_registry::BoundInbound::TcpAndDatagram(tcp, _),
-    ) = &bound
-    else {
-        panic!("actual combined listener");
-    };
-    let address = tcp.local_addr().unwrap();
-    config.inbounds[0].listen.port = address.port();
     proxy.engine.stage_runtime_config(config).unwrap();
     let snapshot = proxy.engine.runtime_snapshot();
     proxy
@@ -118,7 +104,21 @@ pub(super) async fn initial_listener(
     );
     let (stop, _) = tokio::sync::watch::channel(false);
     let inbound = snapshot.config().inbounds[0].clone();
-    crate::runtime::listeners::spawn_inbound_listener(
+    drop(reservation); // The actual host bind takes over immediately below.
+    let bound = crate::runtime::listeners::bind_inbound_listener(
+        &proxy.protocols,
+        &factory,
+        None,
+        &inbound,
+        stop.clone(),
+    )
+    .await
+    .unwrap();
+    assert!(matches!(
+        &bound,
+        crate::runtime::listeners::PendingInbound::Leased(_)
+    ));
+    let owner = crate::runtime::listeners::spawn_inbound_listener(
         &proxy.protocols,
         None,
         &factory,
@@ -128,6 +128,7 @@ pub(super) async fn initial_listener(
         &mut state.listeners,
     )
     .unwrap();
+    owner.wait_ready().await.unwrap();
     state.listener_stops.insert(inbound.tag.clone(), stop);
     state.active_inbounds.insert(inbound.tag.clone(), inbound);
     state.inbound_runtime_factory = factory;

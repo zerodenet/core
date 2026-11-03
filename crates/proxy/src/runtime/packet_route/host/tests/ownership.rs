@@ -95,7 +95,7 @@ async fn native_host_write_transfers_and_acknowledges_the_same_buffer() {
     assert_eq!(buffer, original);
     assert_eq!(buffer.as_ptr() as usize, pointer);
     device.close();
-    device.wait_stopped().await;
+    device.worker.join().await.unwrap();
 }
 
 #[tokio::test]
@@ -136,7 +136,7 @@ async fn rejected_invalid_header_is_not_repaired_by_rollback() {
     );
     assert_eq!(packet, expected);
     device.close();
-    device.wait_stopped().await;
+    device.worker.join().await.unwrap();
 }
 
 #[tokio::test]
@@ -187,5 +187,5 @@ async fn host_shutdown_returns_an_unaccepted_buffer_for_fallback() {
     assert_eq!(result.unwrap_err().kind(), io::ErrorKind::Interrupted);
     assert_eq!(buffer, original);
     assert_eq!(buffer.as_ptr() as usize, pointer);
-    device.wait_stopped().await;
+    device.worker.join().await.unwrap();
 }

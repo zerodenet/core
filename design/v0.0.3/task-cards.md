@@ -1,5 +1,7 @@
 # PR00 至 PR11 逐项任务卡
 
+2026-11-03：17 张卡继续表示逻辑完成标准，云端分支和 PR 的实际拆分以 [当前任务包](cloud/README.md) 为准。listener 旧链已整体删除；首轮 A 负责 PR08B/PR07B 配置职责，B 负责既有 Hysteria2 出站共享池，C 负责云端集成和证据对账。首轮不等于 ALL17 完成，TEMP-WG-OUTER-UDP-01 继续单列；禁止合入 develop/main。
+
 [方案入口](README.md) · [完整迁移映射与依赖](migration.md) · [验收门禁](validation.md)
 
 所有未来单元开工前必须读取本目录完整设计和当前 AGENTS.md，确认前置检查点的实现和必要验证已有证据，核对当前同一工作分支状态和需求重叠。每张卡均需记录本次触及旧接口、目标接口、调用者、删除时点、能力不丢失证明和回退 commit。下列范围继承正文全部细则，不以卡片摘要替代详细契约。
@@ -147,15 +149,18 @@
 | 字段 | 执行要求 |
 | --- | --- |
 | 目标 ID / 前置 | G4；前置 PR05B |
-| 状态 / 实际基线 | 未开始；前置检查点完成后在同一分支登记本单元起止 SHA，当前没有本单元实现证据 |
-| 范围 | 普通 Stream 接入、握手/请求拆分、标准客户端响应、预读、Fallback 与 Control。 |
+| 状态 / 实际基线 | 进行中，本地 develop 未提交。HTTP/SOCKS5/mixed/Direct/Trojan/VMess 已接标准 source；Shadowsocks 无插件及 SIP003/SIP003U 的 TCP/UDP 已迁，实际进程与 I/O 归同一标准宿主，旧 listener/carrier/context 执行链已删除。Mieru TCP/原生 UDP underlay 已接标准 Multiplex/Stream/Datagram；真实 peer 的任务、逻辑资源及原始 I/O 归同一宿主 Scope，Mieru 最后旧 listener 已删除，真实 Proxy/原始 owner 定向回归已通过。VLESS 已删除最后旧 listener、资格回退和独占 recorded/peer 执行链；mKCP+REALITY 属于原本禁止的组合，不作为待补能力。Hysteria2 的 QUIC TCP/UDP、H3/legacy 认证及 HTTP/HTTPS 伪装站点已整体迁入标准接入，删除旧 listener 与对应 QUIC/group/multiplex 执行链；真实宿主和原始清理定向 16 项、架构守卫 186 项通过。最后 WireGuard 已整体迁入标准 Packet source，删除 InboundListenerCapability/PreparedInboundListenerOperation/InboundDefinition/BoundInbound 及旧执行链，listener 接口职责域归零；TEMP-WG-OUTER-UDP-01、PR06A 全部验收与整体架构尚未完成 |
+| 范围 | 普通 Stream/Message 接入、握手/请求拆分、标准客户端响应、预读、Fallback 与 Control。 |
 | 明确不做 | 不把整个业务会话交给万能 Process；不让协议执行内核准入/路由/全局配额。 |
-| 契约变化 | InboundSource/Handshake、AcceptedRequest、ReplyOutcome；一次响应、一次交付、预读一次，身份归协议认证事实。 |
-| 调用者迁移 / 删除时点 | 迁移普通 InboundListenerCapability/PreparedInboundListenerOperation，保留 Control/Fallback 真实职责；拥有方和调用者同 PR 切换。 |
+| 契约变化 | InboundSource/Handshake、AcceptedRequest（含已确认补齐的通用 Message 角色）、ReplyOutcome；一次响应、一次交付、预读一次，身份归协议认证事实。 |
+| 调用者迁移 / 删除时点 | 所有调用者已迁到标准 factory/source，删除 InboundListenerCapability/PreparedInboundListenerOperation、单变体 definition 与旧执行链；保留 Control/Fallback 和标准 Packet 的真实职责。 |
 | 测试及能力保持证据 | 有界握手、拒绝/失败回复、延迟确认死锁防护、取消不泄漏、fallback replay/计量、无业务目标 Control 准入。 |
 | 待外部验收 | 各普通接入协议互通及控制/回退真实场景；平台监听资源资格单列。 |
 | 完成证据 | 实际 diff、任务目标、base/head、命令输出、选中且成功的 CI/互通结果、兼容及外部缺项；不能引用旧 head 结果 |
 | 回退边界 / commit | 开工记录实际 base，交付填写本单元 commit 及源码回退范围；二进制降级另验持久化/outbox，不同时保留双生产路径 |
+
+本地 Mieru 原生 UDP peer 已补齐唯一真实 admission → 原 Scope TaskId/witness → retained peer owner → 物理 driver/并发 TCP/UDP → 原始 provider 的所有权链，复用现有 accepted 任务、逻辑资源与 carrier 账本，不伪造 TCP caller，不建立第二套任务宿主。UDP 域名监听由同配置 Scope 保留并 join 真实 lookup，旧资源确认清理后启新。本批在相同生产源码上通过入站 owner 职责域 52 项（含 Mieru 实际 Proxy 6 项）、原生契约 7 项、Mieru 协议 22 项及静态架构边界 186 项；全部 zero-proxy feature 编译检查、格式与测试布局检查通过。真实 UDP 同端口凭据替换先确认旧 owner 的 7 个原 Scope 任务及 3 份原始 I/O 关闭凭据，再运行新业务；域名监听、主体撤销隔离、无效报文、有限地址回退、取消后保留原始 owner 和弱 Scope 权威均有定向证据。对应夹具在 `crates/proxy/src/runtime/inbound_owners/entry/tests/mieru/udp.rs`、`crates/proxy/src/runtime/inbound_owners/bind/native/udp/tests.rs` 与 `crates/platform/tokio/tests/contract_inbound/native/udp_source.rs`。不得用接口删除代替原始关闭凭据；这不代表固定上游外部互通、workspace 全量 CI、提交、推送或整体架构完成。普通 Mieru 出站生产准入、其余四个 legacy adapter 和 WireGuard 临时债务分别保留。
+
 
 <a id="pr06b"></a>
 
@@ -201,6 +206,7 @@
 | 状态 / 实际基线 | 未开始；前置检查点完成后在同一分支登记本单元起止 SHA，当前没有本单元实现证据 |
 | 范围 | 统一全入口配置事务、持久化、代际提交、局部重建、失败补偿和 Faulted 隔离。 |
 | 明确不做 | 禁止同资源新旧实例并行、提前占备用监听、长期退役池排空；候选清理未确认禁止恢复同资源旧实例；不伪造全局原子性。 |
+| 未结临时债务 | [TEMP-WG-OUTER-UDP-01](lifecycle.md#temp-wg-outer-udp-01)：既有 WireGuard outer_udp_proxy 换代宽限可能造成资源重叠，仅临时保留；未来须补齐原始关闭链并纠正，不能算严格事务已完成。 |
 | 契约变化 | Validate/Plan/StopOld/BuildNew/Persist/Commit/Acknowledge/Compensate；revision 与健康分离，PreparedUpdate 仅有界计划；普通更新保留连接、撤权终止、限速即时。 |
 | 调用者迁移 / 删除时点 | 迁移 engine 配置持久化、proxy handle/ConfigApplyReconciler、DNS/监听/应用服务协调；更新 AGENTS 旧预绑定/active guard 规则及兼容账本，删除第二套最终确认。 |
 | 测试及能力保持证据 | LF01/LF02、TX-BOUNDARY/RECOVERY 全阶段注入；调用方超时、崩溃记录、候选清理/恢复失败、无变化、仅受影响断连；RS01 重复切换无重叠。 |
@@ -251,6 +257,7 @@
 | 目标 ID / 前置 | G7；前置 PR08B |
 | 状态 / 实际基线 | 未开始；前置检查点完成后在同一分支登记本单元起止 SHA，当前没有本单元实现证据 |
 | 范围 | PacketSession、Endpoint 多角色共享资源、公共 Packet/Flow 转换、raw-IP 过渡移除与 TUN 关闭确认。 |
+| 未结临时债务 | [TEMP-WG-OUTER-UDP-01](lifecycle.md#temp-wg-outer-udp-01)：包含既有 outer_udp_proxy 重连历史；旧接口删除不等于设备原始所有权和关闭证明完成，须按该条验收条件关闭债务。 |
 | 明确不做 | 不新增 ICMP Flow，不把 native Packet 布尔值当转换可执行；不按外层 UDP 来源选择 WG peer，不关闭借入设备。 |
 | 契约变化 | PacketTx/Rx/Limits、唯一生命周期所有者、MTU/地址/回程与发送交接；保留 auto/packet/flow/translate 语义。 |
 | 调用者迁移 / 删除时点 | 迁移 ClaimedPacketLeaf、OutboundDeviceLifecycle/PreparedDevice、私有 PacketFlowAdapter 和 raw-IP 调用者；完整替代验证后删除过渡入口。 |

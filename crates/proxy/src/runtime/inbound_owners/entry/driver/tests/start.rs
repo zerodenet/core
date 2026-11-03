@@ -31,7 +31,8 @@ async fn real_start_failure_retains_original_os_source_and_closes_native_after_i
     let config = proxy.engine().config();
     let mut lease = lease(&proxy, &config, 0);
     lease.bind_tcp().unwrap();
-    let (operation, listener, installed) = lease.finish().unwrap().promote().unwrap();
+    let (operation, listener, installed) =
+        crate::runtime::inbound_owners::bind::tests::promote_tcp(lease.finish().unwrap());
     drop(operation);
     let address = listener.local_addr().unwrap();
     let owner = installed.owner();

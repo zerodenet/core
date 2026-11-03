@@ -25,13 +25,23 @@ fn strip_hop_headers(headers: &mut http::HeaderMap) {
         headers.remove(name);
     }
 }
-pub(super) async fn serve(
+pub(super) async fn serve<S>(
     client: &crate::http_client::HttpClient,
     base: &url::Url,
     rewrite_host: bool,
     request: http::Request<()>,
-    stream: super::super::request::RequestStream,
-) -> io::Result<()> {
+    stream: h3::server::RequestStream<S, Bytes>,
+    scoped: Option<(
+        &dyn zero_platform_tokio::contract::component::ResourceAccess,
+        &zero_platform_tokio::AcceptedCaller,
+        bool,
+    )>,
+) -> io::Result<()>
+where
+    S: h3::quic::BidiStream<Bytes> + Send,
+    S::SendStream: Send,
+    S::RecvStream: Send,
+{
     let (mut sender, mut receiver) = stream.split();
     let mut url = base.clone();
     url.set_path(&format!(
@@ -97,7 +107,14 @@ pub(super) async fn serve(
     });
     let request = http::Request::from_parts(parts, body);
     let download = async {
-        let response = match client.send_stream(request).await {
+        let response = match match scoped {
+            Some((resources, caller, insecure)) => {
+                client
+                    .send_stream_scoped(request, resources, caller, insecure)
+                    .await
+            }
+            None => client.send_stream(request).await,
+        } {
             Ok(response) => response,
             Err(_) => {
                 sender

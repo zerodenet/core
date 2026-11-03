@@ -1,7 +1,7 @@
 use std::future::Future;
 use std::io;
 
-use tracing::{error, info};
+use tracing::{debug, error, info, warn};
 use zero_engine::EngineError;
 
 use super::logging::log_stopped;
@@ -33,7 +33,7 @@ where
         tokio::pin!(startup);
         tokio::select! { biased;
             _ = &mut shutdown => {
-                proxy.apply_owner.begin_shutdown();
+                proxy.host.apply().begin_shutdown();
                 proxy.protocols.stop_component_admission();
                 preparing.begin_shutdown();
                 // Preserve the same borrowed state and every temporary owner.
@@ -121,7 +121,7 @@ where
                     tokio::pin!(reconciliation);
                     tokio::select! { biased;
                         _ = &mut shutdown => {
-                            proxy.apply_owner.begin_shutdown();
+                            proxy.host.apply().begin_shutdown();
                             proxy.protocols.stop_component_admission();
                             preparing.begin_shutdown();
                             // Drive this exact compensation, including its
@@ -137,8 +137,22 @@ where
             failure = proxy.packet_close_owner.observe_failure() => {
                 return Err(io::Error::other(failure).into());
             }
-            failure = proxy.apply_owner.observe_failure() => {
+            failure = proxy.host.apply().observe_failure() => {
                 return Err(io::Error::other(failure).into());
+            }
+            retired = proxy.retired_datagrams.progress_retired(
+                tokio::time::Instant::now() + std::time::Duration::from_secs(5)
+            ) => {
+                // The last UDP caller may already be gone. Advance the same
+                // retained originals here without spawning a second driver.
+                match retired {
+                    Ok(report) if !report.closed_io.is_empty() || !report.unfinished.is_empty() => {
+                        debug!(closed = report.closed_io.len(), unfinished = report.unfinished.len(),
+                            "advanced retired Datagram controllers");
+                    }
+                    Ok(_) => {},
+                    Err(error) => warn!(error = %error, "retired Datagram close remains owned"),
+                }
             }
             _ = network_change => {
                 #[cfg(feature = "raw-ip-runtime")]

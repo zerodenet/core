@@ -24,8 +24,9 @@ impl Proxy {
         let proxy = self.clone();
         // The result is nested so a native lifecycle error retains its source;
         // it is not flattened into the task owner's acknowledgement string.
-        self.apply_owner
-            .run(self.reload_apply_lock.clone(), async move {
+        self.host
+            .apply()
+            .run(self.host.apply_lock().clone(), async move {
                 let config = proxy.engine().runtime_snapshot().config().clone();
                 let result = proxy
                     .protocols

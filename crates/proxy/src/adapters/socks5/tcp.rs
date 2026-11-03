@@ -1,5 +1,3 @@
-use crate::adapters::socks5::Socks5Adapter;
-use crate::protocol_registry::{claim_socket_tcp_leaf, ClaimedTcpOutboundLeaf};
 use crate::runtime::tcp_dispatch::operation::SocketTcpHandshake;
 
 #[async_trait::async_trait]
@@ -48,14 +46,5 @@ impl SocketTcpHandshake for ::socks5::transport::Socks5TransportLeaf {
         session: &zero_core::Session,
     ) -> Result<crate::transport::TcpRelayStream, zero_transport::RuntimeError> {
         ::socks5::transport::Socks5TransportLeaf::open_tcp_relay_hop(self, stream, session).await
-    }
-}
-
-impl Socks5Adapter {
-    pub(super) fn claim_tcp_outbound_leaf_impl<'a>(
-        &self,
-        leaf: ::socks5::transport::Socks5TransportLeaf,
-    ) -> Box<dyn ClaimedTcpOutboundLeaf<'a> + 'a> {
-        claim_socket_tcp_leaf(leaf)
     }
 }

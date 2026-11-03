@@ -67,6 +67,16 @@ impl RetiredDatagrams {
                 None
             }
         };
+        if let Some(entry) = &removed {
+            let returns = entry
+                .lock()
+                .expect("Datagram entry poisoned")
+                .returns
+                .clone();
+            if let Some(returns) = returns {
+                returns.finish(false);
+            }
+        }
         drop(removed);
         self.notify();
     }
@@ -91,7 +101,12 @@ impl RetiredDatagrams {
             installed.reserved = false;
             installed.active = true;
             installed.control = Some(control);
-            if state.stopping {
+            if state.stopping
+                || installed
+                    .returns
+                    .as_ref()
+                    .is_some_and(|returns| returns.is_closed())
+            {
                 installed.retire(CloseReason::Shutdown)
             }
         }

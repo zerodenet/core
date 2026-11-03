@@ -76,6 +76,14 @@ struct DirectUdpSocketBinding {
 
 #[cfg(feature = "udp-runtime")]
 impl DirectUdpSockets {
+    /// Cold opt-in by the real accepted driver. Selection/reuse stays the same;
+    /// original reservations now precede native creation and registration.
+    pub(crate) fn with_native_originals(mut self, limit: std::num::NonZeroUsize) -> Self {
+        assert!(self.sockets.is_empty());
+        self.native_owner =
+            Some(zero_platform_tokio::controlled_datagram::ControlledDatagramOwner::new(limit));
+        self
+    }
     /// A dispatcher need not use Direct or either native address family.
     /// Defer every socket bind until a policy-checked destination is known.
     pub(crate) fn new(

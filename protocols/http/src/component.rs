@@ -1,5 +1,11 @@
 //! A single HTTP CONNECT reply owns the original stream and unread payload.
+mod connection;
 mod error;
+mod message;
+mod requests;
+pub use requests::Requests;
+mod listener;
+pub use listener::{InboundFactory, InboundOptions};
 mod socket;
 use alloc::boxed::Box;
 use zero_core::request::RequestFacts;

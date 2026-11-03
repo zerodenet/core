@@ -40,6 +40,15 @@ pub struct MieruInboundProfile {
 }
 
 impl MieruInboundProfile {
+    #[cfg(feature = "runtime")]
+    pub(crate) fn validate_options(&self) -> Result<(), Error> {
+        self.options
+            .validate()
+            .map_err(|_| Error::Config("invalid mieru transport options"))?;
+        TrafficPattern::from_config(self.options.traffic_pattern.as_ref())?;
+        Ok(())
+    }
+
     pub fn with_options(mut self, options: mieru_config::MieruTransportOptions) -> Self {
         self.options = options;
         self

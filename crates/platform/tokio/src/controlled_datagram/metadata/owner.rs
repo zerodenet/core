@@ -47,6 +47,22 @@ impl MetadataOwner {
         &mut self,
         source: SocketAddr,
     ) -> Result<GrantedMetadataDatagram, DatagramAcquisitionError> {
+        self.prepare_acquisition()?;
+        let socket = self.main.bind_raw_listener(source)?;
+        self.initialize(socket, None)
+    }
+    /// The same original/probe custody as listeners, with actual host egress.
+    pub fn acquire(
+        &mut self,
+        peer: SocketAddr,
+        policy: &zero_traits::DialPolicy,
+        selection: &crate::EgressSelection,
+    ) -> Result<GrantedMetadataDatagram, DatagramAcquisitionError> {
+        self.prepare_acquisition()?;
+        let socket = self.main.acquire_raw(peer, None, policy, selection)?;
+        self.initialize(socket, Some(peer))
+    }
+    fn prepare_acquisition(&mut self) -> Result<(), DatagramAcquisitionError> {
         if self.pending_main.is_some() || self.pending_probes.is_some() {
             return Err(self.main.acquisition_error(
                 None,
@@ -64,7 +80,13 @@ impl MetadataOwner {
                 .acquisition_error(None, AcquisitionOutcome::KnownNoNative, source)
         })?;
         self.probes.begin();
-        let socket = self.main.bind_raw_listener(source)?;
+        Ok(())
+    }
+    fn initialize(
+        &mut self,
+        socket: ControlledDatagramSocket,
+        outbound_peer: Option<SocketAddr>,
+    ) -> Result<GrantedMetadataDatagram, DatagramAcquisitionError> {
         let setup = {
             let native = socket.entry.lock();
             let NativeHandleState::Raw(original) = &*native else {
@@ -105,6 +127,7 @@ impl MetadataOwner {
             sends: tokio::sync::Semaphore::new(self.limits.concurrent_send_calls.get()),
             send_limit: self.limits.concurrent_send_calls,
             views: Views::new(),
+            outbound_peer,
         });
         self.views
             .insert(shared.socket.reservation(), shared.clone());

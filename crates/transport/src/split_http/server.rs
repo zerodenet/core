@@ -14,10 +14,13 @@ use zero_traits::SplitHttpTransportProfile;
 pub(super) mod exchange;
 mod http1;
 mod packet;
+mod scoped;
+pub use scoped::accept as accept_xhttp_connection_scoped;
 
 pub struct XhttpIncoming {
     pub(super) receiver: tokio::sync::Mutex<mpsc::Receiver<XhttpStream>>,
     pub(super) task: Option<tokio::task::AbortHandle>,
+    pub(super) scoped: Option<Arc<scoped::Stop>>,
 }
 impl Drop for XhttpIncoming {
     fn drop(&mut self) {
@@ -31,6 +34,9 @@ impl XhttpIncoming {
         self.receiver.lock().await.recv().await
     }
     pub fn close(&self) {
+        if let Some(stop) = &self.scoped {
+            stop.0.cancel();
+        }
         if let Some(task) = &self.task {
             task.abort();
         }
@@ -119,6 +125,7 @@ where
     XhttpIncoming {
         receiver: tokio::sync::Mutex::new(receiver),
         task: Some(task.abort_handle()),
+        scoped: None,
     }
 }
 pub(super) fn status(code: u16) -> http::Response<Body> {

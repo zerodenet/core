@@ -1,8 +1,6 @@
 //! Protocol-owned SIP003/SIP003u process and endpoint plans.
-mod inbound;
-mod process;
+pub(crate) mod process;
 mod resource;
-pub use inbound::ShadowsocksInboundPluginPlan;
 pub use resource::{PluginTermination, ShadowsocksPluginResource};
 
 pub(crate) mod outbound;

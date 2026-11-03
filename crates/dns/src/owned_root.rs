@@ -71,6 +71,19 @@ pub(crate) async fn exchange_backend_attempt(
     timeout_ms: u64,
 ) -> (io::Result<Vec<u8>>, bool) {
     let duration = std::time::Duration::from_millis(timeout_ms);
+    if let Some(source) = &snapshot.native_source {
+        // This path owns its attempt deadline and original close continuation.
+        let result = source
+            .exchange(
+                &server.config,
+                &server.backend,
+                query,
+                tokio::time::Instant::now() + duration,
+            )
+            .await;
+        return result.into_parts();
+    }
+
     let deadline = tokio::time::Instant::now() + duration;
     #[cfg(feature = "udp")]
     if let Some(resolver) = server.backend.owned_udp() {

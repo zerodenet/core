@@ -1,5 +1,3 @@
-use async_trait::async_trait;
-
 #[cfg(feature = "hysteria2")]
 use ::hysteria2::inbound::Hysteria2InboundProfileStore;
 use ::hysteria2::transport::{
@@ -12,17 +10,11 @@ use zero_engine::EngineError;
 use zero_traits::{ProtocolCapabilityDescriptor, ProtocolMetadata};
 
 use crate::adapters::identity::NamedProtocolAdapter;
-use crate::protocol_registry::{
-    inbound_listen_addr, BoundInbound, InboundListenerCapability, ManagedUdpHandlerProvider,
-    OutboundLeafClaim, OutboundLeafInput, TcpOutboundCapability, UdpFlowCapability,
-    UdpPacketPathCapability,
-};
+use crate::protocol_registry::{OutboundLeafClaim, OutboundLeafInput};
 use crate::runtime::path::TcpPathCategory;
-use crate::runtime::udp_flow::managed::ManagedDatagramFlowHandler;
 
 #[cfg(feature = "hysteria2")]
-mod inbound;
-mod listener;
+mod component;
 #[cfg(feature = "hysteria2")]
 mod tcp;
 #[cfg(feature = "hysteria2")]
@@ -147,61 +139,33 @@ impl Hysteria2Adapter {
         &self,
         input: OutboundLeafInput<'a>,
     ) -> Option<OutboundLeafClaim<'a>> {
-        let OutboundLeafInput::Proxy { outbound, .. } = input else {
+        let OutboundLeafInput::Proxy {
+            outbound,
+            source_dir,
+            ..
+        } = input
+        else {
             return None;
         };
         let leaf = transport_leaf(outbound.tag(), &outbound.protocol)?
             .with_pool(self.outbound_pool.clone());
-        let tcp = self.claim_tcp_outbound_leaf_impl(leaf.clone());
+        let tcp = std::sync::Arc::new(
+            crate::runtime::tcp_dispatch::operation::SessionTcpConnectOperation {
+                handshake: leaf.clone().with_source_dir(source_dir),
+            },
+        );
         Some(OutboundLeafClaim {
             tcp_path: TcpPathCategory::TransportSession,
-            tcp: Some(tcp),
-            udp: Some(self.claim_udp_flow_leaf_impl(leaf.clone())),
+            tcp: Some(Ok(tcp)),
+            tcp_relay: None,
+            udp: Some(self.udp_flow_operation(leaf.clone(), source_dir)),
+            udp_relay: None,
             #[cfg(feature = "raw-ip-runtime")]
             packet: None,
-            packet_path: self.claim_udp_packet_path_leaf_impl(leaf),
+            packet_path: self.udp_packet_path_operation(leaf, source_dir),
         })
     }
 }
-
-#[cfg(feature = "hysteria2")]
-impl UdpPacketPathCapability for Hysteria2Adapter {}
-
-#[cfg(feature = "hysteria2")]
-impl UdpFlowCapability for Hysteria2Adapter {}
-
-#[cfg(feature = "hysteria2")]
-impl ManagedUdpHandlerProvider for Hysteria2Adapter {
-    fn managed_datagram_udp_handler(&self) -> Option<Box<dyn ManagedDatagramFlowHandler>> {
-        Some(udp::managed_datagram_handler())
-    }
-}
-
-#[cfg(feature = "hysteria2")]
-#[async_trait]
-impl InboundListenerCapability for Hysteria2Adapter {
-    async fn bind_inbound(
-        &self,
-        inbound: &InboundConfig,
-        source_dir: Option<&std::path::Path>,
-    ) -> Result<BoundInbound, EngineError> {
-        listener::bind(inbound, source_dir).await
-    }
-
-    fn prepare_inbound_listener(
-        &self,
-        inbound: InboundConfig,
-        source_dir: Option<&std::path::Path>,
-    ) -> Result<
-        Box<dyn crate::runtime::inbound_operation::PreparedInboundListenerOperation>,
-        EngineError,
-    > {
-        listener::prepare(self, inbound, source_dir)
-    }
-}
-
-#[cfg(feature = "hysteria2")]
-impl TcpOutboundCapability for Hysteria2Adapter {}
 
 #[cfg(feature = "hysteria2")]
 impl ProtocolMetadata for Hysteria2Adapter {

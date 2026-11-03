@@ -69,34 +69,29 @@ pub(crate) trait RawIpWireCarrier: Send + Sync {
         None
     }
 
+    /// Original provider evidence is independent of worker joins.
+    async fn close_native(&self) -> Result<(), EngineError> {
+        let owner = self.native_owner().ok_or_else(|| {
+            EngineError::Io(io::Error::new(
+                io::ErrorKind::Unsupported,
+                "raw-IP carrier has no original native-close provider",
+            ))
+        })?;
+        let report = owner.close_native();
+        if !report.is_complete() {
+            return Err(EngineError::Io(io::Error::other(
+                "raw-IP original carrier cleanup remains unconfirmed",
+            )));
+        }
+        Ok(())
+    }
+
     async fn recv(&self, buf: &mut [u8]) -> io::Result<(usize, Option<SocketAddr>)>;
     async fn send(&self, packet: &[u8], endpoint: SocketAddr) -> io::Result<()>;
 }
 
-pub(crate) struct DirectRawIpWireCarrier(pub(crate) TokioDatagramSocket);
-
-#[async_trait]
-impl RawIpWireCarrier for DirectRawIpWireCarrier {
-    fn background_drained(&self) -> bool {
-        true
-    } // This concrete type creates none.
-    fn stop_background(&self) -> Option<CarrierWorkerCompletion> {
-        // This concrete view owns no background task at all. Its native socket
-        // requires separate explicit close evidence after the I/O driver stops.
-        Some(Box::pin(async { Ok(()) }))
-    }
-
-    async fn recv(&self, buf: &mut [u8]) -> io::Result<(usize, Option<SocketAddr>)> {
-        self.0
-            .recv_from_addr(buf)
-            .await
-            .map(|(size, source)| (size, Some(source)))
-    }
-
-    async fn send(&self, packet: &[u8], endpoint: SocketAddr) -> io::Result<()> {
-        self.0.send_to_addr(packet, endpoint).await.map(|_| ())
-    }
-}
+mod direct;
+pub(crate) use direct::DirectRawIpWireCarrier;
 
 /// An upstream carrier serves one configured peer. Address-bearing relays
 /// report the response source. Opaque transports must not present the
@@ -194,6 +189,14 @@ impl ProxiedCarrierState {
 
 #[async_trait]
 impl RawIpWireCarrier for ProxiedRawIpWireCarrier {
+    async fn close_native(&self) -> Result<(), EngineError> {
+        // This compatibility reconnect path does not retain the complete set
+        // of original attempts. Its current path cannot certify that history.
+        Err(EngineError::Io(io::Error::new(
+            io::ErrorKind::Unsupported,
+            "outer carrier reconnect originals are not qualified for confirmed replacement",
+        )))
+    }
     fn background_drained(&self) -> bool {
         self.state.tasks.is_drained()
     }

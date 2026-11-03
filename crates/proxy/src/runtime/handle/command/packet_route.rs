@@ -9,7 +9,7 @@ pub(super) async fn close(
         .close(
             handle.proxy.engine().clone(),
             request,
-            handle.proxy.reload_apply_lock.clone(),
+            handle.proxy.host.apply_lock().clone(),
             std::time::Duration::from_secs(5),
         )
         .await

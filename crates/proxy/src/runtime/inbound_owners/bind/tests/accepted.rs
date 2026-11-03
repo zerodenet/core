@@ -1,28 +1,17 @@
 //! The actual registry owner, canonical cap and original handler Scope.
 use super::*;
-use zero_platform_tokio::contract::{component::AcceptedTcpLimits, lifecycle::TaskClass};
+use zero_platform_tokio::contract::lifecycle::TaskClass;
 
 #[tokio::test]
 async fn rejected_plain_client_retains_actual_source_without_stopping_same_owned_listener() {
     timeout(Duration::from_secs(5), async {
         let proxy = proxy();
         let config = proxy.engine().config();
-        let operation = proxy
+        let prepared = proxy
             .protocols
-            .prepare_inbound_listener(config.inbounds[0].clone(), None)
-            .unwrap();
-        let prepared = PreparedInboundBind::new(
-            operation,
-            Arc::from([ResourceDeclaration::TcpListener {
-                destination: Destination::new(Address::Ipv4([127, 0, 0, 1]), 0),
-                max_bind_attempts: NonZeroUsize::new(1).unwrap(),
-                accepted: Some(AcceptedTcpLimits {
-                    max_sockets: NonZeroUsize::new(1).unwrap(),
-                    max_tasks_per_socket: NonZeroUsize::new(1).unwrap(),
-                }),
-            }]),
-        )
-        .unwrap();
+            .prepare_inbound_bind(config.inbounds[0].clone(), None)
+            .unwrap()
+            .expect("actual standard Direct recipe");
         let (shutdown, _) = watch::channel(false);
         let mut lease = proxy
             .inbound_owners
@@ -36,7 +25,7 @@ async fn rejected_plain_client_retains_actual_source_without_stopping_same_owned
             )
             .unwrap();
         lease.bind_tcp().unwrap();
-        let (operation, listener, installed) = lease.finish().unwrap().promote().unwrap();
+        let (operation, listener, installed) = promote_tcp(lease.finish().unwrap());
         drop(operation); // The fixture below has an audited single handler body.
         let owner = installed.owner();
         let address = listener.local_addr().unwrap();

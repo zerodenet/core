@@ -1,44 +1,40 @@
-//! Mieru inbound preparation and protocol handshake handoff.
-
-use ::mieru::transport::MieruInboundListenerRequest;
-
-use crate::runtime::inbound_operation::{InboundConnectionContext, TcpInboundListenerOperation};
-use crate::transport::{MeteredStream, TcpRelayStream};
-
-pub(super) fn prepare(
-    profile: MieruInboundListenerRequest,
-    udp: bool,
-) -> Box<dyn crate::runtime::inbound_operation::PreparedInboundListenerOperation> {
-    if udp {
-        return Box::new(
-            crate::runtime::inbound_operation::PeerRouteInboundListenerOperation {
-                request: profile,
-                max_packet_size: MieruInboundListenerRequest::MAX_PACKET_SIZE,
-                pending_packets: MieruInboundListenerRequest::PACKET_QUEUE_CAPACITY,
-                dispatch: |profile: MieruInboundListenerRequest,
-                           socket: zero_platform_tokio::PacketSocket,
-                           peer,
-                           packets,
-                           context: InboundConnectionContext| async move {
-                    let connection = profile
-                        .accept_packet_peer(socket.udp()?, peer, packets)
-                        .await?;
-                    context.run_route_multiplexer(connection, "mieru_udp").await
-                },
-            },
-        );
-    }
-    Box::new(TcpInboundListenerOperation {
-        protocol_name: "mieru",
-        error_protocol_name: "mieru",
-        request: profile,
-        dispatch: |profile: MieruInboundListenerRequest,
-                   socket,
-                   context: InboundConnectionContext| async move {
-            let connection = profile
-                .accept_multiplexer(MeteredStream::new(TcpRelayStream::from(socket)))
-                .await?;
-            context.run_route_multiplexer(connection, "mieru_udp").await
-        },
-    })
+use zero_config::{InboundConfig, InboundProtocolConfig};
+pub(crate) fn options(
+    input: &InboundConfig,
+) -> Result<::mieru::component::inbound::Options, crate::component::RegistrationError> {
+    let InboundProtocolConfig::Mieru {
+        users,
+        options,
+        transport,
+    } = &input.protocol
+    else {
+        return Err(zero_config::ConfigError::InvalidInbound(
+            "Mieru source requires Mieru configuration".into(),
+        )
+        .into());
+    };
+    let profile =
+        ::mieru::inbound::MieruInboundProfile::from_config_users(users.iter().map(|user| {
+            (
+                user.username.as_str(),
+                user.password.as_str(),
+                user.principal_key.as_deref(),
+            )
+        }))
+        .with_options(options.clone());
+    let endpoint = zero_core::address::socket_addr(&input.listen.address, input.listen.port);
+    let address = match endpoint.map(|address| address.ip()) {
+        Some(std::net::IpAddr::V4(ip)) => zero_core::Address::Ipv4(ip.octets()),
+        Some(std::net::IpAddr::V6(ip)) => zero_core::Address::Ipv6(ip.octets()),
+        None => zero_core::Address::Domain(input.listen.address.clone()),
+    };
+    let identity = serde_json::to_vec(input)
+        .map_err(|source| zero_config::ConfigError::InvalidInbound(source.to_string()))?;
+    ::mieru::component::inbound::Options::new(
+        zero_core::request::Destination::new(address, input.listen.port),
+        matches!(transport, zero_config::MieruTransport::Udp),
+        profile,
+        &identity,
+    )
+    .map_err(Into::into)
 }

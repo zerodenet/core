@@ -1,7 +1,5 @@
 //! Candidate-local plane selection for ordinary TCP and UDP flow inbounds.
 
-use std::path::Path;
-
 use zero_engine::{EngineError, RouteMode};
 
 use super::ClaimedOutboundLeaf;
@@ -10,22 +8,19 @@ use crate::runtime::tcp_dispatch::operation::PreparedTcpConnectOperation;
 use crate::runtime::udp_dispatch::operation::PreparedUdpFlowOperation;
 
 impl<'a> ClaimedOutboundLeaf<'a> {
-    pub(crate) fn prepare_tcp_connect_for_route(
+    pub(crate) fn tcp_connect_for_route(
         &self,
-        source_dir: Option<&Path>,
         mode: RouteMode,
-    ) -> Result<Box<dyn PreparedTcpConnectOperation>, crate::transport::TcpOutboundFailure> {
+    ) -> Result<std::sync::Arc<dyn PreparedTcpConnectOperation>, crate::transport::TcpOutboundFailure>
+    {
         #[cfg(feature = "raw-ip-runtime")]
         {
             use crate::runtime::network_graph::{NetworkGraph, Plane, PlaneSet};
             use zero_stack::packet::IPPROTO_TCP;
 
-            let converted = self
-                .packet
-                .as_ref()
-                .and_then(|leaf| leaf.packet_flow_adapter());
+            let converted = self.packet.as_ref().and_then(|leaf| leaf.flow.as_ref());
             let mut sinks = PlaneSet::empty();
-            if self.tcp.capability.is_some() {
+            if self.tcp.is_some() {
                 sinks.insert(Plane::Stream);
             }
             if converted.is_some() {
@@ -43,8 +38,9 @@ impl<'a> ClaimedOutboundLeaf<'a> {
             match path.as_ref().and_then(|path| path.planes.last()) {
                 Some(Plane::Packet) => Ok(converted
                     .expect("packet conversion was advertised")
-                    .prepare_tcp()),
-                Some(Plane::Stream) => self.prepare_tcp_connect(source_dir),
+                    .prepare_tcp()
+                    .into()),
+                Some(Plane::Stream) => self.tcp_connect(),
                 _ => Err(missing_tcp_route_capability(mode)),
             }
         }
@@ -53,14 +49,13 @@ impl<'a> ClaimedOutboundLeaf<'a> {
             if mode == RouteMode::Packet {
                 return Err(missing_tcp_route_capability(mode));
             }
-            self.prepare_tcp_connect(source_dir)
+            self.tcp_connect()
         }
     }
 
     #[cfg(feature = "udp-runtime")]
-    pub(crate) fn prepare_udp_flow_for_route(
-        &self,
-        source_dir: Option<&Path>,
+    pub(crate) fn into_udp_flow_for_route(
+        self,
         mode: RouteMode,
     ) -> Result<Box<dyn PreparedUdpFlowOperation + 'a>, crate::runtime::udp_dispatch::FlowFailure>
     {
@@ -69,12 +64,9 @@ impl<'a> ClaimedOutboundLeaf<'a> {
             use crate::runtime::network_graph::{NetworkGraph, Plane, PlaneSet};
             use zero_stack::packet::IPPROTO_UDP;
 
-            let converted = self
-                .packet
-                .as_ref()
-                .and_then(|leaf| leaf.packet_flow_adapter());
+            let converted = self.packet.as_ref().and_then(|leaf| leaf.flow.as_ref());
             let mut sinks = PlaneSet::empty();
-            if self.udp.capability.is_some() {
+            if self.udp.is_some() {
                 sinks.insert(Plane::Datagram);
             }
             if converted.is_some() {
@@ -94,7 +86,7 @@ impl<'a> ClaimedOutboundLeaf<'a> {
                 Some(Plane::Packet) => Ok(converted
                     .expect("packet conversion was advertised")
                     .prepare_udp()),
-                Some(Plane::Datagram) => self.prepare_udp_flow(source_dir),
+                Some(Plane::Datagram) => self.into_udp_flow(),
                 _ => Err(missing_udp_route_capability(mode)),
             }
         }
@@ -103,7 +95,7 @@ impl<'a> ClaimedOutboundLeaf<'a> {
             if mode == RouteMode::Packet {
                 return Err(missing_udp_route_capability(mode));
             }
-            self.prepare_udp_flow(source_dir)
+            self.into_udp_flow()
         }
     }
 }

@@ -108,11 +108,12 @@ impl HostPacketDevice {
     pub(crate) fn usable(&self) -> bool {
         *self.activate.borrow() && !self.worker.is_finished() && !*self.stop.borrow()
     }
-    /// Compatibility waiter: actual join, no inferred native close receipt.
-    pub(crate) async fn wait_stopped(&self) {
-        if let Err(error) = self.worker.join().await {
-            tracing::warn!(%error, "host packet original driver joined with a retained failure");
-        }
+    pub(crate) async fn wait_workers_stopped(&self) -> io::Result<()> {
+        self.worker.join().await.map(|_| ())
+    }
+    pub(crate) async fn wait_closed(&self) -> io::Result<()> {
+        self.close();
+        self.worker.join_closed().await
     }
 }
 impl Drop for HostPacketDevice {

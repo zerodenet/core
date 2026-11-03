@@ -70,8 +70,22 @@ impl InboundOwner {
         // locks. The same entry persisted its real TaskJoined before delivery.
         let accepted = self
             .accepted_receiver
-            .get()
-            .and_then(|receiver| receiver.observe_joined(exit.id));
+            .lock()
+            .unwrap()
+            .iter()
+            .find_map(|receiver| receiver.observe_joined(exit.id));
+        #[cfg(feature = "managed-datagram-runtime")]
+        let accepted = accepted.or_else(|| {
+            let groups = self.peers.lock().unwrap().clone();
+            let joined = groups.iter().find_map(|g| g.observe_peer_joined(exit.id));
+            // Primary peer exits still retire the retained peer lifecycle.
+            if joined.as_ref().is_some_and(|j| j.result().is_ok()) {
+                for group in &groups {
+                    group.joined(exit.id, exit.class, None);
+                }
+            }
+            joined
+        });
         if let Some(joined) = &accepted {
             if joined.result().is_err() {
                 self.client_failure.get_or_init(|| joined.clone());
@@ -79,7 +93,7 @@ impl InboundOwner {
         }
         if accepted
             .as_ref()
-            .is_some_and(|joined| joined.class() == TaskClass::Auxiliary)
+            .is_some_and(|joined| joined.class() == TaskClass::Auxiliary || joined.result().is_ok())
         {
             let mut count = self
                 .joined_count
@@ -99,6 +113,7 @@ impl InboundOwner {
         drop(joined);
         let failed = exit.result.is_err();
         let failure = if let Err(mut error) = exit.result {
+            tracing::debug!(component=?self.identity,task=?exit.id,?error,"actual inbound task failure retained");
             error.component.get_or_insert(self.identity.component);
             let error = Arc::new(error);
             self.task_failures

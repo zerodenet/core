@@ -1,13 +1,4 @@
-use crate::adapters::mieru::MieruAdapter;
-use crate::protocol_registry::{claim_socket_tcp_leaf_with_relay, ClaimedTcpOutboundLeaf};
-use crate::runtime::tcp_dispatch::operation::{
-    LazyTcpRelayCarrier, PreparedTcpRelayOperation, SocketTcpHandshake,
-};
-
-#[derive(Clone)]
-struct PreparedMieruTcpRelay {
-    leaf: ::mieru::transport::MieruTransportLeaf,
-}
+use crate::runtime::tcp_dispatch::operation::{LazyTcpRelayCarrier, SocketTcpHandshake};
 
 #[async_trait::async_trait]
 impl SocketTcpHandshake for ::mieru::transport::MieruTransportLeaf {
@@ -60,85 +51,33 @@ impl SocketTcpHandshake for ::mieru::transport::MieruTransportLeaf {
     ) -> Result<crate::transport::TcpRelayStream, zero_transport::RuntimeError> {
         ::mieru::transport::MieruTransportLeaf::open_tcp_relay_hop(self, stream, session).await
     }
-}
-
-impl MieruAdapter {
-    pub(super) fn claim_tcp_outbound_leaf_impl<'a>(
+    async fn open_tcp_relay_carrier(
         &self,
-        leaf: ::mieru::transport::MieruTransportLeaf,
-    ) -> Box<dyn ClaimedTcpOutboundLeaf<'a> + 'a> {
-        let relay_leaf = leaf.clone();
-        claim_socket_tcp_leaf_with_relay(leaf, move || {
-            Box::new(PreparedMieruTcpRelay {
-                leaf: relay_leaf.clone(),
-            })
+        carrier: LazyTcpRelayCarrier<'_>,
+        session: &zero_core::Session,
+    ) -> Result<crate::transport::TcpRelayStream, zero_engine::EngineError> {
+        let identity = carrier.identity().to_owned();
+        let generation = carrier.generation();
+        let mut carrier = Some(carrier);
+        self.open_tcp_relay_hop_lazy(session, generation, &identity, move || {
+            let carrier = carrier.take();
+            async move {
+                let carrier = carrier.ok_or_else(|| {
+                    zero_transport::RuntimeError::Io(std::io::Error::other(
+                        "mieru relay carrier factory reused",
+                    ))
+                })?;
+                carrier
+                    .open()
+                    .await
+                    .map_err(|error| zero_transport::RuntimeError::Io(std::io::Error::other(error)))
+            }
         })
+        .await
+        .map_err(Into::into)
     }
 }
 
-impl PreparedTcpRelayOperation for PreparedMieruTcpRelay {
-    fn execute<'a>(
-        &'a self,
-        services: crate::protocol_registry::UpstreamConnectServices,
-        stream: crate::transport::TcpRelayStream,
-        session: &'a zero_core::Session,
-    ) -> std::pin::Pin<
-        Box<
-            dyn std::future::Future<
-                    Output = Result<crate::transport::TcpRelayStream, zero_engine::EngineError>,
-                > + Send
-                + 'a,
-        >,
-    >
-    where
-        Self: 'a,
-    {
-        Box::pin(async move {
-            self.leaf
-                .open_tcp_relay_hop(services.observe_stream(stream), session)
-                .await
-                .map_err(Into::into)
-        })
-    }
-
-    fn execute_lazy<'a>(
-        &'a self,
-        services: crate::protocol_registry::UpstreamConnectServices,
-        carrier: LazyTcpRelayCarrier<'a>,
-        session: &'a zero_core::Session,
-    ) -> std::pin::Pin<
-        Box<
-            dyn std::future::Future<
-                    Output = Result<crate::transport::TcpRelayStream, zero_engine::EngineError>,
-                > + Send
-                + 'a,
-        >,
-    >
-    where
-        Self: 'a,
-    {
-        Box::pin(async move {
-            let identity = carrier.identity().to_owned();
-            let generation = carrier.generation();
-            let mut carrier = Some(carrier.with_observer(services.observer()));
-            self.leaf
-                .open_tcp_relay_hop_lazy(session, generation, &identity, move || {
-                    let carrier = carrier.take();
-                    async move {
-                        let carrier = carrier.ok_or_else(|| {
-                            zero_transport::RuntimeError::Io(std::io::Error::other(
-                                "mieru relay carrier factory reused",
-                            ))
-                        })?;
-                        carrier.open().await.map_err(|error| {
-                            zero_transport::RuntimeError::Io(std::io::Error::other(
-                                error.to_string(),
-                            ))
-                        })
-                    }
-                })
-                .await
-                .map_err(Into::into)
-        })
-    }
-}
+#[cfg(test)]
+#[path = "tcp/tests.rs"]
+mod tests;

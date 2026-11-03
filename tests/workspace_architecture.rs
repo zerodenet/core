@@ -277,6 +277,7 @@ fn protocol_crates_keep_runtime_support_deps_optional_and_out_of_config_space() 
             "zero-dns",
             "zero-engine",
             "zero-proxy",
+            "zero-runtime",
             "zero-router",
         ] {
             assert!(
@@ -336,7 +337,7 @@ fn foundational_crates_do_not_depend_on_runtime_or_integration_crates() {
 }
 
 #[test]
-fn engine_leaf_projection_stops_at_the_inventory_registry_claim_boundary() {
+fn engine_leaf_projection_stops_at_the_inventory_registry_preparation_boundary() {
     let proxy = workspace_root().join("crates/proxy/src");
     for path in rust_sources(&proxy) {
         if is_test_source(&path) {
@@ -349,12 +350,56 @@ fn engine_leaf_projection_stops_at_the_inventory_registry_claim_boundary() {
         let relative = path.strip_prefix(&proxy).expect("proxy-relative path");
         let allowed = relative == Path::new("inventory/runtime.rs")
             || relative == Path::new("inventory/packet.rs")
+            || relative == Path::new("inventory/tcp/selection.rs")
+            || relative == Path::new("inventory/udp/leaf.rs")
+            || relative == Path::new("inventory/udp/association.rs")
+            || relative == Path::new("inventory/udp/standard_relay.rs")
             || relative == Path::new("protocol_registry/registry/outbound.rs");
         assert!(
             allowed,
-            "{} must not carry engine leaves past the inventory-to-registry claim boundary",
+            "{} must not carry engine leaves past inventory/registry preparation",
             path.display()
         );
+    }
+
+    // Standard TCP nodes are selected inside inventory, without requiring a
+    // compatibility claim. The new preparation boundary still performs no I/O
+    // and must not interpret protocol-private configuration.
+    let selection = read(&proxy.join("inventory/tcp/selection.rs"));
+    assert!(selection.contains("prepare_tcp_relay_chain"));
+    assert!(selection.contains("native_tcp_candidate"));
+    for forbidden in [
+        "OutboundProtocolConfig::",
+        "Proxy",
+        ".await",
+        "tokio::spawn",
+    ] {
+        assert!(
+            !selection.contains(forbidden),
+            "TCP inventory preparation must not contain `{forbidden}`"
+        );
+    }
+
+    // UDP role selection remains synchronous preparation in these files.
+    // Execution and all subsequent modules still receive only neutral facts.
+    for relative in [
+        "inventory/udp/leaf.rs",
+        "inventory/udp/association.rs",
+        "inventory/udp/standard_relay.rs",
+    ] {
+        let selection = read(&proxy.join(relative));
+        for forbidden in [
+            ".await",
+            ".execute(",
+            "tokio::spawn",
+            "&Proxy",
+            "crate::Proxy",
+        ] {
+            assert!(
+                !selection.contains(forbidden),
+                "UDP inventory preparation must not contain `{forbidden}` in {relative}"
+            );
+        }
     }
 
     for path in rust_sources(&proxy.join("adapters")) {
@@ -429,6 +474,9 @@ fn proxy_adapters_materialize_protocol_config_once() {
         let adapter_dir = adapters.join(protocol);
         if adapter_dir.exists() {
             for path in rust_sources(&adapter_dir) {
+                if is_test_source(&path) {
+                    continue;
+                }
                 assert!(
                     !read(&path).contains("ResolvedLeafOutbound"),
                     "{} must consume the protocol-owned projected leaf",
@@ -484,7 +532,9 @@ fn protocol_registry_does_not_project_proxy_leaf_runtime_facts() {
         1,
         "registry must resolve the configured proxy endpoint exactly once before claim"
     );
-    assert!(registry.contains("OutboundLeafInput::Proxy { outbound, endpoint }"));
+    assert!(registry.contains("Some(endpoint) => OutboundLeafInput::Proxy {"));
+    assert!(registry.contains("outbound,\n                        endpoint,"));
+    assert!(registry.contains("source_dir: config.source_dir(),"));
 }
 
 #[test]
@@ -780,5 +830,43 @@ fn root_process_entrypoint_delegates_command_execution() {
             main.contains(implementation),
             "process entrypoint must retain `{implementation}`"
         );
+    }
+}
+
+#[test]
+fn runtime_host_has_no_production_dependency_on_proxy_or_protocol_implementations() {
+    let manifest = read(&workspace_root().join("crates/runtime/Cargo.toml"));
+    let production = manifest.split("[dev-dependencies]").next().unwrap();
+    assert!(!production.contains("zero-proxy"));
+    assert!(!production.contains("protocols/"));
+    assert!(!production.contains("zero-engine"));
+    let proxy = read(&workspace_root().join("crates/proxy/Cargo.toml"));
+    assert!(proxy
+        .split("[dev-dependencies]")
+        .next()
+        .unwrap()
+        .contains("zero-runtime"));
+    for path in rust_sources(&workspace_root().join("crates/runtime/src")) {
+        if is_test_source(&path) {
+            continue;
+        }
+        let source = read(&path);
+        for forbidden in [
+            "crate::adapters",
+            "crate::register",
+            "ResolvedLeafOutbound",
+            "zero_proxy::",
+        ] {
+            // This one import is explicitly test-only reuse of the real Direct factory.
+            if forbidden == "zero_proxy::" && path.ends_with("component/mod.rs") {
+                assert!(source.contains("#[cfg(test)]\npub use zero_proxy::component"));
+                continue;
+            }
+            assert!(
+                !source.contains(forbidden),
+                "{} contains {forbidden}",
+                path.display()
+            );
+        }
     }
 }

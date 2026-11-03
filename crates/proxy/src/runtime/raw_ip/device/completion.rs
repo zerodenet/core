@@ -30,13 +30,17 @@ impl super::SharedRawIpDevice {
         }
     }
 
-    /// Compatibility for the existing infallible lifecycle completion surface.
-    /// Strict replacement must use the fallible worker result and independent
-    /// native close evidence, rather than treating this waiter as a close ACK.
-    pub(crate) async fn wait_stopped(&self) {
-        if let Err(error) = self.wait_workers_stopped().await {
-            tracing::warn!(%error, "raw-IP original workers joined with a retained failure");
-        }
+    /// The original device workers and its independent original I/O provider
+    /// must both finish. A retained task failure is never converted to success.
+    pub(crate) async fn wait_closed(&self) -> Result<(), EngineError> {
+        self.close_now();
+        let workers = self.wait_workers_stopped().await;
+        let native = if let Some(carrier) = &self.carrier {
+            carrier.close_native().await
+        } else {
+            Ok(())
+        };
+        workers.and(native)
     }
 }
 

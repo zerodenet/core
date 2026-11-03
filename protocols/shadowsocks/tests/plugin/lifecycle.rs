@@ -147,7 +147,20 @@ async fn failed_plugin_start_keeps_its_original_error_and_does_not_spawn_again()
     let marker = StartupMarker::new();
     let pool = PluginPool::default();
     let plan = pool.plan("127.0.0.1", 9999, marker.config("raise SystemExit(7)"));
-    let original = plan.acquire(true).await.unwrap_err();
+    // Hold the real connect at an explicit I/O suspension point while the
+    // actual child exits. Endpoint reuse by another concurrent fixture cannot
+    // fabricate a successful readiness result for this failed child.
+    let pending = PendingProbe::default();
+    let original = tokio::time::timeout(
+        std::time::Duration::from_secs(3),
+        plan.acquire_with_probe(true, pending.probe()),
+    )
+    .await
+    .unwrap()
+    .unwrap_err();
+    // A child that exits before the first probe is polled is an equally valid
+    // early failure. The dedicated pending-probe regression proves suspension.
+    assert!(original.to_string().contains("exited during startup"));
     let repeated = plan.acquire(true).await.unwrap_err();
     assert_eq!(original.kind(), repeated.kind());
     assert_eq!(original.to_string(), repeated.to_string());

@@ -1,5 +1,13 @@
 # Opt-in owned Quinn libraries
 
+Production integration is now selected narrowly by qualified VLESS standard
+inbound factories. The neutral `quic::source` uses the canonical host Metadata
+grant, actual existing Scope and sealed users/driver receipts; it does not open
+another endpoint owner or ordinary catalog registration. Statements below about
+unchanged legacy callers still apply to other QUIC protocols and unqualified
+mask/masquerade/reverse combinations. Standard H3/Hysteria server workers use
+the original accepted caller. Client and pool migrations remain separate.
+
 The metadata adapter consumes the actual platform owner and its same-original
 unique RX, TX and control grant. Cross-owner numeric identity equality is not
 accepted. On composition failure both native ownership and views are returned.

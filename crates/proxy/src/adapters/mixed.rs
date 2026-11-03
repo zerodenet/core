@@ -1,17 +1,12 @@
-use zero_config::InboundConfig;
-use zero_engine::EngineError;
 use zero_traits::{
     ProtocolCapabilityDescriptor, ProtocolCapabilityLevel, ProtocolCapabilityState,
     ProtocolMetadata, ProtocolNetworkCapability,
 };
 
 use crate::adapters::identity::NamedProtocolAdapter;
-use crate::protocol_registry::{
-    InboundListenerCapability, TcpOutboundCapability, UdpFlowCapability, UdpPacketPathCapability,
-};
 
 #[cfg(feature = "mixed")]
-mod inbound;
+pub(crate) mod inbound;
 
 #[cfg(feature = "mixed")]
 #[derive(Debug)]
@@ -23,29 +18,6 @@ impl NamedProtocolAdapter for MixedAdapter {
     const FEATURE_NAME: &'static str = "mixed";
     const HAS_OUTBOUND: bool = false;
 }
-
-#[cfg(feature = "mixed")]
-impl InboundListenerCapability for MixedAdapter {
-    fn prepare_inbound_listener(
-        &self,
-        inbound: InboundConfig,
-        _source_dir: Option<&std::path::Path>,
-    ) -> Result<
-        Box<dyn crate::runtime::inbound_operation::PreparedInboundListenerOperation>,
-        EngineError,
-    > {
-        self.prepare_inbound_listener_impl(inbound)
-    }
-}
-
-#[cfg(feature = "mixed")]
-impl TcpOutboundCapability for MixedAdapter {}
-
-#[cfg(feature = "mixed")]
-impl UdpFlowCapability for MixedAdapter {}
-
-#[cfg(feature = "mixed")]
-impl UdpPacketPathCapability for MixedAdapter {}
 
 #[cfg(feature = "mixed")]
 impl ProtocolMetadata for MixedAdapter {

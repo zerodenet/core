@@ -8,9 +8,51 @@ use std::{
 };
 use tokio::sync::mpsc;
 
+pub(super) enum Task {
+    Legacy(tokio::task::AbortHandle),
+    Scoped(zero_platform_tokio::contract::CancellationToken),
+}
+impl From<tokio::task::AbortHandle> for Task {
+    fn from(h: tokio::task::AbortHandle) -> Self {
+        Self::Legacy(h)
+    }
+}
+impl Task {
+    pub(super) fn abort(&self) {
+        match self {
+            Self::Legacy(h) => h.abort(),
+            Self::Scoped(c) => c.cancel(),
+        }
+    }
+}
+#[derive(Clone)]
+pub(in crate::split_http) struct Caller(pub zero_platform_tokio::AcceptedCaller);
+pub(super) fn spawn(
+    caller: Option<&Caller>,
+    work: impl std::future::Future<Output = ()> + Send + 'static,
+) -> io::Result<Task> {
+    match caller {
+        None => Ok(Task::Legacy(tokio::spawn(work).abort_handle())),
+        Some(caller) => {
+            let cancel = zero_platform_tokio::contract::CancellationToken::new();
+            let stopped = cancel.clone();
+            caller
+                .0
+                .spawn(
+                    zero_platform_tokio::contract::lifecycle::TaskClass::Auxiliary,
+                    move |_| async move {
+                        tokio::select! {biased;_=stopped.cancelled()=>{},_=work=>{}}
+                        Ok(())
+                    },
+                )
+                .map_err(io::Error::other)?;
+            Ok(Task::Scoped(cancel))
+        }
+    }
+}
 pub(super) struct Body {
     pub(super) receiver: mpsc::Receiver<io::Result<Bytes>>,
-    pub(super) task: Option<tokio::task::AbortHandle>,
+    pub(super) task: Option<Task>,
     pub(super) life: Option<Arc<Lifetime>>,
     pub(super) progress: Option<Arc<Lifetime>>,
 }

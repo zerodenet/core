@@ -64,3 +64,17 @@ transport driver. The same query may return its actual view and call
 `retire_native`; its own actual caller join and full users settlement still occur
 later. These library seams introduce no root grant, production default or
 independent owner, task, runtime or physical budget.
+
+Controlled datagram carriers use the same original owner, exact declaration and
+scope binding as streams, with a distinct `ControlledDatagramCarrier` declaration.
+The slot installs a persistent `ControlledDatagramOwner` before synchronous native
+acquisition; its sole control and unique `CarrierDatagram` view precede any await.
+Same-slot driver adoption joins the actual packet worker before consuming that
+original control's close receipt. This does not reuse the separate service-root DNS
+query authority, and does not authorize raw-IP Packet roles or relay-prefix IO.
+
+`ResolvingCarrierOpener` consumes the actual host `DnsService` using its Node role.
+Opaque candidates retain the original domain, full binding and resolver generation;
+a literal candidate cannot replace the declared domain. Each attempt has a separate
+original slot and must settle before retry; the protocol retains one aggregate
+connection reservation. Scope/view/driver/native proofs remain independent.

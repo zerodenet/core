@@ -156,19 +156,19 @@ Connected 表示本地已取得可用逻辑通道；Confirmed 才表示远端已
 数据面采用 poll 接口，默认发送端和接收端各有一个独立所有者，以便并发上下行且不要求接收器 Sync。公共 async 辅助使用 poll_fn，不为每个报文强制分配 boxed Future。需要共享发送的协议可以在自己的发送器里完成有界序列化，不能产生多消费者争抢同一个接收队列。
 
 ```rust
-pub trait DatagramTx: Send {
+pub trait DatagramTx<Frame = Datagram, Receipt = SendReceipt>: Send {
     fn poll_send(
         self: Pin<&mut Self>,
         cx: &mut Context<'_>,
-        frame: &Datagram,
-    ) -> Poll<Result<SendReceipt, SendFailure>>;
+        frame: &Frame,
+    ) -> Poll<Result<Receipt, SendFailure>>;
 }
 
-pub trait DatagramRx: Send {
+pub trait DatagramRx<Frame = Datagram>: Send {
     fn poll_recv(
         self: Pin<&mut Self>,
         cx: &mut Context<'_>,
-    ) -> Poll<Result<Option<Datagram>, ChannelError>>;
+    ) -> Poll<Result<Option<Frame>, ChannelError>>;
 }
 
 pub trait ChannelControl: Send {
@@ -206,6 +206,14 @@ pub trait DatagramOutbound: Send + Sync + 'static {
 ```
 
 Datagram 拥有目标或来源 Destination、逻辑关联身份和一个受预算约束的 PacketBuffer；发送视图中的地址是目标，接收视图中是来源。DatagramLimits 固定单包最大值、目标约束和排队行为，超长报文明报错误，不悄悄截断、不拆成多个业务数据报。零长度的有效 UDP 报文仍是 Some(Datagram)，不能作为 EOF；只有 None 表示逻辑接收结束。一次 pending send 保持同一 frame，取消后的投递不确定性按后文处理。协议原生分片只在协议内部执行并在接收交付前完整重组。
+
+入站 Datagram 复用上述 poll 契约的帧参数，不再把目标自由的关联伪装成出站 Datagram。出站默认类型保持不变。入站接收 `InboundDatagramEvent`：Packet 携带完整 `InboundUdpDispatch`、实际 UDP 发送端及协议开销；Resolve 明确保留既有本地 DNS 语义；PeerResponse 保留既有回包语义。响应帧借用 payload，协议只在需要时保留实际编码后的报文。发送凭据分别表达完整业务载荷接纳和实际协议字节，不能把零载荷当 EOF。`Impact::Datagram` 的解码错误只丢弃当前包，协议保留原始接收状态，内核统一记录并继续；Session/Component 错误不能伪装成可恢复坏包。
+
+`InboundDatagramSession` 携带原始 Tx/Rx/Control 和一次性协商流量。目标自由的 UDP ASSOCIATE 使用真实内核签发身份且 target=None，不伪造地址或流记录。内核为实际包逐目标准入、选路、限速、计量；协商流量只归入第一条成功业务 Flow，空关联不制造统计。SOCKS5/mixed 的标准装配覆盖 TCP 与 UDP，不再调用旧 association handler/dispatcher 链。
+
+内置 Direct 的 TCP-only 及同端口 TCP/UDP 固定目标接入统一使用现有 ComponentFactory / InboundSource / StreamReply / DatagramReply，删除旧 Direct listener 链。目标缺省继续静默关闭且不签发业务身份；端口缺省仍为 443，半关闭与原始错误沿用公共 Stream 执行器。UDP source 只取得宿主声明并保留的原始 listener，绑定 TCP 实际端点，不再次解析域名或选择端口。原始 listener 的弱身份、真实 sender/local facts 和有限 peer/队列预算随 PendingInbound 交给宿主，绝不伪造 TCP accepted caller。真实 peer 任务登记到同一个 listener Scope；在握手前保留 Datagram cleanup owner，关闭消费原始 egress/provider、控制器归还及实际 join，完成后才允许同 peer 再接入。既有 4096 peer、每 peer 32 包和 120 秒空闲期限保持；按需分配，空闲和 Drop 本身不证明清理。选中标准工厂后不能因错误回退，native 登记门禁不变。标准接入宿主执行器是内置能力，与启用何种外部协议无关。
+
+已授权的受控 business TCP carrier 由真实 issuer 将原始 adoption、弱 owner registration 和实际 caller witness 交给同一个 accepted 图，原物理 owner 的有限 capacity 仍是权威。这里只保留已有原槽关系，不创建第二份 native/task owner。撤销只请求停止，实际 Scope joins 与资源归还后才消费同槽 native/users 关闭凭据；未完成、Unknown 和原始 worker/native 失败继续保留并阻止替换。回收不能仅等待下一次拨号。
 
 ```rust
 pub trait PacketTx: Send {
@@ -275,15 +283,38 @@ InboundSource 拥有监听或协议逻辑请求源，输出待握手对象。源
 
 | 接口 | 目标签名 | 责任 |
 | --- | --- | --- |
-| InboundSource | next(&mut self, context: AcceptContext) -> impl Future<Output = Result<Option<PendingInbound>, ChannelError>> + Send | 单消费者；PendingInbound 由公共泛型包装保存协议具体握手对象 |
+| InboundSource | type Handshake: InboundHandshake；next(&mut self, context: AcceptContext) -> impl Future<Output = Result<Option<Self::Handshake>, ChannelError>> + Send | 单消费者；DynInboundSource 边界转换成 PendingInbound，保留具体握手与原始接入所有权 |
 | InboundHandshake | complete(self, context: HandshakeContext) -> impl Future<Output = Result<AcceptedRequest, ChannelError>> + Send | 消费一次；认证、握手及初始缓冲属于协议 |
 | AcceptedStream | facts(&self) -> &RequestFacts；respond(self: Box<Self>, outcome: ReplyOutcome) -> BoxFuture<'static, Result<Option<BoxStream>, ChannelError>> | 包装中保持流和响应器的静态关联，不擦除后 downcast 配对 |
-| AcceptedDatagram | facts(&self) -> &RequestFacts；respond(self: Box<Self>, outcome: ReplyOutcome) -> BoxFuture<'static, Result<Option<BoxDatagramSession>, ChannelError>> | UDP ASSOCIATE 控制连接和响应编码归协议 |
+| AcceptedMessage | facts(&self) -> &RequestFacts；respond(self: Box<Self>, action: MessageAction) -> BoxFuture<'static, Result<MessageTransfer, ChannelError>> | 单条消息的帧、正文和响应属于协议；内核执行逐消息准入、路由、限速和计量 |
+| AcceptedDatagram | facts(&self) -> &RequestFacts；respond(self: Box<Self>, outcome: ReplyOutcome) -> BoxFuture<'static, Result<Option<BoxInboundDatagramSession>, ChannelError>> | UDP ASSOCIATE 控制连接和响应编码归协议 |
 | RequestMultiplexer | next(&mut self, context: AcceptContext) -> BoxFuture<'_, Result<Option<PendingInbound>, ChannelError>> | 每个逻辑业务独立准入、路由、计量与关闭 |
 | InboundControlSession | 沿用 auth 与 run 的现有中立契约 | 无业务目标的认证控制；接受内核准入和取消 |
 | Fallback | 沿用有界 capture、replay 与 FallbackRoute | 协议选定回退及捕获范围，内核负责受约束的目的端执行 |
 
-AcceptedRequest 是封闭枚举，变体为 Stream、Datagram、Multiplex、Packet、Control 和 Fallback；新协议只使用已定义的实际角色，不新增协议命名变体。ReplyOutcome 为 LocalChannelReady、Blocked 和 UpstreamFailed，响应能力按协议语义映射；None 表示拒绝响应已完成且不再交付业务通道。协议不得多发成功响应或在已有业务载荷后插入另一份握手响应。Deferred 出站只确认本地通道可用，不强制等待依赖首个业务字节才能产生的远端响应，以免双端等待死锁。
+AcceptedRequest 是封闭枚举，变体为 Stream、Message、Datagram、Multiplex、Packet、Control 和 Fallback；新协议只使用已定义的实际角色，不新增协议命名变体。ReplyOutcome 为 LocalChannelReady、Blocked 和 UpstreamFailed，响应能力按协议语义映射；None 表示拒绝响应已完成且不再交付业务通道。协议不得多发成功响应或在已有业务载荷后插入另一份握手响应。Deferred 出站只确认本地通道可用，不强制等待依赖首个业务字节才能产生的远端响应，以免双端等待死锁。
+
+Message 是为保留既有 HTTP Forward 行为而确认补齐的通用角色，不新增协议命名请求或 listener SPI。MessageAction 只表达 Transfer（实际出站流、有效目标和当前共享速率/计量上下文）、Blocked、UpstreamFailed、Redirect；协议不得在响应对象内重新选路、创建全局预算或执行整个内核会话。HTTP 的 Expect/正文分帧/信息响应/keep-alive 属于协议。成功 Upgrade 把实际两端流交回公共双向执行器；keep-alive 归还同一条真实客户端流，下一条消息重新使用内核签发身份并独立准入。重定向保留原有配置和线格式，不修改客户端或面板。
+
+公共 PendingInbound::complete 统一执行有限握手期限和取消，不要求每个协议或 Proxy 再实现一套超时包装。预算已过期或取消时，在调用协议之前拒绝；执行中取消会撤销该次握手仍拥有的连接视图，不将逻辑返回当作 native 关闭凭据。
+
+原生 TCP 的公共 source 将真实 AcceptedTcp 条目交给 PendingInbound，保留原始连接事实、同条目任务登记权和原始关闭接收方。类型擦除通过 InboundHandshake::into_pending 保留这个条目，不重新包装成丢失所有权的裸握手。宿主调用 PendingInbound::spawn，在同一个实际 Scope 发布主任务之后才轮询协议；未从原始接受条目取得的 PendingInbound 不能借此获得任务权限。业务返回、用户视图归还、原始 Scope join 和原始 native close 分别确认，不能互相替代。
+
+ComponentFactory 仍只 describe/build；TCP source 的生命周期 start 才取得已声明监听的唯一视图，原始控制器始终由宿主保留。task_limit=None 的工厂得到同一 Scope 的 without_tasks 视图，其强/弱克隆均不能借用 listener 或 accepted-child 额度。接受连接的任务由宿主按明确的 AcceptedTcpLimits 登记，不是协议内部任务。当前 HTTP 监听装配采用最多 4096 个在用/退役/Unknown 原始连接、每连接一个真实任务，按需分配；达到边界暂停 accept，不预建连接或任务。
+
+SOCKS5/mixed 在同一个原始 accepted 条目中声明最多两个实际任务：握手/业务交付的 Auxiliary 主任务和 UDP 的 Critical 驱动；HTTP 分支按需仅使用主任务。协议工厂仍无内部任务额度。动态 UDP 绑定由声明的 AcceptedDatagram 授权，必须匹配真实 caller 的原 Scope 和原始 TCP 本地接口；宿主在同步 native 创建前安装原始所有者。另一个有限槽保留实际 UDP dispatcher、原始 Direct socket 集、协议 Control、回包任务 Set 及逻辑出站控制器归还。取消先撤销 I/O/业务，实际 Scope join 后才消费这些原始关闭凭据；失败/中断保留原槽，不能先启动替代资源。
+
+逻辑出站控制器沿用全局原始登记表和容量限制，每个接入只保留归还计数/取消/唤醒，不建立第二份会话登记表。晚到的原始控制器即使在接入取消后才交接，也必须由同一预留槽接收并关闭；其他接入不会被全局停机。已关闭接入的成功凭据按有限资源 ordinal 汇总，不累积每会话任务/字符串历史。逻辑归还不证明共享 donor 池 native 关闭，后者仍由其真实宿主事务确认。
+
+标准接入的 Direct egress 原始 socket 按需创建并保留既有复用、端口选择和网络换代算法。`runtime.udp_direct_max_sockets` 提供独立的每关联上限，默认 64，可设置 1..=4096；不与 accepted TCP 数、bind 尝试次数或逻辑控制器容量混用。省略时不导出新字段；在创建关联时冻结预算，不用改客户端或面板。监听/accepted 的统一用户预算入口仍未完成，不能以这个选项宣布整个预算配置目标完成。
+
+监听域名保留既有系统地址解析语义，与业务出站 DNS 路由分开。宿主先安装真实原始所有者，在同一 Scope 显式预留一个解析任务槽；该任务持有实际 blocking lookup 的 JoinHandle，配置借用方取消不 detach 它。地址列表到达后仍要消费原始 Scope join，才能创建第一个 native listener。按系统顺序冻结去重地址，在同一原始控制器和有限创建预算内尝试；只有实际关闭结果允许重试，Unknown 必须保留原始控制器并阻止下一地址。超时/取消保留该 Scope 和原始资源，清理确认后才能创建替代，不能用临时地址、端口探测或遗留 binder 代替此证据。
+
+这一额度目前由内核装配提供，统一用户配置入口尚未落地；不能当作资源预算配置目标已经完成。
+
+AcceptContext 的等待期限为 Option<Instant>；None 保留既有监听/keep-alive 空闲等待，Some 是调用者明确指定的绝对期限，过期必须返回错误且保留未交付连接。它与 HandshakeContext 的有限头部握手期限分开，避免空闲时间消耗下一条消息的握手预算。
+
+RequestMultiplexer 明确其 max_in_flight，顺序消息直接在原始接入任务内执行，不为每条消息另起任务。并发请求使用所属真实 AcceptedTcpTasks 登记和原始 TaskScope join 凭据；兼容路径的本地任务不能冒充 native 关闭证明。请求源结束须区分共享载体关闭（取消子请求）与所有权已交接而源已耗尽（等待真实请求完成）；CONNECT/Upgrade 不能因源返回 None 而提前中断。取消一次 next 等待不得丢失尚未交付的原始连接或 continuation。
 
 接受对象取消时关闭其仍拥有的连接；交付成功后，所有权转给会话执行器。协议预读字节必须随通道重放一次，不能遗失或重复。MUX 子流收到 END 与共享载体断开不同，UDP continuity 在协议会话内保留；协议网络保活不能伪造业务流量。原始 UDP、Packet 接入必须在握手前也执行有界的端点和任务限制。
 

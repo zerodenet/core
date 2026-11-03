@@ -7,11 +7,7 @@ async fn actual_engine_current_slot_and_registered_owner_preserve_business_id_no
         let fixture = Fixture::new().await;
         let host = TestContext::new([fixture.slot.as_ref()]);
         host.drive(fixture.slot.start(deadline())).await.unwrap();
-        fixture
-            .slot
-            .host_admission()
-            .unwrap()
-            .publish(std::iter::once(fixture.slot.admission_grant()));
+        host.publish();
         let (session, invocation) = admitted(&fixture.proxy);
         assert!(invocation.deadline.is_none());
         let original = invocation.identity.clone();

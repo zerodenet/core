@@ -231,3 +231,6 @@ async fn response_failure_preserves_the_original_typed_carrier_source_and_identi
         &original
     ));
 }
+
+#[path = "requests.rs"]
+mod requests;

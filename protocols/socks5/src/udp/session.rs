@@ -1,7 +1,4 @@
-use zero_core::{
-    Address, Error, InboundUdpAssociation, InboundUdpAssociationDispatcher,
-    InboundUdpAssociationResponder, InboundUdpAssociationResponse,
-};
+use zero_core::{Address, Error, InboundUdpAssociationResponse};
 use zero_traits::{DatagramSocket, IpAddress, SocketAddress};
 
 use super::association::Socks5UdpRelayError;
@@ -137,6 +134,42 @@ impl Socks5InboundUdpAssociationSession {
         }
     }
 
+    /// Decode once into the standard inbound packet facts. No routing, DNS I/O,
+    /// accounting or socket ownership belongs to this protocol step.
+    pub fn decode_datagram_event(
+        &mut self,
+        sender: SocketAddress,
+        packet: &[u8],
+    ) -> Result<Option<zero_platform_tokio::contract::inbound::InboundDatagramEvent>, Error> {
+        use zero_platform_tokio::contract::inbound::InboundDatagramEvent as Event;
+        match self.classify_relay_packet(sender, packet) {
+            Socks5InboundUdpRelayPacketAction::ClientPacket { payload } => {
+                let action = self
+                    .responder
+                    .session
+                    .decode_request(payload)?
+                    .into_dispatch_action();
+                Ok(Some(match action {
+                    Socks5InboundUdpDispatchAction::LocalDns { domain } => {
+                        Event::Resolve { domain }
+                    }
+                    Socks5InboundUdpDispatchAction::Dispatch(view) => Event::Packet {
+                        protocol_bytes: view.protocol_overhead_bytes(),
+                        dispatch: view.into_inbound_dispatch(),
+                        sender: zero_platform_tokio::socket_address_to_socket_addr(sender),
+                    },
+                }))
+            }
+            Socks5InboundUdpRelayPacketAction::PeerResponse { sender, payload } => {
+                Ok(Some(Event::PeerResponse {
+                    sender: zero_platform_tokio::socket_address_to_socket_addr(sender),
+                    payload: payload.to_vec(),
+                }))
+            }
+            Socks5InboundUdpRelayPacketAction::UnexpectedSender { .. } => Ok(None),
+        }
+    }
+
     pub fn classify_relay_packet<'a>(
         &mut self,
         sender: SocketAddress,
@@ -147,37 +180,6 @@ impl Socks5InboundUdpAssociationSession {
 
     fn client(&self) -> Option<SocketAddress> {
         self.relay_session.client()
-    }
-
-    pub async fn dispatch_client_packet<D>(
-        &self,
-        packet: &[u8],
-        dispatcher: &mut D,
-    ) -> Result<(), D::Error>
-    where
-        D: InboundUdpAssociationDispatcher,
-        D::Error: From<Error>,
-    {
-        let action = self
-            .responder
-            .session
-            .decode_request(packet)
-            .map(Socks5InboundUdpRequest::into_dispatch_action)
-            .map_err(D::Error::from)?;
-
-        match action {
-            Socks5InboundUdpDispatchAction::LocalDns { domain } => {
-                dispatcher.dispatch_local_dns(&domain).await
-            }
-            Socks5InboundUdpDispatchAction::Dispatch(view) => {
-                dispatcher
-                    .dispatch_inbound_packet(
-                        view.clone().into_inbound_dispatch(),
-                        view.protocol_overhead_bytes(),
-                    )
-                    .await
-            }
-        }
     }
 
     pub fn dispatch_relay_packet_with<FClient, FPeer, FUnexpected>(
@@ -268,33 +270,8 @@ impl Socks5InboundUdpAssociationSession {
     }
 }
 
-impl InboundUdpAssociation for Socks5InboundUdpAssociationSession {
-    async fn dispatch_datagram<D>(
-        &mut self,
-        sender: SocketAddress,
-        packet: &[u8],
-        dispatcher: &mut D,
-    ) -> Result<(), D::Error>
-    where
-        D: InboundUdpAssociationDispatcher,
-        D::Error: From<Error>,
-    {
-        match self.classify_relay_packet(sender, packet) {
-            Socks5InboundUdpRelayPacketAction::ClientPacket { payload } => {
-                self.dispatch_client_packet(payload, dispatcher).await
-            }
-            Socks5InboundUdpRelayPacketAction::PeerResponse { sender, payload } => {
-                dispatcher.dispatch_peer_response(sender, payload).await
-            }
-            Socks5InboundUdpRelayPacketAction::UnexpectedSender { sender } => {
-                dispatcher.dispatch_unexpected_sender(sender).await
-            }
-        }
-    }
-}
-
-impl InboundUdpAssociationResponder for Socks5InboundUdpAssociationSession {
-    fn build_response_for_target(
+impl Socks5InboundUdpAssociationSession {
+    pub fn build_response_for_target(
         &self,
         upstream_address: &Address,
         upstream_port: u16,
@@ -311,7 +288,7 @@ impl InboundUdpAssociationResponder for Socks5InboundUdpAssociationSession {
         Ok(Some(InboundUdpAssociationResponse::new(client, packet)))
     }
 
-    fn build_peer_response(
+    pub fn build_peer_response(
         &self,
         sender: SocketAddress,
         payload: &[u8],

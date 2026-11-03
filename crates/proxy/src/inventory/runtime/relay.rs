@@ -2,7 +2,6 @@ use super::ClaimedInventoryLeaf;
 #[cfg(feature = "udp-runtime")]
 use std::iter;
 
-#[derive(Clone)]
 pub(crate) struct ClaimedRelayChain<'a> {
     first: ClaimedInventoryLeaf<'a>,
     relay_hops: Vec<ClaimedInventoryLeaf<'a>>,
@@ -28,6 +27,13 @@ impl<'a> ClaimedRelayChain<'a> {
     pub(crate) fn final_hop(&self) -> &ClaimedInventoryLeaf<'a> {
         self.relay_hops
             .last()
+            .expect("relay chain must have at least 2 hops")
+    }
+
+    #[cfg(feature = "udp-runtime")]
+    pub(crate) fn into_final_hop(mut self) -> ClaimedInventoryLeaf<'a> {
+        self.relay_hops
+            .pop()
             .expect("relay chain must have at least 2 hops")
     }
 

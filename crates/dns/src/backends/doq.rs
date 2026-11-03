@@ -16,9 +16,47 @@ pub(crate) struct DoqDnsResolver {
     egress: zero_platform_tokio::EgressInterfaceControl,
     owners: std::sync::Mutex<Arc<crate::transport_owners::TransportOwners>>,
     resources: resources::EndpointSet,
+    #[cfg(feature = "test-support")]
+    native_io_started: std::sync::atomic::AtomicBool,
 }
 
 impl DoqDnsResolver {
+    pub(super) fn native_profile(&self) -> (String, quinn::ClientConfig) {
+        #[cfg(feature = "test-support")]
+        self.native_io_started
+            .store(true, std::sync::atomic::Ordering::Release);
+        (self.server_name.clone(), self.client.clone())
+    }
+    #[cfg(feature = "test-support")]
+    pub(crate) fn install_test_ca(
+        &mut self,
+        certificate: rustls::pki_types::CertificateDer<'static>,
+    ) -> io::Result<()> {
+        if self
+            .native_io_started
+            .load(std::sync::atomic::Ordering::Acquire)
+            || !self.resources.open()
+        {
+            return Err(io::Error::new(
+                io::ErrorKind::WouldBlock,
+                "fixture CA requires an unused cold DoQ backend",
+            ));
+        }
+        let mut roots = rustls::RootCertStore::empty();
+        roots.add(certificate).map_err(io::Error::other)?;
+        let mut tls = rustls::ClientConfig::builder_with_provider(Arc::new(
+            rustls::crypto::ring::default_provider(),
+        ))
+        .with_protocol_versions(&[&rustls::version::TLS13])
+        .map_err(io::Error::other)?
+        .with_root_certificates(roots)
+        .with_no_client_auth();
+        tls.alpn_protocols = vec![b"doq".to_vec()];
+        self.client = quinn::ClientConfig::new(Arc::new(
+            quinn::crypto::rustls::QuicClientConfig::try_from(tls).map_err(io::Error::other)?,
+        ));
+        Ok(())
+    }
     pub(crate) fn new(
         host: String,
         port: u16,
@@ -62,10 +100,15 @@ impl DoqDnsResolver {
             egress,
             owners: std::sync::Mutex::new(Arc::default()),
             resources: resources::EndpointSet::default(),
+            #[cfg(feature = "test-support")]
+            native_io_started: std::sync::atomic::AtomicBool::new(false),
         })
     }
 
     pub(crate) async fn exchange(&self, query: &[u8]) -> io::Result<Vec<u8>> {
+        #[cfg(feature = "test-support")]
+        self.native_io_started
+            .store(true, std::sync::atomic::Ordering::Release);
         let mut last_error = None;
         for addr in &self.addrs {
             match self.exchange_with(*addr, query).await {

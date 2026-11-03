@@ -1,57 +1,40 @@
-//! Packet-plane claim for the shared WireGuard peer device.
-
-use std::sync::Arc;
-
-use crate::{
-    protocol_registry::ClaimedPacketLeaf,
-    runtime::{
-        packet_flow::PacketFlowAdapter,
-        packet_route::{PreparedDatagramExchangeOperation, PreparedPacketRouteOperation},
-        raw_ip::{RawIpDatagramOperation, RawIpDevicePool, RawIpPacketOperation},
-    },
-};
-
-use super::udp::WireguardRawIpPlan;
-
-pub(super) struct WireguardPacketLeaf {
-    pub(super) tag: String,
-    pub(super) flow: PacketFlowAdapter,
-    pub(super) plan: Arc<WireguardRawIpPlan>,
-    pub(super) identity: [u8; 32],
-    pub(super) pool: Arc<RawIpDevicePool>,
-}
-
-impl ClaimedPacketLeaf for WireguardPacketLeaf {
-    fn prepare_packet_route(&self) -> Box<dyn PreparedPacketRouteOperation> {
-        Box::new(RawIpPacketOperation {
-            translate_source: false,
-            tag: self.tag.clone(),
-            identity: self.identity,
-            plan: self.plan.clone(),
-            pool: self.pool.clone(),
-        })
-    }
-
-    fn prepare_translated_packet_route(&self) -> Option<Box<dyn PreparedPacketRouteOperation>> {
-        Some(Box::new(RawIpPacketOperation {
-            translate_source: true,
-            tag: self.tag.clone(),
-            identity: self.identity,
-            plan: self.plan.clone(),
-            pool: self.pool.clone(),
-        }))
-    }
-
-    fn prepare_datagram_exchange(&self) -> Option<Box<dyn PreparedDatagramExchangeOperation>> {
-        Some(Box::new(RawIpDatagramOperation {
-            tag: self.tag.clone(),
-            identity: self.identity,
-            plan: self.plan.clone(),
-            pool: self.pool.clone(),
-        }))
-    }
-
-    fn packet_flow_adapter(&self) -> Option<&PacketFlowAdapter> {
-        Some(&self.flow)
+//! Materialize the existing Packet executors once per published profile.
+use super::*;
+impl WireguardAdapter {
+    pub(super) fn packet_operations(
+        &self,
+        tag: &str,
+        identity: [u8; 32],
+        plan: Arc<udp::WireguardRawIpPlan>,
+    ) -> crate::runtime::packet_route::PacketRouteOperations {
+        crate::runtime::packet_route::PacketRouteOperations {
+            native: Arc::new(crate::runtime::raw_ip::RawIpPacketOperation {
+                translate_source: false,
+                tag: tag.to_owned(),
+                identity: identity,
+                plan: plan.clone(),
+                pool: self.pool.clone(),
+            }),
+            translated: Some(Arc::new(crate::runtime::raw_ip::RawIpPacketOperation {
+                translate_source: true,
+                tag: tag.to_owned(),
+                identity: identity,
+                plan: plan.clone(),
+                pool: self.pool.clone(),
+            })),
+            datagram: Some(Arc::new(crate::runtime::raw_ip::RawIpDatagramOperation {
+                tag: tag.to_owned(),
+                identity: identity,
+                plan: plan.clone(),
+                pool: self.pool.clone(),
+            })),
+            flow: Some(crate::runtime::raw_ip::RawIpFlowSource::adapter(
+                tag.to_owned(),
+                identity,
+                plan,
+                self.pool.clone(),
+            )),
+            correlated_returns: false,
+        }
     }
 }

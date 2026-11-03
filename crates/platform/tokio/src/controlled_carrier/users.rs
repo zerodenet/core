@@ -12,10 +12,12 @@ pub(super) struct Users {
     live: bool,
     acquired: bool,
     caller: Option<TaskJoinWitness>,
+    driver_owned: bool,
+    transferred_owned: bool,
 }
 /// Unique logical view lease. Return is one fact; it never issues a task exit.
 pub struct CarrierUserView {
-    slot: Arc<Slot>,
+    pub(super) slot: Arc<Slot>,
 }
 impl CarrierGrant {
     /// Claim before physical preparation. Move this exact lease into the actual
@@ -44,6 +46,54 @@ impl CarrierGrant {
             slot: self.slot.clone(),
         })
     }
+
+    /// Unique taskless custody from an actual background owner or a declared
+    /// node Datagram owner. Return is never a task exit or native-close proof.
+    pub fn claim_transferred_view(&mut self) -> Result<CarrierUserView, ChannelError> {
+        let bound = self
+            .slot
+            .owner
+            .upgrade()
+            .and_then(|owner| owner.state().binding.clone());
+        if !bound.is_some_and(|bound| bound.transferred_custody_available()) {
+            return Err(error(
+                self.instance(),
+                Stage::Prepare,
+                Reason::InvalidConfig,
+                DeliveryState::NotSubmitted,
+            ));
+        }
+        let view = self.claim_user_view()?;
+        self.slot.state().users.as_mut().unwrap().transferred_owned = true;
+        Ok(view)
+    }
+    /// A registered BackgroundControl carrier keeps its unique physical view
+    /// in the owning protocol's one driver. Inline preparation may precede that
+    /// driver; failed preparation has no invented caller task to join. Logical
+    /// application streams remain the pool/host's separate retirement obligation.
+    pub fn claim_driver_view(&mut self) -> Result<CarrierUserView, ChannelError> {
+        let bound = self
+            .slot
+            .owner
+            .upgrade()
+            .and_then(|owner| owner.state().binding.clone());
+        if !bound.is_some_and(|bound| bound.background_custody_available()) {
+            return Err(error(
+                self.instance(),
+                Stage::Prepare,
+                Reason::InvalidConfig,
+                DeliveryState::NotSubmitted,
+            ));
+        }
+        let view = self.claim_user_view()?;
+        self.slot
+            .state()
+            .users
+            .as_mut()
+            .expect("unique view installed")
+            .driver_owned = true;
+        Ok(view)
+    }
 }
 impl CarrierUserView {
     pub fn matches(&self, adoption: &CarrierAdoption) -> bool {
@@ -62,8 +112,11 @@ impl Drop for CarrierUserView {
     }
 }
 impl Users {
+    pub(super) fn transferred(&self) -> bool {
+        self.transferred_owned
+    }
     pub(super) fn bind(&mut self, witness: TaskJoinWitness) -> bool {
-        if !self.issued {
+        if !self.issued || self.driver_owned || self.transferred_owned {
             return false;
         }
         match &self.caller {
@@ -82,7 +135,10 @@ impl Users {
     }
     pub(super) fn ready(&self) -> bool {
         !self.live
-            && (!self.acquired || self.caller.as_ref().is_some_and(TaskJoinWitness::is_joined))
+            && (!self.acquired
+                || self.driver_owned
+                || self.transferred_owned
+                || self.caller.as_ref().is_some_and(TaskJoinWitness::is_joined))
     }
 }
 pub(super) fn acquired(slot: &Arc<Slot>) {
@@ -91,7 +147,8 @@ pub(super) fn acquired(slot: &Arc<Slot>) {
         match &mut state.users {
             Some(users) => {
                 users.acquired = true;
-                users.issued && users.caller.is_some()
+                users.issued
+                    && (users.driver_owned || users.transferred_owned || users.caller.is_some())
             }
             None => false,
         }
@@ -129,12 +186,22 @@ impl CarrierUsersClosed {
             .as_ref()
             .is_some_and(|actual| actual.same_registration(caller))
     }
-    /// None is explicitly the no-acquisition case, not a fabricated caller exit.
+    /// None means no separate caller task: either no acquisition, or custody
+    /// is taskless or belongs to the original transport driver. Any real exit is independently
+    /// available from CarrierClosed::driver_exit().
     pub fn caller_exit(&self) -> Option<TaskJoined> {
         self.caller.as_ref().and_then(TaskJoinWitness::try_joined)
     }
 }
 impl CarrierAdoption {
+    pub(crate) fn matches_bound_caller(&self, caller: &TaskJoinWitness) -> bool {
+        self.slot
+            .state()
+            .users
+            .as_ref()
+            .and_then(|users| users.caller.as_ref())
+            .is_some_and(|actual| actual.same_registration(caller))
+    }
     pub fn users_closed(&self) -> Option<CarrierUsersClosed> {
         let (closed, users) = {
             let state = self.slot.state();
@@ -200,6 +267,12 @@ pub(super) async fn finish(slot: &Arc<Slot>, deadline: tokio::time::Instant) -> 
             continue;
         }
         if !users.acquired {
+            return true;
+        }
+        if users.driver_owned || users.transferred_owned {
+            // close_slot reached this point only after the same original
+            // native close (and the driver's actual join when present). Its unique
+            // custody view returned above; there is no separate caller task.
             return true;
         }
         let Some(caller) = users.caller else {

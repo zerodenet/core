@@ -5,11 +5,11 @@ use zero_engine::{AdmittedSession, Engine, EngineError};
 use zero_platform_tokio::contract::CancellationToken;
 
 #[derive(Clone)]
-pub(crate) struct AdmittedTcpDemand {
+pub(crate) struct AdmittedBusinessDemand {
     admission: AdmittedSession,
     cancel: CancellationToken,
 }
-impl AdmittedTcpDemand {
+impl AdmittedBusinessDemand {
     pub(crate) fn new(
         engine: &Engine,
         session: SessionId,

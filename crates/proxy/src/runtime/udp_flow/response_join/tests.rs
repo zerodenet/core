@@ -128,3 +128,100 @@ async fn original_panic_object_is_preserved_and_foreign_or_dropped_consumers_do_
     pending(dropped.wait_joined()).await;
     assert!(dropped.joined().is_none());
 }
+
+#[tokio::test]
+async fn dropped_flow_retains_expected_cancel_until_the_original_udp_receive_is_joined() {
+    let owner = ResponseTasks::default();
+    let record = ResponseTask::new();
+    let weak = Arc::downgrade(&record);
+    let mut tasks = JoinSet::new();
+    let socket = tokio::net::UdpSocket::bind("127.0.0.1:0").await.unwrap();
+    let (entered, at_receive) = oneshot::channel();
+    owner.spawn(&mut tasks, &record, async move {
+        let mut bytes = [0; 32];
+        let receive = socket.recv_from(&mut bytes);
+        tokio::pin!(receive);
+        let mut entered = Some(entered);
+        std::future::poll_fn(|cx| match receive.as_mut().poll(cx) {
+            Poll::Pending => {
+                if let Some(entered) = entered.take() {
+                    entered.send(()).unwrap();
+                }
+                Poll::Pending
+            }
+            Poll::Ready(result) => Poll::Ready(result),
+        })
+        .await
+        .map_err(|source| std::io::Error::other(source))?;
+        Ok(packet())
+    });
+    at_receive.await.unwrap();
+    record.cancel();
+    drop(record);
+    assert!(
+        weak.upgrade().is_none(),
+        "metadata must not retain the logical flow"
+    );
+    let second = ResponseTask::new();
+    owner.spawn(&mut tasks, &second, std::future::pending());
+    assert_eq!(
+        owner.records.lock().unwrap().len(),
+        2,
+        "another registration cannot erase unjoined original evidence"
+    );
+    let native = tasks.join_next_with_id().await.unwrap();
+    let original = native.as_ref().unwrap_err().id();
+    let actual = owner.observe(native).unwrap_err();
+    assert_eq!(actual.id(), original);
+    assert!(actual.is_cancelled());
+    assert!(owner.statistics.lock().unwrap().fatal.is_none());
+    let Some(ResponseFailure::Join(saved)) = owner.statistics.lock().unwrap().first.clone() else {
+        panic!("retain actual cancellation source")
+    };
+    assert!(Arc::ptr_eq(&saved, &actual));
+    assert_eq!(owner.records.lock().unwrap().len(), 1);
+    second.cancel();
+    let native = tasks.join_next_with_id().await.unwrap();
+    assert!(owner.observe(native).unwrap_err().is_cancelled());
+    assert!(owner.records.lock().unwrap().is_empty());
+    assert_eq!(owner.statistics.lock().unwrap().joined, 2);
+    // Actual task joins above prove no native descriptor close provider.
+}
+#[tokio::test]
+async fn dropped_flow_does_not_turn_an_unrequested_original_abort_into_expected_cancel() {
+    let owner = ResponseTasks::default();
+    let record = ResponseTask::new();
+    let mut tasks = JoinSet::new();
+    let socket = tokio::net::UdpSocket::bind("127.0.0.1:0").await.unwrap();
+    let (entered, at_receive) = oneshot::channel();
+    owner.spawn(&mut tasks, &record, async move {
+        let mut bytes = [0; 32];
+        let receive = socket.recv_from(&mut bytes);
+        tokio::pin!(receive);
+        let mut entered = Some(entered);
+        std::future::poll_fn(|cx| match receive.as_mut().poll(cx) {
+            Poll::Pending => {
+                if let Some(entered) = entered.take() {
+                    entered.send(()).unwrap();
+                }
+                Poll::Pending
+            }
+            Poll::Ready(result) => Poll::Ready(result),
+        })
+        .await
+        .map_err(std::io::Error::other)?;
+        Ok(packet())
+    });
+    at_receive.await.unwrap();
+    drop(record);
+    tasks.abort_all();
+    let actual = owner
+        .observe(tasks.join_next_with_id().await.unwrap())
+        .unwrap_err();
+    assert!(actual.is_cancelled());
+    assert!(Arc::ptr_eq(
+        &owner.statistics.lock().unwrap().fatal.clone().unwrap(),
+        &actual
+    ));
+    assert!(owner.records.lock().unwrap().is_empty());
+}

@@ -9,6 +9,9 @@ use zero_proxy::Proxy as Engine;
 
 use support::{free_port, spawn_engine, wait_for_listener};
 
+#[path = "direct/standard.rs"]
+mod standard;
+
 #[tokio::test]
 async fn relays_raw_tcp_to_fixed_ipv4_target() {
     let echo_port = free_port();

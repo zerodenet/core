@@ -82,7 +82,7 @@ async fn canonical_dependency_generation_and_complete_pool_recipe_are_both_requi
 }
 
 #[test]
-fn native_options_reject_udp_and_invalid_protocol_options_without_dropping_fields() {
+fn native_options_preserve_underlay_and_reject_invalid_protocol_options() {
     let pool = Arc::new(crate::client::ClientPool::default());
     let recipe = pool.component_options(NonZeroUsize::new(1).unwrap());
     let valid = crate::config::MieruTransportOptions::default();
@@ -95,10 +95,12 @@ fn native_options_reject_udp_and_invalid_protocol_options_without_dropping_field
         plain.prepare_tcp(input(false, &valid)),
         Err(zero_core::Error::Unsupported(_))
     ));
-    assert!(matches!(
-        recipe.prepare_tcp(input(true, &valid)),
-        Err(zero_core::Error::Unsupported(_))
-    ));
+    let packet = recipe.prepare_tcp(input(true, &valid)).unwrap();
+    let stream = recipe.prepare_tcp(input(false, &valid)).unwrap();
+    assert_ne!(
+        packet.bind(zero_core::component::ComponentId(99)).identity,
+        stream.bind(zero_core::component::ComponentId(99)).identity
+    );
     let mut invalid = valid.clone();
     invalid.receive.stall_timeout_ms = 0;
     assert!(matches!(

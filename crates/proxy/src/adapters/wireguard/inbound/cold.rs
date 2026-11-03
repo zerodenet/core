@@ -1,8 +1,6 @@
 //! Cold listener selection. Installation alone claims the original executor.
 use super::device::ListenerLease;
 use super::*;
-use crate::runtime::inbound_owners::InboundInstallContext;
-use std::{future::Future, pin::Pin};
 
 #[derive(Clone)]
 pub(in crate::adapters::wireguard) enum Binding {
@@ -23,103 +21,135 @@ impl Binding {
     }
 }
 
-pub(in crate::adapters::wireguard) struct ColdListener {
-    live: Arc<LiveInboundDevice>,
-    binding: Binding,
-    update: Option<(InboundDevice, [u8; 32])>,
-    operation: Option<Box<dyn PreparedInboundListenerOperation>>,
-    lease: Option<ListenerLease>,
-    recovery: Arc<super::recovery::Recovery>,
+pub(crate) struct Options {
+    pub(in crate::adapters::wireguard) inbound: InboundConfig,
+    pub(in crate::adapters::wireguard) live: Arc<LiveInboundDevice>,
+    pub(in crate::adapters::wireguard) binding: Binding,
+    pub(in crate::adapters::wireguard) recovery: Arc<dyn crate::protocol_registry::InboundRecovery>,
 }
-impl ColdListener {
+impl Options {
     pub(in crate::adapters::wireguard) fn new(
         inbound: &InboundConfig,
         live: Arc<LiveInboundDevice>,
         binding: Binding,
         pending: super::super::PendingEndpointMap,
     ) -> Result<Self, EngineError> {
-        let identity = inbound_protocol_identity(&inbound.protocol)
-            .ok_or_else(|| invalid("cannot identify WireGuard inbound"))?;
-        let update = if live.matches_identity(identity) {
-            None
-        } else {
-            Some((prepare_device(inbound)?, identity))
-        };
         let recovery = Arc::new(super::recovery::Recovery::new(
             inbound,
             live.clone(),
             binding.clone(),
             pending,
         )?);
+        // Validate cold protocol input without mutating the current crypto owner.
+        prepare_device(inbound)?;
         Ok(Self {
+            inbound: inbound.clone(),
             live,
             binding,
-            update,
-            operation: None,
-            lease: None,
             recovery,
         })
     }
 }
-impl PreparedInboundListenerOperation for ColdListener {
-    fn internal_tasks(&self) -> usize {
-        RawIpInboundListenerOperation::internal_task_limit()
+pub(crate) struct Factory;
+impl zero_platform_tokio::contract::component::ComponentFactory for Factory {
+    type Options = Options;
+    fn describe(
+        &self,
+        options: &Options,
+    ) -> zero_platform_tokio::contract::component::ComponentSpec {
+        super::super::controlled_bind::spec(&options.inbound)
     }
-
-    fn recovery_state(&self) -> Option<Arc<dyn crate::protocol_registry::InboundRecovery>> {
-        Some(self.recovery.clone())
-    }
-    fn install_resources(&mut self, context: &InboundInstallContext) -> Result<(), EngineError> {
-        if self.operation.is_some() || self.lease.is_some() {
-            return Err(invalid("WireGuard cold listener was already installed"));
-        }
-        let linked = self.binding.ready()?;
-        if let Some(linked) = &linked {
-            if !Arc::ptr_eq(&linked.live, &self.live) {
-                return Err(invalid("WireGuard linked dependency changed crypto owner"));
-            }
-            if linked
-                .state
-                .lock()
-                .unwrap_or_else(|error| error.into_inner())
-                .devices
-                .iter()
-                .any(|device| !device.is_usable())
-            {
-                return Err(invalid("WireGuard linked dependency was retired"));
-            }
-        }
-        self.lease = Some(self.live.claim_listener()?);
-        let operation = match linked {
-            Some(linked) => linked.take_operation()?,
-            None => prepare_unlinked_with_live(self.live.clone()),
+    fn build(
+        &self,
+        options: Arc<Options>,
+        context: zero_platform_tokio::contract::component::BuildContext,
+    ) -> Result<
+        zero_platform_tokio::contract::component::ComponentInstance,
+        zero_platform_tokio::contract::lifecycle::BuildError,
+    > {
+        use zero_platform_tokio::contract::{
+            component::*, inbound::erase_inbound, lifecycle::erase_lifecycle,
         };
-        self.operation = Some(operation);
-        self.operation
-            .as_mut()
-            .unwrap()
-            .install_resources(context)?;
-        if let Some((device, identity)) = self.update.take() {
-            if !self.live.matches_identity(identity) {
-                self.live.replace(device, identity);
+        let construct = || -> Result<_, EngineError> {
+            let linked = options.binding.ready()?;
+            if let Some(linked) = &linked {
+                if !Arc::ptr_eq(&linked.live, &options.live)
+                    || linked
+                        .state
+                        .lock()
+                        .unwrap()
+                        .devices
+                        .iter()
+                        .any(|d| !d.is_usable())
+                {
+                    return Err(invalid("linked dependency changed or retired"));
+                }
             }
-        }
-        Ok(())
-    }
-    fn execute(
-        mut self: Box<Self>,
-        runtime: crate::runtime::route_runtime::InboundListenerRuntime,
-        bound: crate::protocol_registry::BoundInbound,
-        shutdown: watch::Receiver<bool>,
-    ) -> Pin<Box<dyn Future<Output = Result<(), EngineError>> + Send>> {
-        Box::pin(async move {
-            // Metadata only. Scope joins and native owners provide closure proof.
-            let _lease = self.lease.take();
-            let operation = self
-                .operation
-                .take()
-                .ok_or_else(|| invalid("WireGuard cold listener was not installed"))?;
-            operation.execute(runtime, bound, shutdown).await
+            let lease = options.live.claim_listener()?;
+            let endpoint = linked
+                .as_ref()
+                .map(|linked| linked.take_endpoint())
+                .transpose()?;
+            let identity = inbound_protocol_identity(&options.inbound.protocol)
+                .ok_or_else(|| invalid("cannot identify inbound"))?;
+            if !options.live.matches_identity(identity) {
+                options
+                    .live
+                    .replace(prepare_device(&options.inbound)?, identity);
+            }
+            let destination = super::super::controlled_bind::destination(&options.inbound)?;
+            let (owner, source) = crate::runtime::inbound_operation::raw_ip::source::source(
+                Box::new(WireguardInboundDevice(options.live.clone())),
+                endpoint,
+                destination,
+                context,
+            );
+            Ok(ComponentInstance {
+                lifecycle: erase_lifecycle(Owner {
+                    inner: owner,
+                    lease: Some(lease),
+                }),
+                roles: ComponentRoles {
+                    inbound: Some(erase_inbound(source)),
+                    ..Default::default()
+                },
+            })
+        };
+        construct().map_err(|source| {
+            zero_platform_tokio::contract::ChannelError::new(
+                zero_platform_tokio::contract::Stage::Prepare,
+                zero_platform_tokio::contract::Reason::InvalidConfig,
+                zero_platform_tokio::contract::Impact::Component,
+            )
+            .with_source(source)
         })
+    }
+}
+struct Owner {
+    inner: crate::runtime::inbound_operation::raw_ip::source::Owner,
+    lease: Option<ListenerLease>,
+}
+impl zero_platform_tokio::contract::lifecycle::ResourceLifecycle for Owner {
+    async fn start(
+        &mut self,
+        deadline: tokio::time::Instant,
+    ) -> Result<(), zero_platform_tokio::contract::ChannelError> {
+        self.inner.start(deadline).await
+    }
+    fn revoke(&self, reason: zero_platform_tokio::contract::CloseReason) {
+        self.inner.revoke(reason);
+    }
+    async fn shutdown(
+        &mut self,
+        deadline: tokio::time::Instant,
+    ) -> Result<
+        zero_platform_tokio::contract::lifecycle::CloseReport,
+        zero_platform_tokio::contract::ChannelError,
+    > {
+        let report = self.inner.shutdown(deadline).await?;
+        if report.is_complete() {
+            self.lease.take();
+        }
+        Ok(report)
     }
 }

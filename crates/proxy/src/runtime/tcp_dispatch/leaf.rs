@@ -13,7 +13,7 @@ use crate::runtime::passive_relay_health::classify_outbound_establishment_failur
 pub(crate) async fn dispatch_tcp(
     runtime: &TcpIngressRuntime,
     session: &mut Session,
-    admitted: Option<crate::component::business_demand::AdmittedTcpDemand>,
+    admitted: Option<crate::component::business_demand::AdmittedBusinessDemand>,
 ) -> Result<TcpRouteResult, EngineError> {
     let trace = runtime.route_trace(session).await;
     let action = trace.decision;

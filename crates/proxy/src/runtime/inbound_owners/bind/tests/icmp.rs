@@ -7,24 +7,11 @@ async fn canonical_icmp_grant_is_same_instance_cold_and_revoked_before_native_io
     let proxy = proxy();
     let config = proxy.engine().config();
     let inbound = &config.inbounds[0];
-    let operation = proxy
+    let prepared = proxy
         .protocols
-        .prepare_inbound_listener(inbound.clone(), None)
+        .prepare_inbound_bind(inbound.clone(), None)
+        .unwrap()
         .unwrap();
-    let prepared = PreparedInboundBind::new(
-        operation,
-        Arc::from([
-            ResourceDeclaration::DatagramListener {
-                destination: Destination::new(Address::Ipv4([127, 0, 0, 1]), 0),
-                max_bind_attempts: NonZeroUsize::new(1).unwrap(),
-                max_pending_sends: NonZeroUsize::new(1).unwrap(),
-            },
-            ResourceDeclaration::NativeIcmp {
-                max_sockets: NonZeroUsize::new(64).unwrap(),
-            },
-        ]),
-    )
-    .unwrap();
     let (shutdown, _) = watch::channel(false);
     let mut lease = proxy
         .inbound_owners
@@ -38,6 +25,11 @@ async fn canonical_icmp_grant_is_same_instance_cold_and_revoked_before_native_io
         )
         .unwrap();
     let actual = lease.owner();
+    actual
+        .install_icmp_probe(&ResourceDeclaration::NativeIcmp {
+            max_sockets: NonZeroUsize::new(64).unwrap(),
+        })
+        .unwrap();
     lease.bind_native().unwrap();
     let (operation, view, installed) = lease.finish().unwrap().promote_native().unwrap();
     drop(operation);

@@ -19,9 +19,9 @@ pub(crate) use direct::DirectTcpConnectOperation;
 #[cfg(feature = "tcp-transport-session-runtime")]
 pub(crate) use session::{SessionTcpConnectOperation, SessionTcpHandshake};
 #[cfg(any(feature = "tcp-tunnel-runtime", feature = "tcp-session-runtime"))]
-pub(crate) use socket::{SocketTcpConnectOperation, SocketTcpHandshake, SocketTcpRelayOperation};
+pub(crate) use socket::{SocketTcpHandshake, SocketTcpOperation};
 #[cfg(any(feature = "tcp-tunnel-runtime", feature = "tcp-session-runtime"))]
-pub(crate) use transport::{TransportLeafTcpConnectOperation, TransportLeafTcpRelayOperation};
+pub(crate) use transport::TransportLeafTcpOperation;
 
 #[cfg(feature = "managed-stream-runtime")]
 mod logical;

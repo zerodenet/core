@@ -1,4 +1,6 @@
 mod datagram;
+mod loan;
+mod packet_loan;
 use super::health::FirstHopHealth;
 use crate::component::instance::invalid;
 use crate::protocol_registry::UpstreamConnectServices;
@@ -62,6 +64,38 @@ impl PrefixOpener {
     }
 }
 impl UpstreamOpener for PrefixOpener {
+    fn borrow_datagram(
+        &self,
+        binding: &UpstreamBinding,
+        endpoint: Destination,
+        call: CarrierContext,
+    ) -> BoxFuture<
+        '_,
+        Result<zero_platform_tokio::controlled_carrier::loan::DatagramLoan, ChannelError>,
+    > {
+        self.borrow_selected_datagram(binding.clone(), endpoint, call)
+    }
+    fn observe_carrier_origin(
+        &self,
+        origin: &zero_platform_tokio::controlled_carrier::CarrierOrigin,
+    ) -> bool {
+        self.context.upstream.observe_carrier_origin(origin)
+    }
+
+    fn carrier_dns_generation(&self) -> Option<zero_platform_tokio::contract::dns::DnsGeneration> {
+        Some(self.network.dns_generation())
+    }
+    fn borrow_stream(
+        &self,
+        binding: &UpstreamBinding,
+        destination: Destination,
+        carrier: CarrierContext,
+    ) -> BoxFuture<
+        '_,
+        Result<zero_platform_tokio::controlled_carrier::loan::StreamLoan, ChannelError>,
+    > {
+        self.borrow_selected(binding.clone(), destination, carrier)
+    }
     fn open_stream(
         &self,
         binding: &UpstreamBinding,

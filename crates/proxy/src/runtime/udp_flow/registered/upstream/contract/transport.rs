@@ -29,5 +29,12 @@ where
         buf: &mut [u8],
     ) -> Result<(Address, u16, Vec<u8>), EngineError>;
 
-    fn close(self, reason: UpstreamAssociationCloseReason);
+    fn request_close(&mut self, reason: UpstreamAssociationCloseReason);
+
+    /// Consume the actual retained controller's complete receipt. Cancellation
+    /// or custody release cannot authorize replacement.
+    async fn wait_closed(
+        &mut self,
+        deadline: tokio::time::Instant,
+    ) -> Result<zero_platform_tokio::contract::lifecycle::CloseReport, EngineError>;
 }

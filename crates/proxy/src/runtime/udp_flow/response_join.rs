@@ -43,15 +43,21 @@ struct Statistics {
 }
 #[derive(Default)]
 pub(crate) struct ResponseTasks {
-    records: Mutex<HashMap<Id, Weak<ResponseTask>>>,
+    records: Mutex<HashMap<Id, ActiveResponse>>,
     statistics: Mutex<Statistics>,
     expected_cancel: std::sync::atomic::AtomicBool,
+}
+// Retain only this original's cancellation fact until its real join. The
+// logical flow may disappear first; a weak record alone loses that fact.
+struct ActiveResponse {
+    record: Weak<ResponseTask>,
+    cancelled: Arc<std::sync::atomic::AtomicBool>,
 }
 #[derive(Default)]
 pub(crate) struct ResponseTask {
     state: Mutex<Registration>,
     changed: Notify,
-    cancelled: std::sync::atomic::AtomicBool,
+    cancelled: Arc<std::sync::atomic::AtomicBool>,
 }
 #[derive(Default)]
 enum Registration {
@@ -149,9 +155,18 @@ impl ResponseTasks {
             .records
             .lock()
             .unwrap_or_else(|error| error.into_inner());
-        records.retain(|_, record| record.strong_count() != 0);
+        // One entry per actual unconsumed original; reclaim only at observe.
+        // Pruning a dead weak flow here would erase its stop request before join.
         assert!(
-            records.insert(id, Arc::downgrade(record)).is_none(),
+            records
+                .insert(
+                    id,
+                    ActiveResponse {
+                        record: Arc::downgrade(record),
+                        cancelled: record.cancelled.clone()
+                    }
+                )
+                .is_none(),
             "one original response task identity"
         );
     }
@@ -177,8 +192,7 @@ impl ResponseTasks {
             .records
             .lock()
             .unwrap_or_else(|error| error.into_inner())
-            .remove(&id)
-            .and_then(|record| record.upgrade());
+            .remove(&id);
         let expected_cancel = self
             .expected_cancel
             .load(std::sync::atomic::Ordering::Acquire)
@@ -200,7 +214,7 @@ impl ResponseTasks {
                 }
             }
         }
-        if let Some(record) = record {
+        if let Some(record) = record.and_then(|active| active.record.upgrade()) {
             record.consume(id, failure);
         }
         result

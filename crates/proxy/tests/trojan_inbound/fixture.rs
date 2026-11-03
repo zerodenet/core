@@ -12,6 +12,12 @@ pub(super) struct Fixture {
 }
 impl Fixture {
     pub(super) fn new(principal: Option<&str>, blocked: bool) -> Self {
+        Self::build(principal, blocked, false)
+    }
+    pub(super) fn relative_tls() -> Self {
+        Self::build(None, false, true)
+    }
+    fn build(principal: Option<&str>, blocked: bool, relative: bool) -> Self {
         let material = TempMaterial::new("zero-trojan-standard-inbound");
         let certified = rcgen::generate_simple_self_signed(vec!["localhost".into()]).unwrap();
         let cert_path = material.path("server.crt");
@@ -20,18 +26,30 @@ impl Fixture {
         std::fs::write(&key_path, certified.signing_key.serialize_pem()).unwrap();
         let mut roots = rustls::RootCertStore::empty();
         roots.add(certified.cert.der().clone()).unwrap();
-        let port = free_port();
-        let config = RuntimeConfig::parse(&serde_json::json!({
+        let reservation = std::net::TcpListener::bind(("127.0.0.1", 0)).unwrap();
+        let port = reservation.local_addr().unwrap().port();
+        let certificate = if relative {
+            std::path::PathBuf::from("server.crt")
+        } else {
+            cert_path
+        };
+        let private_key = if relative {
+            std::path::PathBuf::from("server.key")
+        } else {
+            key_path
+        };
+        let config = RuntimeConfig::parse_with_source_dir(&serde_json::json!({
             "inbounds": [{"tag":"trojan-in", "listen":{"address":"127.0.0.1","port":port},
                 "protocol":{"type":"trojan", "users":[{
                     "password":PASSWORD, "principal_key":principal,
                     "up_bps":65536,"down_bps":32768,"device_limit":2,
                     "quota_remaining_bytes":4096,"policy_revision":7
-                }], "tls":{"cert_path":cert_path,"key_path":key_path}}}],
+                }], "tls":{"cert_path":certificate,"key_path":private_key}}}],
             "route":{"rules":[], "final": if blocked { serde_json::json!({"type":"reject"}) } else { serde_json::json!({"type":"direct"}) }}
-        }).to_string()).unwrap();
+        }).to_string(), relative.then(|| material.path(""))).unwrap();
         let engine = Engine::new(config).unwrap();
         let probe = engine.clone();
+        drop(reservation); // Release only when the actual host bind is ready to start.
         let running = spawn_engine(engine);
         let tls = rustls::ClientConfig::builder()
             .with_root_certificates(roots)

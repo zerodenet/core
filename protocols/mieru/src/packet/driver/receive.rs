@@ -120,7 +120,7 @@ impl Driver {
             state.reliable.consume()?;
         }
     }
-    async fn close_response(&self, id: u32, sequence: u32) -> io::Result<()> {
+    async fn close_response(&mut self, id: u32, sequence: u32) -> io::Result<()> {
         let mut m = SessionMetadata::new(CLOSE_SESSION_RESPONSE);
         m.session_id = id;
         m.sequence_number = sequence;

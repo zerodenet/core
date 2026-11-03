@@ -42,6 +42,11 @@ fn wireguard_adapter_claims_without_mutating_published_profile() {
     adapter.profiles.lock().unwrap().insert(
         "wg".to_owned(),
         CachedProfile {
+            packet: adapter.packet_operations(
+                "wg",
+                protocol_identity(&first.protocol).unwrap(),
+                first_plan.clone(),
+            ),
             identity: protocol_identity(&first.protocol).unwrap(),
             device_identity: protocol_identity(&first.protocol).unwrap(),
             plan: first_plan.clone(),
@@ -85,7 +90,7 @@ fn wireguard_advertises_packet_with_shared_flow_converters() {
     assert!(claim.tcp.is_none());
     assert!(claim.udp.is_none());
     let packet = claim.packet.expect("native PacketSink");
-    assert!(packet.packet_flow_adapter().is_some());
+    assert!(packet.flow.is_some());
 }
 
 #[test]

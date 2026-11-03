@@ -202,6 +202,10 @@ impl VmessUdpFlowPlan {
     }
 }
 
+#[cfg(feature = "runtime")]
+#[path = "udp/native.rs"]
+mod native;
+
 impl PreparedVmessUdpFlowPlan {
     pub(crate) fn new(
         plan: VmessUdpFlowPlan,
@@ -723,6 +727,15 @@ impl VmessInboundUdpSession {
         self.read_dispatch_parts_tokio(reader, buf)
             .await
             .map(|parts| parts.map(VmessInboundUdpDispatchParts::into_inbound_dispatch))
+    }
+
+    pub(crate) fn encode_response_packet(
+        &self,
+        target: &Address,
+        port: u16,
+        payload: &[u8],
+    ) -> Result<Vec<u8>, Error> {
+        VmessInboundUdpCodec.encode_response_for_state(self.state, target, port, payload)
     }
 
     pub async fn write_response_tokio<W>(

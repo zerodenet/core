@@ -287,6 +287,30 @@ pub struct PreparedVlessOutboundRequestBundle {
 
 impl PreparedVlessOutboundRequestBundle {
     #[cfg(feature = "reality")]
+    pub(crate) fn native_mux_plan(
+        &self,
+        server: &str,
+        port: u16,
+    ) -> Result<(crate::mux_pool::PoolKey, u32), Error> {
+        let concurrency = self
+            .requests
+            .mux_concurrency()
+            .ok_or(Error::Config("native MUX requires enabled concurrency"))?;
+        let key = self
+            .requests
+            .tcp_connect_request()
+            .config()
+            .tcp_mux_pool_key_from_transport_config(
+                server,
+                port,
+                self.mux_transport_profile.as_borrowed(),
+                self.requests.mux_idle_timeout_secs(),
+                self.requests.mux_response_backlog(),
+            );
+        Ok((key, concurrency))
+    }
+
+    #[cfg(feature = "reality")]
     pub(crate) fn reverse_parameters(
         &self,
     ) -> (

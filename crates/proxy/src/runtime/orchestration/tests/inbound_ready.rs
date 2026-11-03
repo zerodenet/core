@@ -45,7 +45,7 @@ async fn candidate_ack_waits_for_actual_plugin_activation_and_both_listener_loop
     proxy.engine.stage_runtime_config(candidate).unwrap();
     let expected = proxy.engine.runtime_snapshot();
     let (sender, mut acknowledgement) = tokio::sync::oneshot::channel();
-    *proxy.reload_ack.lock().unwrap() = Some(PendingReloadAck {
+    *proxy.host.reload_ack().lock().unwrap() = Some(PendingReloadAck {
         expected: expected.clone(),
         previous: previous.clone(),
         persist: false,

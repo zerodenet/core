@@ -46,6 +46,9 @@ impl VmessManagedUdpFlowResume {
         OpenSocket: Clone + Fn(&str, u16) -> OpenSocketFut + Send + Sync,
         OpenSocketFut: Future<Output = Result<TokioSocket, RuntimeError>> + Send,
     {
+        if let Some(opened) = self.open_installed_connection(session).await? {
+            return Ok(opened);
+        }
         let transport = self.transport.clone();
         let direct_transport =
             || transport.open_direct(move |server, port| open_socket.clone()(server, port));
@@ -58,6 +61,39 @@ impl VmessManagedUdpFlowResume {
                 direct_transport,
             )
             .await
+    }
+
+    // Erase once at the compatibility boundary; generic socket callers do not
+    // embed the entire native pool/transport preparation state machine.
+    fn open_installed_connection<'a>(
+        &'a self,
+        session: &'a Session,
+    ) -> zero_platform_tokio::contract::BoxFuture<
+        'a,
+        Result<Option<crate::udp::VmessUdpFlowConnection>, RuntimeError>,
+    > {
+        Box::pin(async move {
+            let Some(binding) = self.mux_pool.installed_root_binding().await? else {
+                return Ok(None);
+            };
+            self.protocol
+                .open_native_mux_flow(
+                    session,
+                    self.transport.server(),
+                    self.transport.port(),
+                    &self.mux_pool,
+                    binding,
+                    |raw| async move {
+                        self.transport
+                            .open_relay(TcpRelayStream::new(
+                                zero_transport::pooled_driver::ExclusiveIo::new(raw),
+                            ))
+                            .await
+                    },
+                )
+                .await
+                .map(Some)
+        })
     }
 
     pub async fn open_relay_connection(

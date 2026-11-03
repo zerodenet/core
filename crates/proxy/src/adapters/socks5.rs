@@ -1,21 +1,14 @@
-use ::socks5::transport::{
-    Socks5InboundAcceptor, Socks5InboundUserRef, Socks5OutboundOptionsRef, Socks5TransportLeaf,
-};
-use zero_config::{InboundConfig, InboundProtocolConfig, OutboundProtocolConfig};
-use zero_engine::EngineError;
+use ::socks5::transport::{Socks5OutboundOptionsRef, Socks5TransportLeaf};
+use zero_config::OutboundProtocolConfig;
 use zero_traits::{ProtocolCapabilityDescriptor, ProtocolMetadata};
 
 use crate::adapters::identity::NamedProtocolAdapter;
-use crate::protocol_registry::{
-    InboundListenerCapability, OutboundLeafClaim, OutboundLeafInput, TcpOutboundCapability,
-    UdpFlowCapability, UdpPacketPathCapability, UpstreamUdpHandlerProvider,
-};
+use crate::protocol_registry::{OutboundLeafClaim, OutboundLeafInput};
 use crate::runtime::path::TcpPathCategory;
-use crate::runtime::udp_flow::registered::UpstreamAssociationHandler;
 
 mod component;
 #[cfg(feature = "socks5")]
-pub(super) mod inbound;
+pub(crate) mod inbound;
 pub(crate) use component::{component_options, LEGACY_CONNECT_STAGE};
 #[cfg(feature = "socks5")]
 mod tcp;
@@ -63,74 +56,23 @@ impl Socks5Adapter {
             return None;
         };
         let leaf = transport_leaf(outbound.tag(), &outbound.protocol)?;
-        let tcp = self.claim_tcp_outbound_leaf_impl(leaf.clone());
+        let tcp = std::sync::Arc::new(
+            crate::runtime::tcp_dispatch::operation::SocketTcpOperation {
+                handshake: leaf.clone(),
+            },
+        );
         Some(OutboundLeafClaim {
             tcp_path: TcpPathCategory::Tunnel,
-            tcp: Some(tcp),
-            udp: Some(self.claim_udp_flow_leaf_impl(leaf.clone())),
+            tcp: Some(Ok(tcp.clone())),
+            tcp_relay: Some(Ok(tcp)),
+            udp: None,
+            udp_relay: None,
             #[cfg(feature = "raw-ip-runtime")]
             packet: None,
-            packet_path: self.claim_udp_packet_path_leaf_impl(leaf),
+            packet_path: self.udp_packet_path_operation(leaf),
         })
     }
 }
-
-#[cfg(feature = "socks5")]
-impl UdpPacketPathCapability for Socks5Adapter {}
-
-#[cfg(feature = "socks5")]
-impl UdpFlowCapability for Socks5Adapter {}
-
-#[cfg(feature = "socks5")]
-impl UpstreamUdpHandlerProvider for Socks5Adapter {
-    fn upstream_association_handler(&self) -> Box<dyn UpstreamAssociationHandler> {
-        udp::upstream_association_handler()
-    }
-}
-
-#[cfg(feature = "socks5")]
-impl InboundListenerCapability for Socks5Adapter {
-    fn prepare_inbound_bind(
-        &self,
-        inbound: InboundConfig,
-        source_dir: Option<&std::path::Path>,
-    ) -> Result<Option<crate::protocol_registry::PreparedInboundBind>, EngineError> {
-        crate::protocol_registry::prepare_tcp_inbound_bind(self, inbound, source_dir)
-    }
-
-    fn prepare_inbound_listener(
-        &self,
-        inbound: InboundConfig,
-        _source_dir: Option<&std::path::Path>,
-    ) -> Result<
-        Box<dyn crate::runtime::inbound_operation::PreparedInboundListenerOperation>,
-        EngineError,
-    > {
-        let acceptor = match &inbound.protocol {
-            InboundProtocolConfig::Socks5 { users } => {
-                Socks5InboundAcceptor::from_options_refs(users.iter().map(|user| {
-                    Socks5InboundUserRef {
-                        username: user.username.as_str(),
-                        password: user.password.as_str(),
-                        principal_key: user.principal_key.as_deref(),
-                        up_bps: user.up_bps,
-                        down_bps: user.down_bps,
-                    }
-                }))
-            }
-            _ => {
-                return Err(EngineError::Io(std::io::Error::new(
-                    std::io::ErrorKind::InvalidInput,
-                    "socks5 inbound listener received non-socks5 inbound config",
-                )));
-            }
-        };
-        Ok(inbound::prepare(acceptor))
-    }
-}
-
-#[cfg(feature = "socks5")]
-impl TcpOutboundCapability for Socks5Adapter {}
 
 #[cfg(feature = "socks5")]
 impl ProtocolMetadata for Socks5Adapter {
@@ -145,4 +87,4 @@ mod component_tests;
 
 #[cfg(test)]
 #[path = "../component/tests/relay.rs"]
-mod relay_tests;
+pub(crate) mod relay_tests;

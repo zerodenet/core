@@ -12,9 +12,10 @@ impl InboundOwner {
     /// The original object moves here before returning the preparation error.
     /// Cold TCP leaves close through their original native control. Other
     /// shapes remain held until their exact resource boundary is migrated.
+    #[cfg(test)]
     pub(crate) fn retain_unexecuted_bound(
         &self,
-        bound: crate::protocol_registry::BoundInbound,
+        bound: zero_platform_tokio::TokioListener,
         source: EngineError,
     ) -> EngineError {
         let mut pending = self

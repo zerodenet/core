@@ -15,10 +15,9 @@ async fn granted_packet_socket_keeps_actual_source_pending_read_and_native_close
         .unwrap();
     let address = rx.local_addr().unwrap();
     let (mut receive, mut send) = RawIpReceive::split(
-        BoundInbound::ControlledDatagram(GrantedDatagramListener { rx, tx }),
+        GrantedDatagramListener { rx, tx },
         EgressInterfaceControl::default(),
-    )
-    .unwrap();
+    );
     let peer = tokio::net::UdpSocket::bind("127.0.0.1:0").await.unwrap();
     let remote = peer.local_addr().unwrap();
     peer.send_to(b"original packet", address).await.unwrap();

@@ -25,7 +25,7 @@ impl OrchestrationState {
         let preparing = if compensating {
             std::sync::Arc::new(crate::runtime::inbound_owners::PreparingInbounds::default())
         } else {
-            if proxy.apply_owner.is_closing() {
+            if proxy.host.apply().is_closing() {
                 self.reject_reload(
                     proxy,
                     &new_snapshot,
@@ -132,7 +132,7 @@ impl OrchestrationState {
         #[cfg(feature = "raw-ip-runtime")]
         let prepared_outbound_devices = match proxy
             .protocols
-            .prepare_outbound_devices(&new_config, candidate_tcp_services.clone())
+            .prepare_devices(&new_config, candidate_tcp_services.clone())
             .await
         {
             Ok(prepared) => prepared,
@@ -173,6 +173,8 @@ impl OrchestrationState {
             return;
         }
         if let Err(error) = preparing.ensure_open() {
+            #[cfg(feature = "raw-ip-runtime")]
+            drop(prepared_outbound_devices);
             self.reject_reload(proxy, &new_snapshot, error.to_string())
                 .await;
             return;
@@ -218,9 +220,7 @@ impl OrchestrationState {
             }
         }
         #[cfg(feature = "raw-ip-runtime")]
-        for prepared in prepared_outbound_devices {
-            prepared.publish().await;
-        }
+        prepared_outbound_devices.publish().await;
         listeners::reconcile_urltests(
             &candidate_urltest_runtime,
             &self.shutdown_rx,

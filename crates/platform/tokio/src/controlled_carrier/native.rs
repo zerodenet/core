@@ -13,17 +13,25 @@ use std::{net::SocketAddr, sync::Arc, time::Duration};
 use tokio::{sync::Mutex, time::Instant};
 use zero_core::{component::ComponentInstanceId, request::Destination, Address};
 use zero_traits::IoObserver;
+mod packet;
+mod stream;
 /// No public defaults and no production registration. The host must explicitly
 /// grant this exact component generation, selected peer, binding and finite owner.
 pub struct NativeCarrierOpener {
     grantee: ComponentInstanceId,
     binding: UpstreamBinding,
     peer: SocketAddr,
+    pub(super) endpoint: Destination,
     egress: Arc<EgressInterfaceControl>,
     observer: Option<Arc<dyn IoObserver>>,
     business: Option<super::CarrierBusinessGrant>,
     service: Option<super::CarrierServiceGrant>,
+    dns: Option<(
+        Arc<dyn crate::contract::dns::DnsService>,
+        crate::contract::dns::DnsGeneration,
+    )>,
 }
+mod relay;
 impl NativeCarrierOpener {
     pub fn new(
         grantee: ComponentInstanceId,
@@ -47,10 +55,12 @@ impl NativeCarrierOpener {
             grantee,
             binding,
             peer,
+            endpoint: super::resolution::destination(peer),
             egress,
             observer,
             business: None,
             service: None,
+            dns: None,
         })
     }
     /// A distinct host capability, pinned to the original registered slot. The
@@ -85,6 +95,38 @@ impl NativeCarrierOpener {
         native.business = Some(grant);
         Ok(native)
     }
+    /// Host-only selection from its actual Node DNS answer. The sealed business
+    /// ticket keeps the original domain, caller, slot and binding authoritative;
+    /// a selected address does not mint another endpoint or host permission.
+    pub fn business_resolved(
+        grant: super::CarrierBusinessGrant,
+        peer: SocketAddr,
+        resolver: Arc<dyn crate::contract::dns::DnsService>,
+        generation: crate::contract::dns::DnsGeneration,
+        egress: Arc<EgressInterfaceControl>,
+        observer: Option<Arc<dyn IoObserver>>,
+    ) -> Result<Self, ChannelError> {
+        grant.check_liveness()?;
+        let instance = grant.binding().registration().instance();
+        let endpoint = grant.endpoint().clone();
+        if !matches!(endpoint.address, Address::Domain(_))
+            || endpoint.port != peer.port()
+            || peer.ip().is_unspecified()
+            || resolver.generation() != generation
+        {
+            return Err(error(
+                instance,
+                Stage::Prepare,
+                Reason::StalePlan,
+                DeliveryState::NotSubmitted,
+            ));
+        }
+        let mut native = Self::new(instance, grant.upstream().clone(), peer, egress, observer)?;
+        native.endpoint = endpoint;
+        native.business = Some(grant);
+        native.dns = Some((resolver, generation));
+        Ok(native)
+    }
     /// Actual Service-root ticket, already bound to its original caller/view.
     /// The host provider independently validates its private root authority.
     pub fn service(
@@ -117,174 +159,35 @@ impl NativeCarrierOpener {
         native.service = Some(grant);
         Ok(native)
     }
-
-    fn prepare(
+}
+impl UpstreamOpener for NativeCarrierOpener {
+    fn resolve_controlled_carrier(
         &self,
         binding: &UpstreamBinding,
         destination: Destination,
         context: CarrierContext,
-        mut grant: CarrierGrant,
-    ) -> Result<PreparedCarrier, ChannelError> {
-        grant.check()?;
-        if let Some(business) = &self.business {
-            business.check(&grant, binding, &destination, &context)?;
-            business.bind_caller(&grant.slot)?;
-        }
-        if let Some(service) = &self.service {
-            service.check(&grant, binding, &destination, &context)?;
-            service.bind_caller(&grant.slot)?;
-        }
-        let bound = grant.slot.owner.upgrade().and_then(|owner| {
-            let state = owner.state();
-            state.binding.clone()
-        });
-        if bound
-            .as_ref()
-            .is_some_and(|bound| !bound.permits_native(binding, &destination, &context))
-        {
-            return Err(error(
-                grant.instance(),
-                Stage::Prepare,
-                Reason::StalePlan,
-                DeliveryState::NotSubmitted,
-            ));
-        }
-        let address = match self.peer.ip() {
-            std::net::IpAddr::V4(ip) => Address::Ipv4(ip.octets()),
-            std::net::IpAddr::V6(ip) => Address::Ipv6(ip.octets()),
-        };
-        if grant.instance() != self.grantee
-            || binding != &self.binding
-            || destination != Destination::new(address, self.peer.port())
-            || self.egress.generation() != binding.network_generation.0
-            || (context.session.is_some() && self.business.is_none())
-        {
-            return Err(error(
-                grant.instance(),
-                Stage::Prepare,
-                Reason::StalePlan,
-                DeliveryState::NotSubmitted,
-            ));
-        }
-        if context.cancel.is_cancelled() {
-            return Err(error(
-                grant.instance(),
-                Stage::Prepare,
-                Reason::Cancelled,
-                DeliveryState::NotSubmitted,
-            ));
-        }
-        if context.deadline.is_some_and(|end| Instant::now() >= end) {
-            return Err(error(
-                grant.instance(),
-                Stage::Prepare,
-                Reason::Timeout,
-                DeliveryState::NotSubmitted,
-            ));
-        }
-        let selection = self
-            .egress
-            .select_for_peer_with_policy(self.peer, &binding.dial)
-            .map_err(|source| {
-                error(
-                    grant.instance(),
-                    Stage::Prepare,
-                    Reason::Io,
-                    DeliveryState::NotSubmitted,
-                )
-                .with_source(source)
-            })?;
-        if selection.generation() != binding.network_generation.0 {
-            return Err(error(
-                grant.instance(),
-                Stage::Prepare,
-                Reason::StalePlan,
-                DeliveryState::NotSubmitted,
-            ));
-        }
-        // Host demand callbacks must run outside every carrier/native lock.
-        let business_cancel = self
-            .business
-            .as_ref()
-            .map(|business| business.cancellation())
-            .or_else(|| self.service.as_ref().map(|service| service.cancellation()));
-        {
-            let mut state = grant.slot.state();
-            if grant.slot.cancel.is_cancelled() || state.closed {
-                return Err(error(
-                    grant.instance(),
-                    Stage::Prepare,
-                    Reason::Revoked,
-                    DeliveryState::NotSubmitted,
-                ));
-            }
-            state.opening = true;
-            if state.business_cancel.is_none() {
-                state.business_cancel = business_cancel;
-            }
-            // A synchronous acquisition panic/error must not return capacity
-            // based on implicit Drop of an already created native socket.
-            state.unknown = Some(Arc::new(
-                error(
-                    grant.instance(),
-                    Stage::Prepare,
-                    Reason::Internal,
-                    DeliveryState::Unknown,
-                )
-                .with_source(std::io::Error::other(
-                    "native TCP preparation did not return an observed ownership result",
-                )),
-            ));
-        }
-        let (pending, control) = match PendingTcpConnect::prepare(
-            self.peer,
-            &binding.dial,
-            &selection,
-            grant.slot.cancel.clone(),
-            self.observer.clone(),
-        ) {
-            Ok(value) => value,
-            Err(source) => {
-                let no_handle = source.stage() == "validate_dial_policy";
-                let source = Arc::new(source);
-                let failure = connect_error(grant.instance(), source.clone());
-                grant.slot.state().unknown = if no_handle {
-                    None
-                } else {
-                    Some(Arc::new(connect_error(grant.instance(), source)))
-                };
-                return Err(failure);
-            }
-        };
-        {
-            let mut state = grant.slot.state();
-            // Sole original control is installed before PreparedCarrier exists
-            // and before its inline connect can ever reach a first await.
-            state.close_observer = Some(control.close_observer());
-            state.control = Some(Arc::new(Mutex::new(control)));
-            state.unknown = None;
-        }
-        super::users::acquired(&grant.slot);
-        let end = Instant::now() + Duration::from_secs(10);
-        let end = context.deadline.map_or(end, |caller| caller.min(end));
-        grant.transferred = true;
-        Ok(PreparedCarrier {
-            pending,
-            slot: grant.slot.clone(),
+    ) -> BoxFuture<'_, Result<super::CarrierCandidates, ChannelError>> {
+        let source = super::resolution::Source {
+            grantee: self.grantee,
+            binding: self.binding.clone(),
+            endpoint: self.endpoint.clone(),
             egress: self.egress.clone(),
-            generation: binding.network_generation,
-            cancel: context.cancel,
-            authorization: bound.as_ref().map(|bound| bound.cancellation()),
-            end,
-            endpoint_observer: None,
-            business: self.business.clone(),
-            service: self.service.clone(),
-            session: context.session,
-            transferred: false,
-        })
+            observer: self.observer.clone(),
+        };
+        let result = source
+            .check(binding, &destination, &context)
+            .map(|()| source.candidates(vec![self.peer], context));
+        Box::pin(async move { result })
     }
-}
-impl UpstreamOpener for NativeCarrierOpener {
+    fn prepare_controlled_datagram(
+        &self,
+        binding: &UpstreamBinding,
+        destination: Destination,
+        context: CarrierContext,
+        grant: CarrierGrant,
+    ) -> Result<super::CarrierDatagram, ChannelError> {
+        self.packet(binding, destination, context, grant)
+    }
     fn prepare_controlled_stream(
         &self,
         binding: &UpstreamBinding,

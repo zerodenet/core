@@ -3,7 +3,7 @@ use super::*;
 impl TcpRuntimeServices {
     pub(crate) fn with_accepted_caller(
         mut self,
-        caller: Option<zero_platform_tokio::AcceptedTcpCaller>,
+        caller: Option<zero_platform_tokio::AcceptedCaller>,
     ) -> Result<Self, zero_engine::EngineError> {
         let Some(caller) = caller else {
             return Ok(self);

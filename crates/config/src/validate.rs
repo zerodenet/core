@@ -361,6 +361,29 @@ fn validate_runtime(
             "`runtime.udp_upstream_idle_timeout_seconds` must be greater than 0".to_owned(),
         ));
     }
+    if runtime.effective_file_read_max_bytes() == 0
+        || runtime
+            .effective_file_read_max_bytes()
+            .checked_add(1)
+            .is_none()
+    {
+        return Err(ConfigError::InvalidRuntime(
+            "runtime.file_read_max_bytes must be positive and leave room for the overflow probe"
+                .into(),
+        ));
+    }
+    if runtime.effective_native_mux_max_carriers() == 0
+        || runtime.effective_native_mux_max_carriers() > 4096
+    {
+        return Err(ConfigError::InvalidRuntime(
+            "runtime.native_mux_max_carriers must be between 1 and 4096".into(),
+        ));
+    }
+    if !(1..=4096).contains(&runtime.effective_udp_direct_max_sockets()) {
+        return Err(ConfigError::InvalidRuntime(
+            "runtime.udp_direct_max_sockets must be between 1 and 4096".into(),
+        ));
+    }
     if runtime.event_log_capacity == 0 {
         return Err(ConfigError::InvalidRuntime(
             "`runtime.event_log_capacity` must be greater than 0".to_owned(),

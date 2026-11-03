@@ -1,3 +1,5 @@
+#[cfg(feature = "reality")]
+mod native;
 use alloc::format;
 use alloc::string::String;
 #[cfg(feature = "reality")]
@@ -674,6 +676,33 @@ pub(crate) fn start_mux_udp_flow(
 }
 
 #[cfg(feature = "reality")]
+pub(crate) fn start_scoped_mux_udp_flow(
+    up_tx: mpsc::UnboundedSender<zero_core::UdpFlowPacket>,
+    down_rx: mpsc::Receiver<crate::mux_pool::MuxDownlink<zero_core::UdpFlowPacket>>,
+    caller: &zero_platform_tokio::AcceptedCaller,
+) -> Result<VlessUdpFlowConnection, Error> {
+    let (send_tx, send_rx) = mpsc::channel::<VlessUdpFlowSend>(32);
+    let (responses, _) = broadcast::channel::<VlessUdpFlowResponse>(32);
+    let response_tx = responses.clone();
+    caller
+        .spawn(
+            zero_platform_tokio::contract::scope::TaskClass::Auxiliary,
+            move |_| async move {
+                pump::run_mux_udp_flow_task(send_rx, up_tx, down_rx, response_tx).await;
+                Ok(())
+            },
+        )
+        .map_err(|_| Error::Io("Rvs original response driver registration failed"))?;
+    Ok(VlessUdpFlowConnection::new(VlessUdpFlowHandle {
+        sender: VlessUdpFlowSender {
+            send_tx,
+            block_udp443: false,
+        },
+        responses,
+    }))
+}
+
+#[cfg(feature = "reality")]
 async fn establish_udp_flow_with_resume<S>(
     mut stream: S,
     session: &Session,
@@ -700,6 +729,16 @@ where
         target: session.target.clone(),
         port: session.port,
     })
+}
+
+#[cfg(feature = "reality")]
+pub(crate) fn encode_plain_response(payload: &[u8]) -> Result<Vec<u8>, Error> {
+    let size = u16::try_from(payload.len())
+        .map_err(|_| Error::Protocol("VLESS UDP payload is too large"))?;
+    let mut packet = Vec::with_capacity(payload.len() + 2);
+    packet.extend_from_slice(&size.to_be_bytes());
+    packet.extend_from_slice(payload);
+    Ok(packet)
 }
 
 #[cfg(feature = "reality")]
@@ -1279,6 +1318,7 @@ pub struct VlessInboundUdpResponder {
 }
 
 #[cfg(feature = "reality")]
+#[derive(Clone)]
 pub(crate) struct VlessInboundMuxUdpResponder {
     session: VlessInboundUdpSession,
     writer: crate::mux::VlessInboundMuxWriter,
@@ -1408,7 +1448,7 @@ impl VlessInboundUdpResponder {
         }
     }
 
-    async fn read_inbound_dispatch_tokio<R>(
+    pub(crate) async fn read_inbound_dispatch_tokio<R>(
         &mut self,
         reader: &mut R,
     ) -> Result<Option<InboundUdpDispatch>, Error>
@@ -1504,6 +1544,21 @@ impl VlessInboundMuxUdpResponder {
             port,
             payload,
         )
+    }
+
+    pub(crate) fn write_standard_response(
+        &self,
+        target: &Address,
+        port: u16,
+        payload: &[u8],
+    ) -> Result<usize, Error> {
+        // Validate the actual encoded frame before local queue acceptance.
+        // Mux.Cool framing belongs to the shared physical driver. Preserve the
+        // existing logical UDP payload receipt for business usage/quota; adding
+        // the shared frame length here would change exported Flow accounting.
+        self.session
+            .encode_mux_response_packet(self.mux_session_id, target, port, payload)?;
+        self.write_response_for_target(target, port, payload)
     }
 
     pub(crate) fn end_inbound_stream(&self) -> Result<usize, Error> {

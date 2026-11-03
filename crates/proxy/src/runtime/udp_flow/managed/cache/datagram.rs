@@ -1,48 +1,27 @@
+use super::super::connection::SharedManagedDatagramUdpConnection;
+use super::key::ManagedUdpConnectionCacheKey;
 use std::collections::HashMap;
-use std::future::Future;
-
-use zero_engine::EngineError;
-
-use super::key::ManagedDatagramConnectionCacheKey;
-use crate::runtime::udp_flow::managed::connection::SharedManagedDatagramUdpConnection;
-
+#[derive(Default)]
 pub(crate) struct ManagedDatagramConnectionCache {
-    entries: HashMap<ManagedDatagramConnectionCacheKey, SharedManagedDatagramUdpConnection>,
+    entries: HashMap<ManagedUdpConnectionCacheKey, SharedManagedDatagramUdpConnection>,
 }
-
 impl ManagedDatagramConnectionCache {
-    pub(crate) fn new() -> Self {
-        Self {
-            entries: HashMap::new(),
-        }
+    pub(crate) fn get<T: 'static>(&self, key: &str) -> Option<SharedManagedDatagramUdpConnection> {
+        self.entries
+            .get(&ManagedUdpConnectionCacheKey::new::<T>(key))
+            .cloned()
     }
-
-    async fn get_or_insert_with<Fut>(
-        &mut self,
-        key: ManagedDatagramConnectionCacheKey,
-        establish: Fut,
-    ) -> Result<SharedManagedDatagramUdpConnection, EngineError>
-    where
-        Fut: Future<Output = Result<SharedManagedDatagramUdpConnection, EngineError>>,
-    {
-        if let Some(connection) = self.entries.get(&key) {
-            return Ok(connection.clone());
-        }
-
-        let connection = establish.await?;
-        self.entries.insert(key, connection.clone());
-        Ok(connection)
+    pub(crate) fn prune_closed(&mut self) {
+        // Return only retired logical views. Original providers, rather than
+        // cache eviction, remain authoritative for native replacement.
+        self.entries.retain(|_, connection| !connection.is_closed());
     }
-
-    pub(crate) async fn get_or_insert_key<Fut>(
+    pub(crate) fn insert<T: 'static>(
         &mut self,
-        key: impl Into<String>,
-        establish: Fut,
-    ) -> Result<SharedManagedDatagramUdpConnection, EngineError>
-    where
-        Fut: Future<Output = Result<SharedManagedDatagramUdpConnection, EngineError>>,
-    {
-        self.get_or_insert_with(ManagedDatagramConnectionCacheKey::new(key), establish)
-            .await
+        key: String,
+        connection: SharedManagedDatagramUdpConnection,
+    ) {
+        self.entries
+            .insert(ManagedUdpConnectionCacheKey::new::<T>(key), connection);
     }
 }

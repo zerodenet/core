@@ -9,9 +9,7 @@ use zero_config::{
 };
 
 use super::WireguardAdapter;
-use crate::protocol_registry::{
-    EndpointObservation, EndpointObservationCapability, OutboundDeviceLifecycleCapability,
-};
+use crate::protocol_registry::{EndpointObservation, EndpointObservationCapability};
 
 impl EndpointObservationCapability for WireguardAdapter {
     fn observe_endpoint(

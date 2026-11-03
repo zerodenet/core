@@ -3,10 +3,10 @@ name: VMess Reference Interop
 on:
   push:
     branches: [develop, main]
-    paths: ['protocols/vmess/**', 'crates/transport/**', 'crates/proxy/**', 'crates/core/**', 'crates/config/**', 'crates/traits/**', 'crates/platform/**', 'Cargo.toml', 'Cargo.lock', 'scripts/prepare-xhttp-interop.py', '.github/workflows/vmess-interop.yml']
+    paths: ['protocols/vmess/**', 'crates/transport/**', 'crates/proxy/**', 'crates/runtime/**', 'crates/core/**', 'crates/config/**', 'crates/traits/**', 'crates/platform/**', 'Cargo.toml', 'Cargo.lock', 'scripts/prepare-xhttp-interop.py', '.github/workflows/vmess-interop.yml']
   pull_request:
     branches: [develop, main]
-    paths: ['protocols/vmess/**', 'crates/transport/**', 'crates/proxy/**', 'crates/core/**', 'crates/config/**', 'crates/traits/**', 'crates/platform/**', 'Cargo.toml', 'Cargo.lock', 'scripts/prepare-xhttp-interop.py', '.github/workflows/vmess-interop.yml']
+    paths: ['protocols/vmess/**', 'crates/transport/**', 'crates/proxy/**', 'crates/runtime/**', 'crates/core/**', 'crates/config/**', 'crates/traits/**', 'crates/platform/**', 'Cargo.toml', 'Cargo.lock', 'scripts/prepare-xhttp-interop.py', '.github/workflows/vmess-interop.yml']
   workflow_dispatch:
 
 permissions:

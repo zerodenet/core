@@ -1,10 +1,7 @@
 use super::super::super::connection::{
     managed_tuple_udp_connection_from_flow, SharedManagedUdpConnection,
 };
-use super::flow::{
-    managed_stream_connector_flow_from_build, ManagedStreamConnectorFlow,
-    ManagedStreamConnectorParts, ManagedStreamFlowConnector,
-};
+use super::flow::{ManagedStreamConnectorFlow, ManagedStreamFlowConnector};
 use super::ManagedTupleUdpResume;
 use crate::protocol_registry::{UdpRuntimeServices, UpstreamConnectServices};
 use crate::runtime::path::OutboundEndpoint;
@@ -19,15 +16,13 @@ use zero_engine::EngineError;
 pub(crate) trait ManagedTupleUdpResumeConnector:
     Clone + Send + Sync + std::fmt::Debug + 'static
 {
-    type ConnectorFlow: ManagedStreamConnectorParts;
+    type ConnectorFlow: Into<ManagedStreamConnectorFlow>;
     type Connection: super::super::super::connection::ManagedTupleUdpFlowConnection;
 
     const ESTABLISH_STAGE: &'static str;
     const RELAY_UPSTREAM_STAGE: &'static str;
     const RELAY_ESTABLISH_STAGE: &'static str;
     const RELAY_SEND_STAGE: &'static str;
-    const MISMATCH_STAGE: &'static str;
-    const MISMATCH_MESSAGE: &'static str;
 
     fn connector_flow(&self, server: &str, port: u16, session_id: u64) -> Self::ConnectorFlow;
 
@@ -62,16 +57,18 @@ impl<T> ManagedStreamFlowConnector for ManagedTupleUdpResume<T>
 where
     T: ManagedTupleUdpResumeConnector,
 {
+    const ESTABLISH_STAGE: &'static str = T::ESTABLISH_STAGE;
+    const RELAY_UPSTREAM_STAGE: &'static str = T::RELAY_UPSTREAM_STAGE;
+    const RELAY_ESTABLISH_STAGE: &'static str = T::RELAY_ESTABLISH_STAGE;
+    const RELAY_SEND_STAGE: &'static str = T::RELAY_SEND_STAGE;
     fn connector_flow(
         &self,
         endpoint: OutboundEndpoint,
         session_id: u64,
     ) -> ManagedStreamConnectorFlow {
-        managed_stream_connector_flow_from_build(self.0.connector_flow(
-            &endpoint.server,
-            endpoint.port,
-            session_id,
-        ))
+        self.0
+            .connector_flow(&endpoint.server, endpoint.port, session_id)
+            .into()
     }
 
     async fn establish_direct(

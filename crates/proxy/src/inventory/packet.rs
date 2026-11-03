@@ -13,7 +13,7 @@ pub(crate) enum PacketRouteTarget {
     Packet {
         tag: String,
         translated: bool,
-        operation: Box<dyn PreparedPacketRouteOperation>,
+        operation: std::sync::Arc<dyn PreparedPacketRouteOperation>,
     },
     Flow,
     DirectEcho {
@@ -131,12 +131,8 @@ impl ProtocolInventory {
             // Force the ingress through its L4 stack. The selected outbound
             // may still execute a registered Flow -> Packet conversion.
             let supported = match protocol {
-                Some(IPPROTO_TCP) => claimed
-                    .prepare_tcp_connect_for_route(config.source_dir(), mode)
-                    .is_ok(),
-                Some(IPPROTO_UDP) => claimed
-                    .prepare_udp_flow_for_route(config.source_dir(), mode)
-                    .is_ok(),
+                Some(IPPROTO_TCP) => claimed.tcp_connect_for_route(mode).is_ok(),
+                Some(IPPROTO_UDP) => claimed.into_udp_flow_for_route(mode).is_ok(),
                 _ => false,
             };
             return if supported {

@@ -12,7 +12,7 @@ use crate::VmessCipher;
 #[tokio::test]
 async fn eviction_through_a_bridge_clone_removes_cached_mux_connections() {
     let pool = VmessMuxConnectionPool::new();
-    let bridge_pool = pool.clone();
+    let bridge_pool = pool.scoped("owner", "complete transport material");
     let identity = VmessMuxIdentity::from_parts([9; 16], "none".to_owned(), VmessCipher::None);
     let key = VmessMuxPoolKey::from_config_parts(
         "vmess.test".to_owned(),
@@ -30,7 +30,7 @@ async fn eviction_through_a_bridge_clone_removes_cached_mux_connections() {
     pool.pool
         .lock()
         .expect("VMess mux pool lock")
-        .insert(key, connection);
+        .insert((bridge_pool.scope.clone(), key), connection);
 
     assert_eq!(pool.pool.lock().expect("VMess mux pool lock").len(), 1);
     bridge_pool.evict_all();

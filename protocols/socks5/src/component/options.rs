@@ -13,6 +13,7 @@ pub struct Options {
     pub(super) auth: Option<crate::Socks5OwnedOutboundAuth>,
     pub(super) dial: DialPolicy,
     pub(super) identity: Arc<[u8]>,
+    pub(super) carrier_limit: Option<std::num::NonZeroUsize>,
 }
 impl fmt::Debug for Options {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -71,6 +72,17 @@ impl Options {
             auth,
             dial,
             identity: identity.into(),
+            carrier_limit: None,
         })
+    }
+    /// Opt-in native ownership for host-qualified background carrier borrowing.
+    /// Ordinary resource-free SOCKS5 assembly retains its existing contract.
+    pub fn with_carrier_limit(mut self, limit: std::num::NonZeroUsize) -> Self {
+        let mut identity = self.identity[..16].to_vec();
+        identity.extend_from_slice(b"native-carrier");
+        identity.extend_from_slice(&limit.get().to_le_bytes());
+        self.identity = identity.into();
+        self.carrier_limit = Some(limit);
+        self
     }
 }

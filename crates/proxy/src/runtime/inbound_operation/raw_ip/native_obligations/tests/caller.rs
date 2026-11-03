@@ -1,6 +1,6 @@
 use super::*;
 use crate::{
-    component::business_demand::AdmittedTcpDemand,
+    component::business_demand::AdmittedBusinessDemand,
     runtime::{inbound_owners::InboundOwnerRegistry, Proxy},
 };
 use zero_core::{component::SessionId, Address, Network, ProtocolType, Session};
@@ -51,7 +51,7 @@ async fn same_actual_caller_reaches_the_admitted_invocation_but_real_join_never_
                 ProtocolType::new("actual-caller"),
             );
             let receipt = engine.prepare_session_admitted(&mut session, "in")?;
-            let demand = AdmittedTcpDemand::new(&engine, SessionId(session.id), receipt)?;
+            let demand = AdmittedBusinessDemand::new(&engine, SessionId(session.id), receipt)?;
             assert_ne!(session.id, 0);
             let execution = services
                 .with_admitted_business_identity(&session, demand)?

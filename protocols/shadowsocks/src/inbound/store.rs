@@ -6,7 +6,72 @@ pub struct ShadowsocksInboundProfileStore {
 }
 
 #[cfg(feature = "crypto")]
+#[derive(Clone)]
+pub struct PreparedInboundProfile {
+    store: ShadowsocksInboundProfileStore,
+    tag: String,
+    profile: ShadowsocksInboundProfile,
+}
+impl PreparedInboundProfile {
+    pub(crate) fn needs_replay_task(&self) -> bool {
+        #[cfg(feature = "blake3")]
+        {
+            self.profile.cipher.is_blake3()
+        }
+        #[cfg(not(feature = "blake3"))]
+        {
+            false
+        }
+    }
+
+    /// Called by the owning component only after confirmed StopOld.
+    pub fn activate(self) -> ShadowsocksInboundProfile {
+        let mut profiles = self
+            .store
+            .profiles
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
+        let mut profile = self.profile;
+        // A cold recipe must not share a mutable credential authority with a live source.
+        profile.users = Arc::new(std::sync::RwLock::new(profile.users_snapshot()));
+        if let Some(previous) = profiles.get(&self.tag) {
+            if previous.cipher_name == profile.cipher_name
+                && previous.identity_password == profile.identity_password
+            {
+                *previous.users.write().unwrap_or_else(|e| e.into_inner()) =
+                    profile.users_snapshot();
+                profile.users = previous.users.clone();
+            }
+        }
+        profiles.insert(self.tag, profile.clone());
+        profile
+    }
+}
+#[cfg(feature = "crypto")]
 impl ShadowsocksInboundProfileStore {
+    pub fn prepare_with_identity(
+        &self,
+        tag: &str,
+        cipher: &str,
+        identity_password: Option<&str>,
+        users: &[ShadowsocksInboundUserRef<'_>],
+        replay: crate::validation::ReplayPolicy,
+        limits: crate::validation::StateLimits,
+    ) -> Result<PreparedInboundProfile, Error> {
+        let profile = ShadowsocksInboundProfile::from_config_users_with_identity(
+            cipher,
+            identity_password,
+            users.iter().copied(),
+        )?
+        .with_replay_policy(replay)
+        .with_state_limits(limits);
+        Ok(PreparedInboundProfile {
+            store: self.clone(),
+            tag: tag.into(),
+            profile,
+        })
+    }
+
     pub fn replace(
         &self,
         tag: &str,

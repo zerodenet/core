@@ -5,6 +5,7 @@ mod driver;
 pub(crate) mod native_io;
 #[cfg(feature = "runtime")]
 mod native_stream;
+mod packet;
 #[cfg(feature = "runtime")]
 pub use native_stream::NativeTcpStream;
 pub(crate) mod pool;
@@ -64,14 +65,24 @@ impl Drop for ClientConnection {
 }
 impl ClientConnection {
     #[cfg(feature = "runtime")]
-    fn native_stream(&self, stream: MieruLogicalStream) -> io::Result<NativeTcpStream> {
+    fn native_stream(
+        &self,
+        stream: MieruLogicalStream,
+        user: pool::managed::UserLease,
+    ) -> io::Result<NativeTcpStream> {
         let join = self.task.native_witness().ok_or_else(|| {
             io::Error::new(
                 io::ErrorKind::PermissionDenied,
                 "Mieru connection has no native driver registration",
             )
         })?;
-        Ok(NativeTcpStream::new(stream, join, self.opens.clone()))
+        Ok(NativeTcpStream::new(
+            stream,
+            join,
+            self.opens.clone(),
+            user,
+            self.task.native_origin(),
+        ))
     }
     pub fn is_closed(&self) -> bool {
         self.task.is_finished() || self.opens.is_closed()
@@ -156,42 +167,18 @@ impl ClientConnection {
         password: &str,
         options: &mieru_config::MieruTransportOptions,
     ) -> io::Result<Arc<Self>> {
-        options.validate().map_err(io::Error::other)?;
-        use crate::{
-            inbound::multiplex::reader::Reader,
-            packet::{Driver, PacketCodec, PacketIo},
-        };
-        let (ready, _unused) = mpsc::channel(1);
-        let (outgoing, commands) = mpsc::channel(64);
-        let (dropped, drop_events) = mpsc::unbounded_channel();
-        let (opens, requests) = mpsc::channel(64);
-        let key = crate::crypto::derive_key(
+        let prepared = packet::prepare(
+            carrier,
+            conservative_ipv6_budget,
             username,
             password,
-            std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .map_err(io::Error::other)?
-                .as_secs(),
-        );
-        let book = Reader::new(ready, outgoing, dropped, options.receive.clone());
-        let driver = Driver::new(
-            book,
-            PacketCodec::configured(key, username, options, conservative_ipv6_budget)?,
-            PacketIo::Client { carrier },
-            true,
-        );
+            options,
+        )?;
+        let opens = prepared.opens;
         let task = tokio::spawn(async move {
-            let _ = crate::packet::run(driver, commands, requests, drop_events).await;
+            let _ = prepared.driver.await;
         });
-        let connection = Arc::new(Self {
-            first: Mutex::new(None),
-            opens,
-            task: DriverHandle::Legacy(task),
-            active_streams: AtomicUsize::new(0),
-            pending_opens: AtomicUsize::new(0),
-            max_streams: 64,
-            created_at: Instant::now(),
-        });
+        let connection = Self::from_packet(opens, DriverHandle::Legacy(task));
         let stream = connection.next().await?;
         *connection.first.lock().unwrap() = Some(stream);
         Ok(connection)

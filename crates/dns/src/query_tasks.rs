@@ -13,7 +13,11 @@ use zero_platform_tokio::contract::{
 
 tokio::task_local! {
     static QUERY_ORIGIN: TaskJoinWitness;
+    static QUERY_CANCEL: CancellationToken;
+    static QUERY_RECORD: Arc<Record>;
 }
+mod observation;
+pub use observation::OwnedDnsQueryObservation;
 
 /// Query-task registration only. This weak context grants neither native I/O
 /// nor service/business authority. A native provider must separately validate
@@ -25,6 +29,7 @@ struct Shared {
     registrar: WeakTaskRegistrar,
     parent: CancellationToken,
     limit: NonZeroUsize,
+    class: TaskClass,
     state: Mutex<State>,
 }
 #[derive(Debug, Default)]
@@ -34,11 +39,21 @@ struct State {
     records: Vec<Arc<Record>>,
     first_failure: Option<Arc<ChannelError>>,
 }
-#[derive(Debug)]
 struct Record {
     registration: OnceLock<Option<QueryRegistration>>,
     bound: Notify,
     cancel: CancellationToken,
+    io_pending: std::sync::atomic::AtomicBool,
+    original: Mutex<Option<zero_platform_tokio::controlled_carrier::CarrierOrigin>>,
+    metadata:
+        Mutex<Option<zero_platform_tokio::controlled_datagram::metadata_pool::MetadataPoolOrigin>>,
+}
+impl std::fmt::Debug for Record {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("QueryRecord")
+            .field("registration", &self.registration)
+            .finish_non_exhaustive()
+    }
 }
 #[derive(Debug)]
 struct QueryRegistration {
@@ -46,17 +61,39 @@ struct QueryRegistration {
     witness: TaskJoinWitness,
 }
 impl OwnedDnsQueryTasks {
+    pub(crate) fn same_owner(&self, other: &Self) -> bool {
+        Arc::ptr_eq(&self.0, &other.0)
+    }
+    pub async fn close(&self, deadline: tokio::time::Instant) -> io::Result<()> {
+        self.shutdown(deadline).await
+    }
+    pub(crate) fn current_cancellation() -> io::Result<CancellationToken> {
+        QUERY_CANCEL.try_with(Clone::clone).map_err(|_| {
+            io::Error::new(
+                io::ErrorKind::PermissionDenied,
+                "native DNS requires its original query cancellation",
+            )
+        })
+    }
     /// The caller supplies the actual root registrar and finite query budget.
     /// Registration still charges that original Scope's independent task limit.
     pub fn new(registrar: &TaskRegistrar, max_queries: NonZeroUsize) -> Self {
+        Self::with_class(registrar, max_queries, TaskClass::Auxiliary)
+    }
+    /// Unexpected worker failure is a host component fault. Ordinary DNS
+    /// errors and cancellation still complete the registered job with Ok.
+    pub fn new_critical(registrar: &TaskRegistrar, max_queries: NonZeroUsize) -> Self {
+        Self::with_class(registrar, max_queries, TaskClass::Critical)
+    }
+    fn with_class(registrar: &TaskRegistrar, max_queries: NonZeroUsize, class: TaskClass) -> Self {
         Self(Arc::new(Shared {
             registrar: registrar.downgrade(),
             parent: registrar.cancellation(),
             limit: max_queries,
+            class,
             state: Mutex::new(State::default()),
         }))
     }
-    #[cfg(any(feature = "udp", test))]
     pub(crate) fn current_witness() -> io::Result<TaskJoinWitness> {
         QUERY_ORIGIN.try_with(Clone::clone).map_err(|_| {
             io::Error::new(
@@ -89,6 +126,9 @@ impl OwnedDnsQueryTasks {
             registration: OnceLock::new(),
             bound: Notify::new(),
             cancel,
+            io_pending: Default::default(),
+            original: Mutex::new(None),
+            metadata: Mutex::new(None),
         });
         {
             let mut state = self.0.state.lock().expect("DNS query tasks poisoned");
@@ -112,27 +152,31 @@ impl OwnedDnsQueryTasks {
         let (sender, receiver) = oneshot::channel();
         let parent = self.0.parent.clone();
         let cancellation = record.cancel.clone();
+        let query_record = record.clone();
         let callbacks = self.0.registrar.defer_callbacks();
-        let spawned = self
-            .0
-            .registrar
-            .spawn_tracked(TaskClass::Auxiliary, async move {
-                let Ok(witness) = receiver.await else {
-                    return Ok(());
-                };
-                // No original resolution/native I/O can run before the same spawn's
-                // witness has been persisted and delivered by its original caller.
-                QUERY_ORIGIN
-                    .scope(witness, async move {
-                        tokio::select! { biased;
-                            _ = parent.cancelled() => {},
-                            _ = cancellation.cancelled() => {},
-                            _ = job => {},
-                        }
-                    })
-                    .await;
-                Ok(())
-            });
+        let spawned = self.0.registrar.spawn_tracked(self.0.class, async move {
+            let Ok(witness) = receiver.await else {
+                return Ok(());
+            };
+            // No original resolution/native I/O can run before the same spawn's
+            // witness has been persisted and delivered by its original caller.
+            QUERY_RECORD
+                .scope(
+                    query_record,
+                    QUERY_CANCEL.scope(
+                        cancellation.clone(),
+                        QUERY_ORIGIN.scope(witness, async move {
+                            tokio::select! { biased;
+                                _ = parent.cancelled() => {},
+                                _ = cancellation.cancelled() => {},
+                                _ = job => {},
+                            }
+                        }),
+                    ),
+                )
+                .await;
+            Ok(())
+        });
         match spawned {
             Ok((id, witness)) => {
                 record

@@ -3,16 +3,16 @@ use super::{
     conditions,
     range::{self, Range},
 };
-use tokio::io::{AsyncReadExt, AsyncSeekExt};
 #[path = "mime.rs"]
 pub(super) mod mime;
-pub(super) async fn serve(
+pub(super) async fn serve_using(
     path: &Path,
     request: &http::Request<()>,
     exchange: &mut dyn HttpExchange,
+    files: &mut super::Access<'_>,
 ) -> io::Result<()> {
     let head = request.method() == http::Method::HEAD;
-    let mut file = tokio::fs::File::open(path).await?;
+    let mut file = files.open(path).await?;
     let metadata = file.metadata().await?;
     if !metadata.is_file() {
         return error(exchange, 404, head).await;
@@ -109,7 +109,7 @@ pub(super) async fn serve(
     exchange.finish().await
 }
 async fn copy(
-    file: &mut tokio::fs::File,
+    file: &mut super::access::Opened<'_>,
     range: Range,
     exchange: &mut dyn HttpExchange,
 ) -> io::Result<()> {

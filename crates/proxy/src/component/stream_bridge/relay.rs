@@ -1,5 +1,9 @@
 //! Real Stream roles composed through a strictly shorter selected prefix.
+pub(crate) mod background;
+#[cfg(feature = "managed-stream-runtime")]
+pub(crate) mod datagram;
 mod health;
+pub(crate) mod hop;
 pub(crate) mod prefix;
 use super::{network::NodeOpener, LegacyStream};
 use crate::{

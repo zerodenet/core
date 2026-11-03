@@ -1,7 +1,7 @@
 //! The existing raw-IP caller ledger, actual host Scope and B ingress projection.
 #![cfg(all(feature = "raw-ip-runtime", feature = "vmess"))]
 use crate::{
-    component::{business_demand::AdmittedTcpDemand, direct_bridge::Invocation},
+    component::{business_demand::AdmittedBusinessDemand, direct_bridge::Invocation},
     runtime::{
         inbound_operation::raw_ip::native_obligations::{
             ChildKind, NativeObligations, NativeRegistration,
@@ -84,7 +84,7 @@ impl Caller {
                 auth.policy_revision = Some(7);
                 session.apply_auth(auth);
                 let receipt = engine.prepare_session_admitted(&mut session, "in")?;
-                let demand = AdmittedTcpDemand::new(&engine, SessionId(session.id), receipt)?;
+                let demand = AdmittedBusinessDemand::new(&engine, SessionId(session.id), receipt)?;
                 let invocation = services
                     .with_admitted_business_identity(&session, demand)?
                     .with_caller_native(Some(same))?

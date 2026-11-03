@@ -53,6 +53,7 @@ impl DnsService for DnsSystem {
                         io::ErrorKind::TimedOut=>Reason::Timeout,
                         io::ErrorKind::InvalidInput=>Reason::InvalidConfig,
                         io::ErrorKind::Interrupted=>Reason::Cancelled,
+                        io::ErrorKind::Unsupported if self.native_source.is_some()=>Reason::Unsupported,
                         _=>Reason::Io,
                     },true).with_source(source))?,
             };
@@ -93,7 +94,11 @@ impl DnsSystem {
             self.query_coordinator.shutdown(deadline),
             self.wire_query_coordinator.shutdown(deadline)
         );
-        names.and(wire)
+        let node = match &self.node_queries {
+            Some(node) => node.coordinator.shutdown(deadline).await,
+            None => Ok(()),
+        };
+        names.and(wire).and(node)
     }
 }
 

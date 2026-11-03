@@ -3,10 +3,10 @@ use super::*;
 use zero_core::request::Destination;
 
 pub(crate) struct RoutedRequest {
-    command: u8,
-    destination: Destination,
-    id: [u8; 16],
-    flow: Option<&'static str>,
+    pub(crate) command: u8,
+    pub(crate) destination: Destination,
+    pub(crate) id: [u8; 16],
+    pub(crate) flow: Option<&'static str>,
     reverse: bool,
 }
 impl RoutedRequest {
@@ -51,11 +51,11 @@ impl RoutedRequest {
         (session, self.id, self.flow, self.reverse)
     }
 }
-pub(super) struct AuthenticatedRequest {
-    request: RoutedRequest,
-    auth: SessionAuth,
-    testseed: [u32; 4],
-    reverse_tag: Option<String>,
+pub(crate) struct AuthenticatedRequest {
+    pub(crate) request: RoutedRequest,
+    pub(crate) auth: SessionAuth,
+    pub(crate) testseed: [u32; 4],
+    pub(crate) reverse_tag: Option<String>,
 }
 impl AuthenticatedRequest {
     pub(super) fn into_legacy(self) -> VlessAcceptedSession {
@@ -65,15 +65,6 @@ impl AuthenticatedRequest {
         accepted.reverse_tag = self.reverse_tag;
         accepted
     }
-}
-pub(crate) struct AuthenticatedTcp<S> {
-    pub(crate) destination: Destination,
-    pub(crate) auth: SessionAuth,
-    pub(crate) stream: S,
-}
-pub(crate) enum AuthenticatedClient<S> {
-    Tcp(Box<AuthenticatedTcp<S>>),
-    Legacy(Box<VlessAcceptedClient<S>>),
 }
 impl VlessInbound {
     pub(super) async fn accept_authenticated_facts<S: AsyncSocket, A: VlessUserStore>(
@@ -113,37 +104,13 @@ impl VlessInbound {
     }
 }
 impl VlessInboundProfile {
-    pub(crate) async fn accept_standard_client_owned<S: AsyncSocket>(
+    pub(crate) async fn accept_standard_facts<S: AsyncSocket>(
         &self,
-        mut stream: S,
-    ) -> Result<AuthenticatedClient<S>, VlessClientAcceptError<S>> {
-        let users = self
-            .users
-            .read()
-            .unwrap_or_else(|error| error.into_inner())
-            .clone();
-        let accepted = match VlessInbound
-            .accept_authenticated_facts(&mut stream, &VlessConfiguredUsers::new(users.as_ref()))
+        stream: &mut S,
+    ) -> Result<AuthenticatedRequest, Error> {
+        let users = self.users.read().unwrap_or_else(|e| e.into_inner()).clone();
+        VlessInbound
+            .accept_authenticated_facts(stream, &VlessConfiguredUsers::new(users.as_ref()))
             .await
-        {
-            Ok(accepted) => accepted,
-            Err(error) => return Err(VlessClientAcceptError::new(error, stream)),
-        };
-        // Vision, Zero AEAD, MUX, UDP and reverse control keep their original
-        // codec/response/executor path. Plain TCP does not construct a Session.
-        if accepted.request.command == CMD_TCP
-            && accepted.request.flow.is_none()
-            && accepted.reverse_tag.is_none()
-        {
-            Ok(AuthenticatedClient::Tcp(Box::new(AuthenticatedTcp {
-                destination: accepted.request.destination,
-                auth: accepted.auth,
-                stream,
-            })))
-        } else {
-            Ok(AuthenticatedClient::Legacy(Box::new(
-                VlessAcceptedClient::new(accepted.into_legacy(), stream),
-            )))
-        }
     }
 }

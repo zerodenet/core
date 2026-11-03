@@ -69,7 +69,7 @@ struct DirectBudgets {
     retirement: Duration,
 }
 pub struct DirectFactory;
-pub(crate) fn decode(
+pub fn decode(
     input: &zero_config::OutboundConfig,
 ) -> Result<DirectOptions, zero_config::ConfigError> {
     if !matches!(input.protocol, zero_config::OutboundProtocolConfig::Direct) {

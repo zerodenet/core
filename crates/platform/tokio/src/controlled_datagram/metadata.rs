@@ -76,6 +76,7 @@ struct Shared {
     sends: tokio::sync::Semaphore,
     send_limit: NonZeroUsize,
     views: Arc<Views>,
+    outbound_peer: Option<SocketAddr>,
 }
 impl Shared {
     fn check(&self) -> std_io::Result<()> {

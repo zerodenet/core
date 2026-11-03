@@ -123,3 +123,37 @@ fn reality_library_factory_does_not_activate_production_before_resource_owner_ga
         );
     }
 }
+
+#[cfg(feature = "vmess")]
+#[test]
+fn ordinary_mux_prefix_registration_requires_qualified_root_and_complete_protocol_options() {
+    let pool = input(r#", "mux_concurrency":2,"xudp_concurrency":2"#);
+    let mut config=zero_config::RuntimeConfig::parse(r#"{"outbounds":[{"tag":"last","protocol":{"type":"vmess","server":"127.0.0.1","port":443,"id":"11111111-2222-3333-4444-555555555555","grpc":{"service_names":["udp"]}}}],"route":{"final":{"type":"direct"}}}"#).unwrap();
+    config.outbounds.insert(0, pool.clone());
+    config.outbound_groups = serde_json::from_value(
+        serde_json::json!([{"tag":"chain","type":"relay","proxies":["native","last"]}]),
+    )
+    .unwrap();
+    let adapter = super::super::VlessAdapter::default();
+    assert!(adapter.production_selected(&pool, Some(&config), true));
+    assert!(!adapter.production_selected(&pool, Some(&config), false));
+    assert!(!adapter.production_selected(&pool, None, true));
+    let mut custom = config.clone();
+    custom.outbounds[1].dial.interface = Some("lo0".into());
+    assert!(!adapter.production_selected(&pool, Some(&custom), true));
+    let mut nested = config.clone();
+    nested.outbound_groups.push(
+        serde_json::from_value(
+            serde_json::json!({"tag":"outer","type":"relay","proxies":["last","chain"]}),
+        )
+        .unwrap(),
+    );
+    assert!(!adapter.production_selected(&pool, Some(&nested), true));
+    for extra in [
+        r#", "mux_concurrency":2"#,
+        r#", "mux_concurrency":2,"xudp_concurrency":3"#,
+    ] {
+        let input = input(extra);
+        assert!(!adapter.production_selected(&input, Some(&config), true));
+    }
+}

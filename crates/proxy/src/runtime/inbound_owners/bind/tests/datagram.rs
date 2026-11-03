@@ -1,20 +1,26 @@
 //! The host lease keeps the original UDP owner through pending I/O and cleanup.
+// These lease regressions use the real standard UDP-only factory, not a
+// synthetic legacy operation. Native UDP grants remain covered without Mieru.
+#![cfg(feature = "mieru")]
 use super::*;
 use tokio::net::UdpSocket;
 use zero_platform_tokio::contract::component::GrantedDatagramListener;
 
+fn datagram_proxy() -> Proxy {
+    Proxy::new(RuntimeConfig::parse(r#"{
+        "inbounds":[{"tag":"first","listen":{"address":"127.0.0.1","port":0},
+            "protocol":{"type":"mieru","transport":"udp","users":[{"username":"lease-user","password":"lease-password"}]}}],
+        "route":{"final":{"type":"direct"}}
+    }"#).unwrap()).unwrap()
+}
+
 fn datagram_lease(proxy: &Proxy, config: &Arc<RuntimeConfig>) -> InboundBindLease {
     let inbound = &config.inbounds[0];
-    let operation = proxy
+    let prepared = proxy
         .protocols
-        .prepare_inbound_listener(inbound.clone(), None)
-        .unwrap();
-    let declaration = ResourceDeclaration::DatagramListener {
-        destination: Destination::new(Address::Ipv4([127, 0, 0, 1]), 0),
-        max_bind_attempts: NonZeroUsize::new(50).unwrap(),
-        max_pending_sends: NonZeroUsize::new(1).unwrap(),
-    };
-    let prepared = PreparedInboundBind::new(operation, Arc::from([declaration])).unwrap();
+        .prepare_inbound_bind(inbound.clone(), None)
+        .unwrap()
+        .expect("real Mieru UDP standard recipe");
     let (shutdown, _) = watch::channel(false);
     proxy
         .inbound_owners
@@ -31,14 +37,18 @@ fn datagram_lease(proxy: &Proxy, config: &Arc<RuntimeConfig>) -> InboundBindLeas
 
 #[tokio::test]
 async fn original_datagram_lease_pending_receive_is_revoked_and_same_fd_closed_before_rebind() {
-    let proxy = proxy();
+    let proxy = datagram_proxy();
     let config = proxy.engine().config();
     let mut lease = datagram_lease(&proxy, &config);
     let original = lease.owner();
     let identity = original.identity();
     lease.bind_native().unwrap();
-    let (operation, view, installed) = lease.finish().unwrap().promote_native().unwrap();
-    drop(operation); // The real host driver below owns the unique receive view.
+    let (definition, view, installed) = lease.finish().unwrap().promote_definition().unwrap();
+    assert!(definition
+        .spec()
+        .roles
+        .contains(&zero_platform_tokio::contract::component::RoleKind::Inbound));
+    drop(definition); // The real host driver below owns the unique receive view.
     let NativeListenerView::Datagram(GrantedDatagramListener { mut rx, tx }) = view else {
         panic!("canonical UDP declaration must produce original UDP views")
     };
@@ -91,7 +101,7 @@ async fn original_datagram_lease_pending_receive_is_revoked_and_same_fd_closed_b
 
 #[tokio::test]
 async fn dropped_unpromoted_datagram_view_requires_same_reservation_close_receipt() {
-    let proxy = proxy();
+    let proxy = datagram_proxy();
     let config = proxy.engine().config();
     let mut lease = datagram_lease(&proxy, &config);
     let owner = lease.owner();

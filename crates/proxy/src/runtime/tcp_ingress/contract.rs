@@ -11,11 +11,10 @@ mod activity;
     feature = "managed-datagram-runtime"
 ))]
 mod client_response;
-mod message;
 mod no_response;
 mod protocol;
 
-pub(crate) use accounting::{record_tcp_download, record_tcp_upload};
+pub(crate) use activity::TcpActivityStream;
 pub(crate) use activity::TcpRelayActivity;
 #[cfg(any(
     feature = "managed-stream-runtime",
@@ -23,7 +22,6 @@ pub(crate) use activity::TcpRelayActivity;
     feature = "managed-datagram-runtime"
 ))]
 pub(crate) use client_response::ClientResponseInboundProtocol;
-pub(crate) use message::{MessageInboundProtocol, MessageRelayContext, MessageRelayOutcome};
 #[cfg(feature = "managed-stream-runtime")]
 pub(crate) use no_response::NoClientResponseInboundProtocol;
 pub(crate) use no_response::NoClientResponseStreamProtocol;

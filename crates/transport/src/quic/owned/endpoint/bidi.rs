@@ -16,6 +16,14 @@ pub struct OwnedBiStream {
     connection: OwnedConnection,
 }
 impl OwnedConnection {
+    pub async fn accept_bi_stream(self) -> Result<OwnedBiStream, ChannelError> {
+        let (send, receive) = self.accept_bi().await?;
+        Ok(OwnedBiStream {
+            receive,
+            send,
+            connection: self,
+        })
+    }
     pub async fn into_bi_stream(self) -> Result<OwnedBiStream, ChannelError> {
         let (send, receive) = self.open_bi().await?;
         Ok(OwnedBiStream {
@@ -26,6 +34,17 @@ impl OwnedConnection {
     }
 }
 impl OwnedBiStream {
+    pub fn from_streams(
+        connection: OwnedConnection,
+        send: OwnedSendStream,
+        receive: OwnedRecvStream,
+    ) -> Self {
+        Self {
+            connection,
+            send,
+            receive,
+        }
+    }
     pub fn remote_address(&self) -> std::net::SocketAddr {
         self.connection.remote_address()
     }
@@ -52,5 +71,29 @@ impl AsyncWrite for OwnedBiStream {
     }
     fn poll_shutdown(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
         Pin::new(&mut self.get_mut().send).poll_shutdown(cx)
+    }
+}
+
+impl zero_traits::AsyncSocket for OwnedBiStream {
+    type Error = io::Error;
+    async fn read(&mut self, b: &mut [u8]) -> io::Result<usize> {
+        tokio::io::AsyncReadExt::read(self, b).await
+    }
+    async fn write_all(&mut self, b: &[u8]) -> io::Result<()> {
+        tokio::io::AsyncWriteExt::write_all(self, b).await
+    }
+    async fn shutdown(&mut self) -> io::Result<()> {
+        tokio::io::AsyncWriteExt::shutdown(self).await
+    }
+}
+impl zero_platform_tokio::ClientStream for OwnedBiStream {
+    fn local_addr(&self) -> io::Result<std::net::SocketAddr> {
+        Err(io::Error::new(
+            io::ErrorKind::Unsupported,
+            "local endpoint comes from the original source facts",
+        ))
+    }
+    fn peer_addr(&self) -> io::Result<std::net::SocketAddr> {
+        Ok(self.remote_address())
     }
 }

@@ -148,6 +148,18 @@ impl VlessTransportRuntime {
             .clone()
     }
 
+    pub(crate) fn stage_inbound_profile(
+        &self,
+        tag: &str,
+        candidate: crate::inbound::VlessInboundProfile,
+    ) -> super::inbound::publication::ProfileUpdate {
+        super::inbound::publication::ProfileUpdate::new(
+            self.inbound_profiles.clone(),
+            tag,
+            candidate.with_portals(self.portals.clone()),
+        )
+    }
+
     pub fn replace_inbound_profile(
         &self,
         tag: &str,

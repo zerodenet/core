@@ -46,7 +46,7 @@ impl ProtocolInventory {
         let mut datagram_prefixes = {
             let first = claimed_chain
                 .first()
-                .prepare_udp_packet_path(ctx.source_dir())
+                .udp_packet_path()
                 .and_then(
                     crate::runtime::udp_dispatch::packet_path_operation::PreparedDatagramRelayCarrier::new,
                 );
@@ -77,7 +77,7 @@ impl ProtocolInventory {
                     final_port: prepared.port,
                 };
                 current_datagram = next_hop
-                    .prepare_udp_packet_path(ctx.source_dir())
+                    .udp_packet_path()
                     .and_then(|operation| {
                         crate::runtime::udp_dispatch::packet_path_operation::PreparedDatagramRelayCarrier::extend(
                             current_datagram.take(),

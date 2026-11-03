@@ -1,7 +1,7 @@
+mod retirement;
 use std::{
     collections::{HashMap, VecDeque},
     sync::{Arc, Mutex, Weak},
-    time::Duration,
 };
 
 use tokio::sync::OnceCell;
@@ -11,31 +11,34 @@ use zero_engine::EngineError;
 use super::device::SharedRawIpDevice;
 
 pub(crate) const MAX_RAW_IP_DEVICES: usize = 128;
-const RETIRE_GRACE: Duration = Duration::from_secs(30);
 
 #[derive(Default)]
 pub(crate) struct RawIpDevicePool {
-    state: Mutex<PoolState>,
+    state: Arc<Mutex<PoolState>>,
 }
 
 #[derive(Default)]
 struct PoolState {
     entries: HashMap<(String, usize), CachedDevice>,
     unresolved_endpoints: HashMap<(String, usize), [u8; 32]>,
-    retiring: VecDeque<(String, Weak<SharedRawIpDevice>)>,
+    retiring: VecDeque<Arc<SharedRawIpDevice>>,
+    compatibility_retiring: VecDeque<(String, Weak<SharedRawIpDevice>)>,
+    compatibility_stopping: Vec<Arc<SharedRawIpDevice>>,
     shutdown: bool,
 }
 
 #[derive(Clone)]
 struct CachedDevice {
+    compatibility: bool,
     identity: [u8; 32],
     egress_generation: u64,
     cell: Arc<OnceCell<Arc<SharedRawIpDevice>>>,
 }
 
 pub(crate) struct StagedRawIpDevices {
+    owner: Arc<Mutex<PoolState>>,
     entries: HashMap<(String, usize), CachedDevice>,
-    new_devices: Vec<Arc<SharedRawIpDevice>>,
+    new_devices: Vec<(Arc<SharedRawIpDevice>, bool)>,
     published: bool,
 }
 
@@ -134,6 +137,7 @@ impl RawIpDevicePool {
 
     pub(crate) fn begin_stage(&self) -> StagedRawIpDevices {
         StagedRawIpDevices {
+            owner: self.state.clone(),
             entries: HashMap::new(),
             new_devices: Vec::new(),
             published: false,
@@ -185,29 +189,39 @@ impl RawIpDevicePool {
     }
 
     pub(crate) fn publish(&self, mut staged: StagedRawIpDevices) -> Vec<Arc<SharedRawIpDevice>> {
-        let mut stopped = Vec::new();
-        let mut state = self.state.lock().unwrap_or_else(|error| error.into_inner());
+        let mut state = self.state.lock().unwrap_or_else(|e| e.into_inner());
         state.shutdown = false;
         state.unresolved_endpoints.clear();
+        // All changed originals were confirmed before BuildNew. Only reused
+        // cells may remain here; unexpected publication cannot lose an owner.
         let old = std::mem::replace(&mut state.entries, std::mem::take(&mut staged.entries));
+        let mut stopped = Vec::new();
         for (key, entry) in old {
-            let reused = state
+            if state
                 .entries
                 .get(&key)
-                .is_some_and(|next| Arc::ptr_eq(&entry.cell, &next.cell));
-            if !reused {
-                if let Some(device) = entry.cell.get() {
+                .is_some_and(|next| Arc::ptr_eq(&entry.cell, &next.cell))
+            {
+                continue;
+            }
+            if let Some(device) = entry.cell.get() {
+                if entry.compatibility {
+                    // Explicitly retained existing outer_udp_proxy behavior.
+                    // Grace expiry and worker joins are NOT native-close proof.
                     if state.entries.keys().any(|(tag, _)| tag == &key.0) {
-                        device.retire_after(RETIRE_GRACE);
+                        device.retire_after(std::time::Duration::from_secs(30));
                         state
-                            .retiring
-                            .push_back((key.0.clone(), Arc::downgrade(device)));
+                            .compatibility_retiring
+                            .push_back((key.0, Arc::downgrade(device)));
                     } else {
-                        // Removing/administratively disabling a resource must
-                        // not leave a detached carrier sending during grace.
                         device.close_now();
                         stopped.push(device.clone());
+                        state.compatibility_stopping.push(device.clone());
                     }
+                } else {
+                    device.close_now();
+                    state.retiring.push_back(device.clone());
+                    stopped.push(device.clone());
                 }
             }
         }
@@ -216,49 +230,32 @@ impl RawIpDevicePool {
             .keys()
             .map(|(tag, _)| tag.clone())
             .collect::<std::collections::HashSet<_>>();
-        state.retiring.retain(|(tag, weak)| {
+        let mut compatibility = std::mem::take(&mut state.compatibility_retiring);
+        compatibility.retain(|(tag, weak)| {
             let Some(device) = weak.upgrade() else {
                 return false;
             };
             if !active_tags.contains(tag) {
                 device.close_now();
-                stopped.push(device);
+                stopped.push(device.clone());
+                state.compatibility_stopping.push(device);
                 false
             } else {
                 true
             }
         });
-        while state.retiring.len() > MAX_RAW_IP_DEVICES {
-            if let Some(device) = state
-                .retiring
+        while compatibility.len() > MAX_RAW_IP_DEVICES {
+            if let Some(device) = compatibility
                 .pop_front()
-                .and_then(|(_, device)| device.upgrade())
+                .and_then(|(_, weak)| weak.upgrade())
             {
                 device.close_now();
-                stopped.push(device);
-            }
-        }
-        staged.published = true;
-        stopped
-    }
-
-    pub(crate) fn shutdown(&self) -> Vec<Arc<SharedRawIpDevice>> {
-        let mut stopped = Vec::new();
-        let mut state = self.state.lock().unwrap_or_else(|error| error.into_inner());
-        state.shutdown = true;
-        for entry in state.entries.values() {
-            if let Some(device) = entry.cell.get() {
-                device.close_now();
                 stopped.push(device.clone());
+                state.compatibility_stopping.push(device);
             }
         }
-        for (_, device) in state.retiring.drain(..) {
-            if let Some(device) = device.upgrade() {
-                device.close_now();
-                stopped.push(device);
-            }
-        }
-        state.entries.clear();
+        state.compatibility_retiring = compatibility;
+        staged.published = true;
         stopped
     }
 }
@@ -272,6 +269,7 @@ impl StagedRawIpDevices {
         egress_generation: u64,
         cell: Arc<OnceCell<Arc<SharedRawIpDevice>>>,
         is_new: bool,
+        compatibility: bool,
     ) -> Result<(), EngineError> {
         if self.entries.len() >= MAX_RAW_IP_DEVICES {
             return Err(invalid("raw-IP device limit exceeded"));
@@ -280,13 +278,14 @@ impl StagedRawIpDevices {
             let device = cell
                 .get()
                 .ok_or_else(|| invalid("raw-IP device not prepared"))?;
-            self.new_devices.push(device.clone());
+            self.new_devices.push((device.clone(), compatibility));
         }
         if self
             .entries
             .insert(
                 (tag, peer_index),
                 CachedDevice {
+                    compatibility,
                     identity,
                     egress_generation,
                     cell,
@@ -307,8 +306,14 @@ impl StagedRawIpDevices {
 impl Drop for StagedRawIpDevices {
     fn drop(&mut self) {
         if !self.published {
-            for device in &self.new_devices {
+            let mut state = self.owner.lock().unwrap_or_else(|e| e.into_inner());
+            for (device, compatibility) in &self.new_devices {
                 device.close_now();
+                if *compatibility {
+                    state.compatibility_stopping.push(device.clone());
+                } else {
+                    state.retiring.push_back(device.clone());
+                }
             }
         }
     }
@@ -322,68 +327,4 @@ fn invalid(message: &'static str) -> EngineError {
 }
 
 #[cfg(test)]
-mod tests {
-    use std::sync::Arc;
-
-    use tokio::sync::OnceCell;
-
-    use super::{RawIpDevicePool, MAX_RAW_IP_DEVICES};
-
-    #[test]
-    fn shutdown_reports_stopped_instead_of_not_started() {
-        let pool = RawIpDevicePool::default();
-        assert!(pool.health_snapshot("wg", 0, [1; 32]).is_none());
-        pool.shutdown();
-        assert_eq!(
-            pool.health_snapshot("wg", 0, [1; 32]).unwrap().state,
-            zero_api::OutboundDeviceHealthState::Stopped,
-        );
-    }
-
-    #[test]
-    fn unresolved_endpoint_is_reported_only_for_matching_configuration() {
-        let pool = RawIpDevicePool::default();
-        pool.mark_endpoint_unresolved("wg", 0, [2; 32]);
-        assert!(pool.health_snapshot("wg", 0, [1; 32]).is_none());
-        let snapshot = pool.health_snapshot("wg", 0, [2; 32]).unwrap();
-        assert_eq!(
-            snapshot.state,
-            zero_api::OutboundDeviceHealthState::EndpointUnresolved
-        );
-        assert!(snapshot.endpoint_resolution_failed);
-        pool.clear_endpoint_unresolved("wg", 0, [1; 32]);
-        assert!(pool.health_snapshot("wg", 0, [2; 32]).is_some());
-        pool.clear_endpoint_unresolved("wg", 0, [2; 32]);
-        assert!(pool.health_snapshot("wg", 0, [2; 32]).is_none());
-    }
-
-    #[test]
-    fn staged_raw_ip_devices_reject_over_limit_without_publishing() {
-        let pool = RawIpDevicePool::default();
-        let mut staged = pool.begin_stage();
-        for index in 0..MAX_RAW_IP_DEVICES {
-            staged
-                .insert(
-                    "wg".to_owned(),
-                    index,
-                    [1; 32],
-                    1,
-                    Arc::new(OnceCell::new()),
-                    false,
-                )
-                .unwrap();
-        }
-        assert!(staged
-            .insert(
-                "wg".to_owned(),
-                MAX_RAW_IP_DEVICES,
-                [1; 32],
-                1,
-                Arc::new(OnceCell::new()),
-                false,
-            )
-            .is_err());
-        assert_eq!(staged.len(), MAX_RAW_IP_DEVICES);
-        assert!(pool.cell_for("wg", 0, [1; 32], 1).is_err());
-    }
-}
+mod tests;

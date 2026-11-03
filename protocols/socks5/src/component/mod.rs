@@ -16,10 +16,13 @@ use zero_platform_tokio::contract::{
     },
     ChannelError, DeliveryState, Reason, Stage,
 };
+mod carrier;
 mod datagram;
 mod error;
 pub mod inbound;
+pub mod listener;
 mod options;
+mod owner;
 mod socket;
 pub use options::Options;
 
@@ -27,6 +30,7 @@ pub struct Factory;
 struct Outbound {
     options: Arc<Options>,
     admission: Arc<SessionAdmission>,
+    carriers: Option<zero_platform_tokio::controlled_carrier::CarrierGrants>,
 }
 impl ComponentFactory for Factory {
     type Options = Options;
@@ -36,7 +40,10 @@ impl ComponentFactory for Factory {
             roles: vec![RoleKind::Stream, RoleKind::Datagram],
             dependencies: vec![],
             static_identity: options.identity.clone(),
-            resources: vec![],
+            resources: options.carrier_limit.into_iter().map(|max_sockets|
+                zero_platform_tokio::contract::component::ResourceDeclaration::ControlledCarrierPool {
+                    endpoint: options.endpoint.clone(), dial: options.dial.clone(), datagram: false, max_sockets,
+                }).collect(),
             task_limit: None,
         }
     }
@@ -46,12 +53,26 @@ impl ComponentFactory for Factory {
         context: BuildContext,
     ) -> Result<ComponentInstance, BuildError> {
         let (owner, admission) = SessionOwner::new(context.component, &context.cancel);
+        let carrier = options.carrier_limit.map(|limit| {
+            zero_platform_tokio::controlled_carrier::CarrierOwner::new(
+                context.instance(),
+                limit,
+                &context.cancel,
+            )
+        });
+        let carriers = carrier.as_ref().map(|owner| owner.grants());
         Ok(ComponentInstance {
-            lifecycle: erase_lifecycle(owner),
+            lifecycle: erase_lifecycle(owner::Owner {
+                session: owner,
+                carrier,
+                resources: context.resources,
+                tasks: context.tasks,
+            }),
             roles: ComponentRoles {
                 stream: Some(erase_stream(Outbound {
                     options: options.clone(),
                     admission: admission.clone(),
+                    carriers,
                 })),
                 datagram: Some(zero_platform_tokio::contract::datagram::erase_datagram(
                     datagram::Outbound::new(options, admission),
@@ -106,7 +127,27 @@ impl StreamOutbound for Outbound {
         if let Some(observer) = &context.observer {
             observer.record(session, ConnectFact::CarrierReady);
         }
+        self.handshake(io, request, &context, session).await
+    }
+    async fn connect_carrier(
+        &self,
+        request: ConnectRequest,
+        context: OpenContext,
+    ) -> Result<Connected<zero_platform_tokio::controlled_carrier::loan::StreamLoan>, ChannelError>
+    {
+        self.borrow(request, context).await
+    }
+}
+impl Outbound {
+    async fn handshake<S: tokio::io::AsyncRead + tokio::io::AsyncWrite + Unpin + Send>(
+        &self,
+        io: S,
+        request: alloc::vec::Vec<u8>,
+        context: &OpenContext,
+        session: Option<zero_core::component::SessionId>,
+    ) -> Result<Connected<S>, ChannelError> {
         let mut socket = socket::Socket::new(io);
+
         let submitting = AtomicBool::new(false);
         let handshake = wire::connect_prepared(
             &mut socket,

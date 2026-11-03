@@ -1,4 +1,8 @@
-//! VLESS ordinary TCP response over the same original carrier and unread bytes.
+//! VLESS standard replies over the original carrier and unread bytes.
+pub(crate) mod datagram;
+pub(crate) mod fallback;
+pub mod listener;
+pub(crate) mod vision;
 use tokio::io::AsyncWriteExt;
 use zero_core::request::RequestFacts;
 use zero_platform_tokio::contract::{

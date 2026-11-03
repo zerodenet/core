@@ -44,7 +44,7 @@ fn canonical_graph_preparation_is_cold_in_the_actual_host_allocation_domain() {
     let egress = zero_platform_tokio::EgressInterfaceControl::default();
     let recipe = recipe(&adapter, "127.0.0.1:51821", egress.generation());
     let pending = recipe.pending();
-    let catalog = ComponentCatalog::default();
+    let catalog = ComponentCatalog::with_factories(crate::register::component_registry());
     let (slot, _invocation) = slot(&catalog, recipe);
     assert!(!pending.needs_cleanup());
     assert!(pending.ready().is_none());
@@ -58,7 +58,7 @@ async fn same_canonical_slot_registers_the_original_workers_and_confirms_them_be
     let proxy = crate::Proxy::new(proxy_config()).unwrap();
     let upstream = proxy.tcp_runtime_services().upstream();
     let adapter = WireguardAdapter::default();
-    let catalog = ComponentCatalog::default();
+    let catalog = ComponentCatalog::with_factories(crate::register::component_registry());
     let recipe = recipe(&adapter, "127.0.0.1:51821", upstream.egress_generation());
     let pending = recipe.pending();
     let guard = install(&adapter, &recipe);
@@ -145,7 +145,7 @@ async fn interrupted_slot_cleanup_retains_the_original_graph_until_the_same_inli
     let proxy = crate::Proxy::new(proxy_config()).unwrap();
     let upstream = proxy.tcp_runtime_services().upstream();
     let adapter = WireguardAdapter::default();
-    let catalog = ComponentCatalog::default();
+    let catalog = ComponentCatalog::with_factories(crate::register::component_registry());
     let recipe = recipe(&adapter, "127.0.0.1:51821", upstream.egress_generation());
     let pending = recipe.pending();
     let guard = install(&adapter, &recipe);
@@ -213,7 +213,7 @@ async fn actual_cold_union_and_ordinary_service_start_cannot_grant_deferred_grap
     let recipe = recipe(&adapter, "127.0.0.1:51821", egress.generation());
     let pending = recipe.pending();
     let guard = install(&adapter, &recipe);
-    let catalog = ComponentCatalog::default();
+    let catalog = ComponentCatalog::with_factories(crate::register::component_registry());
     let config = Arc::new(proxy_config());
     let mut actual_id = None;
     let mut invocation = None;

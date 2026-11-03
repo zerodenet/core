@@ -2,10 +2,10 @@ name: VLESS Reference Interop
 on:
   push:
     branches: [develop, main]
-    paths: ['protocols/vless/**', 'crates/transport/**', 'crates/proxy/**', 'crates/core/**', 'crates/config/**', 'Cargo.toml', 'crates/traits/**', 'crates/platform/**', 'vendor/blake3/**', 'vendor/rustls/**', 'crates/ztls/**', 'Cargo.lock', 'scripts/prepare-xhttp-interop.py', '.github/workflows/xhttp-interop.yml']
+    paths: ['protocols/vless/**', 'crates/transport/**', 'crates/proxy/**', 'crates/runtime/**', 'crates/core/**', 'crates/config/**', 'Cargo.toml', 'crates/traits/**', 'crates/platform/**', 'vendor/blake3/**', 'vendor/rustls/**', 'crates/ztls/**', 'Cargo.lock', 'scripts/prepare-xhttp-interop.py', '.github/workflows/xhttp-interop.yml']
   pull_request:
     branches: [develop, main]
-    paths: ['protocols/vless/**', 'crates/transport/**', 'crates/proxy/**', 'crates/core/**', 'crates/config/**', 'Cargo.toml', 'crates/traits/**', 'crates/platform/**', 'vendor/blake3/**', 'vendor/rustls/**', 'crates/ztls/**', 'Cargo.lock', 'scripts/prepare-xhttp-interop.py', '.github/workflows/xhttp-interop.yml']
+    paths: ['protocols/vless/**', 'crates/transport/**', 'crates/proxy/**', 'crates/runtime/**', 'crates/core/**', 'crates/config/**', 'Cargo.toml', 'crates/traits/**', 'crates/platform/**', 'vendor/blake3/**', 'vendor/rustls/**', 'crates/ztls/**', 'Cargo.lock', 'scripts/prepare-xhttp-interop.py', '.github/workflows/xhttp-interop.yml']
   workflow_dispatch:
 permissions:
   contents: read

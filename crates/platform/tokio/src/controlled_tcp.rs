@@ -9,6 +9,8 @@ mod observation;
 mod peek;
 mod relay;
 mod socket;
+#[cfg(unix)]
+mod unix_connect;
 use crate::TokioSocket;
 #[cfg(any(unix, windows))]
 pub use connect::PendingTcpConnect;
@@ -26,6 +28,8 @@ use std::{
 };
 use tokio::io::{AsyncRead, AsyncWrite, ReadBuf};
 use tokio_util::sync::CancellationToken;
+#[cfg(unix)]
+pub use unix_connect::PendingUnixConnect;
 
 struct Metadata {
     local: Option<SocketAddr>,
@@ -260,3 +264,25 @@ impl TokioSocket {
 #[cfg(test)]
 #[path = "../tests/controlled_tcp/reentry/mod.rs"]
 mod reentry_tests;
+
+impl crate::ClientStream for ControlledTcpStream {
+    fn local_addr(&self) -> io::Result<SocketAddr> {
+        ControlledTcpStream::local_addr(self)
+    }
+    fn peer_addr(&self) -> io::Result<SocketAddr> {
+        ControlledTcpStream::peer_addr(self)
+    }
+}
+
+impl zero_traits::AsyncSocket for ControlledTcpStream {
+    type Error = std::io::Error;
+    async fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
+        tokio::io::AsyncReadExt::read(self, buf).await
+    }
+    async fn write_all(&mut self, buf: &[u8]) -> std::io::Result<()> {
+        tokio::io::AsyncWriteExt::write_all(self, buf).await
+    }
+    async fn shutdown(&mut self) -> std::io::Result<()> {
+        tokio::io::AsyncWriteExt::shutdown(self).await
+    }
+}

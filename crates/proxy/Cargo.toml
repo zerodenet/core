@@ -20,10 +20,10 @@ host-network-stats = ["zero-platform-tokio/host-network-stats"]
 udp-runtime = []
 udp-response-runtime = ["udp-runtime"]
 managed-udp-runtime = ["udp-runtime"]
-managed-datagram-runtime = ["managed-udp-runtime"]
+managed-datagram-runtime = ["managed-udp-runtime", "upstream-association-runtime", "zero-runtime/managed-datagram-runtime"]
 managed-stream-runtime = ["managed-udp-runtime", "udp-response-runtime"]
-raw-ip-runtime = ["managed-datagram-runtime", "managed-stream-runtime", "tcp-session-runtime", "dep:sha2"]
-upstream-association-runtime = ["udp-runtime"]
+raw-ip-runtime = ["zero-runtime/raw-ip-runtime", "managed-datagram-runtime", "managed-stream-runtime", "tcp-session-runtime", "dep:sha2"]
+upstream-association-runtime = ["udp-response-runtime"]
 tls-ech-runtime = ["zero-transport/tls", "zero-dns/udp", "zero-dns/doh"]
 tcp-tunnel-runtime = []
 standard-stream-inbound-runtime = []
@@ -40,6 +40,7 @@ authenticated-quic-inbound-runtime = [
     "transport_quic",
 ]
 vless = [
+    "managed-datagram-runtime",
     "standard-stream-inbound-runtime",
     "datagram-route-runtime",    "managed-stream-runtime",
     "tcp-tunnel-runtime",
@@ -49,14 +50,18 @@ vless = [
     "vless/reality",
 ]
 hysteria2 = [
-    "inbound-listener-group-runtime",
-    "authenticated-quic-inbound-runtime",
+    "quic_packet_path",
+    "standard-stream-inbound-runtime",
+    "managed-datagram-runtime",
+    "managed-stream-runtime",
+    "transport_quic",
     "tcp-transport-session-runtime",
     "dep:hysteria2",
     "hysteria2/runtime",
 ]
 quic_packet_path = ["dep:quinn"]
 shadowsocks = [
+    "managed-stream-runtime",
     "standard-stream-inbound-runtime",
     "managed-datagram-runtime",
     "tcp-session-runtime",
@@ -66,6 +71,7 @@ shadowsocks = [
 ]
 trojan = [
     "standard-stream-inbound-runtime",
+    "managed-datagram-runtime",
     "managed-stream-runtime",
     "tcp-tunnel-runtime",
     "zero-transport/tls",
@@ -76,13 +82,15 @@ trojan = [
 ]
 vmess = [
     "standard-stream-inbound-runtime",
+    "managed-datagram-runtime",
     "managed-stream-runtime",
     "tcp-session-runtime",
     "dep:vmess",
     "vmess/runtime",
 ]
-datagram-route-runtime = ["managed-stream-runtime"]
+datagram-route-runtime = ["zero-runtime/datagram-route-runtime", "managed-stream-runtime"]
 mieru = [
+    "standard-stream-inbound-runtime",
     "datagram-route-runtime",
     "managed-datagram-runtime",
     "managed-stream-runtime",
@@ -91,7 +99,7 @@ mieru = [
     "mieru/runtime",
 ]
 wireguard = ["raw-ip-runtime", "datagram-route-runtime", "dep:sha2", "dep:wireguard", "wireguard/runtime"]
-dns = ["zero-dns/udp", "zero-dns/doh", "zero-dns/dot", "zero-dns/doq"]
+dns = ["zero-dns/udp", "zero-dns/doh", "zero-dns/dot", "zero-dns/doq", "zero-transport/quic", "dep:quinn"]
 
 [dependencies]
 async-trait = "0.1"
@@ -106,6 +114,7 @@ tracing.workspace = true
 tokio-rustls = { version = "0.26", optional = true }
 zero-config = { path = "../config" }
 zero-core = { path = "../core" }
+zero-runtime = { path = "../runtime" }
 zero-dns = { path = "../dns" }
 zero-engine = { path = "../engine" }
 zero-platform-tokio = { path = "../platform/tokio" }
@@ -127,6 +136,7 @@ zero-stack = { path = "../stack" }
 zero-transport = { path = "../transport" }
 
 [dev-dependencies]
+zero-runtime = { path = "../runtime", features = ["test-support"] }
 bytes = "1"
 h3 = "=0.0.8"
 h3-quinn = "=0.0.10"

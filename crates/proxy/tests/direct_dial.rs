@@ -49,13 +49,13 @@ async fn exchange(stream: &mut TcpStream, value: &[u8; 4], family: u8) {
 }
 #[tokio::test]
 #[cfg(feature = "dns")]
-async fn two_inbounds_keep_independent_direct_families_and_old_tcp_survives_reload() {
+async fn source_bound_reload_closes_replaced_native_tcp_and_keeps_unaffected_family() {
     exercise_dual_family_tcp_reload(true).await;
 }
 
 #[tokio::test]
 #[cfg(feature = "dns")]
-async fn family_only_two_inbounds_keep_old_tcp_and_apply_reloaded_family() {
+async fn family_only_reload_closes_replaced_native_tcp_and_keeps_unaffected_family() {
     exercise_dual_family_tcp_reload(false).await;
 }
 
@@ -95,7 +95,17 @@ async fn exercise_dual_family_tcp_reload(bind_source: bool) {
         .apply_config_and_wait(configuration, Duration::from_secs(5))
         .await
         .unwrap();
-    exchange(&mut v4, b"kept", 4).await;
+    // Native resources use StopOld: the changed owner has actually released
+    // the relay before the apply ACK; an unaffected owner stays usable.
+    let mut byte = [0];
+    assert_eq!(
+        tokio::time::timeout(Duration::from_secs(3), v4.read(&mut byte))
+            .await
+            .unwrap()
+            .unwrap(),
+        0
+    );
+    exchange(&mut v6, b"kept", 6).await;
     let mut changed = TcpStream::connect(("127.0.0.1", first)).await.unwrap();
     exchange(&mut changed, b"new!", 6).await;
     running.shutdown().await.unwrap();

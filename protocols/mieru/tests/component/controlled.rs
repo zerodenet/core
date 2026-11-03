@@ -39,6 +39,35 @@ struct ControlledLoopback {
     observations: Arc<Loopback>,
 }
 impl UpstreamOpener for ControlledLoopback {
+    fn resolve_controlled_carrier(
+        &self,
+        binding: &UpstreamBinding,
+        destination: Destination,
+        context: CarrierContext,
+    ) -> BoxFuture<
+        '_,
+        Result<zero_platform_tokio::controlled_carrier::CarrierCandidates, ChannelError>,
+    > {
+        assert_eq!(context.session, None);
+        assert!(!context.cancel.is_cancelled());
+        let binding = binding.clone();
+        Box::pin(async move {
+            let observed = (destination.clone(), context.deadline);
+            let candidates = self
+                .native
+                .resolve_controlled_carrier(&binding, destination, context)
+                .await?;
+            // Selected capability invocations only; native ownership evidence
+            // still comes exclusively from the original controller/Scope.
+            self.observations.opens.fetch_add(1, Ordering::SeqCst);
+            self.observations
+                .destinations
+                .lock()
+                .unwrap()
+                .push(observed);
+            Ok(candidates)
+        })
+    }
     fn prepare_controlled_stream(
         &self,
         binding: &UpstreamBinding,

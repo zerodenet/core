@@ -72,6 +72,11 @@ impl Captured {
     }
 }
 impl<S> Capture<S> {
+    pub(crate) fn into_inner(self) -> S {
+        self.inner
+            .into_inner()
+            .expect("exclusive native Mieru carrier")
+    }
     pub(crate) fn new(inner: S) -> (Self, Captured) {
         let errors = Captured::default();
         (

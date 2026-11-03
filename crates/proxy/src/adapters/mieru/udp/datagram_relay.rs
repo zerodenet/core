@@ -5,7 +5,7 @@ use crate::runtime::udp_dispatch::operation::{
 };
 use crate::runtime::udp_dispatch::packet_path_operation::PreparedDatagramRelayCarrier;
 use crate::runtime::udp_flow::managed::datagram_manager::{
-    managed_datagram_handler_box, ManagedDatagramConnectorFlow, ManagedDatagramResumeConnector,
+    ManagedDatagramConnectorFlow, ManagedDatagramResumeConnector,
 };
 
 pub(super) fn bind<'a>(
@@ -26,11 +26,6 @@ pub(super) fn bind<'a>(
         )),
         needs_proxy: true,
     })
-}
-
-pub(crate) fn managed_datagram_handler(
-) -> Box<dyn crate::runtime::udp_flow::managed::ManagedDatagramFlowHandler> {
-    managed_datagram_handler_box::<MieruDatagramRelayResume>()
 }
 
 #[derive(Clone)]
@@ -78,8 +73,6 @@ impl ManagedDatagramResumeConnector for MieruDatagramRelayResume {
     type Connection = ::mieru::udp::MieruUdpFlowConnection;
 
     const ESTABLISH_STAGE: &'static str = "mieru_datagram_relay_establish";
-    const MISMATCH_STAGE: &'static str = "udp_mieru_datagram_relay_resume";
-    const MISMATCH_MESSAGE: &'static str = "expected Mieru datagram relay resume";
 
     fn connector_flow(
         &self,

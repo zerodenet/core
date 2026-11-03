@@ -16,6 +16,7 @@ mod inbound_accept;
 pub mod negotiated;
 mod options;
 pub mod owned;
+pub mod source;
 mod stream;
 pub use stream::QuicStream;
 mod rate_limit;
@@ -25,7 +26,10 @@ pub use client::{
     connect_quic_endpoint_masked,
 };
 pub use options::QuicTransportOptions;
-pub use quinn::{Connection as QuicConnection, TransportConfig as QuicTransportConfig};
+pub use quinn::{
+    Connection as QuicConnection, ServerConfig as QuicServerConfig,
+    TransportConfig as QuicTransportConfig,
+};
 
 // ── client (outbound) connect ──
 
@@ -160,24 +164,7 @@ impl QuicInbound {
         transport: quinn::TransportConfig,
         masks: &[crate::finalmask::udp::Mask],
     ) -> Result<Self, RuntimeError> {
-        let crypto =
-            match crate::tls::openssl::quic::build_server_config(profile, base_dir, alpn_protocols)
-                .map_err(RuntimeError::Io)?
-            {
-                Some(crypto) => crypto,
-                None => {
-                    let mut tls_config = crate::tls::build_server_config(profile, base_dir, true)?;
-                    tls_config.alpn_protocols = alpn_protocols.to_vec();
-                    let quic_cfg = quinn::crypto::rustls::QuicServerConfig::try_from(tls_config)
-                        .map_err(|e| {
-                            RuntimeError::Io(io::Error::other(format!("quic server cfg: {e}")))
-                        })?;
-                    Arc::new(quic_cfg)
-                }
-            };
-        let mut server_cfg = quinn::ServerConfig::with_crypto(crypto);
-
-        server_cfg.transport_config(Arc::new(transport));
+        let server_cfg = server_config(profile, base_dir, alpn_protocols, transport)?;
 
         let bind_addr = listen_addr
             .parse::<std::net::SocketAddr>()
@@ -235,4 +222,33 @@ pub fn handshake_metadata(connection: &QuicConnection) -> (Option<String>, Optio
             })
             .unwrap_or_default(),
     }
+}
+
+/// Cold TLS/transport preparation, before any native acquisition.
+pub fn server_config(
+    profile: &(impl zero_traits::ServerTlsProfile + ?Sized),
+    base_dir: Option<&Path>,
+    alpn_protocols: &[Vec<u8>],
+    transport: quinn::TransportConfig,
+) -> Result<quinn::ServerConfig, RuntimeError> {
+    let crypto =
+        match crate::tls::openssl::quic::build_server_config(profile, base_dir, alpn_protocols)
+            .map_err(RuntimeError::Io)?
+        {
+            Some(crypto) => crypto,
+            None => {
+                let mut tls_config = crate::tls::build_server_config(profile, base_dir, true)?;
+                tls_config.alpn_protocols = alpn_protocols.to_vec();
+                let quic_cfg = quinn::crypto::rustls::QuicServerConfig::try_from(tls_config)
+                    .map_err(|e| {
+                        RuntimeError::Io(io::Error::other(format!("quic server cfg: {e}")))
+                    })?;
+                Arc::new(quic_cfg)
+            }
+        };
+    let mut server_cfg = quinn::ServerConfig::with_crypto(crypto);
+
+    server_cfg.transport_config(Arc::new(transport));
+
+    Ok(server_cfg)
 }

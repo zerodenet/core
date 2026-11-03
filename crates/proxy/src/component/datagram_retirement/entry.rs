@@ -9,6 +9,7 @@ mod poll;
 type Control = Arc<tokio::sync::Mutex<Option<Box<dyn DynChannelControl>>>>;
 type Closing = Pin<Box<dyn Future<Output = Result<CloseReport, ChannelError>> + Send>>;
 pub(super) struct Entry {
+    pub(super) returns: Option<Arc<super::DatagramReturns>>,
     pub(super) reserved: bool,
     pub(super) active: bool,
     pub(super) closed: bool,
@@ -19,7 +20,7 @@ pub(super) struct Entry {
     poll_panicked: bool,
     closing: Option<Closing>,
     retry: Option<Pin<Box<Sleep>>>,
-    failure: Option<Arc<ChannelError>>,
+    pub(super) failure: Option<Arc<ChannelError>>,
     failure_pending: bool,
     unfinished: Vec<Unfinished>,
     receipts: CloseReport,
@@ -27,6 +28,7 @@ pub(super) struct Entry {
 impl Entry {
     pub(super) fn reserved() -> Self {
         Self {
+            returns: None,
             reserved: true,
             active: false,
             closed: false,

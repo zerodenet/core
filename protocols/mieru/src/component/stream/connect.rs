@@ -1,8 +1,5 @@
 use super::*;
-use crate::{
-    client::{native_io::Capture, PoolKey},
-    tunnel,
-};
+use crate::{client::native_io::Capture, tunnel};
 use std::{error::Error, fmt, io};
 use zero_platform_tokio::contract::{
     context::{with_deadline, ConnectFact, OpenContext},
@@ -27,6 +24,35 @@ impl StreamOutbound for Outbound {
         request: ConnectRequest,
         context: OpenContext,
     ) -> Result<Connected<BoxStream>, ChannelError> {
+        let stream = self.connect_actual(request, context).await?;
+        Ok(Connected {
+            io: Box::pin(stream),
+            peer_confirmation: PeerConfirmation::Confirmed,
+        })
+    }
+    async fn connect_carrier(
+        &self,
+        request: ConnectRequest,
+        context: OpenContext,
+    ) -> Result<Connected<zero_platform_tokio::controlled_carrier::loan::StreamLoan>, ChannelError>
+    {
+        let session = context.session_identity()?;
+        let stream = self.connect_actual(request, context).await?.into_inner();
+        let loan = stream
+            .into_carrier_loan()
+            .map_err(|source| self.pool_failure(source, session))?;
+        Ok(Connected {
+            io: loan,
+            peer_confirmation: PeerConfirmation::Confirmed,
+        })
+    }
+}
+impl Outbound {
+    async fn connect_actual(
+        &self,
+        request: ConnectRequest,
+        context: OpenContext,
+    ) -> Result<Capture<crate::client::NativeTcpStream>, ChannelError> {
         let session = self.admission.check(&context)?;
         if request.destination.port == 0 {
             return Err(self.admission.error(
@@ -58,7 +84,12 @@ impl StreamOutbound for Outbound {
                 )
                 .with_source(source)
         })?;
-        if context.upstream.binding() != owner.upstream.binding()
+        let prepared = &self.options.prepared;
+        let key = prepared.key();
+        let carrier = owner
+            .carrier(&key, &prepared.options)
+            .map_err(|source| self.pool_failure(source, session))?;
+        if (!owner.dynamic && context.upstream.binding() != carrier.upstream.binding())
             || context.upstream.binding().dial != self.options.prepared.dial
         {
             return Err(self.admission.error(
@@ -68,21 +99,21 @@ impl StreamOutbound for Outbound {
                 DeliveryState::NotSubmitted,
             ));
         }
-        let prepared = &self.options.prepared;
-        let key = PoolKey::new(
-            &prepared.tag,
-            &prepared.server,
-            prepared.port,
-            &prepared.username,
-            &prepared.password,
-            false,
+        let opening = pool.open_managed_via(
+            self.pool,
+            key,
+            &prepared.options,
+            Some(context.upstream.binding().clone()),
+            context.deadline,
         );
-        let opening = pool.open_managed_tcp(self.pool, key, &prepared.options, context.deadline);
         let stream = tokio::select! {biased;
             _=self.admission.cancelled()=>return Err(self.admission.error(session,Stage::Handshake,Reason::Revoked,DeliveryState::Unknown)),
             _=context.cancel.cancelled()=>return Err(self.admission.error(session,Stage::Handshake,Reason::Cancelled,DeliveryState::Unknown)),
             result=opening=>result.map_err(|source|self.pool_failure(source,session))?,
         };
+        if let Some(origin) = stream.original_carrier() {
+            context.upstream.observe_carrier_origin(origin);
+        }
         if let Some(observer) = &context.observer {
             observer.record(session, ConnectFact::CarrierReady);
         }
@@ -130,14 +161,11 @@ impl StreamOutbound for Outbound {
             }
             error
         })?;
-        Ok(Connected {
-            io: Box::pin(stream),
-            peer_confirmation: PeerConfirmation::Confirmed,
-        })
+        Ok(stream)
     }
 }
 impl Outbound {
-    fn pool_failure(
+    pub(super) fn pool_failure(
         &self,
         source: io::Error,
         session: Option<zero_core::component::SessionId>,

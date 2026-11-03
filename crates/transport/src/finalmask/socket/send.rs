@@ -1,5 +1,6 @@
 //! Serialized, bounded delayed datagram writes. Dropping the socket cancels them.
 use super::*;
+use crate::datagram_driver::{DriverStop, PreparedIoDriver};
 use futures_util::{future::poll_fn, task::AtomicWaker};
 use tokio::sync::mpsc;
 use tokio_util::sync::PollSender;
@@ -17,19 +18,32 @@ struct Failure {
 pub(super) struct Sender {
     queue: mpsc::Sender<Packet>,
     failure: Arc<Failure>,
-    task: tokio::task::AbortHandle,
+    task: DriverStop,
 }
 impl Drop for Sender {
     fn drop(&mut self) {
-        self.task.abort();
+        self.task.request();
     }
 }
 impl Sender {
-    pub(super) fn new(inner: Arc<dyn AsyncUdpSocket>, mut codec: Codec) -> Self {
+    pub(super) fn new(inner: Arc<dyn AsyncUdpSocket>, codec: Codec) -> Self {
+        let (mut sender, driver) = Self::prepare(inner, codec);
+        sender.task = DriverStop::Legacy(
+            tokio::spawn(async move {
+                let _ = driver.future.await;
+            })
+            .abort_handle(),
+        );
+        sender
+    }
+    pub(super) fn prepare(
+        inner: Arc<dyn AsyncUdpSocket>,
+        mut codec: Codec,
+    ) -> (Self, PreparedIoDriver) {
         let (queue, mut receiver) = mpsc::channel::<Packet>(16);
         let failure = Arc::new(Failure::default());
         let output = failure.clone();
-        let task = tokio::spawn(async move {
+        let driver = PreparedIoDriver::new(async move {
             let mut poller = inner.clone().create_io_poller();
             while let Some(packet) = receiver.recv().await {
                 let result = async {
@@ -67,16 +81,19 @@ impl Sender {
                 if let Err(error) = result {
                     *output.error.lock().unwrap() = Some((error.kind(), error.to_string()));
                     output.reader.wake();
-                    break;
+                    return Err(error);
                 }
             }
-        })
-        .abort_handle();
-        Self {
-            queue,
-            failure,
-            task,
-        }
+            Ok(())
+        });
+        (
+            Self {
+                queue,
+                failure,
+                task: DriverStop::Hosted(driver.cancel.clone()),
+            },
+            driver,
+        )
     }
     pub(super) fn send(&self, transmit: &Transmit) -> io::Result<()> {
         self.check(None)?;

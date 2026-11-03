@@ -108,10 +108,11 @@ impl UdpDispatch {
         }
         let started_at = Instant::now();
         let target_resolution = runtime.resolve_fake_ip_target(&mut session).await;
-        runtime
+        let admission = runtime
             .prepare_udp_session(&mut session, &self.inbound_tag)
             .await?;
         let mut session_handle = runtime.track_session(session.id);
+        let runtime = runtime.with_admission(&session, admission)?;
         if let Err(error) = target_resolution {
             crate::runtime::target::finish_target_recovery_failure(
                 &mut session_handle,

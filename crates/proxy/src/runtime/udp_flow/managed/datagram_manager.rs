@@ -1,12 +1,7 @@
+mod connection;
 mod connector;
-mod manager;
-
-#[cfg(feature = "managed-datagram-runtime")]
+pub(crate) use connection::connection_from_plan;
 pub(crate) use connector::{
-    managed_datagram_handler_box, ManagedDatagramConnectorFlow, ManagedDatagramResumeConnector,
-};
-#[cfg(feature = "managed-datagram-runtime")]
-pub(crate) use connector::{
-    managed_datagram_socket_handler_box, ManagedDatagramSocketConnectorFlow,
-    ManagedDatagramSocketResumeConnector,
+    ManagedDatagramConnectorFlow, ManagedDatagramResumeConnector,
+    ManagedDatagramSocketConnectorFlow, ManagedDatagramSocketResumeConnector,
 };

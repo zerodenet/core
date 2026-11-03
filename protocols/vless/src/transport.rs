@@ -14,8 +14,8 @@ pub(crate) use profile::client_tls_for_stream;
 mod runtime;
 
 pub use inbound::{
-    VlessInboundBindPlan, VlessInboundListenerRequest, VlessInboundStreamMetadata,
-    VlessInboundTransportStreams, VlessStandardTcpAccept,
+    PreparedVlessInboundListenerRequest, VlessInboundBindPlan, VlessInboundListenerRequest,
+    VlessInboundStreamMetadata, VlessInboundTransportStreams,
 };
 pub use leaf::{VlessOutboundLeaf, VlessReverseBridge};
 pub use managed_udp::{VlessManagedUdpConnectorFlow, VlessManagedUdpFlowResume};

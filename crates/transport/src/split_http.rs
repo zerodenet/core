@@ -8,7 +8,7 @@ mod body;
 mod chunked;
 mod client;
 mod http3;
-pub use http3::{accept_xhttp_h3_connection, connect_xhttp_h3};
+pub use http3::{accept_xhttp_h3_connection, accept_xhttp_h3_connection_scoped, connect_xhttp_h3};
 mod io;
 mod mode;
 pub use mode::XhttpMode;
@@ -24,7 +24,7 @@ pub use client::{
 };
 pub use io::XhttpStream;
 pub use registry::SplitHttpRegistry;
-pub use server::{accept_xhttp_connection, XhttpIncoming};
+pub use server::{accept_xhttp_connection, accept_xhttp_connection_scoped, XhttpIncoming};
 pub use stream_one::{
     accept_xhttp_stream_one, accept_xhttp_stream_one_http1, connect_xhttp_stream_one,
     connect_xhttp_stream_one_carrier, connect_xhttp_stream_one_http1,

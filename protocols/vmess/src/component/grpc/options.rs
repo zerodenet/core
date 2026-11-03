@@ -7,8 +7,11 @@ use zero_core::Error;
 use zero_platform_tokio::contract::network::UpstreamBinding;
 use zero_traits::{ClientTlsProfile, DialPolicy, GrpcTransportProfile, WebSocketTransportProfile};
 use zero_transport::profile::OwnedGrpcProfile;
+#[path = "options/node.rs"]
+mod node;
 /// Explicit library recipe for the adapter's one real admission state.
 /// There is no client cache, production default budget, or legacy adoption.
+#[derive(Clone)]
 pub struct Options {
     pub(super) base: Arc<super::super::Options>,
     pub(super) state: Arc<State>,
@@ -17,6 +20,7 @@ pub struct Options {
     pub(super) cap: NonZeroUsize,
     pub(super) identity: Arc<[u8]>,
     pub(super) business: Option<Business>,
+    pub(super) dns_dependency: Option<zero_core::component::ComponentId>,
 }
 impl std::fmt::Debug for Options {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -27,7 +31,7 @@ impl std::fmt::Debug for Options {
 }
 #[derive(Clone, PartialEq, Eq)]
 pub(super) struct Business {
-    pub(super) binding: UpstreamBinding,
+    pub(super) binding: Option<UpstreamBinding>,
     /// Explicit independent retirement budget; never a demand handshake timer.
     pub(super) cleanup_budget: Duration,
 }
@@ -37,6 +41,21 @@ struct Limits {
     business: Option<Business>,
 }
 impl Options {
+    /// Cold binding to the host's actual shared DNS owner. No resolver or
+    /// protocol task is constructed; dependency generations remain host-owned.
+    pub fn clone_with_node_dns(&self, dependency: zero_core::component::ComponentId) -> Self {
+        let mut options = self.clone();
+        options.dns_dependency = Some(dependency);
+        let mut identity = self.identity.to_vec();
+        identity.extend_from_slice(&dependency.0.to_le_bytes());
+        options.identity = identity.into();
+        options
+    }
+    pub(super) fn node(&self) -> bool {
+        self.business
+            .as_ref()
+            .is_some_and(|business| business.binding.is_none())
+    }
     pub fn from_options_refs_at<TTls, TWs, TGrpc>(
         input: crate::transport::VmessOutboundBuildOptionsRef<'_, TTls, TWs, TGrpc>,
         dial: DialPolicy,
@@ -59,7 +78,7 @@ impl Options {
                 cap: carrier_limit,
                 business: None,
             },
-            runtime,
+            runtime.grpc_carrier_state(),
         )
     }
     /// Explicit library Business recipe; no background carrier is granted or
@@ -96,11 +115,11 @@ impl Options {
                 ca_max_bytes,
                 cap: carrier_limit,
                 business: Some(Business {
-                    binding,
+                    binding: Some(binding),
                     cleanup_budget,
                 }),
             },
-            runtime,
+            runtime.grpc_carrier_state(),
         )
     }
     fn prepare<TTls, TWs, TGrpc>(
@@ -108,7 +127,7 @@ impl Options {
         dial: DialPolicy,
         source_dir: Option<&Path>,
         limits: Limits,
-        runtime: &crate::transport::VmessTransportRuntime,
+        state: Arc<State>,
     ) -> Result<Self, Error>
     where
         TTls: ClientTlsProfile + ?Sized,
@@ -135,9 +154,16 @@ impl Options {
             };
         let mut base =
             super::super::Options::from_options_refs_at(ordinary, dial, source_dir, ca_max_bytes)?;
-        let ip = zero_core::address::parse_ip_literal(&base.server).ok_or(Error::Unsupported(
-            "controlled VMess gRPC currently requires a literal endpoint",
-        ))?;
+        let ip = zero_core::address::parse_ip_literal(&base.server);
+        if ip.is_none()
+            && !business
+                .as_ref()
+                .is_some_and(|business| business.binding.is_none())
+        {
+            return Err(Error::Unsupported(
+                "library gRPC requires a literal endpoint",
+            ));
+        }
         // No unowned TLS side channels are admitted into this carrier owner.
         if let Some(tls) = &base.tls {
             zero_transport::tls::PreparedClient::validate_profile(tls).map_err(|_| {
@@ -150,11 +176,13 @@ impl Options {
             .and_then(|tls| tls.server_name.as_deref())
             .filter(|name| !name.is_empty())
             .map(str::to_owned)
-            .unwrap_or_else(|| std::net::SocketAddr::new(ip, base.endpoint.port).to_string());
+            .unwrap_or_else(|| {
+                ip.map(|ip| std::net::SocketAddr::new(ip, base.endpoint.port).to_string())
+                    .unwrap_or_else(|| format!("{}:{}", base.server, base.endpoint.port))
+            });
         zero_transport::grpc::validate_single_client_profile(&grpc, &authority)
             .map_err(|_| Error::Config("invalid VMess gRPC profile"))?;
         base.grpc = Some(grpc.clone());
-        let state = runtime.grpc_carrier_state();
         let identity = state.recipe(Recipe {
             tag: tag.into(),
             endpoint: base.endpoint.clone(),
@@ -180,6 +208,7 @@ impl Options {
             cap: carrier_limit,
             identity,
             business,
+            dns_dependency: None,
         })
     }
 }

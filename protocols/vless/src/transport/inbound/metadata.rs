@@ -17,13 +17,4 @@ impl VlessInboundStreamMetadata {
             ..Self::default()
         }
     }
-    pub(super) fn from_quic(connection: &zero_transport::quic::QuicConnection) -> Self {
-        let tls = zero_transport::quic::handshake_metadata(connection);
-        Self {
-            sni: tls.0,
-            alpn: tls.1,
-            source: Some(connection.remote_address()),
-            destination: None,
-        }
-    }
 }

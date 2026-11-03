@@ -1,5 +1,3 @@
-use std::any::Any;
-
 use super::super::super::connection::SharedManagedUdpConnection;
 use crate::protocol_registry::UdpRuntimeServices;
 use crate::runtime::path::OutboundEndpoint;
@@ -10,8 +8,13 @@ use zero_engine::EngineError;
 
 #[async_trait]
 pub(crate) trait ManagedStreamFlowConnector:
-    Any + Clone + Send + Sync + std::fmt::Debug + 'static
+    Clone + Send + Sync + std::fmt::Debug + 'static
 {
+    const ESTABLISH_STAGE: &'static str;
+    const RELAY_UPSTREAM_STAGE: &'static str;
+    const RELAY_ESTABLISH_STAGE: &'static str;
+    const RELAY_SEND_STAGE: &'static str;
+
     fn connector_flow(
         &self,
         endpoint: OutboundEndpoint,
@@ -51,28 +54,4 @@ impl ManagedStreamConnectorFlow {
     pub(crate) fn into_parts(self) -> (String, bool) {
         (self.cache_key, self.requires_relay_upstream)
     }
-}
-
-pub(crate) trait ManagedStreamConnectorParts {
-    fn into_managed_connector_parts(self) -> (String, bool);
-}
-
-pub(crate) trait ManagedStreamConnectorFlowBuild {
-    fn into_parts(self) -> (String, bool);
-}
-
-impl<T> ManagedStreamConnectorFlowBuild for T
-where
-    T: ManagedStreamConnectorParts,
-{
-    fn into_parts(self) -> (String, bool) {
-        ManagedStreamConnectorParts::into_managed_connector_parts(self)
-    }
-}
-
-pub(crate) fn managed_stream_connector_flow_from_build(
-    build: impl ManagedStreamConnectorFlowBuild,
-) -> ManagedStreamConnectorFlow {
-    let (cache_key, requires_relay_upstream) = build.into_parts();
-    ManagedStreamConnectorFlow::new(cache_key, requires_relay_upstream)
 }

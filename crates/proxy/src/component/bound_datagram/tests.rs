@@ -9,7 +9,7 @@ use zero_platform_tokio::contract::{
 };
 #[tokio::test]
 async fn cold_or_foreign_binding_is_rejected_without_native_authority() {
-    let catalog = ComponentCatalog::default();
+    let catalog = ComponentCatalog::with_factories(crate::register::component_registry());
     let instance = ComponentInstanceId {
         component: catalog.allocate_id().unwrap(),
         generation: ResourceGeneration(1),

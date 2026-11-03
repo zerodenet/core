@@ -62,6 +62,7 @@ impl PreparedUdpFlowOperation for PacketUdpOperation {
                 .flow_start_context()
                 .start_logical(
                     self.0.tag.to_string(),
+                    None,
                     session,
                     payload,
                     LogicalConnection::from_flow(flow),

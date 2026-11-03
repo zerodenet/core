@@ -6,7 +6,6 @@ pub mod grpc;
 pub mod h2;
 #[cfg(feature = "http_upgrade")]
 pub mod http_upgrade;
-pub mod inbound_carrier;
 #[cfg(feature = "tls")]
 pub mod inbound_stack;
 pub mod metered;
@@ -21,6 +20,7 @@ pub mod outbound_datagram;
     feature = "http_upgrade"
 ))]
 pub mod outbound_stack;
+pub mod pooled_driver;
 pub mod profile;
 pub mod proxy_protocol;
 #[cfg(feature = "quic")]
@@ -99,3 +99,5 @@ pub mod datagram_relay;
 pub mod datagram_hop;
 
 pub mod handshake_target;
+
+mod datagram_driver;

@@ -1,13 +1,9 @@
-#[cfg(feature = "upstream-association-runtime")]
-use crate::runtime::udp_dispatch::managed::model::UpstreamTrackedStart;
 #[cfg(any(
     feature = "upstream-association-runtime",
     feature = "managed-datagram-runtime"
 ))]
 use crate::runtime::udp_dispatch::FlowStartResult;
 use crate::runtime::udp_dispatch::{FlowFailure, UdpDispatch};
-#[cfg(feature = "upstream-association-runtime")]
-use crate::runtime::udp_flow::managed::ManagedUdpFlowResume;
 #[cfg(any(
     feature = "upstream-association-runtime",
     feature = "managed-datagram-runtime"
@@ -18,34 +14,35 @@ use crate::runtime::udp_flow::registered::UpstreamAssociationSend;
 
 impl UdpDispatch {
     #[cfg(feature = "upstream-association-runtime")]
-    pub(crate) async fn start_tracked_upstream<T>(
+    pub(crate) async fn start_datagram(
         &mut self,
-        request: UpstreamTrackedStart<'_, T>,
-    ) -> Result<FlowStartResult, FlowFailure>
-    where
-        T: std::any::Any + Send + Sync + std::fmt::Debug,
-    {
-        let resume = ManagedUdpFlowResume::new(request.resume);
+        services: crate::protocol_registry::UdpRuntimeServices,
+        target: crate::inventory::DatagramAssociationTarget,
+        session: &zero_core::Session,
+        payload: &[u8],
+    ) -> Result<FlowStartResult, FlowFailure> {
+        use crate::runtime::udp_flow::registered::UpstreamAssociationTarget;
+        let (tag, server, port) = target.log_parts();
         let sent = self
             .flow_state
             .start_upstream_flow(
                 &self.inbound_tag,
                 UpstreamAssociationSend {
-                    services: request.services,
-                    session: request.session,
-                    server: request.server,
-                    port: request.port,
-                    resume: resume.clone(),
-                    payload: request.payload,
+                    services: Some(services),
+                    session,
+                    server,
+                    port,
+                    target: target.clone(),
+                    payload,
                 },
             )
             .await?;
-        let managed = self.register_managed_flow(resume);
+        let managed = self.flow_state.register_upstream_flow(target.clone());
         Ok(FlowStartResult::Flow {
             outbound: Box::new(UdpFlowOutbound::Relay {
-                tag: request.tag.to_owned(),
-                server: request.server.to_owned(),
-                port: request.port,
+                tag: tag.to_owned(),
+                server: server.to_owned(),
+                port,
                 managed,
             }),
             tx_bytes: sent as u64,

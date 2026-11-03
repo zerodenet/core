@@ -35,8 +35,8 @@ pub(crate) struct Invocation {
     #[cfg(feature = "raw-ip-runtime")]
     pub(crate) caller_native:
         Option<crate::runtime::inbound_operation::raw_ip::native_obligations::NativeRegistration>,
-    pub(crate) admitted: Option<super::business_demand::AdmittedTcpDemand>,
-    pub(crate) caller_accepted: Option<zero_platform_tokio::AcceptedTcpCaller>,
+    pub(crate) admitted: Option<super::business_demand::AdmittedBusinessDemand>,
+    pub(crate) caller_accepted: Option<zero_platform_tokio::AcceptedCaller>,
     pub(crate) identity: RequestIdentity,
     pub(crate) deadline: Option<Instant>,
 }

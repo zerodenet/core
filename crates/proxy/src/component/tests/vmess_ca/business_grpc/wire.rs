@@ -30,7 +30,7 @@ async fn real_engine_host_file_and_same_vm_actor_preserve_two_fresh_business_tls
             std::fs::write(&path,pem).unwrap();
             let host=TestContext::new([slot.as_ref()]);
             host.drive(slot.start(deadline())).await.unwrap();
-            slot.host_admission().unwrap().publish(std::iter::once(slot.admission_grant()));
+            host.publish();
             assert_eq!(captured.reads.load(Ordering::SeqCst),1);
             std::fs::remove_file(path).unwrap();
             let actual=captured.owner.lock().unwrap().as_ref().unwrap().clone();

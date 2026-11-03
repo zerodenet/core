@@ -16,11 +16,16 @@ pub(super) async fn upload<B>(
     session: Arc<Session>,
     sequence: u64,
     permit: OwnedSemaphorePermit,
+    accepted: mpsc::Sender<XhttpStream>,
 ) -> io::Result<http::Response<Body>>
 where
     B: hyper::body::Body<Data = Bytes> + Unpin + Send + 'static,
     B::Error: std::error::Error + Send + Sync + 'static,
 {
+    let caller = request
+        .extensions()
+        .get::<super::super::body::Caller>()
+        .cloned();
     let http1 = request.version() == http::Version::HTTP_11;
     if http1 {
         if let Some(policy) = request.extensions().get::<super::http1::ReplyPolicy>() {
@@ -71,7 +76,32 @@ where
     } else {
         Acknowledgement::Queued
     };
-    let admission = admit(session, sequence, data, permit, budget, acknowledgement);
+    let admission = async {
+        if caller.is_some() && !http1 {
+            // H2/H3 acknowledge queue admission in their original structured
+            // HTTP request, which must keep driving the shared connection.
+            let _permit = permit;
+            tokio::time::timeout(
+                Duration::from_secs(30),
+                session.push_reserved(sequence, data, false, budget),
+            )
+            .await
+            .map_err(io::Error::other)?
+        } else {
+            let source = caller.as_ref().map(|_| accepted);
+            admit(
+                session,
+                sequence,
+                data,
+                permit,
+                budget,
+                acknowledgement,
+                caller,
+                source,
+            )
+            .await
+        }
+    };
     match admission.await {
         Ok(()) => {
             let mut response = status(200);
@@ -99,9 +129,16 @@ async fn admit(
     permit: OwnedSemaphorePermit,
     budget: OwnedSemaphorePermit,
     acknowledgement: Acknowledgement,
+    caller: Option<super::super::body::Caller>,
+    source: Option<mpsc::Sender<XhttpStream>>,
 ) -> io::Result<()> {
     use std::{future::Future, task::Poll};
     let mut admission = Box::pin(async move {
+        // Retain the existing source publisher until the received packet is
+        // admitted. HTTP EOF must not finish its primary and cancel this actual
+        // scoped job while another connection supplies the missing sequence.
+        // This is custody only; original joins/native receipts remain separate.
+        let _source = source;
         let _permit = permit;
         match tokio::time::timeout(
             Duration::from_secs(30),
@@ -137,7 +174,12 @@ async fn admit(
     match ready {
         Some(result) => result,
         None => {
-            let task = tokio::spawn(admission);
+            let (finished, result) = tokio::sync::oneshot::channel();
+            // Keep the exact already-polled reservation, and retain both permits
+            // in the actual accepted Scope after a received HTTP/1 receipt.
+            let _task = super::super::body::spawn(caller.as_ref(), async move {
+                let _ = finished.send(admission.await);
+            })?;
             match acknowledgement {
                 // The first poll registered and validated the complete packet.
                 // The bounded task retains both permits until queue admission,
@@ -153,7 +195,7 @@ async fn admit(
                     tokio::task::yield_now().await;
                     Ok(())
                 }
-                Acknowledgement::Queued => task.await.map_err(io::Error::other)?,
+                Acknowledgement::Queued => result.await.map_err(io::Error::other)?,
             }
         }
     }

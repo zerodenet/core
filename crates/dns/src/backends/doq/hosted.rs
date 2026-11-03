@@ -9,6 +9,9 @@ impl DoqDnsResolver {
         query: &[u8],
         provider: &dyn DnsQuicBidiConnector,
     ) -> io::Result<Vec<u8>> {
+        #[cfg(feature = "test-support")]
+        self.native_io_started
+            .store(true, std::sync::atomic::Ordering::Release);
         let query_user = self.resources.query_user()?;
         let mut last_error = None;
         for endpoint in &self.addrs {

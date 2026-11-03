@@ -25,7 +25,7 @@ pub(super) fn log_candidate(candidate: &EntryCandidate) {
 
 pub(super) async fn build_entry(
     ctx: UdpAdapterContext<'_>,
-    build_operation: Box<dyn PreparedUdpPacketPathOperation>,
+    build_operation: Arc<dyn PreparedUdpPacketPathOperation>,
     candidate: EntryCandidate,
 ) -> Result<Entry, EngineError> {
     log_candidate(&candidate);

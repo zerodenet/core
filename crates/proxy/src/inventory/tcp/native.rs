@@ -4,6 +4,44 @@ use super::{PreparedTcpCandidate, PreparedTcpCandidateExecution};
 use crate::{component::instance::ComponentSlot, transport::TcpOutboundFailure};
 use std::sync::Arc;
 
+/// A cached relay recipe cannot keep a retired protocol factory or pool alive.
+#[derive(Clone)]
+pub(crate) struct StreamRoleRef {
+    instance: zero_core::component::ComponentInstanceId,
+    slot: std::sync::Weak<ComponentSlot>,
+}
+impl StreamRoleRef {
+    pub(crate) fn new(slot: &Arc<ComponentSlot>) -> Self {
+        Self {
+            instance: slot.instance_id(),
+            slot: Arc::downgrade(slot),
+        }
+    }
+    pub(crate) fn instance(&self) -> zero_core::component::ComponentInstanceId {
+        self.instance
+    }
+    pub(crate) fn slot(
+        &self,
+    ) -> Result<Arc<ComponentSlot>, zero_platform_tokio::contract::ChannelError> {
+        let slot = self
+            .slot
+            .upgrade()
+            .filter(|slot| slot.instance_id() == self.instance)
+            .ok_or_else(|| {
+                let mut error = crate::component::instance::invalid(
+                    zero_platform_tokio::contract::Reason::Revoked,
+                    "selected Stream owner is gone",
+                );
+                error.component = Some(self.instance.component);
+                error
+            })?;
+        Ok(slot)
+    }
+    pub(crate) fn matches(&self, slot: &Arc<ComponentSlot>) -> bool {
+        slot.instance_id() == self.instance && self.slot.ptr_eq(&Arc::downgrade(slot))
+    }
+}
+
 pub(crate) struct PreparedNativeTcpRelayChain {
     pub(crate) nodes: Vec<PreparedNativeTcpNode>,
 }

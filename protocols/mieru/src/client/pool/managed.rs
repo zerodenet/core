@@ -27,89 +27,83 @@ pub(crate) struct ManagedState {
     pub(crate) tasks: TaskRegistrar,
     pub(crate) cancel: CancellationToken,
     pub(crate) scope_cancel: CancellationToken,
-    pub(crate) upstream: UpstreamTransport,
-    pub(crate) grants: Option<CarrierGrants>,
+    pub(crate) identity: Arc<[u8]>,
+    pub(crate) carriers: Vec<ManagedCarrier>,
+    plans: Arc<[super::profile::CarrierPlan]>,
+    profiles: Option<Arc<[super::profile::PoolProfile]>>,
+    pub(crate) dynamic: bool,
     pub(crate) limit: NonZeroUsize,
     state: Mutex<State>,
     changed: Notify,
 }
+pub(crate) struct ManagedBindings {
+    pub(crate) identity: Arc<[u8]>,
+    pub(crate) carriers: Vec<ManagedCarrier>,
+    pub(crate) plans: Arc<[super::profile::CarrierPlan]>,
+    pub(crate) profiles: Option<Arc<[super::profile::PoolProfile]>>,
+    pub(crate) dynamic: bool,
+}
+pub(crate) struct ManagedCarrier {
+    pub(crate) upstream: UpstreamTransport,
+    pub(crate) grants: Option<CarrierGrants>,
+}
 #[derive(Default)]
 struct State {
+    epoch: Option<(
+        zero_core::component::NetworkGeneration,
+        Option<zero_platform_tokio::contract::dns::DnsGeneration>,
+    )>,
     records: Vec<Arc<CarrierRecord>>,
     stopped: bool,
     ready: bool,
+    users: usize,
+    retired: bool,
 }
-impl ClientPool {
-    pub(super) fn enter_legacy(&self) -> io::Result<()> {
-        let mut owner = self.ownership.lock().unwrap();
-        match &*owner {
-            Ownership::Pristine | Ownership::LegacyUsed => {
-                *owner = Ownership::LegacyUsed;
-                Ok(())
-            }
-            Ownership::Managed(_) => Err(io::Error::new(
-                io::ErrorKind::PermissionDenied,
-                "mieru pool belongs to a native generation; legacy dial is forbidden",
-            )),
-        }
-    }
-    pub(crate) fn claim_managed(
+mod epoch;
+mod ownership;
+
+impl ManagedState {
+    pub(crate) fn carrier(
         &self,
-        instance: ComponentInstanceId,
-        limit: NonZeroUsize,
-        tasks: TaskRegistrar,
-        cancel: CancellationToken,
-        upstream: UpstreamTransport,
-        grants: Option<CarrierGrants>,
-    ) -> io::Result<Arc<ManagedState>> {
-        if grants
-            .as_ref()
-            .is_some_and(|grants| grants.instance() != instance)
+        key: &super::PoolKey,
+        options: &mieru_config::MieruTransportOptions,
+    ) -> io::Result<&ManagedCarrier> {
+        let index = if let Some(profiles) = &self.profiles {
+            let profile = profiles
+                .iter()
+                .find(|profile| profile.matches(key, options))
+                .ok_or_else(|| {
+                    io::Error::new(
+                        io::ErrorKind::InvalidInput,
+                        "Mieru request is absent from the complete pool profile set",
+                    )
+                })?;
+            self.plans
+                .iter()
+                .position(|plan| plan == &profile.carrier)
+                .ok_or_else(|| io::Error::other("Mieru profile lost its declared carrier"))?
+        } else {
+            0
+        };
+        self.carriers
+            .get(index)
+            .ok_or_else(|| io::Error::other("Mieru carrier provider is missing"))
+    }
+    pub(crate) fn user(self: &Arc<Self>) -> io::Result<UserLease> {
+        let mut state = self.state.lock().unwrap();
+        if !state.ready
+            || state.stopped
+            || self.cancel.is_cancelled()
+            || self.scope_cancel.is_cancelled()
         {
-            return Err(io::Error::new(
-                io::ErrorKind::InvalidInput,
-                "Mieru controlled grants belong to another component generation",
-            ));
-        }
-        let mut ownership = self.ownership.lock().unwrap();
-        if !matches!(*ownership, Ownership::Pristine) {
-            return Err(io::Error::new(
-                io::ErrorKind::AlreadyExists,
-                "mieru pool was already used or claimed; no implicit legacy driver transfer",
-            ));
-        }
-        let scope_cancel = tasks.cancellation();
-        if cancel.is_cancelled() || scope_cancel.is_cancelled() {
             return Err(io::ErrorKind::Interrupted.into());
         }
-        let owner = Arc::new(ManagedState {
-            instance,
-            limit,
-            tasks,
-            cancel,
-            scope_cancel,
-            upstream,
-            grants,
-            state: Mutex::new(State::default()),
-            changed: Notify::new(),
-        });
-        *ownership = Ownership::Managed(owner.clone());
-        Ok(owner)
+        state.users = state
+            .users
+            .checked_add(1)
+            .ok_or_else(|| io::Error::other("Mieru user count exhausted"))?;
+        Ok(UserLease(self.clone()))
     }
-    pub(crate) fn managed(&self, instance: ComponentInstanceId) -> io::Result<Arc<ManagedState>> {
-        let ownership = self.ownership.lock().unwrap();
-        match &*ownership {
-            Ownership::Managed(owner) if owner.instance == instance && owner.ready() => {
-                Ok(owner.clone())
-            }
-            _ => Err(io::Error::new(
-                io::ErrorKind::PermissionDenied,
-                "mieru native pool dependency is not ready for this generation",
-            )),
-        }
-    }
-}
-impl ManagedState {
     pub(crate) fn ready(&self) -> bool {
         !self.cancel.is_cancelled() && !self.scope_cancel.is_cancelled() && {
             let state = self.state.lock().unwrap();
@@ -146,7 +140,7 @@ impl ManagedState {
                 "mieru native carrier budget exhausted",
             ));
         }
-        let record = Arc::new(CarrierRecord::new());
+        let record = Arc::new(CarrierRecord::new(self.cancel.child_token()));
         state.records.push(record.clone());
         Ok(CarrierLease::new(self.clone(), record))
     }
@@ -191,8 +185,11 @@ impl ManagedState {
             let changed = self.changed.notified();
             tokio::pin!(changed);
             changed.as_mut().enable();
-            let records = self.state.lock().unwrap().records.clone();
-            let mut waiting = false;
+            let (records, users) = {
+                let state = self.state.lock().unwrap();
+                (state.records.clone(), state.users)
+            };
+            let mut waiting = users != 0;
             for record in records {
                 if !record.body_finished() {
                     waiting = true;
@@ -212,5 +209,24 @@ impl ManagedState {
             .unwrap()
             .records
             .retain(|stored| !Arc::ptr_eq(stored, record));
+    }
+}
+/// One actual pending open or returned native logical stream. Read/write split
+/// halves retain that stream; dropping a lease proves no task or FD closure.
+pub(crate) struct UserLease(Arc<ManagedState>);
+impl UserLease {
+    pub(crate) fn fork(&self) -> io::Result<Self> {
+        self.0.user()
+    }
+}
+impl Drop for UserLease {
+    fn drop(&mut self) {
+        let mut state = self.0.state.lock().unwrap();
+        state.users = state
+            .users
+            .checked_sub(1)
+            .expect("one actual Mieru user lease");
+        drop(state);
+        self.0.changed.notify_waiters();
     }
 }

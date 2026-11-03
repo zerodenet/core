@@ -1,5 +1,3 @@
-use crate::adapters::shadowsocks::ShadowsocksAdapter;
-use crate::protocol_registry::{claim_socket_tcp_leaf, ClaimedTcpOutboundLeaf};
 use crate::runtime::tcp_dispatch::operation::SocketTcpHandshake;
 
 #[async_trait::async_trait]
@@ -52,14 +50,5 @@ impl SocketTcpHandshake for ::shadowsocks::transport::ShadowsocksTransportLeaf {
             self, stream, session,
         )
         .await
-    }
-}
-
-impl ShadowsocksAdapter {
-    pub(super) fn claim_tcp_outbound_leaf_impl<'a>(
-        &self,
-        leaf: ::shadowsocks::transport::ShadowsocksTransportLeaf,
-    ) -> Box<dyn ClaimedTcpOutboundLeaf<'a> + 'a> {
-        claim_socket_tcp_leaf(leaf)
     }
 }

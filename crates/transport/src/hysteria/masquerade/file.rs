@@ -11,6 +11,22 @@ pub(super) async fn serve(
     request: http::Request<()>,
     exchange: &mut dyn HttpExchange,
 ) -> io::Result<()> {
+    serve_using(root, request, exchange, &mut Access::Legacy).await
+}
+pub(super) async fn serve_scoped(
+    root: &Path,
+    request: http::Request<()>,
+    exchange: &mut dyn HttpExchange,
+    files: &mut zero_platform_tokio::file::tree::FileTreeSession,
+) -> io::Result<()> {
+    serve_using(root, request, exchange, &mut Access::Owned(files)).await
+}
+async fn serve_using(
+    root: &Path,
+    request: http::Request<()>,
+    exchange: &mut dyn HttpExchange,
+    files: &mut Access<'_>,
+) -> io::Result<()> {
     let head = request.method() == http::Method::HEAD;
     let decoded = match percent_encoding::percent_decode_str(request.uri().path()).decode_utf8() {
         Ok(decoded) => decoded,
@@ -29,14 +45,14 @@ pub(super) async fn serve(
             part => relative.push(part),
         }
     }
-    let path = match tokio::fs::canonicalize(root.join(relative)).await {
+    let path = match files.canonicalize(root.join(relative)).await {
         Ok(path) if path.starts_with(root) => path,
         Err(error) if error.kind() == io::ErrorKind::PermissionDenied => {
             return super::error(exchange, 403, head).await
         }
         _ => return error(exchange, 404, head).await,
     };
-    let metadata = tokio::fs::metadata(&path).await?;
+    let metadata = files.metadata(path.clone()).await?;
     if metadata.is_dir() {
         if !decoded.ends_with('/') {
             return redirect(
@@ -46,16 +62,17 @@ pub(super) async fn serve(
             )
             .await;
         }
-        let index = tokio::fs::canonicalize(path.join("index.html")).await;
+        let index = files.canonicalize(path.join("index.html")).await;
         if let Ok(index) = index {
             if !index.starts_with(root) {
                 return error(exchange, 404, head).await;
             }
-            if tokio::fs::metadata(&index)
+            if files
+                .metadata(index.clone())
                 .await
                 .is_ok_and(|metadata| metadata.is_file())
             {
-                return content::serve(&index, &request, exchange).await;
+                return content::serve_using(&index, &request, exchange, files).await;
             }
         }
         let modified = metadata.modified().ok();
@@ -67,7 +84,7 @@ pub(super) async fn serve(
             exchange.send_response(response.body(()).unwrap()).await?;
             return exchange.finish().await;
         }
-        return listing::serve(path, head, exchange, modified).await;
+        return listing::serve_using(path, head, exchange, modified, files).await;
     }
     if decoded.ends_with('/') {
         return redirect(
@@ -84,7 +101,7 @@ pub(super) async fn serve(
         )
         .await;
     }
-    content::serve(&path, &request, exchange).await
+    content::serve_using(&path, &request, exchange, files).await
 }
 async fn redirect(
     exchange: &mut dyn HttpExchange,
@@ -107,3 +124,6 @@ async fn redirect(
         .await?;
     exchange.finish().await
 }
+
+mod access;
+use access::Access;

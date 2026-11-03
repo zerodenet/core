@@ -20,6 +20,11 @@ pub enum ConnectFact {
 /// Implementations must record bounded facts synchronously, without blocking I/O.
 pub trait ConnectObserver: Send + Sync {
     fn record(&self, session: Option<SessionId>, fact: ConnectFact);
+    /// Optional locally accepted protocol-framed datagram bytes for compatibility Flow
+    /// accounting. This is separate from business payload receipts and physical
+    /// carrier traffic, and does not prove peer delivery.
+    fn datagram_sent(&self, _session: Option<SessionId>, _encoded_bytes: u64) {}
+
     /// One cumulative protocol-handshake result for this open operation. This
     /// excludes TLS/carrier framing; explicit zero is distinct from no report.
     fn protocol_traffic(&self, _session: Option<SessionId>, _read_bytes: u64, _written_bytes: u64) {
@@ -102,12 +107,20 @@ fn identity_error(impact: super::Impact) -> super::ChannelError {
 
 #[derive(Clone)]
 pub struct AcceptContext {
-    pub deadline: Instant,
+    /// Optional bound for waiting for a new request. None preserves an idle
+    /// listener/keep-alive wait; HandshakeContext still has a finite deadline.
+    pub deadline: Option<Instant>,
     pub cancel: CancellationToken,
 }
 
 #[derive(Clone)]
 pub struct HandshakeContext {
+    /// Real accepted-task origin. No arbitrary caller or native authority.
+    pub accepted: Option<crate::AcceptedCaller>,
+    /// One-time facts produced by a configured trusted carrier prelude. The
+    /// host validates the unchanged physical origin before applying them to
+    /// business/control admission. This grants no native or task authority.
+    pub connection: Option<Arc<std::sync::OnceLock<InboundConnectionFacts>>>,
     pub inbound: RoleInstanceId,
     /// Allocate only after recognizing a business request. Control and website
     /// traffic must not allocate a synthetic proxy session.
@@ -118,4 +131,73 @@ pub struct HandshakeContext {
 
 pub trait SessionIdentitySource: Send + Sync {
     fn allocate(&self) -> Result<SessionId, super::ChannelError>;
+    /// The actual host keeps the full authenticated facts next to its sealed
+    /// identity ticket, including anonymous per-session rates. No credential
+    /// secret or configuration snapshot is passed through this boundary.
+    fn allocate_authenticated(
+        &self,
+        auth: Option<zero_core::SessionAuth>,
+    ) -> Result<SessionId, super::ChannelError> {
+        if auth.is_some() {
+            // Never silently lose anonymous rates or authentication facts when
+            // an embedding host has not installed an authenticated allocator.
+            return Err(super::ChannelError::new(
+                super::Stage::Handshake,
+                super::Reason::Unsupported,
+                super::Impact::Session,
+            ));
+        }
+        self.allocate()
+    }
+}
+
+/// Captured from the actual accepted carrier and its trusted prelude, never
+/// reconstructed from an outbound target or a later configuration snapshot.
+#[derive(Debug, Clone, Default)]
+pub struct InboundConnectionFacts {
+    pub original_source: Option<std::net::SocketAddr>,
+    pub effective_source: Option<std::net::SocketAddr>,
+    pub local_endpoint: Option<std::net::SocketAddr>,
+    pub sni: Option<String>,
+}
+impl InboundConnectionFacts {
+    pub fn from_stream(stream: &impl crate::ClientStream) -> Self {
+        let peer = stream.peer_addr().ok();
+        Self {
+            original_source: peer,
+            effective_source: peer,
+            local_endpoint: stream.local_addr().ok(),
+            sni: None,
+        }
+    }
+    pub fn request(
+        &self,
+        context: &HandshakeContext,
+        protocol: zero_core::ProtocolType,
+        target: Option<zero_core::request::Destination>,
+        authentication: Option<zero_core::SessionAuth>,
+    ) -> Result<RequestFacts, super::ChannelError> {
+        let subject = authentication
+            .as_ref()
+            .and_then(|auth| auth.principal_key.as_ref())
+            .map(|key| zero_core::component::AuthSubject {
+                owner: context.inbound.component,
+                principal: zero_core::component::PrincipalId(Arc::from(key.as_str())),
+            });
+        Ok(RequestFacts {
+            session: context.identities.allocate_authenticated(authentication)?,
+            inbound: context.inbound.role,
+            original_source: self.original_source,
+            effective_source: self.effective_source,
+            local_endpoint: self.local_endpoint,
+            original_target: None,
+            target,
+            target_source: None,
+            subject,
+            peer: None,
+            protocol,
+            sni: self.sni.clone(),
+            process: None,
+        })
+    }
 }

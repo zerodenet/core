@@ -30,7 +30,14 @@ impl QuicInbound {
     pub async fn establish_incoming_stream(
         incoming: quinn::Incoming,
     ) -> Result<QuicStream, RuntimeError> {
-        let connection = Self::establish_incoming(incoming).await?;
+        Self::accept_connection_stream(Self::establish_incoming(incoming).await?).await
+    }
+
+    /// Preserve raw QUIC's first-bidirectional-stream semantics when an existing
+    /// connection listener supplies the already-established original connection.
+    pub async fn accept_connection_stream(
+        connection: quinn::Connection,
+    ) -> Result<QuicStream, RuntimeError> {
         let (send, recv) = connection
             .accept_bi()
             .await

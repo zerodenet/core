@@ -10,15 +10,21 @@ impl Drop for Driver {
     }
 }
 pub struct GrpcIncoming {
-    receiver: tokio::sync::Mutex<mpsc::Receiver<GrpcStream>>,
-    driver: Arc<Driver>,
+    pub(super) receiver: tokio::sync::Mutex<mpsc::Receiver<GrpcStream>>,
+    pub(super) driver: Option<Arc<Driver>>,
+    pub(super) scoped: Option<Arc<super::scoped_server::Stop>>,
 }
 impl GrpcIncoming {
     pub async fn accept(&self) -> Option<GrpcStream> {
         self.receiver.lock().await.recv().await
     }
     pub fn close(&self) {
-        self.driver.0.abort();
+        if let Some(driver) = &self.driver {
+            driver.0.abort();
+        }
+        if let Some(stop) = &self.scoped {
+            stop.0.cancel();
+        }
     }
 }
 pub fn accept_grpc_connection<S>(
@@ -86,7 +92,8 @@ where
     });
     Ok(GrpcIncoming {
         receiver: tokio::sync::Mutex::new(rx),
-        driver: Arc::new(Driver(task.abort_handle())),
+        driver: Some(Arc::new(Driver(task.abort_handle()))),
+        scoped: None,
     })
 }
 pub async fn accept_grpc<S>(stream: S, names: &[String]) -> Result<GrpcStream, RuntimeError>
@@ -109,7 +116,7 @@ where
         .ok_or_else(|| io::Error::from(io::ErrorKind::UnexpectedEof))?;
     // Legacy callers consume one stream. Keep the driver alive while this
     // stream drains; multiplexed callers retain the connection entrypoint.
-    stream.driver = Some(incoming.driver.clone());
+    stream.driver = incoming.driver.clone();
     stream.incoming = Some(incoming);
     Ok(stream)
 }

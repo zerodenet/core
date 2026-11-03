@@ -12,7 +12,7 @@ pub(super) fn loopback(host: &str) -> IpAddr {
         _ => Ipv4Addr::LOCALHOST.into(),
     }
 }
-pub(super) fn request(
+pub(crate) fn request(
     config: &PluginConfig,
     remote: (&str, u16),
     local: SocketAddr,
@@ -102,21 +102,36 @@ where
         if status()?.is_some() {
             return Err(io::Error::other("shadowsocks plugin exited during startup"));
         }
-        let tcp_ready = !tcp
-            || tokio::time::timeout_at(deadline, probe())
-                .await
-                .is_ok_and(|value| {
-                    value.is_ok_and(|stream| {
-                        match (stream.local_addr(), stream.peer_addr()) {
-                            (Ok(local), Ok(peer)) if local != peer && peer == endpoint => true,
-                            (Ok(local), Ok(peer)) => {
-                                tracing::debug!(%local, %peer, %endpoint, "plugin startup probe reached an unexpected socket");
-                                false
-                            }
-                            _ => false,
+        // Retain the same pending connect future while observing the actual
+        // Child. A dead plugin must not wait for the TCP deadline (or become
+        // ready through a later, unrelated use of the released endpoint).
+        let tcp_ready = if tcp {
+            let connecting = tokio::time::timeout_at(deadline, probe());
+            tokio::pin!(connecting);
+            let connected = loop {
+                tokio::select! {
+                    biased;
+                    result = &mut connecting => break result,
+                    _ = tokio::time::sleep(Duration::from_millis(10)) => {
+                        if status()?.is_some() {
+                            return Err(io::Error::other("shadowsocks plugin exited during startup"));
                         }
-                    })
-                });
+                    }
+                }
+            };
+            connected.is_ok_and(|value| {
+                value.is_ok_and(|stream| match (stream.local_addr(), stream.peer_addr()) {
+                    (Ok(local), Ok(peer)) if local != peer && peer == endpoint => true,
+                    (Ok(local), Ok(peer)) => {
+                        tracing::debug!(%local, %peer, %endpoint, "plugin startup probe reached an unexpected socket");
+                        false
+                    }
+                    _ => false,
+                })
+            })
+        } else {
+            true
+        };
         // SIP003u has no UDP readiness handshake. Match the reference: only TCP
         // readiness is probed. Binding the child's UDP endpoint to test readiness
         // would race its own bind and can make a healthy plugin fail to start.

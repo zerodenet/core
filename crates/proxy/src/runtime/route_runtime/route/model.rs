@@ -10,8 +10,16 @@ use super::super::SharedIngressRuntimeServices;
 
 #[derive(Clone)]
 pub(crate) struct InboundRouteRuntime {
-    accepted_tasks: Option<zero_platform_tokio::AcceptedTcpTasks>,
+    pub(in crate::runtime) resources:
+        Option<std::sync::Weak<dyn zero_platform_tokio::contract::component::ResourceAccess>>,
+    #[cfg(feature = "managed-datagram-runtime")]
+    pub(in crate::runtime) continuity:
+        Option<std::sync::Arc<super::source::DatagramContinuityHost>>,
+    accepted_tasks: Option<zero_platform_tokio::AcceptedTasks>,
+    pub(super) connection: Option<zero_platform_tokio::contract::context::InboundConnectionFacts>,
     pub(super) tcp_runtime: TcpIngressRuntime,
+    #[cfg(feature = "managed-datagram-runtime")]
+    pub(super) peer_datagram: Option<super::source::PeerExecution>,
     #[cfg(feature = "managed-stream-runtime")]
     pub(super) mux_udp_continuity: crate::runtime::mux_udp::MuxUdpContinuityRegistry,
     #[cfg(feature = "udp-runtime")]
@@ -23,22 +31,19 @@ impl InboundRouteRuntime {
     /// task registration authority separate from the outbound caller identity.
     pub(in crate::runtime) fn with_accepted_tasks(
         mut self,
-        tasks: zero_platform_tokio::AcceptedTcpTasks,
+        tasks: zero_platform_tokio::AcceptedTasks,
     ) -> Result<Self, zero_platform_tokio::contract::ChannelError> {
         let caller = tasks.caller()?;
         self.tcp_runtime = self.tcp_runtime.with_accepted_caller(caller);
         self.accepted_tasks = Some(tasks);
         Ok(self)
     }
-    #[cfg(test)]
-    pub(in crate::runtime) fn accepted_tasks(
-        &self,
-    ) -> Option<zero_platform_tokio::AcceptedTcpTasks> {
+    pub(in crate::runtime) fn accepted_tasks(&self) -> Option<zero_platform_tokio::AcceptedTasks> {
         self.accepted_tasks.clone()
     }
 
     #[cfg(test)]
-    pub(crate) fn accepted_caller(&self) -> Option<zero_platform_tokio::AcceptedTcpCaller> {
+    pub(crate) fn accepted_caller(&self) -> Option<zero_platform_tokio::AcceptedCaller> {
         self.tcp_runtime.accepted_caller()
     }
     #[cfg(feature = "raw-ip-runtime")]
@@ -57,7 +62,13 @@ impl InboundRouteRuntime {
         let shared = shared.with_current_snapshot();
         let tcp_runtime = shared.tcp_runtime(inbound_tag, source_addr);
         Self {
+            resources: None,
+            #[cfg(feature = "managed-datagram-runtime")]
+            continuity: None,
             accepted_tasks: None,
+            connection: None,
+            #[cfg(feature = "managed-datagram-runtime")]
+            peer_datagram: None,
             #[cfg(feature = "managed-stream-runtime")]
             mux_udp_continuity: shared.mux_udp_continuity(),
             #[cfg(feature = "udp-runtime")]
@@ -69,6 +80,11 @@ impl InboundRouteRuntime {
 
 #[derive(Clone)]
 pub(crate) struct InboundRouteRuntimeFactory {
+    pub(in crate::runtime) resources:
+        Option<std::sync::Weak<dyn zero_platform_tokio::contract::component::ResourceAccess>>,
+    #[cfg(feature = "managed-datagram-runtime")]
+    pub(in crate::runtime) continuity:
+        Option<std::sync::Arc<super::source::DatagramContinuityHost>>,
     pub(super) shared: SharedIngressRuntimeServices,
     pub(super) inbound_tag: String,
     #[cfg(feature = "raw-ip-runtime")]
@@ -76,8 +92,18 @@ pub(crate) struct InboundRouteRuntimeFactory {
 }
 
 impl InboundRouteRuntimeFactory {
+    pub(crate) fn with_inbound_instance(
+        mut self,
+        identity: zero_core::component::ComponentInstanceId,
+    ) -> Self {
+        self.shared = self.shared.with_inbound_instance(identity);
+        self
+    }
     pub(crate) fn new(shared: SharedIngressRuntimeServices, inbound_tag: String) -> Self {
         Self {
+            resources: None,
+            #[cfg(feature = "managed-datagram-runtime")]
+            continuity: None,
             shared: shared.for_inbound(inbound_tag.clone()),
             inbound_tag,
             #[cfg(feature = "raw-ip-runtime")]

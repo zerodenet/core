@@ -72,8 +72,6 @@ pub(crate) mod tcp_ingress;
     feature = "managed-stream-runtime"
 ))]
 pub(crate) mod transport_leaf;
-#[cfg(feature = "upstream-association-runtime")]
-pub(crate) mod udp_association;
 #[cfg(feature = "udp-runtime")]
 pub(crate) mod udp_delivery;
 #[cfg(feature = "udp-runtime")]
@@ -86,7 +84,12 @@ pub(crate) mod udp_ingress;
 pub(crate) mod udp_socket;
 
 pub use handle::{ConfigApplyReconciler, ConfigReconcileResult, ProxyHandle};
-mod apply_owner;
+mod reload_ack;
+use reload_ack::PendingReloadAck;
+pub(crate) type RuntimeHost = zero_runtime::RuntimeHost<PendingReloadAck>;
+#[cfg(test)]
+#[path = "runtime/tests/host.rs"]
+mod host_tests;
 pub use running::RunningProxy;
 
 #[derive(Debug, Clone)]
@@ -102,23 +105,12 @@ pub struct Proxy {
     pub(crate) tun_operation_lock: Arc<tokio::sync::Mutex<()>>,
     pub(crate) configured_tun_failures: tokio::sync::broadcast::Sender<String>,
     orchestration_ready: tokio::sync::watch::Sender<bool>,
-    reload_ack: Arc<std::sync::Mutex<Option<PendingReloadAck>>>,
-    reload_apply_lock: Arc<tokio::sync::Mutex<()>>,
-    apply_owner: Arc<apply_owner::ApplyOwner>,
+    host: Arc<RuntimeHost>,
     packet_close_owner: Arc<packet_close_owner::PacketCloseOwner>,
     inbound_owners: Arc<inbound_owners::InboundOwnerRegistry>,
     retired_datagrams: Arc<crate::component::datagram_retirement::RetiredDatagrams>,
     principal_rate_limits: principal_rate_limit::PrincipalRateLimitRegistry,
     current_services: Arc<current_services::CurrentServiceSource>,
-}
-
-#[derive(Debug)]
-struct PendingReloadAck {
-    expected: Arc<zero_engine::EngineRuntimeSnapshot>,
-    previous: Arc<zero_engine::EngineRuntimeSnapshot>,
-    persist: bool,
-    compensating: bool,
-    sender: oneshot::Sender<Result<(), String>>,
 }
 
 #[derive(Debug, Clone)]
@@ -165,26 +157,51 @@ impl Proxy {
     }
 
     pub fn from_engine(engine: Engine) -> Result<Self, EngineError> {
-        let protocols = ProtocolInventory::default();
+        // Ordinary registration stays closed until the complete native carrier
+        // matrix and compatibility regressions qualify this exact assembly.
+        Self::from_engine_with_background(engine, false)
+    }
+
+    pub(crate) fn from_engine_with_background(
+        engine: Engine,
+        native_background: bool,
+    ) -> Result<Self, EngineError> {
+        let egress_interface = zero_platform_tokio::EgressInterfaceControl::default();
+        let node_network = Arc::new(crate::component::background::BackgroundNetwork::new(
+            egress_interface.clone(),
+        ));
+        let background = native_background.then(|| node_network.clone());
+        let protocols = match &background {
+            Some(network) => ProtocolInventory::with_background(network.clone()),
+            None => ProtocolInventory::with_node_network(node_network.clone()),
+        };
         let config = engine.config();
         protocols.validate_config(&config)?;
         protocols.validate_dial_environment(&config)?;
         protocols.validate_components(config.clone())?;
-        let egress_interface = zero_platform_tokio::EgressInterfaceControl::default();
         let dns_dispatch = config.compile_dns_dispatch()?;
         let fake_ip_state_path = config
             .source_dir()
             .map(zero_dns::default_fake_ip_state_path);
-        let dns = DnsSystem::build_with_egress_dispatch_and_state(
-            config.runtime.dns.as_ref(),
-            dns_dispatch,
-            egress_interface.clone(),
-            fake_ip_state_path,
-        )
+        let dns = match &background {
+            Some(network) => DnsSystem::build_with_native_queries(
+                config.runtime.dns.as_ref(),
+                dns_dispatch,
+                egress_interface.clone(),
+                fake_ip_state_path,
+                network.native_dns.clone(),
+            ),
+            None => DnsSystem::build_with_egress_dispatch_and_state(
+                config.runtime.dns.as_ref(),
+                dns_dispatch,
+                egress_interface.clone(),
+                fake_ip_state_path,
+            ),
+        }
         .map_err(EngineError::Io)?;
         let (orchestration_ready, _) = tokio::sync::watch::channel(false);
         let (configured_tun_failures, _) = tokio::sync::broadcast::channel(16);
-        let resolver = Arc::new(dns);
+        let resolver = Arc::new(dns.with_native_node_queries(node_network.native_dns.clone()));
         let principal_rate_limits = principal_rate_limit::PrincipalRateLimitRegistry::default();
         // Independent host limit for active + retiring native associations.
         // This is not the V1 packet queue capacity or a legacy session budget.
@@ -205,10 +222,12 @@ impl Proxy {
             principal_rate_limits.clone(),
             &retired_datagrams,
         ));
+        node_network.install(&resolver, Arc::downgrade(&current_services));
         let proxy = Self {
             config,
             engine,
             resolver: resolver.clone(),
+            host: protocols.runtime_host(),
             protocols,
             egress_interface,
             tun_control: Arc::new(std::sync::Mutex::new(None)),
@@ -217,9 +236,6 @@ impl Proxy {
             tun_operation_lock: Arc::new(tokio::sync::Mutex::new(())),
             configured_tun_failures,
             orchestration_ready,
-            reload_ack: Arc::new(std::sync::Mutex::new(None)),
-            reload_apply_lock: Arc::new(tokio::sync::Mutex::new(())),
-            apply_owner: Arc::new(apply_owner::ApplyOwner::default()),
             packet_close_owner,
             inbound_owners: Arc::default(),
             retired_datagrams: retired_datagrams.clone(),
@@ -261,7 +277,11 @@ impl Proxy {
         result: Result<(), String>,
     ) {
         let pending = {
-            let mut pending = self.reload_ack.lock().expect("reload ack lock poisoned");
+            let mut pending = self
+                .host
+                .reload_ack()
+                .lock()
+                .expect("reload ack lock poisoned");
             if pending
                 .as_ref()
                 .is_some_and(|pending| Arc::ptr_eq(&pending.expected, expected))
@@ -280,7 +300,8 @@ impl Proxy {
         &self,
         expected: &Arc<zero_engine::EngineRuntimeSnapshot>,
     ) -> bool {
-        self.reload_ack
+        self.host
+            .reload_ack()
             .lock()
             .expect("reload ack lock poisoned")
             .as_ref()
@@ -292,7 +313,8 @@ impl Proxy {
         &self,
         expected: &Arc<zero_engine::EngineRuntimeSnapshot>,
     ) -> Option<Arc<zero_engine::EngineRuntimeSnapshot>> {
-        self.reload_ack
+        self.host
+            .reload_ack()
             .lock()
             .expect("reload ack lock poisoned")
             .as_ref()
@@ -304,7 +326,8 @@ impl Proxy {
         &self,
         expected: &Arc<zero_engine::EngineRuntimeSnapshot>,
     ) -> bool {
-        self.reload_ack
+        self.host
+            .reload_ack()
             .lock()
             .expect("reload ack lock poisoned")
             .as_ref()
@@ -315,7 +338,8 @@ impl Proxy {
         &self,
         expected: &Arc<zero_engine::EngineRuntimeSnapshot>,
     ) -> bool {
-        self.reload_ack
+        self.host
+            .reload_ack()
             .lock()
             .expect("reload ack lock poisoned")
             .as_ref()
@@ -419,3 +443,25 @@ impl Deref for Proxy {
 }
 
 pub(crate) mod traffic_io;
+
+#[cfg(all(test, feature = "vless", feature = "vmess", feature = "trojan"))]
+#[path = "runtime/tests/mux_prefix.rs"]
+mod mux_prefix;
+#[cfg(all(test, feature = "vless", feature = "vmess", feature = "trojan"))]
+pub(crate) use mux_prefix::MuxPrefix;
+
+#[cfg(all(test, feature = "managed-datagram-runtime"))]
+#[path = "runtime/tests/standard_listener.rs"]
+pub(crate) mod test_listener;
+
+#[cfg(all(test, feature = "hysteria2"))]
+#[path = "runtime/tests/hysteria2.rs"]
+mod hysteria2_tests;
+
+#[cfg(all(test, feature = "shadowsocks", unix))]
+#[path = "runtime/tests/ss_plugin.rs"]
+mod ss_plugin_tests;
+
+#[cfg(all(test, feature = "wireguard"))]
+#[path = "runtime/tests/wg_packet.rs"]
+mod wg_packet_tests;

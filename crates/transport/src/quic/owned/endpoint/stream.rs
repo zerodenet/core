@@ -21,7 +21,7 @@ pub struct OwnedRecvStream {
     permit: Permit,
 }
 impl OwnedSendStream {
-    #[cfg(any(feature = "split_http", feature = "hysteria"))]
+    #[cfg(any(feature = "split_http", feature = "hysteria", feature = "quic_h3"))]
     pub(super) fn into_h3(self) -> super::h3::SendStream {
         let Self {
             stream,
@@ -53,7 +53,7 @@ impl OwnedSendStream {
     }
 }
 impl OwnedRecvStream {
-    #[cfg(any(feature = "split_http", feature = "hysteria"))]
+    #[cfg(any(feature = "split_http", feature = "hysteria", feature = "quic_h3"))]
     pub(super) fn into_h3(self) -> super::h3::RecvStream {
         let Self {
             stream,

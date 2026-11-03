@@ -4,7 +4,7 @@ mod packet;
 #[cfg(feature = "managed-stream-runtime")]
 mod tuple;
 
-pub(crate) use flow::{ManagedStreamConnectorParts, ManagedStreamFlowConnector};
+pub(crate) use flow::{ManagedStreamConnectorFlow, ManagedStreamFlowConnector};
 pub(crate) use packet::ManagedPacketUdpResumeConnector;
 pub(crate) use tuple::ManagedTupleUdpResumeConnector;
 

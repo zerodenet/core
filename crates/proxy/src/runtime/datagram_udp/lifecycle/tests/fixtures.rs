@@ -272,3 +272,6 @@ async fn accept_association(listener: &TcpListener, relay_port: u16) -> TcpStrea
         .unwrap();
     stream
 }
+
+#[path = "fixtures/replacement.rs"]
+mod replacement;

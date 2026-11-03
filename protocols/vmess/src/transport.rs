@@ -7,9 +7,7 @@ mod options;
 mod outbound;
 mod runtime;
 
-pub use inbound::{
-    PreparedVmessInboundListenerRequest, VmessInboundAcceptedRoute, VmessInboundListenerRequest,
-};
+pub use inbound::{PreparedVmessInboundListenerRequest, VmessInboundListenerRequest};
 pub use leaf::VmessOutboundLeaf;
 pub use managed_udp::{VmessManagedUdpConnectorFlow, VmessManagedUdpFlowResume};
 pub use options::{

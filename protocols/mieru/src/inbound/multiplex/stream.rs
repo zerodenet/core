@@ -3,8 +3,8 @@ use std::{
     future::Future,
     io,
     pin::Pin,
-    sync::{Arc, Mutex},
-    task::{Context, Poll, Waker},
+    sync::Arc,
+    task::{Context, Poll},
 };
 use tokio::{
     io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt, ReadBuf},
@@ -14,70 +14,8 @@ use zero_traits::AsyncSocket;
 
 use super::writer::Command;
 
-#[derive(Default)]
-pub(crate) struct Status(Mutex<State>);
-#[derive(Default)]
-struct State {
-    opened: bool,
-    closed: bool,
-    error: Option<io::ErrorKind>,
-    writer: Option<Waker>,
-}
-impl Status {
-    pub(crate) fn mark_open(&self) {
-        let mut state = self.0.lock().unwrap();
-        state.opened = true;
-        if let Some(waker) = state.writer.take() {
-            waker.wake();
-        }
-    }
-    pub(crate) async fn wait_open(&self) -> io::Result<()> {
-        std::future::poll_fn(|cx| {
-            let mut state = self.0.lock().unwrap();
-            if state.closed {
-                return Poll::Ready(Err(state.error.unwrap_or(io::ErrorKind::BrokenPipe).into()));
-            }
-            if state.opened {
-                return Poll::Ready(Ok(()));
-            }
-            state.writer = Some(cx.waker().clone());
-            Poll::Pending
-        })
-        .await
-    }
-
-    pub(crate) fn close(&self, error: Option<io::ErrorKind>) {
-        let mut state = self.0.lock().unwrap();
-        if !state.closed {
-            state.closed = true;
-            state.error = error;
-        }
-        if let Some(w) = state.writer.take() {
-            w.wake();
-        }
-    }
-    pub(crate) fn closed(&self) -> bool {
-        self.0.lock().unwrap().closed
-    }
-    fn read_end(&self) -> io::Result<()> {
-        match self.0.lock().unwrap().error {
-            Some(kind) => Err(io::Error::new(kind, "mieru logical session failed")),
-            None => Ok(()),
-        }
-    }
-    fn writable(&self, cx: &Context<'_>) -> io::Result<()> {
-        let mut state = self.0.lock().unwrap();
-        state.writer = Some(cx.waker().clone());
-        if state.closed {
-            Err(io::Error::new(
-                state.error.unwrap_or(io::ErrorKind::BrokenPipe),
-                "mieru session closed",
-            ))
-        } else {
-            Ok(())
-        }
-    }
-}
+mod status;
+pub(crate) use status::Status;
 
 type Reservation = Pin<
     Box<
@@ -126,6 +64,9 @@ impl MieruLogicalStream {
     }
     pub(crate) fn keep_alive(&mut self, value: Arc<dyn Send + Sync>) {
         self.keepalive = Some(value);
+    }
+    pub(crate) fn defer_retirement(&mut self) {
+        self.retired = true;
     }
     fn retire(&mut self) {
         if !self.retired {

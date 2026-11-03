@@ -16,6 +16,7 @@ use crate::DnsQueryRole;
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 struct CacheKey {
+    native_node: bool,
     scope: QueryScope,
     domain: String,
     query_type: u16,
@@ -45,6 +46,7 @@ struct CacheState {
 
 #[derive(Clone)]
 pub(crate) struct DnsCache {
+    native_node: bool,
     inner: Arc<DnsCacheInner>,
 }
 
@@ -55,8 +57,16 @@ struct DnsCacheInner {
 }
 
 impl DnsCache {
+    /// A distinct answer namespace under the same configured total LRU budget.
+    pub(crate) fn isolated(&self) -> Self {
+        Self {
+            inner: self.inner.clone(),
+            native_node: true,
+        }
+    }
     pub(crate) fn new(config: &DnsCacheConfig) -> Self {
         Self {
+            native_node: false,
             inner: Arc::new(DnsCacheInner {
                 state: Mutex::new(CacheState::default()),
                 max_entries: config.max_entries,
@@ -73,6 +83,7 @@ impl DnsCache {
     ) -> Option<Vec<IpAddress>> {
         let domain = normalize_domain(domain).ok()?;
         let key = CacheKey {
+            native_node: self.native_node,
             scope,
             domain,
             query_type,
@@ -103,6 +114,7 @@ impl DnsCache {
     ) -> Option<Vec<u8>> {
         let domain = normalize_domain(domain).ok()?;
         let key = CacheKey {
+            native_node: self.native_node,
             scope,
             domain,
             query_type,
@@ -214,6 +226,7 @@ impl DnsCache {
         }
         self.put_entry(
             CacheKey {
+                native_node: self.native_node,
                 scope,
                 domain,
                 query_type,
@@ -246,6 +259,7 @@ impl DnsCache {
         }
         self.put_entry(
             CacheKey {
+                native_node: self.native_node,
                 scope,
                 domain,
                 query_type,

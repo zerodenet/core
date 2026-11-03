@@ -13,6 +13,16 @@ impl MetadataDatagramTx {
         transmit: &MetadataTransmit<'_>,
     ) -> Result<MetadataSendOutcome, MetadataSendFailure> {
         self.shared.check().map_err(MetadataSendFailure::local)?;
+        if self
+            .shared
+            .outbound_peer
+            .is_some_and(|peer| peer != transmit.destination)
+        {
+            return Err(MetadataSendFailure::local(std_io::Error::new(
+                std_io::ErrorKind::PermissionDenied,
+                "metadata destination is outside its original grant",
+            )));
+        }
         // This bounds callers inside or waiting for the native gate, not the
         // number of long-lived TX views. There is no outside waiting queue.
         let _admission = self.shared.sends.try_acquire().map_err(|_| {

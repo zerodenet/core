@@ -1,25 +1,20 @@
-use super::super::model::{RegisteredUdpHandlers, RegisteredUdpState};
-#[cfg(any(
-    feature = "managed-stream-runtime",
-    feature = "managed-datagram-runtime"
-))]
-use crate::runtime::udp_flow::managed::ManagedUdpState;
+use super::super::model::RegisteredUdpState;
 #[cfg(feature = "upstream-association-runtime")]
 use crate::runtime::udp_flow::registered::upstream::UpstreamAssociationState;
 
 impl RegisteredUdpState {
-    pub(crate) fn new(handlers: RegisteredUdpHandlers) -> Self {
+    pub(crate) fn new() -> Self {
         Self {
             #[cfg(feature = "managed-stream-runtime")]
             logical_sessions: Default::default(),
-            #[cfg(any(
-                feature = "managed-stream-runtime",
-                feature = "managed-datagram-runtime"
-            ))]
-            managed: ManagedUdpState::new(handlers.managed),
+            sessions: Default::default(),
+            #[cfg(feature = "managed-stream-runtime")]
+            tuple_connections: Default::default(),
+            #[cfg(feature = "managed-datagram-runtime")]
+            datagram_connections: Default::default(),
             #[cfg(feature = "upstream-association-runtime")]
-            upstream: UpstreamAssociationState::new(handlers.upstream),
-            managed_resumes: std::collections::HashMap::new(),
+            upstream: UpstreamAssociationState::default(),
+            connections: std::collections::HashMap::new(),
             next_managed_flow_id: 1,
         }
     }

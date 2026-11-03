@@ -52,7 +52,7 @@ pub fn accept_connection(connection: quinn::Connection, profile: &Profile) -> In
                     let profile=profile.clone();let authenticated=authenticated.clone();let connection=owner.clone();
                     tasks.spawn(async move {
                         let Ok(Ok((request,stream)))=tokio::time::timeout(std::time::Duration::from_secs(30),request.resolve_request()).await else {return;};
-                        let _=super::request::serve(request,stream,&profile,&authenticated,&connection).await;
+                        let _=super::request::serve(request,stream,&profile,&authenticated,|rate|profile.negotiate(&connection,rate)).await;
 
                     });
                 }

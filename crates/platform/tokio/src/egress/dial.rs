@@ -126,3 +126,13 @@ impl EgressInterfaceControl {
         Ok(selection)
     }
 }
+
+impl EgressSelection {
+    /// No ambient route-probe socket for an already host-selected local service.
+    pub(crate) fn local_service(peer: SocketAddr) -> io::Result<Self> {
+        let mut selection =
+            EgressInterfaceControl::default().select_packet_without_native_probe(peer)?;
+        selection.dial_policy = Some(DialPolicy::default());
+        Ok(selection)
+    }
+}

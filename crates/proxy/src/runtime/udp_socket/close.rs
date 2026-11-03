@@ -12,6 +12,7 @@ pub(super) struct NativeCloseLedger {
     // error alone can retain its original, documented still-open SOCKET.
     failures: BTreeMap<u64, Arc<io::Error>>,
     controlled: BTreeMap<u64, Arc<io::Error>>,
+    controlled_live: usize,
     // The provider alone aggregates native receipts. Retain an unsuccessful
     // unique view until the same persistent original confirms closure.
     bound: BTreeMap<
@@ -60,6 +61,7 @@ impl NativeCloseLedger {
         report: zero_platform_tokio::controlled_datagram::DatagramOwnerReport,
     ) {
         self.confirmed += report.confirmed_closed;
+        self.controlled_live = report.retained_live;
         // This owner's authoritative current ledger alone can remove a prior
         // unknown after a documented Windows known-open retry actually closes.
         self.controlled = report
@@ -117,6 +119,12 @@ impl NativeCloseLedger {
                 "unconfirmed controlled original Direct UDP socket {id}"
             )));
         }
+        if self.controlled_live != 0 {
+            report.unfinished.push(Unfinished::Io(format!(
+                "{} original controlled Direct UDP sockets remain live or retiring",
+                self.controlled_live
+            )));
+        }
         report
     }
 }
@@ -166,6 +174,10 @@ impl DirectUdpSockets {
         Ok(())
     }
     pub(crate) fn close_all_native(&mut self) {
+        // Terminal custody retains originals and their errors, not old network
+        // services/DNS state after the actual driver has joined.
+        let services = self.services.take();
+        drop(services);
         // Only the actual owning lifecycle may call this terminal operation.
         // Peer mode reaches it after matching the real joined-task receipt;
         // logical retirement alone retains originals; explicit normal rotation

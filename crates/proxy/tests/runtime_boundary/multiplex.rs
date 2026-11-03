@@ -33,22 +33,51 @@ fn native_multiplexer_contracts_are_runtime_neutral_and_protocol_implemented() {
 }
 
 #[test]
-fn native_multiplexer_runtime_owns_tasks_without_protocol_or_carrier_state() {
-    let runtime = read_module(&proxy_src().join("runtime/inbound_operation/multiplex.rs"));
-    assert!(runtime.contains("InboundDatagramMultiplexer"));
-    assert!(runtime.contains("JoinSet"));
-    assert!(runtime.contains("abort_all"));
-    for forbidden in [
-        "quinn::",
-        "hysteria2::",
-        "mieru::",
-        "parse_udp",
-        "SessionMetadata",
+fn standard_hysteria2_requests_use_sealed_quic_and_actual_caller_scope() {
+    assert!(!proxy_src()
+        .join("runtime/inbound_operation/multiplex.rs")
+        .exists());
+    let root = workspace_root();
+    let source = super::read(&root.join("protocols/hysteria2/src/component/connection.rs"));
+    for required in [
+        "OwnedConnection",
+        "impl RequestMultiplexer",
+        "self.auth.as_ref()",
+        "facts.request",
+        "read_tcp_connect_header",
     ] {
         assert!(
-            !runtime.contains(forbidden),
-            "runtime must not interpret {forbidden}"
+            source.contains(required),
+            "standard connection must use {required}"
         );
+    }
+    let web = super::read(&root.join("protocols/hysteria2/src/component/web.rs"));
+    for required in [
+        "caller.spawn",
+        "owned_h3::Connection",
+        "resources",
+        "serve_scoped",
+    ] {
+        assert!(web.contains(required));
+    }
+    for forbidden in [
+        "tokio::spawn",
+        "JoinSet",
+        "quinn::Connection",
+        "Session::new",
+    ] {
+        assert!(!source.contains(forbidden));
+        assert!(!web.contains(forbidden));
+    }
+    let packets = super::read(&root.join("protocols/hysteria2/src/component/datagram.rs"));
+    for required in [
+        "impl DatagramReply",
+        "client_session_id",
+        "decode_dispatch_parts",
+        "build_udp_fragments",
+        "wire_bytes",
+    ] {
+        assert!(packets.contains(required));
     }
 }
 
@@ -69,20 +98,19 @@ fn mieru_classifies_routes_and_owns_its_wire_state() {
             "adapter must not own {forbidden}"
         );
     }
-    let runtime =
-        read_module(&proxy_src().join("runtime/inbound_operation/context/stream_route.rs"));
-    assert!(runtime.contains("InboundStreamRoute"));
+    let runtime = read_module(&proxy_src().join("runtime/route_runtime/route/source.rs"));
+    assert!(runtime.contains("PendingInbound"));
     assert!(!runtime.contains("mieru::"));
 }
 
 #[test]
 fn route_multiplexer_keeps_handshake_tasks_in_runtime_and_wire_dispatch_in_protocol() {
-    let runtime = read_module(&proxy_src().join("runtime/inbound_operation/context/multiplex.rs"));
+    let runtime = read_module(&proxy_src().join("runtime/route_runtime/route/source.rs"));
     for required in [
-        "InboundRouteMultiplexer",
-        "JoinSet",
-        "abort_all",
-        "timeout",
+        "RequestMultiplexer",
+        "TaskClass",
+        "close(",
+        "deadline",
         "register_principal_cancellation",
     ] {
         assert!(
@@ -90,7 +118,7 @@ fn route_multiplexer_keeps_handshake_tasks_in_runtime_and_wire_dispatch_in_proto
             "missing lifecycle requirement: {required}"
         );
     }
-    for forbidden in ["mieru::", "MieruCipher", "session_id", "parse_segment"] {
+    for forbidden in ["mieru::", "MieruCipher", "parse_segment"] {
         assert!(!runtime.contains(forbidden));
     }
     let protocol = read_module(&workspace_root().join("protocols/mieru/src/inbound/multiplex.rs"));
@@ -108,9 +136,12 @@ fn route_multiplexer_keeps_handshake_tasks_in_runtime_and_wire_dispatch_in_proto
 
 #[test]
 fn datagram_peer_runtime_does_not_own_mieru_reliability_or_pool_state() {
-    let runtime = read_module(&proxy_src().join("runtime/inbound_operation/peer_route.rs"));
-    assert!(runtime.contains("JoinSet"));
-    assert!(runtime.contains("tasks.shutdown"));
+    assert!(!proxy_src()
+        .join("runtime/inbound_operation/peer_route.rs")
+        .exists());
+    let runtime =
+        read_module(&workspace_root().join("crates/platform/tokio/src/contract/inbound/udp.rs"));
+    assert!(runtime.contains("DatagramPeer"));
     for forbidden in [
         "mieru::",
         "MieruCipher",

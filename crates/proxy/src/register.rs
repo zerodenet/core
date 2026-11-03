@@ -3,27 +3,47 @@
 use std::sync::Arc;
 
 use crate::protocol_registry::ProtocolRegistry;
-#[cfg(any(
-    feature = "managed-stream-runtime",
-    feature = "managed-datagram-runtime"
-))]
-use crate::runtime::udp_flow::managed::ManagedUdpHandlers;
-#[cfg(feature = "udp-runtime")]
-use crate::runtime::udp_flow::registered::RegisteredUdpHandlers;
-#[cfg(feature = "upstream-association-runtime")]
-use crate::runtime::udp_flow::registered::UpstreamUdpHandlers;
-
-fn compiled_registries() -> (
+pub(crate) fn compiled_registries() -> (
     ProtocolRegistry,
     crate::component::ComponentRegistry<zero_config::OutboundConfig>,
+    Arc<crate::adapters::devices::Devices>,
 ) {
+    compiled_registries_with_background(None)
+}
+pub(crate) fn compiled_registries_with_background(
+    background: Option<Arc<crate::component::background::BackgroundNetwork>>,
+) -> (
+    ProtocolRegistry,
+    crate::component::ComponentRegistry<zero_config::OutboundConfig>,
+    Arc<crate::adapters::devices::Devices>,
+) {
+    compiled_registries_with_network(background.clone(), background)
+}
+pub(crate) fn compiled_registries_with_network(
+    background: Option<Arc<crate::component::background::BackgroundNetwork>>,
+    node_network: Option<Arc<crate::component::background::BackgroundNetwork>>,
+) -> (
+    ProtocolRegistry,
+    crate::component::ComponentRegistry<zero_config::OutboundConfig>,
+    Arc<crate::adapters::devices::Devices>,
+) {
+    let _ = &background;
     use zero_traits::ProtocolMetadata;
     let mut components = crate::component::ComponentRegistry::default();
     components
-        .register(
+        .register_with_resources(
             crate::adapters::direct::DirectAdapter::default().descriptor(),
             crate::component::DirectFactory,
-            crate::adapters::direct::factory::decode,
+            {
+                let background = background.clone();
+                move |input, resources| {
+                    if let Some(network) = &background {
+                        crate::component::native_dns::prepare(resources, network.clone())?;
+                    }
+                    crate::adapters::direct::factory::decode(input)
+                        .map_err(crate::component::RegistrationError::Options)
+                }
+            },
         )
         .expect("unique built-in Direct registration");
     components
@@ -39,6 +59,15 @@ fn compiled_registries() -> (
         .declare("vless", "vless")
         .expect("unique VLESS declaration");
     let mut registry = ProtocolRegistry::default();
+    registry
+        .inbounds
+        .register(
+            crate::adapters::direct::DirectAdapter::default().descriptor(),
+            crate::adapters::direct::inbound::Factory,
+            crate::adapters::direct::inbound::options,
+        )
+        .expect("unique built-in Direct inbound component registration");
+    let mut devices = crate::adapters::devices::Devices::default();
     #[cfg(feature = "socks5")]
     {
         use crate::adapters::socks5::Socks5Adapter;
@@ -46,88 +75,329 @@ fn compiled_registries() -> (
             .register(
                 ::socks5::Socks5Protocol.descriptor(),
                 ::socks5::component::Factory,
-                crate::adapters::socks5::component_options,
+                {
+                    let native = background.is_some();
+                    move |input| {
+                        crate::adapters::socks5::component_options(input).map(|options| {
+                            if native {
+                                options.with_carrier_limit(std::num::NonZeroUsize::new(4).unwrap())
+                            } else {
+                                options
+                            }
+                        })
+                    }
+                },
             )
             .expect("unique SOCKS5 component registration");
         components
             .set_legacy_connect_stage("socks5", crate::adapters::socks5::LEGACY_CONNECT_STAGE);
 
-        registry.register_upstream_capability(
+        registry
+            .inbounds
+            .register(
+                ::socks5::Socks5Protocol.descriptor(),
+                ::socks5::component::listener::InboundFactory,
+                crate::adapters::socks5::inbound::component_options,
+            )
+            .expect("unique SOCKS5 inbound component registration");
+        registry.register_standard_protocol(
             Arc::new(Socks5Adapter),
-            Socks5Adapter::claim_outbound_leaf_impl,
+            Some(Socks5Adapter::claim_outbound_leaf_impl),
         );
     }
     #[cfg(feature = "http")]
     {
         use crate::adapters::http::HttpConnectAdapter;
-        registry.register_core_capability(Arc::new(HttpConnectAdapter), None);
+        registry
+            .inbounds
+            .register(
+                ::http::HttpConnectProtocol.descriptor(),
+                ::http::component::InboundFactory,
+                crate::adapters::http::component_options,
+            )
+            .expect("unique HTTP inbound component registration");
+        registry.register_standard_protocol(Arc::new(HttpConnectAdapter), None);
     }
     #[cfg(feature = "vless")]
     {
         use crate::adapters::vless::VlessAdapter;
-        components
-            .register_where(
-                ::vless::metadata::VlessProtocol.descriptor(),
-                ::vless::component::Factory,
-                crate::adapters::vless::native_input,
-                crate::adapters::vless::component_options,
-            )
-            .expect("unique VLESS component registration");
-        components.set_legacy_connect_stage("vless", crate::adapters::vless::LEGACY_CONNECT_STAGE);
         let adapter = Arc::new(VlessAdapter::default());
+        if let Some(network) = background.clone() {
+            let factory = Arc::new(crate::component::background::pool::Factory::new(network));
+            let projected = adapter.clone();
+            components
+                .register_with_resources_where(
+                    ::vless::metadata::VlessProtocol.descriptor(),
+                    crate::adapters::vless::component::mux::Factory,
+                    crate::adapters::vless::component::mux::eligible,
+                    move |input, resources| {
+                        projected.owned_mux_options(input, resources, factory.clone())
+                    },
+                )
+                .expect("unique owned vless component registration");
+        } else if let Some(network) = node_network.clone() {
+            let factory = Arc::new(crate::component::background::pool::Factory::new(network));
+            let projected = adapter.clone();
+            let selected = adapter.clone();
+            components
+                .register_with_resources_where(
+                    ::vless::metadata::VlessProtocol.descriptor(),
+                    crate::adapters::vless::component::mux::Factory,
+                    crate::adapters::vless::component::mux::eligible,
+                    move |input, resources| {
+                        projected.production_mux_options(input, resources, factory.clone())
+                    },
+                )
+                .expect("unique ordinary vless prefix registration");
+            components.set_candidate_acceptance("vless", move |input, config| {
+                selected.production_selected(input, config, true)
+            });
+        } else {
+            components
+                .register_where(
+                    ::vless::metadata::VlessProtocol.descriptor(),
+                    ::vless::component::Factory,
+                    crate::adapters::vless::native_input,
+                    crate::adapters::vless::component_options,
+                )
+                .expect("unique VLESS component registration");
+        }
+        components.set_legacy_connect_stage("vless", crate::adapters::vless::LEGACY_CONNECT_STAGE);
+        let inbound_adapter = adapter.clone();
+        registry
+            .inbounds
+            .register_with_resources(
+                ::vless::metadata::VlessProtocol.descriptor(),
+                ::vless::component::inbound::listener::Factory,
+                move |input, resources| {
+                    inbound_adapter.inbound_options(input, resources.source_dir())
+                },
+            )
+            .expect("unique standard VLESS inbound registration");
         registry.register_inbound_service(adapter.clone());
-        registry.register_managed_capability(adapter, VlessAdapter::claim_outbound_leaf_impl);
+        registry.register_standard_protocol(adapter, Some(VlessAdapter::claim_outbound_leaf_impl));
     }
     #[cfg(feature = "hysteria2")]
     {
         use crate::adapters::hysteria2::Hysteria2Adapter;
         let adapter = Arc::new(Hysteria2Adapter::default());
-        registry.register_managed_capability(adapter, Hysteria2Adapter::claim_outbound_leaf_impl);
+        let projected = adapter.clone();
+        registry
+            .inbounds
+            .register_with_resources(
+                ::hysteria2::Hysteria2Protocol.descriptor(),
+                ::hysteria2::component::Factory,
+                move |input, resources| projected.inbound_options(input, resources.source_dir()),
+            )
+            .expect("unique standard Hysteria2 inbound registration");
+        registry
+            .register_standard_protocol(adapter, Some(Hysteria2Adapter::claim_outbound_leaf_impl));
     }
     #[cfg(feature = "shadowsocks")]
     {
         use crate::adapters::shadowsocks::ShadowsocksAdapter;
         let adapter = Arc::new(ShadowsocksAdapter::default());
-        registry.register_managed_capability(adapter, ShadowsocksAdapter::claim_outbound_leaf_impl);
+        let inbound_adapter = adapter.clone();
+        registry
+            .inbounds
+            .register_with_resources(
+                ::shadowsocks::ShadowsocksProtocol.descriptor(),
+                ::shadowsocks::component::inbound::listener::Factory,
+                move |input, _resources| inbound_adapter.inbound_options(input),
+            )
+            .expect("unique native Shadowsocks inbound registration");
+        let component_adapter = adapter.clone();
+        let replay_factory = Arc::new(::shadowsocks::component::ReplayFactory);
+        components
+            .register_with_resources_where(
+                ::shadowsocks::ShadowsocksProtocol.descriptor(),
+                ::shadowsocks::component::StreamFactory,
+                crate::adapters::shadowsocks::component::native_input,
+                move |input, resources| {
+                    component_adapter.component_options(input, resources, replay_factory.clone())
+                },
+            )
+            .expect("unique Shadowsocks component registration");
+        components.set_legacy_connect_stage("shadowsocks", "connect_upstream_shadowsocks");
+        registry.register_standard_protocol(
+            adapter,
+            Some(ShadowsocksAdapter::claim_outbound_leaf_impl),
+        );
     }
     #[cfg(feature = "trojan")]
     {
         use crate::adapters::trojan::TrojanAdapter;
-        components
-            .register_where(
-                ::trojan::metadata::TrojanProtocol.descriptor(),
-                ::trojan::component::Factory,
-                crate::adapters::trojan::native_input,
-                crate::adapters::trojan::component_options,
-            )
-            .expect("unique Trojan component registration");
+        let adapter = Arc::new(TrojanAdapter::default());
+        if let Some(network) = background.clone() {
+            let factory = Arc::new(crate::component::background::pool::Factory::new(network));
+            let projected = adapter.clone();
+            components
+                .register_with_resources_where(
+                    ::trojan::metadata::TrojanProtocol.descriptor(),
+                    crate::adapters::trojan::component::mux::Factory,
+                    crate::adapters::trojan::component::mux::eligible,
+                    move |input, resources| {
+                        projected.owned_mux_options(input, resources, factory.clone())
+                    },
+                )
+                .expect("unique owned trojan component registration");
+        } else if let Some(network) = node_network.clone() {
+            let factory = Arc::new(crate::component::background::pool::Factory::new(network));
+            let projected = adapter.clone();
+            let selected = adapter.clone();
+            components
+                .register_with_resources_where(
+                    ::trojan::metadata::TrojanProtocol.descriptor(),
+                    crate::adapters::trojan::component::mux::Factory,
+                    crate::adapters::trojan::component::mux::eligible,
+                    move |input, resources| {
+                        projected.production_mux_options(input, resources, factory.clone())
+                    },
+                )
+                .expect("unique ordinary trojan prefix registration");
+            components.set_candidate_acceptance("trojan", move |input, config| {
+                selected.production_selected(input, config, true)
+            });
+        } else {
+            components
+                .register_where(
+                    ::trojan::metadata::TrojanProtocol.descriptor(),
+                    ::trojan::component::Factory,
+                    crate::adapters::trojan::native_input,
+                    crate::adapters::trojan::component_options,
+                )
+                .expect("unique Trojan component registration");
+        }
         components
             .set_legacy_connect_stage("trojan", crate::adapters::trojan::LEGACY_CONNECT_STAGE);
-        let adapter = Arc::new(TrojanAdapter::default());
-        registry.register_managed_capability(adapter, TrojanAdapter::claim_outbound_leaf_impl);
+        let inbound = adapter.clone();
+        registry
+            .inbounds
+            .register_with_resources(
+                adapter.descriptor(),
+                ::trojan::component::inbound::listener::Factory,
+                move |input, resources| inbound.inbound_options(input, resources.source_dir()),
+            )
+            .expect("unique Trojan standard inbound registration");
+        registry.register_standard_protocol(adapter, Some(TrojanAdapter::claim_outbound_leaf_impl));
     }
     #[cfg(feature = "vmess")]
     {
         use crate::adapters::vmess::VmessAdapter;
-        components
-            .register_where(
-                ::vmess::metadata::VmessProtocol.descriptor(),
-                ::vmess::component::Factory,
-                crate::adapters::vmess::native_input,
-                crate::adapters::vmess::component_options,
-            )
-            .expect("unique VMess component registration");
+        let mut adapter = VmessAdapter::default();
+        adapter.native_node_dns = node_network.is_some() && background.is_none();
+        let adapter = Arc::new(adapter);
+        if let Some(network) = background.clone() {
+            let factory = Arc::new(crate::component::background::pool::Factory::new(network));
+            let projected = adapter.clone();
+            components
+                .register_with_resources_where(
+                    ::vmess::metadata::VmessProtocol.descriptor(),
+                    crate::adapters::vmess::component::mux::Factory,
+                    crate::adapters::vmess::component::mux::eligible,
+                    move |input, resources| {
+                        projected.owned_mux_options(input, resources, factory.clone())
+                    },
+                )
+                .expect("unique owned vmess component registration");
+        } else {
+            components
+                .register_with_resources_where(
+                    ::vmess::metadata::VmessProtocol.descriptor(),
+                    crate::adapters::vmess::component::mux::Factory,
+                    |input| {
+                        crate::adapters::vmess::component::grpc::eligible(input)
+                            || crate::adapters::vmess::component::mux::eligible(input)
+                    },
+                    {
+                        let adapter = adapter.clone();
+                        let network = node_network.clone();
+                        let pool = network.clone().map(|network| {
+                            Arc::new(crate::component::background::pool::Factory::new(network))
+                        });
+                        move |input, resources| {
+                            if crate::adapters::vmess::component::mux::has_mux(input) {
+                                return adapter.production_mux_options(
+                                    input,
+                                    resources,
+                                    pool.clone().expect("selected production MUX provider"),
+                                );
+                            }
+                            let mut options = adapter
+                                .standard_options_for(input, resources.candidate())
+                                .map_err(crate::component::RegistrationError::Options)?;
+                            if matches!(
+                                &options,
+                                crate::adapters::vmess::component::grpc::Options::Grpc(_)
+                            ) && network.is_some()
+                                && resources.candidate().is_some_and(|candidate| {
+                                    zero_dns::native::validate_node_config(
+                                        candidate.runtime.dns.as_ref(),
+                                    )
+                                    .is_ok()
+                                })
+                            {
+                                let dns = crate::component::native_dns::prepare(
+                                    resources,
+                                    network.clone().expect("selected native node DNS"),
+                                )?;
+                                options.bind_node_dns(dns);
+                            }
+                            Ok(crate::adapters::vmess::component::mux::Options::Ordinary(
+                                Arc::new(options),
+                            ))
+                        }
+                    },
+                )
+                .expect("unique VMess component registration");
+        }
+        if background.is_none() {
+            let native = node_network.is_some();
+            let selector = adapter.clone();
+            components.set_candidate_acceptance("vmess", move |input, config| {
+                selector.production_selected(input, config, native)
+            });
+        }
         components.set_legacy_connect_stage("vmess", crate::adapters::vmess::LEGACY_CONNECT_STAGE);
-        let adapter = Arc::new(VmessAdapter::default());
-        registry.register_managed_capability(adapter, VmessAdapter::claim_outbound_leaf_impl);
+        let inbound_adapter = adapter.clone();
+        registry
+            .inbounds
+            .register_with_resources(
+                adapter.descriptor(),
+                ::vmess::component::inbound::listener::Factory,
+                move |inbound, resources| {
+                    inbound_adapter.inbound_options(inbound, resources.source_dir())
+                },
+            )
+            .expect("unique standard VMess inbound registration");
+        registry.register_standard_protocol(adapter, Some(VmessAdapter::claim_outbound_leaf_impl));
     }
     #[cfg(feature = "mieru")]
     {
         use crate::adapters::mieru::MieruAdapter;
-        registry.register_managed_capability(
-            Arc::new(MieruAdapter::default()),
-            MieruAdapter::claim_outbound_leaf_impl,
-        );
+        let adapter = Arc::new(MieruAdapter::default());
+        registry
+            .inbounds
+            .register_with_resources(
+                adapter.descriptor(),
+                ::mieru::component::inbound::Factory,
+                |input, _| crate::adapters::mieru::inbound::options(input),
+            )
+            .expect("unique standard Mieru inbound registration");
+        if let Some(network) = background {
+            let factory = Arc::new(crate::adapters::mieru::component::Factory::new(network));
+            let component_adapter = adapter.clone();
+            components
+                .register_with_resources(
+                    ::mieru::MieruProtocol.descriptor(),
+                    ::mieru::component::StreamFactory,
+                    move |input, resources| {
+                        component_adapter.component_options(input, resources, factory.clone())
+                    },
+                )
+                .expect("unique Mieru component registration");
+        }
+        registry.register_standard_protocol(adapter, Some(MieruAdapter::claim_outbound_leaf_impl));
     }
     #[cfg(feature = "wireguard")]
     {
@@ -135,46 +405,62 @@ fn compiled_registries() -> (
         let adapter = Arc::new(WireguardAdapter::default());
         registry.register_endpoint_observer(adapter.clone());
         registry.register_endpoint_controller(adapter.clone());
-        registry.register_outbound_device_lifecycle(adapter.clone());
-        registry.register_capability(adapter, WireguardAdapter::claim_outbound_leaf_impl);
+        devices.wireguard = Some(adapter.clone());
+        let inbound_adapter = adapter.clone();
+        registry
+            .inbounds
+            .register_with_resources(
+                adapter.descriptor(),
+                crate::adapters::wireguard::inbound::cold::Factory,
+                move |input, _| Ok(inbound_adapter.inbound_options(input)?),
+            )
+            .expect("unique standard WireGuard inbound registration");
+        registry
+            .register_standard_protocol(adapter, Some(WireguardAdapter::claim_outbound_leaf_impl));
     }
     #[cfg(feature = "mixed")]
     {
         use crate::adapters::mixed::MixedAdapter;
-        registry.register_core_capability(Arc::new(MixedAdapter), None);
+        registry
+            .inbounds
+            .register(
+                MixedAdapter.descriptor(),
+                crate::adapters::mixed::inbound::Factory,
+                crate::adapters::mixed::inbound::component_options,
+            )
+            .expect("unique mixed inbound component registration");
+        registry.register_standard_protocol(Arc::new(MixedAdapter), None);
     }
     #[cfg(feature = "udp-runtime")]
     {
         use crate::adapters::direct::DirectAdapter;
         let adapter = Arc::new(DirectAdapter::default());
         #[cfg(feature = "raw-ip-runtime")]
-        registry.register_outbound_device_lifecycle(adapter.clone());
-        registry.register_capability(adapter, DirectAdapter::claim_outbound_leaf_impl);
+        {
+            devices.direct = Some(adapter.clone());
+        }
+        registry.register_standard_protocol(adapter, Some(DirectAdapter::claim_outbound_leaf_impl));
     }
     #[cfg(not(feature = "udp-runtime"))]
     {
         use crate::adapters::direct::DirectAdapter;
-        registry.register_core_capability(
+        registry.register_standard_protocol(
             Arc::new(DirectAdapter::default()),
             Some(DirectAdapter::claim_outbound_leaf_impl),
         );
     }
-    (registry, components)
+    (registry, components, Arc::new(devices))
 }
 
+#[cfg(test)]
 pub(crate) fn component_registry(
 ) -> crate::component::ComponentRegistry<zero_config::OutboundConfig> {
     compiled_registries().1
 }
 
+#[cfg(test)]
 pub(crate) fn protocol_registry() -> ProtocolRegistry {
-    let (mut registry, components) = compiled_registries();
-    // Preserve the exact factory state assembled beside the legacy adapters.
-    // Reassembling later would create another protocol pool/resource owner.
-    registry.components = Arc::new(crate::component::catalog::ComponentCatalog::with_factories(
-        components,
-    ));
-    registry
+    compiled_registries().0
 }
 
 pub(crate) fn compiled_protocol_features() -> Vec<String> {
@@ -184,39 +470,4 @@ pub(crate) fn compiled_protocol_features() -> Vec<String> {
         .into_iter()
         .map(str::to_owned)
         .collect()
-}
-
-#[cfg(feature = "udp-runtime")]
-pub(crate) fn registered_udp_handlers(registry: &ProtocolRegistry) -> RegisteredUdpHandlers {
-    #[cfg(feature = "managed-stream-runtime")]
-    let (stream_packet, relay) = registry
-        .managed_udp_handler_providers()
-        .filter_map(|capability| capability.managed_stream_udp_handlers())
-        .map(|handlers| (handlers.stream_packet, handlers.relay))
-        .unzip();
-
-    RegisteredUdpHandlers {
-        #[cfg(any(
-            feature = "managed-stream-runtime",
-            feature = "managed-datagram-runtime"
-        ))]
-        managed: ManagedUdpHandlers {
-            #[cfg(feature = "managed-datagram-runtime")]
-            datagram: registry
-                .managed_udp_handler_providers()
-                .filter_map(|capability| capability.managed_datagram_udp_handler())
-                .collect(),
-            #[cfg(feature = "managed-stream-runtime")]
-            stream_packet,
-            #[cfg(feature = "managed-stream-runtime")]
-            relay,
-        },
-        #[cfg(feature = "upstream-association-runtime")]
-        upstream: UpstreamUdpHandlers {
-            upstream: registry
-                .upstream_udp_handler_providers()
-                .map(|provider| provider.upstream_association_handler())
-                .collect(),
-        },
-    }
 }

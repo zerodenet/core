@@ -1,19 +1,7 @@
-#[cfg(all(
-    feature = "upstream-association-runtime",
-    any(
-        feature = "managed-stream-runtime",
-        feature = "managed-stream-runtime",
-        feature = "managed-stream-runtime",
-        feature = "managed-stream-runtime"
-    )
-))]
-use crate::runtime::udp_flow::managed::ManagedUdpFlowRequest;
-use crate::runtime::udp_flow::managed::ManagedUdpFlowResume;
-use crate::runtime::udp_flow::registered::upstream::UpstreamAssociationSend;
-use crate::runtime::udp_flow::result::FlowFailure;
-
 use super::super::model::RegisteredUdpState;
-
+use crate::runtime::udp_flow::{
+    registered::upstream::UpstreamAssociationSend, result::FlowFailure,
+};
 impl RegisteredUdpState {
     pub(crate) async fn start_upstream_udp_flow(
         &mut self,
@@ -23,29 +11,5 @@ impl RegisteredUdpState {
         self.upstream
             .start_upstream_flow(inbound_tag, request)
             .await
-    }
-
-    pub(crate) fn handles_upstream_resume(&self, resume: &ManagedUdpFlowResume) -> bool {
-        self.upstream.handles_resume(resume)
-    }
-}
-
-#[cfg(all(
-    feature = "upstream-association-runtime",
-    any(
-        feature = "managed-stream-runtime",
-        feature = "managed-stream-runtime",
-        feature = "managed-stream-runtime",
-        feature = "managed-stream-runtime"
-    )
-))]
-pub(super) fn upstream_send(request: ManagedUdpFlowRequest<'_>) -> UpstreamAssociationSend<'_> {
-    UpstreamAssociationSend {
-        services: request.services,
-        session: request.session,
-        server: request.server,
-        port: request.port,
-        resume: request.resume,
-        payload: request.payload,
     }
 }

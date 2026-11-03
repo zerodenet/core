@@ -43,8 +43,9 @@
       "id": "02",
       "title": "设计依据与当前问题",
       "file": "architecture.md",
-      "characters": 2117,
-      "sha256": "9667d3ef7244a67be2ae8a579381a105e3dacca54e08149645567f39a16d4c0c"
+      "characters": 2191,
+      "sha256": "f3d7e6eaf9cb5fb590093aa2a74fb8f4c46ac65465d8875dd8839b6b5cc954b7",
+      "pre_cloud_handoff_sha256": "9667d3ef7244a67be2ae8a579381a105e3dacca54e08149645567f39a16d4c0c"
     },
     {
       "id": "03",
@@ -99,8 +100,9 @@
       "id": "10",
       "title": "生命周期配置事务与所有权",
       "file": "lifecycle.md",
-      "characters": 7314,
-      "sha256": "4fc4ee223e005210648ce33a02b34c823f0fcc37ac0ecc0bb994e1e66180bcb4"
+      "characters": 8364,
+      "sha256": "66ef679bd28b3188b496c4b050d4c379050f5c64a6c4951400127c84791b964f",
+      "pre_cloud_handoff_sha256": "4fc4ee223e005210648ce33a02b34c823f0fcc37ac0ecc0bb994e1e66180bcb4"
     },
     {
       "id": "11",
@@ -113,8 +115,9 @@
       "id": "12",
       "title": "公共 Rust 契约详细规格",
       "file": "rust-contracts.md",
-      "characters": 10297,
-      "sha256": "a35275cab8d95d582cac0ac2b53e66ba5971b608668cb4ac6fcdadd1603674a4"
+      "characters": 14617,
+      "sha256": "91a7e6d98a1d097d267959a85ab1c5996b5dd06394920c2d208d1afcc38dbe21",
+      "pre_cloud_handoff_sha256": "a35275cab8d95d582cac0ac2b53e66ba5971b608668cb4ac6fcdadd1603674a4"
     },
     {
       "id": "13",
@@ -148,9 +151,10 @@
       "id": "17",
       "title": "现有代码分阶段迁移",
       "file": "migration.md",
-      "characters": 7169,
-      "sha256": "0a3aef48c6865dac519106841a6e6be52b77e7e4dac08ecef74b29aec3996be9",
-      "pr00_snapshot_sha256": "7433ee7c0b263588ca4fe9106b0f7f27c5abebaa991af3a5ff4d801458870452"
+      "characters": 7317,
+      "sha256": "cf4b3738fcedcca217652fdaf3c94401542ef4871eb12971bad692fb93d8ec96",
+      "pr00_snapshot_sha256": "7433ee7c0b263588ca4fe9106b0f7f27c5abebaa991af3a5ff4d801458870452",
+      "pre_cloud_handoff_sha256": "0a3aef48c6865dac519106841a6e6be52b77e7e4dac08ecef74b29aec3996be9"
     },
     {
       "id": "18",
@@ -201,8 +205,9 @@
       "id": "24",
       "title": "源码与规范索引",
       "file": "references.md",
-      "characters": 2301,
-      "sha256": "fe8aeeba1bb3e31de45997659e6be68d7d77d0f8754465dfdca14c46871b6d66"
+      "characters": 2375,
+      "sha256": "1e9c98bde124c69741060644351aecb9cd4291efe0aa515dadaff0601a1a825a",
+      "pre_cloud_handoff_sha256": "fe8aeeba1bb3e31de45997659e6be68d7d77d0f8754465dfdca14c46871b6d66"
     }
   ],
   "review_units": [
@@ -274,6 +279,22 @@
         "sha256": "a35275cab8d95d582cac0ac2b53e66ba5971b608668cb4ac6fcdadd1603674a4"
       },
       "technical_contracts": "Suspended component scopes reject task registration until their installed owner enters start; include NotStarted and checked identity exhaustion. Ordinary TaskScope direct registration semantics remain unchanged."
+    }
+  ],
+  "supplements": [
+    {
+      "date": "2026-11-03",
+      "scope": "Cloud handoff split replaces historical single-PR delivery only; technical goals unchanged",
+      "entry": "cloud/README.md",
+      "historical_link_revision": "Missing or out-of-range historical source links now point to verified immutable design-observation blobs.",
+      "updated_sections": [
+        "02",
+        "10",
+        "17",
+        "24",
+        "12"
+      ],
+      "source_hash_note": "Sections 10 and 12 already contained user-approved temporary lifecycle and standard Datagram/accepted ownership additions before this handoff; reconcile their recorded current hashes without altering those bodies. Sections 02/17/24 only change stale historical source links. Original source page and earlier snapshot hashes retained."
     }
   ]
 }

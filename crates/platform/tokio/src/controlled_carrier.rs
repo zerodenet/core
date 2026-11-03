@@ -1,4 +1,4 @@
-//! Library-only controlled physical TCP carriers. No production grants/defaults.
+//! Original ownership of controlled stream and datagram carriers.
 //! One persistent caller owner holds every original control before connect await;
 //! the admitted protocol driver is joined before native close releases capacity.
 mod adoption;
@@ -7,11 +7,15 @@ mod binding;
 mod business;
 mod endpoints;
 mod grant;
+pub mod loan;
 mod native;
 mod native_settlement;
+mod origin;
 mod owner;
+mod packet;
 mod prepared;
 mod registration;
+mod resolution;
 mod service;
 mod slot;
 mod users;
@@ -24,12 +28,15 @@ pub use endpoints::{CarrierEndpointObserver, CarrierEndpoints};
 pub use grant::{CarrierGrant, CarrierGrants};
 pub use native::NativeCarrierOpener;
 pub use native_settlement::CarrierNativeSettlement;
+pub use origin::{CarrierOrigin, CarrierOriginClosed};
 pub use owner::CarrierOwner;
-pub use prepared::{ControlledCarrier, PreparedCarrier};
+pub use packet::CarrierDatagram;
+pub use prepared::{CarrierStreamPreparation, ControlledCarrier, PreparedCarrier};
 pub use registration::{
-    CarrierNativeCloseObservation, CarrierOwnerClosed, CarrierOwnerObservation,
-    CarrierOwnerRegistration, CarrierSlotObservation,
+    CarrierNativeCloseObservation, CarrierOriginObservation, CarrierOwnerClosed,
+    CarrierOwnerObservation, CarrierOwnerRegistration, CarrierSlotObservation,
 };
+pub use resolution::{CarrierCandidates, ResolvingCarrierOpener};
 pub use service::{CarrierServiceGrant, CarrierServiceIssuer};
 use std::sync::Arc;
 pub use users::{CarrierOwnerUsersClosed, CarrierUserView, CarrierUsersClosed};

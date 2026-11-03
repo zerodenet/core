@@ -20,7 +20,7 @@ impl<'a> TcpPipe<'a> {
 /// Input for one TCP connection dispatch.
 pub(crate) struct TcpPipeInput<'a> {
     pub(crate) session: &'a mut Session,
-    pub(crate) admitted: Option<crate::component::business_demand::AdmittedTcpDemand>,
+    pub(crate) admitted: Option<crate::component::business_demand::AdmittedBusinessDemand>,
 }
 
 impl KernelPipe for TcpPipe<'_> {

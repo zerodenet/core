@@ -6,6 +6,11 @@ pub struct BidiStream {
     recv: RecvStream,
 }
 impl BidiStream {
+    pub fn with_prefix(send: OwnedSendStream, recv: OwnedRecvStream, prefix: Bytes) -> Self {
+        let mut pair = Self::new(send, recv);
+        pair.recv.prefix = Some(prefix);
+        pair
+    }
     pub(super) fn new(send: OwnedSendStream, recv: OwnedRecvStream) -> Self {
         Self {
             send: send.into_h3(),

@@ -5,14 +5,13 @@ use zero_api::EndpointGetQuery;
 use zero_config::{RuntimeConfig, UdpReceiveQueueConfig};
 
 async fn publish(proxy: &Proxy, config: &RuntimeConfig) {
-    for prepared in proxy
+    proxy
         .protocols
-        .prepare_outbound_devices(config, proxy.tcp_runtime_services())
+        .prepare_devices(config, proxy.tcp_runtime_services())
         .await
         .unwrap()
-    {
-        prepared.publish().await;
-    }
+        .publish()
+        .await;
 }
 fn incarnations(proxy: &Proxy, config: &RuntimeConfig) -> Vec<u64> {
     let binding = config.endpoint_bindings().remove(0);
@@ -29,7 +28,8 @@ fn incarnations(proxy: &Proxy, config: &RuntimeConfig) -> Vec<u64> {
         .incarnations
 }
 #[tokio::test]
-async fn unchanged_queue_policy_reuses_linked_devices_and_aborted_policy_change_preserves_them() {
+async fn unchanged_queue_policy_reuses_devices_and_failed_candidate_restores_after_confirmed_cleanup(
+) {
     let config = RuntimeConfig::parse(
         &serde_json::json!({
             "endpoints":[{"tag":"test","directions":{"inbound":true,"outbound":true},
@@ -57,11 +57,20 @@ async fn unchanged_queue_policy_reuses_linked_devices_and_aborted_policy_change_
     };
     let staged = proxy
         .protocols
-        .prepare_outbound_devices(&changed, proxy.tcp_runtime_services())
+        .prepare_devices(&changed, proxy.tcp_runtime_services())
         .await
         .unwrap();
     drop(staged); // Equivalent to a later stage failing before publication.
-    assert_eq!(incarnations(&proxy, &config), initial);
+    assert!(
+        incarnations(&proxy, &config).is_empty(),
+        "retired originals cannot remain routable during rollback"
+    );
+    publish(&proxy, &config).await;
+    assert_ne!(
+        incarnations(&proxy, &config),
+        initial,
+        "rollback reconstructs only after discarded candidate cleanup"
+    );
     publish(&proxy, &changed).await;
     let replaced = incarnations(&proxy, &changed);
     assert_ne!(
@@ -70,7 +79,5 @@ async fn unchanged_queue_policy_reuses_linked_devices_and_aborted_policy_change_
     );
     publish(&proxy, &changed).await;
     assert_eq!(incarnations(&proxy, &changed), replaced);
-    for done in proxy.protocols.shutdown_outbound_devices() {
-        done.await;
-    }
+    proxy.protocols.close_devices().await.unwrap();
 }

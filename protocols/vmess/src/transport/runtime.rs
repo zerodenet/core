@@ -5,14 +5,34 @@ use zero_core::Error;
 
 use super::VmessInboundUserRef;
 
+type GrpcDatagramStates =
+    HashMap<Arc<[u8]>, std::sync::Weak<crate::component::grpc::registry::State>>;
+
 #[derive(Debug, Clone, Default)]
 pub struct VmessTransportRuntime {
     grpc_carriers: Arc<crate::component::grpc::registry::State>,
+    grpc_datagrams: Arc<Mutex<GrpcDatagramStates>>,
     mux_pool: crate::mux::VmessMuxConnectionPool,
     inbound_profiles: Arc<Mutex<HashMap<String, crate::inbound::VmessInboundProfile>>>,
 }
 
 impl VmessTransportRuntime {
+    pub(crate) fn grpc_datagram_state(
+        &self,
+        identity: Arc<[u8]>,
+        candidate: Arc<crate::component::grpc::registry::State>,
+    ) -> Result<Arc<crate::component::grpc::registry::State>, Error> {
+        let mut states = self.grpc_datagrams.lock().unwrap();
+        states.retain(|_, state| state.strong_count() != 0);
+        if let Some(actual) = states.get(&identity).and_then(std::sync::Weak::upgrade) {
+            if !actual.same_recipe(&candidate) {
+                return Err(Error::Config("conflicting complete VMess Datagram recipe"));
+            }
+            return Ok(actual);
+        }
+        states.insert(identity, Arc::downgrade(&candidate));
+        Ok(candidate)
+    }
     pub(crate) fn grpc_carrier_state(&self) -> Arc<crate::component::grpc::registry::State> {
         self.grpc_carriers.clone()
     }

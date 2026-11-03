@@ -6,18 +6,28 @@ use std::{fmt, sync::Weak};
 /// There is no public constructor, strong upgrade or conversion from identity
 /// metadata. This does not own tasks or consume their exits.
 #[derive(Clone)]
-pub struct WeakTaskRegistrar(Weak<Shared>);
+pub struct WeakTaskRegistrar(Weak<Shared>, bool);
 impl fmt::Debug for WeakTaskRegistrar {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("WeakTaskRegistrar").finish_non_exhaustive()
     }
 }
 impl TaskRegistrar {
+    /// Same actual Scope/identity, with task creation irrevocably denied on
+    /// this view and its clones. A taskless factory cannot borrow host credit.
+    pub fn without_tasks(&self) -> Self {
+        Self(self.0.clone(), true)
+    }
     pub fn downgrade(&self) -> WeakTaskRegistrar {
-        WeakTaskRegistrar(Arc::downgrade(&self.0))
+        WeakTaskRegistrar(Arc::downgrade(&self.0), self.1)
     }
 }
 impl WeakTaskRegistrar {
+    /// Actual registration authority, including a permanently taskless view.
+    pub fn registration_open(&self) -> bool {
+        !self.1 && self.scope_identity().registration_open()
+    }
+
     /// Observe the original Scope's cancellation with the same one-way child
     /// semantics as TaskRegistrar::cancellation. Cancelling this returned token
     /// cannot cancel the Scope or its other children. An expired owner returns
@@ -27,7 +37,7 @@ impl WeakTaskRegistrar {
     /// Scope upgrade is released before returning and may be its last owner.
     pub fn cancellation(&self) -> Option<CancellationToken> {
         let owner = self.0.upgrade()?;
-        let token = TaskRegistrar(owner).cancellation();
+        let token = TaskRegistrar(owner, self.1).cancellation();
         Some(token)
     }
 
@@ -60,7 +70,7 @@ impl WeakTaskRegistrar {
         task: impl Future<Output = Result<(), ComponentError>> + Send + 'static,
     ) -> Result<TaskId, SpawnError> {
         let owner = self.0.upgrade().ok_or(SpawnError::Closing)?;
-        TaskRegistrar(owner).spawn(class, task)
+        TaskRegistrar(owner, self.1).spawn(class, task)
     }
     /// Original ID allocator, admission, finite budget and tracked-error Arc.
     /// An expired original owner rejects registration; it never creates a new
@@ -71,7 +81,7 @@ impl WeakTaskRegistrar {
         task: impl Future<Output = Result<(), ComponentError>> + Send + 'static,
     ) -> Result<(TaskId, TaskJoinWitness), SpawnError> {
         let owner = self.0.upgrade().ok_or(SpawnError::Closing)?;
-        TaskRegistrar(owner).spawn_tracked(class, task)
+        TaskRegistrar(owner, self.1).spawn_tracked(class, task)
     }
 }
 

@@ -62,7 +62,7 @@ impl CurrentServiceSource {
         self.egress_interface.generation()
     }
 
-    pub(super) fn runtime_services(self: &Arc<Self>) -> io::Result<TcpRuntimeServices> {
+    pub(crate) fn runtime_services(self: &Arc<Self>) -> io::Result<TcpRuntimeServices> {
         let resolver = self
             .resolver
             .upgrade()

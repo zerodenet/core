@@ -27,6 +27,8 @@ pub(super) use pending_bound::pending_preparation_stopped;
 pub(super) use readiness::readiness_stopped;
 pub(crate) use readiness::InboundReady;
 mod accepted;
+#[cfg(feature = "managed-datagram-runtime")]
+mod continuity;
 mod driver;
 mod shutdown;
 mod terminal;
@@ -41,8 +43,16 @@ struct Resource {
     exit_fault: OnceLock<SharedError>,
 }
 pub(crate) struct InboundOwner {
-    identity: ComponentInstanceId,
     #[cfg(feature = "raw-ip-runtime")]
+    pub(super) packet_source:
+        Arc<Mutex<Option<crate::runtime::inbound_operation::raw_ip::PacketSourceContext>>>,
+    pub(super) inbound_resources: Mutex<
+        Option<std::sync::Weak<dyn zero_platform_tokio::contract::component::ResourceAccess>>,
+    >,
+    #[cfg(feature = "managed-datagram-runtime")]
+    continuity: Mutex<Option<Arc<crate::runtime::route_runtime::DatagramContinuityHost>>>,
+    identity: ComponentInstanceId,
+    #[cfg(feature = "managed-datagram-runtime")]
     scope_task_limit: NonZeroUsize,
     #[cfg(feature = "raw-ip-runtime")]
     pub(super) icmp_probe: OnceLock<crate::component::instance::HostIcmpProbeGrant>,
@@ -54,7 +64,7 @@ pub(crate) struct InboundOwner {
     resources: Mutex<Vec<Arc<Resource>>>,
     report: Mutex<CloseReport>,
     failure: Mutex<Option<SharedError>>,
-    accepted_receiver: OnceLock<zero_platform_tokio::AcceptedTcpTaskReceiver>,
+    accepted_receiver: Mutex<Vec<zero_platform_tokio::AcceptedTcpTaskReceiver>>,
     client_failure: OnceLock<zero_platform_tokio::contract::scope::TaskJoined>,
     driver: OnceLock<TaskId>,
     driver_finished: AtomicBool,
@@ -76,10 +86,33 @@ pub(crate) struct InboundTaskAccess {
     #[cfg(feature = "managed-datagram-runtime")]
     pub(super) identity: ComponentInstanceId,
     registrar: TaskRegistrar,
+    #[cfg(feature = "raw-ip-runtime")]
+    packet_source: std::sync::Weak<
+        Mutex<Option<crate::runtime::inbound_operation::raw_ip::PacketSourceContext>>,
+    >,
     cancel: CancellationToken,
     shutdown: watch::Sender<bool>,
 }
 impl InboundTaskAccess {
+    #[cfg(feature = "raw-ip-runtime")]
+    pub(in crate::runtime) fn has_packet_source(&self) -> bool {
+        self.packet_source
+            .upgrade()
+            .is_some_and(|source| source.lock().unwrap().is_some())
+    }
+    #[cfg(feature = "raw-ip-runtime")]
+    pub(in crate::runtime) fn packet_source(
+        &self,
+    ) -> Option<crate::runtime::inbound_operation::raw_ip::PacketSourceContext> {
+        self.packet_source.upgrade()?.lock().unwrap().take()
+    }
+
+    #[cfg(feature = "managed-datagram-runtime")]
+    pub(in crate::runtime) fn peer_registrar(
+        &self,
+    ) -> zero_platform_tokio::contract::scope::WeakTaskRegistrar {
+        self.registrar.downgrade()
+    }
     pub(crate) fn request_stop(&self) {
         self.cancel.cancel();
         self.shutdown.send_replace(true);
@@ -133,8 +166,13 @@ impl InboundOwner {
         let scope = TaskScope::suspended(tokio::runtime::Handle::current(), Some(limit));
         let registrar = scope.registrar();
         Self {
-            identity,
+            inbound_resources: Mutex::new(None),
             #[cfg(feature = "raw-ip-runtime")]
+            packet_source: Arc::new(Mutex::new(None)),
+            #[cfg(feature = "managed-datagram-runtime")]
+            continuity: Mutex::new(None),
+            identity,
+            #[cfg(feature = "managed-datagram-runtime")]
             scope_task_limit: limit,
             recovery: OnceLock::new(),
             #[cfg(feature = "raw-ip-runtime")]
@@ -146,7 +184,7 @@ impl InboundOwner {
             resources: Mutex::new(Vec::new()),
             report: Mutex::new(CloseReport::default()),
             failure: Mutex::new(None),
-            accepted_receiver: OnceLock::new(),
+            accepted_receiver: Mutex::new(Vec::new()),
             client_failure: OnceLock::new(),
             driver: OnceLock::new(),
             driver_finished: AtomicBool::new(false),
@@ -222,6 +260,8 @@ impl InboundOwner {
             #[cfg(feature = "managed-datagram-runtime")]
             identity: self.identity,
             registrar: self.registrar.clone(),
+            #[cfg(feature = "raw-ip-runtime")]
+            packet_source: Arc::downgrade(&self.packet_source),
             cancel: self.cancel.clone(),
             shutdown: self.shutdown.clone(),
         }
@@ -244,7 +284,7 @@ impl InboundOwner {
         peers.push(group.clone());
         group
     }
-    #[cfg(feature = "raw-ip-runtime")]
+    #[cfg(feature = "managed-datagram-runtime")]
     pub(super) fn install_child_group(
         &self,
         protocols: ProtocolInventory,

@@ -96,3 +96,41 @@ async fn a_self_connected_tcp_probe_cannot_confirm_plugin_readiness() {
         "self connection reported a failed, non-listening child as ready"
     );
 }
+
+#[tokio::test]
+async fn actual_child_exit_interrupts_a_pending_tcp_probe_and_is_reaped() {
+    use crate::transport::plugin::fixtures::PendingProbe;
+    use tokio::io::AsyncWriteExt;
+    let mut child = tokio::process::Command::new("sh")
+        .args(["-c", "read line; exit 7"])
+        .stdin(std::process::Stdio::piped())
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .kill_on_drop(true)
+        .spawn()
+        .unwrap();
+    let mut input = child.stdin.take().unwrap();
+    let pending = PendingProbe::default();
+    let mut probe = pending.probe();
+    let endpoint = "127.0.0.1:0".parse().unwrap();
+    let mut readiness = Box::pin(ready_with_probe(
+        || child.try_wait(),
+        endpoint,
+        true,
+        || probe(endpoint),
+    ));
+    tokio::select! {
+        _ = pending.entered() => {},
+        result = &mut readiness => panic!("actual connect probe must still be pending: {result:?}"),
+    }
+    input.write_all(b"exit\n").await.unwrap();
+    let error = tokio::time::timeout(Duration::from_secs(3), &mut readiness)
+        .await
+        .unwrap()
+        .unwrap_err();
+    assert!(error.to_string().contains("exited during startup"));
+    drop(readiness);
+    let status = child.wait().await.unwrap();
+    assert_eq!(status.code(), Some(7));
+    assert_eq!(child.id(), None, "the actual retained child was reaped");
+}

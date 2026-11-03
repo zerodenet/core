@@ -1,23 +1,18 @@
 use ::shadowsocks::transport::{
-    ShadowsocksInboundBindings, ShadowsocksInboundOptionsRef, ShadowsocksInboundUserRef,
-    ShadowsocksOutboundOptionsRef, ShadowsocksTransportLeaf,
+    ShadowsocksInboundUserRef, ShadowsocksOutboundOptionsRef, ShadowsocksTransportLeaf,
 };
 #[cfg(feature = "shadowsocks")]
 use ::shadowsocks::ShadowsocksInboundProfileStore;
 use zero_config::{InboundConfig, InboundProtocolConfig, OutboundProtocolConfig};
-use zero_engine::EngineError;
 use zero_traits::{ProtocolCapabilityDescriptor, ProtocolMetadata};
 
 use crate::adapters::identity::NamedProtocolAdapter;
-use crate::protocol_registry::{
-    InboundListenerCapability, ManagedUdpHandlerProvider, OutboundLeafClaim, OutboundLeafInput,
-    TcpOutboundCapability, UdpFlowCapability, UdpPacketPathCapability,
-};
+use crate::protocol_registry::{OutboundLeafClaim, OutboundLeafInput};
 use crate::runtime::path::TcpPathCategory;
-use crate::runtime::udp_flow::managed::ManagedDatagramFlowHandler;
 
+pub(crate) mod component;
 #[cfg(feature = "shadowsocks")]
-mod inbound;
+mod inbound_component;
 #[cfg(feature = "shadowsocks")]
 mod tcp;
 #[cfg(feature = "shadowsocks")]
@@ -138,96 +133,23 @@ impl ShadowsocksAdapter {
             return None;
         };
         let leaf = transport_leaf(&self.outbound_state, outbound.tag(), &outbound.protocol)?;
-        let tcp = self.claim_tcp_outbound_leaf_impl(leaf.clone());
+        let tcp = std::sync::Arc::new(
+            crate::runtime::tcp_dispatch::operation::SocketTcpOperation {
+                handshake: leaf.clone(),
+            },
+        );
         Some(OutboundLeafClaim {
             tcp_path: TcpPathCategory::Session,
-            tcp: Some(tcp),
-            udp: Some(self.claim_udp_flow_leaf_impl(leaf.clone())),
+            tcp: Some(Ok(tcp.clone())),
+            tcp_relay: Some(Ok(tcp)),
+            udp: Some(self.udp_flow_operation(leaf.clone())),
+            udp_relay: None,
             #[cfg(feature = "raw-ip-runtime")]
             packet: None,
-            packet_path: self.claim_udp_packet_path_leaf_impl(leaf),
+            packet_path: self.udp_packet_path_operation(leaf),
         })
     }
 }
-
-#[cfg(feature = "shadowsocks")]
-impl UdpPacketPathCapability for ShadowsocksAdapter {}
-
-#[cfg(feature = "shadowsocks")]
-impl UdpFlowCapability for ShadowsocksAdapter {}
-
-#[cfg(feature = "shadowsocks")]
-impl ManagedUdpHandlerProvider for ShadowsocksAdapter {
-    fn managed_datagram_udp_handler(&self) -> Option<Box<dyn ManagedDatagramFlowHandler>> {
-        Some(udp::managed_datagram_handler())
-    }
-}
-
-#[cfg(feature = "shadowsocks")]
-impl InboundListenerCapability for ShadowsocksAdapter {
-    fn prepare_inbound_listener(
-        &self,
-        inbound: InboundConfig,
-        _source_dir: Option<&std::path::Path>,
-    ) -> Result<
-        Box<dyn crate::runtime::inbound_operation::PreparedInboundListenerOperation>,
-        EngineError,
-    > {
-        let bindings = match &inbound.protocol {
-            InboundProtocolConfig::Shadowsocks {
-                password,
-                identity_password,
-                users,
-                cipher,
-                replay_attack,
-                plugin,
-                state_limits,
-                ..
-            } => {
-                let users = inbound_user_refs(cipher, password, users);
-                let profile = self
-                    .inbound_profiles
-                    .replace_with_identity(
-                        &inbound.tag,
-                        cipher,
-                        identity_password.as_deref(),
-                        &users,
-                    )
-                    .map_err(|error| {
-                        EngineError::Io(std::io::Error::new(
-                            std::io::ErrorKind::InvalidInput,
-                            error.to_string(),
-                        ))
-                    })?;
-                ShadowsocksInboundBindings::from_options_refs(ShadowsocksInboundOptionsRef {
-                    cipher,
-                    identity_password: identity_password.as_deref(),
-                    users: users.iter().copied(),
-                })?
-                .with_profile(
-                    profile
-                        .with_replay_policy(*replay_attack)
-                        .with_state_limits(*state_limits),
-                )
-                .with_plugin(plugin.clone())
-            }
-            _ => {
-                return Err(EngineError::Io(std::io::Error::new(
-                    std::io::ErrorKind::InvalidInput,
-                    "shadowsocks inbound listener received non-shadowsocks inbound config",
-                )));
-            }
-        };
-        Ok(inbound::prepare(
-            inbound.listen.address,
-            inbound.listen.port,
-            bindings,
-        ))
-    }
-}
-
-#[cfg(feature = "shadowsocks")]
-impl TcpOutboundCapability for ShadowsocksAdapter {}
 
 #[cfg(feature = "shadowsocks")]
 impl ProtocolMetadata for ShadowsocksAdapter {

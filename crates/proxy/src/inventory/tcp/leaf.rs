@@ -31,7 +31,13 @@ pub(crate) struct PreparedTcpRelayHop {
     pub(crate) protocol: String,
     pub(crate) server: String,
     pub(crate) port: u16,
-    pub(crate) operation: std::sync::Arc<dyn PreparedTcpRelayOperation>,
+    pub(crate) execution: PreparedTcpRelayExecution,
+}
+
+#[derive(Clone)]
+pub(crate) enum PreparedTcpRelayExecution {
+    Native(super::native::StreamRoleRef),
+    Legacy(std::sync::Arc<dyn PreparedTcpRelayOperation>),
 }
 
 impl PreparedTcpRelayHop {
@@ -44,7 +50,7 @@ impl PreparedTcpRelayHop {
 impl ProtocolInventory {
     pub(in crate::inventory) fn prepare_claimed_tcp_candidate<'a>(
         &self,
-        ctx: OutboundAdapterContext,
+        _ctx: OutboundAdapterContext,
         claimed: &ClaimedInventoryLeaf<'a>,
         mode: RouteMode,
     ) -> Result<PreparedTcpCandidate, TcpOutboundFailure> {
@@ -55,8 +61,8 @@ impl ProtocolInventory {
                 tag: runtime.kernel_tag.unwrap_or_else(|| "block".to_owned()),
             }
         } else {
-            let operation = claimed.prepare_tcp_connect_for_route(ctx.source_dir(), mode)?;
-            PreparedTcpCandidateExecution::Connect(operation.into())
+            let operation = claimed.tcp_connect_for_route(mode)?;
+            PreparedTcpCandidateExecution::Connect(operation)
         };
         Ok(PreparedTcpCandidate {
             health_tag,
@@ -71,17 +77,17 @@ impl ProtocolInventory {
 
     pub(in crate::inventory) fn prepare_claimed_tcp_relay_hop<'a>(
         &self,
-        ctx: OutboundAdapterContext,
+        _ctx: OutboundAdapterContext,
         claimed: &ClaimedInventoryLeaf<'a>,
     ) -> Result<PreparedTcpRelayHop, EngineError> {
-        let (server, port, operation) = claimed.prepare_tcp_relay_hop(ctx.source_dir())?;
+        let (server, port, operation) = claimed.tcp_relay_hop()?;
         let runtime = claimed.runtime();
         Ok(PreparedTcpRelayHop {
             tag: runtime.tag.unwrap_or_else(|| "unknown".to_owned()),
             protocol: runtime.protocol,
             server,
             port,
-            operation: operation.into(),
+            execution: PreparedTcpRelayExecution::Legacy(operation),
         })
     }
 }

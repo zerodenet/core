@@ -1,9 +1,9 @@
 //! WireGuard adapter: config projection and explicit outbound capabilities.
 
 mod controlled_bind;
-mod inbound;
+pub(crate) mod inbound;
 mod inbound_state;
-mod lifecycle;
+pub(crate) mod lifecycle;
 mod observation;
 mod packet;
 mod udp;
@@ -24,10 +24,7 @@ use zero_traits::{
 };
 
 use crate::adapters::identity::NamedProtocolAdapter;
-use crate::protocol_registry::{
-    InboundListenerCapability, OutboundLeafClaim, OutboundLeafInput, TcpOutboundCapability,
-    UdpFlowCapability, UdpPacketPathCapability,
-};
+use crate::protocol_registry::{OutboundLeafClaim, OutboundLeafInput};
 use crate::runtime::path::TcpPathCategory;
 use crate::runtime::raw_ip::RawIpDevicePool;
 
@@ -48,6 +45,7 @@ pub(crate) struct WireguardAdapter {
 }
 
 struct CachedProfile {
+    packet: crate::runtime::packet_route::PacketRouteOperations,
     identity: [u8; 32],
     device_identity: [u8; 32],
     plan: Arc<udp::WireguardRawIpPlan>,
@@ -63,6 +61,37 @@ impl NamedProtocolAdapter for WireguardAdapter {
 }
 
 impl WireguardAdapter {
+    pub(crate) fn inbound_options(
+        &self,
+        inbound: &InboundConfig,
+    ) -> Result<inbound::cold::Options, zero_platform_tokio::contract::ChannelError> {
+        let prepare = || -> Result<_, EngineError> {
+            controlled_bind::destination(inbound)?;
+            let linked = self.linked_endpoint(&inbound.tag, &inbound.listen);
+            let binding = match linked {
+                Some(linked) => inbound::cold::Binding::Ready(linked),
+                None => self
+                    .pending_linked_endpoint(&inbound.tag, &inbound.listen)
+                    .map(inbound::cold::Binding::Pending)
+                    .unwrap_or(inbound::cold::Binding::Standalone),
+            };
+            inbound::cold::Options::new(
+                inbound,
+                self.passive_inbound_live(inbound)?,
+                binding,
+                self.pending_endpoints.clone(),
+            )
+        };
+        prepare().map_err(|source| {
+            zero_platform_tokio::contract::ChannelError::new(
+                zero_platform_tokio::contract::Stage::Prepare,
+                zero_platform_tokio::contract::Reason::InvalidConfig,
+                zero_platform_tokio::contract::Impact::Component,
+            )
+            .with_source(source)
+        })
+    }
+
     fn linked_endpoint(
         &self,
         tag: &str,
@@ -113,10 +142,7 @@ impl WireguardAdapter {
         &self,
         inbound: InboundConfig,
         linked: Option<Arc<inbound::LinkedEndpoint>>,
-    ) -> Result<
-        Box<dyn crate::runtime::inbound_operation::PreparedInboundListenerOperation>,
-        EngineError,
-    > {
+    ) -> Result<crate::protocol_registry::PreparedInboundBind, EngineError> {
         let binding = match linked {
             Some(linked) => inbound::cold::Binding::Ready(linked),
             None => self
@@ -135,12 +161,12 @@ impl WireguardAdapter {
                 "WireGuard cold linked dependency has another private identity owner",
             ));
         }
-        Ok(Box::new(inbound::cold::ColdListener::new(
+        controlled_bind::cold_bind(inbound::cold::Options::new(
             &inbound,
             live,
             binding,
             self.pending_endpoints.clone(),
-        )?))
+        )?)
     }
 
     pub(crate) fn claim_outbound_leaf_impl<'a>(
@@ -154,38 +180,28 @@ impl WireguardAdapter {
             return None;
         }
         let identity = protocol_identity(&outbound.protocol)?;
-        let cached = {
-            let profiles = self
-                .profiles
-                .lock()
-                .unwrap_or_else(|error| error.into_inner());
-            profiles
-                .get(&outbound.tag)
-                .filter(|cached| cached.identity == identity)
-                .map(|cached| (cached.plan.clone(), cached.device_identity))
+        let packet = self
+            .profiles
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .get(&outbound.tag)
+            .filter(|cached| cached.identity == identity)
+            .map(|cached| cached.packet.clone());
+        let packet = match packet {
+            Some(packet) => packet,
+            None => {
+                let plan =
+                    Arc::new(udp::WireguardRawIpPlan::from_protocol(&outbound.protocol).ok()?);
+                self.packet_operations(&outbound.tag, identity, plan)
+            }
         };
-        let plan = cached.as_ref().map(|(plan, _)| plan.clone()).or_else(|| {
-            udp::WireguardRawIpPlan::from_protocol(&outbound.protocol)
-                .ok()
-                .map(Arc::new)
-        })?;
-        let device_identity = cached.map_or(identity, |(_, device_identity)| device_identity);
         Some(OutboundLeafClaim {
             tcp_path: TcpPathCategory::Session,
             tcp: None,
+            tcp_relay: None,
             udp: None,
-            packet: Some(Box::new(packet::WireguardPacketLeaf {
-                tag: outbound.tag.clone(),
-                flow: crate::runtime::raw_ip::RawIpFlowSource::adapter(
-                    outbound.tag.clone(),
-                    device_identity,
-                    plan.clone(),
-                    self.pool.clone(),
-                ),
-                plan,
-                identity: device_identity,
-                pool: self.pool.clone(),
-            })),
+            udp_relay: None,
+            packet: Some(packet),
             packet_path: None,
         })
     }
@@ -223,13 +239,8 @@ fn invalid(message: &'static str) -> EngineError {
     ))
 }
 
-impl TcpOutboundCapability for WireguardAdapter {}
-impl UdpFlowCapability for WireguardAdapter {}
-impl UdpPacketPathCapability for WireguardAdapter {}
-
-#[async_trait::async_trait]
-impl InboundListenerCapability for WireguardAdapter {
-    fn inbound_listener_requires_restart(&self, inbound: &InboundConfig) -> bool {
+impl WireguardAdapter {
+    pub(crate) fn inbound_listener_requires_restart(&self, inbound: &InboundConfig) -> bool {
         let pending = self
             .pending_endpoints
             .lock()
@@ -250,7 +261,7 @@ impl InboundListenerCapability for WireguardAdapter {
         }
     }
 
-    fn update_inbound_listener(
+    pub(crate) fn update_inbound_listener(
         &self,
         inbound: InboundConfig,
         _source_dir: Option<&std::path::Path>,
@@ -284,53 +295,16 @@ impl InboundListenerCapability for WireguardAdapter {
         Ok(true)
     }
 
-    async fn bind_inbound(
-        &self,
-        inbound: &InboundConfig,
-        _source_dir: Option<&std::path::Path>,
-    ) -> Result<crate::protocol_registry::BoundInbound, EngineError> {
-        let socket = crate::protocol_registry::bind_datagram_listener(
-            &inbound.listen.address,
-            inbound.listen.port,
-        )
-        .await
-        .map_err(EngineError::Io)?;
-        Ok(crate::protocol_registry::BoundInbound::Datagram(
-            std::sync::Arc::new(socket).into(),
-        ))
-    }
-
-    fn prepare_inbound_bind(
+    pub(crate) fn prepare_inbound_bind(
         &self,
         inbound: InboundConfig,
-        source_dir: Option<&std::path::Path>,
+        _source_dir: Option<&std::path::Path>,
     ) -> Result<Option<crate::protocol_registry::PreparedInboundBind>, EngineError> {
-        let operation = self.prepare_inbound_listener(inbound.clone(), source_dir)?;
-        controlled_bind::cold_bind(&inbound, operation).map(Some)
-    }
-
-    fn prepare_inbound_listener(
-        &self,
-        inbound: InboundConfig,
-        _source_dir: Option<&std::path::Path>,
-    ) -> Result<
-        Box<dyn crate::runtime::inbound_operation::PreparedInboundListenerOperation>,
-        EngineError,
-    > {
+        if !matches!(inbound.protocol, InboundProtocolConfig::Wireguard { .. }) {
+            return Ok(None);
+        }
         let linked = self.linked_endpoint(&inbound.tag, &inbound.listen);
-        self.prepare_wireguard_listener(inbound, linked)
-    }
-
-    fn prepare_rollback_inbound_listener(
-        &self,
-        inbound: InboundConfig,
-        _source_dir: Option<&std::path::Path>,
-    ) -> Result<
-        Box<dyn crate::runtime::inbound_operation::PreparedInboundListenerOperation>,
-        EngineError,
-    > {
-        let linked = self.published_linked_endpoint(&inbound.tag, &inbound.listen);
-        self.prepare_wireguard_listener(inbound, linked)
+        self.prepare_wireguard_listener(inbound, linked).map(Some)
     }
 }
 

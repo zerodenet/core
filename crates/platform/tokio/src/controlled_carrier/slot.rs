@@ -8,6 +8,7 @@ use tokio::sync::{Mutex as AsyncMutex, Notify};
 use tokio_util::sync::CancellationToken;
 use zero_core::component::{ComponentInstanceId, TaskId};
 pub(super) struct Slot {
+    pub(super) completion: Arc<std::sync::OnceLock<bool>>,
     pub(super) instance: ComponentInstanceId,
     pub(super) ordinal: u64,
     pub(super) owner: Weak<Shared>,
@@ -18,6 +19,11 @@ pub(super) struct Slot {
 }
 #[derive(Default)]
 pub(super) struct State {
+    pub(super) transferred_origin: bool,
+    pub(super) loan: Option<Arc<AsyncMutex<super::loan::LoanOwner>>>,
+    pub(super) loan_origin: Option<super::CarrierOrigin>,
+    pub(super) binding: Option<crate::contract::network::UpstreamBinding>,
+    pub(super) endpoint: Option<zero_core::request::Destination>,
     pub(super) opening: bool,
     pub(super) view_live: bool,
     pub(super) endpoints: Option<super::CarrierEndpoints>,
@@ -35,6 +41,10 @@ pub(super) struct State {
     pub(super) auxiliary_accepted: bool,
     pub(super) control: Option<Arc<AsyncMutex<ControlledTcpControl>>>,
     pub(super) close_observer: Option<crate::controlled_tcp::ControlledTcpCloseObserver>,
+    pub(super) packet: Option<Arc<crate::controlled_datagram::ControlledDatagramControl>>,
+    pub(super) packet_disposition: Option<crate::controlled_datagram::AcquisitionOutcome>,
+    pub(super) packet_owner:
+        Option<Arc<Mutex<crate::controlled_datagram::ControlledDatagramOwner>>>,
     /// Synchronous preparation acquired/consumed a handle without a control.
     pub(super) unknown: Option<Arc<ChannelError>>,
     pub(super) closed: bool,
@@ -55,6 +65,14 @@ impl Slot {
         self.changed.notify_waiters();
     }
     pub(super) fn remove(self: &Arc<Self>) {
+        let state = self.state();
+        assert!(
+            state.closed,
+            "only confirmed original retirement removes a slot"
+        );
+        let native = state.control.is_some() || state.packet.is_some();
+        let _ = self.completion.set(native);
+        drop(state);
         if let Some(owner) = self.owner.upgrade() {
             owner
                 .state()
@@ -66,6 +84,8 @@ impl Slot {
         let unused = {
             let mut state = self.state();
             if state.control.is_none()
+                && state.loan.is_none()
+                && state.packet.is_none()
                 && state.unknown.is_none()
                 && !state.opening
                 && !state.view_live

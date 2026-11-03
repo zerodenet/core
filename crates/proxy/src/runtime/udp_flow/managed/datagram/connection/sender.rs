@@ -18,6 +18,7 @@ impl ManagedDatagramUdpConnection for ManagedDatagramConnection {
     async fn send_datagram(
         &self,
         chain_tasks: &mut JoinSet<ChainTask>,
+        _services: Option<crate::protocol_registry::UdpRuntimeServices>,
         session_id: u64,
         target: &Address,
         port: u16,

@@ -98,19 +98,30 @@ async fn actual_native_carrier_binding_observes_host_generation_and_physical_net
         )
         .await
         .unwrap();
-    let (remote, _) = listener.accept().await.unwrap();
-    let binding = carrier.binding.as_ref().unwrap();
+    let (mut remote, _) = listener.accept().await.unwrap();
+    let binding = carrier.binding.as_ref().unwrap().clone();
     binding.check_current().unwrap();
     let mut candidate = (**original.config()).clone();
     candidate.outbounds[0].dial.address_family = zero_config::OutboundAddressFamily::OnlyIpv4;
     proxy.engine.stage_runtime_config(candidate).unwrap();
     let config = proxy.engine.runtime_snapshot().config().clone();
-    proxy
-        .protocols
-        .start_components(config.clone(), deadline())
-        .await
-        .unwrap();
-    binding.check_current().unwrap(); // The actual old owner is still current.
+    // Replacing the actual resource first revokes its binding and waits for
+    // the consumer to release I/O. Publication alone is not close evidence.
+    let (started, ()) = tokio::join!(
+        proxy.protocols.start_components(config.clone(), deadline()),
+        async {
+            tokio::time::timeout_at(deadline(), binding.revoked())
+                .await
+                .unwrap();
+            assert!(binding.check_current().is_err());
+            drop(carrier);
+            assert_eq!(
+                remote.read_u8().await.unwrap_err().kind(),
+                std::io::ErrorKind::UnexpectedEof
+            );
+        }
+    );
+    started.unwrap();
     proxy
         .protocols
         .commit_components(&config, || Ok(()))
@@ -119,7 +130,6 @@ async fn actual_native_carrier_binding_observes_host_generation_and_physical_net
     tokio::time::timeout_at(deadline(), binding.revoked())
         .await
         .unwrap();
-    drop(carrier);
     drop(remote);
     proxy
         .protocols

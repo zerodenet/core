@@ -1,5 +1,3 @@
-use std::path::Path;
-
 use zero_config::RuntimeConfig;
 #[cfg(feature = "raw-ip-runtime")]
 use zero_engine::OutboundIdentity;
@@ -20,7 +18,6 @@ use crate::transport::TcpOutboundFailure;
 use zero_core::{request::Destination, Address};
 use zero_platform_tokio::contract::dns::DnsQueryRole;
 
-#[derive(Clone)]
 pub(crate) struct ClaimedInventoryLeaf<'a> {
     claimed: ClaimedOutboundLeaf<'a>,
 }
@@ -39,29 +36,27 @@ impl<'a> ClaimedInventoryLeaf<'a> {
         self.claimed
     }
 
-    pub(crate) fn prepare_tcp_connect_for_route(
+    pub(crate) fn tcp_connect_for_route(
         &self,
-        source_dir: Option<&Path>,
         mode: RouteMode,
-    ) -> Result<Box<dyn PreparedTcpConnectOperation>, crate::transport::TcpOutboundFailure> {
-        self.claimed.prepare_tcp_connect_for_route(source_dir, mode)
+    ) -> Result<std::sync::Arc<dyn PreparedTcpConnectOperation>, crate::transport::TcpOutboundFailure>
+    {
+        self.claimed.tcp_connect_for_route(mode)
     }
 
-    pub(crate) fn prepare_tcp_relay_hop(
+    pub(crate) fn tcp_relay_hop(
         &self,
-        source_dir: Option<&Path>,
-    ) -> Result<(String, u16, Box<dyn PreparedTcpRelayOperation>), EngineError> {
-        self.claimed.prepare_tcp_relay_hop(source_dir)
+    ) -> Result<(String, u16, std::sync::Arc<dyn PreparedTcpRelayOperation>), EngineError> {
+        self.claimed.tcp_relay_hop()
     }
 
     #[cfg(feature = "udp-runtime")]
-    pub(crate) fn prepare_udp_flow_for_route(
-        &self,
-        source_dir: Option<&Path>,
+    pub(crate) fn into_udp_flow_for_route(
+        self,
         mode: RouteMode,
     ) -> Result<Box<dyn PreparedUdpFlowOperation + 'a>, crate::runtime::udp_dispatch::FlowFailure>
     {
-        self.claimed.prepare_udp_flow_for_route(source_dir, mode)
+        self.claimed.into_udp_flow_for_route(mode)
     }
 
     #[cfg(feature = "raw-ip-runtime")]
@@ -72,21 +67,24 @@ impl<'a> ClaimedInventoryLeaf<'a> {
     #[cfg(feature = "raw-ip-runtime")]
     pub(crate) fn prepare_packet_route(
         &self,
-    ) -> Option<Box<dyn crate::runtime::packet_route::PreparedPacketRouteOperation>> {
+    ) -> Option<std::sync::Arc<dyn crate::runtime::packet_route::PreparedPacketRouteOperation>>
+    {
         self.claimed.prepare_packet_route()
     }
 
     #[cfg(feature = "raw-ip-runtime")]
     pub(crate) fn prepare_translated_packet_route(
         &self,
-    ) -> Option<Box<dyn crate::runtime::packet_route::PreparedPacketRouteOperation>> {
+    ) -> Option<std::sync::Arc<dyn crate::runtime::packet_route::PreparedPacketRouteOperation>>
+    {
         self.claimed.prepare_translated_packet_route()
     }
 
     #[cfg(feature = "raw-ip-runtime")]
     pub(crate) fn prepare_datagram_exchange(
         &self,
-    ) -> Option<Box<dyn crate::runtime::packet_route::PreparedDatagramExchangeOperation>> {
+    ) -> Option<std::sync::Arc<dyn crate::runtime::packet_route::PreparedDatagramExchangeOperation>>
+    {
         self.claimed.prepare_datagram_exchange()
     }
 
@@ -96,15 +94,14 @@ impl<'a> ClaimedInventoryLeaf<'a> {
     }
 
     #[cfg(feature = "udp-runtime")]
-    pub(crate) fn prepare_udp_packet_path(
+    pub(crate) fn udp_packet_path(
         &self,
-        source_dir: Option<&std::path::Path>,
     ) -> Option<
-        Box<
+        std::sync::Arc<
             dyn crate::runtime::udp_dispatch::packet_path_operation::PreparedUdpPacketPathOperation,
         >,
     > {
-        self.claimed.prepare_udp_packet_path(source_dir)
+        self.claimed.udp_packet_path()
     }
 }
 
@@ -196,6 +193,14 @@ impl ProtocolInventory {
         };
         let outbound = ctx.config().outbounds.get(identity.config_index())?;
         let slot = components?.configured(&outbound.tag)?;
+        if !slot
+            .recipe
+            .spec()
+            .roles
+            .contains(&zero_platform_tokio::contract::component::RoleKind::Stream)
+        {
+            return None;
+        }
         let failure = |error| crate::transport::TcpOutboundFailure {
             stage: "outbound_leaf_runtime",
             error,
@@ -256,16 +261,15 @@ impl ProtocolInventory {
         &self,
         config: &RuntimeConfig,
     ) -> Vec<zero_api::OutboundDeviceHealthSnapshot> {
-        self.registry.outbound_device_health(config)
+        self.devices.health(config)
     }
 
     #[cfg(feature = "raw-ip-runtime")]
-    pub(crate) async fn prepare_outbound_devices(
+    pub(crate) async fn prepare_devices(
         &self,
         config: &RuntimeConfig,
         services: crate::protocol_registry::TcpRuntimeServices,
-    ) -> Result<Vec<Box<dyn crate::protocol_registry::PreparedOutboundDeviceState>>, EngineError>
-    {
+    ) -> Result<crate::adapters::devices::PreparedDevices, EngineError> {
         use std::sync::Arc;
 
         let admission = zero_engine::EndpointAdmission::from_snapshot(services.snapshot());
@@ -274,7 +278,7 @@ impl ProtocolInventory {
             &admission,
             zero_core::component::NetworkGeneration(services.upstream().egress_generation()),
         )?;
-        let context = crate::protocol_registry::OutboundDevicePreparationContext {
+        let context = crate::adapters::devices::OutboundDevicePreparationContext {
             traffic: services.engine().clone(),
             direct_packet_device: config.runtime.network.direct_packet_device.clone(),
             mtu: config.runtime.network.mtu,
@@ -297,16 +301,17 @@ impl ProtocolInventory {
                 ),
             packet_paths: Arc::new(packet_paths),
         };
-        self.registry
-            .prepare_outbound_devices(config, context, admission)
-            .await
+        self.devices.prepare(config, context, admission).await
     }
 
     #[cfg(feature = "raw-ip-runtime")]
-    pub(crate) fn shutdown_outbound_devices(
-        &self,
-    ) -> Vec<crate::protocol_registry::OutboundDeviceCompletion> {
-        self.registry.shutdown_outbound_devices()
+    pub(crate) fn request_device_shutdown(&self) {
+        self.devices.request_shutdown();
+    }
+
+    #[cfg(feature = "raw-ip-runtime")]
+    pub(crate) async fn close_devices(&self) -> Result<(), EngineError> {
+        self.devices.close().await
     }
 
     #[cfg(feature = "managed-stream-runtime")]

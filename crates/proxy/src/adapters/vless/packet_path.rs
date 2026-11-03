@@ -1,5 +1,5 @@
 //! Native leaf projection; runtime owns target-flow caching and response tasks.
-use crate::protocol_registry::{ClaimedUdpPacketPathLeaf, PacketPathExecutionServices};
+use crate::protocol_registry::PacketPathExecutionServices;
 use crate::runtime::udp_dispatch::packet_path_operation::{
     PacketPathCarrierFuture, PreparedUdpPacketPathOperation,
 };
@@ -9,46 +9,16 @@ use crate::runtime::udp_flow::{
 };
 use std::{path::Path, sync::Arc};
 
-pub(super) fn claim<'a, F>(
-    identity: String,
-    prepare: F,
-) -> Box<dyn ClaimedUdpPacketPathLeaf<'a> + 'a>
-where
-    F: Fn(Option<&Path>) -> Result<::vless::transport::VlessOutboundLeaf, zero_core::Error>
-        + Send
-        + Sync
-        + 'a,
-{
-    Box::new(Claim { identity, prepare })
-}
-struct Claim<F> {
-    identity: String,
-    prepare: F,
-}
-impl<'a, F> ClaimedUdpPacketPathLeaf<'a> for Claim<F>
-where
-    F: Fn(Option<&Path>) -> Result<::vless::transport::VlessOutboundLeaf, zero_core::Error>
-        + Send
-        + Sync
-        + 'a,
-{
-    fn prepare_udp_packet_path(
-        &self,
-        source_dir: Option<&Path>,
-    ) -> Option<Box<dyn PreparedUdpPacketPathOperation>> {
-        let leaf = match (self.prepare)(source_dir) {
-            Ok(leaf) => leaf,
-            Err(error) => {
-                tracing::debug!(%error, "packet-path leaf preparation failed");
-                return None;
-            }
-        };
-        let identity = serde_json::to_string(&(&self.identity, source_dir)).ok()?;
-        Some(Box::new(Operation(
-            ::vless::udp::packet_path::Plan::new(&leaf, &identity),
-            zero_traits::ProtocolOutboundLeaf::tag(&leaf).to_owned(),
-        )))
-    }
+pub(super) fn operation(
+    identity: &str,
+    source_dir: Option<&Path>,
+    leaf: &::vless::transport::VlessOutboundLeaf,
+) -> Option<Arc<dyn PreparedUdpPacketPathOperation>> {
+    let identity = serde_json::to_string(&(identity, source_dir)).ok()?;
+    Some(Arc::new(Operation(
+        ::vless::udp::packet_path::Plan::new(leaf, &identity),
+        zero_traits::ProtocolOutboundLeaf::tag(leaf).to_owned(),
+    )))
 }
 struct Operation(::vless::udp::packet_path::Plan, String);
 impl PreparedUdpPacketPathOperation for Operation {

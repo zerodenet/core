@@ -43,7 +43,7 @@ pub(crate) struct ManagedStreamPacketUdpOperation<'op, T> {
 
 impl<'op, T> PreparedUdpFlowOperation for ManagedStreamPacketUdpOperation<'op, T>
 where
-    T: std::any::Any + Send + Sync + std::fmt::Debug,
+    T: crate::runtime::udp_flow::managed::stream_manager::ManagedStreamFlowConnector,
 {
     fn execute<'a>(
         self: Box<Self>,
@@ -91,7 +91,7 @@ async fn execute_managed_stream_packet_operation<T>(
     operation: PreparedManagedStreamPacketOperation<'_, T>,
 ) -> Result<FlowStartResult, FlowFailure>
 where
-    T: std::any::Any + Send + Sync + std::fmt::Debug,
+    T: crate::runtime::udp_flow::managed::stream_manager::ManagedStreamFlowConnector,
 {
     let tag = match &operation {
         PreparedManagedStreamPacketOperation::Direct { plan }

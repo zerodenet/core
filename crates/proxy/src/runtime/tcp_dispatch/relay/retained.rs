@@ -3,7 +3,8 @@
 //! identity and the actual protocol-owner admission are separate checks.
 use super::{egress_generation, PreparedTcpRelayPrefix};
 use crate::{
-    inventory::PreparedTcpCandidateExecution, protocol_registry::TcpExecutionServices,
+    inventory::{PreparedTcpCandidateExecution, PreparedTcpRelayExecution},
+    protocol_registry::TcpExecutionServices,
     runtime::current_services::CurrentServiceSource,
 };
 use std::{
@@ -35,11 +36,14 @@ impl RetainedSource {
     ) -> Self {
         let capture = || -> Result<Recipe, EngineError> {
             check_owners(prefix)?;
-            if matches!(
+            let native = matches!(
                 prefix.first.execution,
                 PreparedTcpCandidateExecution::Native(_)
-            ) && services.invocation.is_none()
-            {
+            ) || prefix
+                .relay_hops
+                .iter()
+                .any(|hop| matches!(hop.execution, PreparedTcpRelayExecution::Native(_)));
+            if native && services.invocation.is_none() {
                 return Err(unsupported(
                     "native retained prefix requires actual request identity",
                 ));
@@ -118,6 +122,19 @@ impl RetainedSource {
                         return Err(revoked("native prefix actual owner changed"));
                     }
                 }
+                for hop in &prefix.relay_hops {
+                    if let PreparedTcpRelayExecution::Native(captured) = &hop.execution {
+                        let current = services
+                            .components
+                            .as_ref()
+                            .ok()
+                            .and_then(|plan| plan.configured(&hop.tag))
+                            .ok_or_else(|| revoked("native relay hop is no longer configured"))?;
+                        if !captured.matches(&current) {
+                            return Err(revoked("native relay hop actual generation changed"));
+                        }
+                    }
+                }
                 check_owners(prefix)?;
                 services.invocation = recipe.invocation.clone();
                 services.ingress = recipe.ingress.clone();
@@ -140,7 +157,16 @@ pub(in crate::runtime) fn check_owners(prefix: &PreparedTcpRelayPrefix) -> Resul
         _ => return Err(unsupported("retained first-hop owner is not migrated")),
     }
     for hop in &prefix.relay_hops {
-        hop.operation.retained_admission()?;
+        match &hop.execution {
+            PreparedTcpRelayExecution::Legacy(operation) => operation.retained_admission()?,
+            PreparedTcpRelayExecution::Native(selected) => selected
+                .slot()
+                .map_err(std::io::Error::other)?
+                .service_admission()
+                .ok_or_else(|| unsupported("native relay hop has no actual host admission"))?
+                .check_current()
+                .map_err(std::io::Error::other)?,
+        }
     }
     #[cfg(feature = "udp-runtime")]
     for plan in prefix.datagram_prefixes.iter().flatten() {

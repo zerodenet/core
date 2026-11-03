@@ -1,5 +1,6 @@
 use super::*;
-use crate::runtime::inbound_operation::PreparedInboundListenerOperation;
+#[cfg(test)]
+mod tests;
 #[cfg(test)]
 use zero_platform_tokio::ControlledTcpListener;
 
@@ -26,6 +27,11 @@ pub(crate) struct InboundBindLease {
     promoted: bool,
 }
 impl InboundBindLease {
+    #[cfg(test)]
+    pub(super) fn original_grant(&self) -> Arc<native::NativeBindGrant> {
+        self.grant.clone()
+    }
+
     pub(super) fn new(
         registry: Weak<InboundOwnerRegistry>,
         tag: String,
@@ -46,6 +52,15 @@ impl InboundBindLease {
             listener: None,
             promoted: false,
         }
+    }
+    #[cfg(test)]
+    pub(crate) fn register_resource(
+        &self,
+        resource: Box<dyn zero_platform_tokio::contract::lifecycle::DynResourceLifecycle>,
+    ) -> Result<ComponentInstanceId, EngineError> {
+        let identity = self.protocols.allocate_resource_identity()?;
+        self.owner.install_resource(identity, resource)?;
+        Ok(identity)
     }
     pub(crate) fn owner(&self) -> Arc<InboundOwner> {
         self.owner.clone()
@@ -74,6 +89,24 @@ impl InboundBindLease {
         self.listener = Some(self.grant.bind()?);
         Ok(())
     }
+    pub(crate) async fn resolve_native(&mut self) -> Result<(), EngineError> {
+        for grant in self.grant.tcp_resolutions() {
+            let registrar = self.owner.preparation_tasks()?;
+            let (_, witness) = grant.start_resolution(&registrar)?;
+            self.owner.join_preparation(&witness).await?;
+            grant.resolution_result()?;
+        }
+        #[cfg(feature = "datagram-route-runtime")]
+        if let native::NativeBindGrant::Datagram(grant) = self.grant.as_ref() {
+            if grant.needs_resolution() {
+                let registrar = self.owner.preparation_tasks()?;
+                let (_, witness) = grant.start_resolution(&registrar)?;
+                self.owner.join_preparation(&witness).await?;
+                grant.resolution_result()?;
+            }
+        }
+        Ok(())
+    }
     pub(crate) fn finish(self) -> Result<LeasedInbound, EngineError> {
         if self.listener.is_none() {
             return Err(self.reject(io("listener lease has no actual accept view")));
@@ -99,7 +132,13 @@ pub(crate) struct LeasedInbound {
 }
 impl LeasedInbound {
     #[cfg(test)]
-    pub(super) fn local_addr(&self) -> std::io::Result<std::net::SocketAddr> {
+    pub(in crate::runtime::inbound_owners) fn owner(&self) -> Arc<InboundOwner> {
+        self.lease.owner()
+    }
+    #[cfg(test)]
+    pub(in crate::runtime::inbound_owners) fn local_addr(
+        &self,
+    ) -> std::io::Result<std::net::SocketAddr> {
         self.lease
             .listener
             .as_ref()
@@ -114,7 +153,7 @@ impl LeasedInbound {
         self,
     ) -> Result<
         (
-            Box<dyn PreparedInboundListenerOperation>,
+            crate::component::ComponentRecipe,
             ControlledTcpListener,
             InboundInstallContext,
         ),
@@ -126,16 +165,33 @@ impl LeasedInbound {
         let (operation, view, installed) = self.promote_native()?;
         let listener = match view {
             NativeListenerView::Tcp(listener) => listener,
+            NativeListenerView::Metadata(_) | NativeListenerView::Handoff { .. } => {
+                unreachable!("checked TCP view")
+            }
             #[cfg(feature = "datagram-route-runtime")]
             NativeListenerView::Datagram(_) => unreachable!("checked TCP view"),
         };
         Ok((operation, listener, installed))
     }
+    #[cfg(test)]
     pub(crate) fn promote_native(
+        self,
+    ) -> Result<
+        (
+            crate::component::ComponentRecipe,
+            NativeListenerView,
+            InboundInstallContext,
+        ),
+        EngineError,
+    > {
+        let (recipe, view, installed) = self.promote_definition()?;
+        Ok((recipe, view, installed))
+    }
+    pub(crate) fn promote_definition(
         mut self,
     ) -> Result<
         (
-            Box<dyn PreparedInboundListenerOperation>,
+            crate::component::ComponentRecipe,
             NativeListenerView,
             InboundInstallContext,
         ),
@@ -183,7 +239,7 @@ impl LeasedInbound {
                 .prepared
                 .take()
                 .expect("one prepared operation")
-                .into_operation(),
+                .into_recipe(),
             self.lease.listener.take().expect("one actual accept view"),
             InboundInstallContext {
                 entry: self.lease.owner.clone(),

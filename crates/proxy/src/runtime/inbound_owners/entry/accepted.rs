@@ -1,6 +1,34 @@
 //! Actual owning receiver, original Scope identity and exit dispatch.
 use super::*;
 impl InboundOwner {
+    pub(in crate::runtime::inbound_owners) fn preparation_tasks(
+        &self,
+    ) -> Result<TaskRegistrar, EngineError> {
+        if self.cancel.is_cancelled() || *self.shutdown.borrow() {
+            return Err(self.ready_stopped());
+        }
+        self.scope
+            .try_lock()
+            .map_err(|_| std::io::Error::other("preparation Scope is already joining"))?
+            .enable_registration()
+            .map_err(std::io::Error::other)?;
+        Ok(self.registrar.clone())
+    }
+    pub(in crate::runtime::inbound_owners) async fn join_preparation(
+        &self,
+        witness: &zero_platform_tokio::contract::scope::TaskJoinWitness,
+    ) -> Result<(), EngineError> {
+        let mut scope = self.scope.lock().await;
+        while !witness.is_joined() {
+            let exit = scope.next_exit().await.ok_or_else(|| {
+                std::io::Error::other("actual preparation task has no join receipt")
+            })?;
+            if self.record(exit) {
+                self.stop();
+            }
+        }
+        Ok(())
+    }
     pub(in crate::runtime::inbound_owners) fn accepted_registrar(&self) -> &TaskRegistrar {
         &self.registrar
     }
@@ -8,9 +36,12 @@ impl InboundOwner {
         &self,
         receiver: zero_platform_tokio::AcceptedTcpTaskReceiver,
     ) -> Result<(), EngineError> {
-        self.accepted_receiver
-            .set(receiver)
-            .map_err(|_| std::io::Error::other("accepted TCP receiver already installed").into())
+        let mut receivers = self.accepted_receiver.lock().unwrap();
+        if receivers.len() >= 3 {
+            return Err(std::io::Error::other("declared accepted listener limit exceeded").into());
+        }
+        receivers.push(receiver);
+        Ok(())
     }
     pub(crate) async fn observe_driver(&self) -> Result<(), EngineError> {
         if self.driver.get().is_none() {

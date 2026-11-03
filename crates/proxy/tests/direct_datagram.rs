@@ -7,6 +7,9 @@ use tokio::net::UdpSocket;
 use zero_config::RuntimeConfig;
 use zero_proxy::Proxy;
 
+#[path = "direct_datagram/standard.rs"]
+mod standard;
+
 #[tokio::test]
 async fn direct_datagrams_keep_two_clients_isolated() {
     let target = UdpSocket::bind("127.0.0.1:0").await.unwrap();

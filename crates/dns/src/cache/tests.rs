@@ -158,3 +158,40 @@ async fn final_caller_cancelled_while_cache_lock_is_held_cannot_commit() {
         .unwrap();
     assert!(cache.get(scope, "cancelled.test", 1).await.is_none());
 }
+
+#[tokio::test]
+async fn native_node_answers_are_isolated_under_the_one_total_cache_capacity() {
+    let cache = cache(1);
+    let native = cache.isolated();
+    let scope = QueryScope::new(DnsQueryRole::Node, 0);
+    cache
+        .put(
+            scope,
+            "node.test",
+            1,
+            vec![IpAddress::V4([192, 0, 2, 1])],
+            60,
+        )
+        .await;
+    assert!(
+        native.get(scope, "node.test", 1).await.is_none(),
+        "legacy answers grant no native DNS proof"
+    );
+    native
+        .put(
+            scope,
+            "node.test",
+            1,
+            vec![IpAddress::V4([192, 0, 2, 2])],
+            60,
+        )
+        .await;
+    assert!(
+        cache.get(scope, "node.test", 1).await.is_none(),
+        "native entries share the configured total capacity"
+    );
+    assert_eq!(
+        native.get(scope, "node.test", 1).await,
+        Some(vec![IpAddress::V4([192, 0, 2, 2])])
+    );
+}

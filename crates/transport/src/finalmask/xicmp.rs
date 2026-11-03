@@ -9,6 +9,8 @@ use std::{
 };
 use zero_platform_tokio::{EgressInterface, IcmpSocket};
 mod codec;
+#[path = "xicmp/io.rs"]
+mod native;
 mod server;
 pub(super) fn address(ip: &str) -> io::Result<IpAddr> {
     if ip.is_empty() {
@@ -49,7 +51,7 @@ pub(super) fn wrap(
             prepare,
             move |keepalive, channels| async move {
                 let _keepalive = keepalive;
-                server::run(raw, channels, id, ipv6).await
+                server::run(native::Socket::Legacy(raw), channels, id, ipv6).await
             },
         );
     }
@@ -64,12 +66,38 @@ pub(super) fn wrap(
         prepare,
         move |keepalive, channels| async move {
             let _keepalive = keepalive;
-            client(raw, channels, state).await
+            client(native::Socket::Legacy(raw), channels, state).await
         },
     )
 }
+pub(super) fn prepare_server(
+    inner: Arc<dyn AsyncUdpSocket>,
+    raw: zero_platform_tokio::controlled_icmp::ControlledIcmpSocket,
+    id: u16,
+) -> io::Result<(
+    Arc<dyn AsyncUdpSocket>,
+    crate::datagram_driver::PreparedIoDriver,
+)> {
+    let ip = raw.local_addr()?;
+    let ipv6 = ip.is_ipv6();
+    let prepare = Arc::new(|t: &quinn::udp::Transmit<'_>| {
+        if t.contents.len() + 9 > 65535 {
+            return Err(io::Error::other("XICMP packet too large"));
+        }
+        Ok(t.contents.to_vec())
+    });
+    let (socket, driver) = queue::prepare_with(
+        SocketAddr::new(ip, 0),
+        prepare,
+        move |channels| async move {
+            let _keepalive = inner;
+            server::run(native::Socket::Hosted(raw), channels, id, ipv6).await
+        },
+    )?;
+    Ok((socket, driver))
+}
 async fn client(
-    raw: Arc<IcmpSocket>,
+    mut raw: native::Socket,
     mut channels: Channels,
     state: Arc<Mutex<codec::Client>>,
 ) -> io::Result<()> {

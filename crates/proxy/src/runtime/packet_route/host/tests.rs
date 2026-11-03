@@ -87,8 +87,9 @@ async fn host_packet_sink_is_bidirectional_preserves_source_and_waits_for_device
         .unwrap();
     assert_eq!(packet::parse_udp(&returned).unwrap().payload, b"world");
     device.close();
-    tokio::time::timeout(std::time::Duration::from_secs(1), device.wait_stopped())
+    tokio::time::timeout(std::time::Duration::from_secs(1), device.worker.join())
         .await
+        .unwrap()
         .unwrap();
     assert!(!device.usable());
 }
@@ -108,8 +109,9 @@ async fn staged_host_device_does_not_read_before_publish_and_cancel_confirms_rel
     host.write_all(b"queued").await.unwrap();
     assert!(!device.usable());
     device.close();
-    tokio::time::timeout(std::time::Duration::from_secs(1), device.wait_stopped())
+    tokio::time::timeout(std::time::Duration::from_secs(1), device.worker.join())
         .await
+        .unwrap()
         .unwrap();
 }
 
@@ -183,7 +185,7 @@ async fn direct_packet_sink_accepts_other_ip_protocols_and_uses_real_router_addr
     );
     assert!(packet::parse_icmp_error(&response).is_some());
     device.close();
-    device.wait_stopped().await;
+    device.worker.join().await.unwrap();
 }
 
 #[tokio::test]
@@ -246,7 +248,7 @@ async fn closing_a_blocked_host_write_preserves_the_shared_device_and_other_path
         .unwrap();
     host.read_exact(&mut vec![0; next.len()]).await.unwrap();
     device.close();
-    device.wait_stopped().await;
+    device.worker.join().await.unwrap();
 }
 
 #[tokio::test]
@@ -324,7 +326,7 @@ async fn fragmented_host_returns_preserve_delivery_and_declare_incomplete_role_m
     );
     assert_eq!(coverage.0.load(Ordering::Relaxed), 1);
     device.close();
-    device.wait_stopped().await;
+    device.worker.join().await.unwrap();
 }
 
 #[path = "tests/ownership.rs"]

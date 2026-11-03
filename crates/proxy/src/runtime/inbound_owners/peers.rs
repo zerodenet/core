@@ -74,6 +74,45 @@ impl std::fmt::Debug for InboundPeerTasks {
     }
 }
 impl InboundPeerTasks {
+    pub(super) fn observe_peer_joined(
+        &self,
+        task: TaskId,
+    ) -> Option<zero_platform_tokio::contract::scope::TaskJoined> {
+        let scopes: Vec<_> = self
+            .state
+            .lock()
+            .unwrap()
+            .active
+            .values()
+            .filter_map(|b| b.peer_scope())
+            .collect();
+        scopes
+            .into_iter()
+            .find_map(|scope| scope.observe_joined(task))
+    }
+    pub(super) async fn retire_logical_resources(
+        &self,
+        deadline: Instant,
+    ) -> Result<(), zero_platform_tokio::contract::ChannelError> {
+        let scopes: Vec<_> = self
+            .state
+            .lock()
+            .unwrap()
+            .active
+            .values()
+            .filter_map(|b| b.peer_scope())
+            .collect();
+        for scope in scopes {
+            // Association dispatcher state lives in its retained child owner.
+            // That owner releases actual flow views before retiring this same
+            // graph. Closing the graph first would wait on its own held views.
+            if scope.origin() == zero_platform_tokio::AcceptedOrigin::Association {
+                continue;
+            }
+            scope.retire_logical_resources(deadline).await?;
+        }
+        Ok(())
+    }
     pub(super) fn new(
         identity: ComponentInstanceId,
         cancel: CancellationToken,
@@ -88,7 +127,7 @@ impl InboundPeerTasks {
             changed: Notify::new(),
         }
     }
-    #[cfg(feature = "raw-ip-runtime")]
+    #[cfg(feature = "managed-datagram-runtime")]
     pub(super) fn with_limit(
         identity: ComponentInstanceId,
         cancel: CancellationToken,
@@ -99,7 +138,7 @@ impl InboundPeerTasks {
         group.limit = limit;
         group
     }
-    #[cfg(feature = "raw-ip-runtime")]
+    #[cfg(feature = "managed-datagram-runtime")]
     pub(super) fn declared_limit(&self) -> usize {
         self.limit.get()
     }

@@ -1,3 +1,4 @@
+mod native;
 use std::future::Future;
 use std::path::Path;
 
@@ -61,6 +62,9 @@ impl VmessOutboundLeaf {
         )?;
         if grpc.is_some() {
             leaf.transport.set_grpc_state(runtime.grpc_carrier_state());
+        }
+        if protocol.mux_concurrency.is_some() {
+            leaf.mux_pool = leaf.transport.scoped_mux_pool(tag, &leaf.mux_pool);
         }
         Ok(leaf)
     }

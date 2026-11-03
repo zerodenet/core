@@ -3,6 +3,8 @@ use crate::support;
 #[cfg(feature = "mixed")]
 #[path = "http/standard_inbound.rs"]
 mod standard_inbound;
+#[path = "http/standard_listener.rs"]
+mod standard_listener;
 
 #[cfg(feature = "shadowsocks")]
 #[path = "http/client_reset.rs"]

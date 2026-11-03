@@ -32,6 +32,30 @@ impl OwnedConnection {
             reason = self.connection.closed() => Ok(reason),
         }
     }
+    pub fn negotiate_rate(&self, rate: u64) {
+        crate::quic::negotiated::negotiate(&self.connection, rate);
+    }
+    pub fn export_keying_material(
+        &self,
+        output: &mut [u8],
+        label: &[u8],
+        context: &[u8],
+    ) -> Result<(), ChannelError> {
+        self.connection
+            .export_keying_material(output, label, context)
+            .map_err(|e| {
+                protocol(
+                    Stage::Handshake,
+                    std::io::Error::other(format!("key export failed: {e:?}")),
+                )
+            })
+    }
+    pub fn max_datagram_size(&self) -> Option<usize> {
+        self.connection.max_datagram_size()
+    }
+    pub fn handshake_metadata(&self) -> (Option<String>, Option<String>) {
+        crate::quic::handshake_metadata(&self.connection)
+    }
     pub fn close_reason(&self) -> Option<quinn::ConnectionError> {
         self.connection.close_reason()
     }

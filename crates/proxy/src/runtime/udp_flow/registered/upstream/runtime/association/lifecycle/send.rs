@@ -70,7 +70,7 @@ where
 
         if let Some(a) = self.upstream.take() {
             let (_, association) = a.into_parts();
-            association.close(UpstreamAssociationCloseReason::Closed);
+            self.retire(association, UpstreamAssociationCloseReason::Closed);
             self.idle_deadline = None;
         }
 
@@ -78,6 +78,12 @@ where
         // crossing into an adapter. The transport never receives the registry.
         let established = async {
             let execution = services.datagram_execution(inbound_tag, session)?;
+            let deadline = execution
+                .invocation
+                .as_ref()
+                .and_then(|invocation| invocation.deadline)
+                .unwrap_or_else(|| TokioInstant::now() + std::time::Duration::from_secs(5));
+            self.confirm_retired(deadline).await?;
             A::establish(
                 execution,
                 services.association_observer(),

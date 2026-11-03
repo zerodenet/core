@@ -53,3 +53,69 @@ fn invalid() -> io::Error {
         "fixture requires an actual configured DoH server",
     )
 }
+#[cfg(feature = "doq")]
+pub fn install_doq_ca(
+    dns: &DnsSystem,
+    tag: &str,
+    certificate: rustls::pki_types::CertificateDer<'static>,
+) -> io::Result<()> {
+    let mut inner = dns.inner.write().expect("DNS system lock poisoned");
+    let DnsSystemInner::Configured { servers, .. } = &mut *inner else {
+        return Err(invalid());
+    };
+    let server = servers.get_mut(tag).ok_or_else(invalid)?;
+    let backend = Arc::get_mut(&mut server.backend).ok_or_else(|| {
+        io::Error::new(
+            io::ErrorKind::WouldBlock,
+            "a DNS snapshot borrows this backend",
+        )
+    })?;
+    match backend {
+        ResolverBackend::Doq(resolver) => resolver.install_test_ca(certificate),
+        _ => Err(invalid()),
+    }
+}
+/// Register a real failing job in the current original native query Scope.
+/// No I/O, provider, driver or successful close evidence is fabricated here.
+pub fn panic_native_query_worker(
+    dns: &DnsSystem,
+) -> io::Result<zero_platform_tokio::contract::scope::TaskJoinWitness> {
+    let tasks = dns.native_source.as_ref().ok_or_else(invalid)?.tasks()?;
+    let before = tasks.observe();
+    tasks.spawn(
+        async { panic!("original native DNS query worker failure") },
+        zero_platform_tokio::contract::CancellationToken::new(),
+    )?;
+    tasks
+        .observe()
+        .into_iter()
+        .find(|current| {
+            !before
+                .iter()
+                .any(|old| old.task.same_registration(&current.task))
+        })
+        .map(|query| query.task)
+        .ok_or_else(invalid)
+}
+#[cfg(feature = "dot")]
+pub fn install_dot_ca(
+    dns: &DnsSystem,
+    tag: &str,
+    certificate: rustls::pki_types::CertificateDer<'static>,
+) -> io::Result<()> {
+    let mut inner = dns.inner.write().expect("DNS system lock poisoned");
+    let DnsSystemInner::Configured { servers, .. } = &mut *inner else {
+        return Err(invalid());
+    };
+    let server = servers.get_mut(tag).ok_or_else(invalid)?;
+    let backend = Arc::get_mut(&mut server.backend).ok_or_else(|| {
+        io::Error::new(
+            io::ErrorKind::WouldBlock,
+            "a DNS snapshot borrows the backend",
+        )
+    })?;
+    match backend {
+        ResolverBackend::Dot(resolver) => resolver.install_test_ca(certificate),
+        _ => Err(invalid()),
+    }
+}

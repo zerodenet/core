@@ -4,7 +4,9 @@ pub use root_datagram::{
     RootDatagramGrant, RootDatagramIo, RootDatagramRequest, RootDatagramRetryReceipt,
     RootDatagramUse,
 };
+mod accepted_datagram;
 mod accepted_tcp;
+pub use accepted_datagram::{AcceptedDatagramAuthority, DatagramPeerLimits};
 pub use accepted_tcp::AcceptedTcpLimits;
 mod bound_attempt;
 mod bound_datagram;
@@ -58,6 +60,28 @@ pub enum DeviceOwnership {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ResourceDeclaration {
+    /// Host-owned service targets, restricted to these protocol-prepared endpoints.
+    /// Originals and driver joins remain in the actual accepted resource graph.
+    InboundTargets {
+        endpoints: Vec<zero_traits::FallbackEndpoint>,
+        max_sockets: NonZeroUsize,
+    },
+    /// Bounded logical Datagram associations retained in this listener's actual
+    /// Scope across physical carriers. Grants no native socket by itself.
+    DatagramAssociations {
+        max_associations: NonZeroUsize,
+        max_tasks_per_association: NonZeroUsize,
+        max_resources_per_association: usize,
+    },
+    /// One declared endpoint/profile and finite carrier budget. The actual host
+    /// provider supplies current network/prefix bindings per acquisition. Root
+    /// originals and logical donor loans retain separate original controllers.
+    ControlledCarrierPool {
+        endpoint: Destination,
+        dial: zero_traits::DialPolicy,
+        datagram: bool,
+        max_sockets: NonZeroUsize,
+    },
     /// Exact service-root UDP peer on the actual host network generation.
     /// Live, retiring and Unknown originals share this caller-assigned bound.
     /// Default dial/no preferred source port only; no business authority.
@@ -74,6 +98,18 @@ pub enum ResourceDeclaration {
         dial: zero_traits::DialPolicy,
         max_sockets: NonZeroUsize,
     },
+    /// Fixed proxy endpoint with a live host-selected network generation.
+    /// Every acquisition still requires its original admitted business demand,
+    /// registered owner and matching native reservation. Its unique Datagram
+    /// views may be transferred without inventing a caller task; driver and
+    /// original native closure remain independent. The ordinary root issuer
+    /// grants no prefix authority; a relay requires the distinct sealed host
+    /// issuer and its installed preparation over this same original control.
+    ControlledNodeStream {
+        endpoint: Destination,
+        dial: zero_traits::DialPolicy,
+        max_sockets: NonZeroUsize,
+    },
     /// Sole actual physical stream owner, exact host-selected endpoint and full
     /// prefix/dial/network binding. Registration and users remain separately
     /// proved; this declaration alone never opens I/O or grants a task.
@@ -84,12 +120,27 @@ pub enum ResourceDeclaration {
         /// Live, retiring and Unknown originals, not lifetime healthy opens.
         max_sockets: NonZeroUsize,
     },
+    /// Packet carrier with the same original-owner, scope and transferred-view
+    /// accounting as a controlled stream. Distinct from service-root queries.
+    ControlledDatagramCarrier {
+        endpoint: Destination,
+        binding: super::network::UpstreamBinding,
+        max_sockets: NonZeroUsize,
+    },
     /// Ancillary UDP originals and their actual capability probes. Distinct
     /// from ordinary UDP listener authority; every count is caller-assigned.
     MetadataDatagram {
         source: std::net::SocketAddr,
         limits: crate::controlled_datagram::metadata::MetadataLimits,
         max_bind_attempts: NonZeroUsize,
+    },
+    /// Reusable on-demand ancillary originals, including owned capability
+    /// probes. Distinct from startup-only listener grants and plain UDP.
+    ControlledMetadataDatagram {
+        endpoint: std::net::SocketAddr,
+        dial: zero_traits::DialPolicy,
+        limits: crate::controlled_datagram::metadata::MetadataLimits,
+        max_origins: NonZeroUsize,
     },
     /// Native RAW/ping ICMP originals, distinct from UDP or device authority.
     /// Counts live, retiring and Unknown sockets, not generation lifetime probes.
@@ -100,6 +151,20 @@ pub enum ResourceDeclaration {
         max_sockets: NonZeroUsize,
         max_bindings: NonZeroUsize,
     },
+    /// Ephemeral UDP associations on the actual accepted TCP local interface.
+    /// No arbitrary bind address, detached driver or socket duplication.
+    AcceptedDatagram {
+        max_sockets: NonZeroUsize,
+        max_pending_sends: NonZeroUsize,
+    },
+    /// Transfer selected public listener transports to an external carrier.
+    /// The host retains and confirms the public reservation before handoff;
+    /// kernel-side listeners stay on the same-family loopback, in this Scope.
+    ListenerHandoff {
+        stream: bool,
+        datagram: bool,
+        max_probe_attempts: NonZeroUsize,
+    },
     TcpListener {
         destination: Destination,
         /// None supplies no bounded accepted-child task/native authority.
@@ -109,6 +174,7 @@ pub enum ResourceDeclaration {
         max_bind_attempts: NonZeroUsize,
     },
     DatagramListener {
+        accepted: Option<DatagramPeerLimits>,
         destination: Destination,
         max_bind_attempts: NonZeroUsize,
         /// Waiting plus in-flight sends over the same original listener. No
@@ -126,6 +192,12 @@ pub enum ResourceDeclaration {
     Device {
         name: Arc<str>,
         ownership: DeviceOwnership,
+    },
+    /// Read-only file service under one declared root. Each actual accepted
+    /// session has one retained original and one bounded blocking job at a time.
+    FileTree {
+        root: PathBuf,
+        max_sessions: NonZeroUsize,
     },
     File {
         path: PathBuf,
@@ -170,7 +242,50 @@ pub struct GrantedDatagramListener {
 
 /// The host implements access only for resources declared by this component.
 /// Calls are deferred until ResourceLifecycle::start, after ownership is installed.
+#[derive(Debug, Clone, Copy)]
+pub struct InboundListenerEndpoints {
+    pub external: std::net::SocketAddr,
+    pub stream: std::net::SocketAddr,
+    pub datagram: std::net::SocketAddr,
+}
 pub trait ResourceAccess: Send + Sync {
+    fn open_inbound_stream(
+        &self,
+        _caller: crate::AcceptedCaller,
+        _endpoint: zero_traits::FallbackEndpoint,
+    ) -> BoxFuture<'_, Result<crate::TcpRelayStream, BuildError>> {
+        Box::pin(async {
+            Err(super::ChannelError::new(
+                super::Stage::Prepare,
+                super::Reason::Unsupported,
+                super::Impact::Session,
+            ))
+        })
+    }
+
+    fn open_accepted_datagram(
+        &self,
+        _caller: &crate::AcceptedCaller,
+    ) -> Result<GrantedDatagramListener, BuildError> {
+        Err(super::ChannelError::new(
+            super::Stage::Prepare,
+            super::Reason::Unsupported,
+            super::Impact::Session,
+        ))
+    }
+
+    fn register_metadata_pool(
+        &self,
+        _ordinal: usize,
+        _actual: crate::controlled_datagram::metadata_pool::MetadataPoolRegistration,
+        _tasks: &crate::contract::scope::TaskRegistrar,
+    ) -> Result<(), BuildError> {
+        Err(super::ChannelError::new(
+            super::Stage::Prepare,
+            super::Reason::Unsupported,
+            super::Impact::Component,
+        ))
+    }
     fn open_root_datagram(
         &self,
         _request: &RootDatagramRequest,
@@ -225,6 +340,30 @@ pub trait ResourceAccess: Send + Sync {
             super::Impact::Component,
         ))
     }
+    /// Inbound ancillary ICMP only. The installed host retains the original
+    /// native controller before synchronous creation; no egress/process grant.
+    /// The unique view must stay in that same component's actual Scope.
+    fn open_inbound_file_tree(
+        &self,
+        _caller: crate::AcceptedCaller,
+        _root: PathBuf,
+    ) -> Result<crate::file::tree::FileTreeSession, BuildError> {
+        Err(super::ChannelError::new(
+            super::Stage::Prepare,
+            super::Reason::Unsupported,
+            super::Impact::Component,
+        ))
+    }
+    fn bind_inbound_icmp(
+        &self,
+        _source: std::net::IpAddr,
+    ) -> Result<crate::controlled_icmp::ControlledIcmpSocket, BuildError> {
+        Err(super::ChannelError::new(
+            super::Stage::Prepare,
+            super::Reason::Unsupported,
+            super::Impact::Component,
+        ))
+    }
     fn listen_metadata_datagram(
         &self,
         _request: MetadataDatagramRequest,
@@ -255,6 +394,28 @@ pub trait ResourceAccess: Send + Sync {
     }
     /// Synchronous so the persistent protocol owner can install the returned
     /// Child before any await. Default deny; only the host grants native starts.
+    /// Actual public and kernel-side endpoints of a declared listener handoff.
+    fn inbound_endpoints(&self) -> Result<InboundListenerEndpoints, BuildError> {
+        Err(super::ChannelError::new(
+            super::Stage::Prepare,
+            super::Reason::Unsupported,
+            super::Impact::Component,
+        ))
+    }
+    /// Start-only, bounded readiness I/O. True means an actual connection was
+    /// established and its original controller confirmed closed; never peer readiness for UDP.
+    fn probe_inbound_listener(
+        &self,
+        _deadline: tokio::time::Instant,
+    ) -> BoxFuture<'_, Result<bool, BuildError>> {
+        Box::pin(async {
+            Err(super::ChannelError::new(
+                super::Stage::Prepare,
+                super::Reason::Unsupported,
+                super::Impact::Component,
+            ))
+        })
+    }
     fn spawn_process(&self, _: ProcessRequest) -> Result<tokio::process::Child, BuildError> {
         Err(super::ChannelError::new(
             super::Stage::Prepare,

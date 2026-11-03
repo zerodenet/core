@@ -8,6 +8,8 @@ mod listener;
 #[cfg(feature = "managed-stream-runtime")]
 mod mux;
 mod route;
+#[cfg(feature = "managed-datagram-runtime")]
+pub(in crate::runtime) use route::DatagramContinuityHost;
 mod shared;
 #[cfg(feature = "udp-runtime")]
 mod stop;

@@ -79,7 +79,7 @@ impl Sender {
         Ok(response.map(|_| {
             ReceivedBody::H3(Body {
                 receiver,
-                task: Some(driver.abort_handle()),
+                task: Some(driver.abort_handle().into()),
                 life: None,
                 progress: None,
             })
@@ -145,7 +145,7 @@ pub(in crate::split_http) fn single(
     });
     let body = Body {
         receiver,
-        task: Some(producer.abort_handle()),
+        task: Some(producer.abort_handle().into()),
         life: None,
         progress: Some(state.clone()),
     };

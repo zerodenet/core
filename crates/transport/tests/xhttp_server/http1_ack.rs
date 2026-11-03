@@ -17,6 +17,7 @@ async fn http1_receipt_unblocks_connection_reuse_before_missing_packet_arrives()
             .unwrap();
     }
     let permits = Arc::new(tokio::sync::Semaphore::new(2));
+    let (accepted, _pending) = mpsc::channel(1);
     let profile = Profile::new(&crate::profile::OwnedSplitHttpProfile {
         host: Some("example.com".into()),
         path: "/tunnel".into(),
@@ -31,6 +32,7 @@ async fn http1_receipt_unblocks_connection_reuse_before_missing_packet_arrives()
             session.clone(),
             5,
             permits.clone().try_acquire_owned().unwrap(),
+            accepted.clone(),
         ),
     )
     .await
@@ -50,6 +52,7 @@ async fn http1_receipt_unblocks_connection_reuse_before_missing_packet_arrives()
         session.clone(),
         0,
         permits.clone().try_acquire_owned().unwrap(),
+        accepted.clone(),
     )
     .await
     .unwrap();
@@ -75,6 +78,7 @@ async fn http1_receipt_keeps_budget_duplicate_checks_and_admission_deadline() {
         .await
         .unwrap();
     let permits = Arc::new(tokio::sync::Semaphore::new(2));
+    let (accepted, _pending) = mpsc::channel(1);
     let profile = Profile::new(&crate::profile::OwnedSplitHttpProfile {
         host: Some("example.com".into()),
         path: "/tunnel".into(),
@@ -89,6 +93,7 @@ async fn http1_receipt_keeps_budget_duplicate_checks_and_admission_deadline() {
         session.clone(),
         1,
         permits.clone().try_acquire_owned().unwrap(),
+        accepted.clone(),
     )
     .await
     .unwrap();
@@ -102,6 +107,7 @@ async fn http1_receipt_keeps_budget_duplicate_checks_and_admission_deadline() {
         session.clone(),
         1,
         permits.clone().try_acquire_owned().unwrap(),
+        accepted.clone(),
     )
     .await
     .unwrap();

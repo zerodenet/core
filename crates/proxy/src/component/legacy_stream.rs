@@ -12,10 +12,17 @@ use zero_platform_tokio::{contract::stream::BoxStream, ClientStream};
 pub(crate) struct LegacyStream {
     io: Mutex<BoxStream>,
     local: Option<SocketAddr>,
-    peer: SocketAddr,
+    peer: Option<SocketAddr>,
 }
 impl LegacyStream {
     pub(crate) fn new(io: BoxStream, local: Option<SocketAddr>, peer: SocketAddr) -> Self {
+        Self::with_endpoints(io, local, Some(peer))
+    }
+    pub(crate) fn with_endpoints(
+        io: BoxStream,
+        local: Option<SocketAddr>,
+        peer: Option<SocketAddr>,
+    ) -> Self {
         Self {
             io: Mutex::new(io),
             local,
@@ -74,6 +81,11 @@ impl ClientStream for LegacyStream {
         })
     }
     fn peer_addr(&self) -> io::Result<SocketAddr> {
-        Ok(self.peer)
+        self.peer.ok_or_else(|| {
+            io::Error::new(
+                io::ErrorKind::AddrNotAvailable,
+                "relay peer endpoint was not supplied",
+            )
+        })
     }
 }

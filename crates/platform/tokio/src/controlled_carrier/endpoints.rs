@@ -1,4 +1,5 @@
-//! Ready-time facts from the same original connected socket, never configured guesses.
+//! Actual original socket local address and selected peer. TCP records its
+//! connected peer; UDP records the selected send peer, without remote confirmation.
 use super::{slot::Slot, CarrierAdoption};
 use std::{
     net::SocketAddr,

@@ -21,7 +21,7 @@ pub(crate) struct PacketPathStartRequest<'a> {
 
 pub(crate) struct PacketPathCarrierRequest {
     pub(crate) descriptor: PacketPathCarrierDescriptor,
-    pub(crate) build_operation: Box<dyn PreparedUdpPacketPathOperation>,
+    pub(crate) build_operation: Arc<dyn PreparedUdpPacketPathOperation>,
 }
 
 impl PacketPathCarrierRequest {

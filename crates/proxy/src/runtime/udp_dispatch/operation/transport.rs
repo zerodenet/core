@@ -1,3 +1,5 @@
+mod relay;
+pub(crate) use relay::{PreparedTransportUdpRelay, PreparedTwoStreamTransportUdpRelay};
 mod connector;
 pub(crate) use connector::prepare_transport_udp_relay_connector;
 use std::future::Future;

@@ -10,9 +10,44 @@ pub(crate) struct DotDnsResolver {
     server_name: String,
     tls: Arc<rustls::ClientConfig>,
     egress: zero_platform_tokio::EgressInterfaceControl,
+    #[cfg(feature = "test-support")]
+    test_io_started: std::sync::atomic::AtomicBool,
 }
 
 impl DotDnsResolver {
+    pub(crate) fn native_tls_config(&self) -> Arc<rustls::ClientConfig> {
+        #[cfg(feature = "test-support")]
+        self.test_io_started
+            .store(true, std::sync::atomic::Ordering::Release);
+        self.tls.clone()
+    }
+    #[cfg(feature = "test-support")]
+    pub(crate) fn install_test_ca(
+        &mut self,
+        certificate: rustls::pki_types::CertificateDer<'static>,
+    ) -> io::Result<()> {
+        if self
+            .test_io_started
+            .load(std::sync::atomic::Ordering::Acquire)
+        {
+            return Err(io::Error::new(
+                io::ErrorKind::WouldBlock,
+                "fixture CA requires an unused cold DoT backend",
+            ));
+        }
+        let mut roots = rustls::RootCertStore::empty();
+        roots.add(certificate).map_err(io::Error::other)?;
+        self.tls = Arc::new(
+            rustls::ClientConfig::builder_with_provider(Arc::new(
+                rustls::crypto::ring::default_provider(),
+            ))
+            .with_safe_default_protocol_versions()
+            .map_err(io::Error::other)?
+            .with_root_certificates(roots)
+            .with_no_client_auth(),
+        );
+        Ok(())
+    }
     pub(crate) fn new(
         host: String,
         port: u16,
@@ -50,6 +85,8 @@ impl DotDnsResolver {
             server_name: server_name.unwrap_or(host),
             tls,
             egress,
+            #[cfg(feature = "test-support")]
+            test_io_started: Default::default(),
         })
     }
 
@@ -82,6 +119,9 @@ impl DotDnsResolver {
         detour: Option<&str>,
         connector: Option<&dyn crate::DnsOutboundConnector>,
     ) -> io::Result<Vec<u8>> {
+        #[cfg(feature = "test-support")]
+        self.test_io_started
+            .store(true, std::sync::atomic::Ordering::Release);
         let stream = tokio::time::timeout(
             DNS_TIMEOUT,
             super::connect_tcp(addr, &self.egress, detour, connector),

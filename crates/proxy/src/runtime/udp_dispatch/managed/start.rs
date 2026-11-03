@@ -1,4 +1,4 @@
 mod context;
+#[cfg(feature = "managed-datagram-runtime")]
 mod datagram;
-mod send;
 mod upstream;

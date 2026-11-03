@@ -2,7 +2,7 @@
 use crate::support;
 use std::sync::Arc;
 use support::interop::TempMaterial;
-use support::{free_port, spawn_engine, wait_for, wait_for_listener};
+use support::{spawn_engine, wait_for, wait_for_listener};
 use tokio::time::{timeout, Duration};
 use tokio::{
     io::{AsyncReadExt, AsyncWriteExt},
@@ -167,3 +167,6 @@ async fn standard_vmess_auth_rejection_never_mints_and_block_or_refusal_adds_no_
     .await
     .unwrap();
 }
+
+#[path = "vmess_inbound/standard_datagram.rs"]
+mod standard_datagram;

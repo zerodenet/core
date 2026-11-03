@@ -59,7 +59,11 @@ impl quinn::Runtime for OwnedRuntime {
                         origin: OwnedDriverOrigin::Quinn(DriverOrigin::Endpoint),
                         io_error: result.err().map(Arc::new),
                         close_reason: None,
-                        #[cfg(any(feature = "split_http", feature = "hysteria"))]
+                        #[cfg(any(
+                            feature = "split_http",
+                            feature = "hysteria",
+                            feature = "quic_h3"
+                        ))]
                         http3: None,
                     },
                     DriverExit::Connection {
@@ -69,7 +73,11 @@ impl quinn::Runtime for OwnedRuntime {
                         origin: OwnedDriverOrigin::Quinn(DriverOrigin::Connection),
                         io_error: result.err().map(Arc::new),
                         close_reason,
-                        #[cfg(any(feature = "split_http", feature = "hysteria"))]
+                        #[cfg(any(
+                            feature = "split_http",
+                            feature = "hysteria",
+                            feature = "quic_h3"
+                        ))]
                         http3: None,
                     },
                 };
@@ -99,7 +107,7 @@ impl quinn::Runtime for OwnedRuntime {
     }
 }
 #[derive(Debug)]
-struct OriginalIo(Arc<io::Error>);
+pub(super) struct OriginalIo(pub(super) Arc<io::Error>);
 impl fmt::Display for OriginalIo {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         self.0.fmt(f)

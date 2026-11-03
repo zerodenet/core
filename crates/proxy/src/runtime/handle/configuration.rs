@@ -85,8 +85,9 @@ impl ProxyHandle {
             .map_err(|error| error.to_string())?;
         let handle = self.clone();
         self.proxy
-            .apply_owner
-            .run(self.proxy.reload_apply_lock.clone(), async move {
+            .host
+            .apply()
+            .run(self.proxy.host.apply_lock().clone(), async move {
                 let result = handle
                     .apply_config_under_owned_guard(
                         candidate,
@@ -118,7 +119,7 @@ impl ProxyHandle {
             reconciler.validate(previous.config().as_ref(), &candidate)?;
         }
 
-        if self.proxy.apply_owner.is_closing() {
+        if self.proxy.host.apply().is_closing() {
             return Err("proxy stopped before accepting configuration changes".to_owned());
         }
 
@@ -190,7 +191,7 @@ impl ProxyHandle {
     }
 
     async fn commit_configuration(&self, timeout: Duration) -> Result<(), String> {
-        if self.proxy.apply_owner.is_closing() {
+        if self.proxy.host.apply().is_closing() {
             return Err("proxy stopped before configuration commit".to_owned());
         }
         let token = self.retire_prepared_dns(timeout).await?;
@@ -200,7 +201,7 @@ impl ProxyHandle {
             .scan_components(&component_config, tokio::time::Instant::now() + timeout)
             .await
             .map_err(|error| error.to_string())?;
-        self.proxy.apply_owner.commit(|| {
+        self.proxy.host.apply().commit(|| {
             self.proxy
                 .protocols
                 .commit_components(&component_config, || {
@@ -261,7 +262,7 @@ impl ProxyHandle {
             .scan_components(&component_config, tokio::time::Instant::now() + timeout)
             .await
             .map_err(|error| error.to_string())?;
-        self.proxy.apply_owner.compensate(|| {
+        self.proxy.host.apply().compensate(|| {
             self.proxy
                 .protocols
                 .commit_components(&component_config, || {

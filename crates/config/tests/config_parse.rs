@@ -1,4 +1,6 @@
 use std::fs;
+#[path = "config_parse/udp_direct_budget.rs"]
+mod udp_direct_budget;
 use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -3605,4 +3607,59 @@ fn escape_json_path(path: &Path) -> String {
 
 fn cleanup_temp_dir(path: &Path) {
     let _ = fs::remove_dir_all(path);
+}
+
+#[test]
+fn component_file_budget_defaults_without_changing_legacy_exports_and_validates_bounds() {
+    let parse = |budget: Option<usize>| {
+        let mut raw = serde_json::json!({"route":{"final":{"type":"direct"}}});
+        if let Some(budget) = budget {
+            raw["runtime"] = serde_json::json!({"file_read_max_bytes":budget});
+        }
+        RuntimeConfig::parse(&raw.to_string())
+    };
+    let legacy = parse(None).unwrap();
+    assert_eq!(
+        legacy.runtime.effective_file_read_max_bytes(),
+        8 * 1024 * 1024
+    );
+    assert!(serde_json::to_value(&legacy.runtime)
+        .unwrap()
+        .get("file_read_max_bytes")
+        .is_none());
+    let custom = parse(Some(32 * 1024 * 1024)).unwrap();
+    assert_eq!(
+        custom.runtime.effective_file_read_max_bytes(),
+        32 * 1024 * 1024
+    );
+    assert_eq!(
+        serde_json::to_value(&custom.runtime).unwrap()["file_read_max_bytes"],
+        32 * 1024 * 1024
+    );
+    assert!(parse(Some(0)).is_err());
+    assert!(parse(Some(usize::MAX)).is_err());
+}
+
+#[test]
+fn native_mux_carrier_limit_defaults_without_changing_export_and_rejects_invalid_bounds() {
+    let source = r#"{"route":{"final":{"type":"direct"}}}"#;
+    let config = RuntimeConfig::parse(source).unwrap();
+    assert_eq!(config.runtime.effective_native_mux_max_carriers(), 4);
+    assert!(serde_json::to_value(&config.runtime)
+        .unwrap()
+        .get("native_mux_max_carriers")
+        .is_none());
+    for value in [0, 4097] {
+        let mut raw: serde_json::Value = serde_json::from_str(source).unwrap();
+        raw["runtime"] = serde_json::json!({"native_mux_max_carriers":value});
+        assert!(RuntimeConfig::parse(&raw.to_string()).is_err());
+    }
+    let mut raw: serde_json::Value = serde_json::from_str(source).unwrap();
+    raw["runtime"] = serde_json::json!({"native_mux_max_carriers":9});
+    let custom = RuntimeConfig::parse(&raw.to_string()).unwrap();
+    assert_eq!(custom.runtime.effective_native_mux_max_carriers(), 9);
+    assert_eq!(
+        serde_json::to_value(custom.runtime).unwrap()["native_mux_max_carriers"],
+        9
+    );
 }

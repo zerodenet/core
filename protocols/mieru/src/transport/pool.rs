@@ -121,7 +121,7 @@ impl MieruTransportLeaf {
                 async move {
                     let stream = carrier.await.map_err(|error| {
                         let error: RuntimeError = error.into();
-                        std::io::Error::other(error.to_string())
+                        std::io::Error::other(error)
                     })?;
                     ClientConnection::tcp_with_options(stream, &username, &password, &options).await
                 }

@@ -191,3 +191,43 @@ pub async fn recv<R: PacketRx + ?Sized>(
 ) -> Result<Option<IpPacket>, ChannelError> {
     poll_fn(|cx| rx.as_mut().poll_recv(cx)).await
 }
+
+/// Observations at the real endpoint boundary; no protocol configuration or
+/// business-session allocator crosses this interface.
+#[derive(Debug, Clone, Copy)]
+pub enum PacketPlane {
+    Inner,
+    Outer,
+}
+#[derive(Debug, Clone, Copy)]
+pub enum PacketEvent {
+    Responded {
+        bytes: usize,
+    },
+    Received {
+        identified: bool,
+        bytes: usize,
+    },
+    PeerReceived {
+        bytes: usize,
+    },
+    Sent {
+        bytes: usize,
+    },
+    Error {
+        identified: bool,
+    },
+    Dropped {
+        identified: bool,
+        reason: zero_traits::PacketDropReason,
+        count: u64,
+    },
+}
+pub trait PacketObserver: Send + Sync {
+    fn egress(&self) -> crate::EgressInterfaceControl;
+    /// Called only after the actual initialized native receive has been polled.
+    fn ready(&self);
+    fn peers(&self, identities: &[Option<String>]);
+    fn event(&self, plane: PacketPlane, peer: Option<usize>, event: PacketEvent);
+    fn ingress_allowed(&self) -> bool;
+}

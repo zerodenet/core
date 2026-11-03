@@ -152,7 +152,7 @@ pub(super) async fn connect_profiles(
                     });
                     let body = Body {
                         receiver,
-                        task: Some(producer.abort_handle()),
+                        task: Some(producer.abort_handle().into()),
                         life: None,
                         progress: Some(state.clone()),
                     };

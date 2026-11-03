@@ -59,7 +59,7 @@ impl Hysteria2InboundBindPlan {
         }
     }
 
-    pub(super) fn website_tls(&self) -> Result<tokio_rustls::TlsAcceptor, RuntimeError> {
+    pub(crate) fn website_tls(&self) -> Result<tokio_rustls::TlsAcceptor, RuntimeError> {
         match zero_transport::tls::build_tls_acceptor(
             &zero_transport::profile::OwnedServerTlsProfile {
                 options: Default::default(),
@@ -80,6 +80,24 @@ impl Hysteria2InboundBindPlan {
         }
     }
 
+    pub(crate) fn server_config(&self) -> Result<quinn::ServerConfig, RuntimeError> {
+        let profile = zero_transport::profile::OwnedServerTlsProfile {
+            options: Default::default(),
+            cert_path: self.cert_path.clone(),
+            key_path: self.key_path.clone(),
+            alpn: Vec::new(),
+            server_fingerprint: None,
+        };
+        zero_transport::quic::server_config(
+            &profile,
+            self.source_dir.as_deref(),
+            &inbound_quic_alpn_protocols(),
+            super::congestion::transport(self.settings)?,
+        )
+    }
+    pub(crate) fn masks(&self) -> Vec<zero_transport::finalmask::udp::Mask> {
+        self.masks.clone()
+    }
     pub async fn bind(
         &self,
         listen_addr: &str,

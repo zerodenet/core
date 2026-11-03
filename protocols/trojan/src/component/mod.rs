@@ -1,6 +1,7 @@
 //! Protocol-owned ordinary Trojan Stream roles over a constrained real carrier.
 mod carrier;
 pub mod inbound;
+pub mod mux;
 mod options;
 pub use options::Options;
 use std::sync::Arc;

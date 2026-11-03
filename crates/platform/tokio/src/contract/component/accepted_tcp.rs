@@ -8,6 +8,9 @@ pub struct AcceptedTcpLimits {
     /// Primary handler plus all selected same-entry users/drivers. This is not
     /// borrowed from listener bind attempts, datagram peers or outer Scope one.
     pub max_tasks_per_socket: NonZeroUsize,
+    /// Original auxiliary owners retained by this exact accepted entry.
+    /// Zero grants no resource installation; this never grants native access.
+    pub max_resources_per_socket: usize,
 }
 impl AcceptedTcpLimits {
     /// The host must add this checked ceiling to its original driver/internal
@@ -28,6 +31,7 @@ mod tests {
         let limits = AcceptedTcpLimits {
             max_sockets: NonZeroUsize::new(3).unwrap(),
             max_tasks_per_socket: NonZeroUsize::new(2).unwrap(),
+            max_resources_per_socket: 0,
         };
         assert_eq!(limits.task_slots().unwrap().get(), 6);
         let overflow = AcceptedTcpLimits {

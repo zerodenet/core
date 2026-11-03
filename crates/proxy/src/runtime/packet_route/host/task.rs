@@ -57,7 +57,6 @@ impl DriverTask {
         }
         Ok(result)
     }
-    #[cfg(test)]
     pub(super) async fn join_closed(&self) -> io::Result<()> {
         let result = self.join().await?;
         match &result.native {

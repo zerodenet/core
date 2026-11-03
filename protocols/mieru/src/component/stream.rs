@@ -1,4 +1,4 @@
-//! Standard native Stream, sharing its canonical owner's real TCP driver.
+//! Standard Stream and Datagram roles over one canonical owner's real drivers.
 mod options;
 pub use options::{PreparedTcp, StreamOptions, TcpPreparation};
 use std::sync::Arc;
@@ -45,8 +45,12 @@ impl StreamOptions {
             )
         })?;
         let owner = state.managed(pool)?;
-        if owner.limit != self.prepared.pool.limit
-            || owner.grants.is_some() != self.prepared.pool.controlled
+        if owner.identity != self.prepared.pool.identity
+            || owner.limit != self.prepared.pool.limit
+            || owner
+                .carriers
+                .iter()
+                .any(|carrier| carrier.grants.is_some() != self.prepared.pool.controlled)
         {
             return Err(std::io::Error::new(
                 std::io::ErrorKind::InvalidInput,
@@ -61,7 +65,7 @@ impl ComponentFactory for StreamFactory {
     fn describe(&self, options: &StreamOptions) -> ComponentSpec {
         ComponentSpec {
             owner: ResourceOwner::Component,
-            roles: vec![RoleKind::Stream],
+            roles: vec![RoleKind::Stream, RoleKind::Datagram],
             dependencies: vec![options.pool_owner],
             static_identity: options.identity.clone(),
             resources: vec![],
@@ -95,10 +99,17 @@ impl ComponentFactory for StreamFactory {
             }),
             roles: ComponentRoles {
                 stream: Some(erase_stream(Outbound {
-                    options,
-                    admission,
+                    options: options.clone(),
+                    admission: admission.clone(),
                     pool,
                 })),
+                datagram: Some(zero_platform_tokio::contract::datagram::erase_datagram(
+                    Outbound {
+                        options,
+                        admission,
+                        pool,
+                    },
+                )),
                 ..Default::default()
             },
         })
@@ -116,7 +127,19 @@ impl ResourceLifecycle for Owner {
                 )
                 .with_source(source)
         })?;
-        if self.options.prepared.dial != pool.upstream.binding().dial {
+        let prepared = &self.options.prepared;
+        let key = prepared.key();
+        let carrier = pool.carrier(&key, &prepared.options).map_err(|source| {
+            self.admission
+                .error(
+                    None,
+                    Stage::Prepare,
+                    Reason::StalePlan,
+                    DeliveryState::NotSubmitted,
+                )
+                .with_source(source)
+        })?;
+        if self.options.prepared.dial != carrier.upstream.binding().dial {
             return Err(self.admission.error(
                 None,
                 Stage::Prepare,
@@ -134,6 +157,7 @@ impl ResourceLifecycle for Owner {
     }
 }
 mod connect;
+mod datagram;
 #[cfg(test)]
 #[path = "../../tests/component/stream.rs"]
 mod tests;

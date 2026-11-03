@@ -62,7 +62,7 @@ impl OrchestrationState {
         );
         let prepared = proxy
             .protocols
-            .prepare_outbound_devices(
+            .prepare_devices(
                 snapshot.config(),
                 proxy.tcp_runtime_services_for_snapshot(snapshot.clone()),
             )
@@ -81,9 +81,7 @@ impl OrchestrationState {
         }
         match prepared {
             Ok(prepared) => {
-                for device in prepared {
-                    device.publish().await;
-                }
+                prepared.publish().await;
                 self.publish_endpoint_facts(proxy);
                 self.publish_network_recovery(
                     proxy,

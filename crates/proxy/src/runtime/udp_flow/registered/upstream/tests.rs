@@ -113,8 +113,15 @@ impl UpstreamAssociationTransport<DummyTarget> for DummyAssociation {
         panic!("dummy recv_response_parts should not be called in unit tests")
     }
 
-    fn close(self, reason: UpstreamAssociationCloseReason) {
+    fn request_close(&mut self, reason: UpstreamAssociationCloseReason) {
         self.close_log.lock().expect("close log").push(reason);
+    }
+
+    async fn wait_closed(
+        &mut self,
+        _deadline: tokio::time::Instant,
+    ) -> Result<zero_platform_tokio::contract::lifecycle::CloseReport, EngineError> {
+        panic!("a request-close spy cannot certify original closure")
     }
 }
 

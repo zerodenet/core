@@ -11,11 +11,11 @@ impl super::ProtocolInventory {
         &self,
         work: impl std::future::Future<Output = T>,
     ) -> T {
-        self.registry.components.drive_supervised(work).await
+        self.host.components().drive_supervised(work).await
     }
     pub(crate) async fn component_failure(&self) -> zero_engine::EngineError {
         zero_engine::EngineError::Io(std::io::Error::other(
-            self.registry.components.next_failure().await,
+            self.host.components().next_failure().await,
         ))
     }
     pub(crate) async fn scan_components(
@@ -23,8 +23,8 @@ impl super::ProtocolInventory {
         config: &Arc<RuntimeConfig>,
         deadline: tokio::time::Instant,
     ) -> Result<(), zero_engine::EngineError> {
-        self.registry
-            .components
+        self.host
+            .components()
             .scan_candidate(config, deadline)
             .await
             .map_err(|error| zero_engine::EngineError::Io(std::io::Error::other(error)))
@@ -39,8 +39,8 @@ impl super::ProtocolInventory {
         F: FnOnce() -> Fut,
         Fut: std::future::Future<Output = T>,
     {
-        self.registry
-            .components
+        self.host
+            .components()
             .maintain_service(config, deadline, work)
             .await
     }
@@ -49,21 +49,21 @@ impl super::ProtocolInventory {
         &self,
         config: &Arc<RuntimeConfig>,
     ) -> Option<Arc<ComponentPlan>> {
-        self.registry.components.current(config)
+        self.host.components().current(config)
     }
     #[cfg(feature = "managed-datagram-runtime")]
     pub(crate) fn allocate_peer_association(
         &self,
     ) -> Result<zero_core::component::AssociationId, zero_platform_tokio::contract::ChannelError>
     {
-        self.registry.components.allocate_association()
+        self.host.components().allocate_association()
     }
     pub(crate) fn allocate_resource_identity(
         &self,
     ) -> Result<zero_core::component::ComponentInstanceId, zero_engine::EngineError> {
         let component = self
-            .registry
-            .components
+            .host
+            .components()
             .allocate_id()
             .map_err(|error| zero_engine::EngineError::Io(std::io::Error::other(error)))?;
         Ok(zero_core::component::ComponentInstanceId {
@@ -77,7 +77,7 @@ impl super::ProtocolInventory {
         tag: String,
     ) -> Result<crate::component::request::IngressIdentity, SharedError> {
         use zero_core::component::{InboundId, ResourceGeneration, RoleId, RoleInstanceId};
-        let component = self.registry.components.allocate_id().map_err(Arc::new)?;
+        let component = self.host.components().allocate_id().map_err(Arc::new)?;
         Ok(crate::component::request::IngressIdentity {
             tag,
             role: RoleInstanceId {
@@ -88,15 +88,15 @@ impl super::ProtocolInventory {
         })
     }
     pub(crate) fn stop_component_admission(&self) {
-        self.registry.components.stop_business();
+        self.host.components().stop_business();
     }
     pub(crate) async fn start_components(
         &self,
         config: Arc<RuntimeConfig>,
         deadline: tokio::time::Instant,
     ) -> Result<(), zero_engine::EngineError> {
-        self.registry
-            .components
+        self.host
+            .components()
             .start(config, deadline)
             .await
             .map_err(|error| zero_engine::EngineError::Io(std::io::Error::other(error)))
@@ -106,14 +106,14 @@ impl super::ProtocolInventory {
         config: &Arc<RuntimeConfig>,
         commit: impl FnOnce() -> Result<T, String>,
     ) -> Result<T, String> {
-        self.registry.components.commit(config, commit)
+        self.host.components().commit(config, commit)
     }
     pub(crate) async fn shutdown_components(
         &self,
         deadline: tokio::time::Instant,
     ) -> Result<(), zero_engine::EngineError> {
-        self.registry
-            .components
+        self.host
+            .components()
             .shutdown(deadline)
             .await
             .map_err(|error| zero_engine::EngineError::Io(std::io::Error::other(error)))
@@ -122,7 +122,7 @@ impl super::ProtocolInventory {
         &self,
         config: Arc<RuntimeConfig>,
     ) -> Result<Arc<ComponentPlan>, SharedError> {
-        self.registry.components.prepare(config)
+        self.host.components().prepare(config)
     }
     pub(crate) fn validate_components(
         &self,

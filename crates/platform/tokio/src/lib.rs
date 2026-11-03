@@ -1,5 +1,6 @@
 pub mod contract;
 pub mod controlled_icmp;
+pub mod rate_limit;
 mod tokio_listener;
 mod tokio_socket;
 pub use tokio_listener::TokioListener;
@@ -7,10 +8,10 @@ use tokio_socket::Storage as TcpStorage;
 mod controlled_listener;
 pub mod file;
 pub use controlled_listener::{
-    AcceptedTcp, AcceptedTcpCaller, AcceptedTcpClaim, AcceptedTcpClosed, AcceptedTcpEvidence,
-    AcceptedTcpNativeClosed, AcceptedTcpStream, AcceptedTcpTaskReceiver, AcceptedTcpTasks,
-    AcceptedTcpUsers, ControlledTcpListener, ControlledTcpListenerControl,
-    ControlledTcpListenerOwner,
+    AcceptedCaller, AcceptedOrigin, AcceptedPeerScope, AcceptedResource, AcceptedTasks,
+    AcceptedTcp, AcceptedTcpClaim, AcceptedTcpClosed, AcceptedTcpEvidence, AcceptedTcpNativeClosed,
+    AcceptedTcpStream, AcceptedTcpTaskReceiver, AcceptedTcpUsers, ControlledTcpListener,
+    ControlledTcpListenerControl, ControlledTcpListenerOwner,
 };
 #[cfg(feature = "host-network-stats")]
 pub mod network_statistics;
@@ -41,6 +42,8 @@ mod datagram;
 mod windows_socket;
 #[cfg(any(unix, windows))]
 pub use controlled_tcp::PendingTcpConnect;
+#[cfg(unix)]
+pub use controlled_tcp::PendingUnixConnect;
 pub use controlled_tcp::{ControlledTcpControl, ControlledTcpStream};
 mod dial;
 mod network_service;
@@ -74,6 +77,17 @@ pub struct TcpConnectError {
     interface_bound: bool,
     local_addr: Option<SocketAddr>,
     error: io::Error,
+}
+
+impl std::fmt::Display for TcpConnectError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        self.error.fmt(f)
+    }
+}
+impl std::error::Error for TcpConnectError {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        Some(&self.error)
+    }
 }
 
 impl TcpConnectError {
@@ -850,3 +864,6 @@ pub trait TcpConnector: Send + Sync {
 }
 
 // ── Cross-crate trait impls ──
+
+/// Bounded asynchronous sender retaining its actual reservation across polls.
+pub use tokio_util::sync::PollSender;

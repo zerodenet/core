@@ -34,6 +34,11 @@ pub(super) async fn proxy(
     x_forwarded: bool,
     request: http::Request<()>,
     stream: &mut dyn HttpExchange,
+    scoped: Option<(
+        &dyn zero_platform_tokio::contract::component::ResourceAccess,
+        &zero_platform_tokio::AcceptedCaller,
+        bool,
+    )>,
 ) -> io::Result<()> {
     let mut body = Vec::new();
     while let Some(mut chunk) = stream.recv_data().await.map_err(io::Error::other)? {
@@ -113,7 +118,22 @@ pub(super) async fn proxy(
         }
     }
     let request = http::Request::from_parts(parts, Bytes::from(body));
-    let response = match client.send(request).await {
+    let response = match match scoped {
+        Some((resources, caller, insecure)) => {
+            let (parts, body) = request.into_parts();
+            let frames =
+                futures_util::stream::iter([Ok::<_, io::Error>(hyper::body::Frame::data(body))]);
+            client
+                .send_stream_scoped(
+                    http::Request::from_parts(parts, frames),
+                    resources,
+                    caller,
+                    insecure,
+                )
+                .await
+        }
+        None => client.send(request).await,
+    } {
         Ok(response) => response,
         Err(_) => {
             return respond(

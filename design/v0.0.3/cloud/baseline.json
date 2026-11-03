@@ -1,0 +1,92 @@
+{
+  "schema": 1,
+  "prepared": "2026-11-03",
+  "repository": "zerodenet/core",
+  "baseline_branch": "codex/v003-cloud-base",
+  "integration_branch": "codex/v003-cloud-integration",
+  "product_phase": "v0.0.3",
+  "local_develop_preserved": "bab00b6922600ecdc9461c28ddcf0630b8c730c8",
+  "github_develop_observed": "5338c727acee537762cfdd95531f6e5130274200",
+  "upstream_handling": "No merge or rebase. Remote has nightly version commits and an equivalent TUN fix; reconcile at final user-approved integration, not by resetting either side.",
+  "source_checkpoint": "dc4c6235ecb4e023ae781ca51420c323559da2a2",
+  "source_commits": [
+    {
+      "group": "01-foundations",
+      "sha": "7a06212503cd5c210e8b81e82f80e372e29492ff",
+      "title": "feat(kernel): retain standard ingress resources in the runtime host",
+      "files": 122
+    },
+    {
+      "group": "02-protocols-carriers",
+      "sha": "dd6464f0453a5d94d8751afbe20778a170682321",
+      "title": "refactor(protocols): deliver standard inbound sources with scoped carriers",
+      "files": 258
+    },
+    {
+      "group": "03-proxy",
+      "sha": "90d184a0b50d0233327617f5f848e64c3623b85f",
+      "title": "refactor(proxy): migrate ingress roles and remove legacy execution chains",
+      "files": 569
+    },
+    {
+      "group": "04-architecture",
+      "sha": "dc4c6235ecb4e023ae781ca51420c323559da2a2",
+      "title": "test(architecture): guard synchronous UDP selection and production adapters",
+      "files": 1
+    }
+  ],
+  "source_manifest_algorithm": "SHA256 of sorted relative Rust/test source and tracked Cargo.toml paths plus their SHA256, newline terminated",
+  "source_manifest_sha256": "db20493542201a4fabe9e49305d5ef17b7e734bf8880b5759b8b16b41b3e3344",
+  "source_manifest_entries": 3662,
+  "layering": "Intermediate layer commits are checkpoints; buildability qualified only for complete final stack, not each intermediate commit.",
+  "historical_wireguard_evidence": {
+    "source_freeze_inputs_unchanged": 3617,
+    "behavior_passed": 96,
+    "behavior_failed": 0,
+    "ignored_live_icmp": 2,
+    "architecture_guards_passed": 187,
+    "scope": "Previous targeted behavior/runtime-boundary tests on identical implementation; one unrelated architecture scanner was updated and rerun during handoff. Not workspace/remote CI qualification.",
+    "test_only_changed_input": "tests/workspace_architecture.rs (now 27 passed; implementation and previous runtime-boundary source unchanged)"
+  },
+  "current_preparation_checks": {
+    "format": "passed",
+    "runtime_dependency_boundaries": "passed",
+    "test_layout": "315 source files, 95 targets, 0 errors",
+    "documentation": "passed: 25 source sections, 17 task cards, 224 portable local links",
+    "ci_branch_filter": "passed: agent PR base admitted, push scope unchanged; 21 ci-scope tests passed",
+    "diff": "passed",
+    "architecture_guards": "187 passed, 0 failed on unchanged guard source",
+    "workspace_architecture": "27 passed, 0 failed after precise scan fixes; initial 25 passed, 2 failed retained in external artifacts"
+  },
+  "not_run_this_preparation": [
+    "new full workspace suite",
+    "official interop",
+    "privileged platform/TUN",
+    "final GUI/panel combination",
+    "1 CPU/1 GiB qualification",
+    "remote CI"
+  ],
+  "temporary_debt": [
+    "TEMP-WG-OUTER-UDP-01"
+  ],
+  "forbidden": [
+    "merge into develop/main",
+    "modify consumer repositories",
+    "release/deploy",
+    "expand protocol combinations"
+  ],
+  "agents_started": false,
+  "execution_topology": {
+    "cloud_environments": 1,
+    "main_agent": "C",
+    "implementation_subagents": [
+      "A",
+      "B"
+    ],
+    "working_directories": "one integration checkout plus two linked Git worktrees in the same environment",
+    "shared": "toolchain, Git object store, dependency downloads; one target exclusively scheduled by C",
+    "parallel": "implementation and lightweight static checks",
+    "serialized": "shared-contract writes, build plus corresponding test run, integration branch writes",
+    "startup": "launch C once with cloud/README.md; C spawns A/B in the same environment"
+  }
+}

@@ -1,5 +1,7 @@
 #[cfg(feature = "vless")]
-mod component;
+use ::vless::transport::VlessOutboundLeaf;
+#[cfg(feature = "vless")]
+pub(crate) mod component;
 #[cfg(feature = "vless")]
 pub(crate) use component::{component_options, native_input, LEGACY_CONNECT_STAGE};
 #[cfg(feature = "vless")]
@@ -9,18 +11,16 @@ mod reverse;
 #[cfg(feature = "vless")]
 use ::vless::transport::{
     VlessInboundBindPlan, VlessInboundListenerRequest, VlessInboundOptionsRef, VlessInboundUserRef,
-    VlessOutboundBuildOptionsRef, VlessOutboundLeaf, VlessOutboundOptionsRef,
-    VlessQuicBindOptionsRef, VlessQuicClientOptionsRef, VlessRealityClientOptionsRef,
-    VlessRealityServerOptionsRef, VlessTransportRuntime,
+    VlessOutboundBuildOptionsRef, VlessOutboundOptionsRef, VlessQuicBindOptionsRef,
+    VlessQuicClientOptionsRef, VlessRealityClientOptionsRef, VlessRealityServerOptionsRef,
+    VlessTransportRuntime,
 };
-#[cfg(feature = "vless")]
-use async_trait::async_trait;
 #[cfg(feature = "vless")]
 mod finalmask;
 #[cfg(feature = "vless")]
 mod hysteria;
 #[cfg(feature = "vless")]
-mod listener;
+pub(crate) mod inbound;
 #[cfg(feature = "vless")]
 mod mkcp;
 #[cfg(feature = "vless")]
@@ -34,10 +34,7 @@ use zero_traits::{ProtocolCapabilityDescriptor, ProtocolMetadata, ProtocolUdpFlo
 
 use crate::adapters::identity::NamedProtocolAdapter;
 use crate::protocol_registry::{
-    bind_tcp_inbound, claim_relay_two_stream_transport_udp_leaf, claim_transport_tcp_leaf,
-    inbound_listen_addr, BoundInbound, InboundListenerCapability, ManagedUdpHandlerProvider,
-    OutboundLeafClaim, OutboundLeafInput, TcpOutboundCapability, UdpFlowCapability,
-    UdpPacketPathCapability, UpstreamConnectServices,
+    inbound_listen_addr, OutboundLeafClaim, OutboundLeafInput, UpstreamConnectServices,
 };
 use crate::runtime::path::TcpPathCategory;
 use crate::runtime::transport_leaf::{
@@ -45,8 +42,7 @@ use crate::runtime::transport_leaf::{
 };
 #[cfg(feature = "vless")]
 use crate::runtime::udp_flow::managed::{
-    bridge::managed_stream_udp_handler_for_resume, ManagedStreamConnectorParts,
-    ManagedStreamHandlerPair, ManagedTupleUdpFlowConnection, ManagedTupleUdpResume,
+    ManagedStreamConnectorFlow, ManagedTupleUdpFlowConnection, ManagedTupleUdpResume,
     ManagedTupleUdpResumeConnector,
 };
 
@@ -316,8 +312,6 @@ impl ManagedTupleUdpResumeConnector for ::vless::transport::VlessManagedUdpFlowR
     const RELAY_UPSTREAM_STAGE: &'static str = "vless_relay_upstream";
     const RELAY_ESTABLISH_STAGE: &'static str = "vless_relay_establish";
     const RELAY_SEND_STAGE: &'static str = "vless_relay_send";
-    const MISMATCH_STAGE: &'static str = "udp_vless_resume";
-    const MISMATCH_MESSAGE: &'static str = "expected VLESS UDP flow resume";
 
     fn connector_flow(&self, server: &str, port: u16, session_id: u64) -> Self::ConnectorFlow {
         ::vless::transport::VlessManagedUdpFlowResume::connector_flow(
@@ -360,9 +354,10 @@ impl ManagedTupleUdpResumeConnector for ::vless::transport::VlessManagedUdpFlowR
 }
 
 #[cfg(feature = "vless")]
-impl ManagedStreamConnectorParts for ::vless::transport::VlessManagedUdpConnectorFlow {
-    fn into_managed_connector_parts(self) -> (String, bool) {
-        self.into_parts()
+impl From<::vless::transport::VlessManagedUdpConnectorFlow> for ManagedStreamConnectorFlow {
+    fn from(flow: ::vless::transport::VlessManagedUdpConnectorFlow) -> Self {
+        let (cache_key, requires_relay_upstream) = flow.into_parts();
+        Self::new(cache_key, requires_relay_upstream)
     }
 }
 
@@ -400,38 +395,36 @@ impl VlessAdapter {
         if let OutboundLeafInput::Virtual { outbound } = input {
             return reverse::claim(&self.runtime, outbound);
         }
-        let OutboundLeafInput::Proxy { outbound, endpoint } = input else {
+        let OutboundLeafInput::Proxy {
+            outbound,
+            endpoint,
+            source_dir,
+            ..
+        } = input
+        else {
             return None;
         };
         let options = outbound_options(outbound.tag(), endpoint, &outbound.protocol)?;
-        let tcp_options = options.clone();
-        let packet_options = options.clone();
-        let packet_runtime = self.runtime.clone();
+        let tcp_leaf =
+            VlessOutboundLeaf::from_options_refs(source_dir, options.clone(), &self.runtime);
         let packet_identity =
             serde_json::to_string(&(outbound.tag(), endpoint, &outbound.protocol)).ok()?;
-        let endpoint = Some(endpoint);
-        let tcp_runtime = self.runtime.clone();
-        let udp_runtime = self.runtime.clone();
+        let packet_path = tcp_leaf
+            .as_ref()
+            .ok()
+            .and_then(|leaf| packet_path::operation(&packet_identity, source_dir, leaf));
+        let (udp, udp_relay) =
+            super::udp::two_stream_transport_operations(Some(endpoint), tcp_leaf.as_ref());
+        let (tcp, tcp_relay) = super::tcp::transport_operations(tcp_leaf);
         Some(OutboundLeafClaim {
             tcp_path: TCP_PATH,
-            tcp: Some(claim_transport_tcp_leaf(endpoint, move |source_dir| {
-                VlessOutboundLeaf::from_options_refs(source_dir, tcp_options.clone(), &tcp_runtime)
-            })),
-            udp: Some(claim_relay_two_stream_transport_udp_leaf(
-                endpoint,
-                move |source_dir| {
-                    VlessOutboundLeaf::from_options_refs(source_dir, options.clone(), &udp_runtime)
-                },
-            )),
+            tcp: Some(tcp),
+            tcp_relay: Some(tcp_relay),
+            udp: Some(udp),
+            udp_relay: Some(udp_relay),
             #[cfg(feature = "raw-ip-runtime")]
             packet: None,
-            packet_path: Some(packet_path::claim(packet_identity, move |source_dir| {
-                VlessOutboundLeaf::from_options_refs(
-                    source_dir,
-                    packet_options.clone(),
-                    &packet_runtime,
-                )
-            })),
+            packet_path,
         })
     }
 }
@@ -465,196 +458,5 @@ impl ProtocolMetadata for VlessAdapter {
         ::vless::metadata::VlessProtocol.descriptor()
     }
 }
-
-#[cfg(feature = "vless")]
-#[async_trait]
-impl InboundListenerCapability for VlessAdapter {
-    async fn bind_inbound(
-        &self,
-        inbound: &InboundConfig,
-        source_dir: Option<&std::path::Path>,
-    ) -> Result<BoundInbound, EngineError> {
-        let InboundProtocolConfig::Vless {
-            final_mask,
-            quic,
-            split_http,
-            mkcp,
-            hysteria,
-            ..
-        } = &inbound.protocol
-        else {
-            return Err(EngineError::Io(std::io::Error::new(
-                std::io::ErrorKind::InvalidInput,
-                "vless inbound bind received non-vless inbound config",
-            )));
-        };
-        if mkcp.is_some() {
-            return Ok(BoundInbound::Datagram(
-                zero_transport::finalmask::packet_socket::wrap(
-                    crate::protocol_registry::bind_datagram_listener(
-                        &inbound.listen.address,
-                        inbound.listen.port,
-                    )
-                    .await?
-                    .into_std()?,
-                    &final_mask
-                        .as_deref()
-                        .map(finalmask::udp)
-                        .unwrap_or_default(),
-                    true,
-                )?,
-            ));
-        }
-        let plan = VlessInboundBindPlan::from_options_refs(
-            source_dir,
-            quic.as_deref().map(|quic| VlessQuicBindOptionsRef {
-                tls: quic,
-                cert_path: quic.cert_path.as_deref(),
-                key_path: quic.key_path.as_deref(),
-            }),
-        );
-        let plan = plan
-            .with_http3(quic.is_some() && (split_http.is_some() || hysteria.is_some()))
-            .with_hysteria(hysteria.as_deref().map(hysteria::options))?
-            .with_final_mask(
-                final_mask
-                    .as_deref()
-                    .map(finalmask::udp)
-                    .unwrap_or_default(),
-            )?;
-        let listen = inbound_listen_addr(inbound);
-        match plan.bind(&listen).await? {
-            Some(endpoint) => Ok(BoundInbound::Quic(endpoint)),
-            None => bind_tcp_inbound(inbound).await,
-        }
-    }
-
-    fn prepare_inbound_listener(
-        &self,
-        inbound: InboundConfig,
-        source_dir: Option<&std::path::Path>,
-    ) -> Result<
-        Box<dyn crate::runtime::inbound_operation::PreparedInboundListenerOperation>,
-        EngineError,
-    > {
-        let (request, fallback_target) = match &inbound.protocol {
-            InboundProtocolConfig::Vless {
-                final_mask,
-                mkcp,
-                hysteria,
-                decryption,
-                users,
-                reality,
-                tls,
-                ws,
-                grpc,
-                h2,
-                http_upgrade,
-                split_http,
-                fallback,
-                mux_response_backlog_frames,
-                mux_response_backlog_bytes,
-                ..
-            } => {
-                let user_refs = inbound_user_refs(users);
-                let profile = self
-                    .runtime
-                    .replace_inbound_profile(&inbound.tag, &user_refs)
-                    .map_err(EngineError::from)?;
-                let request = VlessInboundListenerRequest::from_options_refs(
-                    source_dir,
-                    VlessInboundOptionsRef {
-                        decryption: decryption.as_deref(),
-                        users: user_refs.iter().copied(),
-                        reality: reality
-                            .as_deref()
-                            .map(|reality| VlessRealityServerOptionsRef {
-                                target: reality.target.as_ref().map(self::reality::target),
-                                policy: vless::reality_policy::PolicyRef {
-                                    server_names: &reality.server_names,
-                                    min_client_version: reality.min_client_version.as_deref(),
-                                    max_client_version: reality.max_client_version.as_deref(),
-                                    max_time_diff_ms: reality.max_time_diff_ms,
-                                },
-                                mldsa65_seed: reality.mldsa65_seed.as_deref(),
-                                private_key: reality.private_key.as_str(),
-                                short_ids: reality.short_ids.as_slice(),
-                                server_name: reality.server_name.as_deref(),
-                                cipher_suites: reality.cipher_suites.as_slice(),
-                            }),
-                        tls: tls.as_deref(),
-                        ws: ws.as_deref(),
-                        grpc: grpc.as_deref(),
-                        h2: h2.as_deref(),
-                        http_upgrade: http_upgrade.as_deref(),
-                        split_http: split_http.as_deref(),
-                        fallback: fallback.as_deref(),
-                        mux_response_backlog_frames: *mux_response_backlog_frames,
-                        mux_response_backlog_bytes: *mux_response_backlog_bytes,
-                    },
-                )
-                .map_err(EngineError::from)?
-                .with_transport_runtime(&self.runtime)
-                .with_profile(profile)
-                .with_final_mask(
-                    final_mask
-                        .as_deref()
-                        .map(finalmask::options)
-                        .unwrap_or_default(),
-                )?
-                .with_mkcp_masks(
-                    mkcp.as_deref().map(mkcp::settings),
-                    &final_mask
-                        .as_deref()
-                        .map(finalmask::udp)
-                        .unwrap_or_default(),
-                )?
-                .with_hysteria(
-                    hysteria
-                        .as_deref()
-                        .map(|config| hysteria::inbound(config, source_dir))
-                        .transpose()?,
-                );
-                let fallback_target = fallback
-                    .as_deref()
-                    .map(crate::runtime::InboundFallbackTarget::from_profile);
-                (request, fallback_target)
-            }
-            _ => {
-                return Err(EngineError::Io(std::io::Error::new(
-                    std::io::ErrorKind::InvalidInput,
-                    "vless inbound listener received non-vless inbound config",
-                )));
-            }
-        };
-        let http3 = matches!(
-            &inbound.protocol,
-            InboundProtocolConfig::Vless {
-                quic: Some(_),
-                split_http: Some(_),
-                ..
-            }
-        );
-        Ok(listener::prepare(request, fallback_target, http3))
-    }
-}
-
-#[cfg(feature = "vless")]
-impl TcpOutboundCapability for VlessAdapter {}
-
-#[cfg(feature = "vless")]
-impl UdpFlowCapability for VlessAdapter {}
-
-#[cfg(feature = "vless")]
-impl ManagedUdpHandlerProvider for VlessAdapter {
-    fn managed_stream_udp_handlers(&self) -> Option<ManagedStreamHandlerPair> {
-        Some(managed_stream_udp_handler_for_resume::<
-            <VlessOutboundLeaf as ProxyTransportUdpLeaf>::RuntimeResume,
-        >())
-    }
-}
-
-#[cfg(feature = "vless")]
-impl UdpPacketPathCapability for VlessAdapter {}
 
 mod reality;

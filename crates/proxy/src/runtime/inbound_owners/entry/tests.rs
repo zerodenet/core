@@ -171,3 +171,15 @@ async fn publishing_a_driver_id_after_its_real_scope_exit_preserves_the_join_rec
         .unwrap();
     assert_eq!(owner.report.lock().unwrap().exited_tasks, vec![actual]);
 }
+
+#[cfg(feature = "trojan")]
+mod trojan;
+
+#[cfg(feature = "vmess")]
+mod vmess;
+
+#[cfg(feature = "shadowsocks")]
+mod shadowsocks;
+
+#[cfg(feature = "mieru")]
+mod mieru;

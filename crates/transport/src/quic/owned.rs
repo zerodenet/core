@@ -4,12 +4,12 @@
 mod callbacks;
 mod drivers;
 mod endpoint;
-#[cfg(any(feature = "split_http", feature = "hysteria"))]
+#[cfg(any(feature = "split_http", feature = "hysteria", feature = "quic_h3"))]
 pub use endpoint::h3;
 pub use endpoint::{
     MetadataUsersCompletion, OwnedBiStream, OwnedConnection, OwnedEndpointHandle,
     OwnedEndpointLimits, OwnedEndpointOwner, OwnedEndpointReport, OwnedEndpointUsersReport,
-    OwnedNativeFailure, OwnedRecvStream, OwnedSendStream, RejectedClaimedEndpoint,
+    OwnedIncoming, OwnedNativeFailure, OwnedRecvStream, OwnedSendStream, RejectedClaimedEndpoint,
 };
 mod socket;
 pub use drivers::{

@@ -188,7 +188,8 @@ impl ProxyHandle {
         let (sender, receiver) = tokio::sync::oneshot::channel();
         let mut pending = self
             .proxy
-            .reload_ack
+            .host
+            .reload_ack()
             .lock()
             .expect("reload ack lock poisoned");
         {
@@ -224,7 +225,8 @@ impl ProxyHandle {
 
     fn clear_pending_reload(&self) {
         self.proxy
-            .reload_ack
+            .host
+            .reload_ack()
             .lock()
             .expect("reload ack lock poisoned")
             .take();

@@ -15,6 +15,10 @@ use tokio::{
 };
 
 pub(crate) enum PacketIo {
+    Hosted {
+        tx: zero_platform_tokio::contract::inbound::udp::PeerTx,
+        rx: zero_platform_tokio::contract::inbound::udp::PeerRx,
+    },
     Client {
         carrier: Arc<dyn crate::client::ClientDatagramCarrier>,
     },
@@ -25,8 +29,12 @@ pub(crate) enum PacketIo {
     },
 }
 impl PacketIo {
-    async fn receive(&mut self) -> io::Result<Vec<u8>> {
+    pub(crate) async fn receive(&mut self) -> io::Result<Vec<u8>> {
         match self {
+            Self::Hosted { rx, .. } => std::future::poll_fn(|cx| rx.poll_recv(cx))
+                .await
+                .map_err(io::Error::other)?
+                .ok_or_else(|| io::ErrorKind::BrokenPipe.into()),
             Self::Server { packets, .. } => packets
                 .recv()
                 .await
@@ -39,8 +47,15 @@ impl PacketIo {
             }
         }
     }
-    async fn send(&self, data: &[u8]) -> io::Result<()> {
+    async fn send(&mut self, data: &[u8]) -> io::Result<()> {
         match self {
+            Self::Hosted { tx, .. } => {
+                let sent = tx.send(data).await?;
+                if sent != data.len() {
+                    return Err(io::ErrorKind::WriteZero.into());
+                }
+                Ok(())
+            }
             Self::Client { carrier } => carrier.send(data).await,
             Self::Server { socket, peer, .. } => {
                 socket.send_to(data, *peer).await?;

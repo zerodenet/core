@@ -90,7 +90,7 @@ fn failure(
     error.component = Some(component);
     error
 }
-struct Owner {
+pub(crate) struct Owner {
     pool: Option<Arc<ReplaySaltPool>>,
     component: ComponentId,
     instance: ComponentInstanceId,
@@ -103,12 +103,20 @@ struct Owner {
 }
 impl Owner {
     fn new(pool: Arc<ReplaySaltPool>, context: BuildContext) -> Self {
+        Self::in_scope(pool, context.instance(), context.tasks, context.cancel)
+    }
+    pub(crate) fn in_scope(
+        pool: Arc<ReplaySaltPool>,
+        instance: ComponentInstanceId,
+        tasks: TaskRegistrar,
+        cancel: CancellationToken,
+    ) -> Self {
         Self {
             pool: Some(pool),
-            component: context.component,
-            instance: context.instance(),
-            tasks: context.tasks,
-            cancel: context.cancel.child_token(),
+            component: instance.component,
+            instance,
+            tasks,
+            cancel: cancel.child_token(),
             legacy: None,
             claimed: false,
             attempted: false,

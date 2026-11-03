@@ -9,6 +9,7 @@ use zero_platform_tokio::controlled_datagram::metadata::MetadataDatagramObservat
 pub struct HostedMetadataSocket {
     observation: MetadataDatagramObservation,
     socket: Arc<MetadataSocket>,
+    wrapped: Option<Arc<dyn quinn::AsyncUdpSocket>>,
     scope: TaskScopeIdentity,
     pub(in crate::quic::owned) callbacks: Arc<callbacks::Broker>,
 }
@@ -56,6 +57,7 @@ impl HostedMetadataSocket {
         } = grant;
         Ok(Self {
             observation,
+            wrapped: None,
             socket: Arc::new(MetadataSocket {
                 receiver: Mutex::new(Some(rx)),
                 sender: tx,
@@ -66,7 +68,7 @@ impl HostedMetadataSocket {
             callbacks,
         })
     }
-    pub(in crate::quic::owned) fn matches_claim(
+    pub(crate) fn matches_claim(
         &self,
         claim: &zero_platform_tokio::controlled_datagram::metadata::MetadataViewClaim,
     ) -> bool {
@@ -80,8 +82,82 @@ impl HostedMetadataSocket {
     pub(in crate::quic::owned) fn matches(&self, registrar: &TaskRegistrar) -> bool {
         self.scope.matches(registrar) && self.scope.registration_open()
     }
-    pub(in crate::quic::owned) fn socket(&self) -> Arc<dyn quinn::AsyncUdpSocket> {
-        self.socket.clone()
+    pub(crate) fn socket(&self) -> Arc<dyn quinn::AsyncUdpSocket> {
+        self.wrapped.clone().unwrap_or_else(|| self.socket.clone())
+    }
+    /// Stateless wire decorators borrow the exact original metadata views.
+    /// Noise/tunnel workers require their own integrated original task/native grants.
+    /// This owned socket has not entered an endpoint: recover the same unique
+    /// original RX. Only construction refusals use this private handoff.
+    pub(crate) fn into_unstarted(
+        self,
+        claim: zero_platform_tokio::controlled_datagram::metadata::MetadataViewClaim,
+    ) -> GrantedMetadataListener {
+        let Self {
+            observation,
+            socket,
+            wrapped,
+            scope,
+            callbacks: _,
+        } = self;
+        drop(wrapped);
+        let socket = Arc::try_unwrap(socket)
+            .unwrap_or_else(|_| panic!("unstarted socket has an escaped abstract view"));
+        let MetadataSocket {
+            receiver,
+            sender: tx,
+            drops: _,
+            callbacks: _,
+        } = socket;
+        let rx = receiver
+            .into_inner()
+            .unwrap_or_else(|e| e.into_inner())
+            .expect("unstarted original receiver");
+        GrantedMetadataListener {
+            scope,
+            rx,
+            tx,
+            observation,
+            users_claim: Some(claim),
+        }
+    }
+    pub fn validate_stateless_masks(masks: &[crate::finalmask::udp::Mask]) -> io::Result<()> {
+        if masks.iter().any(|m| {
+            matches!(
+                m,
+                crate::finalmask::udp::Mask::Noise(_)
+                    | crate::finalmask::udp::Mask::Xdns { .. }
+                    | crate::finalmask::udp::Mask::Xicmp { .. }
+            )
+        }) {
+            return Err(io::Error::new(
+                io::ErrorKind::Unsupported,
+                "mask requires original worker/native ownership",
+            ));
+        }
+        crate::finalmask::udp::Codec::new(masks, true)?;
+        Ok(())
+    }
+    pub fn apply_stateless_masks(
+        &mut self,
+        masks: &[crate::finalmask::udp::Mask],
+    ) -> io::Result<()> {
+        Self::validate_stateless_masks(masks)?;
+        self.wrapped = Some(crate::finalmask::Socket::wrap(
+            self.socket.clone(),
+            masks,
+            true,
+        )?);
+        Ok(())
+    }
+    pub(crate) fn prepare_masks(
+        &mut self,
+        masks: &[crate::finalmask::udp::Mask],
+        icmp: Option<zero_platform_tokio::controlled_icmp::ControlledIcmpSocket>,
+    ) -> io::Result<Vec<crate::finalmask::owned::Driver>> {
+        let prepared = crate::finalmask::owned::prepare(self.socket.clone(), masks, icmp)?;
+        self.wrapped = Some(prepared.socket);
+        Ok(prepared.drivers)
     }
     pub fn set_observer(
         &mut self,

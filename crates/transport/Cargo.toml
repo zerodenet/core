@@ -19,6 +19,7 @@ split_http = ["h2", "ws", "http_server", "dep:h3", "dep:h3-quinn"]
 mkcp = []
 hysteria = ["quic", "http_server", "dep:h3", "dep:h3-quinn"]
 quic = ["tls"]
+quic_h3 = ["quic", "dep:h3", "dep:h3-quinn"]
 tls = ["dep:aws-lc-rs", "dep:rcgen", "http_client"]
 ws = []
 

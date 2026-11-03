@@ -1,9 +1,6 @@
 use std::io;
 use std::pin::Pin;
-use std::sync::atomic::{AtomicU64, Ordering};
-use std::sync::Arc;
 use std::task::{Context, Poll};
-use std::time::{Duration, Instant};
 
 use tokio::io::{AsyncRead, AsyncWrite, ReadBuf};
 
@@ -11,58 +8,11 @@ use tokio::io::{AsyncRead, AsyncWrite, ReadBuf};
 #[path = "activity/tests.rs"]
 mod tests;
 
-#[derive(Clone, Debug)]
-pub(crate) struct TcpRelayActivity {
-    state: Arc<ActivityState>,
-}
+pub(crate) use zero_platform_tokio::contract::inbound::StreamActivity as TcpRelayActivity;
 
 pub(crate) struct TcpActivityStream<S> {
     inner: S,
     activity: TcpRelayActivity,
-}
-
-#[derive(Debug)]
-struct ActivityState {
-    epoch: Instant,
-    last_activity_micros: AtomicU64,
-}
-
-impl TcpRelayActivity {
-    pub(crate) fn new() -> Self {
-        Self {
-            state: Arc::new(ActivityState {
-                epoch: Instant::now(),
-                last_activity_micros: AtomicU64::new(0),
-            }),
-        }
-    }
-
-    pub(crate) fn touch(&self) {
-        self.state
-            .last_activity_micros
-            .store(self.elapsed_micros(), Ordering::SeqCst);
-    }
-
-    pub(crate) async fn wait_for_idle(&self, timeout: Duration) {
-        loop {
-            let idle_for = self.idle_for();
-            if idle_for >= timeout {
-                return;
-            }
-            // Activity does not need to wake the watchdog. At the current
-            // deadline it reloads the marker and sleeps to the refreshed one.
-            tokio::time::sleep(timeout - idle_for).await;
-        }
-    }
-
-    fn idle_for(&self) -> Duration {
-        let last_activity = self.state.last_activity_micros.load(Ordering::SeqCst);
-        Duration::from_micros(self.elapsed_micros().saturating_sub(last_activity))
-    }
-
-    fn elapsed_micros(&self) -> u64 {
-        u64::try_from(self.state.epoch.elapsed().as_micros()).unwrap_or(u64::MAX)
-    }
 }
 
 impl<S> TcpActivityStream<S> {

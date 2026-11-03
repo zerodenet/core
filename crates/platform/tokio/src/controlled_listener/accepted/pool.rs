@@ -7,11 +7,13 @@ impl Pool {
             cancel,
             relay: Arc::new(relay::AcceptRelay::new()),
             graph: None,
+            logical_custody: Arc::new(std::sync::atomic::AtomicUsize::new(0)),
             state: Mutex::new(PoolState {
                 next: 0,
                 entries: BTreeMap::new(),
                 closed: 0,
                 reported: 0,
+                child_reports: graph::resources::ChildReports::default(),
                 transferred: false,
                 first_failure: None,
                 first_close_failure: None,
@@ -179,7 +181,7 @@ impl Pool {
         let mut state = self.state();
         let count = state.closed - state.reported;
         state.reported = state.closed;
-        let mut report = CloseReport::default();
+        let mut report = state.child_reports.take();
         if count != 0 {
             report.closed_io.push(format!(
                 "{count} accepted TCP originals explicitly closed (native only)"

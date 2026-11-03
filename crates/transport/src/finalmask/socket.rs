@@ -24,6 +24,33 @@ impl std::fmt::Debug for Socket {
     }
 }
 impl Socket {
+    pub(super) fn prepare_layer(
+        inner: Arc<dyn AsyncUdpSocket>,
+        masks: &[Mask],
+        drivers: &mut Vec<super::owned::Driver>,
+        offset: usize,
+    ) -> io::Result<Arc<dyn AsyncUdpSocket>> {
+        if masks.is_empty() {
+            return Ok(inner);
+        }
+        let sender = if let Some(index) = masks.iter().position(|m| matches!(m, Mask::Noise(_))) {
+            let (sender, work) = send::Sender::prepare(inner.clone(), Codec::new(masks, true)?);
+            drivers.push(super::owned::Driver {
+                kind: super::owned::DriverKind::Noise,
+                ordinal: (offset + index) as u8,
+                work,
+            });
+            Some(sender)
+        } else {
+            None
+        };
+        Ok(Arc::new(Self {
+            sender,
+            inner,
+            codec: Mutex::new(Codec::new(masks, true)?),
+            pending: Mutex::new(Default::default()),
+        }))
+    }
     pub fn wrap(
         inner: Arc<dyn AsyncUdpSocket>,
         masks: &[Mask],
