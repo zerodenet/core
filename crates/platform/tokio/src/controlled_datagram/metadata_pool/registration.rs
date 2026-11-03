@@ -59,7 +59,7 @@ impl MetadataPoolRegistration {
         Arc::ptr_eq(&self.closed, &other.closed)
     }
     pub fn closed(&self) -> Option<MetadataPoolOwnerClosed> {
-        self.closed.get().map(|()| MetadataPoolOwnerClosed {
+        self.closed.get().map(|_| MetadataPoolOwnerClosed {
             instance: self.instance,
             closed: self.closed.clone(),
         })
