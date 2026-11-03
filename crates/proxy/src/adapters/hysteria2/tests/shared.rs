@@ -150,7 +150,7 @@ async fn standard_hysteria2_proxy_tcp_udp_empty_multitarget_and_packet_paths_sha
         }
         assert_eq!(server.authenticated.load(Ordering::SeqCst),1,"TCP, business UDP and packet carrier use the same real authenticated connection");
         stream.shutdown().await.unwrap();drop(stream);
-        let (_,sockets,responses)=dispatch.finish_retaining_io();let receipt=responses.shutdown(end()).await.unwrap();assert!(receipt.matches(&responses));assert!(sockets.close_originals(end()).await.unwrap().is_complete());
+        let (_,mut sockets,responses)=dispatch.finish_retaining_io();let receipt=responses.shutdown(end()).await.unwrap();assert!(receipt.matches(&responses));assert!(sockets.close_originals().is_complete());
         let retired=proxy.tcp_runtime_services().execution().retired_datagrams();assert!(retired.wait_returns(&returns,end()).await.unwrap().is_complete());
         proxy.protocols.shutdown_components(end()).await.unwrap();server.close().await;
     }).await.unwrap();
