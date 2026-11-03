@@ -135,6 +135,7 @@ fn source_backup_record_candidate_and_parent_sync_consume_each_original_close() 
     assert_eq!(acquired, 5); // existing non-Unix source helper has no directory sync
     assert_eq!(acquired, closed);
     assert!(!occupied && !failure);
+    source.confirm_original_io_closed().unwrap();
     source.finalize_committed().unwrap();
     let (final_acquired, final_closed, occupied, failure) = source.io.original_observation();
     assert!(final_acquired > acquired);
@@ -157,6 +158,15 @@ fn interrupted_real_file_operation_blocks_source_rollback_and_later_preparation(
     }))
     .is_err());
     assert_eq!(source.io.original_observation(), (1, 0, true, true));
+    let observation = source.observation();
+    assert_eq!(observation.disposition, SourceDisposition::Unknown);
+    assert_eq!(observation.successful_writes, 0);
+    assert_eq!(observation.writable, None);
+    assert_eq!(
+        observation.reason.as_deref(),
+        Some("source_file_cleanup_unconfirmed")
+    );
+    assert!(source.confirm_original_io_closed().is_err());
     assert_eq!(
         source.ensure_available().unwrap_err().disposition,
         SourceDisposition::Unknown

@@ -43,11 +43,23 @@ impl ConfigurationSource {
         self.path.as_deref()
     }
     pub fn observation(&self) -> SourceWriteObservation {
-        self.state
+        let mut observation = self
+            .state
             .lock()
             .unwrap_or_else(|error| error.into_inner())
             .observation
-            .clone()
+            .clone();
+        if self.io.ensure_available().is_err() {
+            observation.disposition = SourceDisposition::Unknown;
+            observation.writable = None;
+            observation.reason = Some("source_file_cleanup_unconfirmed".into());
+        }
+        observation
+    }
+    /// An independent final observation after the accepted task's real joins.
+    /// This performs no file open, persistence, recovery, or replacement.
+    pub fn confirm_original_io_closed(&self) -> io::Result<()> {
+        self.io.ensure_available()
     }
     pub fn verify_recovery(path: &Path) -> io::Result<()> {
         let source = std::sync::Arc::new(Self::new(path));
