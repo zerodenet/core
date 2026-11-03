@@ -44,7 +44,7 @@ async fn cancel_after_original_worker_is_installed(
         .original()
         .expect("same original installed outside caller");
     caller.abort();
-    assert!(caller.await.unwrap_err().is_cancelled()); // caller only, not native proof
+    assert!(matches!(caller.await, Err(error) if error.is_cancelled())); // caller only, not native proof
     assert!(Arc::ptr_eq(&original, &slot.original().unwrap()));
     assert!(original.state.lock().await.dispatcher.is_some());
     (slot, original, engine)
