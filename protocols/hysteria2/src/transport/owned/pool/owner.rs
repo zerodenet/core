@@ -117,8 +117,22 @@ impl ResourceLifecycle for Owner {
             .values()
             .cloned()
             .collect::<Vec<_>>();
-        for entry in entries {
-            entry.close(end).await?;
+        // Each exact owner retains its partial cleanup state. Drive all of
+        // the existing finite entry set inline against the same caller end;
+        // a slow original cannot spend the other originals' close budgets.
+        let results =
+            futures_util::future::join_all(entries.iter().map(|entry| entry.close(end))).await;
+        let failures = results
+            .into_iter()
+            .filter_map(Result::err)
+            .collect::<Vec<_>>();
+        if let Some(first) = failures.first() {
+            let mut original = ChannelError::new(first.stage, first.reason, first.impact);
+            original.component = first.component;
+            original.session = first.session;
+            original.delivery = first.delivery;
+            original.retry = first.retry;
+            return Err(original.with_source(OriginalCloses(failures)));
         }
         let mut report = CloseReport::default();
         let entries = self
@@ -164,5 +178,26 @@ impl ResourceLifecycle for Owner {
             drop(retired_failures);
         }
         Ok(report)
+    }
+}
+
+/// Returned errors remain the actual originals, bounded by the same live entry
+/// set. No failed entry/controller is removed or reported successfully closed.
+#[derive(Debug)]
+struct OriginalCloses(Vec<ChannelError>);
+impl std::fmt::Display for OriginalCloses {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{} original entry closes incomplete", self.0.len())?;
+        if let Some(first) = self.0.first() {
+            write!(f, ": {first}")?;
+        }
+        Ok(())
+    }
+}
+impl std::error::Error for OriginalCloses {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        self.0
+            .first()
+            .map(|error| error as &(dyn std::error::Error + 'static))
     }
 }
