@@ -538,7 +538,7 @@ impl Generation {
             .authenticate(&options.leaf.password, options.leaf.settings, &self.tasks)
             .await?;
         let auth = Arc::new(state.pending.take().unwrap());
-        state.udp_join = auth.udp_dispatcher().map(|udp| udp.witness());
+        state.udp_join = auth.udp_witness();
         state.baseline = state.owner.as_ref().unwrap().active_users();
         state.auth = Some(auth.clone());
         Ok(auth)
@@ -555,6 +555,7 @@ impl Entry {
         }
         if let Some(auth) = &state.auth {
             auth.stop();
+            state.udp_join = auth.udp_witness();
         }
         if let Some(auth) = &state.pending {
             auth.stop();
@@ -674,10 +675,16 @@ impl Generation {
                 .auth
                 .as_ref()
                 .is_some_and(|auth| Arc::strong_count(auth) == 1)
-                && state
-                    .owner
-                    .as_ref()
-                    .is_some_and(|owner| owner.active_users() <= state.baseline);
+                && state.owner.as_ref().is_some_and(|owner| {
+                    owner.active_users()
+                        <= state.baseline
+                            + usize::from(
+                                state
+                                    .auth
+                                    .as_ref()
+                                    .is_some_and(|auth| auth.udp_witness().is_some()),
+                            )
+                });
             let expired = entry.touched.lock().unwrap().elapsed()
                 >= Duration::from_secs(
                     self.profiles[key.profile]

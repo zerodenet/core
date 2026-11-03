@@ -151,12 +151,8 @@ impl StreamOutbound for Role {
         }
         let io = tokio::select! {biased;
             _=context.cancel.cancelled()=>return Err(error(Stage::Handshake,Reason::Cancelled)),
-            result=zero_platform_tokio::contract::context::with_deadline(context.deadline,auth.open_stream(&request.destination))=>result.map_err(|source|error(Stage::Handshake,Reason::Timeout).with_source(source))??,
+            result=zero_platform_tokio::contract::context::with_deadline(context.deadline,auth.open_stream_observed(&request.destination,context.observer.clone(),session))=>result.map_err(|source|error(Stage::Handshake,Reason::Timeout).with_source(source))??,
         };
-        if let Some(observer) = &context.observer {
-            observer.record(session, ConnectFact::RequestSubmitted);
-            observer.record(session, ConnectFact::PeerConfirmed);
-        }
         Ok(Connected {
             io: Stream {
                 io,

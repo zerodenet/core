@@ -22,13 +22,16 @@ pub struct OwnedUdpDispatcher {
 impl OwnedUdpDispatcher {
     pub(super) fn new(
         connection: OwnedConnection,
-        tasks: &TaskRegistrar,
+        tasks: &zero_platform_tokio::contract::scope::WeakTaskRegistrar,
     ) -> Result<Self, ChannelError> {
         let state = Arc::new(Mutex::new(State {
             next: 1,
             ..Default::default()
         }));
-        let cancel = tasks.cancellation().child_token();
+        let cancel = tasks
+            .cancellation()
+            .ok_or_else(|| error(Stage::Prepare, Reason::Revoked))?
+            .child_token();
         let shared = state.clone();
         let stop = cancel.clone();
         // Only the actual registered Scope owns/joins this worker. No raw

@@ -4,10 +4,22 @@ use zero_core::request::Destination;
 use zero_platform_tokio::contract::network::UpstreamBinding;
 #[derive(Clone)]
 pub struct PoolProfile {
-    pub(super) leaf: super::super::Hysteria2TransportLeaf,
+    pub(super) leaf: ProfileLeaf,
     pub(super) binding: UpstreamBinding,
     pub(super) endpoint: Destination,
     pub(super) identity: Arc<[u8]>,
+}
+#[derive(Clone)]
+pub(super) struct ProfileLeaf {
+    pub(super) tag: String,
+    pub(super) server: String,
+    pub(super) port: u16,
+    pub(super) password: String,
+    pub(super) insecure: bool,
+    pub(super) client_fingerprint: Option<String>,
+    pub(super) server_name: Option<String>,
+    pub(super) settings: crate::settings::Settings,
+    pub(super) node: super::super::model::Hysteria2NodeOptions,
 }
 impl PoolProfile {
     pub fn new(
@@ -23,6 +35,17 @@ impl PoolProfile {
             },
             leaf.port,
         );
+        let leaf = ProfileLeaf {
+            tag: leaf.tag,
+            server: leaf.server,
+            port: leaf.port,
+            password: leaf.password,
+            insecure: leaf.insecure,
+            client_fingerprint: leaf.client_fingerprint,
+            server_name: leaf.server_name,
+            settings: leaf.settings,
+            node: leaf.node,
+        };
         Self {
             leaf,
             binding,
@@ -32,6 +55,12 @@ impl PoolProfile {
     }
     pub fn endpoint(&self) -> &Destination {
         &self.endpoint
+    }
+    pub fn wire_endpoint(&self) -> Destination {
+        Destination::new(
+            zero_core::Address::Domain(self.leaf.server.clone()),
+            self.leaf.port,
+        )
     }
     pub fn binding(&self) -> &UpstreamBinding {
         &self.binding

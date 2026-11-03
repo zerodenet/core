@@ -24,7 +24,8 @@ pub struct OwnedAuthentication {
     legacy_stream: Option<OwnedBiStream>,
     negotiated: Option<crate::handshake::AuthResponse>,
     attempted: bool,
-    udp: Option<OwnedUdpDispatcher>,
+    udp: std::sync::Mutex<Option<OwnedUdpDispatcher>>,
+    tasks: Option<zero_platform_tokio::contract::scope::WeakTaskRegistrar>,
 }
 impl OwnedAuthentication {
     pub fn prepare(
@@ -44,7 +45,8 @@ impl OwnedAuthentication {
             legacy_stream: None,
             negotiated: None,
             attempted: false,
-            udp: None,
+            udp: Default::default(),
+            tasks: None,
         })
     }
     pub async fn authenticate(
@@ -81,12 +83,7 @@ impl OwnedAuthentication {
         };
         self.connection
             .negotiate_rate(settings.client_send_rate(negotiated.receive_bandwidth));
-        if negotiated.udp_enabled && self.connection.max_datagram_size().is_some() {
-            self.udp = Some(OwnedUdpDispatcher::new(
-                self.connection.try_clone()?,
-                tasks,
-            )?);
-        }
+        self.tasks = Some(tasks.downgrade());
         self.negotiated = Some(negotiated);
         Ok(())
     }
@@ -103,40 +100,89 @@ impl OwnedAuthentication {
         &self,
         destination: &zero_core::request::Destination,
     ) -> Result<OwnedBiStream, ChannelError> {
+        self.open_stream_observed(destination, None, None).await
+    }
+    pub async fn open_stream_observed(
+        &self,
+        destination: &zero_core::request::Destination,
+        observer: Option<Arc<dyn zero_platform_tokio::contract::context::ConnectObserver>>,
+        session: Option<zero_core::component::SessionId>,
+    ) -> Result<OwnedBiStream, ChannelError> {
         use tokio::io::AsyncWriteExt;
+        use zero_platform_tokio::contract::context::ConnectFact;
         if !self.is_ready() {
             return Err(error(Stage::Prepare, Reason::Revoked));
         }
         let (tx, rx) = self.connection.open_bi().await?;
-        let mut stream = OwnedBiStream::from_streams(self.connection.try_clone()?, tx, rx);
+        let mut stream = zero_transport::MeteredStream::new(OwnedBiStream::from_streams(
+            self.connection.try_clone()?,
+            tx,
+            rx,
+        ));
         let header =
             crate::shared::build_tcp_connect_header(&destination.address, destination.port)
                 .map_err(|source| error(Stage::Handshake, Reason::Protocol).with_source(source))?;
-        stream
-            .write_all(&header)
-            .await
-            .map_err(|source| error(Stage::Handshake, Reason::Io).with_source(source))?;
-        crate::Hysteria2Outbound
-            .read_connect_response(&mut stream)
-            .await
-            .map_err(|source| error(Stage::Handshake, Reason::Protocol).with_source(source))?;
-        Ok(stream)
+        let result = async {
+            stream
+                .write_all(&header)
+                .await
+                .map_err(|source| error(Stage::Handshake, Reason::Io).with_source(source))?;
+            if let Some(observer) = &observer {
+                observer.record(session, ConnectFact::RequestSubmitted);
+            }
+            crate::Hysteria2Outbound
+                .read_connect_response(&mut stream)
+                .await
+                .map_err(|source| error(Stage::Handshake, Reason::Protocol).with_source(source))
+        }
+        .await;
+        if let Some(observer) = &observer {
+            let traffic = stream.drain_traffic();
+            observer.protocol_traffic(session, traffic.read_bytes, traffic.written_bytes);
+            match &result {
+                Ok(()) => observer.record(session, ConnectFact::PeerConfirmed),
+                Err(error) if error.reason == Reason::Protocol => {
+                    observer.record(session, ConnectFact::PeerRejected)
+                }
+                _ => {}
+            }
+        }
+        result?;
+        Ok(stream.into_inner())
     }
     pub fn open_udp(self: &Arc<Self>) -> Result<OwnedUdpChannel, ChannelError> {
         if !self.is_ready() {
             return Err(error(Stage::Prepare, Reason::Revoked));
         }
-        let dispatch = self
-            .udp
-            .as_ref()
-            .ok_or_else(|| error(Stage::Prepare, Reason::Unsupported))?;
-        dispatch.open(self.clone())
+        if !self
+            .negotiated
+            .is_some_and(|negotiated| negotiated.udp_enabled)
+            || self.connection.max_datagram_size().is_none()
+        {
+            return Err(error(Stage::Prepare, Reason::Unsupported));
+        }
+        let mut dispatcher = self.udp.lock().unwrap();
+        if dispatcher.is_none() {
+            *dispatcher = Some(OwnedUdpDispatcher::new(
+                self.connection.try_clone()?,
+                self.tasks
+                    .as_ref()
+                    .ok_or_else(|| error(Stage::Prepare, Reason::Revoked))?,
+            )?);
+        }
+        dispatcher.as_ref().unwrap().open(self.clone())
     }
-    pub fn udp_dispatcher(&self) -> Option<&OwnedUdpDispatcher> {
-        self.udp.as_ref()
+    pub(super) fn udp_witness(
+        &self,
+    ) -> Option<zero_platform_tokio::contract::scope::TaskJoinWitness> {
+        self.udp
+            .lock()
+            .unwrap()
+            .as_ref()
+            .map(|dispatcher| dispatcher.witness())
     }
     pub fn stop(&self) {
-        if let Some(udp) = &self.udp {
+        if let Some(udp) = self.udp.lock().unwrap().as_ref() {
             udp.stop();
         }
         self.connection.close(0x100u32.into(), b"owner retirement");
