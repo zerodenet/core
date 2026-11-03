@@ -71,7 +71,7 @@ impl Server {
             let mut originals: Vec<quinn::Connection> = Vec::new();
             loop {
                 let raw = tokio::select! {biased;_=&mut stopping=>break,
-                _=retiring.recv()=>{originals.last().unwrap().close(0u32.into(),b"actual peer retirement");continue},
+                    _=retiring.recv()=>{originals.last().unwrap().close(0x100u32.into(),b"actual peer retirement");continue},
                 raw=endpoint.accept_connection()=>raw.unwrap()};
                 originals.push(raw.clone());
                 let count = count.clone();
