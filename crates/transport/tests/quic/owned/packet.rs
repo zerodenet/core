@@ -5,6 +5,27 @@ use tokio::time::Instant;
 use zero_platform_tokio::contract::{component::GrantedMetadataListener, scope::TaskScope};
 
 #[tokio::test]
+async fn packet_wire_view_preserves_finite_queue_backpressure_without_a_native_worker() {
+    let peer = "127.0.0.1:443".parse().unwrap();
+    let (socket, _queues) = PacketSocket::prepare(peer).unwrap();
+    let frame = quinn::udp::Transmit {
+        destination: peer,
+        ecn: None,
+        contents: b"one queued datagram",
+        segment_size: None,
+        src_ip: None,
+    };
+    for _ in 0..256 {
+        socket.socket.try_send(&frame).unwrap();
+    }
+    assert_eq!(
+        socket.socket.try_send(&frame).unwrap_err().kind(),
+        std::io::ErrorKind::WouldBlock,
+        "the next actual queue submission must wait; it is not reported as delivered"
+    );
+}
+
+#[tokio::test]
 async fn packet_segment_returns_real_views_and_join_before_original_native_close() {
     let mut scope = TaskScope::new(tokio::runtime::Handle::current(), bound(1));
     let peer = tokio::net::UdpSocket::bind("127.0.0.1:0").await.unwrap();
