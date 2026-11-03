@@ -171,6 +171,11 @@ pub struct OwnedUdpChannel {
     receive: tokio::sync::Mutex<Receive>,
 }
 impl OwnedUdpChannel {
+    pub(super) fn dns_generation(
+        &self,
+    ) -> Option<zero_platform_tokio::contract::dns::DnsGeneration> {
+        self.connection.dns_generation
+    }
     /// Explicitly retire this original logical registration after its unique
     /// receiver and all transferred channel guards have returned. Native QUIC
     /// and UDP closure remain the pool owner's separate obligations.

@@ -4,6 +4,7 @@ impl Generation {
         &self,
         profile: usize,
         binding: UpstreamBinding,
+        expected_dns: Option<Option<zero_platform_tokio::contract::dns::DnsGeneration>>,
         end: Instant,
     ) -> Result<Arc<OwnedAuthentication>, ChannelError> {
         if !binding.prefix.is_empty() {
@@ -26,6 +27,9 @@ impl Generation {
             binding: upstream.binding().clone(),
             dns_generation: upstream.carrier_dns_generation(),
         };
+        if expected_dns.is_some_and(|expected| expected != key.dns_generation) {
+            return Err(error(Stage::Prepare, Reason::StalePlan));
+        }
         // Network generations cannot acquire replacement originals while old
         // endpoint users, workers or native receipts remain unsettled.
         let stale = self
@@ -93,7 +97,7 @@ impl Generation {
             drop(state);
             entry.close(end).await?;
             self.remove_entry(&key, &entry).await?;
-            return Box::pin(self.acquire(profile, key.binding.clone(), end)).await;
+            return Box::pin(self.acquire(profile, key.binding.clone(), expected_dns, end)).await;
         }
         state.attempted = true;
         state.tasks = Some(self.tasks.clone());
@@ -177,6 +181,7 @@ impl Generation {
             .native_origin
             .lock()
             .unwrap() = state.origin.clone();
+        state.pending.as_mut().unwrap().dns_generation = key.dns_generation;
         let auth = Arc::new(state.pending.take().unwrap());
         state.udp_join = auth.udp_witness().await?;
         state.auth = Some(auth.clone());

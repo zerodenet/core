@@ -99,7 +99,7 @@ impl Role {
         tokio::select! {biased;
             _=self.admission.cancelled()=>Err(self.admission.error(session,Stage::Handshake,Reason::Revoked,DeliveryState::Unknown)),
             _=context.cancel.cancelled()=>Err(self.admission.error(session,Stage::Handshake,Reason::Cancelled,DeliveryState::Unknown)),
-            result=generation.acquire(self.options.profile,context.upstream.binding().clone(),end)=>result.map_err(|error|self.admission.attach(error,session)),
+            result=generation.acquire(self.options.profile,context.upstream.binding().clone(),None,end)=>result.map_err(|error|self.admission.attach(error,session)),
         }
     }
 }

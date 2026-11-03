@@ -12,6 +12,7 @@ pub(super) struct Shared {
     generation: std::sync::Weak<Generation>,
     profile: usize,
     binding: UpstreamBinding,
+    dns_generation: Option<zero_platform_tokio::contract::dns::DnsGeneration>,
     pub(super) views: AtomicUsize,
     pub(super) changed: tokio::sync::Notify,
     pub(super) stop: CancellationToken,
@@ -36,6 +37,7 @@ impl Shared {
         binding: UpstreamBinding,
         stop: CancellationToken,
     ) -> Arc<Self> {
+        let dns_generation = channel.dns_generation();
         Arc::new(Self {
             current: Mutex::new(Some(Current {
                 channel: Arc::new(channel),
@@ -46,6 +48,7 @@ impl Shared {
             generation: Arc::downgrade(generation),
             profile,
             binding,
+            dns_generation,
             views: AtomicUsize::new(2),
             changed: Default::default(),
             stop,
@@ -127,6 +130,8 @@ impl Shared {
             |reason| SendFailure::new(error(Stage::Send, reason), DeliveryState::NotSubmitted);
         let mut retries = 0;
         loop {
+            self.check_dns()
+                .map_err(|error| SendFailure::new(error, DeliveryState::NotSubmitted))?;
             if self.stop.is_cancelled() {
                 return Err(fail(Reason::Cancelled));
             }
@@ -170,7 +175,7 @@ impl Shared {
                 .generation
                 .upgrade()
                 .ok_or_else(|| fail(Reason::Revoked))?;
-            let auth = tokio::select! {biased;_=self.stop.cancelled()=>return Err(fail(Reason::Cancelled)),result=generation.acquire(self.profile,self.binding.clone(),end)=>result.map_err(|error|SendFailure::new(error,DeliveryState::NotSubmitted))?};
+            let auth = tokio::select! {biased;_=self.stop.cancelled()=>return Err(fail(Reason::Cancelled)),result=generation.acquire(self.profile,self.binding.clone(),Some(self.dns_generation),end)=>result.map_err(|error|SendFailure::new(error,DeliveryState::NotSubmitted))?};
             let channel = auth
                 .open_udp()
                 .await
@@ -186,6 +191,7 @@ impl Shared {
         self: &Arc<Self>,
     ) -> Result<(zero_core::Address, u16, Vec<u8>), ChannelError> {
         loop {
+            self.check_dns()?;
             let changed = self.changed.notified();
             tokio::pin!(changed);
             changed.as_mut().enable();
@@ -219,6 +225,7 @@ impl Shared {
                 };
                 drop(view);
                 self.settle_retiring()?;
+                self.check_dns()?;
                 if let Some(packet) = result? {
                     return Ok(packet);
                 }
@@ -226,5 +233,15 @@ impl Shared {
                 tokio::select! {biased;_=self.stop.cancelled()=>return Err(error(Stage::Receive,Reason::Cancelled)),_=changed=>{}}
             }
         }
+    }
+    fn check_dns(&self) -> Result<(), ChannelError> {
+        let generation = self
+            .generation
+            .upgrade()
+            .ok_or_else(|| error(Stage::Prepare, Reason::Revoked))?;
+        if generation.upstreams[self.profile].carrier_dns_generation() != self.dns_generation {
+            return Err(error(Stage::Prepare, Reason::StalePlan));
+        }
+        Ok(())
     }
 }
