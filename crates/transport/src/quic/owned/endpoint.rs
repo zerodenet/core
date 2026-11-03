@@ -1,23 +1,23 @@
 //! Sealed Quinn user handles over the same actual driver/native owners.
 use super::{
-    DriverExitReceiver, DriverTaskStatus, MetadataSocketOwner, QuinnDriverOwner, drivers::Admission,
+    drivers::Admission, DriverExitReceiver, DriverTaskStatus, MetadataSocketOwner, QuinnDriverOwner,
 };
 use std::{
     collections::BTreeMap,
     io,
     num::NonZeroUsize,
     sync::{
-        Arc, Mutex, Weak,
         atomic::{AtomicU8, Ordering},
+        Arc, Mutex, Weak,
     },
 };
 use tokio::time::Instant;
 use zero_platform_tokio::{
     contract::{
-        ChannelError, Impact, Reason, Stage,
         scope::{TaskJoined, TaskRegistrar},
+        ChannelError, Impact, Reason, Stage,
     },
-    controlled_datagram::{DatagramReservationId, metadata::MetadataOwnerReport},
+    controlled_datagram::{metadata::MetadataOwnerReport, DatagramReservationId},
 };
 mod bidi;
 mod borrowed;
@@ -34,7 +34,7 @@ mod users;
 pub use connection::OwnedConnection;
 pub use handle::{OwnedEndpointHandle, OwnedIncoming};
 pub use stream::{OwnedRecvStream, OwnedSendStream};
-use users::{Users, error};
+use users::{error, Users};
 
 /// Caller-assigned finite counts. No production configuration is implied.
 #[derive(Clone, Copy, Debug)]
@@ -87,6 +87,15 @@ impl OwnedEndpointOwner {
             return Err(native);
         }
         Ok(Self::construct(Native::Hosted(native), registrar, limits))
+    }
+    /// The packet view contains queues only. Each actual native segment has
+    /// its separate original graph/worker/controller in this same host Scope.
+    pub fn new_packet(
+        socket: super::packet::PacketSocket,
+        registrar: TaskRegistrar,
+        limits: OwnedEndpointLimits,
+    ) -> (Self, DriverExitReceiver) {
+        Self::construct(Native::Packet(socket), registrar, limits)
     }
     fn construct(
         native: Native,

@@ -5,7 +5,7 @@ use std::future::poll_fn;
 use tokio::sync::oneshot;
 use zero_core::component::TaskId;
 use zero_platform_tokio::{
-    contract::{CancellationToken, Impact, Reason, Stage, scope::TaskClass},
+    contract::{scope::TaskClass, CancellationToken, Impact, Reason, Stage},
     controlled_datagram::metadata::users::drivers::WeakDrivers,
 };
 

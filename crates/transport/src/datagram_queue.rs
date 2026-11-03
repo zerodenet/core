@@ -86,6 +86,18 @@ where
     Ok(socket)
 }
 
+pub(crate) fn prepare_channels(local: SocketAddr, prepare: Prepare) -> (Arc<Socket>, Channels) {
+    let (tx, outgoing) = mpsc::channel(256);
+    let (incoming, rx) = mpsc::channel(256);
+    let socket = Arc::new(Socket {
+        local,
+        prepare,
+        outgoing: tx,
+        incoming: Mutex::new(rx),
+        task: DriverStop::Hosted(zero_platform_tokio::contract::CancellationToken::new()),
+    });
+    (socket, Channels { incoming, outgoing })
+}
 pub(crate) fn prepare_with<F, Fut>(
     local: SocketAddr,
     prepare: Prepare,

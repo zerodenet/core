@@ -1,8 +1,8 @@
 //! Opaque users closure uses the very ledgers used by sealed Quinn handles.
 use super::*;
 use zero_platform_tokio::controlled_datagram::metadata::{
-    MetadataViewClaim,
     users::{MetadataUserGraph, MetadataUsersCompletion as Completion},
+    MetadataViewClaim,
 };
 
 pub(super) type MetadataGraph =

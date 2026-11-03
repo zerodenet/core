@@ -50,7 +50,7 @@ impl MetadataSocketOwner {
                     error,
                     owner,
                     grant,
-                }))
+                }));
             }
         };
         let GrantedMetadataDatagram { rx, tx, control } = grant;

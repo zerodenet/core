@@ -1,4 +1,4 @@
-use super::users::{Permit, protocol};
+use super::users::{protocol, Permit};
 use super::*;
 /// Cloneable admission capability only. It retains no raw Endpoint/Connection
 /// or native control and becomes unusable when the persistent owner retires.

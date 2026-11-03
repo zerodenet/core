@@ -2,7 +2,7 @@ use super::*;
 use quinn::{DriverExit, DriverFuture, DriverOrigin};
 use std::{fmt, future::Future, pin::Pin};
 use tracing::Instrument;
-use zero_platform_tokio::contract::{Impact, Reason, Stage, scope::TaskClass};
+use zero_platform_tokio::contract::{scope::TaskClass, Impact, Reason, Stage};
 
 pub(super) struct OwnedRuntime {
     pub(super) owner: tracked::WeakDrivers<OwnedDriverOrigin, DriverBody>,

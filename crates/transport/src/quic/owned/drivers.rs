@@ -4,8 +4,8 @@ use std::{io, num::NonZeroUsize, sync::Arc};
 use zero_core::component::TaskId;
 use zero_platform_tokio::{
     contract::{
-        ChannelError,
         scope::{TaskJoined, TaskRegistrar},
+        ChannelError,
     },
     controlled_datagram::metadata::users::drivers as tracked,
 };

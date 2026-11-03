@@ -1,7 +1,7 @@
 //! Quinn borrows the actual logical packet loan; its donor retains native custody.
 use super::*;
 use zero_platform_tokio::{
-    contract::{CloseReason, lifecycle::CloseReport},
+    contract::{lifecycle::CloseReport, CloseReason},
     controlled_carrier::loan::{DatagramLoan, LoanOwner},
 };
 pub(super) struct BorrowedSocket {
