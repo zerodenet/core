@@ -24,7 +24,7 @@
 
 ## 已实现的职责与删除边界
 
-Config 的规则/GeoIP/ZRS 资源 I/O 与运行编译迁到 `zero-runtime::configuration`。一次 `PreparedRouting` 为 route、bypass、DNS dispatch 复用实际资源；初始 run、Engine/Proxy from_path 和日志文档读取在原文件真实 close/matches 后才交付数据。Config 保留 ADT、结构/引用和协议委托校验；旧 `RuntimeConfig::load_from_path` 的全部调用迁到实际 `ConfigurationSource`，CLI validate/connector-state/reload 的文档读取也使用原件关闭后的数据，prepared validator 不重开已准备资源。Engine 保留领域计划、快照、策略、selection、revision 及既有公开入口，Engine-only/FFI 不自动启动 Proxy。
+Config 的规则/GeoIP/ZRS 资源 I/O 与运行编译迁到 `zero-runtime::configuration`。一次 `PreparedRouting` 为 route、bypass、DNS dispatch 复用实际资源；初始 run、Engine/Proxy from_path 和日志文档读取在原文件真实 close/matches 后才交付数据。Config 保留 ADT、结构/引用和协议委托校验；旧 `RuntimeConfig::load_from_path` 的全部调用迁到实际 `ConfigurationSource`，CLI validate/connector-state/reload 的文档读取也使用原件关闭后的数据，prepared validator 不重开已准备资源。Engine 保留领域计划、快照、策略、selection、revision 及既有公开入口，Engine-only/FFI 不自动启动 Proxy。 同步嵌入入口的持久化、SourceDisposition 补偿和 finalize 顺序也由同一 ConfigurationSource::commit_embedded 决定；Engine 只提交领域安装回调，不再重复文件事务编排。
 
 唯一 RuntimeHost 的 ApplyOwner 持有受理操作、串行锁和最终 ACK。Ready 前不覆盖 last-good，候选业务发布门保持关闭；最终发布前控制面仍读已提交快照。最小恢复记录、原字节/权限、原子替换与目录同步、持久/临时区别和错误来源保留。失败候选应用/源原件清理不确认则不恢复；取消等待者不取消宿主收尾。原 blocking 配置通知线程桥删除，同一领域通知直接供宿主消费，迟到通知不能撤走未提交的 Ready 候选。
 
@@ -46,7 +46,7 @@ V1 配置/API/events、CLI、FFI ABI 和协议上游基线保持；只修改内�
 
 - Z003-01：System/detour/其余池化 DNS、打开失败重试及其原始资源所有权。
 - Z003-02/03/06：其余 Mieru/MUX/gRPC/H2/QUIC/载体的完整生产角色、复杂 prefix、双原始 provider、剩余 UDP/packet-path 与 Registry 总 leaf 投影。已完成 listener/claim/handler 族不重新列待迁。
-- Z003-04/05：非入站 Packet、设备/TUN、适用进程及转交 I/O 的完整宿主归属和替代门；直接 Child reaped 不代表后代或全部用户/native 关闭。
+- Z003-04/05：非入站 Packet、设备/TUN、适用进程及转交 I/O 的完整宿主归属和替代门；直接 Child reaped 不代表后代或全部用户/native 关闭。 当前实际连续性失败另列：WireGuard 纯 outbound 方向撤除在后续 listener 绑定失败前提前关闭原 client stack，导致原 TCP EOF；该 retirement/lifecycle 文件与共同基线 blob 相同，未执行基线行为，不能据此冒充历史行为已通过。此设备域实现缺口不是 TEMP-WG-OUTER-UDP-01 的扩大或关闭，保留原断言和失败记录。
 - Z003-07：适用资源预算生产配置；内部有限额度不是所有资源的生产可配置化，也不是低资源压力资格。
 - G8 整体投影/控制观测对账；控制 IPC/HTTP/gRPC 服务器与订阅本体的剩余生命周期不由 config.apply 最终 ACK 或 webhook 原件结果覆盖，既有订阅 abort 链仍未迁。
 - 独立配置/诊断/存储边界：初启控制面 TLS cert/key/CA、独立 quota inspect、principal quota lease/后台持久化，以及控制服务器/订阅本体等不属于已迁配置源或初始规则准备的原件。这些不是新增 TEMP 豁免，不由已迁热 source 事务的 close 收据覆盖。
@@ -64,6 +64,8 @@ G9/G10 与 Z003-08 的完整资格仍另列：实际 GUI/面板同产物组合�
 最终候选只停在 integration 交接。本轮不合入 develop/main，不启用 auto-merge，不发版、打 tag 或部署。
 
 ## 统一检查发现的实际修正
+
+恢复另修复半成功候选监听器：原 owner 绑定真实轻量 ConfigurationPublication 和输入 Weak 身份，回滚不再复用仍未提交的 Ready 候选；按原 StopOld / TaskScope / native 关闭屏障后，从原已发布恢复 capsule 重建。应用补偿复用同一恢复屏障，不改变协议组合或重迁入站。
 
 首轮完整 workspace/all-feature 检查 `26a0b9c606812d06ae7dc595f274d6c0e3479962` 失败，所有失败、忽略、诊断终止和原始日志保留，不当作通过。其后修复：恢复精确已发布 recipe 时，复用普通准备的实际 host admission 和传递用户根绑定；公开显式 DNS reload 保留原 query generation/cache 失效语义，宿主无变化事务继续保留原实际 DNS fact。观察包装保留原始 I/O 分类及同一错误来源。已有 stream-packet 载体的有限 UDP broadcast 丢包保留同一实际连接，由原可靠载体重传，不把 Lagged 当作物理 Closed，不增加队列容量或引入新任务。
 

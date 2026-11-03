@@ -9,8 +9,8 @@ mod notifications;
 mod source;
 
 impl Engine {
-    /// Rebuild and atomically install the route/config plan, persist it when
-    /// this engine owns a source path, then notify runtime subscribers.
+    /// Prepare an embedded domain plan, commit it through this engine's source
+    /// owner, and advance its revision without starting a Proxy.
     pub fn reload_config(&self, new_config: RuntimeConfig) -> Result<(), EngineError> {
         self.reload_config_inner(new_config, true, true)
     }
@@ -26,8 +26,8 @@ impl Engine {
     }
 
     /// Install a persisted candidate without publishing a committed revision.
-    /// The proxy transaction calls [`Self::commit_config_change`] only after
-    /// listener and application-service reconciliation succeeds.
+    /// This synchronous embedded entry point preserves its domain-only scope.
+    /// Proxy retains its prepared candidate under the existing RuntimeHost.
     pub fn stage_config(&self, new_config: RuntimeConfig) -> Result<(), EngineError> {
         // Embedded callers retain their existing synchronous persistence scope.
         // Proxy uses pure snapshot preparation and its own final Ready gate.
