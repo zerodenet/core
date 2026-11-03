@@ -1,7 +1,7 @@
 //! TCP ingress contract facade.
 //!
 //! The root stays as a facade so flow accounting, protocol trait defaults, and
-//! client-response wrappers do not regrow into one implementation bucket.
+//! actual stream ownership do not regrow into one implementation bucket.
 
 mod accounting;
 mod activity;

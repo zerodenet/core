@@ -35,7 +35,7 @@ pub(in crate::runtime) struct PeerSourceContext;
 mod resources;
 use resources::{BoundResources, Lifecycle};
 impl InboundInstallContext {
-    pub(crate) fn build_inbound(
+    pub(in crate::runtime) fn build_inbound(
         &self,
         recipe: crate::component::ComponentRecipe,
         view: NativeListenerView,
