@@ -100,7 +100,7 @@ impl Shared {
         }
         Ok(())
     }
-    pub(super) fn release(&self) -> Result<(), ChannelError> {
+    pub(super) fn release(&self) -> Result<CloseReport, ChannelError> {
         let current = self
             .current
             .lock()
@@ -111,7 +111,12 @@ impl Shared {
             self.retire(&current);
             drop(current);
         }
-        self.settle_retiring()
+        self.settle_retiring()?;
+        self.last_retirement
+            .lock()
+            .unwrap()
+            .clone()
+            .ok_or_else(|| error(Stage::Close, Reason::Internal))
     }
     pub(super) async fn send(
         self: &Arc<Self>,

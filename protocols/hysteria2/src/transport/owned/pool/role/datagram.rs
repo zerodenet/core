@@ -165,8 +165,7 @@ impl ChannelControl for Control {
             tokio::pin!(changed);
             changed.as_mut().enable();
             if self.shared.views.load(Ordering::Acquire) == 0 {
-                self.shared.release()?;
-                return Ok(CloseReport::default());
+                return self.shared.release();
             }
             tokio::time::timeout_at(end, changed)
                 .await
