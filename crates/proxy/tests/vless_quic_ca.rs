@@ -27,14 +27,22 @@ async fn relative_quic_ca_reaches_tcp_and_udp_for_raw_and_http3_carriers() {
         std::fs::write(&inbound_path, inbound.to_string()).unwrap();
         std::fs::write(&outbound_path, outbound.to_string()).unwrap();
         let server = spawn_engine(
-            Proxy::new(RuntimeConfig::load_from_path(&inbound_path).unwrap()).unwrap(),
+            Proxy::new(
+                zero_runtime::configuration::ConfigurationSource::load_document(&inbound_path)
+                    .unwrap(),
+            )
+            .unwrap(),
         );
         wait_for("QUIC listener bound", || {
             std::net::UdpSocket::bind(("127.0.0.1", port)).is_err()
         })
         .await;
         let client = spawn_engine(
-            Proxy::new(RuntimeConfig::load_from_path(&outbound_path).unwrap()).unwrap(),
+            Proxy::new(
+                zero_runtime::configuration::ConfigurationSource::load_document(&outbound_path)
+                    .unwrap(),
+            )
+            .unwrap(),
         );
         wait_for_listener(socks).await;
         tokio::time::timeout(std::time::Duration::from_secs(15), async {

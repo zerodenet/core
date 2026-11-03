@@ -126,7 +126,7 @@ fn engine_only_persistent_stage_and_restore_keep_their_existing_source_scope() {
     let revision = engine.config_revision();
     engine.stage_config(config_with_outbounds(2)).unwrap();
     assert_eq!(
-        RuntimeConfig::load_from_path(&path)
+        zero_runtime::configuration::ConfigurationSource::load_document(&path)
             .unwrap()
             .outbounds
             .len(),
@@ -141,7 +141,7 @@ fn engine_only_persistent_stage_and_restore_keep_their_existing_source_scope() {
         &previous
     ));
     assert_eq!(
-        RuntimeConfig::load_from_path(&path)
+        zero_runtime::configuration::ConfigurationSource::load_document(&path)
             .unwrap()
             .outbounds
             .len(),
@@ -151,7 +151,7 @@ fn engine_only_persistent_stage_and_restore_keep_their_existing_source_scope() {
         .stage_runtime_config(config_with_outbounds(3))
         .unwrap();
     assert_eq!(
-        RuntimeConfig::load_from_path(&path)
+        zero_runtime::configuration::ConfigurationSource::load_document(&path)
             .unwrap()
             .outbounds
             .len(),

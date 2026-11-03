@@ -138,7 +138,8 @@ async fn runtime_only_reload_does_not_replace_operator_config_file() {
     assert_eq!(engine.config_revision(), 2);
     wait_for_connect(new_port).await;
     assert_eq!(engine.config().inbounds[0].listen.port, new_port);
-    let persisted = RuntimeConfig::load_from_path(&config_path).unwrap();
+    let persisted =
+        zero_runtime::configuration::ConfigurationSource::load_document(&config_path).unwrap();
     assert_eq!(persisted.inbounds[0].listen.port, old_port);
 
     running.shutdown().await.unwrap();
@@ -166,7 +167,8 @@ async fn failed_runtime_only_reload_rolls_back_without_replacing_operator_config
 
     assert_eq!(engine.config_revision(), 1);
     assert_eq!(engine.config().inbounds[0].listen.port, old_port);
-    let persisted = RuntimeConfig::load_from_path(&config_path).unwrap();
+    let persisted =
+        zero_runtime::configuration::ConfigurationSource::load_document(&config_path).unwrap();
     assert_eq!(persisted.inbounds[0].listen.port, old_port);
     wait_for_connect(old_port).await;
 
@@ -394,7 +396,8 @@ async fn application_reconcile_failure_restores_proxy_file_and_services() {
         serde_json::to_vec_pretty(&config(old_port)).unwrap(),
     )
     .unwrap();
-    let original = RuntimeConfig::load_from_path(&config_path).unwrap();
+    let original =
+        zero_runtime::configuration::ConfigurationSource::load_document(&config_path).unwrap();
     let engine = zero_engine::Engine::new_with_config_path(original, &config_path).unwrap();
     let proxy = Proxy::from_engine(engine.clone()).unwrap();
     let reconciler = Arc::new(RecordingReconciler {
@@ -418,7 +421,7 @@ async fn application_reconcile_failure_restores_proxy_file_and_services() {
     assert_eq!(engine.config_revision(), 1);
     assert_eq!(engine.config().inbounds[0].listen.port, old_port);
     assert_eq!(
-        RuntimeConfig::load_from_path(&config_path)
+        zero_runtime::configuration::ConfigurationSource::load_document(&config_path)
             .unwrap()
             .inbounds[0]
             .listen

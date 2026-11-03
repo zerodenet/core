@@ -187,7 +187,10 @@ fn source_file_change_clears_override_and_rollback_restores_policy() {
     engine.restore_staged_snapshot(previous, true).unwrap();
     assert!(!engine.endpoint_snapshot(&query()).unwrap().enabled);
     assert!(
-        RuntimeConfig::load_from_path(path).unwrap().endpoints[0].enabled,
+        zero_runtime::configuration::ConfigurationSource::load_document(path)
+            .unwrap()
+            .endpoints[0]
+            .enabled,
         "rollback writes base configuration, never a runtime override"
     );
 }

@@ -274,7 +274,7 @@ async fn source_file_control_persists_canonical_config_and_clears_runtime_overri
         }))
         .await
         .unwrap();
-    let persisted = RuntimeConfig::load_from_path(&path).unwrap();
+    let persisted = zero_runtime::configuration::ConfigurationSource::load_document(&path).unwrap();
     assert!(!persisted.endpoints[0].enabled);
     assert!(persisted.endpoints[1].enabled);
     let raw: serde_json::Value = serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
