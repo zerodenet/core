@@ -423,7 +423,15 @@ fn validate_config_command(
         &config,
         engine.configuration_source(),
     )
-    .map_err(config_error_to_api)?;
+    .map_err(|error| {
+        // Keep the original ConfigError/IO explanation in `cause`, and expose
+        // its actual path in the resource-preparation failure shown to callers.
+        let mut api = config_error_to_api(error);
+        if let Some(cause) = &api.cause {
+            api.message = format!("config validation failed: {cause}");
+        }
+        api
+    })?;
 
     Ok(CommandResponse {
         accepted: true,
