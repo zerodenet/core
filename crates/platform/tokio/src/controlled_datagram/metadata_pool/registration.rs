@@ -12,6 +12,67 @@ pub struct MetadataPoolOwnerClosed {
     closed: Arc<OnceLock<bool>>,
 }
 impl MetadataPoolRegistration {
+    pub fn binding_retired(
+        &self,
+        expected: &(
+            zero_core::request::Destination,
+            crate::contract::network::UpstreamBinding,
+        ),
+    ) -> bool {
+        self.owner.upgrade().is_none_or(|owner| {
+            owner.cancel.is_cancelled()
+                || owner
+                    .state
+                    .lock()
+                    .expect("metadata pool poisoned")
+                    .last_binding
+                    .as_ref()
+                    .is_some_and(|actual| actual != expected)
+        })
+    }
+    pub async fn binding_retired_wait(
+        &self,
+        expected: &(
+            zero_core::request::Destination,
+            crate::contract::network::UpstreamBinding,
+        ),
+    ) {
+        let (changed, cancel) = match self.owner.upgrade() {
+            Some(owner) => (owner.changed.clone(), owner.cancel.clone()),
+            None => return,
+        };
+        loop {
+            let notified = changed.notified();
+            tokio::pin!(notified);
+            notified.as_mut().enable();
+            if self.binding_retired(expected) {
+                return;
+            }
+            tokio::select! { biased; _ = cancel.cancelled() => return, _ = notified => {} }
+        }
+    }
+    pub fn current_original_for(
+        &self,
+        expected: &(
+            zero_core::request::Destination,
+            crate::contract::network::UpstreamBinding,
+        ),
+    ) -> Option<MetadataPoolOrigin> {
+        let owner = self.owner.upgrade()?;
+        let slots = owner
+            .state
+            .lock()
+            .ok()?
+            .slots
+            .values()
+            .cloned()
+            .collect::<Vec<_>>();
+        slots.into_iter().rev().find_map(|slot| {
+            let origin = MetadataPoolPermit(slot).origin();
+            (!origin.is_retired() && origin.selected_binding().as_ref() == Some(expected))
+                .then_some(origin)
+        })
+    }
     pub fn is_retired(&self) -> bool {
         self.owner
             .upgrade()
