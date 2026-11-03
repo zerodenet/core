@@ -732,7 +732,11 @@ fn tcp_prepared_operations_are_gated_by_tcp_capabilities_not_udp_runtime() {
     let operations = read(&proxy_src().join("runtime/tcp_dispatch/operation.rs"));
     assert!(operations.contains("feature = \"tcp-tunnel-runtime\""));
     assert!(operations.contains("feature = \"tcp-session-runtime\""));
-    assert!(operations.contains("feature = \"tcp-transport-session-runtime\""));
+    assert!(!proxy_src()
+        .join("runtime/tcp_dispatch/operation/session.rs")
+        .exists());
+    assert!(!operations.contains("SessionTcpConnectOperation"));
+    assert!(operations.contains("TransportLeafTcpOperation"));
     assert!(!operations.contains("feature = \"udp-runtime\""));
 
     let transport_leaf = read(&proxy_src().join("protocol_registry/mod.rs"));
@@ -1805,16 +1809,13 @@ fn hysteria2_adapter_uses_protocol_bind_option_refs() {
 
 #[test]
 fn hysteria2_adapter_uses_protocol_outbound_option_refs() {
-    let adapter = read(&proxy_src().join("adapters/hysteria2.rs"));
+    let adapter = read_module(&proxy_src().join("adapters/hysteria2.rs"));
     let forbidden = "Hysteria2TransportLeaf::new(";
     assert!(
         !adapter.contains(forbidden),
         "adapters/hysteria2.rs must not construct hysteria2 transport leaves via `{forbidden}`"
     );
-    for required in [
-        "Hysteria2OutboundOptionsRef",
-        "Hysteria2TransportLeaf::from_options_refs",
-    ] {
+    for required in ["Hysteria2OutboundOptionsRef", "Profile::from_options"] {
         assert!(
             adapter.contains(required),
             "adapters/hysteria2.rs should project outbound through protocol-owned hysteria2 option surface `{required}`"
@@ -3169,7 +3170,8 @@ fn tcp_ingress_contract_root_stays_facade_only() {
     assert!(!proxy_src()
         .join("runtime/tcp_ingress/contract/client_response.rs")
         .exists());
-    assert!(!contract.contains("ClientResponseInboundProtocol"));
+    assert!(!contract.contains("struct ClientResponseInboundProtocol"));
+    assert!(!contract.contains("use client_response::"));
     for module_name in ["mod accounting;", "mod no_response;", "mod protocol;"] {
         assert!(contract_root.contains(module_name));
     }
@@ -5169,7 +5171,7 @@ fn packet_device_replacement_keeps_original_cleanup_outcomes_and_never_uses_grac
     let recovery = read(&proxy_src().join("runtime/orchestration/reconcile/recovery.rs"));
     assert!(
         recovery
-            .find("restore_dns(proxy, &previous_config)")
+            .find("restore_dns(proxy, &self.applied_snapshot)")
             .unwrap()
             < recovery.find(".prepare_devices(").unwrap()
     );
@@ -5253,7 +5255,8 @@ fn hysteria2_outbound_uses_one_actual_standard_pool_for_all_existing_callers() {
             "retired HY2 execution bridge: {retired}"
         );
     }
-    assert!(projection.contains("self.outbound_pool.options"));
+    let compact_projection: String = projection.chars().filter(|c| !c.is_whitespace()).collect();
+    assert!(compact_projection.contains("self.outbound_pool.options("));
     assert!(projection.contains(r#"resources.share("hysteria2.authenticated_pool"#));
     assert!(projection.contains("PoolFactory.build_with_upstreams"));
     assert!(registry.contains("::hysteria2::transport::owned::RoleFactory"));

@@ -225,7 +225,7 @@ async fn failed_listener_rebind_restores_last_known_good_config() {
 }
 
 #[tokio::test]
-async fn timed_out_reload_waits_for_last_known_good_rollback() {
+async fn timed_out_reload_keeps_accepted_rollback_owned_until_the_next_public_ack() {
     let old_port = free_port().await;
     let occupied = TcpListener::bind("127.0.0.1:0").await.unwrap();
     let occupied_port = occupied.local_addr().unwrap().port();
@@ -239,7 +239,24 @@ async fn timed_out_reload_waits_for_last_known_good_rollback() {
         .apply_config_and_wait(config(occupied_port), Duration::from_millis(10))
         .await
         .expect_err("short apply timeout must fail and roll back");
-    assert!(error.contains("restored last-known-good config"), "{error}");
+    assert!(
+        error.contains("configuration wait timed out; accepted work remains owned")
+            || error.contains("restored last-known-good config"),
+        "{error}"
+    );
+    // The short caller deadline is only an observation. This next public ACK
+    // queues behind the same host apply lock, so it cannot overtake the first
+    // operation's actual rejection/compensation and final ACK.
+    assert!(handle
+        .apply_runtime_config_if_current_with_principal_impact_and_wait(
+            &config(old_port),
+            config(old_port),
+            vec![],
+            vec![],
+            Duration::from_secs(5),
+        )
+        .await
+        .unwrap());
     assert_eq!(engine.config().inbounds[0].listen.port, old_port);
     wait_for_connect(old_port).await;
 

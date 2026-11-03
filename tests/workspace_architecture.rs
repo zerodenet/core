@@ -137,8 +137,14 @@ fn connector_webhooks_cross_the_application_egress_boundary() {
     assert!(!connector.contains("reqwest"));
     assert!(!connector.contains("TcpStream::connect"));
     assert!(services.contains("start_with_proxy"));
-    assert!(services.contains("spawn_event_dispatcher_with_network"));
-    assert!(services.contains("spawn_event_dispatcher_with_engine_started_and_network"));
+    let installation = read(&workspace_root().join("src/application/services/installation.rs"));
+    assert!(installation.contains("prepare_event_dispatcher_paused_with_network"));
+    assert!(installation.contains("self.event_network.clone()"));
+    assert!(
+        installation.find("state.dispatcher = Some(").unwrap()
+            < installation.find(".wait_ready()").unwrap()
+    );
+    assert!(installation.contains("self.stop_active_services(state).await?"));
     assert!(network.contains("select_for_peer"));
     assert!(network.contains("ensure_connectable"));
     assert!(network.contains("TokioSocket::connect_addr_on"));

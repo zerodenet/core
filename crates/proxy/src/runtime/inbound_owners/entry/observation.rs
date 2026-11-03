@@ -71,11 +71,34 @@ impl std::error::Error for ObservedInboundError {
 }
 impl InboundOwner {
     pub(crate) fn observer_error(&self, source: EngineError) -> EngineError {
-        std::io::Error::other(ObservedInboundError {
-            identity: self.identity,
-            disposition: self.observation.clone(),
-            source,
-        })
+        // Keep the original OS error classification at the public boundary,
+        // while retaining the exact original source and observation receipt.
+        let mut kind = std::io::ErrorKind::Other;
+        let mut current: &(dyn std::error::Error + 'static) = &source;
+        loop {
+            if let Some(io) = current.downcast_ref::<std::io::Error>() {
+                if io.kind() != std::io::ErrorKind::Other {
+                    kind = io.kind();
+                    break;
+                }
+                if let Some(inner) = io.get_ref() {
+                    current = inner;
+                    continue;
+                }
+            }
+            match current.source() {
+                Some(inner) => current = inner,
+                None => break,
+            }
+        }
+        std::io::Error::new(
+            kind,
+            ObservedInboundError {
+                identity: self.identity,
+                disposition: self.observation.clone(),
+                source,
+            },
+        )
         .into()
     }
 }
