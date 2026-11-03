@@ -38,6 +38,14 @@ impl ComponentRecipe {
         &self.spec
     }
     pub fn build(&self, context: BuildContext) -> Result<ComponentInstance, BuildError> {
+        crate::configuration::confirm_preparation_io_closed().map_err(|source| {
+            zero_platform_tokio::contract::ChannelError::new(
+                zero_platform_tokio::contract::Stage::Prepare,
+                zero_platform_tokio::contract::Reason::Revoked,
+                zero_platform_tokio::contract::Impact::Component,
+            )
+            .with_source(source)
+        })?;
         super::bindings::validate_ids(&self.spec, &context)?;
         let instance = self.recipe.build(context)?;
         super::bindings::validate_roles(&self.spec, &instance.roles)?;

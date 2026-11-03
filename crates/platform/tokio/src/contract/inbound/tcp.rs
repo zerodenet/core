@@ -7,7 +7,7 @@ use super::super::{
 };
 use super::{InboundHandshake, InboundSource, PendingInbound};
 use crate::{ControlledTcpListener, TokioSocket};
-use std::{future::Future, sync::Arc};
+use std::sync::Arc;
 use tokio::{sync::Mutex, time::Instant};
 use zero_core::request::Destination;
 
@@ -92,34 +92,32 @@ where
 {
     // The accepted entry is part of PendingInbound, not its protocol handshake.
     type Handshake = PendingInbound;
-    fn next(
+    async fn next(
         &mut self,
         context: AcceptContext,
-    ) -> impl Future<Output = Result<Option<Self::Handshake>, ChannelError>> + Send {
-        async move {
-            if context.cancel.is_cancelled() {
-                return Err(error(Stage::Receive, Reason::Cancelled));
-            }
-            if context
-                .deadline
-                .is_some_and(|deadline| Instant::now() >= deadline)
-            {
-                return Err(error(Stage::Receive, Reason::Timeout));
-            }
-            let accept = async {
-                let mut guard = self.state.listener.lock().await;
-                let listener = guard
-                    .as_mut()
-                    .ok_or_else(|| error(Stage::Prepare, Reason::Revoked))?;
-                let (accepted, _) = listener.accept_owned().await?;
-                accepted.into_pending(&self.make).map(Some)
-            };
-            tokio::select! { biased;
-                _ = context.cancel.cancelled() => Err(error(Stage::Receive, Reason::Cancelled)),
-                _ = self.state.cancel.cancelled() => Ok(None),
-                result = with_deadline(context.deadline, accept) => {
-                    result.map_err(|source| error(Stage::Receive, Reason::Timeout).with_source(source))?
-                }
+    ) -> Result<Option<Self::Handshake>, ChannelError> {
+        if context.cancel.is_cancelled() {
+            return Err(error(Stage::Receive, Reason::Cancelled));
+        }
+        if context
+            .deadline
+            .is_some_and(|deadline| Instant::now() >= deadline)
+        {
+            return Err(error(Stage::Receive, Reason::Timeout));
+        }
+        let accept = async {
+            let mut guard = self.state.listener.lock().await;
+            let listener = guard
+                .as_mut()
+                .ok_or_else(|| error(Stage::Prepare, Reason::Revoked))?;
+            let (accepted, _) = listener.accept_owned().await?;
+            accepted.into_pending(&self.make).map(Some)
+        };
+        tokio::select! { biased;
+            _ = context.cancel.cancelled() => Err(error(Stage::Receive, Reason::Cancelled)),
+            _ = self.state.cancel.cancelled() => Ok(None),
+            result = with_deadline(context.deadline, accept) => {
+                result.map_err(|source| error(Stage::Receive, Reason::Timeout).with_source(source))?
             }
         }
     }

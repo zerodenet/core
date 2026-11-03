@@ -113,24 +113,8 @@ impl ComponentCatalog {
         let identities = previous
             .map(|(_, plan)| plan.shared_identities.clone())
             .unwrap_or_default();
-        let mut previous_revision = self.next_preparation.load(Ordering::Acquire);
-        let revision = loop {
-            let next = previous_revision.checked_add(1).ok_or_else(|| {
-                invalid(Reason::Internal, "candidate preparation revision exhausted")
-            })?;
-            match self.next_preparation.compare_exchange_weak(
-                previous_revision,
-                next,
-                Ordering::AcqRel,
-                Ordering::Acquire,
-            ) {
-                Ok(_) => break next,
-                Err(actual) => previous_revision = actual,
-            }
-        };
-        let mut resources = ResourcePreparation::with_identities(&mut allocate, &identities)
-            .with_candidate(config)
-            .with_preparation_revision(revision);
+        let mut resources =
+            ResourcePreparation::with_identities(&mut allocate, &identities).with_candidate(config);
         let builtin_input = OutboundConfig {
             tag: "direct".into(),
             protocol: OutboundProtocolConfig::Direct,
@@ -147,7 +131,7 @@ impl ComponentCatalog {
             if !self.factories().has_factory_for_candidate(
                 input.protocol.protocol_name(),
                 input,
-                Some(&config),
+                Some(config),
             ) {
                 continue;
             }

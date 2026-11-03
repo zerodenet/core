@@ -71,6 +71,14 @@ VLESS 入站仅登记实际标准 ComponentFactory/InboundSource，删除 adapte
 
 ## Unreleased
 
+### v0.0.3 云端配置资源与 Hysteria2 出站
+
+Config 的运行资源编译迁入 `zero-runtime::configuration`。Rust 嵌入者应消费准备值；Engine 保留领域快照/策略/revision 与原有公开入口，资源持久化和恢复委托同一个 ConfigurationSource。Proxy 的跨组件提交仍使用唯一 RuntimeHost 的 ApplyOwner，已受理操作由宿主持有到最终 ACK；应用 reconciler 必须确认失败候选真实退休后才恢复。Engine-only/FFI 不扩大为网络宿主。
+
+Root Hysteria2 出站统一到协议拥有的同一真实认证池和标准角色；删除私有 TCP/UDP 桥及最后无调用者的 SessionTcpHandshake/SessionTcpConnectOperation。保留协议库公开 standalone convenience 范围，不作为 root 回退。CA 材料在同一启动准备中读取，旧配方恢复使用已准备的原 crypto；原始用户归还、TaskScope join 和 native close 独立确认。
+
+没有改变 V1 配置/API/events、CLI、FFI ABI 或协议基线，也没有增加协议组合。GUI/面板、特权 TUN、其他平台及 1 CPU/1 GiB 仍待最终候选真实验收；TEMP-WG-OUTER-UDP-01 保留未关闭。
+
 ### HTTP 标准监听与原始连接所有权
 
 HTTP 字面量及域名监听使用协议的 `ComponentFactory`/`InboundSource` 和真实宿主所有者，HTTP 的旧 listener capability/operation 准备已删除。接受条目、任务登记与关闭接收方来自同一个原始监听；热更新继续先确认旧资源关闭，再装配替代，候选失败后使用实际旧配置恢复。域名沿用系统解析，在原始 Scope 内监督实际 lookup worker 并等待其真实 join，冻结系统顺序的多个地址，失败原始句柄明确关闭后才允许尝试下一地址；所有尝试共用一份有限 native 创建预算。HTTP CONNECT、Forward、逐消息路由与计量、keep-alive、Upgrade 保留既有线格式和 V1 控制面形状，客户端与面板沿用既有接入方式。

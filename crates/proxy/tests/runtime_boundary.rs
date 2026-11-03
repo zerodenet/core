@@ -414,10 +414,24 @@ fn inbound_route_contracts_implementations_and_execution_have_distinct_owners() 
     assert!(vless_mux.contains("impl InboundMuxTcpRelay"));
     assert!(vless_mux.contains("impl InboundMuxUdpRelay"));
 
-    let fallback_runtime = read(&proxy_src().join("runtime/inbound_fallback.rs"));
+    assert!(!proxy_src().join("runtime/inbound_fallback.rs").exists());
+    let fallback_runtime =
+        read(&proxy_src().join("runtime/route_runtime/route/source/fallback.rs"));
     let route_runtime = read_module(&proxy_src().join("runtime/route_runtime/route/source.rs"));
-    assert!(fallback_runtime.contains("relay_recorded_fallback_replay"));
-    assert!(route_runtime.contains("AcceptedRequest"));
+    for required in [
+        "AcceptedFallback",
+        "accepted_tasks()",
+        "open_inbound_stream",
+        ".replay(",
+        "ensure_configuration_committed",
+    ] {
+        assert!(
+            fallback_runtime.contains(required),
+            "fallback must retain {required}"
+        );
+    }
+    assert!(!fallback_runtime.contains("Session::new"));
+    assert!(route_runtime.contains("AcceptedRequest::Fallback"));
 
     assert_sources_exclude(
         &workspace_root().join("crates/transport/src"),
@@ -830,7 +844,8 @@ fn listener_and_task_lifecycle_are_runtime_owned() {
 fn compatibility_surface_requires_behavior_and_context_is_narrow() {
     let capability = read(&proxy_src().join("protocol_registry/capability.rs"));
     let context = read_module(&proxy_src().join("protocol_registry/context.rs"));
-    for capability_name in ["ProtocolSupportCapability"] {
+    {
+        let capability_name = "ProtocolSupportCapability";
         assert!(capability.contains(&format!("trait {capability_name}")));
     }
     for marker in [
@@ -1000,20 +1015,35 @@ fn protocol_registration_is_the_only_compiled_adapter_collection() {
 
 #[test]
 fn runtime_owns_post_accept_route_execution() {
-    let inbound_route = proxy_src().join("runtime/inbound_route");
-    let combined = rust_sources(&inbound_route)
-        .into_iter()
-        .map(|path| read(&path))
-        .collect::<String>();
-    assert!(combined.contains("dispatch_protocol_stream_route"));
-    assert!(combined.contains("dispatch_protocol_mux_route"));
-    assert!(!proxy_src()
-        .join("runtime/inbound_route/recorded.rs")
-        .exists());
-    assert!(combined.contains("InboundRouteRuntime"));
-    assert!(combined.contains("MuxSubstreamRuntime"));
-    assert!(!combined.contains("run_udp: move |proxy: Proxy"));
-    assert!(!combined.contains("run_mux: move |proxy: Proxy"));
+    let source = read_module(&proxy_src().join("runtime/route_runtime/route/source.rs"));
+    for required in [
+        "AcceptedRequest::Stream",
+        "AcceptedRequest::Message",
+        "AcceptedRequest::Datagram",
+        "AcceptedRequest::Multiplex",
+        "serve_accepted_stream",
+        "serve_accepted_message",
+        "runtime.run_requests(source)",
+    ] {
+        assert!(
+            source.contains(required),
+            "the standard host must dispatch {required}"
+        );
+    }
+    for retired in [
+        "runtime/inbound_route/recorded.rs",
+        "runtime/inbound_route/stream.rs",
+        "runtime/inbound_route/stream/dispatch.rs",
+    ] {
+        assert!(!proxy_src().join(retired).exists());
+    }
+    assert!(!source.contains("run_udp: move |proxy: Proxy"));
+    assert!(!source.contains("run_mux: move |proxy: Proxy"));
+    let runtime = read(&proxy_src().join("runtime.rs"));
+    assert!(runtime.contains(
+        "#[cfg(test)]
+pub(crate) mod inbound_route;"
+    ));
 }
 
 #[test]
@@ -2615,7 +2645,8 @@ fn managed_stream_bridge_requests_use_runtime_services_instead_of_proxy() {
 
 #[test]
 fn managed_udp_forward_paths_use_runtime_services_instead_of_proxy() {
-    for relative in ["runtime/udp_flow/registered/forward.rs"] {
+    {
+        let relative = "runtime/udp_flow/registered/forward.rs";
         let source = read(&proxy_src().join(relative));
         assert!(
             !source.contains("use crate::runtime::Proxy"),
@@ -2757,7 +2788,6 @@ fn udp_ingress_runtime_collapses_proxy_and_services_for_session_loops() {
         "runtime/route_runtime/route/source/datagram.rs",
         "runtime/datagram_udp/lifecycle.rs",
         "runtime/packet_session_udp/lifecycle.rs",
-        "runtime/stream_udp.rs",
         "runtime/mux_udp.rs",
     ] {
         let source = read_module(&proxy_src().join(relative));
@@ -2790,7 +2820,6 @@ fn udp_ingress_runtime_collapses_proxy_and_services_for_session_loops() {
     for relative in [
         "runtime/datagram_udp/lifecycle.rs",
         "runtime/packet_session_udp/lifecycle.rs",
-        "runtime/stream_udp.rs",
         "runtime/mux_udp.rs",
         "runtime/mux_session.rs",
         "runtime/mux_tcp.rs",
@@ -2896,7 +2925,7 @@ fn udp_ingress_runtime_collapses_proxy_and_services_for_session_loops() {
     }
 
     for relative in [
-        "runtime/inbound_route/stream/dispatch.rs",
+        "runtime/route_runtime/route/source.rs",
         "runtime/inbound_route/mux/dispatch.rs",
         "runtime/mux_session.rs",
     ] {
@@ -2992,31 +3021,40 @@ fn legacy_quic_listener_execution_is_removed_after_standard_source_migration() {
 
 #[test]
 fn listener_loop_tcp_root_stays_facade_only() {
+    let root = read(&proxy_src().join("runtime/listener_loop.rs"));
+    assert!(root.contains(
+        "#[cfg(test)]
+mod tcp;"
+    ));
     let tcp_root = read(&proxy_src().join("runtime/listener_loop/tcp.rs"));
     let tcp = read_module(&proxy_src().join("runtime/listener_loop/tcp.rs"));
-    for module_name in ["mod connection;", "mod logged;"] {
-        assert!(tcp_root.contains(module_name));
+    for module in ["mod connection;", "mod owned;"] {
+        assert!(tcp_root.contains(module));
     }
-    for forbidden in [
+    for required in [
         "pub(crate) struct TcpListenerLoopRequest<H>",
-        "pub(crate) struct LoggedTcpSocketListenerRequest<R, D>",
         "pub(crate) async fn run_tcp_listener_loop<H, Fut>(",
-        "pub(crate) async fn run_logged_tcp_socket_listener_loop<R, D, Fut>(",
+        "pub(crate) struct OwnedLoop<H>",
+    ] {
+        assert!(!tcp_root.contains(required));
+        assert!(tcp.contains(required));
+    }
+    assert!(!proxy_src()
+        .join("runtime/listener_loop/tcp/logged.rs")
+        .exists());
+    assert!(!tcp.contains("LoggedTcpSocketListenerRequest"));
+    let production = read_module(&proxy_src().join("runtime/inbound_operation/source.rs"));
+    for required in [
+        "DynInboundSource",
+        "source.next(AcceptContext",
+        "pending.accepted_tcp()",
+        "pending.spawn(TaskClass::Auxiliary",
+        "with_accepted_tasks",
+        "complete_request",
     ] {
         assert!(
-            !tcp_root.contains(forbidden),
-            "listener_loop tcp facade root must not keep `{forbidden}` inline"
-        );
-    }
-    for expected in [
-        "pub(crate) struct TcpListenerLoopRequest<H>",
-        "pub(crate) struct LoggedTcpSocketListenerRequest<R, D>",
-        "pub(crate) async fn run_tcp_listener_loop<H, Fut>(",
-        "pub(crate) async fn run_logged_tcp_socket_listener_loop<R, D, Fut>(",
-    ] {
-        assert!(
-            tcp.contains(expected),
-            "listener_loop tcp module tree must still provide `{expected}`"
+            production.contains(required),
+            "production source must retain {required}"
         );
     }
 }
@@ -3089,8 +3127,12 @@ fn tcp_ingress_runtime_root_stays_facade_only() {
 
 #[test]
 fn tcp_ingress_lifecycle_root_stays_facade_only() {
+    let current = read_module(&proxy_src().join("runtime/tcp_ingress/runtime/standard.rs"));
+    assert!(current.contains("serve_accepted_stream"));
+    assert!(current.contains("serve_with_identity"));
     let lifecycle_root = read(&proxy_src().join("runtime/tcp_ingress/lifecycle.rs"));
     let lifecycle = read_module(&proxy_src().join("runtime/tcp_ingress/lifecycle.rs"));
+    assert!(!lifecycle.contains("serve_inbound_with_client_response"));
     for module_name in ["mod rate_limit;", "mod result;", "mod serve;"] {
         assert!(lifecycle_root.contains(module_name));
     }
@@ -3124,12 +3166,11 @@ fn tcp_ingress_lifecycle_root_stays_facade_only() {
 fn tcp_ingress_contract_root_stays_facade_only() {
     let contract_root = read(&proxy_src().join("runtime/tcp_ingress/contract.rs"));
     let contract = read_module(&proxy_src().join("runtime/tcp_ingress/contract.rs"));
-    for module_name in [
-        "mod accounting;",
-        "mod client_response;",
-        "mod no_response;",
-        "mod protocol;",
-    ] {
+    assert!(!proxy_src()
+        .join("runtime/tcp_ingress/contract/client_response.rs")
+        .exists());
+    assert!(!contract.contains("ClientResponseInboundProtocol"));
+    for module_name in ["mod accounting;", "mod no_response;", "mod protocol;"] {
         assert!(contract_root.contains(module_name));
     }
     for forbidden in [
@@ -3146,9 +3187,9 @@ fn tcp_ingress_contract_root_stays_facade_only() {
     for expected in [
         "fn record_tcp_upload(",
         "pub(crate) trait InboundProtocol",
-        "pub(crate) struct ClientResponseInboundProtocol",
         "pub(crate) struct NoClientResponseStreamProtocol",
         "TcpRuntimeServices",
+        "TcpRelayActivity",
     ] {
         assert!(
             contract.contains(expected),
@@ -3662,6 +3703,8 @@ fn mux_session_root_stays_facade_only() {
 
 #[test]
 fn mux_udp_root_stays_facade_only() {
+    let operation = read(&proxy_src().join("runtime/inbound_service/operation.rs"));
+    assert!(operation.contains("run_protocol_mux_udp_task_with_sniffing("));
     let mux_udp_root = read(&proxy_src().join("runtime/mux_udp.rs"));
     let mux_udp = read_module(&proxy_src().join("runtime/mux_udp.rs"));
     for module_name in ["mod handler;", "mod relay;", "mod task;"] {
@@ -3681,8 +3724,7 @@ fn mux_udp_root_stays_facade_only() {
     for expected in [
         "pub(super) struct MuxPacketSessionUdpHandler",
         "pub(crate) async fn run_protocol_mux_udp_relay",
-        "pub(crate) async fn run_protocol_mux_udp_task",
-        "pub(crate) async fn run_protocol_mux_udp_task_with_accept_log",
+        "pub(crate) async fn run_protocol_mux_udp_task_with_sniffing",
     ] {
         assert!(
             mux_udp.contains(expected),
@@ -3693,31 +3735,30 @@ fn mux_udp_root_stays_facade_only() {
 
 #[test]
 fn no_client_mux_root_stays_facade_only() {
-    let no_client_root = read(&proxy_src().join("runtime/inbound_route/mux/no_client.rs"));
-    let no_client = read_module(&proxy_src().join("runtime/inbound_route/mux/no_client.rs"));
-    for module_name in ["mod request;", "mod route;"] {
-        assert!(no_client_root.contains(module_name));
-    }
-    for forbidden in [
-        "pub(crate) async fn dispatch_no_client_mux_route<",
-        "pub(crate) async fn dispatch_no_client_mux_route_with_defaults<",
-        "pub(crate) async fn dispatch_no_client_mux_route_request_with_defaults<",
+    for retired in [
+        "runtime/inbound_route/mux/no_client.rs",
+        "runtime/inbound_route/mux/no_client/request.rs",
+        "runtime/inbound_route/mux/no_client/route.rs",
     ] {
-        assert!(
-            !no_client_root.contains(forbidden),
-            "no_client mux facade root must not keep `{forbidden}` inline"
-        );
+        assert!(!proxy_src().join(retired).exists());
     }
-    for expected in [
-        "pub(crate) async fn dispatch_no_client_mux_route<",
-        "pub(crate) async fn dispatch_no_client_mux_route_with_defaults<",
-        "pub(crate) async fn dispatch_no_client_mux_route_request_with_defaults<",
-    ] {
-        assert!(
-            no_client.contains(expected),
-            "no_client mux module tree must still provide `{expected}`"
-        );
-    }
+    let source = read_module(&proxy_src().join("runtime/route_runtime/route/source.rs"));
+    assert!(source.contains("AcceptedRequest::Multiplex"));
+    assert!(source.contains("runtime.run_requests(source)"));
+    let runtime = read(&proxy_src().join("runtime.rs"));
+    assert!(runtime.contains(
+        "#[cfg(test)]
+pub(crate) mod inbound_route;"
+    ));
+    assert_sources_exclude(
+        &proxy_src().join("runtime"),
+        &[
+            "dispatch_no_client_mux_route",
+            "NoClientMuxRouteDefaults",
+            "LoggedTcpSocketListenerRequest",
+            "serve_inbound_with_client_response",
+        ],
+    );
 }
 
 #[test]
@@ -3760,36 +3801,38 @@ fn retired_peer_listener_cannot_restore_an_unowned_stream_task_loop() {
 }
 
 #[test]
-fn stream_udp_root_stays_facade_only() {
-    let stream_udp_root = read(&proxy_src().join("runtime/stream_udp.rs"));
-    let stream_udp = read_module(&proxy_src().join("runtime/stream_udp.rs"));
-    for module_name in ["mod handler;", "mod recording;", "mod relay;"] {
-        assert!(stream_udp_root.contains(module_name));
+fn retired_stream_udp_bridge_cannot_bypass_standard_datagram_accounting() {
+    for retired in [
+        "runtime/stream_udp.rs",
+        "runtime/stream_udp/handler.rs",
+        "runtime/stream_udp/recording.rs",
+        "runtime/stream_udp/relay.rs",
+    ] {
+        assert!(!proxy_src().join(retired).exists());
     }
-    for forbidden in [
-        "pub(crate) struct StreamUdpRelayRequest",
-        "struct StreamPacketSessionUdpHandler",
-        "pub(crate) async fn run_mapped_protocol_stream_udp_relay",
-        "async fn run_stream_udp_relay",
-        "fn record_stream_udp_client_io",
+    let standard = read_module(&proxy_src().join("runtime/route_runtime/route/source/datagram.rs"));
+    for required in [
+        "UdpIngressRuntime",
+        ".spawn(TaskClass::Critical",
+        "with_accepted_caller(driver.caller()?)",
+        "logical Datagram original cleanup remains pending",
+        "record_session_inbound_traffic",
+        "record_session_inbound_rx",
     ] {
         assert!(
-            !stream_udp_root.contains(forbidden),
-            "stream_udp facade root must not keep `{forbidden}` inline"
+            standard.contains(required),
+            "standard Datagram must retain {required}"
         );
     }
-    for expected in [
-        "pub(crate) struct StreamUdpRelayRequest",
-        "pub(super) struct StreamPacketSessionUdpHandler",
-        "pub(crate) async fn run_mapped_protocol_stream_udp_relay",
-        "async fn run_stream_udp_relay",
-        "pub(super) fn record_stream_udp_client_io",
-    ] {
-        assert!(
-            stream_udp.contains(expected),
-            "stream_udp module tree must still provide `{expected}`"
-        );
-    }
+    assert!(!standard.contains("use crate::runtime::Proxy"));
+    assert_non_test_sources_exclude(
+        &proxy_src().join("runtime"),
+        &[
+            "StreamPacketSessionUdpHandler",
+            "StreamUdpRelayRequest",
+            "run_mapped_protocol_stream_udp_relay",
+        ],
+    );
 }
 
 #[test]
@@ -4256,7 +4299,8 @@ fn udp_flow_registered_upstream_runtime_association_lifecycle_root_stays_facade_
 fn udp_flow_registered_state_start_root_stays_facade_only() {
     let start_root = read(&proxy_src().join("runtime/udp_flow/registered/state/start.rs"));
     let start = read_module(&proxy_src().join("runtime/udp_flow/registered/state/start.rs"));
-    for module_name in ["mod upstream;"] {
+    {
+        let module_name = "mod upstream;";
         assert!(start_root.contains(module_name));
     }
     for forbidden in [
@@ -4269,7 +4313,8 @@ fn udp_flow_registered_state_start_root_stays_facade_only() {
             "udp_flow registered state start facade root must not keep `{forbidden}` inline"
         );
     }
-    for expected in ["pub(crate) async fn start_upstream_udp_flow("] {
+    {
+        let expected = "pub(crate) async fn start_upstream_udp_flow(";
         assert!(
             start.contains(expected),
             "udp_flow registered state start module tree must still provide `{expected}`"

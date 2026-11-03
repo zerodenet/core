@@ -46,10 +46,7 @@ pub struct VlessInboundListenerRequest {
     mux_response_backlog: crate::mux::MuxResponseBacklogPolicy,
 }
 
-pub enum VlessTcpFallbackReplay {
-    Client(crate::inbound::VlessFallbackReplay<TcpRelayStream>),
-    Socket(crate::inbound::VlessFallbackReplay<TokioSocket>),
-}
+pub struct VlessTcpFallbackReplay(crate::inbound::VlessFallbackReplay<TcpRelayStream>);
 
 impl VlessTcpFallbackReplay {
     pub(super) async fn select_standard_route(
@@ -57,53 +54,28 @@ impl VlessTcpFallbackReplay {
         policy: &crate::fallback::FallbackPolicy,
         facts: &zero_platform_tokio::contract::context::InboundConnectionFacts,
     ) -> Result<(), zero_core::Error> {
-        match self {
-            Self::Client(replay) => {
-                replay
-                    .select_route(
-                        policy,
-                        None,
-                        None,
-                        facts.effective_source,
-                        facts.local_endpoint,
-                    )
-                    .await
-            }
-            Self::Socket(replay) => {
-                replay
-                    .select_route(
-                        policy,
-                        None,
-                        None,
-                        facts.effective_source,
-                        facts.local_endpoint,
-                    )
-                    .await
-            }
-        }
+        self.0
+            .select_route(
+                policy,
+                None,
+                None,
+                facts.effective_source,
+                facts.local_endpoint,
+            )
+            .await
     }
 }
 impl zero_core::InboundFallbackReplay for VlessTcpFallbackReplay {
     type Stream = TcpRelayStream;
     fn selected_route(&self) -> Option<zero_traits::FallbackRoute> {
-        match self {
-            Self::Client(replay) => zero_core::InboundFallbackReplay::selected_route(replay),
-            Self::Socket(replay) => zero_core::InboundFallbackReplay::selected_route(replay),
-        }
+        zero_core::InboundFallbackReplay::selected_route(&self.0)
     }
-
     async fn replay_to<'a, W>(self, upstream: &'a mut W) -> Result<Self::Stream, W::Error>
     where
         Self: 'a,
         W: zero_traits::AsyncSocket + Send + 'a,
     {
-        match self {
-            Self::Client(replay) => replay.replay_to_upstream(upstream).await,
-            Self::Socket(replay) => replay
-                .replay_to_upstream(upstream)
-                .await
-                .map(TcpRelayStream::from),
-        }
+        self.0.replay_to_upstream(upstream).await
     }
 }
 

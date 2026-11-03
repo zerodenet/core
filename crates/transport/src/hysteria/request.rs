@@ -3,7 +3,7 @@ use bytes::{Buf, Bytes};
 use std::sync::atomic::{AtomicBool, Ordering};
 pub(super) async fn serve<S>(
     request: http::Request<()>,
-    mut stream: h3::server::RequestStream<S, Bytes>,
+    stream: h3::server::RequestStream<S, Bytes>,
     profile: &Profile,
     authenticated: &AtomicBool,
     negotiate: impl Fn(u64),

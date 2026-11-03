@@ -4,6 +4,7 @@ mod devices;
 mod maintenance;
 mod plan;
 mod replacement;
+mod restoration;
 mod retirement;
 pub mod supervision;
 #[cfg(test)]
@@ -97,7 +98,6 @@ impl Current {
 pub struct ComponentCatalog {
     factories: OnceLock<ComponentRegistry<OutboundConfig>>,
     next_id: AtomicU64,
-    next_preparation: AtomicU64,
     #[cfg(feature = "managed-datagram-runtime")]
     next_association: AtomicU64,
     state: Mutex<State>,
@@ -110,7 +110,6 @@ impl Default for ComponentCatalog {
         Self {
             factories: OnceLock::new(),
             next_id: AtomicU64::new(0),
-            next_preparation: AtomicU64::new(0),
             #[cfg(feature = "managed-datagram-runtime")]
             next_association: AtomicU64::new(0),
             state: Mutex::new(State::default()),
@@ -210,10 +209,19 @@ impl ComponentCatalog {
             .chain(state.staged.iter())
             .chain(state.cold.iter())
             .find_map(|entry| entry.plan.as_ref().ok().map(|plan| (&entry.config, plan)));
-        let plan = self
-            .prepare_plan(&config, previous, &state.issued)
-            .map(Arc::new)
-            .map_err(Arc::new);
+        // A request for the exact published input is restoration of its
+        // retained recipe, not a fresh external-material preparation pass.
+        // New candidate documents have their own Arc and still decode below.
+        let published = state
+            .current
+            .as_ref()
+            .filter(|entry| entry.matches(&config));
+        let plan = match published.and_then(|entry| entry.plan.as_ref().ok()) {
+            Some(original) => self.restore_published_plan(original, &state.issued),
+            None => self.prepare_plan(&config, previous, &state.issued),
+        }
+        .map(Arc::new)
+        .map_err(Arc::new);
         if let Ok(plan) = &plan {
             for slot in &plan.order {
                 state

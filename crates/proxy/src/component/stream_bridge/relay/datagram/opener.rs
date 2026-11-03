@@ -41,6 +41,10 @@ impl CarrierEndpointObserver for Evidence {
     }
 }
 impl Opener {
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "existing physical carrier setup keeps request, scope and native ownership inputs explicit"
+    )]
     pub(super) async fn new(
         services: &TcpExecutionServices,
         nodes: Vec<ServiceNode>,

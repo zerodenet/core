@@ -122,6 +122,10 @@ where
         }
     }
 }
+#[expect(
+    clippy::too_many_arguments,
+    reason = "admission checks the existing session, packet and request facts together without another runtime interface"
+)]
 async fn admit(
     session: Arc<Session>,
     sequence: u64,

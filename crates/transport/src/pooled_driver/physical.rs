@@ -41,9 +41,21 @@ impl Physical {
             .upgrade()
             .filter(|owner| owner.ready() && self.usable())
             .ok_or_else(|| failure(self.original.instance(), Stage::Prepare, Reason::Revoked))?;
-        self.users
-            .fetch_update(Ordering::AcqRel, Ordering::Acquire, |n| n.checked_add(1))
-            .map_err(|_| failure(self.original.instance(), Stage::Prepare, Reason::Capacity))?;
+        let mut current = self.users.load(Ordering::Acquire);
+        loop {
+            let next = current.checked_add(1).ok_or_else(|| {
+                failure(self.original.instance(), Stage::Prepare, Reason::Capacity)
+            })?;
+            match self.users.compare_exchange_weak(
+                current,
+                next,
+                Ordering::AcqRel,
+                Ordering::Acquire,
+            ) {
+                Ok(_) => break,
+                Err(observed) => current = observed,
+            }
+        }
         // Stop can race this acquisition. Keep its debt until the returned use
         // is actually dropped, even when admission has just closed.
         let usage = PoolUse {

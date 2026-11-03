@@ -41,7 +41,7 @@
 
 - [入站标准](../../crates/core/src/inbound.rs)
 
-- [配置编译](../../crates/config/src/compile.rs)
+- [配置编译](https://github.com/zerodenet/core/blob/f0c1cc0930df8c34f1822cdd182928511e319b76/crates/config/src/compile.rs)
 
 - [Engine 计划](../../crates/engine/src/plan/mod.rs)
 

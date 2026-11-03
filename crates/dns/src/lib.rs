@@ -112,6 +112,7 @@ enum DnsSystemInner {
     System(TokioSystemResolver),
     /// Fully configured with servers, routing, cache, and optional fake IP.
     Configured {
+        source_config: Box<DnsConfig>,
         servers: BTreeMap<String, ResolverServer>,
         dispatcher: DnsDispatcher,
         cache: Option<DnsCache>,
@@ -328,6 +329,7 @@ impl DnsSystem {
         };
 
         Ok(DnsSystemInner::Configured {
+            source_config: Box::new(cfg.clone()),
             servers,
             dispatcher,
             cache,
@@ -502,6 +504,7 @@ impl DnsSystem {
                 fake_ip,
                 reverse_mapping,
                 policy,
+                ..
             } => Some(ResolveSnapshot {
                 native_source: self.native_source.clone(),
                 servers: servers.clone(),

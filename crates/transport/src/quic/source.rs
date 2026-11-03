@@ -32,6 +32,10 @@ pub struct Source<Make> {
     make: Make,
     driver_limit: std::num::NonZeroUsize,
 }
+#[expect(
+    clippy::too_many_arguments,
+    reason = "existing concrete QUIC source keeps its original resource, task and credential inputs explicit"
+)]
 pub fn source<H: InboundHandshake, Make: Fn(OwnedIncoming) -> H + Send + 'static>(
     request: MetadataDatagramRequest,
     server: quinn::ServerConfig,

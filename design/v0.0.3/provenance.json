@@ -43,8 +43,8 @@
       "id": "02",
       "title": "设计依据与当前问题",
       "file": "architecture.md",
-      "characters": 2191,
-      "sha256": "f3d7e6eaf9cb5fb590093aa2a74fb8f4c46ac65465d8875dd8839b6b5cc954b7",
+      "characters": 2265,
+      "sha256": "96cfc950c602dea2e1375aa4cfd1746d3bbd17e18d49a0f8adf530281a05cf9c",
       "pre_cloud_handoff_sha256": "9667d3ef7244a67be2ae8a579381a105e3dacca54e08149645567f39a16d4c0c"
     },
     {
@@ -205,8 +205,8 @@
       "id": "24",
       "title": "源码与规范索引",
       "file": "references.md",
-      "characters": 2375,
-      "sha256": "1e9c98bde124c69741060644351aecb9cd4291efe0aa515dadaff0601a1a825a",
+      "characters": 2449,
+      "sha256": "7dd40ac66a215b68d15b427f12dc4863366777e0d9a6388a17936f538073ada9",
       "pre_cloud_handoff_sha256": "fe8aeeba1bb3e31de45997659e6be68d7d77d0f8754465dfdca14c46871b6d66"
     }
   ],
@@ -295,6 +295,56 @@
         "12"
       ],
       "source_hash_note": "Sections 10 and 12 already contained user-approved temporary lifecycle and standard Datagram/accepted ownership additions before this handoff; reconcile their recorded current hashes without altering those bodies. Sections 02/17/24 only change stale historical source links. Original source page and earlier snapshot hashes retained."
+    },
+    {
+      "date": "2026-11-03",
+      "scope": "Cloud implementation removes the old Config resource compiler path; preserve the historical observation as an immutable source link instead of rewriting its findings.",
+      "updated_sections": [
+        "02"
+      ],
+      "previous_section": {
+        "id": "02",
+        "title": "设计依据与当前问题",
+        "file": "architecture.md",
+        "characters": 2191,
+        "sha256": "f3d7e6eaf9cb5fb590093aa2a74fb8f4c46ac65465d8875dd8839b6b5cc954b7",
+        "pre_cloud_handoff_sha256": "9667d3ef7244a67be2ae8a579381a105e3dacca54e08149645567f39a16d4c0c"
+      },
+      "updated_section": {
+        "id": "02",
+        "title": "设计依据与当前问题",
+        "file": "architecture.md",
+        "characters": 2265,
+        "sha256": "96cfc950c602dea2e1375aa4cfd1746d3bbd17e18d49a0f8adf530281a05cf9c",
+        "pre_cloud_handoff_sha256": "9667d3ef7244a67be2ae8a579381a105e3dacca54e08149645567f39a16d4c0c"
+      },
+      "verified_source": "f0c1cc0930df8c34f1822cdd182928511e319b76:crates/config/src/compile.rs",
+      "technical_contracts": "unchanged; link normalization only"
+    },
+    {
+      "date": "2026-11-03",
+      "scope": "Normalize the matching historical compiler index after Config resource I/O moves to runtime; preserve design-observation text and goals.",
+      "updated_sections": [
+        "24"
+      ],
+      "previous_section": {
+        "id": "24",
+        "title": "源码与规范索引",
+        "file": "references.md",
+        "characters": 2375,
+        "sha256": "1e9c98bde124c69741060644351aecb9cd4291efe0aa515dadaff0601a1a825a",
+        "pre_cloud_handoff_sha256": "fe8aeeba1bb3e31de45997659e6be68d7d77d0f8754465dfdca14c46871b6d66"
+      },
+      "updated_section": {
+        "id": "24",
+        "title": "源码与规范索引",
+        "file": "references.md",
+        "characters": 2449,
+        "sha256": "7dd40ac66a215b68d15b427f12dc4863366777e0d9a6388a17936f538073ada9",
+        "pre_cloud_handoff_sha256": "fe8aeeba1bb3e31de45997659e6be68d7d77d0f8754465dfdca14c46871b6d66"
+      },
+      "verified_source": "f0c1cc0930df8c34f1822cdd182928511e319b76:crates/config/src/compile.rs",
+      "technical_contracts": "unchanged; immutable historical source link only"
     }
   ]
 }

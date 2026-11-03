@@ -1,10 +1,14 @@
+# 本轮执行记录
+
+A/B 已由主 agent C 在同一环境的独立 worktree 派生并行实现；实际职责、PR、剩余实现与资格边界见[执行账本](execution.md)。本文后续准备状态和启动指令保留为任务包基线，不能当本轮完成或未启动的状态。精确候选和最终运行结果见 [PR #127](https://github.com/zerodenet/core/pull/127)。
+
 # v0.0.3 云端并行任务包
 
 2026-11-03 用户授权：整理当前本地内核增量、分组提交并推送独立云端基线，随后以多个 agent 的分支和 PR 并行推进，最终拉回本地验收。**本轮及云端任务不得合入 develop/main，不发布、不部署。** 本包覆盖此前文档中的“不提交、不推送”和单一旧 PR 的历史执行安排，技术标准与兼容目标不变。
 
 ## 基线与开工
 
-- 仓库：`zerodenet/core`，GitHub remote 为 `github`；不向另一个 GitLab remote 推送。
+- 仓库：`zerodenet/core`，GitHub remote 使用实际 checkout 配置；当前云端为 `origin` → `https://github.com/zerodenet/core.git`，不向其他仓库或 GitLab remote 推送。
 - 产品阶段：v0.0.3；不更新产品版本、协议上游基线或锁文件政策。
 - 云端基线：`codex/v003-cloud-base`。源码检查点、分组提交、已运行检查和未验收范围见 [baseline.json](baseline.json)。本包所在提交及其远端分支 head 是开工时必须记录的实际任务基线。
 - 集成分支：`codex/v003-cloud-integration`，初始与基线完全相同。Agent A/B 的 PR **base 均为此分支**，不得直接指向 develop。
@@ -21,7 +25,7 @@
        共享工具链、Git 对象、Cargo 下载缓存和受协调的构建目录
 ```
 
-云端网络、工具链、protoc 与权限只初始化一次；若提供 managed cloud environment 技能，先读取其运行规则。新 checkout 的 GitHub remote 可能叫 origin：C 先确认其 URL，再按本包需要配置 github 别名，不覆盖已有 GitLab remote。fetch 后记录实际 SHA、核对 clean 状态，在启动子 agent 前创建/复用 A/B worktree。分支已存在时直接使用，不重建或强制重置。不复制本地凭据、绝对路径、构建缓存或私有日志；版本化任务包不依赖它们。
+云端网络、工具链、protoc 与权限只初始化一次；若提供 managed cloud environment 技能，先读取其运行规则。新 checkout 的 GitHub remote 可能叫 origin：C 先确认其 URL，再使用实际 remote 名称；无需增设别名，不覆盖其他 remote。fetch 后记录实际 SHA、核对 clean 状态，在启动子 agent 前创建/复用 A/B worktree。分支已存在时直接使用，不重建或强制重置。不复制本地凭据、绝对路径、构建缓存或私有日志；版本化任务包不依赖它们。
 
 默认共享一个 Cargo target，由 C 协调排队：同一时刻只执行一组 Rust 构建及其对应测试，直到该组结果收集完再交给另一工作区。A/B 的设计、代码修改和轻量静态检查仍并行；不同时运行两套全量，不把另一 worktree 的产物当本分支结果。共享 target 不等于并发写构建产物，不引入新的任务调度框架；确有隔离需要再使用独立 target，不强制复制整套构建环境。
 

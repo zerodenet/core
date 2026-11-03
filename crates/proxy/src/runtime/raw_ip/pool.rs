@@ -261,6 +261,10 @@ impl RawIpDevicePool {
 }
 
 impl StagedRawIpDevices {
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "existing bounded device entry records original identity, generation and compatibility disposition separately"
+    )]
     pub(crate) fn insert(
         &mut self,
         tag: String,

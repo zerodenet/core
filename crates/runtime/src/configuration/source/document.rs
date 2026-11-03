@@ -46,6 +46,18 @@ impl ConfigurationSource {
         RuntimeConfig::parse_with_source_dir(&raw, path.parent().map(Path::to_path_buf))
     }
 
+    /// A bounded inert material snapshot for a cold protocol recipe. The same
+    /// finite configuration startup slot retains the actual original before
+    /// reading. Only a matching native-close receipt permits returning bytes;
+    /// an interrupted/unknown close blocks every subsequent preparation.
+    /// This does not parse protocol material or construct a replacement carrier.
+    pub fn read_preparation_file(path: &Path, max_bytes: usize) -> io::Result<Vec<u8>> {
+        let source = Arc::new(Self::default());
+        super::super::startup::with_source(source.clone(), || {
+            source.io.read_limited(path, max_bytes)
+        })?
+    }
+
     /// Cold raw document readers (early logging and CLI submission) retain
     /// their own parse/fallback behavior. An unconfirmed original remains in
     /// the same finite startup slot and blocks later preparation/submission.

@@ -14,6 +14,10 @@ pub(super) struct Wire {
     pub endpoint: Option<RawIpInboundEndpoint>,
     pub proxies: tasks::RetainedTasks<()>,
 }
+#[expect(
+    clippy::too_many_arguments,
+    reason = "the existing raw-IP wire driver borrows each original view and scope explicitly"
+)]
 pub(super) async fn run(
     mut operation: Wire,
     grant: zero_platform_tokio::contract::component::GrantedDatagramListener,

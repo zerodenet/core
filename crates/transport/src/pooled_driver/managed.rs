@@ -45,11 +45,21 @@ impl ManagedPool {
             ))
             .into());
         }
-        self.operations
-            .fetch_update(Ordering::AcqRel, Ordering::Acquire, |n| n.checked_add(1))
-            .map_err(|_| {
+        let mut current = self.operations.load(Ordering::Acquire);
+        loop {
+            let next = current.checked_add(1).ok_or_else(|| {
                 std::io::Error::other(failure(self.instance, Stage::Prepare, Reason::Capacity))
             })?;
+            match self.operations.compare_exchange_weak(
+                current,
+                next,
+                Ordering::AcqRel,
+                Ordering::Acquire,
+            ) {
+                Ok(_) => break,
+                Err(observed) => current = observed,
+            }
+        }
         Ok(Operation(self.clone()))
     }
     pub fn instance(&self) -> ComponentInstanceId {
