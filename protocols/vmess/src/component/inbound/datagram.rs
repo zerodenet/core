@@ -124,10 +124,12 @@ impl DatagramReply for Reply {
         }))
     }
 }
+type PendingWrite =
+    BoxFuture<'static, (WriteHalf<Wire>, Result<InboundDatagramReceipt, SendFailure>)>;
+
 pub(crate) struct Tx {
     writer: Option<WriteHalf<Wire>>,
-    pending:
-        Option<BoxFuture<'static, (WriteHalf<Wire>, Result<InboundDatagramReceipt, SendFailure>)>>,
+    pending: Option<PendingWrite>,
     session: Arc<Mutex<VmessInboundUdpSession>>,
     _usage: Use,
 }

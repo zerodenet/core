@@ -101,7 +101,7 @@ impl OwnedVlessInboundTransportPlan {
                 Ok(zero_core::InboundRouteAccept::Control(control))
             }
             VlessInboundTransportResult::FallbackReplay(replay) => Ok(
-                zero_core::InboundRouteAccept::Fallback(VlessTcpFallbackReplay::Client(replay)),
+                zero_core::InboundRouteAccept::Fallback(VlessTcpFallbackReplay(replay)),
             ),
             VlessInboundTransportResult::Stream { stream, sni } => {
                 let mut metadata = VlessInboundStreamMetadata::from_stream(&stream);

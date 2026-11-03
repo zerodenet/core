@@ -3,7 +3,7 @@ use zero_traits::{DatagramSocket, IpAddress, SocketAddress};
 
 use super::association::Socks5UdpRelayError;
 use super::dispatch::Socks5InboundUdpSession;
-use super::packet::{Socks5InboundUdpDispatchAction, Socks5InboundUdpRequest};
+use super::packet::Socks5InboundUdpDispatchAction;
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 struct Socks5InboundUdpResponder {

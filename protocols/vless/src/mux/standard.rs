@@ -18,6 +18,10 @@ use zero_platform_tokio::{
 };
 mod driver;
 mod udp;
+#[expect(
+    clippy::too_many_arguments,
+    reason = "existing MUX admission passes actual wire, credentials, caller and task scope without an alternate runtime interface"
+)]
 pub(crate) async fn source<S>(
     mut stream: S,
     uuid: [u8; 16],
