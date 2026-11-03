@@ -64,3 +64,5 @@ impl Default for Profile {
         Self::new(Settings::default()).expect("empty FinalMask profile")
     }
 }
+
+pub mod owned;

@@ -8,6 +8,7 @@ use tokio_util::sync::WaitForCancellationFutureOwned;
 /// destroyed before returning its actual receive-direction logical capacity.
 pub struct RecvStream {
     stream: h3_quinn::RecvStream,
+    pub(super) prefix: Option<Bytes>,
     cancelled: Pin<Box<WaitForCancellationFutureOwned>>,
     _permit: Permit,
 }
@@ -26,6 +27,7 @@ impl RecvStream {
     ) -> Self {
         Self {
             stream: h3_quinn::RecvStream::new(stream),
+            prefix: None,
             cancelled,
             _permit: permit,
         }
@@ -64,6 +66,9 @@ impl quic::RecvStream for RecvStream {
         cx: &mut Context<'_>,
     ) -> Poll<Result<Option<Bytes>, StreamErrorIncoming>> {
         cancelled(&mut self.cancelled, cx)?;
+        if let Some(prefix) = self.prefix.take().filter(|b| !b.is_empty()) {
+            return Poll::Ready(Ok(Some(prefix)));
+        }
         quic::RecvStream::poll_data(&mut self.stream, cx)
     }
     fn stop_sending(&mut self, code: u64) {

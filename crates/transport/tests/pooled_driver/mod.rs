@@ -90,3 +90,26 @@ fn native_pool_rejects_unowned_root_domain_unbounded_budget_and_prior_legacy_exp
         "cache eviction is not native adoption of already exposed legacy resources"
     );
 }
+
+#[test]
+fn scoped_legacy_exposure_survives_view_drop_and_keeps_other_outbounds_eligible() {
+    let registry = PoolControl::default();
+    let legacy = registry.scoped("old".into());
+    legacy.enter_legacy().unwrap();
+    assert!(!legacy.native_eligible());
+    drop(legacy);
+    let old = registry.scoped("old".into());
+    assert!(
+        !old.native_eligible(),
+        "view eviction cannot certify native close"
+    );
+    assert!(old.installed().unwrap().is_none());
+    let fresh = registry.scoped("fresh".into());
+    assert!(fresh.native_eligible());
+    let _recipe = describe(&fresh, "another actual scoped outbound");
+    registry.enter_legacy().unwrap();
+    assert!(
+        !fresh.native_eligible(),
+        "unscoped legacy access overlaps every key"
+    );
+}

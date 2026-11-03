@@ -70,6 +70,14 @@ mod facts_tests;
 
 #[cfg(feature = "crypto")]
 impl ShadowsocksInboundTcpAcceptor {
+    #[cfg(feature = "blake3")]
+    pub(crate) fn replay_pool(&self) -> Option<Arc<crate::shared::ReplaySaltPool>> {
+        self.tcp_state
+            .cipher
+            .is_blake3()
+            .then(|| self.tcp_state.replay_pool.clone())
+    }
+
     pub fn new(profile: ShadowsocksInboundProfile) -> Self {
         let tcp_state = profile.tcp_state();
         Self {

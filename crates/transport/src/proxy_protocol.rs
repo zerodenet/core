@@ -59,3 +59,22 @@ pub fn encode(
         )),
     }
 }
+
+/// Execute the required neutral prelude before TLS/carrier preparation. The
+/// returned facts retain the actual physical peer independently of its trusted
+/// effective source; only the host may apply those facts to admission.
+pub async fn prepare(
+    socket: &mut zero_platform_tokio::TokioSocket,
+) -> io::Result<zero_platform_tokio::contract::context::InboundConnectionFacts> {
+    let mut facts =
+        zero_platform_tokio::contract::context::InboundConnectionFacts::from_stream(socket);
+    let addresses = tokio::time::timeout(std::time::Duration::from_secs(10), accept(socket))
+        .await
+        .map_err(|_| io::Error::new(io::ErrorKind::TimedOut, "PROXY protocol header timeout"))??;
+    if let Some((source, destination)) = addresses {
+        socket.set_effective_addresses(source, destination);
+        facts.effective_source = Some(source);
+        facts.local_endpoint = Some(destination);
+    }
+    Ok(facts)
+}

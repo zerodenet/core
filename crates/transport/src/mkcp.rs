@@ -9,9 +9,11 @@ pub use config::Settings;
 
 mod client;
 mod peer;
+mod scoped_peer;
 mod stream;
 pub use client::connect;
 pub use peer::{ListenerProfile, PeerStreams};
+pub use scoped_peer::ScopedPeerStreams;
 pub use stream::MkcpStream;
 #[cfg(test)]
 #[path = "../tests/mkcp/state.rs"]

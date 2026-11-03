@@ -34,6 +34,9 @@ pub struct VlessRealityServerProfile {
 }
 
 impl VlessRealityServerProfile {
+    pub(crate) fn target_endpoint(&self) -> Option<zero_traits::FallbackEndpoint> {
+        self.target.as_ref().map(|target| target.endpoint.clone())
+    }
     pub fn with_target(mut self, target: Option<super::super::target::Profile>) -> Self {
         self.target = target;
         self

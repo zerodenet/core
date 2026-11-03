@@ -21,3 +21,4 @@ pub use codec::ShadowsocksInboundUdpCodec;
 pub use model::*;
 
 mod association;
+mod standard;

@@ -1,5 +1,5 @@
 #[cfg(feature = "runtime")]
-mod native;
+pub(crate) mod native;
 #[cfg(feature = "runtime")]
 use zero_transport::pooled_driver::{join as join_mux_driver, Driver as MuxDriver};
 #[cfg(not(feature = "runtime"))]
@@ -27,6 +27,10 @@ use zero_traits::AsyncSocket;
 use crate::shared::{parse_address_from_bytes, write_address};
 
 mod backlog;
+#[cfg(feature = "runtime")]
+mod standard;
+#[cfg(feature = "runtime")]
+pub(crate) use standard::source as standard_source;
 #[cfg(test)]
 mod tests;
 
@@ -157,7 +161,9 @@ impl TrojanMuxConnectionPool {
         Self {
             pool: self.pool.clone(),
             #[cfg(feature = "runtime")]
-            control: self.control.scoped(scope.clone()),
+            // Ownership is stable for the configured node across transport
+            // changes; the actual cache scope still includes the full profile.
+            control: self.control.scoped(Arc::from(tag)),
             scope: Some(scope),
         }
     }
@@ -389,6 +395,25 @@ pub struct TrojanInboundMuxTcpRelay {
 }
 
 impl TrojanInboundMuxTcpRelay {
+    #[cfg(feature = "runtime")]
+    pub(crate) fn into_standard_stream(
+        self,
+    ) -> impl AsyncRead + AsyncWrite + Send + Sync + Unpin + 'static {
+        let sid = self.session_id;
+        let output = self.writer.clone();
+        zero_transport::stream::ChannelStream::new(
+            self.up_rx,
+            move |bytes: &[u8]| {
+                output
+                    .data(sid, bytes)
+                    .map(|_| bytes.len())
+                    .map_err(io::Error::other)
+            },
+            move || self.writer.end(sid).map(|_| ()).map_err(io::Error::other),
+            std::num::NonZeroUsize::new(MUX_MAX_DATA_LEN).unwrap(),
+            Vec::new(),
+        )
+    }
     fn new(
         session_id: u16,
         up_rx: mpsc::UnboundedReceiver<Vec<u8>>,
@@ -1123,6 +1148,32 @@ pub(crate) struct TrojanInboundMuxWriter {
 }
 
 impl TrojanInboundMuxWriter {
+    #[cfg(feature = "runtime")]
+    fn prepare<W>(
+        mut writer: W,
+        policy: MuxResponseBacklogPolicy,
+    ) -> (
+        Self,
+        impl Future<Output = Result<(), zero_platform_tokio::contract::ChannelError>> + Send + 'static,
+    )
+    where
+        W: AsyncWrite + Unpin + Send + 'static,
+    {
+        let (write_tx, mut write_rx) =
+            mpsc::channel::<BufferedMuxResponse<Vec<u8>>>(policy.frames());
+        let original = Self::new(write_tx, MuxResponseBacklog::from_policy(policy));
+        (original, async move {
+            while let Some(frame) = write_rx.recv().await {
+                let frame = frame.into_inner();
+                writer
+                    .write_all(&frame)
+                    .await
+                    .map_err(standard::write_error)?;
+                writer.flush().await.map_err(standard::write_error)?;
+            }
+            writer.shutdown().await.map_err(standard::write_error)
+        })
+    }
     fn new(
         write_tx: mpsc::Sender<BufferedMuxResponse<Vec<u8>>>,
         backlog: MuxResponseBacklog,
@@ -1322,6 +1373,8 @@ struct TrojanMuxConn {
     #[cfg(feature = "runtime")]
     original: Option<Arc<zero_transport::pooled_driver::Physical>>,
     write_tx: mpsc::UnboundedSender<Vec<u8>>,
+    #[cfg(feature = "runtime")]
+    native_udp_tx: zero_transport::pooled_driver::datagram_queue::PacketQueue,
     streams: Arc<Mutex<std::collections::HashMap<u16, mpsc::Sender<TrojanMuxDownlink>>>>,
     next_id: Mutex<u16>,
     active: Arc<Mutex<usize>>,
@@ -1367,6 +1420,9 @@ impl TrojanMuxConn {
     {
         let (reader, writer) = tokio::io::split(stream);
         let (write_tx, write_rx) = mpsc::unbounded_channel::<Vec<u8>>();
+        #[cfg(feature = "runtime")]
+        let (native_udp_tx, native_udp_rx) =
+            zero_transport::pooled_driver::datagram_queue::channel();
         let streams = Arc::new(Mutex::new(std::collections::HashMap::new()));
         let closed = Arc::new(AtomicBool::new(false));
         let response_backlog = MuxResponseBacklog::from_policy(response_backlog_policy);
@@ -1388,6 +1444,8 @@ impl TrojanMuxConn {
         let write = run_mux_write_relay_with_shutdown(
             writer,
             write_rx,
+            #[cfg(feature = "runtime")]
+            native_udp_rx,
             closed.clone(),
             shutdown_tx.clone(),
             shutdown_rx.clone(),
@@ -1416,6 +1474,8 @@ impl TrojanMuxConn {
                 #[cfg(feature = "runtime")]
                 original: None,
                 write_tx,
+                #[cfg(feature = "runtime")]
+                native_udp_tx,
                 streams,
                 next_id: Mutex::new(1),
                 active: Arc::new(Mutex::new(0)),
@@ -1508,6 +1568,9 @@ fn spawn_mux_write_relay<W>(
 async fn run_mux_write_relay_with_shutdown<W>(
     mut writer: W,
     mut write_rx: mpsc::UnboundedReceiver<Vec<u8>>,
+    #[cfg(feature = "runtime")] mut native_udp_rx: mpsc::Receiver<
+        zero_transport::pooled_driver::datagram_queue::QueuedPacket,
+    >,
     closed: Arc<AtomicBool>,
     shutdown_tx: watch::Sender<bool>,
     mut shutdown_rx: watch::Receiver<bool>,
@@ -1523,7 +1586,12 @@ async fn run_mux_write_relay_with_shutdown<W>(
                     break;
                 }
             }
-            frame = write_rx.recv() => {
+            frame = async {
+                #[cfg(feature = "runtime")]
+                { tokio::select! { frame=write_rx.recv()=>frame, frame=native_udp_rx.recv()=>frame.map(|frame|frame.into_bytes()) } }
+                #[cfg(not(feature = "runtime"))]
+                { write_rx.recv().await }
+            } => {
                 let Some(frame) = frame else {
                     break;
                 };

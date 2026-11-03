@@ -18,33 +18,67 @@ pub struct MieruInboundMultiplexer {
     auth: SessionAuth,
     incoming: tokio::sync::Mutex<mpsc::Receiver<MieruLogicalStream>>,
     failure: Arc<Mutex<Option<String>>>,
-    task: tokio::task::JoinHandle<()>,
+    task: Option<tokio::task::JoinHandle<()>>,
 }
 impl MieruInboundMultiplexer {
+    pub(crate) fn authentication(&self) -> &SessionAuth {
+        &self.auth
+    }
+    pub(crate) async fn next_stream(&mut self) -> std::io::Result<Option<MieruLogicalStream>> {
+        let incoming = self.incoming.get_mut().recv().await;
+        if incoming.is_none() {
+            if let Some(error) = self.failure.lock().unwrap().as_ref() {
+                return Err(std::io::Error::other(error.clone()));
+            }
+        }
+        Ok(incoming)
+    }
+    pub(crate) fn install_compatibility_driver(&mut self, task: tokio::task::JoinHandle<()>) {
+        self.task = Some(task);
+    }
     pub(crate) fn from_driver(
         auth: SessionAuth,
         incoming: mpsc::Receiver<MieruLogicalStream>,
         failure: Arc<Mutex<Option<String>>>,
-        task: tokio::task::JoinHandle<()>,
     ) -> Self {
         Self {
             auth,
             incoming: tokio::sync::Mutex::new(incoming),
             failure,
-            task,
+            task: None,
         }
     }
 }
 impl Drop for MieruInboundMultiplexer {
     fn drop(&mut self) {
-        self.task.abort();
+        if let Some(task) = &self.task {
+            task.abort();
+        }
     }
 }
 impl MieruInboundProfile {
-    pub async fn accept_multiplexer<S>(
+    pub async fn accept_multiplexer<S>(&self, socket: S) -> Result<MieruInboundMultiplexer, Error>
+    where
+        S: AsyncSocket + AsyncRead + AsyncWrite + Unpin + 'static,
+    {
+        let (mut connection, driver) = self.prepare_multiplexer(socket).await?;
+        connection.task = Some(tokio::spawn(async move {
+            let _ = driver.await;
+        }));
+        Ok(connection)
+    }
+    /// Build wire state without opening another task owner. The standard host
+    /// registers this exact future in the original accepted entry and Scope.
+    pub(crate) async fn prepare_multiplexer<S>(
         &self,
         mut socket: S,
-    ) -> Result<MieruInboundMultiplexer, Error>
+    ) -> Result<
+        (
+            MieruInboundMultiplexer,
+            impl std::future::Future<Output = std::io::Result<()>> + Send + 'static,
+        ),
+        Error,
+    >
     where
         S: AsyncSocket + AsyncRead + AsyncWrite + Unpin + 'static,
     {
@@ -67,7 +101,7 @@ impl MieruInboundProfile {
         let result = failure.clone();
         let writer_pattern = accept.traffic_pattern.clone();
         let writer_username = accept.username.clone();
-        let task = tokio::spawn(async move {
+        let driver = async move {
             let outcome = tokio::select! {
                 result = reader.run(read, accept.client_cipher, drop_events) => result,
                 result = writer::run_with_pattern(
@@ -79,17 +113,21 @@ impl MieruInboundProfile {
                     writer_username,
                 ) => result,
             };
-            if let Err(error) = outcome {
+            if let Err(error) = &outcome {
                 *result.lock().unwrap() = Some(error.to_string());
             }
             drop(ready);
-        });
-        Ok(MieruInboundMultiplexer {
-            auth: accept.auth,
-            incoming: tokio::sync::Mutex::new(incoming),
-            failure,
-            task,
-        })
+            outcome
+        };
+        Ok((
+            MieruInboundMultiplexer {
+                auth: accept.auth,
+                incoming: tokio::sync::Mutex::new(incoming),
+                failure,
+                task: None,
+            },
+            driver,
+        ))
     }
 }
 impl InboundRouteMultiplexer for MieruInboundMultiplexer {
@@ -101,7 +139,9 @@ impl InboundRouteMultiplexer for MieruInboundMultiplexer {
         Some(&self.auth)
     }
     fn close(&self, _reason: &str) {
-        self.task.abort();
+        if let Some(task) = &self.task {
+            task.abort();
+        }
     }
     fn response_protocol(&self) -> MieruInbound {
         MieruInbound

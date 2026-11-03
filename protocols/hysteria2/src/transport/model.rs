@@ -19,9 +19,9 @@ pub struct Hysteria2ManagedDatagramFlowResume {
 
 #[derive(Debug, Clone)]
 pub struct Hysteria2AuthenticatedInboundProfile {
-    pub(super) masquerade: super::http3::Masquerade,
-    pub(super) settings: crate::settings::Settings,
-    pub(super) protocol: crate::inbound::Hysteria2InboundProfile,
+    pub(crate) masquerade: super::http3::Masquerade,
+    pub(crate) settings: crate::settings::Settings,
+    pub(crate) protocol: crate::inbound::Hysteria2InboundProfile,
 }
 
 #[derive(Debug, Clone, Copy, Default)]

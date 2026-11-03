@@ -73,6 +73,31 @@ where
     accept_inbound_stream_stack(tls, stack, invalid_message).await
 }
 
+/// Standard accepted sources register the original gRPC carrier in their existing Scope.
+pub async fn accept_tls_inbound_stream_stack_scoped<TWs, TGrpc, TH2>(
+    socket: TokioSocket,
+    tls_acceptor: &crate::tls::TlsAcceptor,
+    stack: InboundStreamStack<'_, TWs, TGrpc, TH2>,
+    invalid_message: &'static str,
+    caller: &zero_platform_tokio::AcceptedCaller,
+) -> Result<TcpRelayStream, RuntimeError>
+where
+    TWs: WebSocketTransportProfile + ?Sized,
+    TGrpc: GrpcTransportProfile + ?Sized,
+    TH2: H2TransportProfile + ?Sized,
+{
+    let stream = accept_tls_inbound_stream(socket, tls_acceptor).await?;
+    #[cfg(feature = "grpc")]
+    if let (None, Some(profile), None) = (stack.ws, stack.grpc, stack.h2) {
+        return Ok(TcpRelayStream::new(
+            grpc::accept_grpc_with_profile_scoped(stream, profile, caller).await?,
+        ));
+    }
+    #[cfg(not(feature = "grpc"))]
+    let _ = caller;
+    accept_inbound_stream_stack(stream, stack, invalid_message).await
+}
+
 pub async fn accept_inbound_stream_stack<S, TWs, TGrpc, TH2>(
     stream: S,
     stack: InboundStreamStack<'_, TWs, TGrpc, TH2>,

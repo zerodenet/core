@@ -1,4 +1,7 @@
-//! VMess authenticates and writes its response header before host admission.
+//! VMess authentication and its original AEAD codec precede host admission.
+pub(crate) mod datagram;
+pub mod listener;
+pub(crate) type Wire = crate::stream::VmessAeadStream<zero_platform_tokio::TcpRelayStream>;
 use zero_core::request::RequestFacts;
 use zero_platform_tokio::contract::{
     inbound::{ReplyOutcome, StreamReply},

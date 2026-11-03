@@ -5,7 +5,7 @@ use zero_platform_tokio::{
         admission::SessionOwner,
         component::{
             BuildContext, ComponentFactory, ComponentInstance, ComponentRoles, ComponentSpec,
-            ControlledStreamDemandClass, ResourceAccess, ResourceDeclaration,
+            ControlledStreamDemandClass, ResourceAccess, ResourceDeclaration, RoleKind,
         },
         lifecycle::{
             erase_lifecycle, BuildError, CloseReport, DynResourceLifecycle, ResourceLifecycle,
@@ -21,11 +21,22 @@ impl ComponentFactory for Factory {
     type Options = Options;
     fn describe(&self, options: &Options) -> ComponentSpec {
         let mut spec = super::super::Factory.describe(&options.base);
+        spec.roles = if options.node() {
+            vec![RoleKind::Datagram]
+        } else {
+            vec![RoleKind::Stream]
+        };
+        spec.dependencies = options.dns_dependency.into_iter().collect();
         spec.static_identity = options.identity.clone();
         spec.resources.push(match &options.business {
+            Some(_) if options.node() => ResourceDeclaration::ControlledNodeStream {
+                endpoint: options.base.endpoint.clone(),
+                dial: options.base.dial.clone(),
+                max_sockets: options.cap,
+            },
             Some(business) => ResourceDeclaration::ControlledOutboundStream {
                 endpoint: options.base.endpoint.clone(),
-                binding: business.binding.clone(),
+                binding: business.binding.clone().expect("fixed business binding"),
                 demand: ControlledStreamDemandClass::Business,
                 max_sockets: options.cap,
             },
@@ -40,7 +51,19 @@ impl ComponentFactory for Factory {
         context: BuildContext,
     ) -> Result<ComponentInstance, BuildError> {
         let instance = context.instance();
-        if !context.dependencies.is_empty() || context.roles.outbound.is_none() {
+        let valid_dependencies = match options.dns_dependency {
+            Some(id) => {
+                context.dependencies.len() == 1
+                    && context
+                        .dependency(id)
+                        .is_some_and(|dep| dep.component != context.component)
+            }
+            None => {
+                context.dependencies.is_empty()
+                    && !matches!(options.base.endpoint.address, zero_core::Address::Domain(_))
+            }
+        };
+        if !valid_dependencies || context.roles.outbound.is_none() {
             return Err(error(instance, Stage::Prepare, Reason::InvalidConfig));
         }
         let upstream = if options.business.is_some() {
@@ -89,10 +112,17 @@ impl ComponentFactory for Factory {
             ready: AtomicBool::new(false),
             grants: carriers.grants(),
             records: Mutex::new(Vec::new()),
+            network: tokio::sync::Mutex::new(None),
         });
         Ok(ComponentInstance {
             roles: ComponentRoles {
-                stream: Some(erase_stream(super::connect::Outbound(managed.clone()))),
+                stream: (!managed.options.node())
+                    .then(|| erase_stream(super::connect::Outbound(managed.clone()))),
+                datagram: managed.options.node().then(|| {
+                    zero_platform_tokio::contract::datagram::erase_datagram(
+                        super::connect::Outbound(managed.clone()),
+                    )
+                }),
                 ..Default::default()
             },
             lifecycle: erase_lifecycle(Owner {
@@ -185,6 +215,16 @@ impl ResourceLifecycle for Owner {
             report.unfinished.push(Unfinished::Io(
                 "VMess original gRPC carriers remain unconfirmed".into(),
             ));
+        }
+        if self.managed.options.node()
+            && report.is_complete()
+            && self
+                .carriers
+                .registration()
+                .closed()
+                .is_some_and(|closed| closed.matches(&self.carriers.registration()))
+        {
+            self.managed.options.state.release(self.managed.instance);
         }
         Ok(report)
     }

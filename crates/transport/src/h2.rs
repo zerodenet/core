@@ -1,3 +1,5 @@
+mod scoped;
+pub use scoped::{accept_h2_scoped, ScopedH2Stream};
 // HTTP/2 transport 鈥?h2.rs
 //
 // Raw DATA frames over HTTP/2 (no gRPC framing).

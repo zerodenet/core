@@ -161,35 +161,49 @@ impl ManagedPool {
                 ))
                 .into());
             }
-            let candidates = selected
-                .resolve_controlled_carrier(
-                    self.options.endpoint.clone(),
-                    CarrierContext {
-                        session: None,
-                        deadline: Some(deadline),
-                        cancel: record.stop.clone(),
-                    },
-                )
-                .await
-                .map_err(std::io::Error::other)?;
-            // This owner declares a literal root, so another candidate set is
-            // a stale/foreign provider result, never permission to dial a fallback.
-            if candidates.len() != 1 {
-                return Err(std::io::Error::other(failure(
-                    self.instance,
-                    Stage::Prepare,
-                    Reason::StalePlan,
-                ))
-                .into());
-            }
             self.verify_epoch(binding)?;
-            let opened = candidates
-                .prepare_stream(0, grant)
-                .map_err(std::io::Error::other)?
-                .open(deadline)
-                .await
-                .map_err(std::io::Error::other)?;
-            let raw = opened.into_parts().0;
+            let raw = if binding.prefix.is_empty() {
+                let candidates = selected
+                    .resolve_controlled_carrier(
+                        self.options.endpoint.clone(),
+                        CarrierContext {
+                            session: None,
+                            deadline: Some(deadline),
+                            cancel: record.stop.clone(),
+                        },
+                    )
+                    .await
+                    .map_err(std::io::Error::other)?;
+                if candidates.len() != 1 {
+                    return Err(std::io::Error::other(failure(
+                        self.instance,
+                        Stage::Prepare,
+                        Reason::StalePlan,
+                    ))
+                    .into());
+                }
+                candidates
+                    .prepare_stream(0, grant)
+                    .map_err(std::io::Error::other)?
+                    .open(deadline)
+                    .await
+                    .map_err(std::io::Error::other)?
+                    .into_parts()
+                    .0
+            } else {
+                let call = CarrierContext {
+                    session: None,
+                    deadline: Some(deadline),
+                    cancel: record.stop.clone(),
+                };
+                let loan = selected
+                    .borrow_stream(self.options.endpoint.clone(), call.clone())
+                    .await
+                    .map_err(std::io::Error::other)?;
+                grant
+                    .adopt_stream_loan(binding, self.options.endpoint.clone(), &call, loan)
+                    .map_err(std::io::Error::other)?
+            };
             let tagged = raw.prepare_driver(prepare).await?;
             self.verify_epoch(binding)?;
             Ok::<_, crate::RuntimeError>(tagged)

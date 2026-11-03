@@ -4,15 +4,12 @@ use std::task::{Context, Poll};
 
 use tokio::io::{AsyncRead, AsyncWrite, ReadBuf};
 use zero_platform_tokio::{ClientStream, TcpRelayStream};
-use zero_transport::profile::{
-    OwnedGrpcProfile, OwnedH2Profile, OwnedHttpUpgradeProfile, OwnedSplitHttpProfile,
-    OwnedWebSocketProfile,
-};
+use zero_transport::profile::{OwnedH2Profile, OwnedHttpUpgradeProfile, OwnedWebSocketProfile};
 use zero_transport::ReplayStream;
 use zero_transport::RuntimeError;
 
 use zero_transport::inbound_stack::{accept_inbound_stream_stack, InboundStreamStack};
-use zero_transport::{http_upgrade, split_http, tls};
+use zero_transport::{http_upgrade, tls};
 
 pub(super) enum VlessInboundTransportResult {
     Control(Box<dyn zero_core::inbound::InboundControlSession>),
@@ -84,41 +81,30 @@ pub(super) async fn accept_vless_inbound_carrier(
     stream: VlessInboundTransportStream,
     sni: Option<String>,
     ws: Option<OwnedWebSocketProfile>,
-    grpc: Option<OwnedGrpcProfile>,
     h2: Option<OwnedH2Profile>,
-    split_http: Option<OwnedSplitHttpProfile>,
-    split_http_registry: Option<split_http::SplitHttpRegistry>,
     http_upgrade: Option<OwnedHttpUpgradeProfile>,
-) -> Result<Option<(TcpRelayStream, Option<String>)>, RuntimeError> {
-    if let Some(config) = split_http.as_ref() {
-        let registry = split_http_registry.as_ref().ok_or_else(|| {
-            RuntimeError::Io(io::Error::new(
-                io::ErrorKind::InvalidInput,
-                "vless inbound: split-http registry is required",
-            ))
-        })?;
-        return match split_http::accept_xhttp_inbound(stream, config, registry).await? {
-            Some(stream) => Ok(Some((TcpRelayStream::new(stream), sni))),
-            None => Ok(None),
-        };
-    }
-
+    caller: &zero_platform_tokio::AcceptedCaller,
+) -> Result<(TcpRelayStream, Option<String>), RuntimeError> {
     if let Some(config) = http_upgrade.as_ref() {
         let stream = http_upgrade::accept_http_upgrade(stream, config).await?;
-        return Ok(Some((TcpRelayStream::new(stream), sni)));
+        return Ok((TcpRelayStream::new(stream), sni));
     }
 
+    if let Some(profile) = h2.as_ref() {
+        let stream = zero_transport::h2::accept_h2_scoped(stream, profile, caller).await?;
+        return Ok((TcpRelayStream::new(stream), sni));
+    }
     let stream = accept_inbound_stream_stack(
         stream,
         InboundStreamStack {
             ws: ws.as_ref(),
-            grpc: grpc.as_ref(),
+            grpc: None::<&zero_transport::profile::OwnedGrpcProfile>,
             h2: h2.as_ref(),
         },
         "vless inbound: ws, grpc, and h2 are mutually exclusive",
     )
     .await?;
-    Ok(Some((stream, sni)))
+    Ok((stream, sni))
 }
 
 impl zero_traits::AsyncSocket for VlessInboundTransportStream {

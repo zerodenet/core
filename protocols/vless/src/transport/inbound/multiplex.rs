@@ -5,21 +5,21 @@ use zero_transport::split_http::XhttpIncoming;
 pub(super) enum Incoming {
     Xhttp(XhttpIncoming),
     Grpc(zero_transport::grpc::GrpcIncoming),
-    Hysteria(zero_transport::hysteria::Incoming),
+    Scoped(zero_transport::quic::source::Streams),
 }
 impl Incoming {
     async fn accept(&self) -> Option<TcpRelayStream> {
         match self {
+            Self::Scoped(incoming) => incoming.accept().await,
             Self::Xhttp(incoming) => incoming.accept().await.map(TcpRelayStream::new),
             Self::Grpc(incoming) => incoming.accept().await.map(TcpRelayStream::new),
-            Self::Hysteria(incoming) => incoming.accept().await.map(TcpRelayStream::new),
         }
     }
     fn close(&self) {
         match self {
+            Self::Scoped(incoming) => incoming.close(),
             Self::Xhttp(incoming) => incoming.close(),
             Self::Grpc(incoming) => incoming.close(),
-            Self::Hysteria(incoming) => incoming.close(),
         }
     }
 }
@@ -49,68 +49,7 @@ impl VlessInboundListenerRequest {
         self.hysteria.is_some()
     }
 
-    pub fn accept_http3_streams(
-        &self,
-        connection: zero_transport::quic::QuicConnection,
-        local: std::net::SocketAddr,
-    ) -> Result<VlessInboundTransportStreams, RuntimeError> {
-        if let Some(profile) = &self.hysteria {
-            let mut metadata = VlessInboundStreamMetadata::from_quic(&connection);
-            metadata.destination = Some(local);
-            return Ok(VlessInboundTransportStreams {
-                incoming: Incoming::Hysteria(zero_transport::hysteria::accept_connection(
-                    connection, profile,
-                )),
-                metadata,
-            });
-        }
-        let profile = self
-            .transport
-            .split_http
-            .as_ref()
-            .ok_or_else(|| std::io::Error::other("HTTP/3 requires an XHTTP profile"))?;
-        let registry = self
-            .transport
-            .split_http_registry
-            .as_ref()
-            .ok_or_else(|| std::io::Error::other("missing XHTTP listener registry"))?;
-        let mut metadata = VlessInboundStreamMetadata::from_quic(&connection);
-        metadata.destination = Some(local);
-        Ok(VlessInboundTransportStreams {
-            incoming: Incoming::Xhttp(zero_transport::split_http::accept_xhttp_h3_connection(
-                connection, profile, registry,
-            )),
-            metadata,
-        })
-    }
     pub fn has_multiplexed_transport(&self) -> bool {
         self.transport.has_multiplexed_transport()
-    }
-    pub async fn accept_transport_streams(
-        &self,
-        socket: TokioSocket,
-    ) -> Result<
-        zero_core::InboundRouteAccept<VlessInboundTransportStreams, VlessTcpFallbackReplay>,
-        RuntimeError,
-    > {
-        self.transport
-            .clone()
-            .accept_transport_streams(socket)
-            .await
-    }
-    pub async fn accept_recorded_transport_stream(
-        self,
-        incoming: (TcpRelayStream, VlessInboundStreamMetadata),
-    ) -> Result<
-        zero_core::InboundRouteAccept<
-            crate::inbound::VlessAcceptedClientRoute<
-                zero_transport::MeteredStream<zero_transport::RecordingStream<TcpRelayStream>>,
-            >,
-            crate::inbound::VlessFallbackReplay<TcpRelayStream>,
-        >,
-        RuntimeError,
-    > {
-        self.accept_stream_route(incoming.0, incoming.1, record_client_stream)
-            .await
     }
 }

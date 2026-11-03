@@ -1,5 +1,8 @@
 //! A single SOCKS CONNECT reply owns the original stream and unread payload.
+mod connection;
+mod datagram;
 use alloc::boxed::Box;
+pub use connection::Connection;
 use zero_core::request::RequestFacts;
 use zero_platform_tokio::contract::{
     inbound::{ReplyOutcome, StreamReply},

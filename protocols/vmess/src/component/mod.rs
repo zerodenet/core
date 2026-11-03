@@ -1,5 +1,6 @@
-//! Protocol-owned ordinary VMess Stream roles over a constrained real carrier.
+//! Protocol-owned ordinary VMess Stream/Datagram roles over a constrained real carrier.
 mod carrier;
+mod datagram;
 pub mod grpc;
 pub mod inbound;
 pub mod mux;
@@ -31,6 +32,7 @@ use zero_transport::{
 };
 
 pub struct Factory;
+#[derive(Clone)]
 struct Outbound {
     options: Arc<Options>,
     admission: Arc<SessionAdmission>,
@@ -41,7 +43,7 @@ impl ComponentFactory for Factory {
     fn describe(&self, options: &Options) -> ComponentSpec {
         ComponentSpec {
             owner: ResourceOwner::Component,
-            roles: vec![RoleKind::Stream],
+            roles: vec![RoleKind::Stream, RoleKind::Datagram],
             dependencies: vec![],
             static_identity: options.identity.clone(),
             resources: options
@@ -75,14 +77,18 @@ impl ComponentFactory for Factory {
         } else {
             erase_lifecycle(owner)
         };
+        let outbound = Outbound {
+            options,
+            admission,
+            prepared_tls,
+        };
         Ok(ComponentInstance {
             lifecycle,
             roles: ComponentRoles {
-                stream: Some(erase_stream(Outbound {
-                    options,
-                    admission,
-                    prepared_tls,
-                })),
+                stream: Some(erase_stream(outbound.clone())),
+                datagram: Some(zero_platform_tokio::contract::datagram::erase_datagram(
+                    outbound,
+                )),
                 ..Default::default()
             },
         })
@@ -96,6 +102,26 @@ impl StreamOutbound for Outbound {
         context: OpenContext,
     ) -> Result<Connected<BoxStream>, ChannelError> {
         let session = self.admission.check(&context)?;
+        let io = self.open_transport(&request.destination, &context).await?;
+        submit::submit(
+            &self.options,
+            &self.admission,
+            request,
+            context,
+            session,
+            io,
+        )
+        .await
+    }
+}
+
+impl Outbound {
+    async fn open_transport(
+        &self,
+        destination: &zero_core::request::Destination,
+        context: &OpenContext,
+    ) -> Result<zero_transport::TcpRelayStream, ChannelError> {
+        let session = self.admission.check(context)?;
         if context.upstream.binding().dial != self.options.dial {
             return Err(self.admission.error(
                 session,
@@ -104,7 +130,7 @@ impl StreamOutbound for Outbound {
                 DeliveryState::NotSubmitted,
             ));
         }
-        crate::shared::validate_request_target(&request.destination.address).map_err(|source| {
+        crate::shared::validate_request_target(&destination.address).map_err(|source| {
             self.admission
                 .error(
                     session,
@@ -185,14 +211,6 @@ impl StreamOutbound for Outbound {
             }
             error.with_source(source)
         })?;
-        submit::submit(
-            &self.options,
-            &self.admission,
-            request,
-            context,
-            session,
-            io,
-        )
-        .await
+        Ok(io)
     }
 }

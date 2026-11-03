@@ -15,7 +15,7 @@ use zero_platform_tokio::contract::{network::UpstreamBinding, ChannelError, Reas
 
 #[derive(Default)]
 pub(super) struct Registry {
-    scopes: Mutex<HashMap<Arc<str>, Weak<Scope>>>,
+    scopes: Mutex<HashMap<Arc<str>, Arc<Scope>>>,
     legacy_used: AtomicBool,
     nonce: Mutex<Option<u64>>,
 }
@@ -25,6 +25,7 @@ pub(super) struct Scope(Mutex<Mode>);
 enum Mode {
     #[default]
     Cold,
+    Legacy,
     Owned(Weak<ManagedPool>),
     Retiring,
 }
@@ -44,13 +45,10 @@ impl PoolControl {
     }
     pub fn scoped(&self, key: Arc<str>) -> Self {
         let mut scopes = self.registry.scopes.lock().unwrap();
-        scopes.retain(|_, value| value.strong_count() != 0);
-        let scope = scopes.entry(key.clone()).or_default();
-        let current = scope.upgrade().unwrap_or_else(|| {
-            let current = Arc::new(Scope::default());
-            *scope = Arc::downgrade(&current);
-            current
+        scopes.retain(|_, value| {
+            Arc::strong_count(value) > 1 || !matches!(*value.0.lock().unwrap(), Mode::Cold)
         });
+        let current = scopes.entry(key.clone()).or_default().clone();
         Self {
             registry: self.registry.clone(),
             key: Some(key),
@@ -59,27 +57,52 @@ impl PoolControl {
     }
     pub fn enter_legacy(&self) -> Result<(), crate::RuntimeError> {
         let scopes = self.registry.scopes.lock().unwrap();
-        if scopes
-            .values()
-            .filter_map(Weak::upgrade)
-            .any(|scope| matches!(*scope.0.lock().unwrap(), Mode::Owned(_)))
+        // Keys name disjoint entries in the same actual protocol map. A native
+        // owner of one key must not disable a different legacy outbound.
+        if self.key.is_none()
+            && scopes
+                .values()
+                .any(|scope| matches!(*scope.0.lock().unwrap(), Mode::Owned(_) | Mode::Retiring))
         {
             return Err(std::io::Error::new(
                 std::io::ErrorKind::PermissionDenied,
-                "carrier pool has an installed native owner",
+                "unscoped carrier pool overlaps a native owner",
             )
             .into());
         }
-        let scope = self.scope.0.lock().unwrap();
-        if !matches!(*scope, Mode::Cold) {
+        let mut scope = self.scope.0.lock().unwrap();
+        if !matches!(*scope, Mode::Cold | Mode::Legacy) {
             return Err(std::io::Error::new(
                 std::io::ErrorKind::PermissionDenied,
                 "carrier pool is owned by a native generation",
             )
             .into());
         }
-        self.registry.legacy_used.store(true, Ordering::Release);
+        *scope = Mode::Legacy;
+        if self.key.is_none() {
+            self.registry.legacy_used.store(true, Ordering::Release);
+        }
         Ok(())
+    }
+    /// Cold recipes may describe an existing native generation for host reuse.
+    /// Prior legacy exposure is sticky, even after every old view is dropped.
+    pub fn native_eligible(&self) -> bool {
+        !self.registry.legacy_used.load(Ordering::Acquire)
+            && !matches!(*self.scope.0.lock().unwrap(), Mode::Legacy | Mode::Retiring)
+    }
+    /// Compatibility execution can delegate to the installed actual owner.
+    /// A retired view must fail rather than spawn another legacy driver.
+    pub fn installed(&self) -> Result<Option<Arc<ManagedPool>>, crate::RuntimeError> {
+        let scope = self.scope.0.lock().unwrap();
+        match &*scope {
+            Mode::Cold | Mode::Legacy => Ok(None),
+            Mode::Owned(owner) => owner
+                .upgrade()
+                .filter(|owner| owner.ready())
+                .map(Some)
+                .ok_or_else(|| std::io::Error::other("native carrier pool is unavailable").into()),
+            Mode::Retiring => Err(std::io::Error::other("native carrier pool is retired").into()),
+        }
     }
     pub fn managed(&self) -> Result<Arc<ManagedPool>, crate::RuntimeError> {
         let scope = self.scope.0.lock().unwrap();
@@ -111,7 +134,7 @@ impl PoolControl {
             )
         };
         if self.key.is_none()
-            || self.registry.legacy_used.load(Ordering::Acquire)
+            || !self.native_eligible()
             || matches!(endpoint.address, zero_core::Address::Domain(_))
             || endpoint.port == 0
             || !binding.prefix.is_empty()
@@ -217,7 +240,7 @@ impl Registry {
             return Err(failure(owner.instance, Stage::Prepare, Reason::StalePlan));
         }
         let current = scopes.entry(key.clone()).or_default();
-        let scope = current.upgrade().unwrap_or_default();
+        let scope = current.clone();
         {
             let mut mode = scope.0.lock().unwrap();
             if !matches!(*mode, Mode::Cold) {
@@ -225,7 +248,6 @@ impl Registry {
             }
             *mode = Mode::Owned(Arc::downgrade(owner));
         }
-        *current = Arc::downgrade(&scope);
         Ok(scope)
     }
     pub(super) fn confirm(&self, key: &Arc<str>, actual: &Arc<Scope>) {
@@ -233,9 +255,13 @@ impl Registry {
         let mut scopes = self.scopes.lock().unwrap();
         if scopes
             .get(key)
-            .is_some_and(|current| current.ptr_eq(&Arc::downgrade(actual)))
+            .is_some_and(|current| Arc::ptr_eq(current, actual))
         {
             scopes.remove(key);
         }
     }
 }
+
+#[cfg(test)]
+#[path = "../../tests/pooled_driver/control.rs"]
+mod tests;

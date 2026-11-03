@@ -54,6 +54,19 @@ impl FallbackPolicy {
         }
         Self { names }
     }
+    pub fn endpoints(&self) -> Vec<zero_traits::FallbackEndpoint> {
+        let mut result = Vec::new();
+        for alpns in self.names.values() {
+            for paths in alpns.values() {
+                for rule in paths.values() {
+                    if !result.contains(&rule.endpoint) {
+                        result.push(rule.endpoint.clone());
+                    }
+                }
+            }
+        }
+        result
+    }
     pub fn is_empty(&self) -> bool {
         self.names.is_empty()
     }

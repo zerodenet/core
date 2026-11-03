@@ -1,22 +1,18 @@
 use super::super::*;
-pub(super) async fn serve(
+pub(super) async fn serve_using(
     path: PathBuf,
     head: bool,
     exchange: &mut dyn HttpExchange,
     modified: Option<std::time::SystemTime>,
+    files: &mut super::Access<'_>,
 ) -> io::Result<()> {
-    let mut entries = tokio::fs::read_dir(path).await?;
-    let mut names = Vec::new();
-    while let Some(entry) = entries.next_entry().await? {
-        let mut name = entry.file_name().to_string_lossy().into_owned();
-        if entry.file_type().await?.is_dir() {
-            name.push('/');
+    let mut names = match files.list(path).await {
+        Ok(names) => names,
+        Err(error) if error.kind() == io::ErrorKind::OutOfMemory => {
+            return super::super::error(exchange, 403, head).await
         }
-        names.push(name);
-        if names.len() > 65536 {
-            return error(exchange, 403, head).await;
-        }
-    }
+        Err(error) => return Err(error),
+    };
     names.sort();
     let mut body = String::from(
         "<!doctype html>\n<meta name=\"viewport\" content=\"width=device-width\">\n<pre>\n",

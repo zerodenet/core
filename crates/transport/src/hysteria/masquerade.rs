@@ -26,6 +26,7 @@ pub enum Masquerade {
     Proxy {
         url: url::Url,
         rewrite_host: bool,
+        insecure: bool,
         client: crate::http_client::HttpClient,
     },
 }
@@ -82,14 +83,20 @@ impl Masquerade {
         Ok(Self::Proxy {
             url,
             rewrite_host,
+            insecure,
             client: crate::http_client::HttpClient::with_insecure(insecure)?,
         })
     }
-    pub(super) async fn serve_h3(
+    pub(super) async fn serve_h3<S>(
         &self,
         request: http::Request<()>,
-        mut stream: super::request::RequestStream,
-    ) -> io::Result<()> {
+        mut stream: h3::server::RequestStream<S, Bytes>,
+    ) -> io::Result<()>
+    where
+        S: h3::quic::BidiStream<Bytes> + Send,
+        S::SendStream: Send,
+        S::RecvStream: Send,
+    {
         match self {
             Self::Appearance(site) => {
                 site.serve(request, &mut super::request::Exchange(&mut stream))
@@ -99,7 +106,55 @@ impl Masquerade {
                 url,
                 rewrite_host,
                 client,
-            } => proxy::serve(client, url, *rewrite_host, request, stream).await,
+                ..
+            } => proxy::serve(client, url, *rewrite_host, request, stream, None).await,
+        }
+    }
+    pub(super) async fn serve_h3_scoped<S>(
+        &self,
+        request: http::Request<()>,
+        mut stream: h3::server::RequestStream<S, Bytes>,
+        resources: &dyn zero_platform_tokio::contract::component::ResourceAccess,
+        caller: &zero_platform_tokio::AcceptedCaller,
+    ) -> io::Result<()>
+    where
+        S: h3::quic::BidiStream<Bytes> + Send,
+        S::SendStream: Send,
+        S::RecvStream: Send,
+    {
+        match self {
+            Self::Appearance(Appearance::File(root)) => {
+                let mut files = resources
+                    .open_inbound_file_tree(caller.clone(), root.clone())
+                    .map_err(io::Error::other)?;
+                file::serve_scoped(
+                    root,
+                    request,
+                    &mut super::request::Exchange(&mut stream),
+                    &mut files,
+                )
+                .await
+            }
+            Self::Appearance(site) => {
+                site.serve(request, &mut super::request::Exchange(&mut stream))
+                    .await
+            }
+            Self::Proxy {
+                url,
+                rewrite_host,
+                insecure,
+                client,
+            } => {
+                proxy::serve(
+                    client,
+                    url,
+                    *rewrite_host,
+                    request,
+                    stream,
+                    Some((resources, caller, *insecure)),
+                )
+                .await
+            }
         }
     }
 }

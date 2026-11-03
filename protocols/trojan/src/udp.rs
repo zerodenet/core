@@ -1,3 +1,5 @@
+#[cfg(feature = "runtime")]
+mod native;
 #[cfg(feature = "tokio")]
 use core::future::Future;
 use std::string::String;
@@ -113,6 +115,7 @@ pub struct TrojanInboundUdpResponder {
 }
 
 #[cfg(feature = "tokio")]
+#[derive(Clone)]
 pub(crate) struct TrojanInboundMuxUdpResponder {
     target: Address,
     port: u16,

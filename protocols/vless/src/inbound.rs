@@ -1,5 +1,7 @@
 #[cfg(feature = "reality")]
 mod reverse;
+#[cfg(feature = "reality")]
+mod standard_reverse;
 use alloc::borrow::ToOwned;
 use alloc::boxed::Box;
 use alloc::string::String;
@@ -25,9 +27,9 @@ mod fallback;
 #[cfg(feature = "reality")]
 mod standard;
 #[cfg(feature = "reality")]
-pub(crate) use standard::{AuthenticatedClient, RoutedRequest};
+pub(crate) use standard::{AuthenticatedRequest, RoutedRequest};
 #[cfg(feature = "reality")]
-mod vision;
+pub(crate) mod vision;
 #[cfg(feature = "reality")]
 use vision::VlessInboundTcpStream;
 
@@ -603,7 +605,7 @@ where
 }
 
 impl<S> VlessClientAcceptError<S> {
-    fn new(error: Error, stream: S) -> Self {
+    pub(crate) fn new(error: Error, stream: S) -> Self {
         Self { error, stream }
     }
 
@@ -807,6 +809,16 @@ impl VlessInboundProfile {
         U: IntoVlessInboundUserConfig,
     {
         Self::from_config_parts(users.into_iter().map(U::into_vless_inbound_user_config))
+    }
+
+    #[cfg(feature = "reality")]
+    pub(crate) fn publish_validated_users(&self, candidate: &Self) {
+        let users = candidate
+            .users
+            .read()
+            .unwrap_or_else(|e| e.into_inner())
+            .clone();
+        *self.users.write().unwrap_or_else(|e| e.into_inner()) = users;
     }
 
     pub fn replace_config_users<I, U>(&self, users: I) -> Result<(), Error>

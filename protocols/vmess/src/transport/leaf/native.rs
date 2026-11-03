@@ -5,6 +5,11 @@ use zero_core::{component::ComponentInstanceId, request::Destination};
 use zero_platform_tokio::contract::network::UpstreamBinding;
 use zero_transport::pooled_driver::PoolOptions;
 impl VmessOutboundLeaf {
+    /// Cold admission only; prior legacy exposure is never an adoption proof.
+    pub fn native_mux_eligible(&self) -> bool {
+        self.mux_pool.native_eligible()
+    }
+
     pub(crate) fn bind_native_mux(
         &self,
         expected: ComponentInstanceId,
@@ -63,6 +68,23 @@ impl VmessOutboundLeaf {
                     self.transport.open_relay(io).await
                 },
             )
+            .await
+    }
+    pub(crate) async fn open_native_mux_udp(
+        &self,
+        binding: UpstreamBinding,
+    ) -> Result<
+        zero_transport::pooled_driver::datagram::PooledDatagram<crate::mux::native::DatagramIo>,
+        RuntimeError,
+    > {
+        let (key, concurrency) = self.protocol.native_mux_plan(&self.server, self.port)?;
+        self.mux_pool
+            .open_native_udp(key, concurrency, binding, |raw| async move {
+                let io = zero_transport::TcpRelayStream::new(
+                    zero_transport::pooled_driver::ExclusiveIo::new(raw),
+                );
+                self.transport.open_relay(io).await
+            })
             .await
     }
 }

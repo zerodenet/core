@@ -7,6 +7,7 @@ use std::task::ready;
 pub struct Connection {
     opener: OpenStreams,
     incoming_bidi: Option<Pending<BidiStream>>,
+    supplied_bidi: Option<tokio::sync::mpsc::Receiver<BidiStream>>,
     incoming_uni: Option<Pending<RecvStream>>,
 }
 /// Infallible H3 sender clones only borrow the same actual connection handle.
@@ -18,6 +19,15 @@ pub struct OpenStreams {
     connection: Arc<OwnedConnection>,
 }
 impl Connection {
+    pub fn with_incoming_bidi(
+        connection: OwnedConnection,
+        receiver: tokio::sync::mpsc::Receiver<BidiStream>,
+    ) -> Self {
+        let mut c = Self::new(connection);
+        c.supplied_bidi = Some(receiver);
+        c
+    }
+
     pub fn new(connection: OwnedConnection) -> Self {
         Self {
             opener: OpenStreams {
@@ -26,6 +36,7 @@ impl Connection {
                 connection: Arc::new(connection),
             },
             incoming_bidi: None,
+            supplied_bidi: None,
             incoming_uni: None,
         }
     }
@@ -46,6 +57,15 @@ impl quic::Connection<Bytes> for Connection {
         &mut self,
         cx: &mut Context<'_>,
     ) -> Poll<Result<BidiStream, ConnectionErrorIncoming>> {
+        if let Some(receiver) = self.supplied_bidi.as_mut() {
+            return match receiver.poll_recv(cx) {
+                Poll::Pending => Poll::Pending,
+                Poll::Ready(Some(pair)) => Poll::Ready(Ok(pair)),
+                Poll::Ready(None) => Poll::Ready(Err(ConnectionErrorIncoming::ApplicationClose {
+                    error_code: 0x100,
+                })),
+            };
+        }
         let future = self.incoming_bidi.get_or_insert_with(|| {
             let connection = self.opener.connection.clone();
             Box::pin(async move {

@@ -20,6 +20,7 @@ pub(super) struct Managed {
     pub(super) ready: AtomicBool,
     pub(super) grants: CarrierGrants,
     pub(super) records: Mutex<Vec<Arc<Record>>>,
+    pub(super) network: tokio::sync::Mutex<Option<zero_core::component::NetworkGeneration>>,
 }
 pub(super) struct Record {
     pub(super) adoption: CarrierAdoption,
@@ -54,6 +55,22 @@ impl Drop for Body {
     }
 }
 impl Record {
+    pub(super) async fn retire(
+        &self,
+        deadline: Instant,
+    ) -> Result<zero_platform_tokio::contract::lifecycle::CloseReport, ChannelError> {
+        let witness = self.witness.lock().unwrap().clone();
+        if let Some(witness) = witness {
+            let joined = tokio::time::timeout_at(deadline, witness.wait())
+                .await
+                .map_err(|source| {
+                    error(self.adoption.instance(), Stage::Close, Reason::Timeout)
+                        .with_source(source)
+                })?;
+            self.receive(joined);
+        }
+        self.adoption.retire(deadline).await
+    }
     pub(super) fn closed(&self) -> bool {
         if self.user_live.load(Ordering::Acquire) || !self.failure_accepted() {
             return false;
@@ -96,6 +113,18 @@ impl Managed {
         let records = self.records.lock().unwrap().clone();
         for record in records {
             record.receive_available();
+            if self.options.node()
+                && !record.opening.load(Ordering::Acquire)
+                && !record.user_live.load(Ordering::Acquire)
+            {
+                let report = record.retire(deadline).await?;
+                if !report.is_complete() {
+                    let mut failure = error(self.instance, Stage::Close, Reason::Timeout);
+                    failure.delivery = DeliveryState::Unknown;
+                    return Err(failure);
+                }
+                continue;
+            }
             let (joined, has_driver) = {
                 let witness = record.witness.lock().unwrap();
                 (

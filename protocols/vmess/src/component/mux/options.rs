@@ -41,21 +41,37 @@ impl PreparedMux {
     pub fn pool_options(&self) -> &Arc<PoolOptions> {
         &self.pool
     }
-    pub fn bind(self, pool_owner: ComponentId) -> StreamOptions {
+    pub fn bind(self, pool_owner: ComponentId) -> Options {
         let mut identity = super::PoolFactory
             .describe(&self.pool)
             .static_identity
             .to_vec();
         identity.extend_from_slice(&pool_owner.0.to_le_bytes());
-        StreamOptions {
+        Options {
             prepared: self,
             pool_owner,
+            datagram: true,
             identity: identity.into(),
         }
     }
 }
-pub struct StreamOptions {
+pub struct Options {
     pub(super) prepared: PreparedMux,
     pub(super) pool_owner: ComponentId,
+    pub(super) datagram: bool,
     pub(super) identity: Arc<[u8]>,
+}
+
+impl Options {
+    /// Qualify only the Stream executor without advertising the packet role.
+    /// The protocol factory owns both its description and actual role handles.
+    pub fn stream_only(mut self) -> Self {
+        if self.datagram {
+            self.datagram = false;
+            let mut identity = self.identity.to_vec();
+            identity.push(0);
+            self.identity = identity.into();
+        }
+        self
+    }
 }

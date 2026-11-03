@@ -1,14 +1,60 @@
 use super::*;
 use bytes::{Buf, Bytes};
 use std::sync::atomic::{AtomicBool, Ordering};
-pub(super) type RequestStream = h3::server::RequestStream<h3_quinn::BidiStream<Bytes>, Bytes>;
-pub(super) async fn serve(
+pub(super) async fn serve<S>(
     request: http::Request<()>,
-    mut stream: RequestStream,
+    mut stream: h3::server::RequestStream<S, Bytes>,
     profile: &Profile,
     authenticated: &AtomicBool,
-    connection: &quinn::Connection,
-) -> io::Result<()> {
+    negotiate: impl Fn(u64),
+) -> io::Result<()>
+where
+    S: h3::quic::BidiStream<Bytes> + Send,
+    S::SendStream: Send,
+    S::RecvStream: Send,
+{
+    serve_using(request, stream, profile, authenticated, negotiate, None).await
+}
+pub(super) async fn serve_scoped<S>(
+    request: http::Request<()>,
+    stream: h3::server::RequestStream<S, Bytes>,
+    profile: &Profile,
+    authenticated: &AtomicBool,
+    negotiate: impl Fn(u64),
+    resources: &dyn zero_platform_tokio::contract::component::ResourceAccess,
+    caller: &zero_platform_tokio::AcceptedCaller,
+) -> io::Result<()>
+where
+    S: h3::quic::BidiStream<Bytes> + Send,
+    S::SendStream: Send,
+    S::RecvStream: Send,
+{
+    serve_using(
+        request,
+        stream,
+        profile,
+        authenticated,
+        negotiate,
+        Some((resources, caller)),
+    )
+    .await
+}
+async fn serve_using<S>(
+    request: http::Request<()>,
+    mut stream: h3::server::RequestStream<S, Bytes>,
+    profile: &Profile,
+    authenticated: &AtomicBool,
+    negotiate: impl Fn(u64),
+    scoped: Option<(
+        &dyn zero_platform_tokio::contract::component::ResourceAccess,
+        &zero_platform_tokio::AcceptedCaller,
+    )>,
+) -> io::Result<()>
+where
+    S: h3::quic::BidiStream<Bytes> + Send,
+    S::SendStream: Send,
+    S::RecvStream: Send,
+{
     let auth = request.method() == http::Method::POST
         && request.uri().path() == "/auth"
         && request
@@ -22,7 +68,15 @@ pub(super) async fn serve(
                 .get("hysteria-auth")
                 .is_some_and(|value| value.as_bytes() == profile.auth.as_bytes()));
     if !allowed {
-        return profile.masquerade.serve_h3(request, stream).await;
+        return match scoped {
+            Some((resources, caller)) => {
+                profile
+                    .masquerade
+                    .serve_h3_scoped(request, stream, resources, caller)
+                    .await
+            }
+            None => profile.masquerade.serve_h3(request, stream).await,
+        };
     }
     if !authenticated.swap(true, Ordering::AcqRel) {
         let peer_downlink = request
@@ -31,7 +85,7 @@ pub(super) async fn serve(
             .and_then(|h| h.to_str().ok())
             .and_then(|s| s.parse().ok())
             .unwrap_or(0);
-        profile.negotiate(connection, peer_downlink);
+        negotiate(peer_downlink);
     }
     stream
         .send_response(
@@ -47,9 +101,16 @@ pub(super) async fn serve(
         .map_err(io::Error::other)?;
     stream.finish().await.map_err(io::Error::other)
 }
-pub(super) struct Exchange<'a>(pub(super) &'a mut RequestStream);
+pub(super) struct Exchange<'a, S: h3::quic::BidiStream<Bytes>>(
+    pub(super) &'a mut h3::server::RequestStream<S, Bytes>,
+);
 #[async_trait::async_trait]
-impl crate::http_server::HttpExchange for Exchange<'_> {
+impl<S> crate::http_server::HttpExchange for Exchange<'_, S>
+where
+    S: h3::quic::BidiStream<Bytes> + Send,
+    S::SendStream: Send,
+    S::RecvStream: Send,
+{
     async fn recv_data(&mut self) -> io::Result<Option<Bytes>> {
         Ok(self
             .0

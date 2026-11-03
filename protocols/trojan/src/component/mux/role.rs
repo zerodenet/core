@@ -1,4 +1,4 @@
-use super::StreamOptions;
+use super::Options;
 use std::sync::{Arc, Mutex, Weak};
 use tokio::time::Instant;
 use zero_core::component::ComponentInstanceId;
@@ -15,29 +15,35 @@ use zero_platform_tokio::contract::{
     },
     ChannelError, CloseReason, DeliveryState, Reason, Stage,
 };
-pub struct StreamFactory;
+mod datagram;
+pub struct Factory;
 struct Ready {
     leaf: Mutex<Option<crate::transport::TrojanOutboundLeaf>>,
 }
+#[derive(Clone)]
 struct Outbound {
     ready: Weak<Ready>,
-    options: Weak<StreamOptions>,
+    options: Weak<Options>,
     admission: Arc<SessionAdmission>,
     pool: ComponentInstanceId,
 }
 struct Owner {
     ready: Arc<Ready>,
-    options: Arc<StreamOptions>,
+    options: Arc<Options>,
     admission: Arc<SessionAdmission>,
     inner: SessionOwner,
     pool: ComponentInstanceId,
 }
-impl ComponentFactory for StreamFactory {
-    type Options = StreamOptions;
-    fn describe(&self, options: &StreamOptions) -> ComponentSpec {
+impl ComponentFactory for Factory {
+    type Options = Options;
+    fn describe(&self, options: &Options) -> ComponentSpec {
         ComponentSpec {
             owner: ResourceOwner::Component,
-            roles: vec![RoleKind::Stream],
+            roles: if options.datagram {
+                vec![RoleKind::Stream, RoleKind::Datagram]
+            } else {
+                vec![RoleKind::Stream]
+            },
             dependencies: vec![options.pool_owner],
             static_identity: options.identity.clone(),
             resources: vec![],
@@ -46,7 +52,7 @@ impl ComponentFactory for StreamFactory {
     }
     fn build(
         &self,
-        options: Arc<StreamOptions>,
+        options: Arc<Options>,
         context: BuildContext,
     ) -> Result<ComponentInstance, BuildError> {
         let (inner, admission) = SessionOwner::new(context.component, &context.cancel);
@@ -65,14 +71,18 @@ impl ComponentFactory for StreamFactory {
                     DeliveryState::NotSubmitted,
                 )
             })?;
+        let outbound = Outbound {
+            options: Arc::downgrade(&options),
+            ready: Arc::downgrade(&ready),
+            admission: admission.clone(),
+            pool,
+        };
         Ok(ComponentInstance {
             roles: ComponentRoles {
-                stream: Some(erase_stream(Outbound {
-                    options: Arc::downgrade(&options),
-                    ready: Arc::downgrade(&ready),
-                    admission: admission.clone(),
-                    pool,
-                })),
+                stream: Some(erase_stream(outbound.clone())),
+                datagram: options
+                    .datagram
+                    .then(|| zero_platform_tokio::contract::datagram::erase_datagram(outbound)),
                 ..Default::default()
             },
             lifecycle: erase_lifecycle(Owner {
@@ -120,7 +130,61 @@ impl StreamOutbound for Outbound {
         request: ConnectRequest,
         context: OpenContext,
     ) -> Result<Connected<BoxStream>, ChannelError> {
+        let io = self.connect_actual(request, context).await?;
+        Ok(Connected {
+            io: io.io,
+            peer_confirmation: PeerConfirmation::Deferred,
+        })
+    }
+    async fn connect_carrier(
+        &self,
+        request: ConnectRequest,
+        context: OpenContext,
+    ) -> Result<Connected<zero_platform_tokio::controlled_carrier::loan::StreamLoan>, ChannelError>
+    {
+        let session = context.session_identity()?;
+        let io = self.connect_actual(request, context).await?;
+        let loan = io
+            .into_stream_loan()
+            .map_err(|error| self.admission.attach(error, session))?;
+        Ok(Connected {
+            io: loan,
+            peer_confirmation: PeerConfirmation::Deferred,
+        })
+    }
+}
+impl Outbound {
+    async fn connect_actual(
+        &self,
+        request: ConnectRequest,
+        context: OpenContext,
+    ) -> Result<zero_transport::pooled_driver::PooledStream, ChannelError> {
         let session = self.admission.check(&context)?;
+        let leaf = self.selected_leaf(&context)?;
+        let opening = leaf.open_native_mux(request.destination, context.upstream.binding().clone());
+        let io = tokio::select! { biased;
+            _=self.admission.cancelled()=>return Err(self.admission.error(session,Stage::Handshake,Reason::Revoked,DeliveryState::Unknown)),
+            _=context.cancel.cancelled()=>return Err(self.admission.error(session,Stage::Handshake,Reason::Cancelled,DeliveryState::Unknown)),
+            result=with_deadline(context.deadline,opening)=>result.map_err(|source|self.admission.error(session,Stage::Handshake,Reason::Timeout,DeliveryState::Unknown).with_source(source))?,
+        }.map_err(|source|self.admission.error(session,Stage::Handshake,Reason::Io,DeliveryState::Unknown).with_source(source))?;
+        if !context.upstream.observe_carrier_origin(&io.origin) {
+            return Err(self.admission.error(
+                session,
+                Stage::Prepare,
+                Reason::StalePlan,
+                DeliveryState::Unknown,
+            ));
+        }
+        if let Some(observer) = &context.observer {
+            observer.record(session, ConnectFact::CarrierReady);
+        }
+        Ok(io)
+    }
+    fn selected_leaf(
+        &self,
+        context: &OpenContext,
+    ) -> Result<crate::transport::TrojanOutboundLeaf, ChannelError> {
+        let session = self.admission.check(context)?;
         let options = self.options.upgrade().ok_or_else(|| {
             self.admission.error(
                 session,
@@ -146,7 +210,6 @@ impl StreamOutbound for Outbound {
             )
         })?;
         if leaf.native_mux_instance().ok() != Some(self.pool)
-            || !context.upstream.binding().prefix.is_empty()
             || context.upstream.binding().dial != options.prepared.pool.binding().dial
         {
             return Err(self.admission.error(
@@ -156,26 +219,6 @@ impl StreamOutbound for Outbound {
                 DeliveryState::NotSubmitted,
             ));
         }
-        let opening = leaf.open_native_mux(request.destination, context.upstream.binding().clone());
-        let io = tokio::select! { biased;
-            _=self.admission.cancelled()=>return Err(self.admission.error(session,Stage::Handshake,Reason::Revoked,DeliveryState::Unknown)),
-            _=context.cancel.cancelled()=>return Err(self.admission.error(session,Stage::Handshake,Reason::Cancelled,DeliveryState::Unknown)),
-            result=with_deadline(context.deadline,opening)=>result.map_err(|source|self.admission.error(session,Stage::Handshake,Reason::Timeout,DeliveryState::Unknown).with_source(source))?,
-        }.map_err(|source|self.admission.error(session,Stage::Handshake,Reason::Io,DeliveryState::Unknown).with_source(source))?;
-        if !context.upstream.observe_carrier_origin(&io.origin) {
-            return Err(self.admission.error(
-                session,
-                Stage::Prepare,
-                Reason::StalePlan,
-                DeliveryState::Unknown,
-            ));
-        }
-        if let Some(observer) = &context.observer {
-            observer.record(session, ConnectFact::CarrierReady);
-        }
-        Ok(Connected {
-            io: io.io,
-            peer_confirmation: PeerConfirmation::Deferred,
-        })
+        Ok(leaf)
     }
 }

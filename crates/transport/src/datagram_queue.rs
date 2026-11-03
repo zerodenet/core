@@ -1,4 +1,5 @@
 //! Bounded socket queues for stateful datagram tunnels; no endpoint task cycles.
+use crate::datagram_driver::{DriverStop, PreparedIoDriver};
 use quinn::{
     udp::{RecvMeta, Transmit},
     AsyncUdpSocket, UdpPoller,
@@ -22,16 +23,16 @@ pub(crate) struct Channels {
     pub outgoing: mpsc::Receiver<Packet>,
 }
 type Prepare = Arc<dyn Fn(&Transmit<'_>) -> io::Result<Vec<u8>> + Send + Sync>;
-struct Socket {
+pub(crate) struct Socket {
     local: SocketAddr,
     prepare: Prepare,
     outgoing: mpsc::Sender<Packet>,
     incoming: Mutex<mpsc::Receiver<Packet>>,
-    task: tokio::task::AbortHandle,
+    task: DriverStop,
 }
 impl Drop for Socket {
     fn drop(&mut self) {
-        self.task.abort();
+        self.task.request();
     }
 }
 impl std::fmt::Debug for Socket {
@@ -72,22 +73,39 @@ where
     F: FnOnce(Channels) -> Fut,
     Fut: Future<Output = io::Result<()>> + Send + 'static,
 {
-    let (tx, outgoing) = mpsc::channel(256);
-    let (incoming, rx) = mpsc::channel(256);
-    let future = run(Channels { incoming, outgoing });
+    let (mut socket, driver) = prepare_with(local, prepare, run)?;
     let task = tokio::spawn(async move {
-        if let Err(error) = future.await {
+        if let Err(error) = driver.future.await {
             tracing::debug!(%error,"datagram tunnel stopped");
         }
     })
     .abort_handle();
-    Ok(Arc::new(Socket {
+    Arc::get_mut(&mut socket)
+        .expect("unpublished inert socket")
+        .task = DriverStop::Legacy(task);
+    Ok(socket)
+}
+
+pub(crate) fn prepare_with<F, Fut>(
+    local: SocketAddr,
+    prepare: Prepare,
+    run: F,
+) -> io::Result<(Arc<Socket>, PreparedIoDriver)>
+where
+    F: FnOnce(Channels) -> Fut,
+    Fut: Future<Output = io::Result<()>> + Send + 'static,
+{
+    let (tx, outgoing) = mpsc::channel(256);
+    let (incoming, rx) = mpsc::channel(256);
+    let driver = PreparedIoDriver::new(run(Channels { incoming, outgoing }));
+    let socket = Arc::new(Socket {
         local,
         prepare,
         outgoing: tx,
         incoming: Mutex::new(rx),
-        task,
-    }))
+        task: DriverStop::Hosted(driver.cancel.clone()),
+    });
+    Ok((socket, driver))
 }
 impl AsyncUdpSocket for Socket {
     fn create_io_poller(self: Arc<Self>) -> Pin<Box<dyn UdpPoller>> {

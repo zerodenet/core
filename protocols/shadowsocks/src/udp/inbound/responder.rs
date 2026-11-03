@@ -235,7 +235,7 @@ impl ShadowsocksInboundUdpResponder {
         }
     }
 
-    fn current_auth(&self) -> Option<&SessionAuth> {
+    pub(super) fn current_auth(&self) -> Option<&SessionAuth> {
         match &self.mode {
             ShadowsocksInboundUdpResponderMode::Single(_) => None,
             ShadowsocksInboundUdpResponderMode::Profile { current_auth, .. } => {

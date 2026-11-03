@@ -18,7 +18,10 @@ pub struct HttpClient(Origin);
 enum Origin {
     Network(Arc<OriginClient>),
     #[cfg(unix)]
-    Unix(Arc<Client<unix::Connector, RequestBody>>),
+    Unix(
+        Arc<Client<unix::Connector, RequestBody>>,
+        Arc<std::path::PathBuf>,
+    ),
 }
 #[cfg(unix)]
 mod unix;
@@ -28,26 +31,31 @@ impl std::fmt::Debug for HttpClient {
     }
 }
 impl HttpClient {
+    pub fn scoped_endpoint(&self, url: &url::Url) -> io::Result<zero_traits::FallbackEndpoint> {
+        #[cfg(unix)]
+        if let Origin::Unix(_, path) = &self.0 {
+            return Ok(zero_traits::FallbackEndpoint::Unix {
+                path: path.to_string_lossy().into_owned(),
+            });
+        }
+        Ok(zero_traits::FallbackEndpoint::Tcp {
+            server: url
+                .host_str()
+                .ok_or_else(|| io::Error::other("origin host missing"))?
+                .trim_start_matches('[')
+                .trim_end_matches(']')
+                .into(),
+            port: url
+                .port_or_known_default()
+                .ok_or_else(|| io::Error::other("origin port missing"))?,
+        })
+    }
+
     pub fn new() -> Result<Self, io::Error> {
         Self::with_insecure(false)
     }
     pub fn with_insecure(insecure: bool) -> Result<Self, io::Error> {
-        let roots =
-            rustls::RootCertStore::from_iter(webpki_roots::TLS_SERVER_ROOTS.iter().cloned());
-        let mut tls = rustls::ClientConfig::builder_with_provider(Arc::new(
-            rustls::crypto::ring::default_provider(),
-        ))
-        .with_safe_default_protocol_versions()
-        .map_err(io::Error::other)?
-        .with_root_certificates(roots)
-        .with_no_client_auth();
-        if insecure {
-            tls.dangerous().set_certificate_verifier(Arc::new(
-                crate::certificate_verifier::InsecureServerVerifier {
-                    provider: Arc::new(rustls::crypto::ring::default_provider()),
-                },
-            ));
-        }
+        let tls = tls_config(insecure)?;
         let mut tcp = HttpConnector::new();
         tcp.enforce_http(false);
         tcp.set_connect_timeout(Some(Duration::from_secs(10)));
@@ -66,12 +74,16 @@ impl HttpClient {
     }
     #[cfg(unix)]
     pub fn unix(path: std::path::PathBuf) -> Self {
-        Self(Origin::Unix(Arc::new(
-            Client::builder(TokioExecutor::new())
-                .pool_idle_timeout(Duration::from_secs(30))
-                .pool_max_idle_per_host(4)
-                .build(unix::Connector(Arc::new(path))),
-        )))
+        let path = Arc::new(path);
+        Self(Origin::Unix(
+            Arc::new(
+                Client::builder(TokioExecutor::new())
+                    .pool_idle_timeout(Duration::from_secs(30))
+                    .pool_max_idle_per_host(4)
+                    .build(unix::Connector(path.clone())),
+            ),
+            path,
+        ))
     }
     pub async fn send(
         &self,
@@ -101,18 +113,54 @@ impl HttpClient {
         let response = match &self.0 {
             Origin::Network(client) => client.request(request).await,
             #[cfg(unix)]
-            Origin::Unix(client) => client.request(request).await,
+            Origin::Unix(client, _) => client.request(request).await,
         };
-        response.map(|r| r.map(HttpBody)).map_err(io::Error::other)
+        response
+            .map(|r| r.map(|body| HttpBody { body, stop: None }))
+            .map_err(io::Error::other)
     }
 }
-pub struct HttpBody(hyper::body::Incoming);
+mod scoped;
+fn tls_config(insecure: bool) -> io::Result<rustls::ClientConfig> {
+    let roots = rustls::RootCertStore::from_iter(webpki_roots::TLS_SERVER_ROOTS.iter().cloned());
+    let mut tls = rustls::ClientConfig::builder_with_provider(Arc::new(
+        rustls::crypto::ring::default_provider(),
+    ))
+    .with_safe_default_protocol_versions()
+    .map_err(io::Error::other)?
+    .with_root_certificates(roots)
+    .with_no_client_auth();
+    if insecure {
+        tls.dangerous().set_certificate_verifier(Arc::new(
+            crate::certificate_verifier::InsecureServerVerifier {
+                provider: Arc::new(rustls::crypto::ring::default_provider()),
+            },
+        ));
+    }
+    Ok(tls)
+}
+pub struct HttpBody {
+    body: hyper::body::Incoming,
+    stop: Option<zero_platform_tokio::contract::CancellationToken>,
+}
+impl Drop for HttpBody {
+    fn drop(&mut self) {
+        if let Some(stop) = &self.stop {
+            stop.cancel();
+        }
+    }
+}
+
 impl HttpBody {
     pub async fn frame(&mut self) -> Result<Option<hyper::body::Frame<Bytes>>, io::Error> {
-        self.0.frame().await.transpose().map_err(io::Error::other)
+        self.body
+            .frame()
+            .await
+            .transpose()
+            .map_err(io::Error::other)
     }
     pub async fn data(&mut self) -> Result<Option<Bytes>, io::Error> {
-        while let Some(frame) = self.0.frame().await {
+        while let Some(frame) = self.body.frame().await {
             if let Ok(data) = frame.map_err(io::Error::other)?.into_data() {
                 return Ok(Some(data));
             }

@@ -44,42 +44,49 @@ pub(super) fn spawn_udp_flow_task<S>(
 }
 
 pub(super) fn spawn_mux_udp_flow_task(
+    send_rx: mpsc::Receiver<VlessUdpFlowSend>,
+    up_tx: mpsc::UnboundedSender<zero_core::UdpFlowPacket>,
+    down_rx: mpsc::Receiver<crate::mux_pool::MuxDownlink<zero_core::UdpFlowPacket>>,
+    responses: VlessUdpFlowResponses,
+) {
+    tokio::spawn(run_mux_udp_flow_task(send_rx, up_tx, down_rx, responses));
+}
+
+pub(super) async fn run_mux_udp_flow_task(
     mut send_rx: mpsc::Receiver<VlessUdpFlowSend>,
     up_tx: mpsc::UnboundedSender<zero_core::UdpFlowPacket>,
     mut down_rx: mpsc::Receiver<crate::mux_pool::MuxDownlink<zero_core::UdpFlowPacket>>,
     responses: VlessUdpFlowResponses,
 ) {
-    tokio::spawn(async move {
-        loop {
-            tokio::select! {
-                to_send = send_rx.recv() => {
-                    match to_send {
-                        Some(request) => {
-                            let payload_len = request.packet.payload.len();
-                            let result = up_tx
-                                .send(request.packet)
-                                .map(|_| payload_len)
-                                .map_err(|_| Error::Io("vless mux udp flow closed"));
-                            let should_break = result.is_err();
-                            let _ = request.result_tx.send(result);
-                            if should_break {
-                                break;
-                            }
+    loop {
+        tokio::select! {
+            to_send = send_rx.recv() => {
+                match to_send {
+                    Some(request) => {
+                        let payload_len = request.packet.payload.len();
+                        let result = up_tx
+                            .send(request.packet)
+                            .map(|_| payload_len)
+                            .map_err(|_| Error::Io("vless mux udp flow closed"));
+                        let should_break = result.is_err();
+                        let _ = request.result_tx.send(result);
+                        if should_break {
+                            break;
                         }
-                        None => break,
                     }
+                    None => break,
                 }
-                read = down_rx.recv() => {
-                    match read {
-                        Some(crate::mux_pool::MuxDownlink::Data(packet)) => {
-                            let packet = packet.into_inner();
-                            let _ = responses.send(packet.into_parts());
-                        }
-                        Some(crate::mux_pool::MuxDownlink::Overflow) => break,
-                        None => break,
+            }
+            read = down_rx.recv() => {
+                match read {
+                    Some(crate::mux_pool::MuxDownlink::Data(packet)) => {
+                        let packet = packet.into_inner();
+                        let _ = responses.send(packet.into_parts());
                     }
+                    Some(crate::mux_pool::MuxDownlink::Overflow) => break,
+                    None => break,
                 }
             }
         }
-    });
+    }
 }

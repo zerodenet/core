@@ -72,7 +72,6 @@ pub struct ShadowsocksInboundTcpAcceptor {
 }
 
 pub struct ShadowsocksInboundBindings {
-    pub(super) plugin: Option<crate::validation::PluginConfig>,
     pub(super) acceptor: ShadowsocksInboundTcpAcceptor,
     pub(super) udp_relay: crate::udp::ShadowsocksInboundUdpRelay,
 }

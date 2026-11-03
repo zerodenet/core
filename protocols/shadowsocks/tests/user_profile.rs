@@ -546,3 +546,6 @@ fn sip023_udp_response_uses_the_selected_user_psk() {
         assert_eq!(payload, b"answer");
     }
 }
+
+#[path = "user_profile/standard.rs"]
+mod standard;

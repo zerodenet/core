@@ -7,6 +7,7 @@ pub(crate) mod registry;
 mod state;
 pub use lifecycle::Factory;
 mod connect;
+mod datagram;
 mod wire;
 use std::sync::{Arc, Mutex};
 use tokio::time::Instant;
@@ -22,3 +23,7 @@ fn error(instance: ComponentInstanceId, stage: Stage, reason: Reason) -> Channel
 #[cfg(test)]
 #[path = "../../tests/component/grpc_hosted.rs"]
 mod tests;
+
+#[cfg(test)]
+#[path = "../../tests/component/grpc_node_options.rs"]
+mod node_options_tests;

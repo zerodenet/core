@@ -3,7 +3,7 @@
 //! Types that are pure VLESS MUX protocol logic live here.
 //! Connection establishment (raw TCP, transport wrapping) stays in the
 //! proxy crate which owns the I/O infrastructure.
-mod native;
+pub(crate) mod native;
 
 use core::future::Future;
 use std::collections::HashMap;
@@ -443,7 +443,9 @@ impl MuxConnectionPool {
         let scope: Arc<str> = format!("{tag:?}:{transport:?}").into();
         Self {
             pool: self.pool.clone(),
-            control: self.control.scoped(scope.clone()),
+            // Ownership is stable for the configured node across transport
+            // changes; the actual cache scope still includes the full profile.
+            control: self.control.scoped(Arc::from(tag)),
             scope: Some(scope),
         }
     }
@@ -557,8 +559,10 @@ impl MuxConnectionPool {
 
 /// A single MUX connection to an upstream, shared by multiple streams.
 pub(crate) struct MuxPoolConn {
+    pub(crate) inbound_caller: Option<zero_platform_tokio::AcceptedCaller>,
     original: Option<Arc<zero_transport::pooled_driver::Physical>>,
     write_tx: mpsc::UnboundedSender<Vec<u8>>,
+    native_udp_tx: zero_transport::pooled_driver::datagram_queue::PacketQueue,
     streams: Arc<Mutex<HashMap<u16, MuxClientStreamState>>>,
     next_id: Mutex<u16>,
     active: Mutex<usize>,
@@ -609,7 +613,7 @@ impl MuxPoolConn {
         connection
     }
 
-    fn prepare<S>(
+    pub(crate) fn prepare<S>(
         stream: S,
         uuid: &[u8; 16],
         max_concurrency: u32,
@@ -622,6 +626,8 @@ impl MuxPoolConn {
     {
         let (read_half, write_half) = tokio::io::split(stream);
         let (write_tx, write_rx) = mpsc::unbounded_channel::<Vec<u8>>();
+        let (native_udp_tx, native_udp_rx) =
+            zero_transport::pooled_driver::datagram_queue::channel();
         let streams: Arc<Mutex<HashMap<u16, MuxClientStreamState>>> =
             Arc::new(Mutex::new(HashMap::new()));
         let closed = Arc::new(AtomicBool::new(false));
@@ -644,6 +650,7 @@ impl MuxPoolConn {
         let write = run_mux_write_relay(
             write_half,
             write_rx,
+            native_udp_rx,
             closed.clone(),
             shutdown_tx.clone(),
             shutdown_rx.clone(),
@@ -670,8 +677,10 @@ impl MuxPoolConn {
 
         (
             Self {
+                inbound_caller: None,
                 original: None,
                 write_tx,
+                native_udp_tx,
                 streams,
                 next_id: Mutex::new(1),
                 active: Mutex::new(0),
@@ -761,7 +770,11 @@ impl MuxPoolConn {
                 target: None,
             },
         );
-        spawn_mux_udp_upload_relay(self.clone(), sid, global_id, origin, up_rx);
+        if let Err(error) = spawn_mux_udp_upload_relay(self.clone(), sid, global_id, origin, up_rx)
+        {
+            self.release_stream(sid);
+            return Err(error);
+        }
 
         Ok((sid, up_tx, down_rx))
     }
@@ -946,10 +959,11 @@ fn spawn_mux_udp_upload_relay(
     global_id: Option<[u8; 8]>,
     origin: Option<crate::mux::origin::Origin>,
     mut up_rx: mpsc::UnboundedReceiver<UdpFlowPacket>,
-) {
+) -> Result<(), Error> {
     let write = conn.write_tx.clone();
     let streams = conn.streams.clone();
-    tokio::spawn(async move {
+    let caller = conn.inbound_caller.clone();
+    let driver = async move {
         let mut first = true;
         while let Some(packet) = up_rx.recv().await {
             let (target, port, payload) = packet.into_parts();
@@ -990,12 +1004,27 @@ fn spawn_mux_udp_upload_relay(
         streams.lock().unwrap().remove(&sid);
         let mut active = conn.active.lock().unwrap();
         *active = active.saturating_sub(1);
-    });
+    };
+    if let Some(caller) = caller {
+        caller
+            .spawn(
+                zero_platform_tokio::contract::scope::TaskClass::Auxiliary,
+                move |_| async move {
+                    driver.await;
+                    Ok(())
+                },
+            )
+            .map_err(|_| Error::Io("Rvs original UDP driver registration failed"))?;
+    } else {
+        tokio::spawn(driver);
+    }
+    Ok(())
 }
 
 async fn run_mux_write_relay<W>(
     mut writer: W,
     mut write_rx: mpsc::UnboundedReceiver<Vec<u8>>,
+    mut native_udp_rx: mpsc::Receiver<zero_transport::pooled_driver::datagram_queue::QueuedPacket>,
     closed: Arc<AtomicBool>,
     shutdown_tx: watch::Sender<bool>,
     mut shutdown_rx: watch::Receiver<bool>,
@@ -1011,7 +1040,12 @@ async fn run_mux_write_relay<W>(
                     break;
                 }
             }
-            frame = write_rx.recv() => {
+            frame = async {
+                tokio::select! {
+                    frame=write_rx.recv()=>frame,
+                    frame=native_udp_rx.recv()=>frame.map(|frame|frame.into_bytes()),
+                }
+            } => {
                 let Some(frame) = frame else {
                     break;
                 };

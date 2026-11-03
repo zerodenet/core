@@ -1,8 +1,5 @@
 use alloc::string::String;
 
-use zero_platform_tokio::TokioDatagramSocket;
-use zero_transport::StreamTraffic;
-
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Socks5UpstreamAssociationCloseReason {
     Closed,
@@ -18,16 +15,6 @@ pub struct Socks5ManagedUdpFlowConfig<'a> {
 #[derive(Clone)]
 pub struct Socks5InboundAcceptor {
     pub(super) protocol: crate::Socks5InboundTcpAcceptor,
-}
-
-pub struct Socks5InboundUdpAssociationSetup {
-    pub relay: TokioDatagramSocket,
-    pub pending_control_traffic: StreamTraffic,
-    pub handler: Socks5InboundUdpAssociationHandler,
-}
-
-pub struct Socks5InboundUdpAssociationHandler {
-    pub(super) protocol: crate::udp::Socks5InboundUdpAssociationSession,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

@@ -394,6 +394,25 @@ pub struct Hysteria2InboundProfileStore {
 
 #[cfg(feature = "crypto")]
 impl Hysteria2InboundProfileStore {
+    pub(crate) fn publish(
+        &self,
+        tag: &str,
+        candidate: &Hysteria2InboundProfile,
+    ) -> Hysteria2InboundProfile {
+        let mut profiles = self.profiles.lock().unwrap_or_else(|e| e.into_inner());
+        if let Some(current) = profiles.get(tag) {
+            *current.users.write().unwrap_or_else(|e| e.into_inner()) = candidate.users_snapshot();
+            current.clone()
+        } else {
+            // Keep the cold recipe immutable even when the live authority is
+            // updated in place; rollback must still publish its original users.
+            let published = Hysteria2InboundProfile {
+                users: Arc::new(RwLock::new(candidate.users_snapshot())),
+            };
+            profiles.insert(tag.to_owned(), published.clone());
+            published
+        }
+    }
     pub fn replace(
         &self,
         tag: &str,
@@ -515,3 +534,7 @@ impl Hysteria2Inbound {
         Ok(session)
     }
 }
+
+#[cfg(all(test, feature = "runtime"))]
+#[path = "inbound/tests.rs"]
+mod tests;

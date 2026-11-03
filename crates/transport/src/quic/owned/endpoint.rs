@@ -20,17 +20,18 @@ use zero_platform_tokio::{
     controlled_datagram::{metadata::MetadataOwnerReport, DatagramReservationId},
 };
 mod bidi;
-#[cfg(any(feature = "split_http", feature = "hysteria"))]
+#[cfg(any(feature = "split_http", feature = "hysteria", feature = "quic_h3"))]
 pub mod h3;
 pub use bidi::OwnedBiStream;
 mod connection;
 mod handle;
+mod masks;
 mod native;
 use native::Native;
 mod stream;
 mod users;
 pub use connection::OwnedConnection;
-pub use handle::OwnedEndpointHandle;
+pub use handle::{OwnedEndpointHandle, OwnedIncoming};
 pub use stream::{OwnedRecvStream, OwnedSendStream};
 use users::{error, Users};
 
@@ -43,6 +44,7 @@ pub struct OwnedEndpointLimits {
 pub struct OwnedEndpointOwner {
     shared: Arc<Shared>,
     native: Native,
+    masks: Vec<(u8, zero_platform_tokio::contract::CancellationToken)>,
     drivers: QuinnDriverOwner,
     users_graph: Option<MetadataGraph>,
     native_snapshot: Option<Arc<MetadataOwnerReport>>,
@@ -113,6 +115,7 @@ impl OwnedEndpointOwner {
             Self {
                 shared,
                 native,
+                masks: Vec::new(),
                 drivers,
                 users_graph,
                 native_snapshot: None,
@@ -280,6 +283,11 @@ impl Drop for OwnedEndpointOwner {
     fn drop(&mut self) {
         // Emergency cancellation only, never a resource/TaskExit/native ACK.
         self.begin_shutdown();
+        // Emergency Drop requests stop only. Normal shutdown drains actual
+        // consumers first and joins decorators from inner to outer.
+        for (_, stop) in &self.masks {
+            stop.cancel();
+        }
     }
 }
 impl Shared {

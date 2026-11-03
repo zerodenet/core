@@ -48,6 +48,8 @@ Mieru 是一种加密代理协议。它先与对端建立一条 XChaCha20-Poly13
 | 出站 underlay 连接池 | 已实现 TCP/UDP 载体共享、并发建连合并、身份隔离与重载退役 |
 | 原生 UDP underlay | 已实现双向可靠分片、累计 ACK、窗口、重传及乱序去重；配置 `transport: "udp"` |
 
+TCP 和原生 UDP underlay 的内核入站均使用 `component::inbound::Factory` 与标准 Multiplex/Stream/Datagram，不再经过 Mieru 旧 listener。真实宿主 Scope 监督物理 driver、并发逻辑握手和 TCP/UDP 业务任务；原生 UDP peer 由实际 listener admission 与原 Scope task/witness 领取唯一作用域，不借用 TCP 连接身份。协议保留 cipher、可靠传输、会话分发、UDP 成帧及关闭响应；Proxy adapter 只投影配置。旧资源的原始 provider、逻辑用户及实际任务清理确认后才能启新。公开 `InboundRouteMultiplexer`/Session API 保留兼容，但不再承载普通内核入站执行。这不改变整体 `partial`、固定上游版本或普通出站生产准入状态。
+
 ## 架构
 
 ```

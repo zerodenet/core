@@ -1,5 +1,7 @@
 #[cfg(feature = "reality")]
 mod reverse;
+#[cfg(feature = "reality")]
+pub(crate) mod standard;
 // VLESS MUX (Connection Multiplexing) — mux.rs
 //
 // Encodes multiple TCP/UDP streams within a single VLESS connection.
@@ -474,6 +476,7 @@ struct VlessInboundMuxStreams {
 
 #[cfg(feature = "reality")]
 struct VlessInboundMuxStreamState {
+    ending: bool,
     network: MuxNetwork,
     target: Address,
     port: u16,
@@ -680,6 +683,7 @@ impl VlessInboundMuxStreams {
         self.streams.insert(
             session_id,
             VlessInboundMuxStreamState {
+                ending: false,
                 network,
                 target: session.target.clone(),
                 port: session.port,
@@ -1265,7 +1269,10 @@ impl MuxServer {
     where
         S: AsyncSocket,
     {
-        let frame = self.recv(stream).await?;
+        Self::frame_event(self.recv(stream).await?)
+    }
+
+    fn frame_event(frame: MuxFrame) -> Result<MuxServerEvent, Error> {
         match frame.status {
             STATUS_KEEP_ALIVE => Ok(MuxServerEvent::KeepAlive),
             STATUS_NEW => {

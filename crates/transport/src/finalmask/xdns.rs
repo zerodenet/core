@@ -34,6 +34,26 @@ pub(super) fn wrap(
         client(inner, channels, domain, id)
     })
 }
+pub(super) fn prepare_server(
+    inner: Arc<dyn AsyncUdpSocket>,
+    domain: &str,
+) -> io::Result<(
+    Arc<dyn AsyncUdpSocket>,
+    crate::datagram_driver::PreparedIoDriver,
+)> {
+    let domain = wire::domain(domain)?;
+    let local = inner.local_addr()?;
+    let prepare = Arc::new(|transmit: &quinn::udp::Transmit<'_>| {
+        if transmit.contents.len() + 2 > codec::MAX_PAYLOAD {
+            return Err(wire::invalid());
+        }
+        Ok(transmit.contents.to_vec())
+    });
+    let (socket, driver) = queue::prepare_with(local, prepare, move |channels| {
+        server::run(inner, channels, domain)
+    })?;
+    Ok((socket, driver))
+}
 async fn client(
     inner: Arc<dyn AsyncUdpSocket>,
     mut channels: Channels,

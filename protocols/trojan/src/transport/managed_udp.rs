@@ -47,6 +47,9 @@ impl TrojanManagedUdpFlowResume {
         OpenSocket: Clone + Fn(&str, u16) -> OpenSocketFut + Send + Sync,
         OpenSocketFut: Future<Output = Result<TokioSocket, RuntimeError>> + Send,
     {
+        if let Some(opened) = self.open_installed_connection(session).await? {
+            return Ok(opened);
+        }
         let transport = self.transport.clone();
         self.protocol
             .open_udp_flow_with_transport_or_mux(
@@ -60,6 +63,35 @@ impl TrojanManagedUdpFlowResume {
                 },
             )
             .await
+    }
+
+    // One erased compatibility boundary avoids embedding native acquisition in
+    // every generic legacy socket caller. No additional physical driver exists.
+    fn open_installed_connection<'a>(
+        &'a self,
+        session: &'a Session,
+    ) -> zero_platform_tokio::contract::BoxFuture<
+        'a,
+        Result<Option<crate::udp::TrojanUdpFlowConnection>, RuntimeError>,
+    > {
+        Box::pin(async move {
+            let Some(binding) = self.mux_pool.installed_root_binding().await? else {
+                return Ok(None);
+            };
+            self.protocol
+                .open_native_mux_flow(session, &self.mux_pool, binding, |raw| async move {
+                    self.transport
+                        .open_relay_with_profile(
+                            TcpRelayStream::new(zero_transport::pooled_driver::ExclusiveIo::new(
+                                raw,
+                            )),
+                            self.protocol.native_tls_profile(),
+                        )
+                        .await
+                })
+                .await
+                .map(Some)
+        })
     }
 
     pub async fn open_relay_connection(

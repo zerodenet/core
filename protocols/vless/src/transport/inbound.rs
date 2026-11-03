@@ -15,10 +15,11 @@ mod mkcp;
 pub use metadata::VlessInboundStreamMetadata;
 mod multiplex;
 mod plan;
+pub(crate) mod publication;
 mod session;
-mod standard;
+pub use publication::PreparedVlessInboundListenerRequest;
+mod request;
 pub use multiplex::VlessInboundTransportStreams;
-pub use standard::VlessStandardTcpAccept;
 
 use super::options::{VlessInboundOptionsRef, VlessInboundUserRef};
 
@@ -50,6 +51,38 @@ pub enum VlessTcpFallbackReplay {
     Socket(crate::inbound::VlessFallbackReplay<TokioSocket>),
 }
 
+impl VlessTcpFallbackReplay {
+    pub(super) async fn select_standard_route(
+        &mut self,
+        policy: &crate::fallback::FallbackPolicy,
+        facts: &zero_platform_tokio::contract::context::InboundConnectionFacts,
+    ) -> Result<(), zero_core::Error> {
+        match self {
+            Self::Client(replay) => {
+                replay
+                    .select_route(
+                        policy,
+                        None,
+                        None,
+                        facts.effective_source,
+                        facts.local_endpoint,
+                    )
+                    .await
+            }
+            Self::Socket(replay) => {
+                replay
+                    .select_route(
+                        policy,
+                        None,
+                        None,
+                        facts.effective_source,
+                        facts.local_endpoint,
+                    )
+                    .await
+            }
+        }
+    }
+}
 impl zero_core::InboundFallbackReplay for VlessTcpFallbackReplay {
     type Stream = TcpRelayStream;
     fn selected_route(&self) -> Option<zero_traits::FallbackRoute> {
@@ -243,42 +276,6 @@ impl VlessInboundListenerRequest {
         crate::inbound::VlessInbound
     }
 
-    async fn accept_tcp_route<S, FWrap>(
-        self,
-        socket: TokioSocket,
-        wrap_stream: FWrap,
-    ) -> Result<
-        Option<
-            zero_core::InboundRouteAccept<
-                crate::inbound::VlessAcceptedClientRoute<S>,
-                VlessTcpFallbackReplay,
-            >,
-        >,
-        RuntimeError,
-    >
-    where
-        S: ClientStream + zero_core::InboundFallbackCapture<Stream = TcpRelayStream> + 'static,
-        FWrap: Fn(TcpRelayStream) -> S + Clone + Send + 'static,
-    {
-        let Self {
-            mkcp: _,
-            hysteria: _,
-            profile,
-            transport,
-            fallback_enabled,
-            mux_response_backlog,
-        } = self;
-        transport
-            .accept_tcp_route(
-                profile,
-                fallback_enabled,
-                mux_response_backlog,
-                socket,
-                wrap_stream,
-            )
-            .await
-    }
-
     async fn accept_stream_route<S, FWrap>(
         self,
         stream: TcpRelayStream,
@@ -315,41 +312,6 @@ impl VlessInboundListenerRequest {
             wrap_stream,
         )
         .await
-    }
-
-    pub async fn accept_recorded_tcp_route(
-        self,
-        socket: TokioSocket,
-    ) -> Result<
-        Option<
-            zero_core::InboundRouteAccept<
-                crate::inbound::VlessAcceptedClientRoute<
-                    zero_transport::MeteredStream<zero_transport::RecordingStream<TcpRelayStream>>,
-                >,
-                VlessTcpFallbackReplay,
-            >,
-        >,
-        RuntimeError,
-    > {
-        self.accept_tcp_route(socket, record_client_stream).await
-    }
-
-    pub async fn accept_recorded_quic_route(
-        self,
-        stream: zero_transport::quic::QuicStream,
-    ) -> Result<
-        zero_core::InboundRouteAccept<
-            crate::inbound::VlessAcceptedClientRoute<
-                zero_transport::MeteredStream<zero_transport::RecordingStream<TcpRelayStream>>,
-            >,
-            crate::inbound::VlessFallbackReplay<TcpRelayStream>,
-        >,
-        RuntimeError,
-    > {
-        let mut metadata = VlessInboundStreamMetadata::from_stream(&stream);
-        (metadata.sni, metadata.alpn) = stream.tls_metadata();
-        self.accept_stream_route(TcpRelayStream::new(stream), metadata, record_client_stream)
-            .await
     }
 
     pub async fn accept_recorded_stream_route<T>(

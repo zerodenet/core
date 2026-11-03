@@ -5,7 +5,7 @@ use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
 use zero_core::{Address, Error, Network, ProtocolType, Session};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-enum MieruTunnelRequest {
+pub(crate) enum MieruTunnelRequest {
     Tcp { target: Address, port: u16 },
     UdpAssociate { target: Address, port: u16 },
 }
@@ -27,9 +27,16 @@ pub(crate) async fn accept_tunneled_session<S>(stream: &mut S) -> Result<Session
 where
     S: AsyncRead + AsyncWrite + Unpin,
 {
+    Ok(accept_tunneled_request(stream).await?.into_session())
+}
+
+pub(crate) async fn accept_tunneled_request<S>(stream: &mut S) -> Result<MieruTunnelRequest, Error>
+where
+    S: AsyncRead + AsyncWrite + Unpin,
+{
     let request = read_request(stream).await?;
     write_success_response(stream).await?;
-    Ok(request.into_session())
+    Ok(request)
 }
 
 pub(crate) async fn request_tcp_connect<S>(

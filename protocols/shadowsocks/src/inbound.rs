@@ -55,7 +55,10 @@ mod store;
 mod tcp;
 pub(crate) use model::ShadowsocksAuthorizedUsers;
 pub use model::{ShadowsocksInboundProfile, ShadowsocksInboundUserRef, ShadowsocksUser};
-pub use store::{inbound_profile_from_config_cipher_password, ShadowsocksInboundProfileStore};
+pub use store::{
+    inbound_profile_from_config_cipher_password, PreparedInboundProfile,
+    ShadowsocksInboundProfileStore,
+};
 pub use tcp::{ShadowsocksInboundTcpAcceptor, ShadowsocksInboundTcpState};
 
 #[cfg(all(feature = "crypto", feature = "blake3"))]

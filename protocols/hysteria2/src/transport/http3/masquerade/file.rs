@@ -8,6 +8,22 @@ pub(super) async fn serve_file(
     request: http::Request<()>,
     stream: &mut dyn HttpExchange,
 ) -> io::Result<()> {
+    serve_using(root, request, stream, &mut Access::Legacy).await
+}
+pub(super) async fn serve_owned(
+    root: &Path,
+    request: http::Request<()>,
+    stream: &mut dyn HttpExchange,
+    files: &mut zero_platform_tokio::file::tree::FileTreeSession,
+) -> io::Result<()> {
+    serve_using(root, request, stream, &mut Access::Owned(files)).await
+}
+async fn serve_using(
+    root: &Path,
+    request: http::Request<()>,
+    stream: &mut dyn HttpExchange,
+    files: &mut Access<'_>,
+) -> io::Result<()> {
     let head = request.method() == http::Method::HEAD;
     if request.method() != http::Method::GET && !head {
         return respond(stream, 405, "text/plain", Bytes::new(), false).await;
@@ -17,13 +33,14 @@ pub(super) async fn serve_file(
         Err(_) => return respond(stream, 404, "text/plain", Bytes::new(), head).await,
     };
     let mut candidate = root.join(path);
-    if tokio::fs::metadata(&candidate)
+    if files
+        .metadata(candidate.clone())
         .await
         .is_ok_and(|m| m.is_dir())
     {
         candidate = candidate.join("index.html");
     }
-    let candidate = match tokio::fs::canonicalize(candidate).await {
+    let candidate = match files.canonicalize(candidate).await {
         Ok(path) if path.starts_with(root) => path,
         _ => {
             return respond(
@@ -36,7 +53,7 @@ pub(super) async fn serve_file(
             .await
         }
     };
-    let mut file = match tokio::fs::File::open(&candidate).await {
+    let mut file = match files.open(&candidate).await {
         Ok(file) => file,
         Err(_) => return respond(stream, 404, "text/plain", Bytes::new(), head).await,
     };
@@ -69,7 +86,7 @@ pub(super) async fn serve_file(
     if !head {
         let mut buffer = vec![0u8; 32 * 1024];
         loop {
-            let size = tokio::io::AsyncReadExt::read(&mut file, &mut buffer).await?;
+            let size = file.read(&mut buffer).await?;
             if size == 0 {
                 break;
             }
@@ -81,3 +98,6 @@ pub(super) async fn serve_file(
     }
     stream.finish().await.map_err(io::Error::other)
 }
+
+mod access;
+use access::Access;

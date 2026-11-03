@@ -30,6 +30,7 @@ enum Mode {
     // Negative evidence only: old AbortHandles/Drop do not prove closure.
     LegacyExposed,
     Claimed(ComponentInstanceId),
+    Closed(ComponentInstanceId),
 }
 #[derive(Default)]
 pub(crate) struct State(Mutex<Values>);
@@ -40,6 +41,22 @@ impl std::fmt::Debug for State {
     }
 }
 impl State {
+    pub(crate) fn same_recipe(&self, candidate: &Self) -> bool {
+        // Candidate is cold and unpublished; it cannot contain native clients.
+        self.0
+            .lock()
+            .unwrap()
+            .recipe
+            .as_ref()
+            .zip(candidate.0.lock().unwrap().recipe.as_ref())
+            .is_some_and(|((actual, _), (candidate, _))| actual == candidate)
+    }
+    pub(super) fn release(&self, instance: ComponentInstanceId) {
+        let mut values = self.0.lock().unwrap();
+        if matches!(values.mode,Mode::Claimed(actual) if actual==instance) {
+            values.mode = Mode::Closed(instance);
+        }
+    }
     pub(super) fn recipe(&self, recipe: Recipe) -> Result<Arc<[u8]>, Error> {
         let mut values = self.0.lock().unwrap();
         if let Some((existing, identity)) = &values.recipe {
@@ -73,7 +90,7 @@ impl State {
                 values.mode = Mode::LegacyExposed;
                 Ok(())
             }
-            Mode::Claimed(instance) => Err(std::io::Error::new(
+            Mode::Claimed(instance) | Mode::Closed(instance) => Err(std::io::Error::new(
                 std::io::ErrorKind::PermissionDenied,
                 error(instance, Stage::Prepare, Reason::StalePlan),
             )
@@ -82,7 +99,7 @@ impl State {
     }
     pub(super) fn claim(&self, instance: ComponentInstanceId) -> Result<(), ChannelError> {
         let mut values = self.0.lock().unwrap();
-        if !matches!(values.mode, Mode::Pristine) {
+        if !matches!(values.mode, Mode::Pristine | Mode::Closed(_)) {
             return Err(error(instance, Stage::Prepare, Reason::StalePlan));
         }
         values.mode = Mode::Claimed(instance);

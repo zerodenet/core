@@ -583,7 +583,7 @@ fn build_udp_fragment(
 
 static NEXT_UDP_PACKET_ID: AtomicU32 = AtomicU32::new(1);
 
-fn build_udp_fragments(
+pub(crate) fn build_udp_fragments(
     session_id: u32,
     address: &Address,
     port: u16,

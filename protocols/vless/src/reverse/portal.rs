@@ -45,20 +45,52 @@ impl Portal {
     where
         S: AsyncRead + AsyncWrite + Unpin + Send + 'static,
     {
+        let (registration, driver) = self.prepare_attach(stream, backlog, None)?;
+        tokio::spawn(driver);
+        Ok(registration)
+    }
+
+    pub(crate) fn attach_scoped<S>(
+        &self,
+        stream: S,
+        backlog: MuxResponseBacklogPolicy,
+        caller: &zero_platform_tokio::AcceptedCaller,
+    ) -> Result<PortalRegistration, Error>
+    where
+        S: AsyncRead + AsyncWrite + Unpin + Send + 'static,
+    {
+        let (registration, driver) = self.prepare_attach(stream, backlog, Some(caller.clone()))?;
+        caller
+            .spawn(
+                zero_platform_tokio::contract::scope::TaskClass::Auxiliary,
+                move |_| async move {
+                    driver.await;
+                    Ok(())
+                },
+            )
+            .map_err(|_| Error::Io("Rvs original driver registration failed"))?;
+        Ok(registration)
+    }
+
+    fn prepare_attach<S>(
+        &self,
+        stream: S,
+        backlog: MuxResponseBacklogPolicy,
+        caller: Option<zero_platform_tokio::AcceptedCaller>,
+    ) -> Result<(PortalRegistration, zero_transport::pooled_driver::Driver), Error>
+    where
+        S: AsyncRead + AsyncWrite + Unpin + Send + 'static,
+    {
         let mut workers = self.0.workers.lock().unwrap();
         if self.0.retired.load(Ordering::Acquire) {
             return Err(Error::Io("Rvs portal retired"));
         }
         workers.retain(|worker| !worker.connection.closed());
+        let (mut connection, driver) =
+            MuxPoolConn::prepare(stream, &[0; 16], u16::MAX as u32, None, backlog, false);
+        connection.inbound_caller = caller;
         let worker = Arc::new(Worker {
-            connection: Arc::new(MuxPoolConn::new(
-                stream,
-                &[0; 16],
-                u16::MAX as u32,
-                None,
-                backlog,
-                false,
-            )),
+            connection: Arc::new(connection),
             draining: AtomicBool::new(false),
         });
         let sid = worker
@@ -67,12 +99,15 @@ impl Portal {
             .ok_or(Error::Io("Rvs control admission failed"))?;
         let (_, sender, receiver) = worker.connection.open_udp_stream_with_id(sid, None)?;
         workers.push(worker.clone());
-        Ok(PortalRegistration {
-            owner: Arc::downgrade(&self.0),
-            worker,
-            sender: Some(sender),
-            receiver: Some(receiver),
-        })
+        Ok((
+            PortalRegistration {
+                owner: Arc::downgrade(&self.0),
+                worker,
+                sender: Some(sender),
+                receiver: Some(receiver),
+            },
+            driver,
+        ))
     }
 
     fn reserve(&self) -> Result<(Arc<MuxPoolConn>, u16), Error> {
@@ -87,6 +122,14 @@ impl Portal {
                 .collect();
             candidates.sort_by_key(|worker| worker.connection.active_connections());
             for worker in candidates {
+                if worker
+                    .connection
+                    .inbound_caller
+                    .as_ref()
+                    .is_some_and(|caller| caller.check_open().is_err())
+                {
+                    continue;
+                }
                 if let Some(sid) = worker.connection.try_reserve_stream_id() {
                     return Ok((worker.connection.clone(), sid));
                 }
@@ -117,7 +160,10 @@ impl Portal {
             None,
             Some(crate::mux::origin::Origin::from_session(session)),
         )?;
-        Ok(crate::udp::start_mux_udp_flow(sender, receiver))
+        match connection.inbound_caller.as_ref() {
+            Some(caller) => crate::udp::start_scoped_mux_udp_flow(sender, receiver, caller),
+            None => Ok(crate::udp::start_mux_udp_flow(sender, receiver)),
+        }
     }
 }
 

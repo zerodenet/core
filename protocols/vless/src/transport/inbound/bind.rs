@@ -66,45 +66,36 @@ impl VlessInboundBindPlan {
         }
     }
 
-    pub async fn bind(&self, listen_addr: &str) -> Result<Option<quic::QuicInbound>, RuntimeError> {
-        match (
-            self.quic_cert_path.as_deref(),
-            self.quic_key_path.as_deref(),
-        ) {
-            (Some(cert_path), Some(key_path)) => {
-                let profile = zero_transport::profile::OwnedServerTlsProfile {
-                    options: self.quic_tls_options.clone(),
-                    cert_path: cert_path.into(),
-                    key_path: key_path.into(),
-                    alpn: Vec::new(),
-                    server_fingerprint: None,
-                };
-                let transport = if let Some(profile) = &self.hysteria {
-                    profile.transport(true)?
-                } else {
-                    let mut transport = quic::QuicTransportConfig::default();
-                    transport.max_idle_timeout(Some(
-                        std::time::Duration::from_secs(30).try_into().unwrap(),
-                    ));
-                    transport.datagram_receive_buffer_size(Some(65536));
-                    transport
-                };
-                let endpoint = quic::QuicInbound::bind_with_tls_profile(
-                    listen_addr,
-                    &profile,
-                    self.source_dir.as_deref(),
-                    &self.quic_alpn_protocols,
-                    transport,
-                    self.final_mask.udp(),
-                )
-                .await?;
-                Ok(Some(endpoint))
-            }
-            (None, None) => Ok(None),
-            _ => Err(RuntimeError::Io(io::Error::new(
-                io::ErrorKind::InvalidInput,
-                "vless quic inbound bind requires both cert_path and key_path",
-            ))),
-        }
+    pub(crate) fn masks(&self) -> Vec<zero_transport::finalmask::udp::Mask> {
+        self.final_mask.udp().to_vec()
+    }
+    pub(crate) fn server_config(&self) -> Result<quic::QuicServerConfig, RuntimeError> {
+        let profile = zero_transport::profile::OwnedServerTlsProfile {
+            options: self.quic_tls_options.clone(),
+            cert_path: self
+                .quic_cert_path
+                .clone()
+                .ok_or_else(|| io::Error::other("QUIC certificate missing"))?,
+            key_path: self
+                .quic_key_path
+                .clone()
+                .ok_or_else(|| io::Error::other("QUIC private key missing"))?,
+            alpn: Vec::new(),
+            server_fingerprint: None,
+        };
+        let transport = if let Some(profile) = &self.hysteria {
+            profile.transport(true)?
+        } else {
+            let mut t = quic::QuicTransportConfig::default();
+            t.max_idle_timeout(Some(std::time::Duration::from_secs(30).try_into().unwrap()));
+            t.datagram_receive_buffer_size(Some(65536));
+            t
+        };
+        quic::server_config(
+            &profile,
+            self.source_dir.as_deref(),
+            &self.quic_alpn_protocols,
+            transport,
+        )
     }
 }

@@ -28,6 +28,40 @@ impl Hysteria2Website {
         self.redirect_port = None;
         Ok(self)
     }
+    pub(crate) async fn serve_scoped<S>(
+        &self,
+        socket: S,
+        peer: SocketAddr,
+        resources: Arc<dyn zero_platform_tokio::contract::component::ResourceAccess>,
+        caller: zero_platform_tokio::AcceptedCaller,
+    ) -> Result<(), zero_transport::RuntimeError>
+    where
+        S: tokio::io::AsyncRead + tokio::io::AsyncWrite + Unpin + Send + 'static,
+    {
+        let context = RequestContext {
+            peer,
+            tls: self.tls.is_some(),
+        };
+        let handler = Arc::new(ScopedWebsite {
+            site: self.clone(),
+            resources,
+            caller: caller.clone(),
+        });
+        if let Some(tls) = &self.tls {
+            let socket =
+                tokio::time::timeout(std::time::Duration::from_secs(10), tls.accept(socket))
+                    .await
+                    .map_err(|_| {
+                        io::Error::new(io::ErrorKind::TimedOut, "website TLS handshake timed out")
+                    })??;
+            zero_transport::http_server::serve_connection_scoped(socket, context, handler, caller)
+                .await?;
+        } else {
+            zero_transport::http_server::serve_connection_scoped(socket, context, handler, caller)
+                .await?;
+        }
+        Ok(())
+    }
     pub async fn serve<S>(
         &self,
         socket: S,
@@ -61,6 +95,19 @@ impl HttpHandler for Hysteria2Website {
         &self,
         request: http::Request<()>,
         stream: &mut dyn HttpExchange,
+    ) -> io::Result<()> {
+        self.serve_using(request, stream, None).await
+    }
+}
+impl Hysteria2Website {
+    async fn serve_using(
+        &self,
+        request: http::Request<()>,
+        stream: &mut dyn HttpExchange,
+        scoped: Option<(
+            &dyn zero_platform_tokio::contract::component::ResourceAccess,
+            &zero_platform_tokio::AcceptedCaller,
+        )>,
     ) -> io::Result<()> {
         if let Some(port) = self.redirect_port {
             let host = request
@@ -99,15 +146,18 @@ impl HttpHandler for Hysteria2Website {
         let alt_svc = format!("h3=\":{}\"; ma=2592000", self.quic_port)
             .parse()
             .map_err(io::Error::other)?;
-        self.masquerade
-            .serve(
-                request,
-                &mut WebsiteExchange {
-                    inner: stream,
-                    alt_svc,
-                },
-            )
-            .await
+        let mut exchange = WebsiteExchange {
+            inner: stream,
+            alt_svc,
+        };
+        match scoped {
+            Some((resources, caller)) => {
+                self.masquerade
+                    .serve_scoped(request, &mut exchange, resources, caller)
+                    .await
+            }
+            None => self.masquerade.serve(request, &mut exchange).await,
+        }
     }
 }
 struct WebsiteExchange<'a> {
@@ -130,5 +180,27 @@ impl HttpExchange for WebsiteExchange<'_> {
     }
     async fn finish(&mut self) -> io::Result<()> {
         self.inner.finish().await
+    }
+}
+
+struct ScopedWebsite {
+    site: Hysteria2Website,
+    resources: Arc<dyn zero_platform_tokio::contract::component::ResourceAccess>,
+    caller: zero_platform_tokio::AcceptedCaller,
+}
+#[async_trait::async_trait]
+impl HttpHandler for ScopedWebsite {
+    async fn serve(
+        &self,
+        request: http::Request<()>,
+        exchange: &mut dyn HttpExchange,
+    ) -> io::Result<()> {
+        self.site
+            .serve_using(
+                request,
+                exchange,
+                Some((self.resources.as_ref(), &self.caller)),
+            )
+            .await
     }
 }

@@ -17,12 +17,50 @@ impl MieruInboundProfile {
         &self,
         socket: Arc<UdpSocket>,
         peer: SocketAddr,
-        mut packets: mpsc::Receiver<Vec<u8>>,
+        packets: mpsc::Receiver<Vec<u8>>,
     ) -> io::Result<MieruInboundMultiplexer> {
+        let (mut connection, driver) = self
+            .prepare_packet_io(
+                PacketIo::Server {
+                    socket,
+                    peer,
+                    packets,
+                },
+                peer,
+            )
+            .await?;
+        connection.install_compatibility_driver(tokio::spawn(async move {
+            let _ = driver.await;
+        }));
+        Ok(connection)
+    }
+    pub(crate) async fn prepare_packet_peer(
+        &self,
+        peer: zero_platform_tokio::contract::inbound::udp::DatagramPeer,
+    ) -> io::Result<(
+        MieruInboundMultiplexer,
+        impl std::future::Future<Output = io::Result<()>> + Send + 'static,
+    )> {
+        let remote = peer
+            .connection_facts()?
+            .effective_source
+            .ok_or(io::ErrorKind::NotConnected)?;
+        let (tx, rx, _) = peer.split();
+        self.prepare_packet_io(PacketIo::Hosted { tx, rx }, remote)
+            .await
+    }
+    async fn prepare_packet_io(
+        &self,
+        mut io: PacketIo,
+        peer: SocketAddr,
+    ) -> io::Result<(
+        MieruInboundMultiplexer,
+        impl std::future::Future<Output = io::Result<()>> + Send + 'static,
+    )> {
         self.options.validate().map_err(io::Error::other)?;
         let authenticate = async {
             loop {
-                let packet = packets.recv().await.ok_or(io::ErrorKind::BrokenPipe)?;
+                let packet = io.receive().await?;
                 if packet.len() < 72 {
                     continue;
                 }
@@ -69,27 +107,21 @@ impl MieruInboundProfile {
             dropped,
             self.options.receive.clone(),
         );
-        let mut driver = Driver::new(
-            book,
-            codec.clone(),
-            PacketIo::Server {
-                socket,
-                peer,
-                packets,
-            },
-            false,
-        );
+        let mut driver = Driver::new(book, codec.clone(), io, false);
         driver.receive(codec.decode(&first)?).await?;
         let failure = Arc::new(Mutex::new(None));
         let result = failure.clone();
-        let task = tokio::spawn(async move {
-            if let Err(error) = crate::packet::run(driver, commands, requests, drop_events).await {
+        let driver = async move {
+            let outcome = crate::packet::run(driver, commands, requests, drop_events).await;
+            if let Err(error) = &outcome {
                 *result.lock().unwrap() = Some(error.to_string());
             }
             drop(ready);
-        });
-        Ok(MieruInboundMultiplexer::from_driver(
-            auth, incoming, failure, task,
+            outcome
+        };
+        Ok((
+            MieruInboundMultiplexer::from_driver(auth, incoming, failure),
+            driver,
         ))
     }
 }

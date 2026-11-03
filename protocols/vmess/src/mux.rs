@@ -1,4 +1,6 @@
-mod native;
+mod standard;
+pub(crate) use standard::source as standard_source;
+pub(crate) mod native;
 use core::future::Future;
 use std::collections::HashMap;
 use std::io;
@@ -345,7 +347,11 @@ impl VmessMuxConnectionPool {
         let scope: Arc<str> = format!("{tag:?}:{transport:?}").into();
         Self {
             pool: self.pool.clone(),
-            control: self.control.scoped(scope.clone()),
+            // One configured node keeps the same ownership fence across transport
+            // changes. The actual cache key below still includes the complete
+            // transport; old unproven legacy drivers cannot be adopted by a
+            // new profile of the same node.
+            control: self.control.scoped(Arc::from(tag)),
             scope: Some(scope),
         }
     }
@@ -594,6 +600,25 @@ pub struct VmessInboundMuxTcpRelay {
 }
 
 impl VmessInboundMuxTcpRelay {
+    #[cfg(feature = "runtime")]
+    pub(crate) fn into_standard_stream(
+        self,
+    ) -> impl AsyncRead + AsyncWrite + Send + Sync + Unpin + 'static {
+        let sid = self.session_id;
+        let output = self.writer.clone();
+        zero_transport::stream::ChannelStream::new(
+            self.up_rx,
+            move |bytes: &[u8]| {
+                output
+                    .data(sid, bytes)
+                    .map(|_| bytes.len())
+                    .map_err(io::Error::other)
+            },
+            move || self.writer.end(sid).map(|_| ()).map_err(io::Error::other),
+            std::num::NonZeroUsize::new(MUX_MAX_DATA_LEN).unwrap(),
+            Vec::new(),
+        )
+    }
     fn new(
         session_id: u16,
         up_rx: mpsc::UnboundedReceiver<Vec<u8>>,
@@ -1336,6 +1361,32 @@ pub(crate) struct VmessInboundMuxWriter {
 }
 
 impl VmessInboundMuxWriter {
+    #[cfg(feature = "runtime")]
+    fn prepare<W>(
+        mut writer: W,
+        policy: MuxResponseBacklogPolicy,
+    ) -> (
+        Self,
+        impl Future<Output = Result<(), zero_platform_tokio::contract::ChannelError>> + Send + 'static,
+    )
+    where
+        W: AsyncWrite + Unpin + Send + 'static,
+    {
+        let (write_tx, mut write_rx) =
+            mpsc::channel::<BufferedMuxResponse<Vec<u8>>>(policy.frames());
+        let original = Self::new(write_tx, MuxResponseBacklog::from_policy(policy));
+        (original, async move {
+            while let Some(frame) = write_rx.recv().await {
+                let frame = frame.into_inner();
+                writer
+                    .write_all(&frame)
+                    .await
+                    .map_err(standard::write_error)?;
+                writer.flush().await.map_err(standard::write_error)?;
+            }
+            writer.shutdown().await.map_err(standard::write_error)
+        })
+    }
     fn new(
         write_tx: mpsc::Sender<BufferedMuxResponse<Vec<u8>>>,
         backlog: MuxResponseBacklog,
@@ -1534,6 +1585,7 @@ struct VmessMuxStream {
 struct VmessMuxConn {
     original: Option<Arc<zero_transport::pooled_driver::Physical>>,
     write_tx: mpsc::UnboundedSender<Vec<u8>>,
+    native_udp_tx: zero_transport::pooled_driver::datagram_queue::PacketQueue,
     streams: Arc<Mutex<std::collections::HashMap<u16, mpsc::Sender<VmessMuxDownlink>>>>,
     next_id: Mutex<u16>,
     active: Arc<Mutex<usize>>,
@@ -1579,6 +1631,8 @@ impl VmessMuxConn {
     {
         let (reader, writer) = tokio::io::split(stream);
         let (write_tx, write_rx) = mpsc::unbounded_channel::<Vec<u8>>();
+        let (native_udp_tx, native_udp_rx) =
+            zero_transport::pooled_driver::datagram_queue::channel();
         let streams = Arc::new(Mutex::new(std::collections::HashMap::new()));
         let closed = Arc::new(AtomicBool::new(false));
         let response_backlog = MuxResponseBacklog::from_policy(response_backlog_policy);
@@ -1600,6 +1654,7 @@ impl VmessMuxConn {
         let write = run_mux_write_relay_with_shutdown(
             writer,
             write_rx,
+            native_udp_rx,
             closed.clone(),
             shutdown_tx.clone(),
             shutdown_rx.clone(),
@@ -1627,6 +1682,7 @@ impl VmessMuxConn {
             Self {
                 original: None,
                 write_tx,
+                native_udp_tx,
                 streams,
                 next_id: Mutex::new(1),
                 active: Arc::new(Mutex::new(0)),
@@ -1719,6 +1775,7 @@ fn spawn_mux_write_relay<W>(
 async fn run_mux_write_relay_with_shutdown<W>(
     mut writer: W,
     mut write_rx: mpsc::UnboundedReceiver<Vec<u8>>,
+    mut native_udp_rx: mpsc::Receiver<zero_transport::pooled_driver::datagram_queue::QueuedPacket>,
     closed: Arc<AtomicBool>,
     shutdown_tx: watch::Sender<bool>,
     mut shutdown_rx: watch::Receiver<bool>,
@@ -1734,7 +1791,12 @@ async fn run_mux_write_relay_with_shutdown<W>(
                     break;
                 }
             }
-            frame = write_rx.recv() => {
+            frame = async {
+                tokio::select! {
+                    frame=write_rx.recv()=>frame,
+                    frame=native_udp_rx.recv()=>frame.map(|frame|frame.into_bytes()),
+                }
+            } => {
                 let Some(frame) = frame else {
                     break;
                 };

@@ -17,3 +17,6 @@ pub use metadata::Hysteria2Protocol;
 pub use outbound::Hysteria2Outbound;
 #[cfg(feature = "crypto")]
 pub use outbound::{outbound_profile_from_config_password, Hysteria2OutboundProfile};
+
+#[cfg(feature = "runtime")]
+pub mod component;

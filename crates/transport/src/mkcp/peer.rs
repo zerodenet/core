@@ -12,8 +12,8 @@ use tokio::{
 /// One prepared listener shares admission across all remote UDP addresses.
 #[derive(Clone)]
 pub struct ListenerProfile {
-    settings: Settings,
-    admission: Arc<Semaphore>,
+    pub(super) settings: Settings,
+    pub(super) admission: Arc<Semaphore>,
 }
 impl ListenerProfile {
     pub fn new(settings: Settings) -> io::Result<Self> {

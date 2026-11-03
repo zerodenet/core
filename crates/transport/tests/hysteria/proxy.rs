@@ -88,3 +88,22 @@ async fn proxy_masquerade_streams_both_directions_before_upload_finishes() {
     .await
     .unwrap();
 }
+
+#[test]
+fn origin_declarations_match_typed_dns_and_ipv6_authorities() {
+    for (url, server, port) in [
+        ("https://[::1]/prefix", "::1", 443),
+        ("http://LOCALHOST:8080/prefix", "localhost", 8080),
+    ] {
+        let profile = Profile::new("original")
+            .unwrap()
+            .with_masquerade(crate::hysteria::Masquerade::proxy(url, false, false).unwrap());
+        assert_eq!(
+            profile.target_endpoint(),
+            Some(zero_traits::FallbackEndpoint::Tcp {
+                server: server.into(),
+                port
+            })
+        );
+    }
+}

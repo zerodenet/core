@@ -1,4 +1,5 @@
 //! Native pool ownership and TCP/UDP logical roles. No production registration or default budgets.
+pub mod inbound;
 mod pool;
 pub use pool::{PoolCarrierSpec, PoolFactory, PoolOptions, PoolProfile};
 mod stream;

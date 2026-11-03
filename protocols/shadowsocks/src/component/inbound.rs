@@ -1,4 +1,5 @@
 //! The encrypted stream owns its response salt/header; TCP admission adds none.
+pub mod listener;
 use zero_core::request::RequestFacts;
 use zero_platform_tokio::contract::{
     inbound::{ReplyOutcome, StreamReply},

@@ -2,8 +2,11 @@
 use std::{future::Future, pin::Pin};
 
 mod control;
+pub mod datagram;
+pub mod datagram_queue;
 mod epoch;
 mod lifecycle;
+mod loan;
 mod managed;
 mod physical;
 mod stream;

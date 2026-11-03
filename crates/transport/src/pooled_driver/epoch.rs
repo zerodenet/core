@@ -7,6 +7,27 @@ use zero_platform_tokio::contract::{
 };
 pub(super) type Epoch = (UpstreamBinding, Option<DnsGeneration>);
 impl ManagedPool {
+    /// Select the actual current root provider for compatibility users of this
+    /// same pool. Selection grants no carrier and never replaces an original.
+    pub async fn current_root_binding(&self) -> Result<UpstreamBinding, crate::RuntimeError> {
+        self.check(&self.options.profile)?;
+        let deadline = Instant::now()
+            .checked_add(self.options.open_budget)
+            .ok_or_else(|| std::io::Error::other("carrier deadline overflow"))?;
+        let selected = tokio::select! { biased;
+            _=self.cancel.cancelled()=>return Err(std::io::Error::other("pool revoked").into()),
+            result=tokio::time::timeout_at(deadline, self.upstream.select_background_carrier(None, CarrierContext {
+                session:None, deadline:Some(deadline), cancel:self.cancel.child_token(),
+            }))=>result.map_err(|source|std::io::Error::new(std::io::ErrorKind::TimedOut,source))?.map_err(std::io::Error::other)?,
+        };
+        let binding = selected.binding();
+        if !binding.prefix.is_empty() || binding.dial != self.options.binding.dial {
+            return Err(
+                std::io::Error::other("compatibility carrier is not the actual root").into(),
+            );
+        }
+        Ok(binding.clone())
+    }
     /// Check the retained real provider again before logical exposure. A
     /// changed DNS generation keeps the already installed original for cleanup.
     pub fn verify_epoch(&self, binding: &UpstreamBinding) -> Result<(), crate::RuntimeError> {
@@ -32,7 +53,7 @@ impl ManagedPool {
         binding: &UpstreamBinding,
     ) -> Result<(), crate::RuntimeError> {
         self.check(profile)?;
-        if !binding.prefix.is_empty() || binding.dial != self.options.binding.dial {
+        if binding.dial != self.options.binding.dial {
             return Err(std::io::Error::other(failure(
                 self.instance,
                 Stage::Prepare,

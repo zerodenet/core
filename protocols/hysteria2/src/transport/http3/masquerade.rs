@@ -16,6 +16,7 @@ pub enum Masquerade {
         rewrite_host: bool,
         x_forwarded: bool,
         client: zero_transport::http_client::HttpClient,
+        insecure: bool,
     },
     String {
         content: Bytes,
@@ -73,6 +74,7 @@ impl Masquerade {
             rewrite_host,
             x_forwarded,
             client,
+            insecure,
         })
     }
     pub fn content(content: &str, status: u16, content_type: &str) -> io::Result<Self> {
@@ -83,6 +85,53 @@ impl Masquerade {
             status: http::StatusCode::from_u16(status).map_err(io::Error::other)?,
             content_type: content_type.parse().map_err(io::Error::other)?,
         })
+    }
+    pub(crate) fn file_root(&self) -> Option<PathBuf> {
+        match self {
+            Self::File(root) => Some(root.clone()),
+            _ => None,
+        }
+    }
+    pub(crate) fn endpoint(&self) -> Option<zero_traits::FallbackEndpoint> {
+        match self {
+            Self::Proxy { url, client, .. } => client.scoped_endpoint(url).ok(),
+            _ => None,
+        }
+    }
+    pub(crate) async fn serve_scoped(
+        &self,
+        request: http::Request<()>,
+        stream: &mut dyn HttpExchange,
+        resources: &dyn zero_platform_tokio::contract::component::ResourceAccess,
+        caller: &zero_platform_tokio::AcceptedCaller,
+    ) -> io::Result<()> {
+        match self {
+            Self::File(root) => {
+                let mut files = resources
+                    .open_inbound_file_tree(caller.clone(), root.clone())
+                    .map_err(io::Error::other)?;
+                file::serve_owned(root, request, stream, &mut files).await
+            }
+            Self::Proxy {
+                url,
+                rewrite_host,
+                x_forwarded,
+                client,
+                insecure,
+            } => {
+                proxy(
+                    client,
+                    url,
+                    *rewrite_host,
+                    *x_forwarded,
+                    request,
+                    stream,
+                    Some((resources, caller, *insecure)),
+                )
+                .await
+            }
+            _ => self.serve(request, stream).await,
+        }
     }
     pub(crate) async fn serve(
         &self,
@@ -120,7 +169,19 @@ impl Masquerade {
                 rewrite_host,
                 x_forwarded,
                 client,
-            } => proxy(client, url, *rewrite_host, *x_forwarded, request, stream).await,
+                insecure: _,
+            } => {
+                proxy(
+                    client,
+                    url,
+                    *rewrite_host,
+                    *x_forwarded,
+                    request,
+                    stream,
+                    None,
+                )
+                .await
+            }
         }
     }
 }

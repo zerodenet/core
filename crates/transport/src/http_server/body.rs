@@ -12,7 +12,7 @@ use tokio::sync::mpsc;
 pub(super) struct ResponseBody {
     pub(super) receiver: mpsc::Receiver<io::Result<Bytes>>,
     pub(super) failed: Arc<AtomicBool>,
-    pub(super) task: tokio::task::AbortHandle,
+    pub(super) task: super::TaskStop,
 }
 impl hyper::body::Body for ResponseBody {
     type Data = Bytes;
@@ -31,6 +31,6 @@ impl hyper::body::Body for ResponseBody {
 }
 impl Drop for ResponseBody {
     fn drop(&mut self) {
-        self.task.abort();
+        self.task.cancel();
     }
 }

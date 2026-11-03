@@ -7,6 +7,8 @@ use tokio::io::{AsyncRead, AsyncWrite, ReadBuf};
 use zero_traits::AsyncSocket;
 
 pub use zero_platform_tokio::{ClientStream, PrefixedSocket, RelayCarrier, TcpRelayStream};
+mod channel;
+pub use channel::ChannelStream;
 
 pub struct RecordingStream<S> {
     inner: S,

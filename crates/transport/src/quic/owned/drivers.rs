@@ -16,7 +16,11 @@ mod runtime;
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum OwnedDriverOrigin {
     Quinn(quinn::DriverOrigin),
-    #[cfg(any(feature = "split_http", feature = "hysteria"))]
+    Mask {
+        kind: crate::finalmask::owned::DriverKind,
+        ordinal: u8,
+    },
+    #[cfg(any(feature = "split_http", feature = "hysteria", feature = "quic_h3"))]
     Http3,
 }
 impl From<quinn::DriverOrigin> for OwnedDriverOrigin {
@@ -37,7 +41,7 @@ pub struct DriverBody {
     pub origin: OwnedDriverOrigin,
     pub io_error: Option<Arc<io::Error>>,
     pub close_reason: Option<quinn::ConnectionError>,
-    #[cfg(any(feature = "split_http", feature = "hysteria"))]
+    #[cfg(any(feature = "split_http", feature = "hysteria", feature = "quic_h3"))]
     pub http3: Option<Arc<super::h3::Http3DriverExit>>,
 }
 
@@ -66,11 +70,56 @@ impl QuinnDriverOwner {
             callbacks,
         })
     }
-    #[cfg(any(feature = "split_http", feature = "hysteria"))]
+    #[cfg(any(feature = "split_http", feature = "hysteria", feature = "quic_h3"))]
     pub(super) fn application_ledger(
         &self,
     ) -> &tracked::DriverOwner<OwnedDriverOrigin, DriverBody> {
         &self.ledger
+    }
+    pub(super) fn start_mask(
+        &self,
+        driver: crate::finalmask::owned::Driver,
+    ) -> Result<(), ChannelError> {
+        let origin = OwnedDriverOrigin::Mask {
+            kind: driver.kind,
+            ordinal: driver.ordinal,
+        };
+        self.ledger
+            .spawn(
+                origin,
+                zero_platform_tokio::contract::scope::TaskClass::Critical,
+                |slot| async move {
+                    let body = slot.record(DriverBody {
+                        origin,
+                        io_error: driver.work.future.await.err().map(Arc::new),
+                        close_reason: None,
+                        #[cfg(any(
+                            feature = "split_http",
+                            feature = "hysteria",
+                            feature = "quic_h3"
+                        ))]
+                        http3: None,
+                    });
+                    match &body.io_error {
+                        Some(source) => Err(ChannelError::new(
+                            zero_platform_tokio::contract::Stage::Close,
+                            zero_platform_tokio::contract::Reason::Io,
+                            zero_platform_tokio::contract::Impact::Component,
+                        )
+                        .with_source(runtime::OriginalIo(source.clone()))),
+                        None => Ok(()),
+                    }
+                },
+            )
+            .map(|_| ())
+            .map_err(|source| {
+                ChannelError::new(
+                    zero_platform_tokio::contract::Stage::Prepare,
+                    zero_platform_tokio::contract::Reason::Capacity,
+                    zero_platform_tokio::contract::Impact::Component,
+                )
+                .with_source(source)
+            })
     }
     pub fn revoke_registration(&self) {
         self.ledger.revoke_registration();
@@ -89,6 +138,9 @@ impl QuinnDriverOwner {
     }
     pub fn tasks(&self) -> Vec<TaskId> {
         self.ledger.tasks()
+    }
+    pub(super) fn origin(&self, id: TaskId) -> Option<OwnedDriverOrigin> {
+        self.ledger.origin(id)
     }
     pub fn body(&self, id: TaskId) -> Option<Arc<DriverBody>> {
         self.ledger.body(id)

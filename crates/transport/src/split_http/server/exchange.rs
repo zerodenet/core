@@ -77,6 +77,10 @@ where
     B: hyper::body::Body<Data = Bytes> + Unpin + Send + 'static,
     B::Error: std::error::Error + Send + Sync + 'static,
 {
+    let caller = request
+        .extensions()
+        .get::<super::super::body::Caller>()
+        .cloned();
     let (id, sequence) = profile.meta(&request)?;
     tracing::trace!(session = %id, ?sequence, method = %request.method(), "XHTTP request dispatch");
     let method = request.method().clone();
@@ -107,7 +111,8 @@ where
         let session =
             sessions.get_with_limit(&id, profile.options.sc_max_buffered_posts as usize)?;
         if let Some(sequence) = sequence {
-            return super::packet::upload(request, profile, session, sequence, permit).await;
+            return super::packet::upload(request, profile, session, sequence, permit, accepted)
+                .await;
         }
         session.claim_stream()?;
         let life = session.life.clone();
@@ -119,7 +124,7 @@ where
         let heartbeat = request.headers().contains_key("referer");
         let interval = profile.options.sc_stream_up_server_secs;
         let padding = profile.options.x_padding_bytes;
-        let task = tokio::spawn(async move {
+        let task = super::super::body::spawn(caller.as_ref(), async move {
             let _permit = permit;
             let keepalive = async {
                 if !heartbeat {
@@ -150,12 +155,12 @@ where
                 life.fail(&error);
                 let _ = sender.send(Err(error)).await;
             }
-        });
+        })?;
         // The response owns upload cancellation but successful upload EOF does
         // not terminate the independent download (TCP half-close).
         return Ok(response(Body {
             receiver,
-            task: Some(task.abort_handle()),
+            task: Some(task),
             life: None,
             progress: None,
         }));
@@ -191,7 +196,7 @@ where
     let (mut reader, mut writer) = tokio::io::split(net);
     let (sender, receiver) = mpsc::channel(8);
     let state = life.clone();
-    let task = tokio::spawn(async move {
+    let task = super::super::body::spawn(caller.as_ref(), async move {
         let _permit = permit;
         let upload = async {
             match session {
@@ -236,11 +241,11 @@ where
             result = transfer => { if let Err(error) = result { state.fail(&error); let _ = sender.send(Err(error)).await; } }
             _ = state.cancelled() => {}
         }
-    });
+    })?;
     admission.complete = true;
     Ok(response(Body {
         receiver,
-        task: Some(task.abort_handle()),
+        task: Some(task),
         life: Some(life),
         progress: None,
     }))

@@ -12,7 +12,7 @@ pub(super) fn loopback(host: &str) -> IpAddr {
         _ => Ipv4Addr::LOCALHOST.into(),
     }
 }
-pub(super) fn request(
+pub(crate) fn request(
     config: &PluginConfig,
     remote: (&str, u16),
     local: SocketAddr,

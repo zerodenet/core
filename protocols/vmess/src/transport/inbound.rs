@@ -39,18 +39,6 @@ impl PreparedVmessInboundListenerRequest {
     }
 }
 
-/// The ordinary TCP branch has no protocol-created business Session.
-pub enum VmessInboundAcceptedRoute {
-    Tcp {
-        destination: zero_core::request::Destination,
-        auth: zero_core::SessionAuth,
-        stream: Box<crate::stream::VmessAeadStream<TcpRelayStream>>,
-    },
-    Legacy(
-        Box<crate::mux::VmessInboundAcceptedStream<crate::stream::VmessAeadStream<TcpRelayStream>>>,
-    ),
-}
-
 impl VmessInboundListenerRequest {
     pub const ERROR_PROTOCOL_NAME: &'static str = "vmess";
     pub const UDP_PROTOCOL: &'static str = "vmess_udp";
@@ -171,6 +159,84 @@ impl VmessInboundListenerRequest {
             .await
             .map_err(RuntimeError::from)
     }
+    pub async fn accept_standard_request(
+        self,
+        socket: TokioSocket,
+        context: zero_platform_tokio::contract::context::HandshakeContext,
+    ) -> Result<
+        zero_platform_tokio::contract::inbound::AcceptedRequest,
+        zero_platform_tokio::contract::ChannelError,
+    > {
+        use zero_platform_tokio::contract::{context::InboundConnectionFacts, inbound::*};
+        let connection = InboundConnectionFacts::from_stream(&socket);
+        let caller = context.accepted.as_ref().ok_or_else(|| {
+            zero_platform_tokio::contract::ChannelError::new(
+                zero_platform_tokio::contract::Stage::Prepare,
+                zero_platform_tokio::contract::Reason::Revoked,
+                zero_platform_tokio::contract::Impact::Session,
+            )
+        })?;
+        let carrier = zero_transport::inbound_stack::accept_tls_inbound_stream_stack_scoped(
+            socket,
+            &self.material.tls_acceptor,
+            InboundStreamStack {
+                ws: self.material.ws.as_ref(),
+                grpc: self.material.grpc.as_ref(),
+                h2: None::<&OwnedH2Profile>,
+            },
+            "vmess: ws and grpc are mutually exclusive",
+            caller,
+        )
+        .await
+        .map_err(crate::component::inbound::datagram::failure)?;
+        let (request, stream) = self
+            .profile
+            .accept_request_stream(crate::inbound::VmessInbound, carrier)
+            .await
+            .map_err(crate::component::inbound::datagram::failure)?;
+        if request.is_mux() {
+            return crate::mux::standard_source(
+                stream,
+                request.auth,
+                self.material.mux_response_backlog,
+                &context,
+                connection,
+            );
+        }
+        let network = request.network;
+        let destination = request.destination;
+        let facts = connection.request(
+            &context,
+            zero_core::ProtocolType::new("vmess"),
+            Some(destination.clone()),
+            Some(request.auth),
+        )?;
+        if network == zero_core::Network::Tcp {
+            Ok(AcceptedRequest::Stream(accept_stream(
+                crate::component::inbound::TcpReply::new(stream, facts)?,
+            )))
+        } else {
+            let sender = connection.effective_source.ok_or_else(|| {
+                zero_platform_tokio::contract::ChannelError::new(
+                    zero_platform_tokio::contract::Stage::Prepare,
+                    zero_platform_tokio::contract::Reason::InvalidConfig,
+                    zero_platform_tokio::contract::Impact::Session,
+                )
+            })?;
+            Ok(AcceptedRequest::Datagram(accept_datagram(
+                crate::component::inbound::datagram::Reply {
+                    stream,
+                    facts,
+                    sender,
+                    session: crate::udp::VmessInboundUdpSession::new(
+                        destination.address,
+                        destination.port,
+                    ),
+                },
+            )))
+        }
+    }
+
     async fn accept_carrier(&self, socket: TokioSocket) -> Result<TcpRelayStream, RuntimeError> {
         zero_transport::inbound_stack::accept_tls_inbound_stream_stack(
             socket,
@@ -183,31 +249,5 @@ impl VmessInboundListenerRequest {
             "vmess: ws and grpc are mutually exclusive",
         )
         .await
-    }
-
-    pub async fn accept_standard_route(
-        self,
-        socket: TokioSocket,
-    ) -> Result<VmessInboundAcceptedRoute, RuntimeError> {
-        let stream = self.accept_carrier(socket).await?;
-        let (facts, stream) = self
-            .profile
-            .accept_request_stream(crate::inbound::VmessInbound, stream)
-            .await?;
-        if facts.network == zero_core::Network::Tcp && !facts.is_mux() {
-            Ok(VmessInboundAcceptedRoute::Tcp {
-                destination: facts.destination,
-                auth: facts.auth,
-                stream: Box::new(stream),
-            })
-        } else {
-            Ok(VmessInboundAcceptedRoute::Legacy(Box::new(
-                crate::mux::VmessInboundAcceptedStream::from_session_stream(
-                    facts.into_legacy_session(),
-                    stream,
-                    self.material.mux_response_backlog,
-                ),
-            )))
-        }
     }
 }

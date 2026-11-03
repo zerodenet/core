@@ -4,7 +4,9 @@ mod client;
 mod dispatch;
 mod masquerade;
 mod request;
+mod scoped;
 mod server;
+pub use scoped::accept as accept_connection_scoped;
 mod settings;
 pub use masquerade::Masquerade;
 mod stream;
@@ -82,3 +84,33 @@ fn padding() -> String {
 #[cfg(test)]
 #[path = "../tests/hysteria/mod.rs"]
 mod tests;
+
+impl Profile {
+    pub fn file_root(&self) -> Option<std::path::PathBuf> {
+        match &self.masquerade {
+            Masquerade::Appearance(masquerade::Appearance::File(root)) => Some(root.clone()),
+            _ => None,
+        }
+    }
+    pub fn target_endpoint(&self) -> Option<zero_traits::FallbackEndpoint> {
+        match &self.masquerade {
+            Masquerade::Proxy { url, .. } => Some(zero_traits::FallbackEndpoint::Tcp {
+                server: match url.host().expect("validated origin host") {
+                    url::Host::Domain(name) => name.to_owned(),
+                    url::Host::Ipv4(ip) => ip.to_string(),
+                    url::Host::Ipv6(ip) => ip.to_string(),
+                },
+                port: url.port_or_known_default().expect("validated HTTP origin"),
+            }),
+            _ => None,
+        }
+    }
+    fn negotiate_owned(&self, connection: &crate::quic::owned::OwnedConnection, peer: u64) {
+        let rate = match self.congestion {
+            Congestion::Brutal => self.uplink.min(peer),
+            Congestion::ForceBrutal => self.uplink,
+            _ => 0,
+        };
+        connection.negotiate_rate(rate);
+    }
+}

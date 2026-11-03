@@ -95,4 +95,6 @@ MUX、DNS 获取 ECH 和 browser_dialer 需要额外共享资源或宿主服务�
 A/AAAA，无法代替 ECH 的 HTTPS RR、材料缓存、force-query 和实际查询路由。
 UDP 及包含其他旧协议的混合链路尚未迁移到此角色。
 
-普通 TCP 入站通过 `accept_request_stream` / `accept_standard_route` 交付目的地与完整认证结果，由宿主签发唯一业务身份。原始 AuthID replay authority、响应头、AEAD/body codec 和 TLS/WS/gRPC carrier 保持同一实现；准入失败不发送第二份协议响应。UDP/Mux 及旧公开 Session 接口保留显式兼容转换。该说明只记录接线，实际测试证据独立记录。
+入站 TCP/UDP/MUX 通过协议自有 `component::inbound::listener::Factory` / `InboundSource` 和 `accept_standard_request` 交付标准 Stream、Datagram、Multiplex，由宿主签发真实业务身份。原始 AuthID replay authority、响应头、AEAD/body codec 和 TLS/WS/gRPC carrier 保持同一实现；准入失败不发送第二份协议响应。UDP 收发共享同一个 packet/raw 状态，MUX 各逻辑流独立保存该状态；实际 reader/writer 和业务任务登记到同一原 accepted Scope。逻辑资源槽必须在真实 join 和原始 provider 清理后才能复用。冷 profile 只在宿主 Build 发布，相对 TLS 路径和凭据热更新保持。
+
+Proxy 的旧 VMess listener、InboundListenerCapability 以及中转用 `VmessInboundAcceptedRoute` / `accept_standard_route` 已删除；协议库原有公开 Session / `accept_route` API 继续服务其显式兼容调用者。普通生产 source 不调用该旧执行链。独立 `vmess` feature 包含实际 Datagram 宿主运行时，不依赖默认 feature 集合。本项不扩大原生出站登记或其他协议组合，完整计划进度与定向回归记录在内核设计实施文档。
