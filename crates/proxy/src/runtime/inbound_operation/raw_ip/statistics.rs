@@ -1,16 +1,26 @@
 //! The protocol supplies identities; runtime binds and updates neutral meters.
-use super::RawIpInboundDevice;
 use crate::runtime::{raw_ip::RawIpTraffic, route_runtime::InboundRouteRuntimeFactory};
 
 pub(super) struct IngressTraffic {
     pub aggregate: RawIpTraffic,
     peers: Vec<RawIpTraffic>,
     identities: Vec<Option<std::sync::Arc<str>>>,
-    generation: u64,
     role: Option<zero_engine::TrafficMeter>,
 }
 impl IngressTraffic {
-    pub fn bind(device: &dyn RawIpInboundDevice, runtime: &InboundRouteRuntimeFactory) -> Self {
+    pub fn pending() -> Self {
+        Self {
+            aggregate: RawIpTraffic::default(),
+            peers: vec![],
+            identities: vec![],
+            role: None,
+        }
+    }
+
+    pub fn from_identities(
+        identities: Vec<Option<String>>,
+        runtime: &InboundRouteRuntimeFactory,
+    ) -> Self {
         let global = runtime.global_packet_traffic();
         let role = runtime.inbound_packet_traffic();
         if let Some(meter) = &role {
@@ -28,9 +38,6 @@ impl IngressTraffic {
                 "inbound_ip_role_rx_after_reassembly_tx_accepted_response_fragments",
             );
         }
-        let identities = (0..device.peer_count())
-            .map(|i| device.peer_identity(i))
-            .collect::<Vec<_>>();
         let ids = identities.iter().flatten().cloned().collect::<Vec<_>>();
         let mut peers = Vec::new();
         let aggregate = if let Some(prepared) = runtime.endpoint_traffic(&ids) {
@@ -61,12 +68,8 @@ impl IngressTraffic {
                 .into_iter()
                 .map(|id| id.map(Into::into))
                 .collect(),
-            generation: device.generation(),
             role,
         }
-    }
-    pub fn identity(&self, peer: Option<usize>) -> Option<std::sync::Arc<str>> {
-        peer.and_then(|i| self.identities.get(i)).cloned().flatten()
     }
     pub fn drop_inner(&self, identity: Option<&str>, reason: zero_api::TrafficDropReason) {
         let peer = identity.and_then(|id| {
@@ -108,15 +111,6 @@ impl IngressTraffic {
     pub fn respond_packet(&self, size: usize) {
         if let Some(meter) = &self.role {
             meter.sent(zero_api::TrafficPlane::Inner, size);
-        }
-    }
-    pub fn refresh(
-        &mut self,
-        device: &dyn RawIpInboundDevice,
-        runtime: &InboundRouteRuntimeFactory,
-    ) {
-        if self.generation != device.generation() {
-            *self = Self::bind(device, runtime);
         }
     }
     pub fn peer(&self, peer: Option<usize>) -> &RawIpTraffic {

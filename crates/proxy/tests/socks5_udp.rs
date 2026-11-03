@@ -12,6 +12,10 @@ use zero_proxy::Proxy as Engine;
 use support::{
     build_udp_packet, free_port, free_udp_port, parse_udp_packet, spawn_engine, wait_for_listener,
 };
+#[path = "socks5_udp/authenticated_inbound.rs"]
+mod authenticated_inbound;
+#[path = "socks5_udp/standard_inbound.rs"]
+mod standard_inbound;
 #[cfg(feature = "socks5")]
 use support::{spawn_http_probe_server, wait_for, wait_for_group_selection};
 

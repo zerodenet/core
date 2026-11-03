@@ -40,10 +40,27 @@ impl InboundOwner {
         let peers = self.peers.lock().expect("peer owners poisoned").clone();
         let deadline = Instant::now() + std::time::Duration::from_secs(5);
         let mut first_failure = None;
+        let receivers = self.accepted_receiver.lock().unwrap().clone();
+        for accepted in receivers {
+            if let Err(error) = accepted.retire_logical_resources(deadline).await {
+                let source = Arc::new(error);
+                self.failure
+                    .lock()
+                    .expect("inbound failure poisoned")
+                    .get_or_insert(source.clone());
+                self.stop();
+                first_failure.get_or_insert_with(|| retained(source));
+            }
+        }
         for group in peers {
             // This future stays pinned while the same observer consumes other
             // peers' real exits. Pending close cannot block those Scope joins.
-            if let Err(mut error) = group.retire_joined(deadline).await {
+            if let Err(mut error) = async {
+                group.retire_logical_resources(deadline).await?;
+                group.retire_joined(deadline).await
+            }
+            .await
+            {
                 error.component.get_or_insert(self.identity.component);
                 let source = group.first_fault().unwrap_or_else(|| Arc::new(error));
                 self.failure

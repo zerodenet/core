@@ -1,27 +1,44 @@
-mod listener;
-
-use ::socks5::transport::Socks5InboundAcceptor;
-
-use crate::runtime::inbound_operation::{InboundConnectionContext, TcpInboundListenerOperation};
-use crate::transport::{MeteredStream, TcpRelayStream};
-
-#[cfg(feature = "mixed")]
-pub(crate) use listener::handle_socks5_connection;
-
-pub(super) fn prepare(
-    acceptor: Socks5InboundAcceptor,
-) -> Box<dyn crate::runtime::inbound_operation::PreparedInboundListenerOperation> {
-    Box::new(TcpInboundListenerOperation {
-        protocol_name: "socks5",
-        error_protocol_name: "socks5",
-        request: acceptor,
-        dispatch: |acceptor: Socks5InboundAcceptor, socket, context: InboundConnectionContext| async move {
-            listener::handle_socks5_connection(
-                context,
-                MeteredStream::new(TcpRelayStream::from(socket)),
-                &acceptor,
-            )
-            .await
+//! Configuration projection only; the protocol owns authentication and frames.
+use socks5::{component::listener::InboundOptions, transport::Socks5InboundUserRef};
+use std::num::NonZeroUsize;
+use zero_config::{ConfigError, InboundConfig, InboundProtocolConfig};
+pub(crate) fn component_options(inbound: &InboundConfig) -> Result<InboundOptions, ConfigError> {
+    let InboundProtocolConfig::Socks5 { users } = &inbound.protocol else {
+        return Err(ConfigError::InvalidInbound(
+            "SOCKS5 factory received another protocol".into(),
+        ));
+    };
+    options(inbound, users)
+}
+pub(in crate::adapters) fn options(
+    inbound: &InboundConfig,
+    users: &[zero_config::Socks5UserConfig],
+) -> Result<InboundOptions, ConfigError> {
+    let literal = zero_core::address::socket_addr(&inbound.listen.address, inbound.listen.port);
+    let listen = zero_core::request::Destination::new(
+        match literal.map(|address| address.ip()) {
+            Some(std::net::IpAddr::V4(ip)) => zero_core::Address::Ipv4(ip.octets()),
+            Some(std::net::IpAddr::V6(ip)) => zero_core::Address::Ipv6(ip.octets()),
+            None => zero_core::Address::Domain(inbound.listen.address.clone()),
         },
-    })
+        inbound.listen.port,
+    );
+    InboundOptions::new(
+        listen,
+        zero_platform_tokio::contract::component::AcceptedTcpLimits {
+            max_sockets: NonZeroUsize::new(4096).unwrap(),
+            max_tasks_per_socket: NonZeroUsize::new(2).unwrap(),
+            max_resources_per_socket: 2,
+        },
+        NonZeroUsize::new(50).unwrap(),
+        NonZeroUsize::new(1).unwrap(),
+        users.iter().map(|user| Socks5InboundUserRef {
+            username: &user.username,
+            password: &user.password,
+            principal_key: user.principal_key.as_deref(),
+            up_bps: user.up_bps,
+            down_bps: user.down_bps,
+        }),
+    )
+    .map_err(|source| ConfigError::InvalidInbound(source.to_string()))
 }

@@ -25,7 +25,7 @@ async fn promotion_failure_retains_native_owner_and_exact_fault_until_confirmed_
     let config = proxy.engine().config();
     let mut old = lease(&proxy, &config, 0);
     old.bind_tcp().unwrap();
-    let (operation, old_view, old_install) = old.finish().unwrap().promote().unwrap();
+    let (operation, old_view, old_install) = promote_tcp(old.finish().unwrap());
     drop(operation);
     let old_owner = old_install.owner();
     old_owner.seal_listener_installation();
@@ -37,7 +37,7 @@ async fn promotion_failure_retains_native_owner_and_exact_fault_until_confirmed_
     candidate.bind_tcp().unwrap();
     let candidate = candidate.finish().unwrap();
     let address = candidate.local_addr().unwrap();
-    let error = match candidate.promote() {
+    let error = match candidate.promote_definition() {
         Err(error) => error,
         Ok(_) => panic!("old active native holder must be confirmed first"),
     };
@@ -122,7 +122,7 @@ async fn shutdown_gate_rejects_late_promotion_without_fault_and_reopens_only_aft
     let address = candidate.local_addr().unwrap();
     proxy.inbound_owners.close_bind_admission();
     assert!(proxy.inbound_owners.open_bind_admission().is_err());
-    let stopped = match candidate.promote() {
+    let stopped = match candidate.promote_definition() {
         Err(error) => error,
         Ok(_) => panic!("shutdown must fence promotion before owner snapshots"),
     };
@@ -177,11 +177,15 @@ async fn a_published_closed_fault_cannot_hide_another_original_pending_scope() {
     let second = lease(&proxy, &config, 1);
     let pending_owner = second.owner();
     let identity = pending_owner.identity();
-    let mut original_second = second.context().listen_tcp().unwrap();
-    let mut client = TcpStream::connect(original_second.local_addr().unwrap())
+    let original_second = second.context().listen_tcp().unwrap();
+    // The declared accepted graph correctly cancels its own reads. Keep the
+    // actual Scope suspended instead on independent fixture I/O; closing the
+    // original listener cannot stand in for joining this real registered task.
+    let gate = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let mut client = TcpStream::connect(gate.local_addr().unwrap())
         .await
         .unwrap();
-    let (mut stream, _) = original_second.accept().await.unwrap();
+    let (mut stream, _) = gate.accept().await.unwrap();
     let entered = Arc::new(Notify::new());
     let pending = entered.clone();
     pending_owner

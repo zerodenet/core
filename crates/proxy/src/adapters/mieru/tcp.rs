@@ -1,5 +1,3 @@
-use crate::adapters::mieru::MieruAdapter;
-use crate::protocol_registry::{claim_socket_tcp_leaf, ClaimedTcpOutboundLeaf};
 use crate::runtime::tcp_dispatch::operation::{LazyTcpRelayCarrier, SocketTcpHandshake};
 
 #[async_trait::async_trait]
@@ -77,15 +75,6 @@ impl SocketTcpHandshake for ::mieru::transport::MieruTransportLeaf {
         })
         .await
         .map_err(Into::into)
-    }
-}
-
-impl MieruAdapter {
-    pub(super) fn claim_tcp_outbound_leaf_impl<'a>(
-        &self,
-        leaf: ::mieru::transport::MieruTransportLeaf,
-    ) -> Box<dyn ClaimedTcpOutboundLeaf<'a> + 'a> {
-        claim_socket_tcp_leaf(leaf)
     }
 }
 

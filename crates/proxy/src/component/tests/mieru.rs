@@ -5,6 +5,7 @@ mod cross_owner;
 mod dns;
 mod fixtures;
 mod reject;
+mod udp_handoff;
 use crate::{Proxy, ProxyHandle};
 use fixtures::*;
 use std::{sync::atomic::Ordering, time::Duration};

@@ -1,19 +1,4 @@
-#[cfg(any(
-    feature = "managed-stream-runtime",
-    feature = "managed-datagram-runtime"
-))]
 use crate::protocol_registry::UdpRuntimeServices;
-#[cfg(any(
-    feature = "managed-stream-runtime",
-    feature = "managed-datagram-runtime"
-))]
-use crate::runtime::udp_flow::managed::ManagedExistingFlowForward;
-#[cfg(any(
-    feature = "managed-stream-runtime",
-    feature = "managed-datagram-runtime"
-))]
-use crate::runtime::udp_flow::managed::ManagedUdpFlowRequest;
-use crate::runtime::udp_flow::managed::ManagedUdpFlowResume;
 use crate::runtime::udp_flow::outbound::ManagedUdpFlowRef;
 #[cfg(feature = "upstream-association-runtime")]
 use crate::runtime::udp_flow::registered::UpstreamAssociationSend;
@@ -22,16 +7,8 @@ use crate::runtime::udp_flow::result::FlowFailure;
 use super::UdpFlowState;
 
 impl UdpFlowState {
-    #[cfg(any(
-        feature = "managed-stream-runtime",
-        feature = "managed-datagram-runtime"
-    ))]
-    pub(crate) async fn start_managed_flow(
-        &mut self,
-        mut request: ManagedUdpFlowRequest<'_>,
-    ) -> Result<usize, FlowFailure> {
-        request.chain_tasks = Some(&mut self.chain_tasks);
-        self.registered.start_managed_udp_flow(request).await
+    pub(crate) fn release_session(&mut self, session_id: u64) {
+        self.registered.release_session(session_id);
     }
 
     #[cfg(feature = "upstream-association-runtime")]
@@ -60,13 +37,6 @@ impl UdpFlowState {
         self.registered.register_upstream_flow(target)
     }
 
-    pub(crate) fn register_managed_flow(
-        &mut self,
-        resume: ManagedUdpFlowResume,
-    ) -> ManagedUdpFlowRef {
-        self.registered.register_managed_flow(resume)
-    }
-
     #[cfg(any(
         feature = "managed-stream-runtime",
         feature = "managed-datagram-runtime"
@@ -74,7 +44,7 @@ impl UdpFlowState {
     pub(crate) async fn forward_existing_managed_flow(
         &mut self,
         services: UdpRuntimeServices,
-        request: ManagedExistingFlowForward<'_>,
+        request: (&super::super::snapshot::UdpFlowSnapshot, &[u8]),
     ) -> Result<usize, FlowFailure> {
         self.registered
             .forward_existing_managed_flow(&mut self.chain_tasks, services, request)

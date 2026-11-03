@@ -44,6 +44,9 @@ impl InboundReady {
             })
             .collect())
     }
+    pub(in crate::runtime) fn confirm_polled(&self) {
+        self.confirm(false);
+    }
     fn confirm(&self, child: bool) {
         let mut state = self.0.state.lock().expect("inbound readiness poisoned");
         match &mut *state {

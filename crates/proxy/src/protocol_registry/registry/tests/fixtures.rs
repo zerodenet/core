@@ -41,10 +41,10 @@ pub(super) fn compiled_in_inbound_configs() -> Vec<InboundProtocolConfig> {
     #[cfg(feature = "wireguard")]
     configs.push(InboundProtocolConfig::Wireguard {
         addresses: Vec::new(),
-        private_key: serde_json::from_str("\"AQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQE=\"").unwrap(),
+        private_key: serde_json::from_value(serde_json::Value::String("01".repeat(32))).unwrap(),
         mtu: 1_420,
         peers: vec![zero_config::WireguardInboundPeerConfig {
-            public_key: "AgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgI=".to_owned(),
+            public_key: "02".repeat(32),
             pre_shared_key: None,
             allowed_ips: vec!["10.0.0.2/32".to_owned()],
             keepalive_secs: 0,
@@ -336,7 +336,7 @@ pub(super) fn compiled_in_outbound_leaves(
                 inbound_tag: None,
                 outer_udp_proxy: None,
                 peers: vec![zero_config::WireguardPeerConfig {
-                    public_key: "AgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgI=".to_owned(),
+                    public_key: "02".repeat(32),
                     pre_shared_key: None,
                     endpoint: "127.0.0.1:51820".to_owned(),
                     allowed_ips: vec!["10.0.0.2/32".to_owned()],

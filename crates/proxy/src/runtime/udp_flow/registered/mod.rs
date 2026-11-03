@@ -4,19 +4,22 @@
 //! association handlers. The reusable connection machinery lives in sibling
 //! `managed`; concrete protocol state remains opaque.
 
-#[cfg(feature = "managed-udp-runtime")]
+#[cfg(any(
+    feature = "managed-stream-runtime",
+    feature = "managed-datagram-runtime"
+))]
 mod forward;
 #[cfg(feature = "udp-runtime")]
-mod state;
+pub(in crate::runtime) mod state;
 #[cfg(feature = "upstream-association-runtime")]
 mod upstream;
 
 #[cfg(feature = "upstream-association-runtime")]
 pub(crate) use state::ClosedRegisteredUpstreamAssociation;
+#[cfg(feature = "udp-runtime")]
+pub(crate) use state::RegisteredUdpState;
 #[cfg(feature = "upstream-association-runtime")]
 pub(crate) use state::RegisteredUpstreamAssociationView;
-#[cfg(feature = "udp-runtime")]
-pub(crate) use state::{RegisteredUdpHandlers, RegisteredUdpState};
 #[cfg(feature = "upstream-association-runtime")]
 pub(crate) use upstream::UpstreamAssociationSend;
 #[cfg(feature = "upstream-association-runtime")]

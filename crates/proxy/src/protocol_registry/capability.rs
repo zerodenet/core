@@ -1,12 +1,9 @@
-use async_trait::async_trait;
-
 use zero_config::{
     InboundConfig, InboundProtocolConfig, OutboundConfig, OutboundProtocolConfig, RuntimeConfig,
 };
 use zero_engine::EngineError;
 use zero_traits::ProtocolMetadata;
 
-use super::BoundInbound;
 use crate::runtime::path::TcpPathCategory;
 use crate::runtime::tcp_dispatch::operation::{
     PreparedTcpConnectOperation, PreparedTcpRelayOperation,
@@ -15,98 +12,40 @@ use crate::runtime::tcp_dispatch::operation::{
 use crate::runtime::udp_dispatch::operation::PreparedUdpFlowOperation;
 #[cfg(feature = "udp-runtime")]
 use crate::runtime::udp_dispatch::relay::PreparedUdpRelayOperation;
-#[cfg(feature = "managed-datagram-runtime")]
-use crate::runtime::udp_flow::managed::model::ManagedDatagramFlowHandler;
-#[cfg(feature = "managed-stream-runtime")]
-use crate::runtime::udp_flow::managed::ManagedStreamHandlerPair;
-use crate::transport::TcpOutboundFailure;
 
-pub(crate) trait ClaimedTcpOutboundLeaf<'a>: Send + Sync {
-    fn prepare_tcp_connect(
-        &self,
-        source_dir: Option<&std::path::Path>,
-    ) -> Result<Box<dyn PreparedTcpConnectOperation>, TcpOutboundFailure>;
-
-    fn prepare_tcp_relay_hop(
-        &self,
-        _source_dir: Option<&std::path::Path>,
-    ) -> Result<Box<dyn PreparedTcpRelayOperation>, EngineError> {
-        Err(super::defaults::relay_hop_unsupported())
-    }
-}
+// Cold result data, not another protocol preparation interface. Invalid TCP
+// materialization remains dormant until the corresponding execution is selected.
+pub(crate) type TcpConnectResult =
+    Result<std::sync::Arc<dyn PreparedTcpConnectOperation>, (&'static str, String)>;
+pub(crate) type TcpRelayResult = Result<std::sync::Arc<dyn PreparedTcpRelayOperation>, String>;
 
 #[cfg(feature = "udp-runtime")]
-pub(crate) trait ClaimedUdpFlowLeaf<'a>: Send + Sync {
-    fn prepare_udp_flow(
-        &self,
-        source_dir: Option<&std::path::Path>,
-    ) -> Result<Box<dyn PreparedUdpFlowOperation + 'a>, crate::runtime::udp_dispatch::FlowFailure>;
-
-    fn prepare_udp_relay(
-        &self,
-        _source_dir: Option<&std::path::Path>,
-    ) -> Result<
-        Box<dyn PreparedUdpRelayOperation<'a> + 'a>,
-        crate::runtime::udp_dispatch::FlowFailure,
-    > {
-        Err(super::defaults::udp_relay_final_hop_unsupported())
-    }
-}
-
-#[cfg(feature = "raw-ip-runtime")]
-pub(crate) trait ClaimedPacketLeaf: Send + Sync {
-    /// True only when native Packet return paths distinguish replies from
-    /// remote-initiated business. Destination IP ownership alone is insufficient.
-    fn native_packet_returns_correlated(&self) -> bool {
-        false
-    }
-
-    fn prepare_packet_route(
-        &self,
-    ) -> Box<dyn crate::runtime::packet_route::PreparedPacketRouteOperation>;
-
-    /// Explicit, opt-in source translation implemented by the common IP stack.
-    /// This remains a Packet operation, never an ICMP L4 capability.
-    fn prepare_translated_packet_route(
-        &self,
-    ) -> Option<Box<dyn crate::runtime::packet_route::PreparedPacketRouteOperation>> {
-        None
-    }
-
-    fn prepare_datagram_exchange(
-        &self,
-    ) -> Option<Box<dyn crate::runtime::packet_route::PreparedDatagramExchangeOperation>> {
-        None
-    }
-
-    /// Opt-in shared stack conversion. Packet support alone never implies
-    /// usable local addressing, MTU or a correlated bidirectional return path.
-    fn packet_flow_adapter(&self) -> Option<&crate::runtime::packet_flow::PacketFlowAdapter> {
-        None
-    }
-}
-
+pub(crate) type UdpFlowResult<'a> =
+    Result<Box<dyn PreparedUdpFlowOperation + 'a>, crate::runtime::udp_dispatch::FlowFailure>;
 #[cfg(feature = "udp-runtime")]
-pub(crate) trait ClaimedUdpPacketPathLeaf<'a>: Send + Sync {
-    fn prepare_udp_packet_path(
-        &self,
-        source_dir: Option<&std::path::Path>,
-    ) -> Option<
-        Box<
-            dyn crate::runtime::udp_dispatch::packet_path_operation::PreparedUdpPacketPathOperation,
-        >,
-    >;
-}
+pub(crate) type UdpRelayResult<'a> =
+    Result<Box<dyn PreparedUdpRelayOperation<'a> + 'a>, crate::runtime::udp_dispatch::FlowFailure>;
 
 pub(crate) struct OutboundLeafClaim<'a> {
+    #[cfg(not(feature = "udp-runtime"))]
+    pub(crate) _lifetime: std::marker::PhantomData<&'a ()>,
     pub(crate) tcp_path: TcpPathCategory,
-    pub(crate) tcp: Option<Box<dyn ClaimedTcpOutboundLeaf<'a> + 'a>>,
+    pub(crate) tcp: Option<TcpConnectResult>,
+    pub(crate) tcp_relay: Option<TcpRelayResult>,
     #[cfg(feature = "udp-runtime")]
-    pub(crate) udp: Option<Box<dyn ClaimedUdpFlowLeaf<'a> + 'a>>,
+    pub(crate) udp: Option<UdpFlowResult<'a>>,
     #[cfg(feature = "udp-runtime")]
-    pub(crate) packet_path: Option<Box<dyn ClaimedUdpPacketPathLeaf<'a> + 'a>>,
+    pub(crate) udp_relay: Option<UdpRelayResult<'a>>,
+    #[cfg(feature = "udp-runtime")]
+    /// An inert, source-materialized operation, shared by all projections of
+    /// this leaf. Acquisition and retained-owner checks stay in its executor.
+    pub(crate) packet_path: Option<
+        std::sync::Arc<
+            dyn crate::runtime::udp_dispatch::packet_path_operation::PreparedUdpPacketPathOperation,
+        >,
+    >,
     #[cfg(feature = "raw-ip-runtime")]
-    pub(crate) packet: Option<Box<dyn ClaimedPacketLeaf>>,
+    pub(crate) packet: Option<crate::runtime::packet_route::PacketRouteOperations>,
 }
 
 #[derive(Clone)]
@@ -117,6 +56,7 @@ pub(crate) enum OutboundLeafInput<'a> {
         dial_generation: u64,
     },
     Proxy {
+        config: &'a zero_config::RuntimeConfig,
         outbound: &'a OutboundConfig,
         endpoint: (&'a str, u16),
         #[allow(dead_code, reason = "used by materialized transport capabilities")]
@@ -140,118 +80,4 @@ pub(crate) trait ProtocolSupportCapability: ProtocolMetadata + Send + Sync {
     }
 
     fn on_config_reloaded(&self, _config: &RuntimeConfig) {}
-}
-
-#[cfg(feature = "raw-ip-runtime")]
-pub(crate) type OutboundDeviceCompletion =
-    std::pin::Pin<Box<dyn std::future::Future<Output = ()> + Send>>;
-
-#[cfg(feature = "raw-ip-runtime")]
-#[async_trait]
-pub(crate) trait OutboundDeviceLifecycleCapability: ProtocolSupportCapability {
-    async fn prepare_outbound_devices(
-        &self,
-        outbounds: &[&OutboundConfig],
-        inbounds: &[InboundConfig],
-        context: crate::protocol_registry::OutboundDevicePreparationContext,
-    ) -> Result<Box<dyn PreparedOutboundDeviceState>, EngineError>;
-
-    /// Request shutdown synchronously; awaiting the receipt confirms I/O owners ended.
-    fn shutdown_outbound_devices(&self) -> OutboundDeviceCompletion;
-
-    fn outbound_device_health(
-        &self,
-        _outbounds: &[&OutboundConfig],
-    ) -> Vec<zero_api::OutboundDeviceHealthSnapshot> {
-        Vec::new()
-    }
-}
-
-#[cfg(feature = "raw-ip-runtime")]
-pub(crate) trait PreparedOutboundDeviceState: Send {
-    /// Publish prepared devices, then confirm tasks revoked by publication ended.
-    fn publish(self: Box<Self>) -> std::pin::Pin<Box<dyn std::future::Future<Output = ()> + Send>>;
-}
-
-#[async_trait]
-pub(crate) trait InboundListenerCapability: Send + Sync {
-    /// Cold opt-in for a native bind whose owner can be installed before the
-    /// first acquisition. Unsupported shapes keep their existing bind path.
-    fn prepare_inbound_bind(
-        &self,
-        _inbound: InboundConfig,
-        _source_dir: Option<&std::path::Path>,
-    ) -> Result<Option<super::PreparedInboundBind>, EngineError> {
-        Ok(None)
-    }
-
-    /// A related outbound change may alter an inbound's runtime shape even
-    /// when its own configuration is unchanged.
-    fn inbound_listener_requires_restart(&self, _inbound: &InboundConfig) -> bool {
-        false
-    }
-
-    /// Apply a prepared update to an active listener without replacing its
-    /// bound socket. Returning false leaves the ordinary restart path intact.
-    fn update_inbound_listener(
-        &self,
-        _inbound: InboundConfig,
-        _source_dir: Option<&std::path::Path>,
-    ) -> Result<bool, EngineError> {
-        Ok(false)
-    }
-
-    /// Bind the listener socket eagerly so port-in-use errors surface before
-    /// the proxy announces "started".
-    async fn bind_inbound(
-        &self,
-        inbound: &InboundConfig,
-        _source_dir: Option<&std::path::Path>,
-    ) -> Result<BoundInbound, EngineError> {
-        super::defaults::bind_tcp_inbound(inbound).await
-    }
-
-    /// Validate protocol-local listener state and prepare a runtime-executed
-    /// listener operation.
-    fn prepare_inbound_listener(
-        &self,
-        _inbound: InboundConfig,
-        _source_dir: Option<&std::path::Path>,
-    ) -> Result<
-        Box<dyn crate::runtime::inbound_operation::PreparedInboundListenerOperation>,
-        EngineError,
-    > {
-        Err(EngineError::Io(std::io::Error::new(
-            std::io::ErrorKind::Unsupported,
-            "this adapter does not provide an inbound listener",
-        )))
-    }
-
-    /// Recreate the published listener after a candidate reload failed.
-    fn prepare_rollback_inbound_listener(
-        &self,
-        inbound: InboundConfig,
-        source_dir: Option<&std::path::Path>,
-    ) -> Result<
-        Box<dyn crate::runtime::inbound_operation::PreparedInboundListenerOperation>,
-        EngineError,
-    > {
-        self.prepare_inbound_listener(inbound, source_dir)
-    }
-}
-
-#[cfg(any(
-    feature = "managed-datagram-runtime",
-    feature = "managed-stream-runtime"
-))]
-pub(crate) trait ManagedUdpHandlerProvider: Send + Sync {
-    #[cfg(feature = "managed-datagram-runtime")]
-    fn managed_datagram_udp_handler(&self) -> Option<Box<dyn ManagedDatagramFlowHandler>> {
-        None
-    }
-
-    #[cfg(feature = "managed-stream-runtime")]
-    fn managed_stream_udp_handlers(&self) -> Option<ManagedStreamHandlerPair> {
-        None
-    }
 }

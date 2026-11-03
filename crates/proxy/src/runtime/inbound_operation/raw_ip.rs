@@ -5,23 +5,25 @@ mod children;
 mod icmp;
 mod lifecycle;
 pub(crate) mod native_obligations;
+mod observation;
 mod outer;
 mod route;
 mod run;
 mod socket;
+pub(crate) mod source;
 mod stack_tasks;
 mod statistics;
-use run::run;
+mod wire;
+pub(in crate::runtime) use run::run;
 pub(crate) mod tasks;
 mod tcp;
 
 use std::{
-    future::Future,
     net::{IpAddr, SocketAddr},
     pin::Pin,
     sync::{
         atomic::{AtomicBool, Ordering},
-        Arc,
+        Arc, Mutex,
     },
     time::Duration,
 };
@@ -29,9 +31,8 @@ use std::{
 use tokio::sync::{mpsc, watch};
 use zero_engine::EngineError;
 
-use super::PreparedInboundListenerOperation;
 use crate::runtime::raw_ip::{EndpointPacket, RawIpWireCarrier, SharedRawIpDevice};
-use crate::{protocol_registry::BoundInbound, runtime::route_runtime::InboundListenerRuntime};
+use crate::runtime::route_runtime::InboundListenerRuntime;
 pub(crate) use icmp::IcmpEchoRelay;
 
 pub(crate) enum RawIpInboundAction {
@@ -85,30 +86,24 @@ pub(crate) trait RawIpInboundDevice: Send {
     }
 }
 
-pub(crate) struct RawIpInboundListenerOperation {
-    pub(crate) device: Box<dyn RawIpInboundDevice>,
-    pub(crate) endpoint: Option<RawIpInboundEndpoint>,
+pub(crate) struct PacketSourceContext {
+    pub original: zero_platform_tokio::controlled_datagram::listener::DatagramListenerIdentity,
     children: children::RawIpChildren,
 }
-impl RawIpInboundListenerOperation {
+impl PacketSourceContext {
     pub(crate) const MAX_ICMP_PROBES: usize = icmp::MAX_ECHO_PROBES;
     pub(crate) fn internal_task_limit() -> usize {
-        tcp::MAX_CONNECTIONS
-            .checked_add(crate::inbound::tun::udp::OwnedTunUdpTasks::MAX_ASSOCIATIONS)
-            .expect("fixed raw-IP child group sum fits usize")
+        tcp::MAX_CONNECTIONS + crate::inbound::tun::udp::OwnedTunUdpTasks::MAX_ASSOCIATIONS + 1
     }
-    pub(crate) fn new(
-        device: Box<dyn RawIpInboundDevice>,
-        endpoint: Option<RawIpInboundEndpoint>,
-    ) -> Self {
-        Self {
-            device,
-            endpoint,
-            children: children::RawIpChildren::new(),
-        }
+    pub(in crate::runtime) fn install(
+        context: &crate::runtime::inbound_owners::InboundInstallContext,
+        original: zero_platform_tokio::controlled_datagram::listener::DatagramListenerIdentity,
+    ) -> Result<Self, EngineError> {
+        let mut children = children::RawIpChildren::new();
+        children.install(context)?;
+        Ok(Self { original, children })
     }
 }
-
 pub(crate) struct RawIpInboundEndpoint {
     pub(crate) packets: mpsc::Receiver<EndpointPacket>,
     pub(crate) peers: watch::Receiver<Arc<EndpointPeerState>>,
@@ -125,27 +120,6 @@ pub(crate) struct EndpointPeerState {
 impl Drop for RawIpInboundEndpoint {
     fn drop(&mut self) {
         self.lease.store(false, Ordering::Release);
-    }
-}
-
-impl PreparedInboundListenerOperation for RawIpInboundListenerOperation {
-    fn internal_tasks(&self) -> usize {
-        Self::internal_task_limit()
-    }
-
-    fn install_resources(
-        &mut self,
-        context: &crate::runtime::inbound_owners::InboundInstallContext,
-    ) -> Result<(), EngineError> {
-        self.children.install(context)
-    }
-    fn execute(
-        self: Box<Self>,
-        runtime: InboundListenerRuntime,
-        bound: BoundInbound,
-        shutdown: watch::Receiver<bool>,
-    ) -> Pin<Box<dyn Future<Output = Result<(), EngineError>> + Send + 'static>> {
-        Box::pin(async move { run(*self, runtime, bound, shutdown).await })
     }
 }
 

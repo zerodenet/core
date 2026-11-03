@@ -12,6 +12,12 @@ pub(super) struct Fixture {
 }
 impl Fixture {
     pub(super) fn new(principal: Option<&str>, blocked: bool) -> Self {
+        Self::build(principal, blocked, false, 4096)
+    }
+    pub(super) fn datagram() -> Self {
+        Self::build(Some("vmess:datagram"), false, true, 16384)
+    }
+    fn build(principal: Option<&str>, blocked: bool, relative: bool, quota: u64) -> Self {
         let material = TempMaterial::new("zero-vmess-standard-inbound");
         let certified = rcgen::generate_simple_self_signed(vec!["localhost".into()]).unwrap();
         let cert_path = material.path("server.crt");
@@ -20,18 +26,30 @@ impl Fixture {
         std::fs::write(&key_path, certified.signing_key.serialize_pem()).unwrap();
         let mut roots = rustls::RootCertStore::empty();
         roots.add(certified.cert.der().clone()).unwrap();
-        let port = free_port();
-        let config = RuntimeConfig::parse(&serde_json::json!({
+        let reservation = std::net::TcpListener::bind(("127.0.0.1", 0)).unwrap();
+        let port = reservation.local_addr().unwrap().port();
+        let certificate = if relative {
+            std::path::PathBuf::from("server.crt")
+        } else {
+            cert_path
+        };
+        let private_key = if relative {
+            std::path::PathBuf::from("server.key")
+        } else {
+            key_path
+        };
+        let config = RuntimeConfig::parse_with_source_dir(&serde_json::json!({
             "inbounds": [{"tag":"vmess-in", "listen":{"address":"127.0.0.1","port":port},
                 "protocol":{"type":"vmess", "users":[{
                     "id":USER_ID, "cipher":"chacha20-poly1305", "principal_key":principal,
                     "up_bps":65536,"down_bps":32768,"device_limit":2,
-                    "quota_remaining_bytes":4096,"policy_revision":7
-                }], "tls":{"cert_path":cert_path,"key_path":key_path}}}],
+                    "quota_remaining_bytes":quota,"policy_revision":7
+                }], "tls":{"cert_path":certificate,"key_path":private_key}}}],
             "route":{"rules":[], "final": if blocked { serde_json::json!({"type":"reject"}) } else { serde_json::json!({"type":"direct"}) }}
-        }).to_string()).unwrap();
+        }).to_string(), relative.then(|| material.path(""))).unwrap();
         let engine = Engine::new(config).unwrap();
         let probe = engine.clone();
+        drop(reservation); // Actual host binding starts next.
         let running = spawn_engine(engine);
         let tls = rustls::ClientConfig::builder()
             .with_root_certificates(roots)

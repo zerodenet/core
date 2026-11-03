@@ -1,7 +1,7 @@
 //! A real original accepted FD, its installed handler task and the B projection.
 #![cfg(feature = "vmess")]
 use crate::{
-    component::{business_demand::AdmittedTcpDemand, direct_bridge::Invocation},
+    component::{business_demand::AdmittedBusinessDemand, direct_bridge::Invocation},
     runtime::tcp_ingress::TcpIngressRuntime,
     Proxy,
 };
@@ -23,7 +23,7 @@ use zero_platform_tokio::{
         scope::{TaskJoinWitness, TaskScope},
         CancellationToken, ChannelError, Impact, Reason, Stage,
     },
-    AcceptedTcpCaller, AcceptedTcpClaim, ControlledTcpListenerOwner,
+    AcceptedCaller, AcceptedTcpClaim, ControlledTcpListenerOwner,
 };
 fn one() -> NonZeroUsize {
     NonZeroUsize::new(1).unwrap()
@@ -40,7 +40,7 @@ pub(in crate::component) struct Caller {
     owner: ControlledTcpListenerOwner,
     claim: AcceptedTcpClaim,
     peer: TcpStream,
-    source: AcceptedTcpCaller,
+    source: AcceptedCaller,
     witness: TaskJoinWitness,
     complete: Option<oneshot::Sender<()>>,
     pub(in crate::component) session: Session,
@@ -68,6 +68,7 @@ impl Caller {
             accepted: Some(AcceptedTcpLimits {
                 max_sockets: one(),
                 max_tasks_per_socket: one(),
+                max_resources_per_socket: 0,
             }),
         };
         let mut owner = ControlledTcpListenerOwner::new_with_accepted_graph(
@@ -129,8 +130,9 @@ impl Caller {
                     let receipt = engine
                         .prepare_session_admitted(&mut session, "in")
                         .map_err(failure)?;
-                    let demand = AdmittedTcpDemand::new(&engine, SessionId(session.id), receipt)
-                        .map_err(failure)?;
+                    let demand =
+                        AdmittedBusinessDemand::new(&engine, SessionId(session.id), receipt)
+                            .map_err(failure)?;
                     let invocation = runtime
                         .runtime_services()
                         .with_admitted_business_identity(&session, demand)

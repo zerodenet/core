@@ -1,6 +1,5 @@
 //! The bounded tree is the actual pre-bound shape, not an I/O history.
 use super::*;
-use crate::protocol_registry::BoundInbound;
 use zero_platform_tokio::{contract::lifecycle::ChannelControl, ControlledTcpListenerControl};
 
 pub(in crate::runtime::inbound_owners::entry) struct PendingNativeBound {
@@ -14,19 +13,12 @@ struct Node {
     failure: Option<SharedError>,
 }
 enum Kind {
-    Raw(Option<BoundInbound>),
+    Raw(Option<zero_platform_tokio::TokioListener>),
     Tcp(ControlledTcpListenerControl),
-    #[cfg(feature = "managed-datagram-runtime")]
-    Datagram(std::sync::Arc<tokio::net::UdpSocket>),
-    #[cfg(any(
-        feature = "inbound-listener-group-runtime",
-        feature = "managed-datagram-runtime"
-    ))]
-    Group(Vec<Node>),
     Closed,
 }
 impl Node {
-    fn raw(bound: BoundInbound) -> Self {
+    fn raw(bound: zero_platform_tokio::TokioListener) -> Self {
         Self {
             kind: Kind::Raw(Some(bound)),
             failure: None,
@@ -37,56 +29,16 @@ impl Node {
             return;
         };
         // Called synchronously under the persistent owner's pending-slot lock.
-        match bound.take().expect("one original bound object") {
-            BoundInbound::Tcp(listener) => {
-                match listener.try_into_controlled(cancel) {
-                    Ok((view, control)) => {
-                        self.kind = Kind::Tcp(control);
-                        drop(view); // only retires admission; control still owns the fd
-                    }
-                    // Another actual owner has its control. Retain this same
-                    // view, never manufacture a second control or a close ACK.
-                    Err(listener) => self.kind = Kind::Raw(Some(BoundInbound::Tcp(listener))),
-                }
+        let listener = bound.take().expect("one original bound object");
+        match listener.try_into_controlled(cancel) {
+            Ok((view, control)) => {
+                self.kind = Kind::Tcp(control);
+                drop(view);
             }
-            #[cfg(feature = "inbound-listener-group-runtime")]
-            BoundInbound::Group(listeners) => {
-                self.kind = Kind::Group(listeners.into_iter().map(Node::raw).collect());
-                if let Kind::Group(children) = &mut self.kind {
-                    for child in children {
-                        child.prepare(cancel.clone());
-                    }
-                }
-            }
-            #[cfg(feature = "managed-datagram-runtime")]
-            BoundInbound::TcpAndDatagram(tcp, datagram) => {
-                self.kind = Kind::Group(vec![
-                    Node::raw(BoundInbound::Tcp(tcp)),
-                    Node {
-                        kind: Kind::Datagram(datagram),
-                        failure: None,
-                    },
-                ]);
-                if let Kind::Group(children) = &mut self.kind {
-                    children[0].prepare(cancel);
-                }
-            }
-            #[cfg(feature = "datagram-route-runtime")]
-            BoundInbound::Datagram(socket) => {
-                self.kind = Kind::Raw(Some(BoundInbound::Datagram(socket)));
-            }
-            #[cfg(feature = "datagram-route-runtime")]
-            BoundInbound::ControlledDatagram(view) => {
-                // The lease registry retains the sole control. A transferred
-                // view is never enough to issue an independent close receipt.
-                self.kind = Kind::Raw(Some(BoundInbound::ControlledDatagram(view)));
-            }
-            #[cfg(feature = "transport_quic")]
-            BoundInbound::Quic(listener) => {
-                self.kind = Kind::Raw(Some(BoundInbound::Quic(listener)));
-            }
+            Err(listener) => self.kind = Kind::Raw(Some(listener)),
         }
     }
+
     fn close<'a>(
         &'a mut self,
         report: &'a Mutex<CloseReport>,
@@ -122,42 +74,17 @@ impl Node {
                         Err(self.failure.as_ref().unwrap().clone())
                     }
                 },
-                #[cfg(any(
-                    feature = "inbound-listener-group-runtime",
-                    feature = "managed-datagram-runtime"
-                ))]
-                Kind::Group(children) => {
-                    let mut complete = true;
-                    let mut failure = None;
-                    for child in children {
-                        match child.close(report, errors, deadline).await {
-                            Ok(closed) => complete &= closed,
-                            Err(error) => {
-                                complete = false;
-                                failure.get_or_insert(error);
-                            }
-                        }
-                        // Every completed child and source is durable before
-                        // another leaf can suspend or the caller can cancel.
-                    }
-                    failure.map_or(Ok(complete), Err)
-                }
                 Kind::Closed => Ok(true),
                 Kind::Raw(bound) => {
                     assert!(bound.is_some());
                     Ok(false)
-                }
-                #[cfg(feature = "managed-datagram-runtime")]
-                Kind::Datagram(socket) => {
-                    let _original = socket;
-                    Ok(false) // still the actual Arc; no UDP native receipt
                 }
             }
         })
     }
 }
 impl PendingNativeBound {
-    pub(super) fn new(bound: BoundInbound) -> Self {
+    pub(super) fn new(bound: zero_platform_tokio::TokioListener) -> Self {
         Self {
             tree: AsyncMutex::new(Node::raw(bound)),
             report: Mutex::new(CloseReport::default()),

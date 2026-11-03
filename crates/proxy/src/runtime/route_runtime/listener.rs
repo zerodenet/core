@@ -6,11 +6,49 @@ use super::{InboundRouteRuntimeFactory, SharedIngressRuntimeServices};
 #[derive(Clone)]
 pub(crate) struct InboundListenerRuntime {
     ready: Option<crate::runtime::inbound_owners::InboundReady>,
+    peer: Option<crate::runtime::inbound_owners::component::PeerSourceContext>,
     host: Option<crate::runtime::inbound_owners::InboundTaskAccess>,
     route_factory: InboundRouteRuntimeFactory,
 }
 
 impl InboundListenerRuntime {
+    pub(in crate::runtime) fn with_datagram_source(
+        mut self,
+        peer: Option<crate::runtime::inbound_owners::component::PeerSourceContext>,
+    ) -> Self {
+        self.peer = peer;
+        self
+    }
+    #[cfg(feature = "managed-datagram-runtime")]
+    pub(in crate::runtime) fn datagram_source(
+        &self,
+    ) -> Option<crate::runtime::inbound_owners::component::PeerSourceContext> {
+        self.peer.clone()
+    }
+
+    pub(in crate::runtime) fn has_packet_source(&self) -> bool {
+        #[cfg(feature = "raw-ip-runtime")]
+        {
+            return self.host.as_ref().is_some_and(|h| h.has_packet_source());
+        }
+        #[cfg(not(feature = "raw-ip-runtime"))]
+        {
+            false
+        }
+    }
+    #[cfg(feature = "raw-ip-runtime")]
+    pub(in crate::runtime) fn take_packet_source(
+        &self,
+    ) -> Option<crate::runtime::inbound_operation::raw_ip::PacketSourceContext> {
+        self.host.as_ref()?.packet_source()
+    }
+    pub(crate) fn with_inbound_instance(
+        mut self,
+        identity: zero_core::component::ComponentInstanceId,
+    ) -> Self {
+        self.route_factory = self.route_factory.with_inbound_instance(identity);
+        self
+    }
     pub(crate) fn with_readiness(
         mut self,
         ready: crate::runtime::inbound_owners::InboundReady,
@@ -21,10 +59,7 @@ impl InboundListenerRuntime {
     pub(crate) fn readiness(&self) -> Option<crate::runtime::inbound_owners::InboundReady> {
         self.ready.clone()
     }
-    #[cfg(any(
-        feature = "inbound-listener-group-runtime",
-        feature = "managed-datagram-runtime"
-    ))]
+    #[cfg(feature = "managed-datagram-runtime")]
     pub(crate) fn split_readiness(
         &self,
         count: usize,
@@ -46,15 +81,13 @@ impl InboundListenerRuntime {
     ) -> Self {
         Self {
             ready: None,
+            peer: None,
             host,
             route_factory: InboundRouteRuntimeFactory::new(shared, inbound_tag),
         }
     }
 
-    #[cfg(any(
-        feature = "inbound-listener-group-runtime",
-        feature = "managed-datagram-runtime"
-    ))]
+    #[cfg(feature = "managed-datagram-runtime")]
     pub(crate) fn host_control(
         &self,
     ) -> Option<&crate::runtime::inbound_owners::InboundTaskAccess> {
@@ -166,6 +199,15 @@ impl InboundListenerRuntimeFactory {
             .owners
             .owner(&inbound_tag)
             .map(|owner| owner.task_access());
-        InboundListenerRuntime::new(self.shared.clone(), inbound_tag, host)
+        let mut runtime =
+            InboundListenerRuntime::new(self.shared.clone(), inbound_tag.clone(), host);
+        if let Some(owner) = self.owners.owner(&inbound_tag) {
+            runtime.route_factory.resources = owner.inbound_resources();
+        }
+        #[cfg(feature = "managed-datagram-runtime")]
+        if let Some(owner) = self.owners.owner(&inbound_tag) {
+            runtime.route_factory.continuity = owner.datagram_continuity();
+        }
+        runtime
     }
 }

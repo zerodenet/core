@@ -32,6 +32,9 @@ pub(crate) struct UpstreamConnectServices {
 }
 
 impl UpstreamConnectServices {
+    pub(crate) fn native_node_dns(&self) -> Arc<dyn DnsService> {
+        self.resolver.native_node_service()
+    }
     pub(crate) fn dns_generation(&self) -> zero_platform_tokio::contract::dns::DnsGeneration {
         self.resolver.generation()
     }
@@ -127,6 +130,24 @@ impl UpstreamConnectServices {
             #[cfg(feature = "tls-ech-runtime")]
             ech_resolver,
         }
+    }
+
+    pub(crate) async fn connect_inbound_target_using<D: crate::transport::CandidateOpener>(
+        &self,
+        server: &str,
+        port: u16,
+        opener: &D,
+    ) -> Result<D::Socket, zero_transport::RuntimeError> {
+        self.connector
+            .connect_host_using(
+                server,
+                port,
+                self.resolver.as_ref(),
+                &self.egress_interface,
+                None,
+                opener,
+            )
+            .await
     }
 
     pub(crate) async fn connect_upstream_owned(

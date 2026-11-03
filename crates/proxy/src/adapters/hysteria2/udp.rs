@@ -1,16 +1,12 @@
 use zero_engine::EngineError;
 
 use crate::adapters::hysteria2::Hysteria2Adapter;
-use crate::protocol_registry::{ClaimedUdpFlowLeaf, ClaimedUdpPacketPathLeaf};
+use crate::protocol_registry::UdpFlowResult;
 use crate::runtime::udp_dispatch::operation::ManagedDatagramStartPlan;
-use crate::runtime::udp_dispatch::operation::PreparedUdpFlowOperation;
 use crate::runtime::udp_dispatch::packet_path_operation::PreparedUdpPacketPathOperation;
-use crate::runtime::udp_dispatch::FlowFailure;
 use crate::runtime::udp_flow::managed::{
-    datagram_manager::{
-        managed_datagram_handler_box, ManagedDatagramConnectorFlow, ManagedDatagramResumeConnector,
-    },
-    ManagedDatagramFlowHandler, ManagedTupleUdpFlowConnection,
+    datagram_manager::{ManagedDatagramConnectorFlow, ManagedDatagramResumeConnector},
+    ManagedTupleUdpFlowConnection,
 };
 use crate::runtime::udp_flow::packet_path::{
     packet_path_carrier_descriptor_from_build, PacketPathCarrier, PacketPathCarrierDescriptor,
@@ -25,8 +21,6 @@ impl ManagedDatagramResumeConnector for ::hysteria2::transport::Hysteria2Managed
     type Connection = ::hysteria2::udp::Hysteria2UdpFlowConnection;
 
     const ESTABLISH_STAGE: &'static str = "h2_establish";
-    const MISMATCH_STAGE: &'static str = "udp_hysteria2_resume";
-    const MISMATCH_MESSAGE: &'static str = "expected Hysteria2 UDP flow resume";
 
     fn connector_flow(
         &self,
@@ -144,49 +138,6 @@ struct Hysteria2PacketPathOperation {
     plan: Hysteria2ManagedUdpPacketPathPlan,
 }
 
-struct ClaimedHysteria2PacketPathLeaf {
-    leaf: ::hysteria2::transport::Hysteria2TransportLeaf,
-}
-
-struct ClaimedHysteria2UdpLeaf {
-    leaf: ::hysteria2::transport::Hysteria2TransportLeaf,
-}
-
-impl<'a> ClaimedUdpFlowLeaf<'a> for ClaimedHysteria2UdpLeaf {
-    fn prepare_udp_flow(
-        &self,
-        source_dir: Option<&std::path::Path>,
-    ) -> Result<Box<dyn PreparedUdpFlowOperation + 'a>, FlowFailure> {
-        Ok(Box::new(
-            crate::runtime::udp_dispatch::operation::ManagedDatagramUdpOperation {
-                plan: ManagedDatagramStartPlan::from_parts(
-                    self.leaf
-                        .clone()
-                        .with_source_dir(source_dir)
-                        .udp_flow_plan()
-                        .into_parts(),
-                ),
-                needs_proxy: true,
-            },
-        ))
-    }
-}
-
-impl<'a> ClaimedUdpPacketPathLeaf<'a> for ClaimedHysteria2PacketPathLeaf {
-    fn prepare_udp_packet_path(
-        &self,
-        source_dir: Option<&std::path::Path>,
-    ) -> Option<Box<dyn PreparedUdpPacketPathOperation>> {
-        Some(Box::new(Hysteria2PacketPathOperation {
-            plan: self
-                .leaf
-                .clone()
-                .with_source_dir(source_dir)
-                .udp_packet_path_plan(),
-        }))
-    }
-}
-
 impl PreparedUdpPacketPathOperation for Hysteria2PacketPathOperation {
     fn carrier_descriptor(&self) -> Option<PacketPathCarrierDescriptor> {
         Some(packet_path_carrier_descriptor(self.plan.clone()))
@@ -209,22 +160,31 @@ impl PreparedUdpPacketPathOperation for Hysteria2PacketPathOperation {
     }
 }
 
-pub(crate) fn managed_datagram_handler() -> Box<dyn ManagedDatagramFlowHandler> {
-    managed_datagram_handler_box::<::hysteria2::transport::Hysteria2ManagedDatagramFlowResume>()
-}
-
 impl Hysteria2Adapter {
-    pub(super) fn claim_udp_flow_leaf_impl<'a>(
+    pub(super) fn udp_flow_operation<'a>(
         &self,
         leaf: ::hysteria2::transport::Hysteria2TransportLeaf,
-    ) -> Box<dyn ClaimedUdpFlowLeaf<'a> + 'a> {
-        Box::new(ClaimedHysteria2UdpLeaf { leaf })
+        source_dir: Option<&std::path::Path>,
+    ) -> UdpFlowResult<'a> {
+        Ok(Box::new(
+            crate::runtime::udp_dispatch::operation::ManagedDatagramUdpOperation {
+                plan: ManagedDatagramStartPlan::from_parts(
+                    leaf.with_source_dir(source_dir)
+                        .udp_flow_plan()
+                        .into_parts(),
+                ),
+                needs_proxy: true,
+            },
+        ))
     }
 
-    pub(super) fn claim_udp_packet_path_leaf_impl<'a>(
+    pub(super) fn udp_packet_path_operation(
         &self,
         leaf: ::hysteria2::transport::Hysteria2TransportLeaf,
-    ) -> Option<Box<dyn ClaimedUdpPacketPathLeaf<'a> + 'a>> {
-        Some(Box::new(ClaimedHysteria2PacketPathLeaf { leaf }))
+        source_dir: Option<&std::path::Path>,
+    ) -> Option<std::sync::Arc<dyn PreparedUdpPacketPathOperation>> {
+        Some(std::sync::Arc::new(Hysteria2PacketPathOperation {
+            plan: leaf.with_source_dir(source_dir).udp_packet_path_plan(),
+        }))
     }
 }

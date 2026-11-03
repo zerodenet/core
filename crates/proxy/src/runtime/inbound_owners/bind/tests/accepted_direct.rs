@@ -1,6 +1,6 @@
 //! Actual Direct operation: original accepted native/view/handler/host receipts.
 use super::*;
-use zero_platform_tokio::contract::{component::AcceptedTcpLimits, lifecycle::TaskClass};
+use zero_platform_tokio::contract::lifecycle::TaskClass;
 
 #[tokio::test]
 async fn actual_fixed_direct_handler_keeps_source_join_and_native_close_separate() {
@@ -34,22 +34,11 @@ async fn actual_fixed_direct_handler_keeps_source_join_and_native_close_separate
             .protocols
             .commit_components(&config, || Ok(()))
             .unwrap();
-        let operation = proxy
+        let prepared = proxy
             .protocols
-            .prepare_inbound_listener(config.inbounds[0].clone(), None)
-            .unwrap();
-        let prepared = PreparedInboundBind::new(
-            operation,
-            Arc::from([ResourceDeclaration::TcpListener {
-                destination: Destination::new(Address::Ipv4([127, 0, 0, 1]), 0),
-                max_bind_attempts: NonZeroUsize::new(1).unwrap(),
-                accepted: Some(AcceptedTcpLimits {
-                    max_sockets: NonZeroUsize::new(1).unwrap(),
-                    max_tasks_per_socket: NonZeroUsize::new(1).unwrap(),
-                }),
-            }]),
-        )
-        .unwrap();
+            .prepare_inbound_bind(config.inbounds[0].clone(), None)
+            .unwrap()
+            .expect("actual standard Direct recipe");
         let (shutdown, _) = watch::channel(false);
         let mut lease = proxy
             .inbound_owners
@@ -63,21 +52,38 @@ async fn actual_fixed_direct_handler_keeps_source_join_and_native_close_separate
             )
             .unwrap();
         lease.bind_tcp().unwrap();
-        let (operation, listener, installed) = lease.finish().unwrap().promote().unwrap();
+        let (definition, listener, installed) = promote_tcp(lease.finish().unwrap());
         let owner = installed.owner();
         let address = listener.local_addr().unwrap();
+        let recipe = definition else {
+            panic!("Direct TCP selected its standard factory");
+        };
+        let limit = match recipe.spec().resources[0] {
+            ResourceDeclaration::TcpListener {
+                accepted: Some(limits),
+                ..
+            } => limits.max_sockets,
+            _ => panic!("actual accepted declaration"),
+        };
+        let (source, _) = installed
+            .build_inbound(recipe, NativeListenerView::Tcp(listener), None)
+            .unwrap();
         let runtime = crate::runtime::route_runtime::InboundListenerRuntime::new(
             crate::runtime::route_runtime::SharedIngressRuntimeServices::new(
                 proxy.tcp_runtime_services(),
             ),
             "first".into(),
             Some(owner.task_access()),
-        );
-        let bound = crate::protocol_registry::BoundInbound::Tcp(
-            zero_platform_tokio::TokioListener::from_controlled(listener).unwrap(),
-        );
+        )
+        .with_inbound_instance(owner.identity());
         owner
-            .spawn_driver(operation.execute(runtime, bound, shutdown.subscribe()))
+            .spawn_driver(crate::runtime::inbound_operation::source::run(
+                source,
+                runtime,
+                shutdown.subscribe(),
+                limit,
+                "direct",
+            ))
             .unwrap();
         owner.seal_listener_installation();
         let exercise = async {
@@ -136,7 +142,7 @@ async fn actual_fixed_direct_handler_keeps_source_join_and_native_close_separate
         assert!(terminal.failure().is_none());
         assert!(terminal.task_failures().is_empty());
         assert_eq!(terminal.joined_tasks(), 3);
-        assert_eq!(terminal.closed_io_receipts(), 2);
+        assert_eq!(terminal.closed_io_receipts(), 3); // listener, accepted FDs, actual outbound carrier
         let failed = terminal.client_failure().unwrap();
         assert_eq!(failed.class(), TaskClass::Auxiliary);
         let original = failed.result().unwrap_err();

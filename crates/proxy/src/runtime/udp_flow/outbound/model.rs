@@ -50,6 +50,7 @@ pub(crate) enum UdpFlowOutbound {
         server: String,
         port: u16,
         managed: ManagedUdpFlowRef,
+        remote: Option<SocketAddr>,
     },
     #[cfg(feature = "udp-runtime")]
     PacketPathDatagram {

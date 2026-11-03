@@ -42,8 +42,17 @@ async fn original_protocol_owned_root_survives_neutral_wrappers_and_closes_same_
             .unwrap();
     let plan = leaf.udp_packet_path_plan().unwrap();
     let codec = plan.carrier_codec();
-    let operation = ShadowsocksPacketPathOperation { plan: plan.clone() };
     let proxy = crate::Proxy::new(config).unwrap();
+    let claimed = proxy
+        .protocols
+        .claim_outbound_leaf(
+            &proxy.config,
+            zero_engine::ResolvedLeafOutbound::Proxy {
+                identity: zero_engine::OutboundIdentity::from_config_index(0),
+            },
+        )
+        .unwrap();
+    let operation = claimed.udp_packet_path().unwrap();
     let services = crate::protocol_registry::PacketPathExecutionServices::from_tcp_execution(
         &proxy.tcp_runtime_services().execution(),
     );

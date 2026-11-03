@@ -48,7 +48,7 @@ impl ProtocolInventory {
                 .map_err(|error| failure("outbound_leaf_runtime", error))?;
             #[cfg(feature = "udp-runtime")]
             {
-                first_datagram = claimed.prepare_udp_packet_path(ctx.source_dir());
+                first_datagram = claimed.udp_packet_path();
             }
             self.prepare_claimed_tcp_candidate(ctx, &claimed, RouteMode::Flow)?
         };
@@ -82,7 +82,7 @@ impl ProtocolInventory {
                 #[cfg(feature = "udp-runtime")]
                 {
                     packet = if index + 1 < leaves.len() {
-                        claimed.prepare_udp_packet_path(ctx.source_dir())
+                        claimed.udp_packet_path()
                     } else {
                         None
                     };
@@ -107,13 +107,13 @@ impl ProtocolInventory {
         ctx: OutboundAdapterContext<'_>,
         leaf: &ResolvedLeafOutbound<'_>,
     ) -> Option<
-        Box<
+        std::sync::Arc<
             dyn crate::runtime::udp_dispatch::packet_path_operation::PreparedUdpPacketPathOperation,
         >,
     > {
         self.claim_outbound_leaf(ctx.config(), leaf.clone())
             .ok()?
-            .prepare_udp_packet_path(ctx.source_dir())
+            .udp_packet_path()
     }
 }
 
@@ -138,7 +138,7 @@ fn append_datagram(
     chain: &mut PreparedTcpRelayChain,
     hop: &PreparedTcpRelayHop,
     operation: Option<
-        Box<
+        std::sync::Arc<
             dyn crate::runtime::udp_dispatch::packet_path_operation::PreparedUdpPacketPathOperation,
         >,
     >,

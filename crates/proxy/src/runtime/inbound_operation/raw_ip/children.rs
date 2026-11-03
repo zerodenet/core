@@ -8,7 +8,6 @@ pub(super) struct RawIpChildren {
     pub(super) native: super::native_obligations::NativeObligations,
     pub(super) icmp: Option<crate::component::instance::HostIcmpProbeGrant>,
     pub(super) drivers: RetainedTasks<Result<(), EngineError>>,
-    pub(super) proxies: RetainedTasks<()>,
     pub(super) connections: Option<Arc<crate::runtime::inbound_owners::InboundPeerTasks>>,
     pub(super) host: Option<crate::runtime::inbound_owners::InboundTaskAccess>,
     pub(super) udp: OwnedTunUdpTasks,
@@ -26,10 +25,6 @@ impl RawIpChildren {
             native: native.clone(),
             icmp: None,
             drivers: RetainedTasks::new("raw-IP stack drivers joined", 2),
-            proxies: RetainedTasks::new(
-                "raw-IP outer carrier readers joined",
-                crate::runtime::raw_ip::MAX_RAW_IP_DEVICES,
-            ),
             connections: None,
             host: None,
             udp: OwnedTunUdpTasks::new(native),
@@ -39,7 +34,7 @@ impl RawIpChildren {
             ),
             echoes: RetainedTasks::new(
                 "raw-IP ICMP probes joined",
-                RawIpInboundListenerOperation::MAX_ICMP_PROBES,
+                PacketSourceContext::MAX_ICMP_PROBES,
             ),
         }
     }
@@ -54,7 +49,6 @@ impl RawIpChildren {
         self.host = Some(context.tasks());
         self.udp.install(context)?;
         context.register(self.echoes.resource())?;
-        context.register(self.proxies.resource())?;
         // Reverse cleanup first joins these actual parent loops. Their guard
         // release then permits the retained descendant sets to be drained.
         context.register(self.drivers.resource())?;

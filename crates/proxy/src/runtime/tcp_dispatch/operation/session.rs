@@ -10,11 +10,6 @@ use crate::transport::{EstablishedTcpOutbound, TcpOutboundFailure};
 
 #[async_trait::async_trait]
 pub(crate) trait SessionTcpHandshake: Send + Sync {
-    // Protocol-owned materialization retains the actual shared connection pool.
-    fn prepare_for_source(&self, source_dir: Option<&std::path::Path>) -> Self
-    where
-        Self: Sized;
-
     fn tag(&self) -> &str;
 
     fn server(&self) -> &str;

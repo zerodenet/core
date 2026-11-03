@@ -20,3 +20,6 @@ pub use validation::validate_config;
 pub fn compiled_protocol_features() -> Vec<String> {
     register::compiled_protocol_features()
 }
+
+#[cfg(all(test, any(feature = "vmess", feature = "mieru")))]
+mod dns_fixture;

@@ -1,7 +1,7 @@
 use std::future::Future;
 use std::io;
 
-use tracing::{error, info};
+use tracing::{debug, error, info, warn};
 use zero_engine::EngineError;
 
 use super::logging::log_stopped;
@@ -139,6 +139,20 @@ where
             }
             failure = proxy.host.apply().observe_failure() => {
                 return Err(io::Error::other(failure).into());
+            }
+            retired = proxy.retired_datagrams.progress_retired(
+                tokio::time::Instant::now() + std::time::Duration::from_secs(5)
+            ) => {
+                // The last UDP caller may already be gone. Advance the same
+                // retained originals here without spawning a second driver.
+                match retired {
+                    Ok(report) if !report.closed_io.is_empty() || !report.unfinished.is_empty() => {
+                        debug!(closed = report.closed_io.len(), unfinished = report.unfinished.len(),
+                            "advanced retired Datagram controllers");
+                    }
+                    Ok(_) => {},
+                    Err(error) => warn!(error = %error, "retired Datagram close remains owned"),
+                }
             }
             _ = network_change => {
                 #[cfg(feature = "raw-ip-runtime")]

@@ -8,29 +8,32 @@ use zero_platform_tokio::{
     },
     ControlledTcpListener,
 };
+pub(in crate::runtime::inbound_owners) mod handoff;
+mod metadata;
+mod tcp_group;
+pub(in crate::runtime::inbound_owners) use tcp_group::MetadataViews;
 #[cfg(feature = "datagram-route-runtime")]
 mod udp;
 
 pub(crate) enum NativeListenerView {
     Tcp(ControlledTcpListener),
+    Handoff {
+        listener: ControlledTcpListener,
+        grant: Arc<handoff::Grant>,
+    },
+    Metadata(MetadataViews),
     #[cfg(feature = "datagram-route-runtime")]
     Datagram(zero_platform_tokio::contract::component::GrantedDatagramListener),
 }
 impl NativeListenerView {
-    pub(crate) fn into_bound(self) -> Result<crate::protocol_registry::BoundInbound, ChannelError> {
-        use crate::protocol_registry::BoundInbound;
-        match self {
-            Self::Tcp(view) => {
-                zero_platform_tokio::TokioListener::from_controlled(view).map(BoundInbound::Tcp)
-            }
-            #[cfg(feature = "datagram-route-runtime")]
-            Self::Datagram(view) => Ok(BoundInbound::ControlledDatagram(view)),
-        }
-    }
     #[cfg(test)]
     pub(super) fn local_addr(&self) -> std::io::Result<std::net::SocketAddr> {
         match self {
             Self::Tcp(view) => view.local_addr(),
+            Self::Handoff { listener, .. } => listener.local_addr(),
+            Self::Metadata(_) => Err(std::io::Error::other(
+                "metadata address is published by the actual source",
+            )),
             #[cfg(feature = "datagram-route-runtime")]
             Self::Datagram(view) => view.rx.local_addr(),
         }
@@ -39,19 +42,68 @@ impl NativeListenerView {
 
 pub(super) enum NativeBindGrant {
     Tcp(Arc<grant::NativeTcpGrant>),
+    Handoff(Arc<handoff::Grant>),
+    Metadata {
+        resources: Arc<crate::component::instance::HostResources>,
+        tcp: Vec<(zero_core::request::Destination, Arc<grant::NativeTcpGrant>)>,
+    },
     #[cfg(feature = "datagram-route-runtime")]
     Datagram(Arc<udp::NativeDatagramGrant>),
 }
 impl NativeBindGrant {
     pub(super) fn new(
         identity: ComponentInstanceId,
-        declaration: &ResourceDeclaration,
-        address: std::net::SocketAddr,
+        declarations: &[ResourceDeclaration],
+        address: Option<std::net::SocketAddr>,
         attempts: NonZeroUsize,
         cancel: CancellationToken,
         registrar: &zero_platform_tokio::contract::scope::TaskRegistrar,
+        owner: Weak<InboundOwner>,
     ) -> Result<Self, ChannelError> {
+        let declaration = declarations.first().ok_or_else(|| {
+            ChannelError::new(
+                zero_platform_tokio::contract::Stage::Prepare,
+                zero_platform_tokio::contract::Reason::InvalidConfig,
+                zero_platform_tokio::contract::Impact::Component,
+            )
+        })?;
+        if declarations
+            .iter()
+            .any(|d| matches!(d, ResourceDeclaration::ListenerHandoff { .. }))
+        {
+            return handoff::Grant::new(
+                identity,
+                declarations,
+                address,
+                attempts,
+                cancel,
+                registrar.clone(),
+                owner,
+            )
+            .map(Arc::new)
+            .map(Self::Handoff);
+        }
         match declaration {
+            ResourceDeclaration::MetadataDatagram { .. } => {
+                let resources = crate::component::instance::HostResources::new_for_instance(
+                    identity,
+                    &declarations
+                        .iter()
+                        .filter(|d| {
+                            matches!(
+                                d,
+                                ResourceDeclaration::MetadataDatagram { .. }
+                                    | ResourceDeclaration::NativeIcmp { .. }
+                            )
+                        })
+                        .cloned()
+                        .collect::<Vec<_>>(),
+                    cancel.clone(),
+                    registrar.scope_identity(),
+                )?;
+                let tcp = tcp_group::prepare(identity, declarations, attempts, cancel, registrar)?;
+                Ok(Self::Metadata { resources, tcp })
+            }
             ResourceDeclaration::TcpListener { .. } => grant::NativeTcpGrant::new(
                 identity,
                 declaration,
@@ -75,18 +127,47 @@ impl NativeBindGrant {
             )),
         }
     }
+    pub(super) fn tcp_resolutions(&self) -> Vec<&Arc<grant::NativeTcpGrant>> {
+        match self {
+            Self::Tcp(grant) if grant.needs_resolution() => vec![grant],
+            Self::Handoff(grant) if grant.outer.needs_resolution() => vec![&grant.outer],
+            Self::Metadata { tcp, .. } => tcp
+                .iter()
+                .filter_map(|(_, grant)| grant.needs_resolution().then_some(grant))
+                .collect(),
+            _ => vec![],
+        }
+    }
     pub(super) fn accepted_task_receiver(
         &self,
-    ) -> Option<zero_platform_tokio::AcceptedTcpTaskReceiver> {
+    ) -> Vec<zero_platform_tokio::AcceptedTcpTaskReceiver> {
         match self {
-            Self::Tcp(grant) => grant.accepted_task_receiver(),
+            Self::Tcp(grant) => grant.accepted_task_receiver().into_iter().collect(),
+            Self::Handoff(grant) => grant.outer.accepted_task_receiver().into_iter().collect(),
+            Self::Metadata { tcp, .. } => tcp
+                .iter()
+                .filter_map(|(_, grant)| grant.accepted_task_receiver())
+                .collect(),
             #[cfg(feature = "datagram-route-runtime")]
-            Self::Datagram(_) => None,
+            Self::Datagram(_) => vec![],
+        }
+    }
+    pub(super) fn extra_resources(&self) -> Vec<Box<dyn DynResourceLifecycle>> {
+        match self {
+            Self::Metadata { tcp, .. } => tcp
+                .iter()
+                .map(|(_, grant)| erase_lifecycle(grant::TcpResource(grant.clone())))
+                .collect(),
+            _ => vec![],
         }
     }
     pub(super) fn resource(&self) -> Box<dyn DynResourceLifecycle> {
         match self {
             Self::Tcp(grant) => erase_lifecycle(grant::TcpResource(grant.clone())),
+            Self::Handoff(grant) => erase_lifecycle(handoff::Owner(grant.clone())),
+            Self::Metadata { resources, .. } => {
+                erase_lifecycle(metadata::Resource(resources.clone()))
+            }
             #[cfg(feature = "datagram-route-runtime")]
             Self::Datagram(grant) => erase_lifecycle(udp::DatagramResource(grant.clone())),
         }
@@ -94,6 +175,10 @@ impl NativeBindGrant {
     pub(super) fn bind(&self) -> Result<NativeListenerView, EngineError> {
         match self {
             Self::Tcp(grant) => grant.bind().map(NativeListenerView::Tcp),
+            Self::Handoff(grant) => grant.bind(),
+            Self::Metadata { resources, tcp } => {
+                tcp_group::bind(resources.clone(), tcp).map(NativeListenerView::Metadata)
+            }
             #[cfg(feature = "datagram-route-runtime")]
             Self::Datagram(grant) => grant.bind().map(NativeListenerView::Datagram),
         }
@@ -102,6 +187,8 @@ impl NativeBindGrant {
     pub(super) fn bind_tcp(&self) -> Result<ControlledTcpListener, EngineError> {
         match self {
             Self::Tcp(grant) => grant.bind(),
+            Self::Handoff(_) => Err(io("TCP test promotion cannot discard handoff ownership")),
+            Self::Metadata { .. } => Err(io("TCP bind requested from a metadata declaration")),
             #[cfg(feature = "datagram-route-runtime")]
             Self::Datagram(_) => Err(io("TCP bind requested from a datagram declaration")),
         }

@@ -19,7 +19,7 @@ async fn actual_tcp_close_preserves_genuine_preparation_failure_until_supervisor
     // Even Interrupted is a genuine failure unless this host issued its exact
     // private phase/readiness marker. No string, ErrorKind or Reason guess.
     let error = owner.retain_unexecuted_bound(
-        crate::protocol_registry::BoundInbound::Tcp(listener),
+        listener,
         std::io::Error::new(
             std::io::ErrorKind::Interrupted,
             "external preparation failure",

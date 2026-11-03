@@ -12,7 +12,7 @@ mod tests;
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub(crate) struct MuxUdpContinuityScope {
     inbound_tag: String,
-    protocol: &'static str,
+    protocol: String,
     principal_key: Option<String>,
     continuity_key: UdpContinuityKey,
 }
@@ -20,13 +20,13 @@ pub(crate) struct MuxUdpContinuityScope {
 impl MuxUdpContinuityScope {
     pub(crate) fn new(
         inbound_tag: &str,
-        protocol: &'static str,
+        protocol: &str,
         principal_key: Option<&str>,
         continuity_key: UdpContinuityKey,
     ) -> Self {
         Self {
             inbound_tag: inbound_tag.to_owned(),
-            protocol,
+            protocol: protocol.to_owned(),
             principal_key: principal_key.map(str::to_owned),
             continuity_key,
         }
@@ -96,10 +96,21 @@ impl<T> MuxUdpContinuityRegistry<T> {
         scope: MuxUdpContinuityScope,
         retention: Duration,
     ) -> MuxUdpContinuityAttach<T> {
+        self.attach_bounded(scope, retention, usize::MAX)
+            .expect("unbounded compatibility admission")
+    }
+    pub(crate) fn attach_bounded(
+        &self,
+        scope: MuxUdpContinuityScope,
+        retention: Duration,
+        limit: usize,
+    ) -> Result<MuxUdpContinuityAttach<T>, ()> {
         let now = Instant::now();
         let mut entries = self.entries.lock().expect("continuity registry poisoned");
-
-        match entries.get_mut(&scope) {
+        if !entries.contains_key(&scope) && entries.len() >= limit {
+            return Err(());
+        }
+        Ok(match entries.get_mut(&scope) {
             Some(entry) if entry.attached => MuxUdpContinuityAttach::Conflict {
                 generation: entry.generation,
             },
@@ -124,7 +135,22 @@ impl<T> MuxUdpContinuityRegistry<T> {
                 );
                 MuxUdpContinuityAttach::New { generation: 1 }
             }
+        })
+    }
+    pub(crate) fn publish(
+        &self,
+        scope: &MuxUdpContinuityScope,
+        generation: u64,
+        value: T,
+    ) -> Result<(), T> {
+        let mut entries = self.entries.lock().expect("continuity registry poisoned");
+        if let Some(entry) = entries.get_mut(scope) {
+            if entry.generation == generation && entry.attached && entry.dispatch.is_none() {
+                entry.dispatch = Some(value);
+                return Ok(());
+            }
         }
+        Err(value)
     }
 
     pub(crate) fn detach(

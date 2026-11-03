@@ -37,6 +37,7 @@ fn passive_restore_and_port_move_keep_the_actual_crypto_owner_and_finite_declara
         zero_core::request::Destination::new(zero_core::Address::Ipv4([127, 0, 0, 1]), 51821);
     assert!(
         matches!(cold.resources(), [ResourceDeclaration::DatagramListener {
+        accepted: None,
         destination: actual, max_bind_attempts, max_pending_sends,
     }, ResourceDeclaration::NativeIcmp { max_sockets }]
         if actual == &destination && max_bind_attempts.get() == 50
@@ -110,7 +111,6 @@ fn restore_requires_ready_same_crypto_candidate_and_rejects_another_actual_owner
 
 #[tokio::test]
 async fn original_udp_pending_join_and_publication_precede_same_crypto_restore() {
-    use crate::protocol_registry::InboundListenerCapability;
     use crate::runtime::{
         inbound_owners::{InboundOwnerRegistry, NativeListenerView},
         Proxy,
@@ -152,12 +152,10 @@ async fn original_udp_pending_join_and_publication_precede_same_crypto_restore()
         )
         .unwrap();
     lease.bind_native().unwrap();
-    let (mut operation, view, installed) = lease.finish().unwrap().promote_native().unwrap();
+    let (operation, view, installed) = lease.finish().unwrap().promote_native().unwrap();
     let owner = installed.owner();
-    owner
-        .install_recovery(operation.recovery_state().unwrap())
-        .unwrap();
-    operation.install_resources(&installed).unwrap();
+    // The actual capsule is installed before bind by the standard cold recipe.
+    let metadata_lease = live.claim_listener().unwrap();
     owners.retain_recovery("wg", &inbound).unwrap();
     let NativeListenerView::Datagram(
         zero_platform_tokio::contract::component::GrantedDatagramListener { mut rx, tx },
@@ -187,6 +185,7 @@ async fn original_udp_pending_join_and_publication_precede_same_crypto_restore()
             release.await.map_err(std::io::Error::other)?;
             drop(tx);
             drop(operation);
+            drop(metadata_lease);
             Ok(())
         })
         .unwrap();

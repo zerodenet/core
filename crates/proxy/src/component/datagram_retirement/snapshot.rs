@@ -38,6 +38,16 @@ impl RetiredDatagrams {
         }
         // Protocol controls, their error sources and registered native wakers
         // can run arbitrary last-reference destructors. All parents are unlocked.
+        for entry in &removed {
+            let returns = entry
+                .lock()
+                .expect("Datagram entry poisoned")
+                .returns
+                .clone();
+            if let Some(returns) = returns {
+                returns.finish(true);
+            }
+        }
         drop(removed);
     }
 }

@@ -1,4 +1,3 @@
-use std::path::Path;
 use std::sync::Arc;
 
 use zero_config::RuntimeConfig;
@@ -7,159 +6,190 @@ use zero_engine::{EngineError, ResolvedLeafOutbound};
 mod plane;
 
 use super::{ProtocolRegistry, RegisteredProtocolEntry};
-#[cfg(feature = "raw-ip-runtime")]
-use crate::protocol_registry::ClaimedPacketLeaf;
 use crate::protocol_registry::{
-    ClaimedTcpOutboundLeaf, OutboundLeafClaim, OutboundLeafInput, OutboundLeafRuntime,
+    OutboundLeafClaim, OutboundLeafInput, OutboundLeafRuntime, TcpConnectResult, TcpRelayResult,
 };
 #[cfg(feature = "udp-runtime")]
-use crate::protocol_registry::{ClaimedUdpFlowLeaf, ClaimedUdpPacketPathLeaf};
+use crate::protocol_registry::{UdpFlowResult, UdpRelayResult};
+#[cfg(feature = "raw-ip-runtime")]
+use crate::runtime::packet_route::PacketRouteOperations;
 use crate::runtime::path::TcpPathCategory;
 use crate::runtime::tcp_dispatch::operation::{
     PreparedTcpConnectOperation, PreparedTcpRelayOperation,
 };
-#[cfg(feature = "udp-runtime")]
-use crate::runtime::udp_dispatch::operation::PreparedUdpFlowOperation;
-#[derive(Clone, Default)]
-struct ClaimedTcpHooks<'a> {
-    capability: Option<Arc<dyn ClaimedTcpOutboundLeaf<'a> + 'a>>,
-}
-
-#[cfg(feature = "udp-runtime")]
-#[derive(Clone, Default)]
-struct ClaimedUdpHooks<'a> {
-    capability: Option<Arc<dyn ClaimedUdpFlowLeaf<'a> + 'a>>,
-    packet_path: Option<Arc<dyn ClaimedUdpPacketPathLeaf<'a> + 'a>>,
-}
-
-#[derive(Clone)]
 pub(crate) struct ClaimedOutboundLeaf<'a> {
+    #[cfg(not(feature = "udp-runtime"))]
+    _lifetime: std::marker::PhantomData<&'a ()>,
     pub(crate) runtime: OutboundLeafRuntime,
-    tcp: ClaimedTcpHooks<'a>,
+    tcp: Option<TcpConnectResult>,
+    tcp_relay: Option<TcpRelayResult>,
     #[cfg(feature = "udp-runtime")]
-    udp: ClaimedUdpHooks<'a>,
+    udp: Option<UdpFlowResult<'a>>,
+    #[cfg(feature = "udp-runtime")]
+    udp_relay: Option<UdpRelayResult<'a>>,
+    #[cfg(feature = "udp-runtime")]
+    packet_path: Option<
+        Arc<
+            dyn crate::runtime::udp_dispatch::packet_path_operation::PreparedUdpPacketPathOperation,
+        >,
+    >,
     #[cfg(feature = "raw-ip-runtime")]
-    packet: Option<Arc<dyn ClaimedPacketLeaf>>,
+    packet: Option<PacketRouteOperations>,
 }
 
 impl<'a> ClaimedOutboundLeaf<'a> {
-    fn new(
-        runtime: OutboundLeafRuntime,
-        tcp: ClaimedTcpHooks<'a>,
-        #[cfg(feature = "udp-runtime")] udp: ClaimedUdpHooks<'a>,
-        #[cfg(feature = "raw-ip-runtime")] packet: Option<Arc<dyn ClaimedPacketLeaf>>,
-    ) -> Self {
+    fn new(runtime: OutboundLeafRuntime, claim: OutboundLeafClaim<'a>) -> Self {
         Self {
+            #[cfg(not(feature = "udp-runtime"))]
+            _lifetime: std::marker::PhantomData,
             runtime,
-            tcp,
+            tcp: claim.tcp,
+            tcp_relay: claim.tcp_relay,
             #[cfg(feature = "udp-runtime")]
-            udp,
+            udp: claim.udp,
+            #[cfg(feature = "udp-runtime")]
+            udp_relay: claim.udp_relay,
+            #[cfg(feature = "udp-runtime")]
+            packet_path: claim.packet_path,
             #[cfg(feature = "raw-ip-runtime")]
-            packet,
+            packet: claim.packet,
         }
     }
 
     #[cfg(test)]
     pub(crate) fn has_tcp_capability(&self) -> bool {
-        self.tcp.capability.is_some()
+        self.tcp.is_some()
     }
 
     #[cfg(feature = "udp-runtime")]
     #[cfg(test)]
     pub(crate) fn has_udp_flow_capability(&self) -> bool {
-        self.udp.capability.is_some()
+        self.udp.is_some()
     }
 
     #[cfg(feature = "udp-runtime")]
     #[cfg(test)]
     pub(crate) fn has_udp_packet_path_capability(&self) -> bool {
-        self.udp.packet_path.is_some()
+        self.packet_path.is_some()
     }
 
-    pub(crate) fn prepare_tcp_connect(
+    pub(crate) fn tcp_connect(
         &self,
-        source_dir: Option<&Path>,
-    ) -> Result<Box<dyn PreparedTcpConnectOperation>, crate::transport::TcpOutboundFailure> {
-        let capability =
-            self.tcp
-                .capability
-                .as_ref()
-                .ok_or_else(|| crate::transport::TcpOutboundFailure {
-                    stage: "find_outbound_leaf",
-                    error: EngineError::Io(std::io::Error::new(
-                        std::io::ErrorKind::Unsupported,
-                        "outbound does not provide a TCP stream capability",
-                    )),
+    ) -> Result<Arc<dyn PreparedTcpConnectOperation>, crate::transport::TcpOutboundFailure> {
+        let operation = self
+            .tcp
+            .as_ref()
+            .ok_or_else(|| crate::transport::TcpOutboundFailure {
+                stage: "find_outbound_leaf",
+                error: EngineError::Io(std::io::Error::new(
+                    std::io::ErrorKind::Unsupported,
+                    "outbound does not provide a TCP stream capability",
+                )),
+                upstream_endpoint: None,
+                network: None,
+            })?;
+        // This is live, neutral platform validation, not a cold snapshot of
+        // interface availability. Packet conversion never selects this branch.
+        if matches!(self.runtime.tcp_path, TcpPathCategory::Direct) {
+            zero_platform_tokio::validate_dial_policy(&self.runtime.dial_policy).map_err(
+                |error| crate::transport::TcpOutboundFailure {
+                    stage: "validate_dial_policy",
+                    error: error.into(),
                     upstream_endpoint: None,
                     network: None,
-                })?;
-        capability.prepare_tcp_connect(source_dir)
+                },
+            )?;
+        }
+        operation.as_ref().cloned().map_err(|(stage, message)| {
+            crate::transport::TcpOutboundFailure {
+                stage,
+                error: EngineError::Io(std::io::Error::new(
+                    std::io::ErrorKind::InvalidInput,
+                    message.clone(),
+                )),
+                upstream_endpoint: self
+                    .runtime
+                    .endpoint
+                    .as_ref()
+                    .map(|endpoint| Box::new((endpoint.server.clone(), endpoint.port))),
+                network: None,
+            }
+        })
     }
 
-    pub(crate) fn prepare_tcp_relay_hop(
+    pub(crate) fn tcp_relay_hop(
         &self,
-        source_dir: Option<&Path>,
-    ) -> Result<(String, u16, Box<dyn PreparedTcpRelayOperation>), EngineError> {
+    ) -> Result<(String, u16, Arc<dyn PreparedTcpRelayOperation>), EngineError> {
         let endpoint = self.runtime.endpoint.clone().ok_or_else(|| {
             EngineError::Io(std::io::Error::new(
                 std::io::ErrorKind::InvalidInput,
                 "relay hop resolved without upstream endpoint",
             ))
         })?;
-        let capability = self.tcp.capability.as_ref().ok_or_else(|| {
-            EngineError::Io(std::io::Error::new(
+        if self.tcp.is_none() {
+            return Err(EngineError::Io(std::io::Error::new(
                 std::io::ErrorKind::Unsupported,
                 "outbound does not provide a TCP relay capability",
+            )));
+        }
+        let operation = self
+            .tcp_relay
+            .as_ref()
+            .ok_or_else(super::super::defaults::relay_hop_unsupported)?;
+        let operation = operation.as_ref().cloned().map_err(|message| {
+            EngineError::Io(std::io::Error::new(
+                std::io::ErrorKind::InvalidInput,
+                message.clone(),
             ))
         })?;
-        let operation = capability.prepare_tcp_relay_hop(source_dir)?;
         Ok((endpoint.server, endpoint.port, operation))
     }
 
     #[cfg(feature = "udp-runtime")]
-    pub(crate) fn prepare_udp_flow(
-        &self,
-        source_dir: Option<&Path>,
-    ) -> Result<Box<dyn PreparedUdpFlowOperation + 'a>, crate::runtime::udp_dispatch::FlowFailure>
-    {
-        let capability = self
-            .udp
-            .capability
-            .as_ref()
-            .ok_or_else(missing_udp_relay_capability)?;
-        capability.prepare_udp_flow(source_dir)
+    pub(crate) fn into_udp_flow(self) -> UdpFlowResult<'a> {
+        let operation = self.udp.ok_or_else(missing_udp_relay_capability)?;
+        if matches!(self.runtime.tcp_path, TcpPathCategory::Direct) {
+            zero_platform_tokio::validate_dial_policy(&self.runtime.dial_policy).map_err(
+                |error| crate::runtime::udp_dispatch::FlowFailure {
+                    stage: "validate_dial_policy",
+                    error: error.into(),
+                    upstream: None,
+                },
+            )?;
+        }
+        operation
     }
 
     #[cfg(feature = "raw-ip-runtime")]
     pub(crate) fn native_packet_returns_correlated(&self) -> bool {
         self.packet
             .as_ref()
-            .is_some_and(|capability| capability.native_packet_returns_correlated())
+            .is_some_and(|capability| capability.correlated_returns)
     }
 
     #[cfg(feature = "raw-ip-runtime")]
     pub(crate) fn prepare_packet_route(
         &self,
-    ) -> Option<Box<dyn crate::runtime::packet_route::PreparedPacketRouteOperation>> {
+    ) -> Option<Arc<dyn crate::runtime::packet_route::PreparedPacketRouteOperation>> {
         self.packet
             .as_ref()
-            .map(|capability| capability.prepare_packet_route())
+            .map(|capability| capability.native.clone())
     }
 
     #[cfg(feature = "raw-ip-runtime")]
     pub(crate) fn prepare_datagram_exchange(
         &self,
-    ) -> Option<Box<dyn crate::runtime::packet_route::PreparedDatagramExchangeOperation>> {
+    ) -> Option<Arc<dyn crate::runtime::packet_route::PreparedDatagramExchangeOperation>> {
         self.packet
             .as_ref()
-            .and_then(|capability| capability.prepare_datagram_exchange())
+            .and_then(|capability| capability.datagram.clone())
     }
 
     #[cfg(feature = "raw-ip-runtime")]
     pub(crate) fn prepare_translated_packet_route(
         &self,
-    ) -> Option<Box<dyn crate::runtime::packet_route::PreparedPacketRouteOperation>> {
-        self.packet.as_ref()?.prepare_translated_packet_route()
+    ) -> Option<Arc<dyn crate::runtime::packet_route::PreparedPacketRouteOperation>> {
+        self.packet.as_ref()?.translated.clone()
     }
 
     #[cfg(feature = "raw-ip-runtime")]
@@ -170,42 +200,33 @@ impl<'a> ClaimedOutboundLeaf<'a> {
         if self.packet.is_some() {
             sinks.insert(Plane::Packet);
         }
-        if self.tcp.capability.is_some() {
+        if self.tcp.is_some() {
             sinks.insert(Plane::Stream);
         }
-        if self.udp.capability.is_some() {
+        if self.udp.is_some() {
             sinks.insert(Plane::Datagram);
         }
         sinks
     }
 
     #[cfg(feature = "udp-runtime")]
-    pub(crate) fn prepare_udp_relay(
-        &self,
-        source_dir: Option<&Path>,
-    ) -> Result<
-        Box<dyn crate::runtime::udp_dispatch::relay::PreparedUdpRelayOperation<'a> + 'a>,
-        crate::runtime::udp_dispatch::FlowFailure,
-    > {
-        let capability = self
-            .udp
-            .capability
-            .as_ref()
-            .ok_or_else(missing_udp_relay_capability)?;
-        capability.prepare_udp_relay(source_dir)
+    pub(crate) fn into_udp_relay(self) -> UdpRelayResult<'a> {
+        if self.udp.is_none() {
+            return Err(missing_udp_relay_capability());
+        }
+        self.udp_relay
+            .ok_or_else(super::super::defaults::udp_relay_final_hop_unsupported)?
     }
 
     #[cfg(feature = "udp-runtime")]
-    pub(crate) fn prepare_udp_packet_path(
+    pub(crate) fn udp_packet_path(
         &self,
-        source_dir: Option<&std::path::Path>,
     ) -> Option<
-        Box<
+        Arc<
             dyn crate::runtime::udp_dispatch::packet_path_operation::PreparedUdpPacketPathOperation,
         >,
     > {
-        let capability = self.udp.packet_path.as_ref()?;
-        capability.prepare_udp_packet_path(source_dir)
+        self.packet_path.clone()
     }
 }
 
@@ -213,16 +234,7 @@ fn claim_outbound_hooks<'a>(
     entry: &RegisteredProtocolEntry,
     input: OutboundLeafInput<'a>,
 ) -> Result<ClaimedOutboundLeaf<'a>, EngineError> {
-    let Some(OutboundLeafClaim {
-        tcp_path,
-        tcp,
-        #[cfg(feature = "udp-runtime")]
-        udp,
-        #[cfg(feature = "udp-runtime")]
-        packet_path,
-        #[cfg(feature = "raw-ip-runtime")]
-        packet,
-    }) = entry
+    let Some(claim) = entry
         .outbound
         .as_ref()
         .and_then(|outbound| outbound.claim_outbound_leaf(input.clone()))
@@ -230,11 +242,12 @@ fn claim_outbound_hooks<'a>(
         return Err(missing_claimed_outbound_leaf(entry.support.name()));
     };
     #[cfg(feature = "raw-ip-runtime")]
-    let packet_tcp = packet
+    let packet_tcp = claim
+        .packet
         .as_ref()
-        .is_some_and(|leaf| leaf.packet_flow_adapter().is_some());
-    let tcp_path = if tcp.is_some() {
-        tcp_path
+        .is_some_and(|leaf| leaf.flow.is_some());
+    let tcp_path = if claim.tcp.is_some() {
+        claim.tcp_path
     } else {
         #[cfg(feature = "raw-ip-runtime")]
         {
@@ -264,24 +277,7 @@ fn claim_outbound_hooks<'a>(
             OutboundLeafRuntime::proxy(outbound.tag(), entry.support.name(), server, port, tcp_path)
         }
     };
-    let tcp = ClaimedTcpHooks {
-        capability: tcp
-            .map(|claimed| Arc::from(claimed) as Arc<dyn ClaimedTcpOutboundLeaf<'a> + 'a>),
-    };
-    #[cfg(feature = "udp-runtime")]
-    let udp = ClaimedUdpHooks {
-        capability: udp.map(|claimed| Arc::from(claimed) as Arc<dyn ClaimedUdpFlowLeaf<'a> + 'a>),
-        packet_path: packet_path
-            .map(|claimed| Arc::from(claimed) as Arc<dyn ClaimedUdpPacketPathLeaf<'a> + 'a>),
-    };
-    Ok(ClaimedOutboundLeaf::new(
-        runtime,
-        tcp,
-        #[cfg(feature = "udp-runtime")]
-        udp,
-        #[cfg(feature = "raw-ip-runtime")]
-        packet.map(Arc::from),
-    ))
+    Ok(ClaimedOutboundLeaf::new(runtime, claim))
 }
 
 impl ProtocolRegistry {
@@ -300,18 +296,24 @@ impl ProtocolRegistry {
         leaf: ResolvedLeafOutbound<'a>,
     ) -> Result<ClaimedOutboundLeaf<'a>, EngineError> {
         match leaf {
-            ResolvedLeafOutbound::Block { tag } => {
-                #[cfg(feature = "udp-runtime")]
-                let udp = ClaimedUdpHooks::default();
-                Ok(ClaimedOutboundLeaf::new(
-                    OutboundLeafRuntime::block(tag),
-                    ClaimedTcpHooks::default(),
+            ResolvedLeafOutbound::Block { tag } => Ok(ClaimedOutboundLeaf::new(
+                OutboundLeafRuntime::block(tag),
+                OutboundLeafClaim {
+                    #[cfg(not(feature = "udp-runtime"))]
+                    _lifetime: std::marker::PhantomData,
+                    tcp_path: TcpPathCategory::Block,
+                    tcp: None,
+                    tcp_relay: None,
                     #[cfg(feature = "udp-runtime")]
-                    udp,
+                    udp: None,
+                    #[cfg(feature = "udp-runtime")]
+                    udp_relay: None,
+                    #[cfg(feature = "udp-runtime")]
+                    packet_path: None,
                     #[cfg(feature = "raw-ip-runtime")]
-                    None,
-                ))
-            }
+                    packet: None,
+                },
+            )),
             ResolvedLeafOutbound::Direct {
                 tag,
                 dial_policy,
@@ -342,6 +344,7 @@ impl ProtocolRegistry {
                     .ok_or_else(|| unsupported_outbound_leaf(protocol))?;
                 let input = match outbound.protocol.endpoint() {
                     Some(endpoint) => OutboundLeafInput::Proxy {
+                        config,
                         outbound,
                         endpoint,
                         source_dir: config.source_dir(),

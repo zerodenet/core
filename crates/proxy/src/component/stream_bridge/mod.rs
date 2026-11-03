@@ -16,7 +16,10 @@ use zero_platform_tokio::contract::{
     stream::ConnectRequest,
     ChannelError, Reason,
 };
-#[cfg(feature = "upstream-association-runtime")]
+#[cfg(any(
+    feature = "upstream-association-runtime",
+    feature = "managed-stream-runtime"
+))]
 pub(crate) mod datagram;
 pub(in crate::component) mod network;
 pub(crate) mod relay;

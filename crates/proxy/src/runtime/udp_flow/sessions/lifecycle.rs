@@ -63,6 +63,15 @@ impl UdpSessionFlows {
         );
     }
 
+    pub(crate) fn client_session_id(&self, session_id: Option<u64>) -> Option<u64> {
+        let session_id = session_id?;
+        self.flows.iter().find_map(|(key, flow)| {
+            (flow.session.id == session_id)
+                .then_some(key.client_session_id)
+                .flatten()
+        })
+    }
+
     pub(crate) fn rate_limiters_by_session_id(
         &self,
         session_id: Option<u64>,

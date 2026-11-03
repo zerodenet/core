@@ -112,7 +112,11 @@ impl BackgroundPath<'_> {
                 next,
                 wire,
                 services.upstream(),
-                services.outbound_io(tag, zero_api::TrafficPlane::Outer),
+                if tag.is_empty() {
+                    None
+                } else {
+                    services.outbound_io(tag, zero_api::TrafficPlane::Outer)
+                },
             );
             opener.datagram_slot = Some(node.slot.clone());
             opener.health = (index == 0).then(|| {

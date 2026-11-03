@@ -11,7 +11,8 @@ use zero_engine::EngineError;
 use super::super::inbound_protocol_identity;
 use super::{inbound, invalid, WireguardAdapter, WireguardRawIpPlan};
 use crate::{
-    protocol_registry::{OutboundDevicePreparationContext, UpstreamConnectServices},
+    adapters::devices::OutboundDevicePreparationContext,
+    protocol_registry::UpstreamConnectServices,
     runtime::raw_ip::{
         ProxiedRawIpWireCarrier, RawIpWireCarrier, SharedRawIpDevice, StagedRawIpDevices,
     },
@@ -87,10 +88,11 @@ impl WireguardAdapter {
                         generation,
                         cell,
                         false,
+                        outer_udp_proxy.is_some(),
                     )?;
                 }
                 let endpoints = resolve_endpoints(plan, upstream).await?;
-                let carriers = prepare_carriers(outer_udp_proxy, context, &endpoints).await?;
+                let carriers = link.reused_carriers();
                 return Ok((
                     link.clone(),
                     Some(inbound::LinkedEndpointUpdate {
@@ -149,6 +151,7 @@ impl WireguardAdapter {
                 generation,
                 cell,
                 true,
+                outer_udp_proxy.is_some(),
             )?;
             devices.push(device);
         }

@@ -54,13 +54,6 @@ impl InboundRouteRuntime {
         self.tcp_runtime.acquire_principal_device(auth)
     }
 
-    pub(crate) fn select_http_redirect(
-        &self,
-        destination: &zero_core::request::Destination,
-    ) -> Option<(u16, String)> {
-        self.tcp_runtime.select_http_redirect(destination)
-    }
-
     #[cfg(feature = "udp-runtime")]
     pub(crate) fn udp_runtime(&self) -> UdpIngressRuntime {
         self.udp_runtime
@@ -174,7 +167,16 @@ impl InboundRouteRuntimeFactory {
     }
 
     pub(crate) fn for_connection(&self, source_addr: Option<SocketAddr>) -> InboundRouteRuntime {
-        InboundRouteRuntime::new(self.shared.clone(), self.inbound_tag.clone(), source_addr)
+        let mut route =
+            InboundRouteRuntime::new(self.shared.clone(), self.inbound_tag.clone(), source_addr);
+        route.resources = self.resources.clone();
+        #[cfg(feature = "managed-datagram-runtime")]
+        let route = {
+            let mut route = route;
+            route.continuity = self.continuity.clone();
+            route
+        };
+        route
     }
 
     #[cfg(feature = "udp-runtime")]

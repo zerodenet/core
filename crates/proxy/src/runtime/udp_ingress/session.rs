@@ -14,7 +14,7 @@ impl UdpIngressRuntime {
         &self,
         session: &mut Session,
         inbound_tag: &str,
-    ) -> Result<(), EngineError> {
+    ) -> Result<crate::component::business_demand::AdmittedBusinessDemand, EngineError> {
         if session.inbound_local.is_none() {
             session.inbound_local = self.local_addr.map(|addr| {
                 (
@@ -46,9 +46,13 @@ impl UdpIngressRuntime {
             }
         }
         apply_kernel_rate_limits_from_config(self.tcp_services.config(), session, inbound_tag);
-        self.tcp_services
-            .engine()
-            .prepare_session(session, inbound_tag)
+        let engine = self.tcp_services.engine();
+        let admission = engine.prepare_session_admitted(session, inbound_tag)?;
+        crate::component::business_demand::AdmittedBusinessDemand::new(
+            engine,
+            zero_core::component::SessionId(session.id),
+            admission,
+        )
     }
 
     pub(crate) fn track_session(&self, session_id: u64) -> SessionHandle {

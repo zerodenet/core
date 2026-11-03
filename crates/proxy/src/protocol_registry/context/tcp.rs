@@ -20,6 +20,28 @@ impl std::ops::Deref for TcpRuntimeServices {
     }
 }
 impl TcpRuntimeServices {
+    pub(crate) fn with_datagram_returns(
+        mut self,
+        returns: Arc<crate::component::datagram_retirement::DatagramReturns>,
+    ) -> Self {
+        self.execution.datagram_returns = Some(returns);
+        self
+    }
+    pub(crate) fn with_inbound_instance(
+        mut self,
+        identity: zero_core::component::ComponentInstanceId,
+    ) -> Self {
+        if let Some(ingress) = &mut self.execution.ingress {
+            ingress.role = zero_core::component::RoleInstanceId {
+                component: identity.component,
+                generation: identity.generation,
+                role: zero_core::component::RoleId::Inbound(zero_core::component::InboundId(
+                    identity.component.0,
+                )),
+            };
+        }
+        self
+    }
     #[cfg(feature = "udp-runtime")]
     pub(crate) fn with_io_observer(
         mut self,
@@ -54,6 +76,7 @@ impl TcpRuntimeServices {
                 ),
                 principal_rate_limits,
                 retired_datagrams,
+                datagram_returns: None,
                 components,
                 invocation: None,
                 ingress: None,
@@ -140,13 +163,13 @@ impl TcpRuntimeServices {
     pub(crate) fn with_admitted_business_identity(
         self,
         session: &zero_core::Session,
-        demand: crate::component::business_demand::AdmittedTcpDemand,
+        demand: crate::component::business_demand::AdmittedBusinessDemand,
     ) -> Result<Self, zero_engine::EngineError> {
         demand.check(self.engine(), zero_core::component::SessionId(session.id))?;
         let mut services = self.with_business_identity(session)?;
         let invocation = services.execution.invocation.as_mut().ok_or_else(|| {
             zero_engine::EngineError::AdmissionDenied {
-                reason: "admitted TCP demand requires its real ingress identity".into(),
+                reason: "admitted business demand requires its real ingress identity".into(),
             }
         })?;
         if !matches!(&invocation.identity,
@@ -154,7 +177,7 @@ impl TcpRuntimeServices {
                 if facts.session.0 == session.id)
         {
             return Err(zero_engine::EngineError::AdmissionDenied {
-                reason: "admitted TCP demand cannot replace another request identity".into(),
+                reason: "admitted business demand cannot replace another request identity".into(),
             });
         }
         invocation.admitted = Some(demand);

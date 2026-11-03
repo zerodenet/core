@@ -6,9 +6,9 @@ use zero_engine::EngineError;
 
 #[cfg(feature = "upstream-association-runtime")]
 use crate::runtime::udp_flow::registered::ClosedRegisteredUpstreamAssociation;
+use crate::runtime::udp_flow::registered::RegisteredUdpState;
 #[cfg(feature = "upstream-association-runtime")]
 use crate::runtime::udp_flow::registered::RegisteredUpstreamAssociationView;
-use crate::runtime::udp_flow::registered::{RegisteredUdpHandlers, RegisteredUdpState};
 #[cfg(feature = "upstream-association-runtime")]
 use crate::runtime::udp_flow::response::UpstreamUdpResponse;
 use crate::runtime::udp_flow::response_join::{ResponseSetLease, ResponseSetOwner};
@@ -47,10 +47,10 @@ impl UpstreamUdpPoll<'_> {
 }
 
 impl UdpFlowState {
-    pub(crate) fn new(handlers: RegisteredUdpHandlers) -> Self {
+    pub(crate) fn new() -> Self {
         let (response_owner, chain_tasks) = ResponseSetOwner::new(JoinSet::new());
         Self {
-            registered: RegisteredUdpState::new(handlers),
+            registered: RegisteredUdpState::new(),
             packet_path: crate::runtime::udp_flow::packet_path_chain::PacketPathManager::new(),
             chain_tasks,
             response_owner,

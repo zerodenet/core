@@ -3,7 +3,7 @@ mod grant;
 #[cfg(feature = "raw-ip-runtime")]
 mod icmp;
 mod lease;
-mod native;
+pub(super) mod native;
 mod retirement;
 use super::*;
 use crate::protocol_registry::PreparedInboundBind;
@@ -24,7 +24,7 @@ impl InboundOwnerRegistry {
         tag: &str,
         config: &Arc<RuntimeConfig>,
         protocols: &ProtocolInventory,
-        prepared: PreparedInboundBind,
+        mut prepared: PreparedInboundBind,
         shutdown: watch::Sender<bool>,
         max_bind_attempts: NonZeroUsize,
     ) -> Result<InboundBindLease, EngineError> {
@@ -33,16 +33,13 @@ impl InboundOwnerRegistry {
                 "listener reservation is outside its actual configuration",
             ));
         }
-        let accepted_slots = match prepared.accepted_tcp_limits() {
-            Some(limits) => limits
-                .task_slots()
-                .ok_or_else(|| io("accepted TCP task ceiling overflow"))?
-                .get(),
-            None => 0,
-        };
+        let accepted_slots = prepared
+            .accepted_tcp_slots()
+            .ok_or_else(|| io("accepted TCP task ceiling overflow"))?;
         let limit = prepared
             .internal_tasks()
             .checked_add(1)
+            .and_then(|limit| limit.checked_add(prepared.host_tasks()))
             .and_then(|limit| limit.checked_add(accepted_slots))
             .and_then(NonZeroUsize::new)
             .ok_or_else(|| io("inbound declared task limit exhausted"))?;
@@ -64,26 +61,41 @@ impl InboundOwnerRegistry {
         self.mark_listener_generation();
         let identity = protocols.allocate_resource_identity()?;
         let owner = Arc::new(InboundOwner::new(identity, limit, shutdown.clone()));
+        if let Some(recovery) = prepared.take_recovery() {
+            owner.install_recovery(recovery)?;
+        }
         let grant = Arc::new(
             native::NativeBindGrant::new(
                 identity,
-                &prepared.resources()[0],
+                prepared.resources(),
                 prepared.address(),
                 max_bind_attempts,
                 owner.task_access().cancellation(),
                 owner.accepted_registrar(),
+                Arc::downgrade(&owner),
             )
             .map_err(std::io::Error::other)?,
         );
         // Construction above is cold. The unique actual native holder is a
         // registered resource before this owner or any bind capability escapes.
         owner.install_listener_native(identity, grant.resource())?;
-        if let Some(receiver) = grant.accepted_task_receiver() {
+        for receiver in grant.accepted_task_receiver() {
             owner.install_accepted_receiver(receiver)?;
         }
+        for resource in grant.extra_resources() {
+            owner.install_listener_native(identity, resource)?;
+        }
         #[cfg(feature = "raw-ip-runtime")]
-        if let Some(declaration) = prepared.resources().get(1) {
-            owner.install_icmp_probe(declaration)?;
+        if let [zero_platform_tokio::contract::component::ResourceDeclaration::DatagramListener {
+            ..
+        }, declaration] = prepared.resources()
+        {
+            if matches!(
+                declaration,
+                zero_platform_tokio::contract::component::ResourceDeclaration::NativeIcmp { .. }
+            ) {
+                owner.install_icmp_probe(declaration)?;
+            }
         }
         reserved.config = Arc::downgrade(config);
         reserved.entries.insert(tag.to_owned(), owner.clone());

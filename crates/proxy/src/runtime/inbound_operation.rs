@@ -1,58 +1,13 @@
-//! Prepared inbound-listener contracts plus focused listener/context modules.
-//!
-//! The root stays as a facade so TCP, TCP+datagram, authenticated QUIC, and
-//! mixed TCP-or-QUIC execution do not regrow into one large implementation
-//! bucket.
+//! Standard source dispatch and focused Control/Packet execution.
+//! Protocol factories hand off real accepted channels; this facade owns no SPI.
 
-mod context;
-mod contract;
-#[cfg(feature = "managed-stream-runtime")]
 pub(crate) mod control;
-#[cfg(feature = "authenticated-quic-inbound-runtime")]
-mod multiplex;
-#[cfg(feature = "transport_quic")]
-mod prelude;
-#[cfg(feature = "authenticated-quic-inbound-runtime")]
-mod quic;
 #[cfg(feature = "raw-ip-runtime")]
 pub(crate) mod raw_ip;
-#[cfg(feature = "managed-datagram-runtime")]
-mod tcp_and_datagram;
-#[cfg(feature = "managed-datagram-runtime")]
-mod tcp_and_peer_datagram;
-mod tcp_listener;
-#[cfg(feature = "transport_quic")]
-mod tcp_or_quic;
+pub(in crate::runtime) mod source;
 
-pub(crate) use context::InboundConnectionContext;
-pub(crate) use contract::PreparedInboundListenerOperation;
-#[cfg(feature = "authenticated-quic-inbound-runtime")]
-pub(crate) use quic::{AuthenticatedQuicInboundListenerOperation, AuthenticatedQuicInboundProfile};
 #[cfg(feature = "raw-ip-runtime")]
 pub(crate) use raw_ip::{
     EndpointPeerState, RawIpInboundAction, RawIpInboundDevice, RawIpInboundDispatch,
-    RawIpInboundEndpoint, RawIpInboundListenerOperation,
+    RawIpInboundEndpoint,
 };
-#[cfg(feature = "managed-datagram-runtime")]
-pub(crate) use tcp_and_datagram::TcpAndDatagramInboundListenerOperation;
-pub(crate) use tcp_listener::TcpInboundListenerOperation;
-#[cfg(feature = "transport_quic")]
-pub(crate) use tcp_or_quic::TcpOrQuicInboundListenerOperation;
-
-#[cfg(feature = "managed-datagram-runtime")]
-pub(crate) use tcp_and_peer_datagram::TcpAndPeerDatagramInboundListenerOperation;
-
-#[cfg(feature = "inbound-listener-group-runtime")]
-mod group;
-#[cfg(feature = "inbound-listener-group-runtime")]
-pub(crate) use group::InboundListenerGroupOperation;
-
-#[cfg(feature = "datagram-route-runtime")]
-mod peer_route;
-#[cfg(feature = "datagram-route-runtime")]
-pub(crate) use peer_route::PeerRouteInboundListenerOperation;
-
-#[cfg(feature = "transport_quic")]
-mod quic_connection;
-#[cfg(feature = "transport_quic")]
-pub(crate) use quic_connection::QuicConnectionInboundListenerOperation;

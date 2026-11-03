@@ -1,21 +1,15 @@
-use ::mieru::transport::{
-    MieruInboundListenerRequest, MieruInboundUserRef, MieruOutboundOptionsRef, MieruTransportLeaf,
-};
+use ::mieru::transport::{MieruOutboundOptionsRef, MieruTransportLeaf};
 
-use zero_config::{InboundConfig, InboundProtocolConfig, OutboundProtocolConfig};
-use zero_engine::EngineError;
+use zero_config::OutboundProtocolConfig;
 use zero_traits::{ProtocolCapabilityDescriptor, ProtocolMetadata};
 
 use crate::adapters::identity::NamedProtocolAdapter;
-use crate::protocol_registry::{
-    InboundListenerCapability, ManagedUdpHandlerProvider, OutboundLeafClaim, OutboundLeafInput,
-};
+use crate::protocol_registry::{OutboundLeafClaim, OutboundLeafInput};
 use crate::runtime::path::TcpPathCategory;
-use crate::runtime::udp_flow::managed::ManagedStreamHandlerPair;
 
 pub(crate) mod component;
 #[cfg(feature = "mieru")]
-mod inbound;
+pub(crate) mod inbound;
 #[cfg(feature = "mieru")]
 mod tcp;
 #[cfg(feature = "mieru")]
@@ -71,102 +65,22 @@ impl MieruAdapter {
             return None;
         };
         let leaf = transport_leaf(outbound.tag(), &outbound.protocol)?.with_pool(self.pool.clone());
-        let tcp = self.claim_tcp_outbound_leaf_impl(leaf.clone());
+        let tcp = std::sync::Arc::new(
+            crate::runtime::tcp_dispatch::operation::SocketTcpOperation {
+                handshake: leaf.clone(),
+            },
+        );
+        let (udp, udp_relay) = self.udp_operations(leaf);
         Some(OutboundLeafClaim {
             tcp_path: TcpPathCategory::Session,
-            tcp: Some(tcp),
-            udp: Some(self.claim_udp_flow_leaf_impl(leaf)),
+            tcp: Some(Ok(tcp.clone())),
+            tcp_relay: Some(Ok(tcp)),
+            udp: Some(udp),
+            udp_relay: Some(udp_relay),
             #[cfg(feature = "raw-ip-runtime")]
             packet: None,
             packet_path: None,
         })
-    }
-}
-
-#[cfg(feature = "mieru")]
-impl ManagedUdpHandlerProvider for MieruAdapter {
-    fn managed_datagram_udp_handler(
-        &self,
-    ) -> Option<Box<dyn crate::runtime::udp_flow::managed::ManagedDatagramFlowHandler>> {
-        Some(udp::managed_datagram_handler())
-    }
-
-    fn managed_stream_udp_handlers(&self) -> Option<ManagedStreamHandlerPair> {
-        Some(udp::managed_stream_handler())
-    }
-}
-
-#[cfg(feature = "mieru")]
-#[async_trait::async_trait]
-impl InboundListenerCapability for MieruAdapter {
-    async fn bind_inbound(
-        &self,
-        inbound: &InboundConfig,
-        _source_dir: Option<&std::path::Path>,
-    ) -> Result<crate::protocol_registry::BoundInbound, EngineError> {
-        if matches!(
-            inbound.protocol,
-            InboundProtocolConfig::Mieru {
-                transport: zero_config::MieruTransport::Udp,
-                ..
-            }
-        ) {
-            return Ok(crate::protocol_registry::BoundInbound::Datagram(
-                std::sync::Arc::new(
-                    crate::protocol_registry::bind_datagram_listener(
-                        &inbound.listen.address,
-                        inbound.listen.port,
-                    )
-                    .await?,
-                )
-                .into(),
-            ));
-        }
-        Ok(crate::protocol_registry::BoundInbound::Tcp(
-            crate::protocol_registry::bind_tcp_listener(
-                &inbound.listen.address,
-                inbound.listen.port,
-            )
-            .await?,
-        ))
-    }
-
-    fn prepare_inbound_listener(
-        &self,
-        inbound: InboundConfig,
-        _source_dir: Option<&std::path::Path>,
-    ) -> Result<
-        Box<dyn crate::runtime::inbound_operation::PreparedInboundListenerOperation>,
-        EngineError,
-    > {
-        let profile = match &inbound.protocol {
-            InboundProtocolConfig::Mieru { users, options, .. } => {
-                MieruInboundListenerRequest::from_options_refs(users.iter().map(|user| {
-                    MieruInboundUserRef {
-                        username: user.username.as_str(),
-                        password: user.password.as_str(),
-                        principal_key: user.principal_key.as_deref(),
-                    }
-                }))
-                .with_options(options.clone())
-            }
-            _ => {
-                return Err(EngineError::Io(std::io::Error::new(
-                    std::io::ErrorKind::InvalidInput,
-                    "mieru inbound listener received non-mieru inbound config",
-                )));
-            }
-        };
-        Ok(inbound::prepare(
-            profile,
-            matches!(
-                inbound.protocol,
-                InboundProtocolConfig::Mieru {
-                    transport: zero_config::MieruTransport::Udp,
-                    ..
-                }
-            ),
-        ))
     }
 }
 

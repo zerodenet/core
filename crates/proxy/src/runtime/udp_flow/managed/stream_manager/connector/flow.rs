@@ -1,5 +1,3 @@
-use std::any::Any;
-
 use super::super::super::connection::SharedManagedUdpConnection;
 use crate::protocol_registry::UdpRuntimeServices;
 use crate::runtime::path::OutboundEndpoint;
@@ -10,8 +8,13 @@ use zero_engine::EngineError;
 
 #[async_trait]
 pub(crate) trait ManagedStreamFlowConnector:
-    Any + Clone + Send + Sync + std::fmt::Debug + 'static
+    Clone + Send + Sync + std::fmt::Debug + 'static
 {
+    const ESTABLISH_STAGE: &'static str;
+    const RELAY_UPSTREAM_STAGE: &'static str;
+    const RELAY_ESTABLISH_STAGE: &'static str;
+    const RELAY_SEND_STAGE: &'static str;
+
     fn connector_flow(
         &self,
         endpoint: OutboundEndpoint,

@@ -97,7 +97,13 @@ impl UpstreamOpener for BackgroundCarrier {
             let services = source
                 .runtime_services()
                 .map_err(|error| invalid().with_source(error))?;
-            let binding = selected.ok_or_else(invalid)?;
+            let binding = selected.unwrap_or_else(|| UpstreamBinding {
+                prefix: vec![],
+                dial: self.initial.dial.clone(),
+                network_generation: zero_core::component::NetworkGeneration(
+                    self.network.egress.generation(),
+                ),
+            });
             if call.session.is_some()
                 || call.cancel.is_cancelled()
                 || binding.dial != self.initial.dial

@@ -11,24 +11,21 @@ impl ProtocolInventory {
         &self,
         ctx: UdpAdapterContext<'a>,
         session: &'a zero_core::Session,
-        claimed_chain: &ClaimedRelayChain<'a>,
+        claimed_chain: ClaimedRelayChain<'a>,
         payload: &'a [u8],
     ) -> Result<PreparedUdpRelayChain<'a>, FlowFailure> {
-        self.validate_udp_relay_chain(ctx.clone(), claimed_chain)?;
+        self.validate_udp_relay_chain(ctx.clone(), &claimed_chain)?;
         let outbound_ctx = OutboundAdapterContext::new(ctx.config());
         let prepared_prefix = self
-            .prepare_claimed_tcp_relay_chain(outbound_ctx, claimed_chain)
+            .prepare_claimed_tcp_relay_chain(outbound_ctx, &claimed_chain)
             .map_err(flow_failure_from_tcp_outbound)?;
         let prefix = prepared_prefix.datagram_prefixes.last().cloned().flatten();
-        if let (Some(prefix), Some(datagram)) = (
-            prefix.clone(),
-            claimed_chain
-                .final_hop()
-                .prepare_udp_packet_path(ctx.source_dir()),
-        ) {
+        if let (Some(prefix), Some(datagram)) =
+            (prefix.clone(), claimed_chain.final_hop().udp_packet_path())
+        {
             if let Some((flow_binding, request)) = super::packet_path::build_udp_packet_path_pair(
                 session.id,
-                Box::new(prefix),
+                std::sync::Arc::new(prefix),
                 datagram,
                 UdpPacketRef {
                     target: &session.target,
@@ -43,8 +40,8 @@ impl ProtocolInventory {
             }
         }
 
-        let final_hop = claimed_chain.final_hop().clone().into_claimed();
-        let operation = final_hop.prepare_udp_relay(ctx.source_dir())?;
+        let final_hop = claimed_chain.into_final_hop().into_claimed();
+        let operation = final_hop.into_udp_relay()?;
 
         if operation.requires_datagram_carrier() {
             return super::datagram_relay::prepare(prefix, operation);

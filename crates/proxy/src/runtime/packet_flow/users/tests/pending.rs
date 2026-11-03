@@ -1,7 +1,7 @@
 //! The real PacketTcpOperation transfers provenance from the actual B caller.
 use super::*;
 use crate::{
-    component::business_demand::AdmittedTcpDemand,
+    component::business_demand::AdmittedBusinessDemand,
     runtime::{
         inbound_operation::raw_ip::native_obligations::{ChildKind, NativeObligations},
         inbound_owners::InboundOwnerRegistry,
@@ -97,7 +97,7 @@ async fn pending_packet_connect_retires_its_view_but_waits_for_the_original_busi
                 ProtocolType::new("verified"),
             );
             let receipt = engine.prepare_session_admitted(&mut session, "in")?;
-            let demand = AdmittedTcpDemand::new(&engine, SessionId(session.id), receipt)?;
+            let demand = AdmittedBusinessDemand::new(&engine, SessionId(session.id), receipt)?;
             let services = services
                 .with_admitted_business_identity(&session, demand)?
                 .with_caller_native(Some(registration))?

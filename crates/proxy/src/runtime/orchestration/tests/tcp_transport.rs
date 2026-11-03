@@ -1,5 +1,5 @@
 pub(super) mod fixtures;
-use crate::{protocol_registry::OutboundAdapterContext, Proxy};
+use crate::Proxy;
 use fixtures::*;
 use serde_json::json;
 use tokio::{
@@ -33,46 +33,11 @@ async fn materialized_transport_leaves_keep_relative_roots_and_isolate_real_mux_
             start_components(&upstream).await;
             let mut input = config.inbounds[0].clone();
             input.listen.port = 0;
-            // Keep the actual bound listener until the real runtime takes it.
-            let bound = upstream
-                .protocols
-                .bind_inbound(&input, config.source_dir())
-                .await
-                .unwrap();
-            let address = match &bound {
-                crate::protocol_registry::BoundInbound::Tcp(listener) => {
-                    listener.local_addr().unwrap()
-                }
-                _ => panic!("actual TCP listener"),
-            };
-            let mut operation = upstream
-                .protocols
-                .prepare_inbound_listener(input, config.source_dir())
-                .unwrap();
-            let (shutdown, rx) = watch::channel(false);
-            let installed = upstream
-                .inbound_owners
-                .install_listener(
-                    "incoming",
-                    &upstream.protocols,
-                    operation.internal_tasks(),
-                    shutdown.clone(),
-                )
-                .unwrap();
-            operation.install_resources(&installed).unwrap();
-            let owner = installed.owner();
-            let runtime = crate::runtime::route_runtime::InboundListenerRuntime::new(
-                crate::runtime::route_runtime::SharedIngressRuntimeServices::new(
-                    upstream.tcp_runtime_services(),
-                ),
-                "incoming".into(),
-                Some(owner.task_access()),
-            );
-            owner
-                .spawn_driver(operation.execute(runtime, bound, rx))
-                .unwrap();
-            owner.seal_listener_installation();
-            let inbound_worker = tokio::spawn(async move { owner.observe_listener().await });
+            let listener = crate::runtime::test_listener::start(&upstream, input).await;
+            let address = listener.address;
+            let shutdown = listener.stop;
+            let inbound_worker = listener.worker;
+
             let fixture = Fixture::start(address).await;
             let mut outbound = credentials(protocol);
             outbound["server"] = json!("127.0.0.1");
@@ -185,10 +150,7 @@ async fn connect(
     };
     let claimed = proxy.protocols.claim_outbound_leaf(config, leaf).unwrap();
     let operation = claimed
-        .prepare_tcp_connect_for_route(
-            OutboundAdapterContext::new(config).source_dir(),
-            RouteMode::Flow,
-        )
+        .tcp_connect_for_route(RouteMode::Flow)
         .map_err(|failure| failure.error)?;
     let mut session = Session::new(
         0,
@@ -249,10 +211,14 @@ fn cold_tcp_errors_stay_deferred_and_preserve_connect_and_relay_diagnostics() {
         let leaf = zero_engine::ResolvedLeafOutbound::Proxy {
             identity: zero_engine::OutboundIdentity::from_config_index(0),
         };
-        let claimed = proxy.protocols.claim_outbound_leaf(&config, leaf).unwrap();
-        assert!(claimed.clone().into_claimed().has_udp_flow_capability());
+        let claimed = proxy
+            .protocols
+            .claim_outbound_leaf(&config, leaf)
+            .unwrap()
+            .into_claimed();
+        assert!(claimed.has_udp_flow_capability());
         let connect = claimed
-            .prepare_tcp_connect_for_route(None, RouteMode::Flow)
+            .tcp_connect_for_route(RouteMode::Flow)
             .err()
             .expect("deferred invalid TCP config");
         assert_eq!(
@@ -272,7 +238,7 @@ fn cold_tcp_errors_stay_deferred_and_preserve_connect_and_relay_diagnostics() {
             .to_string()
             .contains(&format!("invalid {protocol} tcp config:")));
         let relay = claimed
-            .prepare_tcp_relay_hop(None)
+            .tcp_relay_hop()
             .err()
             .expect("deferred invalid relay config");
         assert!(relay

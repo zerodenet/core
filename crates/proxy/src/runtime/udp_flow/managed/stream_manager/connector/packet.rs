@@ -23,8 +23,6 @@ pub(crate) trait ManagedPacketUdpResumeConnector:
     const RELAY_UPSTREAM_STAGE: &'static str;
     const RELAY_ESTABLISH_STAGE: &'static str;
     const RELAY_SEND_STAGE: &'static str;
-    const MISMATCH_STAGE: &'static str;
-    const MISMATCH_MESSAGE: &'static str;
 
     fn connector_flow(&self, server: &str, port: u16, session_id: u64) -> Self::ConnectorFlow;
 
@@ -57,6 +55,10 @@ impl<T> ManagedStreamFlowConnector for ManagedPacketUdpResume<T>
 where
     T: ManagedPacketUdpResumeConnector,
 {
+    const ESTABLISH_STAGE: &'static str = T::ESTABLISH_STAGE;
+    const RELAY_UPSTREAM_STAGE: &'static str = T::RELAY_UPSTREAM_STAGE;
+    const RELAY_ESTABLISH_STAGE: &'static str = T::RELAY_ESTABLISH_STAGE;
+    const RELAY_SEND_STAGE: &'static str = T::RELAY_SEND_STAGE;
     fn connector_flow(
         &self,
         endpoint: OutboundEndpoint,

@@ -13,8 +13,15 @@ use zero_platform_tokio::contract::{
 
 pub(in crate::runtime::inbound_owners::bind) struct NativeDatagramGrant {
     identity: ComponentInstanceId,
-    address: std::net::SocketAddr,
-    native: Mutex<HostDatagramListenerOwner>,
+    addresses: std::sync::OnceLock<Arc<[std::net::SocketAddr]>>,
+    declaration: ResourceDeclaration,
+    attempts: NonZeroUsize,
+    resolution: std::sync::OnceLock<(
+        zero_core::component::TaskId,
+        zero_platform_tokio::contract::scope::TaskJoinWitness,
+    )>,
+    resolved: std::sync::OnceLock<Result<(), crate::component::instance::SharedError>>,
+    native: Mutex<Option<HostDatagramListenerOwner>>,
     cancel: CancellationToken,
     bound: AtomicBool,
 }
@@ -22,18 +29,54 @@ impl NativeDatagramGrant {
     pub(super) fn new(
         identity: ComponentInstanceId,
         declaration: &ResourceDeclaration,
-        address: std::net::SocketAddr,
+        address: Option<std::net::SocketAddr>,
         attempts: NonZeroUsize,
         cancel: CancellationToken,
     ) -> Result<Self, ChannelError> {
+        let ResourceDeclaration::DatagramListener {
+            max_bind_attempts, ..
+        } = declaration
+        else {
+            return Err(ChannelError::new(
+                Stage::Prepare,
+                Reason::InvalidConfig,
+                Impact::Component,
+            ));
+        };
+        if attempts > *max_bind_attempts {
+            return Err(ChannelError::new(
+                Stage::Prepare,
+                Reason::InvalidConfig,
+                Impact::Component,
+            ));
+        }
+        // As with the resolving TCP grant, one hostname bind may try the
+        // original lookup's bounded candidates. Literal startup stays one try.
+        let attempts = if address.is_none() {
+            *max_bind_attempts
+        } else {
+            attempts
+        };
+        let addresses = std::sync::OnceLock::new();
+        if let Some(address) = address {
+            let _ = addresses.set(Arc::from([address]));
+        }
         Ok(Self {
             identity,
-            address,
-            native: Mutex::new(HostDatagramListenerOwner::new(
-                identity.component,
-                declaration,
-                attempts,
-            )?),
+            addresses,
+            declaration: declaration.clone(),
+            attempts,
+            resolution: std::sync::OnceLock::new(),
+            resolved: std::sync::OnceLock::new(),
+            native: Mutex::new(if address.is_some() {
+                Some(HostDatagramListenerOwner::new(
+                    identity.component,
+                    declaration,
+                    attempts,
+                )?)
+            } else {
+                None
+            }),
             cancel,
             bound: AtomicBool::new(false),
         })
@@ -51,9 +94,31 @@ impl NativeDatagramGrant {
         }
         // The unique native ledger was registered before this synchronous call;
         // no await or post-bind cancellation can lose the original socket.
-        let view = native
-            .bind_listener(self.address)
-            .map_err(std::io::Error::other)?;
+        let owner = native
+            .as_mut()
+            .ok_or_else(|| std::io::Error::other("original UDP resolution is not installed"))?;
+        let addresses = self
+            .addresses
+            .get()
+            .ok_or_else(|| std::io::Error::other("UDP addresses are not resolved"))?;
+        let mut last = None;
+        let mut view = None;
+        for address in addresses.iter().take(self.attempts.get()) {
+            match owner.bind_listener(*address) {
+                Ok(bound) => {
+                    view = Some(bound);
+                    break;
+                }
+                Err(error) => {
+                    if !error.retry_permitted() {
+                        return Err(std::io::Error::other(error).into());
+                    }
+                    last = Some(error);
+                }
+            }
+        }
+        let view =
+            view.ok_or_else(|| std::io::Error::other(last.expect("nonempty bounded addresses")))?;
         self.bound.store(true, Ordering::Release);
         acquired();
         Ok(view)
@@ -74,11 +139,15 @@ impl ResourceLifecycle for DatagramResource {
         self.0.cancel.cancel();
         // Every native operation is synchronous. This same short lock makes
         // revoke linearize after an in-flight bind, including another thread.
-        self.0
+        if let Some(owner) = self
+            .0
             .native
             .lock()
             .expect("native datagram owner poisoned")
-            .revoke();
+            .as_mut()
+        {
+            owner.revoke();
+        }
     }
     async fn shutdown(&mut self, deadline: Instant) -> Result<CloseReport, ChannelError> {
         self.0.cancel.cancel();
@@ -87,10 +156,16 @@ impl ResourceLifecycle for DatagramResource {
             .native
             .lock()
             .expect("native datagram owner poisoned");
-        native.revoke();
-        native.shutdown(deadline)
+        if let Some(native) = native.as_mut() {
+            native.revoke();
+            native.shutdown(deadline)
+        } else {
+            Ok(CloseReport::default())
+        }
     }
 }
+
+mod resolution;
 
 #[cfg(test)]
 #[path = "udp/tests.rs"]

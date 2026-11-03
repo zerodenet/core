@@ -15,6 +15,8 @@ use zero_core::{Address, Network, ProtocolType, Session};
 use zero_engine::{RouteDecision, RouteMode};
 mod cancelled;
 mod cleanup;
+#[cfg(feature = "upstream-association-runtime")]
+mod datagram;
 mod replacement;
 mod server;
 use server::Server;

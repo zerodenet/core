@@ -72,8 +72,6 @@ pub(crate) mod tcp_ingress;
     feature = "managed-stream-runtime"
 ))]
 pub(crate) mod transport_leaf;
-#[cfg(feature = "upstream-association-runtime")]
-pub(crate) mod udp_association;
 #[cfg(feature = "udp-runtime")]
 pub(crate) mod udp_delivery;
 #[cfg(feature = "udp-runtime")]
@@ -169,14 +167,13 @@ impl Proxy {
         native_background: bool,
     ) -> Result<Self, EngineError> {
         let egress_interface = zero_platform_tokio::EgressInterfaceControl::default();
-        let background = native_background.then(|| {
-            Arc::new(crate::component::background::BackgroundNetwork::new(
-                egress_interface.clone(),
-            ))
-        });
+        let node_network = Arc::new(crate::component::background::BackgroundNetwork::new(
+            egress_interface.clone(),
+        ));
+        let background = native_background.then(|| node_network.clone());
         let protocols = match &background {
             Some(network) => ProtocolInventory::with_background(network.clone()),
-            None => ProtocolInventory::default(),
+            None => ProtocolInventory::with_node_network(node_network.clone()),
         };
         let config = engine.config();
         protocols.validate_config(&config)?;
@@ -204,7 +201,7 @@ impl Proxy {
         .map_err(EngineError::Io)?;
         let (orchestration_ready, _) = tokio::sync::watch::channel(false);
         let (configured_tun_failures, _) = tokio::sync::broadcast::channel(16);
-        let resolver = Arc::new(dns);
+        let resolver = Arc::new(dns.with_native_node_queries(node_network.native_dns.clone()));
         let principal_rate_limits = principal_rate_limit::PrincipalRateLimitRegistry::default();
         // Independent host limit for active + retiring native associations.
         // This is not the V1 packet queue capacity or a legacy session budget.
@@ -225,9 +222,7 @@ impl Proxy {
             principal_rate_limits.clone(),
             &retired_datagrams,
         ));
-        if let Some(background) = &background {
-            background.install(&resolver, Arc::downgrade(&current_services));
-        }
+        node_network.install(&resolver, Arc::downgrade(&current_services));
         let proxy = Self {
             config,
             engine,
@@ -448,3 +443,25 @@ impl Deref for Proxy {
 }
 
 pub(crate) mod traffic_io;
+
+#[cfg(all(test, feature = "vless", feature = "vmess", feature = "trojan"))]
+#[path = "runtime/tests/mux_prefix.rs"]
+mod mux_prefix;
+#[cfg(all(test, feature = "vless", feature = "vmess", feature = "trojan"))]
+pub(crate) use mux_prefix::MuxPrefix;
+
+#[cfg(all(test, feature = "managed-datagram-runtime"))]
+#[path = "runtime/tests/standard_listener.rs"]
+pub(crate) mod test_listener;
+
+#[cfg(all(test, feature = "hysteria2"))]
+#[path = "runtime/tests/hysteria2.rs"]
+mod hysteria2_tests;
+
+#[cfg(all(test, feature = "shadowsocks", unix))]
+#[path = "runtime/tests/ss_plugin.rs"]
+mod ss_plugin_tests;
+
+#[cfg(all(test, feature = "wireguard"))]
+#[path = "runtime/tests/wg_packet.rs"]
+mod wg_packet_tests;

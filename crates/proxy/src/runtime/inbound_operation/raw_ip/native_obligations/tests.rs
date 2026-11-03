@@ -85,19 +85,11 @@ async fn actual_child_udp_drop_and_true_scope_join_cannot_complete_its_host_term
     .unwrap();
     let config = proxy.engine().config();
     let registry = Arc::new(InboundOwnerRegistry::default());
-    let operation = proxy
+    let prepared = proxy
         .protocols
-        .prepare_inbound_listener(config.inbounds[0].clone(), None)
+        .prepare_inbound_bind(config.inbounds[0].clone(), None)
+        .unwrap()
         .unwrap();
-    let prepared = PreparedInboundBind::new(
-        operation,
-        Arc::from([ResourceDeclaration::TcpListener {
-            accepted: None,
-            destination: Destination::new(Address::Ipv4([127, 0, 0, 1]), 0),
-            max_bind_attempts: NonZeroUsize::new(1).unwrap(),
-        }]),
-    )
-    .unwrap();
     let (shutdown, _) = watch::channel(false);
     let mut lease = registry
         .reserve_listener(

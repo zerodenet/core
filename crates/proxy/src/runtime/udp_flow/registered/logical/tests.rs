@@ -1,13 +1,6 @@
 use super::*;
 use crate::runtime::udp_flow::{
-    managed::{
-        model::{ManagedStreamExistingSend, ManagedStreamPacketFlowHandler},
-        ManagedUdpFlowResume, ManagedUdpHandlers,
-    },
-    outbound::UdpFlowOutbound,
-    registered::RegisteredUdpHandlers,
-    sessions::UdpFlowKey,
-    snapshot::UdpFlowSnapshot,
+    outbound::UdpFlowOutbound, sessions::UdpFlowKey, snapshot::UdpFlowSnapshot,
 };
 use tokio::sync::mpsc;
 use zero_core::{Network, ProtocolType};
@@ -51,29 +44,8 @@ fn connection() -> (
     (connection, sent, responses)
 }
 
-// The old path must never get a chance to guess the type of a standard session.
-struct LegacyHandler;
-#[async_trait::async_trait]
-impl ManagedStreamPacketFlowHandler for LegacyHandler {
-    fn supports_managed_existing(&self, _: &ManagedUdpFlowResume) -> bool {
-        panic!("a standard UDP session reached legacy handler selection")
-    }
-    async fn send_managed_existing(
-        &mut self,
-        _: ManagedStreamExistingSend<'_>,
-    ) -> Result<usize, FlowFailure> {
-        panic!("a standard UDP session reached a legacy sender")
-    }
-}
 fn state() -> RegisteredUdpState {
-    RegisteredUdpState::new(RegisteredUdpHandlers {
-        managed: ManagedUdpHandlers {
-            #[cfg(feature = "managed-datagram-runtime")]
-            datagram: vec![],
-            stream_packet: vec![Box::new(LegacyHandler)],
-            relay: vec![],
-        },
-    })
+    RegisteredUdpState::new()
 }
 fn flow(id: u64, managed: ManagedUdpFlowRef, target: Address, port: u16) -> UdpFlowSnapshot {
     UdpFlowSnapshot {
@@ -100,7 +72,6 @@ async fn standard_session_sends_multiple_targets_and_empty_packets_without_legac
     let mut state = state();
     let (connection, mut sends, _) = connection();
     let reference = state.register_logical(7, connection);
-    assert!(state.managed_flow_resume(reference).is_none());
     let proxy = proxy();
     let mut tasks = JoinSet::new();
     for (target, port, payload) in [
@@ -125,7 +96,7 @@ async fn standard_session_sends_multiple_targets_and_empty_packets_without_legac
         );
     }
     assert!(tasks.is_empty(), "a send does not start a response worker");
-    state.release_logical_session(7);
+    state.release_session(7);
     assert!(sends.recv().await.is_none());
 }
 
@@ -152,7 +123,7 @@ async fn replacing_or_releasing_a_session_rejects_old_references_without_legacy_
         .await
         .unwrap_or_else(|failure| panic!("{}: {}", failure.stage, failure.error));
     assert_eq!(second_sends.recv().await.unwrap().2, b"new");
-    state.release_logical_session(7);
+    state.release_session(7);
     assert!(second_sends.recv().await.is_none());
     let result = state
         .forward_existing_managed_flow(
@@ -187,7 +158,10 @@ async fn typed_sessions_keep_one_response_reader_and_rearm_only_after_actual_joi
         // original receiver after acquiring its lock means the read returned.
         tokio::time::timeout(std::time::Duration::from_secs(2), async {
             loop {
-                if inspection.0.receiver.lock().await.is_empty() {
+                let ConnectionIo::Tuple { receiver, .. } = &inspection.0.io else {
+                    panic!("tuple fixture");
+                };
+                if receiver.lock().await.is_empty() {
                     break;
                 }
                 tokio::task::yield_now().await;
@@ -219,7 +193,7 @@ async fn typed_sessions_keep_one_response_reader_and_rearm_only_after_actual_joi
             )
         );
     }
-    state.release_logical_session(7);
+    state.release_session(7);
     state.poll_logical_responses(&mut tasks, &owner);
     assert!(tasks.is_empty());
 }

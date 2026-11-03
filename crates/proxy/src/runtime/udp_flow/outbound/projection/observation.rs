@@ -16,7 +16,16 @@ impl UdpFlowOutbound {
             #[cfg(feature = "managed-stream-runtime")]
             Self::LogicalStreamPacket { .. } => None,
             #[cfg(feature = "managed-stream-runtime")]
-            Self::StreamPacket { server, port, .. } => Some((server.clone(), *port)),
+            Self::StreamPacket {
+                server,
+                port,
+                remote,
+                ..
+            } => Some(
+                remote
+                    .map(|remote| (remote.ip().to_string(), remote.port()))
+                    .unwrap_or_else(|| (server.clone(), *port)),
+            ),
             #[cfg(feature = "udp-runtime")]
             Self::PacketPathDatagram { server, port, .. } => Some((server.clone(), *port)),
         }

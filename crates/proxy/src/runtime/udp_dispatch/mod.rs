@@ -59,6 +59,8 @@ mod socket;
 #[cfg(feature = "managed-datagram-runtime")]
 pub(crate) use socket::bound::BoundDirectBudget;
 #[cfg(feature = "udp-runtime")]
+pub(crate) use socket::DispatchDirectSockets;
+#[cfg(feature = "udp-runtime")]
 mod failure;
 #[cfg(feature = "udp-runtime")]
 mod forward;
@@ -72,8 +74,6 @@ mod outbound;
 #[cfg(feature = "udp-runtime")]
 mod packet_path;
 pub(crate) use crate::runtime::udp_flow::result::{FlowFailure, FlowStartResult};
-#[cfg(feature = "upstream-association-runtime")]
-pub(crate) use managed::UpstreamTrackedStart;
 #[cfg(feature = "udp-runtime")]
 pub(crate) use model::UdpDispatch;
 pub(crate) use outbound::start_udp_resolved_outbound;

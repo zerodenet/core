@@ -12,6 +12,25 @@ pub(crate) enum DispatchDirectSockets {
     Bound(Box<bound::BoundDirectSockets>),
 }
 impl DispatchDirectSockets {
+    pub(crate) fn close_originals(
+        &mut self,
+    ) -> zero_platform_tokio::contract::lifecycle::CloseReport {
+        match self {
+            Self::Legacy(socket) => {
+                socket.close_all_native();
+                socket.take_native_close_report()
+            }
+            #[cfg(feature = "managed-datagram-runtime")]
+            Self::Bound(_) => zero_platform_tokio::contract::lifecycle::CloseReport {
+                unfinished: vec![
+                    zero_platform_tokio::contract::lifecycle::Unfinished::Resource(
+                        "bound UDP originals require their real peer owner".into(),
+                    ),
+                ],
+                ..Default::default()
+            },
+        }
+    }
     pub(crate) async fn new(
         runtime: &UdpIngressRuntime,
         preferred_port: Option<u16>,
@@ -22,10 +41,12 @@ impl DispatchDirectSockets {
                 .await
                 .map(|bound| Self::Bound(Box::new(bound)));
         }
-        Ok(Self::Legacy(Box::new(DirectUdpSockets::new(
-            runtime.services().network(),
-            preferred_port,
-        ))))
+        let sockets = DirectUdpSockets::new(runtime.services().network(), preferred_port);
+        let sockets = match runtime.accepted_native_socket_limit() {
+            Some(limit) => sockets.with_native_originals(limit),
+            None => sockets,
+        };
+        Ok(Self::Legacy(Box::new(sockets)))
     }
     pub(crate) fn generation(&self) -> u64 {
         match self {

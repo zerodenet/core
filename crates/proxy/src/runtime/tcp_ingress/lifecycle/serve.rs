@@ -116,7 +116,7 @@ async fn serve_with_identity_inner<P: InboundProtocol>(
     handle.register_cancellation(move || {
         let _ = cancel_tx.send(());
     });
-    let demand = crate::component::business_demand::AdmittedTcpDemand::new(
+    let demand = crate::component::business_demand::AdmittedBusinessDemand::new(
         runtime.runtime_services().engine(),
         zero_core::component::SessionId(session.id),
         admission,

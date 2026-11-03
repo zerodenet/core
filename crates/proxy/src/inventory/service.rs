@@ -13,6 +13,7 @@ use zero_core::{request::Destination, Address};
 use zero_engine::ResolvedOutbound;
 use zero_platform_tokio::contract::dns::DnsQueryRole;
 
+#[derive(Clone)]
 pub(crate) struct ServiceNode {
     pub(crate) slot: Arc<ComponentSlot>,
     pub(crate) tag: Option<String>,

@@ -1,4 +1,4 @@
-use crate::{protocol_registry::OutboundAdapterContext, Proxy};
+use crate::Proxy;
 use hysteria2::transport::{
     Hysteria2AuthenticatedInboundProfile, Hysteria2InboundBindOptionsRef, Hysteria2InboundBindPlan,
     Hysteria2InboundOptionsRef, Hysteria2InboundUserRef,
@@ -57,7 +57,7 @@ async fn source_relative_tcp_preparation_reuses_the_actual_authenticated_pool() 
             let (resolved,_) = proxy.engine().resolve_route_decision(RouteDecision::Route("pool".into())).unwrap();
             let ResolvedOutbound::Single(leaf) = resolved else { panic!("actual pooled leaf") };
             let claimed = proxy.protocols.claim_outbound_leaf(snapshot.config(),leaf).unwrap();
-            let prepared = claimed.prepare_tcp_connect_for_route(OutboundAdapterContext::new(snapshot.config()).source_dir(),zero_engine::RouteMode::Flow).map_err(|failure| failure.error).unwrap();
+            let prepared = claimed.tcp_connect_for_route(zero_engine::RouteMode::Flow).map_err(|failure| failure.error).unwrap();
             let mut session = Session::new(0,Address::Ipv4([203,0,113,1]),443,Network::Tcp,ProtocolType::new("test"));
             proxy.engine().prepare_session(&mut session,"incoming").unwrap();
             let established = prepared.execute(proxy.tcp_runtime_services().execution(),&session).await

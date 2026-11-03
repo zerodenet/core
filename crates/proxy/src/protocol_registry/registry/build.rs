@@ -1,11 +1,7 @@
 use std::sync::Arc;
 
 use super::ProtocolRegistry;
-#[cfg(feature = "managed-udp-runtime")]
-use crate::protocol_registry::ManagedUdpHandlerProvider;
-use crate::protocol_registry::{
-    InboundListenerCapability, OutboundLeafClaim, OutboundLeafInput, ProtocolSupportCapability,
-};
+use crate::protocol_registry::{OutboundLeafClaim, OutboundLeafInput, ProtocolSupportCapability};
 
 type OutboundLeafClaimFn<T> =
     for<'a> fn(&T, OutboundLeafInput<'a>) -> Option<OutboundLeafClaim<'a>>;
@@ -28,6 +24,27 @@ where
 }
 
 impl ProtocolRegistry {
+    pub(crate) fn register_standard_protocol<T>(
+        &mut self,
+        adapter: Arc<T>,
+        claim: Option<OutboundLeafClaimFn<T>>,
+    ) where
+        T: ProtocolSupportCapability + 'static,
+    {
+        assert!(
+            self.inbounds.has_factory(adapter.name()),
+            "standard inbound requires its actual component factory"
+        );
+        self.push_registered_entry(super::RegisteredProtocolEntry {
+            support: adapter.clone(),
+            outbound: claim.map(|claim| {
+                Arc::new(ProjectedOutboundClaimer {
+                    adapter: adapter.clone(),
+                    claim,
+                }) as Arc<dyn super::OutboundLeafClaimer>
+            }),
+        });
+    }
     #[cfg(test)]
     pub(crate) fn without_outbound_projection(mut self, protocol: &str) -> Self {
         self.entries
@@ -59,14 +76,6 @@ impl ProtocolRegistry {
         self.endpoint_observers.push(adapter);
     }
 
-    #[cfg(feature = "raw-ip-runtime")]
-    pub(crate) fn register_outbound_device_lifecycle<T>(&mut self, adapter: Arc<T>)
-    where
-        T: crate::protocol_registry::OutboundDeviceLifecycleCapability + 'static,
-    {
-        self.outbound_devices.push(adapter);
-    }
-
     fn push_registered_entry(&mut self, entry: super::RegisteredProtocolEntry) {
         let name = entry.support.name();
         assert!(
@@ -77,57 +86,5 @@ impl ProtocolRegistry {
             "protocol capability `{name}` registered more than once"
         );
         self.entries.push(entry);
-    }
-
-    pub(crate) fn register_core_capability<T>(
-        &mut self,
-        adapter: Arc<T>,
-        claim: Option<OutboundLeafClaimFn<T>>,
-    ) where
-        T: ProtocolSupportCapability + InboundListenerCapability + 'static,
-    {
-        self.push_registered_entry(super::RegisteredProtocolEntry {
-            support: adapter.clone(),
-            inbound: adapter.clone(),
-            outbound: claim.map(|claim| {
-                Arc::new(ProjectedOutboundClaimer {
-                    adapter: adapter.clone(),
-                    claim,
-                }) as Arc<dyn super::OutboundLeafClaimer>
-            }),
-            #[cfg(feature = "managed-udp-runtime")]
-            managed_udp_handlers: None,
-        });
-    }
-
-    #[cfg(feature = "managed-udp-runtime")]
-    pub(crate) fn register_managed_capability<T>(
-        &mut self,
-        adapter: Arc<T>,
-        claim: OutboundLeafClaimFn<T>,
-    ) where
-        T: ProtocolSupportCapability
-            + InboundListenerCapability
-            + ManagedUdpHandlerProvider
-            + 'static,
-    {
-        self.push_registered_entry(super::RegisteredProtocolEntry {
-            support: adapter.clone(),
-            inbound: adapter.clone(),
-            outbound: Some(Arc::new(ProjectedOutboundClaimer {
-                adapter: adapter.clone(),
-                claim,
-            })),
-            managed_udp_handlers: Some(adapter.clone()),
-        });
-    }
-
-    #[cfg(feature = "managed-udp-runtime")]
-    pub(crate) fn managed_udp_handler_providers(
-        &self,
-    ) -> impl Iterator<Item = &Arc<dyn ManagedUdpHandlerProvider>> {
-        self.entries
-            .iter()
-            .filter_map(|entry| entry.managed_udp_handlers.as_ref())
     }
 }

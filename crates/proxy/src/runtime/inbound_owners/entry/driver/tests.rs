@@ -29,7 +29,8 @@ async fn requested_driver_exit_closes_original_listener_without_fabricating_its_
     let mut lease = lease(&proxy, &config, 0);
     lease.bind_tcp().unwrap();
     let shutdown = lease.shutdown_sender();
-    let (operation, mut listener, installed) = lease.finish().unwrap().promote().unwrap();
+    let (operation, mut listener, installed) =
+        crate::runtime::inbound_owners::bind::tests::promote_tcp(lease.finish().unwrap());
     drop(operation);
     let address = listener.local_addr().unwrap();
     let owner = installed.owner();
@@ -37,7 +38,7 @@ async fn requested_driver_exit_closes_original_listener_without_fabricating_its_
     let pending = entered.clone();
     let mut stopping = shutdown.subscribe();
     owner.spawn_driver(async move {
-        let accepting = listener.accept();
+        let accepting = async { listener.accept_owned().await.map_err(std::io::Error::other) };
         tokio::pin!(accepting);
         tokio::select! {
             _ = stopping.wait_for(|stop| *stop) => Ok(()),
@@ -86,7 +87,8 @@ async fn work_panic_closes_same_original_then_resumes_in_the_same_registered_tas
     let config = proxy.engine().config();
     let mut lease = lease(&proxy, &config, 0);
     lease.bind_tcp().unwrap();
-    let (operation, mut listener, installed) = lease.finish().unwrap().promote().unwrap();
+    let (operation, mut listener, installed) =
+        crate::runtime::inbound_owners::bind::tests::promote_tcp(lease.finish().unwrap());
     drop(operation);
     let address = listener.local_addr().unwrap();
     let owner = installed.owner();
@@ -97,7 +99,7 @@ async fn work_panic_closes_same_original_then_resumes_in_the_same_registered_tas
     let (panic, mut panicking) = tokio::sync::oneshot::channel::<()>();
     owner.spawn_driver(async move {
         *actual_id.lock().unwrap() = Some(tokio::task::id());
-        let accepting = listener.accept();
+        let accepting = async { listener.accept_owned().await.map_err(std::io::Error::other) };
         tokio::pin!(accepting);
         tokio::select! {
             _ = &mut panicking => panic!("original driver work panic before explicit native close"),

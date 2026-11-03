@@ -1,5 +1,4 @@
 use super::*;
-use crate::runtime::inbound_operation::PreparedInboundListenerOperation;
 use std::{
     future::Future,
     pin::Pin,
@@ -14,18 +13,7 @@ use tokio::{
 use zero_core::{request::Destination, Address};
 use zero_platform_tokio::contract::component::ResourceDeclaration;
 
-struct Cold;
-impl PreparedInboundListenerOperation for Cold {
-    fn execute(
-        self: Box<Self>,
-        _: crate::runtime::route_runtime::InboundListenerRuntime,
-        _: crate::protocol_registry::BoundInbound,
-        _: watch::Receiver<bool>,
-    ) -> Pin<Box<dyn Future<Output = Result<(), EngineError>> + Send>> {
-        Box::pin(async { Ok(()) })
-    }
-}
-struct State(Arc<AtomicUsize>);
+struct State(Arc<AtomicUsize>, crate::component::ComponentRecipe);
 impl InboundRecovery for State {
     fn prepare_restore(
         &self,
@@ -33,14 +21,7 @@ impl InboundRecovery for State {
         _: Option<&std::path::Path>,
     ) -> Result<PreparedInboundBind, EngineError> {
         self.0.fetch_add(1, Ordering::SeqCst);
-        PreparedInboundBind::new(
-            Box::new(Cold),
-            Arc::from([ResourceDeclaration::TcpListener {
-                accepted: None,
-                destination: Destination::new(Address::Ipv4([127, 0, 0, 1]), 0),
-                max_bind_attempts: NonZeroUsize::new(1).unwrap(),
-            }]),
-        )
+        PreparedInboundBind::from_recipe(self.1.clone())
     }
 }
 
@@ -51,13 +32,14 @@ async fn exact_origin_capsule_survives_interrupted_real_native_close_and_pending
     let last_good = config.inbounds[0].clone();
     let mut lease = crate::runtime::inbound_owners::bind::tests::lease(&proxy, &config, 0);
     lease.bind_tcp().unwrap();
-    let (operation, mut listener, installed) = lease.finish().unwrap().promote().unwrap();
-    drop(operation);
+    let (operation, mut listener, installed) =
+        crate::runtime::inbound_owners::bind::tests::promote_tcp(lease.finish().unwrap());
+    let recipe = operation;
     let owner = installed.owner();
     let address = listener.local_addr().unwrap();
     let calls = Arc::new(AtomicUsize::new(0));
     owner
-        .install_recovery(Arc::new(State(calls.clone())))
+        .install_recovery(Arc::new(State(calls.clone(), recipe)))
         .unwrap();
     proxy
         .inbound_owners
@@ -68,7 +50,7 @@ async fn exact_origin_capsule_survives_interrupted_real_native_close_and_pending
     let (resume, release) = oneshot::channel();
     owner
         .spawn_driver(async move {
-            let accepting = listener.accept();
+            let accepting = async { listener.accept_owned().await.map_err(std::io::Error::other) };
             tokio::pin!(accepting);
             let result = std::future::poll_fn(|cx| match accepting.as_mut().poll(cx) {
                 Poll::Pending => {

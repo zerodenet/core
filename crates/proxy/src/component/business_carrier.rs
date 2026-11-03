@@ -1,6 +1,6 @@
 //! Actual ingress admission and current host owner, never public identity authority.
 use super::{
-    business_demand::AdmittedTcpDemand,
+    business_demand::AdmittedBusinessDemand,
     direct_bridge::Invocation,
     instance::{invalid, ComponentSlot},
 };
@@ -20,12 +20,13 @@ use zero_platform_tokio::{
 #[derive(Clone)]
 pub(super) struct BusinessCarrierRequest {
     slot: Weak<ComponentSlot>,
-    admitted: AdmittedTcpDemand,
+    admitted: AdmittedBusinessDemand,
     identity: RequestIdentity,
     session: SessionId,
     deadline: Option<Instant>,
     direct: bool,
-    caller_accepted: Option<zero_platform_tokio::AcceptedTcpCaller>,
+    prefix: Arc<[zero_core::component::RoleInstanceId]>,
+    caller_accepted: Option<zero_platform_tokio::AcceptedCaller>,
     #[cfg(feature = "raw-ip-runtime")]
     caller_native:
         Option<crate::runtime::inbound_operation::raw_ip::native_obligations::NativeRegistration>,
@@ -41,7 +42,8 @@ impl BusinessCarrierRequest {
         if !slot.recipe.spec().resources.iter().any(|resource| matches!(resource,
             zero_platform_tokio::contract::component::ResourceDeclaration::ControlledOutboundStream {
                 demand: zero_platform_tokio::contract::component::ControlledStreamDemandClass::Business, ..
-            } | zero_platform_tokio::contract::component::ResourceDeclaration::ControlledDirectStream { .. })) { return Ok(None); }
+            } | zero_platform_tokio::contract::component::ResourceDeclaration::ControlledNodeStream { .. }
+              | zero_platform_tokio::contract::component::ResourceDeclaration::ControlledDirectStream { .. })) { return Ok(None); }
         let Some(admitted) = &invocation.admitted else {
             return Ok(None);
         };
@@ -63,6 +65,7 @@ impl BusinessCarrierRequest {
                 error
             })?;
         let request = Self {
+            prefix: Arc::from([]),
             slot: Arc::downgrade(slot),
             admitted: admitted.clone(),
             identity: invocation.identity.clone(),
@@ -74,6 +77,10 @@ impl BusinessCarrierRequest {
             caller_native: invocation.caller_native.clone(),
         };
         Ok(Some(request))
+    }
+    pub(super) fn with_prefix(mut self, prefix: &[zero_core::component::RoleInstanceId]) -> Self {
+        self.prefix = prefix.into();
+        self
     }
     fn caller_witness(
         &self,
@@ -186,6 +193,12 @@ impl BusinessCarrierRequest {
         grant: &CarrierGrant,
     ) -> Result<CarrierBusinessGrant, ChannelError> {
         self.check()?;
+        if binding.prefix.as_slice() != self.prefix.as_ref() {
+            return Err(invalid(
+                Reason::StalePlan,
+                "business carrier prefix was not selected by this host request",
+            ));
+        }
         let slot = self
             .slot
             .upgrade()
@@ -209,6 +222,14 @@ impl BusinessCarrierRequest {
             // The host issuer has already installed this original caller on
             // the same reservation. Observe it before native preparation/await;
             // the original raw owner alone decides its remaining obligations.
+            caller
+                .observe_carrier_with_owner(&authorized.owner_registration(), grant.adoption())
+                .map_err(|mut error| {
+                    error.session.get_or_insert(self.session);
+                    error
+                })?;
+        }
+        if let Some(caller) = &self.caller_accepted {
             caller
                 .observe_carrier_with_owner(&authorized.owner_registration(), grant.adoption())
                 .map_err(|mut error| {

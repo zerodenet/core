@@ -97,5 +97,5 @@ async fn linked_stack_uses_configured_capacity_and_exposes_final_discards_on_exi
         .is_ok());
     assert_eq!(socket.recv_from().await.unwrap().payload, b"reply");
     device.close_now();
-    device.wait_stopped().await;
+    device.wait_workers_stopped().await.unwrap();
 }

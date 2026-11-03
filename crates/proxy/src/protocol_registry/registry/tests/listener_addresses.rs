@@ -9,7 +9,6 @@ use tokio::time::timeout;
 
 use crate::protocol_registry::bind_tcp_listener;
 #[cfg(feature = "managed-datagram-runtime")]
-use crate::protocol_registry::BoundInbound;
 
 fn ipv6_available() -> bool {
     match std::net::TcpListener::bind((Ipv6Addr::LOCALHOST, 0)) {
@@ -108,30 +107,6 @@ async fn datagram_listeners_accept_ipv6_and_preserve_ipv4_hostname_support() {
     }
 }
 
-#[cfg(feature = "managed-datagram-runtime")]
-#[tokio::test]
-async fn direct_ipv6_listener_binds_tcp_and_udp_to_the_same_endpoint() {
-    if !ipv6_available() {
-        return;
-    }
-    let registry = crate::register::protocol_registry();
-    for address in ["::1", "[::1]", "::", "[::]"] {
-        let inbound = serde_json::from_value(serde_json::json!({
-            "tag":"direct-v6", "listen":{"address":address,"port":0},
-            "protocol":{"type":"direct"}
-        }))
-        .unwrap();
-        let BoundInbound::TcpAndDatagram(tcp, udp) =
-            registry.bind_inbound(&inbound, None).await.unwrap()
-        else {
-            panic!("Direct must bind both sockets");
-        };
-        assert_eq!(tcp.local_addr().unwrap(), udp.local_addr().unwrap());
-        exercise_tcp(&tcp).await;
-        exercise_udp(&udp).await;
-    }
-}
-
 #[tokio::test]
 async fn ipv6_wildcard_records_os_default_ipv4_acceptance() {
     if !ipv6_available() {
@@ -182,8 +157,31 @@ async fn registered_tcp_adapters_bind_ipv6_literals() {
     if !ipv6_available() {
         return;
     }
+    #[cfg(any(feature = "trojan", feature = "vmess"))]
+    let material = {
+        let material = tempfile::tempdir().unwrap();
+        let cert = rcgen::generate_simple_self_signed(vec!["localhost".into()]).unwrap();
+        std::fs::write(material.path().join("ca.pem"), cert.cert.pem()).unwrap();
+        std::fs::write(
+            material.path().join("key.pem"),
+            cert.signing_key.serialize_pem(),
+        )
+        .unwrap();
+        material
+    };
     let registry = crate::register::protocol_registry();
-    for protocol in super::fixtures::compiled_in_inbound_configs() {
+    for mut protocol in super::fixtures::compiled_in_inbound_configs() {
+        #[cfg(any(feature = "trojan", feature = "vmess"))]
+        if matches!(
+            &protocol,
+            zero_config::InboundProtocolConfig::Trojan { .. }
+                | zero_config::InboundProtocolConfig::Vmess { .. }
+        ) {
+            let mut value = serde_json::to_value(&protocol).unwrap();
+            value["tls"] = serde_json::json!({"cert_path":material.path().join("ca.pem"),
+                "key_path":material.path().join("key.pem")});
+            protocol = serde_json::from_value(value).unwrap();
+        }
         if matches!(
             protocol,
             zero_config::InboundProtocolConfig::Hysteria2 { .. }
@@ -203,13 +201,14 @@ async fn registered_tcp_adapters_bind_ipv6_literals() {
                 idle_timeout_secs: None,
             };
             inbound.udp.enabled = false;
-            let listener = registry
-                .bind_inbound(&inbound, None)
-                .await
-                .unwrap()
-                .into_tcp();
-            assert!(listener.local_addr().unwrap().is_ipv6());
-            exercise_tcp(&listener).await;
+            if registry
+                .inbounds
+                .has_factory_for(inbound.protocol.protocol_name(), &inbound)
+            {
+                crate::runtime::inbound_owners::test_standard_native_listener(inbound).await;
+                continue;
+            }
+            panic!("every compiled inbound must have a standard factory");
         }
     }
 }
@@ -244,32 +243,14 @@ async fn registered_packet_adapters_bind_ipv6_literals() {
                 udp: Default::default(),
                 idle_timeout_secs: None,
             };
-            let crate::protocol_registry::BoundInbound::Datagram(socket) =
-                registry.bind_inbound(&inbound, None).await.unwrap()
-            else {
-                panic!("expected a packet listener");
-            };
-            assert!(socket.local_addr().unwrap().is_ipv6());
-            let target = SocketAddr::new(
-                Ipv6Addr::LOCALHOST.into(),
-                socket.local_addr().unwrap().port(),
-            );
-            let client = tokio::net::UdpSocket::bind((Ipv6Addr::LOCALHOST, 0))
-                .await
-                .unwrap();
-            client.send_to(b"packet", target).await.unwrap();
-            let mut bytes = [0; 64];
-            let (size, peer) = timeout(Duration::from_secs(3), socket.recv_from(&mut bytes))
-                .await
-                .unwrap()
-                .unwrap();
-            assert_eq!(&bytes[..size], b"packet");
-            socket.send_to(&bytes[..size], peer).await.unwrap();
-            let size = timeout(Duration::from_secs(3), client.recv(&mut bytes))
-                .await
-                .unwrap()
-                .unwrap();
-            assert_eq!(&bytes[..size], b"packet");
+            if registry
+                .inbounds
+                .has_factory_for(inbound.protocol.protocol_name(), &inbound)
+            {
+                crate::runtime::inbound_owners::test_standard_datagram_listener(inbound).await;
+                continue;
+            }
+            panic!("every compiled packet inbound must have a standard factory");
         }
     }
 }

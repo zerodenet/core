@@ -3,6 +3,7 @@ use crate::protocol_registry::{TcpRuntimeServices, UdpRuntimeServices};
 #[derive(Clone)]
 pub(crate) struct UdpIngressRuntime {
     pub(super) tcp_services: TcpRuntimeServices,
+    accepted_caller: Option<zero_platform_tokio::AcceptedCaller>,
     pub(super) services: UdpRuntimeServices,
     pub(super) local_addr: Option<std::net::SocketAddr>,
     pub(super) source_addr: Option<std::net::SocketAddr>,
@@ -19,10 +20,41 @@ pub(crate) struct UdpIngressRuntime {
 }
 
 impl UdpIngressRuntime {
+    pub(crate) fn accepted_native_socket_limit(&self) -> Option<std::num::NonZeroUsize> {
+        // Independent kernel-egress budget, not borrowed from accepted TCP
+        // slots, listener bind attempts or the global logical-controller cap.
+        (self.accepted_caller.is_some()
+            || self.tcp_services.execution().has_datagram_return_owner())
+        .then(|| {
+            std::num::NonZeroUsize::new(
+                self.tcp_services
+                    .config()
+                    .runtime
+                    .effective_udp_direct_max_sockets(),
+            )
+            .expect("validated independent UDP native budget")
+        })
+    }
+    pub(crate) fn with_accepted_caller(
+        mut self,
+        caller: zero_platform_tokio::AcceptedCaller,
+    ) -> Self {
+        self.accepted_caller = Some(caller);
+        self
+    }
+    pub(crate) fn with_datagram_returns(
+        mut self,
+        returns: std::sync::Arc<crate::component::datagram_retirement::DatagramReturns>,
+    ) -> Self {
+        self.tcp_services = self.tcp_services.with_datagram_returns(returns);
+        self.services = UdpRuntimeServices::new(self.tcp_services.clone());
+        self
+    }
     pub(crate) fn new(tcp_services: TcpRuntimeServices) -> Self {
         let services = UdpRuntimeServices::new(tcp_services.clone());
         Self {
             tcp_services,
+            accepted_caller: None,
             services,
             source_addr: None,
             local_addr: None,
@@ -38,6 +70,22 @@ impl UdpIngressRuntime {
         }
     }
 
+    pub(crate) fn with_admission(
+        mut self,
+        session: &zero_core::Session,
+        demand: crate::component::business_demand::AdmittedBusinessDemand,
+    ) -> Result<Self, zero_engine::EngineError> {
+        self.tcp_services =
+            self.tcp_services
+                .for_inbound(session.inbound_tag.clone().ok_or_else(|| {
+                    std::io::Error::other("admitted UDP session has no real inbound")
+                })?)
+                .with_admitted_business_identity(session, demand)?
+                .with_accepted_caller(self.accepted_caller.clone())?;
+        self.services = UdpRuntimeServices::new(self.tcp_services.clone());
+        Ok(self)
+    }
+
     /// A long-lived UDP association starts each new flow from one current
     /// snapshot. Established flows keep their captured policy and mappings.
     pub(crate) fn with_current_snapshot(&self) -> Self {
@@ -45,6 +93,7 @@ impl UdpIngressRuntime {
         Self {
             services: UdpRuntimeServices::new(tcp_services.clone()),
             tcp_services,
+            accepted_caller: self.accepted_caller.clone(),
             local_addr: self.local_addr,
             listener_stop: self.listener_stop.clone(),
             #[cfg(feature = "raw-ip-runtime")]
@@ -62,6 +111,7 @@ impl UdpIngressRuntime {
     pub(crate) fn with_source_addr(&self, source_addr: Option<std::net::SocketAddr>) -> Self {
         Self {
             tcp_services: self.tcp_services.clone(),
+            accepted_caller: self.accepted_caller.clone(),
             services: self.services.clone(),
             source_addr,
             local_addr: self.local_addr,

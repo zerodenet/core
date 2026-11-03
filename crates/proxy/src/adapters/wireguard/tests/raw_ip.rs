@@ -399,7 +399,15 @@ async fn raw_ip_staging_failure_keeps_published_device() {
         .unwrap_or_else(|_| panic!("cell initialized twice"));
     let mut active = pool.begin_stage();
     active
-        .insert("wg".to_owned(), 0, [1; 32], 1, first_cell.clone(), true)
+        .insert(
+            "wg".to_owned(),
+            0,
+            [1; 32],
+            1,
+            first_cell.clone(),
+            true,
+            false,
+        )
         .unwrap();
     let _ = pool.publish(active);
     assert!(pool.is_current("wg", 0, [1; 32], 1, &first));
@@ -451,7 +459,7 @@ async fn raw_ip_staging_failure_keeps_published_device() {
         .unwrap_or_else(|_| panic!("cell initialized twice"));
     let mut candidate = pool.begin_stage();
     candidate
-        .insert("wg".to_owned(), 0, [2; 32], 1, second_cell, true)
+        .insert("wg".to_owned(), 0, [2; 32], 1, second_cell, true, true)
         .unwrap();
     drop(candidate);
     assert!(second.is_closed(), "unpublished candidate is closed");
@@ -474,7 +482,15 @@ async fn raw_ip_staging_failure_keeps_published_device() {
         .unwrap_or_else(|_| panic!("cell initialized twice"));
     let mut committed = pool.begin_stage();
     committed
-        .insert("wg".to_owned(), 0, [2; 32], 1, replacement_cell, true)
+        .insert(
+            "wg".to_owned(),
+            0,
+            [2; 32],
+            1,
+            replacement_cell,
+            true,
+            false,
+        )
         .unwrap();
     let _ = pool.publish(committed);
     assert!(pool.health_snapshot("wg", 0, [1; 32]).is_none());
@@ -486,7 +502,7 @@ async fn raw_ip_staging_failure_keeps_published_device() {
     );
     assert!(!first.is_usable(), "replaced device rejects new flows");
     assert!(pool.is_current("wg", 0, [2; 32], 1, &replacement));
-    pool.shutdown();
+    pool.request_shutdown();
     assert!(first.is_closed());
     assert!(replacement.is_closed());
 }

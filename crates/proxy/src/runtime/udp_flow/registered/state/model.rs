@@ -1,9 +1,3 @@
-use crate::runtime::udp_flow::managed::ManagedUdpFlowResume;
-#[cfg(any(
-    feature = "managed-stream-runtime",
-    feature = "managed-datagram-runtime"
-))]
-use crate::runtime::udp_flow::managed::{ManagedUdpHandlers, ManagedUdpState};
 use crate::runtime::udp_flow::outbound::ManagedUdpFlowRef;
 use std::collections::HashMap;
 
@@ -22,36 +16,39 @@ pub(crate) struct ClosedRegisteredUpstreamAssociation {
     pub(crate) port: u16,
 }
 
-/// Standard sessions remain executable values. Only unmigrated paths carry
-/// an opaque legacy resume and participate in handler lookup.
+/// Every registered flow owns an executable connection; no protocol payload is erased.
 #[derive(Clone)]
-pub(in crate::runtime::udp_flow::registered) enum RegisteredUdpConnection {
+pub(in crate::runtime) enum RegisteredUdpConnection {
     #[cfg(feature = "managed-stream-runtime")]
     Logical(super::super::LogicalConnection),
     #[cfg(feature = "upstream-association-runtime")]
     Upstream(super::super::upstream::DatagramAssociationTarget),
-    Legacy(ManagedUdpFlowResume),
+    #[cfg(feature = "managed-stream-runtime")]
+    Tuple {
+        connection: crate::runtime::udp_flow::managed::connection::SharedManagedUdpConnection,
+        stage: &'static str,
+    },
+    #[cfg(feature = "managed-datagram-runtime")]
+    Datagram {
+        connection:
+            crate::runtime::udp_flow::managed::connection::SharedManagedDatagramUdpConnection,
+        stage: &'static str,
+    },
 }
 
 pub(crate) struct RegisteredUdpState {
     #[cfg(feature = "managed-stream-runtime")]
     pub(in crate::runtime::udp_flow::registered) logical_sessions: HashMap<u64, ManagedUdpFlowRef>,
-    #[cfg(any(
-        feature = "managed-stream-runtime",
-        feature = "managed-datagram-runtime"
-    ))]
-    pub(in crate::runtime::udp_flow::registered) managed: ManagedUdpState,
+    pub(in crate::runtime::udp_flow::registered) sessions: HashMap<u64, ManagedUdpFlowRef>,
+    #[cfg(feature = "managed-stream-runtime")]
+    pub(in crate::runtime) tuple_connections:
+        crate::runtime::udp_flow::managed::cache::ManagedUdpConnectionCache,
+    #[cfg(feature = "managed-datagram-runtime")]
+    pub(in crate::runtime) datagram_connections:
+        crate::runtime::udp_flow::managed::cache::ManagedDatagramConnectionCache,
     #[cfg(feature = "upstream-association-runtime")]
     pub(in crate::runtime::udp_flow::registered) upstream: UpstreamAssociationState,
     pub(in crate::runtime::udp_flow::registered) connections:
         HashMap<ManagedUdpFlowRef, RegisteredUdpConnection>,
     pub(in crate::runtime::udp_flow::registered) next_managed_flow_id: u64,
-}
-
-pub(crate) struct RegisteredUdpHandlers {
-    #[cfg(any(
-        feature = "managed-stream-runtime",
-        feature = "managed-datagram-runtime"
-    ))]
-    pub(crate) managed: ManagedUdpHandlers,
 }

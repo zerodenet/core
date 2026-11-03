@@ -1,12 +1,14 @@
 #[cfg(feature = "trojan")]
+use ::trojan::transport::TrojanOutboundLeaf;
+#[cfg(feature = "trojan")]
 pub(crate) mod component;
 #[cfg(feature = "trojan")]
-mod listener;
+pub(crate) mod inbound;
 #[cfg(feature = "trojan")]
 use ::trojan::inbound::TrojanInboundProfileStore;
 use ::trojan::transport::{
     TrojanInboundListenerRequest, TrojanInboundOptionsRef, TrojanInboundUserRef,
-    TrojanOutboundBuildOptionsRef, TrojanOutboundLeaf, TrojanOutboundOptionsRef,
+    TrojanOutboundBuildOptionsRef, TrojanOutboundOptionsRef,
 };
 #[cfg(feature = "trojan")]
 pub(crate) use component::{component_options, native_input, LEGACY_CONNECT_STAGE};
@@ -18,17 +20,13 @@ use zero_engine::EngineError;
 use zero_traits::{ProtocolCapabilityDescriptor, ProtocolMetadata, ProtocolUdpFlowLeaf};
 
 use crate::adapters::identity::NamedProtocolAdapter;
-use crate::protocol_registry::{
-    claim_transport_tcp_leaf, claim_transport_udp_leaf, InboundListenerCapability,
-    ManagedUdpHandlerProvider, OutboundLeafClaim, OutboundLeafInput,
-};
+use crate::protocol_registry::{OutboundLeafClaim, OutboundLeafInput};
 use crate::runtime::path::TcpPathCategory;
 use crate::runtime::transport_leaf::{ProxyTransportTcpLeaf, ProxyTransportUdpLeaf};
 #[cfg(feature = "trojan")]
 use crate::runtime::udp_flow::managed::{
-    bridge::managed_stream_udp_handler_for_resume, ManagedPacketUdpFlowConnection,
-    ManagedPacketUdpResume, ManagedPacketUdpResumeConnector, ManagedStreamConnectorFlow,
-    ManagedStreamHandlerPair,
+    ManagedPacketUdpFlowConnection, ManagedPacketUdpResume, ManagedPacketUdpResumeConnector,
+    ManagedStreamConnectorFlow,
 };
 
 #[cfg(feature = "trojan")]
@@ -187,8 +185,6 @@ impl ManagedPacketUdpResumeConnector for ::trojan::transport::TrojanManagedUdpFl
     const RELAY_UPSTREAM_STAGE: &'static str = "trojan_relay_upstream";
     const RELAY_ESTABLISH_STAGE: &'static str = "trojan_relay_establish";
     const RELAY_SEND_STAGE: &'static str = "trojan_relay_send";
-    const MISMATCH_STAGE: &'static str = "udp_trojan_resume";
-    const MISMATCH_MESSAGE: &'static str = "expected Trojan UDP flow resume";
 
     fn connector_flow(&self, server: &str, port: u16, session_id: u64) -> Self::ConnectorFlow {
         ::trojan::transport::TrojanManagedUdpFlowResume::connector_flow(
@@ -263,22 +259,23 @@ impl TrojanAdapter {
             outbound,
             endpoint,
             source_dir,
+            ..
         } = input
         else {
             return None;
         };
         let options = outbound_options(outbound.tag(), endpoint, &outbound.protocol)?;
-        let endpoint = Some(endpoint);
-        let udp_mux_pool = self.mux_pool.clone();
+        let leaf =
+            TrojanOutboundLeaf::from_options_refs(source_dir, options, self.mux_pool.clone());
+        let (udp, udp_relay) =
+            super::udp::transport_operations(Some(endpoint), true, leaf.as_ref());
+        let (tcp, tcp_relay) = super::tcp::transport_operations(leaf);
         Some(OutboundLeafClaim {
             tcp_path: TCP_PATH,
-            tcp: Some(claim_transport_tcp_leaf(
-                endpoint,
-                TrojanOutboundLeaf::from_options_refs(source_dir, options, self.mux_pool.clone()),
-            )),
-            udp: Some(claim_transport_udp_leaf(endpoint, move |source_dir| {
-                TrojanOutboundLeaf::from_options_refs(source_dir, options, udp_mux_pool.clone())
-            })),
+            tcp: Some(tcp),
+            tcp_relay: Some(tcp_relay),
+            udp: Some(udp),
+            udp_relay: Some(udp_relay),
             #[cfg(feature = "raw-ip-runtime")]
             packet: None,
             packet_path: None,
@@ -310,70 +307,5 @@ impl NamedProtocolAdapter for TrojanAdapter {
 impl ProtocolMetadata for TrojanAdapter {
     fn descriptor(&self) -> ProtocolCapabilityDescriptor {
         ::trojan::metadata::TrojanProtocol.descriptor()
-    }
-}
-
-#[cfg(feature = "trojan")]
-impl InboundListenerCapability for TrojanAdapter {
-    fn prepare_inbound_bind(
-        &self,
-        inbound: InboundConfig,
-        source_dir: Option<&std::path::Path>,
-    ) -> Result<Option<crate::protocol_registry::PreparedInboundBind>, EngineError> {
-        crate::protocol_registry::prepare_tcp_inbound_bind(self, inbound, source_dir)
-    }
-
-    fn prepare_inbound_listener(
-        &self,
-        inbound: InboundConfig,
-        source_dir: Option<&std::path::Path>,
-    ) -> Result<
-        Box<dyn crate::runtime::inbound_operation::PreparedInboundListenerOperation>,
-        EngineError,
-    > {
-        let (request, profile_update) = match &inbound.protocol {
-            InboundProtocolConfig::Trojan {
-                password,
-                users,
-                tls,
-                ws,
-                grpc,
-                mux_response_backlog_frames,
-                mux_response_backlog_bytes,
-                ..
-            } => {
-                let user_refs = inbound_user_refs(password, users);
-                let profile_update = self.inbound_profiles.prepare(&inbound.tag, &user_refs);
-                let request = TrojanInboundListenerRequest::from_options_refs(
-                    source_dir,
-                    TrojanInboundOptionsRef {
-                        users: user_refs.iter().copied(),
-                        mux_response_backlog_frames: *mux_response_backlog_frames,
-                        mux_response_backlog_bytes: *mux_response_backlog_bytes,
-                    },
-                    tls.as_ref(),
-                    ws.as_deref(),
-                    grpc.as_deref(),
-                )
-                .map_err(EngineError::from)?;
-                (request, profile_update)
-            }
-            _ => {
-                return Err(EngineError::Io(std::io::Error::new(
-                    std::io::ErrorKind::InvalidInput,
-                    "trojan inbound listener received non-trojan inbound config",
-                )));
-            }
-        };
-        Ok(listener::prepare(request, profile_update))
-    }
-}
-
-#[cfg(feature = "trojan")]
-impl ManagedUdpHandlerProvider for TrojanAdapter {
-    fn managed_stream_udp_handlers(&self) -> Option<ManagedStreamHandlerPair> {
-        Some(managed_stream_udp_handler_for_resume::<
-            <TrojanOutboundLeaf as ProxyTransportUdpLeaf>::RuntimeResume,
-        >())
     }
 }

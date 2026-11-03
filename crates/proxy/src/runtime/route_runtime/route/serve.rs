@@ -5,7 +5,6 @@ use super::model::InboundRouteRuntime;
 use crate::runtime::tcp_ingress::InboundProtocol;
 
 impl InboundRouteRuntime {
-    #[cfg(feature = "standard-stream-inbound-runtime")]
     pub(crate) async fn serve_standard_stream(
         &self,
         protocol: zero_core::ProtocolType,
@@ -21,20 +20,6 @@ impl InboundRouteRuntime {
     ) -> Result<(), EngineError> {
         self.tcp_runtime
             .serve_standard_stream(protocol, destination, auth, sni, reply)
-            .await
-    }
-
-    pub(crate) async fn serve_message<P>(
-        &self,
-        protocol: &P,
-        client: &mut crate::transport::TcpRelayStream,
-        request: P::Request,
-    ) -> Result<crate::runtime::tcp_ingress::MessageRelayOutcome, EngineError>
-    where
-        P: crate::runtime::tcp_ingress::MessageInboundProtocol,
-    {
-        self.tcp_runtime
-            .serve_message(protocol, client, request)
             .await
     }
 

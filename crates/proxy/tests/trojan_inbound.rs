@@ -2,7 +2,7 @@
 use crate::support;
 use std::sync::Arc;
 use support::interop::TempMaterial;
-use support::{free_port, spawn_engine, wait_for, wait_for_listener};
+use support::{spawn_engine, wait_for, wait_for_listener};
 use tokio::time::{timeout, Duration};
 use tokio::{
     io::{AsyncReadExt, AsyncWriteExt},
@@ -212,3 +212,6 @@ async fn standard_trojan_tcp_actual_upstream_refusal_never_adds_success_or_error
     .await
     .unwrap();
 }
+
+#[path = "trojan_inbound/standard_udp.rs"]
+mod standard_udp;

@@ -30,7 +30,7 @@ async fn rejected_bind_original_closes_and_fault_is_published_before_recovery() 
     let mut original = lease.context().listen_tcp().unwrap();
     // The transferred original view is really suspended on accept. Its actual
     // native controller, not a rebound port, supplies the close receipt.
-    let mut accept = Box::pin(original.accept());
+    let mut accept = Box::pin(original.accept_owned());
     std::future::poll_fn(|cx| {
         assert!(accept.as_mut().poll(cx).is_pending());
         Poll::Ready(())
@@ -43,6 +43,13 @@ async fn rejected_bind_original_closes_and_fault_is_published_before_recovery() 
     assert!(!failure.to_string().is_empty());
     drop(lease);
     assert!(proxy.inbound_owners.identities().contains(&identity));
+    // The real pending native operation must observe revocation and relinquish
+    // its unacquired reservation before cleanup can certify the original.
+    assert!(timeout(Duration::from_secs(2), &mut accept)
+        .await
+        .unwrap()
+        .is_err());
+    drop(accept);
     let factory = InboundListenerRuntimeFactory::new(
         SharedIngressRuntimeServices::new(proxy.tcp_runtime_services()),
         proxy.inbound_owners.clone(),
@@ -57,11 +64,6 @@ async fn rejected_bind_original_closes_and_fault_is_published_before_recovery() 
     assert_eq!(terminal.closed_io_receipts(), 1);
     assert_eq!(terminal.joined_tasks(), 0);
     assert!(terminal.failure().is_some());
-    assert!(timeout(Duration::from_secs(2), &mut accept)
-        .await
-        .unwrap()
-        .is_err());
-    drop(accept);
     assert!(
         original.local_addr().is_err(),
         "the original transferred view is retired"
@@ -84,19 +86,11 @@ fn candidate() -> (Proxy, crate::protocol_registry::PreparedInboundBind) {
     )
     .unwrap();
     let config = proxy.engine().config();
-    let operation = proxy
+    let prepared = proxy
         .protocols
-        .prepare_inbound_listener(config.inbounds[0].clone(), None)
+        .prepare_inbound_bind(config.inbounds[0].clone(), None)
+        .unwrap()
         .unwrap();
-    let prepared = crate::protocol_registry::PreparedInboundBind::new(
-        operation,
-        Arc::from([ResourceDeclaration::TcpListener {
-            accepted: None,
-            destination: Destination::new(Address::Ipv4([127, 0, 0, 1]), 0),
-            max_bind_attempts: NonZeroUsize::new(1).unwrap(),
-        }]),
-    )
-    .unwrap();
     (proxy, prepared)
 }
 
@@ -120,11 +114,14 @@ async fn cancelled_recovery_barrier_keeps_original_scope_until_real_io_finishes(
 
     let owner = lease.owner();
     let identity = owner.identity();
-    let mut original = lease.context().listen_tcp().unwrap();
-    let mut client = tokio::net::TcpStream::connect(original.local_addr().unwrap())
+    let original = lease.context().listen_tcp().unwrap();
+    // This pending work belongs to the real Scope. The original controlled
+    // listener retires separately; its own accepted reads cancel immediately.
+    let gate = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let mut client = tokio::net::TcpStream::connect(gate.local_addr().unwrap())
         .await
         .unwrap();
-    let (mut stream, _) = original.accept().await.unwrap();
+    let (mut stream, _) = gate.accept().await.unwrap();
     let entered = Arc::new(tokio::sync::Notify::new());
     let pending = entered.clone();
     owner

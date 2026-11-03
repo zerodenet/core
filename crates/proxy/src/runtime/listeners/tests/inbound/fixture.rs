@@ -1,16 +1,10 @@
 use super::*;
 use crate::{
     protocol_registry::PreparedInboundBind,
-    runtime::{
-        inbound_operation::PreparedInboundListenerOperation,
-        inbound_owners::{InboundInstallContext, InboundOwner},
-        route_runtime::{InboundListenerRuntime, SharedIngressRuntimeServices},
-        Proxy,
-    },
+    runtime::{inbound_owners::InboundOwner, route_runtime::SharedIngressRuntimeServices, Proxy},
 };
 use std::{
     num::NonZeroUsize,
-    pin::Pin,
     sync::atomic::{AtomicBool, Ordering},
 };
 use zero_platform_tokio::contract::{
@@ -61,32 +55,6 @@ impl ResourceLifecycle for NativeCleanup {
 fn source(error: std::io::Error) -> ChannelError {
     use zero_platform_tokio::contract::{Impact, Reason, Stage};
     ChannelError::new(Stage::Close, Reason::Io, Impact::Component).with_source(error)
-}
-struct WithCleanup {
-    operation: Box<dyn PreparedInboundListenerOperation>,
-    cleanup: Option<NativeCleanup>,
-}
-impl PreparedInboundListenerOperation for WithCleanup {
-    fn internal_tasks(&self) -> usize {
-        self.operation.internal_tasks()
-    }
-    fn install_resources(&mut self, context: &InboundInstallContext) -> Result<(), EngineError> {
-        self.operation.install_resources(context)?;
-        if let Some(cleanup) = self.cleanup.take() {
-            // Registered after the native listener: shutdown must finish this
-            // actual resource before closing the original listener descriptor.
-            context.register(erase_lifecycle(cleanup))?;
-        }
-        Ok(())
-    }
-    fn execute(
-        self: Box<Self>,
-        runtime: InboundListenerRuntime,
-        bound: crate::protocol_registry::BoundInbound,
-        shutdown: watch::Receiver<bool>,
-    ) -> Pin<Box<dyn Future<Output = Result<(), EngineError>> + Send + 'static>> {
-        self.operation.execute(runtime, bound, shutdown)
-    }
 }
 pub(super) struct Fixture {
     pub(super) proxy: Proxy,
@@ -150,41 +118,11 @@ impl Fixture {
         let mut originals = Vec::new();
         for (index, port) in ports.into_iter().enumerate() {
             let inbound = &old.inbounds[index];
-            let prepared = match proxy
+            let prepared = proxy
                 .protocols
                 .prepare_inbound_bind(inbound.clone(), None)
                 .unwrap()
-            {
-                Some(prepared) => prepared,
-                None => {
-                    // Fixture-only original TCP ownership for a legacy adapter.
-                    // This does not opt that adapter into production grants.
-                    let operation = proxy
-                        .protocols
-                        .prepare_inbound_listener(inbound.clone(), None)
-                        .unwrap();
-                    let declaration =
-                        zero_platform_tokio::contract::component::ResourceDeclaration::TcpListener { accepted: None,
-                            destination: zero_core::request::Destination::new(
-                                zero_core::Address::Ipv4([127, 0, 0, 1]),
-                                inbound.listen.port,
-                            ),
-                            max_bind_attempts: NonZeroUsize::new(50).unwrap(),
-                        };
-                    PreparedInboundBind::new(operation, Arc::from([declaration])).unwrap()
-                }
-            };
-            let resources = Arc::from(prepared.resources());
-            let operation = prepared.into_operation();
-            let operation: Box<dyn PreparedInboundListenerOperation> = if index + 1 == count {
-                Box::new(WithCleanup {
-                    operation,
-                    cleanup: cleanup.take(),
-                })
-            } else {
-                operation
-            };
-            let prepared = PreparedInboundBind::new(operation, resources).unwrap();
+                .expect("actual standard factory");
             let (stop, _) = watch::channel(false);
             let mut lease = proxy
                 .inbound_owners
@@ -197,6 +135,13 @@ impl Fixture {
                     NonZeroUsize::new(1).unwrap(),
                 )
                 .unwrap();
+            if index + 1 == count {
+                // Same actual reserved owner, installed before driver capture;
+                // this works for both standard sources and remaining listeners.
+                lease
+                    .register_resource(erase_lifecycle(cleanup.take().unwrap()))
+                    .unwrap();
+            }
             drop(port);
             lease.bind_tcp().unwrap();
             let bound = PendingInbound::Leased(lease.finish().unwrap());

@@ -16,6 +16,9 @@ use zero_platform_tokio::controlled_carrier::{
     CarrierEndpointObserver, CarrierEndpoints, CarrierGrant, NativeCarrierOpener, PreparedCarrier,
 };
 
+mod dns;
+use dns::Resolved;
+
 pub(in crate::component) struct Evidence {
     pub(super) remote: SocketAddr,
     pub(super) local: Option<SocketAddr>,
@@ -26,6 +29,7 @@ pub(in crate::component) struct NodeOpener {
     generation: u64,
     evidence: Arc<Mutex<Option<Evidence>>>,
     business: Option<BusinessCarrierRequest>,
+    resolved: tokio::sync::Mutex<Option<Resolved>>,
 }
 impl NodeOpener {
     pub(in crate::component) fn new(
@@ -39,6 +43,7 @@ impl NodeOpener {
             generation,
             evidence: Arc::new(Mutex::new(None)),
             business: None,
+            resolved: tokio::sync::Mutex::new(None),
         }
     }
     pub(in crate::component) fn with_business(
@@ -86,6 +91,28 @@ impl UpstreamOpener for NodeOpener {
         };
         ConnectedEvidence(self.evidence.clone()).connected(&endpoints);
         true
+    }
+    fn carrier_dns_generation(&self) -> Option<zero_platform_tokio::contract::dns::DnsGeneration> {
+        matches!(self.endpoint.address, zero_core::Address::Domain(_))
+            .then(|| self.services.dns_generation())
+    }
+    fn acquire_controlled_stream(
+        &self,
+        binding: &UpstreamBinding,
+        destination: Destination,
+        context: CarrierContext,
+        grant: CarrierGrant,
+    ) -> BoxFuture<'_, Result<zero_platform_tokio::controlled_carrier::CarrierIo, ChannelError>>
+    {
+        let preparing = self.prepare_node_stream(binding, destination, context.clone(), grant);
+        Box::pin(async move {
+            Ok(preparing
+                .await?
+                .open_with_deadline(context.deadline)
+                .await?
+                .into_parts()
+                .0)
+        })
     }
     fn prepare_controlled_stream(
         &self,

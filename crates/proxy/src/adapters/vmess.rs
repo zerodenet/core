@@ -1,14 +1,15 @@
 #[cfg(feature = "vmess")]
+use ::vmess::transport::VmessOutboundLeaf;
+#[cfg(feature = "vmess")]
 pub(crate) mod component;
 #[cfg(feature = "vmess")]
-mod listener;
+pub(crate) mod inbound;
 use ::vmess::transport::{
     VmessInboundListenerRequest, VmessInboundOptionsRef, VmessInboundUserRef,
-    VmessOutboundBuildOptionsRef, VmessOutboundLeaf, VmessOutboundOptionsRef,
-    VmessTransportRuntime,
+    VmessOutboundBuildOptionsRef, VmessOutboundOptionsRef, VmessTransportRuntime,
 };
 #[cfg(feature = "vmess")]
-pub(crate) use component::{component_options, native_input, LEGACY_CONNECT_STAGE};
+pub(crate) use component::LEGACY_CONNECT_STAGE;
 #[cfg(feature = "vmess")]
 use zero_config::InboundConfig;
 use zero_config::{InboundProtocolConfig, OutboundProtocolConfig};
@@ -17,16 +18,12 @@ use zero_engine::EngineError;
 use zero_traits::{ProtocolCapabilityDescriptor, ProtocolMetadata, ProtocolUdpFlowLeaf};
 
 use crate::adapters::identity::NamedProtocolAdapter;
-use crate::protocol_registry::{
-    claim_transport_tcp_leaf, claim_transport_udp_leaf, InboundListenerCapability,
-    ManagedUdpHandlerProvider, OutboundLeafClaim, OutboundLeafInput,
-};
+use crate::protocol_registry::{OutboundLeafClaim, OutboundLeafInput};
 use crate::runtime::path::TcpPathCategory;
 use crate::runtime::transport_leaf::{ProxyTransportTcpLeaf, ProxyTransportUdpLeaf};
 #[cfg(feature = "vmess")]
 use crate::runtime::udp_flow::managed::{
-    bridge::managed_stream_udp_handler_for_resume, ManagedStreamConnectorFlow,
-    ManagedStreamHandlerPair, ManagedTupleUdpFlowConnection, ManagedTupleUdpResume,
+    ManagedStreamConnectorFlow, ManagedTupleUdpFlowConnection, ManagedTupleUdpResume,
     ManagedTupleUdpResumeConnector,
 };
 
@@ -34,6 +31,7 @@ use crate::runtime::udp_flow::managed::{
 #[derive(Debug, Default)]
 pub(crate) struct VmessAdapter {
     runtime: VmessTransportRuntime,
+    pub(crate) native_node_dns: bool,
 }
 
 #[cfg(feature = "vmess")]
@@ -173,8 +171,6 @@ impl ManagedTupleUdpResumeConnector for ::vmess::transport::VmessManagedUdpFlowR
     const RELAY_UPSTREAM_STAGE: &'static str = "vmess_relay_upstream";
     const RELAY_ESTABLISH_STAGE: &'static str = "vmess_relay_establish";
     const RELAY_SEND_STAGE: &'static str = "vmess_relay_send";
-    const MISMATCH_STAGE: &'static str = "udp_vmess_resume";
-    const MISMATCH_MESSAGE: &'static str = "expected VMess UDP flow resume";
 
     fn connector_flow(&self, server: &str, port: u16, session_id: u64) -> Self::ConnectorFlow {
         ::vmess::transport::VmessManagedUdpFlowResume::connector_flow(
@@ -249,6 +245,7 @@ impl VmessAdapter {
         input: OutboundLeafInput<'a>,
     ) -> Option<OutboundLeafClaim<'a>> {
         let OutboundLeafInput::Proxy {
+            config,
             outbound,
             endpoint,
             source_dir,
@@ -257,17 +254,19 @@ impl VmessAdapter {
             return None;
         };
         let options = outbound_options(outbound.tag(), endpoint, &outbound.protocol)?;
-        let endpoint = Some(endpoint);
-        let udp_runtime = self.runtime.clone();
+        let leaf = VmessOutboundLeaf::from_options_refs(source_dir, options, &self.runtime);
+        let (udp, udp_relay) = super::udp::transport_operations(
+            Some(endpoint),
+            !component::grpc::selected(outbound, Some(config), self.native_node_dns),
+            leaf.as_ref(),
+        );
+        let (tcp, tcp_relay) = super::tcp::transport_operations(leaf);
         Some(OutboundLeafClaim {
             tcp_path: TCP_PATH,
-            tcp: Some(claim_transport_tcp_leaf(
-                endpoint,
-                VmessOutboundLeaf::from_options_refs(source_dir, options, &self.runtime),
-            )),
-            udp: Some(claim_transport_udp_leaf(endpoint, move |source_dir| {
-                VmessOutboundLeaf::from_options_refs(source_dir, options, &udp_runtime)
-            })),
+            tcp: Some(tcp),
+            tcp_relay: Some(tcp_relay),
+            udp: Some(udp),
+            udp_relay: Some(udp_relay),
             #[cfg(feature = "raw-ip-runtime")]
             packet: None,
             packet_path: None,
@@ -304,70 +303,3 @@ impl ProtocolMetadata for VmessAdapter {
         ::vmess::metadata::VmessProtocol.descriptor()
     }
 }
-
-#[cfg(feature = "vmess")]
-impl InboundListenerCapability for VmessAdapter {
-    fn prepare_inbound_bind(
-        &self,
-        inbound: InboundConfig,
-        source_dir: Option<&std::path::Path>,
-    ) -> Result<Option<crate::protocol_registry::PreparedInboundBind>, EngineError> {
-        crate::protocol_registry::prepare_tcp_inbound_bind(self, inbound, source_dir)
-    }
-
-    fn prepare_inbound_listener(
-        &self,
-        inbound: InboundConfig,
-        source_dir: Option<&std::path::Path>,
-    ) -> Result<
-        Box<dyn crate::runtime::inbound_operation::PreparedInboundListenerOperation>,
-        EngineError,
-    > {
-        let request = match &inbound.protocol {
-            InboundProtocolConfig::Vmess {
-                users,
-                tls,
-                ws,
-                grpc,
-                mux_response_backlog_frames,
-                mux_response_backlog_bytes,
-            } => {
-                let user_refs = inbound_user_refs(users);
-                VmessInboundListenerRequest::from_options_refs_staged(
-                    source_dir,
-                    VmessInboundOptionsRef {
-                        users: user_refs.iter().copied(),
-                        tls: tls.as_deref(),
-                        ws: ws.as_deref(),
-                        grpc: grpc.as_deref(),
-                        mux_response_backlog_frames: *mux_response_backlog_frames,
-                        mux_response_backlog_bytes: *mux_response_backlog_bytes,
-                    },
-                    &self.runtime,
-                    &inbound.tag,
-                )
-                .map_err(EngineError::from)?
-            }
-            _ => {
-                return Err(EngineError::Io(std::io::Error::new(
-                    std::io::ErrorKind::InvalidInput,
-                    "vmess inbound listener received non-vmess inbound config",
-                )));
-            }
-        };
-        Ok(listener::prepare(request))
-    }
-}
-
-#[cfg(feature = "vmess")]
-impl ManagedUdpHandlerProvider for VmessAdapter {
-    fn managed_stream_udp_handlers(&self) -> Option<ManagedStreamHandlerPair> {
-        Some(managed_stream_udp_handler_for_resume::<
-            <VmessOutboundLeaf as ProxyTransportUdpLeaf>::RuntimeResume,
-        >())
-    }
-}
-
-#[cfg(test)]
-#[path = "vmess/tests.rs"]
-mod tests;

@@ -55,7 +55,7 @@ impl UpstreamAssociationTransport<DatagramAssociationTarget> for NativeAssociati
         let (tag, server, port) = target.log_parts();
         let slot = target.current_slot(&execution)?;
         // Reserve before any role admission can open its native TCP carrier.
-        let reservation = execution.retired_datagrams().reserve().map_err(legacy)?;
+        let reservation = execution.reserve_datagram().map_err(legacy)?;
         let association = reservation.association();
         let opened = crate::component::stream_bridge::datagram::open(
             &execution,

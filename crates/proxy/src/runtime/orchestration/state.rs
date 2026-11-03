@@ -45,6 +45,8 @@ pub(super) struct OrchestrationState {
 
 impl OrchestrationState {
     pub(super) fn propagate_shutdown(&self) {
+        #[cfg(feature = "raw-ip-runtime")]
+        self.outbound_devices.request_device_shutdown();
         self.orchestration_ready.send_replace(false);
         let _ = self.shutdown_tx.send(true);
         for tx in self.listener_stops.values() {

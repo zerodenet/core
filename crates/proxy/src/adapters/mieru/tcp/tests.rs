@@ -1,5 +1,5 @@
 use crate::runtime::tcp_dispatch::operation::LazyTcpRelayCarrier;
-use crate::{protocol_registry::OutboundAdapterContext, Proxy};
+use crate::Proxy;
 use std::sync::{
     atomic::{AtomicI32, AtomicUsize, Ordering},
     Arc,
@@ -20,7 +20,7 @@ async fn pooled_tcp_relay_keeps_original_carrier_io_error_without_reopening() {
         let (resolved, _) = proxy.engine().resolve_route_decision(RouteDecision::Route("pool".into())).unwrap();
         let ResolvedOutbound::Single(leaf) = resolved else { panic!("actual pool leaf") };
         let claimed = proxy.protocols.claim_outbound_leaf(snapshot.config(), leaf).unwrap();
-        let (_, _, operation) = claimed.prepare_tcp_relay_hop(OutboundAdapterContext::new(snapshot.config()).source_dir()).unwrap();
+        let (_, _, operation) = claimed.tcp_relay_hop().unwrap();
         let mut session = Session::new(0, Address::Ipv4([203,0,113,1]), 443, Network::Tcp, ProtocolType::new("test"));
         proxy.engine().prepare_session(&mut session,"incoming").unwrap();
         let calls = Arc::new(AtomicUsize::new(0));

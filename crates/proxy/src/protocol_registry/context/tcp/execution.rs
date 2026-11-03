@@ -15,6 +15,8 @@ pub(crate) struct TcpExecutionServices {
     pub(in crate::protocol_registry::context) upstream: UpstreamConnectServices,
     pub(super) principal_rate_limits: PrincipalRateLimitRegistry,
     pub(super) retired_datagrams: Arc<crate::component::datagram_retirement::RetiredDatagrams>,
+    pub(super) datagram_returns:
+        Option<Arc<crate::component::datagram_retirement::DatagramReturns>>,
     pub(crate) components: Result<
         Arc<crate::component::catalog::ComponentPlan>,
         crate::component::instance::SharedError,
@@ -23,6 +25,19 @@ pub(crate) struct TcpExecutionServices {
     pub(crate) ingress: Option<crate::component::request::IngressIdentity>,
 }
 impl TcpExecutionServices {
+    pub(crate) fn has_datagram_return_owner(&self) -> bool {
+        self.datagram_returns.is_some()
+    }
+
+    pub(crate) fn reserve_datagram(
+        &self,
+    ) -> Result<
+        crate::component::datagram_retirement::DatagramReservation,
+        zero_platform_tokio::contract::ChannelError,
+    > {
+        self.retired_datagrams
+            .reserve_with_returns(self.datagram_returns.as_ref())
+    }
     pub(crate) fn retired_datagrams(
         &self,
     ) -> Arc<crate::component::datagram_retirement::RetiredDatagrams> {

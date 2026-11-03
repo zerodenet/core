@@ -41,6 +41,7 @@ pub(crate) struct HostPeerBinding {
     join: Arc<JoinCell>,
     cancel: CancellationToken,
     responses: Mutex<Option<responses::ResponseOwner>>,
+    peer_scope: Mutex<Option<zero_platform_tokio::AcceptedPeerScope>>,
 }
 impl std::fmt::Debug for HostPeerBinding {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -53,12 +54,21 @@ impl std::fmt::Debug for HostPeerBinding {
     }
 }
 impl HostPeerBinding {
+    pub(crate) fn install_scope(&self, scope: zero_platform_tokio::AcceptedPeerScope) {
+        let mut slot = self.peer_scope.lock().unwrap();
+        assert!(slot.is_none(), "one real peer scope");
+        *slot = Some(scope);
+    }
+    pub(super) fn peer_scope(&self) -> Option<zero_platform_tokio::AcceptedPeerScope> {
+        self.peer_scope.lock().unwrap().clone()
+    }
     pub(super) fn new(parent: ComponentInstanceId, cancel: CancellationToken) -> Self {
         Self {
             parent,
             join: Arc::default(),
             cancel: cancel.child_token(),
             responses: Mutex::new(None),
+            peer_scope: Mutex::new(None),
         }
     }
     pub(super) fn bind(

@@ -4,16 +4,13 @@ mod owned_tests;
 use zero_engine::EngineError;
 
 use crate::adapters::shadowsocks::ShadowsocksAdapter;
-use crate::protocol_registry::{ClaimedUdpFlowLeaf, ClaimedUdpPacketPathLeaf};
-use crate::runtime::udp_dispatch::operation::{ManagedDatagramStartPlan, PreparedUdpFlowOperation};
+use crate::protocol_registry::UdpFlowResult;
+use crate::runtime::udp_dispatch::operation::ManagedDatagramStartPlan;
 use crate::runtime::udp_dispatch::packet_path_operation::PreparedUdpPacketPathOperation;
 use crate::runtime::udp_dispatch::FlowFailure;
 use crate::runtime::udp_flow::managed::{
-    datagram_manager::{
-        managed_datagram_socket_handler_box, ManagedDatagramSocketConnectorFlow,
-        ManagedDatagramSocketResumeConnector,
-    },
-    ManagedDatagramFlowConnection, ManagedDatagramFlowHandler,
+    datagram_manager::{ManagedDatagramSocketConnectorFlow, ManagedDatagramSocketResumeConnector},
+    ManagedDatagramFlowConnection,
 };
 use crate::runtime::udp_flow::packet_path::{
     packet_path_carrier_descriptor_from_build, udp_datagram_source_from_build, PacketPathCarrier,
@@ -32,8 +29,6 @@ impl ManagedDatagramSocketResumeConnector
 
     const ESTABLISH_STAGE: &'static str = "ss_establish";
     const SEND_STAGE: &'static str = "ss_send";
-    const MISMATCH_STAGE: &'static str = "udp_shadowsocks_resume";
-    const MISMATCH_MESSAGE: &'static str = "expected Shadowsocks UDP flow resume";
     const RESOLVE_UPSTREAM_MESSAGE: &'static str = "failed to resolve shadowsocks udp upstream";
 
     fn connector_flow(
@@ -135,48 +130,6 @@ struct ShadowsocksPacketPathOperation {
     plan: ShadowsocksManagedUdpPacketPathPlan,
 }
 
-struct ClaimedShadowsocksPacketPathLeaf {
-    plan: ShadowsocksManagedUdpPacketPathPlan,
-}
-
-struct ClaimedShadowsocksUdpLeaf {
-    leaf: ::shadowsocks::transport::ShadowsocksTransportLeaf,
-}
-
-impl<'a> ClaimedUdpFlowLeaf<'a> for ClaimedShadowsocksUdpLeaf {
-    fn prepare_udp_flow(
-        &self,
-        _source_dir: Option<&std::path::Path>,
-    ) -> Result<Box<dyn PreparedUdpFlowOperation + 'a>, FlowFailure> {
-        let plan = self
-            .leaf
-            .clone()
-            .udp_flow_plan()
-            .map_err(|error| FlowFailure {
-                stage: "udp_shadowsocks_resume",
-                error: EngineError::Io(std::io::Error::other(error.to_string())),
-                upstream: Some((self.leaf.server().to_string(), self.leaf.port())),
-            })?;
-        Ok(Box::new(
-            crate::runtime::udp_dispatch::operation::ManagedDatagramUdpOperation {
-                plan: ManagedDatagramStartPlan::from_parts(plan.into_parts()),
-                needs_proxy: true,
-            },
-        ))
-    }
-}
-
-impl<'a> ClaimedUdpPacketPathLeaf<'a> for ClaimedShadowsocksPacketPathLeaf {
-    fn prepare_udp_packet_path(
-        &self,
-        _source_dir: Option<&std::path::Path>,
-    ) -> Option<Box<dyn PreparedUdpPacketPathOperation>> {
-        Some(Box::new(ShadowsocksPacketPathOperation {
-            plan: self.plan.clone(),
-        }))
-    }
-}
-
 impl PreparedUdpPacketPathOperation for ShadowsocksPacketPathOperation {
     fn carrier_descriptor(&self) -> Option<PacketPathCarrierDescriptor> {
         Some(packet_path_carrier_descriptor(self.plan.clone()))
@@ -222,28 +175,32 @@ impl PreparedUdpPacketPathOperation for ShadowsocksPacketPathOperation {
     }
 }
 
-pub(crate) fn managed_datagram_handler() -> Box<dyn ManagedDatagramFlowHandler> {
-    managed_datagram_socket_handler_box::<
-        ::shadowsocks::transport::ShadowsocksManagedDatagramFlowResume,
-    >()
-}
-
 impl ShadowsocksAdapter {
-    pub(super) fn claim_udp_flow_leaf_impl<'a>(
+    pub(super) fn udp_flow_operation<'a>(
         &self,
         leaf: ::shadowsocks::transport::ShadowsocksTransportLeaf,
-    ) -> Box<dyn ClaimedUdpFlowLeaf<'a> + 'a> {
-        Box::new(ClaimedShadowsocksUdpLeaf { leaf })
+    ) -> UdpFlowResult<'a> {
+        let plan = leaf.udp_flow_plan().map_err(|error| FlowFailure {
+            stage: "udp_shadowsocks_resume",
+            error: EngineError::Io(std::io::Error::other(error.to_string())),
+            upstream: Some((leaf.server().into(), leaf.port())),
+        })?;
+        Ok(Box::new(
+            crate::runtime::udp_dispatch::operation::ManagedDatagramUdpOperation::<_, true> {
+                plan: ManagedDatagramStartPlan::from_parts(plan.into_parts()),
+                needs_proxy: true,
+            },
+        ))
     }
 
-    pub(super) fn claim_udp_packet_path_leaf_impl<'a>(
+    pub(super) fn udp_packet_path_operation(
         &self,
         leaf: ::shadowsocks::transport::ShadowsocksTransportLeaf,
-    ) -> Option<Box<dyn ClaimedUdpPacketPathLeaf<'a> + 'a>> {
+    ) -> Option<std::sync::Arc<dyn PreparedUdpPacketPathOperation>> {
         if !leaf.supports_udp_packet_path() {
             return None;
         }
-        Some(Box::new(ClaimedShadowsocksPacketPathLeaf {
+        Some(std::sync::Arc::new(ShadowsocksPacketPathOperation {
             plan: leaf.udp_packet_path_plan().ok()?,
         }))
     }

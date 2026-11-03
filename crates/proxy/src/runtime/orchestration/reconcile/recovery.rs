@@ -17,7 +17,7 @@ impl OrchestrationState {
         // Failed/cancelled binds retain their original native owners. Drain
         // those candidates before rebuilding any last-good dependency or TUN.
         let retired = retire_rejected_bindings(&self.inbound_runtime_factory).await;
-        let can_restore = retired.is_ok();
+        let mut can_restore = retired.is_ok();
         self.pending_dns_reload = None;
         proxy.resolver.discard_prepared_reload();
         let persist = proxy.pending_reload_persists(rejected);
@@ -74,6 +74,35 @@ impl OrchestrationState {
             }
         }
 
+        // Devices may resolve peer names. Rebuild the original DNS dependency
+        // before any last-good device/listener can acquire a fresh carrier.
+        if recover_dns && can_restore {
+            if let Err(error) = restore_dns(proxy, &previous_config).await {
+                can_restore = false;
+                acknowledgement.push_str(&format!("; DNS recovery remains unconfirmed: {error}"));
+            }
+        }
+
+        #[cfg(feature = "raw-ip-runtime")]
+        if can_restore {
+            match proxy
+                .protocols
+                .prepare_devices(
+                    &previous_config,
+                    proxy.tcp_runtime_services_for_snapshot(self.applied_snapshot.clone()),
+                )
+                .await
+            {
+                Ok(devices) => devices.publish().await,
+                Err(error) => {
+                    can_restore = false;
+                    acknowledgement.push_str(&format!(
+                        "; outbound device rollback remains unconfirmed: {error}"
+                    ));
+                }
+            }
+        }
+
         let previous_runtime = self.inbound_runtime_factory.clone().for_recovery();
         // Only pre-existing actual owners may grant one recovery re-entry.
         // This temporary finite set holds IDs, never old owners/configuration
@@ -108,11 +137,6 @@ impl OrchestrationState {
                 warn!(%error, reason = "listener_reload_rollback_error", "failed to restore last-known-good listeners after reload failure");
                 acknowledgement.push_str(&format!("; listener rollback failed: {error}"));
                 break;
-            }
-        }
-        if recover_dns && can_restore {
-            if let Err(error) = restore_dns(proxy, &previous_config).await {
-                acknowledgement.push_str(&format!("; DNS recovery remains unconfirmed: {error}"));
             }
         }
         self.publish_endpoint_facts(proxy);

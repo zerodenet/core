@@ -33,6 +33,42 @@ async fn execute_prepared_udp_outbound(
     prepared: PreparedUdpOutbound<'_>,
 ) -> Result<FlowStartResult, FlowFailure> {
     match prepared {
+        #[cfg(feature = "managed-stream-runtime")]
+        PreparedUdpOutbound::DatagramRelay(prepared) => {
+            #[cfg(feature = "raw-ip-runtime")]
+            if let Some(native) = dispatch.runtime.native() {
+                native
+                    .declare_gateway(false)
+                    .map_err(|source| FlowFailure {
+                        stage: "native_gateway_admission",
+                        error: std::io::Error::other(source).into(),
+                        upstream: None,
+                    })?;
+            }
+            let (tag, server, port) = prepared.target.endpoint();
+            let (tag, upstream) = (tag.to_owned(), (server.to_owned(), port));
+            let services = ctx.runtime_services().with_outbound_io(&tag);
+            let execution = services
+                .datagram_execution(&dispatch.inbound_tag, session)
+                .map_err(|error| FlowFailure {
+                    stage: "udp_datagram_relay",
+                    error,
+                    upstream: Some(upstream.clone()),
+                })?;
+            let connection = crate::runtime::udp_flow::registered::LogicalConnection::open_relay(
+                &execution, *prepared, session,
+            )
+            .await
+            .map_err(|error| FlowFailure {
+                stage: "udp_datagram_relay",
+                error,
+                upstream: Some(upstream.clone()),
+            })?;
+            dispatch
+                .flow_start_context()
+                .start_logical(tag, Some(upstream), session, payload, connection)
+                .await
+        }
         PreparedUdpOutbound::Relay(prepared) => {
             prepared.execute(dispatch, ctx, session, payload).await
         }
@@ -87,6 +123,10 @@ pub(crate) async fn execute_prepared_udp_candidate(
             PreparedUdpLeafCandidate::Flow(operation) => {
                 operation.controlled_native_coverage(session)
             }
+            #[cfg(feature = "upstream-association-runtime")]
+            PreparedUdpLeafCandidate::Datagram(_) => false,
+            #[cfg(feature = "managed-stream-runtime")]
+            PreparedUdpLeafCandidate::DatagramFlow(_) => false,
         } && dispatch.bound_direct_registration().is_some();
         native
             .declare_gateway(covered)
@@ -98,8 +138,50 @@ pub(crate) async fn execute_prepared_udp_candidate(
     }
     match prepared {
         PreparedUdpLeafCandidate::Block { tag } => Ok(FlowStartResult::Blocked { tag }),
+        #[cfg(feature = "managed-stream-runtime")]
+        PreparedUdpLeafCandidate::DatagramFlow(target) => {
+            let (tag, server, port) = target.endpoint();
+            let services = ctx.runtime_services().with_outbound_io(tag);
+            let execution = services
+                .datagram_execution(&dispatch.inbound_tag, session)
+                .map_err(|error| FlowFailure {
+                    stage: "udp_datagram_open",
+                    error,
+                    upstream: Some((server.into(), port)),
+                })?;
+            let connection =
+                crate::runtime::udp_flow::registered::LogicalConnection::open_datagram(
+                    &execution, &target, session,
+                )
+                .await
+                .map_err(|error| FlowFailure {
+                    stage: "udp_datagram_open",
+                    error,
+                    upstream: Some((server.into(), port)),
+                })?;
+            dispatch
+                .flow_start_context()
+                .start_logical(
+                    tag.into(),
+                    Some((server.into(), port)),
+                    session,
+                    payload,
+                    connection,
+                )
+                .await
+        }
         PreparedUdpLeafCandidate::Flow(operation) => {
             operation.execute(dispatch, ctx, session, payload).await
+        }
+        #[cfg(feature = "upstream-association-runtime")]
+        PreparedUdpLeafCandidate::Datagram(target) => {
+            use crate::runtime::udp_flow::registered::UpstreamAssociationTarget;
+            let services = ctx
+                .runtime_services()
+                .with_outbound_io(target.outbound_tag());
+            dispatch
+                .start_datagram(services, target, session, payload)
+                .await
         }
     }
 }

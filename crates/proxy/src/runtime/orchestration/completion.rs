@@ -176,21 +176,19 @@ impl OrchestrationState {
         self.active_inbounds.clear();
         #[cfg(feature = "raw-ip-runtime")]
         {
-            let receipts = self.outbound_devices.shutdown_outbound_devices();
-            let completion = tokio::time::timeout(Duration::from_secs(5), async {
-                for receipt in receipts {
-                    receipt.await;
-                }
-            })
+            let completion = tokio::time::timeout(
+                Duration::from_secs(5),
+                self.outbound_devices.close_devices(),
+            )
             .await;
-            if completion.is_err() {
-                cleanup_errors.push("outbound device shutdown was not confirmed".to_owned());
+            if !matches!(completion, Ok(Ok(()))) {
+                let message = match completion {
+                    Ok(Err(error)) => format!("outbound device shutdown failed: {error}"),
+                    _ => "outbound device shutdown was not confirmed".to_owned(),
+                };
+                cleanup_errors.push(message.clone());
                 if result.is_ok() {
-                    result = Err(std::io::Error::new(
-                        std::io::ErrorKind::TimedOut,
-                        "outbound device shutdown was not confirmed",
-                    )
-                    .into());
+                    result = Err(EngineError::Io(std::io::Error::other(message)));
                 }
             }
         }
@@ -287,6 +285,6 @@ impl Drop for OrchestrationState {
             ));
         }
         #[cfg(feature = "raw-ip-runtime")]
-        drop(self.outbound_devices.shutdown_outbound_devices());
+        self.outbound_devices.request_device_shutdown();
     }
 }

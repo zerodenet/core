@@ -117,7 +117,7 @@ pub(super) async fn send_network_actions(
     carrier: Option<Arc<dyn RawIpWireCarrier>>,
     endpoint: SocketAddr,
     actions: &[RawIpInboundAction],
-    traffic: &crate::runtime::raw_ip::RawIpTraffic,
+    traffic: &super::observation::ObservedTraffic,
 ) {
     for action in actions {
         if let RawIpInboundAction::SendNetwork(packet) = action {

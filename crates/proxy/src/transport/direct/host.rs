@@ -5,7 +5,7 @@ use zero_dns::DnsSystem;
 use zero_platform_tokio::{EgressInterfaceControl, TokioSocket};
 use zero_transport::RuntimeError;
 
-use super::{dial_tcp_candidates, log_dial_failure, socket_addr_from_ip, DirectConnector};
+use super::{log_dial_failure, socket_addr_from_ip, DirectConnector};
 use crate::transport::establishment::{DialObservation, DialTrace};
 use crate::transport::failure::{attributed_error, is_local_network_error, TransportFailureOrigin};
 
@@ -19,6 +19,25 @@ impl DirectConnector {
         egress: &EgressInterfaceControl,
         trace: Option<&DialTrace>,
     ) -> Result<TokioSocket, RuntimeError> {
+        self.connect_host_using(
+            host,
+            port,
+            resolver,
+            egress,
+            trace,
+            &super::super::direct_dial::candidate::LegacyCandidateOpener,
+        )
+        .await
+    }
+    pub(crate) async fn connect_host_using<D: crate::transport::CandidateOpener>(
+        &self,
+        host: &str,
+        port: u16,
+        resolver: &DnsSystem,
+        egress: &EgressInterfaceControl,
+        trace: Option<&DialTrace>,
+        opener: &D,
+    ) -> Result<D::Socket, RuntimeError> {
         if port == 0 {
             return Err(zero_core::Error::Config("target port is required").into());
         }
@@ -48,48 +67,53 @@ impl DirectConnector {
             )
             .into());
         }
-        dial_tcp_candidates(candidates, egress)
-            .await
-            .map(|success| {
-                if let Some(trace) = trace {
-                    trace.record(DialObservation {
-                        stage: "connected",
-                        remote: Some(success.remote),
-                        local: success.socket.local_addr().ok(),
-                        candidates: success.resolved_candidates,
-                        attempts: success.attempts.iter().map(Into::into).collect(),
-                        os_error: None,
-                    });
-                }
-                success.socket
-            })
-            .map_err(|failure| {
-                if let Some(trace) = trace {
-                    trace.record(DialObservation {
-                        stage: failure.stage,
-                        remote: matches!(
-                            failure.stage,
-                            "connect_socket" | "connect_timeout" | "configure_socket"
-                        )
-                        .then_some(failure.remote),
-                        local: failure.local_addr,
-                        candidates: failure.resolved_candidates.clone(),
-                        attempts: failure.attempts.iter().map(Into::into).collect(),
-                        os_error: failure.error.raw_os_error(),
-                    });
-                }
-                log_dial_failure("upstream", &failure);
-                let origin = if matches!(
-                    failure.stage,
-                    "select_egress" | "bind_interface" | "create_socket" | "configure_socket"
-                ) || is_local_network_error(&failure.error)
-                {
-                    TransportFailureOrigin::LocalNetwork
-                } else {
-                    TransportFailureOrigin::Upstream
-                };
-                attributed_error(origin, failure.stage, failure.error).into()
-            })
+        super::super::direct_dial::dial_tcp_candidates_using(
+            candidates,
+            egress,
+            &zero_traits::DialPolicy::default(),
+            opener,
+        )
+        .await
+        .map(|success| {
+            if let Some(trace) = trace {
+                trace.record(DialObservation {
+                    stage: "connected",
+                    remote: Some(success.remote),
+                    local: success.local_addr,
+                    candidates: success.resolved_candidates,
+                    attempts: success.attempts.iter().map(Into::into).collect(),
+                    os_error: None,
+                });
+            }
+            success.socket
+        })
+        .map_err(|failure| {
+            if let Some(trace) = trace {
+                trace.record(DialObservation {
+                    stage: failure.stage,
+                    remote: matches!(
+                        failure.stage,
+                        "connect_socket" | "connect_timeout" | "configure_socket"
+                    )
+                    .then_some(failure.remote),
+                    local: failure.local_addr,
+                    candidates: failure.resolved_candidates.clone(),
+                    attempts: failure.attempts.iter().map(Into::into).collect(),
+                    os_error: failure.error.raw_os_error(),
+                });
+            }
+            log_dial_failure("upstream", &failure);
+            let origin = if matches!(
+                failure.stage,
+                "select_egress" | "bind_interface" | "create_socket" | "configure_socket"
+            ) || is_local_network_error(&failure.error)
+            {
+                TransportFailureOrigin::LocalNetwork
+            } else {
+                TransportFailureOrigin::Upstream
+            };
+            attributed_error(origin, failure.stage, failure.error).into()
+        })
     }
 }
 

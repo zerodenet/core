@@ -1,6 +1,8 @@
 #![cfg(feature = "socks5")]
 
 use super::*;
+#[path = "tests/dispatch.rs"]
+mod dispatch;
 use crate::{
     transport::{channel_failure, failure_origin, TransportFailureOrigin},
     Proxy,

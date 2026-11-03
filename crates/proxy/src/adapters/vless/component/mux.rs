@@ -1,3 +1,4 @@
+mod production;
 use super::super::VlessAdapter;
 use crate::component::{background::pool, RegistrationError, ResourcePreparation};
 use std::{num::NonZeroUsize, sync::Arc, time::Duration};
@@ -10,7 +11,7 @@ use zero_platform_tokio::contract::{
 
 pub(crate) enum Options {
     Ordinary(Arc<::vless::component::Options>),
-    Mux(Arc<::vless::component::mux::StreamOptions>),
+    Mux(Arc<::vless::component::mux::Options>),
 }
 pub(crate) struct Factory;
 impl ComponentFactory for Factory {
@@ -18,7 +19,7 @@ impl ComponentFactory for Factory {
     fn describe(&self, options: &Options) -> ComponentSpec {
         match options {
             Options::Ordinary(options) => ::vless::component::Factory.describe(options),
-            Options::Mux(options) => ::vless::component::mux::StreamFactory.describe(options),
+            Options::Mux(options) => ::vless::component::mux::Factory.describe(options),
         }
     }
     fn build(
@@ -31,7 +32,7 @@ impl ComponentFactory for Factory {
                 ::vless::component::Factory.build(options.clone(), context)
             }
             Options::Mux(options) => {
-                ::vless::component::mux::StreamFactory.build(options.clone(), context)
+                ::vless::component::mux::Factory.build(options.clone(), context)
             }
         }
     }
@@ -43,6 +44,7 @@ pub(crate) fn eligible(input: &OutboundConfig) -> bool {
     let mut ordinary = input.clone();
     let OutboundProtocolConfig::Vless {
         mux_concurrency,
+        xudp_concurrency,
         server,
         flow,
         ..
@@ -50,10 +52,11 @@ pub(crate) fn eligible(input: &OutboundConfig) -> bool {
     else {
         return false;
     };
-    if mux_concurrency.take().is_none()
-        || zero_core::address::parse_ip_literal(server).is_none()
-        || flow.is_some()
-    {
+    let mux = mux_concurrency.take();
+    if xudp_concurrency.take().is_some_and(|x| Some(x) != mux) {
+        return false;
+    }
+    if mux.is_none() || zero_core::address::parse_ip_literal(server).is_none() || flow.is_some() {
         return false;
     }
     super::native_input(&ordinary)
@@ -64,6 +67,41 @@ impl VlessAdapter {
         input: &OutboundConfig,
         resources: &mut ResourcePreparation<'_>,
         factory: Arc<pool::Factory>,
+    ) -> Result<Options, RegistrationError> {
+        self.mux_options(
+            input,
+            resources,
+            factory,
+            NonZeroUsize::new(1).unwrap(),
+            false,
+        )
+    }
+    pub(crate) fn production_mux_options(
+        &self,
+        input: &OutboundConfig,
+        resources: &mut ResourcePreparation<'_>,
+        factory: Arc<pool::Factory>,
+    ) -> Result<Options, RegistrationError> {
+        let limit = resources
+            .candidate()
+            .map(|c| c.runtime.effective_native_mux_max_carriers())
+            .unwrap_or(4);
+        let limit = NonZeroUsize::new(limit)
+            .filter(|n| n.get() <= 4096)
+            .ok_or_else(|| {
+                RegistrationError::Options(zero_config::ConfigError::InvalidRuntime(
+                    "invalid native MUX carrier limit".into(),
+                ))
+            })?;
+        self.mux_options(input, resources, factory, limit, true)
+    }
+    fn mux_options(
+        &self,
+        input: &OutboundConfig,
+        resources: &mut ResourcePreparation<'_>,
+        factory: Arc<pool::Factory>,
+        limit: NonZeroUsize,
+        stream_only: bool,
     ) -> Result<Options, RegistrationError> {
         let OutboundProtocolConfig::Vless {
             server,
@@ -87,8 +125,6 @@ impl VlessAdapter {
             dial: input.dial.to_policy(),
             network_generation: factory.generation,
         };
-        // This private opt-in keeps one actual carrier by default. Public
-        // production registration and configurable limits remain separately gated.
         let prepared = ::vless::component::mux::PreparedMux::from_options_refs(
             input_refs,
             &self.runtime,
@@ -96,7 +132,7 @@ impl VlessAdapter {
                 .candidate()
                 .and_then(|candidate| candidate.source_dir()),
             binding,
-            NonZeroUsize::new(1).unwrap(),
+            limit,
             Duration::from_secs(5),
         )
         .map_err(|source| {
@@ -108,8 +144,17 @@ impl VlessAdapter {
             Arc::new(pool::Options {
                 pool: prepared.pool_options().clone(),
                 tag: input.tag.clone(),
+                wire_endpoint: zero_core::request::Destination::new(
+                    zero_core::Address::Domain(server.clone()),
+                    *port,
+                ),
             }),
         )?;
-        Ok(Options::Mux(Arc::new(prepared.bind(owner))))
+        let options = prepared.bind(owner);
+        Ok(Options::Mux(Arc::new(if stream_only {
+            options.stream_only()
+        } else {
+            options
+        })))
     }
 }

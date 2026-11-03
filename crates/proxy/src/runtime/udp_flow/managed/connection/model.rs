@@ -28,9 +28,13 @@ pub(crate) type SharedManagedUdpConnection = Arc<dyn ManagedUdpConnection>;
 #[cfg(feature = "managed-datagram-runtime")]
 #[async_trait::async_trait]
 pub(crate) trait ManagedDatagramUdpConnection: Send + Sync {
+    fn is_closed(&self) -> bool {
+        false
+    }
     async fn send_datagram(
         &self,
         chain_tasks: &mut JoinSet<ChainTask>,
+        services: Option<crate::protocol_registry::UdpRuntimeServices>,
         session_id: u64,
         target: &Address,
         port: u16,

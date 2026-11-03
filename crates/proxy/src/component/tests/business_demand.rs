@@ -1,4 +1,4 @@
-use crate::{component::business_demand::AdmittedTcpDemand, Proxy};
+use crate::{component::business_demand::AdmittedBusinessDemand, Proxy};
 use zero_core::{component::SessionId, Address, Network, ProtocolType, Session, SessionAuth};
 use zero_platform_tokio::contract::context::RequestIdentity;
 
@@ -49,9 +49,11 @@ async fn actual_issuer_and_original_quota_cancellation_survive_the_same_invocati
         .prepare_session_admitted(&mut session, "in")
         .unwrap();
     assert!(
-        AdmittedTcpDemand::new(foreign.engine(), SessionId(session.id), receipt.clone()).is_err()
+        AdmittedBusinessDemand::new(foreign.engine(), SessionId(session.id), receipt.clone())
+            .is_err()
     );
-    let demand = AdmittedTcpDemand::new(first.engine(), SessionId(session.id), receipt).unwrap();
+    let demand =
+        AdmittedBusinessDemand::new(first.engine(), SessionId(session.id), receipt).unwrap();
     let cancel = demand.cancellation();
     let mut handle = first.engine().track_session(session.id);
     let (tx, rx) = tokio::sync::oneshot::channel();
@@ -109,7 +111,8 @@ async fn already_finalized_admission_projects_cancellation_without_authorizing_n
         .engine()
         .check_admitted_session(&receipt, SessionId(session.id))
         .is_err());
-    let demand = AdmittedTcpDemand::new(proxy.engine(), SessionId(session.id), receipt).unwrap();
+    let demand =
+        AdmittedBusinessDemand::new(proxy.engine(), SessionId(session.id), receipt).unwrap();
     let invocation = proxy
         .tcp_runtime_services()
         .for_inbound("in".into())

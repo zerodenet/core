@@ -7,7 +7,7 @@ use crate::runtime::udp_dispatch::UdpDispatch;
 
 impl UdpIngressRuntime {
     pub(crate) async fn new_dispatch(&self, inbound_tag: &str) -> Result<UdpDispatch, EngineError> {
-        UdpDispatch::new(self.clone(), inbound_tag, self.tcp_services.protocols()).await
+        UdpDispatch::new(self.clone(), inbound_tag).await
     }
 
     pub(crate) async fn dispatch_inbound_packet(

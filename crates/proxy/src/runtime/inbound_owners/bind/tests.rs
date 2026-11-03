@@ -11,6 +11,24 @@ use zero_core::{request::Destination, Address};
 use zero_platform_tokio::contract::component::ResourceDeclaration;
 mod accepted;
 mod accepted_direct;
+mod addresses;
+#[cfg(feature = "vless")]
+mod mask_ownership;
+#[cfg(feature = "managed-datagram-runtime")]
+mod native_peer;
+#[cfg(feature = "vless")]
+mod vless_continuity;
+#[cfg(feature = "vless")]
+mod vless_quic;
+#[cfg(feature = "vless")]
+mod vless_retirement;
+#[cfg(all(feature = "vless", unix))]
+mod vless_targets;
+#[cfg(feature = "vless")]
+mod vless_tcp;
+#[cfg(feature = "datagram-route-runtime")]
+pub(crate) use addresses::test_standard_datagram_listener;
+pub(crate) use addresses::test_standard_native_listener;
 #[cfg(feature = "datagram-route-runtime")]
 mod datagram;
 #[cfg(feature = "raw-ip-runtime")]
@@ -39,25 +57,11 @@ pub(in crate::runtime::inbound_owners) fn lease(
     index: usize,
 ) -> InboundBindLease {
     let inbound = &config.inbounds[index];
-    // This tests the generic host with an actual cold operation. It does not
-    // opt Direct into the production capability's still-unmigrated UDP path.
-    let operation = proxy
+    let prepared = proxy
         .protocols
-        .prepare_inbound_listener(inbound.clone(), None)
-        .unwrap();
-    let address = match index {
-        0 => Address::Ipv4([127, 0, 0, 1]),
-        _ => Address::Ipv6(std::net::Ipv6Addr::LOCALHOST.octets()),
-    };
-    let prepared = PreparedInboundBind::new(
-        operation,
-        Arc::from([ResourceDeclaration::TcpListener {
-            accepted: None,
-            destination: Destination::new(address, 0),
-            max_bind_attempts: std::num::NonZeroUsize::new(50).unwrap(),
-        }]),
-    )
-    .unwrap();
+        .prepare_inbound_bind(inbound.clone(), None)
+        .unwrap()
+        .expect("Direct TCP uses its actual standard recipe");
     let (shutdown, _) = watch::channel(false);
     proxy
         .inbound_owners
@@ -82,7 +86,7 @@ async fn same_native_listener_survives_cancelled_real_scope_join_and_closes_befo
     assert!(proxy.inbound_owners.owner("first").is_none());
     assert!(proxy.inbound_owners.identities().contains(&identity));
     lease.bind_tcp().unwrap();
-    let (operation, mut listener, installed) = lease.finish().unwrap().promote().unwrap();
+    let (operation, mut listener, installed) = promote_tcp(lease.finish().unwrap());
     drop(operation); // cold operation never started; the actual task is below
     let owner = installed.owner();
     assert!(Arc::ptr_eq(&original, &owner));
@@ -92,18 +96,38 @@ async fn same_native_listener_survives_cancelled_real_scope_join_and_closes_befo
     let entered = pending.clone();
     owner
         .spawn_driver(async move {
-            let (mut stream, _) = listener.accept().await?;
-            let read = stream.read_u8();
-            tokio::pin!(read);
-            let byte = std::future::poll_fn(|cx| match read.as_mut().poll(cx) {
-                Poll::Pending => {
-                    entered.notify_one();
-                    Poll::Pending
-                }
-                Poll::Ready(result) => Poll::Ready(result),
-            })
-            .await?;
-            assert_eq!(byte, 71);
+            let (accepted, _) = listener
+                .accept_owned()
+                .await
+                .map_err(std::io::Error::other)?;
+            let (_, witness) = accepted
+                .spawn_handler_bound(
+                    zero_platform_tokio::contract::lifecycle::TaskClass::Auxiliary,
+                    move |mut stream, _tasks| async move {
+                        let read = stream.read_u8();
+                        tokio::pin!(read);
+                        let byte = std::future::poll_fn(|cx| match read.as_mut().poll(cx) {
+                            Poll::Pending => {
+                                entered.notify_one();
+                                Poll::Pending
+                            }
+                            Poll::Ready(result) => Poll::Ready(result),
+                        })
+                        .await
+                        .map_err(|source| {
+                            zero_platform_tokio::contract::ChannelError::new(
+                                zero_platform_tokio::contract::Stage::Receive,
+                                zero_platform_tokio::contract::Reason::Io,
+                                zero_platform_tokio::contract::Impact::Session,
+                            )
+                            .with_source(source)
+                        })?;
+                        assert_eq!(byte, 71);
+                        Ok(())
+                    },
+                )
+                .map_err(std::io::Error::other)?;
+            witness.wait().await;
             Ok(())
         })
         .unwrap();
@@ -135,8 +159,8 @@ async fn same_native_listener_survives_cancelled_real_scope_join_and_closes_befo
     .unwrap()
     .unwrap()
     .unwrap();
-    assert_eq!(receipt.terminal().joined_tasks(), 1);
-    assert_eq!(receipt.terminal().closed_io_receipts(), 1);
+    assert_eq!(receipt.terminal().joined_tasks(), 2);
+    assert_eq!(receipt.terminal().closed_io_receipts(), 2);
     assert!(receipt.terminal().failure().is_none());
     proxy
         .inbound_owners
@@ -167,19 +191,11 @@ async fn dropped_partial_reservations_hold_native_fds_until_explicit_batch_clean
     let mut changed = (*config).clone();
     changed.runtime.event_log_capacity += 1;
     let changed = Arc::new(changed);
-    let operation = proxy
+    let prepared = proxy
         .protocols
-        .prepare_inbound_listener(changed.inbounds[0].clone(), None)
+        .prepare_inbound_bind(changed.inbounds[0].clone(), None)
+        .unwrap()
         .unwrap();
-    let prepared = PreparedInboundBind::new(
-        operation,
-        Arc::from([ResourceDeclaration::TcpListener {
-            accepted: None,
-            destination: Destination::new(Address::Ipv4([127, 0, 0, 1]), 0),
-            max_bind_attempts: std::num::NonZeroUsize::new(50).unwrap(),
-        }]),
-    )
-    .unwrap();
     let (stop, _) = watch::channel(false);
     assert!(proxy
         .inbound_owners
@@ -219,4 +235,19 @@ async fn dropped_partial_reservations_hold_native_fds_until_explicit_batch_clean
         .shutdown_all_reported(Instant::now() + Duration::from_secs(2), |_, _| Ok(()))
         .await
         .unwrap();
+}
+
+// Only projects the real bound view; it never invents a protocol operation.
+pub(in crate::runtime::inbound_owners) fn promote_tcp(
+    lease: LeasedInbound,
+) -> (
+    crate::component::ComponentRecipe,
+    zero_platform_tokio::ControlledTcpListener,
+    InboundInstallContext,
+) {
+    let (definition, view, installed) = lease.promote_definition().unwrap();
+    let NativeListenerView::Tcp(listener) = view else {
+        panic!("actual TCP declaration");
+    };
+    (definition, listener, installed)
 }

@@ -12,9 +12,8 @@ impl UdpDispatch {
     pub(crate) async fn new(
         runtime: crate::runtime::udp_ingress::UdpIngressRuntime,
         inbound_tag: &str,
-        protocols: &crate::inventory::ProtocolInventory,
     ) -> Result<Self, EngineError> {
-        let flow_state = UdpFlowState::new(protocols.registered_udp_handlers());
+        let flow_state = UdpFlowState::new();
         #[cfg(feature = "managed-datagram-runtime")]
         if let Some(context) = runtime.peer_resources() {
             context

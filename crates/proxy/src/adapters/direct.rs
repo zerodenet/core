@@ -6,15 +6,12 @@ use zero_traits::{
 };
 
 use crate::adapters::identity::NamedProtocolAdapter;
-use crate::protocol_registry::{InboundListenerCapability, OutboundLeafClaim, OutboundLeafInput};
+use crate::protocol_registry::{OutboundLeafClaim, OutboundLeafInput};
 use crate::runtime::path::TcpPathCategory;
 
 mod datagram;
 pub(crate) mod factory;
-mod inbound;
-mod tcp;
-#[cfg(feature = "udp-runtime")]
-mod udp;
+pub(crate) mod inbound;
 
 // Direct inbound is always available (no feature gate).
 #[derive(Default)]
@@ -27,7 +24,7 @@ pub(crate) struct DirectAdapter {
     >,
 }
 #[cfg(feature = "raw-ip-runtime")]
-mod packet;
+pub(crate) mod packet;
 
 impl NamedProtocolAdapter for DirectAdapter {
     const PROTOCOL_NAME: &'static str = "direct";
@@ -66,18 +63,30 @@ impl DirectAdapter {
         let _ = dial_generation;
         let configured_tag = tag.map(str::to_owned);
         let tag = tag.unwrap_or("direct").to_owned();
-        let tcp =
-            self.claim_tcp_outbound_leaf_impl(tag.clone(), configured_tag, dial_policy.clone());
+        let tcp = std::sync::Arc::new(
+            crate::runtime::tcp_dispatch::operation::DirectTcpConnectOperation {
+                tag: tag.clone(),
+                configured_tag,
+                dial_policy: dial_policy.clone(),
+            },
+        );
         Some(OutboundLeafClaim {
+            #[cfg(not(feature = "udp-runtime"))]
+            _lifetime: std::marker::PhantomData,
             tcp_path: TcpPathCategory::Direct,
-            tcp: Some(tcp),
+            tcp: Some(Ok(tcp)),
+            tcp_relay: None,
             #[cfg(feature = "udp-runtime")]
-            udp: Some(self.claim_udp_flow_leaf_impl(
-                tag,
-                policy_tag,
-                dial_policy.clone(),
-                dial_generation,
-            )),
+            udp: Some(Ok(Box::new(
+                crate::runtime::udp_dispatch::operation::DirectUdpFlowOperation {
+                    tag,
+                    policy_tag,
+                    dial_policy: dial_policy.clone(),
+                    dial_generation,
+                },
+            ))),
+            #[cfg(feature = "udp-runtime")]
+            udp_relay: None,
             #[cfg(feature = "udp-runtime")]
             #[cfg(feature = "raw-ip-runtime")]
             packet: self
@@ -86,35 +95,21 @@ impl DirectAdapter {
                 .unwrap_or_else(|e| e.into_inner())
                 .as_ref()
                 .filter(|d| dial_policy == zero_traits::DialPolicy::default() && d.usable())
-                .map(|d| {
-                    Box::new(packet::PacketLeaf(d.clone(), dial_policy.clone()))
-                        as Box<dyn crate::protocol_registry::ClaimedPacketLeaf>
+                .map(|d| crate::runtime::packet_route::PacketRouteOperations {
+                    native: std::sync::Arc::new(
+                        crate::runtime::packet_route::host::PreparedHostPacketOperation {
+                            device: d.clone(),
+                            dial_policy: dial_policy.clone(),
+                        },
+                    ),
+                    translated: None,
+                    datagram: None,
+                    flow: None,
+                    correlated_returns: false,
                 }),
             #[cfg(feature = "udp-runtime")]
             packet_path: None,
         })
-    }
-}
-
-#[async_trait::async_trait]
-impl InboundListenerCapability for DirectAdapter {
-    async fn bind_inbound(
-        &self,
-        inbound: &InboundConfig,
-        _source_dir: Option<&std::path::Path>,
-    ) -> Result<crate::protocol_registry::BoundInbound, EngineError> {
-        self.bind_inbound_impl(inbound).await
-    }
-
-    fn prepare_inbound_listener(
-        &self,
-        inbound: InboundConfig,
-        _source_dir: Option<&std::path::Path>,
-    ) -> Result<
-        Box<dyn crate::runtime::inbound_operation::PreparedInboundListenerOperation>,
-        EngineError,
-    > {
-        self.prepare_inbound_listener_impl(inbound)
     }
 }
 

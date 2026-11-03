@@ -18,6 +18,17 @@ pub(crate) struct SharedIngressRuntimeServices {
 }
 
 impl SharedIngressRuntimeServices {
+    pub(super) fn with_inbound_instance(
+        mut self,
+        identity: zero_core::component::ComponentInstanceId,
+    ) -> Self {
+        self.tcp_services = self.tcp_services.with_inbound_instance(identity);
+        #[cfg(feature = "udp-runtime")]
+        {
+            self.udp_runtime = UdpIngressRuntime::new(self.tcp_services.clone());
+        }
+        self
+    }
     pub(super) fn config_handle(&self) -> std::sync::Arc<zero_config::RuntimeConfig> {
         self.tcp_services.snapshot().config().clone()
     }

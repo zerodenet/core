@@ -58,11 +58,11 @@ impl PreparedDatagramRelayCarrier {
         Ok(())
     }
 
-    pub(crate) fn new(operation: Box<dyn PreparedUdpPacketPathOperation>) -> Option<Self> {
+    pub(crate) fn new(operation: Arc<dyn PreparedUdpPacketPathOperation>) -> Option<Self> {
         let descriptor = operation.carrier_descriptor()?;
         Some(Self {
             descriptor,
-            layers: vec![PreparedDatagramRelayLayer::Base(Arc::from(operation))],
+            layers: vec![PreparedDatagramRelayLayer::Base(operation)],
         })
     }
 
@@ -72,7 +72,7 @@ impl PreparedDatagramRelayCarrier {
 
     pub(crate) fn extend(
         current: Option<Self>,
-        operation: Box<dyn PreparedUdpPacketPathOperation>,
+        operation: Arc<dyn PreparedUdpPacketPathOperation>,
         tcp_prefix: PreparedTcpRelayPrefix,
     ) -> Option<Self> {
         if let Some(source) = operation.datagram_source() {
@@ -92,7 +92,7 @@ impl PreparedDatagramRelayCarrier {
         let prefix_key = owned::tcp_prefix_key(&tcp_prefix);
         let mut layers = current.map_or_else(Vec::new, |current| current.layers);
         layers.push(PreparedDatagramRelayLayer::Associated {
-            operation: Arc::from(operation),
+            operation,
             tcp_prefix,
         });
         Some(Self {

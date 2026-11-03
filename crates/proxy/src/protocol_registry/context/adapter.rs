@@ -13,10 +13,6 @@ impl<'a> OutboundAdapterContext<'a> {
         Self { config }
     }
 
-    pub(crate) fn source_dir(&self) -> Option<&std::path::Path> {
-        self.config.source_dir()
-    }
-
     pub(crate) fn config(&self) -> &'a RuntimeConfig {
         self.config
     }
@@ -33,10 +29,6 @@ pub(crate) struct UdpAdapterContext<'a> {
 impl<'a> UdpAdapterContext<'a> {
     pub(crate) fn new(config: &'a RuntimeConfig, services: UdpRuntimeServices) -> Self {
         Self { config, services }
-    }
-
-    pub(crate) fn source_dir(&self) -> Option<&'a std::path::Path> {
-        self.config.source_dir()
     }
 
     pub(crate) fn config(&self) -> &'a RuntimeConfig {

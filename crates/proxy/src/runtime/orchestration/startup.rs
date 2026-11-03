@@ -126,15 +126,13 @@ impl OrchestrationState {
         #[cfg(feature = "raw-ip-runtime")]
         let prepared_outbound_devices = proxy
             .protocols
-            .prepare_outbound_devices(
+            .prepare_devices(
                 &config,
                 proxy.tcp_runtime_services_for_snapshot(snapshot.clone()),
             )
             .await?;
         #[cfg(feature = "raw-ip-runtime")]
-        for prepared in prepared_outbound_devices {
-            prepared.publish().await;
-        }
+        prepared_outbound_devices.publish().await;
         #[cfg(feature = "raw-ip-runtime")]
         {
             self.device_generation = prepared_generation;

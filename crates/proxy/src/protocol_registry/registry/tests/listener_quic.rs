@@ -6,8 +6,6 @@ use std::time::Duration;
 
 use serde_json::json;
 
-use crate::protocol_registry::BoundInbound;
-
 #[tokio::test]
 async fn quic_adapters_bind_bare_and_bracketed_ipv6() {
     if let Err(error) = std::net::UdpSocket::bind((Ipv6Addr::LOCALHOST, 0)) {
@@ -40,33 +38,43 @@ async fn quic_adapters_bind_bare_and_bracketed_ipv6() {
                 "protocol":protocol,
             }))
             .unwrap();
-            let BoundInbound::Quic(server) = registry.bind_inbound(&inbound, None).await.unwrap()
-            else {
-                panic!("expected a QUIC listener");
-            };
-            assert!(server.local_addr().unwrap().is_ipv6());
-            let target = SocketAddr::new(
-                Ipv6Addr::LOCALHOST.into(),
-                server.local_addr().unwrap().port(),
-            );
-            let mut client =
-                quinn::Endpoint::client(SocketAddr::new(Ipv6Addr::LOCALHOST.into(), 0)).unwrap();
-            client.set_default_client_config(
-                zero_transport::quic::client_config(true, None, std::slice::from_ref(&alpn), None)
-                    .unwrap(),
-            );
-            let connecting = client.connect(target, "localhost").unwrap();
-            let (accepted, connected) = tokio::time::timeout(Duration::from_secs(5), async {
-                tokio::join!(server.accept_connection(), connecting)
-            })
-            .await
-            .expect("IPv6 QUIC handshake must complete");
-            let accepted = accepted.unwrap();
-            let connected = connected.unwrap();
-            assert!(accepted.remote_address().is_ipv6());
-            assert!(connected.remote_address().is_ipv6());
-            accepted.close(0u32.into(), b"test complete");
-            client.close(0u32.into(), b"test complete");
+            assert!(registry
+                .inbounds
+                .has_factory_for(protocol["type"].as_str().unwrap(), &inbound));
+            standard_quic(inbound, &alpn).await;
         }
     }
+}
+
+async fn standard_quic(inbound: zero_config::InboundConfig, alpn: &[u8]) {
+    let tag = inbound.tag.clone();
+    let config = zero_config::RuntimeConfig::parse(
+        &json!({"inbounds":[inbound],
+        "route":{"final":{"type":"direct"}}})
+        .to_string(),
+    )
+    .unwrap();
+    let proxy = crate::runtime::Proxy::new(config).unwrap();
+    let listener =
+        crate::runtime::test_listener::start(&proxy, proxy.engine().config().inbounds[0].clone())
+            .await;
+    assert!(listener.address.is_ipv6());
+    let address = SocketAddr::new(Ipv6Addr::LOCALHOST.into(), listener.address.port());
+    let mut client =
+        quinn::Endpoint::client(SocketAddr::new(Ipv6Addr::LOCALHOST.into(), 0)).unwrap();
+    client.set_default_client_config(
+        zero_transport::quic::client_config(true, None, &[alpn.to_vec()], None).unwrap(),
+    );
+    let connected = tokio::time::timeout(
+        Duration::from_secs(5),
+        client.connect(address, "localhost").unwrap(),
+    )
+    .await
+    .unwrap()
+    .unwrap();
+    assert!(connected.remote_address().is_ipv6());
+    connected.close(0u32.into(), b"test complete");
+    client.close(0u32.into(), b"test complete");
+    client.wait_idle().await;
+    crate::runtime::test_listener::close(&proxy, &tag, listener).await;
 }

@@ -7,7 +7,8 @@ use zero_config::{OutboundGroupKind, RuntimeConfig};
 use zero_engine::EngineError;
 
 use super::{PreparedTcpRelayPrefix, ProtocolInventory};
-use crate::protocol_registry::{OutboundAdapterContext, PreparedDevicePacketPath};
+use crate::adapters::devices::PreparedDevicePacketPath;
+use crate::protocol_registry::OutboundAdapterContext;
 use crate::runtime::udp_dispatch::packet_path_operation::PreparedDatagramRelayCarrier;
 
 type PacketPaths = HashMap<String, PreparedDevicePacketPath>;
@@ -27,11 +28,11 @@ impl ProtocolInventory {
             let Ok(claimed) = self.claim_config_outbound(config, index) else {
                 continue;
             };
-            if let Some(operation) = claimed.prepare_udp_packet_path(config.source_dir()) {
+            if let Some(operation) = claimed.udp_packet_path() {
                 paths.insert(
                     outbound.tag.clone(),
                     PreparedDevicePacketPath {
-                        operation: Arc::from(operation),
+                        operation,
                         identity: path_identity(config, &[index])?,
                         root_binding: root_binding(outbound, network_generation),
                     },
@@ -95,7 +96,7 @@ impl ProtocolInventory {
             .expect("validated relay group has at least two members");
         let final_operation = claimed
             .final_hop()
-            .prepare_udp_packet_path(config.source_dir())
+            .udp_packet_path()
             .ok_or_else(|| invalid("outer UDP relay final hop has no packet-path capability"))?;
         let prefix = PreparedTcpRelayPrefix {
             first: prepared.first,

@@ -1,29 +1,11 @@
 //! Built-in Direct projection into the neutral host packet executor.
 use super::DirectAdapter;
 use crate::{
-    protocol_registry::{
-        ClaimedPacketLeaf, OutboundDeviceLifecycleCapability, OutboundDevicePreparationContext,
-        PreparedOutboundDeviceState,
-    },
-    runtime::packet_route::{host::HostPacketDevice, PreparedPacketRouteOperation},
+    adapters::devices::OutboundDevicePreparationContext,
+    runtime::packet_route::host::HostPacketDevice,
 };
 use std::sync::Arc;
-pub(super) struct PacketLeaf(
-    pub(super) Arc<HostPacketDevice>,
-    pub(super) zero_traits::DialPolicy,
-);
-impl ClaimedPacketLeaf for PacketLeaf {
-    fn prepare_packet_route(&self) -> Box<dyn PreparedPacketRouteOperation> {
-        Box::new(
-            crate::runtime::packet_route::host::PreparedHostPacketOperation {
-                device: self.0.clone(),
-                dial_policy: self.1.clone(),
-            },
-        )
-    }
-}
-struct Prepared {
-    owner: Arc<std::sync::Mutex<Option<Arc<HostPacketDevice>>>>,
+pub(crate) struct Prepared {
     next: Option<Arc<HostPacketDevice>>,
     fresh: bool,
     published: bool,
@@ -37,77 +19,76 @@ impl Drop for Prepared {
         }
     }
 }
-impl PreparedOutboundDeviceState for Prepared {
-    fn publish(
-        mut self: Box<Self>,
-    ) -> std::pin::Pin<Box<dyn std::future::Future<Output = ()> + Send>> {
-        let old = std::mem::replace(
-            &mut *self.owner.lock().unwrap_or_else(|e| e.into_inner()),
-            self.next.take(),
-        );
-        let retired = old.filter(|old| {
-            self.owner
-                .lock()
-                .unwrap_or_else(|e| e.into_inner())
-                .as_ref()
-                .is_none_or(|new| !Arc::ptr_eq(old, new))
-        });
-        if let Some(old) = &retired {
-            old.close();
+impl Prepared {
+    pub(crate) fn publish(mut self) {
+        if let Some(next) = &self.next {
+            next.activate();
         }
-        let next = self.owner.lock().unwrap_or_else(|e| e.into_inner()).clone();
         self.published = true;
-        Box::pin(async move {
-            if let Some(old) = retired {
-                old.wait_stopped().await;
-            }
-            if let Some(next) = next {
-                next.activate();
-            }
-        })
     }
 }
-#[async_trait::async_trait]
-impl OutboundDeviceLifecycleCapability for DirectAdapter {
-    async fn prepare_outbound_devices(
+impl DirectAdapter {
+    pub(crate) async fn prepare_devices(
         &self,
-        _: &[&zero_config::OutboundConfig],
-        _: &[zero_config::InboundConfig],
         context: OutboundDevicePreparationContext,
-    ) -> Result<Box<dyn PreparedOutboundDeviceState>, zero_engine::EngineError> {
+    ) -> Result<Prepared, zero_engine::EngineError> {
         let current = self
             .packet
             .lock()
             .unwrap_or_else(|e| e.into_inner())
             .clone();
-        let (next, fresh) = if let Some(config) = context.direct_packet_device {
-            if let Some(current) = current
-                .filter(|d| d.config == config && d.mtu == usize::from(context.mtu) && d.usable())
-            {
-                (Some(current), false)
-            } else {
-                (Some(prepare_host_device(config, context.mtu)?), true)
-            }
+        let reusable = current.filter(|d| {
+            context.direct_packet_device.as_ref() == Some(&d.config)
+                && d.mtu == usize::from(context.mtu)
+                && d.usable()
+        });
+        let fresh = reusable.is_none() && context.direct_packet_device.is_some();
+        let next = if reusable.is_some() {
+            reusable
         } else {
-            (None, false)
+            self.close_devices().await?;
+            match context.direct_packet_device {
+                Some(config) => Some(prepare_host_device(config, context.mtu)?),
+                None => None,
+            }
         };
-        Ok(Box::new(Prepared {
-            owner: self.packet.clone(),
+        // Retain the real original even if this prepared value is discarded.
+        *self.packet.lock().unwrap_or_else(|e| e.into_inner()) = next.clone();
+        Ok(Prepared {
             next,
             fresh,
             published: false,
-        }))
+        })
     }
-    fn shutdown_outbound_devices(&self) -> crate::protocol_registry::OutboundDeviceCompletion {
-        let device = self.packet.lock().unwrap_or_else(|e| e.into_inner()).take();
-        if let Some(device) = &device {
+    pub(crate) fn request_device_shutdown(&self) {
+        if let Some(device) = self
+            .packet
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .as_ref()
+        {
             device.close();
         }
-        Box::pin(async move {
-            if let Some(device) = device {
-                device.wait_stopped().await;
+    }
+    pub(crate) async fn close_devices(&self) -> Result<(), zero_engine::EngineError> {
+        self.request_device_shutdown();
+        let device = self
+            .packet
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .clone();
+        if let Some(device) = device {
+            if device.config.backend == zero_config::DirectPacketDeviceBackend::Wintun {
+                // Existing Windows host-session backend has no original native
+                // receipt. Keep its explicit compatibility join, never qualify
+                // it as a native device/provider merely by deleting the SPI.
+                device.wait_workers_stopped().await?;
+            } else {
+                device.wait_closed().await?;
             }
-        })
+        }
+        self.packet.lock().unwrap_or_else(|e| e.into_inner()).take();
+        Ok(())
     }
 }
 

@@ -4,10 +4,12 @@ mod lease;
 mod operations;
 mod poll;
 mod progress;
+mod returns;
 mod snapshot;
 mod wake;
 use entry::Entry;
 pub(crate) use lease::DatagramReservation;
+pub(crate) use returns::DatagramReturns;
 use std::{
     collections::BTreeMap,
     num::NonZeroUsize,
@@ -71,8 +73,14 @@ impl RetiredDatagrams {
         }
     }
     pub(crate) fn reserve(self: &Arc<Self>) -> Result<DatagramReservation, ChannelError> {
+        self.reserve_with_returns(None)
+    }
+    pub(crate) fn reserve_with_returns(
+        self: &Arc<Self>,
+        returns: Option<&Arc<DatagramReturns>>,
+    ) -> Result<DatagramReservation, ChannelError> {
         let mut state = self.state.lock().expect("Datagram owner poisoned");
-        let reason = if state.stopping {
+        let reason = if state.stopping || returns.is_some_and(|returns| returns.is_closed()) {
             Some(Reason::Revoked)
         } else if state.entries.len() >= self.capacity.get() {
             Some(Reason::Capacity)
@@ -87,7 +95,12 @@ impl RetiredDatagrams {
             .checked_add(1)
             .ok_or_else(|| admission_error(Reason::Capacity))?;
         state.next = id;
-        let entry = Arc::new(Mutex::new(Entry::reserved()));
+        let mut entry = Entry::reserved();
+        if let Some(returns) = returns {
+            returns.reserve();
+            entry.returns = Some(returns.clone());
+        }
+        let entry = Arc::new(Mutex::new(entry));
         state.entries.insert(id, entry.clone());
         Ok(DatagramReservation::new(self.clone(), id, entry))
     }

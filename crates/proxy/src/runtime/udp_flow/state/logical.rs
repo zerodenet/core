@@ -1,4 +1,4 @@
-use super::{UdpFlowStartContext, UdpFlowState};
+use super::UdpFlowStartContext;
 use crate::runtime::udp_flow::{
     outbound::UdpFlowOutbound,
     registered::LogicalConnection,
@@ -10,23 +10,36 @@ impl UdpFlowStartContext<'_> {
     pub(crate) async fn start_logical(
         &mut self,
         tag: String,
+        upstream: Option<(String, u16)>,
         session: &Session,
         payload: &[u8],
         connection: LogicalConnection,
     ) -> Result<FlowStartResult, FlowFailure> {
-        let sent = connection.send(session, payload).await?;
+        let sent = connection
+            .send(session, payload)
+            .await
+            .map_err(|mut failure| {
+                failure.upstream = upstream.clone();
+                failure
+            })?;
+        let remote = connection.observed_remote();
         let managed = self
             .state
             .registered
             .register_logical(session.id, connection);
+        let outbound = match upstream {
+            Some((server, port)) => UdpFlowOutbound::StreamPacket {
+                tag,
+                server,
+                port,
+                managed,
+                remote,
+            },
+            None => UdpFlowOutbound::LogicalStreamPacket { tag, managed },
+        };
         Ok(FlowStartResult::Flow {
-            outbound: Box::new(UdpFlowOutbound::LogicalStreamPacket { tag, managed }),
+            outbound: Box::new(outbound),
             tx_bytes: sent as u64,
         })
-    }
-}
-impl UdpFlowState {
-    pub(crate) fn release_logical_session(&mut self, session_id: u64) {
-        self.registered.release_logical_session(session_id);
     }
 }

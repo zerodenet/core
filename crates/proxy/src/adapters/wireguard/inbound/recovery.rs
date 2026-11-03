@@ -1,7 +1,7 @@
 //! Passive same-crypto behavior; the host checks the exact old terminal first.
 use super::super::PendingEndpointMap;
 use super::{
-    cold::{Binding, ColdListener},
+    cold::{Binding, Options},
     *,
 };
 use crate::protocol_registry::{InboundRecovery, PreparedInboundBind};
@@ -98,9 +98,8 @@ impl Recovery {
         restore: bool,
     ) -> Result<PreparedInboundBind, EngineError> {
         let binding = self.select(inbound, restore)?;
-        let operation =
-            ColdListener::new(inbound, self.live.clone(), binding, self.pending.clone())?;
-        super::super::controlled_bind::cold_bind(inbound, Box::new(operation))
+        let operation = Options::new(inbound, self.live.clone(), binding, self.pending.clone())?;
+        super::super::controlled_bind::cold_bind(operation)
     }
 }
 impl InboundRecovery for Recovery {

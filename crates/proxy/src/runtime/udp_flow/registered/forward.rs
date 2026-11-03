@@ -1,30 +1,33 @@
 use super::{state::RegisteredUdpConnection, RegisteredUdpState};
 use crate::protocol_registry::UdpRuntimeServices;
-use crate::runtime::udp_flow::managed::ManagedExistingFlowForward;
-use crate::runtime::udp_flow::packet_path::ChainTask;
-use crate::runtime::udp_flow::result::FlowFailure;
+use crate::runtime::udp_flow::{
+    packet_path::ChainTask, result::FlowFailure, snapshot::UdpFlowSnapshot,
+};
 use tokio::task::JoinSet;
-
 impl RegisteredUdpState {
     pub(crate) async fn forward_existing_managed_flow(
         &mut self,
-        _chain_tasks: &mut JoinSet<ChainTask>,
-        _services: UdpRuntimeServices,
-        request: ManagedExistingFlowForward<'_>,
+        tasks: &mut JoinSet<ChainTask>,
+        services: UdpRuntimeServices,
+        request: (&UdpFlowSnapshot, &[u8]),
     ) -> Result<usize, FlowFailure> {
-        let (flow, _) = request;
-        let Some(flow_ref) = flow.outbound.managed_flow() else {
-            return Err(unavailable(
-                "protocol UDP flow has no managed resume reference",
-            ));
-        };
-        let Some(connection) = self.connections.get(&flow_ref).cloned() else {
-            return Err(unavailable("managed UDP flow resume was dropped"));
-        };
-        let resume = match connection {
+        let (flow, payload) = request;
+        let id = flow.outbound.managed_flow().ok_or_else(|| {
+            unavailable("protocol UDP flow has no executable connection reference")
+        })?;
+        let connection = self
+            .connections
+            .get(&id)
+            .cloned()
+            .ok_or_else(|| unavailable("UDP connection was dropped"))?;
+        let upstream = flow
+            .outbound
+            .upstream()
+            .map(|value| (value.server.to_owned(), value.port));
+        let (stage, result) = match connection {
             #[cfg(feature = "managed-stream-runtime")]
             RegisteredUdpConnection::Logical(connection) => {
-                return connection.send(&request.0.session, request.1).await;
+                return connection.send(&flow.session, payload).await
             }
             #[cfg(feature = "upstream-association-runtime")]
             RegisteredUdpConnection::Upstream(_) => {
@@ -32,27 +35,38 @@ impl RegisteredUdpState {
                     "upstream association flows are handled by generic UDP dispatch",
                 ))
             }
-            RegisteredUdpConnection::Legacy(resume) => resume,
+            #[cfg(feature = "managed-stream-runtime")]
+            RegisteredUdpConnection::Tuple { connection, stage } => {
+                connection.spawn_response_bridge(tasks, flow.session.id);
+                (
+                    stage,
+                    connection
+                        .send(&flow.session.target, flow.session.port, payload)
+                        .await,
+                )
+            }
+            #[cfg(feature = "managed-datagram-runtime")]
+            RegisteredUdpConnection::Datagram { connection, stage } => (
+                stage,
+                connection
+                    .send_datagram(
+                        tasks,
+                        Some(services),
+                        flow.session.id,
+                        &flow.session.target,
+                        flow.session.port,
+                        payload,
+                    )
+                    .await,
+            ),
         };
-
-        #[cfg(any(
-            feature = "managed-stream-runtime",
-            feature = "managed-datagram-runtime"
-        ))]
-        if let Some(result) = self
-            .managed
-            .forward_existing_flow(_chain_tasks, _services, request, resume)
-            .await?
-        {
-            return Ok(result);
-        }
-
-        Err(unavailable(
-            "protocol UDP flow snapshot has no compiled forward handler",
-        ))
+        result.map_err(|error| FlowFailure {
+            stage,
+            error,
+            upstream,
+        })
     }
 }
-
 fn unavailable(message: &'static str) -> FlowFailure {
     FlowFailure {
         stage: "udp_protocol_forward",

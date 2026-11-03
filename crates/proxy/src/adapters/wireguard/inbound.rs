@@ -16,13 +16,13 @@ use wireguard::{
 use zero_config::{InboundConfig, InboundProtocolConfig, WireguardSecret};
 use zero_engine::EngineError;
 
-pub(super) mod cold;
+pub(crate) mod cold;
 mod device;
 mod recovery;
 use super::inbound_protocol_identity;
 use crate::runtime::inbound_operation::{
-    EndpointPeerState, PreparedInboundListenerOperation, RawIpInboundAction, RawIpInboundDevice,
-    RawIpInboundDispatch, RawIpInboundEndpoint, RawIpInboundListenerOperation,
+    EndpointPeerState, RawIpInboundAction, RawIpInboundDevice, RawIpInboundDispatch,
+    RawIpInboundEndpoint,
 };
 use crate::runtime::raw_ip::{EndpointPacket, RawIpWireCarrier, SharedRawIpDevice};
 pub(super) use device::LiveInboundDevice;
@@ -119,6 +119,9 @@ impl LinkedEndpoint {
             .cloned()
             .collect()
     }
+    pub(super) fn reused_carriers(&self) -> Vec<Option<Arc<dyn RawIpWireCarrier>>> {
+        self.peers.borrow().carriers.clone()
+    }
     pub(super) fn carrier_owners_match(
         &self,
         owners: &[Arc<crate::runtime::udp_dispatch::packet_owner::PacketCarrierOwnerSlot>],
@@ -168,7 +171,7 @@ impl LinkedEndpoint {
         }
     }
 
-    fn take_operation(&self) -> Result<Box<dyn PreparedInboundListenerOperation>, EngineError> {
+    fn take_endpoint(&self) -> Result<RawIpInboundEndpoint, EngineError> {
         if self.active.swap(true, Ordering::AcqRel) {
             return Err(invalid(
                 "linked WireGuard endpoint listener already running",
@@ -184,37 +187,19 @@ impl LinkedEndpoint {
                 self.sender.send_replace(sender);
                 packets
             });
-        Ok(Box::new(RawIpInboundListenerOperation::new(
-            Box::new(WireguardInboundDevice(self.live.clone())),
-            Some(RawIpInboundEndpoint {
-                packets,
-                peers: self.peers.subscribe(),
-                lease: self.active.clone(),
-            }),
-        )))
+        Ok(RawIpInboundEndpoint {
+            packets,
+            peers: self.peers.subscribe(),
+            lease: self.active.clone(),
+        })
     }
-}
-
-pub(super) fn prepare_unlinked_with_live(
-    live: Arc<LiveInboundDevice>,
-) -> Box<dyn PreparedInboundListenerOperation> {
-    Box::new(RawIpInboundListenerOperation::new(
-        Box::new(WireguardInboundDevice(live)),
-        None,
-    ))
 }
 
 #[cfg(test)]
 pub(super) fn prepare_linked(
     linked: &Arc<LinkedEndpoint>,
-) -> Result<
-    (
-        Box<dyn PreparedInboundListenerOperation>,
-        Arc<LiveInboundDevice>,
-    ),
-    EngineError,
-> {
-    Ok((linked.take_operation()?, linked.live.clone()))
+) -> Result<(RawIpInboundEndpoint, Arc<LiveInboundDevice>), EngineError> {
+    Ok((linked.take_endpoint()?, linked.live.clone()))
 }
 
 pub(super) fn prepare_device(inbound: &InboundConfig) -> Result<InboundDevice, EngineError> {

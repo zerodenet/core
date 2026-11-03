@@ -1,6 +1,6 @@
 //! Real Engine + current Slot + registered sole owner; no synthetic host issuer.
 use super::super::{
-    business_carrier::BusinessCarrierRequest, business_demand::AdmittedTcpDemand,
+    business_carrier::BusinessCarrierRequest, business_demand::AdmittedBusinessDemand,
     catalog::supervision::testing::TestContext, direct_bridge::Invocation, instance::ComponentSlot,
     stream_bridge::network::NodeOpener, ComponentRecipe,
 };
@@ -69,7 +69,8 @@ fn admitted(proxy: &Proxy) -> (Session, Invocation) {
         .engine()
         .prepare_session_admitted(&mut session, "in")
         .unwrap();
-    let demand = AdmittedTcpDemand::new(proxy.engine(), SessionId(session.id), receipt).unwrap();
+    let demand =
+        AdmittedBusinessDemand::new(proxy.engine(), SessionId(session.id), receipt).unwrap();
     let invocation = proxy
         .tcp_runtime_services()
         .for_inbound("in".into())

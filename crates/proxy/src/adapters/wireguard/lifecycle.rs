@@ -3,6 +3,7 @@
 mod linked;
 mod pending;
 mod pending_map;
+mod publication;
 #[cfg_attr(
     not(test),
     expect(
@@ -11,6 +12,7 @@ mod pending_map;
     )
 )]
 mod recipe;
+mod selection;
 pub(super) use pending::{PeerResources, PendingLinkedEndpoint};
 use pending_map::PendingEndpoints;
 
@@ -20,7 +22,6 @@ use std::{
     sync::{Arc, Mutex},
 };
 
-use sha2::{Digest, Sha256};
 use tokio::sync::OnceCell;
 use zero_config::{InboundConfig, OutboundConfig, OutboundProtocolConfig};
 use zero_core::Address;
@@ -31,16 +32,13 @@ use super::{
     PendingEndpointMap, WireguardAdapter,
 };
 use crate::{
-    protocol_registry::{
-        OutboundDeviceLifecycleCapability, OutboundDevicePreparationContext,
-        PreparedOutboundDeviceState,
-    },
+    adapters::devices::OutboundDevicePreparationContext,
     runtime::raw_ip::{
         ProxiedRawIpWireCarrier, RawIpDevicePool, RawIpOutboundPlan, SharedRawIpDevice,
     },
 };
 
-struct PreparedWireguardDevices {
+pub(crate) struct PreparedWireguardDevices {
     pool: Arc<RawIpDevicePool>,
     profiles: Arc<Mutex<HashMap<String, CachedProfile>>>,
     next_profiles: HashMap<String, CachedProfile>,
@@ -65,92 +63,43 @@ impl crate::protocol_registry::EndpointControlCapability for WireguardAdapter {
     }
 }
 
-impl PreparedOutboundDeviceState for PreparedWireguardDevices {
-    fn publish(self: Box<Self>) -> std::pin::Pin<Box<dyn std::future::Future<Output = ()> + Send>> {
-        let Self {
-            pool,
-            profiles,
-            next_profiles,
-            staged,
-            linked,
-            next_linked,
-            linked_updates,
-            mut pending,
-            traffic,
-        } = *self;
-        for prepared in traffic {
-            prepared.publish();
-        }
-        let mut active = profiles.lock().unwrap_or_else(|error| error.into_inner());
-        for update in linked_updates {
-            update.publish();
-        }
-        let stopped = pool.publish(staged);
-        *active = next_profiles;
-        *linked.lock().unwrap_or_else(|error| error.into_inner()) = next_linked;
-        pending.published();
-        drop(pending);
-        Box::pin(async move {
-            for device in stopped {
-                device.wait_stopped().await;
-            }
-        })
-    }
-}
-
-#[async_trait::async_trait]
-impl OutboundDeviceLifecycleCapability for WireguardAdapter {
-    async fn prepare_outbound_devices(
+impl WireguardAdapter {
+    pub(crate) async fn prepare_devices(
         &self,
         outbounds: &[&OutboundConfig],
         inbounds: &[InboundConfig],
         context: OutboundDevicePreparationContext,
-    ) -> Result<Box<dyn PreparedOutboundDeviceState>, EngineError> {
+    ) -> Result<PreparedWireguardDevices, EngineError> {
         PendingEndpoints::ensure_available(&self.pending_endpoints)?;
         let upstream = &context.upstream;
-        let mut staged = self.pool.begin_stage();
         let mut profiles = HashMap::new();
         let mut linked = HashMap::new();
         let mut linked_updates = Vec::new();
         let mut traffic = Vec::new();
         let generation = upstream.egress_generation();
-        for outbound in outbounds {
-            if !matches!(outbound.protocol, OutboundProtocolConfig::Wireguard { .. }) {
-                continue;
-            }
-            let identity = protocol_identity(&outbound.protocol)
-                .ok_or_else(|| invalid("cannot identify WireGuard outbound"))?;
+        let selected = self.select_devices(outbounds, &context)?;
+        let desired = selected
+            .iter()
+            .map(|(outbound, _, identity, plan)| {
+                let count = if context.disabled_outbounds.contains(&outbound.tag) {
+                    0
+                } else {
+                    plan.peer_count()
+                };
+                (outbound.tag.clone(), (*identity, generation, count))
+            })
+            .collect::<HashMap<_, _>>();
+        // No candidate device/task/socket may start before these actual
+        // originals (including discarded candidates) have confirmed cleanup.
+        self.pool.retire_changed(&desired).await?;
+        let mut staged = self.pool.begin_stage();
+        for (outbound, identity, device_identity, plan) in selected {
             let outer_udp_proxy = match &outbound.protocol {
                 OutboundProtocolConfig::Wireguard {
                     outer_udp_proxy, ..
                 } => outer_udp_proxy.as_deref(),
                 _ => None,
             };
-            let device_identity = if let Some(proxy_tag) = outer_udp_proxy {
-                let proxy_identity = context.packet_paths.get(proxy_tag).map(|path| &path.identity).ok_or_else(|| {
-                    invalid(format!(
-                        "WireGuard outer_udp_proxy `{proxy_tag}` has no persistent bidirectional UDP packet path"
-                    ))
-                })?;
-                let mut hash = Sha256::new();
-                hash.update(identity);
-                hash.update(proxy_identity);
-                hash.finalize().into()
-            } else {
-                identity
-            };
-            let device_identity = context.stack_options.identity(device_identity);
-            let plan = self
-                .profiles
-                .lock()
-                .unwrap_or_else(|error| error.into_inner())
-                .get(&outbound.tag)
-                .filter(|cached| cached.identity == identity)
-                .map(|cached| cached.plan.clone())
-                .map(Ok)
-                .unwrap_or_else(|| {
-                    WireguardRawIpPlan::from_protocol(&outbound.protocol).map(Arc::new)
-                })?;
             let prepared_traffic = context
                 .endpoint_bindings
                 .iter()
@@ -192,6 +141,11 @@ impl OutboundDeviceLifecycleCapability for WireguardAdapter {
                 profiles.insert(
                     outbound.tag.clone(),
                     CachedProfile {
+                        packet: self.packet_operations(
+                            &outbound.tag,
+                            device_identity,
+                            plan.clone(),
+                        ),
                         identity,
                         device_identity,
                         plan,
@@ -219,6 +173,7 @@ impl OutboundDeviceLifecycleCapability for WireguardAdapter {
                         generation,
                         cell,
                         false,
+                        outer_udp_proxy.is_some(),
                     )?;
                     continue;
                 }
@@ -291,18 +246,14 @@ impl OutboundDeviceLifecycleCapability for WireguardAdapter {
                         plan.local_addresses(),
                         plan.mtu(),
                         endpoint,
-                        Arc::new(crate::runtime::raw_ip::DirectRawIpWireCarrier(socket)),
+                        Arc::new(crate::runtime::raw_ip::DirectRawIpWireCarrier::new(socket)),
                         tunnel,
                         context.stack_options.clone().with_traffic(meter),
                     )
                 }
                 .map_err(|error| invalid(format!("raw-IP device: {error:?}")))?;
-                if let Err(error) = device.wait_ready().await {
-                    device.close_now();
-                    return Err(error);
-                }
                 let cell = Arc::new(OnceCell::new());
-                cell.set(device)
+                cell.set(device.clone())
                     .map_err(|_| invalid("duplicate WireGuard peer device"))?;
                 staged.insert(
                     outbound.tag.clone(),
@@ -311,11 +262,14 @@ impl OutboundDeviceLifecycleCapability for WireguardAdapter {
                     generation,
                     cell,
                     true,
+                    outer_udp_proxy.is_some(),
                 )?;
+                device.wait_ready().await?;
             }
             profiles.insert(
                 outbound.tag.clone(),
                 CachedProfile {
+                    packet: self.packet_operations(&outbound.tag, device_identity, plan.clone()),
                     identity,
                     device_identity,
                     plan,
@@ -334,7 +288,7 @@ impl OutboundDeviceLifecycleCapability for WireguardAdapter {
                 })
                 .collect::<Result<HashMap<_, _>, EngineError>>()?,
         )?;
-        Ok(Box::new(PreparedWireguardDevices {
+        Ok(PreparedWireguardDevices {
             pool: self.pool.clone(),
             profiles: self.profiles.clone(),
             next_profiles: profiles,
@@ -344,58 +298,7 @@ impl OutboundDeviceLifecycleCapability for WireguardAdapter {
             linked_updates,
             traffic,
             pending,
-        }))
-    }
-
-    fn shutdown_outbound_devices(&self) -> crate::protocol_registry::OutboundDeviceCompletion {
-        let stopped = self.pool.shutdown();
-        self.profiles
-            .lock()
-            .unwrap_or_else(|error| error.into_inner())
-            .clear();
-        self.linked_endpoints
-            .lock()
-            .unwrap_or_else(|error| error.into_inner())
-            .clear();
-        Box::pin(async move {
-            for device in stopped {
-                device.wait_stopped().await;
-            }
         })
-    }
-
-    fn outbound_device_health(
-        &self,
-        outbounds: &[&OutboundConfig],
-    ) -> Vec<zero_api::OutboundDeviceHealthSnapshot> {
-        let mut snapshots = Vec::new();
-        for outbound in outbounds {
-            let OutboundProtocolConfig::Wireguard { peers, .. } = &outbound.protocol else {
-                continue;
-            };
-            let Some(identity) = protocol_identity(&outbound.protocol) else {
-                continue;
-            };
-            let identity = self
-                .profiles
-                .lock()
-                .unwrap_or_else(|error| error.into_inner())
-                .get(&outbound.tag)
-                .filter(|cached| cached.identity == identity)
-                .map_or(identity, |cached| cached.device_identity);
-            for peer_index in 0..peers.len() {
-                snapshots.push(
-                    self.pool
-                        .health_snapshot(&outbound.tag, peer_index, identity)
-                        .unwrap_or_else(|| zero_api::OutboundDeviceHealthSnapshot {
-                            tag: outbound.tag.clone(),
-                            peer_index,
-                            ..Default::default()
-                        }),
-                );
-            }
-        }
-        snapshots
     }
 }
 
@@ -405,3 +308,6 @@ fn invalid(message: impl ToString) -> EngineError {
         message.to_string(),
     ))
 }
+
+#[cfg(test)]
+mod tests;

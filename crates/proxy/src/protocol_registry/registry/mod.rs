@@ -1,14 +1,9 @@
 use std::fmt;
 use std::sync::Arc;
 
-#[cfg(feature = "managed-udp-runtime")]
-use crate::protocol_registry::ManagedUdpHandlerProvider;
-use crate::protocol_registry::{
-    InboundListenerCapability, OutboundLeafClaim, OutboundLeafInput, ProtocolSupportCapability,
-};
+use crate::protocol_registry::{OutboundLeafClaim, OutboundLeafInput, ProtocolSupportCapability};
 
 mod build;
-mod inbound;
 mod metadata;
 mod outbound;
 mod runtime;
@@ -25,11 +20,10 @@ pub(crate) use outbound::ClaimedOutboundLeaf;
 /// inventory and generic runtime code.
 #[derive(Clone, Default)]
 pub(crate) struct ProtocolRegistry {
+    pub(crate) inbounds: crate::component::ComponentRegistry<zero_config::InboundConfig>,
     entries: Vec<RegisteredProtocolEntry>,
     endpoint_observers: Vec<Arc<dyn crate::protocol_registry::EndpointObservationCapability>>,
     endpoint_controllers: Vec<Arc<dyn crate::protocol_registry::EndpointControlCapability>>,
-    #[cfg(feature = "raw-ip-runtime")]
-    outbound_devices: Vec<Arc<dyn crate::protocol_registry::OutboundDeviceLifecycleCapability>>,
     #[cfg(feature = "managed-stream-runtime")]
     services: Vec<Arc<dyn crate::protocol_registry::InboundServiceCapability>>,
 }
@@ -44,10 +38,7 @@ pub(crate) trait OutboundLeafClaimer: Send + Sync {
 #[derive(Clone)]
 struct RegisteredProtocolEntry {
     support: Arc<dyn ProtocolSupportCapability>,
-    inbound: Arc<dyn InboundListenerCapability>,
     outbound: Option<Arc<dyn OutboundLeafClaimer>>,
-    #[cfg(feature = "managed-udp-runtime")]
-    managed_udp_handlers: Option<Arc<dyn ManagedUdpHandlerProvider>>,
 }
 
 impl fmt::Debug for ProtocolRegistry {

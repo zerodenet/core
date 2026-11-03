@@ -86,7 +86,7 @@ pub(crate) trait ProxyTransportTcpLeaf: ProxyTransportLeaf + Send + Sync {
 
 #[cfg(feature = "managed-stream-runtime")]
 pub(crate) trait ProxyTransportUdpLeaf: ProxyTransportLeaf {
-    type RuntimeResume: Send + Sync + std::fmt::Debug + 'static;
+    type RuntimeResume: crate::runtime::udp_flow::managed::stream_manager::ManagedStreamFlowConnector;
 
     const UDP_DIRECT_STAGE: &'static str;
     const UDP_INVALID_CONFIG: &'static str;
