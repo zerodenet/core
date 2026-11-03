@@ -52,7 +52,7 @@ impl EntryState {
         if let Some(owner) = &self.owner {
             owner.begin_shutdown();
         }
-        let tasks = state
+        let tasks = self
             .owner
             .as_ref()
             .map(|owner| owner.driver_tasks())
@@ -94,8 +94,7 @@ impl EntryState {
                     }
                 }
             }
-            state
-                .permit
+            self.permit
                 .as_ref()
                 .unwrap()
                 .close(self.receipt.as_ref(), self.tasks.as_ref().unwrap())?;
