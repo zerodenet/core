@@ -63,11 +63,17 @@ G9/G10 与 Z003-08 的完整资格仍另列：实际 GUI/面板同产物组合�
 
 最终候选只停在 integration 交接。本轮不合入 develop/main，不启用 auto-merge，不发版、打 tag 或部署。
 
+## 统一检查发现的实际修正
+
+首轮完整 workspace/all-feature 检查 `26a0b9c606812d06ae7dc595f274d6c0e3479962` 失败，所有失败、忽略、诊断终止和原始日志保留，不当作通过。其后修复：恢复精确已发布 recipe 时，复用普通准备的实际 host admission 和传递用户根绑定；公开显式 DNS reload 保留原 query generation/cache 失效语义，宿主无变化事务继续保留原实际 DNS fact。观察包装保留原始 I/O 分类及同一错误来源。已有 stream-packet 载体的有限 UDP broadcast 丢包保留同一实际连接，由原可靠载体重传，不把 Lagged 当作物理 Closed，不增加队列容量或引入新任务。
+
+Ready 后才持久化意味着持久化失败时，已退休的原端点必须经真实清理后以新 generation 恢复；无关端点仍保持原 owner/generation。新增回归分别消费原 terminal 的 native 收据与实际 Scope joins，源码原字节、revision/intent、未写入的 source observation 与最终公开 ACK 独立验证。调用方短等待超时后，同一宿主持有受理操作，后续公开 ACK 不得越过其实际补偿收尾。Hysteria2 共享连接测试按客户端、转交 relay、上游原件的消费顺序退休，保留全部真实 wire 与隔离断言；UDP raw-leaf 投影移回现有 inventory 准备边界，relay 只接现有准备值。
+
 ## A/B 分支提交索引
 
 此索引为各任务分支首父链的非 merge 提交；普通依赖 merge 保留在 Git 历史。A 初轮 PR 合入后追加的实际收尾提交由 C 普通合并保留，不改写 PR 原始集成点。索引 head 是分支实现输入，不替代 PR #127 的最终冻结候选。
 
-### A：`fef6849edc3de6930870ba459b199ad998029264`
+### A：`e6fb04e0af97f85d23c8d2aa038039e210770ddd`
 
 - `a5df1b586a8882708ec8b7acc03bbafd8855f5d1` — refactor(config): prepare shared routing resources in runtime
 - `23b1caacd40f3c679fdaea98112089f7ff014154` — refactor(runtime): persist ready configuration under the accepted host transaction
@@ -119,8 +125,11 @@ G9/G10 与 Z003-08 的完整资格仍另列：实际 GUI/面板同产物组合�
 - `13eb736bae88d9b639904fef3d4305459ccbcb76` — test(config): validate prepared inputs from the normal runtime dependency
 - `4fc1d32d1e348cfbdcdff203aa9ef126641e4a6b` — fix(config): reject cache observations without waiting across the cold gate
 - `fef6849edc3de6930870ba459b199ad998029264` — test(proxy): declare the prepared route assertion dependency
+- `dc2b4baea99b990811f0e3dd7b59fdd2061d47a5` — test(engine): declare DNS-free TUN metering fixture explicitly
+- `c57748c0a8359959bd76d78f45f66bc4bd8d6ed5` — test(proxy): verify final ACK and original retirement under ready-time persistence
+- `e6fb04e0af97f85d23c8d2aa038039e210770ddd` — test(proxy): bind the cancellation source borrow to its original error
 
-### B：`9168bf6dd30f5013510244d78b83a25ec7432656`
+### B：`6e775070565fb11c8e6c8a124c52ec9c2425cca0`
 
 - `88d336a56bc60e20455a87d19efb0f995d52d4ff` — refactor(hysteria2): prepare sealed outbound authentication and packet loans
 - `7d85f1bb4b84ac6be81a04c07a9a327d8b28567a` — refactor(transport): retain each Quinn wire original through scoped retirement
@@ -181,3 +190,7 @@ G9/G10 与 Z003-08 的完整资格仍另列：实际 GUI/面板同产物组合�
 - `ebbb07473f39869042c6687f1e79f94306625d94` — fix(hysteria2): close the original bounded entry set within one caller deadline
 - `1c2ef73c790de681089bb96c1226ce492d5281fd` — fix(hysteria2): enforce the configured CA preparation file budget
 - `68618e23190e5455b4033ee98664b30eafea6cb8` — test(hysteria2): preserve live DNS and CA owners across unchanged rule-set files
+- `029c5d0235a89283b3d45f1e5300ce054024ce37` — test(hysteria2): close shared consumers before upstream donors
+- `496dc30df079c6a05d61c784ab9d256255875eb0` — refactor(proxy): project UDP relay leaves at inventory preparation boundary
+- `2a354757123b85115cea3d59dc766a4369245c6f` — test(proxy): keep DNS dependencies and IPv6 fixtures valid under strict preparation
+- `6c5c85020214c5e84d90b803ccd44c388f0702b3` — test(proxy): verify Direct originals across actual Accepted receipt consumer
