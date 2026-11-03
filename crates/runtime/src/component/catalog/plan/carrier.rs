@@ -17,7 +17,7 @@ impl ComponentPlan {
                 return false;
             };
             if slot.recipe.spec().resources.iter().any(|resource|matches!(resource,
-                zero_platform_tokio::contract::component::ResourceDeclaration::ControlledCarrierPool {..})) {return true;}
+                zero_platform_tokio::contract::component::ResourceDeclaration::ControlledCarrierPool {..} | zero_platform_tokio::contract::component::ResourceDeclaration::ControlledMetadataCarrier {..})) {return true;}
             pending.extend(slot.dependency_instances());
         }
         false
@@ -42,7 +42,7 @@ impl ComponentPlan {
             };
             if slot.recipe.spec().resources.iter().any(|resource|!matches!(resource,
                 zero_platform_tokio::contract::component::ResourceDeclaration::File {..} |
-                zero_platform_tokio::contract::component::ResourceDeclaration::ControlledCarrierPool {..})) {return false;}
+                zero_platform_tokio::contract::component::ResourceDeclaration::ControlledCarrierPool {..} | zero_platform_tokio::contract::component::ResourceDeclaration::ControlledMetadataCarrier {..})) {return false;}
             pending.extend(slot.dependency_instances());
         }
         true

@@ -65,6 +65,10 @@ async fn selected_metadata_original_requires_pending_io_join_view_return_and_nat
         .unwrap();
     let lineage =
         zero_platform_tokio::controlled_carrier::CarrierOrigin::from_metadata(original.clone());
+    let stable = zero_platform_tokio::controlled_carrier::CarrierOrigin::from_metadata_pool(
+        original.clone(),
+    );
+    assert!(!stable.is_retired());
     let registered = fixture.slot.original_metadata_owner(0).unwrap();
     assert!(lineage.owner().same_owner(
         zero_platform_tokio::controlled_carrier::CarrierOriginOwner::Metadata(&registered)
@@ -150,13 +154,49 @@ async fn selected_metadata_original_requires_pending_io_join_view_return_and_nat
     assert!(!native_closed.matches(
         &zero_platform_tokio::controlled_carrier::CarrierOrigin::from_metadata(next.origin())
     ));
-    assert!(!next
-        .close(None, &fixture.tasks)
+    let unacquired =
+        zero_platform_tokio::controlled_carrier::CarrierOrigin::from_metadata_pool(next.origin());
+    assert!(
+        unacquired.is_retired(),
+        "unused reservations cannot become carrier roots"
+    );
+    assert!(
+        !stable.is_retired(),
+        "one hop receipt does not retire the pool generation"
+    );
+    assert!(
+        stable.closed().is_none(),
+        "one original does not close its entire owner"
+    );
+    let (_, grant) = selected
+        .open_metadata(0, None, &next, &query, end())
+        .unwrap();
+    assert!(
+        unacquired.is_retired(),
+        "historical unadmitted roots remain fenced"
+    );
+    let successor =
+        zero_platform_tokio::controlled_carrier::CarrierOrigin::from_metadata_pool(next.origin());
+    assert!(stable.same_original(&successor));
+    assert!(stable.endpoints().unwrap().matches_metadata(&next.origin()));
+    let unused = grant
+        .return_unstarted()
+        .unwrap_or_else(|_| panic!("actual next original"));
+    let receipt = unused.try_closed().unwrap();
+    assert!(next
+        .close(Some(&receipt), &fixture.tasks)
         .unwrap()
         .had_native_acquisition());
     release.send(()).unwrap();
     fixture.drive(query.wait()).await;
     assert!(fixture.finish().await.is_complete());
+    assert!(stable.is_retired());
+    let pool_closed = stable.closed().unwrap();
+    assert!(pool_closed.matches(&stable) && pool_closed.had_native_acquisition());
+    assert!(
+        !pool_closed.matches(&lineage),
+        "pool and single-original proofs retain distinct types"
+    );
 }
 
 #[tokio::test]

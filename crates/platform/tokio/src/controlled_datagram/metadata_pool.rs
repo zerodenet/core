@@ -34,7 +34,8 @@ struct Shared {
     limit: NonZeroUsize,
     limits: super::metadata::MetadataLimits,
     cancel: CancellationToken,
-    closed: Arc<OnceLock<()>>,
+    closed: Arc<OnceLock<bool>>,
+    confirmed_native: std::sync::atomic::AtomicBool,
     state: Mutex<State>,
 }
 struct State {
@@ -104,6 +105,7 @@ impl MetadataPoolOwner {
                 limits,
                 cancel: parent.child_token(),
                 closed: Arc::default(),
+                confirmed_native: std::sync::atomic::AtomicBool::new(false),
                 state: Mutex::new(State {
                     bound: None,
                     live: false,
@@ -176,7 +178,11 @@ impl MetadataPoolOwner {
             .slots
             .is_empty()
         {
-            let _ = self.shared.closed.set(());
+            let _ = self.shared.closed.set(
+                self.shared
+                    .confirmed_native
+                    .load(std::sync::atomic::Ordering::Acquire),
+            );
         }
         failure.map_or(Ok(report), Err)
     }
