@@ -7,6 +7,8 @@ use zero_traits::{DnsResolver, IpAddress};
 
 use super::{ConfigApplyReconciler, ConfigReconcileResult, ProxyHandle};
 use crate::runtime::Proxy;
+#[cfg(feature = "wireguard")]
+mod endpoint_persistence;
 mod notifications;
 mod owned;
 mod persistence;

@@ -1,4 +1,34 @@
 use super::*;
+use zero_platform_tokio::contract::{ChannelError, DeliveryState, Impact, Reason, Stage};
+
+fn assert_original_prepare_cancellation(
+    error: &zero_engine::EngineError,
+    component: zero_core::component::ComponentId,
+) {
+    fn find(error: &(dyn std::error::Error + 'static), depth: usize) -> Option<&ChannelError> {
+        assert!(depth < 64, "bounded original error chain");
+        if let Some(error) = error.downcast_ref::<ChannelError>() {
+            return Some(error);
+        }
+        // io::Error::source may skip its actual boxed ChannelError.
+        if let Some(error) = error
+            .downcast_ref::<std::io::Error>()
+            .and_then(std::io::Error::get_ref)
+            .and_then(|source| find(source, depth + 1))
+        {
+            return Some(error);
+        }
+        error.source().and_then(|source| find(source, depth + 1))
+    }
+    let original = find(error, 0).expect("retained protocol preparation error");
+    assert_eq!(original.component, Some(component));
+    assert_eq!(original.stage, Stage::Prepare);
+    assert_eq!(original.reason, Reason::Cancelled);
+    assert_eq!(original.impact, Impact::Component);
+    assert_eq!(original.delivery, DeliveryState::Unknown);
+    assert_eq!(original.retry, zero_core::channel::RetryClass::Never);
+    assert!(std::error::Error::source(original).is_some());
+}
 
 #[tokio::test]
 async fn public_shutdown_during_real_plugin_activation_retains_owner_until_child_reap_without_ready(
@@ -38,14 +68,18 @@ async fn public_shutdown_during_real_plugin_activation_retains_owner_until_child
         .current_components(&proxy.engine.config())
         .is_none());
     stop.send(()).unwrap();
-    timeout(Duration::from_secs(3), &mut run)
+    let error = timeout(Duration::from_secs(3), &mut run)
         .await
         .unwrap()
-        .unwrap();
+        .unwrap_err();
+    assert_original_prepare_cancellation(&error, identity.component);
     assert!(proxy.inbound_owners.owner("ready-ss").is_none());
     assert!(!owner.is_ready());
     assert_eq!(owner.identity(), identity);
     assert!(!*proxy.orchestration_ready.borrow());
+    let terminal = owner.terminal_for_test().expect("actual original cleanup");
+    assert_eq!(terminal.identity(), identity);
+    assert!(terminal.closed_io_receipts() > 0);
     let status = std::process::Command::new("kill")
         .args(["-0", &pid.to_string()])
         .stderr(std::process::Stdio::null())
@@ -131,14 +165,19 @@ async fn public_shutdown_during_accepted_candidate_ready_drives_original_compens
         .await
         .unwrap()
         .unwrap_err();
-    assert!(
-        error.contains("readiness") || error.contains("stopped"),
-        "{error}"
+    assert_eq!(
+        error,
+        ChannelError::new(Stage::Prepare, Reason::Cancelled, Impact::Component).to_string()
     );
     assert_eq!(proxy.engine.config().as_ref(), &initial);
     assert!(proxy.inbound_owners.owner("ready-ss").is_none());
     assert!(proxy.inbound_owners.owner("last-good").is_none());
     assert!(!candidate.is_ready());
+    let terminal = candidate
+        .terminal_for_test()
+        .expect("actual cancelled candidate cleanup");
+    assert_eq!(terminal.identity(), candidate.identity());
+    assert!(terminal.closed_io_receipts() > 0);
     let status = std::process::Command::new("kill")
         .args(["-0", &pid.to_string()])
         .stderr(std::process::Stdio::null())
