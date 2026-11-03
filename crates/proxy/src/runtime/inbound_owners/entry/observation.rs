@@ -76,6 +76,16 @@ impl InboundOwner {
         let mut kind = std::io::ErrorKind::Other;
         let mut current: &(dyn std::error::Error + 'static) = &source;
         loop {
+            // Transparent domain wrappers can skip the boxed io::Error in
+            // Error::source, including an OS error whose source is None.
+            if let Some(EngineError::Io(io)) = current.downcast_ref::<EngineError>() {
+                current = io;
+                continue;
+            }
+            if let Some(io) = current.downcast_ref::<Arc<std::io::Error>>() {
+                current = io.as_ref();
+                continue;
+            }
             if let Some(io) = current.downcast_ref::<std::io::Error>() {
                 if io.kind() != std::io::ErrorKind::Other {
                     kind = io.kind();

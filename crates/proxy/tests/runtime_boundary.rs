@@ -4578,7 +4578,11 @@ fn udp_adapters_move_existing_execution_results_without_claimers() {
     assert!(!helper.contains("source_dir"));
     assert!(!helper.contains(".await"));
     let inventory = read(&proxy_src().join("inventory/udp/relay.rs"));
-    assert!(inventory.contains("into_final_hop().into_claimed()"));
+    assert!(inventory.contains("claimed_chain.into_final_hop()"));
+    assert!(inventory.contains("let final_hop = claimed.into_claimed()"));
+    assert!(inventory.contains("let operation = final_hop.into_udp_relay()?"));
+    assert!(!inventory.contains("ResolvedLeafOutbound"));
+    assert!(!inventory.contains(".await"));
     for relative in [
         "adapters/vless.rs",
         "adapters/vmess.rs",
