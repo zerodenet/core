@@ -5,6 +5,7 @@ use zero_config::{ModeConfig, RuntimeConfig};
 use super::Engine;
 use crate::{EngineError, EnginePlan};
 
+mod notifications;
 mod source;
 
 impl Engine {
@@ -232,23 +233,6 @@ impl Engine {
         Ok(())
     }
 
-    /// Wake the existing host reconciler without exposing its pending candidate
-    /// through the committed control-plane snapshot.
-    pub fn notify_configuration_reconcile(&self) {
-        self.notify_reload();
-    }
-
-    fn notify_reload(&self) {
-        for sender in self
-            .reload_notify
-            .lock()
-            .expect("reload notify lock poisoned")
-            .iter()
-        {
-            let _ = sender.send(());
-        }
-    }
-
     /// Publish the currently staged runtime snapshot as one committed
     /// configuration generation.
     pub fn commit_config_change(&self) -> u64 {
@@ -292,14 +276,5 @@ impl Engine {
         self.traffic.reconcile(&self.config(), revision);
         self.event_log.push_config_changed(revision);
         revision
-    }
-
-    pub fn subscribe_reload(&self) -> std::sync::mpsc::Receiver<()> {
-        let (sender, receiver) = std::sync::mpsc::channel();
-        self.reload_notify
-            .lock()
-            .expect("reload notify lock poisoned")
-            .push(sender);
-        receiver
     }
 }

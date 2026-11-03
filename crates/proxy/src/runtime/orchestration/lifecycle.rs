@@ -108,7 +108,7 @@ where
                 state.preparing_inbounds.begin_shutdown();
                 return state.drain_configuration(proxy).await;
             }
-            Some(()) = state.reload_async_rx.recv() => {
+            Ok(()) = state.reload_changes.changed() => {
                 info!(
                     core_instance_id = proxy.core_instance_id(),
                     config_revision = proxy.config_revision(),

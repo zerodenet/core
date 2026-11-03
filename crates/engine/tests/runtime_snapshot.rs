@@ -242,3 +242,46 @@ fn engine_only_v1_validate_prepares_relative_resources_without_installing_or_per
     ));
     assert_eq!(std::fs::read(path).unwrap(), original);
 }
+
+#[tokio::test]
+async fn direct_configuration_watch_retains_cancelled_waits_and_the_existing_sync_notifications() {
+    use std::future::Future;
+    let engine = Engine::new(config_with_outbounds(1)).unwrap();
+    let mut changes = engine.subscribe_configuration_reconcile();
+    let synchronous = engine.subscribe_reload();
+    let mut waiting = Box::pin(changes.changed());
+    std::future::poll_fn(|cx| {
+        assert!(waiting.as_mut().poll(cx).is_pending());
+        std::task::Poll::Ready(())
+    })
+    .await;
+    drop(waiting);
+    let workers = (0..8)
+        .map(|_| {
+            let engine = engine.clone();
+            std::thread::spawn(move || {
+                for _ in 0..32 {
+                    engine.notify_configuration_reconcile();
+                }
+            })
+        })
+        .collect::<Vec<_>>();
+    for worker in workers {
+        worker.join().unwrap();
+    }
+    assert!(changes.has_changed().unwrap());
+    changes.changed().await.unwrap();
+    assert!(!changes.has_changed().unwrap());
+    assert_eq!(synchronous.try_iter().count(), 256);
+    let previous = engine.runtime_snapshot();
+    engine
+        .reload_runtime_config(config_with_outbounds(2))
+        .unwrap();
+    changes.changed().await.unwrap();
+    assert!(!std::sync::Arc::ptr_eq(
+        &previous,
+        &engine.runtime_snapshot()
+    ));
+    assert_eq!(synchronous.try_iter().count(), 1);
+    assert_eq!(engine.config().outbounds.len(), 2);
+}

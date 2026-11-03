@@ -1,3 +1,4 @@
+mod notification;
 #[cfg(feature = "managed-datagram-runtime")]
 mod publication;
 use zero_engine::EngineError;
