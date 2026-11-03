@@ -255,15 +255,18 @@ impl Generation {
                 .as_mut()
                 .unwrap()
                 .start(Default::default(), None, Some(client.clone()))?;
-        handle
-            .connect(
+        tokio::time::timeout_at(
+            end,
+            handle.connect(
                 logical,
                 options
                     .leaf
                     .server_name
                     .as_deref()
                     .unwrap_or(&options.leaf.server),
-            )
-            .await
+            ),
+        )
+        .await
+        .map_err(|source| error(Stage::Dial, Reason::Timeout).with_source(source))?
     }
 }
