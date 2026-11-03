@@ -38,7 +38,7 @@ impl ComponentCatalog {
             &loans,
         )?;
         let nodes: BTreeMap<_, _> = order.iter().map(|slot| (slot.id, slot.clone())).collect();
-        Ok(ComponentPlan {
+        let plan = ComponentPlan {
             builtin: nodes[&original.builtin.id].clone(),
             outbounds: original
                 .outbounds
@@ -56,6 +56,8 @@ impl ComponentCatalog {
             closing: Default::default(),
             close_evidence: Default::default(),
             shared_identities: original.shared_identities.clone(),
-        })
+        };
+        self.bind_plan_ownership(&plan);
+        Ok(plan)
     }
 }

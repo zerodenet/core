@@ -66,6 +66,13 @@ impl ComponentCatalog {
                 return Err(invalid(Reason::Unsupported, "component resource lacks an integrated original-close provider or role executor"));
             }
         }
+        self.bind_plan_ownership(&plan);
+        Ok(plan)
+    }
+
+    /// Bind recovered recipes through the same actual host admission and
+    /// transitive transferred-user roots as ordinary cold preparation.
+    pub(super) fn bind_plan_ownership(&self, plan: &ComponentPlan) {
         let mut shared: BTreeMap<
             ComponentId,
             Arc<[Arc<crate::component::instance::users::Users>]>,
@@ -94,7 +101,6 @@ impl ComponentCatalog {
             shared.insert(slot.id, roots);
             slot.bind_admission(self.admission.clone());
         }
-        Ok(plan)
     }
 
     /// Uses this catalog's real factories, state and monotonic allocator. This

@@ -103,7 +103,10 @@ impl DnsSystem {
         config: Option<&DnsConfig>,
         dispatch: Option<zero_router::DomainDispatcher<String>>,
     ) -> io::Result<()> {
-        self.prepare_reload_with_dispatch(config, dispatch)?;
+        // Explicit public reload invalidates query contexts and caches even
+        // when its native backends are reusable. Host transactions use the
+        // prepared-resource API to retain an unchanged DNS fact.
+        self.prepare_reload_resources(config, dispatch, &BTreeSet::new(), true)?;
         let result = self.commit_prepared_reload();
         if result.is_err() {
             self.discard_prepared_reload();
@@ -127,6 +130,15 @@ impl DnsSystem {
         config: Option<&DnsConfig>,
         dispatch: Option<zero_router::DomainDispatcher<String>>,
         affected_detours: &BTreeSet<String>,
+    ) -> io::Result<DnsReloadResources> {
+        self.prepare_reload_resources(config, dispatch, affected_detours, false)
+    }
+    fn prepare_reload_resources(
+        &self,
+        config: Option<&DnsConfig>,
+        dispatch: Option<zero_router::DomainDispatcher<String>>,
+        affected_detours: &BTreeSet<String>,
+        refresh_queries: bool,
     ) -> io::Result<DnsReloadResources> {
         if self.owned_root.is_some() && config.is_none() {
             return Err(io::Error::new(
@@ -165,11 +177,12 @@ impl DnsSystem {
             })
             .transpose()?
             .unwrap_or_default();
-        let unchanged = self
-            .inner
-            .read()
-            .expect("DNS system lock poisoned")
-            .matches_reload(config, dispatch.as_ref(), &servers);
+        let unchanged = !refresh_queries
+            && self
+                .inner
+                .read()
+                .expect("DNS system lock poisoned")
+                .matches_reload(config, dispatch.as_ref(), &servers);
         if !unchanged && config.and_then(DnsConfig::fake_ip).is_some() {
             let mut guard = self
                 .fake_ip_state_lease
