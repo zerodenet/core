@@ -3,7 +3,6 @@ use ::hysteria2::inbound::Hysteria2InboundProfileStore;
 use ::hysteria2::transport::{
     Hysteria2AuthenticatedInboundProfile, Hysteria2InboundBindOptionsRef, Hysteria2InboundBindPlan,
     Hysteria2InboundOptionsRef, Hysteria2InboundUserRef, Hysteria2OutboundOptionsRef,
-    Hysteria2TransportLeaf,
 };
 use zero_config::{InboundConfig, InboundProtocolConfig, OutboundProtocolConfig};
 use zero_engine::EngineError;
@@ -56,7 +55,12 @@ fn inbound_user_refs<'a>(
         .collect()
 }
 
-fn transport_leaf(tag: &str, protocol: &OutboundProtocolConfig) -> Option<Hysteria2TransportLeaf> {
+fn pool_profile(
+    tag: &str,
+    protocol: &OutboundProtocolConfig,
+    binding: zero_platform_tokio::contract::network::UpstreamBinding,
+    identity: std::sync::Arc<[u8]>,
+) -> Option<::hysteria2::transport::owned::PoolProfile> {
     let OutboundProtocolConfig::Hysteria2 {
         server,
         server_name,
@@ -83,7 +87,7 @@ fn transport_leaf(tag: &str, protocol: &OutboundProtocolConfig) -> Option<Hyster
         .expect("validated hysteria2 UDP hopping settings")
     });
     Some(
-        Hysteria2TransportLeaf::from_options_refs(
+        ::hysteria2::transport::owned::PoolProfile::new(
             tag,
             server,
             *port,
@@ -96,6 +100,8 @@ fn transport_leaf(tag: &str, protocol: &OutboundProtocolConfig) -> Option<Hyster
                 insecure: *insecure,
                 client_fingerprint: client_fingerprint.as_deref(),
             },
+            binding,
+            identity,
         )
         .with_ca_cert_path(ca_cert_path.as_deref())
         .with_tls_options(tls_options.to_options())

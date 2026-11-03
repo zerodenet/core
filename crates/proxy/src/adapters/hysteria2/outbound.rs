@@ -2,7 +2,7 @@
 use super::*;
 use crate::component::background::{BackgroundCarrier, BackgroundNetwork};
 use crate::component::{RegistrationError, ResourcePreparation};
-use ::hysteria2::transport::owned::{PoolFactory, PoolOptions, PoolProfile, RoleOptions};
+use ::hysteria2::transport::owned::{PoolFactory, PoolOptions, RoleOptions};
 use std::{
     collections::hash_map::RandomState,
     hash::{BuildHasher, Hasher},
@@ -62,16 +62,17 @@ impl Hysteria2Adapter {
         let profiles = config
             .outbounds
             .iter()
-            .filter_map(|outbound| {
-                transport_leaf(outbound.tag(), &outbound.protocol).map(|leaf| (outbound, leaf))
+            .filter(|outbound| {
+                matches!(&outbound.protocol, OutboundProtocolConfig::Hysteria2 { .. })
             })
-            .map(|(outbound, leaf)| {
+            .map(|outbound| {
                 let mut bytes = serde_json::to_vec(outbound).map_err(options_error)?;
                 if let Some(source) = resources.source_dir() {
                     bytes.extend(source.as_os_str().as_encoded_bytes());
                 }
-                Ok(PoolProfile::new(
-                    leaf.with_source_dir(resources.source_dir()),
+                Ok(pool_profile(
+                    outbound.tag(),
+                    &outbound.protocol,
                     UpstreamBinding {
                         prefix: vec![],
                         dial: outbound.dial.to_policy(),
@@ -80,7 +81,9 @@ impl Hysteria2Adapter {
                         ),
                     },
                     identity(&bytes),
-                ))
+                )
+                .expect("selected Hysteria2 protocol")
+                .with_source_dir(resources.source_dir()))
             })
             .collect::<Result<Vec<_>, RegistrationError>>()?;
         let index = profiles

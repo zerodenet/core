@@ -23,28 +23,31 @@ pub(super) struct ProfileLeaf {
 }
 impl PoolProfile {
     pub fn new(
-        leaf: super::super::Hysteria2TransportLeaf,
+        tag: &str,
+        server: &str,
+        port: u16,
+        options: super::super::Hysteria2OutboundOptionsRef<'_>,
         binding: UpstreamBinding,
         identity: Arc<[u8]>,
     ) -> Self {
         let endpoint = Destination::new(
-            match zero_core::address::parse_ip_literal(&leaf.server) {
+            match zero_core::address::parse_ip_literal(server) {
                 Some(std::net::IpAddr::V4(ip)) => zero_core::Address::Ipv4(ip.octets()),
                 Some(std::net::IpAddr::V6(ip)) => zero_core::Address::Ipv6(ip.octets()),
-                None => zero_core::Address::Domain(leaf.server.clone()),
+                None => zero_core::Address::Domain(server.to_owned()),
             },
-            leaf.port,
+            port,
         );
         let leaf = ProfileLeaf {
-            tag: leaf.tag,
-            server: leaf.server,
-            port: leaf.port,
-            password: leaf.password,
-            insecure: leaf.insecure,
-            client_fingerprint: leaf.client_fingerprint,
-            server_name: leaf.server_name,
-            settings: leaf.settings,
-            node: leaf.node,
+            tag: tag.to_owned(),
+            server: server.to_owned(),
+            port,
+            password: options.password.to_owned(),
+            insecure: options.insecure,
+            client_fingerprint: options.client_fingerprint.map(ToOwned::to_owned),
+            server_name: options.server_name.map(ToOwned::to_owned),
+            settings: options.settings,
+            node: Default::default(),
         };
         Self {
             leaf,
@@ -52,6 +55,26 @@ impl PoolProfile {
             endpoint,
             identity,
         }
+    }
+    pub fn with_ca_cert_path(mut self, path: Option<&str>) -> Self {
+        self.leaf.node.ca_cert_path = path.map(ToOwned::to_owned);
+        self
+    }
+    pub fn with_tls_options(mut self, options: zero_traits::ClientTlsOptions) -> Self {
+        self.leaf.node.tls_options = options;
+        self
+    }
+    pub fn with_salamander_password(mut self, password: Option<&str>) -> Self {
+        self.leaf.node.salamander_password = password.map(ToOwned::to_owned);
+        self
+    }
+    pub fn with_udp_hop(mut self, hop: Option<zero_transport::datagram_hop::Profile>) -> Self {
+        self.leaf.node.udp_hop = hop;
+        self
+    }
+    pub fn with_source_dir(mut self, directory: Option<&std::path::Path>) -> Self {
+        self.leaf.node.source_dir = directory.map(ToOwned::to_owned);
+        self
     }
     pub fn endpoint(&self) -> &Destination {
         &self.endpoint
