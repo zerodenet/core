@@ -18,8 +18,8 @@ mod webhook;
 
 #[cfg(feature = "event-dispatcher")]
 pub use dispatcher::{
-    resume_event_dispatcher_with_network, spawn_event_dispatcher,
-    spawn_event_dispatcher_with_engine_started,
+    prepare_event_dispatcher_paused_with_network, resume_event_dispatcher_with_network,
+    spawn_event_dispatcher, spawn_event_dispatcher_with_engine_started,
     spawn_event_dispatcher_with_engine_started_and_network, spawn_event_dispatcher_with_network,
     EventDispatcherContinuation, EventDispatcherHandle, EventDispatcherOptions,
     EventDispatcherStatusHandle,
@@ -37,3 +37,6 @@ pub use state::{
 
 #[cfg(feature = "event-dispatcher")]
 mod encoding;
+
+#[cfg(feature = "event-dispatcher")]
+mod resources;

@@ -1,5 +1,6 @@
 use std::collections::BTreeMap;
 use std::path::Path;
+use zero_runtime::configuration::DnsConfigPreparation;
 
 use zero_config::{DnsAnswerConfig, DnsConfig, DnsServerConfig};
 

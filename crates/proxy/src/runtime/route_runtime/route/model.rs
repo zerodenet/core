@@ -121,6 +121,9 @@ impl InboundRouteRuntimeFactory {
         // TCP/UDP execution services also prepares component plans, even though
         // none of those execution owners are consumed by this lookup.
         let services = self.shared.tcp_services();
+        if services.ensure_configuration_committed().is_err() {
+            return crate::inventory::PacketRouteTarget::Block;
+        }
         if services.resolver().fake_ip_contains(destination) {
             // A synthetic DNS address is a logical target, never a native
             // packet destination. Restore it in the existing session path

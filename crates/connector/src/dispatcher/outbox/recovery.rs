@@ -1,4 +1,5 @@
-use std::fs::{File, OpenOptions};
+use crate::resources::{DispatcherResources, FileView};
+use std::fs::OpenOptions;
 use std::io::{Read, Seek};
 use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -15,12 +16,32 @@ pub(super) fn corruption_class(message: &str) -> OutboxCorruptionClass {
     }
 }
 
-pub(super) fn quarantine_journal(path: &Path) -> ConnectorResult<PathBuf> {
+pub(super) fn quarantine_journal(
+    path: &Path,
+    resources: &DispatcherResources,
+) -> ConnectorResult<PathBuf> {
     let preserved_path = unique_preserved_path(path, "corrupt")?;
     match std::fs::rename(path, &preserved_path) {
         Ok(()) => Ok(preserved_path),
         Err(rename_error) => {
-            let copied = std::fs::copy(path, &preserved_path).map_err(|copy_error| {
+            let mut source = resources
+                .open(|| std::fs::File::open(path))
+                .map_err(|source| ConnectorError::OpenOutbox {
+                    path: path.display().to_string(),
+                    source,
+                })?;
+            let mut destination = resources
+                .open(|| {
+                    OpenOptions::new()
+                        .create_new(true)
+                        .write(true)
+                        .open(&preserved_path)
+                })
+                .map_err(|source| ConnectorError::OpenOutbox {
+                    path: preserved_path.display().to_string(),
+                    source,
+                })?;
+            let copied = std::io::copy(&mut source, &mut destination).map_err(|copy_error| {
                 ConnectorError::OpenOutbox {
                     path: path.display().to_string(),
                     source: std::io::Error::other(format!(
@@ -42,12 +63,18 @@ pub(super) fn quarantine_journal(path: &Path) -> ConnectorResult<PathBuf> {
                     )),
                 });
             }
-            OpenOptions::new()
-                .write(true)
-                .open(&preserved_path)
-                .and_then(|file| file.sync_all())
+            destination
+                .sync_all()
                 .map_err(|source| ConnectorError::OpenOutbox {
                     path: preserved_path.display().to_string(),
+                    source,
+                })?;
+            drop(source);
+            drop(destination);
+            resources
+                .retire_files(false)
+                .map_err(|source| ConnectorError::OpenOutbox {
+                    path: path.display().to_string(),
                     source,
                 })?;
             Ok(preserved_path)
@@ -57,14 +84,18 @@ pub(super) fn quarantine_journal(path: &Path) -> ConnectorResult<PathBuf> {
 
 pub(super) fn preserve_journal(
     path: &Path,
-    source_file: &mut File,
+    source_file: &mut FileView,
     bytes: u64,
+    resources: &DispatcherResources,
 ) -> ConnectorResult<PathBuf> {
     let preserved_path = unique_preserved_path(path, "partial-tail")?;
-    let mut file = OpenOptions::new()
-        .create_new(true)
-        .write(true)
-        .open(&preserved_path)
+    let mut file = resources
+        .open(|| {
+            OpenOptions::new()
+                .create_new(true)
+                .write(true)
+                .open(&preserved_path)
+        })
         .map_err(|source| ConnectorError::OpenOutbox {
             path: preserved_path.display().to_string(),
             source,
@@ -90,6 +121,13 @@ pub(super) fn preserve_journal(
     file.sync_all()
         .map_err(|source| ConnectorError::OpenOutbox {
             path: preserved_path.display().to_string(),
+            source,
+        })?;
+    drop(file);
+    resources
+        .retire_files(false)
+        .map_err(|source| ConnectorError::OpenOutbox {
+            path: path.display().to_string(),
             source,
         })?;
     Ok(preserved_path)

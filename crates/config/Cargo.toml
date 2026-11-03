@@ -12,7 +12,6 @@ homepage.workspace = true
 mieru-config = { path = "../../protocols/mieru/config" }
 hysteria2 = { path = "../../protocols/hysteria2", default-features = false, features = ["validation"] }
 ipnet.workspace = true
-maxminddb.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 thiserror.workspace = true
@@ -20,7 +19,6 @@ zeroize = "1"
 zero-api = { path = "../api" }
 zero-core = { path = "../core" }
 zero-router = { path = "../router" }
-zero-rule = { path = "../rule" }
 zero-traits = { path = "../traits" }
 shadowsocks = { path = "../../protocols/shadowsocks", default-features = false, features = ["validation", "blake3"] }
 socks5 = { path = "../../protocols/socks5", default-features = false, features = ["validation"] }
@@ -32,6 +30,8 @@ wireguard = { path = "../../protocols/wireguard", default-features = false, feat
 ztls = { path = "../ztls", default-features = false, features = ["validation"] }
 
 [dev-dependencies]
+zero-runtime = { path = "../runtime" }
+zero-rule = { path = "../rule" }
 base64 = "0.22"
 
 # Integration suites are explicit; scripts/check-test-layout.py guards coverage.

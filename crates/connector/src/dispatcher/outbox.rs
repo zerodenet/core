@@ -1,5 +1,6 @@
+use crate::resources::{DispatcherResources, FileView};
 use std::collections::{BTreeMap, HashSet};
-use std::fs::{File, OpenOptions};
+use std::fs::OpenOptions;
 use std::io::{Seek, SeekFrom, Write};
 use std::path::Path;
 
@@ -62,7 +63,8 @@ pub(crate) struct DeliveryOutbox {
     #[cfg(test)]
     frame_scans: std::cell::Cell<usize>,
     _lease: PersistentStateLease,
-    file: Option<File>,
+    file: Option<FileView>,
+    resources: DispatcherResources,
     pending: PendingIndex,
     // An append can be durable even if its derived index update fails. Never
     // page stale offsets; the next write rebuilds from the authoritative log.
@@ -74,14 +76,30 @@ pub(crate) struct DeliveryOutbox {
 }
 
 impl DeliveryOutbox {
+    #[cfg(test)]
     pub(crate) fn open(
         path: &str,
         source_dir: Option<&Path>,
         min_free_bytes: u64,
         min_free_percent: u8,
     ) -> ConnectorResult<Self> {
+        Self::open_owned(
+            DispatcherResources::default(),
+            path,
+            source_dir,
+            min_free_bytes,
+            min_free_percent,
+        )
+    }
+    pub(crate) fn open_owned(
+        resources: DispatcherResources,
+        path: &str,
+        source_dir: Option<&Path>,
+        min_free_bytes: u64,
+        min_free_percent: u8,
+    ) -> ConnectorResult<Self> {
         let path = resolve_path(path, source_dir);
-        let lease = PersistentStateLease::acquire(&path)?;
+        let lease = PersistentStateLease::acquire(&path, &resources)?;
         if let Some(parent) = path.parent() {
             std::fs::create_dir_all(parent).map_err(|source| ConnectorError::OpenOutbox {
                 path: path.display().to_string(),
@@ -89,12 +107,13 @@ impl DeliveryOutbox {
             })?;
         }
 
-        let mut file = open_journal(&path, false)?;
-        let (pending, journal_records, recovery) = match read_pending(&path, &mut file) {
+        let mut file = open_journal(&path, false, &resources)?;
+        let (pending, journal_records, recovery) = match read_pending(&path, &mut file, &resources)
+        {
             Ok(state) => state,
             Err(ConnectorError::InvalidOutbox { message, .. }) => {
                 drop(file);
-                let preserved_path = quarantine_journal(&path)?;
+                let preserved_path = quarantine_journal(&path, &resources)?;
                 tracing::warn!(
                     path = %path.display(),
                     preserved_path = %preserved_path.display(),
@@ -102,9 +121,9 @@ impl DeliveryOutbox {
                     error = %message,
                     "corrupt delivery outbox quarantined; connector started with a new journal and requires reconciliation"
                 );
-                file = open_journal(&path, true)?;
+                file = open_journal(&path, true, &resources)?;
                 (
-                    PendingIndex::new(&path)?,
+                    PendingIndex::new_owned(&path, resources.clone())?,
                     0,
                     Some(OutboxRecoveryStatus {
                         state: OutboxRecoveryState::RecoveryRequired,
@@ -124,6 +143,7 @@ impl DeliveryOutbox {
             frame_scans: std::cell::Cell::new(0),
             _lease: lease,
             file: Some(file),
+            resources,
             pending,
             index_valid: true,
             journal_records,
@@ -340,23 +360,29 @@ fn warn_compaction_deferred(path: &Path, status: OutboxStorageStatus, temporary_
     );
 }
 
-fn open_reader(path: &Path) -> ConnectorResult<File> {
-    OpenOptions::new()
-        .read(true)
-        .open(path)
+fn open_reader(path: &Path, resources: &DispatcherResources) -> ConnectorResult<FileView> {
+    resources
+        .open(|| OpenOptions::new().read(true).open(path))
         .map_err(|source| ConnectorError::OpenOutbox {
             path: path.display().to_string(),
             source,
         })
 }
 
-fn open_journal(path: &Path, truncate: bool) -> ConnectorResult<File> {
-    OpenOptions::new()
-        .create(true)
-        .truncate(truncate)
-        .read(true)
-        .write(true)
-        .open(path)
+fn open_journal(
+    path: &Path,
+    truncate: bool,
+    resources: &DispatcherResources,
+) -> ConnectorResult<FileView> {
+    resources
+        .open(|| {
+            OpenOptions::new()
+                .create(true)
+                .truncate(truncate)
+                .read(true)
+                .write(true)
+                .open(path)
+        })
         .map_err(|source| ConnectorError::OpenOutbox {
             path: path.display().to_string(),
             source,

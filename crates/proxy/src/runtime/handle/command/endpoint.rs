@@ -68,7 +68,11 @@ impl ProxyHandle {
         // The persistent apply owner already holds the shared serialization
         // guard; waiting HTTP/IPC futures do not own this transaction.
         let previous = self.proxy.engine.runtime_snapshot();
-        let previous_source_write = self.proxy.engine.config_source_write_generation();
+        self.proxy
+            .engine
+            .configuration_source()
+            .ensure_available()
+            .map_err(|error| ApiError::new(ApiErrorCode::Internal, error.to_string()))?;
         self.proxy.engine.check_endpoint_preconditions(
             &previous,
             &id,
@@ -161,11 +165,12 @@ impl ProxyHandle {
                     None,
                 )?;
             }
-            self.apply_endpoint_snapshot(candidate, persist).await?;
+            self.apply_endpoint_snapshot(candidate.clone(), false)
+                .await?;
             if revoked.inbound || revoked.outbound {
                 self.wait_endpoint_flows_ended(&binding, revoked).await?;
             }
-            let component_config = self.proxy.engine.runtime_snapshot().config().clone();
+            let component_config = candidate.config().clone();
             self.proxy
                 .protocols
                 .scan_components(&component_config, tokio::time::Instant::now() + TIMEOUT)
@@ -175,9 +180,29 @@ impl ProxyHandle {
                 .host
                 .apply()
                 .commit(|| {
+                    if persist {
+                        self.proxy
+                            .engine
+                            .configuration_source()
+                            .persist_ready(
+                                &component_config,
+                                &format!(
+                                    "{}:endpoint:{}",
+                                    self.proxy.engine.core_instance_id(),
+                                    candidate.config_revision()
+                                ),
+                            )
+                            .map_err(|error| {
+                                format!("endpoint source persistence failed: {error}")
+                            })?;
+                    }
                     self.proxy
                         .protocols
                         .commit_components(&component_config, || {
+                            self.proxy
+                                .engine
+                                .publish_prepared_snapshot(candidate.clone())
+                                .map_err(|error| error.to_string())?;
                             if persist {
                                 self.proxy.engine.commit_config_change();
                             }
@@ -189,6 +214,10 @@ impl ProxyHandle {
                     Ok(())
                 })
                 .map_err(|message| ApiError::new(ApiErrorCode::Internal, message))?;
+            if let Some(reconciler) = &self.config_reconciler {
+                reconciler.committed(candidate.config().clone()).await.map_err(|message| ApiError::new(ApiErrorCode::Internal, format!("endpoint committed; application finalization failed: {message}")))?;
+            }
+            self.proxy.engine.configuration_source().finalize_committed().map_err(|error| ApiError::new(ApiErrorCode::Internal, format!("endpoint committed; source finalization failed: {error}; query current state")))?;
             Ok::<(), ApiError>(())
         }
         .await;
@@ -196,14 +225,19 @@ impl ProxyHandle {
             // The candidate resolver is staged until application reconciliation
             // succeeds. Release that stage before preparing the old config.
             self.proxy.resolver.discard_prepared_reload();
-            // A failed first write leaves the old source intact. Only rewrite
-            // it when this transaction actually replaced it; runtime resources
-            // still need reconciliation in either case.
-            let rollback_persist = persist
-                && self.proxy.engine.config_source_write_generation() != previous_source_write;
-            let rollback = self
-                .apply_endpoint_snapshot(previous, rollback_persist)
-                .await;
+            let recovery = if let Some(reconciler) = &self.config_reconciler {
+                self.retire_application_for_recovery(
+                    reconciler.as_ref(),
+                    &candidate,
+                    candidate.config().clone(),
+                    &error.message,
+                )
+                .await
+            } else {
+                self.confirm_source_compensation(&candidate)
+            }
+            .map_err(|message| ApiError::new(error.code, message))?;
+            let rollback = self.apply_endpoint_snapshot(recovery, true).await;
             self.proxy.resolver.discard_prepared_reload();
             self.proxy.engine.record_endpoint_runtime_error(
                 &id,
@@ -234,14 +268,14 @@ impl ProxyHandle {
     async fn apply_endpoint_snapshot(
         &self,
         snapshot: Arc<EngineRuntimeSnapshot>,
-        persist: bool,
+        compensating: bool,
     ) -> zero_api::ApiResult<()> {
         self.publish_endpoint_control_transitions(&snapshot);
         self.apply_proxy_config_under_guard(
             (**snapshot.config()).clone(),
             TIMEOUT,
-            persist,
             Some(snapshot.clone()),
+            compensating,
         )
         .await
         .map_err(|message| ApiError::new(ApiErrorCode::Internal, message))?;
@@ -260,24 +294,34 @@ impl ProxyHandle {
             .scan_components(snapshot.config(), tokio::time::Instant::now() + TIMEOUT)
             .await
             .map_err(|error| ApiError::new(ApiErrorCode::Internal, error.to_string()))?;
-        self.proxy
-            .host
-            .apply()
-            .commit(|| {
-                self.proxy
-                    .protocols
-                    .commit_components(snapshot.config(), || {
-                        self.proxy
-                            .resolver
-                            .commit_reload_resources(&token)
-                            .map_err(|error| format!("endpoint DNS commit failed: {error}"))
-                    })?;
-                self.proxy
-                    .inbound_owners
-                    .finish_recovery_transition(snapshot.config());
-                Ok(())
-            })
-            .map_err(|message| ApiError::new(ApiErrorCode::Internal, message))?;
+        let publish = || {
+            self.proxy
+                .protocols
+                .commit_components(snapshot.config(), || {
+                    self.proxy
+                        .resolver
+                        .commit_reload_resources(&token)
+                        .map_err(|error| format!("endpoint DNS commit failed: {error}"))
+                })?;
+            self.proxy
+                .inbound_owners
+                .finish_recovery_transition(snapshot.config());
+            Ok(())
+        };
+        let result = if compensating {
+            self.proxy.host.apply().compensate(publish)
+        } else {
+            self.proxy.host.apply().commit(publish)
+        };
+        result.map_err(|message| ApiError::new(ApiErrorCode::Internal, message))?;
+        if compensating {
+            if let Some(reconciler) = &self.config_reconciler {
+                reconciler
+                    .committed(snapshot.config().clone())
+                    .await
+                    .map_err(|message| ApiError::new(ApiErrorCode::Internal, message))?;
+            }
+        }
         Ok(())
     }
 

@@ -154,11 +154,19 @@ impl PoolControl {
             if let Some(actual) = *identity {
                 actual
             } else {
-                let next = NEXT
-                    .fetch_update(Ordering::AcqRel, Ordering::Acquire, |n| n.checked_add(1))
-                    .map_err(|_| invalid())?
-                    .checked_add(1)
-                    .ok_or_else(invalid)?;
+                let mut current = NEXT.load(Ordering::Acquire);
+                let next = loop {
+                    let next = current.checked_add(1).ok_or_else(invalid)?;
+                    match NEXT.compare_exchange_weak(
+                        current,
+                        next,
+                        Ordering::AcqRel,
+                        Ordering::Acquire,
+                    ) {
+                        Ok(_) => break next,
+                        Err(observed) => current = observed,
+                    }
+                };
                 *identity = Some(next);
                 next
             }

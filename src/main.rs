@@ -55,15 +55,16 @@ async fn try_main() -> Result<(), Box<dyn Error>> {
 /// Early-parse the configuration file to extract `runtime.log` and
 /// initialise the tracing subscriber before any meaningful work.
 fn init_tracing_from_config(config_path: &str) -> zero_logging::TracingGuard {
-    let log_config = std::fs::read_to_string(config_path)
-        .ok()
-        .and_then(|raw| serde_json::from_str::<serde_json::Value>(&raw).ok())
-        .and_then(|v| v.get("runtime")?.get("log").cloned())
-        .and_then(|v| serde_json::from_value::<zero_config::LogConfig>(v).ok())
-        .unwrap_or_else(|| {
-            // Fallback: stderr only, respect RUST_LOG or default to info.
-            zero_config::LogConfig::default()
-        });
+    let log_config =
+        zero_runtime::configuration::ConfigurationSource::read_initial_document(config_path)
+            .ok()
+            .and_then(|raw| serde_json::from_str::<serde_json::Value>(&raw).ok())
+            .and_then(|v| v.get("runtime")?.get("log").cloned())
+            .and_then(|v| serde_json::from_value::<zero_config::LogConfig>(v).ok())
+            .unwrap_or_else(|| {
+                // Fallback: stderr only, respect RUST_LOG or default to info.
+                zero_config::LogConfig::default()
+            });
 
     zero_logging::init_tracing(&log_config)
 }

@@ -8,14 +8,14 @@ use crate::ProtocolInventory;
 /// Relative resources still resolve against the original configuration path.
 pub fn validate_config(config: &RuntimeConfig) -> Result<(), EngineError> {
     config.validate()?;
-    config.compile_route()?;
+    let routing = zero_runtime::configuration::PreparedRouting::prepare(config)?;
     EnginePlan::build(config)?;
     ProtocolInventory::default().validate_config(config)?;
     // Materialize DNS backends and address pools to retain construction-time
     // validation, but use the in-memory API even for file-backed configs.
     zero_dns::DnsSystem::build_with_egress_and_dispatch(
         config.runtime.dns.as_ref(),
-        config.compile_dns_dispatch()?,
+        routing.dns_dispatch,
         zero_platform_tokio::EgressInterfaceControl::default(),
     )?;
     Ok(())

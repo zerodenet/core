@@ -4,6 +4,7 @@
 //! system resolver via `TokioResolver`, preserving existing behavior
 //! with zero additional allocation.
 
+use zero_runtime::configuration::DnsConfigPreparation;
 mod backends;
 mod cache;
 mod coordinator;

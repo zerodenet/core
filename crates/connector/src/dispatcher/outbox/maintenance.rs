@@ -16,8 +16,9 @@ impl DeliveryOutbox {
         if !self.index_valid {
             // Open separately: after a successful rename followed by an open
             // failure, self.file may be None or refer to the old inode.
-            let mut file = open_journal(&self.path, false)?;
-            let (pending, records, recovery) = read_pending(&self.path, &mut file)?;
+            let mut file = open_journal(&self.path, false, &self.resources)?;
+            let (pending, records, recovery) =
+                read_pending(&self.path, &mut file, &self.resources)?;
             self.pending = pending;
             self.journal_records = records;
             if recovery.is_some() {

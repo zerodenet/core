@@ -62,6 +62,20 @@ where
         }
     }
 
+    /// Preserve the actual writer even when the original mutex is poisoned.
+    /// Returning it does not establish successful cleanup.
+    pub fn into_inner_recover(self) -> Result<W, (W, ApiError)> {
+        self.writer.into_inner().map_err(|error| {
+            (
+                error.into_inner(),
+                ApiError::new(
+                    ApiErrorCode::Internal,
+                    "json-line event sink lock was poisoned",
+                ),
+            )
+        })
+    }
+
     pub fn into_inner(self) -> ApiResult<W> {
         self.writer.into_inner().map_err(|_| {
             ApiError::new(

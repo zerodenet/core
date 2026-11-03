@@ -36,7 +36,7 @@ async fn component_host_debug_does_not_expose_a_pending_configuration() {
     *proxy.host.reload_ack().lock().unwrap() = Some(PendingReloadAck {
         expected: snapshot.clone(),
         previous: snapshot,
-        persist: false,
+
         compensating: false,
         sender,
     });

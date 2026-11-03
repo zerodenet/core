@@ -12,6 +12,7 @@ homepage.workspace = true
 default = []
 
 [dependencies]
+zero-runtime = { path = "../runtime" }
 rand = "0.9"
 serde.workspace = true
 serde_json.workspace = true

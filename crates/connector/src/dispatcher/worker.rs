@@ -1,6 +1,6 @@
+use super::children::{AsyncChild, DispatcherChildren};
 use std::sync::Arc;
 use tokio::sync::mpsc;
-use tokio::task::JoinHandle;
 
 use zero_api::RawApiEvent;
 
@@ -20,7 +20,8 @@ pub(super) struct SinkWorker {
     event_types: Vec<String>,
     source_id: Option<String>,
     sender: Option<mpsc::Sender<Arc<RawApiEvent>>>,
-    task: Option<JoinHandle<()>>,
+    task: Arc<AsyncChild>,
+    children: Arc<DispatcherChildren>,
     supports_cancellation: bool,
     pub(super) in_flight: Option<PendingDelivery>,
 }
@@ -29,6 +30,7 @@ impl SinkWorker {
     pub(super) fn spawn(
         sink: ConfiguredEventSink,
         result_tx: mpsc::UnboundedSender<SinkWorkerResult>,
+        children: Arc<DispatcherChildren>,
     ) -> Self {
         let tag = sink.tag.clone();
         let event_types = sink.event_types.clone();
@@ -52,12 +54,14 @@ impl SinkWorker {
                 }
             }
         });
+        let task = children.register(task);
         Self {
             tag,
             event_types,
             source_id,
             sender: Some(sender),
-            task: Some(task),
+            task,
+            children,
             supports_cancellation,
             in_flight: None,
         }
@@ -108,10 +112,8 @@ impl SinkWorker {
         self.sender.take();
     }
 
-    pub(super) async fn join(&mut self) {
-        if let Some(task) = self.task.take() {
-            let _ = task.await;
-        }
+    pub(super) async fn join(&mut self) -> Result<(), Arc<tokio::task::JoinError>> {
+        self.children.join(&self.task).await
     }
 
     /// Normal shutdown cancels recoverable deliveries and samples. Reload
@@ -132,9 +134,7 @@ impl SinkWorker {
             return None;
         }
         self.sender.take();
-        if let Some(task) = self.task.take() {
-            task.abort();
-        }
+        self.children.abort(&self.task);
         self.in_flight
             .take()
             .filter(|delivery| !delivery.uses_outbox && !is_discardable_sample(&delivery.event))

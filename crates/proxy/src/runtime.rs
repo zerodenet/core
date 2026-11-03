@@ -152,8 +152,14 @@ impl Proxy {
     }
 
     pub fn from_path(path: impl AsRef<Path>) -> Result<Self, EngineError> {
-        let config = RuntimeConfig::load_from_path(path)?;
-        Self::new(config)
+        // This public convenience entry remains load-only: reading a document
+        // must not grant persistence to its path.
+        let source = Arc::new(zero_runtime::configuration::ConfigurationSource::default());
+        source.verify_initial_recovery(path.as_ref())?;
+        let config = source.load_initial_configuration(path)?;
+        let prepared =
+            zero_runtime::configuration::PreparedConfiguration::prepare_startup(config, source)?;
+        Self::from_engine(Engine::from_prepared(prepared)?)
     }
 
     pub fn from_engine(engine: Engine) -> Result<Self, EngineError> {
@@ -179,7 +185,7 @@ impl Proxy {
         protocols.validate_config(&config)?;
         protocols.validate_dial_environment(&config)?;
         protocols.validate_components(config.clone())?;
-        let dns_dispatch = config.compile_dns_dispatch()?;
+        let dns_dispatch = engine.runtime_snapshot().dns_dispatch();
         let fake_ip_state_path = config
             .source_dir()
             .map(zero_dns::default_fake_ip_state_path);
@@ -296,17 +302,15 @@ impl Proxy {
         }
     }
 
-    pub(crate) fn pending_reload_persists(
+    pub(crate) fn pending_configuration_snapshot(
         &self,
-        expected: &Arc<zero_engine::EngineRuntimeSnapshot>,
-    ) -> bool {
+    ) -> Option<Arc<zero_engine::EngineRuntimeSnapshot>> {
         self.host
             .reload_ack()
             .lock()
             .expect("reload ack lock poisoned")
             .as_ref()
-            .filter(|pending| Arc::ptr_eq(&pending.expected, expected))
-            .is_none_or(|pending| pending.persist)
+            .map(|pending| pending.expected.clone())
     }
 
     pub(crate) fn pending_reload_snapshot(

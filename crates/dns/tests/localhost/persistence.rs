@@ -1,4 +1,5 @@
 use super::*;
+use zero_runtime::configuration::DnsConfigPreparation;
 
 #[tokio::test]
 async fn legacy_localhost_mapping_does_not_override_loopback_or_refresh_persistence() {

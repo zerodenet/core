@@ -867,3 +867,6 @@ pub trait TcpConnector: Send + Sync {
 
 /// Bounded asynchronous sender retaining its actual reservation across polls.
 pub use tokio_util::sync::PollSender;
+
+mod local_stream;
+pub use local_stream::{OriginalLocalStream, OriginalLocalStreamClosed};

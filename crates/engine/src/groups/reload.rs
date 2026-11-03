@@ -50,3 +50,64 @@ impl OutboundGroupStateStore {
 fn remap(plan: &EnginePlan, old_plan: &EnginePlan, id: TargetId) -> Option<TargetId> {
     plan.target_id(old_plan.target(id)?.tag())
 }
+
+impl OutboundGroupStateStore {
+    /// Copy acknowledged live selector choices at publication, remapping actual
+    /// plan IDs by tag. Explicit candidate configuration changes retain their
+    /// existing precedence. The Engine snapshot write lock excludes a racing
+    /// public selector ACK until this transfer and publication are complete.
+    pub(crate) fn reconcile_live_selectors(
+        &self,
+        plan: &EnginePlan,
+        old_plan: &EnginePlan,
+        old_state: &Self,
+    ) -> Vec<std::task::Waker> {
+        let old = old_state
+            .selector
+            .lock()
+            .expect("selector group state lock poisoned");
+        let mut next = self
+            .selector
+            .lock()
+            .expect("selector group state lock poisoned");
+        let mut waiters = Vec::new();
+        for &id in plan.selector_groups() {
+            let group = plan.target(id).expect("selector group");
+            let selector = group.as_selector().expect("selector kind");
+            let Some(old_id) = old_plan.target_id(group.tag()) else {
+                continue;
+            };
+            let Some(previous) = old_plan
+                .target(old_id)
+                .and_then(|group| group.as_selector())
+            else {
+                continue;
+            };
+            if old_plan
+                .target(previous.initial_member())
+                .map(|member| member.tag())
+                != plan
+                    .target(selector.initial_member())
+                    .map(|member| member.tag())
+            {
+                continue;
+            }
+            let Some(selected) = old
+                .get(&old_id)
+                .and_then(|state| remap(plan, old_plan, state.selected))
+            else {
+                continue;
+            };
+            if !selector.contains_member(selected) {
+                continue;
+            }
+            if let Some(state) = next.get_mut(&id) {
+                if state.selected != selected {
+                    state.selected = selected;
+                    waiters.extend(state.signal.advance());
+                }
+            }
+        }
+        waiters
+    }
+}

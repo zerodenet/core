@@ -62,3 +62,14 @@ Datagram 关闭确认持有者由 Proxy 构造并在所有执行服务中共享�
 `PacketRouteClose` 的接受与迟到 receipt 由 Proxy 持久 Scope 持有；预算直接取引擎现有 live packet route 上限 4096（新增只读 Rust `Engine::packet_route_capacity()`），不另造并发默认值。Scope 容量检查先于实际 close claim。原 5 秒 ACK 超时不等于 Closed，同一任务释放配置锁后继续等待实际 route lease 与 response pump 两项确认，再记录一次原事件。调用方取消、关闭等待超时或轮询被取消不会丢控制器/TaskId/错误来源。停止后禁止新 close，真实 join 在 TUN、入站与 outbound-device owner 停止之后；它不占配置串行锁等待可能使 receipt 完成的 TunStop。Scope 惰性绑定现有 Tokio Handle，Proxy 冷构造不依赖运行时。新增回归尚待集成运行，未扩大 V1 方法或响应成功条件。
 
 TCP+peer UDP 的首轮结构化清理保留原动态 peer 上限 4096：TCP/UDP 任一报告错误先停止输入，清除实际 peer 输入 sender 后继续驱动每一个真实 JoinHandle 到退出，再返回错误；不在首个错误时丢弃 sibling future/JoinSet，也不以 abort 发出成功确认。成功 peer 的实际 JoinSet 结果正常消费回收，不向固定 listener entry 永久累积历史 ID；首个意外 peer panic 停止该 listener，剩余失败的真实原生 JoinError/ID/来源在有限 drain 中保留。该批尚不声称所有 peer 均已迁入公共 TaskScope，也不扩大为 mux、逻辑 Datagram 会话或全部 M4 的关闭确认。新增实际两个 pending peer socket、TCP 错误与原生 peer panic 来源回归待集成运行。
+
+
+## 本轮云端 Config / Engine 与 Hysteria2 出站迁移
+
+Config 的 `compile` / `rule_sets` 资源运行准备迁到 `zero-runtime::configuration`；进程内 Rust 调用方使用 `PreparedConfiguration` / `PreparedRouting`，Engine 保留既有构造、领域快照、策略和 revision 入口。Engine-only 与 FFI 不因此启动 Proxy。`ConfigApplyReconciler` 新增的生命周期默认实现拒绝无法证明的候选退休；自定义应用服务应提供真实退休和提交确认，不能依赖默认成功。
+
+Hysteria2 的根出站和既有 first-Datagram 路径通过实际标准角色消费一个协议池，root 私有 TCP/UDP 及无调用者的 SessionTcpHandshake/SessionTcpConnectOperation 桥删除。协议库既有公开 standalone API 保留原有范围，不能作为 root 生产回退或完整宿主资格。通用 QUIC 包队列保留原始 ECN、源/目的地址、GSO/GRO 与 PMTU 能力事实。
+
+V1 配置/API/events、CLI、FFI ABI 和协议上游版本未调整。原始错误、投递信封、最终 ACK 与源文件恢复边界保持；GUI/面板真实组合和各平台资格仍须用最终候选本地验证，不能用编译或历史结果代替。此记录不关闭 TEMP-WG-OUTER-UDP-01 或其他原方案职责域。
+
+Rust `MessageTransfer::Upgraded.upstream` 改为 `Box<TcpRelayStream>`，降低常见 Complete 值的枚举体积；构造方显式装箱，消费方继续使用同一个实际流，原始 I/O 所有权和 V1 wire 不变。TCP source 的 `next` 实现改用等价 async fn；有限原件计数使用溢出检查 CAS，兼容旧 Rust 并避免 1.99 的原方法弃用。

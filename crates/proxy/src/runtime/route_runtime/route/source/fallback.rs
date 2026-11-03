@@ -7,6 +7,10 @@ pub(super) async fn run(
     request: Box<dyn AcceptedFallback>,
     cancel: CancellationToken,
 ) -> Result<(), EngineError> {
+    runtime
+        .tcp_runtime
+        .runtime_services()
+        .ensure_configuration_committed()?;
     let caller = runtime
         .accepted_tasks()
         .ok_or_else(|| std::io::Error::other("fallback lacks original accepted task"))?

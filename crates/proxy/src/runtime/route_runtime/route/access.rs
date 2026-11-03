@@ -155,7 +155,15 @@ impl InboundRouteRuntimeFactory {
     }
 
     #[cfg(feature = "raw-ip-runtime")]
+    pub(crate) fn ensure_configuration_committed(&self) -> Result<(), zero_engine::EngineError> {
+        self.shared.tcp_services().ensure_configuration_committed()
+    }
+
+    #[cfg(feature = "raw-ip-runtime")]
     pub(crate) fn endpoint_inbound_allowed(&self) -> bool {
+        if self.ensure_configuration_committed().is_err() {
+            return false;
+        }
         self.shared
             .tcp_services()
             .engine()

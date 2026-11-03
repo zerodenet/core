@@ -128,7 +128,8 @@ async fn real_worker_and_async_sink_share_the_original_event_allocation() {
         None,
     );
     let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
-    let mut worker = SinkWorker::spawn(sink, tx);
+    let children = Arc::new(crate::dispatcher::children::DispatcherChildren::default());
+    let mut worker = SinkWorker::spawn(sink, tx, children.clone());
     let prepared = worker.prepare_event(&event);
     assert!(Arc::ptr_eq(&event, &prepared));
     assert!(worker
@@ -140,7 +141,9 @@ async fn real_worker_and_async_sink_share_the_original_event_allocation() {
         .unwrap();
     assert!(result.result.unwrap().delivered);
     worker.stop();
-    worker.join().await;
+    worker.join().await.unwrap();
+    children.join_all().await;
+    assert_eq!(children.failure_count(), 0);
 }
 
 #[test]
@@ -246,7 +249,8 @@ async fn waiting_source_override_reuses_one_prepared_input_and_preserves_origina
     }
     let sink = ConfiguredEventSink::for_test(Arc::new(Unused), Some("override".into()));
     let (tx, _rx) = tokio::sync::mpsc::unbounded_channel();
-    let mut worker = SinkWorker::spawn(sink, tx);
+    let children = Arc::new(crate::dispatcher::children::DispatcherChildren::default());
+    let mut worker = SinkWorker::spawn(sink, tx, children.clone());
     let original = ApiEvent::new(
         "waiting",
         "flow.completed",
@@ -264,5 +268,7 @@ async fn waiting_source_override_reuses_one_prepared_input_and_preserves_origina
     assert_eq!(blocked.event.source_id, None);
     assert_eq!(blocked.event.event_id, first.event_id);
     worker.stop();
-    worker.join().await;
+    worker.join().await.unwrap();
+    children.join_all().await;
+    assert_eq!(children.failure_count(), 0);
 }

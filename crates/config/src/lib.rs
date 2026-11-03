@@ -1,8 +1,8 @@
+mod action;
 pub mod auth;
-mod compile;
+mod auto_routes;
 mod error;
 mod model;
-mod rule_sets;
 mod validate;
 
 pub use auth::AuthRequirement;

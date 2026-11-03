@@ -1,4 +1,4 @@
-use std::fs::File;
+use crate::resources::{DispatcherResources, FileView};
 use std::io::{self, BufReader, Seek};
 use std::path::Path;
 
@@ -24,7 +24,11 @@ fn io_error(path: &Path, source: io::Error) -> ConnectorError {
     }
 }
 
-fn scan(path: &Path, file: &mut File) -> ConnectorResult<Replay> {
+fn scan(
+    path: &Path,
+    file: &mut FileView,
+    resources: &DispatcherResources,
+) -> ConnectorResult<Replay> {
     let bytes = file
         .metadata()
         .map_err(|error| io_error(path, error))?
@@ -33,7 +37,7 @@ fn scan(path: &Path, file: &mut File) -> ConnectorResult<Replay> {
     // Bound the view to the open inode's initial length. A live writer can
     // append or atomically compact without making inspection chase its tail.
     let mut reader = BufReader::with_capacity(BUFFER_BYTES, Snapshot::new(file, bytes));
-    let mut pending = PendingIndex::new(path)?;
+    let mut pending = PendingIndex::new_owned(path, resources.clone())?;
     pending.begin_batch()?;
     let mut records = 0;
     let mut offset = 0;
@@ -96,11 +100,12 @@ fn scan(path: &Path, file: &mut File) -> ConnectorResult<Replay> {
 
 pub(super) fn read_pending(
     path: &Path,
-    file: &mut File,
+    file: &mut FileView,
+    resources: &DispatcherResources,
 ) -> ConnectorResult<(PendingIndex, usize, Option<OutboxRecoveryStatus>)> {
-    let replay = scan(path, file)?;
+    let replay = scan(path, file, resources)?;
     let recovery = if replay.valid_bytes < replay.bytes {
-        let preserved_path = preserve_journal(path, file, replay.bytes)?;
+        let preserved_path = preserve_journal(path, file, replay.bytes, resources)?;
         file.set_len(replay.valid_bytes)
             .and_then(|_| file.sync_data())
             .map_err(|error| io_error(path, error))?;
@@ -125,12 +130,19 @@ pub(super) fn read_pending(
 }
 
 pub(crate) fn inspect_path(path: &Path) -> ConnectorResult<OutboxInspection> {
-    let mut file = File::open(path).map_err(|error| io_error(path, error))?;
-    let replay = scan(path, &mut file)?;
-    Ok(OutboxInspection {
+    let resources = DispatcherResources::default();
+    let mut file = resources
+        .open(|| std::fs::File::open(path))
+        .map_err(|error| io_error(path, error))?;
+    let replay = scan(path, &mut file, &resources)?;
+    let result = OutboxInspection {
         bytes: replay.bytes,
         records: replay.records,
         pending: replay.pending.len(),
         recoverable_partial_tail: replay.valid_bytes < replay.bytes,
-    })
+    };
+    drop(replay);
+    drop(file);
+    resources.close().map_err(|error| io_error(path, error))?;
+    Ok(result)
 }

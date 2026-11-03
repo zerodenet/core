@@ -52,7 +52,7 @@ impl Engine {
     }
 
     pub fn endpoint_source_file_available(&self) -> bool {
-        self.config_path.is_some()
+        self.config_path().is_some()
     }
 
     /// Build a candidate without publishing it. The caller stages it through
@@ -133,9 +133,11 @@ impl Engine {
         }
         Ok(Arc::new(EngineRuntimeSnapshot {
             config_revision: Arc::new(std::sync::atomic::AtomicU64::new(current.config_revision())),
+            publication: super::super::ConfigurationPublication::pending(),
             config,
             endpoint_intents: Arc::new(intents),
             plan: current.plan.clone(),
+            dns_dispatch: current.dns_dispatch.clone(),
             router: current.router.clone(),
             bypass: current.bypass.clone(),
             outbound_group_state: current.outbound_group_state.clone(),

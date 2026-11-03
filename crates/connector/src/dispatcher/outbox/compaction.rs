@@ -31,17 +31,18 @@ impl DeliveryOutbox {
         }
 
         let parent = self.path.parent().unwrap_or_else(|| Path::new("."));
-        let mut temporary = tempfile::NamedTempFile::new_in(parent).map_err(|source| {
-            ConnectorError::OpenOutbox {
-                path: self.path.display().to_string(),
-                source,
-            }
-        })?;
-        let mut compacted = PendingIndex::new(&self.path)?;
+        let (mut temporary, temporary_path) =
+            self.resources
+                .temporary(parent)
+                .map_err(|source| ConnectorError::OpenOutbox {
+                    path: self.path.display().to_string(),
+                    source,
+                })?;
+        let mut compacted = PendingIndex::new_owned(&self.path, self.resources.clone())?;
         compacted.begin_batch()?;
         let mut deferred = false;
         {
-            let mut reader = BufReader::new(open_reader(&self.path)?);
+            let mut reader = BufReader::new(open_reader(&self.path, &self.resources)?);
             self.pending.visit(|old_offset, key| {
                 reader.seek(SeekFrom::Start(old_offset)).map_err(|source| {
                     ConnectorError::OpenOutbox {
@@ -49,20 +50,20 @@ impl DeliveryOutbox {
                         source,
                     }
                 })?;
-                let new_offset = temporary
-                    .as_file_mut()
-                    .stream_position()
-                    .map_err(|source| ConnectorError::OpenOutbox {
-                        path: self.path.display().to_string(),
-                        source,
-                    })?;
+                let new_offset =
+                    temporary
+                        .stream_position()
+                        .map_err(|source| ConnectorError::OpenOutbox {
+                            path: self.path.display().to_string(),
+                            source,
+                        })?;
                 // The latest frame is already validated and durable. Copy it
                 // verbatim instead of materializing potentially large payloads.
                 let mut frame = Frame::new(&mut reader);
                 let remaining = compaction_budget.saturating_sub(new_offset);
                 let copied = io::copy(
                     &mut (&mut frame).take(remaining.saturating_add(1)),
-                    temporary.as_file_mut(),
+                    &mut temporary,
                 )
                 .map_err(|source| ConnectorError::OpenOutbox {
                     path: self.path.display().to_string(),
@@ -89,21 +90,21 @@ impl DeliveryOutbox {
         }
         compacted.finish_batch()?;
         temporary
-            .as_file_mut()
             .sync_all()
             .map_err(|source| ConnectorError::OpenOutbox {
                 path: self.path.display().to_string(),
                 source,
             })?;
         self.file.take();
-        if let Err(error) = temporary.persist(&self.path) {
-            self.file = OpenOptions::new()
-                .create(true)
-                .truncate(false)
-                .read(true)
-                .write(true)
-                .open(&self.path)
-                .ok();
+        drop(temporary);
+        self.resources
+            .retire_files(false)
+            .map_err(|source| ConnectorError::OpenOutbox {
+                path: self.path.display().to_string(),
+                source,
+            })?;
+        if let Err(error) = temporary_path.persist(&self.path) {
+            self.file = Some(open_journal(&self.path, false, &self.resources)?);
             return Err(ConnectorError::OpenOutbox {
                 path: self.path.display().to_string(),
                 source: error.error,
@@ -112,18 +113,7 @@ impl DeliveryOutbox {
         // The rename committed a new journal layout. Until the file is open
         // and the derived index installed, no old offset may be read.
         self.index_valid = false;
-        self.file = Some(
-            OpenOptions::new()
-                .create(true)
-                .truncate(false)
-                .read(true)
-                .write(true)
-                .open(&self.path)
-                .map_err(|source| ConnectorError::OpenOutbox {
-                    path: self.path.display().to_string(),
-                    source,
-                })?,
-        );
+        self.file = Some(open_journal(&self.path, false, &self.resources)?);
         self.frame_cache.set(None);
         self.pending = compacted;
         self.index_valid = true;

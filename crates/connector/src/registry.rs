@@ -63,6 +63,7 @@ pub(crate) trait AsyncDeliverySink: Send + Sync {
 
 #[cfg(feature = "sink-jsonl")]
 struct BlockingEventSink {
+    children: Arc<crate::dispatcher::children::DispatcherChildren>,
     sink: Arc<dyn EventSink + Send + Sync>,
 }
 
@@ -74,14 +75,9 @@ impl AsyncDeliverySink for BlockingEventSink {
         event: Arc<zero_api::RawApiEvent>,
     ) -> zero_api::ApiResult<zero_api::PublishResult> {
         let sink = self.sink.clone();
-        tokio::task::spawn_blocking(move || sink.publish(&event))
+        self.children
+            .blocking_publish(move || sink.publish(&event))
             .await
-            .map_err(|error| {
-                zero_api::ApiError::new(
-                    zero_api::ApiErrorCode::Internal,
-                    format!("blocking event sink task failed: {error}"),
-                )
-            })?
     }
 }
 
@@ -89,6 +85,8 @@ pub(crate) fn build_event_sinks(
     api: &ApiConfig,
     source_dir: Option<&Path>,
     network: &EventDispatcherNetwork,
+    resources: &crate::resources::DispatcherResources,
+    children: Arc<crate::dispatcher::children::DispatcherChildren>,
 ) -> ConnectorResult<Vec<ConfiguredEventSink>> {
     api.event_sinks
         .iter()
@@ -98,6 +96,8 @@ pub(crate) fn build_event_sinks(
                 source_dir,
                 std::time::Duration::from_millis(api.dispatcher.webhook_timeout_ms),
                 network,
+                resources,
+                children.clone(),
             )
         })
         .collect()
@@ -108,6 +108,8 @@ fn build_event_sink(
     source_dir: Option<&Path>,
     webhook_timeout: std::time::Duration,
     network: &EventDispatcherNetwork,
+    resources: &crate::resources::DispatcherResources,
+    children: Arc<crate::dispatcher::children::DispatcherChildren>,
 ) -> ConnectorResult<ConfiguredEventSink> {
     match config {
         EventSinkConfig::JsonLines {
@@ -115,7 +117,9 @@ fn build_event_sink(
             path,
             events,
             source_id,
-        } => build_json_line_sink(tag, path, events, source_id, source_dir),
+        } => build_json_line_sink(
+            tag, path, events, source_id, source_dir, resources, children,
+        ),
         EventSinkConfig::Webhook { .. } => build_webhook_sink(config, webhook_timeout, network),
     }
 }
@@ -127,15 +131,15 @@ fn build_json_line_sink(
     events: &[String],
     source_id: &Option<String>,
     source_dir: Option<&Path>,
+    resources: &crate::resources::DispatcherResources,
+    children: Arc<crate::dispatcher::children::DispatcherChildren>,
 ) -> ConnectorResult<ConfiguredEventSink> {
     use std::fs::OpenOptions;
 
     let resolved = resolve_path(path, source_dir);
-    let persistent_lease = PersistentStateLease::acquire(&resolved)?;
-    let file = OpenOptions::new()
-        .create(true)
-        .append(true)
-        .open(&resolved)
+    let persistent_lease = PersistentStateLease::acquire(&resolved, resources)?;
+    let file = resources
+        .open(|| OpenOptions::new().create(true).append(true).open(&resolved))
         .map_err(|source| ConnectorError::OpenJsonLineSink {
             tag: tag.to_owned(),
             path: resolved.display().to_string(),
@@ -147,7 +151,8 @@ fn build_json_line_sink(
         event_types: events.to_vec(),
         source_id: source_id.clone(),
         sink: Arc::new(BlockingEventSink {
-            sink: Arc::new(zero_api::JsonLineEventSink::new(file)),
+            children,
+            sink: resources.jsonl(file),
         }),
         _persistent_lease: Some(persistent_lease),
     })
@@ -160,6 +165,8 @@ fn build_json_line_sink(
     _events: &[String],
     _source_id: &Option<String>,
     _source_dir: Option<&Path>,
+    _resources: &crate::resources::DispatcherResources,
+    _children: Arc<crate::dispatcher::children::DispatcherChildren>,
 ) -> ConnectorResult<ConfiguredEventSink> {
     Err(ConnectorError::FeatureDisabled {
         feature: "sink-jsonl",

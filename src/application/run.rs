@@ -44,9 +44,17 @@ async fn run(
     ipc_hook_socket: Option<&str>,
     parent_lifetime_stdin: bool,
 ) -> Result<(), Box<dyn Error>> {
-    let mut config = zero_config::RuntimeConfig::load_from_path(config_path)?;
+    let source = std::sync::Arc::new(zero_runtime::configuration::ConfigurationSource::new(
+        config_path,
+    ));
+    let mut config = source.load_initial_configuration(config_path)?;
     rule_set_fetch::pre_fetch_rule_sets(&mut config.route.rule_sets, config.source_dir.as_deref());
-    let engine = zero_engine::Engine::new_with_config_path(config, config_path)?;
+    let prepared = zero_runtime::configuration::PreparedConfiguration::prepare_startup(
+        config,
+        source.clone(),
+    )?;
+    let engine = zero_engine::Engine::from_prepared(prepared)?;
+    source.complete_recovered_boot()?;
     let proxy = Proxy::from_engine(engine)?;
     let engine = proxy.engine().clone();
 
@@ -126,14 +134,14 @@ async fn run(
 
     // Proxy shutdown emits terminal flow.completed facts. Stop only status
     // polling here; the dispatcher remains alive for the terminal events.
-    services.shutdown_status_monitor().await;
+    let monitor_shutdown = services.shutdown_status_monitor().await;
 
     engine.push_engine_stopped(proxy_stop_reason(&proxy_result));
     // Allow the event dispatcher to observe the terminal engine event before
     // its final drain persists any remaining deliveries to the outbox.
     tokio::task::yield_now().await;
 
-    services.shutdown_dispatcher().await;
+    let dispatcher_shutdown = services.shutdown_dispatcher().await;
     ipc_server.shutdown().await?;
     #[cfg(feature = "status-api")]
     if let Some(s) = http_server {
@@ -145,6 +153,8 @@ async fn run(
     }
 
     proxy_result?;
+    monitor_shutdown.map_err(std::io::Error::other)?;
+    dispatcher_shutdown.map_err(std::io::Error::other)?;
     Ok(())
 }
 

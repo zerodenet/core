@@ -10,6 +10,7 @@ use zero_engine::{Engine, EngineRuntimeSnapshot};
 pub(crate) struct TcpExecutionServices {
     pub(in crate::protocol_registry::context) engine: Engine,
     pub(super) snapshot: Arc<EngineRuntimeSnapshot>,
+    pub(super) configuration_publication: zero_engine::ConfigurationPublication,
     pub(crate) current_source:
         std::sync::Weak<crate::runtime::current_services::CurrentServiceSource>,
     pub(in crate::protocol_registry::context) upstream: UpstreamConnectServices,
@@ -25,6 +26,16 @@ pub(crate) struct TcpExecutionServices {
     pub(crate) ingress: Option<crate::component::request::IngressIdentity>,
 }
 impl TcpExecutionServices {
+    pub(crate) fn ensure_configuration_committed(&self) -> Result<(), zero_engine::EngineError> {
+        if self.configuration_publication.is_committed() {
+            Ok(())
+        } else {
+            Err(zero_engine::EngineError::AdmissionDenied {
+                reason: "candidate configuration is Ready but not committed".into(),
+            })
+        }
+    }
+
     pub(crate) fn has_datagram_return_owner(&self) -> bool {
         self.datagram_returns.is_some()
     }

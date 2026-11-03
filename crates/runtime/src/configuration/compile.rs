@@ -3,67 +3,196 @@ use std::path::Path;
 
 use zero_router::{RouteAction, Rule, RuleCondition, RuleSet, RuleSetMatcher};
 
-use crate::rule_sets::{compile_rule_sets, CompiledRuleSets};
-use crate::{
+use super::io::ConfigurationIo;
+use super::rule_sets::{compile_rule_sets, compile_rule_sets_owned, CompiledRuleSets};
+use zero_config::{
     ConfigError, DnsConfig, RouteActionConfig, RouteConfig, RouteRuleConfig, RuleConditionConfig,
     RuntimeConfig,
 };
 
-mod auto_routes;
+pub trait RuntimeConfigPreparation {
+    fn compile_route_bypass(&self) -> Result<RuleSet, ConfigError>;
+    fn compile_route(&self) -> Result<RuleSet, ConfigError>;
+    fn compile_dns_dispatch(
+        &self,
+    ) -> Result<Option<zero_router::DomainDispatcher<String>>, ConfigError>;
+}
+trait RouteCompilation {
+    fn compile(
+        &self,
+        compiled_rule_sets: &CompiledRuleSets,
+        geoip: Option<std::sync::Arc<maxminddb::Reader<Vec<u8>>>>,
+    ) -> Result<RuleSet, ConfigError>;
+}
+pub trait DnsConfigPreparation {
+    fn compile_dispatch(
+        &self,
+        rule_sets: &[zero_config::RouteRuleSetConfig],
+        base_dir: Option<&Path>,
+    ) -> Result<zero_router::DomainDispatcher<String>, ConfigError>;
+}
+trait DnsCompilation {
+    fn compile_dispatch_with(
+        &self,
+        compiled_rule_sets: &CompiledRuleSets,
+    ) -> Result<zero_router::DomainDispatcher<String>, ConfigError>;
+}
+trait RuleCompilation {
+    fn compile(
+        &self,
+        compiled_rule_sets: &HashMap<String, RuleSetMatcher>,
+    ) -> Result<Rule, ConfigError>;
+}
+trait ConditionCompilation {
+    fn compile(
+        &self,
+        compiled_rule_sets: &HashMap<String, RuleSetMatcher>,
+    ) -> Result<RuleCondition, ConfigError>;
+}
 
-impl RuntimeConfig {
-    pub fn compile_route_bypass(&self) -> Result<RuleSet, ConfigError> {
-        if self.route.bypass.is_empty() {
-            return Ok(RuleSet::new(Vec::new(), RouteAction::Reject));
-        }
-        let resources = self.route.bypass.iter().any(bypass_uses_resources);
-        let compiled = if resources {
-            compile_rule_sets(&self.route.rule_sets, self.source_dir())?
-        } else {
-            CompiledRuleSets::new()
-        };
-        let mut route = self.route.clone();
-        if !resources {
-            route.geoip_database = None;
-        }
-        route.rules = route
-            .bypass
-            .iter()
-            .cloned()
-            .map(|condition| RouteRuleConfig {
-                condition,
-                action: RouteActionConfig::Direct,
-                mode: crate::RouteModeConfig::Auto,
-            })
-            .collect();
-        route.final_action = RouteActionConfig::Reject;
-        route.final_mode = crate::RouteModeConfig::Auto;
-        route.compile(&compiled, self.source_dir())
+impl RuntimeConfigPreparation for RuntimeConfig {
+    fn compile_route_bypass(&self) -> Result<RuleSet, ConfigError> {
+        super::with_cold_io(|owner| {
+            if self.route.bypass.is_empty() {
+                return Ok(RuleSet::new(Vec::new(), RouteAction::Reject));
+            }
+            let resources = self.route.bypass.iter().any(bypass_uses_resources);
+            let compiled = if resources {
+                compile_rule_sets_owned(&self.route.rule_sets, self.source_dir(), owner)?
+            } else {
+                CompiledRuleSets::new()
+            };
+            let geoip = if resources {
+                load_geoip(
+                    self.route.geoip_database.as_deref(),
+                    self.source_dir(),
+                    owner,
+                )?
+            } else {
+                None
+            };
+            compile_bypass(&self.route, &compiled, geoip)
+        })
     }
-
-    pub fn compile_route(&self) -> Result<RuleSet, ConfigError> {
-        let compiled_rule_sets = compile_rule_sets(&self.route.rule_sets, self.source_dir())?;
-        let mut router = self.route.compile(&compiled_rule_sets, self.source_dir())?;
-        router.rules.extend(auto_routes::compile(self)?);
-        Ok(router)
+    fn compile_route(&self) -> Result<RuleSet, ConfigError> {
+        super::with_cold_io(|owner| {
+            let compiled =
+                compile_rule_sets_owned(&self.route.rule_sets, self.source_dir(), owner)?;
+            let geoip = load_geoip(
+                self.route.geoip_database.as_deref(),
+                self.source_dir(),
+                owner,
+            )?;
+            compile_route(self, &compiled, geoip)
+        })
     }
-
-    pub fn compile_dns_dispatch(
+    fn compile_dns_dispatch(
         &self,
     ) -> Result<Option<zero_router::DomainDispatcher<String>>, ConfigError> {
-        let Some(dns) = self.runtime.dns.as_ref() else {
-            return Ok(None);
-        };
-        dns.compile_dispatch(&self.route.rule_sets, self.source_dir())
-            .map(Some)
+        self.runtime
+            .dns
+            .as_ref()
+            .map(|dns| dns.compile_dispatch(&self.route.rule_sets, self.source_dir()))
+            .transpose()
     }
 }
 
-impl RouteConfig {
-    pub(crate) fn compile(
+fn compile_route(
+    config: &RuntimeConfig,
+    compiled: &CompiledRuleSets,
+    geoip: Option<std::sync::Arc<maxminddb::Reader<Vec<u8>>>>,
+) -> Result<RuleSet, ConfigError> {
+    let mut router = config.route.compile(compiled, geoip)?;
+    router.rules.extend(
+        config
+            .automatic_route_prefixes()?
+            .into_iter()
+            .map(|(prefix, tag)| Rule {
+                condition: RuleCondition::Ip(vec![prefix]),
+                action: RouteAction::Route(tag),
+                mode: zero_router::RouteMode::Auto,
+            }),
+    );
+    Ok(router)
+}
+fn compile_bypass(
+    route: &RouteConfig,
+    compiled: &CompiledRuleSets,
+    geoip: Option<std::sync::Arc<maxminddb::Reader<Vec<u8>>>>,
+) -> Result<RuleSet, ConfigError> {
+    let mut bypass = route.clone();
+    bypass.rules = bypass
+        .bypass
+        .iter()
+        .cloned()
+        .map(|condition| RouteRuleConfig {
+            condition,
+            action: RouteActionConfig::Direct,
+            mode: zero_config::RouteModeConfig::Auto,
+        })
+        .collect();
+    bypass.final_action = RouteActionConfig::Reject;
+    bypass.final_mode = zero_config::RouteModeConfig::Auto;
+    bypass.compile(compiled, geoip)
+}
+
+pub(super) fn prepare(
+    config: &RuntimeConfig,
+    owner: &ConfigurationIo,
+) -> Result<super::PreparedRouting, ConfigError> {
+    let compiled = compile_rule_sets_owned(&config.route.rule_sets, config.source_dir(), owner)?;
+    let geoip = load_geoip(
+        config.route.geoip_database.as_deref(),
+        config.source_dir(),
+        owner,
+    )?;
+    let router = compile_route(config, &compiled, geoip.clone())?;
+    let bypass_geoip = config
+        .route
+        .bypass
+        .iter()
+        .any(bypass_uses_resources)
+        .then_some(geoip)
+        .flatten();
+    Ok(super::PreparedRouting {
+        router: std::sync::Arc::new(router),
+        bypass: std::sync::Arc::new(compile_bypass(&config.route, &compiled, bypass_geoip)?),
+        dns_dispatch: config
+            .runtime
+            .dns
+            .as_ref()
+            .map(|dns| dns.compile_dispatch_with(&compiled))
+            .transpose()?,
+    })
+}
+
+fn load_geoip(
+    path: Option<&str>,
+    base_dir: Option<&Path>,
+    owner: &ConfigurationIo,
+) -> Result<Option<std::sync::Arc<maxminddb::Reader<Vec<u8>>>>, ConfigError> {
+    path.map(|path| {
+        let resolved = resolve_path(path, base_dir);
+        let data = owner.read(&resolved).map_err(|source| {
+            ConfigError::InvalidRuleSet(format!(
+                "failed to read geoip database at {}: {source}",
+                resolved.display()
+            ))
+        })?;
+        maxminddb::Reader::from_source(data)
+            .map(std::sync::Arc::new)
+            .map_err(|error| {
+                ConfigError::InvalidRuleSet(format!("invalid geoip database: {error}"))
+            })
+    })
+    .transpose()
+}
+
+impl RouteCompilation for RouteConfig {
+    fn compile(
         &self,
         compiled_rule_sets: &CompiledRuleSets,
-        base_dir: Option<&Path>,
+        geoip: Option<std::sync::Arc<maxminddb::Reader<Vec<u8>>>>,
     ) -> Result<RuleSet, ConfigError> {
         let mut rules = Vec::with_capacity(self.rules.len());
 
@@ -71,21 +200,8 @@ impl RouteConfig {
             rules.push(rule.compile(compiled_rule_sets)?);
         }
 
-        if let Some(ref path) = self.geoip_database {
-            let resolved = resolve_path(path, base_dir);
-            let data = std::fs::read(&resolved).map_err(|source| {
-                ConfigError::InvalidRuleSet(format!(
-                    "failed to read geoip database at {}: {source}",
-                    resolved.display()
-                ))
-            })?;
-            let reader = maxminddb::Reader::from_source(data)
-                .map_err(|e| ConfigError::InvalidRuleSet(format!("invalid geoip database: {e}")))?;
-            let mut router = RuleSet::with_geoip(
-                rules,
-                self.final_action.compile(),
-                std::sync::Arc::new(reader),
-            );
+        if let Some(reader) = geoip {
+            let mut router = RuleSet::with_geoip(rules, self.final_action.compile(), reader);
             router.final_mode = self.final_mode.compile();
             Ok(router)
         } else {
@@ -96,16 +212,18 @@ impl RouteConfig {
     }
 }
 
-impl DnsConfig {
-    pub fn compile_dispatch(
+impl DnsConfigPreparation for DnsConfig {
+    fn compile_dispatch(
         &self,
-        rule_sets: &[crate::RouteRuleSetConfig],
+        rule_sets: &[zero_config::RouteRuleSetConfig],
         base_dir: Option<&Path>,
     ) -> Result<zero_router::DomainDispatcher<String>, ConfigError> {
         let compiled_rule_sets = compile_rule_sets(rule_sets, base_dir)?;
         self.compile_dispatch_with(&compiled_rule_sets)
     }
+}
 
+impl DnsCompilation for DnsConfig {
     fn compile_dispatch_with(
         &self,
         compiled_rule_sets: &CompiledRuleSets,
@@ -138,8 +256,8 @@ fn resolve_path(path: &str, base_dir: Option<&Path>) -> std::path::PathBuf {
     }
 }
 
-impl RouteRuleConfig {
-    pub(crate) fn compile(
+impl RuleCompilation for RouteRuleConfig {
+    fn compile(
         &self,
         compiled_rule_sets: &HashMap<String, RuleSetMatcher>,
     ) -> Result<Rule, ConfigError> {
@@ -151,8 +269,8 @@ impl RouteRuleConfig {
     }
 }
 
-impl RuleConditionConfig {
-    pub(crate) fn compile(
+impl ConditionCompilation for RuleConditionConfig {
+    fn compile(
         &self,
         compiled_rule_sets: &HashMap<String, RuleSetMatcher>,
     ) -> Result<RuleCondition, ConfigError> {
@@ -213,23 +331,6 @@ impl RuleConditionConfig {
             Self::Or { items } => {
                 compile_nested_condition("or", items, compiled_rule_sets, RuleCondition::Or)
             }
-        }
-    }
-}
-
-impl RouteActionConfig {
-    pub fn compile(&self) -> RouteAction {
-        match self {
-            Self::Direct => RouteAction::Direct,
-            Self::Reject => RouteAction::Reject,
-            Self::Route { outbound } => RouteAction::Route(outbound.clone()),
-        }
-    }
-
-    pub(crate) fn target_ref(&self) -> Option<&str> {
-        match self {
-            Self::Route { outbound } => Some(outbound),
-            Self::Direct | Self::Reject => None,
         }
     }
 }

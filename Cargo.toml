@@ -37,7 +37,6 @@ host-network-stats = ["zero-proxy/host-network-stats"]
 status-api = ["dep:percent-encoding"]
 event-dispatcher = [
     "dep:zero-connector",
-    "dep:zero-platform-tokio",
     "zero-connector/event-dispatcher",
 ]
 sink-jsonl = ["event-dispatcher", "zero-connector/sink-jsonl"]
@@ -134,7 +133,8 @@ zero-core = { path = "crates/core" }
 zero-traits = { path = "crates/traits" }
 zero-engine = { path = "crates/engine", default-features = false }
 zero-logging = { path = "crates/logging" }
-zero-platform-tokio = { path = "crates/platform/tokio", optional = true }
+zero-runtime = { path = "crates/runtime" }
+zero-platform-tokio = { path = "crates/platform/tokio" }
 zero-proxy = { path = "crates/proxy", default-features = false }
 zero-connector = { path = "crates/connector", optional = true, default-features = false }
 zero-grpc = { path = "crates/grpc", optional = true }
