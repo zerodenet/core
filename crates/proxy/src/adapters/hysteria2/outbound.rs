@@ -122,7 +122,7 @@ impl Hysteria2Adapter {
                         Entry::Occupied(entry) => entry.into_mut(),
                         Entry::Vacant(entry) => {
                             let bytes = zero_runtime::configuration::ConfigurationSource::read_preparation_file(
-                                entry.key(), 16 * 1024 * 1024,
+                                entry.key(), config.runtime.effective_file_read_max_bytes(),
                             ).map_err(|source| RegistrationError::Planning(
                                 zero_platform_tokio::contract::ChannelError::new(
                                     zero_platform_tokio::contract::Stage::Prepare,

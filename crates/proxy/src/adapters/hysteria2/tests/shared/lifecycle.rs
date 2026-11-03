@@ -341,6 +341,8 @@ async fn hysteria2_invalid_ca_start_keeps_actual_registered_metadata_cleanup_con
         proxy.protocols.shutdown_components(end()).await.unwrap();
     }).await.unwrap();
 }
+#[path = "lifecycle/file_budget.rs"]
+mod file_budget;
 #[path = "lifecycle/hop.rs"]
 mod hop;
 #[path = "lifecycle/pending.rs"]
