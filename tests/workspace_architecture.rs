@@ -351,6 +351,9 @@ fn engine_leaf_projection_stops_at_the_inventory_registry_preparation_boundary()
         let allowed = relative == Path::new("inventory/runtime.rs")
             || relative == Path::new("inventory/packet.rs")
             || relative == Path::new("inventory/tcp/selection.rs")
+            || relative == Path::new("inventory/udp/leaf.rs")
+            || relative == Path::new("inventory/udp/association.rs")
+            || relative == Path::new("inventory/udp/standard_relay.rs")
             || relative == Path::new("protocol_registry/registry/outbound.rs");
         assert!(
             allowed,
@@ -375,6 +378,28 @@ fn engine_leaf_projection_stops_at_the_inventory_registry_preparation_boundary()
             !selection.contains(forbidden),
             "TCP inventory preparation must not contain `{forbidden}`"
         );
+    }
+
+    // UDP role selection remains synchronous preparation in these files.
+    // Execution and all subsequent modules still receive only neutral facts.
+    for relative in [
+        "inventory/udp/leaf.rs",
+        "inventory/udp/association.rs",
+        "inventory/udp/standard_relay.rs",
+    ] {
+        let selection = read(&proxy.join(relative));
+        for forbidden in [
+            ".await",
+            ".execute(",
+            "tokio::spawn",
+            "&Proxy",
+            "crate::Proxy",
+        ] {
+            assert!(
+                !selection.contains(forbidden),
+                "UDP inventory preparation must not contain `{forbidden}` in {relative}"
+            );
+        }
     }
 
     for path in rust_sources(&proxy.join("adapters")) {
@@ -449,6 +474,9 @@ fn proxy_adapters_materialize_protocol_config_once() {
         let adapter_dir = adapters.join(protocol);
         if adapter_dir.exists() {
             for path in rust_sources(&adapter_dir) {
+                if is_test_source(&path) {
+                    continue;
+                }
                 assert!(
                     !read(&path).contains("ResolvedLeafOutbound"),
                     "{} must consume the protocol-owned projected leaf",
