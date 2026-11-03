@@ -75,7 +75,7 @@ Ready 后才持久化意味着持久化失败时，已退休的原端点必须�
 
 此索引为各任务分支首父链的非 merge 提交；普通依赖 merge 保留在 Git 历史。A 初轮 PR 合入后追加的实际收尾提交由 C 普通合并保留，不改写 PR 原始集成点。索引 head 是分支实现输入，不替代 PR #127 的最终冻结候选。B 在最后源码整合后普通 fast-forward 到 `d9e852eb21bb8122ff9ce934f9af532bb99bbe02` 并以 ls-remote 确认远端；下面 B 的 `6e775070` 是原实现首父链索引锚点，避免用集成分支首父链遗漏合并提交中的 B 实现。
 
-### A：`179ee0049b80788f84ebc42e1d88abdcc13eedaf`
+### A：`0484eb21bd55ec832d77230cf22e556f2fef1740`
 
 - `a5df1b586a8882708ec8b7acc03bbafd8855f5d1` — refactor(config): prepare shared routing resources in runtime
 - `23b1caacd40f3c679fdaea98112089f7ff014154` — refactor(runtime): persist ready configuration under the accepted host transaction
@@ -132,6 +132,8 @@ Ready 后才持久化意味着持久化失败时，已退休的原端点必须�
 - `e6fb04e0af97f85d23c8d2aa038039e210770ddd` — test(proxy): bind the cancellation source borrow to its original error
 
 - `179ee0049b80788f84ebc42e1d88abdcc13eedaf` — refactor(runtime): own embedded source commit and compensation outside Engine
+
+- `0484eb21bd55ec832d77230cf22e556f2fef1740` — test(proxy): distinguish pending readiness from the real source start deadline
 
 ### B：`6e775070565fb11c8e6c8a124c52ec9c2425cca0`
 
@@ -198,3 +200,10 @@ Ready 后才持久化意味着持久化失败时，已退休的原端点必须�
 - `496dc30df079c6a05d61c784ab9d256255875eb0` — refactor(proxy): project UDP relay leaves at inventory preparation boundary
 - `2a354757123b85115cea3d59dc766a4369245c6f` — test(proxy): keep DNS dependencies and IPv6 fixtures valid under strict preparation
 - `6c5c85020214c5e84d90b803ccd44c388f0702b3` — test(proxy): verify Direct originals across actual Accepted receipt consumer
+
+
+B 后续分组为 `740bb83b91428202e4b6dc9c1a4b5bf1a3d35d03`（实际 TCP/UDP 双地址保留的 SS 夹具）与 `c7bc94c4`（FinalMask 回包/端口诊断，强断言保留）；普通合入 C 实际源码 `ac6c062ea363e63fb4de77aeb58483e5266e468f` 后，B 工作分支冻结于 `fc8277264de89ae75c2059a2497f16d68e876dab`。原实现索引仍以上述首父链锚点保存。
+
+后续统一检查 `dc3ad16618ed080b6ef5f9d611dcb11bd68e05b3` 已完整收齐：主 harness 4121 通过、7 失败、176 忽略，没有未完成目标；这些是中间源码结果，不移作最终资格。源恢复缺少 DNS 变更时漏提交已实际启动的新 generation 已修正，并在前置领域/组件/TUN 恢复失败时停止后续资源重建；eager bind 也沿公开入口保留原始 I/O 分类及同一 boxed source。Ready 成功与实际标准源五秒启动期限失败分开验证：未扩大生产期限、未将十秒协议上限冒充宿主五秒期限。第三次环境重连只中断 Clippy，单独留记录并恢复该项，已完成检查没有重跑。
+
+FinalMask 一次全量并发的 SOCKS UDP 内层回包端口不符，隔离同二进制通过；当前证据尚不足以区分迟到报文与生产关联错误。已补实际分配/发送者诊断，保留原断言和该失败，不能据隔离通过称为已修复。此未决并发互通项与上述设备域纯方向撤除失败、TEMP-WG-OUTER-UDP-01 分别记录。
