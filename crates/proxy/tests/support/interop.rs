@@ -597,10 +597,20 @@ where
             .expect("send udp packet");
 
         let mut buf = [0_u8; 2048];
-        let (read, _) = client.recv_from(&mut buf).await.expect("recv udp response");
+        let (read, response_peer) = client.recv_from(&mut buf).await.expect("recv udp response");
         let response = super::parse_udp_packet(&buf[..read]).expect("parse socks5 udp response");
-        assert_eq!(response.target, Address::Ipv4([127, 0, 0, 1]));
-        assert_eq!(response.port, *target_port);
+        assert_eq!(
+            response.target,
+            Address::Ipv4([127, 0, 0, 1]),
+            "SOCKS UDP packet {index}: local={:?} actual_peer={response_peer} expected_relay=127.0.0.1:{relay_port} response_target={:?} response_port={} expected_target_port={target_port}",
+            client.local_addr().unwrap(), response.target, response.port
+        );
+        assert_eq!(
+            response.port,
+            *target_port,
+            "SOCKS UDP packet {index}: local={:?} actual_peer={response_peer} expected_relay=127.0.0.1:{relay_port} response_target={:?} response_port={} expected_target_port={target_port}",
+            client.local_addr().unwrap(), response.target, response.port
+        );
         echoed.push(response.payload);
         if index == 0 {
             if let Some(after_first) = after_first.take() {
