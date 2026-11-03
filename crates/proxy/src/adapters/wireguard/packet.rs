@@ -11,20 +11,20 @@ impl WireguardAdapter {
             native: Arc::new(crate::runtime::raw_ip::RawIpPacketOperation {
                 translate_source: false,
                 tag: tag.to_owned(),
-                identity: identity,
+                identity,
                 plan: plan.clone(),
                 pool: self.pool.clone(),
             }),
             translated: Some(Arc::new(crate::runtime::raw_ip::RawIpPacketOperation {
                 translate_source: true,
                 tag: tag.to_owned(),
-                identity: identity,
+                identity,
                 plan: plan.clone(),
                 pool: self.pool.clone(),
             })),
             datagram: Some(Arc::new(crate::runtime::raw_ip::RawIpDatagramOperation {
                 tag: tag.to_owned(),
-                identity: identity,
+                identity,
                 plan: plan.clone(),
                 pool: self.pool.clone(),
             })),

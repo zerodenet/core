@@ -65,13 +65,8 @@ async fn first_actual_failure_source_survives_repeated_shutdown() {
 
 #[tokio::test]
 async fn actual_child_udp_drop_and_true_scope_join_cannot_complete_its_host_terminal() {
-    use crate::{
-        protocol_registry::PreparedInboundBind,
-        runtime::{inbound_owners::InboundOwnerRegistry, Proxy},
-    };
+    use crate::runtime::{inbound_owners::InboundOwnerRegistry, Proxy};
     use zero_config::RuntimeConfig;
-    use zero_core::{request::Destination, Address};
-    use zero_platform_tokio::contract::component::ResourceDeclaration;
     let proxy = Proxy::new(
         RuntimeConfig::parse(
             r#"{

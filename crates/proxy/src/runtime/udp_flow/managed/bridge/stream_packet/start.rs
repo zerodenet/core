@@ -142,6 +142,10 @@ async fn start_managed_stream_packet<T: ManagedStreamFlowConnector>(
     )
 }
 
+#[expect(
+    clippy::too_many_arguments,
+    reason = "the existing managed-flow commit carries actual session, original control and delivered byte facts"
+)]
 fn finish(
     context: &mut UdpFlowStartContext<'_>,
     tag: &str,

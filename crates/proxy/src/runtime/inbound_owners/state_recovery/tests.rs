@@ -1,7 +1,6 @@
 use super::*;
 use std::{
     future::Future,
-    pin::Pin,
     sync::atomic::{AtomicUsize, Ordering},
     task::Poll,
     time::Duration,
@@ -10,8 +9,6 @@ use tokio::{
     net::TcpListener,
     sync::{oneshot, Notify},
 };
-use zero_core::{request::Destination, Address};
-use zero_platform_tokio::contract::component::ResourceDeclaration;
 
 struct State(Arc<AtomicUsize>, crate::component::ComponentRecipe);
 impl InboundRecovery for State {

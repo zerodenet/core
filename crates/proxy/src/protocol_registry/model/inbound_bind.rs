@@ -169,8 +169,7 @@ impl PreparedInboundBind {
                     ..
                 } => max_associations
                     .get()
-                    .checked_mul(max_tasks_per_association.get())
-                    .unwrap_or(usize::MAX),
+                    .saturating_mul(max_tasks_per_association.get()),
                 _ => 0,
             })
             .try_fold(recipe.spec().task_limit.map_or(0, |n| n.get()), |sum, n| {

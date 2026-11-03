@@ -88,13 +88,12 @@ impl super::super::ProtocolInventory {
             {
                 return None;
             }
-            if !spec.dependencies.is_empty() && plan.has_carrier_provider(node.slot.role_id()) {
-                borrowed = Some(nodes.len());
-            } else if borrowed.is_none()
-                && spec
-                    .resources
-                    .iter()
-                    .any(|r| matches!(r, ResourceDeclaration::ControlledCarrierPool { .. }))
+            if (!spec.dependencies.is_empty() && plan.has_carrier_provider(node.slot.role_id()))
+                || (borrowed.is_none()
+                    && spec
+                        .resources
+                        .iter()
+                        .any(|r| matches!(r, ResourceDeclaration::ControlledCarrierPool { .. })))
             {
                 borrowed = Some(nodes.len());
             }

@@ -1,7 +1,6 @@
 use super::*;
-use crate::{
-    protocol_registry::PreparedInboundBind,
-    runtime::{inbound_owners::InboundOwner, route_runtime::SharedIngressRuntimeServices, Proxy},
+use crate::runtime::{
+    inbound_owners::InboundOwner, route_runtime::SharedIngressRuntimeServices, Proxy,
 };
 use std::{
     num::NonZeroUsize,

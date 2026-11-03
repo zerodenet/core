@@ -14,6 +14,10 @@ pub(super) enum Exit {
     CarrierDetached,
     AssociationEnded,
 }
+#[expect(
+    clippy::too_many_arguments,
+    reason = "actual accepted Datagram identity, guards, cancellation and accounting stay explicit"
+)]
 pub(super) async fn run(
     runtime: &UdpIngressRuntime,
     tag: &str,
