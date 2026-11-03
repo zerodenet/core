@@ -269,6 +269,7 @@ async fn hysteria2_original_logical_control_retains_custody_until_actual_views_r
             report.closed_io.is_empty() && report.exited_tasks.is_empty(),
             "logical retirement does not claim raw endpoint, native close or Scope evidence"
         );
+        drop(control);
         assert_eq!(server.authenticated.load(Ordering::SeqCst), 1);
         proxy.protocols.shutdown_components(end()).await.unwrap();
         server.close().await;
@@ -303,6 +304,7 @@ async fn hysteria2_finite_original_udp_session_capacity_refuses_then_reclaims_ac
         let report=control.wait_closed(end()).await.unwrap();
         assert!(report.is_complete());
         assert_eq!(report.released_resources,vec!["Hysteria2 original UDP logical registration 1"]);
+        drop(control);
         let recovered=open(4097).await.unwrap().channel;
         channels.push(recovered);
         for channel in channels {
@@ -315,3 +317,6 @@ async fn hysteria2_finite_original_udp_session_capacity_refuses_then_reclaims_ac
         proxy.protocols.shutdown_components(end()).await.unwrap();server.close().await;
     }).await.unwrap();
 }
+
+#[path = "lifecycle/hop.rs"]
+mod hop;
