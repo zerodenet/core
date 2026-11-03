@@ -2,7 +2,7 @@
 use super::*;
 use std::sync::{
     atomic::{AtomicU64, AtomicU8, AtomicUsize, Ordering},
-    Arc, MutexGuard, OnceLock,
+    Arc, MutexGuard, OnceLock, TryLockError,
 };
 mod files;
 pub const MAX_RULE_SET_CACHE_BYTES: u64 = 1024 * 1024 * 1024;
@@ -57,23 +57,41 @@ fn remember(attempt: &Attempt, error: io::Error) -> io::Error {
     retained(original)
 }
 fn lock(state: &CacheState) -> MutexGuard<'_, Option<Attempt>> {
-    state.lock().unwrap_or_else(|poison| {
-        let mut state = poison.into_inner();
-        if let Some(attempt) = state.as_mut() {
-            attempt.frozen = true;
-            let _ = remember(
-                attempt,
-                io::Error::other("cache operation interrupted; original cleanup remains owned"),
-            );
-        }
-        state
-    })
+    state
+        .lock()
+        .unwrap_or_else(|poison| poisoned(poison.into_inner()))
+}
+fn poisoned(mut state: MutexGuard<'_, Option<Attempt>>) -> MutexGuard<'_, Option<Attempt>> {
+    if let Some(attempt) = state.as_mut() {
+        attempt.frozen = true;
+        let _ = remember(
+            attempt,
+            io::Error::other("cache operation interrupted; original cleanup remains owned"),
+        );
+    }
+    state
 }
 pub(super) fn is_retained(state: &CacheState) -> bool {
-    lock(state).is_some()
+    match state.try_lock() {
+        Ok(state) => state.is_some(),
+        Err(TryLockError::WouldBlock) => true,
+        Err(TryLockError::Poisoned(error)) => poisoned(error.into_inner()).is_some(),
+    }
 }
 pub(super) fn ensure_idle(state: &CacheState) -> io::Result<()> {
-    match lock(state).as_ref() {
+    // Cold preparation may hold the startup gate. Never wait there for an
+    // actual cache operation that must take that gate to finish its cleanup.
+    let state = match state.try_lock() {
+        Ok(state) => state,
+        Err(TryLockError::WouldBlock) => {
+            return Err(io::Error::new(
+                io::ErrorKind::WouldBlock,
+                "actual rule-set cache operation is still in progress",
+            ));
+        }
+        Err(TryLockError::Poisoned(error)) => poisoned(error.into_inner()),
+    };
+    match state.as_ref() {
         None => Ok(()),
         Some(attempt) => Err(attempt.identity.failure.get().map_or_else(
             || {

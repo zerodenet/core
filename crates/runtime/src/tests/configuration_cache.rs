@@ -1,5 +1,6 @@
 use super::*;
 use std::{cell::RefCell, io::Write};
+use zero_config::ConfigError;
 type InstallHook = (PathBuf, Box<dyn FnOnce()>);
 thread_local! { static AFTER_INSTALL: RefCell<Option<InstallHook>> = const { RefCell::new(None) }; }
 pub(super) fn after_install(path: &Path) {
@@ -27,6 +28,52 @@ fn confirmed(source: &ConfigurationSource) {
     );
     assert!(!retained);
     assert!(!failed);
+}
+fn concurrent_startup_is_rejected(source: Arc<ConfigurationSource>) {
+    let worker = std::thread::spawn(move || {
+        crate::configuration::PreparedConfiguration::prepare_startup(config(), source)
+    });
+    match worker.join().unwrap().unwrap_err() {
+        ConfigError::ReadConfig { source, .. } => {
+            assert_eq!(source.kind(), io::ErrorKind::WouldBlock);
+        }
+        error => panic!("unexpected concurrent preparation failure: {error}"),
+    }
+}
+#[test]
+fn same_source_startup_rejects_without_waiting_for_active_cache_or_publish_cleanup() {
+    let directory = tempfile::tempdir().unwrap();
+    let path = directory.path().join("rules.txt");
+    std::fs::write(&path, b"old").unwrap();
+    let source = Arc::new(ConfigurationSource::default());
+    let writer = source.prepare_rule_set_cache(&path).unwrap();
+    writer.write_chunk(b"candidate").unwrap();
+    {
+        // With an actual File still held, the cold gate's failure observation
+        // must not wait for this same cache lock either.
+        let _active = lock(&source.cache);
+        assert_eq!(source.io.original_observation(), (1, 0, true, false));
+        concurrent_startup_is_rejected(source.clone());
+        assert_eq!(source.io.original_observation(), (1, 0, true, false));
+    }
+    let publishing = source.clone();
+    AFTER_INSTALL.with(|hook| {
+        *hook.borrow_mut() = Some((
+            path.clone(),
+            Box::new(move || {
+                // The original File has really closed, but finish still owns
+                // the cache lock and must acquire the cold gate to complete.
+                confirmed(&publishing);
+                concurrent_startup_is_rejected(publishing);
+            }),
+        ));
+    });
+    assert_eq!(writer.finish().unwrap(), 9);
+    confirmed(&source);
+    source.confirm_original_io_closed().unwrap();
+    assert_eq!(std::fs::read(&path).unwrap(), b"candidate");
+    assert_eq!(std::fs::read_dir(directory.path()).unwrap().count(), 1);
+    crate::configuration::PreparedConfiguration::prepare_startup(config(), source).unwrap();
 }
 #[test]
 fn actual_cache_chunks_install_only_after_original_close_and_preserve_default_permissions() {
