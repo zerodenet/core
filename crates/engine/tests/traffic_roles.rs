@@ -49,7 +49,9 @@ fn declared_and_dynamic_tun_roles_share_live_meters_and_retire_only_after_teardo
     let mut config = (*engine.config()).clone();
     config.runtime.tun = Some(
         serde_json::from_value(
-            serde_json::json!({"addr":"10.66.0.1","tag":"declared-tun","auto_route":false}),
+            // This fixture exercises declared traffic roles without a DNS
+            // backend; it does not request TUN DNS interception.
+            serde_json::json!({"addr":"10.66.0.1","tag":"declared-tun","auto_route":false,"dns_hijack":false}),
         )
         .unwrap(),
     );
