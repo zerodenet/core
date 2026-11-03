@@ -33,9 +33,7 @@ use zero_engine::EngineError;
 use zero_traits::{ProtocolCapabilityDescriptor, ProtocolMetadata, ProtocolUdpFlowLeaf};
 
 use crate::adapters::identity::NamedProtocolAdapter;
-use crate::protocol_registry::{
-    OutboundLeafClaim, OutboundLeafInput, UpstreamConnectServices,
-};
+use crate::protocol_registry::{OutboundLeafClaim, OutboundLeafInput, UpstreamConnectServices};
 use crate::runtime::path::TcpPathCategory;
 use crate::runtime::transport_leaf::{
     ProxyRelayTwoStreamTransportLeaf, ProxyTransportTcpLeaf, ProxyTransportUdpLeaf,

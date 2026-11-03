@@ -124,7 +124,7 @@ fn no_op_commit_preserves_actual_dns_generation_and_backend_and_dispatch_identit
     // same serialized config and same original backend; no tag-only shortcut.
     let dispatch = zero_router::DomainDispatcher::new(
         vec![(
-            zero_router::RuleCondition::DomainSuffix("changed.test".into()),
+            zero_router::RuleCondition::Domain(vec!["changed.test".into()]),
             "local".to_owned(),
         )],
         "local".to_owned(),
