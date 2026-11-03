@@ -1,4 +1,5 @@
 mod recovery;
+mod startup;
 
 use std::path::Path;
 use std::time::Duration;

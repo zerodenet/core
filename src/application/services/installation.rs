@@ -68,6 +68,16 @@ impl ApplicationServices {
                     state.continuation.clone(),
                 ),
             );
+            #[cfg(test)]
+            if let Some(pause) = state.preparation_pause.take() {
+                pause.prepared.notify_one();
+                pause
+                    .resume
+                    .acquire()
+                    .await
+                    .expect("test initialization gate")
+                    .forget();
+            }
             // The actual original worker is installed before this readiness await.
             let ready = state
                 .dispatcher

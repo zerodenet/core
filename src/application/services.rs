@@ -8,6 +8,8 @@ use zero_proxy::{ConfigApplyReconciler, ConfigReconcileResult};
 
 use crate::hooks;
 
+mod startup;
+use startup::{ApplicationStartupSlot, APPLICATION_STARTUP};
 mod dispatcher;
 use dispatcher::{changed_components, dispatcher_enabled};
 #[cfg(feature = "event-dispatcher")]
@@ -33,6 +35,8 @@ struct ApplicationAttempt {
 }
 struct ApplicationServiceState {
     attempt: Option<ApplicationAttempt>,
+    #[cfg(test)]
+    preparation_pause: Option<Arc<startup::StartupPause>>,
     pending_hooks: Option<Option<zero_engine::FlowHookChain>>,
     cleanup_fault: Option<Arc<dyn Error + Send + Sync>>,
     #[cfg(feature = "event-dispatcher")]
@@ -63,11 +67,13 @@ impl ApplicationServices {
                 zero_platform_tokio::EgressInterfaceControl::default(),
             ),
         ));
+        let slot = ApplicationStartupSlot::new();
         Self::start_with_network(
             engine,
             ipc_hook_socket,
             #[cfg(feature = "event-dispatcher")]
             event_network,
+            &slot,
         )
         .await
     }
@@ -86,6 +92,7 @@ impl ApplicationServices {
             ipc_hook_socket,
             #[cfg(feature = "event-dispatcher")]
             event_network,
+            &APPLICATION_STARTUP,
         )
         .await
     }
@@ -94,6 +101,7 @@ impl ApplicationServices {
         engine: Engine,
         ipc_hook_socket: Option<&str>,
         #[cfg(feature = "event-dispatcher")] event_network: zero_connector::EventDispatcherNetwork,
+        startup: &ApplicationStartupSlot,
     ) -> Result<Arc<Self>, Box<dyn Error>> {
         let config = engine.config();
         let services = Arc::new(Self {
@@ -105,6 +113,8 @@ impl ApplicationServices {
                 config: config.clone(),
                 installed: false,
                 attempt: None,
+                #[cfg(test)]
+                preparation_pause: startup.pause.lock().unwrap().clone(),
                 pending_hooks: None,
                 cleanup_fault: None,
                 #[cfg(feature = "event-dispatcher")]
@@ -122,9 +132,13 @@ impl ApplicationServices {
             }),
         });
 
-        services
-            .validate(config.as_ref(), config.as_ref())
-            .map_err(std::io::Error::other)?;
+        // This exact original is installed before any cancellable await.
+        startup.install(services.clone())?;
+        if let Err(error) = services.validate(config.as_ref(), config.as_ref()) {
+            // Validation is pure and no service resource exists yet.
+            startup.clear(&services);
+            return Err(std::io::Error::other(error).into());
+        }
         {
             let mut state = services.state.lock().await;
             if let Err(error) = services.install_target(&mut state, config).await {
@@ -132,6 +146,9 @@ impl ApplicationServices {
                 let cleanup = services.stop_active_services(&mut state).await;
                 #[cfg(not(feature = "event-dispatcher"))]
                 let cleanup: Result<(), String> = Ok(());
+                if cleanup.is_ok() {
+                    startup.clear(&services);
+                }
                 return Err(std::io::Error::other(format!(
                     "{error}; original startup cleanup: {}",
                     cleanup.err().unwrap_or_else(|| "confirmed".into())
@@ -144,6 +161,8 @@ impl ApplicationServices {
                 dispatcher.activate().map_err(std::io::Error::other)?;
             }
         }
+        // No await between the real Arc handoff and clearing the startup slot.
+        startup.clear(&services);
         Ok(services)
     }
 }
