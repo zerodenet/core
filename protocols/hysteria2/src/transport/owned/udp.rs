@@ -37,7 +37,10 @@ impl OwnedUdpDispatcher {
             loop {
                 let data=tokio::select! {biased;
                     _=stop.cancelled()=>break,
-                    result=connection.read_datagram()=>match result {Ok(data)=>data,Err(_)=>break},
+                    result=connection.read_datagram()=>match result {Ok(data)=>data,Err(source)=>{
+                        let mut shared=shared.lock().unwrap();shared.stopped=true;shared.sessions.clear();
+                        return if stop.is_cancelled(){Ok(())}else{Err(source)};
+                    }},
                 };
                 let Ok(packet)=crate::udp::parse_udp_datagram(&data) else {continue};
                 if let Some(sender)=shared.lock().unwrap().sessions.get(&packet.session_id()) {
@@ -57,6 +60,9 @@ impl OwnedUdpDispatcher {
             task,
             witness,
         })
+    }
+    pub(super) fn witness(&self) -> TaskJoinWitness {
+        self.witness.clone()
     }
     pub fn task_id(&self) -> TaskId {
         self.task
