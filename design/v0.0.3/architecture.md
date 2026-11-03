@@ -29,7 +29,7 @@ Zero 借鉴组件分工、公共设施复用与顶层装配。Rust 侧采用显�
 | config 编译路由并加载资源，engine 持久化与切换配置，proxy 和 application 再协调运行资源 | 配置更新缺少单一的事务责任边界 |
 | traits 中同时包含基础 I/O、transport 配置和管理流程辅助类型 | 最底层契约逐渐承接上层实现细节 |
 
-对应源码见 [capability](../../crates/proxy/src/protocol_registry/capability.rs)、[UDP resume](https://github.com/zerodenet/core/blob/f0c1cc0930df8c34f1822cdd182928511e319b76/crates/proxy/src/runtime/udp_flow/managed/flow/resume.rs)、[配置编译](../../crates/config/src/compile.rs)、[Engine 配置管理](../../crates/engine/src/runtime/configuration.rs)。
+对应源码见 [capability](../../crates/proxy/src/protocol_registry/capability.rs)、[UDP resume](https://github.com/zerodenet/core/blob/f0c1cc0930df8c34f1822cdd182928511e319b76/crates/proxy/src/runtime/udp_flow/managed/flow/resume.rs)、[配置编译](https://github.com/zerodenet/core/blob/f0c1cc0930df8c34f1822cdd182928511e319b76/crates/config/src/compile.rs)、[Engine 配置管理](../../crates/engine/src/runtime/configuration.rs)。
 
 已有 Packet 路由、NetworkGraph 和公共 Flow 转换保留其有效语义。不能把重新实现这些能力当作完成整体分层。
 <!-- /source-section: 02 -->
