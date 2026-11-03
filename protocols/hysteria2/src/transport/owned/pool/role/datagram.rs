@@ -94,12 +94,7 @@ impl DatagramTx for Tx {
             .as_ref()
             .cloned()
             .ok_or_else(|| reject(Reason::Revoked))?;
-        let encoded = channel
-            .send(&frame.address.address, frame.address.port, &frame.payload)
-            .map_err(|mut error| {
-                error.delivery = DeliveryState::Unknown;
-                SendFailure::new(error, DeliveryState::Unknown)
-            })?;
+        let encoded = channel.send(&frame.address.address, frame.address.port, &frame.payload)?;
         if let Some(observer) = &this.observer {
             observer.datagram_sent(this.session, encoded as u64);
         }
@@ -132,8 +127,9 @@ impl DatagramRx for Rx {
             }));
             this.pending.as_mut().unwrap()
         };
-        let (address, port, payload) = std::task::ready!(future.as_mut().poll(cx))?;
+        let result = std::task::ready!(future.as_mut().poll(cx));
         this.pending = None;
+        let (address, port, payload) = result?;
         Poll::Ready(Ok(Some(Datagram {
             association: this.association,
             address: zero_core::request::Destination::new(address, port),

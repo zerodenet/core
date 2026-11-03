@@ -29,6 +29,11 @@ use zero_transport::quic::owned::{
 pub struct Pool {
     current: Mutex<Option<Weak<Generation>>>,
 }
+impl std::fmt::Debug for Pool {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("Hysteria2AuthenticatedPool")
+    }
+}
 pub struct PoolOptions {
     pool: Weak<Pool>,
     profiles: Arc<[PoolProfile]>,
@@ -200,6 +205,8 @@ struct EntryState {
     unstarted: Option<
         zero_platform_tokio::controlled_datagram::metadata::users::UnstartedMetadataCompletion,
     >,
+    retired_drivers: Vec<DriverDelivery>,
+    candidate_failures: Vec<Arc<ChannelError>>,
     baseline: usize,
     udp_join: Option<TaskJoinWitness>,
     udp_exit: Option<zero_platform_tokio::contract::scope::TaskJoined>,
@@ -346,7 +353,33 @@ impl Generation {
             .collect::<Vec<_>>();
         for (old, entry) in stale {
             entry.close(end).await?;
-            self.entries.lock().unwrap().remove(&old);
+            self.remove_entry(&old, &entry);
+        }
+        let pressured = {
+            let entries = self.entries.lock().unwrap();
+            entries.len() >= 256 && !entries.contains_key(&key)
+        };
+        if pressured {
+            let mut candidates = self
+                .entries
+                .lock()
+                .unwrap()
+                .iter()
+                .map(|(key, entry)| (key.clone(), entry.clone(), *entry.touched.lock().unwrap()))
+                .collect::<Vec<_>>();
+            candidates.sort_by_key(|(_, _, touched)| *touched);
+            for (old, entry, _) in candidates {
+                let idle = entry
+                    .state
+                    .try_lock()
+                    .ok()
+                    .is_some_and(|state| state.idle());
+                if idle {
+                    entry.close(end).await?;
+                    self.remove_entry(&old, &entry);
+                    break;
+                }
+            }
         }
         let entry = {
             let mut entries = self.entries.lock().unwrap();
@@ -375,8 +408,8 @@ impl Generation {
         if state.attempted {
             drop(state);
             entry.close(end).await?;
-            self.entries.lock().unwrap().remove(&key);
-            return Err(error(Stage::Prepare, Reason::Revoked));
+            self.remove_entry(&key, &entry);
+            return Box::pin(self.acquire(profile, key.binding.clone(), end)).await;
         }
         state.attempted = true;
         state.tasks = Some(self.tasks.clone());
@@ -390,99 +423,45 @@ impl Generation {
             .map_err(|source| error(Stage::Prepare, Reason::Capacity).with_source(source))?;
         state.caller = Some(caller);
         let client = options.client_config()?;
-        let endpoint = if upstream.binding().prefix.is_empty() {
-            let mut resolve = call.clone();
-            resolve.deadline = None;
-            resolve.cancel = entry.cancel.clone();
-            let candidates = tokio::time::timeout_at(
-                end,
-                upstream.resolve_controlled_carrier(options.endpoint.clone(), resolve),
-            )
-            .await
-            .map_err(|source| error(Stage::Dial, Reason::Timeout).with_source(source))??;
-            if candidates.is_empty() {
-                return Err(error(Stage::Dial, Reason::Io));
-            }
-            let permit = self.metadata[profile]
-                .grants()
-                .reserve(state.caller.as_ref().unwrap())?;
-            state.origin = Some(permit.origin());
-            state.permit = Some(permit);
-            let port = options
-                .leaf
-                .node
-                .udp_hop
-                .as_ref()
-                .map(|hop| hop.next_port());
-            let (peer, grant) = candidates.open_metadata(
-                0,
-                port,
-                state.permit.as_ref().unwrap(),
-                state.caller.as_ref().unwrap(),
-                end,
-            )?;
-            state.unbound = Some(grant);
-            state.candidates = Some(candidates);
-            let mut logical = peer;
-            logical.set_port(options.leaf.port);
-            state.logical = Some(logical);
-            state.next_hop = options
-                .leaf
-                .node
-                .udp_hop
-                .as_ref()
-                .map(|hop| Instant::now() + hop.next_interval());
-            let (socket, queues) = PacketSocket::prepare(logical)
-                .map_err(|source| error(Stage::Prepare, Reason::Io).with_source(source))?;
-            let socket = socket
-                .with_stateless_masks(&options.masks())
-                .map_err(|source| error(Stage::Prepare, Reason::Io).with_source(source))?;
-            let segment = match PacketSegment::prepare(
-                state.unbound.take().unwrap(),
-                queues,
-                self.tasks.clone(),
-                peer,
-                logical,
-            ) {
-                Ok(segment) => segment,
-                Err(rejected) => {
-                    let rejected = *rejected;
-                    state.unbound = Some(rejected.grant);
-                    state.queues = Some(rejected.queues);
-                    return Err(error(Stage::Prepare, Reason::Io).with_source(rejected.error));
+        let mut resolve = call.clone();
+        resolve.deadline = None;
+        resolve.cancel = entry.cancel.clone();
+        let candidates = tokio::time::timeout_at(
+            end,
+            upstream.resolve_controlled_carrier(options.endpoint.clone(), resolve),
+        )
+        .await
+        .map_err(|source| error(Stage::Dial, Reason::Timeout).with_source(source))??;
+        if candidates.is_empty() {
+            return Err(error(Stage::Dial, Reason::Io));
+        }
+        state.candidates = Some(candidates);
+        let count = state.candidates.as_ref().unwrap().len();
+        let mut connected = None;
+        for index in 0..count {
+            match self
+                .open_candidate(&mut state, profile, index, &client, end)
+                .await
+            {
+                Ok(connection) => {
+                    connected = Some(connection);
+                    break;
                 }
-            };
-            state.segment = Some(segment);
-            state.segment.as_mut().unwrap().start()?;
-            let (owner, receiver) = OwnedEndpointOwner::new_packet(
-                socket,
-                self.tasks.clone(),
-                OwnedEndpointLimits {
-                    drivers: n(3),
-                    users: n(65536),
-                },
-            );
-            state.owner = Some(owner);
-            state.receiver = Some(receiver);
-            let handle =
+                Err(source) => {
+                    state.candidate_failures.push(Arc::new(source));
+                    state.retire_endpoint(end).await?;
+                }
+            }
+        }
+        let endpoint = connected.ok_or_else(|| {
+            error(Stage::Dial, Reason::Io).with_source(OriginalChannel(
                 state
-                    .owner
-                    .as_mut()
-                    .unwrap()
-                    .start(Default::default(), None, Some(client))?;
-            handle
-                .connect(
-                    logical,
-                    options
-                        .leaf
-                        .server_name
-                        .as_deref()
-                        .unwrap_or(&options.leaf.server),
-                )
-                .await?
-        } else {
-            return Err(error(Stage::Prepare, Reason::Unsupported));
-        };
+                    .candidate_failures
+                    .last()
+                    .expect("nonempty candidate set")
+                    .clone(),
+            ))
+        })?;
         state.pending = Some(OwnedAuthentication::prepare(
             endpoint,
             state.owner.as_ref().unwrap(),
@@ -510,81 +489,7 @@ impl Entry {
         if state.closed {
             return Ok(());
         }
-        if let Some(auth) = &state.auth {
-            auth.stop();
-            state.udp_join = auth.udp_witness();
-        }
-        if let Some(auth) = &state.pending {
-            auth.stop();
-        }
-        if state.udp_exit.is_none() {
-            if let Some(witness) = &state.udp_join {
-                let joined = tokio::time::timeout_at(end, witness.wait())
-                    .await
-                    .map_err(|source| error(Stage::Close, Reason::Timeout).with_source(source))?;
-                if joined.result().is_err() {
-                    witness
-                        .acknowledge_hosted_failure(&joined)
-                        .map_err(|source| {
-                            error(Stage::Close, Reason::Internal).with_source(source)
-                        })?;
-                }
-                state.udp_exit = Some(joined);
-            }
-        }
-        drop(state.auth.take());
-        drop(state.pending.take());
-        if let Some(owner) = &state.owner {
-            owner.begin_shutdown();
-        }
-        let tasks = state
-            .owner
-            .as_ref()
-            .map(|owner| owner.driver_tasks())
-            .unwrap_or_default();
-        for task in tasks {
-            if !state.received.iter().any(|exit| exit.joined.id() == task) {
-                let exit = state.receiver.as_mut().unwrap().receive(task, end).await?;
-                state.received.push(exit);
-            }
-        }
-        if let Some(owner) = &state.owner {
-            let users = owner.shutdown_users(end).await?;
-            if !users.users_and_drivers_complete() {
-                return Err(error(Stage::Close, Reason::Timeout));
-            }
-        }
-        if state.permit.is_some() {
-            if state.receipt.is_none() {
-                if let Some(segment) = &mut state.segment {
-                    let (queues, receipt) = segment.retire(end).await?;
-                    state.queues = Some(queues);
-                    state.receipt = Some(receipt);
-                } else {
-                    if let Some(grant) = state.unbound.take() {
-                        match grant.return_unstarted() {
-                            Ok(completion) => state.unstarted = Some(completion),
-                            Err(grant) => {
-                                state.unbound = Some(grant);
-                                return Err(error(Stage::Close, Reason::Internal));
-                            }
-                        }
-                    }
-                    if let Some(unstarted) = &state.unstarted {
-                        state.receipt = Some(
-                            unstarted
-                                .try_closed()
-                                .ok_or_else(|| error(Stage::Close, Reason::Timeout))?,
-                        );
-                    }
-                }
-            }
-            state
-                .permit
-                .as_ref()
-                .unwrap()
-                .close(state.receipt.as_ref(), state.tasks.as_ref().unwrap())?;
-        }
+        state.retire_endpoint(end).await?;
         if let Some(caller) = &state.caller {
             let joined = tokio::time::timeout_at(end, caller.wait())
                 .await
@@ -595,7 +500,6 @@ impl Entry {
                     .map_err(|source| error(Stage::Close, Reason::Internal).with_source(source))?;
             }
         }
-        drop(state.owner.take());
         state.closed = true;
         Ok(())
     }
@@ -623,20 +527,7 @@ impl Generation {
             let Ok(state) = entry.state.try_lock() else {
                 continue;
             };
-            let idle = state
-                .auth
-                .as_ref()
-                .is_some_and(|auth| Arc::strong_count(auth) == 1)
-                && state.owner.as_ref().is_some_and(|owner| {
-                    owner.active_users()
-                        <= state.baseline
-                            + usize::from(
-                                state
-                                    .auth
-                                    .as_ref()
-                                    .is_some_and(|auth| auth.udp_witness().is_some()),
-                            )
-                });
+            let idle = state.idle();
             let expired = entry.touched.lock().unwrap().elapsed()
                 >= Duration::from_secs(
                     self.profiles[key.profile]
@@ -650,7 +541,7 @@ impl Generation {
             drop(state);
             if failed || (idle && expired) {
                 entry.close(end).await?;
-                self.entries.lock().unwrap().remove(&key);
+                self.remove_entry(&key, &entry);
             } else if hop {
                 self.rotate(key.profile, &entry, end).await?;
             }
@@ -732,5 +623,225 @@ impl Generation {
         state.segment.as_mut().unwrap().start()?;
         state.next_hop = Some(Instant::now() + hop.next_interval());
         Ok(())
+    }
+}
+
+impl EntryState {
+    async fn retire_endpoint(&mut self, end: Instant) -> Result<(), ChannelError> {
+        if let Some(auth) = &self.auth {
+            auth.stop();
+            self.udp_join = auth.udp_witness();
+        }
+        if let Some(auth) = &self.pending {
+            auth.stop();
+        }
+        if self.udp_exit.is_none() {
+            if let Some(witness) = &self.udp_join {
+                let joined = tokio::time::timeout_at(end, witness.wait())
+                    .await
+                    .map_err(|source| error(Stage::Close, Reason::Timeout).with_source(source))?;
+                if joined.result().is_err() {
+                    witness
+                        .acknowledge_hosted_failure(&joined)
+                        .map_err(|source| {
+                            error(Stage::Close, Reason::Internal).with_source(source)
+                        })?;
+                }
+                self.udp_exit = Some(joined);
+            }
+        }
+        drop(self.auth.take());
+        drop(self.pending.take());
+        if let Some(owner) = &self.owner {
+            owner.begin_shutdown();
+        }
+        let tasks = state
+            .owner
+            .as_ref()
+            .map(|owner| owner.driver_tasks())
+            .unwrap_or_default();
+        for task in tasks {
+            if !self.received.iter().any(|exit| exit.joined.id() == task) {
+                let exit = self.receiver.as_mut().unwrap().receive(task, end).await?;
+                self.received.push(exit);
+            }
+        }
+        if let Some(owner) = &self.owner {
+            let users = owner.shutdown_users(end).await?;
+            if !users.users_and_drivers_complete() {
+                return Err(error(Stage::Close, Reason::Timeout));
+            }
+        }
+        if self.permit.is_some() {
+            if self.receipt.is_none() {
+                if let Some(segment) = &mut self.segment {
+                    let (queues, receipt) = segment.retire(end).await?;
+                    self.queues = Some(queues);
+                    self.receipt = Some(receipt);
+                } else {
+                    if let Some(grant) = self.unbound.take() {
+                        match grant.return_unstarted() {
+                            Ok(completion) => self.unstarted = Some(completion),
+                            Err(grant) => {
+                                self.unbound = Some(grant);
+                                return Err(error(Stage::Close, Reason::Internal));
+                            }
+                        }
+                    }
+                    if let Some(unstarted) = &self.unstarted {
+                        self.receipt = Some(
+                            unstarted
+                                .try_closed()
+                                .ok_or_else(|| error(Stage::Close, Reason::Timeout))?,
+                        );
+                    }
+                }
+            }
+            state
+                .permit
+                .as_ref()
+                .unwrap()
+                .close(self.receipt.as_ref(), self.tasks.as_ref().unwrap())?;
+        }
+        self.retired_drivers.append(&mut self.received);
+        drop(self.owner.take());
+        self.receiver = None;
+        self.segment = None;
+        self.permit = None;
+        self.origin = None;
+        self.receipt = None;
+        self.unbound = None;
+        self.unstarted = None;
+        self.queues = None;
+        self.udp_join = None;
+        self.udp_exit = None;
+        Ok(())
+    }
+}
+
+impl Generation {
+    fn remove_entry(&self, key: &Key, entry: &Arc<Entry>) {
+        let mut entries = self.entries.lock().unwrap();
+        if entries
+            .get(key)
+            .is_some_and(|current| Arc::ptr_eq(current, entry))
+        {
+            entries.remove(key);
+        }
+    }
+    async fn open_candidate(
+        &self,
+        state: &mut EntryState,
+        profile: usize,
+        index: usize,
+        client: &quinn::ClientConfig,
+        end: Instant,
+    ) -> Result<OwnedConnection, ChannelError> {
+        let options = &self.profiles[profile];
+        let permit = self.metadata[profile]
+            .grants()
+            .reserve(state.caller.as_ref().unwrap())?;
+        state.origin = Some(permit.origin());
+        state.permit = Some(permit);
+        let port = options
+            .leaf
+            .node
+            .udp_hop
+            .as_ref()
+            .map(|hop| hop.next_port());
+        let (peer, grant) = state.candidates.as_ref().unwrap().open_metadata(
+            index,
+            port,
+            state.permit.as_ref().unwrap(),
+            state.caller.as_ref().unwrap(),
+            end,
+        )?;
+        state.unbound = Some(grant);
+        let mut logical = peer;
+        logical.set_port(options.leaf.port);
+        state.logical = Some(logical);
+        state.next_hop = options
+            .leaf
+            .node
+            .udp_hop
+            .as_ref()
+            .map(|hop| Instant::now() + hop.next_interval());
+        let (socket, queues) = PacketSocket::prepare(logical)
+            .map_err(|source| error(Stage::Prepare, Reason::Io).with_source(source))?;
+        let socket = socket
+            .with_stateless_masks(&options.masks())
+            .map_err(|source| error(Stage::Prepare, Reason::Io).with_source(source))?;
+        let segment = match PacketSegment::prepare(
+            state.unbound.take().unwrap(),
+            queues,
+            self.tasks.clone(),
+            peer,
+            logical,
+        ) {
+            Ok(segment) => segment,
+            Err(rejected) => {
+                let rejected = *rejected;
+                state.unbound = Some(rejected.grant);
+                state.queues = Some(rejected.queues);
+                return Err(error(Stage::Prepare, Reason::Io).with_source(rejected.error));
+            }
+        };
+        state.segment = Some(segment);
+        state.segment.as_mut().unwrap().start()?;
+        let (owner, receiver) = OwnedEndpointOwner::new_packet(
+            socket,
+            self.tasks.clone(),
+            OwnedEndpointLimits {
+                drivers: n(3),
+                users: n(65536),
+            },
+        );
+        state.owner = Some(owner);
+        state.receiver = Some(receiver);
+        let handle =
+            state
+                .owner
+                .as_mut()
+                .unwrap()
+                .start(Default::default(), None, Some(client.clone()))?;
+        handle
+            .connect(
+                logical,
+                options
+                    .leaf
+                    .server_name
+                    .as_deref()
+                    .unwrap_or(&options.leaf.server),
+            )
+            .await
+    }
+}
+#[derive(Debug)]
+struct OriginalChannel(Arc<ChannelError>);
+impl std::fmt::Display for OriginalChannel {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        self.0.fmt(f)
+    }
+}
+impl std::error::Error for OriginalChannel {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        Some(self.0.as_ref())
+    }
+}
+
+impl EntryState {
+    fn idle(&self) -> bool {
+        self.auth
+            .as_ref()
+            .is_some_and(|auth| Arc::strong_count(auth) == 1)
+            && self.owner.as_ref().is_some_and(|owner| {
+                owner.active_users()
+                    <= self.baseline
+                        + usize::from(
+                            self.auth
+                                .as_ref()
+                                .is_some_and(|auth| auth.udp_witness().is_some()),
+                        )
+            })
     }
 }

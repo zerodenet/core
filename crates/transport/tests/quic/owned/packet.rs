@@ -79,5 +79,10 @@ async fn packet_segment_returns_real_views_and_join_before_original_native_close
     let original = grant.control.close().unwrap();
     assert_eq!(original.reservation(), grant.control.reservation());
     assert_eq!(native.take_report().main.confirmed_closed, 1);
-    assert!(scope.is_drained());
+    scope.begin_shutdown();
+    assert!(scope.next_exit().await.is_none());
+    assert!(scope
+        .shutdown(Instant::now() + Duration::from_secs(1))
+        .await
+        .is_complete());
 }

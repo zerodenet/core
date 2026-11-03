@@ -132,17 +132,32 @@ impl OwnedUdpChannel {
         target: &zero_core::Address,
         port: u16,
         payload: &[u8],
-    ) -> Result<usize, ChannelError> {
+    ) -> Result<usize, zero_platform_tokio::contract::SendFailure> {
+        use zero_platform_tokio::contract::{DeliveryState, SendFailure};
+        let not_submitted = |error| SendFailure::new(error, DeliveryState::NotSubmitted);
         let connection = &self.connection.connection;
         let max = connection
             .max_datagram_size()
-            .ok_or_else(|| error(Stage::Send, Reason::Unsupported))?;
+            .ok_or_else(|| not_submitted(error(Stage::Send, Reason::Unsupported)))?;
         let fragments = crate::udp::build_udp_fragments(self.id, target, port, payload, max)
-            .map_err(|source| error(Stage::Send, Reason::Protocol).with_source(source))?;
+            .map_err(|source| {
+                not_submitted(error(Stage::Send, Reason::Protocol).with_source(source))
+            })?;
         let mut encoded = 0;
         for fragment in fragments {
-            encoded += fragment.len();
-            connection.send_datagram(fragment.into())?;
+            let size = fragment.len();
+            connection
+                .send_datagram(fragment.into())
+                .map_err(|mut error| {
+                    let delivery = if encoded == 0 {
+                        DeliveryState::NotSubmitted
+                    } else {
+                        DeliveryState::Unknown
+                    };
+                    error.delivery = delivery;
+                    SendFailure::new(error, delivery)
+                })?;
+            encoded += size;
         }
         Ok(encoded)
     }
