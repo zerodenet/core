@@ -1,7 +1,7 @@
 //! HTTP owns one real message, its body framing and connection continuation.
 use super::connection::Connection;
 use crate::{HttpConnectInbound, HttpForwardCommand};
-use alloc::{vec, vec::Vec};
+use alloc::{boxed::Box, vec, vec::Vec};
 use std::{fmt, io};
 use tokio::sync::oneshot;
 use zero_core::request::RequestFacts;
