@@ -24,7 +24,7 @@ fn persist_stop(current: &zero_api::EndpointSnapshot) -> CommandRequest {
 }
 
 #[tokio::test]
-async fn failed_first_source_write_preserves_running_resources_and_can_retry() {
+async fn failed_first_source_write_recovers_a_new_generation_and_can_retry() {
     let directory = tempfile::tempdir().unwrap();
     let parent = directory.path().join("source");
     std::fs::write(&parent, "parent is a file").unwrap();
@@ -37,6 +37,7 @@ async fn failed_first_source_write_preserves_running_resources_and_can_retry() {
     let running = spawn_engine(proxy);
     ready(&controlled).await;
     let before = endpoint(&controlled, "a");
+    let untouched = endpoint(&controlled, "b");
     let command = persist_stop(&before);
     let error = controlled
         .execute_acknowledged(command.clone())
@@ -46,7 +47,8 @@ async fn failed_first_source_write_preserves_running_resources_and_can_retry() {
     let restored = endpoint(&controlled, "a");
     assert_eq!(restored.state, EndpointRuntimeState::Running);
     assert_eq!(restored.intent_revision, before.intent_revision);
-    assert_eq!(restored.generation, before.generation);
+    assert!(restored.generation > before.generation);
+    assert_eq!(endpoint(&controlled, "b").generation, untouched.generation);
     assert!(restored.effective.outbound);
     assert!(restored.last_error.is_some());
     assert_eq!(
@@ -106,7 +108,7 @@ impl ConfigApplyReconciler for FailOnceReconciler {
 
     async fn reconcile(&self, _: Arc<RuntimeConfig>) -> Result<ConfigReconcileResult, String> {
         if !self.0.swap(true, Ordering::SeqCst) {
-            Err("injected reconciliation failure after persistence".into())
+            Err("injected reconciliation failure before persistence".into())
         } else {
             Ok(ConfigReconcileResult::default())
         }
@@ -114,11 +116,12 @@ impl ConfigApplyReconciler for FailOnceReconciler {
 }
 
 #[tokio::test]
-async fn failure_after_successful_source_write_restores_source_and_resources() {
+async fn application_failure_before_persistence_preserves_source_and_restores_resources() {
     let directory = tempfile::tempdir().unwrap();
     let path = directory.path().join("config.json");
     let initial = config(free_udp_port(), free_udp_port());
-    std::fs::write(&path, serde_json::to_vec(&initial).unwrap()).unwrap();
+    let original_bytes = serde_json::to_vec(&initial).unwrap();
+    std::fs::write(&path, &original_bytes).unwrap();
     let proxy = Proxy::from_engine(Engine::new_with_config_path(initial, &path).unwrap()).unwrap();
     let plain = handle(&proxy);
     let controlled = plain
@@ -127,6 +130,10 @@ async fn failure_after_successful_source_write_restores_source_and_resources() {
     let running = spawn_engine(proxy.clone());
     ready(&plain).await;
     let before = endpoint(&plain, "a");
+    let untouched = endpoint(&plain, "b");
+    let revision = proxy.engine().config_revision();
+    let snapshot = proxy.engine().runtime_snapshot();
+    let observation = proxy.engine().configuration_source().observation();
     let error = controlled
         .execute_acknowledged(persist_stop(&before))
         .await
@@ -136,14 +143,23 @@ async fn failure_after_successful_source_write_restores_source_and_resources() {
     let restored = endpoint(&plain, "a");
     assert_eq!(restored.state, EndpointRuntimeState::Running);
     assert_eq!(restored.intent_revision, before.intent_revision);
+    assert_eq!(proxy.engine().config_revision(), revision);
+    assert!(Arc::ptr_eq(&proxy.engine().runtime_snapshot(), &snapshot));
+    assert_eq!(std::fs::read(&path).unwrap(), original_bytes);
     assert!(
         zero_runtime::configuration::ConfigurationSource::load_document(&path)
             .unwrap()
             .endpoints[0]
             .enabled
     );
-    assert_eq!(proxy.engine().config_source_write_generation(), 2);
-    assert_eq!(restored.configuration.source_file.writable, Some(true));
+    assert_eq!(proxy.engine().config_source_write_generation(), 0);
+    let after = proxy.engine().configuration_source().observation();
+    assert_eq!(after.successful_writes, observation.successful_writes);
+    assert_eq!(after.writable, observation.writable);
+    assert_eq!(after.observed_at_unix_ms, observation.observed_at_unix_ms);
+    assert_eq!(after.reason, observation.reason);
+    assert_eq!(after.disposition, observation.disposition);
+    assert_eq!(endpoint(&plain, "b").generation, untouched.generation);
     assert_eq!(endpoint(&plain, "b").state, EndpointRuntimeState::Running);
     running.shutdown().await.unwrap();
 }
