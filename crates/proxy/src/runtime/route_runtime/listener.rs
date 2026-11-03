@@ -29,7 +29,7 @@ impl InboundListenerRuntime {
     pub(in crate::runtime) fn has_packet_source(&self) -> bool {
         #[cfg(feature = "raw-ip-runtime")]
         {
-            return self.host.as_ref().is_some_and(|h| h.has_packet_source());
+            self.host.as_ref().is_some_and(|h| h.has_packet_source())
         }
         #[cfg(not(feature = "raw-ip-runtime"))]
         {
