@@ -19,10 +19,23 @@ impl ProtocolInventory {
         let prepared_prefix = self
             .prepare_claimed_tcp_relay_chain(outbound_ctx, &claimed_chain)
             .map_err(flow_failure_from_tcp_outbound)?;
-        let prefix = prepared_prefix.datagram_prefixes.last().cloned().flatten();
-        if let (Some(prefix), Some(datagram)) =
-            (prefix.clone(), claimed_chain.final_hop().udp_packet_path())
-        {
+        self.prepare_udp_relay_continuation(
+            session,
+            prepared_prefix,
+            claimed_chain.into_final_hop(),
+            payload,
+        )
+    }
+
+    pub(super) fn prepare_udp_relay_continuation<'a>(
+        &self,
+        session: &'a zero_core::Session,
+        prepared: crate::inventory::tcp::PreparedTcpRelayChain,
+        claimed: crate::inventory::ClaimedInventoryLeaf<'a>,
+        payload: &'a [u8],
+    ) -> Result<PreparedUdpRelayChain<'a>, FlowFailure> {
+        let prefix = prepared.datagram_prefixes.last().cloned().flatten();
+        if let (Some(prefix), Some(datagram)) = (prefix.clone(), claimed.udp_packet_path()) {
             if let Some((flow_binding, request)) = super::packet_path::build_udp_packet_path_pair(
                 session.id,
                 std::sync::Arc::new(prefix),
@@ -40,7 +53,7 @@ impl ProtocolInventory {
             }
         }
 
-        let final_hop = claimed_chain.into_final_hop().into_claimed();
+        let final_hop = claimed.into_claimed();
         let operation = final_hop.into_udp_relay()?;
 
         if operation.requires_datagram_carrier() {
@@ -49,14 +62,14 @@ impl ProtocolInventory {
 
         if operation.needs_two_streams() {
             return Ok(PreparedUdpRelayChain::TwoStream {
-                post_prefix: prepared_prefix.clone(),
-                get_prefix: prepared_prefix,
+                post_prefix: prepared.clone(),
+                get_prefix: prepared,
                 operation,
             });
         }
 
         Ok(PreparedUdpRelayChain::FinalHop {
-            prefix: prepared_prefix,
+            prefix: prepared,
             operation,
         })
     }
@@ -87,88 +100,5 @@ fn flow_failure_from_tcp_outbound(failure: crate::transport::TcpOutboundFailure)
         stage: failure.stage,
         error: failure.error,
         upstream: failure.upstream_endpoint.map(|endpoint| *endpoint),
-    }
-}
-
-impl ProtocolInventory {
-    /// Keep the migrated first role while the existing final protocol executor
-    /// remains unchanged. No compatibility claim is invented for the donor.
-    pub(super) fn prepare_standard_first_udp_relay<'a>(
-        &self,
-        ctx: UdpAdapterContext<'a>,
-        session: &'a zero_core::Session,
-        chain: &[zero_engine::ResolvedLeafOutbound<'a>],
-        payload: &'a [u8],
-    ) -> Result<PreparedUdpRelayChain<'a>, FlowFailure> {
-        for leaf in chain {
-            if let zero_engine::ResolvedLeafOutbound::Proxy { identity } = leaf {
-                let input = ctx
-                    .config()
-                    .outbounds
-                    .get(identity.config_index())
-                    .ok_or_else(|| FlowFailure {
-                        stage: "relay_prepare",
-                        error: std::io::Error::other("relay outbound retired").into(),
-                        upstream: None,
-                    })?;
-                if !ctx.udp_enabled_for_outbound(Some(input.tag())) {
-                    return Err(FlowFailure {
-                        stage: "udp_policy",
-                        error: std::io::Error::other("udp disabled for relay chain outbound")
-                            .into(),
-                        upstream: None,
-                    });
-                }
-            }
-        }
-        let execution = ctx.packet_path_execution_services().tcp();
-        let prepared = self
-            .prepare_tcp_relay_chain(
-                OutboundAdapterContext::new(ctx.config()),
-                chain,
-                execution.components.as_deref().ok(),
-            )
-            .map_err(flow_failure_from_tcp_outbound)?;
-        let prefix = prepared.datagram_prefixes.last().cloned().flatten();
-        let last = chain.last().expect("validated relay has final hop");
-        let claimed = self
-            .claim_outbound_leaf(ctx.config(), last.clone())
-            .map_err(|error| FlowFailure {
-                stage: "relay_prepare",
-                error,
-                upstream: None,
-            })?;
-        if let (Some(prefix), Some(datagram)) = (prefix.clone(), claimed.udp_packet_path()) {
-            if let Some((flow_binding, request)) = super::packet_path::build_udp_packet_path_pair(
-                session.id,
-                std::sync::Arc::new(prefix),
-                datagram,
-                UdpPacketRef {
-                    target: &session.target,
-                    port: session.port,
-                    payload,
-                },
-            ) {
-                return Ok(PreparedUdpRelayChain::PacketPath {
-                    flow_binding,
-                    request: Box::new(request),
-                });
-            }
-        }
-        let operation = claimed.into_claimed().into_udp_relay()?;
-        if operation.requires_datagram_carrier() {
-            return super::datagram_relay::prepare(prefix, operation);
-        }
-        if operation.needs_two_streams() {
-            return Ok(PreparedUdpRelayChain::TwoStream {
-                post_prefix: prepared.clone(),
-                get_prefix: prepared,
-                operation,
-            });
-        }
-        Ok(PreparedUdpRelayChain::FinalHop {
-            prefix: prepared,
-            operation,
-        })
     }
 }
