@@ -240,7 +240,6 @@ impl ProxyHandle {
         self.apply_proxy_config_under_guard(
             (**snapshot.config()).clone(),
             TIMEOUT,
-            persist,
             Some(snapshot.clone()),
         )
         .await
@@ -264,6 +263,20 @@ impl ProxyHandle {
             .host
             .apply()
             .commit(|| {
+                if persist {
+                    self.proxy
+                        .engine
+                        .configuration_source()
+                        .persist_ready(
+                            snapshot.config(),
+                            &format!(
+                                "{}:endpoint:{}",
+                                self.proxy.engine.core_instance_id(),
+                                snapshot.config_revision()
+                            ),
+                        )
+                        .map_err(|error| format!("endpoint source persistence failed: {error}"))?;
+                }
                 self.proxy
                     .protocols
                     .commit_components(snapshot.config(), || {

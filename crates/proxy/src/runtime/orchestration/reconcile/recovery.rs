@@ -20,11 +20,10 @@ impl OrchestrationState {
         let mut can_restore = retired.is_ok();
         self.pending_dns_reload = None;
         proxy.resolver.discard_prepared_reload();
-        let persist = proxy.pending_reload_persists(rejected);
         let previous = proxy
             .pending_reload_snapshot(rejected)
             .unwrap_or_else(|| self.applied_snapshot.clone());
-        let rollback = proxy.engine.restore_staged_snapshot(previous, persist);
+        let rollback = proxy.engine.restore_staged_snapshot(previous, false);
         let mut acknowledgement = message;
         if let Err(error) = retired {
             acknowledgement.push_str(&format!("; candidate cleanup remains unconfirmed: {error}"));

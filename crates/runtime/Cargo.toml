@@ -17,6 +17,10 @@ raw-ip-runtime = []
 test-support = []
 
 [dependencies]
+serde.workspace = true
+serde_json.workspace = true
+sha2.workspace = true
+tempfile.workspace = true
 zero-router = { path = "../router" }
 zero-rule = { path = "../rule" }
 ipnet.workspace = true

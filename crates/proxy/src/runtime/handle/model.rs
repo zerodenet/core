@@ -59,7 +59,6 @@ impl ProxyHandle {
         &self,
         config: zero_config::RuntimeConfig,
         timeout: std::time::Duration,
-        persist: bool,
         restore: Option<std::sync::Arc<zero_engine::EngineRuntimeSnapshot>>,
     ) -> Result<(), String> {
         let mut ready = self.proxy.orchestration_ready.subscribe();
@@ -77,30 +76,13 @@ impl ProxyHandle {
             .map_err(|_| "timed out waiting for proxy runtime startup".to_owned())??;
         }
 
-        let previous = self.proxy.engine.runtime_snapshot();
-        let receiver = self.begin_acknowledged_reload(config, persist, restore)?;
-
-        match tokio::time::timeout(timeout, receiver).await {
-            Ok(Ok(result)) => result,
-            Ok(Err(_)) => {
-                self.clear_pending_reload();
-                self.proxy.resolver.discard_prepared_reload();
-                self.rollback_unconfirmed_reload(previous, timeout, persist)
-                    .await?;
-                Err(
-                    "proxy reload acknowledgement channel closed; restored last-known-good config"
-                        .to_owned(),
-                )
-            }
-            Err(_) => {
-                self.clear_pending_reload();
-                self.proxy.resolver.discard_prepared_reload();
-                self.rollback_unconfirmed_reload(previous, timeout, persist)
-                    .await?;
-                Err("timed out waiting for proxy listener reconciliation; restored last-known-good config"
-                    .to_owned())
-            }
-        }
+        let receiver = self.begin_acknowledged_reload(config, restore)?;
+        // The accepted host operation owns this exact acknowledgement. A
+        // waiting caller's deadline/cancellation cannot clear it, construct a
+        // second recovery candidate, or certify original resource cleanup.
+        receiver.await.map_err(|_| {
+            "proxy reload acknowledgement was lost; resource cleanup remains unconfirmed; query current state".to_owned()
+        })?
     }
 
     /// Apply a runtime-only configuration overlay, then enforce its neutral
@@ -182,9 +164,16 @@ impl ProxyHandle {
     fn begin_acknowledged_reload(
         &self,
         config: zero_config::RuntimeConfig,
-        persist: bool,
         restore: Option<std::sync::Arc<zero_engine::EngineRuntimeSnapshot>>,
     ) -> Result<tokio::sync::oneshot::Receiver<Result<(), String>>, String> {
+        let prepared = if restore.is_none() {
+            Some(
+                zero_runtime::configuration::PreparedConfiguration::prepare(config)
+                    .map_err(|error| error.to_string())?,
+            )
+        } else {
+            None
+        };
         let (sender, receiver) = tokio::sync::oneshot::channel();
         let mut pending = self
             .proxy
@@ -199,17 +188,16 @@ impl ProxyHandle {
             *pending = Some(super::super::PendingReloadAck {
                 expected: self.proxy.engine.runtime_snapshot(),
                 previous: self.proxy.engine.runtime_snapshot(),
-                persist,
                 compensating: restore.is_some(),
                 sender,
             });
         }
         let result = if let Some(snapshot) = restore {
-            self.proxy.engine.restore_staged_snapshot(snapshot, persist)
-        } else if persist {
-            self.proxy.engine.stage_config(config)
+            self.proxy.engine.restore_staged_snapshot(snapshot, false)
         } else {
-            self.proxy.engine.stage_runtime_config(config)
+            self.proxy
+                .engine
+                .stage_prepared_config(prepared.expect("prepared candidate"))
         };
         if let Err(error) = result {
             pending.take();
@@ -221,39 +209,5 @@ impl ProxyHandle {
             .expected = self.proxy.engine.runtime_snapshot();
         drop(pending);
         Ok(receiver)
-    }
-
-    fn clear_pending_reload(&self) {
-        self.proxy
-            .host
-            .reload_ack()
-            .lock()
-            .expect("reload ack lock poisoned")
-            .take();
-    }
-
-    async fn rollback_unconfirmed_reload(
-        &self,
-        previous: std::sync::Arc<zero_engine::EngineRuntimeSnapshot>,
-        requested_timeout: std::time::Duration,
-        persist: bool,
-    ) -> Result<(), String> {
-        let receiver = self
-            .begin_acknowledged_reload((**previous.config()).clone(), persist, Some(previous))
-            .map_err(|error| format!("failed to start last-known-good rollback: {error}"))?;
-        let rollback_timeout = requested_timeout.max(std::time::Duration::from_secs(5));
-        let result = match tokio::time::timeout(rollback_timeout, receiver).await {
-            Ok(Ok(Ok(()))) => Ok(()),
-            Ok(Ok(Err(error))) => Err(format!(
-                "last-known-good rollback listener reconciliation failed: {error}"
-            )),
-            Ok(Err(_)) => Err("last-known-good rollback acknowledgement channel closed".to_owned()),
-            Err(_) => {
-                self.clear_pending_reload();
-                Err("timed out waiting for last-known-good rollback reconciliation".to_owned())
-            }
-        };
-        self.proxy.resolver.discard_prepared_reload();
-        result
     }
 }

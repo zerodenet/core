@@ -73,8 +73,7 @@ pub struct Engine {
     reload_notify: Arc<std::sync::Mutex<Vec<std::sync::mpsc::Sender<()>>>>,
     /// Source path of the running config.  When set, `reload_config`
     /// writes the new config back to this path so it survives restarts.
-    config_path: Option<std::path::PathBuf>,
-    config_write_fact: Arc<std::sync::Mutex<configuration::ConfigWriteFact>>,
+    config_source: Arc<zero_runtime::configuration::ConfigurationSource>,
     /// Process start time (UNIX epoch milliseconds), captured on Engine::new.
     pub(crate) started_at_unix_ms: u64,
     /// ID of the OS process hosting this engine.
@@ -128,9 +127,18 @@ fn started_at_unix_ms() -> u64 {
 }
 
 impl Engine {
-    pub fn new(mut config: RuntimeConfig) -> Result<Self, EngineError> {
-        config.materialize_endpoints()?;
-        let routing = zero_runtime::configuration::PreparedRouting::prepare(&config)?;
+    pub fn new(config: RuntimeConfig) -> Result<Self, EngineError> {
+        Self::from_prepared(zero_runtime::configuration::PreparedConfiguration::prepare(
+            config,
+        )?)
+    }
+
+    /// Construct the domain kernel from actual host-prepared resource values.
+    /// This does not create a RuntimeHost or start a Proxy for embedded callers.
+    pub fn from_prepared(
+        prepared: zero_runtime::configuration::PreparedConfiguration,
+    ) -> Result<Self, EngineError> {
+        let zero_runtime::configuration::PreparedConfiguration { config, routing } = prepared;
         let router = routing.router.clone();
         let bypass = routing.bypass.clone();
         let next_dial_generation = Arc::new(AtomicU64::new(1));
@@ -212,8 +220,7 @@ impl Engine {
             flow_completion_sink: Arc::new(std::sync::RwLock::new(None)),
             udp_upstream_idle_timeout,
             reload_notify: Arc::new(std::sync::Mutex::new(Vec::new())),
-            config_path: None,
-            config_write_fact: Arc::new(std::sync::Mutex::new(Default::default())),
+            config_source: Arc::default(),
             started_at_unix_ms: started_at_unix_ms(),
             pid: std::process::id(),
             sink_status: Arc::new(std::sync::Mutex::new(Vec::new())),
@@ -226,6 +233,7 @@ impl Engine {
     }
 
     pub fn from_path(path: impl AsRef<Path>) -> Result<Self, EngineError> {
+        zero_runtime::configuration::ConfigurationSource::verify_recovery(path.as_ref())?;
         let config = RuntimeConfig::load_from_path(path.as_ref())?;
         Self::new_with_config_path(config, path)
     }
@@ -235,7 +243,9 @@ impl Engine {
         path: impl AsRef<Path>,
     ) -> Result<Self, EngineError> {
         let mut engine = Self::new(config)?;
-        engine.config_path = Some(path.as_ref().to_owned());
+        engine.config_source = Arc::new(zero_runtime::configuration::ConfigurationSource::new(
+            path.as_ref().to_owned(),
+        ));
         Ok(engine)
     }
 
@@ -252,7 +262,12 @@ impl Engine {
 
     /// The config file path used to start or reload this engine.
     pub fn config_path(&self) -> Option<&std::path::Path> {
-        self.config_path.as_deref()
+        self.config_source.path()
+    }
+
+    /// The runtime-owned deployment source used by accepted configuration work.
+    pub fn configuration_source(&self) -> &zero_runtime::configuration::ConfigurationSource {
+        &self.config_source
     }
 
     /// UNIX epoch milliseconds when this engine was created.

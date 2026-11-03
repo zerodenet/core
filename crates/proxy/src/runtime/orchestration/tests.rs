@@ -86,7 +86,7 @@ async fn duplicate_reload_notification_preserves_dns_candidate_owned_by_acknowle
     *proxy.host.reload_ack().lock().unwrap() = Some(PendingReloadAck {
         expected: proxy.engine.runtime_snapshot(),
         previous,
-        persist: false,
+
         compensating: false,
         sender,
     });
@@ -115,7 +115,7 @@ async fn identical_config_snapshots_do_not_cross_acknowledge_reload_operations()
     *proxy.host.reload_ack().lock().unwrap() = Some(PendingReloadAck {
         expected: candidate.clone(),
         previous: previous.clone(),
-        persist: false,
+
         compensating: true,
         sender,
     });

@@ -48,3 +48,68 @@ fn one_preparation_retains_relative_resource_for_route_bypass_and_dns() {
         zero_config::ConfigError::ReadRuleSet { .. }
     ));
 }
+
+#[test]
+fn recovery_checks_actual_original_and_candidate_source_across_atomic_commit() {
+    use super::ConfigurationSource;
+    let directory = tempfile::tempdir().unwrap();
+    let path = directory.path().join("zero.json");
+    let previous = RuntimeConfig::parse(r#"{"route":{"final":{"type":"direct"}}}"#).unwrap();
+    let candidate = RuntimeConfig::parse(r#"{"route":{"final":{"type":"reject"}}}"#).unwrap();
+    let previous_bytes = serde_json::to_vec_pretty(&previous).unwrap();
+    std::fs::write(&path, &previous_bytes).unwrap();
+    let source = ConfigurationSource::new(path.clone());
+    source
+        .persist_ready(&candidate, "actual-test-owner:1")
+        .unwrap();
+    assert_eq!(source.observation().successful_writes, 1);
+    ConfigurationSource::verify_recovery(&path).unwrap();
+    let record = directory.path().join("zero.json.zero-recovery");
+    let mut facts: serde_json::Value =
+        serde_json::from_slice(&std::fs::read(&record).unwrap()).unwrap();
+    assert_eq!(facts["completed_phase"], "persisted");
+    assert!(!std::fs::read_to_string(&record).unwrap().contains("route"));
+    let backup = directory.path().join("zero.json.zero-last-good");
+    assert_eq!(std::fs::read(&backup).unwrap(), previous_bytes);
+    // A crash before the atomic replacement leaves the real old file and the
+    // Ready record; a crash after it leaves the real candidate named above.
+    facts["completed_phase"] = "ready".into();
+    std::fs::write(&record, serde_json::to_vec(&facts).unwrap()).unwrap();
+    std::fs::write(&path, &previous_bytes).unwrap();
+    ConfigurationSource::verify_recovery(&path).unwrap();
+    std::fs::write(&path, b"unrelated truncated deployment").unwrap();
+    assert_eq!(
+        ConfigurationSource::verify_recovery(&path)
+            .unwrap_err()
+            .kind(),
+        std::io::ErrorKind::InvalidData
+    );
+}
+
+#[cfg(unix)]
+#[test]
+fn recovery_backup_and_record_preserve_source_permissions() {
+    use std::os::unix::fs::PermissionsExt;
+    let directory = tempfile::tempdir().unwrap();
+    let path = directory.path().join("zero.json");
+    std::fs::write(&path, b"{}").unwrap();
+    std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o640)).unwrap();
+    let source = super::ConfigurationSource::new(path.clone());
+    source
+        .persist_ready(&RuntimeConfig::parse("{}").unwrap(), "permission-test")
+        .unwrap();
+    for name in [
+        "zero.json",
+        "zero.json.zero-last-good",
+        "zero.json.zero-recovery",
+    ] {
+        assert_eq!(
+            std::fs::metadata(directory.path().join(name))
+                .unwrap()
+                .permissions()
+                .mode()
+                & 0o777,
+            0o640
+        );
+    }
+}

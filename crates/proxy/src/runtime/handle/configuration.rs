@@ -84,24 +84,32 @@ impl ProxyHandle {
             .materialize_endpoints()
             .map_err(|error| error.to_string())?;
         let handle = self.clone();
-        self.proxy
-            .host
-            .apply()
-            .run(self.proxy.host.apply_lock().clone(), async move {
-                let result = handle
-                    .apply_config_under_owned_guard(
-                        candidate,
-                        expected_current.as_ref(),
-                        timeout,
-                        persist,
-                    )
-                    .await?;
-                if result.is_some() {
-                    handle.enforce_principal_impact(&disabled_principals, &changed_principals);
-                }
-                Ok(result)
-            })
+        let operation =
+            self.proxy
+                .host
+                .apply()
+                .run(self.proxy.host.apply_lock().clone(), async move {
+                    let result = handle
+                        .apply_config_under_owned_guard(
+                            candidate,
+                            expected_current.as_ref(),
+                            timeout,
+                            persist,
+                        )
+                        .await?;
+                    if result.is_some() {
+                        handle.enforce_principal_impact(&disabled_principals, &changed_principals);
+                    }
+                    Ok(result)
+                });
+        // This bounds only the caller's wait. ApplyOwner retains accepted work
+        // and its original ACK through actual commit or confirmed compensation.
+        tokio::time::timeout(timeout, operation)
             .await
+            .map_err(|_| {
+                "configuration wait timed out; accepted work remains owned; query current state"
+                    .to_owned()
+            })?
     }
 
     async fn apply_config_under_owned_guard(
@@ -112,6 +120,7 @@ impl ProxyHandle {
         persist: bool,
     ) -> Result<Option<ConfigReconcileResult>, String> {
         let previous = self.proxy.engine.runtime_snapshot();
+        let previous_source_write = self.proxy.engine.config_source_write_generation();
         if expected_current.is_some_and(|expected| expected != previous.config().as_ref()) {
             return Ok(None);
         }
@@ -123,13 +132,19 @@ impl ProxyHandle {
             return Err("proxy stopped before accepting configuration changes".to_owned());
         }
 
-        self.apply_proxy_config_under_guard(candidate.clone(), timeout, persist, None)
+        self.apply_proxy_config_under_guard(candidate.clone(), timeout, None)
             .await?;
 
         let Some(reconciler) = &self.config_reconciler else {
-            if let Err(error) = self.commit_configuration(timeout).await {
+            if let Err(error) = self.commit_configuration(timeout, persist).await {
                 let rollback = self
-                    .rollback_proxy_dns_under_guard(previous, timeout, persist)
+                    .rollback_proxy_dns_under_guard(
+                        previous,
+                        timeout,
+                        persist
+                            && self.proxy.engine.config_source_write_generation()
+                                != previous_source_write,
+                    )
                     .await;
                 let mut message = error;
                 if let Err(error) = rollback {
@@ -144,9 +159,15 @@ impl ProxyHandle {
         let candidate = Arc::new(candidate);
         match reconciler.reconcile(candidate).await {
             Ok(result) => {
-                if let Err(error) = self.commit_configuration(timeout).await {
+                if let Err(error) = self.commit_configuration(timeout, persist).await {
                     let proxy_rollback = self
-                        .rollback_proxy_dns_under_guard(previous.clone(), timeout, persist)
+                        .rollback_proxy_dns_under_guard(
+                            previous.clone(),
+                            timeout,
+                            persist
+                                && self.proxy.engine.config_source_write_generation()
+                                    != previous_source_write,
+                        )
                         .await;
                     let app_rollback = if proxy_rollback.is_ok() {
                         reconciler.reconcile(previous.config().clone()).await
@@ -168,7 +189,13 @@ impl ProxyHandle {
             }
             Err(apply_error) => {
                 let proxy_rollback = self
-                    .rollback_proxy_dns_under_guard(previous.clone(), timeout, persist)
+                    .rollback_proxy_dns_under_guard(
+                        previous.clone(),
+                        timeout,
+                        persist
+                            && self.proxy.engine.config_source_write_generation()
+                                != previous_source_write,
+                    )
                     .await;
                 let app_rollback = if proxy_rollback.is_ok() {
                     reconciler.reconcile(previous.config().clone()).await
@@ -190,7 +217,7 @@ impl ProxyHandle {
         }
     }
 
-    async fn commit_configuration(&self, timeout: Duration) -> Result<(), String> {
+    async fn commit_configuration(&self, timeout: Duration, persist: bool) -> Result<(), String> {
         if self.proxy.host.apply().is_closing() {
             return Err("proxy stopped before configuration commit".to_owned());
         }
@@ -202,6 +229,20 @@ impl ProxyHandle {
             .await
             .map_err(|error| error.to_string())?;
         self.proxy.host.apply().commit(|| {
+            if persist {
+                self.proxy
+                    .engine
+                    .configuration_source()
+                    .persist_ready(
+                        &component_config,
+                        &format!(
+                            "{}:{}",
+                            self.proxy.engine.core_instance_id(),
+                            self.proxy.engine.config_revision()
+                        ),
+                    )
+                    .map_err(|error| format!("configuration persistence failed: {error}"))?;
+            }
             self.proxy
                 .protocols
                 .commit_components(&component_config, || {
@@ -244,12 +285,7 @@ impl ProxyHandle {
     ) -> Result<(), String> {
         self.proxy.resolver.discard_prepared_reload();
         let result = self
-            .apply_proxy_config_under_guard(
-                (**previous.config()).clone(),
-                timeout,
-                persist,
-                Some(previous),
-            )
+            .apply_proxy_config_under_guard((**previous.config()).clone(), timeout, Some(previous))
             .await;
         result?;
         // Retirement may have closed the previous persistent backend before a
@@ -263,6 +299,20 @@ impl ProxyHandle {
             .await
             .map_err(|error| error.to_string())?;
         self.proxy.host.apply().compensate(|| {
+            if persist {
+                self.proxy
+                    .engine
+                    .configuration_source()
+                    .persist_ready(
+                        &component_config,
+                        &format!(
+                            "{}:compensate:{}",
+                            self.proxy.engine.core_instance_id(),
+                            self.proxy.engine.config_revision()
+                        ),
+                    )
+                    .map_err(|error| format!("configuration source recovery failed: {error}"))?;
+            }
             self.proxy
                 .protocols
                 .commit_components(&component_config, || {

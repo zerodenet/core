@@ -1,7 +1,9 @@
 //! Configuration resource preparation belongs to runtime ownership, never validation.
 mod compile;
 mod rule_sets;
+mod source;
 pub use compile::{DnsConfigPreparation, RuntimeConfigPreparation};
+pub use source::{ConfigurationSource, SourceWriteObservation};
 use std::sync::Arc;
 use zero_config::{ConfigError, RuntimeConfig};
 use zero_router::{DomainDispatcher, RuleSet};
@@ -24,3 +26,17 @@ impl PreparedRouting {
 #[cfg(test)]
 #[path = "../tests/configuration.rs"]
 mod tests;
+
+/// An inert, once-prepared input. No engine/proxy type crosses the runtime boundary.
+#[derive(Debug)]
+pub struct PreparedConfiguration {
+    pub config: RuntimeConfig,
+    pub routing: PreparedRouting,
+}
+impl PreparedConfiguration {
+    pub fn prepare(mut config: RuntimeConfig) -> Result<Self, ConfigError> {
+        config.materialize_endpoints()?;
+        let routing = PreparedRouting::prepare(&config)?;
+        Ok(Self { config, routing })
+    }
+}

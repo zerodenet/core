@@ -152,6 +152,7 @@ impl Proxy {
     }
 
     pub fn from_path(path: impl AsRef<Path>) -> Result<Self, EngineError> {
+        zero_runtime::configuration::ConfigurationSource::verify_recovery(path.as_ref())?;
         let config = RuntimeConfig::load_from_path(path)?;
         Self::new(config)
     }
@@ -294,19 +295,6 @@ impl Proxy {
         if let Some(pending) = pending {
             let _ = pending.sender.send(result);
         }
-    }
-
-    pub(crate) fn pending_reload_persists(
-        &self,
-        expected: &Arc<zero_engine::EngineRuntimeSnapshot>,
-    ) -> bool {
-        self.host
-            .reload_ack()
-            .lock()
-            .expect("reload ack lock poisoned")
-            .as_ref()
-            .filter(|pending| Arc::ptr_eq(&pending.expected, expected))
-            .is_none_or(|pending| pending.persist)
     }
 
     pub(crate) fn pending_reload_snapshot(

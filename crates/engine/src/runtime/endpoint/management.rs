@@ -52,7 +52,7 @@ impl Engine {
     }
 
     pub fn endpoint_source_file_available(&self) -> bool {
-        self.config_path.is_some()
+        self.config_path().is_some()
     }
 
     /// Build a candidate without publishing it. The caller stages it through

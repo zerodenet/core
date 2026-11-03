@@ -1,15 +1,11 @@
-use std::io::{self, Write};
-use std::path::Path;
 use std::sync::Arc;
 
-use tracing::info;
 use zero_config::{ModeConfig, RuntimeConfig};
 
 use super::Engine;
 use crate::{EngineError, EnginePlan};
 
 mod source;
-pub(super) use source::ConfigWriteFact;
 
 impl Engine {
     /// Rebuild and atomically install the route/config plan, persist it when
@@ -36,7 +32,7 @@ impl Engine {
     /// The proxy transaction calls [`Self::commit_config_change`] only after
     /// listener and application-service reconciliation succeeds.
     pub fn stage_config(&self, new_config: RuntimeConfig) -> Result<(), EngineError> {
-        self.reload_config_inner(new_config, true)
+        self.reload_config_inner(new_config, false)
     }
 
     /// Install an ephemeral candidate without publishing a committed revision.
@@ -59,9 +55,8 @@ impl Engine {
             });
         }
         if persist {
-            if let Some(path) = &self.config_path {
-                self.persist_config_to_file(path, snapshot.config())?;
-            }
+            self.config_source
+                .persist_ready(snapshot.config(), "engine-only-restore")?;
         }
         *self.mode.lock().unwrap_or_else(|error| error.into_inner()) = snapshot.config.mode.clone();
         self.principal_policies
@@ -81,10 +76,31 @@ impl Engine {
 
     fn reload_config_inner(
         &self,
-        mut new_config: RuntimeConfig,
+        new_config: RuntimeConfig,
         persist: bool,
     ) -> Result<(), EngineError> {
-        new_config.materialize_endpoints()?;
+        let prepared = zero_runtime::configuration::PreparedConfiguration::prepare(new_config)?;
+        self.stage_prepared_config_inner(prepared, persist)
+    }
+
+    /// Pure domain installation; the accepted host operation prepares resources
+    /// and performs durable persistence at its own Ready/Commit boundary.
+    pub fn stage_prepared_config(
+        &self,
+        prepared: zero_runtime::configuration::PreparedConfiguration,
+    ) -> Result<(), EngineError> {
+        self.stage_prepared_config_inner(prepared, false)
+    }
+
+    fn stage_prepared_config_inner(
+        &self,
+        prepared: zero_runtime::configuration::PreparedConfiguration,
+        persist: bool,
+    ) -> Result<(), EngineError> {
+        let zero_runtime::configuration::PreparedConfiguration {
+            config: new_config,
+            routing,
+        } = prepared;
         let event_log_capacity = new_config.runtime.event_log_capacity;
         if self.config().runtime.principal_quota_state_path
             != new_config.runtime.principal_quota_state_path
@@ -94,7 +110,6 @@ impl Engine {
                     .to_owned(),
             });
         }
-        let routing = zero_runtime::configuration::PreparedRouting::prepare(&new_config)?;
         let new_router = routing.router.clone();
         let bypass = routing.bypass.clone();
         let mut new_plan = EnginePlan::build(&new_config)?;
@@ -107,11 +122,10 @@ impl Engine {
                 message: error.message,
             })?,
         );
+
         if persist {
-            if let Some(path) = &self.config_path {
-                self.persist_config_to_file(path, &new_config)?;
-                info!(path = %path.display(), "config persisted");
-            }
+            self.config_source
+                .persist_ready(&new_config, "engine-only-apply")?;
         }
 
         *self.mode.lock().unwrap_or_else(|error| error.into_inner()) = new_config.mode.clone();
@@ -208,19 +222,4 @@ impl Engine {
             .push(sender);
         receiver
     }
-}
-
-fn write_config_to_file(path: &Path, config: &RuntimeConfig) -> Result<(), io::Error> {
-    let json = serde_json::to_string_pretty(config).map_err(|error| {
-        io::Error::new(
-            io::ErrorKind::InvalidData,
-            format!("serialize config: {error}"),
-        )
-    })?;
-    let parent = path.parent().unwrap_or_else(|| Path::new("."));
-    let mut temporary = tempfile::NamedTempFile::new_in(parent)?;
-    temporary.write_all(json.as_bytes())?;
-    temporary.as_file_mut().sync_all()?;
-    temporary.persist(path).map_err(|error| error.error)?;
-    Ok(())
 }
