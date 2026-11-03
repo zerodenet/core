@@ -18,7 +18,17 @@ enum OwnerClosed {
 }
 #[derive(Clone)]
 pub struct CarrierOriginUsersClosed(super::super::CarrierOwnerUsersClosed);
-impl CarrierOriginOwner<'_> {
+impl<'a> From<&'a CarrierOwnerRegistration> for CarrierOriginOwner<'a> {
+    fn from(owner: &'a CarrierOwnerRegistration) -> Self {
+        Self::Carrier(owner)
+    }
+}
+impl<'a> From<&'a MetadataPoolRegistration> for CarrierOriginOwner<'a> {
+    fn from(owner: &'a MetadataPoolRegistration) -> Self {
+        Self::Metadata(owner)
+    }
+}
+impl<'a> CarrierOriginOwner<'a> {
     pub fn instance(self) -> ComponentInstanceId {
         match self {
             Self::Carrier(owner) => owner.instance(),
@@ -31,8 +41,8 @@ impl CarrierOriginOwner<'_> {
             Self::Metadata(owner) => owner.limit(),
         }
     }
-    pub fn same_owner(self, other: Self) -> bool {
-        match (self, other) {
+    pub fn same_owner(self, other: impl Into<Self>) -> bool {
+        match (self, other.into()) {
             (Self::Carrier(a), Self::Carrier(b)) => a.same_owner(b),
             (Self::Metadata(a), Self::Metadata(b)) => a.same_owner(b),
             _ => false,
@@ -56,8 +66,8 @@ impl CarrierOriginOwner<'_> {
     }
 }
 impl CarrierOriginOwnerClosed {
-    pub fn matches(&self, owner: CarrierOriginOwner<'_>) -> bool {
-        match (&self.0, owner) {
+    pub fn matches<'a>(&self, owner: impl Into<CarrierOriginOwner<'a>>) -> bool {
+        match (&self.0, owner.into()) {
             (OwnerClosed::Carrier(closed), CarrierOriginOwner::Carrier(owner)) => {
                 closed.matches(owner)
             }
@@ -69,8 +79,8 @@ impl CarrierOriginOwnerClosed {
     }
 }
 impl CarrierOriginUsersClosed {
-    pub fn matches(&self, owner: CarrierOriginOwner<'_>) -> bool {
-        matches!(owner, CarrierOriginOwner::Carrier(owner) if self.0.matches(owner))
+    pub fn matches<'a>(&self, owner: impl Into<CarrierOriginOwner<'a>>) -> bool {
+        matches!(owner.into(), CarrierOriginOwner::Carrier(owner) if self.0.matches(owner))
     }
     pub fn first_caller_failure(&self) -> Option<crate::contract::scope::TaskJoined> {
         self.0.first_caller_failure()
