@@ -94,8 +94,9 @@ impl Engine {
                     .to_owned(),
             });
         }
-        let new_router = Arc::new(new_config.compile_route()?);
-        let bypass = Arc::new(new_config.compile_route_bypass()?);
+        let routing = zero_runtime::configuration::PreparedRouting::prepare(&new_config)?;
+        let new_router = routing.router.clone();
+        let bypass = routing.bypass.clone();
         let mut new_plan = EnginePlan::build(&new_config)?;
         let endpoint_intents = Arc::new(
             super::endpoint::EndpointIntents::for_config(
@@ -129,6 +130,7 @@ impl Engine {
         );
         *current = Arc::new(super::EngineRuntimeSnapshot {
             config_revision: Arc::new(std::sync::atomic::AtomicU64::new(current.config_revision())),
+            dns_dispatch: routing.dns_dispatch,
             config: Arc::new(new_config),
             endpoint_intents,
             plan: new_plan,
@@ -187,6 +189,7 @@ impl Engine {
             config: Arc::new(config),
             endpoint_intents: current.endpoint_intents.clone(),
             plan: current.plan.clone(),
+            dns_dispatch: current.dns_dispatch.clone(),
             router: current.router.clone(),
             bypass: current.bypass.clone(),
             outbound_group_state: current.outbound_group_state.clone(),

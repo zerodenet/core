@@ -2,6 +2,7 @@ use serde_json::{json, Value};
 use zero_config::{ModeConfig, RuntimeConfig};
 use zero_core::Address;
 use zero_engine::{Engine, RouteDecision};
+use zero_runtime::configuration::RuntimeConfigPreparation;
 
 fn config(bypass: Value) -> RuntimeConfig {
     RuntimeConfig::parse(

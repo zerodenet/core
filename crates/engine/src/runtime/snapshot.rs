@@ -18,12 +18,18 @@ pub struct EngineRuntimeSnapshot {
     pub(super) config: Arc<RuntimeConfig>,
     pub(super) endpoint_intents: Arc<super::endpoint::EndpointIntents>,
     pub(super) plan: Arc<EnginePlan>,
+    pub(super) dns_dispatch: Option<zero_router::DomainDispatcher<String>>,
     pub(super) router: Arc<RuleSet>,
     pub(super) bypass: Arc<RuleSet>,
     pub(crate) outbound_group_state: Arc<crate::groups::OutboundGroupStateStore>,
 }
 
 impl EngineRuntimeSnapshot {
+    /// DNS dispatch shares the actual prepared matcher resources of this snapshot.
+    pub fn dns_dispatch(&self) -> Option<zero_router::DomainDispatcher<String>> {
+        self.dns_dispatch.clone()
+    }
+
     pub fn config_revision(&self) -> u64 {
         self.config_revision.load(Ordering::Acquire)
     }

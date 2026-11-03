@@ -34,6 +34,7 @@ pub struct Rule {
     pub mode: RouteMode,
 }
 
+#[derive(Clone)]
 pub struct RuleSet {
     pub rules: Vec<Rule>,
     pub final_action: RouteAction,

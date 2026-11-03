@@ -1,12 +1,13 @@
 //! Bootstrap from the same captured candidate before Business publication.
 use crate::runtime::Proxy;
 use std::{collections::BTreeSet, sync::Arc};
-use zero_config::RuntimeConfig;
 use zero_engine::EngineError;
-pub(super) async fn prepare(proxy: &Proxy, config: &Arc<RuntimeConfig>) -> Result<(), EngineError> {
-    let dispatch = config
-        .compile_dns_dispatch()
-        .map_err(|source| std::io::Error::new(std::io::ErrorKind::InvalidInput, source))?;
+pub(super) async fn prepare(
+    proxy: &Proxy,
+    snapshot: &Arc<zero_engine::EngineRuntimeSnapshot>,
+) -> Result<(), EngineError> {
+    let dispatch = snapshot.dns_dispatch();
+    let config = snapshot.config();
     // No published startup path exists yet. A previous independent Service
     // probe may have used this DNS system; equal detour strings do not prove
     // that its retained pool used the about-to-start component generations.

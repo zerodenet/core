@@ -130,8 +130,9 @@ fn started_at_unix_ms() -> u64 {
 impl Engine {
     pub fn new(mut config: RuntimeConfig) -> Result<Self, EngineError> {
         config.materialize_endpoints()?;
-        let router = Arc::new(config.compile_route()?);
-        let bypass = Arc::new(config.compile_route_bypass()?);
+        let routing = zero_runtime::configuration::PreparedRouting::prepare(&config)?;
+        let router = routing.router.clone();
+        let bypass = routing.bypass.clone();
         let next_dial_generation = Arc::new(AtomicU64::new(1));
         let mut plan = EnginePlan::build(&config)?;
         plan.reconcile_direct_dial_generations(None, &next_dial_generation);
@@ -179,6 +180,7 @@ impl Engine {
                         }
                     })?,
                 ),
+                dns_dispatch: routing.dns_dispatch,
                 config: Arc::new(config),
                 plan,
                 router,

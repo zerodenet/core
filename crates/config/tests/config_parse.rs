@@ -1,4 +1,5 @@
 use std::fs;
+use zero_runtime::configuration::RuntimeConfigPreparation;
 #[path = "config_parse/udp_direct_budget.rs"]
 mod udp_direct_budget;
 use std::path::{Path, PathBuf};
@@ -3545,7 +3546,11 @@ fn rejects_invalid_cidr_rule_set_entry() {
     )
     .expect("write config");
 
-    let error = RuntimeConfig::load_from_path(&config_path).expect_err("config should fail");
+    let config = RuntimeConfig::load_from_path(&config_path)
+        .expect("structural validation does not read rule resources");
+    let error = config
+        .compile_route()
+        .expect_err("resource preparation should fail");
     assert!(matches!(error, zero_config::ConfigError::InvalidRuleSet(_)));
 
     cleanup_temp_dir(&project_dir);
@@ -3583,7 +3588,9 @@ fn rejects_zrs_with_invalid_full_checksum() {
         }}"#,
         escape_json_path(&matcher_path),
     ))
-    .expect_err("corrupt ZRS should fail");
+    .expect("structural validation does not open ZRS")
+    .compile_route()
+    .expect_err("corrupt ZRS preparation should fail");
 
     assert!(matches!(error, zero_config::ConfigError::InvalidRuleSet(_)));
     assert!(error.to_string().contains("checksum"));

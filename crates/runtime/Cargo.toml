@@ -17,6 +17,10 @@ raw-ip-runtime = []
 test-support = []
 
 [dependencies]
+zero-router = { path = "../router" }
+zero-rule = { path = "../rule" }
+ipnet.workspace = true
+maxminddb.workspace = true
 zero-core = { path = "../core" }
 zero-traits = { path = "../traits" }
 zero-platform-tokio = { path = "../platform/tokio" }

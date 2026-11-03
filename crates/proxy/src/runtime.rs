@@ -179,7 +179,7 @@ impl Proxy {
         protocols.validate_config(&config)?;
         protocols.validate_dial_environment(&config)?;
         protocols.validate_components(config.clone())?;
-        let dns_dispatch = config.compile_dns_dispatch()?;
+        let dns_dispatch = engine.runtime_snapshot().dns_dispatch();
         let fake_ip_state_path = config
             .source_dir()
             .map(zero_dns::default_fake_ip_state_path);

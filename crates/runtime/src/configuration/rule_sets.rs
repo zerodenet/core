@@ -9,7 +9,7 @@ use zero_rule::protocol::decode_json;
 use zero_rule::zrs::{MappedRuleSet, PrewarmPolicy, VerifyMode};
 use zero_rule::{Rule, RuleMatcher, RuleSet, RuleSetCompiler};
 
-use crate::{ConfigError, RouteRuleSetConfig, RuleSetFormatConfig};
+use zero_config::{ConfigError, RouteRuleSetConfig, RuleSetFormatConfig};
 
 pub type CompiledRuleSets = HashMap<String, RuleSetMatcher>;
 

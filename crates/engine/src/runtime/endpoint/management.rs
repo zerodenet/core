@@ -136,6 +136,7 @@ impl Engine {
             config,
             endpoint_intents: Arc::new(intents),
             plan: current.plan.clone(),
+            dns_dispatch: current.dns_dispatch.clone(),
             router: current.router.clone(),
             bypass: current.bypass.clone(),
             outbound_group_state: current.outbound_group_state.clone(),

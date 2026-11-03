@@ -198,8 +198,7 @@ impl RuntimeConfig {
         validate_mode(&self.mode, &route_target_tags)?;
         validate_api(&self.api)?;
         validate_connector_state_paths(self)?;
-        let _ = self.compile_route()?;
-        let _ = self.compile_dns_dispatch()?;
+        self.automatic_route_prefixes()?;
 
         Ok(())
     }

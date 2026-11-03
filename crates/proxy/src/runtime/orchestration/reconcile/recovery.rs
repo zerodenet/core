@@ -77,7 +77,7 @@ impl OrchestrationState {
         // Devices may resolve peer names. Rebuild the original DNS dependency
         // before any last-good device/listener can acquire a fresh carrier.
         if recover_dns && can_restore {
-            if let Err(error) = restore_dns(proxy, &previous_config).await {
+            if let Err(error) = restore_dns(proxy, &self.applied_snapshot).await {
                 can_restore = false;
                 acknowledgement.push_str(&format!("; DNS recovery remains unconfirmed: {error}"));
             }
@@ -147,11 +147,10 @@ impl OrchestrationState {
 
 async fn restore_dns(
     proxy: &Proxy,
-    config: &std::sync::Arc<zero_config::RuntimeConfig>,
+    snapshot: &std::sync::Arc<zero_engine::EngineRuntimeSnapshot>,
 ) -> Result<(), String> {
-    let dispatch = config
-        .compile_dns_dispatch()
-        .map_err(|error| error.to_string())?;
+    let config = snapshot.config();
+    let dispatch = snapshot.dns_dispatch();
     let token = proxy
         .resolver
         .prepare_reload_resources_with_dispatch(

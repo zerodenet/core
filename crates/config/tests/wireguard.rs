@@ -3,6 +3,7 @@ use serde_json::{json, Value};
 use zero_config::{InboundProtocolConfig, OutboundProtocolConfig, RuntimeConfig};
 use zero_core::Address;
 use zero_router::RouteAction;
+use zero_runtime::configuration::RuntimeConfigPreparation;
 
 fn key(byte: u8) -> String {
     STANDARD.encode([byte; 32])
