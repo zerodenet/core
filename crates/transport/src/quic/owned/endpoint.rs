@@ -149,7 +149,7 @@ impl OwnedEndpointOwner {
             .compare_exchange(0, 1, Ordering::AcqRel, Ordering::Acquire)
             .map_err(|_| error(Stage::Prepare, Reason::Revoked))?;
         if let Native::Borrowed(native) = &mut self.native {
-            if let Some(driver) = native.driver.take() {
+            if let Some(driver) = native.driver.get_mut().unwrap().take() {
                 if let Err(error) = self.drivers.start_carrier(driver) {
                     self.begin_shutdown();
                     return Err(error);
@@ -209,9 +209,9 @@ impl OwnedEndpointOwner {
         self.shared.users.cancellation().cancel();
         if let Native::Borrowed(native) = &self.native {
             native.stop.cancel();
-            native
-                .loan
-                .cancel(zero_platform_tokio::contract::CloseReason::Shutdown);
+            if let Ok(loan) = native.loan.try_lock() {
+                loan.cancel(zero_platform_tokio::contract::CloseReason::Shutdown);
+            }
         }
         self.drivers.revoke_registration();
         let endpoint = self.shared.endpoint.lock().unwrap().take();

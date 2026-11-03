@@ -6,8 +6,8 @@ use zero_platform_tokio::{
 };
 pub(super) struct BorrowedSocket {
     pub(super) socket: Arc<dyn quinn::AsyncUdpSocket>,
-    pub(super) loan: LoanOwner,
-    pub(super) driver: Option<crate::datagram_driver::PreparedIoDriver>,
+    pub(super) loan: tokio::sync::Mutex<LoanOwner>,
+    pub(super) driver: Mutex<Option<crate::datagram_driver::PreparedIoDriver>>,
     pub(super) stop: zero_platform_tokio::contract::CancellationToken,
     pub(super) callbacks: Arc<super::super::callbacks::Broker>,
 }
@@ -77,8 +77,8 @@ impl OwnedEndpointOwner {
         Ok(Self::construct(
             Native::Borrowed(BorrowedSocket {
                 socket,
-                loan,
-                driver: Some(driver),
+                loan: tokio::sync::Mutex::new(loan),
+                driver: Mutex::new(Some(driver)),
                 stop,
                 callbacks,
             }),
@@ -109,8 +109,9 @@ impl OwnedEndpointOwner {
         };
         // An unstarted worker still contains the unique loan I/O view.
         native.stop.cancel();
-        drop(native.driver.take());
-        native.loan.cancel(CloseReason::Shutdown);
-        native.loan.close(deadline).await
+        drop(native.driver.get_mut().unwrap().take());
+        let loan = native.loan.get_mut();
+        loan.cancel(CloseReason::Shutdown);
+        loan.close(deadline).await
     }
 }
