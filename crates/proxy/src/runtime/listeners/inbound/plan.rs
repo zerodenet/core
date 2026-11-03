@@ -55,7 +55,14 @@ pub(super) fn prepare(
         let running = runtime_factory
             .owners()
             .owner(&inbound.tag)
-            .is_some_and(|owner| owner.is_running());
+            .is_some_and(|owner| {
+                owner.is_running()
+                    && !(runtime_factory.is_restoring() && owner.has_uncommitted_configuration())
+            });
+        // Ready alone cannot turn a rejected candidate into last-good. Its
+        // actual retained publication remains closed. Recovery must drive the
+        // existing StopOld/Scope/native barrier before its original capsule,
+        // even if the serialized listener fields happen to be identical.
         let mode_changed = current.is_some()
             && protocols
                 .inbound_listener_requires_restart(&runtime_factory.listener_config(inbound))?;

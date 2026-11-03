@@ -129,6 +129,10 @@ impl InboundListenerRuntimeFactory {
         &self,
         owner: &std::sync::Arc<crate::runtime::inbound_owners::InboundOwner>,
     ) -> Result<(), zero_engine::EngineError> {
+        owner.bind_configuration_publication(
+            &self.config_handle(),
+            self.shared.configuration_publication(),
+        )?;
         self.preparing
             .as_ref()
             .map_or(Ok(()), |preparing| preparing.register(owner))
