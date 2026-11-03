@@ -377,7 +377,10 @@ async fn config_apply_registers_complete_webhook_url_in_process() {
     );
 
     engine.emit_warning("webhook-registered", "webhook-registered");
-    let request = request.join().unwrap();
+    let request = tokio::task::spawn_blocking(move || request.join())
+        .await
+        .unwrap()
+        .unwrap();
     assert!(request.starts_with("POST /custom/receiver/path HTTP/1.1\r\n"));
     assert!(request
         .to_ascii_lowercase()
