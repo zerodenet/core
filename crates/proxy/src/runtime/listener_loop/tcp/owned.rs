@@ -12,7 +12,6 @@ use zero_platform_tokio::contract::{lifecycle::TaskClass, ChannelError, Impact, 
 #[derive(Clone, Copy)]
 pub(crate) enum UsersPlan {
     PrimaryOnly,
-    Unaccounted,
 }
 pub(crate) struct OwnedLoop<H> {
     pub request: TcpListenerLoopRequest<H>,
@@ -27,6 +26,7 @@ where
         + 'static,
     Fut: Future<Output = Result<(), EngineError>> + Send + 'static,
 {
+    let UsersPlan::PrimaryOnly = input.users;
     let TcpListenerLoopRequest {
         runtime_factory,
         protocol_name,
@@ -61,13 +61,11 @@ where
                 #[cfg(feature = "udp-runtime")]
                 let runtime = runtime.with_listener_stop(udp_stop.clone());
                 let handler = handler.clone();
-                let users = input.users;
                 let (_, witness) = accepted.spawn_handler_bound(TaskClass::Auxiliary, move |socket, tasks| async move {
                     // Install the original same-entry weak task capability at
                     // first poll; opaque Caller remains identity only.
                     let runtime = runtime.with_local_addr(socket.local_addr().ok())
                         .with_accepted_tasks(tasks.clone())?;
-                    if matches!(users, UsersPlan::Unaccounted) { tasks.mark_unaccounted(); }
                     handler(runtime, socket).await.map_err(|source| {
                         ChannelError::new(Stage::Receive, Reason::Io, Impact::Session).with_source(source)
                     })

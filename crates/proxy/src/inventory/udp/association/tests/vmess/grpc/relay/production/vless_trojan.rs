@@ -32,7 +32,7 @@ async fn ordinary_vless_trojan_mux_prefix_loans_share_one_original_for_real_grpc
                 true,
                 false,
                 Box::new(|config| {
-                    configure(config, &[input_node.clone()], false);
+                    configure(config, std::slice::from_ref(&input_node), false);
                     config.runtime.native_mux_max_carriers = Some(2);
                 }),
             )
@@ -122,7 +122,7 @@ async fn ordinary_vless_trojan_mux_prefix_udp_keeps_actual_pool_accounting_and_s
                 packet=echo.recv_from(&mut buf)=>{let(n,peer)=packet.unwrap();echo.send_to(&buf[..n],peer).await.unwrap();}
             }}});
             let (proxy,server)=start_config_mode(false,false,"aes-128-gcm","node",vec![b"shared".to_vec()],1,false,false,Box::new(|config| {
-                configure(config,&[input_node.clone()],false);let mut legacy=input_node.clone();legacy.tag="legacy".into();config.outbounds.push(legacy);
+                configure(config,std::slice::from_ref(&input_node),false);let mut legacy=input_node.clone();legacy.tag="legacy".into();config.outbounds.push(legacy);
                 for (name,tag,mode) in [("legacy","legacy","flow"),("pool","pool","flow"),("packet","pool","packet"),("legacy_packet","legacy","packet")] {
                     config.route.rules.push(serde_json::from_value(serde_json::json!({"condition":{"type":"domain","values":[format!("{name}.test")]},"action":{"type":"route","outbound":tag},"mode":mode})).unwrap());
                 }

@@ -153,31 +153,6 @@ impl LeasedInbound {
         self.lease.shutdown_sender()
     }
     #[cfg(test)]
-    pub(crate) fn promote(
-        self,
-    ) -> Result<
-        (
-            crate::component::ComponentRecipe,
-            ControlledTcpListener,
-            InboundInstallContext,
-        ),
-        EngineError,
-    > {
-        if !matches!(self.lease.listener, Some(NativeListenerView::Tcp(_))) {
-            return Err(self.lease.reject(io("TCP promotion requires a TCP view")));
-        }
-        let (operation, view, installed) = self.promote_native()?;
-        let listener = match view {
-            NativeListenerView::Tcp(listener) => listener,
-            NativeListenerView::Metadata(_) | NativeListenerView::Handoff { .. } => {
-                unreachable!("checked TCP view")
-            }
-            #[cfg(feature = "datagram-route-runtime")]
-            NativeListenerView::Datagram(_) => unreachable!("checked TCP view"),
-        };
-        Ok((operation, listener, installed))
-    }
-    #[cfg(test)]
     pub(crate) fn promote_native(
         self,
     ) -> Result<
