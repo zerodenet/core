@@ -39,8 +39,8 @@ async fn candidate_ack_waits_for_actual_plugin_activation_and_both_listener_loop
     let previous = state.applied_snapshot.clone();
     let gate = TcpListener::bind("127.0.0.1:0").await.unwrap();
     // Retain the real candidate port until the same task begins reconciliation.
-    let reserved = TcpListener::bind("127.0.0.1:0").await.unwrap();
-    let port = reserved.local_addr().unwrap().port();
+    let reserved = crate::socket_fixture::tcp_udp();
+    let port = reserved.0.local_addr().unwrap().port();
     let candidate = candidate(port, gate.local_addr().unwrap().port());
     proxy.engine.stage_runtime_config(candidate).unwrap();
     let expected = proxy.engine.runtime_snapshot();
