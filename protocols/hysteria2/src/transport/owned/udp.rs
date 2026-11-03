@@ -16,70 +16,114 @@ struct State {
 pub struct OwnedUdpDispatcher {
     state: Arc<Mutex<State>>,
     cancel: CancellationToken,
-    task: TaskId,
-    witness: TaskJoinWitness,
+    pending: Option<(
+        OwnedConnection,
+        zero_platform_tokio::contract::scope::WeakTaskRegistrar,
+    )>,
+    attempted: bool,
+    rejected: Option<Arc<ChannelError>>,
+    task: Option<(TaskId, TaskJoinWitness)>,
 }
 impl OwnedUdpDispatcher {
-    pub(super) fn new(
+    pub(super) fn prepare(
         connection: OwnedConnection,
         tasks: &zero_platform_tokio::contract::scope::WeakTaskRegistrar,
-    ) -> Result<Self, ChannelError> {
-        let state = Arc::new(Mutex::new(State {
-            next: 1,
-            ..Default::default()
-        }));
-        let cancel = tasks
-            .cancellation()
-            .ok_or_else(|| error(Stage::Prepare, Reason::Revoked))?
-            .child_token();
-        let shared = state.clone();
-        let stop = cancel.clone();
+        cancel: CancellationToken,
+    ) -> Self {
+        Self {
+            state: Arc::new(Mutex::new(State {
+                next: 1,
+                ..Default::default()
+            })),
+            cancel,
+            pending: Some((connection, tasks.clone())),
+            attempted: false,
+            rejected: None,
+            task: None,
+        }
+    }
+    pub(super) fn start(&mut self) -> Result<(), ChannelError> {
+        if self.task.is_some() {
+            return Ok(());
+        }
+        if self.attempted {
+            return Err(self.registration_error());
+        }
+        self.attempted = true;
+        let (connection, tasks) = self
+            .pending
+            .take()
+            .ok_or_else(|| self.registration_error())?;
+        let shared = self.state.clone();
+        let stop = self.cancel.clone();
         // Only the actual registered Scope owns/joins this worker. No raw
         // tokio task or second registry is created for a pooled connection.
-        let (task,witness)=tasks.spawn_tracked(TaskClass::Auxiliary,async move {
+        // The original prepared dispatcher is installed before this call can
+        // invoke a registrar waker. An interrupted registration stays Unknown.
+        let registration=tasks.spawn_tracked(TaskClass::Auxiliary,async move {
             loop {
                 let data=tokio::select! {biased;
                     _=stop.cancelled()=>break,
                     result=connection.read_datagram()=>match result {Ok(data)=>data,Err(source)=>{
-                        let mut shared=shared.lock().unwrap();shared.stopped=true;shared.sessions.clear();
+                        let retired={let mut shared=shared.lock().unwrap();shared.stopped=true;std::mem::take(&mut shared.sessions)};drop(retired);
                         return if stop.is_cancelled(){Ok(())}else{Err(source)};
                     }},
                 };
                 let Ok(packet)=crate::udp::parse_udp_datagram(&data) else {continue};
-                if let Some(sender)=shared.lock().unwrap().sessions.get(&packet.session_id()) {
+                let sender=shared.lock().unwrap().sessions.get(&packet.session_id()).cloned();
+                if let Some(sender)=sender {
                     // Preserve the original per-session loss policy: slow
                     // consumers cannot block siblings or fabricate delivery.
                     let _=sender.try_send(packet);
                 }
             }
-            let mut shared=shared.lock().unwrap();
-            shared.stopped=true;
-            shared.sessions.clear();
+            let retired={let mut shared=shared.lock().unwrap();shared.stopped=true;std::mem::take(&mut shared.sessions)};drop(retired);
             Ok(())
-        }).map_err(|source|error(Stage::Prepare,Reason::Capacity).with_source(source))?;
-        Ok(Self {
-            state,
-            cancel,
-            task,
-            witness,
-        })
+        });
+        match registration {
+            Ok(task) => {
+                self.task = Some(task);
+                Ok(())
+            }
+            Err(source) => {
+                self.rejected = Some(Arc::new(
+                    error(Stage::Prepare, Reason::Capacity).with_source(source),
+                ));
+                Err(self.registration_error())
+            }
+        }
     }
-    pub(super) fn witness(&self) -> TaskJoinWitness {
-        self.witness.clone()
+    fn registration_error(&self) -> ChannelError {
+        match &self.rejected {
+            Some(source) => error(Stage::Prepare, Reason::Capacity)
+                .with_source(OriginalRegistration(source.clone())),
+            None => error(Stage::Close, Reason::Internal).with_source(std::io::Error::other(
+                "original UDP dispatcher registration is unconfirmed",
+            )),
+        }
     }
-    pub fn task_id(&self) -> TaskId {
-        self.task
+    pub(super) fn witness(&self) -> Result<Option<TaskJoinWitness>, ChannelError> {
+        if let Some((_, witness)) = &self.task {
+            return Ok(Some(witness.clone()));
+        }
+        if self.attempted && self.rejected.is_none() {
+            return Err(self.registration_error());
+        }
+        Ok(None)
     }
     pub fn stop(&self) {
         self.cancel.cancel();
     }
     pub async fn joined(&self, end: tokio::time::Instant) -> Result<TaskJoined, ChannelError> {
         self.stop();
-        let joined = tokio::time::timeout_at(end, self.witness.wait())
+        let witness = self
+            .witness()?
+            .ok_or_else(|| error(Stage::Close, Reason::Revoked))?;
+        let joined = tokio::time::timeout_at(end, witness.wait())
             .await
             .map_err(|source| error(Stage::Close, Reason::Timeout).with_source(source))?;
         if joined.result().is_err() {
-            self.witness
+            witness
                 .acknowledge_hosted_failure(&joined)
                 .map_err(|source| error(Stage::Close, Reason::Internal).with_source(source))?;
         }
@@ -90,7 +134,7 @@ impl OwnedUdpDispatcher {
         connection: Arc<OwnedAuthentication>,
     ) -> Result<OwnedUdpChannel, ChannelError> {
         let mut state = self.state.lock().unwrap();
-        if state.stopped || self.cancel.is_cancelled() {
+        if self.task.is_none() || state.stopped || self.cancel.is_cancelled() {
             return Err(error(Stage::Prepare, Reason::Revoked));
         }
         if state.sessions.len() >= 4096 || state.next > u32::MAX as u64 {
@@ -131,7 +175,8 @@ impl OwnedUdpChannel {
     /// receiver and all transferred channel guards have returned. Native QUIC
     /// and UDP closure remain the pool owner's separate obligations.
     pub fn retire(mut self) -> zero_platform_tokio::contract::lifecycle::CloseReport {
-        self.state.lock().unwrap().sessions.remove(&self.id);
+        let retired = self.state.lock().unwrap().sessions.remove(&self.id);
+        drop(retired);
         let receive = self.receive.get_mut();
         receive.rx.close();
         while receive.rx.try_recv().is_ok() {}
@@ -196,6 +241,19 @@ impl OwnedUdpChannel {
 }
 impl Drop for OwnedUdpChannel {
     fn drop(&mut self) {
-        self.state.lock().unwrap().sessions.remove(&self.id);
+        let retired = self.state.lock().unwrap().sessions.remove(&self.id);
+        drop(retired);
+    }
+}
+#[derive(Debug)]
+struct OriginalRegistration(Arc<ChannelError>);
+impl std::fmt::Display for OriginalRegistration {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        self.0.fmt(f)
+    }
+}
+impl std::error::Error for OriginalRegistration {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        Some(self.0.as_ref())
     }
 }

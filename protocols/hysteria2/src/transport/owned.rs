@@ -27,7 +27,8 @@ pub struct OwnedAuthentication {
     legacy_stream: Option<OwnedBiStream>,
     negotiated: Option<crate::handshake::AuthResponse>,
     attempted: bool,
-    udp: std::sync::Mutex<Option<OwnedUdpDispatcher>>,
+    udp: tokio::sync::Mutex<Option<OwnedUdpDispatcher>>,
+    udp_cancel: zero_platform_tokio::contract::CancellationToken,
     tasks: Option<zero_platform_tokio::contract::scope::WeakTaskRegistrar>,
 }
 impl OwnedAuthentication {
@@ -50,6 +51,7 @@ impl OwnedAuthentication {
             negotiated: None,
             attempted: false,
             udp: Default::default(),
+            udp_cancel: zero_platform_tokio::contract::CancellationToken::new(),
             tasks: None,
         })
     }
@@ -157,7 +159,7 @@ impl OwnedAuthentication {
         result?;
         Ok(stream.into_inner())
     }
-    pub fn open_udp(self: &Arc<Self>) -> Result<OwnedUdpChannel, ChannelError> {
+    pub async fn open_udp(self: &Arc<Self>) -> Result<OwnedUdpChannel, ChannelError> {
         if !self.is_ready() {
             return Err(error(Stage::Prepare, Reason::Revoked));
         }
@@ -168,30 +170,34 @@ impl OwnedAuthentication {
         {
             return Err(error(Stage::Prepare, Reason::Unsupported));
         }
-        let mut dispatcher = self.udp.lock().unwrap();
+        let mut dispatcher = self.udp.lock().await;
         if dispatcher.is_none() {
-            *dispatcher = Some(OwnedUdpDispatcher::new(
+            *dispatcher = Some(OwnedUdpDispatcher::prepare(
                 self.connection.try_clone()?,
                 self.tasks
                     .as_ref()
                     .ok_or_else(|| error(Stage::Prepare, Reason::Revoked))?,
-            )?);
+                self.udp_cancel.child_token(),
+            ));
         }
+        dispatcher.as_mut().unwrap().start()?;
         dispatcher.as_ref().unwrap().open(self.clone())
     }
-    pub(super) fn udp_witness(
+    pub(super) async fn udp_witness(
         &self,
-    ) -> Option<zero_platform_tokio::contract::scope::TaskJoinWitness> {
-        self.udp
-            .lock()
-            .unwrap()
-            .as_ref()
-            .map(|dispatcher| dispatcher.witness())
+    ) -> Result<Option<zero_platform_tokio::contract::scope::TaskJoinWitness>, ChannelError> {
+        match self.udp.lock().await.as_ref() {
+            Some(dispatcher) => dispatcher.witness(),
+            None => Ok(None),
+        }
+    }
+    pub(super) fn has_udp(&self) -> bool {
+        // Admission only needs a conservative occupied-user census here. The
+        // close path separately waits on the actual install gate and witness.
+        self.udp.try_lock().map_or(true, |udp| udp.is_some())
     }
     pub fn stop(&self) {
-        if let Some(udp) = self.udp.lock().unwrap().as_ref() {
-            udp.stop();
-        }
+        self.udp_cancel.cancel();
         self.connection.close(0x100u32.into(), b"owner retirement");
     }
 }

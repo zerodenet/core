@@ -186,7 +186,7 @@ impl DatagramOutbound for Role {
         );
         context.upstream.observe_carrier_origin(&original);
         let association = request.association;
-        let channel = auth.open_udp()?;
+        let channel = auth.open_udp().await?;
         let generation = self
             .options
             .pool
@@ -210,7 +210,7 @@ impl DatagramOutbound for Role {
         context: OpenContext,
     ) -> Result<DatagramSession<Self::Tx, Self::Rx, Self::Control>, ChannelError> {
         let auth = self.acquire(&context).await?;
-        let channel = auth.open_udp()?;
+        let channel = auth.open_udp().await?;
         let generation = self
             .options
             .pool

@@ -27,7 +27,7 @@ impl EntryState {
     pub(super) async fn retire_endpoint(&mut self, end: Instant) -> Result<(), ChannelError> {
         if let Some(auth) = &self.auth {
             auth.stop();
-            self.udp_join = auth.udp_witness();
+            self.udp_join = auth.udp_witness().await?;
         }
         if let Some(auth) = &self.pending {
             auth.stop();

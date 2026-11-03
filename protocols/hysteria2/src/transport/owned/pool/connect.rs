@@ -174,7 +174,7 @@ impl Generation {
             .lock()
             .unwrap() = state.origin.clone();
         let auth = Arc::new(state.pending.take().unwrap());
-        state.udp_join = auth.udp_witness();
+        state.udp_join = auth.udp_witness().await?;
         state.baseline = state.owner.as_ref().unwrap().active_users();
         state.auth = Some(auth.clone());
         Ok(auth)

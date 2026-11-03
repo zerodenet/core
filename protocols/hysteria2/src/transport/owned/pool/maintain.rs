@@ -126,11 +126,7 @@ impl EntryState {
             && self.owner.as_ref().is_some_and(|owner| {
                 owner.active_users()
                     <= self.baseline
-                        + usize::from(
-                            self.auth
-                                .as_ref()
-                                .is_some_and(|auth| auth.udp_witness().is_some()),
-                        )
+                        + usize::from(self.auth.as_ref().is_some_and(|auth| auth.has_udp()))
             })
     }
 }

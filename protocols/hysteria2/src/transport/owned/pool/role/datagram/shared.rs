@@ -173,6 +173,7 @@ impl Shared {
             let auth = tokio::select! {biased;_=self.stop.cancelled()=>return Err(fail(Reason::Cancelled)),result=generation.acquire(self.profile,self.binding.clone(),end)=>result.map_err(|error|SendFailure::new(error,DeliveryState::NotSubmitted))?};
             let channel = auth
                 .open_udp()
+                .await
                 .map_err(|error| SendFailure::new(error, DeliveryState::NotSubmitted))?;
             *self.current.lock().unwrap() = Some(Current {
                 channel: Arc::new(channel),
