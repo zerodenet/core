@@ -3,7 +3,7 @@ use std::{
     io,
     pin::Pin,
     sync::{
-        atomic::{AtomicUsize, Ordering},
+        atomic::{AtomicBool, AtomicUsize, Ordering},
         Arc, Mutex,
     },
     task::{Context, Poll},
@@ -13,9 +13,13 @@ use zero_platform_tokio::{contract::scope::TaskJoinWitness, ControlledTcpStream}
 #[derive(Default)]
 pub(super) struct Custody {
     views: AtomicUsize,
-    users: Mutex<Vec<TaskJoinWitness>>,
+    installed: AtomicBool,
+    pub(super) users: Mutex<Vec<TaskJoinWitness>>,
 }
 impl Custody {
+    pub(super) fn seal(&self) {
+        self.installed.store(true, Ordering::Release);
+    }
     pub(super) fn add(&self, witness: TaskJoinWitness) {
         let mut users = self.users.lock().unwrap();
         if !users.iter().any(|old| old.same_registration(&witness)) {
@@ -28,7 +32,8 @@ impl Custody {
             .map_err(|_| io::Error::other("event TCP I/O requires its original tracked task"))
     }
     pub(super) fn returned_and_joined(&self) -> bool {
-        self.views.load(Ordering::Acquire) == 0
+        self.installed.load(Ordering::Acquire)
+            && self.views.load(Ordering::Acquire) == 0
             && self
                 .users
                 .lock()
