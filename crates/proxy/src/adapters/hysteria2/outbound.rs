@@ -70,7 +70,7 @@ impl Hysteria2Adapter {
         let prepared = resources.resources().find(|resource| {
             let spec = resource.recipe().spec();
             spec.roles.is_empty() && matches!(&spec.owner,
-                zero_platform_tokio::contract::component::ResourceOwner::Endpoint(name) if name == "hysteria2.authenticated_pool")
+                zero_platform_tokio::contract::component::ResourceOwner::Endpoint(name) if name.as_ref() == "hysteria2.authenticated_pool")
         }).map(|resource|resource.component());
         if let Some(owner) = prepared {
             let mut bytes = serde_json::to_vec(input).map_err(options_error)?;
