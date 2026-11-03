@@ -10,7 +10,7 @@ impl super::super::Engine {
         // Store the notification even if no async borrower is currently
         // polling. The host consumes current domain/pending-operation state,
         // so coalescing wake-ups never changes the original ACK identity.
-        self.reload_changes.send_replace(());
+        self.reload_changes.publish();
         for sender in self
             .reload_notify
             .lock()
@@ -24,7 +24,9 @@ impl super::super::Engine {
     /// Subscribe before capturing the current domain snapshot. Changes remain
     /// pending across startup awaits or cancellation of `Receiver::changed`.
     /// No relay task or additional runtime owner is created.
-    pub fn subscribe_configuration_reconcile(&self) -> tokio::sync::watch::Receiver<()> {
+    pub fn subscribe_configuration_reconcile(
+        &self,
+    ) -> zero_runtime::configuration::ConfigurationReconcileChanges {
         self.reload_changes.subscribe()
     }
 
