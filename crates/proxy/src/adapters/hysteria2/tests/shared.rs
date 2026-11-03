@@ -24,6 +24,8 @@ fn end() -> tokio::time::Instant {
 struct Server {
     port: u16,
     authenticated: Arc<AtomicUsize>,
+    closed: Arc<AtomicUsize>,
+    closed_changed: Arc<tokio::sync::Notify>,
     wire: Arc<Mutex<BTreeMap<(Address, u16), u64>>>,
     sessions: Arc<Mutex<BTreeSet<u32>>>,
     stop: tokio::sync::oneshot::Sender<()>,
@@ -53,6 +55,10 @@ impl Server {
         let port = endpoint.local_addr().unwrap().port();
         let authenticated = Arc::new(AtomicUsize::new(0));
         let count = authenticated.clone();
+        let closed = Arc::new(AtomicUsize::new(0));
+        let observed_closed = closed.clone();
+        let closed_changed = Arc::new(tokio::sync::Notify::new());
+        let observed_closed_changed = closed_changed.clone();
         let wire = Arc::new(Mutex::new(BTreeMap::new()));
         let observed = wire.clone();
         let sessions = Arc::new(Mutex::new(BTreeSet::new()));
@@ -84,6 +90,7 @@ impl Server {
                         }}=>{},
                     }
                     raw.close(0u32.into(),b"test peer complete");while let Some(joined)=streams.join_next().await {joined.unwrap();}
+                    closed.fetch_add(1,Ordering::SeqCst);closed_changed.notify_waiters();
                 });
             }
             for raw in originals {
@@ -96,6 +103,8 @@ impl Server {
         Self {
             port,
             authenticated,
+            closed,
+            closed_changed,
             wire,
             sessions,
             stop,
@@ -108,6 +117,17 @@ impl Server {
             "outbounds":[{"tag":"hy","protocol":{"type":"hysteria2","server":"127.0.0.1","server_name":"localhost","port":self.port,"password":"p","insecure":true}}],
             "route":{"final":{"type":"route","outbound":"hy"}}
         }).to_string()).unwrap()).unwrap()
+    }
+    async fn wait_closed(&self, count: usize) {
+        loop {
+            let changed = self.closed_changed.notified();
+            tokio::pin!(changed);
+            changed.as_mut().enable();
+            if self.closed.load(Ordering::SeqCst) >= count {
+                return;
+            }
+            changed.await;
+        }
     }
     async fn close(self) {
         self.stop.send(()).unwrap();
@@ -158,3 +178,6 @@ async fn standard_hysteria2_proxy_tcp_udp_empty_multitarget_and_packet_paths_sha
         proxy.protocols.shutdown_components(end()).await.unwrap();server.close().await;
     }).await.unwrap();
 }
+
+#[path = "shared/lifecycle.rs"]
+mod lifecycle;
