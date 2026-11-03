@@ -52,9 +52,7 @@ async fn late_production_spawn_confirms_actual_tcp_close_and_zero_task_receipts_
     )
     .await
     .unwrap();
-    let crate::runtime::listeners::PendingInbound::Leased(lease) = &bound else {
-        panic!("Direct TCP retains its actual preinstalled native owner");
-    };
+    let crate::runtime::listeners::PendingInbound::Leased(lease) = &bound;
     let address = lease.local_addr().unwrap();
     let owner = lease.owner();
     phase.begin_shutdown();

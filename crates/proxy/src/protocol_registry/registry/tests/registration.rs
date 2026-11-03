@@ -6,8 +6,6 @@ use crate::protocol_registry::ProtocolRegistry;
 #[cfg(feature = "http")]
 #[test]
 fn inbound_only_registration_has_no_outbound_executor() {
-    use zero_config::InboundProtocolConfig;
-
     let adapter = Arc::new(crate::adapters::http::HttpConnectAdapter);
     let expected = Arc::as_ptr(&adapter) as *const ();
     let mut registry = ProtocolRegistry::default();

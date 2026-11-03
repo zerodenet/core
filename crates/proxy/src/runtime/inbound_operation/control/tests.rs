@@ -32,7 +32,7 @@ async fn pair() -> (TokioSocket, tokio::net::TcpStream) {
 #[tokio::test]
 async fn target_control_cancels_actual_rate_wait_and_returns_original_view() {
     tokio::time::timeout(std::time::Duration::from_secs(5), async {
-        let (client, mut client_peer) = pair().await;
+        let (client, client_peer) = pair().await;
         let (target, mut target_peer) = pair().await;
         let reads = Arc::new(Reads::default());
         let target = target.with_observer(Some(reads.clone()));

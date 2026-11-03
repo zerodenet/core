@@ -1,8 +1,6 @@
 //! Ordinary catalog, real shared-prefix original and actual close credentials.
+use super::pool_fixture::*;
 use super::*;
-#[path = "pool_fixture.rs"]
-mod pool_fixture;
-use pool_fixture::*;
 #[tokio::test]
 async fn ordinary_vmess_grpc_mux_prefix_uses_one_hosted_original_for_two_real_h2_clients() {
     timeout(Duration::from_secs(30), async {

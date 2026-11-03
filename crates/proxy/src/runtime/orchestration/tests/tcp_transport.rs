@@ -4,7 +4,6 @@ use fixtures::*;
 use serde_json::json;
 use tokio::{
     io::{AsyncReadExt, AsyncWriteExt},
-    sync::watch,
     time::{timeout, Duration},
 };
 use zero_core::{Address, Network, ProtocolType, Session};

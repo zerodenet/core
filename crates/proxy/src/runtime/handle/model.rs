@@ -1,5 +1,13 @@
 use crate::runtime::Proxy;
 
+// These aliases retain the original accepted operation's exact ACK channel
+// and prepared snapshot; they introduce no additional ownership container.
+type ReloadAcknowledgement = tokio::sync::oneshot::Receiver<Result<(), String>>;
+type PreparedReloadAcknowledgement = (
+    ReloadAcknowledgement,
+    std::sync::Arc<zero_engine::EngineRuntimeSnapshot>,
+);
+
 /// Wraps [`EngineHandle`] with TUN command interception.
 ///
 /// TUN start/stop commands are handled by the proxy runtime,
@@ -169,13 +177,7 @@ impl ProxyHandle {
         config: zero_config::RuntimeConfig,
         restore: Option<std::sync::Arc<zero_engine::EngineRuntimeSnapshot>>,
         compensating: bool,
-    ) -> Result<
-        (
-            tokio::sync::oneshot::Receiver<Result<(), String>>,
-            std::sync::Arc<zero_engine::EngineRuntimeSnapshot>,
-        ),
-        String,
-    > {
+    ) -> Result<PreparedReloadAcknowledgement, String> {
         let candidate = match restore {
             Some(snapshot) => snapshot,
             None => self
