@@ -3,6 +3,24 @@ use super::*;
 #[async_trait::async_trait]
 impl ConfigApplyReconciler for ApplicationServices {
     fn validate(&self, current: &RuntimeConfig, candidate: &RuntimeConfig) -> Result<(), String> {
+        // This executes before Proxy/DNS prepare. An unresolved application
+        // original cannot authorize another candidate in a different component.
+        let state = self.state.try_lock().map_err(|_| {
+            "application preparation/retirement is still owned by its current operation".to_owned()
+        })?;
+        if let Some(error) = &state.cleanup_fault {
+            return Err(format!(
+                "original application cleanup is unresolved: {error}"
+            ));
+        }
+        if state
+            .attempt
+            .as_ref()
+            .is_some_and(|attempt| self.engine.config().as_ref() != attempt.target.as_ref())
+        {
+            return Err("application candidate still requires confirmed retirement".to_owned());
+        }
+        drop(state);
         if current.api.control != candidate.api.control {
             return Err(
                 "`api.control` cannot be changed by live config.apply; keep the active control endpoint and restart explicitly to replace its listener or credentials"
