@@ -64,7 +64,7 @@ impl ConfigurationSource {
     }
     pub fn verify_recovery(path: &Path) -> io::Result<()> {
         let source = std::sync::Arc::new(Self::new(path));
-        super::startup::with_source(source.clone(), || source.verify_recovery_owned(path))?
+        source.verify_initial_recovery(path)
     }
     fn verify_recovery_owned(&self, path: &Path) -> io::Result<()> {
         let Some(raw) = files::read_recovery(path, &self.io)? else {

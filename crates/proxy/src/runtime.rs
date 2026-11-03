@@ -155,6 +155,7 @@ impl Proxy {
         // This public convenience entry remains load-only: reading a document
         // must not grant persistence to its path.
         let source = Arc::new(zero_runtime::configuration::ConfigurationSource::default());
+        source.verify_initial_recovery(path.as_ref())?;
         let config = source.load_initial_configuration(path)?;
         let prepared =
             zero_runtime::configuration::PreparedConfiguration::prepare_startup(config, source)?;

@@ -241,6 +241,7 @@ impl Engine {
         let source = Arc::new(zero_runtime::configuration::ConfigurationSource::new(
             path.as_ref().to_owned(),
         ));
+        source.verify_initial_recovery(path.as_ref())?;
         let config = source.load_initial_configuration(path)?;
         let prepared =
             zero_runtime::configuration::PreparedConfiguration::prepare_startup(config, source)?;

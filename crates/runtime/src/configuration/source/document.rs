@@ -18,12 +18,16 @@ impl ConfigurationSource {
         path: impl AsRef<Path>,
     ) -> Result<RuntimeConfig, ConfigError> {
         let path = path.as_ref();
+        super::super::startup::with_source(self.clone(), || self.read_configuration_owned(path))
+            .map_err(|source| read_error(path, source))?
+    }
+
+    /// Preserve the existing from_path recovery IO error boundary while using
+    /// the same actual source owner as its subsequent document and rule reads.
+    pub fn verify_initial_recovery(self: &Arc<Self>, path: impl AsRef<Path>) -> io::Result<()> {
         super::super::startup::with_source(self.clone(), || {
-            self.verify_recovery_owned(path)
-                .map_err(|source| read_error(path, source))?;
-            self.read_configuration_owned(path)
-        })
-        .map_err(|source| read_error(path, source))?
+            self.verify_recovery_owned(path.as_ref())
+        })?
     }
 
     fn read_configuration_owned(&self, path: &Path) -> Result<RuntimeConfig, ConfigError> {
