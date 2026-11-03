@@ -47,6 +47,11 @@ async fn pending(
     });
     state.reconcile_reload(proxy).await;
     receive.await.unwrap().unwrap();
+    // A delayed ordinary domain wake after the actual Ready ACK must retain
+    // this same candidate while its accepted operation has not committed.
+    proxy.engine().notify_configuration_reconcile();
+    state.reload_changes.changed().await.unwrap();
+    state.reconcile_reload(proxy).await;
     assert!(Arc::ptr_eq(&state.applied_snapshot, &snapshot));
     assert!(Arc::ptr_eq(&proxy.engine().runtime_snapshot(), &previous));
     assert!(!snapshot.configuration_publication().is_committed());
