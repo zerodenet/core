@@ -844,7 +844,8 @@ fn listener_and_task_lifecycle_are_runtime_owned() {
 fn compatibility_surface_requires_behavior_and_context_is_narrow() {
     let capability = read(&proxy_src().join("protocol_registry/capability.rs"));
     let context = read_module(&proxy_src().join("protocol_registry/context.rs"));
-    for capability_name in ["ProtocolSupportCapability"] {
+    {
+        let capability_name = "ProtocolSupportCapability";
         assert!(capability.contains(&format!("trait {capability_name}")));
     }
     for marker in [
@@ -2644,7 +2645,8 @@ fn managed_stream_bridge_requests_use_runtime_services_instead_of_proxy() {
 
 #[test]
 fn managed_udp_forward_paths_use_runtime_services_instead_of_proxy() {
-    for relative in ["runtime/udp_flow/registered/forward.rs"] {
+    {
+        let relative = "runtime/udp_flow/registered/forward.rs";
         let source = read(&proxy_src().join(relative));
         assert!(
             !source.contains("use crate::runtime::Proxy"),
@@ -4297,7 +4299,8 @@ fn udp_flow_registered_upstream_runtime_association_lifecycle_root_stays_facade_
 fn udp_flow_registered_state_start_root_stays_facade_only() {
     let start_root = read(&proxy_src().join("runtime/udp_flow/registered/state/start.rs"));
     let start = read_module(&proxy_src().join("runtime/udp_flow/registered/state/start.rs"));
-    for module_name in ["mod upstream;"] {
+    {
+        let module_name = "mod upstream;";
         assert!(start_root.contains(module_name));
     }
     for forbidden in [
@@ -4310,7 +4313,8 @@ fn udp_flow_registered_state_start_root_stays_facade_only() {
             "udp_flow registered state start facade root must not keep `{forbidden}` inline"
         );
     }
-    for expected in ["pub(crate) async fn start_upstream_udp_flow("] {
+    {
+        let expected = "pub(crate) async fn start_upstream_udp_flow(";
         assert!(
             start.contains(expected),
             "udp_flow registered state start module tree must still provide `{expected}`"
