@@ -104,7 +104,7 @@ async fn pending_http_user_requires_real_scope_join_before_original_close() {
     assert_eq!(peer.read(&mut byte).await.unwrap(), 0);
 }
 
-#[cfg(feature = "webhook")]
+#[cfg(feature = "connector")]
 #[tokio::test]
 async fn actual_webhook_http_drivers_join_before_the_same_original_native_close() {
     use super::super::ApplicationEventSinkTcpDialer;
