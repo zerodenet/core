@@ -49,8 +49,8 @@ fn assert_original_prepare_cancellation(
 async fn public_shutdown_during_real_plugin_activation_retains_owner_until_child_reap_without_ready(
 ) {
     let gate = TcpListener::bind("127.0.0.1:0").await.unwrap();
-    let reserved = TcpListener::bind("127.0.0.1:0").await.unwrap();
-    let port = reserved.local_addr().unwrap().port();
+    let reserved = crate::socket_fixture::tcp_udp();
+    let port = reserved.0.local_addr().unwrap().port();
     let proxy = Proxy::new(candidate(port, gate.local_addr().unwrap().port())).unwrap();
     let (stop, shutdown) = tokio::sync::oneshot::channel();
     drop(reserved);
@@ -119,8 +119,8 @@ async fn public_shutdown_during_real_plugin_activation_retains_owner_until_child
 async fn public_shutdown_during_accepted_candidate_ready_drives_original_compensation_and_child_reap(
 ) {
     let gate = TcpListener::bind("127.0.0.1:0").await.unwrap();
-    let reserved = TcpListener::bind("127.0.0.1:0").await.unwrap();
-    let port = reserved.local_addr().unwrap().port();
+    let reserved = crate::socket_fixture::tcp_udp();
+    let port = reserved.0.local_addr().unwrap().port();
     let initial = zero_config::RuntimeConfig::parse(
         r#"{
         "inbounds":[{"tag":"last-good","listen":{"address":"127.0.0.1","port":0},

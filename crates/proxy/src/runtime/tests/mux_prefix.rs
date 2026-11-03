@@ -55,18 +55,7 @@ impl MuxPrefix {
             .unwrap();
         let mut inbound = config.inbounds[0].clone();
         inbound.listen.port = 0;
-        let listener = if protocol == "shadowsocks" {
-            // This real source binds TCP and UDP on the same numeric port.
-            // A TCP-only ephemeral bind does not reserve that UDP address.
-            let reserved = reserve_tcp_udp();
-            inbound.listen.port = reserved.0.local_addr().unwrap().port();
-            crate::runtime::test_listener::start_with_handoff(&proxy, inbound, move || {
-                drop(reserved)
-            })
-            .await
-        } else {
-            crate::runtime::test_listener::start(&proxy, inbound).await
-        };
+        let listener = crate::runtime::test_listener::start(&proxy, inbound).await;
         let address = listener.address;
         let stop = listener.stop;
         let task = listener.worker;
@@ -109,16 +98,4 @@ impl MuxPrefix {
             .await
             .unwrap();
     }
-}
-
-fn reserve_tcp_udp() -> (std::net::TcpListener, std::net::UdpSocket) {
-    for _ in 0..16 {
-        let tcp = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
-        match std::net::UdpSocket::bind(tcp.local_addr().unwrap()) {
-            Ok(udp) => return (tcp, udp),
-            Err(source) if source.kind() == std::io::ErrorKind::AddrInUse => continue,
-            Err(source) => panic!("reserve actual mixed-prefix UDP address: {source}"),
-        }
-    }
-    panic!("no shared TCP/UDP fixture address after 16 actual bind attempts")
 }

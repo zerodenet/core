@@ -37,6 +37,16 @@ async fn start_inner(
     before_bind: impl FnOnce(),
     after_bind: impl FnOnce(&crate::runtime::inbound_owners::NativeListenerView),
 ) -> Listener {
+    #[cfg(feature = "shadowsocks")]
+    let mut inbound = inbound;
+    #[cfg(feature = "shadowsocks")]
+    let paired = if inbound.protocol.protocol_name() == "shadowsocks" && inbound.listen.port == 0 {
+        let paired = crate::socket_fixture::tcp_udp();
+        inbound.listen.port = paired.0.local_addr().unwrap().port();
+        Some(paired)
+    } else {
+        None
+    };
     let config = proxy.engine().config();
     let tag = inbound.tag.clone();
     let protocol = inbound.protocol.protocol_name();
@@ -59,6 +69,8 @@ async fn start_inner(
         .unwrap();
     lease.resolve_native().await.unwrap();
     before_bind(); // release the actual test reservations immediately before native ownership
+    #[cfg(feature = "shadowsocks")]
+    drop(paired);
     lease.bind_native().unwrap();
     let (definition, view, installed) = lease.finish().unwrap().promote_definition().unwrap();
     after_bind(&view);

@@ -9,9 +9,9 @@ async fn actual_plugin_start_deadline_rejects_ready_ack_only_after_original_clea
     let mut state = OrchestrationState::new(&proxy).await.unwrap();
     let previous = state.applied_snapshot.clone();
     let gate = TcpListener::bind("127.0.0.1:0").await.unwrap();
-    let reserved = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let reserved = crate::socket_fixture::tcp_udp();
     let candidate = candidate(
-        reserved.local_addr().unwrap().port(),
+        reserved.0.local_addr().unwrap().port(),
         gate.local_addr().unwrap().port(),
     );
     proxy.engine.stage_runtime_config(candidate).unwrap();
