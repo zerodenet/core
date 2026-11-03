@@ -14,7 +14,10 @@ enum Original {
     Metadata(crate::controlled_datagram::metadata_pool::MetadataPoolOrigin),
     MetadataPool {
         owner: crate::controlled_datagram::metadata_pool::MetadataPoolRegistration,
-        admitted: bool,
+        binding: Option<(
+            zero_core::request::Destination,
+            crate::contract::network::UpstreamBinding,
+        )>,
     },
 }
 mod close;
@@ -105,10 +108,14 @@ impl CarrierOrigin {
     pub fn from_metadata_pool(
         actual: crate::controlled_datagram::metadata_pool::MetadataPoolOrigin,
     ) -> Self {
-        let admitted = !actual.is_retired() && actual.endpoints().is_some();
+        let binding = if !actual.is_retired() && actual.endpoints().is_some() {
+            actual.selected_binding()
+        } else {
+            None
+        };
         Self(Arc::new(Original::MetadataPool {
             owner: actual.owner().clone(),
-            admitted,
+            binding,
         }))
     }
     pub fn metadata(
@@ -130,13 +137,11 @@ impl CarrierOrigin {
                 .map(|closed| CarrierOriginClosed(ClosedOriginal::Metadata(closed))),
             Original::MetadataPool {
                 owner,
-                admitted: true,
+                binding: Some(_),
             } => owner
                 .closed()
                 .map(|closed| CarrierOriginClosed(ClosedOriginal::MetadataPool(closed))),
-            Original::MetadataPool {
-                admitted: false, ..
-            } => None,
+            Original::MetadataPool { binding: None, .. } => None,
         }
     }
     pub fn parent(&self) -> Option<&Self> {
@@ -157,15 +162,13 @@ impl CarrierOrigin {
             Original::Carrier(origin) => origin.slot.upgrade()?.state().endpoints.clone(),
             Original::MetadataPool {
                 owner,
-                admitted: true,
+                binding: Some(binding),
             } => {
-                let origin = owner.current_original()?;
+                let origin = owner.current_original_for(binding)?;
                 let (local, peer) = origin.endpoints()?;
                 Some(super::CarrierEndpoints::metadata(origin, local, peer))
             }
-            Original::MetadataPool {
-                admitted: false, ..
-            } => None,
+            Original::MetadataPool { binding: None, .. } => None,
             Original::Metadata(origin) => {
                 let (local, peer) = origin.endpoints()?;
                 Some(super::CarrierEndpoints::metadata(
@@ -190,12 +193,10 @@ impl CarrierOrigin {
             }
             Original::Metadata(origin) => origin.selected_binding(),
             Original::MetadataPool {
-                owner,
-                admitted: true,
-            } => owner.current_original()?.selected_binding(),
-            Original::MetadataPool {
-                admitted: false, ..
-            } => None,
+                binding: Some(binding),
+                ..
+            } => Some(binding.clone()),
+            Original::MetadataPool { binding: None, .. } => None,
         }
     }
     pub fn instance(&self) -> ComponentInstanceId {
@@ -230,11 +231,11 @@ impl CarrierOrigin {
             (
                 Original::MetadataPool {
                     owner: a,
-                    admitted: aa,
+                    binding: aa,
                 },
                 Original::MetadataPool {
                     owner: b,
-                    admitted: ba,
+                    binding: ba,
                 },
             ) => aa == ba && a.same_owner(b),
             _ => false,
@@ -249,7 +250,9 @@ impl CarrierOrigin {
                     .upgrade()
                     .is_none_or(|slot| slot.cancel.is_cancelled()),
                 Original::Metadata(origin) => origin.is_retired(),
-                Original::MetadataPool { owner, admitted } => !admitted || owner.is_retired(),
+                Original::MetadataPool { owner, binding } => binding
+                    .as_ref()
+                    .is_none_or(|binding| owner.binding_retired(binding)),
             };
             if retired {
                 return true;
@@ -273,11 +276,9 @@ impl CarrierOrigin {
                 Original::Metadata(origin) => waits.push(Box::pin(origin.retired())),
                 Original::MetadataPool {
                     owner,
-                    admitted: true,
-                } => waits.push(Box::pin(owner.retired())),
-                Original::MetadataPool {
-                    admitted: false, ..
-                } => return,
+                    binding: Some(binding),
+                } => waits.push(Box::pin(owner.binding_retired_wait(binding))),
+                Original::MetadataPool { binding: None, .. } => return,
             }
             current = original.parent();
         }

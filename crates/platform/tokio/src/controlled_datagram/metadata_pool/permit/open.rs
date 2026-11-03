@@ -200,6 +200,12 @@ impl MetadataPoolPermit {
             ));
         }
         native.transferred = true;
+        owner
+            .state
+            .lock()
+            .expect("metadata pool poisoned")
+            .last_binding = native.binding.clone();
+        owner.changed.notify_waiters();
         Ok(GrantedMetadataListener {
             scope: bound.scope.clone(),
             rx,

@@ -37,6 +37,7 @@ struct Shared {
     closed: Arc<OnceLock<bool>>,
     confirmed_native: std::sync::atomic::AtomicBool,
     state: Mutex<State>,
+    changed: Arc<tokio::sync::Notify>,
 }
 struct State {
     bound: Option<Arc<binding::Authority>>,
@@ -44,6 +45,10 @@ struct State {
     stopped: bool,
     next: u64,
     slots: BTreeMap<u64, Arc<Slot>>,
+    last_binding: Option<(
+        zero_core::request::Destination,
+        crate::contract::network::UpstreamBinding,
+    )>,
 }
 struct Slot {
     owner: Weak<Shared>,
@@ -106,12 +111,14 @@ impl MetadataPoolOwner {
                 cancel: parent.child_token(),
                 closed: Arc::default(),
                 confirmed_native: std::sync::atomic::AtomicBool::new(false),
+                changed: Arc::default(),
                 state: Mutex::new(State {
                     bound: None,
                     live: false,
                     stopped: false,
                     next: 0,
                     slots: BTreeMap::new(),
+                    last_binding: None,
                 }),
             }),
         })

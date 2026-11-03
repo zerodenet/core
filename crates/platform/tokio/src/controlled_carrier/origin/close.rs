@@ -33,7 +33,7 @@ impl CarrierOriginClosed {
                 ClosedOriginal::MetadataPool(closed),
                 Original::MetadataPool {
                     owner,
-                    admitted: true,
+                    binding: Some(_),
                 },
             ) => closed.matches(owner),
             _ => false,

@@ -56,7 +56,7 @@ async fn selected_metadata_original_requires_pending_io_join_view_return_and_nat
     let peer = peer.local_addr().unwrap();
     let fixture = Fixture::dynamic(destination(peer), vec![], 1).await;
     let egress = Arc::new(zero_platform_tokio::EgressInterfaceControl::default());
-    let selected = candidates(&fixture, peer, egress, Default::default()).await;
+    let selected = candidates(&fixture, peer, egress.clone(), Default::default()).await;
     let (query, release) = fixture.query();
     let permit = fixture.grants.reserve(&query).unwrap();
     let original = permit.origin();
@@ -184,6 +184,39 @@ async fn selected_metadata_original_requires_pending_io_join_view_return_and_nat
         .unwrap_or_else(|_| panic!("actual next original"));
     let receipt = unused.try_closed().unwrap();
     assert!(next
+        .close(Some(&receipt), &fixture.tasks)
+        .unwrap()
+        .had_native_acquisition());
+    let retiring = stable.retired();
+    tokio::pin!(retiring);
+    assert!(futures_util::poll!(retiring.as_mut()).is_pending());
+    let old_binding = stable.selected_binding().unwrap();
+    egress.invalidate_network();
+    let fresh_candidates = candidates(&fixture, peer, egress, Default::default()).await;
+    let fresh = fixture.grants.reserve(&query).unwrap();
+    let (_, grant) = fresh_candidates
+        .open_metadata(0, None, &fresh, &query, end())
+        .unwrap();
+    let fresh_lineage =
+        zero_platform_tokio::controlled_carrier::CarrierOrigin::from_metadata_pool(fresh.origin());
+    assert!(stable.is_retired());
+    assert!(futures_util::poll!(retiring.as_mut()).is_ready());
+    assert!(!stable.same_original(&fresh_lineage));
+    assert_eq!(stable.selected_binding().unwrap(), old_binding);
+    assert_ne!(fresh_lineage.selected_binding().unwrap(), old_binding);
+    assert!(
+        stable.endpoints().is_none(),
+        "historical roots never observe a new network original"
+    );
+    assert!(fresh_lineage
+        .endpoints()
+        .unwrap()
+        .matches_metadata(&fresh.origin()));
+    let unused = grant
+        .return_unstarted()
+        .unwrap_or_else(|_| panic!("actual new network original"));
+    let receipt = unused.try_closed().unwrap();
+    assert!(fresh
         .close(Some(&receipt), &fixture.tasks)
         .unwrap()
         .had_native_acquisition());
