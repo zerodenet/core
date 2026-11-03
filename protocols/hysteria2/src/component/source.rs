@@ -37,7 +37,7 @@ impl ResourceLifecycle for Lifecycle {
     }
     fn revoke(&self, reason: CloseReason) {
         for owner in &self.owners {
-            owner.revoke(reason.clone());
+            owner.revoke(reason);
         }
     }
     async fn shutdown(

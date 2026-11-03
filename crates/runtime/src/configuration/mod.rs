@@ -1,10 +1,12 @@
 //! Configuration resource preparation belongs to runtime ownership, never validation.
 mod compile;
 mod io;
+mod notifications;
 mod rule_sets;
 mod source;
 mod startup;
 pub use compile::{DnsConfigPreparation, RuntimeConfigPreparation};
+pub use notifications::{ConfigurationReconcileChanges, ConfigurationReconcileNotifications};
 pub use source::{
     ConfigurationSource, SourceDisposition, SourcePersistError, SourceWriteObservation,
 };

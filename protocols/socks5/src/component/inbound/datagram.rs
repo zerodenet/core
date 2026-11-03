@@ -255,10 +255,11 @@ struct Input {
     session: Arc<Mutex<Socks5InboundUdpAssociationSession>>,
     cancel: zero_platform_tokio::contract::CancellationToken,
 }
+type PendingInput = BoxFuture<'static, (Input, Result<Option<InboundDatagramEvent>, ChannelError>)>;
+
 pub(super) struct Rx {
     io: Option<Input>,
-    pending:
-        Option<BoxFuture<'static, (Input, Result<Option<InboundDatagramEvent>, ChannelError>)>>,
+    pending: Option<PendingInput>,
     _usage: Use,
 }
 impl DatagramRx<InboundDatagramEvent> for Rx {

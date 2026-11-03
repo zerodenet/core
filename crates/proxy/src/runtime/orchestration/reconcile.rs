@@ -8,9 +8,21 @@ use tracing::warn;
 
 impl OrchestrationState {
     pub(super) async fn reconcile_reload(&mut self, proxy: &Proxy) {
-        let new_snapshot = proxy
-            .pending_configuration_snapshot()
-            .unwrap_or_else(|| proxy.engine.runtime_snapshot());
+        let pending = proxy.pending_configuration_snapshot();
+        // Ready has delivered this candidate's ACK, but the same accepted
+        // operation still owns application readiness and final publication.
+        // A late/coalesced ordinary wake-up cannot replace those resources
+        // with the old committed domain snapshot. Only an explicit pending
+        // operation (including compensation) may reconcile in this interval.
+        if pending.is_none()
+            && !self
+                .applied_snapshot
+                .configuration_publication()
+                .is_committed()
+        {
+            return;
+        }
+        let new_snapshot = pending.unwrap_or_else(|| proxy.engine.runtime_snapshot());
         // Notifications may outlive the rollback that emitted them. Replaying
         // an already applied snapshot after its acknowledgement would consume
         // the DNS candidate still owned by the acknowledged apply transaction.

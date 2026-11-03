@@ -78,14 +78,6 @@ pub(super) fn spawn_request(
 ) -> io::Result<Child> {
     request.command().spawn()
 }
-pub(super) fn spawn(
-    config: &PluginConfig,
-    remote: (&str, u16),
-    local: SocketAddr,
-    server: bool,
-) -> io::Result<Child> {
-    spawn_request(request(config, remote, local, server))
-}
 pub(super) async fn ready_with_probe<Status, Probe, Pending>(
     mut status: Status,
     endpoint: SocketAddr,

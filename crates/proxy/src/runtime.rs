@@ -55,7 +55,6 @@ pub(crate) mod principal_rate_limit;
 #[cfg(feature = "raw-ip-runtime")]
 pub(crate) mod raw_ip;
 mod relay_failure;
-mod reload;
 pub(crate) mod route_runtime;
 mod running;
 pub(crate) mod sniff;

@@ -255,10 +255,10 @@ impl zero_platform_tokio::contract::lifecycle::ResourceLifecycle for PairOwner {
     }
     fn revoke(&self, reason: zero_platform_tokio::contract::CloseReason) {
         if let Some(plugin) = &self.plugin {
-            plugin.revoke(reason.clone());
+            plugin.revoke(reason);
         }
         self.tcp.revoke(reason);
-        self.udp.revoke(reason.clone());
+        self.udp.revoke(reason);
         #[cfg(feature = "blake3")]
         if let Some(replay) = &self.replay {
             replay.revoke(reason);

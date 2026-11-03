@@ -1,7 +1,7 @@
 //! HTTP owns one real message, its body framing and connection continuation.
 use super::connection::Connection;
 use crate::{HttpConnectInbound, HttpForwardCommand};
-use alloc::{vec, vec::Vec};
+use alloc::{boxed::Box, vec, vec::Vec};
 use std::{fmt, io};
 use tokio::sync::oneshot;
 use zero_core::request::RequestFacts;
@@ -133,7 +133,7 @@ async fn transfer(
         _ => None,
     };
     let request_body = if let Some(length) = coalesced_body_length {
-        let mut throttled = RateLimitedSocket::new(client, context.upload_limiter(), &context);
+        let mut throttled = RateLimitedSocket::new(client, context.upload_limiter(), context);
         let body = read_fixed_body(&mut throttled, length).await?;
         if let Some(limiter) = context.upload_limiter() {
             limiter.throttle(request.head().len()).await;
@@ -152,14 +152,14 @@ async fn transfer(
             throttle_and_write(&mut upstream, request.head(), context.upload_limiter()).await?;
             context.record_upload(request.head().len() as u64);
         }
-        let mut throttled = RateLimitedSocket::new(client, context.upload_limiter(), &context);
+        let mut throttled = RateLimitedSocket::new(client, context.upload_limiter(), context);
         crate::relay_http_body(&mut throttled, &mut upstream, request.body()).await?
     };
     context.record_upload_io(request_body.read, request_body.written);
 
     loop {
         let response = {
-            let mut active_upstream = RateLimitedSocket::new(&mut upstream, None, &context);
+            let mut active_upstream = RateLimitedSocket::new(&mut upstream, None, context);
             crate::HttpConnectInbound
                 .accept_response(
                     &mut active_upstream,
@@ -179,7 +179,7 @@ async fn transfer(
 
         let response_body = {
             let mut throttled =
-                RateLimitedSocket::new(&mut upstream, context.download_limiter(), &context);
+                RateLimitedSocket::new(&mut upstream, context.download_limiter(), context);
             if response.chunk_close_delimited() {
                 crate::relay_close_delimited_as_chunked(&mut throttled, client).await?
             } else {
