@@ -276,3 +276,42 @@ async fn hysteria2_original_logical_control_retains_custody_until_actual_views_r
     .await
     .unwrap();
 }
+
+#[tokio::test]
+async fn hysteria2_finite_original_udp_session_capacity_refuses_then_reclaims_actual_registration()
+{
+    use zero_core::{component::AssociationId, request::DatagramTargets, request::Destination};
+    use zero_platform_tokio::contract::{datagram::DatagramRequest, Reason};
+    tokio::time::timeout(Duration::from_secs(30), async {
+        let server = Server::new().await;
+        let proxy = server.proxy();
+        start(&proxy).await;
+        let mut session = Session::new(0, Address::Ipv4([203,0,113,2]), 53, Network::Udp, ProtocolType::new("bounded-udp-test"));
+        proxy.engine().prepare_session(&mut session,"incoming").unwrap();
+        let services=proxy.tcp_runtime_services().for_inbound("incoming".into()).with_business_identity(&session).unwrap().execution();
+        let slot=services.components.as_ref().unwrap().configured("hy").unwrap();
+        let endpoint=Destination::new(Address::Ipv4([127,0,0,1]),server.port);
+        let open=|id| crate::component::stream_bridge::datagram::open(&services,&slot,"hy",endpoint.clone(),DatagramRequest{association:AssociationId(id),targets:DatagramTargets::Multiple});
+        let mut channels=Vec::new();
+        for id in 1..=4096 {channels.push(open(id).await.unwrap().channel);}
+        let error=match open(4097).await {Err(error)=>error,Ok(_)=>panic!("finite dispatcher capacity was bypassed")};
+        assert_eq!(error.reason,Reason::Capacity);
+        assert_eq!(server.authenticated.load(Ordering::SeqCst),1,"capacity pressure cannot evict active original associations or allocate a parallel pool");
+        let first=channels.remove(0);
+        let zero_platform_tokio::contract::datagram::DatagramSession{tx,rx,mut control,..}=first;
+        drop(tx);drop(rx);
+        let report=control.wait_closed(end()).await.unwrap();
+        assert!(report.is_complete());
+        assert_eq!(report.released_resources,vec!["Hysteria2 original UDP logical registration 1"]);
+        let recovered=open(4097).await.unwrap().channel;
+        channels.push(recovered);
+        for channel in channels {
+            let zero_platform_tokio::contract::datagram::DatagramSession{tx,rx,mut control,..}=channel;
+            drop(tx);drop(rx);
+            let report=control.wait_closed(end()).await.unwrap();assert!(report.is_complete());
+            assert_eq!(report.released_resources.len(),1);
+        }
+        assert_eq!(server.authenticated.load(Ordering::SeqCst),1);
+        proxy.protocols.shutdown_components(end()).await.unwrap();server.close().await;
+    }).await.unwrap();
+}
