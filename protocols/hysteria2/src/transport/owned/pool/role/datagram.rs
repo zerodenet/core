@@ -13,7 +13,8 @@ use zero_platform_tokio::contract::{
 mod shared;
 use shared::Shared;
 struct PendingSend {
-    frame: Datagram,
+    target: zero_core::request::Destination,
+    payload: Arc<[u8]>,
     future: BoxFuture<'static, Result<usize, SendFailure>>,
 }
 pub struct Tx {
@@ -87,16 +88,20 @@ impl DatagramTx for Tx {
             return Poll::Ready(Err(reject(Reason::Protocol)));
         }
         if let Some(pending) = &this.pending {
-            if pending.frame != *frame {
+            if pending.target != frame.address || pending.payload.as_ref() != frame.payload.as_ref()
+            {
                 this.shared.stop.cancel();
                 return Poll::Ready(Err(reject(Reason::Protocol)));
             }
         } else {
             let shared = this.shared.clone();
             let target = frame.address.clone();
-            let payload = frame.payload.to_vec();
+            let payload: Arc<[u8]> = frame.payload.as_ref().into();
+            let queued = payload.clone();
+            let selected = target.clone();
             this.pending = Some(PendingSend {
-                frame: frame.clone(),
+                target: selected,
+                payload: queued,
                 future: Box::pin(async move { shared.send(target, payload).await }),
             });
         }

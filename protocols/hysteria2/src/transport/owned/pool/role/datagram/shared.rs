@@ -116,7 +116,7 @@ impl Shared {
     pub(super) async fn send(
         self: &Arc<Self>,
         target: zero_core::request::Destination,
-        payload: Vec<u8>,
+        payload: Arc<[u8]>,
     ) -> Result<usize, SendFailure> {
         let fail =
             |reason| SendFailure::new(error(Stage::Send, reason), DeliveryState::NotSubmitted);
