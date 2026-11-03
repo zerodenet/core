@@ -121,7 +121,7 @@ impl Epoch {
     }
     async fn close_returned(&self, deadline: Instant) -> io::Result<()> {
         let originals = self.originals.lock().unwrap().clone();
-        for original in originals {
+        for original in &originals {
             if original.receipt.lock().unwrap().is_some() {
                 continue;
             }

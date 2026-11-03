@@ -45,6 +45,7 @@ pub struct ResourcePreparation<'a> {
     previous: SharedResourceIdentities,
     candidate: Option<&'a zero_config::RuntimeConfig>,
     source_dir: Option<&'a std::path::Path>,
+    preparation_revision: Option<u64>,
 }
 impl<'a> ResourcePreparation<'a> {
     pub fn new(allocate: &'a mut dyn FnMut() -> Result<ComponentId, BuildError>) -> Self {
@@ -56,6 +57,7 @@ impl<'a> ResourcePreparation<'a> {
             previous: SharedResourceIdentities::default(),
             candidate: None,
             source_dir: None,
+            preparation_revision: None,
         }
     }
 
@@ -77,6 +79,18 @@ impl<'a> ResourcePreparation<'a> {
     }
     pub fn candidate(&self) -> Option<&zero_config::RuntimeConfig> {
         self.candidate
+    }
+
+    /// Catalog-issued revision of this actual retained cold candidate pass.
+    /// It carries no task, native, role or closure authority. Resource factories
+    /// with start-time file material can use it to preserve explicit reloads
+    /// even when the serialized configuration and pathname are unchanged.
+    pub fn preparation_revision(&self) -> Option<u64> {
+        self.preparation_revision
+    }
+    pub(super) fn with_preparation_revision(mut self, revision: u64) -> Self {
+        self.preparation_revision = Some(revision);
+        self
     }
 
     /// Namespace identifies one owning factory/state within this assembly.

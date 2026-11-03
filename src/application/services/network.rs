@@ -45,7 +45,9 @@ impl EventSinkTcpDialer for ApplicationEventSinkTcpDialer {
                 "original event network has not confirmed retirement",
             ));
         }
-        *state = Some(Epoch::new(self.egress.generation()));
+        let retired = state.replace(Epoch::new(self.egress.generation()));
+        drop(state);
+        drop(retired);
         Ok(())
     }
     fn retire_generation(

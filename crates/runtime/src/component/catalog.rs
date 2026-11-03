@@ -97,6 +97,7 @@ impl Current {
 pub struct ComponentCatalog {
     factories: OnceLock<ComponentRegistry<OutboundConfig>>,
     next_id: AtomicU64,
+    next_preparation: AtomicU64,
     #[cfg(feature = "managed-datagram-runtime")]
     next_association: AtomicU64,
     state: Mutex<State>,
@@ -109,6 +110,7 @@ impl Default for ComponentCatalog {
         Self {
             factories: OnceLock::new(),
             next_id: AtomicU64::new(0),
+            next_preparation: AtomicU64::new(0),
             #[cfg(feature = "managed-datagram-runtime")]
             next_association: AtomicU64::new(0),
             state: Mutex::new(State::default()),

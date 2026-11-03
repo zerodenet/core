@@ -113,8 +113,16 @@ impl ComponentCatalog {
         let identities = previous
             .map(|(_, plan)| plan.shared_identities.clone())
             .unwrap_or_default();
-        let mut resources =
-            ResourcePreparation::with_identities(&mut allocate, &identities).with_candidate(config);
+        let revision = self
+            .next_preparation
+            .fetch_update(Ordering::AcqRel, Ordering::Acquire, |last| {
+                last.checked_add(1)
+            })
+            .map_err(|_| invalid(Reason::Internal, "candidate preparation revision exhausted"))?
+            + 1;
+        let mut resources = ResourcePreparation::with_identities(&mut allocate, &identities)
+            .with_candidate(config)
+            .with_preparation_revision(revision);
         let builtin_input = OutboundConfig {
             tag: "direct".into(),
             protocol: OutboundProtocolConfig::Direct,

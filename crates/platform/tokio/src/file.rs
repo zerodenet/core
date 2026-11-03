@@ -23,6 +23,8 @@ pub fn read_regular_file(path: &Path, max_bytes: usize) -> io::Result<Vec<u8>> {
 }
 
 mod native;
+mod original;
+pub use original::{OriginalFile, OriginalFileClosed};
 mod owner;
 pub use owner::{FileNativeEvidence, FileReadEvidence, PendingFileRead};
 use std::sync::Arc;
