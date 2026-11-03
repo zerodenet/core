@@ -80,14 +80,12 @@ impl Epoch {
                 Ok(value) => value,
                 Err(source) => {
                     let unknown = source.stage() != "validate_dial_policy";
+                    let source = Arc::new(source);
                     if unknown {
                         self.faults
                             .lock()
                             .unwrap()
-                            .push(io::Error::other(Arc::new(source)));
-                        return Err(io::Error::other(
-                            "event TCP preparation original disposition unknown",
-                        ));
+                            .push(io::Error::other(source.clone()));
                     }
                     return Err(io::Error::other(source));
                 }
