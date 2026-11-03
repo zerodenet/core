@@ -1,5 +1,7 @@
 # 当前实施状态
 
+2026-11-03 云端接续：C 在单环境协调 A/B 独立 worktree，推进 Config 资源准备与 Engine/宿主事务、Hysteria2 既有出站共池及实际原件收尾。[执行账本](../cloud/execution.md)记录职责和删除边界；精确候选及最终检查以 [PR #127](https://github.com/zerodenet/core/pull/127) 的 C 记录为准。下文是各自精确源码的历史批次，不跨 head 沿用结果，ALL17 / G0–G10 仍未整体完成。
+
 2026-11-03：用户授权将当前本地增量分组保存并推送独立 [云端基线和任务包](../cloud/README.md)，准备两个实现 agent 与一个集成 agent。源码分组与历史验证边界见 [基线清单](../cloud/baseline.json)。本地 develop 不移动；云端不得合入 develop/main，最终候选拉回本地验收。本页各批次的“未提交/未推送”保留当时状态。
 
 版本 v0.0.3，分支 develop。云端 PR #124 的合入点是 `b963c864`；后续本地检查点为 `8acd1cca`。ALL17 / G0–G10 整体尚未完成，普通 Mieru native background 生产登记保持关闭。

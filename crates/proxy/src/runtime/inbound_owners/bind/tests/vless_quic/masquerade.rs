@@ -203,6 +203,10 @@ async fn web(
 ) -> (http_uri::Response<()>, Vec<u8>) {
     web_using(endpoint, address, method, path, headers, body, false, None).await
 }
+#[expect(
+    clippy::too_many_arguments,
+    reason = "the real shared QUIC endpoint, HTTP request and cancellation witness remain explicit per call"
+)]
 async fn web_using(
     endpoint: &quinn::Endpoint,
     address: std::net::SocketAddr,
@@ -306,7 +310,7 @@ async fn h2_origin(io: zero_platform_tokio::contract::stream::BoxStream) {
             .unwrap();
     };
     let drive = async {
-        while let Some(Ok(_)) = connection.accept().await {
+        if let Some(Ok(_)) = connection.accept().await {
             panic!("no second origin request or hidden pool");
         }
     };

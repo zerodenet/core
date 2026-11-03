@@ -2,6 +2,8 @@
 
 ## 2026-11-03 当前修订
 
+本轮 A/B 的当前实现和候选资格按[云端执行账本](../cloud/execution.md)另记。下文 Config/Engine/Hysteria2 未迁的表述属于本轮之前的历史切面；已迁职责不重新列为待办，其余实现缺口仍保留。
+
 全部旧 listener 调用者已迁入标准 factory/source，最后 WireGuard 入站 Packet 和 SS 插件接入也已完成；InboundListenerCapability、PreparedInboundListenerOperation、BoundInbound 及旧执行链整体删除。下文 10 月各批次及表格中的“接入/Packet 标准角色未迁”描述按其历史子范围理解，不重新作为 listener 待办。
 
 当前必须完成的实现域为 Config 资源 I/O 迁出、Engine 宿主准备/持久化职责迁出、其余出站/共享载体标准角色和 Registry 总 leaf 投影收敛、System/detour/池化 DNS 的剩余原始所有权、非入站 Packet/设备/TUN 归属，以及适用资源上限生产配置。G8 投影对账、G9/G10 完整平台/互通/消费者/低资源资格另外记录。TEMP-WG-OUTER-UDP-01 是唯一明确批准的临时例外，未关闭，不扩展为其他路径的豁免。

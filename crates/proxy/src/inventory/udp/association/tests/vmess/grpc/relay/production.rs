@@ -15,7 +15,7 @@ async fn ordinary_vmess_grpc_mux_prefix_uses_one_hosted_original_for_two_real_h2
             true,
             false,
             Box::new(|config| {
-                configure(config, &[pool.node.clone()], false);
+                configure(config, std::slice::from_ref(&pool.node), false);
                 config.runtime.native_mux_max_carriers = Some(2);
             }),
         )
@@ -117,7 +117,7 @@ async fn ordinary_vmess_grpc_mux_prefix_compat_udp_uses_actual_pool_without_bloc
         });
         let (proxy,server)=start_config_mode(false,false,"aes-128-gcm","node",vec![b"shared".to_vec()],1,false,false,
             Box::new(|config| {
-                configure(config,&[pool.node.clone()],false);
+                configure(config,std::slice::from_ref(&pool.node),false);
                 let mut legacy=pool.node.clone();legacy.tag="legacy".into();config.outbounds.push(legacy);
                 for tag in ["pool","legacy"] {
                     config.route.rules.push(serde_json::from_value(serde_json::json!({
