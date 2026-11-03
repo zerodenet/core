@@ -177,23 +177,40 @@ impl Engine {
         &self,
         snapshot: Arc<super::EngineRuntimeSnapshot>,
     ) -> Result<(), EngineError> {
-        if snapshot.config_revision() != self.config_revision() {
+        let mut current = self
+            .runtime_snapshot
+            .write()
+            .expect("runtime snapshot lock poisoned");
+        if snapshot.config_revision() != current.config_revision() {
             return Err(EngineError::InvalidPlan {
                 message: "cannot publish a snapshot across a committed configuration change"
                     .to_owned(),
             });
         }
+        let waiters = if !Arc::ptr_eq(
+            &snapshot.outbound_group_state,
+            &current.outbound_group_state,
+        ) {
+            snapshot.outbound_group_state.reconcile_live_selectors(
+                &snapshot.plan,
+                &current.plan,
+                &current.outbound_group_state,
+            )
+        } else {
+            Vec::new()
+        };
         *self.mode.lock().unwrap_or_else(|error| error.into_inner()) = snapshot.config.mode.clone();
         self.principal_policies
             .replace_from_config(snapshot.config());
         self.event_log
             .set_capacity(snapshot.config.runtime.event_log_capacity);
         let publication = snapshot.publication.clone();
-        *self
-            .runtime_snapshot
-            .write()
-            .expect("runtime snapshot lock poisoned") = snapshot;
+        *current = snapshot;
+        drop(current);
         publication.publish();
+        for waiter in waiters {
+            waiter.wake();
+        }
         self.passive_relay_health.clear();
         Ok(())
     }

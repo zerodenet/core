@@ -145,9 +145,10 @@ impl ProxyHandle {
                 .commit_configuration(prepared.clone(), timeout, persist)
                 .await
             {
-                self.confirm_source_compensation(&previous)
+                let recovery = self
+                    .confirm_source_compensation(&prepared)
                     .map_err(|recovery| format!("{error}; {recovery}"))?;
-                let rollback = self.rollback_proxy_dns_under_guard(previous, timeout).await;
+                let rollback = self.rollback_proxy_dns_under_guard(recovery, timeout).await;
                 let mut message = error;
                 if let Err(error) = rollback {
                     message.push_str(&format!("; proxy rollback failed: {error}"));
@@ -165,13 +166,14 @@ impl ProxyHandle {
                     .commit_configuration(prepared.clone(), timeout, persist)
                     .await
                 {
-                    self.confirm_source_compensation(&previous)
+                    let recovery = self
+                        .confirm_source_compensation(&prepared)
                         .map_err(|recovery| format!("{error}; {recovery}"))?;
                     let proxy_rollback = self
-                        .rollback_proxy_dns_under_guard(previous.clone(), timeout)
+                        .rollback_proxy_dns_under_guard(recovery.clone(), timeout)
                         .await;
                     let app_rollback = if proxy_rollback.is_ok() {
-                        reconciler.reconcile(previous.config().clone()).await
+                        reconciler.reconcile(recovery.config().clone()).await
                     } else {
                         Err("application rollback skipped because proxy rollback failed".to_owned())
                     };
@@ -189,17 +191,18 @@ impl ProxyHandle {
                 Ok(Some(result))
             }
             Err(apply_error) => {
-                self.confirm_source_compensation(&previous)
+                let recovery = self
+                    .confirm_source_compensation(&prepared)
                     .map_err(|recovery| {
                         format!(
                             "application service reconciliation failed: {apply_error}; {recovery}"
                         )
                     })?;
                 let proxy_rollback = self
-                    .rollback_proxy_dns_under_guard(previous.clone(), timeout)
+                    .rollback_proxy_dns_under_guard(recovery.clone(), timeout)
                     .await;
                 let app_rollback = if proxy_rollback.is_ok() {
-                    reconciler.reconcile(previous.config().clone()).await
+                    reconciler.reconcile(recovery.config().clone()).await
                 } else {
                     Err("application rollback skipped because proxy rollback failed".to_owned())
                 };
@@ -274,9 +277,9 @@ impl ProxyHandle {
 
     pub(super) fn confirm_source_compensation(
         &self,
-        previous: &Arc<zero_engine::EngineRuntimeSnapshot>,
-    ) -> Result<(), String> {
-        if !Arc::ptr_eq(&self.proxy.engine.runtime_snapshot(), previous) {
+        candidate: &Arc<zero_engine::EngineRuntimeSnapshot>,
+    ) -> Result<Arc<zero_engine::EngineRuntimeSnapshot>, String> {
+        if candidate.configuration_publication().is_committed() {
             return Err("configuration was already committed; query current state; resource rollback was not attempted".to_owned());
         }
         self.proxy
@@ -287,7 +290,8 @@ impl ProxyHandle {
                 format!(
                     "source recovery remains unconfirmed: {error}; resource recovery is blocked"
                 )
-            })
+            })?;
+        Ok(self.proxy.engine.runtime_snapshot())
     }
 
     pub(super) async fn retire_prepared_dns(

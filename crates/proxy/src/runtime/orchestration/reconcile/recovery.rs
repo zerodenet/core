@@ -20,10 +20,16 @@ impl OrchestrationState {
         let mut can_restore = retired.is_ok();
         self.pending_dns_reload = None;
         proxy.resolver.discard_prepared_reload();
-        let previous = proxy
-            .pending_reload_snapshot(rejected)
-            .unwrap_or_else(|| self.applied_snapshot.clone());
-        let rollback = proxy.engine.restore_staged_snapshot(previous, false);
+        let previous = if !rejected.configuration_publication().is_committed() {
+            proxy.engine.runtime_snapshot()
+        } else {
+            proxy
+                .pending_reload_snapshot(rejected)
+                .unwrap_or_else(|| self.applied_snapshot.clone())
+        };
+        let rollback = proxy
+            .engine
+            .restore_staged_snapshot(previous.clone(), false);
         let mut acknowledgement = message;
         if let Err(error) = retired {
             acknowledgement.push_str(&format!("; candidate cleanup remains unconfirmed: {error}"));
@@ -57,6 +63,7 @@ impl OrchestrationState {
                 acknowledgement.push_str(&format!("; TUN rollback failed: {error}"));
             }
         }
+        self.applied_snapshot = previous;
         let previous_config = self.applied_snapshot.config().clone();
         if can_restore {
             if let Err(error) = proxy

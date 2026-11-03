@@ -9,6 +9,7 @@ use super::{ConfigApplyReconciler, ConfigReconcileResult, ProxyHandle};
 use crate::runtime::Proxy;
 mod owned;
 mod persistence;
+mod policy;
 
 struct RejectChangedFakeIpPool {
     calls: Mutex<Vec<String>>,

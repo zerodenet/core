@@ -222,11 +222,12 @@ impl ProxyHandle {
             // The candidate resolver is staged until application reconciliation
             // succeeds. Release that stage before preparing the old config.
             self.proxy.resolver.discard_prepared_reload();
-            self.confirm_source_compensation(&previous)
+            let recovery = self
+                .confirm_source_compensation(&candidate)
                 .map_err(|recovery| {
                     ApiError::new(error.code, format!("{}; {recovery}", error.message))
                 })?;
-            let rollback = self.apply_endpoint_snapshot(previous.clone(), true).await;
+            let rollback = self.apply_endpoint_snapshot(recovery, true).await;
             self.proxy.resolver.discard_prepared_reload();
             self.proxy.engine.record_endpoint_runtime_error(
                 &id,
