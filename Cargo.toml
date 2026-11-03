@@ -131,6 +131,7 @@ ureq = { version = "2", default-features = false, features = ["tls"] }
 zero-api = { path = "crates/api" }
 zero-config = { path = "crates/config" }
 zero-core = { path = "crates/core" }
+zero-traits = { path = "crates/traits" }
 zero-engine = { path = "crates/engine", default-features = false }
 zero-logging = { path = "crates/logging" }
 zero-platform-tokio = { path = "crates/platform/tokio", optional = true }

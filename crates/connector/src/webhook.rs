@@ -16,7 +16,7 @@ use hyper::rt::{Read, ReadBufCursor, Write};
 use hyper_rustls::{HttpsConnector, HttpsConnectorBuilder};
 use hyper_util::client::legacy::connect::{Connected, Connection};
 use hyper_util::client::legacy::Client;
-use hyper_util::rt::{TokioExecutor, TokioIo};
+use hyper_util::rt::TokioIo;
 use tower_service::Service;
 use zero_api::{ApiError, ApiErrorCode, ApiResult, PublishResult, RawApiEvent};
 
@@ -68,6 +68,7 @@ pub(crate) struct WebhookEventSink {
     uri: Uri,
     headers: HeaderMap,
     timeout: Duration,
+    dialer: Arc<dyn EventSinkTcpDialer>,
 }
 
 impl std::fmt::Debug for WebhookEventSink {
@@ -93,13 +94,15 @@ impl WebhookEventSink {
             .https_or_http()
             .enable_http1()
             .wrap_connector(EgressHttpConnector::new(network.dialer()));
-        let client = Client::builder(TokioExecutor::new()).build(connector);
+        let dialer = network.dialer();
+        let client = Client::builder(EventExecutor(dialer.clone())).build(connector);
 
         Ok(Self {
             client,
             uri,
             headers,
             timeout: config.timeout,
+            dialer,
         })
     }
 
@@ -125,32 +128,73 @@ impl AsyncDeliverySink for WebhookEventSink {
             Err(error) => return Ok(request_failure(error)),
         };
 
-        match tokio::time::timeout(self.timeout, self.client.request(request)).await {
-            Ok(Ok(response)) => {
-                let status = response.status();
-                if status.is_success() {
-                    Ok(PublishResult::delivered())
-                } else {
-                    Ok(PublishResult {
-                        delivered: false,
-                        retryable: is_retryable_status(status),
-                        message: Some(format!("webhook returned HTTP {}", status.as_u16())),
-                    })
+        let deadline = tokio::time::Instant::now() + self.timeout;
+        if let Err(error) = self.dialer.prepare_request(deadline).await {
+            return Ok(request_failure(format!(
+                "webhook network preparation: {error}"
+            )));
+        }
+        let client = self.client.clone();
+        let timeout = self.timeout;
+        let (mut result_tx, result_rx) = tokio::sync::oneshot::channel();
+        let task = Box::pin(async move {
+            let request = async move {
+                match tokio::time::timeout_at(deadline, client.request(request)).await {
+                    Ok(Ok(response)) => {
+                        let status = response.status();
+                        if status.is_success() {
+                            Ok(PublishResult::delivered())
+                        } else {
+                            Ok(PublishResult {
+                                delivered: false,
+                                retryable: is_retryable_status(status),
+                                message: Some(format!("webhook returned HTTP {}", status.as_u16())),
+                            })
+                        }
+                    }
+                    Ok(Err(error)) => Ok(request_failure(format_error_chain(
+                        "webhook request failed",
+                        &error,
+                    ))),
+                    Err(_) => Ok(request_failure(format!(
+                        "webhook request failed: request timed out after {} ms",
+                        timeout.as_millis()
+                    ))),
                 }
+            };
+            tokio::select! {
+                biased;
+                _ = result_tx.closed() => {},
+                result = request => { let _ = result_tx.send(result); }
             }
-            Ok(Err(error)) => Ok(request_failure(format_error_chain(
-                "webhook request failed",
-                &error,
-            ))),
-            Err(_) => Ok(request_failure(format!(
-                "webhook request failed: request timed out after {} ms",
-                self.timeout.as_millis()
-            ))),
+        });
+        if let Err(error) = self.dialer.spawn_event_task(task) {
+            return Ok(request_failure(format!("webhook task admission: {error}")));
+        }
+        tokio::select! {
+            result = result_rx => result.unwrap_or_else(|_| Ok(request_failure("webhook owned request stopped"))),
+            _ = self.dialer.drive_event_tasks() => Ok(request_failure("webhook task supervisor stopped")),
         }
     }
 
     fn supports_cancellation(&self) -> bool {
         true
+    }
+}
+
+#[derive(Clone)]
+struct EventExecutor(Arc<dyn EventSinkTcpDialer>);
+impl<F> hyper::rt::Executor<F> for EventExecutor
+where
+    F: Future + Send + 'static,
+    F::Output: Send + 'static,
+{
+    fn execute(&self, future: F) {
+        if let Err(error) = self.0.spawn_event_task(Box::pin(async move {
+            let _ = future.await;
+        })) {
+            tracing::warn!(%error, "webhook HTTP driver admission rejected");
+        }
     }
 }
 
