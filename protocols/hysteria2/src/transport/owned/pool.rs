@@ -39,6 +39,7 @@ pub struct PoolOptions {
     profiles: Arc<[PoolProfile]>,
     identity: Arc<[u8]>,
     prepared_clients: Arc<OnceLock<Arc<[quinn::ClientConfig]>>>,
+    prepared_ca: Option<material::PreparedCa>,
 }
 impl Pool {
     pub fn options(
@@ -51,6 +52,7 @@ impl Pool {
             profiles: profiles.into(),
             identity,
             prepared_clients: Arc::new(OnceLock::new()),
+            prepared_ca: None,
         }
     }
 }
@@ -94,15 +96,17 @@ impl ComponentFactory for PoolFactory {
                 max_origins: n(256),
             })
             .collect::<Vec<_>>();
-        let files = options
-            .profiles
-            .iter()
-            .filter_map(|profile| profile.leaf.node.ca_cert_path())
-            .collect::<std::collections::BTreeSet<_>>();
-        resources.extend(files.into_iter().map(|path| ResourceDeclaration::File {
-            path,
-            max_bytes: 16 * 1024 * 1024,
-        }));
+        if options.prepared_ca.is_none() {
+            let files = options
+                .profiles
+                .iter()
+                .filter_map(|profile| profile.leaf.node.ca_cert_path())
+                .collect::<std::collections::BTreeSet<_>>();
+            resources.extend(files.into_iter().map(|path| ResourceDeclaration::File {
+                path,
+                max_bytes: 16 * 1024 * 1024,
+            }));
+        }
         ComponentSpec {
             owner: ResourceOwner::Endpoint("hysteria2.authenticated_pool".into()),
             roles: vec![],
@@ -160,6 +164,7 @@ impl PoolFactory {
             failures: Mutex::new(Vec::new()),
             maintenance: Mutex::new(None),
             clients: options.prepared_clients.clone(),
+            prepared_ca: options.prepared_ca.clone(),
         });
         Ok(ComponentInstance {
             roles: Default::default(),
@@ -189,6 +194,7 @@ pub(super) struct Generation {
     failures: Mutex<Vec<ledger::FailedGroup>>,
     maintenance: Mutex<Option<TaskJoinWitness>>,
     clients: Arc<OnceLock<Arc<[quinn::ClientConfig]>>>,
+    prepared_ca: Option<material::PreparedCa>,
 }
 #[derive(Clone, PartialEq, Eq, Hash)]
 struct Key {
@@ -281,3 +287,5 @@ mod maintain;
 
 mod ledger;
 mod owner;
+
+mod material;

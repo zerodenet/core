@@ -92,7 +92,20 @@ impl Server {
                         }}=>{},
                         _=async {while let Ok(Some((_,mut stream)))=InboundStreamMultiplexer::accept_next_tcp_stream(&connection).await {
                             let response=InboundStreamMultiplexer::response_protocol(&connection);
-                            streams.spawn(async move {response.send_ok(&mut stream).await.unwrap();let mut bytes=[0;4];stream.read_exact(&mut bytes).await.unwrap();assert_eq!(&bytes,b"ping");stream.write_all(&bytes).await.unwrap();stream.shutdown().await.unwrap();});
+                            streams.spawn(async move {
+                                response.send_ok(&mut stream).await.unwrap();
+                                let mut bytes=[0;4];
+                                loop {
+                                    match stream.read(&mut bytes[..1]).await {
+                                        Ok(0) | Err(_) => break,
+                                        Ok(1) => {},
+                                        Ok(_) => unreachable!(),
+                                    }
+                                    stream.read_exact(&mut bytes[1..]).await.unwrap();
+                                    assert_eq!(&bytes,b"ping");
+                                    if stream.write_all(&bytes).await.is_err() {break;}
+                                }
+                            });
                         }}=>{},
                     }
                     raw.close(0u32.into(),b"test peer complete");while let Some(joined)=streams.join_next().await {joined.unwrap();}

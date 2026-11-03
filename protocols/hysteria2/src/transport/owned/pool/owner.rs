@@ -31,22 +31,43 @@ impl ResourceLifecycle for Owner {
             return Err(error(Stage::Prepare, Reason::StalePlan));
         }
         if self.generation.clients.get().is_none() {
+            let prepared = self
+                .generation
+                .prepared_ca
+                .as_ref()
+                .map(|storage| {
+                    storage
+                        .lock()
+                        .unwrap()
+                        .clone()
+                        .ok_or_else(|| error(Stage::Prepare, Reason::Revoked))
+                })
+                .transpose()?;
             let mut clients = Vec::new();
-            for profile in self.generation.profiles.iter() {
-                let material = match profile.leaf.node.ca_cert_path() {
-                    Some(path) => Some(self.resources.read_file(path, 16 * 1024 * 1024).await?),
-                    None => None,
+            for (index, profile) in self.generation.profiles.iter().enumerate() {
+                let material = match &prepared {
+                    Some(materials) => materials[index].clone(),
+                    None => match profile.ca_cert_path() {
+                        Some(path) => Some(Arc::<[u8]>::from(
+                            self.resources.read_file(path, 16 * 1024 * 1024).await?,
+                        )),
+                        None => None,
+                    },
                 };
                 clients.push(profile.client_config(material.as_deref())?);
             }
             // The actual cold recipe owns this write-once crypto capsule.
-            // A new preparation pass owns another capsule. Restoring this old
+            // A changed material identity owns another capsule. Restoring this old
             // recipe after a failed candidate reuses its last-good material;
             // it never reopens a changed path or retains any original I/O.
             self.generation
                 .clients
                 .set(clients.into())
                 .map_err(|_| error(Stage::Prepare, Reason::Revoked))?;
+            drop(prepared);
+            if let Some(storage) = &self.generation.prepared_ca {
+                drop(storage.lock().unwrap().take());
+            }
         }
         for owner in &self.generation.metadata {
             owner.start()?;

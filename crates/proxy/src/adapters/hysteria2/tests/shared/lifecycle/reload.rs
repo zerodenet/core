@@ -12,7 +12,7 @@ use zero_platform_tokio::{
     controlled_datagram::metadata_pool::MetadataPoolOrigin,
 };
 
-fn config(server: &Server, ca: Option<&std::path::Path>) -> RuntimeConfig {
+pub(super) fn config(server: &Server, ca: Option<&std::path::Path>) -> RuntimeConfig {
     let mut protocol = serde_json::json!({
         "type":"hysteria2", "server":"127.0.0.1", "server_name":"localhost",
         "port":server.port, "password":"p", "insecure":ca.is_none()
@@ -30,7 +30,7 @@ fn config(server: &Server, ca: Option<&std::path::Path>) -> RuntimeConfig {
     .unwrap()
 }
 
-async fn running(config: RuntimeConfig) -> (Proxy, crate::RunningProxy, ProxyHandle) {
+pub(super) async fn running(config: RuntimeConfig) -> (Proxy, crate::RunningProxy, ProxyHandle) {
     let proxy = Proxy::new(config.clone()).unwrap();
     let running = proxy.spawn();
     let handle = ProxyHandle::new(
@@ -45,7 +45,7 @@ async fn running(config: RuntimeConfig) -> (Proxy, crate::RunningProxy, ProxyHan
     (proxy, running, handle)
 }
 
-async fn loan(proxy: &Proxy, association: u64) -> DatagramLoan {
+pub(super) async fn loan(proxy: &Proxy, association: u64) -> DatagramLoan {
     let services = proxy.tcp_runtime_services().execution();
     let slot = services
         .components
@@ -94,7 +94,7 @@ async fn loan(proxy: &Proxy, association: u64) -> DatagramLoan {
     loan
 }
 
-fn original(root: &CarrierOrigin) -> MetadataPoolOrigin {
+pub(super) fn original(root: &CarrierOrigin) -> MetadataPoolOrigin {
     match root.owner() {
         CarrierOriginOwner::Metadata(owner) => owner.current_original().unwrap(),
         _ => panic!("the actual HY2 metadata owner is required"),

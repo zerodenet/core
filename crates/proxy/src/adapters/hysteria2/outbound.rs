@@ -59,7 +59,7 @@ impl Hysteria2Adapter {
         let config = resources
             .candidate()
             .ok_or_else(|| options_error("complete Hysteria2 candidate is required"))?;
-        let preparation_revision = resources
+        let _preparation_revision = resources
             .preparation_revision()
             .ok_or_else(|| options_error("actual Hysteria2 preparation revision is required"))?;
         let profiles = config
@@ -83,7 +83,7 @@ impl Hysteria2Adapter {
                             factory.network.egress.generation(),
                         ),
                     },
-                    identity(&bytes),
+                    identity(&bytes, &[]),
                 )
                 .expect("selected Hysteria2 protocol")
                 .with_source_dir(resources.source_dir()))
@@ -95,7 +95,29 @@ impl Hysteria2Adapter {
             .ok_or_else(|| options_error("expected Hysteria2 outbound profile"))?;
         let mut bytes = Vec::new();
         bytes.extend((Arc::as_ptr(&self.outbound_pool) as usize).to_le_bytes());
-        bytes.extend(preparation_revision.to_le_bytes());
+        let mut files = std::collections::BTreeMap::new();
+        let mut materials = Vec::with_capacity(profiles.len());
+        for profile in &profiles {
+            let material = match profile.ca_cert_path() {
+                Some(path) => {
+                    if !files.contains_key(&path) {
+                        let bytes = zero_runtime::configuration::ConfigurationSource::read_preparation_file(
+                            &path, 16 * 1024 * 1024,
+                        ).map_err(|source| RegistrationError::Planning(
+                            zero_platform_tokio::contract::ChannelError::new(
+                                zero_platform_tokio::contract::Stage::Prepare,
+                                zero_platform_tokio::contract::Reason::Io,
+                                zero_platform_tokio::contract::Impact::Component,
+                            ).with_source(source)
+                        ))?;
+                        files.insert(path.clone(), Arc::<[u8]>::from(bytes));
+                    }
+                    Some(files[&path].clone())
+                }
+                None => None,
+            };
+            materials.push(material);
+        }
         for outbound in &config.outbounds {
             if matches!(&outbound.protocol, OutboundProtocolConfig::Hysteria2 { .. }) {
                 bytes.extend(serde_json::to_vec(outbound).map_err(options_error)?);
@@ -104,18 +126,34 @@ impl Hysteria2Adapter {
         if let Some(source) = resources.source_dir() {
             bytes.extend(source.as_os_str().as_encoded_bytes());
         }
-        let options = Arc::new(self.outbound_pool.options(profiles, identity(&bytes)));
+        let options = Arc::new(
+            self.outbound_pool
+                .options(profiles, identity(&bytes, &materials))
+                .with_prepared_ca(materials)
+                .map_err(RegistrationError::Planning)?,
+        );
         let owner = resources.share("hysteria2.authenticated_pool", factory, options.clone())?;
         Ok(options.bind(index, owner))
     }
 }
-fn identity(bytes: &[u8]) -> Arc<[u8]> {
+fn identity(bytes: &[u8], materials: &[Option<Arc<[u8]>>]) -> Arc<[u8]> {
     static KEYS: OnceLock<[RandomState; 2]> = OnceLock::new();
     KEYS.get_or_init(|| [RandomState::new(), RandomState::new()])
         .iter()
         .flat_map(|key| {
             let mut hash = key.build_hasher();
+            hash.write(&(bytes.len() as u64).to_le_bytes());
             hash.write(bytes);
+            for material in materials {
+                match material {
+                    Some(material) => {
+                        hash.write(&[1]);
+                        hash.write(&(material.len() as u64).to_le_bytes());
+                        hash.write(material);
+                    }
+                    None => hash.write(&[0]),
+                }
+            }
             hash.finish().to_le_bytes()
         })
         .collect::<Vec<_>>()

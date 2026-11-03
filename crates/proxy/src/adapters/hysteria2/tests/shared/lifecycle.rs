@@ -335,9 +335,9 @@ async fn hysteria2_invalid_ca_start_keeps_actual_registered_metadata_cleanup_con
         let failed=proxy.protocols.start_components(config,end()).await.unwrap_err();
         let error=crate::transport::channel_failure(&failed).expect("actual material preparation failure");
         assert_eq!((error.stage,error.reason),(zero_platform_tokio::contract::Stage::Prepare,zero_platform_tokio::contract::Reason::InvalidConfig));
-        // Host confirmation still requires the actual bound pool owners'
-        // no-acquisition receipts and the separately acquired original File.
-        // Missing metadata registration would leave that declaration Unknown.
+        // Cold preparation already confirmed its actual original CA File.
+        // Failed start still owes the actual bound pool owners' original
+        // no-acquisition receipts; missing registration would remain Unknown.
         proxy.protocols.shutdown_components(end()).await.unwrap();
     }).await.unwrap();
 }
@@ -347,3 +347,5 @@ mod hop;
 mod pending;
 #[path = "lifecycle/reload.rs"]
 mod reload;
+#[path = "lifecycle/unchanged.rs"]
+mod unchanged;

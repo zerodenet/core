@@ -60,6 +60,9 @@ impl PoolProfile {
         self.leaf.node.ca_cert_path = path.map(ToOwned::to_owned);
         self
     }
+    pub fn ca_cert_path(&self) -> Option<std::path::PathBuf> {
+        self.leaf.node.ca_cert_path()
+    }
     pub fn with_tls_options(mut self, options: zero_traits::ClientTlsOptions) -> Self {
         self.leaf.node.tls_options = options;
         self
