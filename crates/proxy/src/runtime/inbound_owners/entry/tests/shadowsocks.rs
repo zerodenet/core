@@ -10,8 +10,8 @@ use zero_traits::DatagramCodec;
 async fn standard_native_source_confirms_originals_before_replacement_and_closes_real_tcp_udp() {
     tokio::time::timeout(Duration::from_secs(20), async {
         let _ = rustls::crypto::aws_lc_rs::default_provider().install_default();
-        let reservation = TcpListener::bind("127.0.0.1:0").await.unwrap();
-        let endpoint = reservation.local_addr().unwrap();
+        let reservation = crate::socket_fixture::tcp_udp();
+        let endpoint = reservation.0.local_addr().unwrap();
         let config = zero_config::RuntimeConfig::parse(&serde_json::json!({
             "inbounds":[{"tag":"ss-native", "listen":{"address":"127.0.0.1","port":endpoint.port()},
                 "protocol":{"type":"shadowsocks","cipher":"aes-128-gcm","users":[{"password":"native-user","principal_key":"native-principal","policy_revision":7}]}}],
@@ -43,8 +43,8 @@ async fn standard_native_source_confirms_originals_before_replacement_and_closes
         let recv = target.recv_from(&mut bytes); tokio::pin!(recv);
         std::future::poll_fn(|cx| { assert!(std::future::Future::poll(recv.as_mut(),cx).is_pending()); std::task::Poll::Ready(()) }).await;
         assert!(original.terminal().is_none());
-        let reserved = TcpListener::bind("127.0.0.1:0").await.unwrap();
-        let replacement = reserved.local_addr().unwrap();
+        let reserved = crate::socket_fixture::tcp_udp();
+        let replacement = reserved.0.local_addr().unwrap();
         let mut candidate = (*proxy.engine().config()).clone();
         candidate.inbounds[0].listen.port = replacement.port();
         let handle = crate::ProxyHandle::new(zero_engine::EngineHandle::new(proxy.engine().clone()), proxy.clone());
@@ -90,8 +90,8 @@ async fn sip003_inbound_keeps_actual_compatibility_process_and_tcp_udp_while_nat
         let material = tempfile::tempdir().unwrap();
         let record = material.path().join("child.json");
         let script = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../protocols/shadowsocks/tests/support/sip003.py");
-        let reserved = TcpListener::bind("127.0.0.1:0").await.unwrap();
-        let endpoint = reserved.local_addr().unwrap();
+        let reserved = crate::socket_fixture::tcp_udp();
+        let endpoint = reserved.0.local_addr().unwrap();
         let config = zero_config::RuntimeConfig::parse(&serde_json::json!({
             "inbounds":[{"tag":"ss-plugin", "listen":{"address":"127.0.0.1","port":endpoint.port()},
                 "protocol":{"type":"shadowsocks","cipher":"aes-128-gcm","password":"plugin-user",
