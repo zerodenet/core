@@ -9,6 +9,7 @@ pub(crate) struct MetadataCandidate<'a> {
     pub binding: &'a UpstreamBinding,
     pub endpoint: &'a Destination,
     pub peer: SocketAddr,
+    pub dns_generation: Option<crate::contract::dns::DnsGeneration>,
     pub egress: &'a crate::EgressInterfaceControl,
     pub observer: Option<Arc<dyn zero_traits::IoObserver>>,
 }
@@ -60,6 +61,7 @@ impl MetadataPoolPermit {
                 binding: &binding,
                 endpoint: &endpoint_fact,
                 peer: *endpoint,
+                dns_generation: None,
                 egress,
                 observer: None,
             },
@@ -184,7 +186,11 @@ impl MetadataPoolPermit {
             })?,
             target.peer,
         ));
-        native.binding = Some((target.endpoint.clone(), target.binding.clone()));
+        native.binding = Some((
+            target.endpoint.clone(),
+            target.binding.clone(),
+            target.dns_generation,
+        ));
         bound.check(&owner, query)?;
         validate()?;
         if tokio::time::Instant::now() >= end {
