@@ -55,9 +55,7 @@ async fn actual_fixed_direct_handler_keeps_source_join_and_native_close_separate
         let (definition, listener, installed) = promote_tcp(lease.finish().unwrap());
         let owner = installed.owner();
         let address = listener.local_addr().unwrap();
-        let recipe = definition else {
-            panic!("Direct TCP selected its standard factory");
-        };
+        let recipe = definition;
         let limit = match recipe.spec().resources[0] {
             ResourceDeclaration::TcpListener {
                 accepted: Some(limits),
