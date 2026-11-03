@@ -24,7 +24,7 @@ struct State {
     native: Option<crate::quic::owned::HostedMetadataSocket>,
     graph: Option<Graph>,
     receiver: Option<Receiver>,
-    completion: Option<users::MetadataUsersCompletion<(DriverKind, u8), Option<Arc<io::Error>>>>,
+    completion: Option<DriverCompletion>,
     unstarted: Option<users::UnstartedMetadataCompletion>,
     rejected: Option<GrantedMetadataListener>,
     stops: Vec<(u8, CancellationToken)>,
@@ -32,6 +32,8 @@ struct State {
     peers: HashMap<SocketAddr, mpsc::Sender<Vec<u8>>>,
     buffer: Vec<u8>,
 }
+type DriverCompletion = users::MetadataUsersCompletion<(DriverKind, u8), Option<Arc<io::Error>>>;
+
 pub struct Lifecycle {
     state: Arc<Mutex<State>>,
     resources: Arc<dyn ResourceAccess>,
@@ -48,6 +50,10 @@ pub struct Source<Make> {
     peers: NonZeroUsize,
     packets: NonZeroUsize,
 }
+#[expect(
+    clippy::too_many_arguments,
+    reason = "existing concrete source keeps original resources, task scope and handshake inputs explicit"
+)]
 pub fn source<H: InboundHandshake, Make: Fn(Peer) -> H + Send + 'static>(
     request: MetadataDatagramRequest,
     masks: Vec<Mask>,

@@ -91,7 +91,7 @@ where
                 }
             }
         })
-        .map_err(|error| io::Error::other(error))?;
+        .map_err(io::Error::other)?;
     Ok(ScopedH2Stream {
         recv: request.into_body(),
         send,
