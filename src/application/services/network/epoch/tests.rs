@@ -117,7 +117,7 @@ async fn actual_webhook_http_drivers_join_before_the_same_original_native_close(
         &serde_json::json!({
             "route":{"final":{"type":"direct"}},
             "api":{"event_sinks":[{"type":"webhook","tag":"actual-http",
-                "url":format!("http://{address}/events"),"events":["engine.warning"]}]}
+                "url":format!("http://{address}/events"),"allow_insecure":true,"events":["engine.warning"]}]}
         })
         .to_string(),
     )

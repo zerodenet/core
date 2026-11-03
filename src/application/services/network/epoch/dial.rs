@@ -76,7 +76,7 @@ impl Epoch {
                     "event native connection capacity exhausted",
                 ));
             }
-            let selection = egress.select_for_peer(peer);
+            let selection = egress.select_for_peer_with_policy(peer, &DialPolicy::default())?;
             selection.ensure_connectable()?;
             if selection.generation() != self.generation || egress.generation() != self.generation {
                 return Err(io::Error::other("event dial network generation retired"));
