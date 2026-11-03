@@ -9,8 +9,9 @@ fn end() -> Instant {
 async fn connected(epoch: &Arc<Epoch>) -> (Box<dyn EventSinkTcpStream>, tokio::net::TcpStream) {
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let peer = listener.local_addr().unwrap();
+    let egress = EgressInterfaceControl::default();
     let stream = tokio::select! {
-        result=epoch.connect(peer,&EgressInterfaceControl::default(),end()) => result.unwrap(),
+        result=epoch.connect(peer,&egress,end()) => result.unwrap(),
         _=epoch.drive()=>panic!("original scope unexpectedly ended"),
     };
     (stream, listener.accept().await.unwrap().0)
