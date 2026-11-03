@@ -71,3 +71,5 @@ Config 的 `compile` / `rule_sets` 资源运行准备迁到 `zero-runtime::confi
 Hysteria2 的根出站和既有 first-Datagram 路径通过实际标准角色消费一个协议池，root 私有 TCP/UDP 及无调用者的 SessionTcpHandshake/SessionTcpConnectOperation 桥删除。协议库既有公开 standalone API 保留原有范围，不能作为 root 生产回退或完整宿主资格。通用 QUIC 包队列保留原始 ECN、源/目的地址、GSO/GRO 与 PMTU 能力事实。
 
 V1 配置/API/events、CLI、FFI ABI 和协议上游版本未调整。原始错误、投递信封、最终 ACK 与源文件恢复边界保持；GUI/面板真实组合和各平台资格仍须用最终候选本地验证，不能用编译或历史结果代替。此记录不关闭 TEMP-WG-OUTER-UDP-01 或其他原方案职责域。
+
+Rust `MessageTransfer::Upgraded.upstream` 改为 `Box<TcpRelayStream>`，降低常见 Complete 值的枚举体积；构造方显式装箱，消费方继续使用同一个实际流，原始 I/O 所有权和 V1 wire 不变。TCP source 的 `next` 实现改用等价 async fn；有限原件计数使用溢出检查 CAS，兼容旧 Rust 并避免 1.99 的原方法弃用。

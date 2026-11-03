@@ -96,7 +96,7 @@ impl MessageReply for ForwardReply {
                     TransferOutcome::Upgraded(upstream) => {
                         return Ok(MessageTransfer::Upgraded {
                             inbound: self.client.into_relay(),
-                            upstream,
+                            upstream: Box::new(upstream),
                         })
                     }
                 }

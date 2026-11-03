@@ -26,7 +26,7 @@ pub enum MessageTransfer {
     Complete,
     Upgraded {
         inbound: TcpRelayStream,
-        upstream: TcpRelayStream,
+        upstream: Box<TcpRelayStream>,
     },
 }
 
