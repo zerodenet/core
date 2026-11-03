@@ -61,6 +61,12 @@ pub struct CarrierCandidates {
     pub(super) resolver: Option<(Arc<dyn DnsService>, DnsGeneration)>,
 }
 impl CarrierCandidates {
+    /// Current host-selected address observation only. This cannot acquire
+    /// native I/O, alter the declared domain or bypass the selected prefix.
+    pub fn peer(&self, index: usize) -> Option<SocketAddr> {
+        self.opener(index).ok()?;
+        self.peers.get(index).copied()
+    }
     /// Acquire ancillary originals through the same actual host-selected Node
     /// candidates. A port override is accepted only by the original explicit
     /// rotation declaration, never by changing the retained domain authority.
