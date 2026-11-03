@@ -102,7 +102,10 @@ fn failed_real_connect_is_fail_open_but_its_acquired_socket_still_closes() {
         ["ipc_hook_unreachable"]
     );
     hook.retire().unwrap();
-    hook.on_flow_start(&context()).unwrap(); // retired callback cannot construct another original
+    assert_eq!(
+        hook.on_flow_start(&context()).unwrap_err().code,
+        "hook_retired"
+    ); // stopped admission, no new original
     assert_eq!(hook.original.observation(), (1, 0, false, false));
 }
 
@@ -187,4 +190,36 @@ fn a_confirmed_actual_deny_survives_an_independent_cleanup_diagnostic_failure() 
     assert_eq!(decision.code, "confirmed-deny");
     assert_eq!(decision.message, "keep decision");
     hook.retire().unwrap();
+}
+
+#[test]
+fn callback_admitted_before_retirement_but_without_io_is_stopped_without_new_native_acquisition() {
+    let directory = tempfile::tempdir().unwrap();
+    let path = directory.path().join("no-new-original.sock");
+    let hook = Arc::new(IpcFlowHook::new(
+        path.display().to_string(),
+        Duration::from_millis(100),
+    ));
+    let callback = hook.original.callback().unwrap();
+    let retired = hook.clone();
+    let retirement = std::thread::spawn(move || retired.retire());
+    let deadline = std::time::Instant::now() + Duration::from_secs(3);
+    while !hook.is_retired() {
+        assert!(std::time::Instant::now() < deadline);
+        std::thread::yield_now();
+    }
+    let actual = hook.send_recv(&serde_json::json!({"type":"check_flow"}));
+    assert!(actual.admission_stopped);
+    assert_eq!(
+        hook.resolve_start_call(actual).unwrap_err().code,
+        "hook_retired"
+    );
+    assert_eq!(hook.original.observation(), (0, 0, false, false));
+    drop(callback); // actual admitted synchronous borrow returned
+    retirement.join().unwrap().unwrap();
+    assert_eq!(
+        hook.on_flow_start(&context()).unwrap_err().code,
+        "hook_retired"
+    );
+    assert_eq!(hook.original.observation(), (0, 0, false, false));
 }

@@ -12,6 +12,10 @@ impl ApplicationServices {
     pub(in crate::application) async fn shutdown_dispatcher(&self) -> Result<(), String> {
         let mut state = self.state.lock().await;
         let hooks = self.retire_hooks(&mut state);
+        // The fenced callbacks have returned; retained concrete state still
+        // owns every unresolved original. Uninstall the application chain to
+        // release its Engine warning-handler cycle during final shutdown.
+        self.engine.replace_flow_hook_chain(None);
         #[cfg(feature = "event-dispatcher")]
         {
             if let Some(dispatcher) = state.dispatcher.as_mut() {

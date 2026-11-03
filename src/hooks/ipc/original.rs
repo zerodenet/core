@@ -26,6 +26,7 @@ struct State {
 pub(super) struct Call<T> {
     pub operation: io::Result<T>,
     pub cleanup: io::Result<()>,
+    pub admission_stopped: bool,
 }
 #[derive(Debug)]
 struct Retained(Arc<io::Error>);
@@ -117,12 +118,14 @@ impl IpcOriginal {
             return Call {
                 operation: Err(io::Error::other("IPC hook generation retired")),
                 cleanup: Self::close(&mut state),
+                admission_stopped: true,
             };
         }
         if let Some(error) = &state.failure {
             return Call {
                 operation: Err(retained(error)),
                 cleanup: Err(retained(error)),
+                admission_stopped: false,
             };
         }
         if state.original.is_some() {
@@ -131,6 +134,7 @@ impl IpcOriginal {
                 cleanup: Err(io::Error::other(
                     "previous IPC original retirement unconfirmed",
                 )),
+                admission_stopped: false,
             };
         }
         let original = match OriginalLocalStream::new(path) {
@@ -139,6 +143,7 @@ impl IpcOriginal {
                 return Call {
                     operation: Err(error),
                     cleanup: Ok(()),
+                    admission_stopped: false,
                 }
             } // no native acquisition
         };
@@ -153,6 +158,7 @@ impl IpcOriginal {
         Call {
             operation: result,
             cleanup,
+            admission_stopped: false,
         }
     }
     pub(super) fn retire(&self) -> io::Result<()> {

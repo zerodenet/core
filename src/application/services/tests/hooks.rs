@@ -126,7 +126,13 @@ async fn hook_change_commits_after_old_native_close_and_failed_app_restores_a_ne
     next_peer.join().unwrap();
     running.shutdown().await.unwrap();
     services.shutdown_status_monitor().await.unwrap();
+    let retired = Arc::downgrade(&recovered);
+    drop(recovered);
     services.shutdown_dispatcher().await.unwrap();
+    assert!(
+        retired.upgrade().is_none(),
+        "final application chain must release its warning-handler Engine cycle"
+    );
 }
 
 #[tokio::test]

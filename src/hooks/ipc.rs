@@ -97,6 +97,7 @@ impl IpcFlowHook {
                 return Call {
                     operation: Err(io::Error::other(error)),
                     cleanup: Ok(()),
+                    admission_stopped: false,
                 }
             }
         };
@@ -117,8 +118,17 @@ impl IpcFlowHook {
             ))
         })
     }
+    fn retired_reason() -> BlockReason {
+        BlockReason::new(
+            "hook_retired",
+            "IPC hook generation retired during configuration transition",
+        )
+    }
     fn resolve_start_call(&self, call: Call<serde_json::Value>) -> Result<(), BlockReason> {
         self.report_cleanup(call.cleanup);
+        if call.admission_stopped {
+            return Err(Self::retired_reason());
+        }
         match call.operation {
             Ok(response) => {
                 if response
@@ -166,7 +176,7 @@ impl IpcFlowHook {
 impl FlowHook for IpcFlowHook {
     fn on_flow_start(&self, ctx: &FlowContext) -> Result<(), BlockReason> {
         let Some(_callback) = self.original.callback() else {
-            return Ok(());
+            return Err(Self::retired_reason());
         };
         let request = serde_json::json!({
             "type": "check_flow",
