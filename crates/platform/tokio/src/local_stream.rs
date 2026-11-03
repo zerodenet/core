@@ -122,6 +122,11 @@ impl OriginalLocalStream {
         if let Some(receipt) = &self.receipt {
             return Ok(receipt.clone());
         }
+        if self.acquired && self.native.is_none() && self.closing.is_none() {
+            return Err(io::Error::other(
+                "original local stream transfer disposition unknown",
+            ));
+        }
         if let Some(native) = self.native.take() {
             #[cfg(unix)]
             {
