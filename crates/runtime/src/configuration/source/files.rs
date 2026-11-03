@@ -19,6 +19,15 @@ pub(super) fn read_optional(path: &Path) -> io::Result<Option<Vec<u8>>> {
         Err(error) => Err(error),
     }
 }
+/// A sidecar under a non-directory parent cannot exist. This applies only to
+/// optional recovery metadata, never to reading/writing the actual source.
+pub(super) fn read_recovery(path: &Path) -> io::Result<Option<Vec<u8>>> {
+    match read_optional(&sidecar(path, ".zero-recovery")) {
+        Err(error) if error.kind() == io::ErrorKind::NotADirectory => Ok(None),
+        result => result,
+    }
+}
+
 pub(super) fn parent(path: &Path) -> &Path {
     path.parent()
         .filter(|path| !path.as_os_str().is_empty())

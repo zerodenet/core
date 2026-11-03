@@ -48,7 +48,7 @@ impl ConfigurationSource {
             .clone()
     }
     pub fn verify_recovery(path: &Path) -> io::Result<()> {
-        let Some(raw) = files::read_optional(&files::sidecar(path, ".zero-recovery"))? else {
+        let Some(raw) = files::read_recovery(path)? else {
             return Ok(());
         };
         let record: RecoveryRecord = serde_json::from_slice(&raw).map_err(io::Error::other)?;
@@ -88,7 +88,7 @@ impl ConfigurationSource {
         };
         Self::verify_recovery(path)?;
         let record_path = files::sidecar(path, ".zero-recovery");
-        let Some(raw) = files::read_optional(&record_path)? else {
+        let Some(raw) = files::read_recovery(path)? else {
             return Ok(());
         };
         let mut record: RecoveryRecord = serde_json::from_slice(&raw).map_err(io::Error::other)?;
