@@ -75,7 +75,7 @@ Ready 后才持久化意味着持久化失败时，已退休的原端点必须�
 
 此索引为各任务分支首父链的非 merge 提交；普通依赖 merge 保留在 Git 历史。A 初轮 PR 合入后追加的实际收尾提交由 C 普通合并保留，不改写 PR 原始集成点。索引 head 是分支实现输入，不替代 PR #127 的最终冻结候选。B 在最后源码整合后普通 fast-forward 到 `d9e852eb21bb8122ff9ce934f9af532bb99bbe02` 并以 ls-remote 确认远端；下面 B 的 `6e775070` 是原实现首父链索引锚点，避免用集成分支首父链遗漏合并提交中的 B 实现。
 
-### A：`0484eb21bd55ec832d77230cf22e556f2fef1740`
+### A：`8dc7328aed245cd9f1f3166336ea99f269040309`
 
 - `a5df1b586a8882708ec8b7acc03bbafd8855f5d1` — refactor(config): prepare shared routing resources in runtime
 - `23b1caacd40f3c679fdaea98112089f7ff014154` — refactor(runtime): persist ready configuration under the accepted host transaction
@@ -134,6 +134,8 @@ Ready 后才持久化意味着持久化失败时，已退休的原端点必须�
 - `179ee0049b80788f84ebc42e1d88abdcc13eedaf` — refactor(runtime): own embedded source commit and compensation outside Engine
 
 - `0484eb21bd55ec832d77230cf22e556f2fef1740` — test(proxy): distinguish pending readiness from the real source start deadline
+
+- `8dc7328aed245cd9f1f3166336ea99f269040309` — fix(proxy): retain expired readiness probe originals under typed timeout
 
 ### B：`6e775070565fb11c8e6c8a124c52ec9c2425cca0`
 
@@ -207,3 +209,6 @@ B 后续分组为 `740bb83b91428202e4b6dc9c1a4b5bf1a3d35d03`（实际 TCP/UDP �
 后续统一检查 `dc3ad16618ed080b6ef5f9d611dcb11bd68e05b3` 已完整收齐：主 harness 4121 通过、7 失败、176 忽略，没有未完成目标；这些是中间源码结果，不移作最终资格。源恢复缺少 DNS 变更时漏提交已实际启动的新 generation 已修正，并在前置领域/组件/TUN 恢复失败时停止后续资源重建；eager bind 也沿公开入口保留原始 I/O 分类及同一 boxed source。Ready 成功与实际标准源五秒启动期限失败分开验证：未扩大生产期限、未将十秒协议上限冒充宿主五秒期限。第三次环境重连只中断 Clippy，单独留记录并恢复该项，已完成检查没有重跑。
 
 FinalMask 一次全量并发的 SOCKS UDP 内层回包端口不符，隔离同二进制通过；当前证据尚不足以区分迟到报文与生产关联错误。已补实际分配/发送者诊断，保留原断言和该失败，不能据隔离通过称为已修复。此未决并发互通项与上述设备域纯方向撤除失败、TEMP-WG-OUTER-UDP-01 分别记录。
+
+
+后续真实并发检查还修复了两个同类输入：DNS fixture 直接将同地址 TCP/UDP 两个原始 socket 转交 Tokio，SS 的所有 test-only port=0、replacement 和 Ready 插件夹具复用唯一 paired socket helper，在既有绑定交接点归还。B 分组为 `a0b9b789f46d5bb3b6113de0a5c8e412e8dcf203`、`feebfcd7151af46af507950608c279a6b9c0d0b7`、`3c4fc5e9ab5e324bc5e33dd9505280c2dfb3d3ee`；没有重试业务测试、放宽断言或调整期限。A 的 `8dc7328a` 修复实际 probe 期限边界：原 controller 的 unfinished 报告保留并映射 typed Timeout，过期后不构造下一 probe；实际 I/O 错误原样传播，后续清理仍消费同 controller 的真正 native 收据。新增真实 peer pending、无替代构造与独立最终 close 回归，不以报 Timeout 代替关闭完成。
