@@ -21,6 +21,7 @@ pub(super) struct PendingIndex {
     // Explicit file rather than SQLite's empty-name temporary database:
     // Android's bundled SQLite forces temporary databases into memory.
     // Field order closes SQLite before removing its private directory.
+    #[cfg(test)]
     resources: DispatcherResources,
     path: PathBuf,
     len: usize,
@@ -62,6 +63,7 @@ impl PendingIndex {
             .map_err(|e| error(path, e))?;
         Ok(Self {
             db,
+            #[cfg(test)]
             resources,
             path: path.to_owned(),
             len: 0,
