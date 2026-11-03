@@ -2786,7 +2786,6 @@ fn udp_ingress_runtime_collapses_proxy_and_services_for_session_loops() {
         "runtime/route_runtime/route/source/datagram.rs",
         "runtime/datagram_udp/lifecycle.rs",
         "runtime/packet_session_udp/lifecycle.rs",
-        "runtime/stream_udp.rs",
         "runtime/mux_udp.rs",
     ] {
         let source = read_module(&proxy_src().join(relative));
@@ -2819,7 +2818,6 @@ fn udp_ingress_runtime_collapses_proxy_and_services_for_session_loops() {
     for relative in [
         "runtime/datagram_udp/lifecycle.rs",
         "runtime/packet_session_udp/lifecycle.rs",
-        "runtime/stream_udp.rs",
         "runtime/mux_udp.rs",
         "runtime/mux_session.rs",
         "runtime/mux_tcp.rs",
@@ -3801,36 +3799,38 @@ fn retired_peer_listener_cannot_restore_an_unowned_stream_task_loop() {
 }
 
 #[test]
-fn stream_udp_root_stays_facade_only() {
-    let stream_udp_root = read(&proxy_src().join("runtime/stream_udp.rs"));
-    let stream_udp = read_module(&proxy_src().join("runtime/stream_udp.rs"));
-    for module_name in ["mod handler;", "mod recording;", "mod relay;"] {
-        assert!(stream_udp_root.contains(module_name));
+fn retired_stream_udp_bridge_cannot_bypass_standard_datagram_accounting() {
+    for retired in [
+        "runtime/stream_udp.rs",
+        "runtime/stream_udp/handler.rs",
+        "runtime/stream_udp/recording.rs",
+        "runtime/stream_udp/relay.rs",
+    ] {
+        assert!(!proxy_src().join(retired).exists());
     }
-    for forbidden in [
-        "pub(crate) struct StreamUdpRelayRequest",
-        "struct StreamPacketSessionUdpHandler",
-        "pub(crate) async fn run_mapped_protocol_stream_udp_relay",
-        "async fn run_stream_udp_relay",
-        "fn record_stream_udp_client_io",
+    let standard = read_module(&proxy_src().join("runtime/route_runtime/route/source/datagram.rs"));
+    for required in [
+        "UdpIngressRuntime",
+        ".spawn(TaskClass::Critical",
+        "with_accepted_caller(driver.caller()?)",
+        "logical Datagram original cleanup remains pending",
+        "record_session_inbound_traffic",
+        "record_session_inbound_rx",
     ] {
         assert!(
-            !stream_udp_root.contains(forbidden),
-            "stream_udp facade root must not keep `{forbidden}` inline"
+            standard.contains(required),
+            "standard Datagram must retain {required}"
         );
     }
-    for expected in [
-        "pub(crate) struct StreamUdpRelayRequest",
-        "pub(super) struct StreamPacketSessionUdpHandler",
-        "pub(crate) async fn run_mapped_protocol_stream_udp_relay",
-        "async fn run_stream_udp_relay",
-        "pub(super) fn record_stream_udp_client_io",
-    ] {
-        assert!(
-            stream_udp.contains(expected),
-            "stream_udp module tree must still provide `{expected}`"
-        );
-    }
+    assert!(!standard.contains("use crate::runtime::Proxy"));
+    assert_non_test_sources_exclude(
+        &proxy_src().join("runtime"),
+        &[
+            "StreamPacketSessionUdpHandler",
+            "StreamUdpRelayRequest",
+            "run_mapped_protocol_stream_udp_relay",
+        ],
+    );
 }
 
 #[test]
