@@ -73,6 +73,8 @@ impl Server {
                 let count = count.clone();
                 let observed = observed.clone();
                 let ids = ids.clone();
+                let closed = observed_closed.clone();
+                let closed_changed = observed_closed_changed.clone();
                 clients.spawn(async move {
                     let profile=Hysteria2AuthenticatedInboundProfile::from_options_refs(Hysteria2InboundOptionsRef {users:[Hysteria2InboundUserRef {password:"p",principal_key:None,up_bps:None,down_bps:None,device_limit:None,quota_remaining_bytes:None,policy_revision:None}]});
                     let connection=profile.accept_authenticated_connection(raw.clone()).await.unwrap();count.fetch_add(1,Ordering::SeqCst);

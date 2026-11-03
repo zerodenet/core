@@ -133,6 +133,7 @@ impl Generation {
                 .await
             {
                 Ok(connection) => {
+                    state.selected_candidate = Some(index);
                     connected = Some(connection);
                     break;
                 }

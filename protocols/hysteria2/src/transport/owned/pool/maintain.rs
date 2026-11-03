@@ -78,7 +78,9 @@ impl Generation {
             .as_ref()
             .ok_or_else(|| error(Stage::Prepare, Reason::StalePlan))?
             .open_metadata(
-                0,
+                state
+                    .selected_candidate
+                    .ok_or_else(|| error(Stage::Prepare, Reason::StalePlan))?,
                 Some(hop.next_port()),
                 state.permit.as_ref().unwrap(),
                 state.caller.as_ref().unwrap(),

@@ -224,6 +224,7 @@ struct EntryState {
     udp_join: Option<TaskJoinWitness>,
     udp_exit: Option<zero_platform_tokio::contract::scope::TaskJoined>,
     candidates: Option<zero_platform_tokio::controlled_carrier::CarrierCandidates>,
+    selected_candidate: Option<usize>,
     logical: Option<std::net::SocketAddr>,
     next_hop: Option<Instant>,
     closed: bool,
