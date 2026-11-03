@@ -25,7 +25,7 @@ impl DnsQueryRole {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct DnsGeneration {
     pub resolver: u64,
     pub network: NetworkGeneration,
