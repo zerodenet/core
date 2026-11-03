@@ -56,6 +56,7 @@ impl ApplicationServices {
             self.event_network
                 .begin_generation()
                 .map_err(|error| error.to_string())?;
+            state.network_generation_started = true;
             state.dispatcher = Some(
                 zero_connector::prepare_event_dispatcher_paused_with_network(
                     self.engine.clone(),
@@ -89,6 +90,7 @@ impl ApplicationServices {
                     )
                     .await
                     .map_err(|error| error.to_string())?;
+                state.network_generation_started = false;
                 state.dispatcher = None;
             }
             if state.dispatcher.is_some() {

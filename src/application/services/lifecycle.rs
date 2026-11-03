@@ -20,13 +20,20 @@ impl ApplicationServices {
                 }
                 state.dispatcher = None;
             }
-            if let Err(error) = self
-                .event_network
-                .retire_generation(tokio::time::Instant::now() + std::time::Duration::from_secs(5))
-                .await
-            {
-                state.cleanup_fault = Some(Arc::new(error));
-                return Err("original application native cleanup remains unconfirmed".to_owned());
+            if state.network_generation_started {
+                if let Err(error) = self
+                    .event_network
+                    .retire_generation(
+                        tokio::time::Instant::now() + std::time::Duration::from_secs(5),
+                    )
+                    .await
+                {
+                    state.cleanup_fault = Some(Arc::new(error));
+                    return Err(
+                        "original application native cleanup remains unconfirmed".to_owned()
+                    );
+                }
+                state.network_generation_started = false;
             }
         }
         self.engine.update_sink_status(Vec::new());
@@ -84,12 +91,15 @@ impl ApplicationServices {
         } else {
             Ok(())
         };
-        let native = self
-            .event_network
-            .retire_generation(tokio::time::Instant::now() + std::time::Duration::from_secs(5))
-            .await;
-        if let Err(error) = native {
-            _state.cleanup_fault = Some(Arc::new(error));
+        if _state.network_generation_started {
+            match self
+                .event_network
+                .retire_generation(tokio::time::Instant::now() + std::time::Duration::from_secs(5))
+                .await
+            {
+                Ok(()) => _state.network_generation_started = false,
+                Err(error) => _state.cleanup_fault = Some(Arc::new(error)),
+            }
         }
         monitor?;
         dispatcher?;

@@ -37,6 +37,8 @@ struct ApplicationServiceState {
     cleanup_fault: Option<Arc<dyn Error + Send + Sync>>,
     #[cfg(feature = "event-dispatcher")]
     monitor_exit: Option<Result<(), Arc<tokio::task::JoinError>>>,
+    #[cfg(feature = "event-dispatcher")]
+    network_generation_started: bool,
     config: Arc<RuntimeConfig>,
     installed: bool,
     #[cfg(feature = "event-dispatcher")]
@@ -107,6 +109,8 @@ impl ApplicationServices {
                 cleanup_fault: None,
                 #[cfg(feature = "event-dispatcher")]
                 monitor_exit: None,
+                #[cfg(feature = "event-dispatcher")]
+                network_generation_started: false,
                 #[cfg(feature = "event-dispatcher")]
                 dispatcher: None,
                 #[cfg(feature = "event-dispatcher")]
