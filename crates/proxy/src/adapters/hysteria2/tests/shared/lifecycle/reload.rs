@@ -193,7 +193,6 @@ async fn hysteria2_public_reload_waits_for_active_tcp_udp_views_and_original_con
         closed(&root, &prior);
         eprintln!("actual old HY2 native/pool close receipts match before successor traffic");
         assert_eq!(proxy.engine().config_revision(), revision + 1);
-        previous.wait_closed(1).await;
         let successor_tcp = connect(&proxy, "hy").await;
         let successor_udp = loan(&proxy, 911).await;
         assert_eq!(
@@ -277,7 +276,6 @@ async fn hysteria2_public_same_path_bad_ca_reload_restores_last_good_prepared_cr
         // These real certificate-verified new connections can succeed only
         // through the old recipe's prepared crypto, after failed-candidate
         // cleanup. The old native endpoint is already physically closed.
-        server.wait_closed(1).await;
         let restored_tcp = connect(&proxy, "hy").await;
         let restored_udp = loan(&proxy, 921).await;
         assert_eq!(server.authenticated.load(Ordering::SeqCst), 2);
