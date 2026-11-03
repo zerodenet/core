@@ -40,6 +40,9 @@ windows-sys = { version = "0.61", features = [
 libproc = "0.14.11"
 netstat2 = "0.11.2"
 
+[dev-dependencies]
+tempfile.workspace = true
+
 # Integration suites are explicit; scripts/check-test-layout.py guards coverage.
 
 [[test]]
