@@ -88,6 +88,6 @@ async fn same_target_sessions(via_hy2: bool) {
         );
         assert_eq!(a_reply.unwrap(),a_payloads);assert_eq!(b_reply.unwrap(),b_payloads);
         echo_task.await.unwrap();
-        for proxy in proxies { proxy.shutdown().await.unwrap(); }
+        for proxy in proxies.into_iter().rev() { proxy.shutdown().await.unwrap(); }
     }).await.unwrap();
 }
