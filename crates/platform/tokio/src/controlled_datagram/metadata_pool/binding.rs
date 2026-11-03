@@ -37,19 +37,30 @@ impl MetadataPoolRegistration {
             .owner
             .upgrade()
             .ok_or_else(|| error(Reason::Revoked, "metadata owner dropped"))?;
-        let ResourceDeclaration::ControlledMetadataDatagram {
-            endpoint,
-            dial,
-            limits,
-            max_origins,
-        } = declaration
-        else {
-            return Err(error(
-                Reason::InvalidConfig,
-                "not an ancillary pool declaration",
-            ));
+        let (dial, limits, max_origins) = match declaration {
+            ResourceDeclaration::ControlledMetadataDatagram {
+                endpoint,
+                dial,
+                limits,
+                max_origins,
+            } if endpoint.port() != 0 => (dial, limits, max_origins),
+            ResourceDeclaration::ControlledMetadataCarrier {
+                endpoint,
+                dial,
+                ports,
+                limits,
+                max_origins,
+            } if endpoint.port != 0 && ports.len() <= u16::MAX as usize && !ports.contains(&0) => {
+                (dial, limits, max_origins)
+            }
+            _ => {
+                return Err(error(
+                    Reason::InvalidConfig,
+                    "invalid ancillary pool declaration",
+                ))
+            }
         };
-        if endpoint.port() == 0 || *limits != owner.limits || *max_origins != owner.limit {
+        if *limits != owner.limits || *max_origins != owner.limit {
             return Err(error(
                 Reason::InvalidConfig,
                 "metadata declaration differs from actual owner",

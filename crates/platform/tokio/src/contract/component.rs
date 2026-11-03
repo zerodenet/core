@@ -142,6 +142,17 @@ pub enum ResourceDeclaration {
         limits: crate::controlled_datagram::metadata::MetadataLimits,
         max_origins: NonZeroUsize,
     },
+    /// The same ancillary original provider, resolved through the actual host
+    /// Node DNS path. Only sealed candidates for this domain/dial may acquire
+    /// an original. Optional explicit ports authorize outermost port rotation;
+    /// each rotation still consumes its own original controller and receipt.
+    ControlledMetadataCarrier {
+        endpoint: Destination,
+        dial: zero_traits::DialPolicy,
+        ports: Vec<u16>,
+        limits: crate::controlled_datagram::metadata::MetadataLimits,
+        max_origins: NonZeroUsize,
+    },
     /// Native RAW/ping ICMP originals, distinct from UDP or device authority.
     /// Counts live, retiring and Unknown sockets, not generation lifetime probes.
     NativeIcmp {

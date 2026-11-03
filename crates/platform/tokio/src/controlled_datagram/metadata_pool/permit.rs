@@ -1,5 +1,7 @@
+mod open;
 use super::super::metadata::users::MetadataUsersClosedReceipt;
 use super::*;
+pub(crate) use open::MetadataCandidate;
 pub struct MetadataPoolPermit(pub(super) Arc<Slot>);
 #[derive(Clone)]
 pub struct MetadataPoolOrigin {
@@ -68,110 +70,6 @@ impl MetadataPoolPermit {
             closed: self.0.closed.clone(),
             owner: self.0.registration.clone(),
         }
-    }
-    pub fn open(
-        &self,
-        query: &TaskJoinWitness,
-        egress: &crate::EgressInterfaceControl,
-        generation: zero_core::component::NetworkGeneration,
-        end: tokio::time::Instant,
-    ) -> Result<GrantedMetadataListener, ChannelError> {
-        let owner = self
-            .0
-            .owner
-            .upgrade()
-            .ok_or_else(|| error(Reason::Revoked, "metadata pool dropped"))?;
-        let bound = owner
-            .state
-            .lock()
-            .expect("metadata pool poisoned")
-            .bound
-            .clone()
-            .ok_or_else(|| error(Reason::InvalidConfig, "unregistered metadata pool"))?;
-        bound.check(&owner, query)?;
-        if !query.same_registration(&self.0.caller) {
-            return Err(error(
-                Reason::StalePlan,
-                "metadata grant belongs to another original query",
-            ));
-        }
-        if tokio::time::Instant::now() >= end {
-            return Err(error(
-                Reason::Timeout,
-                "metadata operation deadline elapsed",
-            ));
-        }
-        let ResourceDeclaration::ControlledMetadataDatagram { endpoint, dial, .. } =
-            &bound.declaration
-        else {
-            unreachable!("validated metadata declaration")
-        };
-        let selection = egress
-            .select_for_peer_with_policy(*endpoint, dial)
-            .map_err(|source| {
-                error(Reason::Io, "metadata egress selection failed").with_source(source)
-            })?;
-        if selection.generation() != generation.0 {
-            return Err(error(Reason::StalePlan, "metadata network changed"));
-        }
-        let mut native = self.0.native()?;
-        if native.attempted || self.0.closed.get().is_some() {
-            return Err(error(
-                Reason::Revoked,
-                "metadata original was already attempted",
-            ));
-        }
-        native.attempted = true;
-        let grant = native
-            .owner
-            .acquire(*endpoint, dial, &selection)
-            .map_err(|source| {
-                error(Reason::Io, "metadata original acquisition failed").with_source(source)
-            })?;
-        let super::super::metadata::GrantedMetadataDatagram { rx, tx, control } = grant;
-        native.control = Some(control);
-        let (issuer, claim) = native
-            .control
-            .as_mut()
-            .expect("installed original control")
-            .claim_views(bound.scope.clone())
-            .map_err(|source| error(Reason::Io, "metadata claim failed").with_source(source))?;
-        native.issuer = Some(issuer);
-        let observation = native
-            .control
-            .as_mut()
-            .expect("installed original control")
-            .take_observation()
-            .map_err(|source| {
-                error(Reason::Io, "metadata observation failed").with_source(source)
-            })?;
-        native.endpoints = Some((
-            tx.local_addr().map_err(|source| {
-                error(Reason::Io, "metadata local address failed").with_source(source)
-            })?,
-            *endpoint,
-        ));
-        bound.check(&owner, query)?;
-        if tokio::time::Instant::now() >= end {
-            return Err(error(
-                Reason::Timeout,
-                "metadata operation deadline elapsed during acquisition",
-            ));
-        }
-        if egress.generation() != generation.0 {
-            return Err(error(
-                Reason::StalePlan,
-                "metadata network changed during acquisition",
-            ));
-        }
-        native.transferred = true;
-        Ok(GrantedMetadataListener {
-            scope: bound.scope.clone(),
-            rx,
-            tx,
-            observation,
-            users_claim: Some(claim),
-        })
     }
     pub fn close(
         &self,
