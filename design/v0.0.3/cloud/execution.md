@@ -12,26 +12,29 @@
 | A | `/workspace/core-agent-a` | `codex/v003-cloud-config-transaction` / [#126](https://github.com/zerodenet/core/pull/126) |
 | B | `/workspace/core-agent-b` | `codex/v003-cloud-hy2-outbound` / [#127](https://github.com/zerodenet/core/pull/127) |
 
-`/workspace/core-validation` 固定在每组命令的精确提交，整组构建和测试结束并收集结果后才切换。Rust 1.99.1、依赖缓存和 `/workspace/core/target` 共享，由 C 独占排队；源码修改在 A/B 独立 worktree 并行。分支普通追加提交及 merge，未强推。A 初轮普通集成点为 `0cd6ec473d8b2e4190a54888545145737b9c0097`，后续通知/测试清理追加合入；B 普通合并实际 integration head 后再验证。
+`/workspace/core-validation` 固定在每组命令的精确提交，整组构建和测试结束并收集结果后才切换。Rust 1.99.1、依赖缓存和 `/workspace/core/target` 共享，由 C 独占排队；源码修改在 A/B 独立 worktree 并行。分支普通追加提交及 merge，未强推。A 初轮普通集成点为 `0cd6ec473d8b2e4190a54888545145737b9c0097`，后续通知/测试清理追加合入；B 普通合并实际 integration head 后再验证；C 对 `9168bf6dd30f5013510244d78b83a25ec7432656` 完成必要组合回归及评论审查后，以 `af121219f0f1e69c07daa052c8fcd39fa40a50da` 普通合入 integration。两次平台重连均复核原工作树；一次未收齐组独立记中断，另一次组在重连前已完整 exit 0，不重复运行。
 
 提交的逻辑分组如下；完整逐条 SHA 清单见本页后续的分支提交索引和 PR。中间修复提交保留，不改写历史。
 
 - A 资源准备：`a5df1b58`；事务与领域发布：`23b1caac`、`ae2326b2`、`32997fc6`、`e50af731`；真实源原件：`bbdba27a`、`93611a7a`、`19d4aaf3`、`5339891f`。
+- A 文档读取纯化与启动缓存：`df1ff486`、`335fbbcb`；真实边界与并发回归：`13eb736b`、`4fc1d32d`、`fef6849e`。
 - A 应用任务/文件/IPC：`4fe2a478`、`51a6687d`、`b2a98e20`、`c792e67e`、`876246d5`、`0f26fc92`；通知桥删除与 Ready 门：`4f10d3cf`、`fce58ce0`、`537abb33`；无调用者及测试作用域清理：`13c712ac`、`43c5107c`、`9cdfdb2f`、`65542d04`。
-- B 同池原件与标准角色：`88d336a5`、`7d85f1bb`、`1815b9bb`、`e0d6b050`、`5a6b9b9c`、`9bdc72f5`；真实代次/关闭/有限失败预算：`f13e0ce6`、`8efbbb28`、`116233fd`、`79c596af`；实际 UDP 元数据：`9e12f45f`、`e259b41a`；公开 reload、真实材料与健康幂等：`87e71afe`、`e6e86dd1`；最终孤儿 stream-UDP 桥删除：`54a5e1e8`。
-- C 共享契约/真实平台原件和应用网络：`be70a805`、`a5c4e64b`、`c10c86a4`、`1e2eab42`、`7799ed8c`、`1afd9164`、`83955347`、`327b324d`、`cb3448f7`、`42323dce`、`6a151424`；有界材料与未知清理门：`7ffc4f1d`、`9ccb8feb`；DNS 实际无变化复用：`4face7cf`；已发布 recipe 实际恢复：`2f1ae0f6`。其余诊断/守卫/兼容文档修复保留原提交。
+- B 同池原件与标准角色：`88d336a5`、`7d85f1bb`、`1815b9bb`、`e0d6b050`、`5a6b9b9c`、`9bdc72f5`；真实代次/关闭/有限失败预算：`f13e0ce6`、`8efbbb28`、`116233fd`、`79c596af`；实际 UDP 元数据：`9e12f45f`、`e259b41a`；公开 reload、真实材料与健康幂等：`87e71afe`、`e6e86dd1`；最终孤儿 stream-UDP 桥删除：`54a5e1e8`；同 pass 唯一材料、有限公平维护与同调用者期限的全部原件关闭：`99a05249`、`573f7bc2`、`ebbb0747`；已有文件预算与真实文件规则 DNS：`1c2ef73c`、`68618e23`。
+- C 共享契约/真实平台原件和应用网络：`be70a805`、`a5c4e64b`、`c10c86a4`、`1e2eab42`、`7799ed8c`、`1afd9164`、`83955347`、`327b324d`、`cb3448f7`、`42323dce`、`6a151424`；有界材料与未知清理门：`7ffc4f1d`、`9ccb8feb`；DNS 实际无变化复用：`4face7cf`；已发布 recipe 实际恢复：`2f1ae0f6`。启动 URL 规则实际 HTTP/TLS 与缓存接线：`c30351fa`；真实规则字节与 DNS 幂等身份：`ffef6e28`、`ecf39933`；实际路径包身份守卫：`9557a76b`。其余诊断/守卫/兼容文档修复保留原提交。
 
 ## 已实现的职责与删除边界
 
-Config 的规则/GeoIP/ZRS 资源 I/O 与运行编译迁到 `zero-runtime::configuration`。一次 `PreparedRouting` 为 route、bypass、DNS dispatch 复用实际资源；初始 run、Engine/Proxy from_path 和日志文档读取在原文件真实 close/matches 后才交付数据。Config 保留 ADT、结构/引用和协议委托校验，公开便利加载函数的独立范围另列。Engine 保留领域计划、快照、策略、selection、revision 及既有公开入口，Engine-only/FFI 不自动启动 Proxy。
+Config 的规则/GeoIP/ZRS 资源 I/O 与运行编译迁到 `zero-runtime::configuration`。一次 `PreparedRouting` 为 route、bypass、DNS dispatch 复用实际资源；初始 run、Engine/Proxy from_path 和日志文档读取在原文件真实 close/matches 后才交付数据。Config 保留 ADT、结构/引用和协议委托校验；旧 `RuntimeConfig::load_from_path` 的全部调用迁到实际 `ConfigurationSource`，CLI validate/connector-state/reload 的文档读取也使用原件关闭后的数据，prepared validator 不重开已准备资源。Engine 保留领域计划、快照、策略、selection、revision 及既有公开入口，Engine-only/FFI 不自动启动 Proxy。
 
 唯一 RuntimeHost 的 ApplyOwner 持有受理操作、串行锁和最终 ACK。Ready 前不覆盖 last-good，候选业务发布门保持关闭；最终发布前控制面仍读已提交快照。最小恢复记录、原字节/权限、原子替换与目录同步、持久/临时区别和错误来源保留。失败候选应用/源原件清理不确认则不恢复；取消等待者不取消宿主收尾。原 blocking 配置通知线程桥删除，同一领域通知直接供宿主消费，迟到通知不能撤走未提交的 Ready 候选。
 
-应用 dispatcher 的 source/sink/blocking publish 原线程、监控、JSONL/dead-letter/outbox/SQLite 原件、真实 webhook HTTP 任务和 IPC hook 退休已接入这条事务边界。原 writer/Connection/stream 控制器、完整回调返回、TaskScope/实际 JoinHandle 和 native close 分别核对，Unknown 保留。IPC hook 无效 cached clone/is_alive 链删除，已收到的 allow/deny 与清理诊断分开；退休代际停止新准入，普通不可达保持原 fail-open。
+应用 dispatcher 的 source/sink 原任务与原 JoinHandle（含 blocking publish）、监控、JSONL/dead-letter/outbox/SQLite 原件、真实 webhook HTTP 任务和 IPC hook 退休已接入这条事务边界。原 writer/Connection/stream 控制器、完整回调返回、TaskScope/实际 JoinHandle 和 native close 分别核对，Unknown 保留。IPC hook 无效 cached clone/is_alive 链删除，已收到的 allow/deny 与清理诊断分开；退休代际停止新准入，普通不可达保持原 fail-open。
 
-Hysteria2 根出站及既有 first-Datagram packet-path 使用协议自有同一个实际认证池、QUIC endpoint、H3/UDP 驱动和原始 Metadata UDP 所有者，交付现有标准角色与生产派发/计量。DNS/network/full profile/真实材料隔离，保留多目标/空 UDP、单接收者、背压和既有线格式。真实 ECN、源/目的地址、GSO/GRO 与 PMTU 能力穿过原有有界 QUIC wire 队列。没有重迁入站或扩大协议组合。
+Hysteria2 根出站及既有 first-Datagram packet-path 使用协议自有同一个实际认证池、QUIC endpoint、H3/UDP 驱动和原始 Metadata UDP 所有者，交付现有标准角色与生产派发/计量。DNS/network/full profile/真实材料隔离，保留多目标/空 UDP、单接收者、背压和既有线格式。真实 ECN、源/目的地址、GSO/GRO 与 PMTU 能力穿过原有有界 QUIC wire 队列。没有重迁入站或扩大协议组合。根 CA 读取使用已有 `runtime.file_read_max_bytes` 配置；独立库便利 API 原有 16 MiB 范围不扩大到 Root。
 
-Root CA 文件由既有有界配置原件槽产生真实关闭后的惰性字节快照，crypto 在实际 lifecycle start 解析；身份比较真实材料而非 pass nonce。实际配置、compiled DNS dispatch 和 backend 未变时，原池、认证、endpoint、DNS 代次/cache/lease 与活跃 TCP/UDP 保留。恢复精确已发布配置时，使用其实际保留 recipe 和旧 crypto，按真实依赖/issued floor 构造新代次与取消域；原 Replacement 的清理和失败发布门继续生效，不复活取消的旧 owner。
+Root CA 文件由既有有界配置原件槽产生真实关闭后的惰性字节快照，crypto 在实际 lifecycle start 解析；身份比较真实材料而非 pass nonce。文件规则的派发身份比较实际验证过的字节与格式 SHA-256；同路径同长度的内容变化仍被观察，未知来源 matcher 保留 Arc 身份比较，不用 JSON/path/mtime 跳过准备。实际配置、compiled DNS dispatch 和 backend 未变时，原池、认证、endpoint、DNS 代次/cache/lease 与活跃 TCP/UDP 保留。恢复精确已发布配置时，使用其实际保留 recipe 和旧 crypto，按真实依赖/issued floor 构造新代次与取消域；原 Replacement 的清理和失败发布门继续生效，不复活取消的旧 owner。
+
+初始 URL 规则下载使用现有应用 TCP 原始所有者及同 Scope 的真实 TLS/HTTP/connect 任务，通过有界队列流式写同 Source 的有限缓存尝试。转交用户、任务 join 与原始 native 关闭分别确认后才重定向或回退陈旧缓存；文件同步、匹配 close 收据与不可变缓存安装/命名空间补偿分别确认后才交付初始配置。取消保留原件，健康独立 Source 可并发准备，同 Source 忙状态不阻塞全局准备锁。系统名称解析的原阻塞句柄实际 join 不等于 DNS 原始 native 关闭，该职责仍属下列 Z003-01。
 
 删除 root HY2 TCP/UDP 私有桥、最后无调用者的 SessionTcpHandshake/SessionTcpConnectOperation 与 stream-UDP 桥。旧 listener、claim、handler/Any/resume 执行链未恢复。此前已迁入站留下的零调用 generic fallback/client-response/no-client-MUX/logged 包装清理，真实测试辅助限定 `cfg(test)`；源守卫改为实际标准 source、同 Scope、派发/计量与旧链缺席，不删除原行为测试或放宽原件/超时断言。
 
@@ -46,7 +49,7 @@ V1 配置/API/events、CLI、FFI ABI 和协议上游基线保持；只修改内�
 - Z003-04/05：非入站 Packet、设备/TUN、适用进程及转交 I/O 的完整宿主归属和替代门；直接 Child reaped 不代表后代或全部用户/native 关闭。
 - Z003-07：适用资源预算生产配置；内部有限额度不是所有资源的生产可配置化，也不是低资源压力资格。
 - G8 整体投影/控制观测对账；控制 IPC/HTTP/gRPC 服务器与订阅本体的剩余生命周期不由 config.apply 最终 ACK 或 webhook 原件结果覆盖，既有订阅 abort 链仍未迁。
-- 独立配置/诊断/存储边界：公开 Config::load_from_path 便利 I/O、CLI reload 在提交 IPC 前的文件读取、初启控制面 TLS cert/key/CA、独立 validate/connector/quota inspect、principal quota lease/后台持久化，以及初启 URL 规则预取/缓存原件。这些不是新增 TEMP 豁免，不由已迁热 source 事务的 close 收据覆盖。
+- 独立配置/诊断/存储边界：初启控制面 TLS cert/key/CA、独立 quota inspect、principal quota lease/后台持久化，以及控制服务器/订阅本体等不属于已迁配置源或初始规则准备的原件。这些不是新增 TEMP 豁免，不由已迁热 source 事务的 close 收据覆盖。
 
 `TEMP-WG-OUTER-UDP-01` 单独保留且未关闭、未扩大、未纠正。WireGuard 的本轮字段 shorthand 属纯 lint，无债务行为或资格改变。
 
@@ -62,9 +65,9 @@ G9/G10 与 Z003-08 的完整资格仍另列：实际 GUI/面板同产物组合�
 
 ## A/B 分支提交索引
 
-此索引为各任务分支首父链的非 merge 提交；普通依赖 merge 保留在 Git 历史，A 的 C 测试修复依赖原 SHA 也可达。索引中的 head 是记录时输入，不替代 PR #127 的最终冻结候选。
+此索引为各任务分支首父链的非 merge 提交；普通依赖 merge 保留在 Git 历史。A 初轮 PR 合入后追加的实际收尾提交由 C 普通合并保留，不改写 PR 原始集成点。索引 head 是分支实现输入，不替代 PR #127 的最终冻结候选。
 
-### A：`65542d045540aa09ad9d9c130e9e5fad067e9bb5`
+### A：`fef6849edc3de6930870ba459b199ad998029264`
 
 - `a5df1b586a8882708ec8b7acc03bbafd8855f5d1` — refactor(config): prepare shared routing resources in runtime
 - `23b1caacd40f3c679fdaea98112089f7ff014154` — refactor(runtime): persist ready configuration under the accepted host transaction
@@ -111,8 +114,13 @@ G9/G10 与 Z003-08 的完整资格仍另列：实际 GUI/面板同产物组合�
 - `43c5107c8aab1815e8235831c08ec792ef5a4dc9` — fix(proxy): retain diagnostic test dialing and share the original pooled fixture module
 - `9cdfdb2fdfb15d4a768cfbaf2df8759a53946328` — fix(proxy): retain exact acknowledgement types and remove irrefutable fixture branches
 - `65542d045540aa09ad9d9c130e9e5fad067e9bb5` — refactor(proxy): keep explicit original fixture declarations while closing unit lint findings
+- `df1ff486bb4277f3c33e71c9378a5d30867fbafd` — refactor(config): remove document IO and migrate standalone callers to the actual source owner
+- `335fbbcb40901bd5e52136283a5a10080d5ee98f` — refactor(runtime): retain streamed rule-set cache originals through explicit install and abort
+- `13eb736bae88d9b639904fef3d4305459ccbcb76` — test(config): validate prepared inputs from the normal runtime dependency
+- `4fc1d32d1e348cfbdcdff203aa9ef126641e4a6b` — fix(config): reject cache observations without waiting across the cold gate
+- `fef6849edc3de6930870ba459b199ad998029264` — test(proxy): declare the prepared route assertion dependency
 
-### B：`9f34d7381241e2140b2deba0b9c9ced29366313f`
+### B：`9168bf6dd30f5013510244d78b83a25ec7432656`
 
 - `88d336a56bc60e20455a87d19efb0f995d52d4ff` — refactor(hysteria2): prepare sealed outbound authentication and packet loans
 - `7d85f1bb4b84ac6be81a04c07a9a327d8b28567a` — refactor(transport): retain each Quinn wire original through scoped retirement
@@ -165,3 +173,11 @@ G9/G10 与 Z003-08 的完整资格仍另列：实际 GUI/面板同产物组合�
 - `a2dcde86774ad8ba3bb962d50b0b1cd39ec29ad0` — refactor(hysteria2): deduplicate prepared CA paths through one map entry
 - `11dc62cfe19a9a707cc78e2c84924d9304048da7` — refactor(hysteria2): remove the retired preparation pass identity gate
 - `54a5e1e8171cc61e78b3d658b375adbf5cda9563` — refactor(proxy): remove the retired stream UDP relay implementation
+- `00447b4f2336ece3a1745951ef69a6be87dd4d58` — test(hysteria2): observe actual role retirement before original close and retain failure sources
+- `b0a51a2456d15cab23a1c6350d7c5a114d5378d2` — test(hysteria2): record actual healthy admission and cleanup stages
+- `3bfcb0c2a2d75a47c3c8126d11def7ceb58a8d7a` — test(hysteria2): use original local closure receipts before successor traffic
+- `99a0524914d88f1c758943fe4068010207c9af0b` — fix(hysteria2): bound fair original retirement and reuse the current prepared pool
+- `573f7bc2a00b737ac76cb8db7207cc32eda18362` — fix(hysteria2): compare the actual prepared owner label by str
+- `ebbb07473f39869042c6687f1e79f94306625d94` — fix(hysteria2): close the original bounded entry set within one caller deadline
+- `1c2ef73c790de681089bb96c1226ce492d5281fd` — fix(hysteria2): enforce the configured CA preparation file budget
+- `68618e23190e5455b4033ee98664b30eafea6cb8` — test(hysteria2): preserve live DNS and CA owners across unchanged rule-set files
