@@ -71,16 +71,20 @@ impl ComponentPlan {
                 .find(|slot| slot.instance_id() == id)
                 .ok_or_else(fail)?;
             if id == origin.instance() && !origin.is_retired() {
-                let matches =
-                    slot.recipe
-                        .spec()
-                        .resources
-                        .iter()
-                        .enumerate()
-                        .any(|(ordinal, _)| {
-                            slot.original_carrier_owner(ordinal)
-                                .is_some_and(|owner| owner.same_owner(origin.owner()))
-                        });
+                let matches = slot.recipe.spec().resources.iter().enumerate().any(
+                    |(ordinal, _)| match origin.owner() {
+                        zero_platform_tokio::controlled_carrier::CarrierOriginOwner::Carrier(
+                            actual,
+                        ) => slot
+                            .original_carrier_owner(ordinal)
+                            .is_some_and(|owner| owner.same_owner(actual)),
+                        zero_platform_tokio::controlled_carrier::CarrierOriginOwner::Metadata(
+                            actual,
+                        ) => slot
+                            .original_metadata_owner(ordinal)
+                            .is_some_and(|owner| owner.same_owner(actual)),
+                    },
+                );
                 if matches {
                     return Ok(());
                 }

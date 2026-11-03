@@ -28,7 +28,10 @@ pub use endpoints::{CarrierEndpointObserver, CarrierEndpoints};
 pub use grant::{CarrierGrant, CarrierGrants};
 pub use native::NativeCarrierOpener;
 pub use native_settlement::CarrierNativeSettlement;
-pub use origin::{CarrierOrigin, CarrierOriginClosed};
+pub use origin::{
+    CarrierOrigin, CarrierOriginClosed, CarrierOriginOwner, CarrierOriginOwnerClosed,
+    CarrierOriginUsersClosed,
+};
 pub use owner::CarrierOwner;
 pub use packet::CarrierDatagram;
 pub use prepared::{CarrierStreamPreparation, ControlledCarrier, PreparedCarrier};

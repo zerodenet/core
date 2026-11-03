@@ -49,6 +49,7 @@ struct Slot {
     instance: ComponentInstanceId,
     ordinal: u64,
     closed: Arc<OnceLock<bool>>,
+    retired: CancellationToken,
     caller: TaskJoinWitness,
     registration: MetadataPoolRegistration,
     native: Mutex<Native>,
@@ -74,6 +75,10 @@ struct Native {
     acquired_confirmed: bool,
     attempted: bool,
     endpoints: Option<(std::net::SocketAddr, std::net::SocketAddr)>,
+    binding: Option<(
+        zero_core::request::Destination,
+        crate::contract::network::UpstreamBinding,
+    )>,
     report: Option<Arc<MetadataOwnerReport>>,
 }
 fn error(reason: Reason, message: &'static str) -> ChannelError {
@@ -223,6 +228,7 @@ impl MetadataPoolGrants {
             instance: owner.instance,
             ordinal,
             closed: Arc::default(),
+            retired: owner.cancel.child_token(),
             caller: query.clone(),
             registration: MetadataPoolRegistration::new(&owner),
             native: Mutex::new(Native {
@@ -235,6 +241,7 @@ impl MetadataPoolGrants {
                 acquired_confirmed: false,
                 attempted: false,
                 endpoints: None,
+                binding: None,
                 report: None,
             }),
         });

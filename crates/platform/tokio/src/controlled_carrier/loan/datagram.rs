@@ -23,6 +23,20 @@ pub struct LoanDatagramIo {
     observer: Option<Arc<dyn zero_traits::IoObserver>>,
 }
 impl DatagramLoan {
+    pub fn new_metadata(
+        session: BoxDatagramSession,
+        original: crate::controlled_datagram::metadata_pool::MetadataPoolOrigin,
+        association: AssociationId,
+        endpoint: Destination,
+    ) -> Self {
+        Self::new(
+            session,
+            CarrierOrigin::from_metadata(original),
+            association,
+            endpoint,
+        )
+    }
+
     pub fn new(
         session: BoxDatagramSession,
         original: CarrierOrigin,
