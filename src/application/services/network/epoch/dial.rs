@@ -66,6 +66,9 @@ impl Epoch {
             }
             let selection = egress.select_for_peer(peer);
             selection.ensure_connectable()?;
+            if selection.generation() != self.generation || egress.generation() != self.generation {
+                return Err(io::Error::other("event dial network generation retired"));
+            }
             let prepared = PendingTcpConnect::prepare(
                 peer,
                 &DialPolicy::default(),
@@ -129,7 +132,16 @@ impl Epoch {
             return Err(io::Error::other("original event connect task failed"));
         }
         match result {
-            Ok(stream) => Ok(Box::new(stream)),
+            Ok(stream) => {
+                if egress.generation() != self.generation {
+                    drop(stream);
+                    self.close_returned(deadline).await?;
+                    return Err(io::Error::other(
+                        "event dial completed on a retired network generation",
+                    ));
+                }
+                Ok(Box::new(stream))
+            }
             Err(error) => {
                 self.close_returned(deadline).await?;
                 if original.receipt.lock().unwrap().is_none() {

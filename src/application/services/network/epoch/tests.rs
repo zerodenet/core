@@ -1,6 +1,7 @@
 use super::*;
 use std::future::Future;
 use tokio::{io::AsyncReadExt, sync::Notify};
+use zero_platform_tokio::EgressInterfaceControl;
 fn end() -> Instant {
     Instant::now() + std::time::Duration::from_secs(3)
 }
@@ -15,7 +16,7 @@ async fn connected(epoch: &Arc<Epoch>) -> (Box<dyn EventSinkTcpStream>, tokio::n
 }
 #[tokio::test]
 async fn joined_connect_and_cancellation_do_not_close_a_held_transfer_view() {
-    let epoch = Epoch::new(1);
+    let epoch = Epoch::new(EgressInterfaceControl::default().generation());
     let (stream, mut peer) = connected(&epoch).await;
     let original = epoch.originals.lock().unwrap()[0].clone();
     assert!(original
@@ -54,7 +55,7 @@ async fn joined_connect_and_cancellation_do_not_close_a_held_transfer_view() {
 }
 #[tokio::test]
 async fn pending_http_user_requires_real_scope_join_before_original_close() {
-    let epoch = Epoch::new(1);
+    let epoch = Epoch::new(EgressInterfaceControl::default().generation());
     let (mut stream, mut peer) = connected(&epoch).await;
     let original = epoch.originals.lock().unwrap()[0].clone();
     let entered = Arc::new(Notify::new());
