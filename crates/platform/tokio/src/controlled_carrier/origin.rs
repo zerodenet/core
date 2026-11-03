@@ -14,10 +14,7 @@ enum Original {
     Metadata(crate::controlled_datagram::metadata_pool::MetadataPoolOrigin),
     MetadataPool {
         owner: crate::controlled_datagram::metadata_pool::MetadataPoolRegistration,
-        binding: Option<(
-            zero_core::request::Destination,
-            crate::contract::network::UpstreamBinding,
-        )>,
+        binding: Option<crate::controlled_datagram::metadata_pool::MetadataPoolBinding>,
     },
 }
 mod close;
@@ -109,7 +106,7 @@ impl CarrierOrigin {
         actual: crate::controlled_datagram::metadata_pool::MetadataPoolOrigin,
     ) -> Self {
         let binding = if !actual.is_retired() && actual.endpoints().is_some() {
-            actual.selected_binding()
+            actual.binding_snapshot()
         } else {
             None
         };
@@ -195,7 +192,7 @@ impl CarrierOrigin {
             Original::MetadataPool {
                 binding: Some(binding),
                 ..
-            } => Some(binding.clone()),
+            } => Some((binding.0.clone(), binding.1.clone())),
             Original::MetadataPool { binding: None, .. } => None,
         }
     }

@@ -12,13 +12,7 @@ pub struct MetadataPoolOwnerClosed {
     closed: Arc<OnceLock<bool>>,
 }
 impl MetadataPoolRegistration {
-    pub fn binding_retired(
-        &self,
-        expected: &(
-            zero_core::request::Destination,
-            crate::contract::network::UpstreamBinding,
-        ),
-    ) -> bool {
+    pub(crate) fn binding_retired(&self, expected: &MetadataPoolBinding) -> bool {
         self.owner.upgrade().is_none_or(|owner| {
             owner.cancel.is_cancelled()
                 || owner
@@ -30,13 +24,7 @@ impl MetadataPoolRegistration {
                     .is_some_and(|actual| actual != expected)
         })
     }
-    pub async fn binding_retired_wait(
-        &self,
-        expected: &(
-            zero_core::request::Destination,
-            crate::contract::network::UpstreamBinding,
-        ),
-    ) {
+    pub(crate) async fn binding_retired_wait(&self, expected: &MetadataPoolBinding) {
         let (changed, cancel) = match self.owner.upgrade() {
             Some(owner) => (owner.changed.clone(), owner.cancel.clone()),
             None => return,
@@ -51,12 +39,9 @@ impl MetadataPoolRegistration {
             tokio::select! { biased; _ = cancel.cancelled() => return, _ = notified => {} }
         }
     }
-    pub fn current_original_for(
+    pub(crate) fn current_original_for(
         &self,
-        expected: &(
-            zero_core::request::Destination,
-            crate::contract::network::UpstreamBinding,
-        ),
+        expected: &MetadataPoolBinding,
     ) -> Option<MetadataPoolOrigin> {
         let owner = self.owner.upgrade()?;
         let slots = owner
@@ -69,7 +54,7 @@ impl MetadataPoolRegistration {
             .collect::<Vec<_>>();
         slots.into_iter().rev().find_map(|slot| {
             let origin = MetadataPoolPermit(slot).origin();
-            (!origin.is_retired() && origin.selected_binding().as_ref() == Some(expected))
+            (!origin.is_retired() && origin.binding_snapshot().as_ref() == Some(expected))
                 .then_some(origin)
         })
     }

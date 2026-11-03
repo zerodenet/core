@@ -22,6 +22,13 @@ pub(crate) use permit::MetadataCandidate;
 pub use permit::{MetadataPoolClosed, MetadataPoolOrigin, MetadataPoolPermit};
 pub use registration::{MetadataPoolOwnerClosed, MetadataPoolRegistration};
 
+// Only sealed current candidates can populate this immutable observation.
+pub(crate) type MetadataPoolBinding = (
+    zero_core::request::Destination,
+    crate::contract::network::UpstreamBinding,
+    Option<crate::contract::dns::DnsGeneration>,
+);
+
 pub struct MetadataPoolOwner {
     shared: Arc<Shared>,
 }
@@ -45,10 +52,7 @@ struct State {
     stopped: bool,
     next: u64,
     slots: BTreeMap<u64, Arc<Slot>>,
-    last_binding: Option<(
-        zero_core::request::Destination,
-        crate::contract::network::UpstreamBinding,
-    )>,
+    last_binding: Option<MetadataPoolBinding>,
 }
 struct Slot {
     owner: Weak<Shared>,
@@ -81,10 +85,7 @@ struct Native {
     acquired_confirmed: bool,
     attempted: bool,
     endpoints: Option<(std::net::SocketAddr, std::net::SocketAddr)>,
-    binding: Option<(
-        zero_core::request::Destination,
-        crate::contract::network::UpstreamBinding,
-    )>,
+    binding: Option<MetadataPoolBinding>,
     report: Option<Arc<MetadataOwnerReport>>,
 }
 fn error(reason: Reason, message: &'static str) -> ChannelError {
