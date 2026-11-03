@@ -53,13 +53,14 @@ async fn actual_plugin_start_deadline_rejects_ready_ack_only_after_original_clea
         .expect("the original finite lifecycle start deadline must settle");
     drop(applying);
     let error = acknowledgement.await.unwrap().unwrap_err();
-    assert_eq!(
-        error,
-        ChannelError::new(Stage::Prepare, Reason::Timeout, Impact::Component).to_string()
-    );
     let terminal = owner
         .terminal_for_test()
         .expect("actual original retired before rejection ACK");
+    assert_eq!(
+        error,
+        ChannelError::new(Stage::Prepare, Reason::Timeout, Impact::Component).to_string(),
+        "actual original terminal and complete error source: {terminal:#?}"
+    );
     assert_eq!(terminal.identity(), owner.identity());
     assert!(terminal.joined_tasks() > 0);
     assert!(terminal.closed_io_receipts() > 0);
