@@ -345,3 +345,5 @@ async fn hysteria2_invalid_ca_start_keeps_actual_registered_metadata_cleanup_con
 mod hop;
 #[path = "lifecycle/pending.rs"]
 mod pending;
+#[path = "lifecycle/reload.rs"]
+mod reload;
