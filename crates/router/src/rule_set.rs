@@ -12,6 +12,7 @@ use zero_rule::{PreparedRuleQuery, RuleMatcher};
 pub struct RuleSetMatcher {
     tag: Arc<str>,
     matcher: Arc<dyn RuleMatcher>,
+    source_digest: Option<[u8; 32]>,
 }
 
 impl RuleSetMatcher {
@@ -19,7 +20,16 @@ impl RuleSetMatcher {
         Self {
             tag: tag.into(),
             matcher,
+            source_digest: None,
         }
+    }
+
+    /// Content identity of the exact validated source bytes and format used to
+    /// prepare this immutable matcher. This is domain data, never native-close
+    /// evidence. Opaque matchers without source evidence retain Arc equality.
+    pub fn with_source_digest(mut self, digest: [u8; 32]) -> Self {
+        self.source_digest = Some(digest);
+        self
     }
 
     pub fn tag(&self) -> &str {
@@ -46,7 +56,12 @@ impl fmt::Debug for RuleSetMatcher {
 
 impl PartialEq for RuleSetMatcher {
     fn eq(&self, other: &Self) -> bool {
-        self.tag == other.tag && Arc::ptr_eq(&self.matcher, &other.matcher)
+        self.tag == other.tag
+            && match (self.source_digest, other.source_digest) {
+                (Some(left), Some(right)) => left == right,
+                (None, None) => Arc::ptr_eq(&self.matcher, &other.matcher),
+                _ => false,
+            }
     }
 }
 
