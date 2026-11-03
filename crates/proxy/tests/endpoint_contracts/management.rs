@@ -10,7 +10,6 @@ use zero_api::{
     EndpointOperationCommand, EndpointPersistence, EndpointRuntimeState,
     EndpointSetDirectionsCommand, EndpointSetStateCommand, EndpointStateSource, EventFilter,
 };
-use zero_config::RuntimeConfig;
 use zero_engine::Engine;
 use zero_proxy::Proxy;
 
