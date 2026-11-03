@@ -73,9 +73,9 @@ Ready 后才持久化意味着持久化失败时，已退休的原端点必须�
 
 ## A/B 分支提交索引
 
-此索引为各任务分支首父链的非 merge 提交；普通依赖 merge 保留在 Git 历史。A 初轮 PR 合入后追加的实际收尾提交由 C 普通合并保留，不改写 PR 原始集成点。索引 head 是分支实现输入，不替代 PR #127 的最终冻结候选。
+此索引为各任务分支首父链的非 merge 提交；普通依赖 merge 保留在 Git 历史。A 初轮 PR 合入后追加的实际收尾提交由 C 普通合并保留，不改写 PR 原始集成点。索引 head 是分支实现输入，不替代 PR #127 的最终冻结候选。B 在最后源码整合后普通 fast-forward 到 `d9e852eb21bb8122ff9ce934f9af532bb99bbe02` 并以 ls-remote 确认远端；下面 B 的 `6e775070` 是原实现首父链索引锚点，避免用集成分支首父链遗漏合并提交中的 B 实现。
 
-### A：`e6fb04e0af97f85d23c8d2aa038039e210770ddd`
+### A：`179ee0049b80788f84ebc42e1d88abdcc13eedaf`
 
 - `a5df1b586a8882708ec8b7acc03bbafd8855f5d1` — refactor(config): prepare shared routing resources in runtime
 - `23b1caacd40f3c679fdaea98112089f7ff014154` — refactor(runtime): persist ready configuration under the accepted host transaction
@@ -130,6 +130,8 @@ Ready 后才持久化意味着持久化失败时，已退休的原端点必须�
 - `dc2b4baea99b990811f0e3dd7b59fdd2061d47a5` — test(engine): declare DNS-free TUN metering fixture explicitly
 - `c57748c0a8359959bd76d78f45f66bc4bd8d6ed5` — test(proxy): verify final ACK and original retirement under ready-time persistence
 - `e6fb04e0af97f85d23c8d2aa038039e210770ddd` — test(proxy): bind the cancellation source borrow to its original error
+
+- `179ee0049b80788f84ebc42e1d88abdcc13eedaf` — refactor(runtime): own embedded source commit and compensation outside Engine
 
 ### B：`6e775070565fb11c8e6c8a124c52ec9c2425cca0`
 

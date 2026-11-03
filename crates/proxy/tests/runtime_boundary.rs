@@ -5289,3 +5289,34 @@ fn hysteria2_outbound_uses_one_actual_standard_pool_for_all_existing_callers() {
         );
     }
 }
+
+#[test]
+fn embedded_engine_entries_leave_source_transaction_order_with_the_original_owner() {
+    let engine = read(&workspace_root().join("crates/engine/src/runtime/configuration.rs"));
+    assert!(engine.contains(".commit_embedded("));
+    for removed in [
+        ".persist_ready(",
+        ".rollback_pending(",
+        ".finalize_committed(",
+        "SourceDisposition",
+    ] {
+        assert!(
+            !engine.contains(removed),
+            "embedded Engine must not restore source ordering: {removed}"
+        );
+    }
+    let source =
+        read(&workspace_root().join("crates/runtime/src/configuration/source/embedded.rs"));
+    for required in [
+        "startup::with_source(self.clone()",
+        "self.state.lock()",
+        "self.persist_ready_locked(",
+        "self.rollback_pending_locked(",
+        "self.finalize_committed_locked(",
+    ] {
+        assert!(
+            source.contains(required),
+            "embedded source retains actual original operation: {required}"
+        );
+    }
+}
