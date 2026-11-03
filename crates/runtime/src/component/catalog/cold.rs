@@ -147,7 +147,7 @@ impl ComponentCatalog {
             if !self.factories().has_factory_for_candidate(
                 input.protocol.protocol_name(),
                 input,
-                Some(&config),
+                Some(config),
             ) {
                 continue;
             }
