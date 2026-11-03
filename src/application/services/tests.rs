@@ -1,3 +1,5 @@
+#[cfg(unix)]
+mod hooks;
 mod recovery;
 mod startup;
 

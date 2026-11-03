@@ -32,12 +32,14 @@ pub(super) struct ApplicationServices {
 struct ApplicationAttempt {
     target: Arc<RuntimeConfig>,
     dispatcher_touched: bool,
+    hooks_touched: bool,
 }
 struct ApplicationServiceState {
     attempt: Option<ApplicationAttempt>,
     #[cfg(test)]
     preparation_pause: Option<Arc<startup::StartupPause>>,
-    pending_hooks: Option<Option<zero_engine::FlowHookChain>>,
+    pending_hooks: Option<hooks::PreparedHooks>,
+    hooks: Option<hooks::PreparedHooks>,
     cleanup_fault: Option<Arc<dyn Error + Send + Sync>>,
     #[cfg(feature = "event-dispatcher")]
     monitor_exit: Option<Result<(), Arc<tokio::task::JoinError>>>,
@@ -116,6 +118,7 @@ impl ApplicationServices {
                 #[cfg(test)]
                 preparation_pause: startup.pause.lock().unwrap().clone(),
                 pending_hooks: None,
+                hooks: None,
                 cleanup_fault: None,
                 #[cfg(feature = "event-dispatcher")]
                 monitor_exit: None,
@@ -146,6 +149,8 @@ impl ApplicationServices {
                 let cleanup = services.stop_active_services(&mut state).await;
                 #[cfg(not(feature = "event-dispatcher"))]
                 let cleanup: Result<(), String> = Ok(());
+                let hooks_cleanup = services.retire_hooks(&mut state);
+                let cleanup = cleanup.and(hooks_cleanup);
                 if cleanup.is_ok() {
                     startup.clear(&services);
                 }

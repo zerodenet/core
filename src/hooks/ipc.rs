@@ -1,14 +1,10 @@
 use std::io::{self, BufRead, BufReader, Write};
-use std::sync::Mutex;
+mod original;
+use original::{Call, IpcOriginal};
 use std::time::Duration;
 
 use zero_engine::{BlockReason, FlowContext, FlowHook, FlowTraffic, SessionOutcome};
 
-// Platform-specific stream type.
-#[cfg(unix)]
-type IpcStream = std::os::unix::net::UnixStream;
-#[cfg(windows)]
-type IpcStream = std::fs::File;
 type WarningHandler = Box<dyn Fn(&str, &str) + Send + Sync>;
 
 /// An `IpcFlowHook` delegates flow decisions to an external process over
@@ -32,7 +28,7 @@ type WarningHandler = Box<dyn Fn(&str, &str) + Send + Sync>;
 pub struct IpcFlowHook {
     path: String,
     timeout: Duration,
-    stream: Mutex<Option<IpcStream>>,
+    original: IpcOriginal,
     on_warning: Option<WarningHandler>,
 }
 
@@ -41,7 +37,7 @@ impl IpcFlowHook {
         Self {
             path: path.into(),
             timeout,
-            stream: Mutex::new(None),
+            original: IpcOriginal::default(),
             on_warning: None,
         }
     }
@@ -60,84 +56,70 @@ impl IpcFlowHook {
         }
     }
 
-    fn send_recv(&self, request: &serde_json::Value) -> io::Result<serde_json::Value> {
-        let request_line = serde_json::to_string(request).map_err(io::Error::other)?;
-        let request_bytes = format!("{request_line}\n");
-
-        let mut stream = self.connect()?;
-        set_timeout(&mut stream, Some(self.timeout))?;
-
-        stream.write_all(request_bytes.as_bytes())?;
-        stream.flush()?;
-
-        let reader = BufReader::new(&stream);
-        for line in reader.lines() {
-            let line = line?;
-            if line.trim().is_empty() {
-                continue;
+    #[cfg(all(test, unix))]
+    pub(crate) fn interrupt_original_for_test(&self) {
+        let _callback = self.original.callback().expect("actual callback admitted");
+        let _ = self.original.call(&self.path, |stream| -> io::Result<()> {
+            stream.write_all(b"actual original pending callback\n")?;
+            panic!("actual callback interrupted while holding its original stream");
+        });
+    }
+    #[cfg(test)]
+    pub(crate) fn native_observation_for_test(&self) -> (usize, usize, bool, bool) {
+        self.original.observation()
+    }
+    pub(crate) fn retire(&self) -> io::Result<()> {
+        self.original.retire()
+    }
+    pub(crate) fn confirm_original_io_closed(&self) -> io::Result<()> {
+        self.original.confirm_original_io_closed()
+    }
+    pub(crate) fn is_retired(&self) -> bool {
+        self.original.is_retired()
+    }
+    fn report_cleanup(&self, cleanup: io::Result<()>) {
+        if let Err(error) = cleanup {
+            let message = format!("IPC original cleanup unconfirmed: {error}");
+            // Diagnostics cannot override an already confirmed allow/deny.
+            let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                tracing::warn!(path = %self.path, error = %error, "{message}");
+                self.emit_warning("ipc_hook_cleanup_unconfirmed", &message);
+            }));
+        }
+    }
+    fn send_recv(&self, request: &serde_json::Value) -> Call<serde_json::Value> {
+        let request_bytes = match serde_json::to_vec(request) {
+            Ok(mut bytes) => {
+                bytes.push(b'\n');
+                bytes
             }
-            return serde_json::from_str(&line).map_err(io::Error::other);
-        }
-
-        Err(io::Error::new(
-            io::ErrorKind::UnexpectedEof,
-            "ipc hook closed connection without response",
-        ))
-    }
-
-    fn send_fire_and_forget(&self, notification: &serde_json::Value) {
-        let Ok(line) = serde_json::to_string(notification) else {
-            return;
-        };
-        let bytes = format!("{line}\n").into_bytes();
-
-        if let Ok(mut stream) = self.connect() {
-            let _ = set_timeout(&mut stream, Some(Duration::from_secs(2)));
-            let _ = stream.write_all(&bytes);
-        }
-    }
-
-    fn connect(&self) -> io::Result<IpcStream> {
-        // Try cached connection.
-        {
-            let mut guard = self.stream.lock().expect("ipc hook lock poisoned");
-            if let Some(stream) = guard.take() {
-                if is_alive(&stream) {
-                    set_timeout(guard.as_mut().unwrap(), Some(self.timeout))?;
-                    return Ok(stream);
+            Err(error) => {
+                return Call {
+                    operation: Err(io::Error::other(error)),
+                    cleanup: Ok(()),
                 }
             }
-        }
-
-        let stream = connect_ipc(&self.path)?;
-
-        // Cache for next call.
-        {
-            let mut guard = self.stream.lock().expect("ipc hook lock poisoned");
-            let cloned = clone_stream(&stream)?;
-            let _ = guard.insert(cloned);
-        }
-
-        Ok(stream)
+        };
+        self.original.call(&self.path, |stream| {
+            stream.set_timeout(Some(self.timeout))?;
+            stream.write_all(&request_bytes)?;
+            stream.flush()?;
+            for line in BufReader::new(stream).lines() {
+                let line = line?;
+                if line.trim().is_empty() {
+                    continue;
+                }
+                return serde_json::from_str(&line).map_err(io::Error::other);
+            }
+            Err(io::Error::new(
+                io::ErrorKind::UnexpectedEof,
+                "ipc hook closed connection without response",
+            ))
+        })
     }
-}
-
-impl FlowHook for IpcFlowHook {
-    fn on_flow_start(&self, ctx: &FlowContext) -> Result<(), BlockReason> {
-        let request = serde_json::json!({
-            "type": "check_flow",
-            "flow_id": ctx.flow_id,
-            "inbound_tag": ctx.inbound_tag,
-            "target_host": ctx.target_host,
-            "target_port": ctx.target_port,
-            "network": ctx.network,
-            "protocol": ctx.protocol,
-            "auth_scheme": ctx.auth.as_ref().map(|a| &a.scheme),
-            "principal_key": ctx.auth.as_ref().and_then(|a| a.principal_key.as_deref()),
-            "mode": ctx.mode,
-        });
-
-        match self.send_recv(&request) {
+    fn resolve_start_call(&self, call: Call<serde_json::Value>) -> Result<(), BlockReason> {
+        self.report_cleanup(call.cleanup);
+        match call.operation {
             Ok(response) => {
                 if response
                     .get("allow")
@@ -163,13 +145,49 @@ impl FlowHook for IpcFlowHook {
                 let msg = format!("ipc hook unreachable ({error}); allowing flow (fail-open)");
                 tracing::warn!(path = %self.path, error = %error, "{}", msg);
                 self.emit_warning("ipc_hook_unreachable", &msg);
-                let _ = self.stream.lock().expect("ipc hook lock poisoned").take();
                 Ok(())
             }
         }
     }
 
+    fn send_fire_and_forget(&self, notification: &serde_json::Value) {
+        let Ok(mut bytes) = serde_json::to_vec(notification) else {
+            return;
+        };
+        bytes.push(b'\n');
+        let call = self.original.call(&self.path, |stream| {
+            let _ = stream.set_timeout(Some(Duration::from_secs(2)));
+            stream.write_all(&bytes)
+        });
+        self.report_cleanup(call.cleanup);
+    }
+}
+
+impl FlowHook for IpcFlowHook {
+    fn on_flow_start(&self, ctx: &FlowContext) -> Result<(), BlockReason> {
+        let Some(_callback) = self.original.callback() else {
+            return Ok(());
+        };
+        let request = serde_json::json!({
+            "type": "check_flow",
+            "flow_id": ctx.flow_id,
+            "inbound_tag": ctx.inbound_tag,
+            "target_host": ctx.target_host,
+            "target_port": ctx.target_port,
+            "network": ctx.network,
+            "protocol": ctx.protocol,
+            "auth_scheme": ctx.auth.as_ref().map(|a| &a.scheme),
+            "principal_key": ctx.auth.as_ref().and_then(|a| a.principal_key.as_deref()),
+            "mode": ctx.mode,
+        });
+
+        self.resolve_start_call(self.send_recv(&request))
+    }
+
     fn on_flow_end(&self, ctx: &FlowContext, outcome: SessionOutcome, stats: &FlowTraffic) {
+        let Some(_callback) = self.original.callback() else {
+            return;
+        };
         let notification = serde_json::json!({
             "type": "flow_end",
             "flow_id": ctx.flow_id,
@@ -187,56 +205,5 @@ impl FlowHook for IpcFlowHook {
     }
 }
 
-// ── Platform-specific helpers ─────────────────────────────────────────
-
-#[cfg(unix)]
-use std::os::unix::net::UnixStream;
-
-#[cfg(unix)]
-fn connect_ipc(path: &str) -> io::Result<IpcStream> {
-    UnixStream::connect(path)
-}
-
-#[cfg(unix)]
-fn clone_stream(stream: &IpcStream) -> io::Result<IpcStream> {
-    stream.try_clone()
-}
-
-#[cfg(unix)]
-fn is_alive(_stream: &IpcStream) -> bool {
-    // Unix socket connections are cheap to recreate; don't bother with
-    // liveness checking.  Always reconnect.
-    false
-}
-
-#[cfg(unix)]
-fn set_timeout(stream: &mut IpcStream, timeout: Option<Duration>) -> io::Result<()> {
-    stream.set_read_timeout(timeout)?;
-    stream.set_write_timeout(timeout)
-}
-
-#[cfg(windows)]
-fn connect_ipc(path: &str) -> io::Result<IpcStream> {
-    std::fs::OpenOptions::new()
-        .read(true)
-        .write(true)
-        .open(path)
-}
-
-#[cfg(windows)]
-fn clone_stream(stream: &IpcStream) -> io::Result<IpcStream> {
-    stream.try_clone()
-}
-
-#[cfg(windows)]
-fn is_alive(_stream: &IpcStream) -> bool {
-    // On Windows, reconnection is cheap — just reconnect.
-    false
-}
-
-#[cfg(windows)]
-fn set_timeout(_stream: &mut IpcStream, _timeout: Option<Duration>) -> io::Result<()> {
-    // Windows File handles don't support read/write timeouts natively.
-    // The connection is local, so timeouts are not critical.
-    Ok(())
-}
+#[cfg(all(test, unix))]
+mod tests;

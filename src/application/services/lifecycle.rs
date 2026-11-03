@@ -10,9 +10,10 @@ impl ApplicationServices {
     }
 
     pub(in crate::application) async fn shutdown_dispatcher(&self) -> Result<(), String> {
+        let mut state = self.state.lock().await;
+        let hooks = self.retire_hooks(&mut state);
         #[cfg(feature = "event-dispatcher")]
         {
-            let mut state = self.state.lock().await;
             if let Some(dispatcher) = state.dispatcher.as_mut() {
                 match dispatcher.shutdown_retained().await {
                     Ok(()) => state.dispatcher = None,
@@ -21,8 +22,6 @@ impl ApplicationServices {
                     }
                 }
             }
-            // Even a terminal dispatcher failure does not excuse the distinct
-            // original network obligations. Retain the first actual failure.
             if state.network_generation_started {
                 match self
                     .event_network
@@ -37,14 +36,14 @@ impl ApplicationServices {
                     }
                 }
             }
-            if let Some(error) = &state.cleanup_fault {
-                return Err(format!(
-                    "original application cleanup remains unresolved: {error}"
-                ));
-            }
         }
         self.engine.update_sink_status(Vec::new());
-        Ok(())
+        if let Some(error) = &state.cleanup_fault {
+            return Err(format!(
+                "original application cleanup remains unresolved: {error}"
+            ));
+        }
+        hooks
     }
 
     #[cfg(feature = "event-dispatcher")]
@@ -68,9 +67,28 @@ impl ApplicationServices {
     }
 
     pub(super) fn publish_prepared_hooks(&self, state: &mut ApplicationServiceState) {
-        if let Some(hooks) = state.pending_hooks.take() {
-            self.engine.replace_flow_hook_chain(hooks);
+        if let Some(mut hooks) = state.pending_hooks.take() {
+            self.engine.replace_flow_hook_chain(hooks.take_chain());
+            state.hooks = Some(hooks);
         }
+    }
+
+    pub(super) fn retire_hooks(&self, state: &mut ApplicationServiceState) -> Result<(), String> {
+        for hooks in [&mut state.pending_hooks, &mut state.hooks] {
+            if let Some(originals) = hooks.as_mut() {
+                if let Err(error) = originals.retire() {
+                    state.cleanup_fault.get_or_insert_with(|| Arc::new(error));
+                }
+            }
+        }
+        if let Some(error) = &state.cleanup_fault {
+            return Err(format!(
+                "original application cleanup remains unresolved: {error}"
+            ));
+        }
+        state.pending_hooks = None;
+        state.hooks = None;
+        Ok(())
     }
 
     #[cfg(feature = "event-dispatcher")]

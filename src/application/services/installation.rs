@@ -19,17 +19,28 @@ impl ApplicationServices {
 
         let previous = state.config.clone();
         let components = changed_components(previous.as_ref(), target.as_ref());
-        let rebuild_hooks = !state.installed || previous.api.hooks != target.api.hooks;
+        let rebuild_hooks = !state.installed
+            || previous.api.hooks != target.api.hooks
+            || !self.hooks_match_target(state);
         #[cfg(feature = "event-dispatcher")]
         let rebuild_dispatcher = !state.installed
             || dispatcher_changed(&previous, &target)
-            || !self.services_match_target(state, &target);
+            || !self.dispatcher_matches_target(state, &target);
         #[cfg(feature = "event-dispatcher")]
         if rebuild_dispatcher {
             if let Some(attempt) = &mut state.attempt {
                 attempt.dispatcher_touched = true;
             }
             self.stop_active_services(state).await?;
+        }
+        if rebuild_hooks {
+            if let Some(attempt) = &mut state.attempt {
+                attempt.hooks_touched = true;
+            }
+            // Fence the exact old callbacks, await their synchronous view
+            // return, and consume original native close before any new hook
+            // can be published or start native I/O.
+            self.retire_hooks(state)?;
         }
         state.config = target.clone();
         state.installed = false;
@@ -41,12 +52,12 @@ impl ApplicationServices {
                     engine.emit_warning(code, message);
                 }) as Arc<dyn Fn(&str, &str) + Send + Sync>)
             };
-            let hook_chain = hooks::build_hook_chain(
+            let hook_chain = hooks::prepare_hooks(
                 self.ipc_hook_socket.as_deref(),
                 &target.api,
                 warning_handler,
             );
-            state.pending_hooks = Some((!hook_chain.is_empty()).then_some(hook_chain));
+            state.pending_hooks = Some(hook_chain);
         }
 
         #[cfg(feature = "event-dispatcher")]
@@ -120,7 +131,21 @@ impl ApplicationServices {
         Ok(ConfigReconcileResult { components })
     }
 
+    pub(super) fn hooks_match_target(&self, state: &ApplicationServiceState) -> bool {
+        state
+            .pending_hooks
+            .as_ref()
+            .or(state.hooks.as_ref())
+            .is_some_and(hooks::PreparedHooks::is_ready)
+    }
     pub(super) fn services_match_target(
+        &self,
+        state: &ApplicationServiceState,
+        target: &RuntimeConfig,
+    ) -> bool {
+        self.hooks_match_target(state) && self.dispatcher_matches_target(state, target)
+    }
+    pub(super) fn dispatcher_matches_target(
         &self,
         _state: &ApplicationServiceState,
         _target: &RuntimeConfig,
