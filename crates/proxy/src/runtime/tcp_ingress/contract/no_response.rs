@@ -3,7 +3,7 @@ use tokio::io::{AsyncRead, AsyncWrite};
 use zero_engine::EngineError;
 
 use super::protocol::InboundProtocol;
-#[cfg(feature = "managed-stream-runtime")]
+#[cfg(all(test, feature = "managed-stream-runtime"))]
 use crate::transport::TcpRelayStream;
 
 #[derive(Clone, Copy, Default)]
@@ -43,11 +43,11 @@ where
 }
 
 #[derive(Clone, Copy, Default)]
-#[cfg(feature = "managed-stream-runtime")]
+#[cfg(all(test, feature = "managed-stream-runtime"))]
 pub(crate) struct NoClientResponseInboundProtocol;
 
 #[async_trait]
-#[cfg(feature = "managed-stream-runtime")]
+#[cfg(all(test, feature = "managed-stream-runtime"))]
 impl InboundProtocol for NoClientResponseInboundProtocol {
     type ClientStream = TcpRelayStream;
 

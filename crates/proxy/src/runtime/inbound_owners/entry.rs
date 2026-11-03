@@ -20,6 +20,7 @@ mod observation;
 #[cfg(feature = "managed-datagram-runtime")]
 mod peer_cleanup;
 mod pending_bound;
+#[cfg(test)]
 use pending_bound::PendingNativeBound;
 mod readiness;
 pub(crate) use observation::consume_reported_error;
@@ -80,6 +81,7 @@ pub(crate) struct InboundOwner {
     observation: Arc<observation::ObservationDisposition>,
     ready: InboundReady,
     installation_complete: AtomicBool,
+    #[cfg(test)]
     pending_native_bound: Mutex<Option<Arc<PendingNativeBound>>>,
     pending_native_cause: Mutex<Option<SharedError>>,
     #[cfg(feature = "managed-datagram-runtime")]
@@ -125,6 +127,7 @@ impl InboundTaskAccess {
     pub(crate) fn cancellation(&self) -> CancellationToken {
         self.cancel.clone()
     }
+    #[cfg(test)]
     pub(crate) fn spawn(
         &self,
         work: impl Future<Output = Result<(), EngineError>> + Send + 'static,
@@ -150,6 +153,7 @@ impl InboundTaskAccess {
                 })
             })
     }
+    #[cfg(test)]
     pub(super) fn spawn_critical(
         &self,
         work: impl Future<Output = Result<(), EngineError>> + Send + 'static,
@@ -204,6 +208,7 @@ impl InboundOwner {
             last_accepted_join: Mutex::new(None),
             ready: InboundReady::new(),
             installation_complete: AtomicBool::new(true),
+            #[cfg(test)]
             pending_native_bound: Mutex::new(None),
             pending_native_cause: Mutex::new(None),
             #[cfg(feature = "managed-datagram-runtime")]
@@ -275,6 +280,7 @@ impl InboundOwner {
         }
     }
     #[cfg(feature = "managed-datagram-runtime")]
+    #[cfg(test)]
     pub(super) fn install_peer_tasks(
         &self,
         protocols: ProtocolInventory,

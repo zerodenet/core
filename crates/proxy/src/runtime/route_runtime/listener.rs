@@ -59,20 +59,6 @@ impl InboundListenerRuntime {
     pub(crate) fn readiness(&self) -> Option<crate::runtime::inbound_owners::InboundReady> {
         self.ready.clone()
     }
-    #[cfg(feature = "managed-datagram-runtime")]
-    pub(crate) fn split_readiness(
-        &self,
-        count: usize,
-    ) -> Result<Vec<Self>, zero_engine::EngineError> {
-        match &self.ready {
-            Some(ready) => Ok(ready
-                .split(count)?
-                .into_iter()
-                .map(|ready| self.clone().with_readiness(ready))
-                .collect()),
-            None => Ok((0..count).map(|_| self.clone()).collect()),
-        }
-    }
 
     pub(crate) fn new(
         shared: SharedIngressRuntimeServices,
@@ -92,16 +78,6 @@ impl InboundListenerRuntime {
         &self,
     ) -> Option<&crate::runtime::inbound_owners::InboundTaskAccess> {
         self.host.as_ref()
-    }
-
-    #[cfg(feature = "managed-datagram-runtime")]
-    pub(crate) fn inbound_tag(&self) -> &str {
-        self.route_factory.inbound_tag()
-    }
-
-    #[cfg(feature = "raw-ip-runtime")]
-    pub(crate) fn datagram_egress(&self) -> zero_platform_tokio::EgressInterfaceControl {
-        self.route_factory.datagram_egress()
     }
 
     pub(crate) fn route_factory(&self) -> InboundRouteRuntimeFactory {

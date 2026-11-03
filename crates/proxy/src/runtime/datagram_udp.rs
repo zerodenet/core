@@ -6,6 +6,4 @@
 mod contract;
 mod lifecycle;
 
-pub(crate) use lifecycle::{
-    run_protocol_datagram_udp_relay, run_ready_protocol_datagram_udp_relay,
-};
+pub(crate) use lifecycle::run_protocol_datagram_udp_relay;

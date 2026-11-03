@@ -214,10 +214,12 @@ impl InboundOwner {
         if self.physically_closed.load(Ordering::Acquire) {
             return true;
         }
+        #[cfg(test)]
         let pending = self
             .pending_native_bound
             .lock()
             .expect("pending native listener poisoned");
+        #[cfg(test)]
         if let Some(pending) = pending.as_ref() {
             if !pending.is_closed() {
                 return false;
@@ -237,6 +239,7 @@ impl InboundOwner {
         {
             return false;
         }
+        #[cfg(test)]
         drop(pending);
         if self
             .resources
@@ -294,7 +297,8 @@ impl InboundOwner {
                         .fold(closed_io_receipts, |total, group| {
                             total.saturating_add(group.closed_io_receipts_count())
                         });
-                    let mut native_bound_failures = self
+                    #[cfg(test)]
+                    let native_bound_failures = self
                         .pending_native_bound
                         .lock()
                         .expect("pending native listener poisoned")
@@ -304,6 +308,9 @@ impl InboundOwner {
                             |pending| pending.failures(),
                         )
                         .into_vec();
+                    #[cfg(not(test))]
+                    let native_bound_failures = Vec::new();
+                    let mut native_bound_failures = native_bound_failures;
                     native_bound_failures.extend(
                         self.resources
                             .lock()

@@ -36,6 +36,7 @@ impl DirectPeerDriverSlot {
             .map_err(|_driver| error(Stage::Prepare, Reason::Revoked, DeliveryState::NotSubmitted))
     }
 }
+#[cfg(test)]
 fn ordinary(result: Result<(), EngineError>) {
     if let Err(error) = result {
         tracing::debug!(%error, "UDP peer association ended");
@@ -44,6 +45,7 @@ fn ordinary(result: Result<(), EngineError>) {
 fn critical(source: ChannelError) -> EngineError {
     legacy(source)
 }
+#[cfg(test)]
 pub(crate) async fn run_peer_with_driver<F>(
     consumer: F,
     job: DirectPeerDriverJob,

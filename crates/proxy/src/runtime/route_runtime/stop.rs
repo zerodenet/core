@@ -36,12 +36,14 @@ impl ListenerStop {
             .ok_or_else(|| std::io::Error::other("listener UDP consumer count exhausted"))?;
         Ok(UdpStopGuard { stop: self.clone() })
     }
+    #[cfg(test)]
     pub(crate) fn begin_shutdown(&self) {
         self.0.state.lock().expect("listener stop poisoned").closing = true;
         self.0.stop.cancel();
     }
     /// This confirms only that admitted consumer futures released their guards.
     /// The persistent Datagram owner must still confirm actual channel closure.
+    #[cfg(test)]
     pub(crate) async fn wait_quiescent(&self) {
         loop {
             let changed = self.0.changed.notified();

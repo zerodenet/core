@@ -5,7 +5,6 @@ use std::{
     sync::{Mutex, OnceLock},
 };
 use zero_platform_tokio::contract::{
-    component::*,
     lifecycle::{CloseReport, ResourceLifecycle},
     scope::TaskRegistrar,
     Impact, Reason, Stage,

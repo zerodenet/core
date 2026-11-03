@@ -34,7 +34,7 @@ use zero_traits::{ProtocolCapabilityDescriptor, ProtocolMetadata, ProtocolUdpFlo
 
 use crate::adapters::identity::NamedProtocolAdapter;
 use crate::protocol_registry::{
-    inbound_listen_addr, OutboundLeafClaim, OutboundLeafInput, UpstreamConnectServices,
+    OutboundLeafClaim, OutboundLeafInput, UpstreamConnectServices,
 };
 use crate::runtime::path::TcpPathCategory;
 use crate::runtime::transport_leaf::{

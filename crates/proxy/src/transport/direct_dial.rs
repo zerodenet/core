@@ -86,6 +86,7 @@ pub(super) struct TcpDialFailure {
     candidate_index: usize,
 }
 
+#[cfg(test)]
 pub(super) async fn dial_tcp_candidates(
     candidates: Vec<SocketAddr>,
     egress: &EgressInterfaceControl,

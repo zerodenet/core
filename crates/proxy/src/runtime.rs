@@ -20,14 +20,9 @@ mod diagnostic_service;
 mod dns_outbound;
 mod handle;
 pub(crate) mod http_redirect;
-pub(crate) mod inbound_fallback;
-pub(crate) mod inbound_owners;
-mod packet_close_owner;
-pub(crate) use inbound_fallback::{
-    prepare_inbound_route_accept, InboundFallbackTarget, PreparedInboundFallback,
-    PreparedInboundRouteAccept,
-};
 pub(crate) mod inbound_operation;
+pub(crate) mod inbound_owners;
+#[cfg(test)]
 pub(crate) mod inbound_route;
 pub(crate) mod listener_loop;
 mod listeners;
@@ -41,6 +36,7 @@ pub(crate) mod mux_udp;
 pub(crate) mod network_graph;
 pub(crate) mod orchestration;
 pub(crate) mod outbound_probe;
+mod packet_close_owner;
 #[cfg(feature = "raw-ip-runtime")]
 pub(crate) mod packet_flow;
 #[cfg(feature = "raw-ip-runtime")]

@@ -101,14 +101,25 @@ impl InboundOwner {
             Ok::<(), std::io::Error>(())
         };
         let result = timeout_at(deadline, async {
-            let (resources, tasks, peers, bound) = tokio::join!(
-                close_resources,
-                close_tasks,
-                close_peers,
-                self.close_pending_bound(deadline)
-            );
-            // A fault does not cancel a sibling's actual join/close operation.
-            resources.and(tasks).and(peers).and(bound)
+            // The raw unexecuted-bound inventory is constructed only by the
+            // retained-original test fixture. Production resources keep their
+            // existing independent real Scope/native/peer cleanup branches.
+            #[cfg(test)]
+            {
+                let (resources, tasks, peers, bound) = tokio::join!(
+                    close_resources,
+                    close_tasks,
+                    close_peers,
+                    self.close_pending_bound(deadline)
+                );
+                resources.and(tasks).and(peers).and(bound)
+            }
+            #[cfg(not(test))]
+            {
+                let (resources, tasks, peers) =
+                    tokio::join!(close_resources, close_tasks, close_peers);
+                resources.and(tasks).and(peers)
+            }
         })
         .await;
         if self.confirm_physical_close() {

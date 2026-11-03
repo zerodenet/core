@@ -1,6 +1,8 @@
 //! Original rejected listeners and their persistent explicit-close progress.
+#[cfg(test)]
 mod tree;
 use super::*;
+#[cfg(test)]
 pub(super) use tree::PendingNativeBound;
 impl InboundOwner {
     pub(in crate::runtime::inbound_owners) fn begin_listener_installation(&self) {
