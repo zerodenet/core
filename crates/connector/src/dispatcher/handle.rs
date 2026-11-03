@@ -9,14 +9,15 @@ impl EventDispatcherHandle {
         if let Some(shutdown) = self.shutdown.take() {
             let _ = shutdown.send(ShutdownMode::Drain);
         }
-        self.observe_shutdown().await.map_err(|error| {
+        let parent = self.observe_shutdown().await.map_err(|error| {
             ConnectorError::Config(format!("dispatcher shutdown failed: {error}"))
-        })?;
+        });
+        self.children.join_all().await;
         let children = self.confirm_child_joins();
         let files = self.resources.close().map_err(|error| {
             ConnectorError::Config(format!("original file cleanup failed: {error}"))
         });
-        children.and(files)
+        parent.and(children).and(files)
     }
 
     /// Observe this same original JoinHandle without moving it out of the
@@ -47,8 +48,7 @@ impl EventDispatcherHandle {
     }
 
     pub fn original_child_failure_count(&self) -> usize {
-        let failures = self.child_failures.lock().expect("original child failures");
-        failures.sink_tasks.len() + usize::from(failures.source_thread.is_some())
+        self.children.failure_count()
     }
 
     pub(super) fn confirm_child_joins(&self) -> ConnectorResult<()> {

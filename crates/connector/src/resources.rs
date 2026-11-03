@@ -26,6 +26,10 @@ pub(crate) struct FileView {
     original: Arc<Mutex<OriginalFile>>,
 }
 impl DispatcherResources {
+    #[cfg(test)]
+    pub(crate) fn original_file_count_for_test(&self) -> usize {
+        self.0.files.lock().unwrap().len()
+    }
     fn available(&self) -> io::Result<()> {
         if let Some(error) = self.0.failure.lock().unwrap().as_ref() {
             return Err(io::Error::other(format!(

@@ -19,7 +19,9 @@ use crate::resources::{DispatcherResources, RetainedDeadLetter};
 use crate::{ConnectorError, ConnectorResult};
 
 mod admission;
+pub(crate) mod children;
 mod continuation;
+use children::DispatcherChildren;
 mod handle;
 mod initialization;
 use initialization::InitSignal;
@@ -40,12 +42,6 @@ use worker::{SinkPublishResult, SinkWorker, SinkWorkerResult};
 const DEFAULT_POLL_INTERVAL: Duration = Duration::from_secs(1);
 
 type DispatcherTaskExit = Result<Option<EventDispatcherContinuation>, Arc<tokio::task::JoinError>>;
-
-#[derive(Default)]
-struct DispatcherChildFailures {
-    sink_tasks: Vec<Arc<tokio::task::JoinError>>,
-    source_thread: Option<Box<dyn std::any::Any + Send>>,
-}
 
 type SharedSinkStats = Arc<Mutex<Vec<(String, Arc<PerSinkStats>)>>>;
 
@@ -149,7 +145,7 @@ pub struct EventDispatcherHandle {
     shutdown: Option<tokio::sync::oneshot::Sender<ShutdownMode>>,
     task: JoinHandle<Option<EventDispatcherContinuation>>,
     task_exit: Option<DispatcherTaskExit>,
-    child_failures: Arc<Mutex<DispatcherChildFailures>>,
+    children: Arc<DispatcherChildren>,
     resources: DispatcherResources,
     init_rx: Option<mpsc::Receiver<ConnectorResult<bool>>>,
     init_notify: Arc<tokio::sync::Notify>,
@@ -330,8 +326,8 @@ where
     let sink_stats: SharedSinkStats = Arc::new(Mutex::new(Vec::new()));
     let stats_for_handle = sink_stats.clone();
     let stats_for_thread = sink_stats.clone();
-    let child_failures = Arc::new(Mutex::new(DispatcherChildFailures::default()));
-    let worker_failures = child_failures.clone();
+    let children = Arc::new(DispatcherChildren::default());
+    let worker_children = children.clone();
     let resources = DispatcherResources::default();
     let worker_resources = resources.clone();
 
@@ -349,14 +345,19 @@ where
                 return None;
             }
         }
-        let sinks =
-            match build_event_sinks(&api, source_dir.as_deref(), &network, &worker_resources) {
-                Ok(sinks) => sinks,
-                Err(error) => {
-                    let _ = init_tx.send(Err(error));
-                    return None;
-                }
-            };
+        let sinks = match build_event_sinks(
+            &api,
+            source_dir.as_deref(),
+            &network,
+            &worker_resources,
+            worker_children.clone(),
+        ) {
+            Ok(sinks) => sinks,
+            Err(error) => {
+                let _ = init_tx.send(Err(error));
+                return None;
+            }
+        };
 
         if sinks.is_empty() && dead_letter_path.is_none() {
             let _ = init_tx.send(Ok(false));
@@ -486,7 +487,7 @@ where
             continuation,
             init_tx,
             paused.then_some(activate_rx),
-            worker_failures,
+            worker_children,
         )))
     });
 
@@ -494,7 +495,7 @@ where
         shutdown: Some(shutdown_tx),
         task,
         task_exit: None,
-        child_failures,
+        children,
         resources,
         init_rx: Some(init_rx),
         init_notify,
@@ -521,7 +522,7 @@ async fn run_event_dispatcher<S>(
     continuation: Option<ContinuationState>,
     init: InitSignal,
     mut activation: Option<tokio::sync::oneshot::Receiver<()>>,
-    child_failures: Arc<Mutex<DispatcherChildFailures>>,
+    children: Arc<DispatcherChildren>,
 ) -> EventDispatcherContinuation
 where
     S: EventSource + Send + Sync + 'static,
@@ -529,7 +530,7 @@ where
     let (result_tx, mut result_rx) = tokio::sync::mpsc::unbounded_channel();
     let mut workers = sinks
         .into_iter()
-        .map(|sink| SinkWorker::spawn(sink, result_tx.clone()))
+        .map(|sink| SinkWorker::spawn(sink, result_tx.clone(), children.clone()))
         .collect::<Vec<_>>();
     drop(result_tx);
     let source_cancelled = Arc::new(AtomicBool::new(false));
@@ -539,6 +540,7 @@ where
         dispatcher_config.replay_batch_size,
         dispatcher_config.source_queue_max_bytes,
     );
+    children.source(source_task, source_cancelled.clone(), source_budget.clone());
     for (_, sink) in stats.lock().expect("sink stats").iter() {
         *sink.source_buffer.lock().expect("sink stats") = Some(source_budget.clone());
     }
@@ -716,20 +718,9 @@ where
         worker.stop();
     }
     for worker in &mut workers {
-        if let Err(error) = worker.join().await {
-            child_failures
-                .lock()
-                .expect("original child failures")
-                .sink_tasks
-                .push(Arc::new(error));
-        }
+        let _ = worker.join().await;
     }
-    if let Err(error) = source_task.join() {
-        child_failures
-            .lock()
-            .expect("original child failures")
-            .source_thread = Some(error);
-    }
+    children.join_source();
     drain_worker_results(
         &mut workers,
         stats,
