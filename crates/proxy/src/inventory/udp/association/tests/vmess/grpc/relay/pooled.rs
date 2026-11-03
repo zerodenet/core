@@ -1,8 +1,6 @@
 //! The final Datagram owns H2; each prefix retains its one real shared pool.
+use super::pool_fixture::*;
 use super::*;
-#[path = "pool_fixture.rs"]
-mod pool_fixture;
-use pool_fixture::*;
 use std::{
     future::{poll_fn, Future},
     task::Poll,

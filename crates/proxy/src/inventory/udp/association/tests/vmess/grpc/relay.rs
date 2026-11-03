@@ -6,6 +6,9 @@ use fixtures::*;
 #[path = "relay/network.rs"]
 mod network;
 #[cfg(all(feature = "vless", feature = "trojan"))]
+#[path = "relay/pool_fixture.rs"]
+mod pool_fixture;
+#[cfg(all(feature = "vless", feature = "trojan"))]
 #[path = "relay/pooled.rs"]
 mod pooled;
 #[cfg(all(feature = "vless", feature = "trojan"))]

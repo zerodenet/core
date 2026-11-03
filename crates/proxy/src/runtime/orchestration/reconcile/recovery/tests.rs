@@ -5,8 +5,6 @@ use crate::runtime::{
 };
 use std::{future::Future, num::NonZeroUsize, sync::Arc, task::Poll};
 use tokio::time::{timeout, Duration};
-use zero_core::{request::Destination, Address};
-use zero_platform_tokio::contract::component::ResourceDeclaration;
 
 #[tokio::test]
 async fn rejected_bind_original_closes_and_fault_is_published_before_recovery() {

@@ -8,8 +8,6 @@ use tokio::net::TcpStream;
 use tokio::time::timeout;
 
 use crate::protocol_registry::bind_tcp_listener;
-#[cfg(feature = "managed-datagram-runtime")]
-
 fn ipv6_available() -> bool {
     match std::net::TcpListener::bind((Ipv6Addr::LOCALHOST, 0)) {
         Ok(_) => true,
