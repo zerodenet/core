@@ -196,5 +196,5 @@ impl Write for OriginalLocalStream {
     }
 }
 #[cfg(all(test, unix))]
-#[path = "../tests/local_stream.rs"]
+#[path = "../tests/local_stream/original.rs"]
 mod tests;
