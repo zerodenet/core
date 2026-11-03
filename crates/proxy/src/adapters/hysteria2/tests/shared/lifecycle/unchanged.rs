@@ -26,9 +26,22 @@ async fn unchanged(with_ca: bool) {
         } else {
             None
         };
+        let mut unmatched_dns = if with_ca {Some(crate::dns_fixture::Dns::new().await)} else {None};
         let mut config = reload::config(&server, ca.as_deref());
         if let Some(dns) = &configured_dns {
-            config.runtime.dns = Some(dns.config());
+            let directory=server._material.path();
+            std::fs::write(directory.join("node-domains.txt"),b"unchanged.node.test\n").unwrap();
+            config.source_dir=Some(directory.to_owned());
+            config.route.rule_sets=serde_json::from_value(serde_json::json!([
+                {"tag":"node-domains","type":"file","path":"node-domains.txt","format":"domain_list"}
+            ])).unwrap();
+            let mut policy=dns.config();
+            policy.servers.insert("unmatched".into(),unmatched_dns.as_ref().unwrap().server());
+            policy.default_server="unmatched".into();
+            policy.dispatch=serde_json::from_value(serde_json::json!([
+                {"condition":{"type":"rule_set","tag":"node-domains"},"server":"native"}
+            ])).unwrap();
+            config.runtime.dns = Some(policy);
             let zero_config::OutboundProtocolConfig::Hysteria2 { server, .. } =
                 &mut config.outbounds[0].protocol
             else {
@@ -41,6 +54,7 @@ async fn unchanged(with_ca: bool) {
             let mut connecting = Box::pin(connect(&proxy, "hy"));
             let request = tokio::select! {
                 request = dns.request() => request,
+                _ = unmatched_dns.as_mut().unwrap().request() => panic!("Node DNS ignored the actual file-backed dispatcher"),
                 _ = &mut connecting => panic!("the actual configured Node DNS was bypassed"),
             };
             request.answer(false, false);
@@ -85,6 +99,9 @@ async fn unchanged(with_ca: bool) {
         assert_eq!(server.closed.load(Ordering::SeqCst), 0);
         if let Some(dns) = &mut configured_dns {
             dns.no_new_request();
+            unmatched_dns.as_mut().unwrap().no_new_request();
+            assert_eq!(std::fs::read(server._material.path().join("node-domains.txt")).unwrap(),b"unchanged.node.test\n");
+            assert_eq!(proxy.engine().runtime_snapshot().dns_dispatch().unwrap().select("unchanged.node.test"),"native");
         }
         for channel in [udp, fresh] {
             let DatagramLoan { io, mut owner } = channel;
@@ -99,6 +116,7 @@ async fn unchanged(with_ca: bool) {
         if let Some(dns) = configured_dns {
             dns.close().await;
         }
+        if let Some(dns)=unmatched_dns {dns.close().await;}
     })
     .await
     .unwrap();
