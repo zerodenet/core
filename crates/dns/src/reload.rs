@@ -10,6 +10,7 @@ pub(super) struct PreparedDnsReload {
     retiring: Vec<Arc<ResolverBackend>>,
     retired: AtomicBool,
     generation: u64,
+    unchanged: bool,
 }
 /// A token for one actual prepared DNS candidate. It contains no synthetic
 /// resource identity and is valid only for the DNS system that prepared it.
@@ -58,6 +59,37 @@ pub(super) fn build_servers(
             Ok((tag.clone(), server))
         })
         .collect()
+}
+
+impl DnsSystemInner {
+    fn matches_reload(
+        &self,
+        config: Option<&DnsConfig>,
+        dispatch: Option<&zero_router::DomainDispatcher<String>>,
+        candidate_servers: &BTreeMap<String, ResolverServer>,
+    ) -> bool {
+        match self {
+            Self::System(_) => {
+                config.is_none() && dispatch.is_none() && candidate_servers.is_empty()
+            }
+            Self::Configured {
+                source_config,
+                servers,
+                dispatcher,
+                ..
+            } => {
+                config == Some(source_config.as_ref())
+                    && dispatch.is_some_and(|candidate| dispatcher.matches(candidate))
+                    && servers.len() == candidate_servers.len()
+                    && servers.iter().all(|(tag, original)| {
+                        candidate_servers.get(tag).is_some_and(|candidate| {
+                            Arc::ptr_eq(&original.backend, &candidate.backend)
+                                && original.backend.resource_admission_open()
+                        })
+                    })
+            }
+        }
+    }
 }
 
 impl DnsSystem {
@@ -133,7 +165,12 @@ impl DnsSystem {
             })
             .transpose()?
             .unwrap_or_default();
-        if config.and_then(DnsConfig::fake_ip).is_some() {
+        let unchanged = self
+            .inner
+            .read()
+            .expect("DNS system lock poisoned")
+            .matches_reload(config, dispatch.as_ref(), &servers);
+        if !unchanged && config.and_then(DnsConfig::fake_ip).is_some() {
             let mut guard = self
                 .fake_ip_state_lease
                 .lock()
@@ -148,14 +185,16 @@ impl DnsSystem {
         }
         // Validate allocator fields in memory; a rejected candidate must not
         // replace a durable Fake-IP journal. Keep these exact backend objects.
-        Self::build_inner(
-            config,
-            dispatch.clone(),
-            self.snapshot_fake_ip(),
-            self.snapshot_reverse_mapping(),
-            None,
-            servers.clone(),
-        )?;
+        if !unchanged {
+            Self::build_inner(
+                config,
+                dispatch.clone(),
+                self.snapshot_fake_ip(),
+                self.snapshot_reverse_mapping(),
+                None,
+                servers.clone(),
+            )?;
+        }
         let retiring = previous
             .values()
             .filter(|old| {
@@ -173,6 +212,7 @@ impl DnsSystem {
             retired: AtomicBool::new(retiring.is_empty()),
             retiring,
             generation,
+            unchanged,
         });
         *prepared = Some(candidate.clone());
         Ok(DnsReloadResources(candidate))
@@ -260,6 +300,25 @@ impl DnsSystem {
                 io::ErrorKind::NotConnected,
                 "prepared DNS backend was retired before commit",
             ));
+        }
+        if token.0.unchanged {
+            // Preserve the exact live cache/allocator/backend objects and the
+            // actual DNS fact. Equal JSON alone is insufficient: compiled
+            // dispatch and each admitted original backend must also match.
+            let inner = self.inner.read().expect("DNS system lock poisoned");
+            if !inner.matches_reload(
+                token.0.config.as_ref(),
+                token.0.dispatch.as_ref(),
+                &token.0.servers,
+            ) {
+                return Err(io::Error::new(
+                    io::ErrorKind::Interrupted,
+                    "unchanged DNS originals no longer match",
+                ));
+            }
+            drop(inner);
+            prepared.take();
+            return Ok(());
         }
         let state_lease = if token
             .0

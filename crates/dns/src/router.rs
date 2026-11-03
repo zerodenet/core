@@ -12,6 +12,10 @@ impl DnsDispatcher {
         Self { inner }
     }
 
+    pub(crate) fn matches(&self, candidate: &DomainDispatcher<String>) -> bool {
+        &self.inner == candidate
+    }
+
     /// Select exactly one named backend. Dispatch order is first-match-wins.
     pub(crate) fn select(&self, domain: &str) -> &str {
         self.inner.select(domain)

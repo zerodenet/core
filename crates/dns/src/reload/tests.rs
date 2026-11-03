@@ -101,3 +101,42 @@ async fn cold_prepare_leaves_current_pool_open_and_requires_retirement_before_re
     dns.commit_reload_resources(&candidate).unwrap();
     assert!(Arc::ptr_eq(&actual, &backend(&dns)));
 }
+
+#[test]
+fn no_op_commit_preserves_actual_dns_generation_and_backend_and_dispatch_identity() {
+    let system = DnsSystem::build(None).unwrap();
+    let generation = system.config_generation.load(Ordering::Acquire);
+    system.reload(None).unwrap();
+    assert_eq!(system.config_generation.load(Ordering::Acquire), generation);
+
+    let config = config();
+    let dns = DnsSystem::build(Some(&config)).unwrap();
+    let original = backend(&dns);
+    let generation = dns.config_generation.load(Ordering::Acquire);
+    let candidate = prepare(&dns, &config);
+    assert!(candidate.0.unchanged);
+    assert!(candidate.0.retiring.is_empty());
+    dns.commit_reload_resources(&candidate).unwrap();
+    assert!(Arc::ptr_eq(&original, &backend(&dns)));
+    assert_eq!(dns.config_generation.load(Ordering::Acquire), generation);
+
+    // An actual compiled rule dependency changes the DNS fact even with the
+    // same serialized config and same original backend; no tag-only shortcut.
+    let dispatch = zero_router::DomainDispatcher::new(
+        vec![(
+            zero_router::RuleCondition::DomainSuffix("changed.test".into()),
+            "local".to_owned(),
+        )],
+        "local".to_owned(),
+    );
+    let candidate = dns
+        .prepare_reload_resources_with_dispatch(Some(&config), Some(dispatch), &BTreeSet::new())
+        .unwrap();
+    assert!(!candidate.0.unchanged);
+    dns.commit_reload_resources(&candidate).unwrap();
+    assert!(Arc::ptr_eq(&original, &backend(&dns)));
+    assert_eq!(
+        dns.config_generation.load(Ordering::Acquire),
+        generation + 1
+    );
+}
