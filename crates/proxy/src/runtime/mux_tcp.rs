@@ -49,17 +49,6 @@ pub(crate) async fn run_mux_tcp_stream_task<B>(
         .await;
 }
 
-pub(crate) async fn run_protocol_mux_tcp_task<B>(
-    runtime: MuxSubstreamRuntime,
-    session: Session,
-    bridge: B,
-    protocol: &'static str,
-) where
-    B: InboundMuxTcpRelay,
-{
-    run_protocol_mux_tcp_task_with_sniffing(runtime, session, bridge, protocol, None).await;
-}
-
 pub(crate) async fn run_protocol_mux_tcp_task_with_sniffing<B>(
     runtime: MuxSubstreamRuntime,
     session: Session,

@@ -107,14 +107,6 @@ impl TcpExecutionServices {
         self.principal_rate_limits.acquire(session)
     }
 
-    pub(crate) async fn connect_upstream_owned(
-        &self,
-        server: String,
-        port: u16,
-    ) -> Result<zero_platform_tokio::TokioSocket, zero_transport::RuntimeError> {
-        self.upstream.connect_upstream_owned(server, port).await
-    }
-
     pub(crate) async fn connect_direct(
         &self,
         session: &zero_core::Session,

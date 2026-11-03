@@ -23,7 +23,3 @@ pub(crate) async fn bind_datagram_listener(
         None => tokio::net::UdpSocket::bind((host, port)).await,
     }
 }
-
-pub(crate) fn inbound_listen_addr(inbound: &zero_config::InboundConfig) -> String {
-    zero_core::address::format_socket_addr(&inbound.listen.address, inbound.listen.port)
-}

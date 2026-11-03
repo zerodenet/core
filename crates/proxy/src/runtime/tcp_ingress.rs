@@ -11,15 +11,8 @@ mod contract;
 mod lifecycle;
 mod runtime;
 
-#[cfg(any(
-    feature = "managed-stream-runtime",
-    feature = "upstream-association-runtime",
-    feature = "managed-datagram-runtime"
-))]
-#[cfg(feature = "managed-stream-runtime")]
-pub(crate) use contract::ClientResponseInboundProtocol;
 pub(crate) use contract::InboundProtocol;
-#[cfg(feature = "managed-stream-runtime")]
+#[cfg(all(test, feature = "managed-stream-runtime"))]
 pub(crate) use contract::NoClientResponseInboundProtocol;
 pub(crate) use contract::NoClientResponseStreamProtocol;
 

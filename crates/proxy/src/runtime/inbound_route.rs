@@ -1,12 +1,2 @@
 #[cfg(feature = "managed-stream-runtime")]
 mod mux;
-#[cfg(feature = "managed-stream-runtime")]
-#[allow(dead_code)]
-mod stream;
-
-#[cfg(feature = "managed-stream-runtime")]
-pub(crate) use mux::{
-    dispatch_no_client_mux_route_request_with_defaults, NoClientMuxRouteDefaults,
-};
-#[cfg(feature = "managed-stream-runtime")]
-pub(crate) use stream::dispatch_no_client_stream_route;

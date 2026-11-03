@@ -10,6 +10,7 @@ use endpoint::RelayEndpoint;
 
 // ── Bidirectional relay ───────────────────────────────────────────────
 
+#[cfg(test)]
 pub(crate) async fn relay_bidirectional_metered<L, R, F1, F2>(
     left: L,
     right: R,

@@ -9,9 +9,3 @@ pub(super) mod serve;
 
 pub(crate) use rate_limit::apply_kernel_rate_limits_from_config;
 pub(crate) use serve::serve_inbound;
-#[cfg(any(
-    feature = "upstream-association-runtime",
-    feature = "managed-datagram-runtime",
-    feature = "managed-stream-runtime"
-))]
-pub(crate) use serve::serve_inbound_with_client_response;
