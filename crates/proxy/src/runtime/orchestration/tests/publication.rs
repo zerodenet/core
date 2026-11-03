@@ -100,11 +100,20 @@ async fn actual_direct_tcp_udp_ready_candidate_cannot_forward_before_commit() {
     tokio::time::timeout(Duration::from_secs(3), async {
         loop {
             if let Some(joined) = owner.client_failure_for_test() {
-                assert!(joined
-                    .result()
-                    .unwrap_err()
-                    .to_string()
-                    .contains("not committed"));
+                let failure = joined.result().unwrap_err();
+                let mut cause: Option<&(dyn std::error::Error + 'static)> = Some(failure.as_ref());
+                let mut gate_rejection = false;
+                for _ in 0..64 {
+                    let Some(error) = cause else {
+                        break;
+                    };
+                    gate_rejection |= error.to_string().contains("not committed");
+                    cause = error.source();
+                }
+                assert!(
+                    gate_rejection,
+                    "the actual joined error chain must retain the original publication rejection"
+                );
                 break;
             }
             tokio::task::yield_now().await;

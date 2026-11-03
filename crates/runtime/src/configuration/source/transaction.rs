@@ -72,9 +72,14 @@ impl PendingSource {
         if let Err(error) = atomic_write(path, candidate, self.permissions.clone()) {
             return match self.restore_original(path) {
                 Ok(()) => Err(self.failure(error)),
-                Err(restore) => Err(self.failure(io::Error::other(format!(
-                    "source replacement failed: {error}; original recovery failed: {restore}"
-                )))),
+                Err(restore) => Err(self.failure(
+                    super::model::SourceRecoveryFailure {
+                        stage: "source replacement",
+                        original: error,
+                        recovery: restore,
+                    }
+                    .into_io(),
+                )),
             };
         }
         self.disposition = SourceDisposition::Persisted;
@@ -82,9 +87,14 @@ impl PendingSource {
         if let Err(error) = self.record(path) {
             return match self.restore_original(path) {
                 Ok(()) => Err(self.failure(error)),
-                Err(restore) => Err(self.failure(io::Error::other(format!(
-                    "source record failed: {error}; original recovery failed: {restore}"
-                )))),
+                Err(restore) => Err(self.failure(
+                    super::model::SourceRecoveryFailure {
+                        stage: "source record",
+                        original: error,
+                        recovery: restore,
+                    }
+                    .into_io(),
+                )),
             };
         }
         Ok(())

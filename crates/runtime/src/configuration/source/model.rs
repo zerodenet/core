@@ -54,3 +54,31 @@ impl From<SourcePersistError> for io::Error {
         io::Error::new(error.kind(), error)
     }
 }
+
+/// Preserve the first actual filesystem error as the source even when its
+/// subsequent original-restoration attempt also fails.
+#[derive(Debug)]
+pub(super) struct SourceRecoveryFailure {
+    pub stage: &'static str,
+    pub original: io::Error,
+    pub recovery: io::Error,
+}
+impl fmt::Display for SourceRecoveryFailure {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(
+            formatter,
+            "{} failed: {}; original recovery failed: {}",
+            self.stage, self.original, self.recovery
+        )
+    }
+}
+impl std::error::Error for SourceRecoveryFailure {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        Some(&self.original)
+    }
+}
+impl SourceRecoveryFailure {
+    pub fn into_io(self) -> io::Error {
+        io::Error::new(self.original.kind(), self)
+    }
+}
