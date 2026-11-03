@@ -11,12 +11,18 @@ impl Epoch {
         host: String,
         port: u16,
     ) -> io::Result<Vec<SocketAddr>> {
-        if self.closing.load(Ordering::Acquire) || !self.faults.lock().unwrap().is_empty() {
+        if self.closing.load(Ordering::Acquire)
+            || self.failed.load(Ordering::Acquire)
+            || !self.faults.lock().unwrap().is_empty()
+        {
             return Err(io::Error::other("event generation closing"));
         }
         let job = {
             let _admission = self.admission.lock().unwrap();
-            if self.closing.load(Ordering::Acquire) || !self.faults.lock().unwrap().is_empty() {
+            if self.closing.load(Ordering::Acquire)
+                || self.failed.load(Ordering::Acquire)
+                || !self.faults.lock().unwrap().is_empty()
+            {
                 return Err(io::Error::other("event generation closing"));
             }
             let job = Arc::new(AsyncMutex::new(Some(tokio::task::spawn_blocking(
@@ -49,13 +55,19 @@ impl Epoch {
         egress: &EgressInterfaceControl,
         deadline: Instant,
     ) -> io::Result<Box<dyn EventSinkTcpStream>> {
-        if self.closing.load(Ordering::Acquire) || !self.faults.lock().unwrap().is_empty() {
+        if self.closing.load(Ordering::Acquire)
+            || self.failed.load(Ordering::Acquire)
+            || !self.faults.lock().unwrap().is_empty()
+        {
             return Err(io::Error::other("event generation closing"));
         }
         self.reap().await?;
         let (original, witness, rx) = {
             let _admission = self.admission.lock().unwrap();
-            if self.closing.load(Ordering::Acquire) || !self.faults.lock().unwrap().is_empty() {
+            if self.closing.load(Ordering::Acquire)
+                || self.failed.load(Ordering::Acquire)
+                || !self.faults.lock().unwrap().is_empty()
+            {
                 return Err(io::Error::other("event generation closing"));
             }
             if self.originals.lock().unwrap().len() >= 256 {
@@ -80,14 +92,12 @@ impl Epoch {
                 Ok(value) => value,
                 Err(source) => {
                     let unknown = source.stage() != "validate_dial_policy";
+                    let source = Arc::new(source);
                     if unknown {
                         self.faults
                             .lock()
                             .unwrap()
-                            .push(io::Error::other(Arc::new(source)));
-                        return Err(io::Error::other(
-                            "event TCP preparation original disposition unknown",
-                        ));
+                            .push(io::Error::other(source.clone()));
                     }
                     return Err(io::Error::other(source));
                 }

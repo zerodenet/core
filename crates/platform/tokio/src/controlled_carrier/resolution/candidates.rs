@@ -96,6 +96,7 @@ impl CarrierCandidates {
                 binding: &self.source.binding,
                 endpoint: &self.source.endpoint,
                 peer,
+                dns_generation: self.resolver.as_ref().map(|(_, generation)| *generation),
                 egress: &self.source.egress,
                 observer: self.source.observer.clone(),
             },

@@ -193,6 +193,10 @@ impl MetadataPoolOrigin {
         zero_core::request::Destination,
         crate::contract::network::UpstreamBinding,
     )> {
+        self.binding_snapshot()
+            .map(|(endpoint, binding, _)| (endpoint, binding))
+    }
+    pub(crate) fn binding_snapshot(&self) -> Option<MetadataPoolBinding> {
         self.slot.upgrade()?.native().ok()?.binding.clone()
     }
     pub fn instance(&self) -> ComponentInstanceId {
