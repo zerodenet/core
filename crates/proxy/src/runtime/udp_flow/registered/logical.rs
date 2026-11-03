@@ -118,11 +118,14 @@ impl LogicalConnection {
             ConnectionIo::Tuple { sender, .. } => {
                 sender.send(&session.target, session.port, payload).await
             }
-            ConnectionIo::Datagram(connection) => connection.send(session, payload).await,
+            ConnectionIo::Datagram(connection) => {
+                let result = connection.send(session, payload).await;
+                if result.is_ok() {
+                    self.0.closed.store(false, Ordering::Release);
+                }
+                result
+            }
         };
-        if result.is_ok() {
-            self.0.closed.store(false, Ordering::Release);
-        }
         result.map_err(|error| FlowFailure {
             stage: "udp_logical_send",
             error,
