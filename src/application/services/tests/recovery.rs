@@ -120,5 +120,6 @@ async fn monitor_original_join_failure_is_retained_and_blocks_replacement() {
     drop(state);
     // Even after a monitor fault, independently drive the real dispatcher and
     // native obligations; this does not clear the sticky monitor failure.
-    services.shutdown_dispatcher().await.unwrap();
+    assert!(services.shutdown_dispatcher().await.is_err());
+    assert!(!services.state.lock().await.network_generation_started);
 }

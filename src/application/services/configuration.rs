@@ -49,7 +49,7 @@ impl ConfigApplyReconciler for ApplicationServices {
                     if let Some(dispatcher) = state.dispatcher.as_mut() {
                         if let Err(error) = dispatcher.activate() {
                             let message = error.to_string();
-                            state.cleanup_fault = Some(Arc::new(error));
+                            state.cleanup_fault.get_or_insert_with(|| Arc::new(error));
                             return Err(message);
                         }
                     }
@@ -108,7 +108,7 @@ impl ConfigApplyReconciler for ApplicationServices {
         if let Some(dispatcher) = state.dispatcher.as_mut() {
             if let Err(error) = dispatcher.activate() {
                 let message = error.to_string();
-                state.cleanup_fault = Some(Arc::new(error));
+                state.cleanup_fault.get_or_insert_with(|| Arc::new(error));
                 return Err(message);
             }
         }

@@ -14,26 +14,33 @@ impl ApplicationServices {
         {
             let mut state = self.state.lock().await;
             if let Some(dispatcher) = state.dispatcher.as_mut() {
-                if let Err(error) = dispatcher.shutdown_retained().await {
-                    state.cleanup_fault = Some(Arc::new(error));
-                    return Err("original dispatcher shutdown remains unconfirmed".to_owned());
+                match dispatcher.shutdown_retained().await {
+                    Ok(()) => state.dispatcher = None,
+                    Err(error) => {
+                        state.cleanup_fault.get_or_insert_with(|| Arc::new(error));
+                    }
                 }
-                state.dispatcher = None;
             }
+            // Even a terminal dispatcher failure does not excuse the distinct
+            // original network obligations. Retain the first actual failure.
             if state.network_generation_started {
-                if let Err(error) = self
+                match self
                     .event_network
                     .retire_generation(
                         tokio::time::Instant::now() + std::time::Duration::from_secs(5),
                     )
                     .await
                 {
-                    state.cleanup_fault = Some(Arc::new(error));
-                    return Err(
-                        "original application native cleanup remains unconfirmed".to_owned()
-                    );
+                    Ok(()) => state.network_generation_started = false,
+                    Err(error) => {
+                        state.cleanup_fault.get_or_insert_with(|| Arc::new(error));
+                    }
                 }
-                state.network_generation_started = false;
+            }
+            if let Some(error) = &state.cleanup_fault {
+                return Err(format!(
+                    "original application cleanup remains unresolved: {error}"
+                ));
             }
         }
         self.engine.update_sink_status(Vec::new());
@@ -53,7 +60,7 @@ impl ApplicationServices {
         }
         if let Some(Err(error)) = &state.monitor_exit {
             if !error.is_cancelled() {
-                state.cleanup_fault = Some(error.clone());
+                state.cleanup_fault.get_or_insert_with(|| error.clone());
                 return Err(format!("original status monitor failed: {error}"));
             }
         }
@@ -84,7 +91,7 @@ impl ApplicationServices {
                 }
                 Err(error) => {
                     let message = error.to_string();
-                    _state.cleanup_fault = Some(Arc::new(error));
+                    _state.cleanup_fault.get_or_insert_with(|| Arc::new(error));
                     Err(message)
                 }
             }
@@ -98,7 +105,9 @@ impl ApplicationServices {
                 .await
             {
                 Ok(()) => _state.network_generation_started = false,
-                Err(error) => _state.cleanup_fault = Some(Arc::new(error)),
+                Err(error) => {
+                    _state.cleanup_fault.get_or_insert_with(|| Arc::new(error));
+                }
             }
         }
         monitor?;
