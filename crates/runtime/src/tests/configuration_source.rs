@@ -19,7 +19,7 @@ pub(super) fn after_rename(path: &Path) {
         hook();
     }
 }
-fn fail_after_rename(path: PathBuf, hook: impl FnOnce() + 'static) {
+pub(super) fn fail_after_rename(path: PathBuf, hook: impl FnOnce() + 'static) {
     AFTER_RENAME.with(|slot| assert!(slot.borrow_mut().replace((path, Box::new(hook))).is_none()));
 }
 fn candidate() -> RuntimeConfig {

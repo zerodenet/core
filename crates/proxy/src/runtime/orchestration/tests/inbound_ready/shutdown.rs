@@ -13,6 +13,18 @@ fn assert_original_prepare_cancellation(
         if let Some(error) = error.downcast_ref::<ChannelError>() {
             return Some(error);
         }
+        if let Some(error) = error.downcast_ref::<Arc<ChannelError>>() {
+            return Some(error.as_ref());
+        }
+        // A transparent EngineError can skip the boxed observed error, just
+        // as io::Error can skip its own box. Inspect each concrete layer.
+        if let Some(zero_engine::EngineError::Io(error)) =
+            error.downcast_ref::<zero_engine::EngineError>()
+        {
+            if let Some(found) = error.get_ref().and_then(|source| find(source, depth + 1)) {
+                return Some(found);
+            }
+        }
         // io::Error::source may skip its actual boxed ChannelError.
         if let Some(error) = error
             .downcast_ref::<std::io::Error>()

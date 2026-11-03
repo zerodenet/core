@@ -12,12 +12,7 @@ impl Engine {
     /// Rebuild and atomically install the route/config plan, persist it when
     /// this engine owns a source path, then notify runtime subscribers.
     pub fn reload_config(&self, new_config: RuntimeConfig) -> Result<(), EngineError> {
-        self.reload_config_inner(new_config, true)?;
-        self.commit_config_change();
-        self.config_source
-            .finalize_committed()
-            .map_err(std::io::Error::from)?;
-        Ok(())
+        self.reload_config_inner(new_config, true, true)
     }
 
     /// Rebuild and atomically install a runtime-only configuration overlay.
@@ -27,9 +22,7 @@ impl Engine {
     /// A process restart therefore reconstructs only the persisted local
     /// deployment configuration.
     pub fn reload_runtime_config(&self, new_config: RuntimeConfig) -> Result<(), EngineError> {
-        self.reload_config_inner(new_config, false)?;
-        self.commit_config_change();
-        Ok(())
+        self.reload_config_inner(new_config, false, true)
     }
 
     /// Install a persisted candidate without publishing a committed revision.
@@ -38,16 +31,12 @@ impl Engine {
     pub fn stage_config(&self, new_config: RuntimeConfig) -> Result<(), EngineError> {
         // Embedded callers retain their existing synchronous persistence scope.
         // Proxy uses pure snapshot preparation and its own final Ready gate.
-        self.reload_config_inner(new_config, true)?;
-        self.config_source
-            .finalize_committed()
-            .map_err(std::io::Error::from)?;
-        Ok(())
+        self.reload_config_inner(new_config, true, false)
     }
 
     /// Install an ephemeral candidate without publishing a committed revision.
     pub fn stage_runtime_config(&self, new_config: RuntimeConfig) -> Result<(), EngineError> {
-        self.reload_config_inner(new_config, false)
+        self.reload_config_inner(new_config, false, false)
     }
 
     /// Restore this engine's last-known-good snapshot after a staged apply
@@ -64,38 +53,26 @@ impl Engine {
                     .to_owned(),
             });
         }
-        if persist {
-            self.config_source
-                .ensure_available()
-                .map_err(std::io::Error::from)?;
-            if let Err(error) = self
-                .config_source
-                .persist_ready(snapshot.config(), "engine-only-restore")
-            {
-                if error.disposition != zero_runtime::configuration::SourceDisposition::Unknown {
-                    self.config_source
-                        .rollback_pending()
-                        .map_err(std::io::Error::from)?;
-                }
-                return Err(std::io::Error::from(error).into());
-            }
-        }
         // The public embedded restore reinstalls this exact historical domain
         // snapshot, including its original selector state. It is distinct from
         // publishing a hidden host candidate against the still-committed state.
-        self.install_prepared_snapshot(snapshot, false)?;
-        if persist {
-            self.config_source
-                .finalize_committed()
-                .map_err(std::io::Error::from)?;
-        }
+        let config = snapshot.config().clone();
+        self.config_source
+            .commit_embedded(&config, persist, "engine-only-restore", || {
+                self.install_prepared_snapshot(snapshot, false)
+            })?;
         self.traffic
             .reconcile(&self.config(), self.config_revision());
         self.notify_reload();
         Ok(())
     }
 
-    fn reload_config_inner(&self, config: RuntimeConfig, persist: bool) -> Result<(), EngineError> {
+    fn reload_config_inner(
+        &self,
+        config: RuntimeConfig,
+        persist: bool,
+        commit_revision: bool,
+    ) -> Result<(), EngineError> {
         self.config_source
             .ensure_available()
             .map_err(std::io::Error::from)?;
@@ -104,22 +81,16 @@ impl Engine {
             self.config_source.clone(),
         )?;
         let snapshot = self.prepare_configuration_snapshot(prepared)?;
-        if persist {
-            if let Err(error) = self
-                .config_source
-                .persist_ready(snapshot.config(), "engine-only-apply")
-            {
-                if error.disposition != zero_runtime::configuration::SourceDisposition::Unknown {
-                    self.config_source
-                        .rollback_pending()
-                        .map_err(std::io::Error::from)?;
+        let config = snapshot.config().clone();
+        self.config_source
+            .commit_embedded(&config, persist, "engine-only-apply", || {
+                self.publish_prepared_snapshot(snapshot)?;
+                self.notify_reload();
+                if commit_revision {
+                    self.commit_config_change();
                 }
-                return Err(std::io::Error::from(error).into());
-            }
-        }
-        self.publish_prepared_snapshot(snapshot)?;
-        self.notify_reload();
-        Ok(())
+                Ok::<(), EngineError>(())
+            })
     }
 
     /// Existing embedded staging entry point. Proxy transactions instead retain
@@ -129,9 +100,13 @@ impl Engine {
         prepared: zero_runtime::configuration::PreparedConfiguration,
     ) -> Result<(), EngineError> {
         let snapshot = self.prepare_configuration_snapshot(prepared)?;
-        self.publish_prepared_snapshot(snapshot)?;
-        self.notify_reload();
-        Ok(())
+        let config = snapshot.config().clone();
+        self.config_source
+            .commit_embedded(&config, false, "engine-only-prepared", || {
+                self.publish_prepared_snapshot(snapshot)?;
+                self.notify_reload();
+                Ok::<(), EngineError>(())
+            })
     }
 
     /// Build only domain values; no live configuration or policy is published.

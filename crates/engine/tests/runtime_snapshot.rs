@@ -179,6 +179,9 @@ fn engine_only_persistent_stage_and_restore_keep_their_existing_source_scope() {
     assert_ne!(restarted.core_instance_id(), engine.core_instance_id());
 }
 
+#[path = "runtime_snapshot/embedded.rs"]
+mod embedded;
+
 #[test]
 fn engine_only_v1_validate_prepares_relative_resources_without_installing_or_persisting() {
     let directory = tempfile::tempdir().unwrap();
