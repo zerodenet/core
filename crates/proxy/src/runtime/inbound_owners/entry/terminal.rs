@@ -87,6 +87,10 @@ impl InboundOwner {
             joined
         });
         if let Some(joined) = &accepted {
+            #[cfg(test)]
+            {
+                *self.last_accepted_join.lock().unwrap() = Some(joined.clone());
+            }
             if joined.result().is_err() {
                 self.client_failure.get_or_init(|| joined.clone());
             }
@@ -242,10 +246,10 @@ impl InboundOwner {
         true
     }
     #[cfg(test)]
-    pub(crate) fn client_failure_for_test(
+    pub(crate) fn accepted_join_for_test(
         &self,
     ) -> Option<zero_platform_tokio::contract::scope::TaskJoined> {
-        self.client_failure.get().cloned()
+        self.last_accepted_join.lock().unwrap().clone()
     }
 
     #[cfg(test)]

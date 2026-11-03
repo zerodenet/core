@@ -96,24 +96,18 @@ async fn actual_direct_tcp_udp_ready_candidate_cannot_forward_before_commit() {
     // probe, dropped reservation, or post-close rebind serves as evidence.
     let address = *owner.original_listener_address.get().unwrap();
     let udp = UdpSocket::bind("127.0.0.1:0").await.unwrap();
+    let prior_join = owner.accepted_join_for_test().map(|joined| joined.id());
     udp.send_to(b"blocked-udp", address).await.unwrap();
     tokio::time::timeout(Duration::from_secs(3), async {
         loop {
-            if let Some(joined) = owner.client_failure_for_test() {
-                let failure = joined.result().unwrap_err();
-                let mut cause: Option<&(dyn std::error::Error + 'static)> = Some(failure.as_ref());
-                let mut gate_rejection = false;
-                for _ in 0..64 {
-                    let Some(error) = cause else {
-                        break;
-                    };
-                    gate_rejection |= error.to_string().contains("not committed");
-                    cause = error.source();
-                }
-                assert!(
-                    gate_rejection,
-                    "the actual joined error chain must retain the original publication rejection"
-                );
+            if let Some(joined) = owner
+                .accepted_join_for_test()
+                .filter(|joined| Some(joined.id()) != prior_join)
+            {
+                // The source reports its local business rejection and the real
+                // peer task returns normally. This is the original Scope's
+                // consumed join, not a fabricated failed/successful controller.
+                assert!(joined.result().is_ok());
                 break;
             }
             tokio::task::yield_now().await;

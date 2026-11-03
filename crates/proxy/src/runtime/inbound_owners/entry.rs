@@ -45,6 +45,8 @@ struct Resource {
 pub(crate) struct InboundOwner {
     #[cfg(test)]
     pub(crate) original_listener_address: OnceLock<std::net::SocketAddr>,
+    #[cfg(test)]
+    last_accepted_join: Mutex<Option<zero_platform_tokio::contract::scope::TaskJoined>>,
     #[cfg(feature = "raw-ip-runtime")]
     pub(super) packet_source:
         Arc<Mutex<Option<crate::runtime::inbound_operation::raw_ip::PacketSourceContext>>>,
@@ -198,6 +200,8 @@ impl InboundOwner {
             observation: Arc::new(observation::ObservationDisposition::new(identity)),
             #[cfg(test)]
             original_listener_address: OnceLock::new(),
+            #[cfg(test)]
+            last_accepted_join: Mutex::new(None),
             ready: InboundReady::new(),
             installation_complete: AtomicBool::new(true),
             pending_native_bound: Mutex::new(None),
