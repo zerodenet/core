@@ -59,9 +59,6 @@ impl Hysteria2Adapter {
         let config = resources
             .candidate()
             .ok_or_else(|| options_error("complete Hysteria2 candidate is required"))?;
-        let _preparation_revision = resources
-            .preparation_revision()
-            .ok_or_else(|| options_error("actual Hysteria2 preparation revision is required"))?;
         let profiles = config
             .outbounds
             .iter()
