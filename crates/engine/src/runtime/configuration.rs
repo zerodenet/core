@@ -79,7 +79,10 @@ impl Engine {
                 return Err(std::io::Error::from(error).into());
             }
         }
-        self.publish_prepared_snapshot(snapshot)?;
+        // The public embedded restore reinstalls this exact historical domain
+        // snapshot, including its original selector state. It is distinct from
+        // publishing a hidden host candidate against the still-committed state.
+        self.install_prepared_snapshot(snapshot, false)?;
         if persist {
             self.config_source
                 .finalize_committed()
@@ -182,6 +185,14 @@ impl Engine {
         &self,
         snapshot: Arc<super::EngineRuntimeSnapshot>,
     ) -> Result<(), EngineError> {
+        self.install_prepared_snapshot(snapshot, true)
+    }
+
+    fn install_prepared_snapshot(
+        &self,
+        snapshot: Arc<super::EngineRuntimeSnapshot>,
+        reconcile_live_choices: bool,
+    ) -> Result<(), EngineError> {
         let mut current = self
             .runtime_snapshot
             .write()
@@ -192,10 +203,11 @@ impl Engine {
                     .to_owned(),
             });
         }
-        let waiters = if !Arc::ptr_eq(
-            &snapshot.outbound_group_state,
-            &current.outbound_group_state,
-        ) {
+        let waiters = if reconcile_live_choices
+            && !Arc::ptr_eq(
+                &snapshot.outbound_group_state,
+                &current.outbound_group_state,
+            ) {
             snapshot.outbound_group_state.reconcile_live_selectors(
                 &snapshot.plan,
                 &current.plan,
