@@ -16,9 +16,9 @@ fn initial_document_and_relative_resources_keep_the_same_actual_source() {
     assert!(Arc::ptr_eq(&prepared.source, &source));
     assert_eq!(prepared.source.path(), Some(path.as_path()));
     assert_eq!(source.io.original_observation(), (2, 2, false, false));
-    zero_proxy::validate_prepared_configuration(&prepared).unwrap();
-    // The standalone validator consumes the actual prepared projections rather
-    // than reopening the initial document or its already prepared rule file.
+    source.confirm_original_io_closed().unwrap();
+    // Runtime owns the actual document/rule-file close evidence. Cross-crate
+    // prepared validation is covered from Proxy's normal runtime dependency.
     assert_eq!(source.io.original_observation(), (2, 2, false, false));
     assert_eq!(
         prepared

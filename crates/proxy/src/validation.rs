@@ -36,3 +36,7 @@ fn validate_routing(
     )?;
     Ok(())
 }
+
+#[cfg(test)]
+#[path = "validation/tests.rs"]
+mod tests;
