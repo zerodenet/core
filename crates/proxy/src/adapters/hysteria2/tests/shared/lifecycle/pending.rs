@@ -69,9 +69,9 @@ async fn hysteria2_cancelled_actual_pending_dial_is_cleaned_before_successful_sa
             let mut payload = [0;4];stream.read_exact(&mut payload).await.unwrap();assert_eq!(&payload,b"ping");
             stream.write_all(&payload).await.unwrap();stream.shutdown().await.unwrap();drop(stream);
             finished.await.unwrap();
-            connection.close("pending dial fixture finished");connection.datagram_source().closed().await;
+            connection.datagram_source().close(0x100u32.into(),b"pending dial fixture finished");connection.datagram_source().closed().await;
         });
-        let connected = role.connect(request,context(CancellationToken::new())).await.unwrap();
+        let connected = proxy.protocols.drive_component_supervision(role.connect(request,context(CancellationToken::new()))).await.unwrap();
         let mut stream = connected.io;
         stream.write_all(b"ping").await.unwrap();
         let mut payload = [0;4];stream.read_exact(&mut payload).await.unwrap();assert_eq!(&payload,b"ping");

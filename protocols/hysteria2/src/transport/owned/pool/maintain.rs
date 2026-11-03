@@ -49,6 +49,20 @@ impl Generation {
         if entry.cancel.is_cancelled() || state.closed {
             return Err(error(Stage::Prepare, Reason::Revoked));
         }
+        let selected = state
+            .selected_candidate
+            .ok_or_else(|| error(Stage::Prepare, Reason::StalePlan))?;
+        if state
+            .candidates
+            .as_ref()
+            .and_then(|candidates| candidates.peer(selected))
+            .is_none()
+        {
+            // Sealed DNS/network authority changed. Preserve this original;
+            // only a fresh acquire may retire all old users/drivers/native and
+            // then resolve/acquire a replacement with its actual new key.
+            return Ok(());
+        }
         if state.receipt.is_none() {
             let segment = state
                 .segment

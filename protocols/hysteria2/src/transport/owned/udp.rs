@@ -66,7 +66,7 @@ impl OwnedUdpDispatcher {
                     _=stop.cancelled()=>break,
                     result=connection.read_datagram()=>match result {Ok(data)=>data,Err(source)=>{
                         let retired={let mut shared=shared.lock().unwrap();shared.stopped=true;std::mem::take(&mut shared.sessions)};drop(retired);
-                        return if stop.is_cancelled(){Ok(())}else{Err(source)};
+                        return if stop.is_cancelled() && source.reason==Reason::Cancelled {Ok(())}else{Err(source)};
                     }},
                 };
                 let Ok(packet)=crate::udp::parse_udp_datagram(&data) else {continue};

@@ -1,16 +1,13 @@
 #![cfg(all(feature = "hysteria2", feature = "socks5"))]
 use crate::support;
-use hysteria2::transport::{open_hysteria2_udp_packet_path_build, Hysteria2TransportLeaf};
-use support::interop::{init_logs, TempMaterial};
-use support::{free_udp_port, spawn_engine};
+use support::interop::{init_logs, socks5_udp_echo_sequence, TempMaterial};
+use support::{free_port, free_udp_port, spawn_engine, wait_for_listener};
 use tokio::{
     net::UdpSocket,
     time::{timeout, Duration},
 };
 use zero_config::RuntimeConfig;
-use zero_core::Address;
 use zero_proxy::Proxy;
-use zero_transport::OutboundDatagramSocketFactory;
 
 #[tokio::test]
 async fn shared_inbound_udp_sessions_to_same_target_keep_reversed_responses_isolated() {
@@ -75,22 +72,22 @@ async fn same_target_sessions(via_hy2: bool) {
                 }
             }
         });
-        let leaf = Hysteria2TransportLeaf::new("hy", "127.0.0.1", port, "test-password", None).with_insecure(true);
-        let sockets = OutboundDatagramSocketFactory::new(Default::default());
-        let a = open_hysteria2_udp_packet_path_build(leaf.packet_path_carrier_build(), &sockets).await.unwrap();
-        let b = open_hysteria2_udp_packet_path_build(leaf.packet_path_carrier_build(), &sockets).await.unwrap();
-        let target = Address::Ipv4([127, 0, 0, 1]);
-        for round in 0..2 {
-            let a_payload = vec![1 + round * 2; 1600];
-            let b_payload = vec![2 + round * 2; 1600];
-            a.send_to(&target, echo_port, &a_payload).await.unwrap();
-            b.send_to(&target, echo_port, &b_payload).await.unwrap();
-            let (a_reply, b_reply) = tokio::join!(timeout(Duration::from_secs(8), a.receive()), timeout(Duration::from_secs(8), b.receive()));
-            assert_eq!(a_reply.expect("first session receives its reply").unwrap().2, a_payload);
-            assert_eq!(b_reply.expect("second session receives its reply").unwrap().2, b_payload);
-        }
+        let socks=free_port();
+        let client=serde_json::json!({"inbounds":[{"tag":"socks","listen":{"address":"127.0.0.1","port":socks},"protocol":{"type":"socks5"}}],
+            "outbounds":[{"tag":"hy","protocol":{"type":"hysteria2","server":"127.0.0.1","port":port,"password":"test-password","insecure":true}}],
+            "route":{"final":{"type":"route","outbound":"hy"}}});
+        proxies.push(spawn_engine(Proxy::new(RuntimeConfig::parse(&client.to_string()).unwrap()).unwrap()));
+        wait_for_listener(socks).await;
+        let a_payloads=[vec![1;1600],vec![3;1600]];
+        let b_payloads=[vec![2;1600],vec![4;1600]];
+        let a_refs=a_payloads.iter().map(Vec::as_slice).collect::<Vec<_>>();
+        let b_refs=b_payloads.iter().map(Vec::as_slice).collect::<Vec<_>>();
+        let (a_reply,b_reply)=tokio::join!(
+            timeout(Duration::from_secs(16),socks5_udp_echo_sequence(socks,echo_port,&a_refs)),
+            timeout(Duration::from_secs(16),socks5_udp_echo_sequence(socks,echo_port,&b_refs))
+        );
+        assert_eq!(a_reply.unwrap(),a_payloads);assert_eq!(b_reply.unwrap(),b_payloads);
         echo_task.await.unwrap();
-        drop(a); drop(b); drop(leaf);
         for proxy in proxies { proxy.shutdown().await.unwrap(); }
     }).await.unwrap();
 }

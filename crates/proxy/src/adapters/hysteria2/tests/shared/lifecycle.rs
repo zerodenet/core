@@ -320,6 +320,27 @@ async fn hysteria2_finite_original_udp_session_capacity_refuses_then_reclaims_ac
 
 #[path = "lifecycle/budget.rs"]
 mod budget;
+#[path = "lifecycle/dns.rs"]
+mod dns;
+
+#[tokio::test]
+async fn hysteria2_invalid_ca_start_keeps_actual_registered_metadata_cleanup_confirmable() {
+    tokio::time::timeout(Duration::from_secs(10),async {
+        let material=tempfile::tempdir().unwrap();std::fs::write(material.path().join("bad-ca.pem"),b"not a certificate").unwrap();
+        let config=zero_config::RuntimeConfig::parse_with_source_dir(&serde_json::json!({
+            "outbounds":[{"tag":"hy","protocol":{"type":"hysteria2","server":"127.0.0.1","port":443,"password":"p","ca_cert_path":"bad-ca.pem"}}],
+            "route":{"final":{"type":"route","outbound":"hy"}}
+        }).to_string(),Some(material.path().to_owned())).unwrap();
+        let proxy=Proxy::new(config).unwrap();let config=proxy.engine().runtime_snapshot().config().clone();
+        let failed=proxy.protocols.start_components(config,end()).await.unwrap_err();
+        let error=crate::transport::channel_failure(&failed).expect("actual material preparation failure");
+        assert_eq!((error.stage,error.reason),(zero_platform_tokio::contract::Stage::Prepare,zero_platform_tokio::contract::Reason::InvalidConfig));
+        // Host confirmation still requires the actual bound pool owners'
+        // no-acquisition receipts and the separately acquired original File.
+        // Missing metadata registration would leave that declaration Unknown.
+        proxy.protocols.shutdown_components(end()).await.unwrap();
+    }).await.unwrap();
+}
 #[path = "lifecycle/hop.rs"]
 mod hop;
 #[path = "lifecycle/pending.rs"]

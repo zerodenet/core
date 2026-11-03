@@ -213,7 +213,7 @@ async fn typed_hysteria2_connection_reopens_after_actual_logical_end_without_res
                     .send_datagram(&datagrams, id.unwrap() as u32, &target, port, &payload)
                     .unwrap();
                 finished.recv().await.unwrap();
-                connection.close("logical connection ended");
+                datagrams.close(0x100u32.into(),b"logical connection ended");
                 datagrams.closed().await;
                 closed.send(()).await.unwrap();
             }

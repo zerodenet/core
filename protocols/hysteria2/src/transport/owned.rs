@@ -65,6 +65,7 @@ impl OwnedAuthentication {
             return Err(error(Stage::Handshake, Reason::Revoked));
         }
         self.attempted = true;
+        self.udp_cancel = tasks.cancellation();
         let negotiated = if let Some(pending) = &mut self.pending_http3 {
             self.sender = Some(pending.ready().await?);
             super::authenticate_http3_request(self.sender.as_mut().unwrap(), password, settings)

@@ -145,6 +145,15 @@ impl StreamOutbound for Role {
         context: OpenContext,
     ) -> Result<Connected<Stream>, ChannelError> {
         let auth = self.acquire(&context).await?;
+        let origin = auth
+            .native_origin
+            .lock()
+            .unwrap()
+            .clone()
+            .ok_or_else(|| error(Stage::Prepare, Reason::StalePlan))?;
+        context.upstream.observe_carrier_origin(
+            &zero_platform_tokio::controlled_carrier::CarrierOrigin::from_metadata_pool(origin),
+        );
         let session = context.session_identity()?;
         if let Some(observer) = &context.observer {
             observer.record(session, ConnectFact::CarrierReady);

@@ -6,6 +6,16 @@ impl ResourceLifecycle for Owner {
             return Err(error(Stage::Prepare, Reason::Revoked));
         }
         self.attempted = true;
+        // Register these exact inert owners before any fallible material read
+        // or deadline gate. A failed start still owes their real no-acquisition
+        // shutdown receipts; a missing host registration cannot stand in.
+        for (ordinal, owner) in self.generation.metadata.iter().enumerate() {
+            self.resources.register_metadata_pool(
+                ordinal,
+                owner.registration(),
+                &self.generation.tasks,
+            )?;
+        }
         if Instant::now() >= end {
             return Err(error(Stage::Prepare, Reason::Timeout));
         }
@@ -20,24 +30,25 @@ impl ResourceLifecycle for Owner {
         {
             return Err(error(Stage::Prepare, Reason::StalePlan));
         }
-        let mut clients = Vec::new();
-        for profile in self.generation.profiles.iter() {
-            let material = match profile.leaf.node.ca_cert_path() {
-                Some(path) => Some(self.resources.read_file(path, 16 * 1024 * 1024).await?),
-                None => None,
-            };
-            clients.push(profile.client_config(material.as_deref())?);
+        if self.generation.clients.get().is_none() {
+            let mut clients = Vec::new();
+            for profile in self.generation.profiles.iter() {
+                let material = match profile.leaf.node.ca_cert_path() {
+                    Some(path) => Some(self.resources.read_file(path, 16 * 1024 * 1024).await?),
+                    None => None,
+                };
+                clients.push(profile.client_config(material.as_deref())?);
+            }
+            // The actual cold recipe owns this write-once crypto capsule.
+            // A new preparation pass owns another capsule. Restoring this old
+            // recipe after a failed candidate reuses its last-good material;
+            // it never reopens a changed path or retains any original I/O.
+            self.generation
+                .clients
+                .set(clients.into())
+                .map_err(|_| error(Stage::Prepare, Reason::Revoked))?;
         }
-        self.generation
-            .clients
-            .set(clients.into())
-            .map_err(|_| error(Stage::Prepare, Reason::Revoked))?;
-        for (ordinal, owner) in self.generation.metadata.iter().enumerate() {
-            self.resources.register_metadata_pool(
-                ordinal,
-                owner.registration(),
-                &self.generation.tasks,
-            )?;
+        for owner in &self.generation.metadata {
             owner.start()?;
         }
         *self.pool.current.lock().unwrap() = Some(Arc::downgrade(&self.generation));

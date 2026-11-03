@@ -69,18 +69,23 @@ async fn hysteria2_native_hop_closes_the_actual_old_original_and_new_donors_use_
             assert_eq!(&response[..size], payload);
         }
         echo(&old, b"before hop").await;
-        let current = loop {
-            let current = match root.owner() {
-                CarrierOriginOwner::Metadata(owner) => owner.current_original(),
-                _ => unreachable!(),
-            };
-            if let Some(current) = current {
-                if !current.same_original(&first) {
-                    break current;
+        let current = proxy
+            .protocols
+            .drive_component_supervision(async {
+                loop {
+                    let current = match root.owner() {
+                        CarrierOriginOwner::Metadata(owner) => owner.current_original(),
+                        _ => unreachable!(),
+                    };
+                    if let Some(current) = current {
+                        if !current.same_original(&first) {
+                            break current;
+                        }
+                    }
+                    tokio::time::sleep(Duration::from_millis(20)).await;
                 }
-            }
-            tokio::time::sleep(Duration::from_millis(20)).await;
-        };
+            })
+            .await;
         assert!(
             first.closed().unwrap().had_native_acquisition(),
             "actual previous native receipt must exist before a replacement is observable"

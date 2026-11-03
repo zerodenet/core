@@ -38,6 +38,7 @@ pub struct PoolOptions {
     pool: Weak<Pool>,
     profiles: Arc<[PoolProfile]>,
     identity: Arc<[u8]>,
+    prepared_clients: Arc<OnceLock<Arc<[quinn::ClientConfig]>>>,
 }
 impl Pool {
     pub fn options(
@@ -49,6 +50,7 @@ impl Pool {
             pool: Arc::downgrade(self),
             profiles: profiles.into(),
             identity,
+            prepared_clients: Arc::new(OnceLock::new()),
         }
     }
 }
@@ -157,7 +159,7 @@ impl PoolFactory {
             entries: Mutex::new(HashMap::new()),
             failures: Mutex::new(Vec::new()),
             maintenance: Mutex::new(None),
-            clients: OnceLock::new(),
+            clients: options.prepared_clients.clone(),
         });
         Ok(ComponentInstance {
             roles: Default::default(),
@@ -186,12 +188,13 @@ pub(super) struct Generation {
     entries: Mutex<HashMap<Key, Arc<Entry>>>,
     failures: Mutex<Vec<ledger::FailedGroup>>,
     maintenance: Mutex<Option<TaskJoinWitness>>,
-    clients: OnceLock<Arc<[quinn::ClientConfig]>>,
+    clients: Arc<OnceLock<Arc<[quinn::ClientConfig]>>>,
 }
 #[derive(Clone, PartialEq, Eq, Hash)]
 struct Key {
     profile: usize,
     binding: UpstreamBinding,
+    dns_generation: Option<zero_platform_tokio::contract::dns::DnsGeneration>,
 }
 struct Entry {
     cancel: zero_platform_tokio::contract::CancellationToken,

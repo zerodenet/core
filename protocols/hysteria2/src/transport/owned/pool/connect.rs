@@ -24,6 +24,7 @@ impl Generation {
         let key = Key {
             profile,
             binding: upstream.binding().clone(),
+            dns_generation: upstream.carrier_dns_generation(),
         };
         // Network generations cannot acquire replacement originals while old
         // endpoint users, workers or native receipts remain unsettled.
@@ -32,7 +33,10 @@ impl Generation {
             .lock()
             .unwrap()
             .iter()
-            .filter(|(old, _)| old.binding.network_generation != key.binding.network_generation)
+            .filter(|(old, _)| {
+                old.binding.network_generation != key.binding.network_generation
+                    || (old.profile == key.profile && old.dns_generation != key.dns_generation)
+            })
             .map(|(key, entry)| (key.clone(), entry.clone()))
             .collect::<Vec<_>>();
         for (old, entry) in stale {
@@ -125,6 +129,9 @@ impl Generation {
         .map_err(|source| error(Stage::Dial, Reason::Timeout).with_source(source))??;
         if candidates.is_empty() {
             return Err(error(Stage::Dial, Reason::Io));
+        }
+        if upstream.carrier_dns_generation() != key.dns_generation {
+            return Err(error(Stage::Prepare, Reason::StalePlan));
         }
         state.candidates = Some(candidates);
         let count = state.candidates.as_ref().unwrap().len();
