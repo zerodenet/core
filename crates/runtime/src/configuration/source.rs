@@ -21,6 +21,7 @@ struct SourceState {
 pub struct ConfigurationSource {
     path: Option<PathBuf>,
     state: Mutex<SourceState>,
+    pub(super) io: super::io::ConfigurationIo,
 }
 impl std::fmt::Debug for ConfigurationSource {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -35,6 +36,7 @@ impl ConfigurationSource {
         Self {
             path: Some(path.into()),
             state: Mutex::default(),
+            io: super::io::ConfigurationIo::default(),
         }
     }
     pub fn path(&self) -> Option<&Path> {
@@ -48,7 +50,11 @@ impl ConfigurationSource {
             .clone()
     }
     pub fn verify_recovery(path: &Path) -> io::Result<()> {
-        let Some(raw) = files::read_recovery(path)? else {
+        let source = std::sync::Arc::new(Self::new(path));
+        super::startup::with_source(source.clone(), || source.verify_recovery_owned(path))?
+    }
+    fn verify_recovery_owned(&self, path: &Path) -> io::Result<()> {
+        let Some(raw) = files::read_recovery(path, &self.io)? else {
             return Ok(());
         };
         let record: RecoveryRecord = serde_json::from_slice(&raw).map_err(io::Error::other)?;
@@ -68,7 +74,7 @@ impl ConfigurationSource {
         if record.completed_phase == "committed" {
             return Ok(());
         }
-        let actual = files::read_optional(path)?
+        let actual = files::read_optional(path, &self.io)?
             .as_ref()
             .map(|bytes| files::digest(bytes));
         if actual.as_ref() != Some(&record.candidate_digest) && actual != record.old_digest {
@@ -82,13 +88,16 @@ impl ConfigurationSource {
     /// A newly constructed kernel has consumed and validated the authoritative
     /// old/candidate source named by an interrupted attempt. It has a new core
     /// instance and never claims the previous caller received an ACK.
-    pub fn complete_recovered_boot(&self) -> io::Result<()> {
+    pub fn complete_recovered_boot(self: &std::sync::Arc<Self>) -> io::Result<()> {
+        super::startup::with_source(self.clone(), || self.complete_recovered_boot_owned())?
+    }
+    fn complete_recovered_boot_owned(&self) -> io::Result<()> {
         let Some(path) = self.path() else {
             return Ok(());
         };
-        Self::verify_recovery(path)?;
+        self.verify_recovery_owned(path)?;
         let record_path = files::sidecar(path, ".zero-recovery");
-        let Some(raw) = files::read_recovery(path)? else {
+        let Some(raw) = files::read_recovery(path, &self.io)? else {
             return Ok(());
         };
         let mut record: RecoveryRecord = serde_json::from_slice(&raw).map_err(io::Error::other)?;
@@ -98,14 +107,18 @@ impl ConfigurationSource {
             &record_path,
             &serde_json::to_vec(&record).map_err(io::Error::other)?,
             Some(permissions),
+            &self.io,
         )?;
-        files::remove_sidecars(path)
+        files::remove_sidecars(path, &self.io)
     }
 
     /// Refuse further resource mutation while an earlier source result is
     /// Unknown. A committed metadata cleanup can be retried without replaying
     /// the already committed runtime operation.
     pub fn ensure_available(&self) -> Result<(), SourcePersistError> {
+        self.io
+            .ensure_available()
+            .map_err(|error| SourcePersistError::new(SourceDisposition::Unknown, error))?;
         let Some(path) = self.path() else {
             return Ok(());
         };
@@ -115,7 +128,11 @@ impl ConfigurationSource {
             .as_ref()
             .is_some_and(|pending| pending.disposition == SourceDisposition::Committed)
         {
-            state.pending.as_mut().unwrap().finalize_committed(path)?;
+            state
+                .pending
+                .as_mut()
+                .unwrap()
+                .finalize_committed(path, &self.io)?;
             state.pending = None;
             state.observation.reason = None;
         }
@@ -134,6 +151,9 @@ impl ConfigurationSource {
         config: &RuntimeConfig,
         identity: &str,
     ) -> Result<(), SourcePersistError> {
+        self.io
+            .ensure_available()
+            .map_err(|error| SourcePersistError::new(SourceDisposition::Unknown, error))?;
         let Some(path) = self.path() else {
             return Ok(());
         };
@@ -147,20 +167,35 @@ impl ConfigurationSource {
         let prepared = serde_json::to_vec_pretty(config)
             .map_err(io::Error::other)
             .and_then(|candidate| {
-                PendingSource::prepare(path, &candidate, identity)
+                PendingSource::prepare(path, &candidate, identity, &self.io)
                     .map(|pending| (candidate, pending))
             });
         let result = match prepared {
             Ok((candidate, pending)) => {
                 state.pending = Some(pending);
-                state.pending.as_mut().unwrap().persist(path, &candidate)
+                state
+                    .pending
+                    .as_mut()
+                    .unwrap()
+                    .persist(path, &candidate, &self.io)
             }
-            Err(error) => Err(SourcePersistError::new(SourceDisposition::Unchanged, error)),
+            Err(error) => Err(SourcePersistError::new(
+                if self.io.ensure_available().is_err() {
+                    SourceDisposition::Unknown
+                } else {
+                    SourceDisposition::Unchanged
+                },
+                error,
+            )),
         };
-        let disposition = state
-            .pending
-            .as_ref()
-            .map_or(SourceDisposition::Unchanged, |pending| pending.disposition);
+        let disposition = if self.io.ensure_available().is_err() {
+            SourceDisposition::Unknown
+        } else {
+            state
+                .pending
+                .as_ref()
+                .map_or(SourceDisposition::Unchanged, |pending| pending.disposition)
+        };
         state.observation.disposition = disposition;
         state.observation.observed_at_unix_ms = Some(now_ms());
         match &result {
@@ -182,6 +217,9 @@ impl ConfigurationSource {
         result
     }
     pub fn rollback_pending(&self) -> Result<(), SourcePersistError> {
+        self.io
+            .ensure_available()
+            .map_err(|error| SourcePersistError::new(SourceDisposition::Unknown, error))?;
         let Some(path) = self.path() else {
             return Ok(());
         };
@@ -198,17 +236,26 @@ impl ConfigurationSource {
             ));
         }
         let result = pending
-            .restore_original(path)
+            .restore_original(path, &self.io)
             .map_err(|error| SourcePersistError::new(pending.disposition, error));
         state.observation.disposition = state.pending.as_ref().unwrap().disposition;
         result?;
         // Sidecar cleanup cannot erase the independently confirmed original
         // source outcome. Retained records still name that same original.
-        let cleanup = files::remove_sidecars(path);
+        let cleanup = files::remove_sidecars(path, &self.io);
         state.pending = None;
-        cleanup.map_err(|error| SourcePersistError::new(SourceDisposition::Restored, error))
+        let disposition = if self.io.ensure_available().is_err() {
+            SourceDisposition::Unknown
+        } else {
+            SourceDisposition::Restored
+        };
+        state.observation.disposition = disposition;
+        cleanup.map_err(|error| SourcePersistError::new(disposition, error))
     }
     pub fn finalize_committed(&self) -> Result<(), SourcePersistError> {
+        self.io
+            .ensure_available()
+            .map_err(|error| SourcePersistError::new(SourceDisposition::Unknown, error))?;
         let Some(path) = self.path() else {
             return Ok(());
         };
@@ -216,8 +263,12 @@ impl ConfigurationSource {
         let Some(pending) = state.pending.as_mut() else {
             return Ok(());
         };
-        let result = pending.finalize_committed(path);
-        state.observation.disposition = SourceDisposition::Committed;
+        let result = pending.finalize_committed(path, &self.io);
+        state.observation.disposition = if self.io.ensure_available().is_err() {
+            SourceDisposition::Unknown
+        } else {
+            SourceDisposition::Committed
+        };
         if result.is_ok() {
             state.pending = None;
         } else {

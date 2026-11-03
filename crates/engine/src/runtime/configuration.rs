@@ -92,12 +92,13 @@ impl Engine {
     }
 
     fn reload_config_inner(&self, config: RuntimeConfig, persist: bool) -> Result<(), EngineError> {
-        if persist {
-            self.config_source
-                .ensure_available()
-                .map_err(std::io::Error::from)?;
-        }
-        let prepared = zero_runtime::configuration::PreparedConfiguration::prepare(config)?;
+        self.config_source
+            .ensure_available()
+            .map_err(std::io::Error::from)?;
+        let prepared = zero_runtime::configuration::PreparedConfiguration::prepare_owned(
+            config,
+            self.config_source.clone(),
+        )?;
         let snapshot = self.prepare_configuration_snapshot(prepared)?;
         if persist {
             if let Err(error) = self
@@ -134,7 +135,11 @@ impl Engine {
         &self,
         prepared: zero_runtime::configuration::PreparedConfiguration,
     ) -> Result<Arc<super::EngineRuntimeSnapshot>, EngineError> {
-        let zero_runtime::configuration::PreparedConfiguration { config, routing } = prepared;
+        let zero_runtime::configuration::PreparedConfiguration {
+            config,
+            routing,
+            source: _,
+        } = prepared;
         let current = self.runtime_snapshot();
         if current.config.runtime.principal_quota_state_path
             != config.runtime.principal_quota_state_path

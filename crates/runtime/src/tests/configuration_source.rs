@@ -118,3 +118,60 @@ fn actual_commit_finalization_allows_a_later_operator_edit_and_restart() {
         zero_config::RouteActionConfig::Direct
     ));
 }
+
+#[test]
+fn source_backup_record_candidate_and_parent_sync_consume_each_original_close() {
+    let directory = tempfile::tempdir().unwrap();
+    let path = directory.path().join("source.json");
+    std::fs::write(&path, b"original bytes").unwrap();
+    let source = ConfigurationSource::new(&path);
+    source
+        .persist_ready(&candidate(), "actual-native-source-files")
+        .unwrap();
+    let (acquired, closed, occupied, failure) = source.io.original_observation();
+    #[cfg(unix)]
+    assert_eq!(acquired, 9); // source read + four atomic files + directory originals
+    #[cfg(not(unix))]
+    assert_eq!(acquired, 5); // existing non-Unix source helper has no directory sync
+    assert_eq!(acquired, closed);
+    assert!(!occupied && !failure);
+    source.finalize_committed().unwrap();
+    let (final_acquired, final_closed, occupied, failure) = source.io.original_observation();
+    assert!(final_acquired > acquired);
+    assert_eq!(final_acquired, final_closed);
+    assert!(!occupied && !failure);
+}
+
+#[test]
+fn interrupted_real_file_operation_blocks_source_rollback_and_later_preparation() {
+    let directory = tempfile::tempdir().unwrap();
+    let path = directory.path().join("source.json");
+    let source = ConfigurationSource::new(&path);
+    assert!(std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        let _ = source.io.with_file(
+            || std::fs::File::create(&path),
+            |_original| -> io::Result<()> {
+                panic!("actual original source operation interrupted")
+            },
+        );
+    }))
+    .is_err());
+    assert_eq!(source.io.original_observation(), (1, 0, true, true));
+    assert_eq!(
+        source.ensure_available().unwrap_err().disposition,
+        SourceDisposition::Unknown
+    );
+    assert_eq!(
+        source.rollback_pending().unwrap_err().disposition,
+        SourceDisposition::Unknown
+    );
+    assert_eq!(
+        source
+            .persist_ready(&candidate(), "replacement-must-not-open")
+            .unwrap_err()
+            .disposition,
+        SourceDisposition::Unknown
+    );
+    assert!(super::super::PreparedRouting::prepare_owned(&candidate(), &source).is_err());
+    assert_eq!(source.io.original_observation(), (1, 0, true, true));
+}

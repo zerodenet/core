@@ -3,7 +3,8 @@ use std::path::Path;
 
 use zero_router::{RouteAction, Rule, RuleCondition, RuleSet, RuleSetMatcher};
 
-use super::rule_sets::{compile_rule_sets, CompiledRuleSets};
+use super::io::ConfigurationIo;
+use super::rule_sets::{compile_rule_sets, compile_rule_sets_owned, CompiledRuleSets};
 use zero_config::{
     ConfigError, DnsConfig, RouteActionConfig, RouteConfig, RouteRuleConfig, RuleConditionConfig,
     RuntimeConfig,
@@ -51,26 +52,39 @@ trait ConditionCompilation {
 
 impl RuntimeConfigPreparation for RuntimeConfig {
     fn compile_route_bypass(&self) -> Result<RuleSet, ConfigError> {
-        if self.route.bypass.is_empty() {
-            return Ok(RuleSet::new(Vec::new(), RouteAction::Reject));
-        }
-        let resources = self.route.bypass.iter().any(bypass_uses_resources);
-        let compiled = if resources {
-            compile_rule_sets(&self.route.rule_sets, self.source_dir())?
-        } else {
-            CompiledRuleSets::new()
-        };
-        let geoip = if resources {
-            load_geoip(self.route.geoip_database.as_deref(), self.source_dir())?
-        } else {
-            None
-        };
-        compile_bypass(&self.route, &compiled, geoip)
+        super::with_cold_io(|owner| {
+            if self.route.bypass.is_empty() {
+                return Ok(RuleSet::new(Vec::new(), RouteAction::Reject));
+            }
+            let resources = self.route.bypass.iter().any(bypass_uses_resources);
+            let compiled = if resources {
+                compile_rule_sets_owned(&self.route.rule_sets, self.source_dir(), owner)?
+            } else {
+                CompiledRuleSets::new()
+            };
+            let geoip = if resources {
+                load_geoip(
+                    self.route.geoip_database.as_deref(),
+                    self.source_dir(),
+                    owner,
+                )?
+            } else {
+                None
+            };
+            compile_bypass(&self.route, &compiled, geoip)
+        })
     }
     fn compile_route(&self) -> Result<RuleSet, ConfigError> {
-        let compiled = compile_rule_sets(&self.route.rule_sets, self.source_dir())?;
-        let geoip = load_geoip(self.route.geoip_database.as_deref(), self.source_dir())?;
-        compile_route(self, &compiled, geoip)
+        super::with_cold_io(|owner| {
+            let compiled =
+                compile_rule_sets_owned(&self.route.rule_sets, self.source_dir(), owner)?;
+            let geoip = load_geoip(
+                self.route.geoip_database.as_deref(),
+                self.source_dir(),
+                owner,
+            )?;
+            compile_route(self, &compiled, geoip)
+        })
     }
     fn compile_dns_dispatch(
         &self,
@@ -122,9 +136,16 @@ fn compile_bypass(
     bypass.compile(compiled, geoip)
 }
 
-pub(super) fn prepare(config: &RuntimeConfig) -> Result<super::PreparedRouting, ConfigError> {
-    let compiled = compile_rule_sets(&config.route.rule_sets, config.source_dir())?;
-    let geoip = load_geoip(config.route.geoip_database.as_deref(), config.source_dir())?;
+pub(super) fn prepare(
+    config: &RuntimeConfig,
+    owner: &ConfigurationIo,
+) -> Result<super::PreparedRouting, ConfigError> {
+    let compiled = compile_rule_sets_owned(&config.route.rule_sets, config.source_dir(), owner)?;
+    let geoip = load_geoip(
+        config.route.geoip_database.as_deref(),
+        config.source_dir(),
+        owner,
+    )?;
     let router = compile_route(config, &compiled, geoip.clone())?;
     let bypass_geoip = config
         .route
@@ -148,10 +169,11 @@ pub(super) fn prepare(config: &RuntimeConfig) -> Result<super::PreparedRouting, 
 fn load_geoip(
     path: Option<&str>,
     base_dir: Option<&Path>,
+    owner: &ConfigurationIo,
 ) -> Result<Option<std::sync::Arc<maxminddb::Reader<Vec<u8>>>>, ConfigError> {
     path.map(|path| {
         let resolved = resolve_path(path, base_dir);
-        let data = std::fs::read(&resolved).map_err(|source| {
+        let data = owner.read(&resolved).map_err(|source| {
             ConfigError::InvalidRuleSet(format!(
                 "failed to read geoip database at {}: {source}",
                 resolved.display()

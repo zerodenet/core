@@ -138,7 +138,11 @@ impl Engine {
     pub fn from_prepared(
         prepared: zero_runtime::configuration::PreparedConfiguration,
     ) -> Result<Self, EngineError> {
-        let zero_runtime::configuration::PreparedConfiguration { config, routing } = prepared;
+        let zero_runtime::configuration::PreparedConfiguration {
+            config,
+            routing,
+            source,
+        } = prepared;
         let router = routing.router.clone();
         let bypass = routing.bypass.clone();
         let next_dial_generation = Arc::new(AtomicU64::new(1));
@@ -221,7 +225,7 @@ impl Engine {
             flow_completion_sink: Arc::new(std::sync::RwLock::new(None)),
             udp_upstream_idle_timeout,
             reload_notify: Arc::new(std::sync::Mutex::new(Vec::new())),
-            config_source: Arc::default(),
+            config_source: source,
             started_at_unix_ms: started_at_unix_ms(),
             pid: std::process::id(),
             sink_status: Arc::new(std::sync::Mutex::new(Vec::new())),
@@ -243,10 +247,12 @@ impl Engine {
         config: RuntimeConfig,
         path: impl AsRef<Path>,
     ) -> Result<Self, EngineError> {
-        let mut engine = Self::new(config)?;
-        engine.config_source = Arc::new(zero_runtime::configuration::ConfigurationSource::new(
+        let source = Arc::new(zero_runtime::configuration::ConfigurationSource::new(
             path.as_ref().to_owned(),
         ));
+        let prepared =
+            zero_runtime::configuration::PreparedConfiguration::prepare_startup(config, source)?;
+        let engine = Self::from_prepared(prepared)?;
         engine.config_source.complete_recovered_boot()?;
         Ok(engine)
     }
@@ -270,6 +276,13 @@ impl Engine {
     /// The runtime-owned deployment source used by accepted configuration work.
     pub fn configuration_source(&self) -> &zero_runtime::configuration::ConfigurationSource {
         &self.config_source
+    }
+
+    /// Clone the same actual source owner for host resource preparation.
+    pub fn configuration_source_owner(
+        &self,
+    ) -> Arc<zero_runtime::configuration::ConfigurationSource> {
+        self.config_source.clone()
     }
 
     /// UNIX epoch milliseconds when this engine was created.

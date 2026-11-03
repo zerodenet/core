@@ -17,7 +17,9 @@ fn one_preparation_retains_relative_resource_for_route_bypass_and_dns() {
             "bypass":[{"type":"rule_set","tag":"domains"}],"final":{"type":"reject"}}
     }"#).unwrap();
     let config = RuntimeConfig::load_from_path(&source).unwrap();
-    let prepared = PreparedRouting::prepare(&config).unwrap();
+    let owner = super::ConfigurationSource::new(&source);
+    let prepared = PreparedRouting::prepare_owned(&config, &owner).unwrap();
+    assert_eq!(owner.io.original_observation(), (1, 1, false, false));
     // Equality compares actual matcher Arc identity, not just the config tag.
     assert_eq!(
         prepared.router.rules[0].condition,
@@ -125,4 +127,50 @@ fn recovery_backup_and_record_preserve_source_permissions() {
             0o640
         );
     }
+}
+
+#[test]
+fn zrs_map_is_handed_to_the_domain_only_after_the_actual_file_close() {
+    use zero_rule::{Rule, RuleSet, RuleSetCompiler};
+    let directory = tempfile::tempdir().unwrap();
+    let path = directory.path().join("domains.zrs");
+    let (compiled, _) = RuleSetCompiler
+        .compile(RuleSet::new(vec![Rule::DomainSuffix(
+            "example.test".into(),
+        )]))
+        .unwrap();
+    std::fs::write(&path, zero_rule::zrs::encode(&compiled).unwrap()).unwrap();
+    let mut config=RuntimeConfig::parse(r#"{"route":{"rule_sets":[{"tag":"domains","type":"file","path":"domains.zrs","format":"zrs"}],"rules":[{"condition":{"type":"rule_set","tag":"domains"},"action":{"type":"direct"}}],"final":{"type":"reject"}}}"#).unwrap();
+    config.source_dir = Some(directory.path().to_owned());
+    let source = super::ConfigurationSource::default();
+    let prepared = PreparedRouting::prepare_owned(&config, &source).unwrap();
+    assert_eq!(source.io.original_observation(), (1, 1, false, false));
+    // Atomic pathname replacement preserves the established immutable-map
+    // contract. It neither reopens the old descriptor nor proves munmap.
+    let replacement = directory.path().join("replacement.zrs");
+    std::fs::write(&replacement, b"future unrelated resource").unwrap();
+    std::fs::rename(&replacement, &path).unwrap();
+    assert_eq!(
+        prepared
+            .router
+            .decide_ref(&Address::Domain("example.test".into()), None),
+        &RouteAction::Direct
+    );
+    assert_eq!(source.io.original_observation(), (1, 1, false, false));
+}
+
+#[test]
+fn invalid_geoip_bytes_keep_parse_error_after_real_original_close() {
+    let directory = tempfile::tempdir().unwrap();
+    std::fs::write(directory.path().join("invalid.mmdb"), b"not a database").unwrap();
+    let mut config = RuntimeConfig::parse(
+        r#"{"route":{"geoip_database":"invalid.mmdb","final":{"type":"direct"}}}"#,
+    )
+    .unwrap();
+    config.source_dir = Some(directory.path().to_owned());
+    let source = super::ConfigurationSource::default();
+    let error = PreparedRouting::prepare_owned(&config, &source).unwrap_err();
+    assert!(error.to_string().contains("invalid geoip database"));
+    assert_eq!(source.io.original_observation(), (1, 1, false, false));
+    source.ensure_available().unwrap();
 }

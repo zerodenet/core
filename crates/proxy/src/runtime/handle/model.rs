@@ -182,8 +182,11 @@ impl ProxyHandle {
                 .proxy
                 .engine
                 .prepare_configuration_snapshot(
-                    zero_runtime::configuration::PreparedConfiguration::prepare(config)
-                        .map_err(|error| error.to_string())?,
+                    zero_runtime::configuration::PreparedConfiguration::prepare_owned(
+                        config,
+                        self.proxy.engine.configuration_source_owner(),
+                    )
+                    .map_err(|error| error.to_string())?,
                 )
                 .map_err(|error| error.to_string())?,
         };
