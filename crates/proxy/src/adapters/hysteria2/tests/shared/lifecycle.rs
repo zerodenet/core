@@ -179,3 +179,100 @@ async fn hysteria2_actual_node_candidates_fall_back_and_concurrent_users_share_t
     .await
     .unwrap();
 }
+
+#[tokio::test]
+async fn hysteria2_original_logical_control_retains_custody_until_actual_views_return() {
+    use zero_core::{component::AssociationId, request::DatagramTargets, request::Destination};
+    use zero_platform_tokio::contract::{datagram::DatagramRequest, Reason};
+    tokio::time::timeout(Duration::from_secs(20), async {
+        let server = Server::new().await;
+        let proxy = server.proxy();
+        start(&proxy).await;
+        let mut session = Session::new(
+            0,
+            Address::Ipv4([203, 0, 113, 2]),
+            53,
+            Network::Udp,
+            ProtocolType::new("original-logical-control-test"),
+        );
+        proxy
+            .engine()
+            .prepare_session(&mut session, "incoming")
+            .unwrap();
+        let services = proxy
+            .tcp_runtime_services()
+            .for_inbound("incoming".into())
+            .with_business_identity(&session)
+            .unwrap();
+        let slot = services
+            .components
+            .as_ref()
+            .unwrap()
+            .configured("hy")
+            .unwrap();
+        let opened = crate::component::stream_bridge::datagram::open(
+            &services.execution(),
+            &slot,
+            "hy",
+            Destination::new(Address::Ipv4([127, 0, 0, 1]), server.port),
+            DatagramRequest {
+                association: AssociationId(991),
+                targets: DatagramTargets::Multiple,
+            },
+        )
+        .await
+        .unwrap();
+        let zero_platform_tokio::contract::datagram::DatagramSession {
+            tx,
+            mut rx,
+            mut control,
+            ..
+        } = opened.channel;
+        std::future::poll_fn(|cx| {
+            assert!(
+                rx.as_mut().poll_recv(cx).is_pending(),
+                "actual unique response view is pending on the original registration"
+            );
+            std::task::Poll::Ready(())
+        })
+        .await;
+        let error = control
+            .wait_closed(tokio::time::Instant::now())
+            .await
+            .unwrap_err();
+        assert_eq!(
+            error.reason,
+            Reason::Timeout,
+            "cancellation cannot stand in for returned original views"
+        );
+        drop(tx);
+        let error = control
+            .wait_closed(tokio::time::Instant::now())
+            .await
+            .unwrap_err();
+        assert_eq!(
+            error.reason,
+            Reason::Timeout,
+            "the unique original RX still retains custody"
+        );
+        drop(rx);
+        let report = control.wait_closed(end()).await.unwrap();
+        assert!(report.is_complete());
+        assert!(
+            report
+                .released_resources
+                .iter()
+                .any(|identity| identity == "Hysteria2 original UDP logical registration 1"),
+            "the report names the actual first dispatcher registration"
+        );
+        assert!(
+            report.closed_io.is_empty() && report.exited_tasks.is_empty(),
+            "logical retirement does not claim raw endpoint, native close or Scope evidence"
+        );
+        assert_eq!(server.authenticated.load(Ordering::SeqCst), 1);
+        proxy.protocols.shutdown_components(end()).await.unwrap();
+        server.close().await;
+    })
+    .await
+    .unwrap();
+}
