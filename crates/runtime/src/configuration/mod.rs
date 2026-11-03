@@ -100,3 +100,9 @@ fn with_cold_io<T>(
         }
     })?
 }
+
+/// Final observation before a new recipe is built, including restoration of a
+/// cached last-good recipe after a cold material preparation failed.
+pub(crate) fn confirm_preparation_io_closed() -> std::io::Result<()> {
+    startup::confirm_closed()
+}

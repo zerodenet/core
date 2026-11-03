@@ -13,6 +13,17 @@ impl ConfigurationPreparationStartupSlot {
             owner: Mutex::new(None),
         }
     }
+    fn confirm_closed(&self) -> io::Result<()> {
+        let slot = self.owner.lock().unwrap_or_else(|error| error.into_inner());
+        if let Some(original) = slot.as_ref() {
+            original.io.ensure_available()?;
+            return Err(io::Error::other(
+                "original configuration startup was interrupted before ownership transfer",
+            ));
+        }
+        Ok(())
+    }
+
     fn with_source<T>(
         &self,
         source: Arc<ConfigurationSource>,
@@ -40,6 +51,10 @@ pub(super) fn with_source<T>(
     prepare: impl FnOnce() -> T,
 ) -> io::Result<T> {
     STARTUP.with_source(source, prepare)
+}
+
+pub(super) fn confirm_closed() -> io::Result<()> {
+    STARTUP.confirm_closed()
 }
 
 #[cfg(test)]

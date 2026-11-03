@@ -19,6 +19,8 @@ fn actual_interrupted_file_operation_retains_same_startup_owner_and_blocks_next_
         &source
     ));
     assert!(source.ensure_available().is_err());
+    assert!(slot.confirm_closed().is_err());
+    assert_eq!(source.io.original_observation(), (1, 0, true, true));
     let mut entered = false;
     assert!(slot
         .with_source(Arc::new(ConfigurationSource::default()), || {
@@ -60,4 +62,5 @@ fn normal_concurrent_independent_preparations_wait_and_preserve_their_owners() {
         }
     }
     assert!(slot.owner.lock().unwrap().is_none());
+    slot.confirm_closed().unwrap();
 }

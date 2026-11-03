@@ -60,7 +60,8 @@ impl ConfigurationSource {
     /// An independent final observation after the accepted task's real joins.
     /// This performs no file open, persistence, recovery, or replacement.
     pub fn confirm_original_io_closed(&self) -> io::Result<()> {
-        self.io.ensure_available()
+        self.io.ensure_available()?;
+        super::startup::confirm_closed()
     }
     pub fn verify_recovery(path: &Path) -> io::Result<()> {
         let source = std::sync::Arc::new(Self::new(path));
@@ -129,6 +130,8 @@ impl ConfigurationSource {
     /// Unknown. A committed metadata cleanup can be retried without replaying
     /// the already committed runtime operation.
     pub fn ensure_available(&self) -> Result<(), SourcePersistError> {
+        super::startup::confirm_closed()
+            .map_err(|error| SourcePersistError::new(SourceDisposition::Unknown, error))?;
         self.io
             .ensure_available()
             .map_err(|error| SourcePersistError::new(SourceDisposition::Unknown, error))?;
