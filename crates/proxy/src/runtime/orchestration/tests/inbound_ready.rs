@@ -87,15 +87,9 @@ async fn candidate_ack_waits_for_actual_plugin_activation_and_both_listener_loop
         .protocols
         .current_components(expected.config())
         .is_none());
-    // Exceed the unrelated five-second component start/stop grace period. The
-    // real SIP003 activation retains its existing ten-second readiness budget.
-    assert!(timeout(Duration::from_millis(5200), &mut applying)
-        .await
-        .is_err());
-    assert!(matches!(
-        acknowledgement.try_recv(),
-        Err(tokio::sync::oneshot::error::TryRecvError::Empty)
-    ));
+    // The actual source activation remains suspended at this held gate. Its
+    // host lifecycle start deadline is five seconds; the protocol's ten-second
+    // readiness ceiling does not extend that earlier deadline.
     control.get_mut().write_all(b"r").await.unwrap();
     timeout(Duration::from_secs(4), &mut applying)
         .await
@@ -112,6 +106,12 @@ async fn candidate_ack_waits_for_actual_plugin_activation_and_both_listener_loop
     // production. Finish uses the same persistent native Child owner here.
     state.finish(&proxy, Ok(())).await.unwrap();
     assert!(proxy.inbound_owners.owner("ready-ss").is_none());
+    let terminal = owner
+        .terminal_for_test()
+        .expect("actual ready owner cleanup");
+    assert_eq!(terminal.identity(), owner.identity());
+    assert!(terminal.joined_tasks() > 0);
+    assert!(terminal.closed_io_receipts() > 0);
     let status = std::process::Command::new("kill")
         .args(["-0", &pid.to_string()])
         .stderr(std::process::Stdio::null())
@@ -126,4 +126,5 @@ async fn candidate_ack_waits_for_actual_plugin_activation_and_both_listener_loop
     assert_eq!(tail, b"bound\n");
 }
 
+mod deadline;
 mod shutdown;
