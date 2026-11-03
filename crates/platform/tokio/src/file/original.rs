@@ -68,6 +68,17 @@ impl OriginalFile {
     pub fn matches_closed(&self, receipt: &OriginalFileClosed) -> bool {
         Arc::ptr_eq(&self.identity, &receipt.0) && self.outcome.as_ref().is_some_and(Result::is_ok)
     }
+    /// Map the same retained original without cloning or exporting its handle.
+    /// The returned mapping is immutable snapshot data; a file-close receipt
+    /// proves descriptor closure only, not unmapping of that domain value.
+    ///
+    /// # Safety
+    /// The caller must ensure the backing file is not modified or truncated
+    /// for the mapping's entire lifetime, as required by `memmap2`.
+    pub unsafe fn map_readonly(&self) -> io::Result<memmap2::Mmap> {
+        // SAFETY: the caller accepts the backing-file lifetime obligation.
+        unsafe { memmap2::MmapOptions::new().map(self.original()?) }
+    }
     pub fn metadata(&self) -> io::Result<Metadata> {
         self.original()?.metadata()
     }

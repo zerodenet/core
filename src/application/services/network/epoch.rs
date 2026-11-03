@@ -41,6 +41,7 @@ pub(super) struct Epoch {
     faults: Mutex<Vec<io::Error>>,
     closing: AtomicBool,
     confirmed: AtomicBool,
+    failed: AtomicBool,
 }
 impl Epoch {
     pub(super) fn new(generation: u64) -> Arc<Self> {
@@ -61,6 +62,7 @@ impl Epoch {
             faults: Mutex::new(Vec::new()),
             closing: AtomicBool::new(false),
             confirmed: AtomicBool::new(false),
+            failed: AtomicBool::new(false),
         })
     }
     pub(super) fn closed(&self) -> bool {
@@ -71,7 +73,10 @@ impl Epoch {
         self.spawn_original(task)
     }
     fn spawn_original(&self, task: EventTask) -> io::Result<TaskJoinWitness> {
-        if self.closing.load(Ordering::Acquire) || !self.faults.lock().unwrap().is_empty() {
+        if self.closing.load(Ordering::Acquire)
+            || self.failed.load(Ordering::Acquire)
+            || !self.faults.lock().unwrap().is_empty()
+        {
             return Err(io::Error::other("event generation closing"));
         }
         let (tx, rx) = oneshot::channel();
@@ -93,6 +98,7 @@ impl Epoch {
     }
     fn record_exit(&self, exit: TaskExit) {
         if exit.result.is_err() {
+            self.failed.store(true, Ordering::Release);
             self.failures.lock().unwrap().push(exit);
         }
     }
@@ -155,11 +161,13 @@ impl Epoch {
         }
         self.stop.cancel();
         let report = self.scope.lock().await.shutdown(deadline).await;
-        if !report.is_complete() {
-            return Err(io::Error::other("event HTTP tasks not joined"));
-        }
+        let complete = report.is_complete();
         if !report.failed_tasks.is_empty() {
+            self.failed.store(true, Ordering::Release);
             self.task_reports.lock().unwrap().push(report);
+        }
+        if !complete {
+            return Err(io::Error::other("event HTTP tasks not joined"));
         }
         let jobs = self.lookups.lock().unwrap().clone();
         for job in jobs {
