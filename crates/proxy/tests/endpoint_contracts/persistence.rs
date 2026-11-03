@@ -74,7 +74,12 @@ async fn failed_first_source_write_preserves_running_resources_and_can_retry() {
     assert_eq!(stopped.state, EndpointRuntimeState::Stopped);
     assert_eq!(stopped.configuration.source_file.writable, Some(true));
     assert!(stopped.configuration.source_file.reason.is_none());
-    assert!(!RuntimeConfig::load_from_path(&path).unwrap().endpoints[0].enabled);
+    assert!(
+        !zero_runtime::configuration::ConfigurationSource::load_document(&path)
+            .unwrap()
+            .endpoints[0]
+            .enabled
+    );
     assert_eq!(
         endpoint(&controlled, "b").state,
         EndpointRuntimeState::Running
@@ -131,7 +136,12 @@ async fn failure_after_successful_source_write_restores_source_and_resources() {
     let restored = endpoint(&plain, "a");
     assert_eq!(restored.state, EndpointRuntimeState::Running);
     assert_eq!(restored.intent_revision, before.intent_revision);
-    assert!(RuntimeConfig::load_from_path(&path).unwrap().endpoints[0].enabled);
+    assert!(
+        zero_runtime::configuration::ConfigurationSource::load_document(&path)
+            .unwrap()
+            .endpoints[0]
+            .enabled
+    );
     assert_eq!(proxy.engine().config_source_write_generation(), 2);
     assert_eq!(restored.configuration.source_file.writable, Some(true));
     assert_eq!(endpoint(&plain, "b").state, EndpointRuntimeState::Running);

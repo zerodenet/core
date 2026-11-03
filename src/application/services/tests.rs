@@ -69,7 +69,7 @@ async fn inbound_apply_keeps_dispatcher_counters_and_status_monitor() {
     let path = directory.path().join("config.json");
     let sink = directory.path().join("events.jsonl");
     std::fs::write(&path, config_json("events.jsonl", port)).unwrap();
-    let config = RuntimeConfig::load_from_path(&path).unwrap();
+    let config = zero_runtime::configuration::ConfigurationSource::load_document(&path).unwrap();
     let engine = Engine::new_with_config_path(config, &path).unwrap();
     let proxy = Proxy::from_engine(engine.clone()).unwrap();
     let services = ApplicationServices::start(engine.clone(), None)
@@ -155,7 +155,8 @@ async fn first_configured_dispatcher_delivers_engine_started_exactly_once() {
         serde_json::json!(["engine.started", "engine.warning"]);
     std::fs::write(&config_path, serde_json::to_vec_pretty(&initial).unwrap()).unwrap();
 
-    let initial = RuntimeConfig::load_from_path(&config_path).unwrap();
+    let initial =
+        zero_runtime::configuration::ConfigurationSource::load_document(&config_path).unwrap();
     let engine = Engine::new_with_config_path(initial, &config_path).unwrap();
     let proxy = Proxy::from_engine(engine.clone()).unwrap();
     let base_handle = ProxyHandle::new(EngineHandle::new(engine.clone()), proxy.clone());
@@ -202,7 +203,8 @@ async fn config_apply_rebuilds_event_dispatcher_without_process_restart() {
     let new_sink = directory.path().join("new-events.jsonl");
     std::fs::write(&config_path, config_json("old-events.jsonl", port)).unwrap();
 
-    let initial = RuntimeConfig::load_from_path(&config_path).unwrap();
+    let initial =
+        zero_runtime::configuration::ConfigurationSource::load_document(&config_path).unwrap();
     let engine = Engine::new_with_config_path(initial, &config_path).unwrap();
     let proxy = Proxy::from_engine(engine.clone()).unwrap();
     let base_handle = ProxyHandle::new(EngineHandle::new(engine.clone()), proxy.clone());
@@ -256,7 +258,8 @@ async fn config_apply_rejects_live_control_listener_or_credential_replacement() 
     let config_path = directory.path().join("config.json");
     std::fs::write(&config_path, config_json("events.jsonl", port)).unwrap();
 
-    let initial = RuntimeConfig::load_from_path(&config_path).unwrap();
+    let initial =
+        zero_runtime::configuration::ConfigurationSource::load_document(&config_path).unwrap();
     let engine = Engine::new_with_config_path(initial, &config_path).unwrap();
     let proxy = Proxy::from_engine(engine.clone()).unwrap();
     let base_handle = ProxyHandle::new(EngineHandle::new(engine.clone()), proxy.clone());
@@ -284,7 +287,7 @@ async fn config_apply_rejects_live_control_listener_or_credential_replacement() 
     assert!(error.message.contains("`api.control` cannot be changed"));
     assert!(!engine.config().api.control.enabled);
     assert!(
-        !RuntimeConfig::load_from_path(&config_path)
+        !zero_runtime::configuration::ConfigurationSource::load_document(&config_path)
             .unwrap()
             .api
             .control
@@ -343,7 +346,8 @@ async fn config_apply_registers_complete_webhook_url_in_process() {
     let config_path = directory.path().join("config.json");
     std::fs::write(&config_path, config_json("events.jsonl", port)).unwrap();
 
-    let initial = RuntimeConfig::load_from_path(&config_path).unwrap();
+    let initial =
+        zero_runtime::configuration::ConfigurationSource::load_document(&config_path).unwrap();
     let engine = Engine::new_with_config_path(initial, &config_path).unwrap();
     let proxy = Proxy::from_engine(engine.clone()).unwrap();
     let base_handle = ProxyHandle::new(EngineHandle::new(engine.clone()), proxy.clone());

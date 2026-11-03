@@ -1,4 +1,3 @@
-use std::fs;
 use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
@@ -46,16 +45,6 @@ struct RuntimeConfigVersionProbe {
 impl RuntimeConfig {
     pub fn parse(raw: &str) -> Result<Self, ConfigError> {
         Self::parse_with_source_dir(raw, None)
-    }
-
-    pub fn load_from_path(path: impl AsRef<Path>) -> Result<Self, ConfigError> {
-        let path = path.as_ref();
-        let raw = fs::read_to_string(path).map_err(|source| ConfigError::ReadConfig {
-            path: path.display().to_string(),
-            source,
-        })?;
-
-        Self::parse_with_source_dir(&raw, path.parent().map(Path::to_path_buf))
     }
 
     pub fn source_dir(&self) -> Option<&Path> {

@@ -124,7 +124,8 @@ async fn vless_user_reload_updates_live_listener_without_rebind() {
         !handshake(proxy_port, upstream_port, USER_ID).await,
         "removed user remained authorized"
     );
-    let persisted = RuntimeConfig::load_from_path(&config_path).expect("load operator config");
+    let persisted = zero_runtime::configuration::ConfigurationSource::load_document(&config_path)
+        .expect("load operator config");
     let zero_config::InboundProtocolConfig::Vless { users, .. } = &persisted.inbounds[0].protocol
     else {
         panic!("expected VLESS inbound");

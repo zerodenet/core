@@ -10,6 +10,12 @@ fn read_error(path: &Path, source: io::Error) -> ConfigError {
     }
 }
 impl ConfigurationSource {
+    /// Standalone document loading uses the same retained original-file gate as
+    /// initial kernel assembly. It grants no persistence path or runtime host.
+    pub fn load_document(path: impl AsRef<Path>) -> Result<RuntimeConfig, ConfigError> {
+        Arc::new(Self::default()).load_initial_configuration(path)
+    }
+
     /// Load before domain or runtime construction. `self` is the actual owner
     /// handed onward to PreparedConfiguration; its optional persistence path
     /// is unchanged by reading a document at `path`.
@@ -40,9 +46,9 @@ impl ConfigurationSource {
         RuntimeConfig::parse_with_source_dir(&raw, path.parent().map(Path::to_path_buf))
     }
 
-    /// Early logging has no typed configuration yet. A normal read/UTF-8/JSON
-    /// error may use its existing fallback, but an unconfirmed original remains
-    /// in the same finite startup slot and blocks the later real initial load.
+    /// Cold raw document readers (early logging and CLI submission) retain
+    /// their own parse/fallback behavior. An unconfirmed original remains in
+    /// the same finite startup slot and blocks later preparation/submission.
     pub fn read_initial_document(path: impl AsRef<Path>) -> io::Result<String> {
         let source = Arc::new(Self::default());
         super::super::startup::with_source(source.clone(), || source.io.read_text(path.as_ref()))?

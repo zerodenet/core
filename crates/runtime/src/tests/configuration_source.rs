@@ -112,7 +112,7 @@ fn actual_commit_finalization_allows_a_later_operator_edit_and_restart() {
     assert!(!files::sidecar(&path, ".zero-last-good").exists());
     std::fs::write(&path, b"{\"route\":{\"final\":{\"type\":\"direct\"}}}").unwrap();
     ConfigurationSource::verify_recovery(&path).unwrap();
-    let restarted = RuntimeConfig::load_from_path(path).unwrap();
+    let restarted = crate::configuration::ConfigurationSource::load_document(path).unwrap();
     assert!(matches!(
         restarted.route.final_action,
         zero_config::RouteActionConfig::Direct

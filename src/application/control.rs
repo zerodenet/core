@@ -76,7 +76,8 @@ fn events(socket_path: Option<&str>) -> Result<(), Box<dyn Error>> {
 }
 
 fn reload(config_path: &str, socket_path: Option<&str>) -> Result<(), Box<dyn Error>> {
-    let config: serde_json::Value = serde_json::from_str(&std::fs::read_to_string(config_path)?)?;
+    let raw = zero_runtime::configuration::ConfigurationSource::read_initial_document(config_path)?;
+    let config: serde_json::Value = serde_json::from_str(&raw)?;
     ensure_ok(send_command(
         socket_path,
         "config.apply",
