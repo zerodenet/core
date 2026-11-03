@@ -115,14 +115,40 @@ async fn actual_direct_tcp_udp_ready_candidate_cannot_forward_before_commit() {
     })
     .await
     .unwrap();
+    let prior_tcp_join = owner.accepted_join_for_test().unwrap().id();
     let mut tcp = TcpStream::connect(address).await.unwrap();
     tcp.write_all(b"blocked-tcp").await.unwrap();
     let mut rejected = Vec::new();
-    tokio::time::timeout(Duration::from_secs(3), tcp.read_to_end(&mut rejected))
-        .await
-        .unwrap()
-        .unwrap();
+    let rejected_read =
+        tokio::time::timeout(Duration::from_secs(3), tcp.read_to_end(&mut rejected))
+            .await
+            .unwrap();
+    // Closing before consuming the request can produce native EOF or RST.
+    // Neither observation substitutes for the original task/native receipts.
+    match rejected_read {
+        Ok(0) => {}
+        Err(error)
+            if matches!(
+                error.kind(),
+                std::io::ErrorKind::ConnectionReset | std::io::ErrorKind::ConnectionAborted
+            ) => {}
+        result => panic!("unexpected candidate TCP rejection: {result:?}"),
+    }
     assert!(rejected.is_empty());
+    tokio::time::timeout(Duration::from_secs(3), async {
+        loop {
+            if let Some(joined) = owner
+                .accepted_join_for_test()
+                .filter(|joined| joined.id() != prior_tcp_join)
+            {
+                assert!(joined.result().is_err(), "candidate admission was rejected");
+                break;
+            }
+            tokio::task::yield_now().await;
+        }
+    })
+    .await
+    .unwrap();
     assert_pending(target.accept()).await;
     let mut packet = [0; 64];
     assert_pending(udp_target.recv_from(&mut packet)).await;
