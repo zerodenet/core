@@ -63,6 +63,16 @@ async fn selected_metadata_original_requires_pending_io_join_view_return_and_nat
     let (_, mut grant) = selected
         .open_metadata(0, None, &permit, &query, end())
         .unwrap();
+    let lineage =
+        zero_platform_tokio::controlled_carrier::CarrierOrigin::from_metadata(original.clone());
+    let registered = fixture.slot.original_metadata_owner(0).unwrap();
+    assert!(lineage.owner().same_owner(
+        zero_platform_tokio::controlled_carrier::CarrierOriginOwner::Metadata(&registered)
+    ));
+    assert!(lineage.endpoints().unwrap().matches_metadata(&original));
+    assert_eq!(lineage.selected_binding().unwrap().0, destination(peer));
+    assert!(!lineage.is_retired());
+    assert!(lineage.closed().is_none());
     let retained_tx = grant.tx.clone();
     let claim = grant.users_claim.take().unwrap();
     let (graph, mut receiver) = claim
@@ -132,8 +142,14 @@ async fn selected_metadata_original_requires_pending_io_join_view_return_and_nat
     assert!(original.closed().is_none());
     let closed = permit.close(Some(&users), &fixture.tasks).unwrap();
     assert!(closed.matches(&original) && closed.had_native_acquisition());
+    assert!(lineage.is_retired());
+    let native_closed = lineage.closed().unwrap();
+    assert!(native_closed.matches(&lineage) && native_closed.had_native_acquisition());
     let next = fixture.grants.reserve(&query).unwrap();
     assert!(!closed.matches(&next.origin()));
+    assert!(!native_closed.matches(
+        &zero_platform_tokio::controlled_carrier::CarrierOrigin::from_metadata(next.origin())
+    ));
     assert!(!next
         .close(None, &fixture.tasks)
         .unwrap()

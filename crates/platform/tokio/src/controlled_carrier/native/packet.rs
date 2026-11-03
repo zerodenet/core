@@ -151,7 +151,9 @@ impl NativeCarrierOpener {
             peer: self.peer,
         };
         let endpoints = super::super::CarrierEndpoints {
-            origin: Arc::downgrade(&grant.slot),
+            origin: crate::controlled_carrier::endpoints::EndpointOriginal::Carrier(
+                Arc::downgrade(&grant.slot),
+            ),
             local: Some(
                 view.local_addr()
                     .map_err(|source| denied(Reason::Io).with_source(source))?,

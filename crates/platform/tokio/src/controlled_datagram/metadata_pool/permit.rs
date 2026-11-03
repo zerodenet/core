@@ -10,6 +10,7 @@ pub struct MetadataPoolOrigin {
     ordinal: u64,
     closed: Arc<OnceLock<bool>>,
     owner: MetadataPoolRegistration,
+    retired: CancellationToken,
 }
 #[derive(Clone)]
 pub struct MetadataPoolClosed {
@@ -69,6 +70,7 @@ impl MetadataPoolPermit {
             ordinal: self.0.ordinal,
             closed: self.0.closed.clone(),
             owner: self.0.registration.clone(),
+            retired: self.0.retired.clone(),
         }
     }
     pub fn close(
@@ -147,6 +149,7 @@ impl MetadataPoolPermit {
             return Ok(None);
         }
         let _ = self.0.closed.set(acquired);
+        self.0.retired.cancel();
         drop(native);
         if let Some(owner) = self.0.owner.upgrade() {
             let removed = owner
@@ -173,6 +176,20 @@ impl std::error::Error for OriginalIo {
     }
 }
 impl MetadataPoolOrigin {
+    pub fn is_retired(&self) -> bool {
+        self.retired.is_cancelled() || self.slot.upgrade().is_none()
+    }
+    pub async fn retired(&self) {
+        self.retired.cancelled().await;
+    }
+    pub fn selected_binding(
+        &self,
+    ) -> Option<(
+        zero_core::request::Destination,
+        crate::contract::network::UpstreamBinding,
+    )> {
+        self.slot.upgrade()?.native().ok()?.binding.clone()
+    }
     pub fn instance(&self) -> ComponentInstanceId {
         self.instance
     }

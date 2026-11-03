@@ -184,6 +184,7 @@ impl MetadataPoolPermit {
             })?,
             target.peer,
         ));
+        native.binding = Some((target.endpoint.clone(), target.binding.clone()));
         bound.check(&owner, query)?;
         validate()?;
         if tokio::time::Instant::now() >= end {

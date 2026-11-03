@@ -43,6 +43,14 @@ impl MetadataPoolEvidence {
     }
 }
 impl MetadataPools {
+    pub(super) fn original_registration(&self, ordinal: usize) -> Option<MetadataPoolRegistration> {
+        self.records
+            .lock()
+            .expect("metadata registrations poisoned")
+            .get(&ordinal)
+            .filter(|record| record.bound)
+            .map(|record| record.actual.clone())
+    }
     pub(super) fn new(
         component: ComponentId,
         declarations: &[ResourceDeclaration],
