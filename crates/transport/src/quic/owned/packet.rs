@@ -89,6 +89,7 @@ impl PacketSegment {
                 queues,
             })
         };
+        let capabilities = grant.tx.capabilities();
         if !grant.scope.matches(&tasks) || !grant.scope.registration_open() {
             return Err(fail(io::ErrorKind::PermissionDenied.into(), grant, queues));
         }
@@ -129,6 +130,17 @@ impl PacketSegment {
                 ));
             }
         };
+        if let Some(native) = queues
+            .0
+            .as_ref()
+            .and_then(|channels| channels.native.as_ref())
+        {
+            let mut current = native.lock().unwrap();
+            current.current = Some(capabilities);
+            current.maximum_transmit_segments = current
+                .maximum_transmit_segments
+                .max(capabilities.transmit_segments);
+        }
         Ok(Self {
             graph,
             receiver,
@@ -182,8 +194,14 @@ impl PacketSegment {
                         packet=channels.outgoing.recv()=>{
                             let Some(mut packet)=packet else{return Ok(())};packet.peer=peer;
                             tokio::select! {biased;_=stop.cancelled()=>return Ok(()),result=datagram_queue::send(&socket,packet)=>result?};
+                            if let Some(native)=&channels.native {
+                                let transmit=socket.max_transmit_segments();let fragment=socket.may_fragment();
+                                let mut caps=native.lock().unwrap();
+                                if let Some(current)=&mut caps.current {current.transmit_segments=transmit;current.may_fragment=fragment;}
+                                caps.maximum_transmit_segments=caps.maximum_transmit_segments.max(transmit);
+                            }
                         },
-                        packets=datagram_queue::receive(socket.as_ref())=>for mut packet in packets? {
+                        packets=datagram_queue::receive_native(socket.as_ref())=>for mut packet in packets? {
                             if packet.peer==peer {packet.peer=logical;let _=channels.incoming.try_send(packet);}
                         },
                     }
@@ -225,6 +243,9 @@ impl PacketSegment {
             .unwrap()
             .take()
             .ok_or_else(|| error(Reason::Revoked))?;
+        if let Some(native) = &channels.native {
+            native.lock().unwrap().current = None;
+        }
         Ok((PacketQueues(Some(channels)), receipt))
     }
     pub fn task_exit(&self) -> Option<&super::DriverDelivery> {

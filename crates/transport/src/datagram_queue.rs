@@ -7,7 +7,7 @@ use quinn::{
 use std::{
     future::Future,
     io::{self, IoSliceMut},
-    net::SocketAddr,
+    net::{IpAddr, SocketAddr},
     pin::Pin,
     sync::{Arc, Mutex},
     task::{Context, Poll},
@@ -17,10 +17,25 @@ use tokio_util::sync::PollSender;
 pub(crate) struct Packet {
     pub bytes: Vec<u8>,
     pub peer: SocketAddr,
+    pub metadata: Option<WireMetadata>,
 }
+#[derive(Clone, Copy)]
+pub(crate) struct WireMetadata {
+    pub ecn: Option<quinn::udp::EcnCodepoint>,
+    pub source_ip: Option<IpAddr>,
+    pub destination_ip: Option<IpAddr>,
+    pub segment_size: Option<usize>,
+}
+#[derive(Default)]
+pub(crate) struct NativeCapabilities {
+    pub current: Option<zero_platform_tokio::controlled_datagram::metadata::MetadataCapabilities>,
+    pub maximum_transmit_segments: usize,
+}
+pub(crate) type NativeLink = Arc<Mutex<NativeCapabilities>>;
 pub(crate) struct Channels {
     pub incoming: mpsc::Sender<Packet>,
     pub outgoing: mpsc::Receiver<Packet>,
+    pub native: Option<NativeLink>,
 }
 type Prepare = Arc<dyn Fn(&Transmit<'_>) -> io::Result<Vec<u8>> + Send + Sync>;
 pub(crate) struct Socket {
@@ -29,6 +44,7 @@ pub(crate) struct Socket {
     outgoing: mpsc::Sender<Packet>,
     incoming: Mutex<mpsc::Receiver<Packet>>,
     task: DriverStop,
+    native: Option<NativeLink>,
 }
 impl Drop for Socket {
     fn drop(&mut self) {
@@ -89,14 +105,26 @@ where
 pub(crate) fn prepare_channels(local: SocketAddr, prepare: Prepare) -> (Arc<Socket>, Channels) {
     let (tx, outgoing) = mpsc::channel(256);
     let (incoming, rx) = mpsc::channel(256);
+    let native = Arc::new(Mutex::new(NativeCapabilities {
+        current: None,
+        maximum_transmit_segments: 1,
+    }));
     let socket = Arc::new(Socket {
         local,
         prepare,
         outgoing: tx,
         incoming: Mutex::new(rx),
         task: DriverStop::Hosted(zero_platform_tokio::contract::CancellationToken::new()),
+        native: Some(native.clone()),
     });
-    (socket, Channels { incoming, outgoing })
+    (
+        socket,
+        Channels {
+            incoming,
+            outgoing,
+            native: Some(native),
+        },
+    )
 }
 pub(crate) fn prepare_with<F, Fut>(
     local: SocketAddr,
@@ -109,13 +137,18 @@ where
 {
     let (tx, outgoing) = mpsc::channel(256);
     let (incoming, rx) = mpsc::channel(256);
-    let driver = PreparedIoDriver::new(run(Channels { incoming, outgoing }));
+    let driver = PreparedIoDriver::new(run(Channels {
+        incoming,
+        outgoing,
+        native: None,
+    }));
     let socket = Arc::new(Socket {
         local,
         prepare,
         outgoing: tx,
         incoming: Mutex::new(rx),
         task: DriverStop::Hosted(driver.cancel.clone()),
+        native: None,
     });
     Ok((socket, driver))
 }
@@ -124,10 +157,21 @@ impl AsyncUdpSocket for Socket {
         Box::pin(Poller(PollSender::new(self.outgoing.clone())))
     }
     fn try_send(&self, transmit: &Transmit<'_>) -> io::Result<()> {
-        if transmit.segment_size.is_some() || transmit.contents.len() > 65507 {
+        let maximum = self
+            .native
+            .as_ref()
+            .map(|link| link.lock().unwrap().maximum_transmit_segments.max(1));
+        let valid = match (maximum, transmit.segment_size) {
+            (Some(maximum), Some(size)) => {
+                size > 0 && size <= 65507 && transmit.contents.len().div_ceil(size) <= maximum
+            }
+            (_, None) => transmit.contents.len() <= 65507,
+            (None, Some(_)) => false,
+        };
+        if !valid {
             return Err(io::Error::new(
                 io::ErrorKind::InvalidInput,
-                "tunnel requires a bounded individual datagram",
+                "UDP queue requires a bounded transmit",
             ));
         }
         let permit = self.outgoing.try_reserve().map_err(|error| match error {
@@ -138,6 +182,12 @@ impl AsyncUdpSocket for Socket {
         permit.send(Packet {
             bytes,
             peer: transmit.destination,
+            metadata: self.native.as_ref().map(|_| WireMetadata {
+                ecn: transmit.ecn,
+                source_ip: transmit.src_ip,
+                destination_ip: None,
+                segment_size: transmit.segment_size,
+            }),
         });
         Ok(())
     }
@@ -163,8 +213,8 @@ impl AsyncUdpSocket for Socket {
                 addr: packet.peer,
                 len: packet.bytes.len(),
                 stride: packet.bytes.len(),
-                ecn: None,
-                dst_ip: None,
+                ecn: packet.metadata.and_then(|metadata| metadata.ecn),
+                dst_ip: packet.metadata.and_then(|metadata| metadata.destination_ip),
             };
             return Poll::Ready(Ok(1));
         }
@@ -173,6 +223,23 @@ impl AsyncUdpSocket for Socket {
     }
     fn local_addr(&self) -> io::Result<SocketAddr> {
         Ok(self.local)
+    }
+    fn max_transmit_segments(&self) -> usize {
+        self.native
+            .as_ref()
+            .and_then(|link| link.lock().unwrap().current)
+            .map_or(1, |caps| caps.transmit_segments.max(1))
+    }
+    fn max_receive_segments(&self) -> usize {
+        // The actual native worker consumes GRO and retains each complete
+        // datagram with its original ECN/destination metadata in this FIFO.
+        1
+    }
+    fn may_fragment(&self) -> bool {
+        self.native
+            .as_ref()
+            .and_then(|link| link.lock().unwrap().current)
+            .is_none_or(|caps| caps.may_fragment)
     }
 }
 struct Poller(PollSender<Packet>);
@@ -189,39 +256,6 @@ impl UdpPoller for Poller {
         Poll::Ready(Ok(()))
     }
 }
-pub(crate) async fn receive(socket: &dyn AsyncUdpSocket) -> io::Result<Vec<Packet>> {
-    let mut bytes = vec![0; 65536];
-    let mut meta = [RecvMeta::default()];
-    let count = std::future::poll_fn(|cx| {
-        socket.poll_recv(cx, &mut [IoSliceMut::new(&mut bytes)], &mut meta)
-    })
-    .await?;
-    if count == 0 || meta[0].stride == 0 || meta[0].len > bytes.len() {
-        return Ok(Vec::new());
-    }
-    Ok(bytes[..meta[0].len]
-        .chunks(meta[0].stride)
-        .map(|p| Packet {
-            bytes: p.to_vec(),
-            peer: meta[0].addr,
-        })
-        .collect())
-}
-pub(crate) async fn send(socket: &Arc<dyn AsyncUdpSocket>, packet: Packet) -> io::Result<()> {
-    let transmit = Transmit {
-        contents: &packet.bytes,
-        destination: packet.peer,
-        ecn: None,
-        segment_size: None,
-        src_ip: None,
-    };
-    let mut poller = socket.clone().create_io_poller();
-    loop {
-        match socket.try_send(&transmit) {
-            Err(error) if error.kind() == io::ErrorKind::WouldBlock => {
-                std::future::poll_fn(|cx| poller.as_mut().poll_writable(cx)).await?
-            }
-            result => return result,
-        }
-    }
-}
+
+mod packet_io;
+pub(crate) use packet_io::{receive, receive_native, send};

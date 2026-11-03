@@ -50,6 +50,7 @@ impl Server {
         Ok(Some(Packet {
             bytes: codec::response(record.message, &payload)?,
             peer: record.peer,
+            metadata: None,
         }))
     }
     async fn flush(&mut self, inner: &Arc<dyn AsyncUdpSocket>) -> io::Result<()> {
@@ -89,11 +90,11 @@ pub(super) async fn run(
                     let Ok(message)=wire::parse(&packet.bytes) else {continue;};
                     let Some((response,id,packets))=codec::response_for(message,&domain) else {continue;};
                     state.flush(&inner).await?;
-                    let Some(id)=id else {queue::send(&inner,Packet {bytes:codec::response(response,&[])?,peer:packet.peer}).await?;continue;};
+                    let Some(id)=id else {queue::send(&inner,Packet {bytes:codec::response(response,&[])?,peer:packet.peer,metadata:None}).await?;continue;};
                     let peer=codec::client_address(id);
                     let Some(client)=state.client(peer) else {continue;};
                     let ready=!client.packets.is_empty();
-                    for bytes in packets {let _=channels.incoming.try_send(Packet {bytes,peer});}
+                    for bytes in packets {let _=channels.incoming.try_send(Packet {bytes,peer,metadata:None});}
                     state.pending=Some(Pending {message:response,peer:packet.peer,client:peer});
                     if ready {state.flush(&inner).await?;} else {deadline.as_mut().reset(Instant::now()+Duration::from_secs(1));}
                 }

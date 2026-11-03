@@ -83,7 +83,7 @@ pub(super) async fn run(
                 let peer=SocketAddr::new(source,echo.id);
                 state.flush(&mut raw,ipv6).await?;
                 let Some(client)=state.client(peer) else {continue;};let ready=!client.packets.is_empty();
-                if !echo.payload.is_empty() {let _=channels.incoming.try_send(Packet {bytes:echo.payload.to_vec(),peer});}
+                if !echo.payload.is_empty() {let _=channels.incoming.try_send(Packet {bytes:echo.payload.to_vec(),peer,metadata:None});}
                 state.pending=Some(Pending {peer,sequence:echo.sequence,first:echo.payload.first().copied()});
                 if ready {state.flush(&mut raw,ipv6).await?;} else {deadline.as_mut().reset(Instant::now()+Duration::from_secs(1));}
             }
