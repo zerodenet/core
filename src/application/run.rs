@@ -126,14 +126,14 @@ async fn run(
 
     // Proxy shutdown emits terminal flow.completed facts. Stop only status
     // polling here; the dispatcher remains alive for the terminal events.
-    services.shutdown_status_monitor().await;
+    let monitor_shutdown = services.shutdown_status_monitor().await;
 
     engine.push_engine_stopped(proxy_stop_reason(&proxy_result));
     // Allow the event dispatcher to observe the terminal engine event before
     // its final drain persists any remaining deliveries to the outbox.
     tokio::task::yield_now().await;
 
-    services.shutdown_dispatcher().await;
+    let dispatcher_shutdown = services.shutdown_dispatcher().await;
     ipc_server.shutdown().await?;
     #[cfg(feature = "status-api")]
     if let Some(s) = http_server {
@@ -145,6 +145,8 @@ async fn run(
     }
 
     proxy_result?;
+    monitor_shutdown.map_err(std::io::Error::other)?;
+    dispatcher_shutdown.map_err(std::io::Error::other)?;
     Ok(())
 }
 

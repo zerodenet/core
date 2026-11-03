@@ -214,6 +214,9 @@ impl ProxyHandle {
                     Ok(())
                 })
                 .map_err(|message| ApiError::new(ApiErrorCode::Internal, message))?;
+            if let Some(reconciler) = &self.config_reconciler {
+                reconciler.committed(candidate.config().clone()).await.map_err(|message| ApiError::new(ApiErrorCode::Internal, format!("endpoint committed; application finalization failed: {message}")))?;
+            }
             self.proxy.engine.configuration_source().finalize_committed().map_err(|error| ApiError::new(ApiErrorCode::Internal, format!("endpoint committed; source finalization failed: {error}; query current state")))?;
             Ok::<(), ApiError>(())
         }
@@ -222,11 +225,18 @@ impl ProxyHandle {
             // The candidate resolver is staged until application reconciliation
             // succeeds. Release that stage before preparing the old config.
             self.proxy.resolver.discard_prepared_reload();
-            let recovery = self
-                .confirm_source_compensation(&candidate)
-                .map_err(|recovery| {
-                    ApiError::new(error.code, format!("{}; {recovery}", error.message))
-                })?;
+            let recovery = if let Some(reconciler) = &self.config_reconciler {
+                self.retire_application_for_recovery(
+                    reconciler.as_ref(),
+                    &candidate,
+                    candidate.config().clone(),
+                    &error.message,
+                )
+                .await
+            } else {
+                self.confirm_source_compensation(&candidate)
+            }
+            .map_err(|message| ApiError::new(error.code, message))?;
             let rollback = self.apply_endpoint_snapshot(recovery, true).await;
             self.proxy.resolver.discard_prepared_reload();
             self.proxy.engine.record_endpoint_runtime_error(
@@ -304,6 +314,14 @@ impl ProxyHandle {
             self.proxy.host.apply().commit(publish)
         };
         result.map_err(|message| ApiError::new(ApiErrorCode::Internal, message))?;
+        if compensating {
+            if let Some(reconciler) = &self.config_reconciler {
+                reconciler
+                    .committed(snapshot.config().clone())
+                    .await
+                    .map_err(|message| ApiError::new(ApiErrorCode::Internal, message))?;
+            }
+        }
         Ok(())
     }
 

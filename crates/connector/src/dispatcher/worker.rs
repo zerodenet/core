@@ -108,10 +108,11 @@ impl SinkWorker {
         self.sender.take();
     }
 
-    pub(super) async fn join(&mut self) {
+    pub(super) async fn join(&mut self) -> Result<(), tokio::task::JoinError> {
         if let Some(task) = self.task.take() {
-            let _ = task.await;
+            task.await?;
         }
+        Ok(())
     }
 
     /// Normal shutdown cancels recoverable deliveries and samples. Reload

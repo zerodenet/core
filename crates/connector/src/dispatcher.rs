@@ -20,6 +20,9 @@ use crate::{ConnectorError, ConnectorResult};
 
 mod admission;
 mod continuation;
+mod handle;
+mod initialization;
+use initialization::InitSignal;
 mod memory;
 #[cfg(test)]
 use admission::enqueue_sample;
@@ -35,6 +38,14 @@ use outbox::{DeliveryOutbox, OutboxDelivery};
 use worker::{SinkPublishResult, SinkWorker, SinkWorkerResult};
 
 const DEFAULT_POLL_INTERVAL: Duration = Duration::from_secs(1);
+
+type DispatcherTaskExit = Result<Option<EventDispatcherContinuation>, Arc<tokio::task::JoinError>>;
+
+#[derive(Default)]
+struct DispatcherChildFailures {
+    sink_tasks: Vec<Arc<tokio::task::JoinError>>,
+    source_thread: Option<Box<dyn std::any::Any + Send>>,
+}
 
 type SharedSinkStats = Arc<Mutex<Vec<(String, Arc<PerSinkStats>)>>>;
 
@@ -137,44 +148,19 @@ impl PerSinkStats {
 pub struct EventDispatcherHandle {
     shutdown: Option<tokio::sync::oneshot::Sender<ShutdownMode>>,
     task: JoinHandle<Option<EventDispatcherContinuation>>,
+    task_exit: Option<DispatcherTaskExit>,
+    child_failures: Arc<Mutex<DispatcherChildFailures>>,
+    init_rx: Option<mpsc::Receiver<ConnectorResult<bool>>>,
+    init_notify: Arc<tokio::sync::Notify>,
+    init_result: Option<Result<bool, Arc<ConnectorError>>>,
+    activate: Option<tokio::sync::oneshot::Sender<()>>,
     /// Per-sink delivery stats shared with the dispatcher thread.
-    sink_stats: Arc<Vec<(String, Arc<PerSinkStats>)>>,
+    sink_stats: SharedSinkStats,
 }
 
 #[derive(Clone)]
 pub struct EventDispatcherStatusHandle {
-    sink_stats: Arc<Vec<(String, Arc<PerSinkStats>)>>,
-}
-
-impl EventDispatcherHandle {
-    pub async fn shutdown(mut self) {
-        if let Some(shutdown) = self.shutdown.take() {
-            let _ = shutdown.send(ShutdownMode::Drain);
-        }
-
-        let _ = self.task.await;
-    }
-
-    /// Snapshot the current delivery status for all configured sinks.
-    pub fn sink_status(&self) -> Vec<SinkStatus> {
-        self.status_handle().sink_status()
-    }
-
-    pub fn status_handle(&self) -> EventDispatcherStatusHandle {
-        EventDispatcherStatusHandle {
-            sink_stats: self.sink_stats.clone(),
-        }
-    }
-}
-
-impl EventDispatcherStatusHandle {
-    /// Snapshot the current delivery status for all configured sinks.
-    pub fn sink_status(&self) -> Vec<SinkStatus> {
-        self.sink_stats
-            .iter()
-            .map(|(tag, stats)| stats.snapshot(tag.clone()))
-            .collect()
-    }
+    sink_stats: SharedSinkStats,
 }
 
 pub fn spawn_event_dispatcher<S>(
@@ -270,7 +256,68 @@ fn spawn_event_dispatcher_inner<S>(
 where
     S: EventSource + Send + Sync + 'static,
 {
+    let mut handle = prepare_event_dispatcher_inner(
+        source,
+        api,
+        source_dir,
+        options,
+        network,
+        bootstrap_engine_started,
+        continuation,
+        false,
+    );
+    if handle.wait_ready_sync()? {
+        Ok(Some(handle))
+    } else {
+        Ok(None)
+    }
+}
+
+/// Install this original owner before awaiting readiness. Delivery stays paused
+/// until activate() after the accepted host operation commits.
+#[allow(clippy::too_many_arguments)]
+pub fn prepare_event_dispatcher_paused_with_network<S>(
+    source: S,
+    api: ApiConfig,
+    source_dir: Option<PathBuf>,
+    options: EventDispatcherOptions,
+    network: EventDispatcherNetwork,
+    bootstrap_engine_started: bool,
+    continuation: Option<EventDispatcherContinuation>,
+) -> EventDispatcherHandle
+where
+    S: EventSource + Send + Sync + 'static,
+{
+    prepare_event_dispatcher_inner(
+        source,
+        api,
+        source_dir,
+        options,
+        network,
+        bootstrap_engine_started,
+        continuation,
+        true,
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+fn prepare_event_dispatcher_inner<S>(
+    source: S,
+    api: ApiConfig,
+    source_dir: Option<PathBuf>,
+    options: EventDispatcherOptions,
+    network: EventDispatcherNetwork,
+    bootstrap_engine_started: bool,
+    continuation: Option<EventDispatcherContinuation>,
+    paused: bool,
+) -> EventDispatcherHandle
+where
+    S: EventSource + Send + Sync + 'static,
+{
     let (init_tx, init_rx) = mpsc::sync_channel(1);
+    let init_notify = Arc::new(tokio::sync::Notify::new());
+    let init_tx = InitSignal::new(init_tx, init_notify.clone());
+    let (activate_tx, activate_rx) = tokio::sync::oneshot::channel();
     let (shutdown_tx, shutdown_rx) = tokio::sync::oneshot::channel();
 
     let dead_letter_path = api.dead_letter_path.clone();
@@ -282,6 +329,8 @@ where
     let sink_stats: SharedSinkStats = Arc::new(Mutex::new(Vec::new()));
     let stats_for_handle = sink_stats.clone();
     let stats_for_thread = sink_stats.clone();
+    let child_failures = Arc::new(Mutex::new(DispatcherChildFailures::default()));
+    let worker_failures = child_failures.clone();
 
     let task = tokio::task::spawn_blocking(move || {
         let core_instance_id = match source.since(0, 0, EventFilter::default()) {
@@ -415,7 +464,6 @@ where
                 return None;
             }
         };
-        let _ = init_tx.send(Ok(true));
         Some(runtime.block_on(run_event_dispatcher(
             source,
             subscriber,
@@ -430,25 +478,23 @@ where
             core_instance_id,
             startup_sequence,
             continuation,
+            init_tx,
+            paused.then_some(activate_rx),
+            worker_failures,
         )))
     });
 
-    let init_result = init_rx
-        .recv()
-        .map_err(|_| ConnectorError::DispatcherStart)??;
-
-    if !init_result {
-        return Ok(None);
-    }
-
-    // Stats are now populated; take them out of the mutex for the handle.
-    let stats_snapshot = stats_for_handle.lock().expect("sink stats").clone();
-
-    Ok(Some(EventDispatcherHandle {
+    EventDispatcherHandle {
         shutdown: Some(shutdown_tx),
         task,
-        sink_stats: Arc::new(stats_snapshot),
-    }))
+        task_exit: None,
+        child_failures,
+        init_rx: Some(init_rx),
+        init_notify,
+        init_result: None,
+        activate: paused.then_some(activate_tx),
+        sink_stats: stats_for_handle,
+    }
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -466,6 +512,9 @@ async fn run_event_dispatcher<S>(
     core_instance_id: String,
     startup_sequence: u64,
     continuation: Option<ContinuationState>,
+    init: InitSignal,
+    mut activation: Option<tokio::sync::oneshot::Receiver<()>>,
+    child_failures: Arc<Mutex<DispatcherChildFailures>>,
 ) -> EventDispatcherContinuation
 where
     S: EventSource + Send + Sync + 'static,
@@ -521,6 +570,8 @@ where
         options.max_retry_attempts
     };
 
+    let mut activated = activation.is_none();
+    let _ = init.send(Ok(true));
     let mut shutting_down = false;
     let mut handing_off = false;
     loop {
@@ -535,7 +586,7 @@ where
             &mut result_rx,
             &mut completed_results,
         );
-        if !shutting_down {
+        if activated && !shutting_down {
             fill_pending_from_outbox(
                 stats,
                 &mut pending,
@@ -545,7 +596,7 @@ where
                 &delivery_budget,
             );
         }
-        if !handing_off {
+        if activated && !handing_off {
             drain_event_source(
                 &source,
                 &mut source_rx,
@@ -587,7 +638,7 @@ where
             }
         }
 
-        let wait_interval = if handing_off {
+        let wait_interval = if handing_off || !activated {
             options.poll_interval
         } else {
             next_wait_interval(
@@ -600,9 +651,13 @@ where
         };
         tokio::select! {
             biased;
+            ready = async { activation.as_mut().expect("pending publication receiver").await }, if activation.is_some() && !shutting_down => {
+                if ready.is_ok() { activated = true; }
+                activation = None;
+            }
             mode = &mut shutdown, if !shutting_down => {
                 shutting_down = true;
-                handing_off = matches!(mode, Ok(ShutdownMode::Handoff));
+                handing_off = !activated || matches!(mode, Ok(ShutdownMode::Handoff));
                 source_cancelled.store(true, Ordering::Release);
                 for worker in &mut workers {
                     if let Some(delivery) = worker.cancel_shutdown_in_flight(outbox.is_some(), handing_off) {
@@ -639,7 +694,7 @@ where
             Some(result) = result_rx.recv() => completed_results.push_back(result),
             // Never drain a bounded channel into unbounded staging while a
             // preceding event is blocked on persistence or sink admission.
-            event = source_rx.recv(), if !source_closed && blocked_events.is_empty() && source_events.is_empty() => match event {
+            event = source_rx.recv(), if activated && !source_closed && blocked_events.is_empty() && source_events.is_empty() => match event {
                 Some(event) => source_events.push_back(event),
                 None => source_closed = true,
             },
@@ -654,9 +709,20 @@ where
         worker.stop();
     }
     for worker in &mut workers {
-        worker.join().await;
+        if let Err(error) = worker.join().await {
+            child_failures
+                .lock()
+                .expect("original child failures")
+                .sink_tasks
+                .push(Arc::new(error));
+        }
     }
-    let _ = source_task.join();
+    if let Err(error) = source_task.join() {
+        child_failures
+            .lock()
+            .expect("original child failures")
+            .source_thread = Some(error);
+    }
     drain_worker_results(
         &mut workers,
         stats,
@@ -673,7 +739,15 @@ where
     debug!("event dispatcher stopped");
     EventDispatcherContinuation::new(ContinuationState {
         core_instance_id,
-        last_sequence: last_sequence.or(Some(startup_sequence)),
+        last_sequence: last_sequence.or_else(|| {
+            Some(
+                blocked_events
+                    .front()
+                    .and_then(|event| event.event.sequence)
+                    .map(|sequence| sequence.saturating_sub(1))
+                    .unwrap_or(startup_sequence),
+            )
+        }),
         blocked: blocked_events.pop_front(),
         deliveries: pending
             .into_iter()

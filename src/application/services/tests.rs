@@ -133,8 +133,8 @@ async fn inbound_apply_keeps_dispatcher_counters_and_status_monitor() {
     .await
     .expect("dispatcher counters reset across an inbound-only apply");
     running.shutdown().await.unwrap();
-    services.shutdown_status_monitor().await;
-    services.shutdown_dispatcher().await;
+    services.shutdown_status_monitor().await.unwrap();
+    services.shutdown_dispatcher().await.unwrap();
 }
 
 #[tokio::test]
@@ -182,10 +182,10 @@ async fn first_configured_dispatcher_delivers_engine_started_exactly_once() {
     assert_eq!(count_event_type(&replacement_sink, "engine.started"), 0);
 
     running.shutdown().await.unwrap();
-    services.shutdown_status_monitor().await;
+    services.shutdown_status_monitor().await.unwrap();
     engine.push_engine_stopped("test");
     tokio::task::yield_now().await;
-    services.shutdown_dispatcher().await;
+    services.shutdown_dispatcher().await.unwrap();
 }
 
 #[tokio::test]
@@ -235,10 +235,10 @@ async fn config_apply_rebuilds_event_dispatcher_without_process_restart() {
     );
 
     running.shutdown().await.unwrap();
-    services.shutdown_status_monitor().await;
+    services.shutdown_status_monitor().await.unwrap();
     engine.push_engine_stopped("test");
     tokio::task::yield_now().await;
-    services.shutdown_dispatcher().await;
+    services.shutdown_dispatcher().await.unwrap();
 }
 
 #[tokio::test]
@@ -290,10 +290,10 @@ async fn config_apply_rejects_live_control_listener_or_credential_replacement() 
     );
 
     running.shutdown().await.unwrap();
-    services.shutdown_status_monitor().await;
+    services.shutdown_status_monitor().await.unwrap();
     engine.push_engine_stopped("test");
     tokio::task::yield_now().await;
-    services.shutdown_dispatcher().await;
+    services.shutdown_dispatcher().await.unwrap();
 }
 
 #[cfg(feature = "connector")]
@@ -385,8 +385,8 @@ async fn config_apply_registers_complete_webhook_url_in_process() {
     assert!(request.contains("\"event_type\":\"engine.warning\""));
 
     running.shutdown().await.unwrap();
-    services.shutdown_status_monitor().await;
+    services.shutdown_status_monitor().await.unwrap();
     engine.push_engine_stopped("test");
     tokio::task::yield_now().await;
-    services.shutdown_dispatcher().await;
+    services.shutdown_dispatcher().await.unwrap();
 }

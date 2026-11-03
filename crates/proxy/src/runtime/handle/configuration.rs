@@ -23,6 +23,20 @@ pub trait ConfigApplyReconciler: Send + Sync {
     /// restores the previous proxy configuration and invokes this method again
     /// with the previous target before returning the failure.
     async fn reconcile(&self, target: Arc<RuntimeConfig>) -> Result<ConfigReconcileResult, String>;
+
+    /// Confirm retirement of the actual failed/uncommitted application attempt
+    /// before Proxy/DNS dependencies can be reconstructed. A lost caller,
+    /// cancellation or task exit alone is not an original native-close receipt.
+    async fn retire_candidate(&self, _target: Arc<RuntimeConfig>) -> Result<(), String> {
+        Err("application candidate cleanup remains unconfirmed".to_owned())
+    }
+
+    /// Finalize only the already Ready application attempt after the actual
+    /// host commit. Failure reports a committed operation and cannot roll back
+    /// its published configuration revision.
+    async fn committed(&self, _target: Arc<RuntimeConfig>) -> Result<(), String> {
+        Ok(())
+    }
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
@@ -160,20 +174,31 @@ impl ProxyHandle {
             return Ok(Some(ConfigReconcileResult::default()));
         };
         let candidate = Arc::new(candidate);
-        match reconciler.reconcile(candidate).await {
+        match reconciler.reconcile(candidate.clone()).await {
             Ok(result) => {
                 if let Err(error) = self
                     .commit_configuration(prepared.clone(), timeout, persist)
                     .await
                 {
                     let recovery = self
-                        .confirm_source_compensation(&prepared)
-                        .map_err(|recovery| format!("{error}; {recovery}"))?;
+                        .retire_application_for_recovery(
+                            reconciler.as_ref(),
+                            &prepared,
+                            candidate.clone(),
+                            &error,
+                        )
+                        .await?;
                     let proxy_rollback = self
                         .rollback_proxy_dns_under_guard(recovery.clone(), timeout)
                         .await;
                     let app_rollback = if proxy_rollback.is_ok() {
-                        reconciler.reconcile(recovery.config().clone()).await
+                        match reconciler.reconcile(recovery.config().clone()).await {
+                            Ok(result) => reconciler
+                                .committed(recovery.config().clone())
+                                .await
+                                .map(|_| result),
+                            Err(error) => Err(error),
+                        }
                     } else {
                         Err("application rollback skipped because proxy rollback failed".to_owned())
                     };
@@ -188,21 +213,29 @@ impl ProxyHandle {
                     }
                     return Err(message);
                 }
+                reconciler.committed(candidate.clone()).await.map_err(|error| format!("configuration committed; application finalization failed: {error}; query current state"))?;
                 Ok(Some(result))
             }
             Err(apply_error) => {
                 let recovery = self
-                    .confirm_source_compensation(&prepared)
-                    .map_err(|recovery| {
-                        format!(
-                            "application service reconciliation failed: {apply_error}; {recovery}"
-                        )
-                    })?;
+                    .retire_application_for_recovery(
+                        reconciler.as_ref(),
+                        &prepared,
+                        candidate.clone(),
+                        &format!("application service reconciliation failed: {apply_error}"),
+                    )
+                    .await?;
                 let proxy_rollback = self
                     .rollback_proxy_dns_under_guard(recovery.clone(), timeout)
                     .await;
                 let app_rollback = if proxy_rollback.is_ok() {
-                    reconciler.reconcile(recovery.config().clone()).await
+                    match reconciler.reconcile(recovery.config().clone()).await {
+                        Ok(result) => reconciler
+                            .committed(recovery.config().clone())
+                            .await
+                            .map(|_| result),
+                        Err(error) => Err(error),
+                    }
                 } else {
                     Err("application rollback skipped because proxy rollback failed".to_owned())
                 };
@@ -273,6 +306,35 @@ impl ProxyHandle {
         })?;
         self.proxy.engine.configuration_source().finalize_committed()
             .map_err(|error| format!("configuration committed; source finalization failed: {error}; query current state"))
+    }
+
+    pub(super) async fn retire_application_for_recovery(
+        &self,
+        reconciler: &dyn ConfigApplyReconciler,
+        prepared: &Arc<zero_engine::EngineRuntimeSnapshot>,
+        target: Arc<RuntimeConfig>,
+        original: &str,
+    ) -> Result<Arc<zero_engine::EngineRuntimeSnapshot>, String> {
+        if prepared.configuration_publication().is_committed() {
+            let finalization = reconciler.committed(target).await;
+            return Err(format!(
+                "{original}; configuration was already committed; query current state{}",
+                finalization
+                    .err()
+                    .map(|error| format!("; application finalization failed: {error}"))
+                    .unwrap_or_default()
+            ));
+        }
+        // Drive both retained obligations, but reconstruct no dependencies
+        // unless every actual application and source outcome is confirmed.
+        let application = reconciler.retire_candidate(target).await;
+        let source = self.confirm_source_compensation(prepared);
+        match (application, source) {
+            (Ok(()), Ok(snapshot)) => Ok(snapshot),
+            (application, source) => Err(format!("{original}; application cleanup: {}; source cleanup: {}; proxy recovery was not started",
+                application.err().unwrap_or_else(|| "confirmed".to_owned()),
+                source.err().unwrap_or_else(|| "confirmed".to_owned()))),
+        }
     }
 
     pub(super) fn confirm_source_compensation(
