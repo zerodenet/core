@@ -75,5 +75,18 @@
     "release/deploy",
     "expand protocol combinations"
   ],
-  "agents_started": false
+  "agents_started": false,
+  "execution_topology": {
+    "cloud_environments": 1,
+    "main_agent": "C",
+    "implementation_subagents": [
+      "A",
+      "B"
+    ],
+    "working_directories": "one integration checkout plus two linked Git worktrees in the same environment",
+    "shared": "toolchain, Git object store, dependency downloads; one target exclusively scheduled by C",
+    "parallel": "implementation and lightweight static checks",
+    "serialized": "shared-contract writes, build plus corresponding test run, integration branch writes",
+    "startup": "launch C once with cloud/README.md; C spawns A/B in the same environment"
+  }
 }

@@ -9,17 +9,37 @@
 - 云端基线：`codex/v003-cloud-base`。源码检查点、分组提交、已运行检查和未验收范围见 [baseline.json](baseline.json)。本包所在提交及其远端分支 head 是开工时必须记录的实际任务基线。
 - 集成分支：`codex/v003-cloud-integration`，初始与基线完全相同。Agent A/B 的 PR **base 均为此分支**，不得直接指向 develop。
 - 本地起点 `bab00b6922600ecdc9461c28ddcf0630b8c730c8` 与远端 develop 分叉。本包没有合并、变基或覆盖其中任何一方；远端差异见 baseline.json。最终本地集成时单独核对重复补丁和版本提交，不能用强推替代。
-- 首轮仅启动两个实现 agent 和一个集成 agent。每个 agent 使用独立 checkout/worktree；不得共享可写工作目录、Cargo target 或 Git index。
+- **只使用一个云端环境。** 用户启动主 agent C，由 C 在同一环境内派生两个实现子 agent A/B；不要求用户分别创建三个云端任务、容器或虚拟机。
+- C 使用主 checkout，A/B 各使用同一仓库的独立 Git worktree 和分支。三个工作区共享 Git 对象、工具链与依赖下载缓存，但有各自的文件和 Git index，不能在同一个可写目录中并行切分支或编辑。
 
-```bash
-git fetch github
-git switch -c codex/v003-cloud-config-transaction --track github/codex/v003-cloud-config-transaction
-# B/C 改用下表对应分支；已有本地分支则直接 switch，不重复创建。
-git rev-parse HEAD
-git status --short
+```text
+一个云端环境
+  └── 主 agent C：协调、审查、集成
+        ├── 主 checkout：cloud-integration
+        ├── 子 agent A → worktree A：cloud-config-transaction
+        └── 子 agent B → worktree B：cloud-hy2-outbound
+       共享工具链、Git 对象、Cargo 下载缓存和受协调的构建目录
 ```
 
-云端网络、工具链、protoc 与权限先按实际环境检查；若提供 managed cloud environment 技能，先读取其运行规则。不复制本地凭据、绝对路径、构建缓存或私有日志；版本化任务包不依赖它们。
+云端网络、工具链、protoc 与权限只初始化一次；若提供 managed cloud environment 技能，先读取其运行规则。新 checkout 的 GitHub remote 可能叫 origin：C 先确认其 URL，再按本包需要配置 github 别名，不覆盖已有 GitLab remote。fetch 后记录实际 SHA、核对 clean 状态，在启动子 agent 前创建/复用 A/B worktree。分支已存在时直接使用，不重建或强制重置。不复制本地凭据、绝对路径、构建缓存或私有日志；版本化任务包不依赖它们。
+
+默认共享一个 Cargo target，由 C 协调排队：同一时刻只执行一组 Rust 构建及其对应测试，直到该组结果收集完再交给另一工作区。A/B 的设计、代码修改和轻量静态检查仍并行；不同时运行两套全量，不把另一 worktree 的产物当本分支结果。共享 target 不等于并发写构建产物，不引入新的任务调度框架；确有隔离需要再使用独立 target，不强制复制整套构建环境。
+
+## 给云端主 agent 的启动指令
+
+只需在一个云端环境启动一次以下任务，不分别启动 A/B 的独立云端环境：
+
+```text
+在当前这一个云端环境中执行 design/v0.0.3/cloud/README.md。
+你是协调主 agent C，读取 agent-c.md 和 acceptance.md，核对 cloud-base。
+在同一环境内创建/复用 A/B 的独立 Git worktree，派生两个子 agent，
+分别执行 agent-a.md、agent-b.md；明确给出各自 worktree 的路径和分支。
+你负责共享契约、构建/测试排队、PR 审查和 cloud-integration 的串行写入。
+不要要求用户另开两个云端环境，不在共享目录中并行切换分支。
+只改内核，TEMP-WG-OUTER-UDP-01 单列，其他路径确认停旧后启新。
+A/B PR base 为 cloud-integration，候选交回本地验收，不合入 develop/main。
+若当前执行器缺少子 agent 或 worktree 能力，如实报告，不能假称已并行。
+```
 
 ## 分工与 PR 依赖
 
