@@ -30,7 +30,7 @@ Config 的规则/GeoIP/ZRS 资源 I/O 与运行编译迁到 `zero-runtime::confi
 
 应用 dispatcher 的 source/sink 原任务与原 JoinHandle（含 blocking publish）、监控、JSONL/dead-letter/outbox/SQLite 原件、真实 webhook HTTP 任务和 IPC hook 退休已接入这条事务边界。原 writer/Connection/stream 控制器、完整回调返回、TaskScope/实际 JoinHandle 和 native close 分别核对，Unknown 保留。IPC hook 无效 cached clone/is_alive 链删除，已收到的 allow/deny 与清理诊断分开；退休代际停止新准入，普通不可达保持原 fail-open。
 
-Hysteria2 根出站及既有 first-Datagram packet-path 使用协议自有同一个实际认证池、QUIC endpoint、H3/UDP 驱动和原始 Metadata UDP 所有者，交付现有标准角色与生产派发/计量。DNS/network/full profile/真实材料隔离，保留多目标/空 UDP、单接收者、背压和既有线格式。真实 ECN、源/目的地址、GSO/GRO 与 PMTU 能力穿过原有有界 QUIC wire 队列。没有重迁入站或扩大协议组合。根 CA 读取使用已有 `runtime.file_read_max_bytes` 配置；独立库便利 API 原有 16 MiB 范围不扩大到 Root。
+Hysteria2 根出站及既有 first-Datagram packet-path 使用协议自有同一个实际认证池、QUIC endpoint、H3/UDP 驱动和原始 Metadata UDP 所有者，交付现有标准角色与生产派发/计量。DNS/network/full profile/真实材料隔离，保留多目标/空 UDP、单接收者、背压和既有线格式。真实 ECN、源/目的地址、GSO/GRO 与 PMTU 能力穿过原有有界 QUIC wire 队列。没有重迁入站或扩大协议组合。根 CA 读取使用已有 `runtime.file_read_max_bytes` 配置；同一标准 owned PoolFactory 无预备快照的路径仍声明原 16 MiB FileAccess，旧公开 standalone 便利 API 的未资格范围另列。HY2 自身非空 prefix 沿用基线 Unsupported，仅既有 root/first donor 获本轮资格。
 
 Root CA 文件由既有有界配置原件槽产生真实关闭后的惰性字节快照，crypto 在实际 lifecycle start 解析；身份比较真实材料而非 pass nonce。文件规则的派发身份比较实际验证过的字节与格式 SHA-256；同路径同长度的内容变化仍被观察，未知来源 matcher 保留 Arc 身份比较，不用 JSON/path/mtime 跳过准备。实际配置、compiled DNS dispatch 和 backend 未变时，原池、认证、endpoint、DNS 代次/cache/lease 与活跃 TCP/UDP 保留。恢复精确已发布配置时，使用其实际保留 recipe 和旧 crypto，按真实依赖/issued floor 构造新代次与取消域；原 Replacement 的清理和失败发布门继续生效，不复活取消的旧 owner。
 
@@ -51,7 +51,7 @@ V1 配置/API/events、CLI、FFI ABI 和协议上游基线保持；只修改内�
 - G8 整体投影/控制观测对账；控制 IPC/HTTP/gRPC 服务器与订阅本体的剩余生命周期不由 config.apply 最终 ACK 或 webhook 原件结果覆盖，既有订阅 abort 链仍未迁。
 - 独立配置/诊断/存储边界：初启控制面 TLS cert/key/CA、独立 quota inspect、principal quota lease/后台持久化，以及控制服务器/订阅本体等不属于已迁配置源或初始规则准备的原件。这些不是新增 TEMP 豁免，不由已迁热 source 事务的 close 收据覆盖。
 
-`TEMP-WG-OUTER-UDP-01` 单独保留且未关闭、未扩大、未纠正。WireGuard 的本轮字段 shorthand 属纯 lint，无债务行为或资格改变。
+`TEMP-WG-OUTER-UDP-01` 单独保留且未关闭、未扩大、未纠正。WireGuard 本轮只有字段 shorthand 及新 optional metadata 的机械 None 适配，未改变关闭顺序、债务行为或资格。
 
 G9/G10 与 Z003-08 的完整资格仍另列：实际 GUI/面板同产物组合、特权 TUN/Packet/Flow/源地址/MTU/回程及系统路由/DNS 恢复、Windows/macOS 原件与平台矩阵、完整固定上游互通矩阵、1 CPU/1 GiB 同负载的 RSS/FD/任务/吞吐/延迟和恢复退出。云端为 Linux x86_64、4 CPU quota/16 GiB、无有效 capability、无 `/dev/net/tun`；不能冒充上述资格。
 
