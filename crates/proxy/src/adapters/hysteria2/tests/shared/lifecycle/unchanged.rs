@@ -1,6 +1,6 @@
 //! An unchanged pure profile retains its actual active generation, not just bytes.
 use super::*;
-use zero_platform_tokio::controlled_carrier::loan::DatagramLoan;
+use zero_platform_tokio::{contract::dns::DnsService, controlled_carrier::loan::DatagramLoan};
 
 #[tokio::test]
 async fn hysteria2_public_unchanged_reload_preserves_active_tcp_udp_and_original_authentication() {
