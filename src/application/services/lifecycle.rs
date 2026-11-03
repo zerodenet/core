@@ -1,6 +1,6 @@
 use super::*;
 impl ApplicationServices {
-    pub(super) async fn shutdown_status_monitor(&self) -> Result<(), String> {
+    pub(in crate::application) async fn shutdown_status_monitor(&self) -> Result<(), String> {
         #[cfg(feature = "event-dispatcher")]
         {
             let mut state = self.state.lock().await;
@@ -9,7 +9,7 @@ impl ApplicationServices {
         Ok(())
     }
 
-    pub(super) async fn shutdown_dispatcher(&self) -> Result<(), String> {
+    pub(in crate::application) async fn shutdown_dispatcher(&self) -> Result<(), String> {
         #[cfg(feature = "event-dispatcher")]
         {
             let mut state = self.state.lock().await;
