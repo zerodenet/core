@@ -5,7 +5,7 @@ use ::hysteria2::transport::{
     Hysteria2InboundOptionsRef, Hysteria2InboundUserRef,
 };
 use std::{
-    collections::{BTreeMap, BTreeSet},
+    collections::{BTreeSet, HashMap},
     sync::{
         atomic::{AtomicUsize, Ordering},
         Arc, Mutex,
@@ -26,7 +26,7 @@ struct Server {
     authenticated: Arc<AtomicUsize>,
     closed: Arc<AtomicUsize>,
     closed_changed: Arc<tokio::sync::Notify>,
-    wire: Arc<Mutex<BTreeMap<(Address, u16), u64>>>,
+    wire: Arc<Mutex<HashMap<(Address, u16), u64>>>,
     sessions: Arc<Mutex<BTreeSet<u32>>>,
     stop: tokio::sync::oneshot::Sender<()>,
     task: tokio::task::JoinHandle<()>,
@@ -59,7 +59,7 @@ impl Server {
         let observed_closed = closed.clone();
         let closed_changed = Arc::new(tokio::sync::Notify::new());
         let observed_closed_changed = closed_changed.clone();
-        let wire = Arc::new(Mutex::new(BTreeMap::new()));
+        let wire = Arc::new(Mutex::new(HashMap::new()));
         let observed = wire.clone();
         let sessions = Arc::new(Mutex::new(BTreeSet::new()));
         let ids = sessions.clone();
@@ -82,7 +82,7 @@ impl Server {
                     let mut streams=tokio::task::JoinSet::new();
                     tokio::select! {
                         _=async {while let Ok(data)=source.read_datagram().await {
-                            let packet=::hysteria2::udp::parse_udp_datagram(&data).unwrap();ids.lock().unwrap().insert(packet.session_id());
+                            let packet=::hysteria2::udp::Hysteria2InboundUdpCodec.decode_datagram(&data).unwrap();ids.lock().unwrap().insert(packet.session_id());
                             *observed.lock().unwrap().entry((packet.target().clone(),packet.port())).or_default()+=data.len() as u64;
                             if raw.send_datagram(data).is_err(){break;}
                         }}=>{},
@@ -151,7 +151,7 @@ async fn standard_hysteria2_proxy_tcp_udp_empty_multitarget_and_packet_paths_sha
         let returns=Arc::new(crate::component::datagram_retirement::DatagramReturns::default());
         let runtime=crate::runtime::udp_ingress::UdpIngressRuntime::new(proxy.tcp_runtime_services()).with_datagram_returns(returns.clone());
         let mut dispatch=runtime.new_dispatch("incoming").await.unwrap();
-        let mut flow_bytes=BTreeMap::new();
+        let mut flow_bytes=HashMap::new();
         for (target,payload) in [(Address::Ipv4([203,0,113,1]),Vec::new()),(Address::Ipv4([203,0,113,1]),b"flow".to_vec()),(Address::Ipv4([203,0,113,2]),vec![7;1600])] {
             let id=dispatch.dispatch(crate::runtime::pipe::UdpPipeInput {peer_identity:None,target:target.clone(),port:53,payload:&payload,route_target:None,sniffed_original_target:None,sniffed_host_source:None,skip_fake_ip_restore:false,protocol:ProtocolType::new("test"),auth:None,source_addr:None,client_session_id:None,transparent_target:false,transparent_original_target:None,transparent_host_source:None}).await.unwrap();
             let (_,tasks,_)=dispatch.poll_sockets();let packet=tasks.join_next_with_id().await.unwrap().unwrap().unwrap();
