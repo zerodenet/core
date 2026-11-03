@@ -8,6 +8,9 @@ use zero_platform_tokio::{
     AcceptedCaller,
 };
 type Job = tokio::task::JoinHandle<std::io::Result<FileTreeOutput>>;
+#[cfg(test)]
+type BeforeFileOperation =
+    Arc<dyn Fn(&zero_platform_tokio::file::tree::FileTreeOperation) + Send + Sync>;
 struct State {
     job: Option<Job>,
     driver: Option<TaskJoinWitness>,
@@ -23,11 +26,7 @@ pub(super) struct FileTrees {
     initial: Arc<AsyncMutex<Option<tokio::task::JoinHandle<std::io::Result<()>>>>>,
     initial_phase: Arc<std::sync::atomic::AtomicU8>,
     #[cfg(test)]
-    before: Arc<
-        Mutex<
-            Option<Arc<dyn Fn(&zero_platform_tokio::file::tree::FileTreeOperation) + Send + Sync>>,
-        >,
-    >,
+    before: Arc<Mutex<Option<BeforeFileOperation>>>,
     #[cfg(test)]
     issued: Arc<Mutex<Option<std::sync::Weak<FileTreeNative>>>>,
 }
@@ -186,9 +185,7 @@ async fn drive(
     native: Arc<FileTreeNative>,
     mut commands: tokio::sync::mpsc::Receiver<FileTreeCommand>,
     stop: CancellationToken,
-    #[cfg(test)] before: Option<
-        Arc<dyn Fn(&zero_platform_tokio::file::tree::FileTreeOperation) + Send + Sync>,
-    >,
+    #[cfg(test)] before: Option<BeforeFileOperation>,
 ) -> Result<(), BuildError> {
     loop {
         let command = tokio::select! {biased;_=stop.cancelled()=>return Ok(()),command=commands.recv()=>match command {Some(command)=>command,None=>return Ok(())}};

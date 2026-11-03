@@ -152,7 +152,7 @@ async fn dropped_flow_retains_expected_cancel_until_the_original_udp_receive_is_
             Poll::Ready(result) => Poll::Ready(result),
         })
         .await
-        .map_err(|source| std::io::Error::other(source))?;
+        .map_err(std::io::Error::other)?;
         Ok(packet())
     });
     at_receive.await.unwrap();

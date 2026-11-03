@@ -102,7 +102,7 @@ async fn hosted_vmess_grpc_pooled_relay_real_mux_loans_share_original_and_preser
                 2,
                 true,
                 true,
-                Box::new(|config| configure(config, &[pool.node.clone()], false)),
+                Box::new(|config| configure(config, std::slice::from_ref(&pool.node), false)),
             )
             .await;
             assert_standard_relay(&proxy);
