@@ -1,5 +1,6 @@
 //! Atomic source persistence with retained original bytes and explicit outcomes.
 //! The same accepted host operation drives persist, commit, or compensation.
+mod document;
 mod files;
 mod model;
 mod transaction;

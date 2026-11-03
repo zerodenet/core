@@ -194,3 +194,25 @@ async fn actual_source_write_failure_restores_original_snapshot_dns_and_native_o
     assert!(closed.closed_io_receipts() > 0);
     assert!(closed.joined_tasks() > 0);
 }
+
+#[test]
+fn public_from_path_preserves_load_only_scope_with_the_original_initial_document_closed() {
+    let directory = tempfile::tempdir().unwrap();
+    let path = directory.path().join("zero.json");
+    let original = br#"{"route":{"final":{"type":"direct"}}}"#;
+    std::fs::write(&path, original).unwrap();
+    let proxy = Proxy::from_path(&path).unwrap();
+    assert!(proxy.engine().config_path().is_none());
+    assert_eq!(proxy.engine().config().source_dir(), Some(directory.path()));
+    proxy
+        .engine()
+        .configuration_source()
+        .confirm_original_io_closed()
+        .unwrap();
+    proxy
+        .engine()
+        .reload_config(RuntimeConfig::parse(r#"{"route":{"final":{"type":"reject"}}}"#).unwrap())
+        .unwrap();
+    assert_eq!(std::fs::read(&path).unwrap(), original);
+    assert!(!directory.path().join("zero.json.zero-recovery").exists());
+}

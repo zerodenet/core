@@ -238,9 +238,15 @@ impl Engine {
     }
 
     pub fn from_path(path: impl AsRef<Path>) -> Result<Self, EngineError> {
-        zero_runtime::configuration::ConfigurationSource::verify_recovery(path.as_ref())?;
-        let config = RuntimeConfig::load_from_path(path.as_ref())?;
-        Self::new_with_config_path(config, path)
+        let source = Arc::new(zero_runtime::configuration::ConfigurationSource::new(
+            path.as_ref().to_owned(),
+        ));
+        let config = source.load_initial_configuration(path)?;
+        let prepared =
+            zero_runtime::configuration::PreparedConfiguration::prepare_startup(config, source)?;
+        let engine = Self::from_prepared(prepared)?;
+        engine.config_source.complete_recovered_boot()?;
+        Ok(engine)
     }
 
     pub fn new_with_config_path(

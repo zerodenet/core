@@ -44,9 +44,17 @@ async fn run(
     ipc_hook_socket: Option<&str>,
     parent_lifetime_stdin: bool,
 ) -> Result<(), Box<dyn Error>> {
-    let mut config = zero_config::RuntimeConfig::load_from_path(config_path)?;
+    let source = std::sync::Arc::new(zero_runtime::configuration::ConfigurationSource::new(
+        config_path,
+    ));
+    let mut config = source.load_initial_configuration(config_path)?;
     rule_set_fetch::pre_fetch_rule_sets(&mut config.route.rule_sets, config.source_dir.as_deref());
-    let engine = zero_engine::Engine::new_with_config_path(config, config_path)?;
+    let prepared = zero_runtime::configuration::PreparedConfiguration::prepare_startup(
+        config,
+        source.clone(),
+    )?;
+    let engine = zero_engine::Engine::from_prepared(prepared)?;
+    source.complete_recovered_boot()?;
     let proxy = Proxy::from_engine(engine)?;
     let engine = proxy.engine().clone();
 

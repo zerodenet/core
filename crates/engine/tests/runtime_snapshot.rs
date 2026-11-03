@@ -169,6 +169,12 @@ fn engine_only_persistent_stage_and_restore_keep_their_existing_source_scope() {
     )
     .unwrap();
     let restarted = Engine::from_path(&path).unwrap();
+    assert_eq!(restarted.config_path(), Some(path.as_path()));
+    restarted
+        .configuration_source()
+        .confirm_original_io_closed()
+        .unwrap();
+    assert_eq!(restarted.config().source_dir(), Some(directory.path()));
     assert_eq!(restarted.config().outbounds.len(), 4);
     assert_ne!(restarted.core_instance_id(), engine.core_instance_id());
 }

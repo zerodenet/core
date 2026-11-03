@@ -152,9 +152,13 @@ impl Proxy {
     }
 
     pub fn from_path(path: impl AsRef<Path>) -> Result<Self, EngineError> {
-        zero_runtime::configuration::ConfigurationSource::verify_recovery(path.as_ref())?;
-        let config = RuntimeConfig::load_from_path(path)?;
-        Self::new(config)
+        // This public convenience entry remains load-only: reading a document
+        // must not grant persistence to its path.
+        let source = Arc::new(zero_runtime::configuration::ConfigurationSource::default());
+        let config = source.load_initial_configuration(path)?;
+        let prepared =
+            zero_runtime::configuration::PreparedConfiguration::prepare_startup(config, source)?;
+        Self::from_engine(Engine::from_prepared(prepared)?)
     }
 
     pub fn from_engine(engine: Engine) -> Result<Self, EngineError> {

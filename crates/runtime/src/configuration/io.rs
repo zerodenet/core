@@ -119,6 +119,16 @@ impl ConfigurationIo {
             }
         }
     }
+    pub(super) fn read_text(&self, path: &Path) -> io::Result<String> {
+        self.with_file(
+            || File::open(path),
+            |file| {
+                let mut text = String::new();
+                file.read_to_string(&mut text)?;
+                Ok(text)
+            },
+        )
+    }
     pub(super) fn read(&self, path: &Path) -> io::Result<Vec<u8>> {
         self.with_file(
             || File::open(path),
