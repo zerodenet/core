@@ -30,6 +30,7 @@ pub(crate) use failure::{
 pub(crate) use tcp_outbound::{
     extract_tcp_stream, is_block_error, EstablishedTcpOutbound, TcpOutboundFailure, TcpRouteResult,
 };
+#[cfg(test)]
 pub(crate) use tcp_relay::relay_bidirectional_metered;
 pub(crate) use tcp_relay::relay_bidirectional_metered_throttled;
 pub(crate) use zero_transport::rate_limit::SharedRateLimiter;

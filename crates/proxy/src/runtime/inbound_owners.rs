@@ -28,10 +28,12 @@ pub(crate) use entry::{
 };
 #[cfg(feature = "managed-datagram-runtime")]
 pub(crate) use peer_binding::{HostPeerBinding, JoinedPeer};
+#[cfg(all(test, feature = "managed-datagram-runtime"))]
+pub(crate) use peers::MAX_DATAGRAM_PEERS;
 #[cfg(feature = "managed-datagram-runtime")]
 pub(crate) use peers::{
     children::{PeerBoundDatagramAuthority, PeerBoundDatagramRegistration, PeerResourceContext},
-    InboundPeerTasks, MAX_DATAGRAM_PEERS,
+    InboundPeerTasks,
 };
 pub(crate) use released_fault::released_fault_identity;
 use std::{
@@ -73,6 +75,7 @@ pub(crate) struct InboundInstallContext {
 }
 impl InboundInstallContext {
     #[cfg(feature = "managed-datagram-runtime")]
+    #[cfg(test)]
     pub(crate) fn peer_tasks(&self) -> Arc<InboundPeerTasks> {
         self.entry.install_peer_tasks(self.protocols.clone())
     }
@@ -122,6 +125,7 @@ impl InboundOwnerRegistry {
     ) -> Result<InboundInstallContext, EngineError> {
         self.install_inner(tag, protocols, nested_tasks, shutdown, false)
     }
+    #[cfg(test)]
     pub(crate) fn install_listener(
         &self,
         tag: &str,
@@ -131,6 +135,7 @@ impl InboundOwnerRegistry {
     ) -> Result<InboundInstallContext, EngineError> {
         self.install_inner(tag, protocols, nested_tasks, shutdown, true)
     }
+    #[cfg(test)]
     fn install_inner(
         &self,
         tag: &str,

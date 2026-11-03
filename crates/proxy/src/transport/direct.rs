@@ -14,8 +14,8 @@ use zero_platform_tokio::{
 use zero_traits::IpAddress;
 
 use super::direct_dial::{
-    candidate::LegacyCandidateOpener, dial_tcp_candidates, dial_tcp_candidates_using,
-    dial_tcp_fallback_using, CandidateOpener, TcpDialAttempt, TcpDialFailure,
+    candidate::LegacyCandidateOpener, dial_tcp_candidates_using, dial_tcp_fallback_using,
+    CandidateOpener, TcpDialAttempt, TcpDialFailure,
 };
 use candidates::{
     literal_direct_target, recovered_ipv4_candidate_refresh, refresh_recovered_ipv4_candidates,

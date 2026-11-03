@@ -1,13 +1,10 @@
 mod system;
+#[cfg(test)]
 mod tcp;
 #[cfg(test)]
 mod tests;
 
 pub(crate) use system::{run_system_tcp_stack_loop, SystemTcpStackLoopRequest};
-pub(crate) use tcp::{
-    run_logged_tcp_socket_listener_loop, run_logged_tcp_socket_listener_with_users,
-    AcceptedHandlerUsers, LoggedTcpSocketListenerRequest,
-};
 #[cfg(test)]
 pub(crate) use tcp::{run_tcp_listener_loop, TcpListenerLoopRequest};
 

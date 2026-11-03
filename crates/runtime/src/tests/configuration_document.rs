@@ -93,3 +93,39 @@ fn early_document_reader_preserves_logging_fallback_inputs_and_can_start_after_c
     source.load_initial_configuration(&path).unwrap();
     assert_eq!(source.io.original_observation(), (1, 1, false, false));
 }
+
+#[test]
+fn actual_preparation_file_snapshot_is_bounded_and_returns_only_after_original_close() {
+    let directory = tempfile::tempdir().unwrap();
+    let path = directory.path().join("ca.pem");
+    std::fs::write(&path, b"first CA").unwrap();
+    let source = ConfigurationSource::default();
+    let first = source.io.read_limited(&path, 8).unwrap();
+    assert_eq!(first, b"first CA");
+    assert_eq!(source.io.original_observation(), (1, 1, false, false));
+    std::fs::write(&path, b"other CA").unwrap();
+    let second = source.io.read_limited(&path, 8).unwrap();
+    assert_eq!(second, b"other CA");
+    assert_ne!(first, second);
+    assert_eq!(source.io.original_observation(), (2, 2, false, false));
+    assert_eq!(
+        source.io.read_limited(&path, 7).unwrap_err().kind(),
+        io::ErrorKind::InvalidData
+    );
+    assert_eq!(source.io.original_observation(), (3, 3, false, false));
+    source.confirm_original_io_closed().unwrap();
+    assert_eq!(
+        ConfigurationSource::read_preparation_file(&path, 8).unwrap(),
+        second
+    );
+    assert_eq!(
+        ConfigurationSource::read_preparation_file(&path, 0)
+            .unwrap_err()
+            .kind(),
+        io::ErrorKind::InvalidData
+    );
+    std::fs::write(&path, b"").unwrap();
+    assert!(ConfigurationSource::read_preparation_file(&path, 0)
+        .unwrap()
+        .is_empty());
+}

@@ -8,6 +8,7 @@ use crate::runtime::udp_ingress::UdpIngressRuntime;
 
 impl InboundRouteRuntime {
     #[cfg(feature = "udp-runtime")]
+    #[cfg(test)]
     pub(crate) fn with_listener_stop(mut self, stop: super::super::ListenerStop) -> Self {
         self.udp_runtime = self.udp_runtime.with_listener_stop(stop);
         self

@@ -76,17 +76,4 @@ impl UdpIngressRuntime {
         self.tcp_services.ensure_configuration_committed()?;
         crate::runtime::target::resolve_dns_target(self.tcp_services.resolver(), session).await
     }
-
-    #[cfg(any(
-        feature = "upstream-association-runtime",
-        feature = "managed-stream-runtime"
-    ))]
-    pub(crate) fn record_session_inbound_traffic(
-        &self,
-        session_id: u64,
-        traffic: crate::transport::StreamTraffic,
-    ) {
-        self.services
-            .record_session_inbound_traffic(session_id, traffic);
-    }
 }

@@ -129,6 +129,32 @@ impl ConfigurationIo {
             },
         )
     }
+    pub(super) fn read_limited(&self, path: &Path, max_bytes: usize) -> io::Result<Vec<u8>> {
+        let limit = max_bytes
+            .checked_add(1)
+            .and_then(|value| u64::try_from(value).ok())
+            .ok_or_else(|| {
+                io::Error::new(
+                    io::ErrorKind::InvalidInput,
+                    "configuration material limit overflow",
+                )
+            })?;
+        self.with_file(
+            || File::open(path),
+            |file| {
+                let mut bytes = Vec::new();
+                file.take(limit).read_to_end(&mut bytes)?;
+                if bytes.len() > max_bytes {
+                    return Err(io::Error::new(
+                        io::ErrorKind::InvalidData,
+                        "configuration material exceeds its declared byte limit",
+                    ));
+                }
+                Ok(bytes)
+            },
+        )
+    }
+
     pub(super) fn read(&self, path: &Path) -> io::Result<Vec<u8>> {
         self.with_file(
             || File::open(path),

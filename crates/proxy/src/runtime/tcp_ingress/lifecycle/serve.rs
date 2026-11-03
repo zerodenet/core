@@ -1,32 +1,8 @@
 use std::time::Instant;
 
-#[cfg(any(
-    feature = "upstream-association-runtime",
-    feature = "managed-datagram-runtime",
-    feature = "managed-stream-runtime"
-))]
-use tokio::io::{AsyncRead, AsyncWrite};
-#[cfg(any(
-    feature = "upstream-association-runtime",
-    feature = "managed-datagram-runtime",
-    feature = "managed-stream-runtime"
-))]
-use zero_core::InboundClientResponse;
 use zero_core::Session;
 use zero_engine::{EngineError, SessionOutcome};
-#[cfg(any(
-    feature = "upstream-association-runtime",
-    feature = "managed-datagram-runtime",
-    feature = "managed-stream-runtime"
-))]
-use zero_traits::AsyncSocket;
 
-#[cfg(any(
-    feature = "upstream-association-runtime",
-    feature = "managed-datagram-runtime",
-    feature = "managed-stream-runtime"
-))]
-use super::super::contract::ClientResponseInboundProtocol;
 use super::super::contract::{InboundProtocol, TcpRelayActivity};
 use super::super::runtime::TcpIngressRuntime;
 use super::result::{
@@ -36,25 +12,6 @@ use super::result::{
 use crate::runtime::passive_relay_health::classify_relay_outcome;
 use crate::runtime::pipe::{KernelPipe, TcpPipe, TcpPipeInput};
 use crate::transport::is_block_error;
-
-#[cfg(any(
-    feature = "upstream-association-runtime",
-    feature = "managed-datagram-runtime",
-    feature = "managed-stream-runtime"
-))]
-pub(crate) async fn serve_inbound_with_client_response<P, S>(
-    runtime: &TcpIngressRuntime,
-    session: Session,
-    client: S,
-    response_protocol: P,
-) -> Result<(), EngineError>
-where
-    P: InboundClientResponse<S> + Send + Sync,
-    S: AsyncRead + AsyncWrite + AsyncSocket + Unpin + Send,
-{
-    let protocol = ClientResponseInboundProtocol::new(response_protocol);
-    serve_inbound(runtime, session, client, &protocol).await
-}
 
 pub(crate) async fn serve_inbound<P: InboundProtocol>(
     runtime: &TcpIngressRuntime,

@@ -127,6 +127,7 @@ impl UdpIngressRuntime {
         }
     }
 
+    #[cfg(test)]
     pub(crate) fn with_listener_stop(
         mut self,
         stop: crate::runtime::route_runtime::ListenerStop,

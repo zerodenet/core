@@ -306,6 +306,7 @@ impl InboundPeerTasks {
         self.changed.notify_waiters();
         self.changed.notify_one();
     }
+    #[cfg(test)]
     pub(crate) async fn changed(&self) {
         self.changed.notified().await;
     }
