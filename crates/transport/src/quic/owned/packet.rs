@@ -217,13 +217,6 @@ impl PacketSegment {
             .completion()
             .try_closed()
             .ok_or_else(|| error(Reason::Timeout))?;
-        if let Some(source) = self
-            .received
-            .as_ref()
-            .and_then(|exit| exit.joined.result().err())
-        {
-            return Err(error(Reason::Io).with_source(OriginalChannel(source)));
-        }
         let channels = self
             .queues
             .lock()
@@ -231,6 +224,9 @@ impl PacketSegment {
             .take()
             .ok_or_else(|| error(Reason::Revoked))?;
         Ok((PacketQueues(Some(channels)), receipt))
+    }
+    pub fn task_exit(&self) -> Option<&super::DriverDelivery> {
+        self.received.as_ref()
     }
     pub fn tasks(&self) -> &TaskRegistrar {
         &self.tasks
@@ -252,18 +248,6 @@ impl std::fmt::Display for Original {
     }
 }
 impl std::error::Error for Original {
-    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
-        Some(self.0.as_ref())
-    }
-}
-#[derive(Debug)]
-struct OriginalChannel(Arc<ChannelError>);
-impl std::fmt::Display for OriginalChannel {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        self.0.fmt(f)
-    }
-}
-impl std::error::Error for OriginalChannel {
     fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
         Some(self.0.as_ref())
     }
