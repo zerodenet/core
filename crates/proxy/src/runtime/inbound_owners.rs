@@ -23,8 +23,8 @@ pub(crate) use preparing::{preparation_stopped, PreparingInbounds};
 mod released_fault;
 use crate::inventory::ProtocolInventory;
 pub(crate) use entry::{
-    consume_reported_error, ClosedInboundReceipt, InboundOwner, InboundReady, InboundTaskAccess,
-    InboundTerminal,
+    consume_reported_error, preserve_io_kind, ClosedInboundReceipt, InboundOwner, InboundReady,
+    InboundTaskAccess, InboundTerminal,
 };
 #[cfg(feature = "managed-datagram-runtime")]
 pub(crate) use peer_binding::{HostPeerBinding, JoinedPeer};

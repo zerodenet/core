@@ -24,7 +24,7 @@ mod publication;
 #[cfg(test)]
 use pending_bound::PendingNativeBound;
 mod readiness;
-pub(crate) use observation::consume_reported_error;
+pub(crate) use observation::{consume_reported_error, preserve_io_kind};
 pub(super) use pending_bound::pending_preparation_stopped;
 pub(super) use readiness::readiness_stopped;
 pub(crate) use readiness::InboundReady;

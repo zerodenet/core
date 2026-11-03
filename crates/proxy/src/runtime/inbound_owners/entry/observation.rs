@@ -71,36 +71,7 @@ impl std::error::Error for ObservedInboundError {
 }
 impl InboundOwner {
     pub(crate) fn observer_error(&self, source: EngineError) -> EngineError {
-        // Keep the original OS error classification at the public boundary,
-        // while retaining the exact original source and observation receipt.
-        let mut kind = std::io::ErrorKind::Other;
-        let mut current: &(dyn std::error::Error + 'static) = &source;
-        loop {
-            // Transparent domain wrappers can skip the boxed io::Error in
-            // Error::source, including an OS error whose source is None.
-            if let Some(EngineError::Io(io)) = current.downcast_ref::<EngineError>() {
-                current = io;
-                continue;
-            }
-            if let Some(io) = current.downcast_ref::<Arc<std::io::Error>>() {
-                current = io.as_ref();
-                continue;
-            }
-            if let Some(io) = current.downcast_ref::<std::io::Error>() {
-                if io.kind() != std::io::ErrorKind::Other {
-                    kind = io.kind();
-                    break;
-                }
-                if let Some(inner) = io.get_ref() {
-                    current = inner;
-                    continue;
-                }
-            }
-            match current.source() {
-                Some(inner) => current = inner,
-                None => break,
-            }
-        }
+        let kind = original_io_kind(&source);
         std::io::Error::new(
             kind,
             ObservedInboundError {
@@ -125,4 +96,52 @@ pub(crate) fn consume_reported_error(error: &EngineError) -> bool {
         return false;
     };
     observed.identity == observed.disposition.identity && observed.disposition.consume()
+}
+
+fn original_io_kind(source: &EngineError) -> std::io::ErrorKind {
+    let mut kind = std::io::ErrorKind::Other;
+    let mut current: &(dyn std::error::Error + 'static) = source;
+    loop {
+        // Transparent domain wrappers can skip the boxed io::Error in
+        // Error::source, including an OS error whose source is None.
+        if let Some(EngineError::Io(io)) = current.downcast_ref::<EngineError>() {
+            current = io;
+            continue;
+        }
+        if let Some(io) = current.downcast_ref::<Arc<std::io::Error>>() {
+            current = io.as_ref();
+            continue;
+        }
+        if let Some(io) = current.downcast_ref::<std::io::Error>() {
+            if io.kind() != std::io::ErrorKind::Other {
+                kind = io.kind();
+                break;
+            }
+            if let Some(inner) = io.get_ref() {
+                current = inner;
+                continue;
+            }
+        }
+        match current.source() {
+            Some(inner) => current = inner,
+            None => break,
+        }
+    }
+    kind
+}
+
+pub(crate) fn preserve_io_kind(error: EngineError) -> EngineError {
+    let kind = original_io_kind(&error);
+    match error {
+        EngineError::Io(io)
+            if io.kind() == std::io::ErrorKind::Other
+                && kind != std::io::ErrorKind::Other
+                && io.get_ref().is_some() =>
+        {
+            // Move the exact boxed source; do not wrap it again or lose the
+            // observation marker consumed by the existing supervisor.
+            std::io::Error::new(kind, io.into_inner().unwrap()).into()
+        }
+        error => error,
+    }
 }

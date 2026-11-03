@@ -410,7 +410,9 @@ impl Proxy {
     where
         F: Future<Output = ()> + Send,
     {
-        orchestration::run_until(self, shutdown).await
+        orchestration::run_until(self, shutdown)
+            .await
+            .map_err(inbound_owners::preserve_io_kind)
     }
 
     pub async fn probe_outbound_single(
