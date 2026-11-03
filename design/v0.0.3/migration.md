@@ -117,7 +117,7 @@ M2 和 M3 使用现有协议覆盖不同执行形态，不新增一个协议作�
 | transport 内协议命名的请求/流计划与桥 | 迁回协议 runtime；公共 carrier、TLS、计量包装保留 | protocols/* 与通用 zero-transport；PR04B/05/06 | transport 不再拥有协议私有 config/flow/resume 决策 |
 | src/main.rs、application、FFI 入口 | main 保持薄；应用调用宿主，FFI 保留原功能范围 | PR07A/10 | 不因抽取宿主让 FFI 自动启动完整数据面 |
 
-核对入口包括 [当前能力和 claim 定义](../../crates/proxy/src/protocol_registry/capability.rs#L1)、[实际注册泛型约束](../../crates/proxy/src/protocol_registry/registry/build.rs#L100)、[编译协议清单](../../crates/proxy/src/register.rs#L16)、[UDP 类型恢复](../../crates/proxy/src/runtime/udp_flow/managed/flow/resume.rs#L1)、[现有跨层应用事务](../../crates/proxy/src/runtime/handle/configuration.rs#L63)。上表是目标去留，不表示这些接口已经删除。
+核对入口包括 [当前能力和 claim 定义](../../crates/proxy/src/protocol_registry/capability.rs#L1)、[实际注册泛型约束](https://github.com/zerodenet/core/blob/f0c1cc0930df8c34f1822cdd182928511e319b76/crates/proxy/src/protocol_registry/registry/build.rs#L100)、[编译协议清单](../../crates/proxy/src/register.rs#L16)、[UDP 类型恢复](https://github.com/zerodenet/core/blob/f0c1cc0930df8c34f1822cdd182928511e319b76/crates/proxy/src/runtime/udp_flow/managed/flow/resume.rs#L1)、[现有跨层应用事务](../../crates/proxy/src/runtime/handle/configuration.rs#L63)。上表是目标去留，不表示这些接口已经删除。
 
 ## 逐协议迁移与不可丢失的语义
 

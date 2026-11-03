@@ -51,7 +51,7 @@
 
 - [Proxy 事务入口](../../crates/proxy/src/runtime/handle/configuration.rs)
 
-- [UDP 类型恢复](../../crates/proxy/src/runtime/udp_flow/managed/flow/resume.rs)
+- [UDP 类型恢复](https://github.com/zerodenet/core/blob/f0c1cc0930df8c34f1822cdd182928511e319b76/crates/proxy/src/runtime/udp_flow/managed/flow/resume.rs)
 
 - [应用服务](../../src/application/services.rs)
 

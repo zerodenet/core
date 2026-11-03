@@ -4,7 +4,7 @@ on:
   push:
     branches: [develop, main]
   pull_request:
-    branches: [develop, main, "fix/**", "feat/**"]
+    branches: [develop, main, "fix/**", "feat/**", "codex/v003-cloud-integration"]
   # Run explicitly on the candidate ref for complete RC qualification.
   workflow_dispatch:
   schedule:

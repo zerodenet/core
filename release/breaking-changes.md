@@ -22,11 +22,35 @@
 
 新增可选字段、未知事件类型和新增 capability 通常保持向前兼容；消费者必须忽略不认识的可选字段和事件。改变 ACK 时序、快照含义、增量合并规则、重放范围或既有字段含义，即使 JSON 形状不变，也必须在本文登记。
 
+SOCKS5/mixed 的标准接入迁移保持既有 TCP/UDP 线格式、认证、逐包路由和计量，未增加客户端或面板工作流。`runtime.udp_direct_max_sockets` 是可选的每标准 UDP 关联 Direct 原生 socket 上限（默认 64，范围 1..=4096，按需创建）；省略时配置导出不增加字段，API/schema 标识不变。超过上限会拒绝新原生 socket，既有复用继续；需更多独立策略 socket 的部署可显式调整。内部 Rust 接入者需迁往现有 ComponentFactory/InboundSource/Datagram 角色，旧 SOCKS5/mixed listener、association handler/dispatcher 和无所有权 UDP setup 接口已删除。
+
+Direct TCP-only 与既有同端口 TCP/UDP 入站整体迁入标准 ComponentFactory/InboundSource/Stream/Datagram，删除 Direct 旧 listener 准备/绑定和 tcp_and_peer_datagram 执行链。保留固定目标/默认端口、目标缺省静默关闭、Flow 身份/计量、空 UDP 包、客户端隔离与 TCP 半关闭。UDP 绑定使用 TCP 实际选择的本地端点；原始 UDP owner、peer 真实 Scope、Direct egress 和逻辑归还全部确认后才能替换。公开配置/API/events/FFI 不变，客户端和面板无需修改；标准 source 执行器随内核内置，原 `standard-stream-inbound-runtime` feature 名继续接受。内部 Rust 的 `ResourceDeclaration::DatagramListener` 字面量须明确 `accepted`：普通 UDP listener 为 `None`，标准 native peer source 声明独立的有限 peer/队列预算。没有扩大协议组合、native 登记或 WireGuard 临时例外。
+
+Mieru TCP/原生 UDP underlay 入站均使用协议自有标准 ComponentFactory/InboundSource 与 Multiplex/Stream/Datagram，删除 Mieru 的 InboundListenerCapability 和最后一条 adapter 旧 listener。内部 accepted 任务/资源类型统一为 AcceptedCaller/AcceptedTasks/AcceptedResource，保留真实 TCP 或 Datagram 来源；原生 UDP admission 用同一宿主 Scope 的真实 TaskId/witness 领取唯一 peer 作用域，有限任务/逻辑资源预算按需使用。物理可靠传输 driver、并发逻辑握手、TCP carrier 和 UDP 原始 provider 均纳入现有任务/资源账本；peer 返回与原生 listener 关闭凭据分开确认，不能用 Drop/取消或端口可用代替。UDP 域名监听保留受宿主监督并 join 的真实解析再绑定，候选地址仅在原始失败已确认安全关闭后按有限额度回退；字面地址单次启动额度保持。peer 执行仅保存弱 Registrar，不自持任务宿主。保持既有认证、可靠传输、协议字节计量、逐会话策略及原协议关闭回复；旧任务、用户和原始 I/O 清理确认后才能启动替代资源。公开配置/API/events/FFI 不变，客户端与面板无需调整；没有开启普通 Mieru 出站登记、扩展协议组合或扩大 WireGuard 临时例外。
+
+Shadowsocks 无 SIP003 插件的原生 TCP/UDP 入站接入协议自有标准 ComponentFactory/InboundSource；该范围不再调用旧 listener capability。冷准备只校验并保存完整凭据，真实宿主确认停旧后 Build 才发布到原 profile 的用户权威。保留密码套件、SS2022/SIP023、认证策略、计量及 SS2022 地址迁移后跨目标复用原关联 socket。标准 Datagram 增加逐包认证事实和来自实际 flow 的协议关联返回值，现有 UDP source 以已认证关联分组，协议拥有编解码和最新认证返回地址，宿主持有原始 listener/peer/egress 与 Scope。SIP003/SIP003U 仍单列兼容所有权，Shadowsocks 的 legacy capability 尚未整体删除；不能据此宣称剩余 adapter 或重构已完成。公开配置、API、events、FFI 与客户端面板工作流不变，未扩大协议组合、native 出站登记或 WireGuard 临时例外。
+
+WireGuard 最后旧 listener 迁入标准 ComponentFactory/InboundSource/Packet，进程内私有 InboundListenerCapability、PreparedInboundListenerOperation、InboundDefinition、BoundInbound 和旧 listener prepare/bind/execute 已删除。标准 Packet 补齐可选的原始 UDP 来源、link MTU、接收代际/本地地址事实与宿主边界观察；默认 PacketReply/AcceptedPacket 方法仍可由现有实现沿用。真实 wire task、路由和子任务归同一实际宿主，原始 provider 与 joins 确认后才能重绑。共享 endpoint 双向复用、同 crypto 状态恢复、热更新/依赖重启、IP 分片和计量保持；TEMP-WG-OUTER-UDP-01 的既有 outer_udp_proxy/reconnect 临时边界单独保留，没有因接口删除而解决或扩大。公开配置/API/events/FFI 与客户端面板对接不变，仍为 v0.0.3 / develop。
+
+Shadowsocks SIP003/SIP003U 的三种既有 TCP/UDP 模式整体使用标准 Inbound 工厂和真实进程/I/O 宿主，删除旧 adapter listener、InboundCarrierPlan/InboundCarrier、ShadowsocksInboundPluginPlan、TcpAndDatagramInboundListenerOperation 与 InboundConnectionContext 执行链。进程内 Rust 使用者改用现有标准工厂 Options::with_plugin；内部资源契约补齐有限 ListenerHandoff、实际端点和原始 readiness probe，TCP2022 维护任务进入实际 Scope。公网原件确认关闭后才能将端口交给 Child，直接 Child reaping、宿主 I/O 原始凭据和任务 join 全部确认后才替换；没有以此声明进程后代容器或开放普通 native Process catalog。配置 JSON、API/events/FFI、SIP003 环境/参数、SS wire 和客户端面板对接不变。WireGuard 临时边界及普通 Mieru/native MUX 出站准入不变。
+
+VMess 入站 TCP/UDP/MUX 迁往协议自有标准 source，删除旧 adapter listener、InboundListenerCapability 和 `VmessInboundAcceptedRoute` / `accept_standard_route` 中转。TCP cipher、TLS/WS/gRPC、AuthID replay、UDP packet/raw 检测、公开 `vmess` 协议名、原计量及热凭据更新保持；共享真实宿主 Scope 和原始资源关闭凭据。独立 VMess/Trojan feature 补齐现有 Datagram 运行时依赖，不再借默认 feature 集合完成所有权装配。公开配置/API/events/FFI 不变，客户端和面板无需修改；不扩大 native 出站登记或 WireGuard 临时例外。
+
+Trojan 入站 TCP、UDP 与 MUX 迁往协议自有标准 source，删除旧 InboundListenerCapability 和 listener 执行桥；保留 TLS/WS/gRPC、认证、协议字节计量及既有线格式。逻辑 UDP 使用同一宿主 Scope 和可复用的有限原始资源槽，实际 driver join 与原始 provider 清理完成前不能复用。内部 Rust RequestMultiplexer 增加有默认实现的认证/关闭/取消访问；公开配置、API、events、FFI 及客户端面板对接不变。此项不代表其余六个 adapter 已迁移，也不扩大 native 出站登记或 WireGuard 临时例外。
+
+Hysteria2 既有 QUIC TCP/UDP 与可选 HTTP/HTTPS 伪装站点整体迁往协议自有标准 ComponentFactory/InboundSource 和现有 Stream/Datagram/Multiplex 契约。删除其旧 listener capability、独占 authenticated-QUIC/group/multiplex 执行器及无调用者的旧 proxy QUIC 接收链；进程内 Rust 装配应消费标准工厂，不能再调用这些私有运行时接口。QUIC、额外 TCP、文件和 TCP/Unix origin 共享真实宿主与任务监督，原始 close receipt、转交用户归还和 Scope join 全部确认后才能替换。公开配置、API、events、FFI、认证/UDP 线格式和客户端面板对接不变；保留既有主 QUIC 字面地址限制与站点域名支持，不扩展协议组合、普通 Mieru/native MUX 出站登记或 WireGuard 临时例外。
+
+VLESS 入站仅登记实际标准 ComponentFactory/InboundSource，删除 adapter 的 InboundListenerCapability、listener.rs 和独占的旧 peer/recorded 执行链。进程内 Rust 接入者不再使用 `VlessInboundListenerRequest::accept_mkcp_peer` / `accept_recorded_mkcp_route`，应消费协议工厂的标准请求；没有新增替代 SPI。mKCP、可选 TLS 与 REALITY 各自保留原有能力，mKCP+REALITY 和无 QUIC 的 Hysteria 仍按原配置校验拒绝，不开放组合。公开配置/API/events/FFI 不变，客户端和面板无需调整；原始资源与 Scope 的关闭确认仍先于替代启动，WireGuard 临时例外和未资格原生资源不因接口删除而关闭。
+
+已迁标准接入的受控 business TCP carrier 现在随实际 accepted 资源退休，旧连接的原始 socket 不再仅等待下次拨号回收。apply 对受影响路径继续等待真实用户/任务与原始关闭凭据；这修正内部资源时序，不改变配置、线格式或 API/schema 标识，也不授权客户端/面板改动。
+
+共享 carrier 继续保留真实 caller 的原始失败诊断；Auxiliary 业务任务因断开/撤销结束不再被提升为共享 native 故障，Critical worker 与真实 native 失败仍按原始来源报告并保留失败边界。
+
 ## 版本矩阵
 
 | 版本 | 影响面 | 迁移结论 |
 |------|--------|----------|
-| `Unreleased` | 共享资源替换、VMess cipher 配置、Raw-IP Direct 资源关闭 | 共享资源确认停旧后才启动替代；旧私有 `zero` 配置需迁移为 `zero-plus`；Raw-IP 已覆盖路径使用真实任务与原生关闭凭据 <!-- version-contract:unreleased-row --> |
+| `Unreleased` | 共享资源替换、VMess cipher 配置、Raw-IP Direct 资源关闭 | 已迁移的严格路径确认停旧后才启动替代；WireGuard outer_udp_proxy 尚有临时兼容债务；旧私有 `zero` 配置需迁移为 `zero-plus`；Raw-IP 已覆盖路径使用真实任务与原生关闭凭据 <!-- version-contract:unreleased-row --> |
 | `0.0.1` | 首个统一正式版、TUN 路由恢复 | 发布编号重置；配置与控制面仍为 V1，旧版本需手动安装 |
 | `0.0.16-rc.202609070904` | Direct 入站、监听热更新、构建能力发现 | Direct 默认绑定 TCP 与 UDP；仅需 TCP 时使用现有 `udp.enabled: false`，面板按能力事实判断支持 |
 | `0.0.16-rc.202609060636` | CLI 配置预检查、内核安装器 | `zero validate` 不再启动运行时或访问 Fake-IP / 配额持久化状态；可与运行中的内核并行校验 |
@@ -46,6 +70,61 @@
 | `0.0.15-rc` | GUI flow 生命周期 | 订阅 ACK 后以 `flow.snapshot` 建立活动连接基线，再合并 flow 增量 |
 
 ## Unreleased
+
+### HTTP 标准监听与原始连接所有权
+
+HTTP 字面量及域名监听使用协议的 `ComponentFactory`/`InboundSource` 和真实宿主所有者，HTTP 的旧 listener capability/operation 准备已删除。接受条目、任务登记与关闭接收方来自同一个原始监听；热更新继续先确认旧资源关闭，再装配替代，候选失败后使用实际旧配置恢复。域名沿用系统解析，在原始 Scope 内监督实际 lookup worker 并等待其真实 join，冻结系统顺序的多个地址，失败原始句柄明确关闭后才允许尝试下一地址；所有尝试共用一份有限 native 创建预算。HTTP CONNECT、Forward、逐消息路由与计量、keep-alive、Upgrade 保留既有线格式和 V1 控制面形状，客户端与面板沿用既有接入方式。
+
+该路径按需记录最多 4096 个在用、退役或 Unknown 原始连接，每连接一个宿主主任务；达到上限暂停 accept，不预建任务/连接。当前额度由内核装配提供，统一的用户配置入口尚未完成。剩余 10 个 adapter 的旧 listener 链仍未整体迁移，本项不是接入职责域或整体重构完成的证明。
+
+### WireGuard outer_udp_proxy 临时生命周期例外
+
+2026-10-31 用户确认：既有 `outer_udp_proxy` 及重连历史的兼容生命周期只作为临时方案保留，未来必须纠正。当前换代仍有 30 秒退役宽限，可能短暂并存新旧资源；原始载体的 native 关闭凭据尚未补齐。这条路径不能宣称满足严格的确认停旧后启新，也不能计入完整 native 所有权或整体资源生命周期已完成。
+
+本例外不扩大到其他资源，不开放相应普通 native 登记，不新增协议组合，不要求客户端或面板改动。后续由内核补齐实际原始所有者、真实任务退出、转交资源归还与原始关闭凭据，移除兼容换代重叠，并按 [TEMP-WG-OUTER-UDP-01 的验收条件](../design/v0.0.3/lifecycle.md#temp-wg-outer-udp-01)关闭债务。旧接口删除或其他路径测试通过均不构成该项完成证据。
+
+### VLESS and Trojan root MUX prefixes for VMess gRPC UDP
+
+Ordinary root-prefix admission extends to qualified literal/default-dial VLESS with explicitly enabled, equal XUDP/MUX concurrency and to Trojan MUX. The protocol factories expose Stream-only roles; compatible UDP uses the same actual shared pool, native owner and supervised physical driver. VLESS preserves its XUDP global ID and packet compatibility entry; ordinary non-XUDP UDP is not silently converted. Trojan retains its fixed-target/raw-packet constraints. Non-root/nested and other unqualified compositions remain on their existing ownership boundary.
+
+The stable node ownership fence and the complete actual carrier description are separate: changing a WS profile changes the native recipe and requires confirmed old-original cleanup. Existing `runtime.native_mux_max_carriers` applies with its unchanged default and optional serialization. No additional public configuration fields, V1 API/event shapes, FFI or client/panel project changes are introduced.
+
+### Ordinary VMess MUX root prefixes for VMess gRPC UDP
+
+The ordinary develop/v0.0.3 catalog admits the qualified literal TCP/TLS/WS VMess MUX root-prefix subset used by non-MUX VMess gRPC UDP relays. It advertises the actual Stream role and original shared-pool ownership; ordinary TCP roles and compatible UDP calls delegate to the same supervised physical pool while retaining existing protocol framing and accounting. Non-root/nested or unqualified combinations, ordinary VLESS/Trojan native MUX and Mieru remain on their existing compatibility boundary. Previously exposed legacy resources cannot be adopted after cache eviction or transport changes of the same node.
+
+Optional `runtime.native_mux_max_carriers` bounds on-demand physical carriers and their tasks per admitted pool (1 through 4096, default 4). Omission retains the exported configuration shape. This intentionally replaces unbounded native-pool growth with a finite resource ceiling; exhausted live/retiring capacity fails explicitly without spawning another pool. Existing V1 APIs/events, FFI and protocol configuration fields are unchanged; client and panel projects are not modified. Rust callers constructing `RuntimeOptionsConfig` with exhaustive struct literals must initialize the new optional field or use `..Default::default()`.
+
+### VMess gRPC UDP with shared-state and hosted pooled prefixes
+
+On develop/v0.0.3, ordinary standard Stream prefixes may retain non-I/O shared dependencies such as the actual Shadowsocks TCP2022 replay owner instead of reverting the whole gRPC UDP relay to legacy preparation. Their wire handshakes, dependency/task ownership and Datagram Flow/Outer accounting are preserved.
+
+The explicitly hosted VLESS/VMess/Trojan MUX roles additionally return real logical Stream loans with their original physical-pool lineage. The final gRPC owner installs the actual loan before later handshakes and retains its original H2 task owner. Middle pools retain upstream loans; host generation edges order consumer and donor retirement before replacement. Returning a logical stream does not certify donor native closure. The ordinary native MUX/Mieru registration gates remain closed; these hosted combinations do not qualify every pooled or mixed production path.
+
+No public configuration, V1 API/event shape, FFI or protocol framing changes are introduced. Client and panel projects are not modified. Legacy interfaces remain for unqualified existing callers; migrated standard paths use the actual executable roles. In-process Rust implementations overriding the internal `UpstreamOpener::prepare_controlled_stream_async` migrate to `acquire_controlled_stream`; the redundant public async prepared surface is removed. Synchronous native preparation remains for owners that must persist the actual controller before awaiting I/O. Errors preserve their business identity, and DNS preparation failures cannot enter TCP address retry.
+
+### VMess gRPC UDP over standard Stream relay prefixes
+
+On develop/v0.0.3, ordinary non-MUX VMess gRPC UDP relays with default dial policy and task/pool/dependency-free standard Stream prefixes dispatch directly through the actual Datagram role and existing logical UDP session/accounting executor. The host owns the one physical root TCP carrier, executes each protocol's Stream handshake inline, and then uses the original TLS/gRPC implementation and scoped H2 driver. The original business grant is bound to the selected final endpoint and full actual prefix generations; selected role failures cannot reopen via the legacy UDP executor or direct dialing.
+
+The existing host generation graph propagates prefix changes to the actual consumer. Replacement waits for transferred users, original drivers, prefix leases and original native close receipts before starting successors. A domain root uses the same configured native Node DNS provider; the final hostname is delegated through the prefix and retains its TLS/CA identity and logged upstream. Only physical TCP failures before prefix handshakes may try another DNS address, after confirmed original close. Mixed, pooled, non-default-dial and otherwise unqualified prefixes retain their existing compatibility callers; native MUX/Mieru registration remains closed.
+
+Public configuration, protocol frames, Flow/Outer accounting, V1 APIs/events and FFI remain unchanged in this increment. Client and panel projects need no adaptation and are not modified. This is a qualified relay migration, not completion of all legacy relay interfaces or the whole architecture plan.
+
+### VMess gRPC UDP with component-owned Node DNS
+
+On develop/v0.0.3, non-MUX VMess gRPC UDP with domain node endpoints may use the standard Datagram production role when the configured DNS servers support the actual native query provider (literal/bootstrap peers, no System/detour backend, required encrypted-DNS features compiled). Cold selection checks the candidate DNS configuration before migration. DNS failures after selection remain failures; they never select the same node's legacy UDP executor. Other configurations retain their existing compatibility path.
+
+The same RuntimeHost owns the shared DNS provider and its transitive gRPC consumers. Queries use the configured Node policy, real query TaskScope and original socket receipts. Native and legacy cache entries are isolated within the same configured total LRU/TTL budget. The configured hostname remains the TLS/SNI identity and logged upstream; the selected IP remains the actual connection endpoint. Address candidates are attempted serially, with the failed original confirmed closed before another socket is acquired. Network changes fence pending answers and new gRPC acquisition until old users, drivers and original controls have settled; changing DNS configuration applies confirmed StopOld-before-BuildNew to the dependency and its consumers.
+
+Public configuration, protocol framing, Flow accounting, V1 APIs/events and FFI are unchanged in this increment; clients and panels require no adaptation. TCP, relay, external ECH, System/detour DNS and native MUX/Mieru registration remain outside this increment. This records the qualified path, not completion of the whole architecture migration.
+
+### VMess gRPC UDP with component-owned CA files
+
+On develop/v0.0.3, non-MUX VMess gRPC UDP with literal node endpoints and supported prepared TLS now uses the standard Datagram production role with external CA files. Relative CA paths resolve beside the configuration. The actual host reads one bounded CA snapshot during component start; new flows use that snapshot. Replacing the configured CA path or file budget uses confirmed StopOld-before-BuildNew, including transferred users, the original H2 driver and native carrier receipts.
+
+The optional `runtime.file_read_max_bytes` configures the per-file snapshot budget (default 8 MiB). It must be positive and leave room for the overflow probe. Configurations using larger CA bundles must set a larger budget. Omission preserves the previous exported runtime JSON shape. The existing `tls.ca_cert_path`, V1 API/events, control transports and FFI remain supported; clients and panels need no changes for existing configurations. File-read, PEM or trust failures remain errors rather than silently selecting the legacy UDP executor. In-process Rust integrations constructing `RuntimeOptionsConfig` exhaustively must add `file_read_max_bytes: None` or use `..Default::default()`. Hostname/ECH/relay and MUX admission remain separately scoped.
+
 
 ### Protocol-owned TCP preparation and MUX owner isolation
 
