@@ -18,6 +18,7 @@ use zero_core::component::ComponentInstanceId;
 mod binding;
 mod permit;
 mod registration;
+pub(crate) use permit::MetadataCandidate;
 pub use permit::{MetadataPoolClosed, MetadataPoolOrigin, MetadataPoolPermit};
 pub use registration::{MetadataPoolOwnerClosed, MetadataPoolRegistration};
 
@@ -33,8 +34,10 @@ struct Shared {
     limit: NonZeroUsize,
     limits: super::metadata::MetadataLimits,
     cancel: CancellationToken,
-    closed: Arc<OnceLock<()>>,
+    closed: Arc<OnceLock<bool>>,
+    confirmed_native: std::sync::atomic::AtomicBool,
     state: Mutex<State>,
+    changed: Arc<tokio::sync::Notify>,
 }
 struct State {
     bound: Option<Arc<binding::Authority>>,
@@ -42,12 +45,17 @@ struct State {
     stopped: bool,
     next: u64,
     slots: BTreeMap<u64, Arc<Slot>>,
+    last_binding: Option<(
+        zero_core::request::Destination,
+        crate::contract::network::UpstreamBinding,
+    )>,
 }
 struct Slot {
     owner: Weak<Shared>,
     instance: ComponentInstanceId,
     ordinal: u64,
     closed: Arc<OnceLock<bool>>,
+    retired: CancellationToken,
     caller: TaskJoinWitness,
     registration: MetadataPoolRegistration,
     native: Mutex<Native>,
@@ -73,6 +81,10 @@ struct Native {
     acquired_confirmed: bool,
     attempted: bool,
     endpoints: Option<(std::net::SocketAddr, std::net::SocketAddr)>,
+    binding: Option<(
+        zero_core::request::Destination,
+        crate::contract::network::UpstreamBinding,
+    )>,
     report: Option<Arc<MetadataOwnerReport>>,
 }
 fn error(reason: Reason, message: &'static str) -> ChannelError {
@@ -98,12 +110,15 @@ impl MetadataPoolOwner {
                 limits,
                 cancel: parent.child_token(),
                 closed: Arc::default(),
+                confirmed_native: std::sync::atomic::AtomicBool::new(false),
+                changed: Arc::default(),
                 state: Mutex::new(State {
                     bound: None,
                     live: false,
                     stopped: false,
                     next: 0,
                     slots: BTreeMap::new(),
+                    last_binding: None,
                 }),
             }),
         })
@@ -170,7 +185,11 @@ impl MetadataPoolOwner {
             .slots
             .is_empty()
         {
-            let _ = self.shared.closed.set(());
+            let _ = self.shared.closed.set(
+                self.shared
+                    .confirmed_native
+                    .load(std::sync::atomic::Ordering::Acquire),
+            );
         }
         failure.map_or(Ok(report), Err)
     }
@@ -222,6 +241,7 @@ impl MetadataPoolGrants {
             instance: owner.instance,
             ordinal,
             closed: Arc::default(),
+            retired: owner.cancel.child_token(),
             caller: query.clone(),
             registration: MetadataPoolRegistration::new(&owner),
             native: Mutex::new(Native {
@@ -234,6 +254,7 @@ impl MetadataPoolGrants {
                 acquired_confirmed: false,
                 attempted: false,
                 endpoints: None,
+                binding: None,
                 report: None,
             }),
         });

@@ -900,8 +900,11 @@ fn transport_leaf_operations_are_generic() {
     assert!(!claims.contains("struct ClaimedSessionTcpLeaf"));
     assert!(!claims.contains("claim_session_tcp_leaf_with_source"));
     assert!(!socket.contains("struct PreparedSocketTcpOperation"));
-    let session = read(&proxy_src().join("runtime/tcp_dispatch/operation/session.rs"));
-    assert!(!session.contains("struct PreparedSessionTcpOperation"));
+    assert!(!proxy_src()
+        .join("runtime/tcp_dispatch/operation/session.rs")
+        .exists());
+    assert!(!tcp.contains("SessionTcpConnectOperation"));
+    assert!(!tcp.contains("SessionTcpHandshake"));
     assert!(udp.contains("prepare_transport_udp_direct"));
     assert!(udp.contains("prepare_transport_udp_relay_two_stream"));
     assert!(!udp_claim.contains("impl<TLeaf> PreparedUdpFlowOperation"));
@@ -4773,11 +4776,7 @@ fn packet_path_adapters_materialize_operations_without_a_second_claim_interface(
         }
     }
 
-    for relative in [
-        "adapters/socks5.rs",
-        "adapters/shadowsocks.rs",
-        "adapters/hysteria2.rs",
-    ] {
+    for relative in ["adapters/socks5.rs", "adapters/shadowsocks.rs"] {
         let source = read(&proxy_src().join(relative));
         assert!(
             source.contains("fn claim_outbound_leaf_impl<'a>("),
@@ -4788,7 +4787,6 @@ fn packet_path_adapters_materialize_operations_without_a_second_claim_interface(
     for relative in [
         "adapters/socks5/udp.rs",
         "adapters/shadowsocks/udp.rs",
-        "adapters/hysteria2/udp.rs",
         "adapters/vless/packet_path.rs",
     ] {
         let source = read(&proxy_src().join(relative));
@@ -4811,7 +4809,6 @@ fn socket_session_and_direct_adapters_hand_off_existing_tcp_operations() {
         ("adapters/direct.rs", "DirectTcpConnectOperation"),
         ("adapters/socks5.rs", "SocketTcpOperation"),
         ("adapters/shadowsocks.rs", "SocketTcpOperation"),
-        ("adapters/hysteria2.rs", "SessionTcpConnectOperation"),
         ("adapters/mieru.rs", "SocketTcpOperation"),
     ] {
         let source = read(&proxy_src().join(relative));
@@ -4821,8 +4818,8 @@ fn socket_session_and_direct_adapters_hand_off_existing_tcp_operations() {
         );
         assert!(!source.contains("claim_tcp_outbound_leaf_impl"));
     }
-    let source = read(&proxy_src().join("adapters/hysteria2.rs"));
-    assert!(source.contains("with_source_dir(source_dir)"));
+    let source = read(&proxy_src().join("adapters/hysteria2/outbound.rs"));
+    assert!(source.contains("with_source_dir(resources.source_dir())"));
     let reverse = read(&proxy_src().join("adapters/vless/reverse.rs"));
     assert!(reverse.contains("LogicalTcpConnectOperation"));
 }
@@ -4832,7 +4829,6 @@ fn managed_and_logical_udp_adapters_supply_owned_operations() {
     for (relative, operation) in [
         ("adapters/direct.rs", "DirectUdpFlowOperation"),
         ("adapters/shadowsocks/udp.rs", "ManagedDatagramUdpOperation"),
-        ("adapters/hysteria2/udp.rs", "ManagedDatagramUdpOperation"),
         ("adapters/mieru/udp.rs", "ManagedStreamPacketUdpOperation"),
         ("adapters/vless/reverse.rs", "LogicalUdpOperation"),
     ] {
@@ -5187,4 +5183,57 @@ fn inbound_listener_domain_has_no_retired_execution_spi_or_legacy_fallback() {
     assert!(execution.contains("NoBusinessIdentity"));
     assert!(execution.contains("packet::send"));
     assert!(execution.contains("packet::recv"));
+}
+
+#[test]
+fn hysteria2_outbound_uses_one_actual_standard_pool_for_all_existing_callers() {
+    let adapter = read(&proxy_src().join("adapters/hysteria2.rs"));
+    let projection = read(&proxy_src().join("adapters/hysteria2/outbound.rs"));
+    let registry = read(&proxy_src().join("register.rs"));
+    assert!(adapter.contains("Arc<::hysteria2::transport::owned::Pool>"));
+    for retired in [
+        "claim_outbound_leaf_impl",
+        "SessionTcpConnectOperation",
+        "Hysteria2ConnectionPool",
+    ] {
+        assert!(!adapter.contains(retired), "HY2 must not restore {retired}");
+    }
+    for retired in [
+        "adapters/hysteria2/tcp.rs",
+        "adapters/hysteria2/udp.rs",
+        "runtime/tcp_dispatch/operation/session.rs",
+    ] {
+        assert!(
+            !proxy_src().join(retired).exists(),
+            "retired HY2 execution bridge: {retired}"
+        );
+    }
+    assert!(projection.contains("self.outbound_pool.options"));
+    assert!(projection.contains(r#"resources.share("hysteria2.authenticated_pool"#));
+    assert!(projection.contains("PoolFactory.build_with_upstreams"));
+    assert!(registry.contains("::hysteria2::transport::owned::RoleFactory"));
+    assert!(!registry.contains("Hysteria2Adapter::claim_outbound_leaf_impl"));
+    let packet = read(&proxy_src().join("component/stream_bridge/datagram/packet_path.rs"));
+    for required in [
+        "struct StandardPacketPath",
+        "StreamRoleRef",
+        "self.selected.matches(&current)",
+        "slot.datagram(end)",
+    ] {
+        assert!(
+            packet.contains(required),
+            "standard packet-path must retain {required}"
+        );
+    }
+    for forbidden in [
+        "hysteria2::",
+        "Hysteria2ConnectionPool",
+        "ClaimedUdpPacketPathLeaf",
+        "Box<dyn Any>",
+    ] {
+        assert!(
+            !packet.contains(forbidden),
+            "generic packet execution must not contain {forbidden}"
+        );
+    }
 }

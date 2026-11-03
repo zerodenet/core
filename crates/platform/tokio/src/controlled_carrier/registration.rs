@@ -74,12 +74,15 @@ impl CarrierOriginObservation {
     /// The actual original controller's durable disposition. Only native
     /// settlement installs this cell; expired Weak and Drop never do.
     pub fn closed(&self) -> Option<super::CarrierOriginClosed> {
-        self.completion.get().map(|_| super::CarrierOriginClosed {
-            completion: self.completion.clone(),
-        })
+        self.completion
+            .get()
+            .map(|_| super::CarrierOriginClosed::carrier(self.completion.clone()))
     }
     pub fn matches_closed(&self, proof: &super::CarrierOriginClosed) -> bool {
-        Arc::ptr_eq(&self.completion, &proof.completion) && self.completion.get().is_some()
+        proof
+            .carrier_completion()
+            .is_some_and(|completion| Arc::ptr_eq(&self.completion, completion))
+            && self.completion.get().is_some()
     }
     pub fn same_original(&self, other: &Self) -> bool {
         self.slot.ptr_eq(&other.slot) && Arc::ptr_eq(&self.completion, &other.completion)

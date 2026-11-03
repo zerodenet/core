@@ -64,7 +64,7 @@ async fn handler_failure_after_full_response_queue_is_not_successful_eof() {
     let task = tokio::spawn(async {});
     let mut body = ResponseBody {
         receiver,
-        task: task.abort_handle(),
+        task: executor::TaskStop::Legacy(task.abort_handle()),
         failed: Arc::new(AtomicBool::new(true)),
     };
     assert_eq!(

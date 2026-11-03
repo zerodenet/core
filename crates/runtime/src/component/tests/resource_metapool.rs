@@ -6,6 +6,8 @@ use zero_platform_tokio::contract::lifecycle::CloseReport;
 use zero_platform_tokio::contract::scope::TaskJoinWitness;
 use zero_platform_tokio::controlled_datagram::metadata::{MetadataLimits, MetadataTransmit};
 use zero_platform_tokio::controlled_datagram::metadata_pool::MetadataPoolPermit;
+#[path = "resource_metapool/candidates.rs"]
+mod candidates;
 #[path = "resource_metapool/fixture.rs"]
 mod fixture;
 use fixture::Fixture;

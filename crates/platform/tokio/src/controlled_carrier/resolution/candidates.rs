@@ -61,6 +61,49 @@ pub struct CarrierCandidates {
     pub(super) resolver: Option<(Arc<dyn DnsService>, DnsGeneration)>,
 }
 impl CarrierCandidates {
+    /// Current host-selected address observation only. This cannot acquire
+    /// native I/O, alter the declared domain or bypass the selected prefix.
+    pub fn peer(&self, index: usize) -> Option<SocketAddr> {
+        self.opener(index).ok()?;
+        self.peers.get(index).copied()
+    }
+    /// Acquire ancillary originals through the same actual host-selected Node
+    /// candidates. A port override is accepted only by the original explicit
+    /// rotation declaration, never by changing the retained domain authority.
+    pub fn open_metadata(
+        &self,
+        index: usize,
+        port: Option<u16>,
+        permit: &crate::controlled_datagram::metadata_pool::MetadataPoolPermit,
+        query: &crate::contract::scope::TaskJoinWitness,
+        end: tokio::time::Instant,
+    ) -> Result<
+        (
+            SocketAddr,
+            crate::contract::component::GrantedMetadataListener,
+        ),
+        ChannelError,
+    > {
+        self.opener(index)?;
+        let mut peer = self.peers[index];
+        if let Some(port) = port {
+            peer.set_port(port);
+        }
+        let grant = permit.open_candidate(
+            query,
+            crate::controlled_datagram::metadata_pool::MetadataCandidate {
+                instance: self.source.grantee,
+                binding: &self.source.binding,
+                endpoint: &self.source.endpoint,
+                peer,
+                egress: &self.source.egress,
+                observer: self.source.observer.clone(),
+            },
+            end,
+            || self.opener(index).map(|_| ()),
+        )?;
+        Ok((peer, grant))
+    }
     fn check_grant(&self, grant: &CarrierGrant) -> Result<(), ChannelError> {
         if grant
             .slot

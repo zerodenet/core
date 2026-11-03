@@ -17,7 +17,7 @@ impl ComponentPlan {
                 return false;
             };
             if slot.recipe.spec().resources.iter().any(|resource|matches!(resource,
-                zero_platform_tokio::contract::component::ResourceDeclaration::ControlledCarrierPool {..})) {return true;}
+                zero_platform_tokio::contract::component::ResourceDeclaration::ControlledCarrierPool {..} | zero_platform_tokio::contract::component::ResourceDeclaration::ControlledMetadataCarrier {..})) {return true;}
             pending.extend(slot.dependency_instances());
         }
         false
@@ -42,7 +42,7 @@ impl ComponentPlan {
             };
             if slot.recipe.spec().resources.iter().any(|resource|!matches!(resource,
                 zero_platform_tokio::contract::component::ResourceDeclaration::File {..} |
-                zero_platform_tokio::contract::component::ResourceDeclaration::ControlledCarrierPool {..})) {return false;}
+                zero_platform_tokio::contract::component::ResourceDeclaration::ControlledCarrierPool {..} | zero_platform_tokio::contract::component::ResourceDeclaration::ControlledMetadataCarrier {..})) {return false;}
             pending.extend(slot.dependency_instances());
         }
         true
@@ -71,16 +71,20 @@ impl ComponentPlan {
                 .find(|slot| slot.instance_id() == id)
                 .ok_or_else(fail)?;
             if id == origin.instance() && !origin.is_retired() {
-                let matches =
-                    slot.recipe
-                        .spec()
-                        .resources
-                        .iter()
-                        .enumerate()
-                        .any(|(ordinal, _)| {
-                            slot.original_carrier_owner(ordinal)
-                                .is_some_and(|owner| owner.same_owner(origin.owner()))
-                        });
+                let matches = slot.recipe.spec().resources.iter().enumerate().any(
+                    |(ordinal, _)| match origin.owner() {
+                        zero_platform_tokio::controlled_carrier::CarrierOriginOwner::Carrier(
+                            actual,
+                        ) => slot
+                            .original_carrier_owner(ordinal)
+                            .is_some_and(|owner| owner.same_owner(actual)),
+                        zero_platform_tokio::controlled_carrier::CarrierOriginOwner::Metadata(
+                            actual,
+                        ) => slot
+                            .original_metadata_owner(ordinal)
+                            .is_some_and(|owner| owner.same_owner(actual)),
+                    },
+                );
                 if matches {
                     return Ok(());
                 }

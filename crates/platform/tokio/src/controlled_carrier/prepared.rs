@@ -202,7 +202,9 @@ impl PreparedCarrier {
         // Read real socket facts before boxing; original native control is
         // already persistent. No enclosing carrier lock surrounds these getters.
         let endpoints = super::CarrierEndpoints {
-            origin: Arc::downgrade(&self.slot),
+            origin: crate::controlled_carrier::endpoints::EndpointOriginal::Carrier(
+                Arc::downgrade(&self.slot),
+            ),
             local: Some(socket.local_addr().map_err(|source| {
                 error(
                     self.slot.instance,

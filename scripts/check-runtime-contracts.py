@@ -30,9 +30,20 @@ def main():
         "zero-core": upper | protocols | {"tokio", "tokio-util", "zero-platform-tokio", "zero-error"},
         "zero-error": upper | protocols | {"zero-platform-tokio", "tokio", "tokio-util"},
         "zero-platform-tokio": upper | protocols,
+        "zero-transport": upper | protocols,
+        # Protocol validation remains reachable through config. Concrete
+        # protocol runtimes must never be direct production host dependencies.
+        "zero-runtime": {"zero-engine", "zero-proxy", "zero-transport"},
         "zero-config": {"zero-engine", "zero-proxy", "zero-runtime", "zero-platform-tokio", "zero-transport", "tokio", "tokio-util"},
     }
     failed = False
+    runtime = next(package for package in metadata["packages"] if package["name"] == "zero-runtime")
+    direct_protocols = sorted(
+        dependency["name"] for dependency in runtime["dependencies"]
+        if dependency["kind"] != "dev" and dependency["name"] in protocols
+    )
+    print(f"zero-runtime: direct production protocols={direct_protocols}")
+    failed |= bool(direct_protocols)
     for package, forbidden in checks.items():
         reached = dependencies(package) - {package}
         violations = sorted(reached & forbidden)

@@ -19,6 +19,40 @@ pub type EventSinkTcpConnectFuture =
 /// webhook sockets cannot re-enter the data plane.
 pub trait EventSinkTcpDialer: Send + Sync + 'static {
     fn connect(&self, host: String, port: u16) -> EventSinkTcpConnectFuture;
+
+    /// Application owners reject a new generation until the original one closed.
+    fn begin_generation(&self) -> io::Result<()> {
+        Ok(())
+    }
+    fn retire_generation(
+        &self,
+        _deadline: tokio::time::Instant,
+    ) -> Pin<Box<dyn Future<Output = io::Result<()>> + Send + '_>> {
+        Box::pin(async {
+            Err(io::Error::new(
+                io::ErrorKind::Unsupported,
+                "standalone event network has no original close authority",
+            ))
+        })
+    }
+    fn prepare_request(
+        &self,
+        _deadline: tokio::time::Instant,
+    ) -> Pin<Box<dyn Future<Output = io::Result<()>> + Send + '_>> {
+        Box::pin(async { Ok(()) })
+    }
+    /// The application overrides this with its retained original TaskScope.
+    fn spawn_event_task(
+        &self,
+        task: Pin<Box<dyn Future<Output = ()> + Send + 'static>>,
+    ) -> io::Result<()> {
+        tokio::spawn(task);
+        Ok(())
+    }
+    /// Driven by the dispatcher caller, outside the tasks being supervised.
+    fn drive_event_tasks(&self) -> Pin<Box<dyn Future<Output = ()> + Send + '_>> {
+        Box::pin(std::future::pending())
+    }
 }
 
 #[derive(Clone)]
@@ -30,6 +64,14 @@ pub struct EventDispatcherNetwork {
 impl EventDispatcherNetwork {
     pub fn new(dialer: Arc<dyn EventSinkTcpDialer>) -> Self {
         Self { dialer }
+    }
+
+    pub fn begin_generation(&self) -> io::Result<()> {
+        self.dialer.begin_generation()
+    }
+
+    pub async fn retire_generation(&self, deadline: tokio::time::Instant) -> io::Result<()> {
+        self.dialer.retire_generation(deadline).await
     }
 
     /// Explicit system-route network for standalone embedding and tests.

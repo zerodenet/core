@@ -116,6 +116,18 @@ impl ComponentSlot {
             .resources
             .original_carrier_owner(ordinal)
     }
+    pub fn original_metadata_owner(
+        &self,
+        ordinal: usize,
+    ) -> Option<zero_platform_tokio::controlled_datagram::metadata_pool::MetadataPoolRegistration>
+    {
+        self.live
+            .get()?
+            .as_ref()
+            .ok()?
+            .resources
+            .original_metadata_owner(ordinal)
+    }
     pub fn new(
         id: ComponentId,
         generation: ResourceGeneration,

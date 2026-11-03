@@ -96,6 +96,9 @@ strip = "symbols"
 [workspace.dependencies]
 # Keep the reviewed QUIC carrier and local neutral extensions on one API version.
 quinn = { version = "=0.11.9", default-features = false }
+# The reviewed cancellation implementation is vendored below. A newer registry
+# release must not silently replace that implementation during lock generation.
+tokio-util = { version = "=0.7.18", features = ["rt"] }
 fs2 = "0.4"
 ipnet = { version = "2.11", features = ["serde"] }
 idna = "1"
@@ -128,6 +131,7 @@ ureq = { version = "2", default-features = false, features = ["tls"] }
 zero-api = { path = "crates/api" }
 zero-config = { path = "crates/config" }
 zero-core = { path = "crates/core" }
+zero-traits = { path = "crates/traits" }
 zero-engine = { path = "crates/engine", default-features = false }
 zero-logging = { path = "crates/logging" }
 zero-platform-tokio = { path = "crates/platform/tokio", optional = true }

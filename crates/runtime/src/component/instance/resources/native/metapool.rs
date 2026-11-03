@@ -43,6 +43,14 @@ impl MetadataPoolEvidence {
     }
 }
 impl MetadataPools {
+    pub(super) fn original_registration(&self, ordinal: usize) -> Option<MetadataPoolRegistration> {
+        self.records
+            .lock()
+            .expect("metadata registrations poisoned")
+            .get(&ordinal)
+            .filter(|record| record.bound)
+            .map(|record| record.actual.clone())
+    }
     pub(super) fn new(
         component: ComponentId,
         declarations: &[ResourceDeclaration],
@@ -52,7 +60,13 @@ impl MetadataPools {
         let declarations: BTreeMap<_, _> = declarations
             .iter()
             .enumerate()
-            .filter(|(_, d)| matches!(d, ResourceDeclaration::ControlledMetadataDatagram { .. }))
+            .filter(|(_, d)| {
+                matches!(
+                    d,
+                    ResourceDeclaration::ControlledMetadataDatagram { .. }
+                        | ResourceDeclaration::ControlledMetadataCarrier { .. }
+                )
+            })
             .map(|(n, d)| (n, d.clone()))
             .collect();
         if !declarations.is_empty() && identity.is_none() {
