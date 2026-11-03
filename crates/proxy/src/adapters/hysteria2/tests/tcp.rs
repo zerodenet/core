@@ -8,7 +8,7 @@ use tokio::{
     time::{timeout, Duration},
 };
 use zero_core::{Address, InboundClientResponse, Network, ProtocolType, Session};
-use zero_engine::{ResolvedOutbound, RouteDecision};
+use zero_engine::RouteDecision;
 
 #[tokio::test]
 async fn source_relative_tcp_preparation_reuses_the_actual_authenticated_pool() {
@@ -52,15 +52,17 @@ async fn source_relative_tcp_preparation_reuses_the_actual_authenticated_pool() 
             "route":{"final":{"type":"route","outbound":"pool"}}
         }).to_string(),Some(material.path().to_owned())).unwrap();
         let proxy = Proxy::new(config).unwrap();
-        let snapshot = proxy.engine().runtime_snapshot();
+        let config=proxy.engine().runtime_snapshot().config().clone();
+        proxy.protocols.start_components(config.clone(),tokio::time::Instant::now()+Duration::from_secs(3)).await.unwrap();
+        proxy.protocols.commit_components(&config,||Ok(())).unwrap();
         for _ in 0..2 {
             let (resolved,_) = proxy.engine().resolve_route_decision(RouteDecision::Route("pool".into())).unwrap();
-            let ResolvedOutbound::Single(leaf) = resolved else { panic!("actual pooled leaf") };
-            let claimed = proxy.protocols.claim_outbound_leaf(snapshot.config(),leaf).unwrap();
-            let prepared = claimed.tcp_connect_for_route(zero_engine::RouteMode::Flow).map_err(|failure| failure.error).unwrap();
+            let services=proxy.tcp_runtime_services();
+            assert!(matches!(services.prepare_tcp_outbound(&resolved,zero_engine::RouteMode::Flow).unwrap_or_else(|failure|panic!("{}",failure.error)),
+                crate::inventory::PreparedTcpOutbound::Single(crate::inventory::PreparedTcpCandidate {execution:crate::inventory::PreparedTcpCandidateExecution::Native(_),..})));
             let mut session = Session::new(0,Address::Ipv4([203,0,113,1]),443,Network::Tcp,ProtocolType::new("test"));
             proxy.engine().prepare_session(&mut session,"incoming").unwrap();
-            let established = prepared.execute(proxy.tcp_runtime_services().execution(),&session).await
+            let established=crate::runtime::tcp_dispatch::dispatch_tcp_outbound(services,&session,resolved,zero_engine::RouteMode::Flow,crate::runtime::tcp_dispatch::TcpDispatchIntent::Traffic).await
                 .map_err(|failure|failure.error).unwrap();
             let mut stream = established.into_relay_stream().unwrap();
             stream.write_all(b"ping").await.unwrap();
@@ -71,5 +73,6 @@ async fn source_relative_tcp_preparation_reuses_the_actual_authenticated_pool() 
         }
         done.send(()).unwrap();
         worker.await.unwrap();
+        proxy.protocols.shutdown_components(tokio::time::Instant::now()+Duration::from_secs(3)).await.unwrap();
     }).await.unwrap();
 }

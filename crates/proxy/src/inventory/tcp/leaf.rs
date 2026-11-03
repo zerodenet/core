@@ -99,7 +99,5 @@ fn health_tag(runtime: &crate::protocol_registry::OutboundLeafRuntime) -> Option
         TcpPathCategory::Tunnel => runtime.health_tag.as_deref(),
         #[cfg(feature = "tcp-session-runtime")]
         TcpPathCategory::Session => runtime.health_tag.as_deref(),
-        #[cfg(feature = "tcp-transport-session-runtime")]
-        TcpPathCategory::TransportSession => runtime.health_tag.as_deref(),
     }
 }

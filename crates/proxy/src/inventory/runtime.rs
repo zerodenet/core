@@ -1,6 +1,4 @@
 use zero_config::RuntimeConfig;
-#[cfg(feature = "raw-ip-runtime")]
-use zero_engine::OutboundIdentity;
 use zero_engine::RouteMode;
 use zero_engine::{EngineError, ResolvedLeafOutbound};
 
@@ -227,35 +225,6 @@ impl ProtocolInventory {
             execution: super::PreparedTcpCandidateExecution::Native(slot),
         }))
     }
-    #[cfg(feature = "raw-ip-runtime")]
-    pub(super) fn claim_config_outbound<'a>(
-        &self,
-        config: &'a RuntimeConfig,
-        index: usize,
-    ) -> Result<ClaimedInventoryLeaf<'a>, EngineError> {
-        self.claim_outbound_leaf(
-            config,
-            ResolvedLeafOutbound::Proxy {
-                identity: OutboundIdentity::from_config_index(index),
-            },
-        )
-    }
-
-    #[cfg(feature = "raw-ip-runtime")]
-    pub(super) fn claim_config_relay_chain<'a>(
-        &self,
-        config: &'a RuntimeConfig,
-        indices: &[usize],
-    ) -> Result<ClaimedRelayChain<'a>, EngineError> {
-        let chain = indices
-            .iter()
-            .copied()
-            .map(|index| ResolvedLeafOutbound::Proxy {
-                identity: OutboundIdentity::from_config_index(index),
-            });
-        self.claim_relay_chain(config, chain, |error| error, |error| error)
-    }
-
     #[cfg(feature = "raw-ip-runtime")]
     pub(crate) fn outbound_device_health(
         &self,

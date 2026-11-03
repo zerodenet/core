@@ -134,3 +134,7 @@ impl ProtocolMetadata for Hysteria2Adapter {
         ::hysteria2::Hysteria2Protocol.descriptor()
     }
 }
+
+#[cfg(test)]
+#[path = "hysteria2/tests.rs"]
+mod tests;

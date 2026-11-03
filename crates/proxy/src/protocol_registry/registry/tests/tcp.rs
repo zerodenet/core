@@ -9,7 +9,15 @@ fn cold_tcp_projections_retain_one_executable_owner_across_clones_and_relay_view
     let registry = crate::register::protocol_registry();
     for (config, leaf, _) in compiled_in_outbound_leaves() {
         let protocol = outbound_leaf_name(&config, &leaf);
-        let claimed = registry.claim_outbound_leaf(&config, leaf).unwrap();
+        let claimed = registry.claim_outbound_leaf(&config, leaf);
+        if protocol == "hysteria2" {
+            assert!(
+                claimed.is_err(),
+                "HY2 must not restore its retired compatibility projection"
+            );
+            continue;
+        }
+        let claimed = claimed.unwrap();
         if !claimed.has_tcp_capability() {
             continue;
         }
