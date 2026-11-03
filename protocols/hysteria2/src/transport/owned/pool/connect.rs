@@ -166,7 +166,13 @@ impl Generation {
         )
         .await
         .map_err(|source| error(Stage::Handshake, Reason::Timeout).with_source(source))??;
-        state.pending.as_mut().unwrap().native_origin = state.origin.clone();
+        *state
+            .pending
+            .as_ref()
+            .unwrap()
+            .native_origin
+            .lock()
+            .unwrap() = state.origin.clone();
         let auth = Arc::new(state.pending.take().unwrap());
         state.udp_join = auth.udp_witness();
         state.baseline = state.owner.as_ref().unwrap().active_users();

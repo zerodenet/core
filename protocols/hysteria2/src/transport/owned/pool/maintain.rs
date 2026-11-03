@@ -108,6 +108,11 @@ impl Generation {
         };
         state.segment = Some(segment);
         state.segment.as_mut().unwrap().start()?;
+        if let Some(auth) = &state.auth {
+            // New donor loans use this acquired original. Previously issued
+            // pool roots retain their own immutable binding/endpoint lineage.
+            *auth.native_origin.lock().unwrap() = state.origin.clone();
+        }
         state.next_hop = Some(Instant::now() + hop.next_interval());
         Ok(())
     }

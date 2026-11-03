@@ -177,6 +177,8 @@ impl DatagramOutbound for Role {
         let auth = self.acquire(&context).await?;
         let origin = auth
             .native_origin
+            .lock()
+            .unwrap()
             .clone()
             .ok_or_else(|| error(Stage::Prepare, Reason::StalePlan))?;
         let original = zero_platform_tokio::controlled_carrier::CarrierOrigin::from_metadata_pool(
