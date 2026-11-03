@@ -193,7 +193,18 @@ fn engine_only_v1_validate_prepares_relative_resources_without_installing_or_per
         }),
     )
     .unwrap_err();
-    assert!(error.message.contains("domains.txt"));
+    // V1 keeps its stable summary; actual resource identity and the original
+    // OS error belong to the existing cause/details fields.
+    assert_eq!(error.code, zero_api::ApiErrorCode::InvalidArgument);
+    assert_eq!(error.message, "config validation failed");
+    assert_eq!(error.field_path, None);
+    let cause = error.cause.as_deref().expect("original resource IO cause");
+    assert!(cause.contains("domains.txt"));
+    let original_io = std::fs::read(directory.path().join("domains.txt")).unwrap_err();
+    assert!(cause.contains(&original_io.to_string()));
+    assert_eq!(error.details.len(), 1);
+    assert_eq!(error.details[0].field_path.as_deref(), Some("rule_sets"));
+    assert!(error.details[0].message.contains("domains.txt"));
     assert!(std::sync::Arc::ptr_eq(
         &engine.runtime_snapshot(),
         &previous
