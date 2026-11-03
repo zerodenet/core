@@ -9,6 +9,18 @@ pub(super) struct Probe {
     #[cfg(test)]
     gate: Option<Arc<Gate>>,
 }
+#[derive(Debug)]
+struct IncompleteClose(CloseReport);
+impl std::fmt::Display for IncompleteClose {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            formatter,
+            "probe original close remains incomplete: {:?}",
+            self.0.unfinished
+        )
+    }
+}
+impl std::error::Error for IncompleteClose {}
 impl Probe {
     pub(super) fn new(attempts: NonZeroUsize) -> Self {
         Self {
@@ -26,6 +38,18 @@ impl Probe {
         cancel: &CancellationToken,
     ) -> Result<bool, ChannelError> {
         self.close(deadline).await?;
+        // An elapsed Ready budget cannot acquire another probe original. A
+        // previous original, if any, remains owned until its real close below.
+        if Instant::now() >= deadline {
+            return Err(
+                ChannelError::new(Stage::Prepare, Reason::Timeout, Impact::Component).with_source(
+                    std::io::Error::new(
+                        std::io::ErrorKind::TimedOut,
+                        "listener readiness deadline elapsed before the next probe",
+                    ),
+                ),
+            );
+        }
         if self.remaining == 0 || cancel.is_cancelled() {
             return Err(denied("probe start budget exhausted or revoked"));
         }
@@ -93,7 +117,10 @@ impl Probe {
         if let Some(original) = self.original.as_mut() {
             let report = original.wait_closed(deadline).await?;
             if !report.is_complete() {
-                return Err(denied("probe original close remains incomplete"));
+                return Err(
+                    ChannelError::new(Stage::Prepare, Reason::Timeout, Impact::Component)
+                        .with_source(IncompleteClose(report)),
+                );
             }
             self.confirmed += report.closed_io.len();
             self.original = None;
@@ -114,6 +141,9 @@ impl Probe {
         }
     }
 }
+
+#[cfg(test)]
+mod tests;
 
 #[cfg(test)]
 #[derive(Default)]
