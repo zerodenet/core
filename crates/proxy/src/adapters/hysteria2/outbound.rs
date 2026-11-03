@@ -100,19 +100,23 @@ impl Hysteria2Adapter {
         for profile in &profiles {
             let material = match profile.ca_cert_path() {
                 Some(path) => {
-                    if !files.contains_key(&path) {
-                        let bytes = zero_runtime::configuration::ConfigurationSource::read_preparation_file(
-                            &path, 16 * 1024 * 1024,
-                        ).map_err(|source| RegistrationError::Planning(
-                            zero_platform_tokio::contract::ChannelError::new(
-                                zero_platform_tokio::contract::Stage::Prepare,
-                                zero_platform_tokio::contract::Reason::Io,
-                                zero_platform_tokio::contract::Impact::Component,
-                            ).with_source(source)
-                        ))?;
-                        files.insert(path.clone(), Arc::<[u8]>::from(bytes));
-                    }
-                    Some(files[&path].clone())
+                    use std::collections::btree_map::Entry;
+                    let material = match files.entry(path) {
+                        Entry::Occupied(entry) => entry.into_mut(),
+                        Entry::Vacant(entry) => {
+                            let bytes = zero_runtime::configuration::ConfigurationSource::read_preparation_file(
+                                entry.key(), 16 * 1024 * 1024,
+                            ).map_err(|source| RegistrationError::Planning(
+                                zero_platform_tokio::contract::ChannelError::new(
+                                    zero_platform_tokio::contract::Stage::Prepare,
+                                    zero_platform_tokio::contract::Reason::Io,
+                                    zero_platform_tokio::contract::Impact::Component,
+                                ).with_source(source)
+                            ))?;
+                            entry.insert(Arc::<[u8]>::from(bytes))
+                        }
+                    };
+                    Some(material.clone())
                 }
                 None => None,
             };
