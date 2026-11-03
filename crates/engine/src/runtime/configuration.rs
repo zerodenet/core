@@ -58,6 +58,90 @@ impl Engine {
             self.config_source
                 .persist_ready(snapshot.config(), "engine-only-restore")?;
         }
+        self.publish_prepared_snapshot(snapshot)?;
+        self.traffic
+            .reconcile(&self.config(), self.config_revision());
+        self.notify_reload();
+        Ok(())
+    }
+
+    fn reload_config_inner(&self, config: RuntimeConfig, persist: bool) -> Result<(), EngineError> {
+        let prepared = zero_runtime::configuration::PreparedConfiguration::prepare(config)?;
+        let snapshot = self.prepare_configuration_snapshot(prepared)?;
+        if persist {
+            self.config_source
+                .persist_ready(snapshot.config(), "engine-only-apply")?;
+        }
+        self.publish_prepared_snapshot(snapshot)?;
+        self.notify_reload();
+        Ok(())
+    }
+
+    /// Existing embedded staging entry point. Proxy transactions instead retain
+    /// the returned inert snapshot in their same persistent host operation.
+    pub fn stage_prepared_config(
+        &self,
+        prepared: zero_runtime::configuration::PreparedConfiguration,
+    ) -> Result<(), EngineError> {
+        let snapshot = self.prepare_configuration_snapshot(prepared)?;
+        self.publish_prepared_snapshot(snapshot)?;
+        self.notify_reload();
+        Ok(())
+    }
+
+    /// Build only domain values; no live configuration or policy is published.
+    pub fn prepare_configuration_snapshot(
+        &self,
+        prepared: zero_runtime::configuration::PreparedConfiguration,
+    ) -> Result<Arc<super::EngineRuntimeSnapshot>, EngineError> {
+        let zero_runtime::configuration::PreparedConfiguration { config, routing } = prepared;
+        let current = self.runtime_snapshot();
+        if current.config.runtime.principal_quota_state_path
+            != config.runtime.principal_quota_state_path
+        {
+            return Err(EngineError::InvalidPlan {
+                message: "runtime.principal_quota_state_path cannot change during live reload"
+                    .to_owned(),
+            });
+        }
+        let mut plan = EnginePlan::build(&config)?;
+        let endpoint_intents = Arc::new(
+            super::endpoint::EndpointIntents::for_config(&config, Some(&current.endpoint_intents))
+                .map_err(|error| EngineError::InvalidPlan {
+                    message: error.message,
+                })?,
+        );
+        plan.reconcile_direct_dial_generations(Some(&current.plan), &self.next_dial_generation);
+        plan.reconcile_outbound_static(&config, &current.plan, &current.config);
+        let plan = Arc::new(plan);
+        let outbound_group_state = crate::groups::OutboundGroupStateStore::for_plan(
+            &plan,
+            Some((&current.plan, &current.outbound_group_state)),
+        );
+        Ok(Arc::new(super::EngineRuntimeSnapshot {
+            config_revision: Arc::new(std::sync::atomic::AtomicU64::new(current.config_revision())),
+            config: Arc::new(config),
+            endpoint_intents,
+            plan,
+            router: routing.router,
+            bypass: routing.bypass,
+            dns_dispatch: routing.dns_dispatch,
+            outbound_group_state,
+        }))
+    }
+
+    /// Install under the accepted operation's final publication gate. Source
+    /// persistence and original resource cleanup have already been confirmed.
+    pub fn publish_prepared_snapshot(
+        &self,
+        snapshot: Arc<super::EngineRuntimeSnapshot>,
+    ) -> Result<(), EngineError> {
+        if snapshot.config_revision() != self.config_revision() {
+            return Err(EngineError::InvalidPlan {
+                message: "cannot publish a snapshot across a committed configuration change"
+                    .to_owned(),
+            });
+        }
         *self.mode.lock().unwrap_or_else(|error| error.into_inner()) = snapshot.config.mode.clone();
         self.principal_policies
             .replace_from_config(snapshot.config());
@@ -67,96 +151,14 @@ impl Engine {
             .runtime_snapshot
             .write()
             .expect("runtime snapshot lock poisoned") = snapshot;
-        self.traffic
-            .reconcile(&self.config(), self.config_revision());
         self.passive_relay_health.clear();
-        self.notify_reload();
         Ok(())
     }
 
-    fn reload_config_inner(
-        &self,
-        new_config: RuntimeConfig,
-        persist: bool,
-    ) -> Result<(), EngineError> {
-        let prepared = zero_runtime::configuration::PreparedConfiguration::prepare(new_config)?;
-        self.stage_prepared_config_inner(prepared, persist)
-    }
-
-    /// Pure domain installation; the accepted host operation prepares resources
-    /// and performs durable persistence at its own Ready/Commit boundary.
-    pub fn stage_prepared_config(
-        &self,
-        prepared: zero_runtime::configuration::PreparedConfiguration,
-    ) -> Result<(), EngineError> {
-        self.stage_prepared_config_inner(prepared, false)
-    }
-
-    fn stage_prepared_config_inner(
-        &self,
-        prepared: zero_runtime::configuration::PreparedConfiguration,
-        persist: bool,
-    ) -> Result<(), EngineError> {
-        let zero_runtime::configuration::PreparedConfiguration {
-            config: new_config,
-            routing,
-        } = prepared;
-        let event_log_capacity = new_config.runtime.event_log_capacity;
-        if self.config().runtime.principal_quota_state_path
-            != new_config.runtime.principal_quota_state_path
-        {
-            return Err(EngineError::InvalidPlan {
-                message: "runtime.principal_quota_state_path cannot change during live reload"
-                    .to_owned(),
-            });
-        }
-        let new_router = routing.router.clone();
-        let bypass = routing.bypass.clone();
-        let mut new_plan = EnginePlan::build(&new_config)?;
-        let endpoint_intents = Arc::new(
-            super::endpoint::EndpointIntents::for_config(
-                &new_config,
-                Some(&self.runtime_snapshot().endpoint_intents),
-            )
-            .map_err(|error| EngineError::InvalidPlan {
-                message: error.message,
-            })?,
-        );
-
-        if persist {
-            self.config_source
-                .persist_ready(&new_config, "engine-only-apply")?;
-        }
-
-        *self.mode.lock().unwrap_or_else(|error| error.into_inner()) = new_config.mode.clone();
-
-        self.principal_policies.replace_from_config(&new_config);
-        let mut current = self
-            .runtime_snapshot
-            .write()
-            .expect("runtime snapshot lock poisoned");
-        new_plan.reconcile_direct_dial_generations(Some(&current.plan), &self.next_dial_generation);
-        new_plan.reconcile_outbound_static(&new_config, &current.plan, &current.config);
-        let new_plan = Arc::new(new_plan);
-        let outbound_group_state = crate::groups::OutboundGroupStateStore::for_plan(
-            &new_plan,
-            Some((&current.plan, &current.outbound_group_state)),
-        );
-        *current = Arc::new(super::EngineRuntimeSnapshot {
-            config_revision: Arc::new(std::sync::atomic::AtomicU64::new(current.config_revision())),
-            dns_dispatch: routing.dns_dispatch,
-            config: Arc::new(new_config),
-            endpoint_intents,
-            plan: new_plan,
-            router: new_router,
-            bypass,
-            outbound_group_state,
-        });
-        drop(current);
-        self.passive_relay_health.clear();
-        self.event_log.set_capacity(event_log_capacity);
+    /// Wake the existing host reconciler without exposing its pending candidate
+    /// through the committed control-plane snapshot.
+    pub fn notify_configuration_reconcile(&self) {
         self.notify_reload();
-        Ok(())
     }
 
     fn notify_reload(&self) {

@@ -297,6 +297,17 @@ impl Proxy {
         }
     }
 
+    pub(crate) fn pending_configuration_snapshot(
+        &self,
+    ) -> Option<Arc<zero_engine::EngineRuntimeSnapshot>> {
+        self.host
+            .reload_ack()
+            .lock()
+            .expect("reload ack lock poisoned")
+            .as_ref()
+            .map(|pending| pending.expected.clone())
+    }
+
     pub(crate) fn pending_reload_snapshot(
         &self,
         expected: &Arc<zero_engine::EngineRuntimeSnapshot>,

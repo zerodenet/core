@@ -132,11 +132,15 @@ impl ProxyHandle {
             return Err("proxy stopped before accepting configuration changes".to_owned());
         }
 
-        self.apply_proxy_config_under_guard(candidate.clone(), timeout, None)
+        let prepared = self
+            .apply_proxy_config_under_guard(candidate.clone(), timeout, None, false)
             .await?;
 
         let Some(reconciler) = &self.config_reconciler else {
-            if let Err(error) = self.commit_configuration(timeout, persist).await {
+            if let Err(error) = self
+                .commit_configuration(prepared.clone(), timeout, persist)
+                .await
+            {
                 let rollback = self
                     .rollback_proxy_dns_under_guard(
                         previous,
@@ -159,7 +163,10 @@ impl ProxyHandle {
         let candidate = Arc::new(candidate);
         match reconciler.reconcile(candidate).await {
             Ok(result) => {
-                if let Err(error) = self.commit_configuration(timeout, persist).await {
+                if let Err(error) = self
+                    .commit_configuration(prepared.clone(), timeout, persist)
+                    .await
+                {
                     let proxy_rollback = self
                         .rollback_proxy_dns_under_guard(
                             previous.clone(),
@@ -217,12 +224,17 @@ impl ProxyHandle {
         }
     }
 
-    async fn commit_configuration(&self, timeout: Duration, persist: bool) -> Result<(), String> {
+    async fn commit_configuration(
+        &self,
+        snapshot: Arc<zero_engine::EngineRuntimeSnapshot>,
+        timeout: Duration,
+        persist: bool,
+    ) -> Result<(), String> {
         if self.proxy.host.apply().is_closing() {
             return Err("proxy stopped before configuration commit".to_owned());
         }
         let token = self.retire_prepared_dns(timeout).await?;
-        let component_config = self.proxy.engine.runtime_snapshot().config().clone();
+        let component_config = snapshot.config().clone();
         self.proxy
             .protocols
             .scan_components(&component_config, tokio::time::Instant::now() + timeout)
@@ -250,6 +262,10 @@ impl ProxyHandle {
                         .resolver
                         .commit_reload_resources(&token)
                         .map_err(|error| format!("DNS config commit failed: {error}"))?;
+                    self.proxy
+                        .engine
+                        .publish_prepared_snapshot(snapshot.clone())
+                        .map_err(|error| error.to_string())?;
                     self.proxy.engine.commit_config_change();
                     Ok(())
                 })?;
@@ -285,14 +301,19 @@ impl ProxyHandle {
     ) -> Result<(), String> {
         self.proxy.resolver.discard_prepared_reload();
         let result = self
-            .apply_proxy_config_under_guard((**previous.config()).clone(), timeout, Some(previous))
+            .apply_proxy_config_under_guard(
+                (**previous.config()).clone(),
+                timeout,
+                Some(previous.clone()),
+                true,
+            )
             .await;
         result?;
         // Retirement may have closed the previous persistent backend before a
         // later commit failed. Recovery must confirm and publish the exact new
         // old-config candidate; discarding it cannot revive a closed pool.
         let token = self.retire_prepared_dns(timeout).await?;
-        let component_config = self.proxy.engine.runtime_snapshot().config().clone();
+        let component_config = previous.config().clone();
         self.proxy
             .protocols
             .scan_components(&component_config, tokio::time::Instant::now() + timeout)

@@ -161,11 +161,12 @@ impl ProxyHandle {
                     None,
                 )?;
             }
-            self.apply_endpoint_snapshot(candidate, persist).await?;
+            self.apply_endpoint_snapshot(candidate.clone(), false)
+                .await?;
             if revoked.inbound || revoked.outbound {
                 self.wait_endpoint_flows_ended(&binding, revoked).await?;
             }
-            let component_config = self.proxy.engine.runtime_snapshot().config().clone();
+            let component_config = candidate.config().clone();
             self.proxy
                 .protocols
                 .scan_components(&component_config, tokio::time::Instant::now() + TIMEOUT)
@@ -175,9 +176,29 @@ impl ProxyHandle {
                 .host
                 .apply()
                 .commit(|| {
+                    if persist {
+                        self.proxy
+                            .engine
+                            .configuration_source()
+                            .persist_ready(
+                                &component_config,
+                                &format!(
+                                    "{}:endpoint:{}",
+                                    self.proxy.engine.core_instance_id(),
+                                    candidate.config_revision()
+                                ),
+                            )
+                            .map_err(|error| {
+                                format!("endpoint source persistence failed: {error}")
+                            })?;
+                    }
                     self.proxy
                         .protocols
                         .commit_components(&component_config, || {
+                            self.proxy
+                                .engine
+                                .publish_prepared_snapshot(candidate.clone())
+                                .map_err(|error| error.to_string())?;
                             if persist {
                                 self.proxy.engine.commit_config_change();
                             }
@@ -201,9 +222,24 @@ impl ProxyHandle {
             // still need reconciliation in either case.
             let rollback_persist = persist
                 && self.proxy.engine.config_source_write_generation() != previous_source_write;
-            let rollback = self
-                .apply_endpoint_snapshot(previous, rollback_persist)
-                .await;
+            let rollback = async {
+                self.apply_endpoint_snapshot(previous.clone(), true).await?;
+                if rollback_persist {
+                    self.proxy
+                        .host
+                        .apply()
+                        .compensate(|| {
+                            self.proxy
+                                .engine
+                                .configuration_source()
+                                .persist_ready(previous.config(), "endpoint-source-compensation")
+                                .map_err(|error| error.to_string())
+                        })
+                        .map_err(|message| ApiError::new(ApiErrorCode::Internal, message))?;
+                }
+                Ok::<(), ApiError>(())
+            }
+            .await;
             self.proxy.resolver.discard_prepared_reload();
             self.proxy.engine.record_endpoint_runtime_error(
                 &id,
@@ -234,13 +270,14 @@ impl ProxyHandle {
     async fn apply_endpoint_snapshot(
         &self,
         snapshot: Arc<EngineRuntimeSnapshot>,
-        persist: bool,
+        compensating: bool,
     ) -> zero_api::ApiResult<()> {
         self.publish_endpoint_control_transitions(&snapshot);
         self.apply_proxy_config_under_guard(
             (**snapshot.config()).clone(),
             TIMEOUT,
             Some(snapshot.clone()),
+            compensating,
         )
         .await
         .map_err(|message| ApiError::new(ApiErrorCode::Internal, message))?;
@@ -259,38 +296,26 @@ impl ProxyHandle {
             .scan_components(snapshot.config(), tokio::time::Instant::now() + TIMEOUT)
             .await
             .map_err(|error| ApiError::new(ApiErrorCode::Internal, error.to_string()))?;
-        self.proxy
-            .host
-            .apply()
-            .commit(|| {
-                if persist {
+        let publish = || {
+            self.proxy
+                .protocols
+                .commit_components(snapshot.config(), || {
                     self.proxy
-                        .engine
-                        .configuration_source()
-                        .persist_ready(
-                            snapshot.config(),
-                            &format!(
-                                "{}:endpoint:{}",
-                                self.proxy.engine.core_instance_id(),
-                                snapshot.config_revision()
-                            ),
-                        )
-                        .map_err(|error| format!("endpoint source persistence failed: {error}"))?;
-                }
-                self.proxy
-                    .protocols
-                    .commit_components(snapshot.config(), || {
-                        self.proxy
-                            .resolver
-                            .commit_reload_resources(&token)
-                            .map_err(|error| format!("endpoint DNS commit failed: {error}"))
-                    })?;
-                self.proxy
-                    .inbound_owners
-                    .finish_recovery_transition(snapshot.config());
-                Ok(())
-            })
-            .map_err(|message| ApiError::new(ApiErrorCode::Internal, message))?;
+                        .resolver
+                        .commit_reload_resources(&token)
+                        .map_err(|error| format!("endpoint DNS commit failed: {error}"))
+                })?;
+            self.proxy
+                .inbound_owners
+                .finish_recovery_transition(snapshot.config());
+            Ok(())
+        };
+        let result = if compensating {
+            self.proxy.host.apply().compensate(publish)
+        } else {
+            self.proxy.host.apply().commit(publish)
+        };
+        result.map_err(|message| ApiError::new(ApiErrorCode::Internal, message))?;
         Ok(())
     }
 

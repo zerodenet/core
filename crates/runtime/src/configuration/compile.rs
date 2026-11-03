@@ -51,28 +51,44 @@ trait ConditionCompilation {
 
 impl RuntimeConfigPreparation for RuntimeConfig {
     fn compile_route_bypass(&self) -> Result<RuleSet, ConfigError> {
-        Ok(super::PreparedRouting::prepare(self)?
-            .bypass
-            .as_ref()
-            .clone())
+        if self.route.bypass.is_empty() {
+            return Ok(RuleSet::new(Vec::new(), RouteAction::Reject));
+        }
+        let resources = self.route.bypass.iter().any(bypass_uses_resources);
+        let compiled = if resources {
+            compile_rule_sets(&self.route.rule_sets, self.source_dir())?
+        } else {
+            CompiledRuleSets::new()
+        };
+        let geoip = if resources {
+            load_geoip(self.route.geoip_database.as_deref(), self.source_dir())?
+        } else {
+            None
+        };
+        compile_bypass(&self.route, &compiled, geoip)
     }
     fn compile_route(&self) -> Result<RuleSet, ConfigError> {
-        Ok(super::PreparedRouting::prepare(self)?
-            .router
-            .as_ref()
-            .clone())
+        let compiled = compile_rule_sets(&self.route.rule_sets, self.source_dir())?;
+        let geoip = load_geoip(self.route.geoip_database.as_deref(), self.source_dir())?;
+        compile_route(self, &compiled, geoip)
     }
     fn compile_dns_dispatch(
         &self,
     ) -> Result<Option<zero_router::DomainDispatcher<String>>, ConfigError> {
-        Ok(super::PreparedRouting::prepare(self)?.dns_dispatch)
+        self.runtime
+            .dns
+            .as_ref()
+            .map(|dns| dns.compile_dispatch(&self.route.rule_sets, self.source_dir()))
+            .transpose()
     }
 }
 
-pub(super) fn prepare(config: &RuntimeConfig) -> Result<super::PreparedRouting, ConfigError> {
-    let compiled = compile_rule_sets(&config.route.rule_sets, config.source_dir())?;
-    let geoip = load_geoip(config.route.geoip_database.as_deref(), config.source_dir())?;
-    let mut router = config.route.compile(&compiled, geoip.clone())?;
+fn compile_route(
+    config: &RuntimeConfig,
+    compiled: &CompiledRuleSets,
+    geoip: Option<std::sync::Arc<maxminddb::Reader<Vec<u8>>>>,
+) -> Result<RuleSet, ConfigError> {
+    let mut router = config.route.compile(compiled, geoip)?;
     router.rules.extend(
         config
             .automatic_route_prefixes()?
@@ -83,7 +99,14 @@ pub(super) fn prepare(config: &RuntimeConfig) -> Result<super::PreparedRouting, 
                 mode: zero_router::RouteMode::Auto,
             }),
     );
-    let mut bypass = config.route.clone();
+    Ok(router)
+}
+fn compile_bypass(
+    route: &RouteConfig,
+    compiled: &CompiledRuleSets,
+    geoip: Option<std::sync::Arc<maxminddb::Reader<Vec<u8>>>>,
+) -> Result<RuleSet, ConfigError> {
+    let mut bypass = route.clone();
     bypass.rules = bypass
         .bypass
         .iter()
@@ -96,7 +119,15 @@ pub(super) fn prepare(config: &RuntimeConfig) -> Result<super::PreparedRouting, 
         .collect();
     bypass.final_action = RouteActionConfig::Reject;
     bypass.final_mode = zero_config::RouteModeConfig::Auto;
-    let bypass_geoip = bypass
+    bypass.compile(compiled, geoip)
+}
+
+pub(super) fn prepare(config: &RuntimeConfig) -> Result<super::PreparedRouting, ConfigError> {
+    let compiled = compile_rule_sets(&config.route.rule_sets, config.source_dir())?;
+    let geoip = load_geoip(config.route.geoip_database.as_deref(), config.source_dir())?;
+    let router = compile_route(config, &compiled, geoip.clone())?;
+    let bypass_geoip = config
+        .route
         .bypass
         .iter()
         .any(bypass_uses_resources)
@@ -104,7 +135,7 @@ pub(super) fn prepare(config: &RuntimeConfig) -> Result<super::PreparedRouting, 
         .flatten();
     Ok(super::PreparedRouting {
         router: std::sync::Arc::new(router),
-        bypass: std::sync::Arc::new(bypass.compile(&compiled, bypass_geoip)?),
+        bypass: std::sync::Arc::new(compile_bypass(&config.route, &compiled, bypass_geoip)?),
         dns_dispatch: config
             .runtime
             .dns

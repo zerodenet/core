@@ -193,6 +193,7 @@ async fn persistent_candidate_keeps_actual_last_good_source_until_application_re
         .with_config_apply_reconciler(reconciler.clone());
     let running = proxy.spawn();
     let revision = proxy.engine().config_revision();
+    let committed = proxy.engine().runtime_snapshot();
     let request = tokio::spawn(async move {
         handle
             .apply_config_and_wait(config("198.19.0.0/24"), Duration::from_secs(5))
@@ -205,6 +206,20 @@ async fn persistent_candidate_keeps_actual_last_good_source_until_application_re
     assert_eq!(std::fs::read(&path).unwrap(), original);
     assert_eq!(proxy.engine().config_source_write_generation(), 0);
     assert_eq!(proxy.engine().config_revision(), revision);
+    assert!(Arc::ptr_eq(&proxy.engine().runtime_snapshot(), &committed));
+    assert_eq!(
+        proxy
+            .engine()
+            .config()
+            .runtime
+            .dns
+            .as_ref()
+            .unwrap()
+            .fake_ip()
+            .unwrap()
+            .cidr,
+        "198.18.0.0/24"
+    );
     reconciler.release.notify_one();
     request.await.unwrap().unwrap();
     assert_eq!(proxy.engine().config_revision(), revision + 1);

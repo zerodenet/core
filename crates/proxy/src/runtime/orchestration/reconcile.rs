@@ -8,7 +8,9 @@ use tracing::warn;
 
 impl OrchestrationState {
     pub(super) async fn reconcile_reload(&mut self, proxy: &Proxy) {
-        let new_snapshot = proxy.engine.runtime_snapshot();
+        let new_snapshot = proxy
+            .pending_configuration_snapshot()
+            .unwrap_or_else(|| proxy.engine.runtime_snapshot());
         // Notifications may outlive the rollback that emitted them. Replaying
         // an already applied snapshot after its acknowledgement would consume
         // the DNS candidate still owned by the acknowledged apply transaction.

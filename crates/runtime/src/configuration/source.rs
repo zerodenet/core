@@ -161,14 +161,18 @@ impl ConfigurationSource {
                 Ok(actual) if digest(&actual) == record.candidate_digest => {
                     if let Some(previous) = previous.as_ref() {
                         atomic_write(path, previous, permissions.clone()).map_err(|restore| io::Error::other(format!("source replacement failed: {error}; original source recovery failed: {restore}")))?;
+                    } else {
+                        std::fs::remove_file(path)?;
                     }
                 }
                 Ok(actual) if record.old_digest.as_ref() == Some(&digest(&actual)) => {}
                 Err(missing) if missing.kind() == io::ErrorKind::NotFound && previous.is_none() => {
                 }
-                Ok(_) | Err(_) => return Err(io::Error::other(format!(
+                Ok(_) | Err(_) => {
+                    return Err(io::Error::other(format!(
                     "source replacement failed: {error}; actual source outcome remains unconfirmed"
-                ))),
+                )))
+                }
             }
             return Err(error);
         }

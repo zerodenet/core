@@ -60,7 +60,8 @@ impl ProxyHandle {
         config: zero_config::RuntimeConfig,
         timeout: std::time::Duration,
         restore: Option<std::sync::Arc<zero_engine::EngineRuntimeSnapshot>>,
-    ) -> Result<(), String> {
+        compensating: bool,
+    ) -> Result<std::sync::Arc<zero_engine::EngineRuntimeSnapshot>, String> {
         let mut ready = self.proxy.orchestration_ready.subscribe();
         if !*ready.borrow() {
             tokio::time::timeout(timeout, async {
@@ -76,13 +77,15 @@ impl ProxyHandle {
             .map_err(|_| "timed out waiting for proxy runtime startup".to_owned())??;
         }
 
-        let receiver = self.begin_acknowledged_reload(config, restore)?;
+        let (receiver, candidate) =
+            self.begin_acknowledged_reload(config, restore, compensating)?;
         // The accepted host operation owns this exact acknowledgement. A
         // waiting caller's deadline/cancellation cannot clear it, construct a
         // second recovery candidate, or certify original resource cleanup.
         receiver.await.map_err(|_| {
             "proxy reload acknowledgement was lost; resource cleanup remains unconfirmed; query current state".to_owned()
-        })?
+        })??;
+        Ok(candidate)
     }
 
     /// Apply a runtime-only configuration overlay, then enforce its neutral
@@ -165,14 +168,24 @@ impl ProxyHandle {
         &self,
         config: zero_config::RuntimeConfig,
         restore: Option<std::sync::Arc<zero_engine::EngineRuntimeSnapshot>>,
-    ) -> Result<tokio::sync::oneshot::Receiver<Result<(), String>>, String> {
-        let prepared = if restore.is_none() {
-            Some(
-                zero_runtime::configuration::PreparedConfiguration::prepare(config)
-                    .map_err(|error| error.to_string())?,
-            )
-        } else {
-            None
+        compensating: bool,
+    ) -> Result<
+        (
+            tokio::sync::oneshot::Receiver<Result<(), String>>,
+            std::sync::Arc<zero_engine::EngineRuntimeSnapshot>,
+        ),
+        String,
+    > {
+        let candidate = match restore {
+            Some(snapshot) => snapshot,
+            None => self
+                .proxy
+                .engine
+                .prepare_configuration_snapshot(
+                    zero_runtime::configuration::PreparedConfiguration::prepare(config)
+                        .map_err(|error| error.to_string())?,
+                )
+                .map_err(|error| error.to_string())?,
         };
         let (sender, receiver) = tokio::sync::oneshot::channel();
         let mut pending = self
@@ -186,28 +199,14 @@ impl ProxyHandle {
                 return Err("another acknowledged proxy reload is already pending".to_owned());
             }
             *pending = Some(super::super::PendingReloadAck {
-                expected: self.proxy.engine.runtime_snapshot(),
+                expected: candidate.clone(),
                 previous: self.proxy.engine.runtime_snapshot(),
-                compensating: restore.is_some(),
+                compensating,
                 sender,
             });
         }
-        let result = if let Some(snapshot) = restore {
-            self.proxy.engine.restore_staged_snapshot(snapshot, false)
-        } else {
-            self.proxy
-                .engine
-                .stage_prepared_config(prepared.expect("prepared candidate"))
-        };
-        if let Err(error) = result {
-            pending.take();
-            return Err(error.to_string());
-        }
-        pending
-            .as_mut()
-            .expect("installed reload acknowledgement")
-            .expected = self.proxy.engine.runtime_snapshot();
         drop(pending);
-        Ok(receiver)
+        self.proxy.engine.notify_configuration_reconcile();
+        Ok((receiver, candidate))
     }
 }

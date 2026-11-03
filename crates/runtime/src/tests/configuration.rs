@@ -23,6 +23,16 @@ fn one_preparation_retains_relative_resource_for_route_bypass_and_dns() {
         prepared.router.rules[0].condition,
         prepared.bypass.rules[0].condition
     );
+    assert_eq!(
+        prepared.dns_dispatch.as_ref(),
+        Some(&zero_router::DomainDispatcher::new(
+            vec![(
+                prepared.router.rules[0].condition.clone(),
+                "local".to_owned()
+            )],
+            "local".to_owned()
+        ))
+    );
     std::fs::remove_file(&rules).unwrap();
     let address = Address::Domain("example.test".into());
     assert_eq!(
