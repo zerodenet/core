@@ -212,3 +212,9 @@ FinalMask 一次全量并发的 SOCKS UDP 内层回包端口不符，隔离同�
 
 
 后续真实并发检查还修复了两个同类输入：DNS fixture 直接将同地址 TCP/UDP 两个原始 socket 转交 Tokio，SS 的所有 test-only port=0、replacement 和 Ready 插件夹具复用唯一 paired socket helper，在既有绑定交接点归还。B 分组为 `a0b9b789f46d5bb3b6113de0a5c8e412e8dcf203`、`feebfcd7151af46af507950608c279a6b9c0d0b7`、`3c4fc5e9ab5e324bc5e33dd9505280c2dfb3d3ee`；没有重试业务测试、放宽断言或调整期限。A 的 `8dc7328a` 修复实际 probe 期限边界：原 controller 的 unfinished 报告保留并映射 typed Timeout，过期后不构造下一 probe；实际 I/O 错误原样传播，后续清理仍消费同 controller 的真正 native 收据。新增真实 peer pending、无替代构造与独立最终 close 回归，不以报 Timeout 代替关闭完成。
+
+最终统一组的中间冻结 `8395e39ddfb5125f273d3bd2d2275af17f613c67`：check 与严格 Clippy 通过；第四次环境中断只击中 no-run 构建，原 SIGKILL/未完成记录单列，恢复该项后真实 probe 2/0、独立默认并发 Proxy 920/0/4。随后完整 workspace 收齐 4128/3/176，无未完成目标；三个失败为设备出站撤除旧 TCP、模式 ACK 夹具未观察到 entered，以及共享 socket fixture 的具体协议 feature 门触发原架构守卫。全量后已运行的最小检查收齐才交还 target，未终止 Cargo 或实际测试；尚未启动的其余最小、interop、vendor 和 Go 资格转到修正后的最终候选，不用旧 head 的通过补填。
+
+A 后续 `5a7f13c043703f392a01c7d29078063ce7da7ed7` 将策略测试前提明确为实际原 listener 已 Ready：同一真实 TCP/UDP paired reservation、原启动 JoinHandle 与 Ready 分别观察，再在原五秒业务期限内验证模式/选择 ACK；失败保留真实 caller/runtime/accepted Scope 的独立 join、原结果和 host/原 owner 事实，强 ACK/revision/Arc 断言不变。原 entered 超时尚未归因，不能将该测试前提修正称为生产启动竞态已修复，也不能据后续通过声称旧“冷 spawn 同时 apply”场景已获得资格。
+
+B 后续 `b6625155d3b93db4e83ce88df430699ced33cc88`、`6c589df63909bf31409f909fc5e0e39b6fd7028f` 最终使共享 paired socket helper 仅由 `cfg(test)` 登记；A 的无条件 policy 单测也是真实调用者，因此不留会在无 feature 单测下遮掉 helper 的内部门，不加 allow、不放宽原架构守卫。C 先普通合入 A，再合入 B，交叉调用与 feature 边界统一审查。最终源码与实际资格仍以 PR #127 精确交付表为准；设备域失败、FinalMask 并发未决和早期模式夹具超时分别保留，不关闭 TEMP-WG-OUTER-UDP-01。
