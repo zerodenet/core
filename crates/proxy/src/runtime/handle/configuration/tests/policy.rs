@@ -2,11 +2,6 @@ use super::owned::paused;
 use super::*;
 use zero_api::{CommandRequest, CommandService, ModeSetCommand, PolicySelectCommand};
 
-fn at_port(mut config: RuntimeConfig, port: u16) -> RuntimeConfig {
-    config.inbounds[0].listen.port = port;
-    config
-}
-
 fn operation_facts(proxy: &Proxy, reconciler: &super::owned::Paused) -> String {
     let pending = proxy
         .host
@@ -135,8 +130,8 @@ fn selected(proxy: &Proxy) -> String {
         .tag()
         .to_owned()
 }
-fn selector_config(cidr: &str, reverse: bool) -> RuntimeConfig {
-    let mut config = config(cidr);
+fn selector_config(cidr: &str, reverse: bool, port: u16) -> RuntimeConfig {
+    let mut config = config(cidr, port);
     let nodes = if reverse { ["b", "a"] } else { ["a", "b"] };
     config.outbounds = serde_json::from_value(serde_json::json!(
         nodes.map(|tag| serde_json::json!({"tag":tag,"protocol":{"type":"direct"}}))
@@ -152,7 +147,7 @@ fn selector_config(cidr: &str, reverse: bool) -> RuntimeConfig {
 async fn selector_ack_during_actual_pending_transaction_survives_plan_id_remapping() {
     let reserved = crate::socket_fixture::tcp_udp();
     let port = reserved.0.local_addr().unwrap().port();
-    let proxy = Proxy::new(at_port(selector_config("198.18.0.0/24", false), port)).unwrap();
+    let proxy = Proxy::new(selector_config("198.18.0.0/24", false, port)).unwrap();
     let reconciler = paused(false);
     let handle = ProxyHandle::new(EngineHandle::new(proxy.engine().clone()), proxy.clone())
         .with_config_apply_reconciler(reconciler.clone());
@@ -161,7 +156,7 @@ async fn selector_ack_during_actual_pending_transaction_survives_plan_id_remappi
     let mut request = tokio::spawn(async move {
         apply
             .apply_runtime_config_and_wait(
-                at_port(selector_config("198.19.0.0/24", true), port),
+                selector_config("198.19.0.0/24", true, port),
                 Duration::from_secs(5),
             )
             .await
@@ -186,7 +181,7 @@ async fn selector_ack_during_actual_pending_transaction_survives_plan_id_remappi
 async fn mode_ack_during_pending_configuration_conflicts_without_rolling_back_its_revision() {
     let reserved = crate::socket_fixture::tcp_udp();
     let port = reserved.0.local_addr().unwrap().port();
-    let proxy = Proxy::new(at_port(config("198.18.0.0/24"), port)).unwrap();
+    let proxy = Proxy::new(config("198.18.0.0/24", port)).unwrap();
     let reconciler = paused(false);
     let handle = ProxyHandle::new(EngineHandle::new(proxy.engine().clone()), proxy.clone())
         .with_config_apply_reconciler(reconciler.clone());
@@ -194,10 +189,7 @@ async fn mode_ack_during_pending_configuration_conflicts_without_rolling_back_it
     let mut running = start_ready(&proxy, reserved).await;
     let mut request = tokio::spawn(async move {
         apply
-            .apply_runtime_config_and_wait(
-                at_port(config("198.19.0.0/24"), port),
-                Duration::from_secs(5),
-            )
+            .apply_runtime_config_and_wait(config("198.19.0.0/24", port), Duration::from_secs(5))
             .await
     });
     wait_entered(&proxy, &reconciler, &mut request, &mut running).await;

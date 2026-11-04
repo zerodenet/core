@@ -49,7 +49,7 @@ impl ConfigApplyReconciler for RejectChangedFakeIpPool {
     }
 }
 
-fn config(cidr: &str) -> RuntimeConfig {
+fn config(cidr: &str, port: u16) -> RuntimeConfig {
     RuntimeConfig::parse(&format!(
         r#"{{
             "runtime": {{
@@ -66,7 +66,7 @@ fn config(cidr: &str) -> RuntimeConfig {
             }},
             "inbounds": [{{
                 "tag": "reload-test",
-                "listen": {{ "address": "127.0.0.1", "port": 0 }},
+                "listen": {{ "address": "127.0.0.1", "port": {port} }},
                 "protocol": {{ "type": "direct" }}
             }}],
             "route": {{ "rules": [], "final": {{ "type": "direct" }} }}
@@ -77,7 +77,9 @@ fn config(cidr: &str) -> RuntimeConfig {
 
 #[tokio::test]
 async fn application_reconcile_failure_keeps_committed_fake_ip_mapping() {
-    let original = config("198.18.0.0/24");
+    let reserved = crate::socket_fixture::tcp_udp();
+    let port = reserved.0.local_addr().unwrap().port();
+    let original = config("198.18.0.0/24", port);
     let proxy = Proxy::new(original).expect("build proxy");
     let resolver = proxy.resolver.clone();
     assert_eq!(
@@ -91,10 +93,11 @@ async fn application_reconcile_failure_keeps_committed_fake_ip_mapping() {
     });
     let handle = ProxyHandle::new(EngineHandle::new(proxy.engine().clone()), proxy.clone())
         .with_config_apply_reconciler(reconciler.clone());
+    drop(reserved);
     let running = proxy.spawn();
 
     let error = handle
-        .apply_config_and_wait(config("198.19.0.0/24"), Duration::from_secs(5))
+        .apply_config_and_wait(config("198.19.0.0/24", port), Duration::from_secs(5))
         .await
         .expect_err("application failure must reject candidate");
 
@@ -125,16 +128,19 @@ async fn application_reconcile_failure_keeps_committed_fake_ip_mapping() {
 
 #[tokio::test]
 async fn successful_apply_commits_prepared_fake_ip_pool() {
-    let proxy = Proxy::new(config("198.18.0.0/24")).expect("build proxy");
+    let reserved = crate::socket_fixture::tcp_udp();
+    let port = reserved.0.local_addr().unwrap().port();
+    let proxy = Proxy::new(config("198.18.0.0/24", port)).expect("build proxy");
     let resolver = proxy.resolver.clone();
     DnsResolver::resolve(resolver.as_ref(), "old.example")
         .await
         .expect("allocate old mapping");
     let handle = ProxyHandle::new(EngineHandle::new(proxy.engine().clone()), proxy.clone());
+    drop(reserved);
     let running = proxy.spawn();
 
     handle
-        .apply_config_and_wait(config("198.19.0.0/24"), Duration::from_secs(5))
+        .apply_config_and_wait(config("198.19.0.0/24", port), Duration::from_secs(5))
         .await
         .expect("commit config");
 
