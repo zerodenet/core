@@ -39,6 +39,7 @@ async fn actual_direct_role_recovers_business_dns_under_same_host_scope_and_clos
             let actual = captured.0.lock().unwrap().clone().unwrap();
             assert_eq!(actual.observe().unwrap().retained(), 0);
             let mut callers = Vec::new();
+            let mut originals = Vec::new();
             for _ in 0..2 {
             let mut session = Session::new(
                 0,
@@ -192,6 +193,13 @@ async fn actual_direct_role_recovers_business_dns_under_same_host_scope_and_clos
                 pending.slots().iter().all(|slot| slot.driver().is_none()),
                 "Direct does not invent a TCP transport driver"
             );
+            for original in pending.slots() {
+                assert!(original.native().is_some(), "actual native controller exists");
+                assert!(originals.iter().all(|(ordinal, previous): &(u64, zero_platform_tokio::controlled_carrier::CarrierOriginObservation)| {
+                    *ordinal != original.ordinal() && !previous.same_original(original.original())
+                }), "each demand's failed and selected controllers have unique original slot identities");
+                originals.push((original.ordinal(), original.original().clone()));
+            }
             let refresh = pending
                 .slots()
                 .iter()
@@ -225,9 +233,40 @@ async fn actual_direct_role_recovers_business_dns_under_same_host_scope_and_clos
             );
             assert!(actual.closed().unwrap().matches(&actual));
             assert!(actual.users_closed().unwrap().matches(&actual));
-            assert_eq!(closed.closed_io.len(), 4, "both demands' failed and selected originals close exactly once under the same actual generation");
+            assert!(actual.users_closed().unwrap().had_native_acquisition());
+            assert_eq!(originals.len(), 4);
+            for (_, original) in originals {
+                let receipt = original.closed().expect("actual original native control closed");
+                assert!(original.matches_closed(&receipt));
+                assert!(receipt.had_native_acquisition());
+            }
             assert_eq!(callers.len(), 2);
-            for caller in &callers { caller.verify_carrier_completion(); }
+            let mut accepted_receipts = 0;
+            for caller in &callers {
+                caller.verify_carrier_completion();
+                if let Some(report) = caller.close_report() {
+                    assert!(report.is_complete());
+                    // The actual Accepted graph consumes donor reports exactly
+                    // once and retains their existing bounded ordinal summary.
+                    let native = format!("accepted auxiliary original {}: 2 native I/O close receipts", usize::MAX);
+                    let returned = format!("accepted auxiliary original {}: 2 resource-return receipts", usize::MAX);
+                    assert_eq!(report.closed_io.iter().filter(|label| **label == native).count(), 1, "{report:?}");
+                    assert_eq!(report.released_resources.iter().filter(|label| **label == returned).count(), 1, "{report:?}");
+                    accepted_receipts += 2;
+                }
+            }
+            match kind {
+                crate::component::tests::business_carrier::sources::Kind::Accepted => {
+                    assert_eq!(accepted_receipts, 4);
+                    assert_eq!(closed.closed_io.len(), 0, "Accepted already consumed the four original receipts; Direct must not duplicate them");
+                }
+                #[cfg(feature = "raw-ip-runtime")]
+                crate::component::tests::business_carrier::sources::Kind::Raw => {
+                    assert_eq!(accepted_receipts, 0);
+                    assert_eq!(closed.closed_io.len(), 4, "both Raw demands' failed and selected originals close exactly once under the same actual generation");
+                }
+            }
+            assert_eq!(accepted_receipts + closed.closed_io.len(), 4);
         }
     })
     .await

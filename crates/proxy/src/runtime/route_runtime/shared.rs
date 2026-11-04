@@ -29,6 +29,9 @@ impl SharedIngressRuntimeServices {
         }
         self
     }
+    pub(super) fn configuration_publication(&self) -> zero_engine::ConfigurationPublication {
+        self.tcp_services.snapshot().configuration_publication()
+    }
     pub(super) fn config_handle(&self) -> std::sync::Arc<zero_config::RuntimeConfig> {
         self.tcp_services.snapshot().config().clone()
     }

@@ -4578,7 +4578,11 @@ fn udp_adapters_move_existing_execution_results_without_claimers() {
     assert!(!helper.contains("source_dir"));
     assert!(!helper.contains(".await"));
     let inventory = read(&proxy_src().join("inventory/udp/relay.rs"));
-    assert!(inventory.contains("into_final_hop().into_claimed()"));
+    assert!(inventory.contains("claimed_chain.into_final_hop()"));
+    assert!(inventory.contains("let final_hop = claimed.into_claimed()"));
+    assert!(inventory.contains("let operation = final_hop.into_udp_relay()?"));
+    assert!(!inventory.contains("ResolvedLeafOutbound"));
+    assert!(!inventory.contains(".await"));
     for relative in [
         "adapters/vless.rs",
         "adapters/vmess.rs",
@@ -5282,6 +5286,37 @@ fn hysteria2_outbound_uses_one_actual_standard_pool_for_all_existing_callers() {
         assert!(
             !packet.contains(forbidden),
             "generic packet execution must not contain {forbidden}"
+        );
+    }
+}
+
+#[test]
+fn embedded_engine_entries_leave_source_transaction_order_with_the_original_owner() {
+    let engine = read(&workspace_root().join("crates/engine/src/runtime/configuration.rs"));
+    assert!(engine.contains(".commit_embedded("));
+    for removed in [
+        ".persist_ready(",
+        ".rollback_pending(",
+        ".finalize_committed(",
+        "SourceDisposition",
+    ] {
+        assert!(
+            !engine.contains(removed),
+            "embedded Engine must not restore source ordering: {removed}"
+        );
+    }
+    let source =
+        read(&workspace_root().join("crates/runtime/src/configuration/source/embedded.rs"));
+    for required in [
+        "startup::with_source(self.clone()",
+        "self.state.lock()",
+        "self.persist_ready_locked(",
+        "self.rollback_pending_locked(",
+        "self.finalize_committed_locked(",
+    ] {
+        assert!(
+            source.contains(required),
+            "embedded source retains actual original operation: {required}"
         );
     }
 }

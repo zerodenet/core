@@ -47,6 +47,10 @@ async fn run(case: cases::Case, official: Option<String>, official_server: bool)
     let socks = free_port();
     let target_tcp = free_port();
     let target_udp = free_udp_port();
+    eprintln!(
+        "FinalMask {} ports tunnel={tunnel} ready={ready} socks={socks} echoTCP={target_tcp} echoUDP={target_udp}",
+        case.name
+    );
     let material = TempMaterial::new("vless-finalmask");
     let tls = material.tls();
     let mut inbound = json!({"type":"vless","users":[{"id":ID}],"final_mask":case.native});

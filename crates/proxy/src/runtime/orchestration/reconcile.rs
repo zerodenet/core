@@ -109,7 +109,7 @@ impl OrchestrationState {
             proxy.inbound_owners.clone(),
         );
         let candidate_runtime_factory = if compensating {
-            candidate_runtime_factory
+            candidate_runtime_factory.for_recovery()
         } else {
             candidate_runtime_factory.with_preparing(preparing.clone())
         };

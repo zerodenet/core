@@ -20,10 +20,11 @@ mod observation;
 #[cfg(feature = "managed-datagram-runtime")]
 mod peer_cleanup;
 mod pending_bound;
+mod publication;
 #[cfg(test)]
 use pending_bound::PendingNativeBound;
 mod readiness;
-pub(crate) use observation::consume_reported_error;
+pub(crate) use observation::{consume_reported_error, preserve_io_kind};
 pub(super) use pending_bound::pending_preparation_stopped;
 pub(super) use readiness::readiness_stopped;
 pub(crate) use readiness::InboundReady;
@@ -62,6 +63,10 @@ pub(crate) struct InboundOwner {
     #[cfg(feature = "raw-ip-runtime")]
     pub(super) icmp_probe: OnceLock<crate::component::instance::HostIcmpProbeGrant>,
     pub(super) recovery: OnceLock<Arc<dyn crate::protocol_registry::InboundRecovery>>,
+    publication: OnceLock<(
+        std::sync::Weak<zero_config::RuntimeConfig>,
+        zero_engine::ConfigurationPublication,
+    )>,
     shutdown: watch::Sender<bool>,
     cancel: CancellationToken,
     scope: AsyncMutex<TaskScope>,
@@ -183,6 +188,7 @@ impl InboundOwner {
             #[cfg(feature = "managed-datagram-runtime")]
             scope_task_limit: limit,
             recovery: OnceLock::new(),
+            publication: OnceLock::new(),
             #[cfg(feature = "raw-ip-runtime")]
             icmp_probe: OnceLock::new(),
             shutdown,

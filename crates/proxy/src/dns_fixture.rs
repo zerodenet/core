@@ -38,9 +38,14 @@ pub(crate) struct Dns {
 }
 impl Dns {
     pub async fn new() -> Self {
-        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let (tcp, udp) = crate::socket_fixture::tcp_udp();
+        tcp.set_nonblocking(true).unwrap();
+        udp.set_nonblocking(true).unwrap();
+        // Transfer both actual originals into the resolver fixture. Neither
+        // endpoint is released and rebound between selecting TCP and UDP.
+        let listener = TcpListener::from_std(tcp).unwrap();
         let address = listener.local_addr().unwrap();
-        let socket = Arc::new(UdpSocket::bind(address).await.unwrap());
+        let socket = Arc::new(UdpSocket::from_std(udp).unwrap());
         let (tx, requests) = mpsc::unbounded_channel();
         let stop = CancellationToken::new();
         let cancel = stop.clone();

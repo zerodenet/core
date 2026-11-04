@@ -24,7 +24,7 @@
 
 ## 已实现的职责与删除边界
 
-Config 的规则/GeoIP/ZRS 资源 I/O 与运行编译迁到 `zero-runtime::configuration`。一次 `PreparedRouting` 为 route、bypass、DNS dispatch 复用实际资源；初始 run、Engine/Proxy from_path 和日志文档读取在原文件真实 close/matches 后才交付数据。Config 保留 ADT、结构/引用和协议委托校验；旧 `RuntimeConfig::load_from_path` 的全部调用迁到实际 `ConfigurationSource`，CLI validate/connector-state/reload 的文档读取也使用原件关闭后的数据，prepared validator 不重开已准备资源。Engine 保留领域计划、快照、策略、selection、revision 及既有公开入口，Engine-only/FFI 不自动启动 Proxy。
+Config 的规则/GeoIP/ZRS 资源 I/O 与运行编译迁到 `zero-runtime::configuration`。一次 `PreparedRouting` 为 route、bypass、DNS dispatch 复用实际资源；初始 run、Engine/Proxy from_path 和日志文档读取在原文件真实 close/matches 后才交付数据。Config 保留 ADT、结构/引用和协议委托校验；旧 `RuntimeConfig::load_from_path` 的全部调用迁到实际 `ConfigurationSource`，CLI validate/connector-state/reload 的文档读取也使用原件关闭后的数据，prepared validator 不重开已准备资源。Engine 保留领域计划、快照、策略、selection、revision 及既有公开入口，Engine-only/FFI 不自动启动 Proxy。 同步嵌入入口的持久化、SourceDisposition 补偿和 finalize 顺序也由同一 ConfigurationSource::commit_embedded 决定；Engine 只提交领域安装回调，不再重复文件事务编排。
 
 唯一 RuntimeHost 的 ApplyOwner 持有受理操作、串行锁和最终 ACK。Ready 前不覆盖 last-good，候选业务发布门保持关闭；最终发布前控制面仍读已提交快照。最小恢复记录、原字节/权限、原子替换与目录同步、持久/临时区别和错误来源保留。失败候选应用/源原件清理不确认则不恢复；取消等待者不取消宿主收尾。原 blocking 配置通知线程桥删除，同一领域通知直接供宿主消费，迟到通知不能撤走未提交的 Ready 候选。
 
@@ -46,7 +46,7 @@ V1 配置/API/events、CLI、FFI ABI 和协议上游基线保持；只修改内�
 
 - Z003-01：System/detour/其余池化 DNS、打开失败重试及其原始资源所有权。
 - Z003-02/03/06：其余 Mieru/MUX/gRPC/H2/QUIC/载体的完整生产角色、复杂 prefix、双原始 provider、剩余 UDP/packet-path 与 Registry 总 leaf 投影。已完成 listener/claim/handler 族不重新列待迁。
-- Z003-04/05：非入站 Packet、设备/TUN、适用进程及转交 I/O 的完整宿主归属和替代门；直接 Child reaped 不代表后代或全部用户/native 关闭。
+- Z003-04/05：非入站 Packet、设备/TUN、适用进程及转交 I/O 的完整宿主归属和替代门；直接 Child reaped 不代表后代或全部用户/native 关闭。 当前实际连续性失败另列：WireGuard 纯 outbound 方向撤除在后续 listener 绑定失败前提前关闭原 client stack，导致原 TCP EOF；该 retirement/lifecycle 文件与共同基线 blob 相同，未执行基线行为，不能据此冒充历史行为已通过。此设备域实现缺口不是 TEMP-WG-OUTER-UDP-01 的扩大或关闭，保留原断言和失败记录。
 - Z003-07：适用资源预算生产配置；内部有限额度不是所有资源的生产可配置化，也不是低资源压力资格。
 - G8 整体投影/控制观测对账；控制 IPC/HTTP/gRPC 服务器与订阅本体的剩余生命周期不由 config.apply 最终 ACK 或 webhook 原件结果覆盖，既有订阅 abort 链仍未迁。
 - 独立配置/诊断/存储边界：初启控制面 TLS cert/key/CA、独立 quota inspect、principal quota lease/后台持久化，以及控制服务器/订阅本体等不属于已迁配置源或初始规则准备的原件。这些不是新增 TEMP 豁免，不由已迁热 source 事务的 close 收据覆盖。
@@ -63,11 +63,19 @@ G9/G10 与 Z003-08 的完整资格仍另列：实际 GUI/面板同产物组合�
 
 最终候选只停在 integration 交接。本轮不合入 develop/main，不启用 auto-merge，不发版、打 tag 或部署。
 
+## 统一检查发现的实际修正
+
+恢复另修复半成功候选监听器：原 owner 绑定真实轻量 ConfigurationPublication 和输入 Weak 身份，回滚不再复用仍未提交的 Ready 候选；按原 StopOld / TaskScope / native 关闭屏障后，从原已发布恢复 capsule 重建。应用补偿复用同一恢复屏障，不改变协议组合或重迁入站。
+
+首轮完整 workspace/all-feature 检查 `26a0b9c606812d06ae7dc595f274d6c0e3479962` 失败，所有失败、忽略、诊断终止和原始日志保留，不当作通过。其后修复：恢复精确已发布 recipe 时，复用普通准备的实际 host admission 和传递用户根绑定；公开显式 DNS reload 保留原 query generation/cache 失效语义，宿主无变化事务继续保留原实际 DNS fact。观察包装保留原始 I/O 分类及同一错误来源。已有 stream-packet 载体的有限 UDP broadcast 丢包保留同一实际连接，由原可靠载体重传，不把 Lagged 当作物理 Closed，不增加队列容量或引入新任务。
+
+Ready 后才持久化意味着持久化失败时，已退休的原端点必须经真实清理后以新 generation 恢复；无关端点仍保持原 owner/generation。新增回归分别消费原 terminal 的 native 收据与实际 Scope joins，源码原字节、revision/intent、未写入的 source observation 与最终公开 ACK 独立验证。调用方短等待超时后，同一宿主持有受理操作，后续公开 ACK 不得越过其实际补偿收尾。Hysteria2 共享连接测试按客户端、转交 relay、上游原件的消费顺序退休，保留全部真实 wire 与隔离断言；UDP raw-leaf 投影移回现有 inventory 准备边界，relay 只接现有准备值。
+
 ## A/B 分支提交索引
 
-此索引为各任务分支首父链的非 merge 提交；普通依赖 merge 保留在 Git 历史。A 初轮 PR 合入后追加的实际收尾提交由 C 普通合并保留，不改写 PR 原始集成点。索引 head 是分支实现输入，不替代 PR #127 的最终冻结候选。
+此索引为各任务分支首父链的非 merge 提交；普通依赖 merge 保留在 Git 历史。A 初轮 PR 合入后追加的实际收尾提交由 C 普通合并保留，不改写 PR 原始集成点。索引 head 是分支实现输入，不替代 PR #127 的最终冻结候选。B 在最后源码整合后普通 fast-forward 到 `d9e852eb21bb8122ff9ce934f9af532bb99bbe02` 并以 ls-remote 确认远端；下面 B 的 `6e775070` 是原实现首父链索引锚点，避免用集成分支首父链遗漏合并提交中的 B 实现。
 
-### A：`fef6849edc3de6930870ba459b199ad998029264`
+### A：`8dc7328aed245cd9f1f3166336ea99f269040309`
 
 - `a5df1b586a8882708ec8b7acc03bbafd8855f5d1` — refactor(config): prepare shared routing resources in runtime
 - `23b1caacd40f3c679fdaea98112089f7ff014154` — refactor(runtime): persist ready configuration under the accepted host transaction
@@ -119,8 +127,17 @@ G9/G10 与 Z003-08 的完整资格仍另列：实际 GUI/面板同产物组合�
 - `13eb736bae88d9b639904fef3d4305459ccbcb76` — test(config): validate prepared inputs from the normal runtime dependency
 - `4fc1d32d1e348cfbdcdff203aa9ef126641e4a6b` — fix(config): reject cache observations without waiting across the cold gate
 - `fef6849edc3de6930870ba459b199ad998029264` — test(proxy): declare the prepared route assertion dependency
+- `dc2b4baea99b990811f0e3dd7b59fdd2061d47a5` — test(engine): declare DNS-free TUN metering fixture explicitly
+- `c57748c0a8359959bd76d78f45f66bc4bd8d6ed5` — test(proxy): verify final ACK and original retirement under ready-time persistence
+- `e6fb04e0af97f85d23c8d2aa038039e210770ddd` — test(proxy): bind the cancellation source borrow to its original error
 
-### B：`9168bf6dd30f5013510244d78b83a25ec7432656`
+- `179ee0049b80788f84ebc42e1d88abdcc13eedaf` — refactor(runtime): own embedded source commit and compensation outside Engine
+
+- `0484eb21bd55ec832d77230cf22e556f2fef1740` — test(proxy): distinguish pending readiness from the real source start deadline
+
+- `8dc7328aed245cd9f1f3166336ea99f269040309` — fix(proxy): retain expired readiness probe originals under typed timeout
+
+### B：`6e775070565fb11c8e6c8a124c52ec9c2425cca0`
 
 - `88d336a56bc60e20455a87d19efb0f995d52d4ff` — refactor(hysteria2): prepare sealed outbound authentication and packet loans
 - `7d85f1bb4b84ac6be81a04c07a9a327d8b28567a` — refactor(transport): retain each Quinn wire original through scoped retirement
@@ -181,3 +198,17 @@ G9/G10 与 Z003-08 的完整资格仍另列：实际 GUI/面板同产物组合�
 - `ebbb07473f39869042c6687f1e79f94306625d94` — fix(hysteria2): close the original bounded entry set within one caller deadline
 - `1c2ef73c790de681089bb96c1226ce492d5281fd` — fix(hysteria2): enforce the configured CA preparation file budget
 - `68618e23190e5455b4033ee98664b30eafea6cb8` — test(hysteria2): preserve live DNS and CA owners across unchanged rule-set files
+- `029c5d0235a89283b3d45f1e5300ce054024ce37` — test(hysteria2): close shared consumers before upstream donors
+- `496dc30df079c6a05d61c784ab9d256255875eb0` — refactor(proxy): project UDP relay leaves at inventory preparation boundary
+- `2a354757123b85115cea3d59dc766a4369245c6f` — test(proxy): keep DNS dependencies and IPv6 fixtures valid under strict preparation
+- `6c5c85020214c5e84d90b803ccd44c388f0702b3` — test(proxy): verify Direct originals across actual Accepted receipt consumer
+
+
+B 后续分组为 `740bb83b91428202e4b6dc9c1a4b5bf1a3d35d03`（实际 TCP/UDP 双地址保留的 SS 夹具）与 `c7bc94c4`（FinalMask 回包/端口诊断，强断言保留）；普通合入 C 实际源码 `ac6c062ea363e63fb4de77aeb58483e5266e468f` 后，B 工作分支冻结于 `fc8277264de89ae75c2059a2497f16d68e876dab`。原实现索引仍以上述首父链锚点保存。
+
+后续统一检查 `dc3ad16618ed080b6ef5f9d611dcb11bd68e05b3` 已完整收齐：主 harness 4121 通过、7 失败、176 忽略，没有未完成目标；这些是中间源码结果，不移作最终资格。源恢复缺少 DNS 变更时漏提交已实际启动的新 generation 已修正，并在前置领域/组件/TUN 恢复失败时停止后续资源重建；eager bind 也沿公开入口保留原始 I/O 分类及同一 boxed source。Ready 成功与实际标准源五秒启动期限失败分开验证：未扩大生产期限、未将十秒协议上限冒充宿主五秒期限。第三次环境重连只中断 Clippy，单独留记录并恢复该项，已完成检查没有重跑。
+
+FinalMask 一次全量并发的 SOCKS UDP 内层回包端口不符，隔离同二进制通过；当前证据尚不足以区分迟到报文与生产关联错误。已补实际分配/发送者诊断，保留原断言和该失败，不能据隔离通过称为已修复。此未决并发互通项与上述设备域纯方向撤除失败、TEMP-WG-OUTER-UDP-01 分别记录。
+
+
+后续真实并发检查还修复了两个同类输入：DNS fixture 直接将同地址 TCP/UDP 两个原始 socket 转交 Tokio，SS 的所有 test-only port=0、replacement 和 Ready 插件夹具复用唯一 paired socket helper，在既有绑定交接点归还。B 分组为 `a0b9b789f46d5bb3b6113de0a5c8e412e8dcf203`、`feebfcd7151af46af507950608c279a6b9c0d0b7`、`3c4fc5e9ab5e324bc5e33dd9505280c2dfb3d3ee`；没有重试业务测试、放宽断言或调整期限。A 的 `8dc7328a` 修复实际 probe 期限边界：原 controller 的 unfinished 报告保留并映射 typed Timeout，过期后不构造下一 probe；实际 I/O 错误原样传播，后续清理仍消费同 controller 的真正 native 收据。新增真实 peer pending、无替代构造与独立最终 close 回归，不以报 Timeout 代替关闭完成。

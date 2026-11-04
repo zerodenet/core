@@ -54,7 +54,7 @@ mod relay_failure;
 pub(crate) mod route_runtime;
 mod running;
 pub(crate) mod sniff;
-#[cfg(feature = "managed-stream-runtime")]
+// Direct and standard inbound streams also recover DNS targets.
 mod target;
 #[cfg(feature = "raw-ip-runtime")]
 pub(crate) use target::resolve_packet_targets;
@@ -410,7 +410,9 @@ impl Proxy {
     where
         F: Future<Output = ()> + Send,
     {
-        orchestration::run_until(self, shutdown).await
+        orchestration::run_until(self, shutdown)
+            .await
+            .map_err(inbound_owners::preserve_io_kind)
     }
 
     pub async fn probe_outbound_single(

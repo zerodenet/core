@@ -147,7 +147,11 @@ fn connector_webhooks_cross_the_application_egress_boundary() {
     assert!(installation.contains("self.stop_active_services(state).await?"));
     assert!(network.contains("select_for_peer"));
     assert!(network.contains("ensure_connectable"));
-    assert!(network.contains("TokioSocket::connect_addr_on"));
+    let dial = read(&workspace_root().join("src/application/services/network/epoch/dial.rs"));
+    assert!(dial.contains("PendingTcpConnect::prepare("));
+    assert!(dial.contains("selection.ensure_connectable()?"));
+    assert!(dial.contains("self.originals"));
+    assert!(dial.contains("control"));
     assert!(proxy.contains("pub fn egress_interface_control"));
 }
 
@@ -356,6 +360,7 @@ fn engine_leaf_projection_stops_at_the_inventory_registry_preparation_boundary()
         let relative = path.strip_prefix(&proxy).expect("proxy-relative path");
         let allowed = relative == Path::new("inventory/runtime.rs")
             || relative == Path::new("inventory/packet.rs")
+            || relative == Path::new("inventory/device.rs")
             || relative == Path::new("inventory/tcp/selection.rs")
             || relative == Path::new("inventory/udp/leaf.rs")
             || relative == Path::new("inventory/udp/association.rs")
@@ -366,6 +371,14 @@ fn engine_leaf_projection_stops_at_the_inventory_registry_preparation_boundary()
             "{} must not carry engine leaves past inventory/registry preparation",
             path.display()
         );
+        if relative == Path::new("inventory/device.rs") {
+            for forbidden in [".await", "tokio::spawn", "SharedRawIpDevice::start"] {
+                assert!(
+                    !source.contains(forbidden),
+                    "device projection remains cold: {forbidden}"
+                );
+            }
+        }
     }
 
     // Standard TCP nodes are selected inside inventory, without requiring a
@@ -374,6 +387,12 @@ fn engine_leaf_projection_stops_at_the_inventory_registry_preparation_boundary()
     let selection = read(&proxy.join("inventory/tcp/selection.rs"));
     assert!(selection.contains("prepare_tcp_relay_chain"));
     assert!(selection.contains("native_tcp_candidate"));
+    // This existing engine enum variant is an input fact, not the Proxy
+    // orchestrator type. Preserve the blanket check for every other use.
+    let selection = selection.replace(
+        "ResolvedLeafOutbound::Proxy",
+        "ResolvedLeafOutbound::<leaf>",
+    );
     for forbidden in [
         "OutboundProtocolConfig::",
         "Proxy",

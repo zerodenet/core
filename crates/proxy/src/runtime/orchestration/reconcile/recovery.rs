@@ -35,6 +35,7 @@ impl OrchestrationState {
             acknowledgement.push_str(&format!("; candidate cleanup remains unconfirmed: {error}"));
         }
         if let Err(rollback_error) = rollback {
+            can_restore = false;
             warn!(
                 core_instance_id = proxy.core_instance_id(),
                 config_revision = proxy.config_revision(),
@@ -53,6 +54,7 @@ impl OrchestrationState {
                 )
                 .await
             {
+                can_restore = false;
                 warn!(
                     core_instance_id = proxy.core_instance_id(),
                     config_revision = proxy.config_revision(),
@@ -74,6 +76,7 @@ impl OrchestrationState {
                 )
                 .await
             {
+                can_restore = false;
                 acknowledgement.push_str(&format!(
                     "; component rollback remains unconfirmed: {error}"
                 ));
@@ -86,6 +89,32 @@ impl OrchestrationState {
             if let Err(error) = restore_dns(proxy, &self.applied_snapshot).await {
                 can_restore = false;
                 acknowledgement.push_str(&format!("; DNS recovery remains unconfirmed: {error}"));
+            }
+        }
+
+        // A source-preparation failure can require fresh original component
+        // generations without replacing DNS. Stage/start is not publication:
+        // admit only the actually restored plan after its real task scan.
+        if !recover_dns && can_restore {
+            let restored = async {
+                proxy
+                    .protocols
+                    .scan_components(
+                        &previous_config,
+                        tokio::time::Instant::now() + std::time::Duration::from_secs(5),
+                    )
+                    .await
+                    .map_err(|error| error.to_string())?;
+                proxy
+                    .protocols
+                    .commit_components(&previous_config, || Ok(()))
+            }
+            .await;
+            if let Err(error) = restored {
+                can_restore = false;
+                acknowledgement.push_str(&format!(
+                    "; component recovery publication remains unconfirmed: {error}"
+                ));
             }
         }
 

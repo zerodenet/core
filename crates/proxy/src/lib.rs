@@ -23,3 +23,8 @@ pub fn compiled_protocol_features() -> Vec<String> {
 
 #[cfg(all(test, any(feature = "vmess", feature = "mieru")))]
 mod dns_fixture;
+#[cfg(all(
+    test,
+    any(feature = "vmess", feature = "mieru", feature = "shadowsocks")
+))]
+mod socket_fixture;
