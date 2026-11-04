@@ -121,11 +121,15 @@ async fn public_shutdown_during_accepted_candidate_ready_drives_original_compens
     let gate = TcpListener::bind("127.0.0.1:0").await.unwrap();
     let reserved = crate::socket_fixture::tcp_udp();
     let port = reserved.0.local_addr().unwrap().port();
+    let initial_reserved = crate::socket_fixture::tcp_udp();
     let initial = zero_config::RuntimeConfig::parse(
-        r#"{
-        "inbounds":[{"tag":"last-good","listen":{"address":"127.0.0.1","port":0},
-            "protocol":{"type":"direct","target":"127.0.0.1","port":9}}],
-        "route":{"final":{"type":"direct"}}}"#,
+        &serde_json::json!({
+            "inbounds":[{"tag":"last-good","listen":{"address":"127.0.0.1",
+                "port":initial_reserved.0.local_addr().unwrap().port()},
+                "protocol":{"type":"direct","target":"127.0.0.1","port":9}}],
+            "route":{"final":{"type":"direct"}}
+        })
+        .to_string(),
     )
     .unwrap();
     let proxy = Proxy::new(initial.clone()).unwrap();
@@ -134,9 +138,16 @@ async fn public_shutdown_during_accepted_candidate_ready_drives_original_compens
         proxy.clone(),
     );
     let (stop, shutdown) = tokio::sync::oneshot::channel();
-    let run = proxy.run_until(async {
-        let _ = shutdown.await;
-    });
+    let run = async {
+        // This actual Direct source owns TCP and UDP at the same address.
+        // Keep both originals until this startup worker takes over binding.
+        drop(initial_reserved);
+        proxy
+            .run_until(async {
+                let _ = shutdown.await;
+            })
+            .await
+    };
     tokio::pin!(run);
     let mut ready = proxy.orchestration_ready.subscribe();
     tokio::select! {
