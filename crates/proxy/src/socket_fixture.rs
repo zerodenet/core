@@ -1,4 +1,6 @@
 //! Real paired loopback binds; a TCP reservation alone never reserves UDP.
+#![cfg(feature = "managed-datagram-runtime")]
+
 pub(crate) fn tcp_udp() -> (std::net::TcpListener, std::net::UdpSocket) {
     for _ in 0..16 {
         let tcp = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
