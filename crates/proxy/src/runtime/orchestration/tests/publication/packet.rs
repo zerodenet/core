@@ -78,8 +78,9 @@ async fn receive(tunnel: &mut PeerTunnel, socket: &UdpSocket) -> Option<Vec<u8>>
 #[tokio::test]
 async fn actual_packet_source_ready_candidate_drops_business_until_same_snapshot_commit() {
     let target = TcpListener::bind("127.0.0.1:0").await.unwrap();
-    let healthy = direct("healthy", "127.0.0.1", target.local_addr().unwrap());
+    let (healthy, reserved) = direct("healthy", "127.0.0.1", target.local_addr().unwrap());
     let proxy = Proxy::new(config(serde_json::json!([healthy.clone()]))).unwrap();
+    drop(reserved);
     let mut state = OrchestrationState::new(&proxy).await.unwrap();
     let wg = serde_json::json!({"tag":"packet-candidate","listen":{"address":"127.0.0.3","port":0},
         "protocol":{"type":"wireguard","private_key":STANDARD.encode([71;32]),"addresses":["10.0.0.1/32"],

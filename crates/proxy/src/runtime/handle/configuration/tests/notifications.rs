@@ -2,7 +2,9 @@ use super::*;
 
 #[tokio::test]
 async fn direct_host_notifications_drain_cancelled_accepted_apply_before_original_shutdown() {
-    let proxy = Proxy::new(config("198.18.0.0/24")).unwrap();
+    let reserved = crate::socket_fixture::tcp_udp();
+    let port = reserved.0.local_addr().unwrap().port();
+    let proxy = Proxy::new(config("198.18.0.0/24", port)).unwrap();
     DnsResolver::resolve(proxy.resolver.as_ref(), "last-good.example")
         .await
         .unwrap();
@@ -10,10 +12,11 @@ async fn direct_host_notifications_drain_cancelled_accepted_apply_before_origina
     let reconciler = super::owned::paused(false);
     let handle = ProxyHandle::new(EngineHandle::new(proxy.engine().clone()), proxy.clone())
         .with_config_apply_reconciler(reconciler.clone());
+    drop(reserved);
     let running = proxy.spawn();
     let request = tokio::spawn(async move {
         handle
-            .apply_runtime_config_and_wait(config("198.19.0.0/24"), Duration::from_secs(5))
+            .apply_runtime_config_and_wait(config("198.19.0.0/24", port), Duration::from_secs(5))
             .await
     });
     tokio::time::timeout(Duration::from_secs(5), reconciler.entered.notified())

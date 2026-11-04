@@ -3,9 +3,11 @@ use super::*;
 
 #[tokio::test]
 async fn persistent_candidate_keeps_actual_last_good_source_until_application_ready() {
+    let reserved = crate::socket_fixture::tcp_udp();
+    let port = reserved.0.local_addr().unwrap().port();
     let directory = tempfile::tempdir().unwrap();
     let path = directory.path().join("zero.json");
-    let previous = config("198.18.0.0/24");
+    let previous = config("198.18.0.0/24", port);
     let original = serde_json::to_vec_pretty(&previous).unwrap();
     std::fs::write(&path, &original).unwrap();
     let engine = zero_engine::Engine::new_with_config_path(previous, &path).unwrap();
@@ -13,12 +15,13 @@ async fn persistent_candidate_keeps_actual_last_good_source_until_application_re
     let reconciler = paused(false);
     let handle = ProxyHandle::new(EngineHandle::new(proxy.engine().clone()), proxy.clone())
         .with_config_apply_reconciler(reconciler.clone());
+    drop(reserved);
     let running = proxy.spawn();
     let revision = proxy.engine().config_revision();
     let committed = proxy.engine().runtime_snapshot();
     let request = tokio::spawn(async move {
         handle
-            .apply_config_and_wait(config("198.19.0.0/24"), Duration::from_secs(5))
+            .apply_config_and_wait(config("198.19.0.0/24", port), Duration::from_secs(5))
             .await
     });
     tokio::time::timeout(Duration::from_secs(5), reconciler.entered.notified())
@@ -64,9 +67,11 @@ async fn persistent_candidate_keeps_actual_last_good_source_until_application_re
 
 #[tokio::test]
 async fn application_failure_restores_snapshot_without_ever_overwriting_deployment_source() {
+    let reserved = crate::socket_fixture::tcp_udp();
+    let port = reserved.0.local_addr().unwrap().port();
     let directory = tempfile::tempdir().unwrap();
     let path = directory.path().join("zero.json");
-    let previous = config("198.18.0.0/24");
+    let previous = config("198.18.0.0/24", port);
     let original = serde_json::to_vec_pretty(&previous).unwrap();
     std::fs::write(&path, &original).unwrap();
     let engine = zero_engine::Engine::new_with_config_path(previous, &path).unwrap();
@@ -75,10 +80,11 @@ async fn application_failure_restores_snapshot_without_ever_overwriting_deployme
     let reconciler = paused(true);
     let handle = ProxyHandle::new(EngineHandle::new(proxy.engine().clone()), proxy.clone())
         .with_config_apply_reconciler(reconciler.clone());
+    drop(reserved);
     let running = proxy.spawn();
     let request = tokio::spawn(async move {
         handle
-            .apply_config_and_wait(config("198.19.0.0/24"), Duration::from_secs(5))
+            .apply_config_and_wait(config("198.19.0.0/24", port), Duration::from_secs(5))
             .await
     });
     tokio::time::timeout(Duration::from_secs(5), reconciler.entered.notified())
@@ -99,15 +105,21 @@ async fn application_failure_restores_snapshot_without_ever_overwriting_deployme
 
 #[tokio::test]
 async fn waiter_timeout_retains_same_accepted_transaction_until_real_final_ack() {
-    let proxy = Proxy::new(config("198.18.0.0/24")).unwrap();
+    let reserved = crate::socket_fixture::tcp_udp();
+    let port = reserved.0.local_addr().unwrap().port();
+    let proxy = Proxy::new(config("198.18.0.0/24", port)).unwrap();
     let reconciler = paused(false);
     let handle = ProxyHandle::new(EngineHandle::new(proxy.engine().clone()), proxy.clone())
         .with_config_apply_reconciler(reconciler.clone());
+    drop(reserved);
     let running = proxy.spawn();
     let before = proxy.engine().config_revision();
     let request = tokio::spawn(async move {
         handle
-            .apply_runtime_config_and_wait(config("198.19.0.0/24"), Duration::from_millis(250))
+            .apply_runtime_config_and_wait(
+                config("198.19.0.0/24", port),
+                Duration::from_millis(250),
+            )
             .await
     });
     tokio::time::timeout(Duration::from_secs(5), reconciler.entered.notified())
@@ -136,6 +148,8 @@ async fn waiter_timeout_retains_same_accepted_transaction_until_real_final_ack()
 #[cfg(unix)]
 #[tokio::test]
 async fn actual_source_write_failure_restores_original_snapshot_dns_and_native_owner() {
+    let reserved = crate::socket_fixture::tcp_udp();
+    let port = reserved.0.local_addr().unwrap().port();
     use std::os::unix::fs::PermissionsExt;
     struct RestorePermissions(std::path::PathBuf, std::fs::Permissions);
     impl Drop for RestorePermissions {
@@ -145,19 +159,20 @@ async fn actual_source_write_failure_restores_original_snapshot_dns_and_native_o
     }
     let directory = tempfile::tempdir().unwrap();
     let path = directory.path().join("zero.json");
-    let original = config("198.18.0.0/24");
+    let original = config("198.18.0.0/24", port);
     let bytes = serde_json::to_vec_pretty(&original).unwrap();
     std::fs::write(&path, &bytes).unwrap();
     let engine = zero_engine::Engine::new_with_config_path(original, &path).unwrap();
     let proxy = Proxy::from_engine(engine).unwrap();
     let previous = proxy.engine().runtime_snapshot();
     let handle = ProxyHandle::new(EngineHandle::new(proxy.engine().clone()), proxy.clone());
+    drop(reserved);
     let running = proxy.spawn();
     let permissions = std::fs::metadata(directory.path()).unwrap().permissions();
     let restore = RestorePermissions(directory.path().to_owned(), permissions);
     std::fs::set_permissions(directory.path(), std::fs::Permissions::from_mode(0o555)).unwrap();
     let error = handle
-        .apply_config_and_wait(config("198.19.0.0/24"), Duration::from_secs(5))
+        .apply_config_and_wait(config("198.19.0.0/24", port), Duration::from_secs(5))
         .await
         .unwrap_err();
     drop(restore);
