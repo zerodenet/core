@@ -22,9 +22,21 @@ fn config(inbounds: serde_json::Value) -> RuntimeConfig {
     )
     .unwrap()
 }
-fn direct(tag: &str, listen: &str, target: std::net::SocketAddr) -> serde_json::Value {
-    serde_json::json!({"tag":tag,"listen":{"address":listen,"port":0},
-        "protocol":{"type":"direct","target":target.ip().to_string(),"port":target.port()}})
+fn direct(
+    tag: &str,
+    listen: &str,
+    target: std::net::SocketAddr,
+) -> (
+    serde_json::Value,
+    (std::net::TcpListener, std::net::UdpSocket),
+) {
+    let reserved = crate::socket_fixture::tcp_udp_on(listen.parse().unwrap());
+    let port = reserved.0.local_addr().unwrap().port();
+    (
+        serde_json::json!({"tag":tag,"listen":{"address":listen,"port":port},
+            "protocol":{"type":"direct","target":target.ip().to_string(),"port":target.port()}}),
+        reserved,
+    )
 }
 async fn pending(
     proxy: &Proxy,
@@ -80,11 +92,13 @@ async fn actual_direct_tcp_udp_ready_candidate_cannot_forward_before_commit() {
             break (tcp, udp);
         }
     };
-    let healthy = direct("healthy", "127.0.0.1", target.local_addr().unwrap());
+    let (healthy, reserved) = direct("healthy", "127.0.0.1", target.local_addr().unwrap());
     let proxy = Proxy::new(config(serde_json::json!([healthy.clone()]))).unwrap();
+    drop(reserved);
     let mut state = OrchestrationState::new(&proxy).await.unwrap();
     let healthy_owner = proxy.inbound_owners.owner("healthy").unwrap();
-    let candidate = direct("candidate", "127.0.0.2", target.local_addr().unwrap());
+    let (candidate, reserved) = direct("candidate", "127.0.0.2", target.local_addr().unwrap());
+    drop(reserved);
     let snapshot = pending(
         &proxy,
         &mut state,

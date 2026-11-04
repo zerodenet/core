@@ -5,8 +5,10 @@ use tokio::net::UdpSocket;
 async fn actual_standard_udp_peer_returns_original_egress_and_joins_before_owner_confirmation() {
     timeout(Duration::from_secs(8), async {
         let target = UdpSocket::bind("127.0.0.1:0").await.unwrap();
+        let reserved = crate::socket_fixture::tcp_udp();
+        let port = reserved.0.local_addr().unwrap().port();
         let config = RuntimeConfig::parse(&serde_json::json!({
-            "inbounds":[{"tag":"first","listen":{"address":"127.0.0.1","port":0},
+            "inbounds":[{"tag":"first","listen":{"address":"127.0.0.1","port":port},
                 "protocol":{"type":"direct","target":"127.0.0.1","port":target.local_addr().unwrap().port()}}],
             "route":{"final":{"type":"direct"}}
         }).to_string()).unwrap();
@@ -17,6 +19,7 @@ async fn actual_standard_udp_peer_returns_original_egress_and_joins_before_owner
         let prepared = proxy.protocols.prepare_inbound_bind(config.inbounds[0].clone(), None).unwrap().unwrap();
         let (shutdown, _) = watch::channel(false);
         let mut lease = proxy.inbound_owners.reserve_listener("first", &config, &proxy.protocols, prepared, shutdown.clone(), NonZeroUsize::new(1).unwrap()).unwrap();
+        drop(reserved);
         lease.bind_tcp().unwrap();
         let (definition, listener, installed) = promote_tcp(lease.finish().unwrap());
         let owner = installed.owner();
