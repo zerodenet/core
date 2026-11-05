@@ -13,11 +13,11 @@ use serde::Serialize;
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader, BufWriter};
 use tokio::sync::Mutex as TokioMutex;
 use tokio::task::JoinSet;
-use tokio_util::sync::CancellationToken;
 use zero_api::{
     ApiResponse, AuthContext, CommandRequest, CommandService, EventFilter, EventSource, Permission,
     QueryService,
 };
+use zero_platform_tokio::contract::CancellationToken;
 use zero_proxy::ProxyHandle;
 use zero_runtime::configuration::{
     ControlBudget, ControlBudgetLimits, ControlBudgetPermit, ControlCharge,

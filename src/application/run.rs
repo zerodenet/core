@@ -103,7 +103,11 @@ async fn run(
                 .grpc_listen
                 .parse()
                 .map_err(|error| std::io::Error::other(format!("gRPC listen address: {error}")))?;
-            let grpc = zero_grpc::prepare(addr, status.grpc_security.clone())?;
+            let grpc = zero_grpc::prepare_with_budget(
+                addr,
+                status.grpc_security.clone(),
+                services.control_budget(),
+            )?;
             services.install_grpc(grpc.clone())?;
             grpc.start(ipc_handle.clone()).await?;
         }
@@ -114,13 +118,15 @@ async fn run(
         let controls = services.shutdown_control().await;
         let monitor = services.shutdown_status_monitor().await;
         let dispatcher = services.shutdown_dispatcher().await;
-        if controls.is_ok() && monitor.is_ok() && dispatcher.is_ok() {
+        let quota = engine.shutdown_principal_quota_state();
+        if controls.is_ok() && monitor.is_ok() && dispatcher.is_ok() && quota.is_ok() {
             services.finish_control_startup();
         } else {
             tracing::error!(
                 ?controls,
                 ?monitor,
                 ?dispatcher,
+                ?quota,
                 "original control startup cleanup remains retained"
             );
         }

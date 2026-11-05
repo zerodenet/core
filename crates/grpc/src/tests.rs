@@ -96,6 +96,7 @@ async fn idle_grpc_subscription_disconnect_joins_the_original_without_a_followup
         .unwrap()
         .into_inner();
     assert_eq!(jobs.jobs.lock().unwrap().len(), 1);
+    assert_eq!(jobs.budget.usage().subscriptions, 1);
     drop(stream);
     tokio::time::timeout(std::time::Duration::from_secs(1), jobs.join_all())
         .await
@@ -103,4 +104,5 @@ async fn idle_grpc_subscription_disconnect_joins_the_original_without_a_followup
         .unwrap();
     assert_eq!(released.load(std::sync::atomic::Ordering::Acquire), 1);
     assert!(jobs.jobs.lock().unwrap()[0].joined_successfully());
+    assert_eq!(jobs.budget.usage().subscriptions, 0);
 }

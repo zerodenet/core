@@ -1,6 +1,7 @@
 //! The server Scope owns each actual Hyper connection and H2 stream future.
 //! Tonic supplies the same API service; its detached transport runner is unused.
 use super::*;
+pub(super) mod connections;
 use std::{future::Future, io, num::NonZeroUsize};
 use tokio_util::sync::CancellationToken;
 use tower_service::Service;
@@ -10,9 +11,7 @@ use zero_platform_tokio::contract::{
     scope::{TaskClass, TaskScope},
     ChannelError, Impact, Reason, Stage,
 };
-use zero_platform_tokio::{
-    AcceptedTasks, AcceptedTcpClaim, ControlledTcpListener, ControlledTcpListenerOwner,
-};
+use zero_platform_tokio::{AcceptedTasks, ControlledTcpListener, ControlledTcpListenerOwner};
 
 pub(super) const MAX_CONNECTIONS: usize = 4096;
 const MAX_STREAMS: u32 = 32;
@@ -110,7 +109,6 @@ where
         .accepted_task_receiver()
         .expect("actual gRPC accepted graph");
     let mut scope = owner.scope.lock().await;
-    let mut claims = Vec::<AcceptedTcpClaim>::new();
     let mut failure = None;
     let work = catch_work(async {
         loop {
@@ -118,14 +116,7 @@ where
                 exit = scope.next_exit() => {
                     if let Some(exit) = exit {
                         receiver.observe_joined(exit.id);
-                        let mut pending = Vec::new();
-                        for claim in claims.drain(..) {
-                            match receiver.close_if_joined(&claim, deadline()).await.map_err(io::Error::other)? {
-                                Some(closed) if closed.matches(&claim) => {},
-                                _ => pending.push(claim),
-                            }
-                        }
-                        claims = pending;
+                        owner.connections.reap(&receiver).await?;
                         if let Err(error) = exit.result {
                             if error.reason == Reason::Internal && error.impact == Impact::Component { failure.get_or_insert_with(|| io::Error::other(error)); break; }
                             tracing::debug!(%error, "gRPC original task joined with failure");
@@ -133,10 +124,13 @@ where
                     }
                 }
                 _ = &mut shutdown => break,
-                accepted = listener.accept_owned() => {
-                    let (accepted, _peer) = accepted.map_err(io::Error::other)?;
-                    let claim = accepted.claim();
-                    claims.push(claim);
+                accepted = listener.accept_owned_with_admission(|| owner.connections.before(&owner.subscriptions.budget), || owner.connections.no_native()) => {
+                    let (accepted, _peer) = match accepted {
+                        Ok(value) => value,
+                        Err(error) if error.reason == Reason::Capacity => { tokio::time::sleep(Duration::from_millis(25)).await; continue; }
+                        Err(error) => return Err(io::Error::other(error)),
+                    };
+                    owner.connections.installed(accepted.claim());
                     let svc = svc.clone();
                     let tls = tls.clone();
                     let stop = owner.stop.child_token();
@@ -152,6 +146,9 @@ where
                         });
                         let mut builder = hyper::server::conn::http2::Builder::new(executor);
                         builder.max_concurrent_streams(MAX_STREAMS);
+                        // A separate finite physical H2 buffer after adapter
+                        // queue handoff; poll_next never claims a native write.
+                        builder.max_send_buf_size(32 * 1024);
                         builder.timer(hyper_util::rt::TokioTimer::new());
                         if let Some(tls) = tls {
                             let stream = tokio::select! { _ = stop.cancelled() => return Ok(()), result = tls.accept(socket) => result.map_err(io_error)? };
@@ -193,6 +190,7 @@ where
             "gRPC actual original closure remains incomplete",
         ));
     }
+    owner.connections.confirm_all_closed();
     failure.map_or(Ok(()), Err)
 }
 async fn catch_work<F: Future>(work: F) -> Result<F::Output, Box<dyn std::any::Any + Send>> {

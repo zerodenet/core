@@ -67,6 +67,7 @@ impl ApplicationServices {
         Ok(())
     }
     pub(in crate::application) async fn shutdown_control(self: &Arc<Self>) -> io::Result<()> {
+        self.control_budget.close_admission();
         let originals = self
             .control
             .lock()
@@ -112,6 +113,11 @@ impl ApplicationServices {
                 Err(error) => {
                     failure.get_or_insert(error);
                 }
+            }
+        }
+        if failure.is_none() {
+            if let Err(error) = self.control_budget.confirm_released() {
+                failure = Some(error);
             }
         }
         if failure.is_some() {
