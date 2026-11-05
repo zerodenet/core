@@ -1,6 +1,7 @@
 //! Cold preparation and bounded current-plan storage for migrated components.
 mod cold;
 mod devices;
+mod discard;
 mod maintenance;
 mod plan;
 mod replacement;
