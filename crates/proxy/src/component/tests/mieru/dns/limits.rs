@@ -152,9 +152,8 @@ async fn actual_domain_pool_bootstrap_cycle_is_rejected_before_either_purpose_st
     settings.servers.insert("native".into(), detour);
     settings.policy.node_server = Some("native".into());
     config.runtime.dns = Some(settings);
-    let error = Proxy::new(config)
-        .err()
-        .expect("the actual domain pool cannot bootstrap through itself");
+    let error =
+        Proxy::new(config).expect_err("the actual domain pool cannot bootstrap through itself");
     let zero_engine::EngineError::Config(zero_config::ConfigError::InvalidDns(error)) = error
     else {
         panic!("expected the original Node detour isolation error: {error}")
