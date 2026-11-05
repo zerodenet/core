@@ -77,6 +77,7 @@ async fn unchanged_candidate_reuses_actual_factory_peer_owners_and_pending_tcp()
     PendingEndpoints::release_closed(&adapter.pending_endpoints, &abandoned_expected).unwrap();
     drop(abandoned);
     drop(abandoned_guard);
+    adapter.close_discarded_devices().await.unwrap();
     assert!(device.is_usable());
     assert!(pending.peer_stack(0).unwrap().is_open());
     assert!(witnesses.iter().all(|witness| !witness.is_joined()));

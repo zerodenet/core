@@ -1,5 +1,12 @@
 use super::*;
 impl RawIpDevicePool {
+    /// Drain only originals already abandoned by a dropped staging guard.
+    /// Published healthy entries stay admitted; no replacement is allocated.
+    pub(crate) async fn close_discarded(&self) -> Result<(), EngineError> {
+        let result = self.drain_retired().await;
+        self.drain_compatibility_workers().await;
+        result
+    }
     /// Fence and retain affected originals BEFORE any candidate allocation.
     pub(crate) async fn retire_changed(
         &self,
