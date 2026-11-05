@@ -277,7 +277,9 @@ impl WireguardAdapter {
             next_linked: linked,
             linked_updates,
             traffic,
-            pending,
+            pending: Some(pending),
+            published: false,
+            stopped: Vec::new(),
         })
     }
 }

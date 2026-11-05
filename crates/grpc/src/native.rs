@@ -167,6 +167,11 @@ where
     scope.begin_shutdown();
     while let Some(exit) = scope.next_exit().await {
         receiver.observe_joined(exit.id);
+        if let Err(error) = exit.result {
+            if error.impact == Impact::Component {
+                failure.get_or_insert_with(|| io::Error::other(error));
+            }
+        }
     }
     // The listener view outlives original protocol work; graph cancellation
     // cannot drop its retained subscription cleanup futures prematurely.

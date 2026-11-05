@@ -1,4 +1,5 @@
 //! Build persistent packet paths for protocol devices from concrete outbound tags.
+pub(super) mod publication;
 
 use std::{collections::HashMap, sync::Arc};
 

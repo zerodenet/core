@@ -1,37 +1,54 @@
 use super::*;
 impl PreparedWireguardDevices {
-    pub(crate) async fn publish(self) {
-        let Self {
-            pool,
-            profiles,
-            next_profiles,
-            staged,
-            linked,
-            next_linked,
-            linked_updates,
-            mut pending,
-            traffic,
-        } = self;
-        for prepared in traffic {
+    pub(crate) fn publish_sync(&mut self) {
+        if self.published {
+            return;
+        }
+        for prepared in self.traffic.drain(..) {
             prepared.publish();
         }
-        let stopped = {
-            let mut active = profiles.lock().unwrap_or_else(|error| error.into_inner());
-            for update in linked_updates {
-                update.publish();
-            }
-            let stopped = pool.publish(staged);
-            *active = next_profiles;
-            *linked.lock().unwrap_or_else(|error| error.into_inner()) = next_linked;
+        let mut active = self
+            .profiles
+            .lock()
+            .unwrap_or_else(|error| error.into_inner());
+        for update in self.linked_updates.drain(..) {
+            update.publish();
+        }
+        self.stopped = self.pool.publish_pending(&mut self.staged);
+        *active = std::mem::take(&mut self.next_profiles);
+        *self
+            .linked
+            .lock()
+            .unwrap_or_else(|error| error.into_inner()) = std::mem::take(&mut self.next_linked);
+        self.published = true;
+        // Keep the original PendingEndpoints and fresh staging custody armed.
+        // Failure after this synchronous switch must stop only fresh originals.
+    }
+    pub(crate) fn confirm_publication(&mut self) {
+        assert!(
+            self.published,
+            "linked maps must precede commit confirmation"
+        );
+        self.staged.confirm_publication();
+        if let Some(mut pending) = self.pending.take() {
             pending.published();
-            drop(pending);
-            stopped
-        };
-        for device in stopped {
+        }
+    }
+    pub(crate) async fn finish_publication(&mut self) {
+        // Borrow originals in place. Cancelled waiters leave both this guard
+        // and the pool's same retiring controllers/joins available for retry.
+        for device in &self.stopped {
             if let Err(error) = device.wait_workers_stopped().await {
                 tracing::warn!(%error, "compatibility device publication joined original failed workers");
             }
         }
+        self.stopped.clear();
+    }
+    #[cfg(test)]
+    pub(crate) async fn publish(mut self) {
+        self.publish_sync();
+        self.confirm_publication();
+        self.finish_publication().await;
     }
 }
 

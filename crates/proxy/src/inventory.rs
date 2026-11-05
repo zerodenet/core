@@ -40,6 +40,8 @@ pub struct ProtocolInventory {
     registry: std::sync::Arc<ProtocolRegistry>,
     host: std::sync::Arc<crate::runtime::RuntimeHost>,
     devices: std::sync::Arc<crate::adapters::devices::Devices>,
+    #[cfg(feature = "raw-ip-runtime")]
+    device_publication: device::publication::PublicationSlot,
 }
 
 impl Default for ProtocolInventory {
@@ -48,6 +50,8 @@ impl Default for ProtocolInventory {
         Self {
             registry: std::sync::Arc::new(registry),
             devices,
+            #[cfg(feature = "raw-ip-runtime")]
+            device_publication: Default::default(),
             host: std::sync::Arc::new(crate::runtime::RuntimeHost::new(factories)),
         }
     }
@@ -62,6 +66,8 @@ impl ProtocolInventory {
         Self {
             registry: std::sync::Arc::new(registry),
             devices,
+            #[cfg(feature = "raw-ip-runtime")]
+            device_publication: Default::default(),
             host: std::sync::Arc::new(crate::runtime::RuntimeHost::new(factories)),
         }
     }
@@ -73,6 +79,8 @@ impl ProtocolInventory {
         Self {
             registry: std::sync::Arc::new(registry),
             devices,
+            #[cfg(feature = "raw-ip-runtime")]
+            device_publication: Default::default(),
             host: std::sync::Arc::new(crate::runtime::RuntimeHost::new(factories)),
         }
     }

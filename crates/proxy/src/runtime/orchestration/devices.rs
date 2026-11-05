@@ -97,6 +97,9 @@ impl OrchestrationState {
                 let publication = async {
                     proxy
                         .protocols
+                        .stage_device_publication(snapshot.config(), prepared)?;
+                    proxy
+                        .protocols
                         .scan_components(snapshot.config(), Instant::now() + Duration::from_secs(5))
                         .await?;
                     self.preparing_inbounds.ensure_open()?;
@@ -113,7 +116,6 @@ impl OrchestrationState {
                 }
                 .await;
                 if let Err(error) = publication {
-                    drop(prepared);
                     if let Err(cleanup) = proxy
                         .protocols
                         .discard_device_components(
@@ -134,7 +136,21 @@ impl OrchestrationState {
                     );
                     return;
                 }
-                prepared.publish().await;
+                if let Err(error) = proxy
+                    .protocols
+                    .finish_device_publication(snapshot.config())
+                    .await
+                {
+                    self.device_retry_at = Some(Instant::now() + self.device_retry_delay);
+                    self.publish_network_recovery(
+                        proxy,
+                        generation,
+                        zero_api::EndpointRecoveryPhase::Retrying,
+                        Some(self.device_retry_delay.as_millis() as u64),
+                        Some(error.to_string()),
+                    );
+                    return;
+                }
                 self.publish_endpoint_facts(proxy);
                 self.publish_network_recovery(
                     proxy,

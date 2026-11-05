@@ -23,27 +23,28 @@ pub(crate) fn dns_roots(config: &zero_config::RuntimeConfig) -> Vec<ServiceRoot>
                 continue;
             }
             if let Some(outbound) = config.outbounds.iter().find(|outbound| outbound.tag == tag) {
-                let endpoints =
-                    if outbound.protocol.runtime_kind() == zero_config::OutboundRuntimeKind::Direct {
-                        server
-                            .port()
-                            .into_iter()
-                            .flat_map(|port| {
-                                server
-                                    .endpoint_addresses()
-                                    .unwrap_or_default()
-                                    .into_iter()
-                                    .map(move |address| endpoint(&address.to_string(), port))
-                            })
-                            .collect::<Vec<_>>()
-                    } else {
-                        outbound
-                            .protocol
-                            .endpoint()
-                            .into_iter()
-                            .map(|(host, port)| endpoint(host, port))
-                            .collect()
-                    };
+                let endpoints = if outbound.protocol.runtime_kind()
+                    == zero_config::OutboundRuntimeKind::Direct
+                {
+                    server
+                        .port()
+                        .into_iter()
+                        .flat_map(|port| {
+                            server
+                                .endpoint_addresses()
+                                .unwrap_or_default()
+                                .into_iter()
+                                .map(move |address| endpoint(&address.to_string(), port))
+                        })
+                        .collect::<Vec<_>>()
+                } else {
+                    outbound
+                        .protocol
+                        .endpoint()
+                        .into_iter()
+                        .map(|(host, port)| endpoint(host, port))
+                        .collect()
+                };
                 for endpoint in endpoints {
                     let root = ServiceRoot {
                         endpoint,

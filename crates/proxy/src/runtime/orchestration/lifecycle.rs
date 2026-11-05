@@ -158,9 +158,10 @@ where
                 #[cfg(feature = "raw-ip-runtime")]
                 {
                     let preparing = state.preparing_inbounds.clone();
+                    let stopped = {
                     let reconciliation = Box::pin(state.reconcile_outbound_network(proxy));
                     tokio::pin!(reconciliation);
-                    let stopped = tokio::select! { biased;
+                    tokio::select! { biased;
                         _ = &mut shutdown => {
                             proxy.host.apply().begin_shutdown();
                             proxy.protocols.stop_component_admission();
@@ -169,6 +170,7 @@ where
                             true
                         }
                         _ = &mut reconciliation => false,
+                    }
                     };
                     if stopped { return state.drain_configuration(proxy).await; }
                 }

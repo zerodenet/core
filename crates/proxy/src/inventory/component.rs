@@ -106,17 +106,33 @@ impl super::ProtocolInventory {
         config: &Arc<RuntimeConfig>,
         commit: impl FnOnce() -> Result<T, String>,
     ) -> Result<T, String> {
-        self.host.components().commit(config, commit)
+        #[cfg(feature = "raw-ip-runtime")]
+        {
+            self.commit_device_publication(config, commit)
+        }
+        #[cfg(not(feature = "raw-ip-runtime"))]
+        {
+            self.host.components().commit(config, commit)
+        }
     }
     pub(crate) async fn shutdown_components(
         &self,
         deadline: tokio::time::Instant,
     ) -> Result<(), zero_engine::EngineError> {
-        self.host
+        #[cfg(feature = "raw-ip-runtime")]
+        let publication = self.stop_device_publication(None, deadline).await?;
+        let closed = self
+            .host
             .components()
             .shutdown(deadline)
             .await
-            .map_err(|error| zero_engine::EngineError::Io(std::io::Error::other(error)))
+            .map_err(|error| zero_engine::EngineError::Io(std::io::Error::other(error)));
+        closed?;
+        #[cfg(feature = "raw-ip-runtime")]
+        if let Some(publication) = publication {
+            self.clear_device_publication(&publication);
+        }
+        Ok(())
     }
     pub(crate) fn prepare_components(
         &self,
@@ -132,6 +148,23 @@ impl super::ProtocolInventory {
     ) -> Result<Arc<ComponentPlan>, SharedError> {
         #[cfg(feature = "raw-ip-runtime")]
         {
+            if self
+                .device_publication
+                .lock()
+                .expect("device publication poisoned")
+                .is_some()
+            {
+                return Err(Arc::new(
+                    zero_platform_tokio::contract::ChannelError::new(
+                        zero_platform_tokio::contract::Stage::Prepare,
+                        zero_platform_tokio::contract::Reason::StalePlan,
+                        zero_platform_tokio::contract::Impact::Component,
+                    )
+                    .with_source(std::io::Error::other(
+                        "previous actual device publication remains owned",
+                    )),
+                ));
+            }
             self.host
                 .components()
                 .prepare_with_device_resources(config.clone(), |resources| {
@@ -166,12 +199,17 @@ impl super::ProtocolInventory {
         config: &Arc<RuntimeConfig>,
         deadline: tokio::time::Instant,
     ) -> Result<(), zero_engine::EngineError> {
+        let publication = self.stop_device_publication(Some(config), deadline).await?;
         self.host
             .components()
             .discard_device_candidate(config, deadline)
             .await
             .map_err(|error| zero_engine::EngineError::Io(std::io::Error::other(error)))?;
-        self.devices.cleanup_discarded_resources(config).await
+        self.devices.cleanup_discarded_resources(config).await?;
+        if let Some(publication) = publication {
+            self.clear_device_publication(&publication);
+        }
+        Ok(())
     }
     pub(crate) fn validate_components(
         &self,

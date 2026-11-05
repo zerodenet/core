@@ -154,6 +154,16 @@ impl OrchestrationState {
                 }
             }
         }
+        #[cfg(feature = "raw-ip-runtime")]
+        if let Some(devices) = recovered_devices.take() {
+            if let Err(error) = proxy
+                .protocols
+                .stage_device_publication(&previous_config, devices)
+            {
+                can_restore = false;
+                acknowledgement.push_str(&format!("; device recovery staging failed: {error}"));
+            }
+        }
         if can_restore {
             let result = async {
                 proxy
@@ -183,8 +193,13 @@ impl OrchestrationState {
         }
         #[cfg(feature = "raw-ip-runtime")]
         if can_restore {
-            if let Some(devices) = recovered_devices.take() {
-                devices.publish().await;
+            if let Err(error) = proxy
+                .protocols
+                .finish_device_publication(&previous_config)
+                .await
+            {
+                can_restore = false;
+                acknowledgement.push_str(&format!("; device recovery completion failed: {error}"));
             }
         }
         // Dropping an unpublished candidate requests stop only. Its actual

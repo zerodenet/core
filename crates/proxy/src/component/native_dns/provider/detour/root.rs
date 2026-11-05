@@ -141,6 +141,20 @@ impl UpstreamOpener for Root {
     ) -> Result<(), ChannelError> {
         self.check_pending(binding, &adoption)?;
         let mut pending = self.pending.lock().expect("DNS pending originals poisoned");
+        // Candidate retries share one actual caller. Completed earlier native
+        // attempts are not concurrent occupancy or a retained query history.
+        // Unknown native disposition or users still held remain charged here.
+        pending.retain(|entry| {
+            !entry.task.same_registration(&self.caller)
+                || !entry
+                    .original
+                    .closed()
+                    .is_some_and(|closed| closed.matches(&entry.original))
+                || !entry
+                    .original
+                    .users_closed()
+                    .is_some_and(|closed| closed.matches(&entry.original))
+        });
         if pending.iter().any(|entry| {
             entry.task.same_registration(&self.caller) && entry.original.same_slot(&adoption)
         }) {

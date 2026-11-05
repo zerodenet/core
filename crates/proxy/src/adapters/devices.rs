@@ -119,14 +119,38 @@ impl Devices {
 }
 #[cfg(feature = "raw-ip-runtime")]
 impl PreparedDevices {
-    pub(crate) async fn publish(self) {
+    /// Infallible same-owner map/activation step for the catalog commit closure.
+    /// This guard remains responsible for fresh originals until confirmation.
+    pub(crate) fn publish_sync(&mut self) {
         #[cfg(feature = "wireguard")]
-        if let Some(wireguard) = self.wireguard {
-            wireguard.publish().await;
+        if let Some(wireguard) = self.wireguard.as_mut() {
+            wireguard.publish_sync();
         }
-        if let Some(direct) = self.direct {
-            direct.publish();
+        if let Some(direct) = self.direct.as_mut() {
+            direct.publish_sync();
         }
+    }
+    /// Call synchronously after that exact catalog commit returned success.
+    pub(crate) fn confirm_publication(&mut self) {
+        #[cfg(feature = "wireguard")]
+        if let Some(wireguard) = self.wireguard.as_mut() {
+            wireguard.confirm_publication();
+        }
+        if let Some(direct) = self.direct.as_mut() {
+            direct.confirm_publication();
+        }
+    }
+    /// Wait only for the original stopped workers; no new publication occurs.
+    pub(crate) async fn finish_publication(&mut self) {
+        #[cfg(feature = "wireguard")]
+        if let Some(wireguard) = self.wireguard.as_mut() {
+            wireguard.finish_publication().await;
+        }
+    }
+    pub(crate) async fn publish(mut self) {
+        self.publish_sync();
+        self.confirm_publication();
+        self.finish_publication().await;
     }
 }
 

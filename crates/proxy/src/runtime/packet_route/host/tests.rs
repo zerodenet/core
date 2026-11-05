@@ -337,4 +337,5 @@ async fn fragmented_host_returns_preserve_delivery_and_declare_incomplete_role_m
 #[path = "tests/ownership.rs"]
 mod ownership;
 
+#[path = "tests/budget.rs"]
 mod budget;

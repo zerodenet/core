@@ -211,7 +211,17 @@ impl OrchestrationState {
                 .await;
             return;
         }
-        if !proxy.pending_reload_matches(&new_snapshot) {
+        #[cfg(feature = "raw-ip-runtime")]
+        if let Err(error) = proxy
+            .protocols
+            .stage_device_publication(&new_config, prepared_outbound_devices)
+        {
+            self.reject_reload(proxy, &new_snapshot, error.to_string())
+                .await;
+            return;
+        }
+        let deferred_commit = proxy.pending_reload_matches(&new_snapshot);
+        if !deferred_commit {
             let commit = async {
                 let token = self
                     .dns_reload_resources(&new_snapshot)
@@ -244,15 +254,19 @@ impl OrchestrationState {
             }
             .await;
             if let Err(message) = commit {
-                #[cfg(feature = "raw-ip-runtime")]
-                drop(prepared_outbound_devices);
                 self.finish_rejection(proxy, &new_snapshot, message, true)
                     .await;
                 return;
             }
         }
         #[cfg(feature = "raw-ip-runtime")]
-        prepared_outbound_devices.publish().await;
+        if !deferred_commit {
+            if let Err(error) = proxy.protocols.finish_device_publication(&new_config).await {
+                self.finish_rejection(proxy, &new_snapshot, error.to_string(), true)
+                    .await;
+                return;
+            }
+        }
         listeners::reconcile_urltests(
             &candidate_urltest_runtime,
             &self.shutdown_rx,
