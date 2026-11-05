@@ -165,8 +165,8 @@ pub(in crate::runtime) async fn run(
                 if let Err(failure)=result {
                     // An explicit host stop can race the original writer's
                     // revocation. Preserve genuine I/O and Unknown failures.
-                    if (cancel.is_cancelled() || *shutdown.borrow()) && failure.error.reason==Reason::Revoked && failure.error.delivery==zero_platform_tokio::contract::DeliveryState::NotSubmitted { break Ok(()); }
-                    return Err(std::io::Error::other(failure).into());
+                    if (cancel.is_cancelled() || *shutdown.borrow()) && failure.failure.error.reason==Reason::Revoked && failure.failure.delivery==zero_platform_tokio::contract::DeliveryState::NotSubmitted { break Ok(()); }
+                    return Err(std::io::Error::other(failure.failure).into());
                 }
             }
             _=pins.management_changed()=>{route.retain_admitted_packet_pins(&mut pins);pins.expire();}

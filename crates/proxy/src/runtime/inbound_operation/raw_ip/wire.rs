@@ -23,7 +23,7 @@ pub(super) async fn run(
     grant: zero_platform_tokio::contract::component::GrantedDatagramListener,
     egress: zero_platform_tokio::EgressInterfaceControl,
     packets: mpsc::Sender<zero_core::packet::IpPacket>,
-    mut responses: mpsc::Receiver<zero_traits::PacketBuffer>,
+    mut responses: mpsc::Receiver<zero_core::packet::IpPacket>,
     facts: zero_core::packet::PacketFacts,
     observer: Arc<dyn zero_platform_tokio::contract::packet::PacketObserver>,
     mut shutdown: watch::Receiver<bool>,
@@ -228,6 +228,8 @@ pub(super) async fn run(
                 refresh_device_generation(operation.device.as_ref(), &mut generation, &mut endpoints, &mut fragments, &mut endpoint_fragments, &initial_endpoints);
                 traffic.refresh(operation.device.as_ref());
                 let Some(response) = response else { break if *shutdown.borrow() { Ok(()) } else { Err(EngineError::Io(std::io::Error::other("raw-IP response channel closed"))) }; };
+                if response.return_association.endpoint!=facts.endpoint || response.return_association.generation!=facts.inbound.generation {return Err(std::io::Error::other("original Packet response belongs to another source endpoint generation").into());}
+                let response=response.into_payload();
                 tracing::trace!(ip_bytes = response.len(), "raw-IP inbound stack response");
                 let Some(destination) = packet::ip_destination(&response) else { continue; };
                 let Some(peer) = operation.device.peer_for_destination(destination) else { continue; };

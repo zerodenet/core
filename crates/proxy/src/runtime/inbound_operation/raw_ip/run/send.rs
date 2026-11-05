@@ -5,14 +5,15 @@ use zero_core::packet::IpPacket;
 use zero_platform_tokio::contract::{
     lifecycle::DynChannelControl,
     packet::{self, BoxPacketSession, PacketLimits, PacketTx},
-    BoxFuture, CloseReason, SendFailure, SendReceipt,
+    BoxFuture, CloseReason, SendReceipt,
 };
 pub(super) struct Sender {
     tx: Pin<Box<dyn PacketTx>>,
     control: Box<dyn DynChannelControl>,
     limits: PacketLimits,
 }
-pub(super) type Pending = BoxFuture<'static, (Sender, Result<SendReceipt, SendFailure>)>;
+pub(super) type Pending =
+    BoxFuture<'static, (Sender, Result<SendReceipt, packet::OwnedSendFailure>)>;
 impl Sender {
     pub(super) fn take(session: BoxPacketSession) -> (Self, Pin<Box<dyn packet::PacketRx>>) {
         (
@@ -26,10 +27,10 @@ impl Sender {
     }
     pub(super) fn send(mut self, packet: IpPacket) -> Pending {
         Box::pin(async move {
-            let result = packet::send(
+            let result = packet::send_owned(
                 self.tx.as_mut(),
                 self.control.as_mut(),
-                &packet,
+                packet,
                 &self.limits,
             )
             .await;

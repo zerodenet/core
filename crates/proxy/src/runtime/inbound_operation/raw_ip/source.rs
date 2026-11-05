@@ -28,6 +28,7 @@ struct Shared {
     tasks: TaskRegistrar,
     proxies: tasks::RetainedTasks<()>,
     done: Mutex<Option<TaskJoinWitness>>,
+    pending_tx: Arc<Mutex<Option<IpPacket>>>,
 }
 struct State {
     wire: Option<wire::Wire>,
@@ -72,6 +73,7 @@ pub(crate) fn source(
         tasks: context.tasks,
         proxies,
         done: Mutex::new(None),
+        pending_tx: Arc::new(Mutex::new(None)),
     });
     (
         Owner {
@@ -111,6 +113,7 @@ impl ResourceLifecycle for Owner {
                 .await
                 .map_err(|source| error(Reason::Timeout).with_source(source))?;
         }
+        self.shared.pending_tx.lock().unwrap().take();
         // The real Scope join above ends wire custody. Native close belongs to
         // the original listener provider, not this logical-session report.
         self.shared.state.lock().unwrap().grant.take();
@@ -220,6 +223,7 @@ impl PacketReply for Reply {
         let egress = observer.egress();
         let proxies = self.shared.proxies.clone();
         let guard = cancel.clone().drop_guard();
+        let source_facts = self.facts.clone();
         let facts = self.facts;
         let (_id, witness) = self
             .shared
@@ -239,12 +243,15 @@ impl PacketReply for Reply {
             tx: Tx {
                 sender: PollSender::new(responses),
                 cancel: cancel.clone(),
+                pending: self.shared.pending_tx.clone(),
+                facts: source_facts,
             },
             rx: Rx { receiver: received },
             control: Control {
                 cancel,
                 stop: self.shared.stop.clone(),
                 witness,
+                pending: self.shared.pending_tx.clone(),
             },
             limits: PacketLimits {
                 mtu: usize::from(mtu).max(65535),
