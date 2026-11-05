@@ -1,6 +1,6 @@
 //! Tagged Direct DNS uses its declared original and the actual dial policy.
 use super::*;
-use std::{io, sync::Arc, time::Duration};
+use std::{sync::Arc, time::Duration};
 use zero_dns::{DnsOutboundConnectFuture, DnsOutboundConnector};
 
 #[derive(Debug)]
@@ -48,7 +48,10 @@ async fn direct(reject: bool) {
         });
         if reject {
             assert!(query.await.unwrap().is_err());
-            assert_eq!(listener.try_accept().unwrap_err().kind(),io::ErrorKind::WouldBlock);
+            std::future::poll_fn(|cx| {
+                assert!(listener.poll_accept(cx).is_pending());
+                std::task::Poll::Ready(())
+            }).await;
         } else {
             let (mut stream,source)=listener.accept().await.unwrap();
             assert_eq!(source.ip(),endpoint.ip());
