@@ -45,6 +45,12 @@ impl DnsSystem {
         let coordinator = node
             .map(|node| &node.coordinator)
             .unwrap_or(&self.query_coordinator);
+        // RFC 6761 answers require neither an OS lookup nor a native task.
+        // Keep the same local lifecycle and configuration-generation fences.
+        if message::normalize_domain(&domain).is_ok_and(|name| localhost::is_localhost(&name)) {
+            coordinator.ensure_local_open()?;
+            return Ok(localhost::addresses(Default::default()));
+        }
         let work = coordinator.resolve(key, async move {
             match native {
                 Some(source) => {
@@ -113,6 +119,24 @@ impl DnsSystem {
         let coordinator = node
             .map(|node| &node.coordinator)
             .unwrap_or(&self.query_coordinator);
+        if message::normalize_domain(&domain).is_ok_and(|name| localhost::is_localhost(&name)) {
+            coordinator.ensure_local_open()?;
+            let addresses = crate::family::filter_addresses(
+                &domain,
+                localhost::addresses(Default::default()),
+                family,
+            )?;
+            return Ok(addresses
+                .into_iter()
+                .filter(|address| {
+                    matches!(
+                        (query_type, address),
+                        (message::TYPE_A, IpAddress::V4(_))
+                            | (message::TYPE_AAAA, IpAddress::V6(_))
+                    )
+                })
+                .collect());
+        }
         let work = coordinator.resolve(key, async move {
             match native {
                 Some(source) => {

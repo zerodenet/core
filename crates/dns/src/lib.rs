@@ -642,7 +642,9 @@ impl DnsSystem {
                     self.use_node_source(&mut snapshot);
                 }
                 let work = resolve_snapshot(&domain, role, snapshot);
-                if matches!(role, DnsQueryRole::Node | DnsQueryRole::Bootstrap) {
+                if matches!(role, DnsQueryRole::Node | DnsQueryRole::Bootstrap)
+                    && !localhost::is_localhost(&domain)
+                {
                     if let Some(node) = &self.node_queries {
                         return node.source.tasks()?.bootstrap(work).await?;
                     }
