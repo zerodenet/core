@@ -43,8 +43,14 @@ mod windows_socket;
 #[cfg(any(unix, windows))]
 pub use controlled_tcp::PendingTcpConnect;
 #[cfg(unix)]
-pub use controlled_tcp::PendingUnixConnect;
+pub use controlled_tcp::{PendingUnixAccept, PendingUnixConnect};
+#[cfg(unix)]
+mod controlled_unix;
 pub use controlled_tcp::{ControlledTcpControl, ControlledTcpStream};
+#[cfg(unix)]
+pub use controlled_unix::{
+    ControlledUnixListener, ControlledUnixListenerOwner, UnixListenerClosed,
+};
 mod dial;
 mod network_service;
 pub use dial::validate_dial_policy;
