@@ -14,6 +14,9 @@ mod pooled;
 #[cfg(all(feature = "vless", feature = "trojan"))]
 #[path = "relay/production.rs"]
 mod production;
+#[cfg(all(feature = "vless", feature = "trojan"))]
+#[path = "relay/loans.rs"]
+mod loans;
 #[path = "relay/replacement.rs"]
 mod replacement;
 #[tokio::test]
