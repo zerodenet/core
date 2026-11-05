@@ -171,7 +171,10 @@ impl Managed {
                 witness: Mutex::new(None),
                 received: Mutex::new(None),
                 accepted: AtomicBool::new(false),
-                stop: owner.cancel.child_token(),
+                // The caller's retained adoption retires this very original.
+                // Its cancellation must wake the same H2 driver, not a sibling
+                // token whose native body could only escape through an I/O error.
+                stop: grant.cancellation(),
                 opening: AtomicBool::new(true),
                 done: AtomicBool::new(false),
                 user_live: AtomicBool::new(false),
