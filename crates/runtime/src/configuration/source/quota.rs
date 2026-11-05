@@ -99,7 +99,7 @@ impl ConfigurationSource {
             Ok(storage)
         })?
     }
-    pub(super) fn quota_io_available(&self) -> io::Result<()> {
+    pub(in crate::configuration) fn quota_io_available(&self) -> io::Result<()> {
         let storage = self
             .quota
             .0
