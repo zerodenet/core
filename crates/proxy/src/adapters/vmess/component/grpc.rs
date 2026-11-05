@@ -1,12 +1,13 @@
 //! Cold production Datagram selection over the protocol's actual gRPC owner.
 use super::*;
+use crate::component::background::stateless;
 use std::{num::NonZeroUsize, sync::Arc, time::Duration};
 use zero_platform_tokio::contract::{
     component::{BuildContext, ComponentFactory, ComponentInstance, ComponentSpec},
     lifecycle::BuildError,
 };
 pub(crate) enum Options {
-    Ordinary(Arc<::vmess::component::Options>),
+    Ordinary(Arc<stateless::Options<::vmess::component::Options>>),
     Grpc(Arc<::vmess::component::grpc::Options>),
 }
 pub(crate) struct Factory;
@@ -14,7 +15,9 @@ impl ComponentFactory for Factory {
     type Options = Options;
     fn describe(&self, options: &Options) -> ComponentSpec {
         match options {
-            Options::Ordinary(options) => ::vmess::component::Factory.describe(options),
+            Options::Ordinary(options) => {
+                stateless::Factory(::vmess::component::Factory).describe(options)
+            }
             Options::Grpc(options) => ::vmess::component::grpc::Factory.describe(options),
         }
     }
@@ -25,7 +28,7 @@ impl ComponentFactory for Factory {
     ) -> Result<ComponentInstance, BuildError> {
         match options.as_ref() {
             Options::Ordinary(options) => {
-                ::vmess::component::Factory.build(options.clone(), context)
+                stateless::Factory(::vmess::component::Factory).build(options.clone(), context)
             }
             Options::Grpc(options) => {
                 ::vmess::component::grpc::Factory.build(options.clone(), context)
@@ -81,8 +84,21 @@ impl super::super::VmessAdapter {
             unreachable!("owning protocol projection")
         };
         if grpc.is_none() {
-            return super::component_options(input)
-                .map(|options| Options::Ordinary(Arc::new(options)));
+            return super::component_options(input).map(|options| {
+                Options::Ordinary(Arc::new(stateless::Options::new(
+                    options,
+                    zero_core::request::Destination::new(
+                        match zero_core::address::parse_ip_literal(server) {
+                            Some(std::net::IpAddr::V4(ip)) => zero_core::Address::Ipv4(ip.octets()),
+                            Some(std::net::IpAddr::V6(ip)) => zero_core::Address::Ipv6(ip.octets()),
+                            None => zero_core::Address::Domain(server.clone()),
+                        },
+                        *port,
+                    ),
+                    input.dial.to_policy(),
+                    NonZeroUsize::new(4).unwrap(),
+                )))
+            });
         }
         let refs = super::super::outbound_options(&input.tag, (server, *port), &input.protocol)
             .expect("owning protocol projection");

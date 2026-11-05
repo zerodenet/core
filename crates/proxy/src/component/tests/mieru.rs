@@ -5,6 +5,8 @@ mod cross_owner;
 mod dns;
 mod fixtures;
 mod reject;
+#[cfg(all(feature = "vless", feature = "vmess", feature = "trojan"))]
+mod stateless;
 mod udp_handoff;
 use crate::{Proxy, ProxyHandle};
 use fixtures::*;

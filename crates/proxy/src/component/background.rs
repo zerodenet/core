@@ -17,6 +17,7 @@ use zero_platform_tokio::{
 };
 
 pub(crate) mod pool;
+pub(crate) mod stateless;
 
 pub(crate) struct BackgroundNetwork {
     pub(crate) egress: EgressInterfaceControl,
