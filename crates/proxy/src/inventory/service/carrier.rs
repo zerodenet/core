@@ -33,7 +33,7 @@ impl ProtocolInventory {
                     let borrowed = spec.task_limit.is_none()
                         && components.has_carrier_provider(slot.role_id())
                         && components.stream_dependencies_supported(slot.role_id());
-                    if slot.dial != Default::default()
+                    if slot.dial != Default::default() && !(direct && !relay)
                         || !spec.roles.contains(&RoleKind::Stream)
                         || direct && relay
                         || !direct

@@ -58,6 +58,29 @@ impl ConfigurationSource {
         })?
     }
 
+    /// Initial control material uses the kernel's actual retained source. This
+    /// preserves existing byte semantics; parsing happens only after the same
+    /// original file has a confirmed close outcome.
+    pub fn read_initial_material(self: &Arc<Self>, path: &Path) -> io::Result<Vec<u8>> {
+        super::super::startup::with_source(self.clone(), || {
+            self.ensure_resource_io_available()?;
+            self.io.read(path)
+        })?
+    }
+
+    /// A caller with an explicit material budget uses that same original-file
+    /// owner and close barrier, rather than opening a parallel file reader.
+    pub fn read_control_material(
+        self: &Arc<Self>,
+        path: &Path,
+        max_bytes: usize,
+    ) -> io::Result<Vec<u8>> {
+        super::super::startup::with_source(self.clone(), || {
+            self.ensure_resource_io_available()?;
+            self.io.read_limited(path, max_bytes)
+        })?
+    }
+
     /// Cold raw document readers (early logging and CLI submission) retain
     /// their own parse/fallback behavior. An unconfirmed original remains in
     /// the same finite startup slot and blocks later preparation/submission.

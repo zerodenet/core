@@ -4,6 +4,67 @@ use crate::component::ResourcePreparation;
 use std::collections::BTreeSet;
 
 impl ComponentCatalog {
+    /// Start the retained deferred graph only after this exact staged
+    /// candidate's StopOld transaction has confirmed every affected original.
+    /// Its real caller retains any resolve/install invocation across this wait.
+    /// Ordinary Service startup cannot obtain this admission by reading a plan.
+    pub async fn start_device_components(
+        &self,
+        config: Arc<RuntimeConfig>,
+        deadline: tokio::time::Instant,
+    ) -> Result<(), ChannelError> {
+        self.drive_supervised(self.start_devices_inner(config, deadline))
+            .await
+    }
+
+    async fn start_devices_inner(
+        &self,
+        config: Arc<RuntimeConfig>,
+        deadline: tokio::time::Instant,
+    ) -> Result<(), ChannelError> {
+        let _transition = tokio::time::timeout_at(deadline, self.transition.lock())
+            .await
+            .map_err(|_| invalid(Reason::Timeout, "device transition remains owned"))?;
+        let plan = {
+            let state = self.state.lock().expect("component catalog poisoned");
+            let candidate = state
+                .staged
+                .as_ref()
+                .filter(|entry| entry.matches(&config))
+                .ok_or_else(|| invalid(Reason::StalePlan, "no exact staged device candidate"))?;
+            let plan = candidate.ready();
+            if state.maintenance
+                || !plan.device_pass
+                || plan
+                    .startable_before_devices()
+                    .any(|slot| !slot.has_started() || !slot.can_reuse())
+                || !state.replacement.as_ref().is_some_and(|pending| {
+                    Arc::ptr_eq(&pending.candidate, plan)
+                        && pending.released()
+                        && pending.matches_current(state.current.as_ref().map(Current::ready))
+                })
+            {
+                return Err(invalid(
+                    Reason::StalePlan,
+                    "device start requires its confirmed current replacement",
+                ));
+            }
+            // This grants preparation Service access only. Business publication
+            // still requires every real deferred start and the existing commit.
+            self.admission
+                .stage(plan.order.iter().map(|slot| slot.admission_grant()));
+            plan.clone()
+        };
+        for slot in &plan.order {
+            if plan.deferred_devices.contains(&slot.id) {
+                slot.start(deadline).await?;
+            }
+        }
+        plan.scan_tasks(deadline).await?;
+        plan.started.store(true, Ordering::Release);
+        Ok(())
+    }
+
     /// One accepted candidate contributes its real recipes to the original
     /// allocator, canonical identity index, dependency order and generation floor.
     /// The callback is cold. Its returned IDs must come from that very pass.

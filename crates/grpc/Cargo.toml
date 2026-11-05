@@ -14,10 +14,13 @@ rustls.workspace = true
 tonic = { version = "0.12", features = ["transport", "tls"] }
 tokio = { workspace = true, features = ["sync", "rt", "net"] }
 tokio-stream = "0.1"
+tokio-util.workspace = true
 tracing.workspace = true
 serde_json.workspace = true
 zero-api = { path = "../api" }
+zero-core = { path = "../core" }
 zero-engine = { path = "../engine" }
+zero-platform-tokio = { path = "../platform/tokio" }
 
 [build-dependencies]
 tonic-build = "0.12"
