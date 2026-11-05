@@ -641,7 +641,13 @@ impl DnsSystem {
                 if matches!(role, DnsQueryRole::Node | DnsQueryRole::Bootstrap) {
                     self.use_node_source(&mut snapshot);
                 }
-                resolve_snapshot(&domain, role, snapshot).await
+                let work = resolve_snapshot(&domain, role, snapshot);
+                if matches!(role, DnsQueryRole::Node | DnsQueryRole::Bootstrap) {
+                    if let Some(node) = &self.node_queries {
+                        return node.source.tasks()?.bootstrap(work).await?;
+                    }
+                }
+                work.await
             }
             None => {
                 let (ipv4, ipv6) = tokio::join!(

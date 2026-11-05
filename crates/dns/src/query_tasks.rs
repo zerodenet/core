@@ -15,6 +15,7 @@ tokio::task_local! {
     static QUERY_ORIGIN: TaskJoinWitness;
     static QUERY_CANCEL: CancellationToken;
     static QUERY_RECORD: Arc<Record>;
+    static BOOTSTRAP_TARGET: std::sync::Weak<Shared>;
 }
 mod descendants;
 #[cfg(feature = "doh")]
@@ -55,6 +56,7 @@ enum TaskKind {
     Driver,
 }
 struct Record {
+    budget: OwnedDnsQueryBudget,
     capacity: Mutex<Option<OwnedSemaphorePermit>>,
     kind: TaskKind,
     ancestors: Vec<TaskJoinWitness>,
@@ -91,13 +93,19 @@ pub struct OwnedDnsQueryBudget {
 }
 impl OwnedDnsQueryBudget {
     pub fn new(limit: NonZeroUsize) -> Self {
+        Self::with_limits(limit, limit, limit)
+    }
+    pub fn with_limits(query: NonZeroUsize, blocking: NonZeroUsize, _driver: NonZeroUsize) -> Self {
         Self {
-            query: Arc::new(Semaphore::new(limit.get())),
-            blocking: Arc::new(Semaphore::new(limit.get())),
+            query: Arc::new(Semaphore::new(query.get())),
+            blocking: Arc::new(Semaphore::new(blocking.get())),
             #[cfg(feature = "doh")]
-            driver: Arc::new(Semaphore::new(limit.get())),
+            driver: Arc::new(Semaphore::new(_driver.get())),
             retained: Arc::default(),
         }
+    }
+    fn same_budget(&self, other: &Self) -> bool {
+        Arc::ptr_eq(&self.retained, &other.retained)
     }
     fn reserve(&self, kind: TaskKind) -> io::Result<OwnedSemaphorePermit> {
         // Budget bookkeeping observes only the actual original join. It
@@ -250,6 +258,7 @@ impl OwnedDnsQueryTasks {
         #[cfg(not(feature = "doh"))]
         let ancestors = self.inherited_tasks()?;
         let record = Arc::new(Record {
+            budget: self.0.budget.clone(),
             capacity: Mutex::new(Some(self.0.budget.reserve(kind)?)),
             kind,
             ancestors,

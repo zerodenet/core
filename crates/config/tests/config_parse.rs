@@ -1,5 +1,7 @@
 use std::fs;
 use zero_runtime::configuration::RuntimeConfigPreparation;
+#[path = "config_parse/owner_budgets.rs"]
+mod owner_budgets;
 #[path = "config_parse/udp_direct_budget.rs"]
 mod udp_direct_budget;
 use std::path::{Path, PathBuf};

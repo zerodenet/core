@@ -32,7 +32,7 @@ async fn doh(network_change: bool) {
         let (proxy, running, handle) = start(settings.clone()).await;
         zero_dns::test_support::install_doh_ca(&proxy.resolver, "query", tls.certificate.clone())
             .unwrap();
-        let query = tokio::spawn({
+        let mut query = tokio::spawn({
             let resolver = proxy.resolver.clone();
             async move {
                 resolver
@@ -40,10 +40,10 @@ async fn doh(network_change: bool) {
                     .await
             }
         });
-        let (bytes, answer) = tokio::time::timeout_at(deadline(), tls.requests.recv())
-            .await
-            .unwrap()
-            .unwrap();
+        let (bytes, answer) = tokio::select! {
+            request = tokio::time::timeout_at(deadline(), tls.requests.recv()) => request.unwrap().unwrap(),
+            result = &mut query => panic!("DoH query completed before its actual request reached TLS fixture: {result:?}"),
+        };
         let old = pending(&proxy).await;
         let child = old.original.clone().unwrap();
         let donor = child.parent().unwrap().clone();
@@ -65,7 +65,7 @@ async fn doh(network_change: bool) {
             .apply_runtime_config_and_wait(settings, Duration::from_secs(5))
             .await
             .unwrap();
-        let query = tokio::spawn({
+        let mut query = tokio::spawn({
             let resolver = proxy.resolver.clone();
             async move {
                 resolver
@@ -88,7 +88,7 @@ async fn doh(network_change: bool) {
         if network_change {
             proxy.egress_interface_control().invalidate_network();
         }
-        let query = tokio::spawn({
+        let mut query = tokio::spawn({
             let resolver = proxy.resolver.clone();
             async move {
                 resolver
@@ -96,10 +96,10 @@ async fn doh(network_change: bool) {
                     .await
             }
         });
-        let (bytes, answer) = tokio::time::timeout_at(deadline(), tls.requests.recv())
-            .await
-            .unwrap()
-            .unwrap();
+        let (bytes, answer) = tokio::select! {
+            request = tokio::time::timeout_at(deadline(), tls.requests.recv()) => request.unwrap().unwrap(),
+            result = &mut query => panic!("DoH query completed before its actual request reached TLS fixture: {result:?}"),
+        };
         let next = pending(&proxy).await;
         if network_change {
             assert!(old.task.is_joined());

@@ -34,7 +34,7 @@ impl Provider {
         });
         {
             let mut users = self.users.lock().expect("DNS users poisoned");
-            if users.len() >= LIMIT {
+            if users.len() >= self.budget.limits().originals.get() {
                 return Err(std::io::Error::new(
                     std::io::ErrorKind::WouldBlock,
                     "DNS original capacity exhausted",
