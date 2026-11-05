@@ -1571,6 +1571,8 @@ struct VmessMuxStream {
     target: Address,
     port: u16,
     network: Network,
+    #[cfg(feature = "runtime")]
+    native_writer: Option<zero_transport::pooled_driver::datagram_queue::PacketWriter>,
     write_tx: mpsc::UnboundedSender<Vec<u8>>,
     read_rx: mpsc::Receiver<VmessMuxDownlink>,
     write_buf: Vec<u8>,
@@ -1632,7 +1634,12 @@ impl VmessMuxConn {
         let (reader, writer) = tokio::io::split(stream);
         let (write_tx, write_rx) = mpsc::unbounded_channel::<Vec<u8>>();
         let (native_udp_tx, native_udp_rx) =
-            zero_transport::pooled_driver::datagram_queue::channel();
+            zero_transport::pooled_driver::datagram_queue::channel_with_limits(
+                8,
+                (max_concurrency as usize).max(1).min(u16::MAX as usize),
+                65535 + 1024,
+            )
+            .expect("bounded actual MUX FIFO limits");
         let streams = Arc::new(Mutex::new(std::collections::HashMap::new()));
         let closed = Arc::new(AtomicBool::new(false));
         let response_backlog = MuxResponseBacklog::from_policy(response_backlog_policy);
@@ -1701,7 +1708,7 @@ impl VmessMuxConn {
         target: Address,
         port: u16,
         network: Network,
-    ) -> impl AsyncRead + AsyncWrite + Send + Unpin + 'static {
+    ) -> VmessMuxStream {
         let (down_tx, down_rx) = mpsc::channel(self.response_backlog_frames + 1);
         self.streams.lock().unwrap().insert(session_id, down_tx);
 
@@ -1946,6 +1953,8 @@ impl VmessMuxStream {
             target,
             port,
             network,
+            #[cfg(feature = "runtime")]
+            native_writer: None,
             write_tx,
             read_rx,
             write_buf: Vec::new(),
@@ -1973,6 +1982,11 @@ impl VmessMuxStream {
             )
         }
         .map_err(protocol_error)?;
+        #[cfg(feature = "runtime")]
+        if let Some(writer) = &mut self.native_writer {
+            writer.send(frame)?;
+            return Ok(take);
+        }
         self.write_tx
             .send(frame)
             .map_err(|_| io::Error::new(io::ErrorKind::BrokenPipe, "vmess mux writer closed"))?;
@@ -2010,6 +2024,10 @@ where
 
 impl Drop for VmessMuxStream {
     fn drop(&mut self) {
+        #[cfg(feature = "runtime")]
+        if self.native_writer.take().is_some() {
+            self.ended = true;
+        }
         if !self.ended {
             if !self.opened {
                 let _ = self.write_tx.send(
@@ -2078,9 +2096,13 @@ impl AsyncRead for VmessMuxStream {
 impl AsyncWrite for VmessMuxStream {
     fn poll_write(
         mut self: Pin<&mut Self>,
-        _cx: &mut Context<'_>,
+        cx: &mut Context<'_>,
         buf: &[u8],
     ) -> Poll<io::Result<usize>> {
+        #[cfg(feature = "runtime")]
+        if self.native_writer.is_some() {
+            return self.poll_native_write(cx, buf);
+        }
         if let Err(error) = self.flush_pending() {
             return Poll::Ready(Err(error));
         }
@@ -2090,11 +2112,19 @@ impl AsyncWrite for VmessMuxStream {
         Poll::Ready(self.queue_frame(buf))
     }
 
-    fn poll_flush(mut self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<io::Result<()>> {
+    fn poll_flush(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
+        #[cfg(feature = "runtime")]
+        if self.native_writer.is_some() {
+            return self.poll_native_flush(cx);
+        }
         Poll::Ready(self.flush_pending())
     }
 
-    fn poll_shutdown(mut self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<io::Result<()>> {
+    fn poll_shutdown(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
+        #[cfg(feature = "runtime")]
+        if self.native_writer.is_some() {
+            return self.poll_native_shutdown(cx);
+        }
         if let Err(error) = self.flush_pending() {
             return Poll::Ready(Err(error));
         }
