@@ -120,7 +120,7 @@ impl HostPacketDevice {
             > + Send
             + 'static,
     {
-        let (writes, rx) = mpsc::channel::<Write>(128);
+        let (writes, rx) = mpsc::channel::<Write>(config.write_queue.get());
         let returns = Arc::new(PacketReturns::default());
         let (stop, stopped) = watch::channel(false);
         let (activate, activated) = watch::channel(false);
