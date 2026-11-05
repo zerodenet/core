@@ -336,7 +336,13 @@ impl OrchestrationState {
                 proxy.engine.cancel_endpoint_flows(&binding, directions);
             }
         }
-        self.publish_endpoint_facts(proxy);
+        // Accepted applies still hold the unpublished same-device guard at
+        // Ready. Only their existing post-commit observer may publish the new
+        // incarnation census; observing here would mix new listeners with old
+        // devices and invent a second running-generation transition.
+        if !deferred_commit {
+            self.publish_endpoint_facts(proxy);
+        }
         log_reload_reconciled(&new_config);
         // For an accepted apply, its persistent task takes over retirement and
         // commit after this real acknowledgement. Resolver retains the token.

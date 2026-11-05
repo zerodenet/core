@@ -148,6 +148,21 @@ async fn cancel_while_real_node_dns_is_pending_cannot_spawn_late_candidate_stack
     });
     let proxy =
         crate::Proxy::new(zero_config::RuntimeConfig::parse(&config.to_string()).unwrap()).unwrap();
+    // The node resolver now consumes its real registered host Service owner.
+    // A Proxy::new cold plan alone grants no DNS socket or background driver.
+    let snapshot = proxy.engine().runtime_snapshot();
+    let running = proxy.spawn();
+    tokio::time::timeout_at(deadline(), async {
+        while proxy
+            .protocols
+            .current_components(snapshot.config())
+            .is_none()
+        {
+            tokio::task::yield_now().await;
+        }
+    })
+    .await
+    .unwrap();
     let upstream = proxy.tcp_runtime_services().upstream();
     let adapter = WireguardAdapter::default();
     let recipe = recipe(
@@ -181,7 +196,7 @@ async fn cancel_while_real_node_dns_is_pending_cannot_spawn_late_candidate_stack
     // Only the existing global query workers are joined here. This is no claim
     // about global DNS native UDP closure or the endpoint listener's native I/O.
     assert!(scope.shutdown(deadline()).await.is_complete());
-    proxy.resolver.shutdown_queries(deadline()).await.unwrap();
+    running.shutdown().await.unwrap();
 }
 
 mod canonical;

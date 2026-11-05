@@ -13,6 +13,13 @@ fn quota_lease_and_snapshot_keep_actual_originals_and_do_not_write_the_configura
         storage.read().unwrap().unwrap(),
         br#"{"version":1,"balances":[]}"#
     );
+    let parsed = storage
+        .read_with(|reader| {
+            serde_json::from_reader::<_, serde_json::Value>(reader).map_err(io::Error::other)
+        })
+        .unwrap()
+        .unwrap();
+    assert_eq!(parsed["version"], 1);
     assert!(!config.exists());
     assert_eq!(source.path(), Some(config.as_path()));
     source.confirm_original_io_closed().unwrap();
@@ -38,6 +45,36 @@ fn quota_lease_and_snapshot_keep_actual_originals_and_do_not_write_the_configura
     let next = source.open_quota_storage(&path).unwrap();
     next.close_lease().unwrap();
     source.confirm_quota_storage_closed().unwrap();
+}
+
+#[test]
+fn quota_snapshot_decode_failure_returns_only_after_the_same_original_file_closes() {
+    let directory = tempfile::tempdir().unwrap();
+    let path = directory.path().join("quota.json");
+    std::fs::write(&path, b"not-json").unwrap();
+    let source = Arc::new(ConfigurationSource::default());
+    let (bytes, decoded) = source
+        .read_quota_snapshot(&path, |reader| {
+            serde_json::from_reader::<_, serde_json::Value>(reader)
+                .map_err(|error| io::Error::new(io::ErrorKind::InvalidData, error))
+        })
+        .unwrap();
+    assert_eq!(bytes, 8);
+    let error = decoded.unwrap_err();
+    assert!(error
+        .get_ref()
+        .unwrap()
+        .downcast_ref::<serde_json::Error>()
+        .is_some());
+    source.confirm_original_io_closed().unwrap();
+    let (acquired, closed, retained, unknown) = source.io.original_observation();
+    assert_eq!((acquired, closed), (1, 1));
+    assert!(!retained && !unknown);
+    assert!(
+        !lock_path(&path).exists(),
+        "inspection cannot acquire a writer lease"
+    );
+    assert_eq!(source.read_initial_material(&path).unwrap(), b"not-json");
 }
 
 #[test]

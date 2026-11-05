@@ -71,6 +71,28 @@ impl ConfigurationSource {
         super::super::startup::retain_unknown(self.clone());
     }
 
+    /// Decode a quota snapshot through this source's actual short-file slot.
+    /// The bounded BufReader preserves streaming preflight for large files;
+    /// neither the native handle nor a writer lease escapes to the Engine.
+    /// Domain decode errors return only after the original close is confirmed.
+    pub fn read_quota_snapshot<T>(
+        self: &Arc<Self>,
+        path: &Path,
+        decode: impl FnOnce(&mut dyn std::io::Read) -> io::Result<T>,
+    ) -> io::Result<(u64, io::Result<T>)> {
+        super::super::startup::with_source(self.clone(), || {
+            self.ensure_resource_io_available()?;
+            self.io.with_file(
+                || std::fs::File::open(path),
+                |original| {
+                    let bytes = original.metadata()?.len();
+                    let mut reader = std::io::BufReader::new(original);
+                    Ok((bytes, decode(&mut reader)))
+                },
+            )
+        })?
+    }
+
     /// Installs the sole cold quota child before opening or trying its native
     /// lease. A second accounting registry cannot borrow an active lease.
     pub fn open_quota_storage(
@@ -271,6 +293,32 @@ impl QuotaStorage {
     pub fn read(&self) -> io::Result<Option<Vec<u8>>> {
         self.with_source(|source| files::read_optional(&self.path, &source.io))
     }
+    /// Stream the durable book under the same actual lease and source IO
+    /// close barrier. Failed/missing reads do not construct another file owner.
+    pub fn read_with<T>(
+        &self,
+        decode: impl FnOnce(&mut dyn std::io::Read) -> io::Result<T>,
+    ) -> io::Result<Option<T>> {
+        self.with_source(|source| {
+            let result = source.io.with_file(
+                || std::fs::File::open(&self.path),
+                |original| {
+                    let mut reader = std::io::BufReader::new(original);
+                    decode(&mut reader)
+                },
+            );
+            match result {
+                Err(error)
+                    if error.kind() == io::ErrorKind::NotFound
+                        && source.io.ensure_available().is_ok() =>
+                {
+                    Ok(None)
+                }
+                result => result.map(Some),
+            }
+        })
+    }
+
     pub fn replace(&self, bytes: &[u8]) -> io::Result<()> {
         self.with_source(|source| {
             let parent = files::parent(&self.path);

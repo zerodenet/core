@@ -9,8 +9,8 @@ use std::thread;
 use std::time::Duration;
 
 use support::{
-    acquire_port_lock, free_port, http_get, http_post_json, remove_temp_file, wait_for_port,
-    write_temp_config,
+    acquire_port_lock, free_port, http_get, http_post_json, remove_temp_file, wait_for_child_port,
+    wait_for_port, write_temp_config,
 };
 
 #[test]
@@ -225,6 +225,8 @@ fn local_status_listener_can_switch_selector_group() {
         }}"#
     );
     let config_path = write_temp_config(&config, "selector-control");
+    let output_path = config_path.with_extension("startup.log");
+    let output = std::fs::File::create(&output_path).expect("retain zero startup output");
 
     let (ready_tx, ready_rx) = mpsc::channel();
     let echo_thread = thread::spawn(move || {
@@ -244,13 +246,15 @@ fn local_status_listener_can_switch_selector_group() {
             &format!("127.0.0.1:{status_port}"),
             config_path.to_str().expect("utf-8 config path"),
         ])
-        .stdout(Stdio::null())
-        .stderr(Stdio::null())
+        .stdout(Stdio::from(
+            output.try_clone().expect("share startup capture"),
+        ))
+        .stderr(Stdio::from(output))
         .spawn()
         .expect("spawn zero run");
 
-    wait_for_port(status_port);
-    wait_for_port(socks_port);
+    wait_for_child_port(&mut child, status_port, &output_path);
+    wait_for_child_port(&mut child, socks_port, &output_path);
 
     let initial_config = http_get(status_port, "/api/v1/config");
     let initial_body = initial_config.split("\r\n\r\n").nth(1).expect("http body");
@@ -339,6 +343,7 @@ fn local_status_listener_can_switch_selector_group() {
     let _ = child.wait();
     let _ = echo_thread.join();
     remove_temp_file(&config_path);
+    remove_temp_file(&output_path);
 }
 
 #[test]

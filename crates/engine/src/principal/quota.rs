@@ -172,7 +172,7 @@ impl PrincipalQuotaRegistry {
             return Ok(Self::default());
         };
         let storage = source.open_quota_storage(state_path)?;
-        let book = match storage.read().and_then(read_book) {
+        let book = match read_book(&storage) {
             Ok(book) => book,
             Err(error) => return finish_cleanup(Err(error), storage.close_lease()),
         };
@@ -474,11 +474,10 @@ fn snapshot_book(book: &Arc<Mutex<QuotaBook>>) -> PersistedQuotaBook {
     }
 }
 
-fn read_book(bytes: Option<Vec<u8>>) -> io::Result<QuotaBook> {
-    let Some(bytes) = bytes else {
+fn read_book(storage: &QuotaStorage) -> io::Result<QuotaBook> {
+    let Some(persisted) = storage.read_with(|reader| decode_persisted_book(reader))? else {
         return Ok(QuotaBook::default());
     };
-    let persisted = decode_persisted_book(bytes.as_slice())?;
     let mut book = QuotaBook::default();
     for balance in persisted.balances {
         book.current
@@ -509,8 +508,10 @@ pub fn inspect_principal_quota_state(
                 .join(path)
         }
     };
-    let material = match Arc::new(ConfigurationSource::default()).read_initial_material(&path) {
-        Ok(bytes) => bytes,
+    let (bytes, decoded) = match Arc::new(ConfigurationSource::default())
+        .read_quota_snapshot(&path, |reader| decode_persisted_book(reader))
+    {
+        Ok(snapshot) => snapshot,
         Err(error) if error.kind() == io::ErrorKind::NotFound => {
             return Some(PrincipalQuotaStateReport {
                 format: "zero.engine.principal-quota.v1",
@@ -532,8 +533,7 @@ pub fn inspect_principal_quota_state(
             });
         }
     };
-    let bytes = material.len() as u64;
-    match decode_persisted_book(material.as_slice()) {
+    match decoded {
         Ok(book) => Some(PrincipalQuotaStateReport {
             format: "zero.engine.principal-quota.v1",
             path: path.display().to_string(),

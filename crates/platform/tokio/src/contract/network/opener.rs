@@ -4,6 +4,12 @@ use crate::contract::{DeliveryState, Impact, Reason, Stage};
 /// Host-supplied execution of an already selected prefix. Implementations must
 /// reject stale generations and preserve every hard dial constraint. No direct fallback.
 pub trait UpstreamOpener: Send + Sync {
+    /// Observation of the original Business caller's actual tracked join.
+    /// This selects user custody only; it issues no grant or close receipt.
+    /// Native acquisition must still validate the same sealed caller ticket.
+    fn has_tracked_business_caller(&self) -> bool {
+        false
+    }
     /// Declaration of an actual waiting cleanup ledger, never I/O authority.
     /// Older library/service callers retain their existing pool ownership and
     /// are not qualified for immediate pre-delivery cancellation by this hint.

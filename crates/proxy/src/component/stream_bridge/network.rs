@@ -98,6 +98,11 @@ impl CarrierEndpointObserver for ConnectedEvidence {
     }
 }
 impl UpstreamOpener for NodeOpener {
+    fn has_tracked_business_caller(&self) -> bool {
+        self.business
+            .as_ref()
+            .is_some_and(|request| request.has_tracked_caller())
+    }
     fn has_pending_carrier_observer(&self) -> bool {
         self.pending.is_some()
     }

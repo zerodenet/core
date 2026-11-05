@@ -53,6 +53,11 @@ impl DirectOpener {
     }
 }
 impl UpstreamOpener for DirectOpener {
+    fn has_tracked_business_caller(&self) -> bool {
+        self.business
+            .as_ref()
+            .is_some_and(|request| request.has_tracked_caller())
+    }
     fn supports_controlled_stream(&self) -> bool {
         self.business
             .as_ref()

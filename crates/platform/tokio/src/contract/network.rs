@@ -76,6 +76,9 @@ impl PendingCarrierObserver {
 }
 
 impl UpstreamTransport {
+    pub fn has_tracked_business_caller(&self) -> bool {
+        self.opener.has_tracked_business_caller()
+    }
     pub fn observed_pending_carrier(&self) -> Option<PendingCarrierObserver> {
         self.opener
             .has_pending_carrier_observer()
