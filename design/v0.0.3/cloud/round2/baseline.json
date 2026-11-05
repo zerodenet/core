@@ -1,0 +1,284 @@
+{
+  "schema": 2,
+  "prepared": "2026-11-05",
+  "repository": "zerodenet/core",
+  "product_phase": "v0.0.3",
+  "baseline_branch": "codex/v003-cloud-r2-base",
+  "integration_branch": "codex/v003-cloud-r2-integration",
+  "task_package_head_rule": "Resolve and freeze the remote baseline branch after this package commit. Start every branch at that exact package SHA, which descends from code_checkpoint. The package cannot embed its own commit SHA.",
+  "code_checkpoint": "e4c3bc0e20628ce4e50bde4d829b80fba17266c5",
+  "previous_cloud_candidate": "66902032e0e4878a10974559fc59b2b4e49d6c98",
+  "previous_cloud_base": "c9b28431bea6e5124fa48ee810aa9d2272e7b4e7",
+  "local_develop_preserved": "bab00b6922600ecdc9461c28ddcf0630b8c730c8",
+  "github_develop_observed": "5338c727acee537762cfdd95531f6e5130274200",
+  "remote_handling": "Local remote github points to GitHub; local origin points to a different server. Push only the verified GitHub remote. No develop merge, rebase, reset or force push.",
+  "topology": {
+    "environments": 1,
+    "coordinator": "M",
+    "parallel_implementation_agents": [
+      "A",
+      "B",
+      "C"
+    ],
+    "isolated_worktrees": true,
+    "shared_cargo_target": "one build/test owner at a time",
+    "followup": "Reuse an idle first-wave agent for control/budgets; no extra simultaneous environment or worker."
+  },
+  "branches": {
+    "A": "codex/v003-cloud-r2-dns",
+    "B": "codex/v003-cloud-r2-outbound",
+    "C": "codex/v003-cloud-r2-device",
+    "control": "codex/v003-cloud-r2-control",
+    "budgets": "codex/v003-cloud-r2-budgets"
+  },
+  "pr_base": "codex/v003-cloud-r2-integration",
+  "dependencies": [
+    "M shared prerequisites -> B/A/C as required",
+    "B original ownership prerequisites -> A detour consumers",
+    "B -> C only for explicitly borrowed providers",
+    "stable resource owners -> control/budgets",
+    "all implementation -> unified cloud candidate -> local qualification"
+  ],
+  "code_commits": [
+    {
+      "group": "01-hy2-fixtures",
+      "sha": "9971fc5df78cc1001b687bd69523ff88353f36a4",
+      "title": "test(hysteria2): enable isolated DNS fixtures and portable candidate fallback",
+      "path_entries": 2
+    },
+    {
+      "group": "02-device-continuity",
+      "sha": "5a851ba38676e923ad5408d5e2f3321006850f58",
+      "title": "fix(proxy): preserve existing TCP through device withdrawal rollback",
+      "path_entries": 7
+    },
+    {
+      "group": "03-platform-ownership",
+      "sha": "18e327864b7728afbde80bc9023f280b03151a88",
+      "title": "feat(platform): retain original blocking jobs and borrowed carrier lineage",
+      "path_entries": 7
+    },
+    {
+      "group": "04-dns-host",
+      "sha": "e4c3bc0e20628ce4e50bde4d829b80fba17266c5",
+      "title": "refactor(dns): host query lifetimes and standard detoured DoH pools",
+      "path_entries": 77
+    }
+  ],
+  "code_input_tree": {
+    "algorithm": "SHA-256 of sorted git ls-tree mode/type/blob TAB path lines with trailing LF; tracked Rust/Cargo/toolchain/.cargo inputs only",
+    "entries": 4355,
+    "sha256": "1cd23ef7cbf01320e10d07f909e5b2a8af84c22be95f20e2be0ce76a6fbfd31d"
+  },
+  "validation": {
+    "compiler": "rustc 1.99.0 (b940084d7 2026-09-28)",
+    "current_rust_inputs_match_previous_selected_validation": true,
+    "matched_changed_file_count": 91,
+    "checks_reused_without_full_rerun": true,
+    "source_note": "All previously changed Rust inputs remain byte-identical through grouped commits. Implementation documentation changed after the selected runs. Intermediate commit boundaries were not independently rebuilt.",
+    "dns_final_selected_runs": [
+      {
+        "log": "z00301-standard-finalizer-final-tests.log",
+        "passed": 13,
+        "failed": 0,
+        "sha256": "9beefe03ef12cb457c08a80ffbff10d7af9aa6437d909d7e88d7dc3bf23bf7ed"
+      },
+      {
+        "log": "z00301-standard-dns-query-tasks.log",
+        "passed": 10,
+        "failed": 0,
+        "sha256": "c33b6855173edd5df19429e7d2422a19048993f78ce2e0501c1fe543da5e7871"
+      },
+      {
+        "log": "z00301-standard-doh-backends.log",
+        "passed": 18,
+        "failed": 0,
+        "sha256": "18ce95b75326756c6d71ffd8c8165fe3bbcee9a77947006a7f530dc5d19fc0d5"
+      },
+      {
+        "log": "z00301-standard-minimal-query-tasks.log",
+        "passed": 10,
+        "failed": 0,
+        "sha256": "b3f4733fd2d284178c5d3ea2293f7da8f061701d896c775791d5bc28c152a8e4"
+      },
+      {
+        "log": "z00301-standard-detour-boundary.log",
+        "passed": 189,
+        "failed": 0,
+        "sha256": "cc65a1139616fe2a9e4cd8872f14a593c0251343dedad516479cc0d15d4950ee"
+      },
+      {
+        "log": "z00301-standard-detour-architecture.log",
+        "passed": 27,
+        "failed": 0,
+        "sha256": "8fcc749c89c2bdf32059ef361173fdea5ebc784bc30e3c07f94c483c026aa92a"
+      }
+    ],
+    "selected_checks": [
+      {
+        "name": "dns-query-tasks",
+        "exit_code": 0,
+        "command": [
+          "cargo",
+          "+1.99.0",
+          "test",
+          "--locked",
+          "-p",
+          "zero-dns",
+          "--all-features",
+          "--lib",
+          "query_tasks::",
+          "--",
+          "--test-threads=1"
+        ]
+      },
+      {
+        "name": "doh-backends",
+        "exit_code": 0,
+        "command": [
+          "cargo",
+          "+1.99.0",
+          "test",
+          "--locked",
+          "-p",
+          "zero-dns",
+          "--all-features",
+          "--lib",
+          "backends::doh::",
+          "--",
+          "--test-threads=1"
+        ]
+      },
+      {
+        "name": "minimal-query-tasks",
+        "exit_code": 0,
+        "command": [
+          "cargo",
+          "+1.99.0",
+          "test",
+          "--locked",
+          "-p",
+          "zero-dns",
+          "--no-default-features",
+          "--lib",
+          "query_tasks::",
+          "--",
+          "--test-threads=1"
+        ]
+      },
+      {
+        "name": "selected-clippy",
+        "exit_code": 0,
+        "command": [
+          "cargo",
+          "+1.99.0",
+          "clippy",
+          "--locked",
+          "-p",
+          "zero-dns",
+          "-p",
+          "zero-platform-tokio",
+          "-p",
+          "socks5",
+          "--all-features",
+          "--lib",
+          "--no-deps",
+          "--",
+          "-D",
+          "warnings"
+        ]
+      },
+      {
+        "name": "minimal-dns-clippy",
+        "exit_code": 0,
+        "command": [
+          "cargo",
+          "+1.99.0",
+          "clippy",
+          "--locked",
+          "-p",
+          "zero-dns",
+          "--no-default-features",
+          "--lib",
+          "--no-deps",
+          "--",
+          "-D",
+          "warnings"
+        ]
+      },
+      {
+        "name": "fmt-check",
+        "exit_code": 0,
+        "command": [
+          "cargo",
+          "+1.99.0",
+          "fmt",
+          "--all",
+          "--",
+          "--check"
+        ]
+      }
+    ],
+    "device_hy2_batch": {
+      "source_files_unchanged": 9,
+      "selected_unique_cases_passed": 59,
+      "initial_passed": 58,
+      "initial_failed": 1,
+      "initial_failure": "HY2 actual refused candidate could not bind an unassigned 127.0.0.2 alias on macOS, before fallback execution.",
+      "resolved_by": "Explicit actual assigned IPv4 in the original fixture; same real refusal and shared-pool assertions retained.",
+      "fixed_case_filter": "adapters::hysteria2::tests::shared::lifecycle::hysteria2_actual_node_candidates_fall_back_and_concurrent_users_share_the_survivor",
+      "fixed_case_passed": 1,
+      "unresolved_selected_failures": 0,
+      "not_asserted": "Whole device domain, final all-feature workspace, GUI/panel or privileged TUN acceptance.",
+      "source_relationship": "These repair regressions ran before the subsequent DNS host increments. Only their nine repair input files are hash-matched here; this is historical repair evidence, not a full combined-baseline requalification. Cloud must rerun the affected integration cases when its changes require them."
+    },
+    "full_workspace_run_for_new_baseline": false,
+    "workspace_strict_clippy_for_new_baseline": false,
+    "external_or_privileged_qualification_for_new_baseline": false,
+    "raw_logs": "Kept outside Git. Log basenames/hashes here are provenance, not dependencies or a claim that cloud has the local artifacts. Run necessary checks on cloud inputs; do not require a machine-local path.",
+    "package_checks": {
+      "design_sections": 25,
+      "task_cards": 17,
+      "portable_local_links": 256,
+      "integration_layout": {
+        "sources": 315,
+        "targets": 95,
+        "errors": 0
+      },
+      "ci_scope_tests": {
+        "passed": 21,
+        "failed": 0
+      },
+      "resolved_contract_dependencies": "passed using rustup run 1.99.0",
+      "git_diff_check": "passed",
+      "full_suite_rerun": false
+    }
+  },
+  "remaining": {
+    "A": "Z003-01 actual resourceful/pool/device detours and remaining DNS legacy consumers; standard taskless detour coverage is not whole DNS completion.",
+    "B": "Remaining outbound/shared-carrier roles and production ownership; Z003-02/03/06 not globally closed.",
+    "C": "Non-ingress Packet/device/TUN/applicable process ownership; retained rollback repair is only a specific defect fix.",
+    "control": "G8 and remaining server/subscription/TLS/quota/storage owners.",
+    "budgets": "Z003-07 production configuration distinct from existing fixed internal bounds and 1c1g qualification.",
+    "qualification": "Z003-08/G9/G10 full affected interop, platform, privileged TUN, same-artifact consumers and low-resource qualification.",
+    "historical_unresolved": [
+      "FinalMask concurrent UDP return anomaly remains unclassified; isolated pass is not a fix.",
+      "Earlier cold-spawn policy fixture timeout remains unclassified; corrected ready fixture is a different qualification."
+    ]
+  },
+  "temporary_debt": {
+    "id": "TEMP-WG-OUTER-UDP-01",
+    "status": "preserved, unclosed",
+    "scope": "Existing WireGuard outer_udp_proxy including reconnect history only",
+    "policy": "Do not fix or expand it in this round; all other paths require confirmed StopOld before successor build/start."
+  },
+  "delivery": {
+    "kernel_only": true,
+    "client_panel_changes_allowed": false,
+    "protocol_combination_expansion_allowed": false,
+    "merge_develop_allowed": false,
+    "merge_main_allowed": false,
+    "release_deploy_allowed": false,
+    "cloud_execution_started_by_package_push": false
+  }
+}

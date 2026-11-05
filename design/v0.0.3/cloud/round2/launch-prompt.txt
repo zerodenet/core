@@ -1,0 +1,20 @@
+在这一个云端环境中执行 zerodenet/core 的第二轮架构迁移任务包：
+design/v0.0.3/cloud/round2/README.md
+
+你是主 agent M。读取 AGENTS.md、round2/coordinator.md、baseline.json、agent-a.md、agent-b.md、agent-c.md、followup.md 和 acceptance.md。
+先确认实际 GitHub remote 指向 zerodenet/core，拉取并冻结 codex/v003-cloud-r2-base 的完整 SHA，核对它包含 baseline.json 的 code_checkpoint。不要从 develop、上轮 66902032 或 code checkpoint 直接开工而漏掉本任务包。
+集成分支 codex/v003-cloud-r2-integration。A/B/C 必须在同一环境中各自独立 worktree 和分支执行，不要求我另开三个云端环境；一次准备 Rust 1.99.0、protoc、依赖和固定互通工具。缺少子 agent 能力如实报告，不假称已启动。
+
+派发：
+A / codex/v003-cloud-r2-dns：完整收尾 Z003-01，迁完 DNS 实际调用者并删除旧执行链。
+B / codex/v003-cloud-r2-outbound：完整推进剩余出站及 Mieru/MUX/gRPC/H2/QUIC 共享载体，先交 A/C 必需的真实原件转交。
+C / codex/v003-cloud-r2-device：完整推进非入站 Packet、设备/TUN 和适用进程所有权，保留已修复的方向撤除/回滚旧 TCP 连续性。
+首波 agent 释放后复用空闲 agent 执行 followup.md 的 control 和 budgets；不得从本轮清单漏掉它们，不同时再启动额外实现 agent。
+
+按 README 文件所有权工作。公共 platform/transport/runtime、register.rs、inventory/service、协议总投影和 feature 由你唯一整合；先提交必要共享前置，再让依赖分支普通合入。相关依赖 B → A，C 独立部分可先交，具体借用依赖单列。所有实现 PR base 都是 codex/v003-cloud-r2-integration，仅你串行合入集成分支，不强推、不合入 develop/main。
+
+先冻结现有生产调用者/owner/原始 provider/旧链删除表，再按完整职责域实现。只改内核，保持既有能力和 V1 配置/API/events/CLI/FFI、客户端面板语义；不扩协议组合、不升级上游、不新增替代 SPI/第二宿主/第二池。TEMP-WG-OUTER-UDP-01 单独保留未关闭、不扩大，其余路径必须确认旧用户、实际 Scope/driver joins 和原始 provider 清理后才能构造/启动新资源。不能用 Drop/abort/EOF/端口可复用证明关闭，不能用长期关闭登记或 Unsupported 代替迁移。
+
+源码工作并行，共享 Cargo target 的构建和测试由你排队；开发阶段只做必要定向，复用相同冻结源码的产物，不反复跑全量。所有实现稳定后按 acceptance.md 做最终候选统一检查，保留失败、忽略、中断和未执行，不弱化断言或放宽 timeout。原始日志放 CI artifact/仓库外，不提交临时 gzip、缓存或快照。
+
+最终推送准确候选 SHA，交付 A/B/C 及后续 PR/提交依赖、旧调用归零、真实资源关闭证据和逐域实现缺口/环境待验/TEMP 债务。完整架构实现与资格分别报告；真实 GUI/面板、特权 TUN、跨平台、1c1g 资格按实际环境交回本地，不修改消费者或用户网络。不发布、不部署、不合入 develop/main。

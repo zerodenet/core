@@ -128,3 +128,5 @@ SOCKS5 标准 Stream carrier 的非根分支改用既有 CarrierGrant::adopt_str
 最终源码的定向结果：Proxy DNS detour 13 项、DoH 库/持久池 18 项、DNS 原始任务/嵌套 blocking 所有权在全 feature 和最小 feature 下各 10 项通过。取消用例检查真实 I/O Pending、原始任务 join 和 matching native close，不以对端 EOF 为清理凭据；持续复用用例连续完成超过单类查询额度的请求，仍只建立同一个健康物理连接。DNS/平台/SOCKS5 全 feature lib 严格 Clippy、DNS 最小 feature lib 严格 Clippy、格式检查通过；这不是 workspace 严格 Clippy。既有 189/27 项边界守卫及 315 source/95 target 集成布局检查通过。
 
 中间失败分别保留：初版 native detour 准备缺少 Datagram 方法/类型标注、夹具监督未接通、旧 H2 嵌套错误的提取，以及取消后清理延迟至下一次申请等；最终结果不覆盖或隐藏这些诊断。源码摘要、精确命令和各阶段日志存于仓库之外的本地 `zero-cloud-acceptance-20261104` 任务产物，最终主记录为 `z00301-standard-detour-results.json`。此前 HY2/设备回滚修复的 9 个文件摘要未变化，`HEAD=66902032`、`develop=bab00b69` 未移动；未启动全量或消费者工程验收。
+
+2026-11-05：用户授权分组提交并推送第二轮独立云端基线，以上“未提交/未推送”和 HEAD 均保留其验证时历史。DNS/出站适配代码已保存为 `e4c3bc0e20628ce4e50bde4d829b80fba17266c5`，Rust 输入与本节最终定向验证一致；本轮交接仅补实施记录与任务包，不重跑全量。接续入口见[第二轮任务包](../cloud/round2/README.md)：A 迁完 DNS 消费端，B 提供必要既有出站原件，主 M 统一整合共享契约与登记；Z003-01、整体架构及 TEMP-WG-OUTER-UDP-01 没有因此关闭，develop 不移动。

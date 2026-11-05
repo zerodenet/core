@@ -1,4 +1,8 @@
-# 本轮执行记录
+# 第二轮入口（2026-11-05）
+
+第二轮已获用户授权：保存本地验收增量，推送独立新基线，继续在**一个云端环境**内由主 M 协调 A/B/C，后续复用空闲 agent 收尾控制和预算。当前启动入口是 [round2/README.md](round2/README.md)，提示词见 [round2/launch-prompt.txt](round2/launch-prompt.txt)。新分支为 `codex/v003-cloud-r2-*`；本页下文为上一轮历史，不应再次从旧 cloud-base 开工。本轮同样不合入 develop/main。
+
+# 上一轮执行记录
 
 A/B 已由主 agent C 在同一环境的独立 worktree 派生并行实现；实际职责、PR、剩余实现与资格边界见[执行账本](execution.md)。本文后续准备状态和启动指令保留为任务包基线，不能当本轮完成或未启动的状态。精确候选和最终运行结果见 [PR #127](https://github.com/zerodenet/core/pull/127)。
 
