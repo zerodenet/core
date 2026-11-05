@@ -188,7 +188,7 @@ impl Proxy {
                 dns_dispatch,
                 egress_interface.clone(),
                 fake_ip_state_path,
-                network.native_dns.clone(),
+                network.query_dns.clone(),
             ),
             None => DnsSystem::build_with_egress_dispatch_and_state(
                 config.runtime.dns.as_ref(),
@@ -200,7 +200,10 @@ impl Proxy {
         .map_err(EngineError::Io)?;
         let (orchestration_ready, _) = tokio::sync::watch::channel(false);
         let (configured_tun_failures, _) = tokio::sync::broadcast::channel(16);
-        let resolver = Arc::new(dns.with_native_node_queries(node_network.native_dns.clone()));
+        let resolver = Arc::new(
+            dns.with_native_query_queries(node_network.query_dns.clone())
+                .with_native_node_queries(node_network.native_dns.clone()),
+        );
         let principal_rate_limits = principal_rate_limit::PrincipalRateLimitRegistry::default();
         // Independent host limit for active + retiring native associations.
         // This is not the V1 packet queue capacity or a legacy session budget.

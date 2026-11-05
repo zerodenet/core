@@ -39,6 +39,7 @@ pub(crate) fn compiled_registries_with_network(
                 move |input, resources| {
                     if let Some(network) = &network {
                         crate::component::native_dns::prepare(resources, network.clone())?;
+                        crate::component::native_dns::prepare_node(resources, network.clone())?;
                     }
                     crate::adapters::direct::factory::decode(input)
                         .map_err(crate::component::RegistrationError::Options)
