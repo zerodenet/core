@@ -6,8 +6,8 @@ use std::sync::Arc;
 
 use tokio::sync::oneshot;
 use tokio::task::JoinSet;
-use tokio_util::sync::CancellationToken;
 use tracing::{debug, error, info, warn};
+use zero_platform_tokio::contract::CancellationToken;
 use zero_platform_tokio::contract::{lifecycle::ChannelControl, CloseReason};
 use zero_platform_tokio::{
     ControlledTcpControl, ControlledUnixListener, ControlledUnixListenerOwner,
@@ -49,6 +49,11 @@ impl IpcServerHandle {
             return Err(io::Error::other("IPC listener closed a foreign original"));
         }
         self.listener.remove_bound_path(&closed)?;
+        self.originals
+            .admission
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .take();
         accepted?;
         result
     }
@@ -184,10 +189,19 @@ async fn run_ipc_server(
     loop {
         tokio::select! {
             _ = &mut shutdown => break,
-            accept_result = listener.accept() => {
-                let (mut pending, control) = match accept_result { Ok(value) => value, Err(error) => { failure.get_or_insert(error); break; } };
-                // Preserve the real accepted original before the first await.
-                *originals.activating.lock().unwrap_or_else(std::sync::PoisonError::into_inner) = Some(Arc::new(tokio::sync::Mutex::new(control)));
+            accept_result = listener.accept_with_admission(|| originals.before(&budget), || originals.no_native()) => {
+                let (mut pending, control) = match accept_result {
+                    Ok(value) => value,
+                    Err(error) if error.kind() == io::ErrorKind::WouldBlock => {
+                        tokio::time::sleep(std::time::Duration::from_millis(25)).await;
+                        continue;
+                    }
+                    Err(error) => { failure.get_or_insert(error); break; }
+                };
+                // Preserve both the real accepted original and its pre-native
+                // charge before activation can suspend or fail.
+                let charge = originals.admission.lock().unwrap_or_else(std::sync::PoisonError::into_inner).take().expect("IPC original charged before native accept");
+                *originals.activating.lock().unwrap_or_else(std::sync::PoisonError::into_inner) = Some(Arc::new(UnixOriginal { control: tokio::sync::Mutex::new(control), charge: std::sync::Mutex::new(Some(charge)) }));
                 let stream = match pending.activate(super::owner::close_deadline()).await {
                     Ok(stream) => stream,
                     Err(error) => { failure.get_or_insert(error); break; }
@@ -264,22 +278,47 @@ fn dirs_home() -> Option<PathBuf> {
 
 #[derive(Default)]
 struct UnixOriginals {
-    activating: std::sync::Mutex<Option<Arc<tokio::sync::Mutex<ControlledTcpControl>>>>,
-    active: std::sync::Mutex<
-        std::collections::HashMap<tokio::task::Id, Arc<tokio::sync::Mutex<ControlledTcpControl>>>,
-    >,
+    admission: std::sync::Mutex<Option<zero_runtime::configuration::ControlBudgetPermit>>,
+    activating: std::sync::Mutex<Option<Arc<UnixOriginal>>>,
+    active: std::sync::Mutex<std::collections::HashMap<tokio::task::Id, Arc<UnixOriginal>>>,
+}
+struct UnixOriginal {
+    control: tokio::sync::Mutex<ControlledTcpControl>,
+    charge: std::sync::Mutex<Option<zero_runtime::configuration::ControlBudgetPermit>>,
 }
 impl UnixOriginals {
-    async fn close(original: &tokio::sync::Mutex<ControlledTcpControl>) -> io::Result<()> {
-        let mut original = original.lock().await;
-        original.cancel(CloseReason::Shutdown);
-        let report = original
+    fn before(&self, budget: &Arc<zero_runtime::configuration::ControlBudget>) -> io::Result<()> {
+        let mut admission = self
+            .admission
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        if admission.is_some() {
+            return Err(io::Error::other("IPC retains an unknown native accept"));
+        }
+        *admission = Some(budget.reserve(zero_runtime::configuration::ControlCharge::Connection)?);
+        Ok(())
+    }
+    fn no_native(&self) {
+        self.admission
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .take();
+    }
+    async fn close(original: &UnixOriginal) -> io::Result<()> {
+        let mut control = original.control.lock().await;
+        control.cancel(CloseReason::Shutdown);
+        let report = control
             .wait_closed(super::owner::close_deadline())
             .await
             .map_err(io::Error::other)?;
         if !report.is_complete() {
             return Err(io::Error::other("IPC accepted original close incomplete"));
         }
+        original
+            .charge
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .take();
         Ok(())
     }
     async fn close_all(&self) -> io::Result<()> {
@@ -361,65 +400,5 @@ async fn settle_connection(
 }
 
 #[cfg(test)]
-mod original_tests {
-    use super::*;
-    use std::{
-        future::{poll_fn, Future},
-        task::Poll,
-        time::Duration,
-    };
-    use tokio::io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader};
-
-    #[tokio::test]
-    async fn cancelled_ipc_shutdown_waiter_retains_actual_subscriber_and_native_originals() {
-        let directory = tempfile::tempdir().unwrap();
-        let path = directory.path().join("control.sock");
-        let proxy = zero_proxy::Proxy::new(
-            zero_config::RuntimeConfig::parse(
-                r#"{"route":{"rules":[],"final":{"type":"direct"}}}"#,
-            )
-            .unwrap(),
-        )
-        .unwrap();
-        let engine = zero_engine::EngineHandle::new(proxy.engine().clone());
-        let server = spawn_ipc_server(ProxyHandle::new(engine, proxy), &path)
-            .await
-            .unwrap();
-        let client = tokio::net::UnixStream::connect(&path).await.unwrap();
-        let mut client = BufReader::new(client);
-        client
-            .get_mut()
-            .write_all(b"{\"type\":\"subscribe\",\"events\":[\"test.never\"]}\n")
-            .await
-            .unwrap();
-        let mut ack = String::new();
-        client.read_line(&mut ack).await.unwrap();
-        assert!(
-            serde_json::from_str::<serde_json::Value>(&ack).unwrap()["ok"]
-                .as_bool()
-                .unwrap()
-        );
-        let mut stopping = Box::pin(server.shutdown());
-        poll_fn(|cx| {
-            assert!(stopping.as_mut().poll(cx).is_pending());
-            Poll::Ready(())
-        })
-        .await;
-        drop(stopping);
-        tokio::time::timeout(Duration::from_secs(2), server.shutdown())
-            .await
-            .unwrap()
-            .unwrap();
-        assert!(!path.exists());
-        assert!(server.originals.active.lock().unwrap().is_empty());
-        assert!(server.originals.activating.lock().unwrap().is_none());
-        let closed = server
-            .listener
-            .close(super::super::owner::close_deadline())
-            .await
-            .unwrap();
-        assert!(closed.had_native_acquisition());
-        assert!(server.listener.matches_closed(&closed));
-        assert_eq!(client.read(&mut [0]).await.unwrap(), 0);
-    }
-}
+#[path = "tests/unix_originals.rs"]
+mod original_tests;

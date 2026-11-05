@@ -146,7 +146,9 @@ impl OrchestrationState {
             )
             .await?;
         #[cfg(feature = "raw-ip-runtime")]
-        prepared_outbound_devices.publish().await;
+        proxy
+            .protocols
+            .stage_device_publication(&config, prepared_outbound_devices)?;
         #[cfg(feature = "raw-ip-runtime")]
         {
             self.device_generation = prepared_generation;
@@ -174,6 +176,8 @@ impl OrchestrationState {
             .protocols
             .commit_components(&config, || Ok(()))
             .map_err(|error| EngineError::Io(std::io::Error::other(error)))?;
+        #[cfg(feature = "raw-ip-runtime")]
+        proxy.protocols.finish_device_publication(&config).await?;
         self.inbound_runtime_factory = self.inbound_runtime_factory.clone().without_preparing();
         self.preparing_inbounds = Default::default();
         self.start_urltests();

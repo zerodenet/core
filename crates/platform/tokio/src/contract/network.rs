@@ -44,6 +44,13 @@ pub struct ControlledStreamRequest {
 /// Host-supplied execution of an already selected prefix. Implementations must
 /// reject stale generations and preserve every hard dial constraint. No direct fallback.
 pub trait UpstreamOpener: Send + Sync {
+    /// Declaration of an actual waiting cleanup ledger, never I/O authority.
+    /// Older library/service callers retain their existing pool ownership and
+    /// are not qualified for immediate pre-delivery cancellation by this hint.
+    /// A declared observer must still validate every actual retain operation.
+    fn has_pending_carrier_observer(&self) -> bool {
+        false
+    }
     /// The actual waiting owner retains this sealed original before a donor
     /// can acquire I/O or suspend. This transfers cleanup authority only; it
     /// grants no native access and never reports that an original is closed.
@@ -280,6 +287,14 @@ impl PendingCarrierObserver {
 }
 
 impl UpstreamTransport {
+    pub fn observed_pending_carrier(&self) -> Option<PendingCarrierObserver> {
+        self.opener
+            .has_pending_carrier_observer()
+            .then(|| self.pending_carrier_observer())
+    }
+    pub fn has_pending_carrier_observer(&self) -> bool {
+        self.opener.has_pending_carrier_observer()
+    }
     pub fn pending_carrier_observer(&self) -> PendingCarrierObserver {
         PendingCarrierObserver {
             binding: self.binding.clone(),

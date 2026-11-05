@@ -49,8 +49,10 @@ pub(crate) struct PreparedWireguardDevices {
     linked: Arc<Mutex<LinkedEndpointMap>>,
     next_linked: LinkedEndpointMap,
     linked_updates: Vec<inbound::LinkedEndpointUpdate>,
-    pending: PendingEndpoints,
+    pending: Option<PendingEndpoints>,
     traffic: Vec<zero_engine::PreparedEndpointTraffic>,
+    published: bool,
+    stopped: Vec<Arc<SharedRawIpDevice>>,
 }
 
 impl crate::protocol_registry::EndpointControlCapability for WireguardAdapter {

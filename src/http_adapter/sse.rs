@@ -1,7 +1,7 @@
 use std::{io, sync::Arc, time::Duration};
 use tokio::io::AsyncWriteExt;
-use tokio_util::sync::CancellationToken;
 use zero_api::{EventStream, EventStreamReceive, RawApiEvent};
+use zero_platform_tokio::contract::CancellationToken;
 use zero_runtime::configuration::{
     ControlBudget, ControlBudgetLimits, ControlBudgetPermit, ControlCharge,
 };

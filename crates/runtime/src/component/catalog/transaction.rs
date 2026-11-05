@@ -107,7 +107,7 @@ impl ComponentCatalog {
         plan.start(deadline).await
     }
 
-    async fn finish_replacement(
+    pub(super) async fn finish_replacement(
         pending: &replacement::Replacement,
         deadline: tokio::time::Instant,
         publish: impl FnOnce(&replacement::DeclaredComponentTerminal) -> Result<(), ChannelError>,

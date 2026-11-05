@@ -80,20 +80,23 @@ pub(crate) fn compiled_registries_with_network(
                 {
                     let native = node_network.is_some();
                     move |input, resources| {
-                        crate::adapters::socks5::component_options(input).map(|options| {
-                            if native {
-                                let limit = resources
-                                    .candidate()
-                                    .map(|config| {
-                                        config.runtime.effective_native_stream_max_originals()
-                                    })
-                                    .unwrap_or(4);
-                                options
-                                    .with_carrier_limit(std::num::NonZeroUsize::new(limit).unwrap())
-                            } else {
-                                options
-                            }
-                        })
+                        crate::adapters::socks5::component_options(input)
+                            .map(|options| {
+                                if native {
+                                    let limit = resources
+                                        .candidate()
+                                        .map(|config| {
+                                            config.runtime.effective_native_stream_max_originals()
+                                        })
+                                        .unwrap_or(4);
+                                    options.with_carrier_limit(
+                                        std::num::NonZeroUsize::new(limit).unwrap(),
+                                    )
+                                } else {
+                                    options
+                                }
+                            })
+                            .map_err(crate::component::RegistrationError::Options)
                     }
                 },
             )

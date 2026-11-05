@@ -156,7 +156,24 @@ where
             }
             _ = network_change => {
                 #[cfg(feature = "raw-ip-runtime")]
-                state.reconcile_outbound_network(proxy).await;
+                {
+                    let preparing = state.preparing_inbounds.clone();
+                    let stopped = {
+                    let reconciliation = Box::pin(state.reconcile_outbound_network(proxy));
+                    tokio::pin!(reconciliation);
+                    tokio::select! { biased;
+                        _ = &mut shutdown => {
+                            proxy.host.apply().begin_shutdown();
+                            proxy.protocols.stop_component_admission();
+                            preparing.begin_shutdown();
+                            reconciliation.await;
+                            true
+                        }
+                        _ = &mut reconciliation => false,
+                    }
+                    };
+                    if stopped { return state.drain_configuration(proxy).await; }
+                }
             }
             result = state.listeners.join_next(), if !state.listeners.is_empty() => {
                 if let Err(listener_error) = handle_listener_result(

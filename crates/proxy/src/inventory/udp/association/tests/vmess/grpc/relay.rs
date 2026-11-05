@@ -3,6 +3,9 @@ use super::*;
 #[path = "relay/fixtures.rs"]
 mod fixtures;
 use fixtures::*;
+#[cfg(all(feature = "vless", feature = "trojan"))]
+#[path = "relay/loans.rs"]
+mod loans;
 #[path = "relay/network.rs"]
 mod network;
 #[cfg(all(feature = "vless", feature = "trojan"))]
@@ -14,9 +17,6 @@ mod pooled;
 #[cfg(all(feature = "vless", feature = "trojan"))]
 #[path = "relay/production.rs"]
 mod production;
-#[cfg(all(feature = "vless", feature = "trojan"))]
-#[path = "relay/loans.rs"]
-mod loans;
 #[path = "relay/replacement.rs"]
 mod replacement;
 #[tokio::test]
