@@ -31,7 +31,7 @@ async fn cancelling_first_tunnel_ack_waiter_keeps_the_actual_pool_borrowed_by_a_
                 let Some(next) = next.unwrap() else { break; };
                 let route = connection.accept_route(next).await.unwrap();
                 let mieru::inbound::MieruInboundAcceptedSession::Tcp { session, mut stream } = route else { panic!("DNS detour must use actual Stream"); };
-                let Address::Ipv4(ip) = session.target else { panic!("literal declared DNS target"); };
+                let zero_core::Address::Ipv4(ip) = session.target else { panic!("literal declared DNS target"); };
                 let stopped = stopped.clone();
                 streams.spawn(async move {
                     let mut peer = tokio::net::TcpStream::connect((std::net::Ipv4Addr::from(ip), session.port)).await.unwrap();
