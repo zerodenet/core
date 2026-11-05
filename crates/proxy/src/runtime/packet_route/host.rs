@@ -44,24 +44,28 @@ impl HostPacketDevice {
         Self::start_with_close(device, config, mtu, |_| None)
     }
 
-    pub(crate) fn start_owned<D: zero_tun::OwnedTunDevice + 'static>(
-        device: D,
+    #[cfg(any(target_os = "linux", target_os = "macos"))]
+    pub(crate) fn start_adopted(
+        device: zero_tun::AdoptedTunIo,
+        original: Arc<zero_tun::AdoptedTunOwner>,
         config: zero_config::DirectPacketDeviceConfig,
         mtu: u16,
     ) -> Arc<Self> {
-        let identity = device.owned_identity();
-        Self::start_with_close(device, config, mtu, move |device| {
-            let result = device.close_owned().and_then(|receipt| {
+        let identity = device.owned_identity().clone();
+        Self::start_with_close(device, config, mtu, move |view| {
+            // The persistent original was installed before duplication. Return
+            // the unique I/O view only after the actual driver has finished.
+            drop(view);
+            Some(original.close().and_then(|receipt| {
                 if receipt.identity().same_owner(&identity) {
                     Ok(receipt)
                 } else {
-                    Err(io::Error::new(
+                    Err(Arc::new(io::Error::new(
                         io::ErrorKind::InvalidData,
-                        "host packet close returned a different native owner",
-                    ))
+                        "host packet close returned a different adopted owner",
+                    )))
                 }
-            });
-            Some(result.map_err(Arc::new))
+            }))
         })
     }
 
@@ -73,7 +77,9 @@ impl HostPacketDevice {
     ) -> Arc<Self>
     where
         D: zero_tun::TunDevice + 'static,
-        C: FnOnce(D) -> Option<Result<zero_tun::TunCloseReceipt, Arc<io::Error>>> + Send + 'static,
+        C: FnOnce(D) -> Option<Result<Arc<zero_tun::TunCloseReceipt>, Arc<io::Error>>>
+            + Send
+            + 'static,
     {
         let (writes, rx) = mpsc::channel::<Write>(128);
         let returns = Arc::new(PacketReturns::default());
