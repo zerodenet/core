@@ -100,7 +100,7 @@ async fn oversized_event(disconnect: Option<bool>) {
     // stream nor allocates a charged serialized frame while awaiting capacity.
     assert!(tokio::time::timeout(
         Duration::from_millis(100),
-        std::future::poll_fn(|cx| stream.as_mut().poll_next(cx)),
+        std::future::poll_fn(|cx| Stream::poll_next(stream.as_mut(), cx)),
     )
     .await
     .is_err());
@@ -122,7 +122,7 @@ async fn oversized_event(disconnect: Option<bool>) {
                 .unwrap();
             let event = tokio::time::timeout(
                 Duration::from_secs(1),
-                std::future::poll_fn(|cx| stream.as_mut().poll_next(cx)),
+                std::future::poll_fn(|cx| Stream::poll_next(stream.as_mut(), cx)),
             )
             .await
             .unwrap()
@@ -142,7 +142,7 @@ async fn oversized_event(disconnect: Option<bool>) {
             jobs.stop.store(true, Ordering::Release);
             assert!(tokio::time::timeout(
                 Duration::from_secs(1),
-                std::future::poll_fn(|cx| stream.as_mut().poll_next(cx)),
+                std::future::poll_fn(|cx| Stream::poll_next(stream.as_mut(), cx)),
             )
             .await
             .unwrap()
