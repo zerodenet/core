@@ -12,9 +12,7 @@ pub(crate) fn production_selected(candidate: Option<&RuntimeConfig>) -> bool {
         let mut contains_pool = false;
         let mut all_standard = true;
         for name in proxies {
-            let Some((pool, standard)) = inspect(config, name, &mut vec![]) else {
-                return false;
-            };
+            let (pool, standard) = inspect(config, name, &mut vec![]).unwrap_or((false, false));
             contains_pool |= pool;
             all_standard &= standard;
         }
@@ -36,7 +34,7 @@ fn inspect(config: &RuntimeConfig, name: &str, stack: &mut Vec<String>) -> Optio
             }
             #[cfg(feature = "vmess")]
             OutboundProtocolConfig::Vmess { .. } => {
-                crate::adapters::vmess::component::grpc::selected(node, Some(config), true)
+                crate::adapters::vmess::component::native_input(node)
             }
             #[cfg(feature = "trojan")]
             OutboundProtocolConfig::Trojan { .. } => {

@@ -59,3 +59,35 @@ fn unrelated_unmigrated_node_does_not_disable_the_actual_mieru_graph() {
     );
     assert!(production_selected(Some(&config)));
 }
+
+#[cfg(feature = "vmess")]
+#[test]
+fn datagram_only_grpc_role_cannot_qualify_a_stream_prefix() {
+    let config = config(
+        &["prefix", "pool"],
+        serde_json::json!({
+            "type":"vmess", "server":"127.0.0.1", "port":443,
+            "id":"11111111-2222-3333-4444-555555555555", "grpc":{"service_name":"transport"}
+        }),
+    );
+    assert!(!production_selected(Some(&config)));
+}
+
+#[test]
+fn unrelated_builtin_relay_does_not_change_pool_selection() {
+    let mut config = config(
+        &["pool", "other-pool"],
+        serde_json::json!({
+            "type":"socks5", "server":"127.0.0.1", "port":443
+        }),
+    );
+    config
+        .outbound_groups
+        .push(zero_config::OutboundGroupConfig {
+            tag: "unrelated".into(),
+            group: zero_config::OutboundGroupKind::Relay {
+                proxies: vec!["direct".into()],
+            },
+        });
+    assert!(production_selected(Some(&config)));
+}
