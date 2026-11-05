@@ -87,6 +87,12 @@ impl WireguardAdapter {
                         .await?;
                     (link, None)
                 } else {
+                    if outer_udp_proxy.is_none() {
+                        return Err(invalid(
+                            "plain linked graph cannot restart through the legacy worker path",
+                        ));
+                    }
+                    // TEMP-WG-OUTER-UDP-01 retains this original compatibility branch.
                     self.prepare_linked_endpoint(
                         outbound,
                         inbound,

@@ -121,3 +121,26 @@ async fn production_candidate_owns_cold_invocation_then_installs_only_its_starte
     assert!(connecting.await.is_err());
     adapter.close_devices().await.unwrap();
 }
+
+#[tokio::test]
+async fn ordinary_device_preparation_cannot_fall_back_to_private_plain_linked_workers() {
+    let proxy = crate::Proxy::new(configuration()).unwrap();
+    let services = proxy.tcp_runtime_services();
+    let config = services.snapshot().config().clone();
+    let adapter = WireguardAdapter::default();
+    let result = adapter
+        .prepare_devices_for_candidate(
+            &config,
+            &config.outbounds.iter().collect::<Vec<_>>(),
+            &config.inbounds,
+            super::super::tests::context(&proxy, &config),
+        )
+        .await;
+    assert!(result
+        .err()
+        .unwrap()
+        .to_string()
+        .contains("actual cold component candidate"));
+    assert!(adapter.pending_endpoints.lock().unwrap().is_none());
+    assert!(adapter.linked_endpoints.lock().unwrap().is_empty());
+}
