@@ -13,6 +13,7 @@ use std::time::Duration;
 use tokio::net::windows::named_pipe::ServerOptions;
 use tokio::sync::oneshot;
 use tokio::task::JoinSet;
+use tokio_util::sync::CancellationToken;
 use tracing::{debug, error, info, warn};
 use zero_proxy::ProxyHandle;
 
@@ -22,16 +23,21 @@ use super::protocol::{serialize_frame, IpcRequest, IpcResponse};
 pub const PIPE_NAME: &str = r"\\.\pipe\zero-control";
 
 pub struct IpcServerHandle {
-    shutdown: Option<oneshot::Sender<()>>,
-    task: tokio::task::JoinHandle<io::Result<()>>,
+    shutdown: std::sync::Mutex<Option<oneshot::Sender<()>>>,
+    task: crate::ipc::owner::ControlTask,
 }
 
 impl IpcServerHandle {
-    pub async fn shutdown(mut self) -> io::Result<()> {
-        if let Some(shutdown) = self.shutdown.take() {
+    pub async fn shutdown(&self) -> io::Result<()> {
+        if let Some(shutdown) = self
+            .shutdown
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .take()
+        {
             let _ = shutdown.send(());
         }
-        self.task.await.expect("ipc server task should join")
+        self.task.join().await
     }
 }
 
@@ -58,8 +64,8 @@ pub async fn spawn_ipc_server(
     info!(pipe = %pipe_path.display(), "ipc server ready");
 
     Ok(IpcServerHandle {
-        shutdown: Some(shutdown_tx),
-        task,
+        shutdown: std::sync::Mutex::new(Some(shutdown_tx)),
+        task: crate::ipc::owner::ControlTask::new(task),
     })
 }
 
@@ -69,6 +75,8 @@ async fn run_ipc_server(
     mut shutdown: oneshot::Receiver<()>,
 ) -> io::Result<()> {
     let mut connections = JoinSet::new();
+    let stop = CancellationToken::new();
+    let mut failure = None;
     let active = Arc::new(AtomicU64::new(0));
 
     loop {
@@ -76,7 +84,7 @@ async fn run_ipc_server(
             Ok(s) => s,
             Err(e) => {
                 error!(pipe = %pipe_name, error = %e, "failed to create named pipe");
-                tokio::time::sleep(Duration::from_secs(1)).await;
+                tokio::select! { _ = &mut shutdown => break, _ = tokio::time::sleep(Duration::from_secs(1)) => {} }
                 continue;
             }
         };
@@ -97,9 +105,10 @@ async fn run_ipc_server(
                 debug!(pipe = %pipe_name, active = active.load(Ordering::Relaxed),
                       "ipc client connected");
 
+                let connection_stop = stop.child_token();
                 connections.spawn(async move {
                     let emit_handle = handle.clone();
-                    let result = connection::handle_ipc_connection(server, handle).await;
+                    let result = connection::handle_ipc_connection_until(server, handle, connection_stop).await;
 
                     let n = active.fetch_sub(1, Ordering::Relaxed) - 1;
                     let error_str = match &result {
@@ -127,23 +136,25 @@ async fn run_ipc_server(
                 if let Some(Err(error)) = result {
                     if !error.is_cancelled() {
                         error!(error = %error, "ipc connection task panicked");
+                        failure.get_or_insert_with(|| io::Error::other(error));
                     }
                 }
             }
         }
     }
 
-    connections.abort_all();
+    stop.cancel();
     while let Some(result) = connections.join_next().await {
         if let Err(error) = result {
             if !error.is_cancelled() {
                 error!(error = %error, "ipc connection task panicked during shutdown");
+                failure.get_or_insert_with(|| io::Error::other(error));
             }
         }
     }
 
     info!("ipc server stopped");
-    Ok(())
+    failure.map_or(Ok(()), Err)
 }
 
 // ── Client ────────────────────────────────────────────────────────────
