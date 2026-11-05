@@ -287,6 +287,21 @@ impl NamedProtocolAdapter for VmessAdapter {
     const PROTOCOL_NAME: &'static str = "vmess";
     const FEATURE_NAME: &'static str = "vmess";
 
+    fn validate_runtime_candidate(
+        &self,
+        config: &zero_config::RuntimeConfig,
+    ) -> Result<(), EngineError> {
+        let grpc = config.outbounds.iter().any(|node| {
+            matches!(
+                node.protocol,
+                OutboundProtocolConfig::Vmess { grpc: Some(_), .. }
+            )
+        });
+        let streams = component::grpc::whole_streams_selected(config, self.native_node_dns);
+        self.runtime
+            .validate_grpc_stream_candidate(streams, grpc && !streams)
+            .map_err(EngineError::Core)
+    }
     fn on_config_reloaded(&self, config: &zero_config::RuntimeConfig) {
         self.runtime.on_config_reloaded();
         for inbound in &config.inbounds {

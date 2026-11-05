@@ -22,6 +22,9 @@ pub(super) struct Recipe {
 struct Values {
     recipe: Option<(Recipe, Arc<[u8]>)>,
     mode: Mode,
+    // Only actual current/retiring Node owners. Release requires that owner's
+    // matching native, logical and Scope completion; historical tags are absent.
+    node_streams: std::collections::BTreeSet<ComponentInstanceId>,
 }
 #[derive(Default)]
 enum Mode {
@@ -85,6 +88,13 @@ impl State {
     }
     pub(crate) fn enter_legacy(&self) -> Result<(), zero_transport::RuntimeError> {
         let mut values = self.0.lock().unwrap();
+        if let Some(instance) = values.node_streams.first() {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::PermissionDenied,
+                error(*instance, Stage::Prepare, Reason::StalePlan),
+            )
+            .into());
+        }
         match values.mode {
             Mode::Pristine | Mode::LegacyExposed => {
                 values.mode = Mode::LegacyExposed;
@@ -99,7 +109,9 @@ impl State {
     }
     pub(super) fn claim(&self, instance: ComponentInstanceId) -> Result<(), ChannelError> {
         let mut values = self.0.lock().unwrap();
-        if !matches!(values.mode, Mode::Pristine | Mode::Closed(_)) {
+        if !values.node_streams.is_empty()
+            || !matches!(values.mode, Mode::Pristine | Mode::Closed(_))
+        {
             return Err(error(instance, Stage::Prepare, Reason::StalePlan));
         }
         values.mode = Mode::Claimed(instance);
@@ -109,3 +121,38 @@ impl State {
         matches!(self.0.lock().unwrap().mode, Mode::Claimed(actual) if actual == instance)
     }
 }
+
+impl State {
+    pub(crate) fn check_node_candidate(&self, streams: bool, legacy: bool) -> Result<(), Error> {
+        let values = self.0.lock().unwrap();
+        if streams && matches!(values.mode, Mode::LegacyExposed | Mode::Claimed(_)) {
+            return Err(Error::Config(
+                "VMess gRPC legacy TCP originals lack verified native/driver transfer",
+            ));
+        }
+        if legacy && !values.node_streams.is_empty() {
+            return Err(Error::Config(
+                "VMess gRPC native Stream owners cannot switch to an unsupported legacy grammar",
+            ));
+        }
+        Ok(())
+    }
+    pub(super) fn claim_node_streams(
+        &self,
+        instance: ComponentInstanceId,
+    ) -> Result<(), ChannelError> {
+        let mut values = self.0.lock().unwrap();
+        if matches!(values.mode, Mode::LegacyExposed | Mode::Claimed(_))
+            || !values.node_streams.insert(instance)
+        {
+            return Err(error(instance, Stage::Prepare, Reason::StalePlan));
+        }
+        Ok(())
+    }
+    pub(super) fn release_node_streams(&self, instance: ComponentInstanceId) {
+        self.0.lock().unwrap().node_streams.remove(&instance);
+    }
+}
+
+#[cfg(test)]
+mod tests;

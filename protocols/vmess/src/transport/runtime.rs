@@ -36,6 +36,11 @@ impl VmessTransportRuntime {
     pub(crate) fn grpc_carrier_state(&self) -> Arc<crate::component::grpc::registry::State> {
         self.grpc_carriers.clone()
     }
+    /// Cold rejection only. Legacy exposure remains a debt until a real
+    /// controller/driver transfer exists; cache removal never clears it.
+    pub fn validate_grpc_stream_candidate(&self, streams: bool, legacy: bool) -> Result<(), Error> {
+        self.grpc_carriers.check_node_candidate(streams, legacy)
+    }
     pub fn on_config_reloaded(&self) {
         self.mux_pool.evict_all();
     }

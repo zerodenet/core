@@ -152,6 +152,7 @@ impl ComponentFactory for Factory {
                 attempted: false,
                 resources,
                 carrier_ordinal,
+                stream_admission_claimed: false,
             }),
         })
     }
@@ -164,6 +165,7 @@ struct Owner {
     attempted: bool,
     resources: Arc<dyn ResourceAccess>,
     carrier_ordinal: usize,
+    stream_admission_claimed: bool,
 }
 impl Drop for Owner {
     fn drop(&mut self) {
@@ -190,6 +192,10 @@ impl ResourceLifecycle for Owner {
             ));
         }
         self.attempted = true;
+        if let Some(admission) = &self.managed.options.stream_admission {
+            admission.claim_node_streams(self.managed.instance)?;
+            self.stream_admission_claimed = true;
+        }
         self.managed.options.state.claim(self.managed.instance)?;
         if self.managed.options.business.is_some() {
             self.resources.register_controlled_carrier(
@@ -273,6 +279,15 @@ impl ResourceLifecycle for Owner {
                 .is_some_and(|closed| closed.matches(&self.carriers.registration()))
         {
             self.managed.options.state.release(self.managed.instance);
+            if self.stream_admission_claimed {
+                self.managed
+                    .options
+                    .stream_admission
+                    .as_ref()
+                    .unwrap()
+                    .release_node_streams(self.managed.instance);
+                self.stream_admission_claimed = false;
+            }
         }
         Ok(report)
     }

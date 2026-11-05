@@ -113,6 +113,7 @@ impl Options {
         }
         options.identity = identity.into();
         options.node_streams = streams;
+        options.stream_admission = streams.then(|| runtime.grpc_carrier_state());
         options.state = runtime.grpc_datagram_state(options.identity.clone(), options.state)?;
         Ok(options)
     }
