@@ -16,6 +16,8 @@ type TunPacketReceiver = tokio::sync::mpsc::Receiver<Vec<u8>>;
 mod adopt;
 mod channels;
 mod owned;
+mod owned_channels;
+pub use owned_channels::OwnedTunChannels;
 #[cfg(any(target_os = "linux", target_os = "macos"))]
 mod owned_adopt;
 #[cfg(any(target_os = "linux", target_os = "macos"))]
