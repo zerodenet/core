@@ -23,6 +23,7 @@ pub(in crate::adapters::wireguard) struct LinkedStackOptions {
     peers: usize,
     stacks: Mutex<Option<Vec<EndpointStackRecipe>>>,
     dependencies: OnceLock<Arc<[ComponentInstanceId]>>,
+    scope: Mutex<Option<zero_platform_tokio::contract::scope::TaskScopeIdentity>>,
 }
 impl LinkedStackOptions {
     pub(super) fn new(
@@ -50,7 +51,15 @@ impl LinkedStackOptions {
             peers: stacks.len(),
             stacks: Mutex::new(Some(stacks)),
             dependencies: OnceLock::new(),
+            scope: Mutex::new(None),
         })
+    }
+    pub(super) fn reusable_in(
+        &self,
+        resources: &crate::component::ResourcePreparation<'_>,
+    ) -> bool {
+        let scope = self.scope.lock().unwrap_or_else(|e| e.into_inner()).clone();
+        resources.can_reuse_shared_resource(SHARED_NAMESPACE, &self.spec, scope.as_ref())
     }
     pub(in crate::adapters::wireguard) fn matches_identity(&self, identity: &[u8]) -> bool {
         self.spec.static_identity.as_ref() == identity
@@ -105,6 +114,19 @@ impl LinkedStackOptions {
     }
     pub(super) fn bind(&self, tasks: WeakTaskRegistrar) -> Result<(), EngineError> {
         self.check_current()?;
+        let identity = tasks.scope_identity();
+        {
+            let mut scope = self.scope.lock().unwrap_or_else(|e| e.into_inner());
+            if scope
+                .as_ref()
+                .is_some_and(|bound| !bound.same_scope(&identity))
+            {
+                return Err(invalid(
+                    "linked options belong to another actual host scope",
+                ));
+            }
+            *scope = Some(identity);
+        }
         for peer in 0..self.peers {
             self.pending
                 .peer_stack(peer)

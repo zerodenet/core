@@ -19,6 +19,8 @@ use zero_core::component::{ComponentId, ComponentInstanceId, NetworkGeneration};
 use zero_engine::EngineError;
 use zero_platform_tokio::contract::{network::UpstreamBinding, scope::TaskRegistrar};
 
+pub(super) const SHARED_NAMESPACE: &str = "actual.assembly.wireguard.linked.peers";
+
 pub(super) struct LinkedRecipeSettings {
     pub(super) identity: [u8; 32],
     pub(super) network_generation: NetworkGeneration,
@@ -44,12 +46,33 @@ impl LinkedEndpointRecipe {
     /// No DNS, native handle, task registration or old receiver take occurs.
     /// Proxy carriers retain their legacy route until their reconnect/control
     /// graphs can keep originals through every fresh per-demand invocation.
+    #[cfg(test)]
     pub(super) fn prepare(
         adapter: &WireguardAdapter,
         outbound: &OutboundConfig,
         inbound: &InboundConfig,
         plan: Arc<WireguardRawIpPlan>,
         settings: LinkedRecipeSettings,
+    ) -> Result<Self, EngineError> {
+        Self::prepare_inner(adapter, outbound, inbound, plan, settings, None)
+    }
+    pub(super) fn prepare_with_resources(
+        adapter: &WireguardAdapter,
+        outbound: &OutboundConfig,
+        inbound: &InboundConfig,
+        plan: Arc<WireguardRawIpPlan>,
+        settings: LinkedRecipeSettings,
+        resources: &crate::component::ResourcePreparation<'_>,
+    ) -> Result<Self, EngineError> {
+        Self::prepare_inner(adapter, outbound, inbound, plan, settings, Some(resources))
+    }
+    fn prepare_inner(
+        adapter: &WireguardAdapter,
+        outbound: &OutboundConfig,
+        inbound: &InboundConfig,
+        plan: Arc<WireguardRawIpPlan>,
+        settings: LinkedRecipeSettings,
+        resources: Option<&crate::component::ResourcePreparation<'_>>,
     ) -> Result<Self, EngineError> {
         match &outbound.protocol {
             OutboundProtocolConfig::Wireguard {
@@ -123,6 +146,7 @@ impl LinkedEndpointRecipe {
                 reusable_dependencies
                     .as_ref()
                     .is_some_and(|dependencies| graph.matches_dependencies(dependencies))
+                    && resources.is_none_or(|resources| graph.reusable_in(resources))
             });
         let pending = match &reused {
             Some(graph) => match graph.pending.ready() {
@@ -225,14 +249,16 @@ impl LinkedEndpointRecipe {
         self,
         preparation: &mut crate::component::ResourcePreparation<'_>,
     ) -> Result<(zero_core::component::ComponentId, LinkedInvocation), EngineError> {
+        let fresh = self.reuse.is_none();
         let (options, invocation) = self.into_parts()?;
         let id = preparation
-            .share(
-                "actual.assembly.wireguard.linked.peers",
-                Arc::new(LinkedStackFactory),
-                options,
-            )
+            .share(SHARED_NAMESPACE, Arc::new(LinkedStackFactory), options)
             .map_err(|source| EngineError::Io(std::io::Error::other(source)))?;
+        if fresh {
+            preparation
+                .require_fresh_resource(id)
+                .map_err(|source| EngineError::Io(std::io::Error::other(source)))?;
+        }
         Ok((id, invocation))
     }
     pub(super) fn into_retained_component(
@@ -244,14 +270,16 @@ impl LinkedEndpointRecipe {
         let tag = self.tag.clone();
         let ready = self.pending.ready().is_some();
         let binding = self.binding.clone();
+        let fresh = self.reuse.is_none();
         let (options, invocation) = self.into_parts()?;
         let id = preparation
-            .share(
-                "actual.assembly.wireguard.linked.peers",
-                Arc::new(LinkedStackFactory),
-                options,
-            )
+            .share(SHARED_NAMESPACE, Arc::new(LinkedStackFactory), options)
             .map_err(|source| EngineError::Io(std::io::Error::other(source)))?;
+        if fresh {
+            preparation
+                .require_fresh_resource(id)
+                .map_err(|source| EngineError::Io(std::io::Error::other(source)))?;
+        }
         candidate
             .invocations
             .try_lock()

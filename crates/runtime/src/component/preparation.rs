@@ -25,6 +25,7 @@ struct Key {
 pub struct PreparedSharedResource {
     component: ComponentId,
     recipe: ComponentRecipe,
+    fresh: bool,
 }
 impl PreparedSharedResource {
     pub fn component(&self) -> ComponentId {
@@ -32,6 +33,9 @@ impl PreparedSharedResource {
     }
     pub fn recipe(&self) -> &ComponentRecipe {
         &self.recipe
+    }
+    pub(in crate::component) fn requires_fresh_instance(&self) -> bool {
+        self.fresh
     }
 }
 
@@ -104,7 +108,7 @@ impl<'a> ResourcePreparation<'a> {
                 .previous_slots
                 .iter()
                 .find(|node| node.id == id)?;
-            if !old.can_reuse() || candidate.recipe.spec() != old.recipe.spec() {
+            if candidate.fresh || !old.can_reuse() || candidate.recipe.spec() != old.recipe.spec() {
                 return None;
             }
             for dependency in old.dependency_instances().iter().chain(
@@ -123,6 +127,51 @@ impl<'a> ResourcePreparation<'a> {
         }
         self.ensure_valid().ok()?;
         check(self, component, &mut BTreeSet::new())
+    }
+
+    /// Read-only reuse evidence for a one-use recipe before its owner chooses
+    /// fresh Options. Dependencies/loans must already be requested in this pass.
+    /// The scope is the original factory's weak metadata, never authority.
+    pub fn can_reuse_shared_resource(
+        &self,
+        namespace: &'static str,
+        spec: &ComponentSpec,
+        scope: Option<&zero_platform_tokio::contract::scope::TaskScopeIdentity>,
+    ) -> bool {
+        if self.ensure_valid().is_err() {
+            return false;
+        }
+        let key = Key {
+            namespace,
+            identity: spec.static_identity.clone(),
+        };
+        if self
+            .resources
+            .get(&key)
+            .is_some_and(|resource| resource.fresh)
+        {
+            return false;
+        }
+        let Some(id) = self.previous.entries.get(&key) else {
+            return false;
+        };
+        let Some(old) = self.previous_slots.iter().find(|slot| slot.id == *id) else {
+            return false;
+        };
+        if !old.can_reuse() || old.recipe.spec() != spec || !old.matches_scope_identity(scope) {
+            return false;
+        }
+        old.dependency_instances()
+            .iter()
+            .chain(
+                self.previous_loans
+                    .iter()
+                    .filter(|(from, _)| *from == old.instance_id())
+                    .map(|(_, to)| to),
+            )
+            .all(|dependency| {
+                self.reusable_resource_instance(dependency.component) == Some(*dependency)
+            })
     }
 
     /// Borrow the whole current candidate for assembly-owned shared profile sets.
@@ -180,6 +229,7 @@ impl<'a> ResourcePreparation<'a> {
                 PreparedSharedResource {
                     component: *id,
                     recipe: slot.recipe.clone(),
+                    fresh: false,
                 },
             );
         }
@@ -209,6 +259,29 @@ impl<'a> ResourcePreparation<'a> {
             self.invalidate();
         }
         result
+    }
+
+    /// A one-use original recipe was rebuilt by its owner in this cold pass.
+    /// Keep its canonical ID, but never substitute a same-spec previous slot:
+    /// that slot retains a different original Options/pending resource owner.
+    /// This creates no resource, admission, task, or replacement-close proof.
+    pub fn require_fresh_resource(&mut self, component: ComponentId) -> Result<(), BuildError> {
+        self.ensure_valid()?;
+        if let Some(resource) = self
+            .resources
+            .values_mut()
+            .find(|node| node.component == component)
+        {
+            resource.fresh = true;
+            return Ok(());
+        }
+        self.invalidate();
+        let mut error = invalid(
+            Reason::InvalidConfig,
+            "fresh resource was not requested in this actual cold pass",
+        );
+        error.component = Some(component);
+        Err(error)
     }
 
     /// Add one typed ordinary component to this same cold union and allocator.
@@ -265,8 +338,14 @@ impl<'a> ResourcePreparation<'a> {
             error.component = Some(component);
             return Err(error);
         }
-        self.resources
-            .insert(key, PreparedSharedResource { component, recipe });
+        self.resources.insert(
+            key,
+            PreparedSharedResource {
+                component,
+                recipe,
+                fresh: false,
+            },
+        );
         Ok(component)
     }
 

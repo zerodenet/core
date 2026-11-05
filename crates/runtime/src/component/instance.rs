@@ -194,6 +194,16 @@ impl ComponentSlot {
                 Some(Ok(live)) => !matches!(live.started.get(), Some(Err(_))),
             }
     }
+    pub(in crate::component) fn matches_scope_identity(
+        &self,
+        expected: Option<&zero_platform_tokio::contract::scope::TaskScopeIdentity>,
+    ) -> bool {
+        match (self.live.get(), expected) {
+            (None, None) => true,
+            (Some(Ok(live)), Some(expected)) => live.tasks.scope_identity().same_scope(expected),
+            _ => false,
+        }
+    }
     /// Actual successful lifecycle start, never a cold spec or a close proof.
     pub(in crate::component) fn has_started(&self) -> bool {
         !self.cancel.is_cancelled()

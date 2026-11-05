@@ -200,9 +200,15 @@ impl ComponentCatalog {
         let shared_identities: SharedResourceIdentities = resources.identities()?;
         for resource in resources.into_resources()? {
             let id = resource.component();
-            let generation = previous
-                .and_then(|(_, plan)| plan.order.iter().find(|slot| slot.id == id))
-                .map_or(ResourceGeneration(1), |old| old.generation);
+            let old = previous.and_then(|(_, plan)| plan.order.iter().find(|slot| slot.id == id));
+            let generation = match old {
+                Some(old) if resource.requires_fresh_instance() => old
+                    .generation
+                    .checked_next()
+                    .ok_or_else(|| invalid(Reason::Internal, "component generation exhausted"))?,
+                Some(old) => old.generation,
+                None => ResourceGeneration(1),
+            };
             nodes.push(Arc::new(ComponentSlot::from_recipe(
                 id,
                 generation,

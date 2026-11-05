@@ -120,7 +120,7 @@ impl WireguardAdapter {
                 generation,
                 admission.outbound_denial(&outbound.tag).is_some(),
             )?;
-            let recipe = LinkedEndpointRecipe::prepare(
+            let recipe = LinkedEndpointRecipe::prepare_with_resources(
                 self,
                 outbound,
                 inbound,
@@ -131,6 +131,7 @@ impl WireguardAdapter {
                     stacks: vec![options.clone(); peers],
                     dependencies,
                 },
+                resources,
             )?;
             if entries
                 .insert(inbound.tag.clone(), recipe.pending())
