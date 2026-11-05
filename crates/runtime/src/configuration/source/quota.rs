@@ -65,6 +65,12 @@ fn lock_path(path: &Path) -> PathBuf {
     PathBuf::from(value)
 }
 impl ConfigurationSource {
+    /// Retain this exact source when its actual quota owner cannot finish
+    /// cleanup. This is a debt, never a worker-join or native-close receipt.
+    pub fn retain_quota_cleanup(self: &Arc<Self>) {
+        super::super::startup::retain_unknown(self.clone());
+    }
+
     /// Installs the sole cold quota child before opening or trying its native
     /// lease. A second accounting registry cannot borrow an active lease.
     pub fn open_quota_storage(
@@ -93,7 +99,7 @@ impl ConfigurationSource {
             Ok(storage)
         })?
     }
-    pub(super) fn quota_io_available(&self) -> io::Result<()> {
+    pub(in crate::configuration) fn quota_io_available(&self) -> io::Result<()> {
         let storage = self
             .quota
             .0

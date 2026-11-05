@@ -27,6 +27,17 @@ pub struct RuntimeOptionsConfig {
     /// one actual authenticated HY2 entry. Four MiB by default, on demand.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub hysteria2_udp_pending_bytes: Option<usize>,
+    /// Total active, retiring or unconfirmed control connections across the
+    /// actual HTTP, IPC and gRPC root. Allocated on demand, 256 by default.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub control_max_connections: Option<usize>,
+    /// Actual event bridge/writer subscriptions shared by the same control root.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub control_max_subscriptions: Option<usize>,
+    /// Retained serialized event payload bytes across the same control root's
+    /// queues and pending writes. One MiB by default; replay history is separate.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub control_max_queued_event_bytes: Option<usize>,
     /// Original DNS custody shared by Node/bootstrap and Default query owners.
     /// An unconfirmed close still consumes one position; DoQ needs two.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -79,6 +90,9 @@ impl Default for RuntimeOptionsConfig {
             hysteria2_max_entries: None,
             hysteria2_max_udp_sessions: None,
             hysteria2_udp_pending_bytes: None,
+            control_max_connections: None,
+            control_max_subscriptions: None,
+            control_max_queued_event_bytes: None,
             native_dns_max_originals: None,
             native_dns_max_queries: None,
             native_dns_max_blocking_jobs: None,
@@ -112,6 +126,15 @@ impl RuntimeOptionsConfig {
     }
     pub fn effective_hysteria2_udp_pending_bytes(&self) -> usize {
         self.hysteria2_udp_pending_bytes.unwrap_or(4 * 1024 * 1024)
+    }
+    pub fn effective_control_max_connections(&self) -> usize {
+        self.control_max_connections.unwrap_or(256)
+    }
+    pub fn effective_control_max_subscriptions(&self) -> usize {
+        self.control_max_subscriptions.unwrap_or(256)
+    }
+    pub fn effective_control_max_queued_event_bytes(&self) -> usize {
+        self.control_max_queued_event_bytes.unwrap_or(1024 * 1024)
     }
     pub fn effective_native_dns_max_originals(&self) -> usize {
         self.native_dns_max_originals.unwrap_or(16)

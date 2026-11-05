@@ -1,6 +1,13 @@
 //! One physical driver's bounded packet queue, including reserved FIFO endings.
-use std::{io, sync::Arc};
+use std::{
+    future::Future,
+    io,
+    pin::Pin,
+    sync::{Arc, Mutex},
+    task::{Context, Poll},
+};
 use tokio::sync::{mpsc, OwnedSemaphorePermit, Semaphore};
+use tokio_util::sync::PollSemaphore;
 
 const DATA_FRAMES: usize = 8;
 const LOGICAL_CONTROLS: usize = 32;
@@ -10,6 +17,7 @@ pub struct PacketQueue {
     sender: mpsc::Sender<QueuedPacket>,
     data: Arc<Semaphore>,
     controls: Arc<Semaphore>,
+    max_frame_bytes: usize,
 }
 pub struct QueuedPacket {
     bytes: Vec<u8>,
@@ -21,15 +29,29 @@ impl QueuedPacket {
     }
 }
 pub fn channel() -> (PacketQueue, mpsc::Receiver<QueuedPacket>) {
-    let (sender, receiver) = mpsc::channel(DATA_FRAMES + LOGICAL_CONTROLS);
-    (
+    channel_with_limits(DATA_FRAMES, LOGICAL_CONTROLS, FRAME_BYTES)
+        .expect("fixed physical queue limits are valid")
+}
+pub fn channel_with_limits(
+    data_frames: usize,
+    logical_controls: usize,
+    max_frame_bytes: usize,
+) -> io::Result<(PacketQueue, mpsc::Receiver<QueuedPacket>)> {
+    let capacity = data_frames
+        .checked_add(logical_controls)
+        .filter(|capacity| *capacity <= Semaphore::MAX_PERMITS)
+        .filter(|_| data_frames != 0 && logical_controls != 0 && max_frame_bytes != 0)
+        .ok_or_else(|| io::Error::from(io::ErrorKind::InvalidInput))?;
+    let (sender, receiver) = mpsc::channel(capacity);
+    Ok((
         PacketQueue {
             sender,
-            data: Arc::new(Semaphore::new(DATA_FRAMES)),
-            controls: Arc::new(Semaphore::new(LOGICAL_CONTROLS)),
+            data: Arc::new(Semaphore::new(data_frames)),
+            controls: Arc::new(Semaphore::new(logical_controls)),
+            max_frame_bytes,
         },
         receiver,
-    )
+    ))
 }
 /// The original logical controller reserves its real queue position before use.
 pub struct PacketWriter {
@@ -39,6 +61,13 @@ pub struct PacketWriter {
     ending: Option<mpsc::OwnedPermit<QueuedPacket>>,
     end_frame: Vec<u8>,
     submitted: bool,
+    finished: bool,
+    max_frame_bytes: usize,
+    ready: Option<OwnedSemaphorePermit>,
+    // The same waits survive repeated polls. Mutex supplies Sync without
+    // claiming that a future can be polled through a shared reference.
+    waiting: Mutex<PollSemaphore>,
+    closed: Mutex<Pin<Box<dyn Future<Output = ()> + Send>>>,
 }
 fn capacity() -> io::Error {
     io::ErrorKind::WouldBlock.into()
@@ -65,19 +94,64 @@ impl PacketQueue {
             ending: Some(ending),
             end_frame,
             submitted: false,
+            finished: false,
+            max_frame_bytes: self.max_frame_bytes,
+            ready: None,
+            waiting: Mutex::new(PollSemaphore::new(self.data.clone())),
+            closed: Mutex::new(Box::pin({
+                let sender = self.sender.clone();
+                async move { sender.closed().await }
+            })),
         })
     }
 }
 impl PacketWriter {
+    /// Reserve one actual payload slot without allocating a frame. Receiver
+    /// shutdown wakes this same waiter even if another writer holds capacity.
+    pub fn poll_ready(&mut self, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
+        if self.finished
+            || self.sender.is_closed()
+            || self.closed.get_mut().unwrap().as_mut().poll(cx).is_ready()
+        {
+            return Poll::Ready(Err(io::ErrorKind::BrokenPipe.into()));
+        }
+        if self.ready.is_some() {
+            return Poll::Ready(Ok(()));
+        }
+        match self.waiting.get_mut().unwrap().poll_acquire(cx) {
+            Poll::Pending => Poll::Pending,
+            Poll::Ready(None) => Poll::Ready(Err(io::ErrorKind::BrokenPipe.into())),
+            Poll::Ready(Some(permit)) => {
+                self.ready = Some(permit);
+                Poll::Ready(Ok(()))
+            }
+        }
+    }
+    pub fn poll_send(&mut self, cx: &mut Context<'_>, bytes: &[u8]) -> Poll<io::Result<()>> {
+        if bytes.len() > self.max_frame_bytes {
+            return Poll::Ready(Err(io::ErrorKind::InvalidInput.into()));
+        }
+        match self.poll_ready(cx) {
+            Poll::Pending => Poll::Pending,
+            Poll::Ready(Err(error)) => Poll::Ready(Err(error)),
+            Poll::Ready(Ok(())) => Poll::Ready(self.send(bytes.to_vec())),
+        }
+    }
     pub fn send(&mut self, bytes: Vec<u8>) -> io::Result<()> {
-        if bytes.len() > FRAME_BYTES {
+        if self.finished || self.sender.is_closed() {
+            return Err(io::ErrorKind::BrokenPipe.into());
+        }
+        if bytes.len() > self.max_frame_bytes {
             return Err(io::ErrorKind::InvalidInput.into());
         }
-        let permit = self
-            .data
-            .clone()
-            .try_acquire_owned()
-            .map_err(|_| capacity())?;
+        let permit = match self.ready.take() {
+            Some(permit) => permit,
+            None => self
+                .data
+                .clone()
+                .try_acquire_owned()
+                .map_err(|_| capacity())?,
+        };
         self.sender
             .try_send(QueuedPacket {
                 bytes,
@@ -90,9 +164,13 @@ impl PacketWriter {
         self.submitted = true;
         Ok(())
     }
-}
-impl Drop for PacketWriter {
-    fn drop(&mut self) {
+    pub fn finish(&mut self) {
+        if self.finished {
+            return;
+        }
+        self.finished = true;
+        self.ready.take();
+        *self.waiting.get_mut().unwrap() = PollSemaphore::new(self.data.clone());
         if self.submitted {
             if let (Some(ending), Some(control)) = (self.ending.take(), self.control.take()) {
                 // The same FIFO owns every accepted data frame and this END.
@@ -104,6 +182,13 @@ impl Drop for PacketWriter {
                 });
             }
         }
+        self.ending.take();
+        self.control.take();
+    }
+}
+impl Drop for PacketWriter {
+    fn drop(&mut self) {
+        self.finish();
     }
 }
 

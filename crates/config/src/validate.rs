@@ -405,6 +405,27 @@ fn validate_runtime(
     }
     for (name, limit) in [
         (
+            "control_max_connections",
+            runtime.effective_control_max_connections(),
+        ),
+        (
+            "control_max_subscriptions",
+            runtime.effective_control_max_subscriptions(),
+        ),
+    ] {
+        if !(1..=4096).contains(&limit) {
+            return Err(ConfigError::InvalidRuntime(format!(
+                "runtime.{name} must be between 1 and 4096"
+            )));
+        }
+    }
+    if !(1024..=64 * 1024 * 1024).contains(&runtime.effective_control_max_queued_event_bytes()) {
+        return Err(ConfigError::InvalidRuntime(
+            "runtime.control_max_queued_event_bytes must be between 1024 and 67108864".into(),
+        ));
+    }
+    for (name, limit) in [
+        (
             "native_dns_max_originals",
             runtime.effective_native_dns_max_originals(),
         ),
