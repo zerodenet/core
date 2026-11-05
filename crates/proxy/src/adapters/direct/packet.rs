@@ -20,10 +20,12 @@ impl Drop for Prepared {
     }
 }
 impl Prepared {
-    pub(crate) fn publish(mut self) {
+    pub(crate) fn publish_sync(&mut self) {
         if let Some(next) = &self.next {
             next.activate();
         }
+    }
+    pub(crate) fn confirm_publication(&mut self) {
         self.published = true;
     }
 }

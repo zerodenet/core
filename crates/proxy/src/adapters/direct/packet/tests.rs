@@ -74,3 +74,5 @@ async fn failed_host_validation_retains_matching_duplicate_close_and_preserves_b
     let size = peer.recv(&mut bytes).unwrap();
     assert_eq!(&bytes[..size], b"borrowed host remains live");
 }
+
+mod publication;

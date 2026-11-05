@@ -40,6 +40,7 @@ pub(crate) struct StagedRawIpDevices {
     entries: HashMap<(String, usize), CachedDevice>,
     new_devices: Vec<(Arc<SharedRawIpDevice>, bool)>,
     published: bool,
+    committed: bool,
 }
 
 impl RawIpDevicePool {
@@ -141,6 +142,7 @@ impl RawIpDevicePool {
             entries: HashMap::new(),
             new_devices: Vec::new(),
             published: false,
+            committed: false,
         }
     }
 
@@ -188,7 +190,19 @@ impl RawIpDevicePool {
             .is_some_and(|current| Arc::ptr_eq(&current, device))
     }
 
+    #[cfg(test)]
     pub(crate) fn publish(&self, mut staged: StagedRawIpDevices) -> Vec<Arc<SharedRawIpDevice>> {
+        let stopped = self.publish_pending(&mut staged);
+        staged.confirm_publication();
+        stopped
+    }
+
+    /// Synchronous map switch inside the host's actual commit closure. The
+    /// same staging guard keeps its fresh originals until commit confirms.
+    pub(crate) fn publish_pending(
+        &self,
+        staged: &mut StagedRawIpDevices,
+    ) -> Vec<Arc<SharedRawIpDevice>> {
         let mut state = self.state.lock().unwrap_or_else(|e| e.into_inner());
         state.shutdown = false;
         state.unresolved_endpoints.clear();
@@ -261,6 +275,13 @@ impl RawIpDevicePool {
 }
 
 impl StagedRawIpDevices {
+    pub(crate) fn confirm_publication(&mut self) {
+        assert!(
+            self.published,
+            "device maps must be installed before commit confirmation"
+        );
+        self.committed = true;
+    }
     #[expect(
         clippy::too_many_arguments,
         reason = "existing bounded device entry records original identity, generation and compatibility disposition separately"
@@ -309,9 +330,20 @@ impl StagedRawIpDevices {
 
 impl Drop for StagedRawIpDevices {
     fn drop(&mut self) {
-        if !self.published {
+        if !self.committed {
             let mut state = self.owner.lock().unwrap_or_else(|e| e.into_inner());
             for (device, compatibility) in &self.new_devices {
+                if self.published {
+                    // A failed commit may have activated a fresh candidate.
+                    // Remove only those exact originals, never borrowed current
+                    // entries or another transaction's replacement cell.
+                    state.entries.retain(|_, entry| {
+                        !entry
+                            .cell
+                            .get()
+                            .is_some_and(|current| Arc::ptr_eq(current, device))
+                    });
+                }
                 device.close_now();
                 if *compatibility {
                     state.compatibility_stopping.push(device.clone());
