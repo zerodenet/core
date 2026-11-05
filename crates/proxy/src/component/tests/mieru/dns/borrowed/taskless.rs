@@ -1,6 +1,5 @@
 //! Ordinary taskless originals feed the same real Mieru DNS pool.
 use super::*;
-mod custom_dial;
 
 async fn prefix(protocol: &str) -> crate::runtime::MuxPrefix {
     let mut prefix = if protocol == "shadowsocks" {
