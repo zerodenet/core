@@ -332,12 +332,12 @@ impl OrchestrationState {
         proxy.complete_reload(&self.applied_snapshot, Ok(()));
     }
 
-    async fn reject_reload(
-        &mut self,
-        proxy: &Proxy,
-        rejected: &std::sync::Arc<zero_engine::EngineRuntimeSnapshot>,
+    fn reject_reload<'a>(
+        &'a mut self,
+        proxy: &'a Proxy,
+        rejected: &'a std::sync::Arc<zero_engine::EngineRuntimeSnapshot>,
         message: String,
-    ) {
-        self.finish_rejection(proxy, rejected, message, false).await;
+    ) -> zero_platform_tokio::contract::BoxFuture<'a, ()> {
+        self.finish_rejection(proxy, rejected, message, false)
     }
 }
