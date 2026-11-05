@@ -4,7 +4,7 @@ use std::{
     io,
     num::NonZeroUsize,
     sync::{
-        atomic::{AtomicUsize, Ordering},
+        atomic::{AtomicBool, AtomicUsize, Ordering},
         Arc, Mutex,
     },
     time::Duration,
@@ -18,6 +18,8 @@ use zero_platform_tokio::contract::{
 pub(in crate::runtime) struct Sampler {
     state: tokio::sync::Mutex<Option<State>>,
     failure: Mutex<Option<Arc<ChannelError>>>,
+    changed: tokio::sync::Notify,
+    stopping: AtomicBool,
 }
 impl std::fmt::Debug for Sampler {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -79,6 +81,8 @@ impl Sampler {
             closed: false,
         });
         *self.failure.lock().expect("statistics failure poisoned") = None;
+        self.stopping.store(false, Ordering::Release);
+        self.changed.notify_waiters();
         Ok(())
     }
     fn remember_failure(&self, witness: &TaskJoinWitness) {
@@ -92,6 +96,7 @@ impl Sampler {
             .lock()
             .expect("statistics failure poisoned")
             .get_or_insert(error);
+        self.changed.notify_waiters();
     }
     fn result(&self) -> io::Result<()> {
         match self
@@ -104,57 +109,111 @@ impl Sampler {
             None => Ok(()),
         }
     }
+    /// Drive alongside the same pinned orchestration future, including its
+    /// reload/network awaits. No additional owner task or runtime is created.
+    pub(super) async fn drive<T>(&self, operation: impl std::future::Future<Output = T>) -> T {
+        tokio::pin!(operation);
+        let mut sampling = true;
+        loop {
+            tokio::select! {
+                result = &mut operation => return result,
+                sample = self.next_sample(), if sampling => {
+                    if let Err(error) = sample {
+                        // Actual worker failures already retain their original
+                        // Arc. Preserve any registration error source as well.
+                        self.failure.lock().expect("statistics failure poisoned").get_or_insert_with(|| {
+                            Arc::new(ChannelError::new(
+                                zero_platform_tokio::contract::Stage::Receive,
+                                zero_platform_tokio::contract::Reason::Internal,
+                                zero_platform_tokio::contract::Impact::Component,
+                            ).with_source(error))
+                        });
+                        self.changed.notify_waiters();
+                        sampling = false;
+                    }
+                }
+            }
+        }
+    }
+    pub(super) async fn observe_failure(&self) -> io::Error {
+        loop {
+            let changed = self.changed.notified();
+            tokio::pin!(changed);
+            changed.as_mut().enable();
+            if let Err(error) = self.result() {
+                return error;
+            }
+            changed.await;
+        }
+    }
     pub(super) async fn next_sample(&self) -> io::Result<()> {
-        let mut state = self.state.lock().await;
-        let state = state.as_mut().ok_or_else(|| {
-            io::Error::new(
-                io::ErrorKind::NotConnected,
-                "statistics Scope was not started",
-            )
-        })?;
-        if state.closing {
-            return Err(io::Error::new(
-                io::ErrorKind::NotConnected,
-                "statistics Scope is closing",
-            ));
-        }
-        if state.pending.is_none() {
-            state.tick.tick().await;
-            let engine = state.engine.clone();
-            let endpoint_due = state.seconds.is_multiple_of(10);
-            state.seconds = state.seconds.wrapping_add(1);
-            let offset = state.endpoint_offset.clone();
-            state.register(move || {
-                #[cfg(feature = "host-network-stats")]
-                {
-                    sample_host_interfaces(&engine);
-                    engine.push_host_traffic_stats_sampled();
+        loop {
+            let changed = self.changed.notified();
+            tokio::pin!(changed);
+            changed.as_mut().enable();
+            let mut state = self.state.lock().await;
+            if self.stopping.load(Ordering::Acquire)
+                || state.as_ref().is_none_or(|state| state.closing)
+            {
+                // Cold startup and completed generations grant no work. Release
+                // the owner lock so start/shutdown can change this same owner.
+                drop(state);
+                changed.await;
+                continue;
+            }
+            let state = state.as_mut().expect("started statistics Scope");
+            if state.pending.is_none() {
+                tokio::select! {
+                    _ = &mut changed => continue,
+                    _ = state.tick.tick() => {},
                 }
-                engine.push_stats_sampled();
-                engine.push_flow_updates();
-                if endpoint_due {
-                    let next =
-                        engine.push_endpoint_stats_sampled_page(offset.load(Ordering::Acquire));
-                    offset.store(next, Ordering::Release);
+                if self.stopping.load(Ordering::Acquire) {
+                    continue;
                 }
-                Ok(())
+                let engine = state.engine.clone();
+                let endpoint_due = state.seconds.is_multiple_of(10);
+                state.seconds = state.seconds.wrapping_add(1);
+                let offset = state.endpoint_offset.clone();
+                state.register(move || {
+                    #[cfg(feature = "host-network-stats")]
+                    {
+                        sample_host_interfaces(&engine);
+                        engine.push_host_traffic_stats_sampled();
+                    }
+                    engine.push_stats_sampled();
+                    engine.push_flow_updates();
+                    if endpoint_due {
+                        let next =
+                            engine.push_endpoint_stats_sampled_page(offset.load(Ordering::Acquire));
+                        offset.store(next, Ordering::Release);
+                    }
+                    Ok(())
+                })?;
+            }
+            let exit = tokio::select! {
+                _ = &mut changed => continue,
+                exit = state.scope.next_exit() => exit,
+            }
+            .ok_or_else(|| {
+                io::Error::other("statistics Scope ended before its retained worker joined")
             })?;
+            let witness = state
+                .pending
+                .take()
+                .expect("worker retained before its first await");
+            debug_assert_eq!(witness.task_id(), Some(exit.id));
+            self.remember_failure(&witness);
+            return self.result();
         }
-        let exit = state.scope.next_exit().await.ok_or_else(|| {
-            io::Error::other("statistics Scope ended before its retained worker joined")
-        })?;
-        let witness = state
-            .pending
-            .take()
-            .expect("worker retained before its first await");
-        debug_assert_eq!(witness.task_id(), Some(exit.id));
-        self.remember_failure(&witness);
-        self.result()
     }
     /// A running blocking operation cannot be aborted. Join this same original
     /// before resources it reads are closed. Cancelling the waiter retains its
     /// Scope, pending witness and any consumed failure for the next attempt.
     pub(super) async fn shutdown(&self) -> io::Result<()> {
+        // Wake an interval or join poll before waiting for its owner lock. A
+        // tick cannot admit another job after observing this stop fence.
+        self.stopping.store(true, Ordering::Release);
+        self.changed.notify_waiters();
         let mut state = self.state.lock().await;
         let Some(state) = state.as_mut() else {
             return Ok(());

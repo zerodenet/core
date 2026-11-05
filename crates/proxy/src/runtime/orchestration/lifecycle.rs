@@ -13,8 +13,12 @@ where
     F: Future<Output = ()> + Send,
 {
     proxy
-        .protocols
-        .drive_component_supervision(Box::pin(run_supervised_until(proxy, shutdown)))
+        .statistics
+        .drive(
+            proxy
+                .protocols
+                .drive_component_supervision(Box::pin(run_supervised_until(proxy, shutdown))),
+        )
         .await
 }
 
@@ -94,8 +98,8 @@ where
         let network_change = std::future::pending::<()>();
 
         tokio::select! {
-            sample = proxy.statistics.next_sample() => {
-                sample?;
+            failure = proxy.statistics.observe_failure() => {
+                return Err(failure.into());
             }
             failure = proxy.protocols.component_failure() => {
                 return Err(failure);
