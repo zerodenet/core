@@ -75,7 +75,11 @@ async fn original_tun_panic_is_retained_alongside_missing_notification() {
 
 #[tokio::test]
 async fn exited_main_failure_is_reported_while_its_quiescent_control_is_reclaimed() {
-    let proxy = crate::Proxy::new(zero_config::RuntimeConfig::default()).unwrap();
+    let proxy = crate::Proxy::new(
+        zero_config::RuntimeConfig::parse(r#"{"route":{"rules":[],"final":{"type":"direct"}}}"#)
+            .unwrap(),
+    )
+    .unwrap();
     let (done, notification) = oneshot::channel();
     let completion = TunCompletion::new(notification, None);
     completion.install_main(tokio::spawn(async move {
