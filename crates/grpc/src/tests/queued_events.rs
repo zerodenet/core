@@ -1,0 +1,174 @@
+use super::{PendingEvents, PendingStream};
+use crate::{pb::control_server::Control, ControlService, Subscriptions};
+use futures_core::Stream;
+use std::{
+    sync::{
+        atomic::{AtomicUsize, Ordering},
+        Arc, Mutex,
+    },
+    time::Duration,
+};
+use zero_runtime::configuration::{ControlBudget, ControlBudgetLimits};
+
+#[derive(Clone)]
+struct OneEvent {
+    event: Arc<Mutex<Option<zero_api::RawApiEvent>>>,
+    taken: Arc<AtomicUsize>,
+    dropped: Arc<AtomicUsize>,
+}
+struct OneStream {
+    source: OneEvent,
+    _original: PendingStream,
+}
+impl zero_api::EventStream for OneStream {
+    fn recv(&self) -> Option<zero_api::RawApiEvent> {
+        unreachable!("the original subscription must use finite waits")
+    }
+    fn try_recv(&self) -> Option<zero_api::RawApiEvent> {
+        let event = self.source.event.lock().unwrap().take();
+        if event.is_some() {
+            self.source.taken.fetch_add(1, Ordering::AcqRel);
+        }
+        event
+    }
+}
+impl zero_api::EventSource for OneEvent {
+    type Stream = OneStream;
+    fn subscribe(&self, _: zero_api::EventFilter) -> zero_api::ApiResult<Self::Stream> {
+        Ok(OneStream {
+            source: self.clone(),
+            _original: PendingStream(self.dropped.clone()),
+        })
+    }
+    fn latest(
+        &self,
+        limit: usize,
+        filter: zero_api::EventFilter,
+    ) -> zero_api::ApiResult<Vec<zero_api::RawApiEvent>> {
+        zero_api::EventSource::latest(&PendingEvents(self.dropped.clone()), limit, filter)
+    }
+    fn since(
+        &self,
+        after: u64,
+        limit: usize,
+        filter: zero_api::EventFilter,
+    ) -> zero_api::ApiResult<zero_api::EventReplay> {
+        zero_api::EventSource::since(&PendingEvents(self.dropped.clone()), after, limit, filter)
+    }
+}
+impl zero_api::QueryService for OneEvent {
+    fn query(&self, _: zero_api::QueryRequest) -> zero_api::ApiResult<zero_api::QueryResponse> {
+        unreachable!()
+    }
+}
+impl zero_api::CommandService for OneEvent {
+    fn execute(
+        &self,
+        _: zero_api::CommandRequest,
+    ) -> zero_api::ApiResult<zero_api::CommandResponse> {
+        unreachable!()
+    }
+}
+
+async fn oversized_event(disconnect: Option<bool>) {
+    let payload = serde_json::json!({"message": "x".repeat(256)});
+    let source = OneEvent {
+        event: Arc::new(Mutex::new(Some(zero_api::ApiEvent::new(
+            "retained-event",
+            "engine.warning",
+            42,
+            payload.clone(),
+        )))),
+        taken: Arc::new(AtomicUsize::new(0)),
+        dropped: Arc::new(AtomicUsize::new(0)),
+    };
+    let budget = ControlBudget::new(ControlBudgetLimits {
+        connections: 1,
+        subscriptions: 1,
+        queued_event_bytes: 64,
+    });
+    let jobs = Arc::new(Subscriptions::new(budget.clone()));
+    let service = ControlService::new(source.clone(), None, jobs.clone());
+    let mut stream = service
+        .subscribe(tonic::Request::new(crate::SubscribeRequest {
+            event_types: Vec::new(),
+        }))
+        .await
+        .unwrap()
+        .into_inner();
+    // Poll the actual adapter receiver. An oversize frame neither closes this
+    // stream nor allocates a charged serialized frame while awaiting capacity.
+    assert!(tokio::time::timeout(
+        Duration::from_millis(100),
+        std::future::poll_fn(|cx| stream.as_mut().poll_next(cx)),
+    )
+    .await
+    .is_err());
+    assert_eq!(source.taken.load(Ordering::Acquire), 1);
+    assert_eq!(source.dropped.load(Ordering::Acquire), 0);
+    assert!(!jobs.jobs.lock().unwrap()[0].finished());
+    assert_eq!(budget.usage().subscriptions, 1);
+    assert_eq!(budget.usage().queued_event_bytes, 0);
+    match disconnect {
+        None => {
+            budget
+                .prepare(ControlBudgetLimits {
+                    connections: 1,
+                    subscriptions: 1,
+                    queued_event_bytes: 1024,
+                })
+                .unwrap()
+                .commit()
+                .unwrap();
+            let event = tokio::time::timeout(
+                Duration::from_secs(1),
+                std::future::poll_fn(|cx| stream.as_mut().poll_next(cx)),
+            )
+            .await
+            .unwrap()
+            .unwrap()
+            .unwrap();
+            assert_eq!(event.event_id, "retained-event");
+            assert_eq!(event.occurred_at, 42);
+            assert_eq!(
+                serde_json::from_slice::<serde_json::Value>(&event.payload).unwrap(),
+                payload
+            );
+            assert_eq!(budget.usage().queued_event_bytes, 0);
+            drop(stream);
+        }
+        Some(true) => drop(stream),
+        Some(false) => {
+            jobs.stop.store(true, Ordering::Release);
+            assert!(tokio::time::timeout(
+                Duration::from_secs(1),
+                std::future::poll_fn(|cx| stream.as_mut().poll_next(cx)),
+            )
+            .await
+            .unwrap()
+            .is_none());
+            drop(stream);
+        }
+    }
+    tokio::time::timeout(Duration::from_secs(1), jobs.join_all())
+        .await
+        .unwrap()
+        .unwrap();
+    assert!(jobs.jobs.lock().unwrap()[0].joined_successfully());
+    assert_eq!(source.dropped.load(Ordering::Acquire), 1);
+    assert_eq!(budget.usage().subscriptions, 0);
+    assert_eq!(budget.usage().queued_event_bytes, 0);
+}
+
+#[tokio::test]
+async fn oversize_grpc_event_survives_until_the_same_root_budget_grows() {
+    oversized_event(None).await;
+}
+#[tokio::test]
+async fn disconnected_oversize_grpc_event_joins_the_original_subscriber() {
+    oversized_event(Some(true)).await;
+}
+#[tokio::test]
+async fn stopped_oversize_grpc_event_joins_the_original_subscriber() {
+    oversized_event(Some(false)).await;
+}
