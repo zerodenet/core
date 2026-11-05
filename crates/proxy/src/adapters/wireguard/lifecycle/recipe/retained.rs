@@ -2,8 +2,8 @@
 use super::{invocation::ResolvedLinkedInvocation, *};
 
 pub(in crate::adapters::wireguard::lifecycle) enum RetainedInvocation {
-    Prepared(LinkedInvocation),
-    Resolved(ResolvedLinkedInvocation),
+    Prepared(Box<LinkedInvocation>),
+    Resolved(Box<ResolvedLinkedInvocation>),
     Installed {
         binding: zero_platform_tokio::contract::network::UpstreamBinding,
     },
@@ -13,39 +13,41 @@ pub(in crate::adapters::wireguard::lifecycle) enum RetainedInvocation {
 impl RetainedInvocation {
     /// Borrow the original recipe in place. Cancellation never drops its packet
     /// receiver or creates a fresh candidate with different ownership.
-    pub(in crate::adapters::wireguard::lifecycle) async fn resolve(
-        &mut self,
-        upstream: &UpstreamConnectServices,
+    pub(in crate::adapters::wireguard::lifecycle) fn resolve<'a>(
+        &'a mut self,
+        upstream: &'a UpstreamConnectServices,
         demand: PacketCarrierDemand,
-    ) -> Result<(), EngineError> {
-        match self {
-            Self::Prepared(invocation) => {
-                let request = invocation.resolve_request(upstream, demand).await?;
-                let Self::Prepared(invocation) = std::mem::replace(self, Self::Transitioning)
-                else {
-                    unreachable!()
-                };
-                *self = Self::Resolved(invocation.into_resolved(request));
-                Ok(())
-            }
-            Self::Installed { binding } => {
-                demand.validate()?;
-                if demand.binding != *binding
-                    || !matches!(
-                        demand.identity,
-                        zero_platform_tokio::contract::context::RequestIdentity::Service(_)
-                    )
-                {
-                    return Err(invalid(
-                        "reused linked demand differs from its actual root binding",
-                    ));
+    ) -> zero_platform_tokio::contract::BoxFuture<'a, Result<(), EngineError>> {
+        Box::pin(async move {
+            match self {
+                Self::Prepared(invocation) => {
+                    let request = invocation.resolve_request(upstream, demand).await?;
+                    let Self::Prepared(invocation) = std::mem::replace(self, Self::Transitioning)
+                    else {
+                        unreachable!()
+                    };
+                    *self = Self::Resolved(Box::new((*invocation).into_resolved(request)));
+                    Ok(())
                 }
-                Ok(())
+                Self::Installed { binding } => {
+                    demand.validate()?;
+                    if demand.binding != *binding
+                        || !matches!(
+                            demand.identity,
+                            zero_platform_tokio::contract::context::RequestIdentity::Service(_)
+                        )
+                    {
+                        return Err(invalid(
+                            "reused linked demand differs from its actual root binding",
+                        ));
+                    }
+                    Ok(())
+                }
+                Self::Resolved(invocation) => invocation.validate_retained(upstream, &demand),
+                Self::Failed(source) => Err(retained_error(source.clone())),
+                Self::Transitioning => Err(invalid("linked invocation transition is unfinished")),
             }
-            Self::Resolved(invocation) => invocation.validate_retained(upstream, &demand),
-            Self::Failed(source) => Err(retained_error(source.clone())),
-            Self::Transitioning => Err(invalid("linked invocation transition is unfinished")),
-        }
+        })
     }
     pub(in crate::adapters::wireguard::lifecycle) fn install(
         &mut self,

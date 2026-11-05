@@ -110,7 +110,11 @@ async fn open_with_accounting(
     let deadline = invocation
         .deadline
         .unwrap_or_else(|| tokio::time::Instant::now() + std::time::Duration::from_secs(5));
-    let role = slot.datagram(deadline).await?;
+    let role = slot.datagram(deadline).await.map_err(|mut failure| {
+        failure.component.get_or_insert(slot.id);
+        failure.session = failure.session.or(invocation.identity.session());
+        failure
+    })?;
     let upstream = services.upstream_observed(tag);
     let traffic = EstablishmentTraffic::new(upstream.observer());
     let wire = WireTraffic::new(upstream.observer());

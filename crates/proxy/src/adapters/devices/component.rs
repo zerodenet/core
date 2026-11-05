@@ -63,17 +63,18 @@ impl Devices {
     pub(crate) async fn resolve_component_resources(
         &self,
         config: &RuntimeConfig,
-        services: &crate::protocol_registry::TcpRuntimeServices,
+        upstream: &crate::protocol_registry::UpstreamConnectServices,
+        traffic: &zero_engine::Engine,
         deadline: tokio::time::Instant,
         cancel: zero_platform_tokio::contract::CancellationToken,
     ) -> Result<(), EngineError> {
         #[cfg(feature = "wireguard")]
         if let Some(owner) = &self.wireguard {
             return owner
-                .resolve_component_resources(config, services, deadline, cancel)
+                .resolve_component_resources(config, upstream, traffic, deadline, cancel)
                 .await;
         }
-        let _ = (config, services, deadline, cancel);
+        let _ = (config, upstream, traffic, deadline, cancel);
         Ok(())
     }
 }

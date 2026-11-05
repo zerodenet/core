@@ -31,61 +31,66 @@ impl LinkedInvocation {
         let request = self.resolve_request(upstream, demand).await?;
         Ok(self.into_resolved(request))
     }
-    pub(super) async fn resolve_request(
-        &self,
-        upstream: &UpstreamConnectServices,
+    pub(super) fn resolve_request<'a>(
+        &'a self,
+        upstream: &'a UpstreamConnectServices,
         demand: PacketCarrierDemand,
-    ) -> Result<ResolvedRequest, EngineError> {
-        demand.validate()?;
-        if !matches!(&demand.identity, RequestIdentity::Service(_))
-            || demand.binding != self.recipe.binding
-        {
-            return Err(invalid(
+    ) -> zero_platform_tokio::contract::BoxFuture<'a, Result<ResolvedRequest, EngineError>> {
+        Box::pin(async move {
+            demand.validate()?;
+            if !matches!(&demand.identity, RequestIdentity::Service(_))
+                || demand.binding != self.recipe.binding
+            {
+                return Err(invalid(
                 "linked BuildNew requires its actual Service identity and complete root binding",
             ));
-        }
-        self.recipe.check_staged()?;
-        let owner = self
-            .recipe
-            .pending
-            .peer_carrier(0)
-            .ok_or_else(|| invalid("linked peer declaration is empty"))?;
-        let cancel = demand.context.cancel.clone();
-        let resolution = async {
-            if upstream.egress_generation() != self.recipe.binding.network_generation.0 {
-                return Err(invalid("linked candidate network generation is stale"));
             }
-            let mut endpoints = Vec::with_capacity(self.recipe.plan.peer_count());
-            for peer in 0..self.recipe.plan.peer_count() {
-                let Some((host, port)) = self.recipe.plan.peer_endpoint(peer) else {
-                    endpoints.push(None);
-                    continue;
-                };
-                let address = match host.parse::<IpAddr>() {
-                    Ok(IpAddr::V4(ip)) => Address::Ipv4(ip.octets()),
-                    Ok(IpAddr::V6(ip)) => Address::Ipv6(ip.octets()),
-                    Err(_) => Address::Domain(host.to_owned()),
-                };
-                endpoints.push(Some(
-                    upstream
-                        .resolve_node_address(&address, port, "WireGuard peer endpoint")
+            self.recipe.check_staged()?;
+            let owner = self
+                .recipe
+                .pending
+                .peer_carrier(0)
+                .ok_or_else(|| invalid("linked peer declaration is empty"))?;
+            let cancel = demand.context.cancel.clone();
+            let resolution = Box::pin(async {
+                if upstream.egress_generation() != self.recipe.binding.network_generation.0 {
+                    return Err(invalid("linked candidate network generation is stale"));
+                }
+                let mut endpoints = Vec::with_capacity(self.recipe.plan.peer_count());
+                for peer in 0..self.recipe.plan.peer_count() {
+                    let Some((host, port)) = self.recipe.plan.peer_endpoint(peer) else {
+                        endpoints.push(None);
+                        continue;
+                    };
+                    let address = match host.parse::<IpAddr>() {
+                        Ok(IpAddr::V4(ip)) => Address::Ipv4(ip.octets()),
+                        Ok(IpAddr::V6(ip)) => Address::Ipv6(ip.octets()),
+                        Err(_) => Address::Domain(host.to_owned()),
+                    };
+                    endpoints.push(Some(
+                        Box::pin(upstream.resolve_node_address(
+                            &address,
+                            port,
+                            "WireGuard peer endpoint",
+                        ))
                         .await?,
-                ));
-            }
-            Ok(endpoints)
-        };
-        let endpoints = tokio::select! {
-            biased;
-            _ = owner.cancelled() => return Err(interrupted("linked candidate was stopped")),
-            _ = cancel.cancelled() => return Err(interrupted("linked BuildNew caller cancelled")),
-            result = with_deadline(demand.context.deadline, resolution) => result.map_err(|source| EngineError::Io(std::io::Error::new(std::io::ErrorKind::TimedOut, source)))??,
-        };
-        demand.validate()?;
-        self.recipe.check_staged()?;
-        Ok(ResolvedRequest {
-            endpoints,
-            demand,
-            egress: upstream.egress_control(),
+                    ));
+                }
+                Ok(endpoints)
+            });
+            let endpoints = tokio::select! {
+                biased;
+                _ = owner.cancelled() => return Err(interrupted("linked candidate was stopped")),
+                _ = cancel.cancelled() => return Err(interrupted("linked BuildNew caller cancelled")),
+                result = with_deadline(demand.context.deadline, resolution) => result.map_err(|source| EngineError::Io(std::io::Error::new(std::io::ErrorKind::TimedOut, source)))??,
+            };
+            demand.validate()?;
+            self.recipe.check_staged()?;
+            Ok(ResolvedRequest {
+                endpoints,
+                demand,
+                egress: upstream.egress_control(),
+            })
         })
     }
     pub(super) fn into_resolved(self, request: ResolvedRequest) -> ResolvedLinkedInvocation {

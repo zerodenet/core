@@ -7,6 +7,7 @@ use zero_engine::ResolvedLeafOutbound;
 use zero_platform_tokio::contract::component::{ResourceDeclaration, RoleKind};
 pub(crate) struct PreparedDatagramRelay {
     pub(crate) prefix: Vec<ServiceNode>,
+    pub(crate) pooled: bool,
     pub(crate) borrowed: Option<usize>,
     pub(crate) target: super::DatagramAssociationTarget,
 }
@@ -43,13 +44,21 @@ impl super::super::ProtocolInventory {
             Ok(slot) => slot,
             Err(error) => return Some(Err(failure(error))),
         };
-        if !final_slot
-            .recipe
-            .spec()
-            .resources
-            .iter()
-            .any(|resource| matches!(resource, ResourceDeclaration::ControlledNodeStream { .. }))
-        {
+        let node_business =
+            final_slot.recipe.spec().resources.iter().any(|resource| {
+                matches!(resource, ResourceDeclaration::ControlledNodeStream { .. })
+            });
+        // An existing background pool must consume its own standard Datagram
+        // role. Its persistent provider, not a legacy claim or this request,
+        // retains and opens the actual physical carrier.
+        let pooled = !node_business
+            && final_slot.recipe.spec().roles.contains(&RoleKind::Stream)
+            && final_slot.recipe.spec().task_limit.is_none()
+            && !final_slot.recipe.spec().dependencies.is_empty()
+            && final_slot.recipe.spec().resources.is_empty()
+            && plan.has_background_carrier_pool(final_slot.role_id())
+            && plan.stream_dependencies_supported(final_slot.role_id());
+        if !node_business && !pooled {
             return None;
         }
         let mut nodes = Vec::new();
@@ -128,6 +137,7 @@ impl super::super::ProtocolInventory {
         }
         Some(Ok(PreparedDatagramRelay {
             prefix: nodes,
+            pooled,
             borrowed,
             target,
         }))

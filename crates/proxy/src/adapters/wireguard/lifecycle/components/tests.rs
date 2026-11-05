@@ -132,7 +132,13 @@ async fn production_candidate_owns_cold_invocation_then_installs_only_its_starte
         .is_none());
     catalog.start(config.clone(), deadline()).await.unwrap();
     adapter
-        .resolve_component_resources(&config, &services, deadline(), CancellationToken::new())
+        .resolve_component_resources(
+            &config,
+            &services.upstream(),
+            services.engine(),
+            deadline(),
+            CancellationToken::new(),
+        )
         .await
         .unwrap();
     assert!(matches!(
@@ -143,7 +149,13 @@ async fn production_candidate_owns_cold_invocation_then_installs_only_its_starte
     // Resuming a pass after another device suspended must keep this original
     // resolution, receiver and meter, rather than resolving a fresh invocation.
     adapter
-        .resolve_component_resources(&config, &services, deadline(), CancellationToken::new())
+        .resolve_component_resources(
+            &config,
+            &services.upstream(),
+            services.engine(),
+            deadline(),
+            CancellationToken::new(),
+        )
         .await
         .unwrap();
     assert_eq!(pending.traffic.lock().unwrap().len(), traffic_count);

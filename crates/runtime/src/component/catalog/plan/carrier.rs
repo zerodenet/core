@@ -1,6 +1,36 @@
 //! Check borrowed lineage against actual installed roles and original providers.
 use super::*;
 impl ComponentPlan {
+    /// Actual installed dynamic background stream/packet pools. Metadata QUIC roots do
+    /// not acquire a new nonempty-prefix capability through this selector.
+    pub fn has_background_carrier_pool(&self, role: zero_core::component::RoleInstanceId) -> bool {
+        let Some(selected) = self.role_slot(role) else {
+            return false;
+        };
+        let mut pending = vec![selected.instance_id()];
+        let mut seen = std::collections::BTreeSet::new();
+        while let Some(id) = pending.pop() {
+            if !seen.insert(id) {
+                continue;
+            }
+            let Some(slot) = self.order.iter().find(|slot| slot.instance_id() == id) else {
+                return false;
+            };
+            if slot.recipe.spec().resources.iter().enumerate().any(|(ordinal, resource)| {
+                match resource {
+                    zero_platform_tokio::contract::component::ResourceDeclaration::ControlledCarrierPool { max_sockets, .. } => {
+                        slot.original_carrier_owner(ordinal).is_some_and(|owner| {
+                            owner.instance() == slot.instance_id() && owner.limit() == *max_sockets
+                        })
+                    }
+                    _ => false,
+                }
+            }) { return true; }
+            pending.extend(slot.dependency_instances());
+        }
+        false
+    }
+
     /// This exact ordinary owner has both typed issuers installed by its same
     /// host Slot. Declarations alone do not qualify a resourceful Stream loan.
     pub fn has_node_stream_provider(&self, role: zero_core::component::RoleInstanceId) -> bool {

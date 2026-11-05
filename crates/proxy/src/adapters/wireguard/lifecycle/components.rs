@@ -156,19 +156,14 @@ impl WireguardAdapter {
     pub(crate) async fn resolve_component_resources(
         &self,
         config: &zero_config::RuntimeConfig,
-        services: &crate::protocol_registry::TcpRuntimeServices,
+        upstream: &crate::protocol_registry::UpstreamConnectServices,
+        traffic: &zero_engine::Engine,
         deadline: tokio::time::Instant,
         cancel: CancellationToken,
     ) -> Result<(), EngineError> {
         let Some(candidate) = PendingEndpoints::staged(&self.pending_endpoints, config) else {
             return Ok(());
         };
-        if !std::ptr::eq(services.snapshot().config().as_ref(), config) {
-            return Err(invalid(
-                "device resolution source differs from the actual candidate snapshot",
-            ));
-        }
-        let upstream = services.upstream();
         let mut invocations = candidate.invocations.lock().await;
         for (tag, invocation) in invocations.iter_mut() {
             let outbound = config.outbounds.iter().find(|outbound|matches!(&outbound.protocol, OutboundProtocolConfig::Wireguard {inbound_tag:Some(inbound),outer_udp_proxy:None,..} if inbound == tag)).ok_or_else(||invalid("actual linked invocation has no candidate outbound"))?;
@@ -183,11 +178,7 @@ impl WireguardAdapter {
                 .endpoint_bindings()
                 .iter()
                 .find(|binding| binding.canonical && binding.outbound_tags.contains(&outbound.tag))
-                .and_then(|binding| {
-                    services
-                        .engine()
-                        .prepare_endpoint_traffic(binding, &plan.peer_ids())
-                });
+                .and_then(|binding| traffic.prepare_endpoint_traffic(binding, &plan.peer_ids()));
             let traffic = (0..graph.peer_count())
                 .map(|peer| {
                     prepared
@@ -199,16 +190,12 @@ impl WireguardAdapter {
                             )
                         })
                         .unwrap_or_default()
-                        .with_global(
-                            services
-                                .engine()
-                                .traffic_meter(&zero_api::TrafficScope::Global),
-                        )
+                        .with_global(traffic.traffic_meter(&zero_api::TrafficScope::Global))
                 })
                 .collect();
             invocation
                 .resolve(
-                    &upstream,
+                    upstream,
                     crate::runtime::udp_dispatch::packet_owner::PacketCarrierDemand {
                         identity: RequestIdentity::Service(Arc::new(
                             zero_core::request::ServiceRequestFacts {

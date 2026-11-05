@@ -135,9 +135,15 @@ impl TcpRuntimeServices {
         session: &zero_core::Session,
     ) -> Result<Self, zero_engine::EngineError> {
         if let Err(error) = &self.execution.components {
-            return Err(zero_engine::EngineError::Io(std::io::Error::other(
-                crate::component::instance::retained(error.clone()),
-            )));
+            // The retained host failure is unchanged; this actual ingress has
+            // already assigned its business identity before entering dispatch.
+            let mut failure = crate::component::instance::retained(error.clone());
+            if session.id != 0 {
+                failure
+                    .session
+                    .get_or_insert(zero_core::component::SessionId(session.id));
+            }
+            return Err(zero_engine::EngineError::Io(std::io::Error::other(failure)));
         }
         if self.execution.invocation.is_some() || session.id == 0 {
             return Ok(self);

@@ -63,3 +63,21 @@ fn staged_raw_ip_devices_reject_over_limit_without_publishing() {
     assert_eq!(staged.len(), MAX_RAW_IP_DEVICES);
     assert!(pool.cell_for("wg", 0, [1; 32], 1).is_err());
 }
+
+#[cfg(feature = "wireguard")]
+impl RawIpDevicePool {
+    pub(crate) fn test_current_devices(
+        &self,
+        tags: &[String],
+    ) -> Vec<Arc<super::SharedRawIpDevice>> {
+        let state = self.state.lock().unwrap_or_else(|error| error.into_inner());
+        let mut devices: Vec<_> = state
+            .entries
+            .iter()
+            .filter(|((tag, _), _)| tags.contains(tag))
+            .filter_map(|(_, entry)| entry.cell.get().cloned())
+            .collect();
+        devices.sort_by_key(|device| device.incarnation);
+        devices
+    }
+}

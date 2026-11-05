@@ -32,7 +32,25 @@ async fn dns_modes_return_real_wire_answers_through_the_tun_packet_pipeline() {
                 value["runtime"]["dns"]["answer"]["cidr"] = "198.18.0.0/15".into();
             }
         }
-        let proxy = crate::Proxy::new(RuntimeConfig::parse(&value.to_string()).unwrap()).unwrap();
+        let config = RuntimeConfig::parse(&value.to_string()).unwrap();
+        let proxy = crate::Proxy::new(config.clone()).unwrap();
+        // Only real interception performs native DNS I/O. Its actual source
+        // and query Scope must be published by the ordinary runtime first.
+        // Fake-IP remains a cold synthetic operation with no native admission.
+        let running = if mode == "real" {
+            let running = proxy.spawn();
+            let handle = crate::ProxyHandle::new(
+                zero_engine::EngineHandle::new(proxy.engine().clone()),
+                proxy.clone(),
+            );
+            handle
+                .apply_runtime_config_and_wait(config, std::time::Duration::from_secs(3))
+                .await
+                .unwrap();
+            Some(running)
+        } else {
+            None
+        };
         let (outbound, mut packets) = mpsc::channel(8);
         let stack = UserNetworkStack::new(outbound, 1440);
         let (_, udp) = stack.into_parts();
@@ -81,6 +99,9 @@ async fn dns_modes_return_real_wire_answers_through_the_tun_packet_pipeline() {
         );
         task.abort();
         let _ = task.await;
+        if let Some(running) = running {
+            running.shutdown().await.unwrap();
+        }
         if let Some(responder) = responder {
             responder.await.unwrap();
         }

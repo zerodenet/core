@@ -201,8 +201,15 @@ impl super::ProtocolInventory {
         deadline: tokio::time::Instant,
         cancel: zero_platform_tokio::contract::CancellationToken,
     ) -> Result<(), zero_engine::EngineError> {
+        if !std::ptr::eq(services.snapshot().config().as_ref(), config.as_ref()) {
+            return Err(zero_engine::EngineError::InvalidPlan {
+                message: "device resolution source differs from the actual candidate snapshot"
+                    .into(),
+            });
+        }
+        let upstream = services.upstream();
         self.devices
-            .resolve_component_resources(config, services, deadline, cancel)
+            .resolve_component_resources(config, &upstream, services.engine(), deadline, cancel)
             .await?;
         self.host
             .components()

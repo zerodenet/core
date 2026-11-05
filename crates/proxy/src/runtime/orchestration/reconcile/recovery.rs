@@ -169,45 +169,6 @@ impl OrchestrationState {
                     acknowledgement.push_str(&format!("; device recovery staging failed: {error}"));
                 }
             }
-            if can_restore {
-                let result = async {
-                    proxy
-                        .protocols
-                        .scan_components(
-                            &previous_config,
-                            tokio::time::Instant::now() + std::time::Duration::from_secs(5),
-                        )
-                        .await
-                        .map_err(|error| error.to_string())?;
-                    proxy.protocols.commit_components(&previous_config, || {
-                        dns_recovery.as_ref().map_or(Ok(()), |token| {
-                            proxy
-                                .resolver
-                                .commit_reload_resources(token)
-                                .map_err(|error| error.to_string())
-                        })
-                    })
-                }
-                .await;
-                if let Err(error) = result {
-                    can_restore = false;
-                    acknowledgement.push_str(&format!(
-                        "; component recovery publication remains unconfirmed: {error}"
-                    ));
-                }
-            }
-            #[cfg(feature = "raw-ip-runtime")]
-            if can_restore {
-                if let Err(error) = proxy
-                    .protocols
-                    .finish_device_publication(&previous_config)
-                    .await
-                {
-                    can_restore = false;
-                    acknowledgement
-                        .push_str(&format!("; device recovery completion failed: {error}"));
-                }
-            }
             // Dropping an unpublished candidate requests stop only. Its actual
             // controllers remain in the catalog/device owners for the next drain.
             #[cfg(feature = "raw-ip-runtime")]
@@ -246,7 +207,48 @@ impl OrchestrationState {
                     }
                     warn!(%error, reason = "listener_reload_rollback_error", "failed to restore last-known-good listeners after reload failure");
                     acknowledgement.push_str(&format!("; listener rollback failed: {error}"));
+                    can_restore = false;
                     break;
+                }
+            }
+            // Listener recovery must consume this same fresh PendingEndpoints
+            // before confirmation clears it. The original recovery capsule's
+            // linked binding may be retired and must never be revived instead.
+            if can_restore {
+                let result = async {
+                    proxy
+                        .protocols
+                        .scan_components(
+                            &previous_config,
+                            tokio::time::Instant::now() + std::time::Duration::from_secs(5),
+                        )
+                        .await
+                        .map_err(|error| error.to_string())?;
+                    proxy.protocols.commit_components(&previous_config, || {
+                        dns_recovery.as_ref().map_or(Ok(()), |token| {
+                            proxy
+                                .resolver
+                                .commit_reload_resources(token)
+                                .map_err(|error| error.to_string())
+                        })
+                    })
+                }
+                .await;
+                match result {
+                    Err(error) => acknowledgement.push_str(&format!(
+                        "; component recovery publication remains unconfirmed: {error}"
+                    )),
+                    Ok(()) => {
+                        #[cfg(feature = "raw-ip-runtime")]
+                        if let Err(error) = proxy
+                            .protocols
+                            .finish_device_publication(&previous_config)
+                            .await
+                        {
+                            acknowledgement
+                                .push_str(&format!("; device recovery completion failed: {error}"));
+                        }
+                    }
                 }
             }
             self.publish_endpoint_facts(proxy);

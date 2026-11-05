@@ -73,3 +73,12 @@ fn reaches(
 }
 #[cfg(test)]
 mod tests;
+
+pub(crate) fn has_grpc_nodes(config: &RuntimeConfig) -> bool {
+    config.outbounds.iter().any(|node| {
+        matches!(
+            node.protocol,
+            OutboundProtocolConfig::Vmess { grpc: Some(_), .. }
+        )
+    })
+}

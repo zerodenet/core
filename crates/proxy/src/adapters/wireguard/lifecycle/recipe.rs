@@ -289,7 +289,7 @@ impl LinkedEndpointRecipe {
                 if ready {
                     retained::RetainedInvocation::Installed { binding }
                 } else {
-                    retained::RetainedInvocation::Prepared(invocation)
+                    retained::RetainedInvocation::Prepared(Box::new(invocation))
                 }
             });
         Ok(id)

@@ -1,6 +1,7 @@
 //! Standard business Datagram over host-selected ordinary Stream prefixes.
 mod borrowed;
 mod opener;
+mod pooled;
 mod prepare;
 use super::*;
 use crate::component::{
@@ -16,6 +17,9 @@ pub(crate) async fn open(
     session: &Session,
     association: zero_core::component::AssociationId,
 ) -> Result<Opened, ChannelError> {
+    if prepared.pooled {
+        return pooled::open(services, prepared, session, association).await;
+    }
     let slot = prepared.target.current_slot(services).map_err(|source| {
         invalid(Reason::StalePlan, "relay Datagram owner changed").with_source(source)
     })?;

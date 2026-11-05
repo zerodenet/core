@@ -5162,7 +5162,7 @@ fn packet_device_replacement_keeps_original_cleanup_outcomes_and_never_uses_grac
         .split("let prepared_outbound_devices =")
         .nth(1)
         .unwrap()
-        .split("prepared_outbound_devices.publish()")
+        .split(".stage_device_publication(")
         .next()
         .unwrap()
         .rsplit("if let Err(error) = preparing.ensure_open() {")
@@ -5181,7 +5181,7 @@ fn packet_device_replacement_keeps_original_cleanup_outcomes_and_never_uses_grac
     );
     let direct = read(&proxy_src().join("runtime/raw_ip/carrier/direct.rs"));
     assert!(direct.contains("socket.close()"));
-    let prepare = read(&proxy_src().join("adapters/wireguard/lifecycle.rs"));
+    let prepare = read(&proxy_src().join("adapters/wireguard/lifecycle/prepare.rs"));
     assert!(
         prepare
             .find("self.pool.retire_changed(&desired).await?")
@@ -5261,7 +5261,7 @@ fn hysteria2_outbound_uses_one_actual_standard_pool_for_all_existing_callers() {
     }
     let compact_projection: String = projection.chars().filter(|c| !c.is_whitespace()).collect();
     assert!(compact_projection.contains("self.outbound_pool.options("));
-    assert!(projection.contains(r#"resources.share("hysteria2.authenticated_pool"#));
+    assert!(compact_projection.contains(r#"resources.share("hysteria2.authenticated_pool"#));
     assert!(projection.contains("PoolFactory.build_with_upstreams"));
     assert!(registry.contains("::hysteria2::transport::owned::RoleFactory"));
     assert!(!registry.contains("Hysteria2Adapter::claim_outbound_leaf_impl"));
