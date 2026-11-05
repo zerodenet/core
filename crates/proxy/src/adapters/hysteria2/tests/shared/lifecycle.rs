@@ -119,8 +119,17 @@ async fn hysteria2_actual_node_candidates_fall_back_and_concurrent_users_share_t
         let server = Server::new().await;
         // The first real candidate refuses its QUIC handshake. It cannot
         // authenticate, and the next candidate is the actual HY2 fixture.
+        // macOS does not bind arbitrary 127/8 aliases. Use the same explicitly
+        // assigned fixture address as the real device integration tests.
+        let refused_ip = std::env::var("ZERO_TEST_HOST_IPV4")
+            .map(|ip| {
+                ip.parse::<std::net::Ipv4Addr>()
+                    .expect("actual fixture IPv4")
+            })
+            .unwrap_or(std::net::Ipv4Addr::new(127, 0, 0, 2));
+        assert_ne!(refused_ip, std::net::Ipv4Addr::LOCALHOST);
         let refused = zero_transport::quic::QuicInbound::bind(
-            &format!("127.0.0.2:{}", server.port),
+            &format!("{refused_ip}:{}", server.port),
             "cert.pem",
             "key.pem",
             Some(server._material.path()),
@@ -152,7 +161,7 @@ async fn hysteria2_actual_node_candidates_fall_back_and_concurrent_users_share_t
             false,
             false,
             &[
-                zero_traits::IpAddress::V4([127, 0, 0, 2]),
+                zero_traits::IpAddress::V4(refused_ip.octets()),
                 zero_traits::IpAddress::V4([127, 0, 0, 1]),
             ],
         );
