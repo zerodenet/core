@@ -7,6 +7,23 @@ struct State {
     result: Option<Result<(), Arc<io::Error>>>,
 }
 impl ControlTask {
+    pub(super) fn empty() -> Self {
+        Self(tokio::sync::Mutex::new(State {
+            task: None,
+            result: None,
+        }))
+    }
+    pub(super) fn install(&self, task: tokio::task::JoinHandle<io::Result<()>>) -> io::Result<()> {
+        let mut state = self
+            .0
+            .try_lock()
+            .map_err(|_| io::Error::other("gRPC original task is being observed"))?;
+        if state.task.is_some() || state.result.is_some() {
+            return Err(io::Error::other("gRPC original task already installed"));
+        }
+        state.task = Some(task);
+        Ok(())
+    }
     pub(super) fn new(task: tokio::task::JoinHandle<io::Result<()>>) -> Self {
         Self(tokio::sync::Mutex::new(State {
             task: Some(task),
@@ -25,6 +42,9 @@ impl ControlTask {
     }
     pub(super) async fn join(&self) -> io::Result<()> {
         let mut state = self.0.lock().await;
+        if state.result.is_none() && state.task.is_none() {
+            return Ok(());
+        }
         if state.result.is_none() {
             // Await through a borrow. Cancellation releases only this lock;
             // the same original JoinHandle stays in this persistent owner.

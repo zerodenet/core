@@ -9,6 +9,11 @@ pub(super) fn dispatcher_enabled(config: &RuntimeConfig) -> bool {
 
 pub(super) fn changed_components(previous: &RuntimeConfig, target: &RuntimeConfig) -> Vec<String> {
     let mut components = Vec::new();
+    if zero_runtime::configuration::ControlBudgetLimits::from_runtime(&previous.runtime)
+        != zero_runtime::configuration::ControlBudgetLimits::from_runtime(&target.runtime)
+    {
+        components.push("control-budget".to_owned());
+    }
     if previous.api.hooks != target.api.hooks {
         components.push("flow-hooks".to_owned());
     }

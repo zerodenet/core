@@ -75,50 +75,75 @@ async fn run(
 
     tracing::info!(config = %config_path, "loaded proxy configuration");
 
-    // IPC server always starts (not feature-gated).
-    let ipc_socket_path = ipc::resolve_ipc_path(control_socket)?;
-    let ipc_server = ipc::spawn_ipc_server(ipc_handle.clone(), &ipc_socket_path).await?;
-
     #[cfg(any(feature = "status-api", feature = "grpc-api"))]
     let status_spec = status_server_spec(&engine, status_listen)?;
 
-    #[cfg(feature = "status-api")]
-    let http_server = {
+    // Install the same application before cold control preparation. A cancelled
+    // initializer leaves the exact listener/scope owner in its existing slot.
+    services.retain_control_startup()?;
+    let control_start = async {
+        let ipc_socket_path = ipc::resolve_ipc_path(control_socket)?;
+        let ipc_server =
+            ipc::prepare_ipc_server_with_budget(&ipc_socket_path, services.control_budget());
+        services.install_ipc(ipc_server.clone())?;
+        ipc_server.start(ipc_handle.clone()).await?;
+        #[cfg(feature = "status-api")]
         if let Some(ref status) = status_spec {
-            Some(
-                http_adapter::spawn_http_server(
-                    ipc_handle.clone(),
-                    &status.listen,
-                    status.auth.clone(),
-                )
-                .await?,
-            )
-        } else {
-            None
+            let http = http_adapter::prepare_http_server_with_budget(
+                &status.listen,
+                status.auth.clone(),
+                services.control_budget(),
+            );
+            services.install_http(http.clone())?;
+            http.start(ipc_handle.clone()).await?;
         }
-    };
-
-    #[cfg(feature = "grpc-api")]
-    let grpc_server = {
+        #[cfg(feature = "grpc-api")]
         if let Some(ref status) = status_spec {
             let addr: std::net::SocketAddr = status
                 .grpc_listen
                 .parse()
-                .map_err(|e| std::io::Error::other(format!("gRPC listen address: {e}")))?;
-            Some(zero_grpc::spawn(ipc_handle.clone(), addr, status.grpc_security.clone()).await?)
-        } else {
-            None
+                .map_err(|error| std::io::Error::other(format!("gRPC listen address: {error}")))?;
+            let grpc = zero_grpc::prepare(addr, status.grpc_security.clone())?;
+            services.install_grpc(grpc.clone())?;
+            grpc.start(ipc_handle.clone()).await?;
         }
-    };
+        Ok::<(), Box<dyn Error>>(())
+    }
+    .await;
+    if let Err(error) = control_start {
+        let controls = services.shutdown_control().await;
+        let monitor = services.shutdown_status_monitor().await;
+        let dispatcher = services.shutdown_dispatcher().await;
+        if controls.is_ok() && monitor.is_ok() && dispatcher.is_ok() {
+            services.finish_control_startup();
+        } else {
+            tracing::error!(
+                ?controls,
+                ?monitor,
+                ?dispatcher,
+                "original control startup cleanup remains retained"
+            );
+        }
+        return Err(error);
+    }
+    services.finish_control_startup();
 
     // The proxy data plane is a critical application service. Run it under the
     // root application lifecycle instead of detaching it into an unsupervised
     // task. If listener orchestration exits unexpectedly, surface the error
     // immediately so the process cannot remain control-plane alive while its
     // configured inbound ports have already disappeared.
+    let control_exit = std::sync::Mutex::new(None::<std::io::Result<()>>);
     let proxy_result = Box::pin(run_supervised_proxy(
         &proxy,
-        wait_for_shutdown_signal(parent_lifetime_stdin),
+        async {
+            tokio::select! {
+                _ = wait_for_shutdown_signal(parent_lifetime_stdin) => {},
+                result = services.wait_control_terminated() => {
+                    *control_exit.lock().unwrap_or_else(std::sync::PoisonError::into_inner) = Some(result.and_then(|_| Err(std::io::Error::other("original control server terminated unexpectedly"))));
+                }
+            }
+        },
     ))
     .await;
     if let Err(error) = &proxy_result {
@@ -141,24 +166,18 @@ async fn run(
     tokio::task::yield_now().await;
 
     let dispatcher_shutdown = services.shutdown_dispatcher().await;
-    let ipc_shutdown = ipc_server.shutdown().await;
-    #[cfg(feature = "status-api")]
-    let http_shutdown = match http_server {
-        Some(s) => s.shutdown().await,
-        None => Ok(()),
-    };
-    #[cfg(feature = "grpc-api")]
-    let grpc_shutdown = match grpc_server {
-        Some(s) => s.shutdown().await,
-        None => Ok(()),
-    };
+    let control_shutdown = services.shutdown_control().await;
+    let quota_shutdown = engine.shutdown_principal_quota_state();
 
     proxy_result?;
-    ipc_shutdown?;
-    #[cfg(feature = "status-api")]
-    http_shutdown?;
-    #[cfg(feature = "grpc-api")]
-    grpc_shutdown?;
+    control_shutdown?;
+    quota_shutdown?;
+    if let Some(result) = control_exit
+        .into_inner()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+    {
+        result?;
+    }
     monitor_shutdown.map_err(std::io::Error::other)?;
     dispatcher_shutdown.map_err(std::io::Error::other)?;
     Ok(())
