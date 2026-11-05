@@ -147,18 +147,22 @@ impl MuxConnectionPool {
         F: FnOnce(zero_platform_tokio::controlled_carrier::CarrierIo) -> Fut,
         Fut: Future<Output = Result<S, RuntimeError>>,
     {
-        let (mut stream, usage, origin) = self
+        let (reserved, usage, origin) = self
             .native_connection(
                 key,
                 concurrency,
                 binding,
                 wrap,
                 |connection, sid, usage, origin| {
-                    let stream = connection.open_bounded_tcp_stream(sid, port, &target)?;
-                    Ok((stream, usage, origin))
+                    Ok((
+                        stream::StreamReservation::new(connection, sid, port, &target),
+                        usage,
+                        origin,
+                    ))
                 },
             )
             .await?;
+        let mut stream = reserved.open().await?;
         // The actual NEW must enter the bounded FIFO before connect returns.
         // Interrupted readiness retains no encoded user DATA or detached work.
         std::future::poll_fn(|cx| stream.poll_native_initial(cx)).await?;

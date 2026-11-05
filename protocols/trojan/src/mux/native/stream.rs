@@ -1,22 +1,35 @@
 //! Existing native TCP/codec streams use the physical packet FIFO's real permits.
 use super::*;
-impl TrojanMuxConn {
-    pub(in crate::mux) fn open_native_stream(
-        self: &Arc<Self>,
+/// The SID is already admitted before waiting for an old FIFO END to drain.
+/// Cancelled queue admission returns that exact reservation without a NEW.
+pub(super) struct StreamReservation {
+    stream: Option<TrojanMuxStream>,
+}
+impl StreamReservation {
+    pub(super) fn new(
+        connection: Arc<TrojanMuxConn>,
         sid: u16,
         target: Address,
         port: u16,
         network: Network,
-    ) -> Result<TrojanMuxStream, RuntimeError> {
-        let writer = match self.native_udp_tx.writer(encode_end_stream(sid)?) {
-            Ok(writer) => writer,
-            Err(source) => {
-                self.release_stream(sid);
-                return Err(source.into());
-            }
-        };
-        let mut stream = self.open_reserved_stream(sid, target, port, network);
+    ) -> Self {
+        let mut stream = connection.open_reserved_stream(sid, target, port, network);
+        // The real stream/downlink reserves this SID in the existing map.
+        // No NEW was accepted: cancellation must not send a legacy ending.
+        stream.ended = true;
+        Self {
+            stream: Some(stream),
+        }
+    }
+    pub(super) async fn open(mut self) -> Result<TrojanMuxStream, RuntimeError> {
+        let stream = self.stream.as_ref().unwrap();
+        let queue = stream.conn.as_ref().unwrap().native_udp_tx.clone();
+        let writer = queue
+            .writer_when_ready(encode_end_stream(stream.session_id)?)
+            .await?;
+        let mut stream = self.stream.take().unwrap();
         stream.native_writer = Some(writer);
+        stream.ended = false;
         Ok(stream)
     }
 }
