@@ -5,6 +5,7 @@ use zero_platform_tokio::{
     contract::{lifecycle::DynChannelControl, stream::BoxStream, ChannelError, CloseReason},
     controlled_carrier::{CarrierGrants, ResolvingCarrierOpener},
 };
+mod controlled;
 pub(super) struct Root {
     native: ResolvingCarrierOpener,
     binding: UpstreamBinding,
@@ -21,6 +22,7 @@ pub(super) struct Root {
     original: Mutex<Option<Arc<custody::NativeUse>>>,
     current: std::sync::Weak<crate::runtime::current_services::CurrentServiceSource>,
     roles: Vec<zero_core::component::RoleInstanceId>,
+    candidates: tokio::sync::Mutex<Option<controlled::Candidates>>,
 }
 impl Root {
     #[allow(clippy::too_many_arguments)]
@@ -60,6 +62,7 @@ impl Root {
             original: Mutex::default(),
             current,
             roles,
+            candidates: Default::default(),
         })
     }
     fn check_pending(
@@ -247,34 +250,7 @@ impl UpstreamOpener for Root {
         grant: zero_platform_tokio::controlled_carrier::CarrierGrant,
     ) -> BoxFuture<'_, Result<zero_platform_tokio::controlled_carrier::CarrierIo, ChannelError>>
     {
-        let binding = binding.clone();
-        Box::pin(async move {
-            if endpoint != self.endpoint {
-                return Err(crate::component::instance::invalid(
-                    zero_platform_tokio::contract::Reason::StalePlan,
-                    "DNS controlled root endpoint differs from its declaration",
-                ));
-            }
-            self.retain_pending_carrier(&binding, grant.adoption())?;
-            let opener = ResolvingCarrierOpener::new(
-                grant.instance(),
-                binding.clone(),
-                endpoint.clone(),
-                self.node_dns.clone(),
-                self.egress.clone(),
-                self.observer.clone(),
-            )?;
-            let candidates = opener
-                .resolve_controlled_carrier(&binding, endpoint, call.clone())
-                .await?;
-            self.check_pending(&binding, &grant.adoption())?;
-            let prepared = candidates.prepare_stream(0, grant)?;
-            Ok(prepared
-                .open_with_deadline(call.deadline)
-                .await?
-                .into_parts()
-                .0)
-        })
+        self.acquire_original(binding.clone(), endpoint, call, grant)
     }
     fn observe_carrier_origin(
         &self,

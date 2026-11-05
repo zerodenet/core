@@ -38,11 +38,13 @@ async fn direct(reject: bool) {
             },"default_server":"query","policy":{"node_server":"node","timeout_ms":3000}}},
             "route":{"final":{"type":"direct"}}
         }).to_string()).unwrap();
-        let proxy = Proxy::new(config).unwrap();
+        let proxy = Proxy::new(config.clone()).unwrap();
         proxy.resolver.set_outbound_connector(Arc::new(NoLegacy));
         let end = || tokio::time::Instant::now()+Duration::from_secs(3);
-        proxy.protocols.start_components(proxy.engine.runtime_snapshot().config().clone(),end()).await.unwrap();
-        let query = tokio::spawn({
+        let running = proxy.spawn();
+        let handle = crate::ProxyHandle::new(zero_engine::EngineHandle::new(proxy.engine().clone()), proxy.clone());
+        handle.apply_runtime_config_and_wait(config,Duration::from_secs(3)).await.unwrap();
+        let mut query = tokio::spawn({
             let resolver=proxy.resolver.clone();
             async move {resolver.resolve_real_type("constrained.direct.dns.test",1).await}
         });
@@ -53,7 +55,10 @@ async fn direct(reject: bool) {
                 std::task::Poll::Ready(())
             }).await;
         } else {
-            let (mut stream,source)=listener.accept().await.unwrap();
+            let (mut stream,source)=tokio::select! {
+                accepted = listener.accept() => accepted.unwrap(),
+                result = &mut query => panic!("Direct DNS returned before actual native acceptance: {result:?}"),
+            };
             assert_eq!(source.ip(),endpoint.ip());
             let size=stream.read_u16().await.unwrap() as usize;
             let mut bytes=vec![0;size];
@@ -77,7 +82,6 @@ async fn direct(reject: bool) {
         }
         assert!(proxy.engine().active_sessions().is_empty());
         assert!(proxy.engine().completed_sessions().is_empty());
-        proxy.protocols.drive_component_supervision(Box::pin(proxy.resolver.shutdown_queries(end()))).await.unwrap();
-        proxy.protocols.shutdown_components(end()).await.unwrap();
+        running.shutdown().await.unwrap();
     }).await.unwrap();
 }

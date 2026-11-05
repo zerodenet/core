@@ -8,6 +8,7 @@ use std::{
     time::Duration,
 };
 use zero_platform_tokio::contract::CancellationToken;
+mod candidates;
 mod fixture;
 mod replacement;
 use fixture::*;
