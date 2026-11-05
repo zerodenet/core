@@ -193,7 +193,7 @@ impl ClientPool {
                         _=state.scope_cancel.cancelled()=>return Err(io::ErrorKind::Interrupted.into()),
                         result=upstream.resolve_controlled_carrier(endpoint,CarrierContext {session:None,deadline,cancel:attempt_cancel.clone()})=>result.map_err(io::Error::other)?,
                     };
-                    return connect::Request { candidates, username: &username, password: &password, options, deadline, udp }.open(lease, grants).await;
+                    return connect::Request { candidates, username: &username, password: &password, options, deadline, udp, waiting }.open(lease, grants).await;
                 }
                 #[cfg(test)]
                 {
