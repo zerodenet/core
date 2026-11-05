@@ -79,3 +79,28 @@ Rust `MessageTransfer::Upgraded.upstream` 改为 `Box<TcpRelayStream>`，降低�
 Config 的 Rust 便利文档加载 `RuntimeConfig::load_from_path` 删除；调用方改用 runtime 的 `ConfigurationSource::load_document`，或保留同一源 Arc 经 `load_initial_configuration`、`PreparedConfiguration::prepare_startup` 交付 Engine。Config 的生产依赖不反向依赖 runtime。已准备校验可使用 `zero_proxy::validate_prepared_configuration`，既有 `validate_config` 保留。CLI validate/connector-state/reload 使用原始文件真实关闭后的文档，V1 和 FFI 没有新增字段或符号。
 
 启动 URL 规则下载移除隐藏 native 所有权的 ureq 调用链。现有应用原始 TCP/TaskScope 实现也服务启动下载，有限流式队列、同原件关闭后重定向和不可变缓存保留既有能力；不是新 provider、第二 RuntimeHost 或兼容池。缓存原件、HTTP/TLS 任务和转交用户分别确认后才交付启动配置。
+
+## 第二轮云端 Rust 接口与可选预算迁移
+
+本轮仍未完成所有职责域，精确候选与实际资格见 [round2 执行记录](cloud/round2/execution.md)。
+没有修改消费者、配置/API/event 数值版本或既有 FFI ABI；GUI/面板同产物资格尚须实际执行。
+
+- `UpstreamOpener` 增加默认拒绝的 controlled acquisition、observed selection 与 pending cleanup 入口；
+  `UpstreamTransport` 提供同实际 opener 的弱 pending observer。显式 observer hint 不授权 I/O；
+  原实现的必需方法和旧 pool 所有权保留，缺少实际账本的 caller 不因此具备即时取消资格。
+- `CarrierAdoption::retained_loan` / `retained_driver` 返回 sealed 原件保留观察，
+  分别证明同 receiver 的实际 LoanOwner 与同原 host/pool Scope driver，不能当作 Closed。
+- `ComponentCatalog` 增加 accepted device cold pass、明确 deferred start、exact candidate discard
+  和保留原 prepared protocol material 的 device recovery。普通 `prepare` 仍是读者复用入口。
+- `ConfigurationSource` 增加同源 initial control material / retained quota storage；
+  Engine 的显式 quota shutdown 等原 worker 与 lock 原件归还。Engine-only/FFI 不启动 Proxy。
+- `zero-tun` 增加原 acquisition / channel custody / native receipts，Windows Wintun 增加
+  actual Adapter/Session consuming close receipts。公开 convenience helpers 不被当作生产第二 owner。
+- `PacketQueue` 支持显式有限 frame/control/byte limits、实际 `poll_ready` 和同 END 保留位等待；
+  背压不丢已接受 frame，等待取消归还原未提交许可，不增加队列或 detached 上传任务。
+- Rust config struct literals 需适配新增可选 DNS/Mieru/HY2/control/native-stream budget 字段与
+  Direct Packet `write_queue`。Serde 省略默认字段的 V1 形状保持，边界/耗尽与资源身份变化
+  通过同 host 事务；其计量口径不等于全进程 RSS/FD 或 1c1g 压力资格。
+
+Packet/provider、部分 transport/process、设备 Scope、Windows pipe 和剩余预算的实现缺口
+单列在执行记录；没有因为新增上述接口而关闭整轮或 TEMP-WG-OUTER-UDP-01。
