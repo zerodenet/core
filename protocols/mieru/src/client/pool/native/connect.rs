@@ -39,9 +39,9 @@ impl Request<'_> {
             let adoption = grant.adoption();
             lease.adopt(adoption.clone()).map_err(io::Error::other)?;
             lease.attempting_io();
-            // The actual receiver must be in the waiting caller's ledger
-            // before native preparation or wire authentication can suspend.
-            // The pool record survives Drop but cannot itself run cleanup.
+            // An opted-in caller retains the actual receiver before native
+            // preparation or wire authentication can suspend. Bare callers
+            // keep their old pool debt, without immediate Drop cleanup.
             if let Some(waiting) = &self.waiting {
                 waiting.retain(adoption.clone()).map_err(io::Error::other)?;
             }

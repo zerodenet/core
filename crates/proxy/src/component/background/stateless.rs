@@ -253,10 +253,12 @@ impl StreamOutbound for Outbound {
             .retain(|transfer| !transfer.finished());
         self.grants.reap_returned(end).await?;
         let grant = self.grants.reserve()?;
-        // The actual waiting caller must hold cleanup authority before this
-        // protocol can suspend or acquire native I/O. A persistent component
-        // ledger alone cannot clean a cancelled, never-delivered attempt.
-        context.upstream.retain_pending_carrier(grant.adoption())?;
+        // Opted-in callers retain cleanup authority before first I/O. Other
+        // existing callers keep the same persistent component debt; they do
+        // not gain immediate cancelled-attempt cleanup by retaining a slot.
+        if let Some(waiting) = context.upstream.observed_pending_carrier() {
+            waiting.retain(grant.adoption())?;
+        }
         let transfer = Arc::new(Transfer {
             grant: Mutex::new(Some(grant)),
             owner: tokio::sync::Mutex::new(None),
@@ -305,6 +307,9 @@ struct Opener {
     transfer: Arc<Transfer>,
 }
 impl UpstreamOpener for Opener {
+    fn has_pending_carrier_observer(&self) -> bool {
+        self.upstream.observed_pending_carrier().is_some()
+    }
     fn retain_pending_carrier(
         &self,
         binding: &UpstreamBinding,

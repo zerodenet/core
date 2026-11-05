@@ -80,6 +80,9 @@ impl CarrierEndpointObserver for ConnectedEvidence {
     }
 }
 impl UpstreamOpener for NodeOpener {
+    fn has_pending_carrier_observer(&self) -> bool {
+        self.pending.is_some()
+    }
     fn retain_pending_carrier(
         &self,
         binding: &UpstreamBinding,

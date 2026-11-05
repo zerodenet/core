@@ -39,6 +39,9 @@ fn denied(reason: Reason) -> ChannelError {
     error
 }
 impl UpstreamOpener for Pending {
+    fn has_pending_carrier_observer(&self) -> bool {
+        true
+    }
     fn retain_pending_carrier(
         &self,
         binding: &UpstreamBinding,
