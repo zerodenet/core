@@ -20,6 +20,13 @@ pub struct RuntimeOptionsConfig {
     /// every profile. On demand, 256 by default; failures are never evicted.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub hysteria2_max_entries: Option<usize>,
+    /// Actual UDP logical registrations per authenticated HY2 pool entry.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub hysteria2_max_udp_sessions: Option<usize>,
+    /// Queued and fragmented UDP payload bytes shared by all registrations of
+    /// one actual authenticated HY2 entry. Four MiB by default, on demand.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub hysteria2_udp_pending_bytes: Option<usize>,
     /// Original DNS custody shared by Node/bootstrap and Default query owners.
     /// An unconfirmed close still consumes one position; DoQ needs two.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -70,6 +77,8 @@ impl Default for RuntimeOptionsConfig {
             native_mux_max_carriers: None,
             mieru_max_carriers: None,
             hysteria2_max_entries: None,
+            hysteria2_max_udp_sessions: None,
+            hysteria2_udp_pending_bytes: None,
             native_dns_max_originals: None,
             native_dns_max_queries: None,
             native_dns_max_blocking_jobs: None,
@@ -97,6 +106,12 @@ impl RuntimeOptionsConfig {
     }
     pub fn effective_hysteria2_max_entries(&self) -> usize {
         self.hysteria2_max_entries.unwrap_or(256)
+    }
+    pub fn effective_hysteria2_max_udp_sessions(&self) -> usize {
+        self.hysteria2_max_udp_sessions.unwrap_or(4096)
+    }
+    pub fn effective_hysteria2_udp_pending_bytes(&self) -> usize {
+        self.hysteria2_udp_pending_bytes.unwrap_or(4 * 1024 * 1024)
     }
     pub fn effective_native_dns_max_originals(&self) -> usize {
         self.native_dns_max_originals.unwrap_or(16)

@@ -16,7 +16,7 @@ fn actual_owner_budgets_are_optional_finite_and_preserve_omitted_export_shape() 
         usize,
         usize,
     );
-    let fields: [BudgetField; 6] = [
+    let fields: [BudgetField; 8] = [
         (
             "mieru_max_carriers",
             RuntimeOptionsConfig::effective_mieru_max_carriers,
@@ -28,6 +28,18 @@ fn actual_owner_budgets_are_optional_finite_and_preserve_omitted_export_shape() 
             RuntimeOptionsConfig::effective_hysteria2_max_entries,
             256,
             256,
+        ),
+        (
+            "hysteria2_max_udp_sessions",
+            RuntimeOptionsConfig::effective_hysteria2_max_udp_sessions,
+            4096,
+            4096,
+        ),
+        (
+            "hysteria2_udp_pending_bytes",
+            RuntimeOptionsConfig::effective_hysteria2_udp_pending_bytes,
+            4 * 1024 * 1024,
+            64 * 1024 * 1024,
         ),
         (
             "native_dns_max_originals",

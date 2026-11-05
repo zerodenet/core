@@ -393,6 +393,16 @@ fn validate_runtime(
             "runtime.hysteria2_max_entries must be between 1 and 256".into(),
         ));
     }
+    if !(1..=4096).contains(&runtime.effective_hysteria2_max_udp_sessions()) {
+        return Err(ConfigError::InvalidRuntime(
+            "runtime.hysteria2_max_udp_sessions must be between 1 and 4096".into(),
+        ));
+    }
+    if !(1..=64 * 1024 * 1024).contains(&runtime.effective_hysteria2_udp_pending_bytes()) {
+        return Err(ConfigError::InvalidRuntime(
+            "runtime.hysteria2_udp_pending_bytes must be between 1 and 67108864".into(),
+        ));
+    }
     for (name, limit) in [
         (
             "native_dns_max_originals",
