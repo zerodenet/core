@@ -46,7 +46,7 @@ VLESS 入站仅登记实际标准 ComponentFactory/InboundSource，删除 adapte
 
 共享 carrier 继续保留真实 caller 的原始失败诊断；Auxiliary 业务任务因断开/撤销结束不再被提升为共享 native 故障，Critical worker 与真实 native 失败仍按原始来源报告并保留失败边界。
 
-第二轮云端候选增加按实际 owner 消费的可选 DNS/Mieru/HY2/native-stream/control 预算及 Direct Packet `write_queue`，旧省略字段导出形状保持。容量不足拒绝新增或对已有订阅背压，不驱逐活跃业务或有效 replay。内部 Rust 的原件观察、device cold/recovery/publication、同源 quota/TLS 和有限 FIFO 接口变化见 [兼容记录](../design/v0.0.3/compatibility.md#第二轮云端-rust-接口与可选预算迁移)。这不是完整架构、全部出站/Packet/process、跨平台或 GUI/面板资格通过的声明；未完成实现和 TEMP 债务仍单列。
+第二轮云端候选增加按实际 owner 消费的可选 DNS/Mieru/HY2/native-stream/VMess-gRPC/control 预算及 Direct Packet `write_queue`，旧省略字段导出形状保持。容量不足拒绝新增或对已有订阅背压，不驱逐活跃业务或有效 replay。内部 Rust 的原件观察、device cold/recovery/publication、同源 quota/TLS 和有限 FIFO 接口变化见 [兼容记录](../design/v0.0.3/compatibility.md#第二轮云端-rust-接口与可选预算迁移)。这不是完整架构、全部出站/Packet/process、跨平台或 GUI/面板资格通过的声明；未完成实现和 TEMP 债务仍单列。统计 sampler 已改用实际 blocking Scope join；endpoint 最终提交同时收尾 DNS token 并观察实际发布设备。对尚无原件关闭证明的 VMess gRPC/Mieru 跨执行方式切换，候选在源修改/停旧前拒绝并保留当前 revision 与旧 TCP；这是未完成迁移的明确限制。ControlledPacketDevice/owned PacketTx 是基础接口，普通 Direct Packet/TUN 生产 gate 未开启。
 
 ## 版本矩阵
 

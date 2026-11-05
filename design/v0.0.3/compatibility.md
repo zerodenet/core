@@ -90,6 +90,9 @@ Config 的 Rust 便利文档加载 `RuntimeConfig::load_from_path` 删除；调�
   原实现的必需方法和旧 pool 所有权保留，缺少实际账本的 caller 不因此具备即时取消资格。
 - `CarrierAdoption::retained_loan` / `retained_driver` 返回 sealed 原件保留观察，
   分别证明同 receiver 的实际 LoanOwner 与同原 host/pool Scope driver，不能当作 Closed。
+  `retained_driver` 还要求原 physical user 已实际转交 driver custody；仅存在 H2 driver
+  不足以丢弃尚由 caller 持有的 native 债务。`CarrierGrant::cancellation()` 是同原 slot
+  的 stop token，不赋予新 grant 或关闭凭证。
 - `ComponentCatalog` 增加 accepted device cold pass、明确 deferred start、exact candidate discard
   和保留原 prepared protocol material 的 device recovery。普通 `prepare` 仍是读者复用入口。
 - `ConfigurationSource` 增加同源 initial control material / retained quota storage；
@@ -99,8 +102,36 @@ Config 的 Rust 便利文档加载 `RuntimeConfig::load_from_path` 删除；调�
 - `PacketQueue` 支持显式有限 frame/control/byte limits、实际 `poll_ready` 和同 END 保留位等待；
   背压不丢已接受 frame，等待取消归还原未提交许可，不增加队列或 detached 上传任务。
 - Rust config struct literals 需适配新增可选 DNS/Mieru/HY2/control/native-stream budget 字段与
-  Direct Packet `write_queue`。Serde 省略默认字段的 V1 形状保持，边界/耗尽与资源身份变化
+  Direct Packet `write_queue`，以及 `vmess_grpc_max_originals`（所有用途共享同一 N）。Serde 省略默认字段的 V1 形状保持，边界/耗尽与资源身份变化
   通过同 host 事务；其计量口径不等于全进程 RSS/FD 或 1c1g 压力资格。
+
+- `ResourceDeclaration` 新增 `ControlledPacketDevice`；穷尽匹配者须处理该变体。
+  `ResourceAccess::open_packet_device` 默认拒绝，具体 provider 在 acquisition 前保留同
+  原 owner 和实际 Scope witness，只转交唯一 `GrantedPacketDevice.io`。identity 元数据
+  不可铸造 native close ACK；尚未接普通 Direct Packet/System TUN source。
+- `PacketTx` 增加默认拒绝的 owned-send 方法和 `send_owned` / `OwnedSendFailure`。
+  实现者在 Pending 前接管同原 IpPacket，NotSubmitted 归还原 buffer/association；Unknown
+  不可重试。`OwnedSendFailure.failure` 使用 Box，结构体构造者须相应装箱。
+  `ConnectObserver::packet_io` 有默认实现，只报告实际 PacketIoFact，不授权 I/O。
+- `ResourcePreparation::prepare_component` 与 plan 的 Packet getter 仍用同一实际 allocator、
+  cold union 和 roleful identity，不能另建宿主或把 roleless 资源当 Packet source。
+- `UpstreamOpener`/`UpstreamTransport::has_tracked_business_caller` 是默认 false 的只读观察，
+  仅为原 user custody 选择提供实际 caller 线索，不能授权 I/O 或关闭；native grant 仍检查
+  同一个 sealed caller。真实 VMess Business 使用普通 user view，Service/旧无 caller 保原 transferred 职责。
+- RFC6761 localhost（含子域/大小写归一化）保持纯本地解析，System/None 和配置 Node 均不
+  为该答案索取 native TaskScope；仍检查 local lifecycle/generation/族策略，停后拒绝。
+  非 localhost 的受控准入规则不变。
+- quota inspection/startup 保留同 Source/lease 的 Buffered Read，`read_quota_snapshot`/
+  `QuotaStorage::read_with` 在实际原文件关闭后才交解码结果，不把整个文件装入 Vec。
+- `ResourcePreparation::require_fresh_resource` 仅标记本 cold pass 已请求的真实组件，
+  保留 canonical ID 并要求新 generation；不代表实际 StopOld、native close 或 I/O 授权。
+  单次原件配方重新准备后不能按相同 spec 换回旧 slot；复用需匹配原 Scope 和依赖代次。
+- 统计 sampler 由同一个 orchestration inline drive 和单 blocking Scope 收尾；停止先等
+  实际 join，之后才关闭 Engine。endpoint Ready/persist/final commit 保留同原候选，
+  DNS token 最终收尾与真实设备 incarnation facts 刷新均在原串行事务内。
+- VMess gRPC/Mieru 的尚未迁跨执行方式热切换，在修改源文件、停旧与启动新原件前
+  校验同 adapter 的真实旧债务；未具备正面关闭证明的切换会拒绝并保留原 revision/TCP。
+  这项限制是未完成迁移的行为边界，不代表既有组合已整体迁移或可以永久关 gate 结题。
 
 Packet/provider、部分 transport/process、设备 Scope、Windows pipe 和剩余预算的实现缺口
 单列在执行记录；没有因为新增上述接口而关闭整轮或 TEMP-WG-OUTER-UDP-01。
