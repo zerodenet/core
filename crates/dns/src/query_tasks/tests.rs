@@ -280,3 +280,55 @@ async fn coordinator_registers_only_its_original_coalesced_leader_in_the_same_ho
 }
 
 mod network;
+
+#[tokio::test]
+async fn independent_purpose_scopes_share_task_capacity_until_the_original_join_is_delivered() {
+    let mut node_scope = TaskScope::new(Handle::current(), NonZeroUsize::new(2).unwrap());
+    let mut query_scope = TaskScope::new(Handle::current(), NonZeroUsize::new(2).unwrap());
+    let capacity = OwnedDnsQueryBudget::new(NonZeroUsize::new(1).unwrap());
+    let node = OwnedDnsQueryTasks::new_critical_with_budget(
+        &node_scope.registrar(),
+        NonZeroUsize::new(1).unwrap(),
+        capacity.clone(),
+    );
+    let query = OwnedDnsQueryTasks::new_critical_with_budget(
+        &query_scope.registrar(),
+        NonZeroUsize::new(1).unwrap(),
+        capacity,
+    );
+    let (finished, finish) = oneshot::channel();
+    node.spawn(
+        async move {
+            finished.send(()).unwrap();
+        },
+        CancellationToken::new(),
+    )
+    .unwrap();
+    finish.await.unwrap();
+    let original = node.observe().pop().unwrap().task;
+    assert!(!original.is_joined());
+    assert_eq!(
+        query
+            .spawn(async {}, CancellationToken::new())
+            .unwrap_err()
+            .kind(),
+        io::ErrorKind::WouldBlock
+    );
+    let exit = node_scope.next_exit().await.unwrap();
+    assert_eq!(original.try_joined().unwrap().id(), exit.id);
+    // The sibling reclaims only the budget after that original join. It does
+    // not need to reap, replace or synthesize another purpose's task owner.
+    query.spawn(async {}, CancellationToken::new()).unwrap();
+    let sibling = query.observe().pop().unwrap().task;
+    assert!(!sibling
+        .scope_identity()
+        .same_scope(&original.scope_identity()));
+    query_scope.next_exit().await.unwrap();
+    node.close(Instant::now() + Duration::from_secs(1))
+        .await
+        .unwrap();
+    query
+        .close(Instant::now() + Duration::from_secs(1))
+        .await
+        .unwrap();
+}

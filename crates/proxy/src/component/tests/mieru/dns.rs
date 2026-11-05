@@ -9,6 +9,7 @@ mod encrypted;
 mod faults;
 mod limits;
 mod open_failure;
+mod purpose;
 mod quic;
 mod replacement;
 mod system;

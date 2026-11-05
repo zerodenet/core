@@ -30,12 +30,23 @@ async fn actual_proxy_native_doq_and_plain_udp_charge_one_global_original_budget
     }
     let held = proxy.resolver.native_query_observations();
     assert_eq!(held.len(), crate::component::native_dns::LIMIT - 1);
-    assert!(held.iter().all(|query| query.io_pending
-        && !query.task.is_joined()
-        && query
-            .task
-            .scope_identity()
-            .same_scope(&first.task.scope_identity())));
+    assert!(held
+        .iter()
+        .all(|query| query.io_pending && !query.task.is_joined()));
+    let udp_scope = held
+        .iter()
+        .find(|query| query.original.is_some())
+        .unwrap()
+        .task
+        .scope_identity();
+    assert!(
+        !udp_scope.same_scope(&first.task.scope_identity()),
+        "Node QUIC and Default UDP retain distinct actual owners"
+    );
+    assert!(held
+        .iter()
+        .filter(|query| query.original.is_some())
+        .all(|query| query.task.scope_identity().same_scope(&udp_scope)));
     let error = proxy
         .resolver
         .resolve_real_type("too-many.udp.test", 1)
