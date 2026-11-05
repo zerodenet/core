@@ -16,7 +16,7 @@ fn actual_owner_budgets_are_optional_finite_and_preserve_omitted_export_shape() 
         usize,
         usize,
     );
-    let fields: [BudgetField; 8] = [
+    let fields: [BudgetField; 10] = [
         (
             "mieru_max_carriers",
             RuntimeOptionsConfig::effective_mieru_max_carriers,
@@ -40,6 +40,18 @@ fn actual_owner_budgets_are_optional_finite_and_preserve_omitted_export_shape() 
             RuntimeOptionsConfig::effective_hysteria2_udp_pending_bytes,
             4 * 1024 * 1024,
             64 * 1024 * 1024,
+        ),
+        (
+            "control_max_connections",
+            RuntimeOptionsConfig::effective_control_max_connections,
+            256,
+            4096,
+        ),
+        (
+            "control_max_subscriptions",
+            RuntimeOptionsConfig::effective_control_max_subscriptions,
+            256,
+            4096,
         ),
         (
             "native_dns_max_originals",
@@ -84,5 +96,39 @@ fn actual_owner_budgets_are_optional_finite_and_preserve_omitted_export_shape() 
             let error = parse(name, value).unwrap_err().to_string();
             assert!(error.contains(name), "{error}");
         }
+    }
+}
+
+#[test]
+fn control_event_payload_budget_preserves_omission_and_checks_real_byte_boundaries() {
+    let defaults = RuntimeOptionsConfig::default();
+    assert_eq!(
+        defaults.effective_control_max_queued_event_bytes(),
+        1024 * 1024
+    );
+    assert!(serde_json::to_value(&defaults)
+        .unwrap()
+        .get("control_max_queued_event_bytes")
+        .is_none());
+    for bytes in [1024, 1024 * 1024, 64 * 1024 * 1024] {
+        let config = parse("control_max_queued_event_bytes", bytes).unwrap();
+        assert_eq!(
+            config.runtime.effective_control_max_queued_event_bytes(),
+            bytes
+        );
+        let exported = serde_json::to_string(&config).unwrap();
+        assert_eq!(
+            RuntimeConfig::parse(&exported)
+                .unwrap()
+                .runtime
+                .effective_control_max_queued_event_bytes(),
+            bytes
+        );
+    }
+    for bytes in [0, 1023, 64 * 1024 * 1024 + 1, usize::MAX] {
+        assert!(parse("control_max_queued_event_bytes", bytes)
+            .unwrap_err()
+            .to_string()
+            .contains("control_max_queued_event_bytes"));
     }
 }
