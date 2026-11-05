@@ -147,7 +147,7 @@ impl UpstreamOpener for Root {
                 });
                 {
                     let mut users = self.users.lock().expect("DNS users poisoned");
-                    if users.len() >= LIMIT {
+                    if users.len() >= self.budget.limits().originals.get() {
                         return Err(crate::component::instance::invalid(
                             zero_platform_tokio::contract::Reason::Capacity,
                             "DNS original capacity exhausted",

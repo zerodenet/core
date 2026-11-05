@@ -31,7 +31,7 @@ impl Provider {
             }
         };
         checked()?;
-        let _global = tokio::time::timeout_at(end, self.budget.admission.lock())
+        let _global = tokio::time::timeout_at(end, self.budget.admission().lock())
             .await
             .map_err(std::io::Error::other)?;
         checked()?;
@@ -96,7 +96,7 @@ impl Provider {
         }
         self.reap(end).await?;
         checked()?;
-        if self.retained().saturating_add(cost) > LIMIT {
+        if self.retained().saturating_add(cost) > self.budget.limits().originals.get() {
             return Err(std::io::Error::new(
                 std::io::ErrorKind::WouldBlock,
                 "native DNS original socket capacity exhausted",

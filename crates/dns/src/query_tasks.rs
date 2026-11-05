@@ -91,11 +91,14 @@ pub struct OwnedDnsQueryBudget {
 }
 impl OwnedDnsQueryBudget {
     pub fn new(limit: NonZeroUsize) -> Self {
+        Self::with_limits(limit, limit, limit)
+    }
+    pub fn with_limits(query: NonZeroUsize, blocking: NonZeroUsize, _driver: NonZeroUsize) -> Self {
         Self {
-            query: Arc::new(Semaphore::new(limit.get())),
-            blocking: Arc::new(Semaphore::new(limit.get())),
+            query: Arc::new(Semaphore::new(query.get())),
+            blocking: Arc::new(Semaphore::new(blocking.get())),
             #[cfg(feature = "doh")]
-            driver: Arc::new(Semaphore::new(limit.get())),
+            driver: Arc::new(Semaphore::new(_driver.get())),
             retained: Arc::default(),
         }
     }
