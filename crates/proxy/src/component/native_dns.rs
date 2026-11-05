@@ -22,7 +22,54 @@ mod provider;
 use provider::Provider;
 use zero_dns::native::NativeDnsProvider;
 pub(crate) const LIMIT: usize = 16;
+pub(crate) struct Budget {
+    pub(super) sockets: Arc<tokio::sync::Semaphore>,
+    tasks: zero_dns::OwnedDnsQueryBudget,
+    admission: tokio::sync::Mutex<()>,
+}
+impl Default for Budget {
+    fn default() -> Self {
+        Self {
+            sockets: Arc::new(tokio::sync::Semaphore::new(LIMIT)),
+            tasks: zero_dns::OwnedDnsQueryBudget::new(NonZeroUsize::new(LIMIT).unwrap()),
+            admission: Default::default(),
+        }
+    }
+}
+impl Budget {
+    fn reserve(&self, cost: u32) -> std::io::Result<tokio::sync::OwnedSemaphorePermit> {
+        self.sockets
+            .clone()
+            .try_acquire_many_owned(cost)
+            .map_err(|_| {
+                std::io::Error::new(
+                    std::io::ErrorKind::WouldBlock,
+                    "shared native DNS original capacity exhausted",
+                )
+            })
+    }
+}
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Purpose {
+    Node,
+    Query,
+}
+impl Purpose {
+    fn source(self, network: &BackgroundNetwork) -> &Arc<zero_dns::native::NativeDnsSource> {
+        match self {
+            Self::Node => &network.native_dns,
+            Self::Query => &network.query_dns,
+        }
+    }
+    fn key(self) -> &'static str {
+        match self {
+            Self::Node => "proxy.dns_node_queries",
+            Self::Query => "proxy.dns_queries",
+        }
+    }
+}
 pub(crate) struct Options {
+    purpose: Purpose,
     peers: Vec<(std::net::SocketAddr, bool)>,
     roots: Vec<crate::inventory::service::ServiceRoot>,
     identity: Arc<[u8]>,
@@ -33,9 +80,41 @@ pub(crate) fn prepare(
     resources: &mut ResourcePreparation<'_>,
     network: Arc<BackgroundNetwork>,
 ) -> Result<ComponentId, RegistrationError> {
+    prepare_purpose(resources, network, Purpose::Query)
+}
+pub(crate) fn prepare_node(
+    resources: &mut ResourcePreparation<'_>,
+    network: Arc<BackgroundNetwork>,
+) -> Result<ComponentId, RegistrationError> {
+    prepare_purpose(resources, network, Purpose::Node)
+}
+fn prepare_purpose(
+    resources: &mut ResourcePreparation<'_>,
+    network: Arc<BackgroundNetwork>,
+    purpose: Purpose,
+) -> Result<ComponentId, RegistrationError> {
     let candidate = resources.candidate().expect("host cold candidate");
-    let dns = candidate.runtime.dns.as_ref();
-    let roots = crate::inventory::service::dns_roots(candidate);
+    let mut configured = candidate.runtime.dns.clone();
+    if purpose == Purpose::Node {
+        if let Some(dns) = &mut configured {
+            if let Some(selected) = &dns.policy.node_server {
+                let tags = std::iter::once(selected)
+                    .chain(dns.policy.node_fallback_servers.iter())
+                    .cloned()
+                    .collect::<std::collections::BTreeSet<_>>();
+                dns.servers.retain(|tag, _| tags.contains(tag));
+                dns.default_server = selected.clone();
+                dns.dispatch.clear();
+                dns.policy.fallback_servers = dns.policy.node_fallback_servers.clone();
+            }
+        }
+    }
+    let dns = configured.as_ref();
+    let roots = if purpose == Purpose::Query {
+        crate::inventory::service::dns_roots(candidate)
+    } else {
+        Vec::new()
+    };
     let peers = zero_dns::native::native_endpoints(dns).map_err(|source| {
         RegistrationError::Options(zero_config::ConfigError::InvalidOutbound(
             source.to_string(),
@@ -46,15 +125,17 @@ pub(crate) fn prepare(
     let mut identity = Vec::new();
     for key in KEYS.get_or_init(|| [Default::default(), Default::default()]) {
         let mut hash = key.build_hasher();
+        hash.write(purpose.key().as_bytes());
         hash.write(&bytes);
         hash.write(format!("{roots:?}").as_bytes());
         identity.extend_from_slice(&hash.finish().to_le_bytes());
     }
     resources
         .share(
-            "proxy.dns_queries",
+            purpose.key(),
             Arc::new(Factory(network)),
             Arc::new(Options {
+                purpose,
                 peers,
                 roots,
                 identity: identity.into(),
@@ -114,7 +195,7 @@ impl ComponentFactory for Factory {
             (resources, task_limit)
         };
         ComponentSpec {
-            owner: ResourceOwner::Endpoint("dns.queries".into()),
+            owner: ResourceOwner::Endpoint(options.purpose.key().into()),
             roles: vec![],
             dependencies: vec![],
             static_identity: options.identity.clone(),
@@ -166,6 +247,7 @@ impl ComponentFactory for Factory {
                 tasks: context.tasks,
                 resources: context.resources,
                 network: self.0.clone(),
+                purpose: options.purpose,
                 pending: CloseReport::default(),
                 #[cfg(feature = "dns")]
                 metadata,
@@ -179,6 +261,7 @@ struct Owner {
     tasks: TaskRegistrar,
     resources: Arc<dyn zero_platform_tokio::contract::component::ResourceAccess>,
     network: Arc<BackgroundNetwork>,
+    purpose: Purpose,
     pending: CloseReport,
     #[cfg(feature = "dns")]
     metadata: Vec<zero_platform_tokio::controlled_datagram::metadata_pool::MetadataPoolOwner>,
@@ -203,15 +286,15 @@ impl ResourceLifecycle for Owner {
             owner.start()?;
         }
         let provider: Arc<dyn zero_dns::native::NativeDnsProvider> = self.provider.clone();
-        self.network
-            .native_dns
+        self.purpose
+            .source(&self.network)
             .install(&provider)
             .map_err(provider::error)?;
         Ok(())
     }
     fn revoke(&self, _: CloseReason) {
         let provider: Arc<dyn zero_dns::native::NativeDnsProvider> = self.provider.clone();
-        let current = self.network.native_dns.withdraw(&provider);
+        let current = self.purpose.source(&self.network).withdraw(&provider);
         self.provider.stop();
         if current {
             if let Some(dns) = self
@@ -220,7 +303,7 @@ impl ResourceLifecycle for Owner {
                 .get()
                 .and_then(std::sync::Weak::upgrade)
             {
-                dns.retire_native_queries();
+                dns.retire_native_query_source(self.purpose.source(&self.network));
             }
         }
         for owner in &self.owners {

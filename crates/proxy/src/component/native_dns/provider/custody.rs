@@ -5,6 +5,7 @@ pub(super) struct NativeUse {
     pub(super) task: TaskJoinWitness,
     pub(super) cancel: CancellationToken,
     pub(super) original: CarrierAdoption,
+    pub(super) capacity: Mutex<Option<tokio::sync::OwnedSemaphorePermit>>,
     pub(super) logical:
         tokio::sync::Mutex<Option<zero_platform_tokio::controlled_carrier::loan::LoanOwner>>,
 }
@@ -46,6 +47,10 @@ impl NativeUse {
             ));
         }
         report.append(closed);
+        self.capacity
+            .lock()
+            .expect("DNS original budget poisoned")
+            .take();
         Ok(report)
     }
 }

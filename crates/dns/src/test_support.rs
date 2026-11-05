@@ -80,12 +80,27 @@ pub fn install_doq_ca(
 pub fn panic_native_query_worker(
     dns: &DnsSystem,
 ) -> io::Result<zero_platform_tokio::contract::scope::TaskJoinWitness> {
-    let tasks = dns
+    let mut candidates = dns
         .native_source
         .as_ref()
-        .or_else(|| dns.node_queries.as_ref().map(|node| &node.source))
-        .ok_or_else(invalid)?
-        .tasks()?;
+        .into_iter()
+        .chain(dns.query_coordinator.native_source())
+        .chain(dns.node_queries.as_ref().map(|node| &node.source))
+        .filter_map(|source| source.tasks().ok())
+        .collect::<Vec<_>>();
+    let index = candidates
+        .iter()
+        .position(|tasks| {
+            tasks
+                .observe()
+                .iter()
+                .any(|query| query.io_pending && !query.task.is_joined())
+        })
+        .unwrap_or(0);
+    if candidates.is_empty() {
+        return Err(invalid());
+    }
+    let tasks = candidates.swap_remove(index);
     let before = tasks.observe();
     tasks.spawn(
         async { panic!("original native DNS query worker failure") },

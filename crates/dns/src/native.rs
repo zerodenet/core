@@ -41,6 +41,9 @@ pub trait NativeDnsQuicControl: Send {
 
 /// Executable native I/O, not a Service label or a declaration-only capability.
 pub trait NativeDnsProvider: Send + Sync {
+    fn fence_old_network(&self, generation: u64, end: Instant) -> BoxFuture<'_, io::Result<()>> {
+        Box::pin(async move { self.tasks().fence_old_network(generation, end).await })
+    }
     /// Invoked by the same real query/driver task after its I/O future drops.
     /// Stand-alone providers retain their explicit lifecycle; the actual kernel
     /// provider consumes its registered originals here, without another task.
@@ -152,6 +155,21 @@ impl NativeDnsSource {
             // A missing original host is a terminal admission failure, never
             // permission to run a submitted query through a naked connector.
             Err(_) => true,
+        }
+    }
+    /// Settle old actual registrations if this purpose is assembled. A source
+    /// with no installed provider grants no resource and has nothing to poll;
+    /// the RuntimeHost retains withdrawn owners through its replacement barrier.
+    pub async fn fence_old_network(&self, generation: u64, end: Instant) -> io::Result<()> {
+        let provider = self
+            .0
+            .read()
+            .expect("DNS native source poisoned")
+            .as_ref()
+            .and_then(Weak::upgrade);
+        match provider {
+            Some(provider) => provider.fence_old_network(generation, end).await,
+            None => Ok(()),
         }
     }
     pub fn install(&self, provider: &Arc<dyn NativeDnsProvider>) -> io::Result<()> {
