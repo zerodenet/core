@@ -108,3 +108,6 @@ mod service;
 mod doh_binding;
 
 mod direct;
+
+#[cfg(feature = "vmess")]
+mod vmess_grpc;
