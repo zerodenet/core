@@ -14,6 +14,8 @@
   首波后复用 A 的独立 control 分支与 B 的独立 budgets 分支，未增加第四名实现 agent。
 - Rust `1.99.0 (b940084d7 2026-09-28)`，匹配 rustfmt/Clippy，protoc `35.0`。
   同一共享 target，由 M 串行发放构建/测试槽；没有同时运行两个 Cargo。
+  构建使用 `CARGO_BUILD_JOBS=4`、dev/test debug=0、incremental=0；这是云端验证配置，
+  不代表 1 CPU/1 GiB 压力资格。
 - 仓库忽略 Cargo.lock。原环境锁与包 head 不匹配，首次 locked fetch 失败；
   M 对当前 manifests 离线 materialize 并下载依赖，再向 worktree 分发相同锁。
   后续 grpc 显式依赖变化同样只由 M 重建锁；没有升级既定协议上游。
@@ -64,6 +66,7 @@ vendor/wintun 原 Adapter/Session 关闭接口。没有升级 vendored Wintun �
 | plain linked WG stacks | 同冷 PendingEntries / 原 LinkedStackFactory / EndpointStackOwner | 同冷 union，实际 NodeDNS dependency generation；StopOld→resolve→deferred actual Scope start→install→同步 commit；失败丢弃不 revoke borrowed current TCP | startup/reload/network/recovery 已由 M 接线；standalone WG 原生 UDP provider、普通 Packet 消费仍未迁完 |
 | system TUN Linux/macOS/Windows | 同 retained TunCompletion / owned channels，Windows 同 SDK 原 owner 与实际 std reader | main、route、read/write joins 与 native receipt 独立；取消保留原 handles | host TaskRegistrar、适用 helper process / descendant / transfer acknowledgement 仍缺，不能写成纯环境问题 |
 | Unix IPC / HTTP / SSE / gRPC | 原 controlled listener、accepted graph、TaskScope、原订阅 blocking JoinHandle | accept 前全局 charge；真实 join + matching native close 后归还；预算满拒新、不驱逐活连接 | Linux 控制 owner/预算接线已实现；Windows NamedPipeServer 原 handle provider 仍未迁 |
+| runtime 统计 sampler | 既有 Sampler 外层任务与 spawn_blocking 统计工作 | Drop 仍 abort 外层，blocking 原 join 未纳入原宿主收尾 | **未完成实现**；不是已迁控制服务器的 Scope/native 证据，也不是 TEMP 例外 |
 | 初始 TLS / quota / standalone inspect | 同 ConfigurationSource、固定 QuotaStorage、原 lock 与 std persistence worker | active leases 归还→原 worker join→matching lock close；失败保实际 Source IO | 删除直接文件/锁/后台丢失原件分支；不让 Engine-only / FFI 启动 Proxy |
 
 Driver custody 凭证只说明原 host 强留同 slot/controller 与同 Pool Scope 实际 driver；
@@ -107,7 +110,7 @@ actual caller 清理。Observer hint 也不授权 I/O，不可当成清理凭证
 | G5 | 设备冷准备/丢弃/恢复与 publication、控制原 owner、Source quota 增量；仍有 fault handoff/未迁 owner 缺口 |
 | G6 | DNS 实际 provider/borrowed caller、bootstrap purpose、预算与 cycle 增量；WG/其他 legacy DNS 未归零 |
 | G7 | 原件/native receipts、linked Scope 与 Direct/TUN custody 增量；标准 Packet/provider/完整设备 Scope 未完成 |
-| G8 | Linux 控制/订阅/TLS/quota owner与预算增量；Windows pipe及完整 V1 投影回归按实际结果 |
+| G8 | Linux 控制/订阅/TLS/quota owner与预算增量；统计 sampler、Windows pipe 仍未迁，完整 V1 投影回归按实际结果 |
 | G9 | 未执行新内核与冻结 GUI/面板真实组合；没有修改消费者换取通过 |
 | G10 | 旧链未归零、互通/平台/性能和最终统一检查按实际下表；不关闭整轮 |
 
