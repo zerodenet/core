@@ -153,7 +153,7 @@ impl PacketDeviceOwner {
                         identity: self.identity.clone(),
                         interface: interface.clone(),
                     };
-                    return Ok(granted);
+                    Ok(granted)
                 }
                 Err(source) => {
                     let failure = error(
@@ -164,7 +164,7 @@ impl PacketDeviceOwner {
                     .with_source(source);
                     // Same controller retains its acquisition source. KnownNoNative
                     // must not become an unrelated sticky cleanup failure.
-                    return Err(failure);
+                    Err(failure)
                 }
             }
         }
@@ -292,7 +292,7 @@ impl PacketDeviceOwner {
                 ));
                 state.reported_close = true;
             }
-            return report;
+            report
         }
         #[cfg(not(all(
             feature = "raw-ip-runtime",

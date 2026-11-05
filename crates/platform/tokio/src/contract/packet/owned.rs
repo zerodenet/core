@@ -62,7 +62,10 @@ pub async fn send_owned<T: PacketTx + ?Sized>(
         };
         guard.armed = false;
         Poll::Ready(result.map_err(|failure| OwnedSendFailure {
-            failure: Box::new(super::super::datagram::check_failure(failure, guard.control)),
+            failure: Box::new(super::super::datagram::check_failure(
+                failure,
+                guard.control,
+            )),
             packet: packet.take(),
         }))
     })
