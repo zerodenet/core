@@ -78,12 +78,9 @@ pub(super) fn reserve(
         if owner.stop.load(Ordering::Acquire) || closed() {
             return Ok(None);
         }
-        if bytes > owner.budget.limits().queued_event_bytes {
-            return Err(io::Error::new(
-                io::ErrorKind::OutOfMemory,
-                "gRPC event exceeds its root queued-frame budget",
-            ));
-        }
+        // Keep this original event unencoded while capacity is unavailable,
+        // including when one frame exceeds the current cap. A later committed
+        // budget may admit it; stop/disconnect still release the real worker.
         match owner.budget.reserve(ControlCharge::QueuedEventBytes(bytes)) {
             Ok(permit) => return Ok(Some(permit)),
             Err(error) if error.kind() == io::ErrorKind::WouldBlock => {

@@ -106,3 +106,5 @@ async fn idle_grpc_subscription_disconnect_joins_the_original_without_a_followup
     assert!(jobs.jobs.lock().unwrap()[0].joined_successfully());
     assert_eq!(jobs.budget.usage().subscriptions, 0);
 }
+
+mod queued_events;
