@@ -1,5 +1,6 @@
 //! TUN inbound lifecycle and proxy-kernel integration.
 
+pub(crate) mod completion;
 mod config;
 #[cfg(feature = "raw-ip-runtime")]
 mod packet;
@@ -390,7 +391,7 @@ impl Proxy {
         let (shutdown, shutdown_rx) = tokio::sync::watch::channel(false);
         let (done_tx, done) = tokio::sync::oneshot::channel();
         let (route_recovery, recovery_requests) = tokio::sync::mpsc::channel(1);
-        let route_done = auto_route.then(|| {
+        let route_task = auto_route.then(|| {
             routes::spawn(
                 self.clone(),
                 routes::RouteRuntimeSpec {
@@ -411,6 +412,14 @@ impl Proxy {
                 recovery_requests,
             )
         });
+        let (route_task, route_done) = match route_task {
+            Some((task, done)) => (Some(task), Some(done)),
+            None => (None, None),
+        };
+        let completion = completion::TunCompletion::new(done, route_done);
+        if let Some(task) = route_task {
+            completion.install_routes(task);
+        }
         *self.tun_info.lock().unwrap() = Some(TunInfo {
             id,
             name: device_name.clone(),
@@ -440,8 +449,7 @@ impl Proxy {
         *self.tun_control.lock().unwrap() = Some(TunControl {
             id,
             shutdown,
-            done,
-            route_done,
+            completion: completion.clone(),
             route_recovery: auto_route.then_some(route_recovery),
         });
         debug!("TUN runtime state published");
@@ -449,7 +457,7 @@ impl Proxy {
         info!(inbound_tag = tag, name = %device_name, %addr, mtu, "TUN device started");
         let proxy = self.clone();
         let inbound_tag = tag.to_owned();
-        tokio::spawn(async move {
+        let task = tokio::spawn(async move {
             let result = runtime::run(
                 proxy.clone(),
                 device_reader,
@@ -476,6 +484,7 @@ impl Proxy {
             finalize_tun_runtime_exit(&proxy, id).await;
             let _ = done_tx.send(());
         });
+        completion.install_main(task);
 
         Ok(())
     }
@@ -633,52 +642,42 @@ impl Proxy {
                 "TUN is managed by `runtime.tun`; remove it with config.apply instead",
             )));
         }
-        let control = self.tun_control.lock().unwrap().take().ok_or_else(|| {
-            EngineError::Io(io::Error::new(
-                io::ErrorKind::NotFound,
-                "TUN is not running",
-            ))
-        })?;
-        let TunControl {
-            id,
-            shutdown,
-            done,
-            route_done,
-            ..
-        } = control;
-        let _ = shutdown.send(true);
-        let stopped = tokio::time::timeout(Duration::from_secs(5), done).await;
-        let route_cleanup = match route_done {
-            Some(done) => match tokio::time::timeout(Duration::from_secs(5), done).await {
-                Ok(Ok(Ok(()))) => Ok(()),
-                Ok(Ok(Err(error))) => Err(EngineError::Io(io::Error::other(error))),
-                Ok(Err(_)) => Err(EngineError::Io(io::Error::new(
-                    io::ErrorKind::BrokenPipe,
-                    "TUN route runtime exited without shutdown acknowledgement",
-                ))),
-                Err(_) => Err(EngineError::Io(io::Error::new(
-                    io::ErrorKind::TimedOut,
-                    "timed out waiting for TUN route runtime shutdown",
-                ))),
-            },
-            None => Ok(()),
-        };
-        // Keep the last known physical egress while automatic route cleanup
-        // is incomplete. Clearing it first leaves direct sockets unable to
-        // bypass a stale capture route after a partial shutdown failure.
-        clear_egress_after_route_cleanup(&self.egress_interface, route_cleanup.is_ok());
-        clear_matching_tun_info(self, id);
-        let result = match stopped {
-            Ok(Ok(())) => route_cleanup,
-            Ok(Err(_)) => Err(EngineError::Io(io::Error::new(
-                io::ErrorKind::BrokenPipe,
-                "TUN runtime exited without shutdown acknowledgement",
-            ))),
-            Err(_) => Err(EngineError::Io(io::Error::new(
-                io::ErrorKind::TimedOut,
-                "timed out waiting for TUN runtime shutdown",
-            ))),
-        };
+        let (id, shutdown, completion) = self
+            .tun_control
+            .lock()
+            .unwrap()
+            .as_ref()
+            .map(|control| {
+                (
+                    control.id,
+                    control.shutdown.clone(),
+                    control.completion.clone(),
+                )
+            })
+            .ok_or_else(|| {
+                EngineError::Io(io::Error::new(
+                    io::ErrorKind::NotFound,
+                    "TUN is not running",
+                ))
+            })?;
+        shutdown.send_replace(true);
+        // Both notifications and the actual original JoinHandles remain in
+        // this same published control if this waiter is cancelled or expires.
+        let stopped = completion
+            .wait_main(tokio::time::Instant::now() + Duration::from_secs(5))
+            .await;
+        let route_cleanup = completion
+            .wait_routes(tokio::time::Instant::now() + Duration::from_secs(5))
+            .await;
+        let result = stopped.and(route_cleanup).map_err(EngineError::Io);
+        if result.is_ok() {
+            let mut control = self.tun_control.lock().unwrap();
+            if control.as_ref().is_some_and(|control| control.id == id) {
+                control.take();
+            }
+            clear_egress_after_route_cleanup(&self.egress_interface, true);
+            clear_matching_tun_info(self, id);
+        }
         match &result {
             Ok(()) => {
                 self.tun_last_error.lock().unwrap().take();
@@ -745,36 +744,23 @@ fn log_tun_generation_change(
 
 async fn finalize_tun_runtime_exit(proxy: &Proxy, id: u64) {
     clear_matching_tun_info(proxy, id);
-    let removed = {
-        let mut control = proxy.tun_control.lock().unwrap();
-        if control.as_ref().is_some_and(|control| control.id == id) {
-            control.take()
-        } else {
-            None
-        }
-    };
-    let Some(TunControl {
-        shutdown,
-        done,
-        route_done,
-        ..
-    }) = removed
-    else {
-        // An explicit stop owns the route cleanup and final egress update.
+    let retained = proxy
+        .tun_control
+        .lock()
+        .unwrap()
+        .as_ref()
+        .filter(|control| control.id == id)
+        .map(|control| (control.shutdown.clone(), control.completion.clone()));
+    let Some((shutdown, completion)) = retained else {
         return;
     };
-    // This receiver belongs to the task that is currently finalizing. Drop it
-    // instead of waiting on our own completion acknowledgement.
-    drop(done);
-    let _ = shutdown.send(true);
-    let route_cleanup = match route_done {
-        Some(done) => match done.await {
-            Ok(Ok(())) => Ok(()),
-            Ok(Err(error)) => Err(error),
-            Err(_) => Err("TUN route runtime exited without cleanup acknowledgement".to_owned()),
-        },
-        None => Ok(()),
-    };
+    shutdown.send_replace(true);
+    // Main body exit cannot consume its own JoinHandle. Preserve its original
+    // control until the actual stop observer joins it; routes have their own
+    // independent original handle in the same retained completion.
+    let route_cleanup = completion
+        .wait_routes(tokio::time::Instant::now() + Duration::from_secs(5))
+        .await;
     match route_cleanup {
         Ok(()) => clear_egress_control(&proxy.egress_interface, "tun_runtime_exited"),
         Err(error) => {

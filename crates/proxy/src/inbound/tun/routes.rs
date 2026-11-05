@@ -311,9 +311,12 @@ pub(super) fn spawn(
     monitor: Option<RouteChangeMonitor>,
     shutdown: watch::Receiver<bool>,
     recovery_requests: mpsc::Receiver<oneshot::Sender<Result<(), String>>>,
-) -> oneshot::Receiver<Result<(), String>> {
+) -> (
+    tokio::task::JoinHandle<()>,
+    oneshot::Receiver<Result<(), String>>,
+) {
     let (done_tx, done) = oneshot::channel();
-    tokio::spawn(async move {
+    let task = tokio::spawn(async move {
         let result = run(
             proxy,
             spec,
@@ -326,7 +329,7 @@ pub(super) fn spawn(
         .await;
         let _ = done_tx.send(result.map_err(|error| error.to_string()));
     });
-    done
+    (task, done)
 }
 
 async fn run(

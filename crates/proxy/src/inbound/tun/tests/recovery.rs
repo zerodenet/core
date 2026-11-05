@@ -31,8 +31,7 @@ async fn manual_recovery_waits_for_the_audit_and_returns_its_failure() {
         *proxy.tun_control.lock().unwrap() = Some(TunControl {
             id: 7,
             shutdown,
-            done,
-            route_done: None,
+            completion: super::super::completion::TunCompletion::new(done, None),
             route_recovery: Some(requests),
         });
         let recovery = proxy.recover_tun();
@@ -71,11 +70,21 @@ async fn explicit_stop_interrupts_recovery_without_waiting_for_its_timeout() {
     let (shutdown, mut shutdown_rx) = tokio::sync::watch::channel(false);
     let (done_tx, done) = tokio::sync::oneshot::channel();
     let (route_tx, route_done) = tokio::sync::oneshot::channel();
+    let completion = super::super::completion::TunCompletion::new(done, Some(route_done));
+    let (finish_main, main_finished) = tokio::sync::oneshot::channel();
+    completion.install_main(tokio::spawn(async move {
+        main_finished.await.unwrap();
+        done_tx.send(()).unwrap();
+    }));
+    let (finish_route, route_finished) = tokio::sync::oneshot::channel();
+    completion.install_routes(tokio::spawn(async move {
+        route_finished.await.unwrap();
+        route_tx.send(Ok(())).unwrap();
+    }));
     *proxy.tun_control.lock().unwrap() = Some(TunControl {
         id: 7,
         shutdown,
-        done,
-        route_done: Some(route_done),
+        completion,
         route_recovery: Some(requests),
     });
     let recovering = proxy.clone();
@@ -88,8 +97,8 @@ async fn explicit_stop_interrupts_recovery_without_waiting_for_its_timeout() {
         .expect("stop must interrupt a pending recovery")
         .unwrap();
     drop(acknowledgement);
-    done_tx.send(()).unwrap();
-    route_tx.send(Ok(())).unwrap();
+    finish_main.send(()).unwrap();
+    finish_route.send(()).unwrap();
     stop.await.unwrap().unwrap();
     assert!(recovery.await.unwrap().is_err());
     assert!(proxy.tun_control.lock().unwrap().is_none());

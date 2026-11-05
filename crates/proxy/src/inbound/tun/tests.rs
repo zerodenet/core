@@ -60,21 +60,21 @@ async fn unexpected_runtime_exit_waits_for_route_cleanup_before_clearing_egress(
     let (shutdown, mut shutdown_rx) = tokio::sync::watch::channel(false);
     let (_done_tx, done) = tokio::sync::oneshot::channel();
     let (route_done_tx, route_done) = tokio::sync::oneshot::channel();
+    let completion = super::completion::TunCompletion::new(done, Some(route_done));
     *proxy.tun_control.lock().unwrap() = Some(crate::runtime::TunControl {
         id: 41,
         shutdown,
-        done,
-        route_done: Some(route_done),
+        completion: completion.clone(),
         route_recovery: None,
     });
 
-    let finalize = super::finalize_tun_runtime_exit(&proxy, 41);
-    let acknowledge = async move {
+    let acknowledge = tokio::spawn(async move {
         shutdown_rx.changed().await.unwrap();
         assert!(*shutdown_rx.borrow());
         route_done_tx.send(Ok(())).unwrap();
-    };
-    tokio::join!(finalize, acknowledge);
+    });
+    completion.install_routes(acknowledge);
+    super::finalize_tun_runtime_exit(&proxy, 41).await;
 
     assert!(proxy.egress_interface.current().is_none());
     assert!(!proxy
@@ -99,22 +99,22 @@ async fn unexpected_runtime_cleanup_failure_retains_egress_and_error() {
     let (shutdown, mut shutdown_rx) = tokio::sync::watch::channel(false);
     let (_done_tx, done) = tokio::sync::oneshot::channel();
     let (route_done_tx, route_done) = tokio::sync::oneshot::channel();
+    let completion = super::completion::TunCompletion::new(done, Some(route_done));
     *proxy.tun_control.lock().unwrap() = Some(crate::runtime::TunControl {
         id: 42,
         shutdown,
-        done,
-        route_done: Some(route_done),
+        completion: completion.clone(),
         route_recovery: None,
     });
 
-    let finalize = super::finalize_tun_runtime_exit(&proxy, 42);
-    let reject_cleanup = async move {
+    let reject_cleanup = tokio::spawn(async move {
         shutdown_rx.changed().await.unwrap();
         route_done_tx
             .send(Err("remove stale capture route".to_owned()))
             .unwrap();
-    };
-    tokio::join!(finalize, reject_cleanup);
+    });
+    completion.install_routes(reject_cleanup);
+    super::finalize_tun_runtime_exit(&proxy, 42).await;
 
     assert_eq!(proxy.egress_interface.current_for(false), Some(physical));
     assert!(proxy
