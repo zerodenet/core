@@ -84,11 +84,14 @@ async fn native_mux_stream_reopen_waits_for_reserved_end_and_cancel_returns_sid(
         // sole control permit while the original driver has not been polled.
         let cancelled_sid = connection.try_reserve_stream_id().unwrap();
         let mut cancelled = Box::pin(
-            StreamReservation::new(connection.clone(), cancelled_sid).open(
+            StreamReservation::new(
+                connection.clone(),
+                cancelled_sid,
                 Address::Ipv4([203, 0, 113, 1]),
                 443,
                 Network::Tcp,
-            ),
+            )
+            .open(),
         );
         std::future::poll_fn(|cx| {
             assert!(cancelled.as_mut().poll(cx).is_pending());
@@ -99,11 +102,16 @@ async fn native_mux_stream_reopen_waits_for_reserved_end_and_cancel_returns_sid(
         let fresh_sid = connection
             .try_reserve_stream_id()
             .expect("cancel returns the admitted SID");
-        let mut fresh = Box::pin(StreamReservation::new(connection.clone(), fresh_sid).open(
-            Address::Ipv4([203, 0, 113, 1]),
-            443,
-            Network::Tcp,
-        ));
+        let mut fresh = Box::pin(
+            StreamReservation::new(
+                connection.clone(),
+                fresh_sid,
+                Address::Ipv4([203, 0, 113, 1]),
+                443,
+                Network::Tcp,
+            )
+            .open(),
+        );
         std::future::poll_fn(|cx| {
             assert!(fresh.as_mut().poll(cx).is_pending());
             Poll::Ready(())
