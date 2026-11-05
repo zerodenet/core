@@ -138,6 +138,12 @@ impl ClientPool {
                     // control until explicit close and transferred-user return.
                     self.clear();
                     state.retire_epoch();
+                    // A stop request does not synchronously finish the actual
+                    // driver. Wait for its real record/Scope join and returned
+                    // logical users before treating the old epoch as drained.
+                    tokio::time::timeout_at(retirement, state.drained())
+                        .await
+                        .map_err(|source| io::Error::new(io::ErrorKind::TimedOut, source))?;
                     if !state
                         .retire_finished(retirement)
                         .await
