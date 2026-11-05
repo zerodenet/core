@@ -44,7 +44,7 @@ pub(crate) struct StagedRawIpDevices {
 }
 
 impl RawIpDevicePool {
-    #[cfg(test)]
+    #[cfg(all(test, feature = "wireguard"))]
     pub(crate) fn test_current_devices(&self, tags: &[String]) -> Vec<Arc<SharedRawIpDevice>> {
         let state = self.state.lock().unwrap_or_else(|error| error.into_inner());
         let mut devices: Vec<_> = state
