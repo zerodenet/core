@@ -8,6 +8,7 @@ use zero_engine::EngineHandle;
 use zero_proxy::{Proxy, ProxyHandle};
 
 use crate::ipc::connection::handle_ipc_connection;
+mod failures;
 
 fn handles() -> (EngineHandle, ProxyHandle) {
     let proxy = Proxy::new(
