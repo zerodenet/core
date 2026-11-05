@@ -36,6 +36,7 @@ pub struct HttpServerHandle {
     listen: String,
     auth: Option<HttpServerAuth>,
     started: std::sync::atomic::AtomicBool,
+    budget: Arc<zero_runtime::configuration::ControlBudget>,
 }
 
 /// A single token entry parsed from configuration.
@@ -116,7 +117,24 @@ impl HttpServerHandle {
 }
 
 pub fn prepare_http_server(listen: &str, auth: Option<HttpServerAuth>) -> Arc<HttpServerHandle> {
-    let sockets = 256;
+    prepare_http_server_with_budget(
+        listen,
+        auth,
+        zero_runtime::configuration::ControlBudget::new(
+            zero_runtime::configuration::ControlBudgetLimits::from_runtime(
+                &zero_config::RuntimeOptionsConfig::default(),
+            ),
+        ),
+    )
+}
+pub fn prepare_http_server_with_budget(
+    listen: &str,
+    auth: Option<HttpServerAuth>,
+    budget: Arc<zero_runtime::configuration::ControlBudget>,
+) -> Arc<HttpServerHandle> {
+    // The finite validated ceiling allocates no idle socket/task. The shared
+    // actual root owner admits occupancy under the current configured cap.
+    let sockets = 4096;
     Arc::new(HttpServerHandle {
         shutdown: std::sync::Mutex::new(None),
         task: crate::ipc::owner::ControlTask::empty(),
@@ -128,6 +146,7 @@ pub fn prepare_http_server(listen: &str, auth: Option<HttpServerAuth>) -> Arc<Ht
         listen: listen.to_owned(),
         auth,
         started: std::sync::atomic::AtomicBool::new(false),
+        budget,
     })
 }
 impl HttpServerHandle {
@@ -135,7 +154,7 @@ impl HttpServerHandle {
         if self.started.swap(true, std::sync::atomic::Ordering::AcqRel) {
             return Err(io::Error::other("HTTP original owner already started"));
         }
-        let sockets = NonZeroUsize::new(256).unwrap();
+        let sockets = NonZeroUsize::new(4096).unwrap();
         let per_entry = NonZeroUsize::new(3).unwrap();
         let mut scope = self.scope.lock().await;
         let listener =
@@ -159,6 +178,7 @@ impl HttpServerHandle {
         let task_scope = self.scope.clone();
         let task_original = self.original.clone();
         let auth = self.auth.clone();
+        let budget = self.budget.clone();
         self.task.install(tokio::spawn(async move {
             run_server(
                 listener,
@@ -168,6 +188,7 @@ impl HttpServerHandle {
                 task_scope,
                 task_original,
                 receiver,
+                budget,
             )
             .await
         }))?;
@@ -321,6 +342,7 @@ async fn run_server(
     scope: Arc<tokio::sync::Mutex<TaskScope>>,
     original: Arc<tokio::sync::Mutex<Option<ControlledTcpListenerOwner>>>,
     receiver: zero_platform_tokio::AcceptedTcpTaskReceiver,
+    budget: Arc<zero_runtime::configuration::ControlBudget>,
 ) -> io::Result<()> {
     let limiters = Arc::new(ratelimit::ApiRateLimiters::default());
     let stop = CancellationToken::new();
@@ -339,8 +361,9 @@ async fn run_server(
                     let auth = auth.clone();
                     let limiters = limiters.clone();
                     let connection_stop = stop.child_token();
+                    let connection_budget = budget.clone();
                     match accepted.spawn_handler_bound(TaskClass::Auxiliary, move |stream, _tasks| async move {
-                        if let Err(error) = serve_connection(stream, handle, auth.as_ref(), &limiters, connection_stop).await {
+                        if let Err(error) = serve_connection(stream, handle, auth.as_ref(), &limiters, connection_stop, connection_budget).await {
                             if is_transient_disconnect(&error) { debug!(?remote_addr, %error, "http connection closed early"); }
                             else { warn!(?remote_addr, %error, "http connection failed"); }
                             return Err(component_io(error));
@@ -406,6 +429,7 @@ async fn serve_connection(
     auth: Option<&HttpServerAuth>,
     limiters: &ratelimit::ApiRateLimiters,
     stop: CancellationToken,
+    budget: Arc<zero_runtime::configuration::ControlBudget>,
 ) -> io::Result<()> {
     let request = tokio::select! {
         _ = stop.cancelled() => return Ok(()),
@@ -434,6 +458,16 @@ async fn serve_connection(
         };
     }
 
+    let _subscription_charge = if matches!(category, RateLimitCategory::Sse) {
+        match budget.reserve(zero_runtime::configuration::ControlCharge::Subscription) {
+            Ok(charge) => Some(charge),
+            Err(_) => {
+                return tokio::select! { _ = stop.cancelled() => Ok(()), result = write_response(&mut stream, "HTTP/1.1 503 Service Unavailable\r\n", br#"{"error":"subscription capacity exhausted"}"#) => result }
+            }
+        }
+    } else {
+        None
+    };
     let route = tokio::select! {
         _ = stop.cancelled() => return Ok(()),
         result = router::route(&request, &handle, &auth_ctx) => result,
@@ -447,12 +481,13 @@ async fn serve_connection(
             subscriber,
             catch_up,
         } => {
-            sse::run_sse_stream(
+            sse::run_sse_stream_with_budget(
                 stream,
                 subscriber,
                 catch_up,
                 Duration::from_secs(30),
                 stop.cancelled_owned(),
+                budget,
             )
             .await
         }

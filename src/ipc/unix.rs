@@ -26,6 +26,7 @@ pub struct IpcServerHandle {
     originals: Arc<UnixOriginals>,
     path: PathBuf,
     started: std::sync::atomic::AtomicBool,
+    budget: Arc<zero_runtime::configuration::ControlBudget>,
 }
 
 impl IpcServerHandle {
@@ -86,6 +87,19 @@ pub fn resolve_socket_path(explicit: Option<&str>) -> io::Result<PathBuf> {
 /// The socket file is created with `0o600` permissions so only the owning
 /// user can connect.  If the socket file already exists it is removed first.
 pub fn prepare_ipc_server(socket_path: &Path) -> Arc<IpcServerHandle> {
+    prepare_ipc_server_with_budget(
+        socket_path,
+        zero_runtime::configuration::ControlBudget::new(
+            zero_runtime::configuration::ControlBudgetLimits::from_runtime(
+                &zero_config::RuntimeOptionsConfig::default(),
+            ),
+        ),
+    )
+}
+pub fn prepare_ipc_server_with_budget(
+    socket_path: &Path,
+    budget: Arc<zero_runtime::configuration::ControlBudget>,
+) -> Arc<IpcServerHandle> {
     Arc::new(IpcServerHandle {
         shutdown: std::sync::Mutex::new(None),
         task: crate::ipc::owner::ControlTask::empty(),
@@ -96,6 +110,7 @@ pub fn prepare_ipc_server(socket_path: &Path) -> Arc<IpcServerHandle> {
         originals: Arc::new(UnixOriginals::default()),
         path: socket_path.to_owned(),
         started: std::sync::atomic::AtomicBool::new(false),
+        budget,
     })
 }
 impl IpcServerHandle {
@@ -135,10 +150,10 @@ impl IpcServerHandle {
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner) = Some(shutdown_tx);
         let originals = self.originals.clone();
-        let task =
-            tokio::spawn(
-                async move { run_ipc_server(listener, handle, shutdown_rx, originals).await },
-            );
+        let budget = self.budget.clone();
+        let task = tokio::spawn(async move {
+            run_ipc_server(listener, handle, shutdown_rx, originals, budget).await
+        });
         self.task.install(task)?;
         info!(socket = %socket_path.display(), "ipc server ready");
         Ok(())
@@ -158,6 +173,7 @@ async fn run_ipc_server(
     handle: ProxyHandle,
     mut shutdown: oneshot::Receiver<()>,
     originals: Arc<UnixOriginals>,
+    budget: Arc<zero_runtime::configuration::ControlBudget>,
 ) -> io::Result<()> {
     let mut connections = JoinSet::new();
     let stop = CancellationToken::new();
@@ -187,9 +203,10 @@ async fn run_ipc_server(
                       "ipc client connected");
 
                 let connection_stop = stop.child_token();
+                let connection_budget = budget.clone();
                 let task = connections.spawn(async move {
                     let emit_handle = handle.clone();
-                    let result = connection::handle_ipc_connection_until(stream, handle, connection_stop).await;
+                    let result = connection::handle_ipc_connection_with_budget_until(stream, handle, connection_stop, connection_budget).await;
 
                     let n = active.fetch_sub(1, Ordering::Relaxed) - 1;
                     let error_str = match &result {

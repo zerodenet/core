@@ -83,12 +83,17 @@ async fn run(
     services.retain_control_startup()?;
     let control_start = async {
         let ipc_socket_path = ipc::resolve_ipc_path(control_socket)?;
-        let ipc_server = ipc::prepare_ipc_server(&ipc_socket_path);
+        let ipc_server =
+            ipc::prepare_ipc_server_with_budget(&ipc_socket_path, services.control_budget());
         services.install_ipc(ipc_server.clone())?;
         ipc_server.start(ipc_handle.clone()).await?;
         #[cfg(feature = "status-api")]
         if let Some(ref status) = status_spec {
-            let http = http_adapter::prepare_http_server(&status.listen, status.auth.clone());
+            let http = http_adapter::prepare_http_server_with_budget(
+                &status.listen,
+                status.auth.clone(),
+                services.control_budget(),
+            );
             services.install_http(http.clone())?;
             http.start(ipc_handle.clone()).await?;
         }
