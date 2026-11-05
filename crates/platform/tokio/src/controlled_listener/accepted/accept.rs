@@ -5,8 +5,28 @@ impl ControlledTcpListener {
     pub async fn accept_owned(&mut self) -> Result<(AcceptedTcp, SocketAddr), ChannelError> {
         self.accept_owned_with(|| {}).await
     }
+    /// Charge an actual native candidate immediately before polling accept.
+    /// A known Pending/no-native result returns that charge. After acquisition,
+    /// error or unwind, the caller keeps it until this original entry closes.
+    /// Callbacks run outside the listener and relay locks.
+    pub async fn accept_owned_with_admission(
+        &mut self,
+        before: impl FnMut() -> Result<(), ChannelError>,
+        no_native: impl FnMut(),
+    ) -> Result<(AcceptedTcp, SocketAddr), ChannelError> {
+        self.accept_owned_admitted(before, no_native, || {}).await
+    }
     pub(super) async fn accept_owned_with(
         &mut self,
+        installed: impl FnMut(),
+    ) -> Result<(AcceptedTcp, SocketAddr), ChannelError> {
+        self.accept_owned_admitted(|| Ok(()), || {}, installed)
+            .await
+    }
+    async fn accept_owned_admitted(
+        &mut self,
+        mut before: impl FnMut() -> Result<(), ChannelError>,
+        mut no_native: impl FnMut(),
         mut installed: impl FnMut(),
     ) -> Result<(AcceptedTcp, SocketAddr), ChannelError> {
         let pool = self.shared.accepted.clone().ok_or_else(|| {
@@ -31,13 +51,19 @@ impl ControlledTcpListener {
                     "accepted TCP admission revoked",
                 )));
             }
-            let _critical = pool.relay.enter();
+            if let Err(error) = before() {
+                return Poll::Ready(Err(error));
+            }
+            let critical = pool.relay.enter();
             let state = self
                 .shared
                 .state
                 .lock()
                 .unwrap_or_else(std::sync::PoisonError::into_inner);
             if state.retired || self.shared.cancel.is_cancelled() {
+                drop(state);
+                drop(critical);
+                no_native();
                 return Poll::Ready(Err(failure(
                     Stage::Prepare,
                     Reason::Revoked,
@@ -45,6 +71,9 @@ impl ControlledTcpListener {
                 )));
             }
             let Some(listener) = state.listener.as_ref() else {
+                drop(state);
+                drop(critical);
+                no_native();
                 return Poll::Ready(Err(failure(
                     Stage::Prepare,
                     Reason::Revoked,
@@ -57,6 +86,9 @@ impl ControlledTcpListener {
             match listener.poll_accept(cx) {
                 Poll::Pending => {
                     reservation.entry.state().phase = Phase::Waiting;
+                    drop(state);
+                    drop(critical);
+                    no_native();
                     Poll::Pending
                 }
                 Poll::Ready(Err(source)) => {
