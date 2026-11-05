@@ -360,7 +360,7 @@ mod hop;
 mod pending;
 #[path = "lifecycle/reload.rs"]
 mod reload;
-#[path = "lifecycle/unchanged.rs"]
-mod unchanged;
 #[path = "lifecycle/stream_loan.rs"]
 mod stream_loan;
+#[path = "lifecycle/unchanged.rs"]
+mod unchanged;
