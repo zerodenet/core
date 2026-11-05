@@ -240,3 +240,66 @@ fn skip_name(message: &[u8], mut offset: usize) -> usize {
         offset += usize::from(length);
     }
 }
+
+#[tokio::test]
+async fn cached_answers_need_no_cold_native_owner_but_uncached_work_remains_denied() {
+    use zero_platform_tokio::contract::dns::{
+        DnsQueryContext, DnsQueryRole, DnsRequest, DnsService,
+    };
+    use zero_traits::IpAddress;
+
+    tokio::time::timeout(Duration::from_secs(1), async {
+        let socket = tokio::net::UdpSocket::bind("127.0.0.1:0").await.unwrap();
+        let mut config = config(socket.local_addr().unwrap().port());
+        config.policy.address_family = zero_config::DnsAddressFamilyPolicy::Ipv4Only;
+        let dns = zero_dns::DnsSystem::build(Some(&config)).unwrap();
+        let expected = vec![IpAddress::V4([192, 0, 2, 73])];
+        let warm = dns.resolve_real_type("cache.example", 1);
+        let peer = async {
+            let mut bytes = [0; 4096];
+            let (size, peer) = socket.recv_from(&mut bytes).await.unwrap();
+            let answer = zero_dns::udp::build_dns_response(&bytes[..size], &expected);
+            socket.send_to(&answer, peer).await.unwrap();
+        };
+        let (answer, ()) = tokio::join!(warm, peer);
+        assert_eq!(answer.unwrap(), expected);
+        let cold = Arc::new(zero_dns::native::NativeDnsSource::default());
+        let dns = dns.with_native_query_queries(cold.clone());
+        assert!(cold.current_budget().is_none());
+        assert_eq!(
+            dns.resolve_real_type("cache.example", 1).await.unwrap(),
+            expected
+        );
+        let cached = DnsService::resolve(
+            &dns,
+            DnsRequest::new("cache.example", DnsQueryRole::Default),
+            DnsQueryContext::default(),
+        )
+        .await
+        .unwrap();
+        assert_eq!(cached.addresses, expected);
+        assert_eq!(
+            dns.resolve_real_type("uncached.example", 1)
+                .await
+                .unwrap_err()
+                .kind(),
+            std::io::ErrorKind::NotConnected,
+            "a cache miss still needs the actual host's query admission"
+        );
+        let mut bytes = [0; 4096];
+        assert_eq!(
+            socket.try_recv_from(&mut bytes).unwrap_err().kind(),
+            std::io::ErrorKind::WouldBlock
+        );
+        assert!(cold.current_budget().is_none());
+        dns.shutdown_queries(tokio::time::Instant::now() + Duration::from_secs(1))
+            .await
+            .unwrap();
+        assert!(
+            dns.resolve_real_type("cache.example", 1).await.is_err(),
+            "local shutdown still fences cached answers"
+        );
+    })
+    .await
+    .unwrap();
+}
