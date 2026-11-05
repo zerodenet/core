@@ -155,30 +155,13 @@ async fn actual_domain_pool_bootstrap_cycle_is_rejected_before_either_purpose_st
     let error = Proxy::new(config)
         .err()
         .expect("the actual domain pool cannot bootstrap through itself");
-    let zero_engine::EngineError::Io(error) = error else {
-        panic!("expected actual component planning error: {error}")
+    let zero_engine::EngineError::Config(zero_config::ConfigError::InvalidDns(error)) = error
+    else {
+        panic!("expected the original Node detour isolation error: {error}")
     };
-    let channel = error
-        .get_ref()
-        .unwrap()
-        .downcast_ref::<zero_platform_tokio::contract::ChannelError>()
-        .unwrap();
-    assert_eq!(
-        channel.reason,
-        zero_platform_tokio::contract::Reason::InvalidConfig
-    );
-    let mut source: Option<&(dyn std::error::Error + 'static)> = Some(channel);
-    let mut actual_cycle = false;
-    while let Some(error) = source {
-        actual_cycle |= error
-            .to_string()
-            .contains("actual background dependency graph contains a cycle");
-        source = error.source();
-    }
-    assert!(
-        actual_cycle,
-        "the actual Node -> domain pool -> Node cycle must be the rejection source"
-    );
+    // Structural validation rejects this actual recursion before the host can
+    // admit either purpose. A Node detour cannot form a legal component graph.
+    assert_eq!(error, "node DNS server `native` must not use a detour");
     dns.no_new_request();
     dns.close().await;
 }
