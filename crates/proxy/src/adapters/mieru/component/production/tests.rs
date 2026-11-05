@@ -91,3 +91,71 @@ fn unrelated_builtin_relay_does_not_change_pool_selection() {
         });
     assert!(production_selected(Some(&config)));
 }
+
+fn packet_pool(config: &mut RuntimeConfig) {
+    let OutboundProtocolConfig::Mieru { transport, .. } = &mut config.outbounds[1].protocol else {
+        unreachable!()
+    };
+    *transport = zero_config::MieruTransport::Udp;
+}
+
+#[test]
+fn socks_packet_prefix_keeps_every_profile_in_the_same_existing_legacy_pool() {
+    let mut config = config(
+        &["prefix", "pool"],
+        serde_json::json!({"type":"socks5", "server":"127.0.0.1", "port":443}),
+    );
+    packet_pool(&mut config);
+    assert!(!production_selected(Some(&config)));
+    let proxy = crate::Proxy::new(config).unwrap();
+    let plan = proxy.tcp_runtime_services().components.clone().unwrap();
+    assert!(plan.configured("prefix").is_some());
+    for tag in ["pool", "other-pool"] {
+        assert!(
+            plan.configured(tag).is_none(),
+            "no profile of this one pool may claim native before its SOCKS UDP donor has real original custody"
+        );
+    }
+}
+
+#[test]
+fn root_packet_pool_and_real_mieru_packet_donor_keep_existing_native_qualification() {
+    for relay in [vec!["pool", "other-pool"], vec!["other-pool", "pool"]] {
+        let mut config = config(
+            &relay,
+            serde_json::json!({"type":"socks5", "server":"127.0.0.1", "port":443}),
+        );
+        packet_pool(&mut config);
+        assert!(production_selected(Some(&config)));
+    }
+}
+
+#[test]
+fn unselected_socks_packet_prefix_branch_cannot_half_promote_the_shared_pool() {
+    let mut config = config(
+        &["prefix", "pool"],
+        serde_json::json!({"type":"socks5", "server":"127.0.0.1", "port":443}),
+    );
+    packet_pool(&mut config);
+    let OutboundGroupKind::Relay { proxies } = &mut config.outbound_groups[0].group else {
+        unreachable!()
+    };
+    proxies[0] = "choice".into();
+    config
+        .outbound_groups
+        .push(zero_config::OutboundGroupConfig {
+            tag: "choice".into(),
+            group: OutboundGroupKind::Selector {
+                outbounds: vec!["other-pool".into(), "prefix".into()],
+                default: Some("other-pool".into()),
+                selected: Some("other-pool".into()),
+            },
+        });
+    assert!(!production_selected(Some(&config)));
+    let choice = config.outbound_groups.last_mut().unwrap();
+    let OutboundGroupKind::Selector { outbounds, .. } = &mut choice.group else {
+        unreachable!()
+    };
+    outbounds.reverse();
+    assert!(!production_selected(Some(&config)));
+}
