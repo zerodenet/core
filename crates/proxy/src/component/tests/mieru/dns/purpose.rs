@@ -3,15 +3,28 @@ use super::*;
 
 #[tokio::test]
 async fn node_and_default_query_owners_share_the_original_and_task_capacity_until_actual_join() {
+    shared_capacity(16, 16).await;
+}
+#[tokio::test]
+async fn configured_original_capacity_is_shared_by_both_purposes_and_reclaimed_after_close() {
+    shared_capacity(2, 16).await;
+}
+#[tokio::test]
+async fn configured_query_capacity_is_shared_by_both_purposes_and_reclaimed_after_join() {
+    shared_capacity(16, 2).await;
+}
+async fn shared_capacity(originals: usize, queries: usize) {
     tokio::time::timeout(Duration::from_secs(25), async {
         let mut dns = Dns::new().await;
         let mut settings = config(["127.0.0.1:1".parse().unwrap(); 3]);
         settings.runtime.dns = Some(dns.config());
+        settings.runtime.native_dns_max_originals = Some(originals);
+        settings.runtime.native_dns_max_queries = Some(queries);
         let (proxy, running, _) = start(settings).await;
         let mut jobs = Vec::new();
         let mut requests = Vec::new();
         let mut held = Vec::new();
-        for index in 0..crate::component::native_dns::LIMIT {
+        for index in 0..originals.min(queries) {
             let resolver = proxy.resolver.clone();
             jobs.push(tokio::spawn(async move {
                 if index % 2 == 0 {

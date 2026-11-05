@@ -29,7 +29,7 @@ use std::{
 use tokio::io::{AsyncRead, AsyncWrite, ReadBuf};
 use tokio_util::sync::CancellationToken;
 #[cfg(unix)]
-pub use unix_connect::PendingUnixConnect;
+pub use unix_connect::{PendingUnixAccept, PendingUnixConnect};
 
 struct Metadata {
     local: Option<SocketAddr>,

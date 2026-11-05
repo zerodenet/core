@@ -1,6 +1,8 @@
 //! Finite compiled device assembly, sharing the actual inbound/outbound owners.
 //! No dynamic lifecycle SPI or protocol lookup lives in the runtime registry.
 #[cfg(feature = "raw-ip-runtime")]
+mod component;
+#[cfg(feature = "raw-ip-runtime")]
 mod context;
 #[cfg(feature = "raw-ip-runtime")]
 pub(crate) use context::{OutboundDevicePreparationContext, PreparedDevicePacketPath};
@@ -13,6 +15,7 @@ use zero_engine::{EndpointAdmission, EngineError};
 
 #[derive(Default)]
 pub(crate) struct Devices {
+    pub(super) network: Option<std::sync::Weak<crate::component::background::BackgroundNetwork>>,
     #[cfg(feature = "raw-ip-runtime")]
     pub(crate) direct: Option<Arc<super::direct::DirectAdapter>>,
     #[cfg(feature = "wireguard")]
@@ -47,7 +50,12 @@ impl Devices {
                 .collect::<Vec<_>>();
             Some(
                 owner
-                    .prepare_devices(&outbounds, &config.inbounds, context.clone())
+                    .prepare_devices_for_candidate(
+                        config,
+                        &outbounds,
+                        &config.inbounds,
+                        context.clone(),
+                    )
                     .await?,
             )
         } else {
@@ -125,6 +133,12 @@ impl PreparedDevices {
 // Inbound endpoint state belongs to these same finite concrete owners. This is
 // static assembly glue, not a protocol listener capability or execution SPI.
 impl Devices {
+    pub(crate) fn set_node_network(
+        &mut self,
+        network: Option<&std::sync::Arc<crate::component::background::BackgroundNetwork>>,
+    ) {
+        self.network = network.map(std::sync::Arc::downgrade);
+    }
     pub(crate) fn prepare_inbound(
         &self,
         inbound: zero_config::InboundConfig,

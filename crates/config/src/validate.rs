@@ -383,6 +383,50 @@ fn validate_runtime(
             "runtime.udp_direct_max_sockets must be between 1 and 4096".into(),
         ));
     }
+    if !(1..=256).contains(&runtime.effective_mieru_max_carriers()) {
+        return Err(ConfigError::InvalidRuntime(
+            "runtime.mieru_max_carriers must be between 1 and 256".into(),
+        ));
+    }
+    if !(1..=256).contains(&runtime.effective_hysteria2_max_entries()) {
+        return Err(ConfigError::InvalidRuntime(
+            "runtime.hysteria2_max_entries must be between 1 and 256".into(),
+        ));
+    }
+    if !(1..=4096).contains(&runtime.effective_hysteria2_max_udp_sessions()) {
+        return Err(ConfigError::InvalidRuntime(
+            "runtime.hysteria2_max_udp_sessions must be between 1 and 4096".into(),
+        ));
+    }
+    if !(1..=64 * 1024 * 1024).contains(&runtime.effective_hysteria2_udp_pending_bytes()) {
+        return Err(ConfigError::InvalidRuntime(
+            "runtime.hysteria2_udp_pending_bytes must be between 1 and 67108864".into(),
+        ));
+    }
+    for (name, limit) in [
+        (
+            "native_dns_max_originals",
+            runtime.effective_native_dns_max_originals(),
+        ),
+        (
+            "native_dns_max_queries",
+            runtime.effective_native_dns_max_queries(),
+        ),
+        (
+            "native_dns_max_blocking_jobs",
+            runtime.effective_native_dns_max_blocking_jobs(),
+        ),
+        (
+            "native_dns_max_h2_drivers",
+            runtime.effective_native_dns_max_h2_drivers(),
+        ),
+    ] {
+        if !(1..=4096).contains(&limit) {
+            return Err(ConfigError::InvalidRuntime(format!(
+                "runtime.{name} must be between 1 and 4096"
+            )));
+        }
+    }
     if runtime.event_log_capacity == 0 {
         return Err(ConfigError::InvalidRuntime(
             "`runtime.event_log_capacity` must be greater than 0".to_owned(),

@@ -7,7 +7,7 @@ use tokio::{
 };
 
 #[cfg(target_os = "linux")]
-type SystemTunOwner = zero_tun::OwnedTunChannels<zero_tun::LinuxTun>;
+type SystemTunOwner = zero_tun::OwnedTunChannels<zero_tun::AdoptedTunIo>;
 #[cfg(target_os = "macos")]
 type SystemTunOwner = zero_tun::OwnedTunChannels<zero_tun::Utun>;
 
@@ -34,6 +34,8 @@ pub(crate) struct TunCompletion {
     routes: Mutex<Routes>,
     #[cfg(any(target_os = "linux", target_os = "macos"))]
     native: std::sync::Mutex<Option<Arc<SystemTunOwner>>>,
+    #[cfg(target_os = "linux")]
+    acquisition: std::sync::Mutex<Option<Arc<zero_tun::AdoptedTunOwner>>>,
 }
 impl TunCompletion {
     pub(super) fn new(
@@ -43,6 +45,8 @@ impl TunCompletion {
         Arc::new(Self {
             #[cfg(any(target_os = "linux", target_os = "macos"))]
             native: std::sync::Mutex::new(None),
+            #[cfg(target_os = "linux")]
+            acquisition: std::sync::Mutex::new(None),
             main: Mutex::new(Main {
                 notification: done,
                 notified: None,
@@ -56,6 +60,12 @@ impl TunCompletion {
                 joined: None,
             }),
         })
+    }
+    #[cfg(target_os = "linux")]
+    pub(super) fn install_acquisition(&self, owner: Arc<zero_tun::AdoptedTunOwner>) {
+        let mut slot = self.acquisition.lock().unwrap();
+        assert!(slot.is_none());
+        *slot = Some(owner);
     }
     #[cfg(any(target_os = "linux", target_os = "macos"))]
     pub(super) fn install_native(&self, owner: Arc<SystemTunOwner>) {
@@ -77,7 +87,19 @@ impl TunCompletion {
                 .await
                 .map_err(|source| io::Error::new(io::ErrorKind::TimedOut, source))?
                 .map(|_| ()),
-            None => Ok(()),
+            None => {
+                #[cfg(target_os = "linux")]
+                if let Some(owner) = self.acquisition.lock().unwrap().clone() {
+                    return match owner.outcome() {
+                        zero_tun::TunAcquisitionOutcome::KnownNoNative
+                        | zero_tun::TunAcquisitionOutcome::Closed(_) => Ok(()),
+                        outcome => owner.close().map(|_| ()).map_err(|source| {
+                            io::Error::other(zero_tun::TunAcquisitionError { outcome, source })
+                        }),
+                    };
+                }
+                Ok(())
+            }
         }
     }
     pub(super) async fn resources_complete(&self) -> bool {
@@ -99,6 +121,14 @@ impl TunCompletion {
             if let Some(owner) = owner {
                 return matches!(owner.closed_receipt().await, Some(Ok(_)));
             }
+        }
+        #[cfg(target_os = "linux")]
+        if let Some(owner) = self.acquisition.lock().unwrap().clone() {
+            return matches!(
+                owner.outcome(),
+                zero_tun::TunAcquisitionOutcome::KnownNoNative
+                    | zero_tun::TunAcquisitionOutcome::Closed(_)
+            );
         }
         true
     }

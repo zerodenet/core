@@ -29,6 +29,8 @@ pub struct OwnedAuthentication {
     attempted: bool,
     dns_generation: Option<zero_platform_tokio::contract::dns::DnsGeneration>,
     udp: tokio::sync::Mutex<Option<OwnedUdpDispatcher>>,
+    udp_sessions: std::num::NonZeroUsize,
+    udp_pending_bytes: std::num::NonZeroUsize,
     udp_cancel: zero_platform_tokio::contract::CancellationToken,
     tasks: Option<zero_platform_tokio::contract::scope::WeakTaskRegistrar>,
 }
@@ -53,6 +55,8 @@ impl OwnedAuthentication {
             attempted: false,
             dns_generation: None,
             udp: Default::default(),
+            udp_sessions: std::num::NonZeroUsize::new(4096).unwrap(),
+            udp_pending_bytes: std::num::NonZeroUsize::new(4 * 1024 * 1024).unwrap(),
             udp_cancel: zero_platform_tokio::contract::CancellationToken::new(),
             tasks: None,
         })
@@ -191,6 +195,8 @@ impl OwnedAuthentication {
                             self.connection.try_clone()?,
                             tasks,
                             self.udp_cancel.child_token(),
+                            self.udp_sessions,
+                            self.udp_pending_bytes,
                         ));
                     }
                     dispatcher.as_mut().unwrap().start()?;

@@ -250,3 +250,8 @@ async fn actual_cold_union_and_ordinary_service_start_cannot_grant_deferred_grap
     drop(guard);
     assert!(adapter.pending_endpoints.lock().unwrap().is_none());
 }
+
+#[path = "canonical/device_start.rs"]
+mod device_start;
+#[path = "canonical/reuse.rs"]
+mod reuse;

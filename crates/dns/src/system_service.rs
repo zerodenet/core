@@ -45,22 +45,24 @@ impl DnsSystem {
         let coordinator = node
             .map(|node| &node.coordinator)
             .unwrap_or(&self.query_coordinator);
-        coordinator
-            .resolve(key, async move {
-                match native {
-                    Some(source) => {
-                        source
-                            .lookup_system(
-                                domain,
-                                tokio::time::Instant::now() + std::time::Duration::from_secs(5),
-                            )
-                            .await?
-                            .result
-                    }
-                    None => sys_resolver.resolve(&domain).await,
+        let work = coordinator.resolve(key, async move {
+            match native {
+                Some(source) => {
+                    source
+                        .lookup_system(
+                            domain,
+                            tokio::time::Instant::now() + std::time::Duration::from_secs(5),
+                        )
+                        .await?
+                        .result
                 }
-            })
-            .await
+                None => sys_resolver.resolve(&domain).await,
+            }
+        });
+        match node {
+            Some(node) => node.source.tasks()?.bootstrap(work).await?,
+            None => work.await,
+        }
     }
 
     pub(super) async fn resolve_system_type_coordinated(
@@ -111,33 +113,35 @@ impl DnsSystem {
         let coordinator = node
             .map(|node| &node.coordinator)
             .unwrap_or(&self.query_coordinator);
-        coordinator
-            .resolve(key, async move {
-                match native {
-                    Some(source) => {
-                        let lookup = source
-                            .lookup_system(
-                                domain.clone(),
-                                tokio::time::Instant::now() + std::time::Duration::from_secs(5),
+        let work = coordinator.resolve(key, async move {
+            match native {
+                Some(source) => {
+                    let lookup = source
+                        .lookup_system(
+                            domain.clone(),
+                            tokio::time::Instant::now() + std::time::Duration::from_secs(5),
+                        )
+                        .await?;
+                    let addresses =
+                        crate::family::filter_addresses(&domain, lookup.result?, family)?;
+                    Ok(addresses
+                        .into_iter()
+                        .filter(|address| {
+                            matches!(
+                                (query_type, address),
+                                (message::TYPE_A, IpAddress::V4(_))
+                                    | (message::TYPE_AAAA, IpAddress::V6(_))
                             )
-                            .await?;
-                        let addresses =
-                            crate::family::filter_addresses(&domain, lookup.result?, family)?;
-                        Ok(addresses
-                            .into_iter()
-                            .filter(|address| {
-                                matches!(
-                                    (query_type, address),
-                                    (message::TYPE_A, IpAddress::V4(_))
-                                        | (message::TYPE_AAAA, IpAddress::V6(_))
-                                )
-                            })
-                            .collect())
-                    }
-                    None => resolver.resolve_type(&domain, query_type, family).await,
+                        })
+                        .collect())
                 }
-            })
-            .await
+                None => resolver.resolve_type(&domain, query_type, family).await,
+            }
+        });
+        match node {
+            Some(node) => node.source.tasks()?.bootstrap(work).await?,
+            None => work.await,
+        }
     }
 }
 
