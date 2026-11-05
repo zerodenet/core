@@ -37,10 +37,16 @@ async fn actual_proxy_native_doq_reload_waits_for_transitive_mieru_custody_and_o
     let b = Server::new(true).await;
     let c = Server::new(false).await;
     let mut config = config([a.address, b.address, c.address]);
+    let zero_config::OutboundProtocolConfig::Mieru { server, .. } =
+        &mut config.outbounds[0].protocol
+    else {
+        unreachable!()
+    };
+    *server = "replacement.quic.node.test".into();
     config.runtime.dns = Some(peer.config());
     let (proxy, running, handle) = start(config.clone()).await;
     peer.trust(&proxy);
-    let mut held_pool = loan(&proxy).await;
+    let mut held_pool = domain_loan(&proxy, &mut peer).await;
     let pool = held_pool.owner.original().clone();
     let querying = query(&proxy, "old-owner.quic.test");
     let old_request = peer.request().await;
@@ -84,7 +90,7 @@ async fn actual_proxy_native_doq_reload_waits_for_transitive_mieru_custody_and_o
         .same_scope(&current.task.scope_identity()));
     request.answer([198, 51, 100, 91]);
     next.await.unwrap().unwrap();
-    let mut successor = loan(&proxy).await;
+    let mut successor = domain_loan(&proxy, &mut peer).await;
     assert_ne!(pool.instance(), successor.owner.original().instance());
     successor.io.write_all(b"new DoQ owner").await.unwrap();
     successor.io.read_exact(&mut [0; 13]).await.unwrap();
@@ -103,6 +109,24 @@ async fn actual_proxy_native_doq_reload_waits_for_transitive_mieru_custody_and_o
     c.close().await;
     peer.close().await;
 }
+
+async fn domain_loan(
+    proxy: &Proxy,
+    peer: &mut Peer,
+) -> zero_platform_tokio::controlled_carrier::loan::StreamLoan {
+    let borrowing = tokio::spawn({
+        let proxy = proxy.clone();
+        async move { loan(&proxy).await }
+    });
+    let request = peer.request().await;
+    let bootstrap = pending_quic(proxy).await;
+    request.answer([127, 0, 0, 1]);
+    let borrowed = borrowing.await.unwrap();
+    bootstrap.task.wait().await;
+    confirmed(&bootstrap.metadata.unwrap());
+    borrowed
+}
+
 #[tokio::test]
 async fn actual_proxy_native_doq_worker_fault_preserves_original_error_and_still_closes_actual_native_owner(
 ) {

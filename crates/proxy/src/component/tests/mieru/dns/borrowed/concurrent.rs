@@ -64,7 +64,19 @@ async fn cancelling_first_tunnel_ack_waiter_keeps_the_actual_pool_borrowed_by_a_
         let mut second = tokio::spawn(async move { resolver.resolve_real_type("second.concurrent.test", 1).await });
         let request = tokio::select! { request = dns.request() => request, result = &mut second => panic!("second query failed before actual DNS IO: {result:?}") };
         assert!(request.tcp);
-        let second_caller = pending(&proxy).await;
+        // The first caller already observes its real donor while suspended at
+        // CONNECT. Select the distinct caller that reached the second request.
+        let second_caller = tokio::time::timeout(Duration::from_secs(3), async {
+            loop {
+                if let Some(query) = proxy.resolver.native_query_observations().into_iter().find(|query| {
+                    query.io_pending && query.original.is_some() && !query.task.is_joined()
+                        && !caller.task.same_registration(&query.task)
+                }) {
+                    break query;
+                }
+                tokio::task::yield_now().await;
+            }
+        }).await.expect("the distinct second DNS caller must be suspended in actual I/O");
         assert!(!caller.task.same_registration(&second_caller.task));
         let child = second_caller.original.clone().unwrap();
         let pool = child.parent().expect("the same actual Mieru donor").clone();

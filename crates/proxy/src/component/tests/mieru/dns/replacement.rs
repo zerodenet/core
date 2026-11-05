@@ -10,9 +10,15 @@ async fn actual_proxy_native_dns_reload_retires_original_query_and_transitive_mi
         let b = Server::new(true).await;
         let c = Server::new(false).await;
         let mut config = config([a.address, b.address, c.address]);
+        let zero_config::OutboundProtocolConfig::Mieru { server, .. } =
+            &mut config.outbounds[0].protocol
+        else {
+            unreachable!()
+        };
+        *server = "replacement.native.node.test".into();
         config.runtime.dns = Some(dns.config());
         let (proxy, running, handle) = start(config.clone()).await;
-        let mut held = loan(&proxy).await;
+        let mut held = domain_loan(&proxy, &mut dns).await;
         let pool = held.owner.original().clone();
         let querying = {
             let resolver = proxy.resolver.clone();
@@ -61,7 +67,7 @@ async fn actual_proxy_native_dns_reload_retires_original_query_and_transitive_mi
         querying.await.unwrap().unwrap();
         current.task.wait().await;
         closed(&fresh);
-        let mut successor = loan(&proxy).await;
+        let mut successor = domain_loan(&proxy, &mut next).await;
         assert_ne!(
             pool.instance(),
             successor.owner.original().instance(),
@@ -86,6 +92,24 @@ async fn actual_proxy_native_dns_reload_retires_original_query_and_transitive_mi
     })
     .await
     .unwrap();
+}
+
+async fn domain_loan(
+    proxy: &Proxy,
+    dns: &mut Dns,
+) -> zero_platform_tokio::controlled_carrier::loan::StreamLoan {
+    let borrowing = tokio::spawn({
+        let proxy = proxy.clone();
+        async move { loan(&proxy).await }
+    });
+    let request = dns.request().await;
+    let bootstrap = pending(proxy).await;
+    assert!(!request.tcp);
+    request.answer(false, false);
+    let borrowed = borrowing.await.unwrap();
+    bootstrap.task.wait().await;
+    closed(&original(&bootstrap));
+    borrowed
 }
 
 #[tokio::test]
