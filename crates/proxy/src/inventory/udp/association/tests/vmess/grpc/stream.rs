@@ -1,5 +1,6 @@
 //! Ordinary TCP, UDP and Service use the same actual Node owner and Scope.
 use super::*;
+#[path = "stream/fixtures.rs"]
 mod fixtures;
 #[tokio::test]
 async fn ordinary_vmess_grpc_stream_datagram_and_service_keep_one_managed_scope_and_matching_originals(
