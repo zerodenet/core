@@ -67,7 +67,7 @@ fn datagram_only_grpc_role_cannot_qualify_a_stream_prefix() {
         &["prefix", "pool"],
         serde_json::json!({
             "type":"vmess", "server":"127.0.0.1", "port":443,
-            "id":"11111111-2222-3333-4444-555555555555", "grpc":{"service_name":"transport"}
+            "id":"11111111-2222-3333-4444-555555555555", "grpc":{"service_names":["transport"]}
         }),
     );
     assert!(!production_selected(Some(&config)));
