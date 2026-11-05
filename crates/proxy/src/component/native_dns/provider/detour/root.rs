@@ -292,9 +292,20 @@ impl UpstreamOpener for Root {
         let Ok(plan) = execution.components.as_ref() else {
             return false;
         };
-        self.roles
+        let selected = self
+            .roles
             .iter()
-            .any(|role| plan.validate_carrier_origin(*role, origin).is_ok())
+            .any(|role| plan.validate_carrier_origin(*role, origin).is_ok());
+        if !selected
+            || !zero_dns::OwnedDnsQueryTasks::current_witness()
+                .is_ok_and(|caller| caller.same_registration(&self.caller))
+        {
+            return false;
+        }
+        // Read-only observation of the already acquired same-slot original,
+        // useful while protocol greeting/TLS still awaits. Cleanup authority
+        // was independently retained from the actual grant before acquisition.
+        zero_dns::OwnedDnsQueryTasks::record_native(origin).is_ok()
     }
     fn open_stream(
         &self,
