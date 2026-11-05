@@ -12,6 +12,9 @@ pub(crate) struct WireStackRecipe {
 impl WireStackRecipe {
     /// Native acquisition belongs to the original provider before this unique
     /// carrier view is transferred. This constructor starts no driver/task.
+    /// Only the scoped-wire regression uses this cold wrapper today; ordinary
+    /// standalone production still uses start_metered until its provider migrates.
+    #[cfg(test)]
     pub(crate) fn prepare(
         local_addresses: Vec<IpAddr>,
         mtu: u16,

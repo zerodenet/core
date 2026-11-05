@@ -147,11 +147,6 @@ impl PreparedDevices {
             wireguard.finish_publication().await;
         }
     }
-    pub(crate) async fn publish(mut self) {
-        self.publish_sync();
-        self.confirm_publication();
-        self.finish_publication().await;
-    }
 }
 
 // Inbound endpoint state belongs to these same finite concrete owners. This is

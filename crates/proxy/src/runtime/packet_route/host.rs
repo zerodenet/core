@@ -153,6 +153,7 @@ impl HostPacketDevice {
     pub(crate) fn usable(&self) -> bool {
         *self.activate.borrow() && !self.worker.is_finished() && !*self.stop.borrow()
     }
+    #[cfg(test)]
     pub(crate) async fn wait_workers_stopped(&self) -> io::Result<()> {
         self.worker.join().await.map(|_| ())
     }
