@@ -59,11 +59,19 @@ pub(super) async fn proxy() -> (
     });
     let config = zero_config::RuntimeConfig::parse(&format!(r#"{{"runtime":{{"dns":{{"servers":{{"actual":{{"type":"udp","host":"127.0.0.1","port":{}}}}},"default_server":"actual","policy":{{"address_family":"ipv4_only"}}}}}},"route":{{"final":{{"type":"direct"}}}}}}"#, address.port())).unwrap();
     let proxy = Proxy::new(config).unwrap();
-    let mut ready = proxy.orchestration_ready.subscribe();
     let running = proxy.spawn();
-    tokio::time::timeout_at(deadline(), ready.wait_for(|ready| *ready))
-        .await
-        .unwrap()
-        .unwrap();
+    tokio::time::timeout_at(deadline(), async {
+        // Observe the real published host plan; a cold Proxy alone does not
+        // authorize the fixture's native DNS query or drive its actual joins.
+        while proxy
+            .protocols
+            .current_components(&proxy.engine().config())
+            .is_none()
+        {
+            tokio::task::yield_now().await;
+        }
+    })
+    .await
+    .unwrap();
     (proxy, running, server, stop)
 }
