@@ -58,16 +58,6 @@ pub fn resolve_socket_path(explicit: Option<&str>) -> io::Result<PathBuf> {
     Ok(PathBuf::from(PIPE_NAME))
 }
 
-pub fn prepare_ipc_server(pipe_path: &std::path::Path) -> Arc<IpcServerHandle> {
-    prepare_ipc_server_with_budget(
-        pipe_path,
-        zero_runtime::configuration::ControlBudget::new(
-            zero_runtime::configuration::ControlBudgetLimits::from_runtime(
-                &zero_config::RuntimeOptionsConfig::default(),
-            ),
-        ),
-    )
-}
 pub fn prepare_ipc_server_with_budget(
     pipe_path: &std::path::Path,
     budget: Arc<zero_runtime::configuration::ControlBudget>,
@@ -99,15 +89,6 @@ impl IpcServerHandle {
         Ok(())
     }
 }
-pub async fn spawn_ipc_server(
-    handle: ProxyHandle,
-    pipe_path: &std::path::Path,
-) -> io::Result<Arc<IpcServerHandle>> {
-    let owner = prepare_ipc_server(pipe_path);
-    owner.start(handle).await?;
-    Ok(owner)
-}
-
 async fn run_ipc_server(
     pipe_name: &str,
     handle: ProxyHandle,

@@ -6,7 +6,7 @@ use std::sync::Arc;
 
 use tokio::sync::oneshot;
 use tokio::task::JoinSet;
-use tracing::{debug, error, info, warn};
+use tracing::{debug, info, warn};
 use zero_platform_tokio::contract::CancellationToken;
 use zero_platform_tokio::contract::{lifecycle::ChannelControl, CloseReason};
 use zero_platform_tokio::{
@@ -91,7 +91,8 @@ pub fn resolve_socket_path(explicit: Option<&str>) -> io::Result<PathBuf> {
 ///
 /// The socket file is created with `0o600` permissions so only the owning
 /// user can connect.  If the socket file already exists it is removed first.
-pub fn prepare_ipc_server(socket_path: &Path) -> Arc<IpcServerHandle> {
+#[cfg(test)]
+fn prepare_ipc_server(socket_path: &Path) -> Arc<IpcServerHandle> {
     prepare_ipc_server_with_budget(
         socket_path,
         zero_runtime::configuration::ControlBudget::new(
@@ -164,7 +165,8 @@ impl IpcServerHandle {
         Ok(())
     }
 }
-pub async fn spawn_ipc_server(
+#[cfg(test)]
+async fn spawn_ipc_server(
     handle: ProxyHandle,
     socket_path: &Path,
 ) -> io::Result<Arc<IpcServerHandle>> {

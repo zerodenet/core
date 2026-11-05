@@ -10,6 +10,7 @@ use zero_api::{
     CommandRequest, CommandResponse, ConfigApplyCommand, DiagnosticsProbeOutboundCommand,
     ModeSetCommand, RawResponse,
 };
+use zero_platform_tokio::contract::CancellationToken;
 
 #[cfg(all(unix, feature = "wireguard"))]
 mod endpoint;
@@ -38,7 +39,7 @@ async fn concurrent_commands_overlap_and_keep_response_ids_paired() {
     let (_, server_writer) = tokio::io::split(server);
     let writer = Arc::new(Mutex::new(BufWriter::new(server_writer)));
     let mut reader = BufReader::new(client);
-    let mut tasks = ConcurrentCommandTasks::new(tokio_util::sync::CancellationToken::new());
+    let mut tasks = ConcurrentCommandTasks::new(CancellationToken::new());
     let (started_tx, mut started_rx) = tokio::sync::mpsc::unbounded_channel();
     let (release_first_tx, release_first_rx) = oneshot::channel();
     let (release_second_tx, release_second_rx) = oneshot::channel();
@@ -100,7 +101,7 @@ async fn concurrent_command_queue_is_bounded_and_cancellable() {
         }
     }
 
-    let mut tasks = ConcurrentCommandTasks::new(tokio_util::sync::CancellationToken::new());
+    let mut tasks = ConcurrentCommandTasks::new(CancellationToken::new());
     let cancelled = Arc::new(AtomicBool::new(false));
     let (started_tx, started_rx) = oneshot::channel();
     let cancellation = cancelled.clone();
