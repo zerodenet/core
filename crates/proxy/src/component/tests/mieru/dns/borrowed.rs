@@ -35,11 +35,14 @@ async fn borrowed(cancel: bool) {
         let server = Server::new(true).await;
         let settings = detoured(&dns, &server);
         let (proxy, running, handle) = start(settings.clone()).await;
-        let query = tokio::spawn({
+        let mut query = tokio::spawn({
             let resolver = proxy.resolver.clone();
             async move { resolver.resolve_real_type("first.borrowed.test", 1).await }
         });
-        let request = dns.request().await;
+        let request = tokio::select! {
+            request = dns.request() => request,
+            result = &mut query => panic!("DNS query returned before its actual request reached the fixture: {result:?}"),
+        };
         assert!(request.tcp);
         let first = pending(&proxy).await;
         let child = first.original.clone().expect("actual DNS child original");
@@ -81,11 +84,14 @@ async fn borrowed(cancel: bool) {
             .unwrap();
         assert!(native.closed().is_none());
         assert!(!native.driver().unwrap().is_joined());
-        let query = tokio::spawn({
+        let mut query = tokio::spawn({
             let resolver = proxy.resolver.clone();
             async move { resolver.resolve_real_type("second.borrowed.test", 1).await }
         });
-        let request = dns.request().await;
+        let request = tokio::select! {
+            request = dns.request() => request,
+            result = &mut query => panic!("DNS query returned before its actual request reached the fixture: {result:?}"),
+        };
         assert!(request.tcp);
         let second = pending(&proxy).await;
         let next = second.original.clone().unwrap();
