@@ -85,9 +85,8 @@ async fn actual_adopted_tun_view_drop_does_not_release_the_persistent_original()
     );
 }
 
-#[cfg(target_os = "linux")]
 #[tokio::test]
-async fn system_create_ioctl_failure_is_closed_by_the_preinstalled_raw_original() {
+async fn system_create_initialization_failure_is_closed_by_the_preinstalled_raw_original() {
     use std::os::fd::AsRawFd;
     let (socket, _peer) = std::os::unix::net::UnixDatagram::pair().unwrap();
     let fd = socket.as_raw_fd();
@@ -95,8 +94,9 @@ async fn system_create_ioctl_failure_is_closed_by_the_preinstalled_raw_original(
     let failure = owner
         .create_with(
             Some("zero-fail"),
+            false,
             |_| Ok(socket.into()),
-            crate::LinuxTun::initialize_created,
+            Backend::initialize_created,
         )
         .err()
         .unwrap();
@@ -112,4 +112,39 @@ async fn system_create_ioctl_failure_is_closed_by_the_preinstalled_raw_original(
     ));
     // Auxiliary OS check only; the decisive outcome is the original receipt.
     assert_eq!(unsafe { libc::fcntl(fd, libc::F_GETFD) }, -1);
+}
+
+#[test]
+fn uncertain_helper_acquisition_keeps_the_original_unknown_without_native_replay() {
+    let owner = AdoptedTunOwner::new();
+    let error = owner
+        .create_with(
+            None,
+            true,
+            |_| {
+                Err(io::Error::new(
+                    io::ErrorKind::ConnectionReset,
+                    "original transfer acknowledgement missing",
+                ))
+            },
+            |_, _| unreachable!(),
+        )
+        .err()
+        .unwrap();
+    assert!(matches!(
+        error.outcome,
+        TunAcquisitionOutcome::Unknown(None)
+    ));
+    let retained = owner.close().unwrap_err();
+    assert!(Arc::ptr_eq(&error.source, &retained));
+    let retry = owner.create_with(
+        None,
+        true,
+        |_| panic!("original helper acquisition cannot replay"),
+        |_, _| unreachable!(),
+    );
+    assert!(matches!(
+        retry.err().unwrap().outcome,
+        TunAcquisitionOutcome::Unknown(None)
+    ));
 }

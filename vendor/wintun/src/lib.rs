@@ -94,7 +94,7 @@ mod util;
 mod wintun_raw;
 
 pub use crate::{
-    adapter::Adapter,
+    adapter::{Adapter, AdapterIdentity, AdapterOpenError, CloseAdapterReceipt},
     error::{Error, OutOfRangeData, Result},
     log::{default_logger, reset_logger, set_logger},
     packet::Packet,

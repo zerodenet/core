@@ -67,6 +67,7 @@ impl crate::protocol_registry::EndpointControlCapability for WireguardAdapter {
 }
 
 impl WireguardAdapter {
+    #[cfg(test)]
     pub(crate) async fn prepare_devices(
         &self,
         outbounds: &[&OutboundConfig],
@@ -83,13 +84,18 @@ impl WireguardAdapter {
         inbounds: &[InboundConfig],
         context: OutboundDevicePreparationContext,
     ) -> Result<PreparedWireguardDevices, EngineError> {
-        self.prepare_devices_inner(
-            outbounds,
-            inbounds,
-            context,
-            PendingEndpoints::staged(&self.pending_endpoints, config),
-        )
-        .await
+        let cold = PendingEndpoints::staged(&self.pending_endpoints, config);
+        if outbounds.iter().any(|outbound| {
+            matches!(&outbound.protocol,
+            OutboundProtocolConfig::Wireguard {inbound_tag:Some(tag),outer_udp_proxy:None,..}
+            if !cold.as_ref().is_some_and(|candidate|candidate.contains_key(tag)))
+        }) {
+            return Err(invalid(
+                "plain linked WireGuard requires its actual cold component candidate",
+            ));
+        }
+        self.prepare_devices_inner(outbounds, inbounds, context, cold)
+            .await
     }
 }
 

@@ -78,17 +78,27 @@ impl DirectAdapter {
             .unwrap_or_else(|e| e.into_inner())
             .clone();
         if let Some(device) = device {
-            if device.config.backend == zero_config::DirectPacketDeviceBackend::Wintun {
-                // Existing Windows host-session backend has no original native
-                // receipt. Keep its explicit compatibility join, never qualify
-                // it as a native device/provider merely by deleting the SPI.
-                device.wait_workers_stopped().await?;
-            } else {
-                device.wait_closed().await?;
-            }
+            device.wait_closed().await?;
         }
         #[cfg(any(target_os = "linux", target_os = "macos"))]
         self.close_descriptor_original()?;
+        #[cfg(target_os = "windows")]
+        {
+            let original = self
+                .packet_wintun
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .clone();
+            if let Some(original) = original {
+                original.close().await.map_err(|source| {
+                    std::io::Error::new(source.kind(), SharedAcquisitionError(source))
+                })?;
+                self.packet_wintun
+                    .lock()
+                    .unwrap_or_else(|e| e.into_inner())
+                    .take();
+            }
+        }
         self.packet.lock().unwrap_or_else(|e| e.into_inner()).take();
         Ok(())
     }
@@ -151,12 +161,14 @@ impl DirectAdapter {
             zero_config::DirectPacketDeviceBackend::Wintun => {
                 #[cfg(target_os = "windows")]
                 {
-                    let device = zero_tun::ExistingWindowsTun::open(
-                        &config.interface,
-                        &config.router_addresses,
-                        mtu,
-                    )?;
-                    return Ok(HostPacketDevice::start(device, config, mtu));
+                    let original = zero_tun::OwnedWintunOwner::new();
+                    *self.packet_wintun.lock().unwrap_or_else(|e| e.into_inner()) =
+                        Some(original.clone());
+                    let device =
+                        original.open_existing(&config.interface, &config.router_addresses, mtu)?;
+                    return Ok(HostPacketDevice::start_wintun(
+                        device, original, config, mtu,
+                    ));
                 }
             }
         }
@@ -170,16 +182,16 @@ impl DirectAdapter {
     }
 }
 
-#[cfg(any(target_os = "linux", target_os = "macos"))]
+#[cfg(any(target_os = "linux", target_os = "macos", target_os = "windows"))]
 #[derive(Debug)]
 struct SharedAcquisitionError(Arc<std::io::Error>);
-#[cfg(any(target_os = "linux", target_os = "macos"))]
+#[cfg(any(target_os = "linux", target_os = "macos", target_os = "windows"))]
 impl std::fmt::Display for SharedAcquisitionError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         self.0.fmt(f)
     }
 }
-#[cfg(any(target_os = "linux", target_os = "macos"))]
+#[cfg(any(target_os = "linux", target_os = "macos", target_os = "windows"))]
 impl std::error::Error for SharedAcquisitionError {
     fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
         Some(self.0.as_ref())

@@ -17,6 +17,9 @@ pub(in crate::adapters::wireguard) struct PendingLinkedEndpoint {
     live: Arc<LiveInboundDevice>,
     ready: OnceLock<Arc<LinkedEndpoint>>,
     resources: Arc<PeerResources>,
+    // A new transaction may only borrow the current actual graph. Discarding
+    // that wrapper has no authority to revoke the original slot's resources.
+    cleanup_owned: bool,
 }
 pub(in crate::adapters::wireguard) struct PeerResources {
     owned: bool,
@@ -72,6 +75,7 @@ impl PendingLinkedEndpoint {
                     })
                     .collect(),
             }),
+            cleanup_owned: owned,
         })
     }
     #[cfg_attr(
@@ -145,6 +149,7 @@ impl PendingLinkedEndpoint {
                 live: link.live.clone(),
                 ready: OnceLock::new(),
                 resources,
+                cleanup_owned: false,
             },
             None => Self::new(link.listen.clone(), link.live.clone()),
         };
@@ -162,7 +167,7 @@ impl PendingLinkedEndpoint {
         self.resources.is_usable()
     }
     pub(super) fn revoke(&self) {
-        if self.resources.owned {
+        if self.cleanup_owned {
             for owner in &self.resources.peer_stacks {
                 owner.revoke();
             }
@@ -172,11 +177,12 @@ impl PendingLinkedEndpoint {
         }
     }
     pub(super) fn needs_cleanup(&self) -> bool {
-        self.resources.needs_cleanup()
-            || (self.resources.owned
-                && self
-                    .ready()
-                    .is_some_and(|link| !link.carrier_owners_match(&self.resources.peer_carriers)))
+        self.cleanup_owned
+            && (self.resources.needs_cleanup()
+                || (self.resources.owned
+                    && self.ready().is_some_and(|link| {
+                        !link.carrier_owners_match(&self.resources.peer_carriers)
+                    })))
     }
     #[cfg_attr(
         not(test),

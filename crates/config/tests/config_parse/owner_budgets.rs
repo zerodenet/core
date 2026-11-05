@@ -16,7 +16,13 @@ fn actual_owner_budgets_are_optional_finite_and_preserve_omitted_export_shape() 
         usize,
         usize,
     );
-    let fields: [BudgetField; 10] = [
+    let fields: [BudgetField; 11] = [
+        (
+            "native_stream_max_originals",
+            RuntimeOptionsConfig::effective_native_stream_max_originals,
+            4,
+            4096,
+        ),
         (
             "mieru_max_carriers",
             RuntimeOptionsConfig::effective_mieru_max_carriers,

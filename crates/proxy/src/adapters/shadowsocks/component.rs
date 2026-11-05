@@ -64,7 +64,14 @@ impl ShadowsocksAdapter {
                 *port,
             ),
             input.dial.to_policy(),
-            std::num::NonZeroUsize::new(4).unwrap(),
+            std::num::NonZeroUsize::new(
+                resources
+                    .candidate()
+                    .map(|config| config.runtime.effective_native_stream_max_originals())
+                    .unwrap_or(4),
+            )
+            .filter(|limit| limit.get() <= 4096)
+            .ok_or_else(|| options_error("invalid taskless Stream original limit"))?,
         ))
     }
 }

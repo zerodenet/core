@@ -1,4 +1,5 @@
 //! Native execution uses the same actual map and protocol wire driver.
+mod stream;
 use super::*;
 use zero_platform_tokio::contract::network::UpstreamBinding;
 use zero_transport::{
@@ -39,7 +40,7 @@ impl TrojanMuxConnectionPool {
             wrap,
             |connection, sid, usage, _| {
                 Ok(UserStream::new(
-                    connection.open_reserved_stream(sid, target, port, Network::Udp),
+                    connection.open_native_stream(sid, target, port, Network::Udp)?,
                     usage,
                 ))
             },
@@ -77,7 +78,11 @@ impl TrojanMuxConnectionPool {
         budget: Duration,
     ) -> Result<PoolOptions, RuntimeError> {
         let options = self.control.options(
-            format!("{:?}:{key:?}:{concurrency}", self.scope).into(),
+            format!(
+                "{:?}:{key:?}:{concurrency}:native-upload-fifo-v1:8:66559",
+                self.scope
+            )
+            .into(),
             endpoint,
             binding,
             limit,
@@ -114,7 +119,10 @@ impl TrojanMuxConnectionPool {
         Fut: Future<Output = Result<S, RuntimeError>>,
     {
         let owner = self.control.managed()?;
-        let profile = format!("{:?}:{key:?}:{concurrency}", self.scope);
+        let profile = format!(
+            "{:?}:{key:?}:{concurrency}:native-upload-fifo-v1:8:66559",
+            self.scope
+        );
         let _operation = owner.operation()?;
         let _connecting = owner.serialize().await?;
         owner.prepare_epoch(&profile, &binding).await?;
@@ -173,7 +181,7 @@ impl TrojanMuxConnectionPool {
             binding,
             wrap,
             |connection, sid, usage, origin| {
-                let stream = connection.open_reserved_stream(sid, target, port, Network::Tcp);
+                let stream = connection.open_native_stream(sid, target, port, Network::Tcp)?;
                 Ok(zero_transport::pooled_driver::PooledStream {
                     origin,
                     io: Box::pin(UserStream::new(stream, usage)),

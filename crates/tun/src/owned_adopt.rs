@@ -9,7 +9,6 @@ use std::{
 type Backend = crate::LinuxTun;
 #[cfg(target_os = "macos")]
 type Backend = crate::Utun;
-#[cfg(target_os = "linux")]
 mod create;
 mod io_view;
 pub use io_view::AdoptedTunIo;

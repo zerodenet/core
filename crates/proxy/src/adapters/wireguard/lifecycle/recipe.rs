@@ -109,7 +109,10 @@ impl LinkedEndpointRecipe {
                     .and_then(|pending| pending.graph_for(&static_identity))
             });
         let pending = match &reused {
-            Some(graph) => graph.pending.clone(),
+            Some(graph) => match graph.pending.ready() {
+                Some(link) => Arc::new(PendingLinkedEndpoint::from_ready(link)?),
+                None => graph.pending.clone(),
+            },
             None => Arc::new(PendingLinkedEndpoint::with_peer_slots(
                 inbound.listen.clone(),
                 adapter.passive_inbound_live(inbound)?,

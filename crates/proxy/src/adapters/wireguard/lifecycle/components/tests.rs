@@ -65,6 +65,14 @@ async fn production_candidate_owns_cold_invocation_then_installs_only_its_starte
         pending.invocations.lock().await.get("wg-in").unwrap(),
         recipe::retained::RetainedInvocation::Resolved(_)
     ));
+    let traffic_count = pending.traffic.lock().unwrap().len();
+    // Resuming a pass after another device suspended must keep this original
+    // resolution, receiver and meter, rather than resolving a fresh invocation.
+    adapter
+        .resolve_component_resources(&config, &services, deadline(), CancellationToken::new())
+        .await
+        .unwrap();
+    assert_eq!(pending.traffic.lock().unwrap().len(), traffic_count);
     assert!(pending.get("wg-in").unwrap().ready().is_none());
     catalog
         .start_device_components(config.clone(), deadline())
@@ -120,4 +128,27 @@ async fn production_candidate_owns_cold_invocation_then_installs_only_its_starte
     assert!(witnesses.iter().all(|witness| witness.is_joined()));
     assert!(connecting.await.is_err());
     adapter.close_devices().await.unwrap();
+}
+
+#[tokio::test]
+async fn ordinary_device_preparation_cannot_fall_back_to_private_plain_linked_workers() {
+    let proxy = crate::Proxy::new(configuration()).unwrap();
+    let services = proxy.tcp_runtime_services();
+    let config = services.snapshot().config().clone();
+    let adapter = WireguardAdapter::default();
+    let result = adapter
+        .prepare_devices_for_candidate(
+            &config,
+            &config.outbounds.iter().collect::<Vec<_>>(),
+            &config.inbounds,
+            super::super::tests::context(&proxy, &config),
+        )
+        .await;
+    assert!(result
+        .err()
+        .unwrap()
+        .to_string()
+        .contains("actual cold component candidate"));
+    assert!(adapter.pending_endpoints.lock().unwrap().is_none());
+    assert!(adapter.linked_endpoints.lock().unwrap().is_empty());
 }

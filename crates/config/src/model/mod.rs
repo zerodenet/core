@@ -130,6 +130,20 @@ pub struct DirectPacketDeviceConfig {
     pub interface: String,
     /// Host-owned interface addresses used as sources for local ICMP errors.
     pub router_addresses: Vec<std::net::IpAddr>,
+    /// Accepted writes retained by this actual host Packet device's FIFO.
+    /// On demand, 128 by default; changing this value replaces the old device.
+    #[serde(
+        default = "default_direct_packet_write_queue",
+        skip_serializing_if = "is_default_direct_packet_write_queue"
+    )]
+    pub write_queue: std::num::NonZeroUsize,
+}
+
+fn default_direct_packet_write_queue() -> std::num::NonZeroUsize {
+    std::num::NonZeroUsize::new(128).unwrap()
+}
+fn is_default_direct_packet_write_queue(value: &std::num::NonZeroUsize) -> bool {
+    *value == default_direct_packet_write_queue()
 }
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
