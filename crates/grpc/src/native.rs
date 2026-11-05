@@ -31,7 +31,7 @@ struct StreamExecutor {
 impl<F> hyper::rt::Executor<F> for StreamExecutor
 where
     F: Future + Send + 'static,
-    F::Output: Send,
+    F::Output: Send + 'static,
 {
     fn execute(&self, future: F) {
         let stop = self.stop.clone();
@@ -145,7 +145,10 @@ where
                         let executor = StreamExecutor { tasks, stop: stop.clone() };
                         let service = hyper::service::service_fn(move |request: hyper::Request<hyper::body::Incoming>| {
                             let mut svc = svc.clone();
-                            async move { svc.call(request.map(tonic::body::boxed)).await }
+                            let future = svc.call(request.map(tonic::body::boxed));
+                            Box::pin(async move {
+                                future.await.map(|response| response.map(tonic::body::boxed)).map_err(std::io::Error::other)
+                            }) as std::pin::Pin<Box<dyn Future<Output = io::Result<hyper::Response<tonic::body::BoxBody>>> + Send + 'static>>
                         });
                         let mut builder = hyper::server::conn::http2::Builder::new(executor);
                         builder.max_concurrent_streams(MAX_STREAMS);
