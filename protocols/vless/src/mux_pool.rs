@@ -789,7 +789,9 @@ impl MuxPoolConn {
     pub(crate) fn try_reserve_stream_id(&self) -> Option<u16> {
         let streams = self.streams.lock().unwrap();
         let mut active = self.active.lock().unwrap();
-        if self.closed.load(Ordering::Acquire) || *active >= self.max_concurrency as usize {
+        if self.closed.load(Ordering::Acquire)
+            || *active >= self.max_concurrency.min(u16::MAX as u32) as usize
+        {
             return None;
         }
         let sid = loop {
