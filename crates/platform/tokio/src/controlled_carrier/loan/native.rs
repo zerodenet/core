@@ -1,4 +1,4 @@
-//! Taskless native custody keeps the original controller in its real owner.
+//! Taskless custody keeps native or borrowed controls in their actual owner.
 use super::*;
 use crate::{
     contract::{lifecycle::CloseReport, BoxFuture, ChannelError, CloseReason},
@@ -20,8 +20,9 @@ impl DynChannelControl for NativeControl {
     }
 }
 impl CarrierIo {
-    /// Transfer the actual native view, its unique custody lease and original
-    /// close authority. No worker, caller witness or FD is invented here.
+    /// Transfer the actual view and unique custody lease. Borrowed views keep
+    /// their sealed parent/control lineage and make no native-close claim.
+    /// No worker, caller witness or FD is invented here.
     pub fn into_stream_loan(self, view: CarrierUserView) -> Result<StreamLoan, ChannelError> {
         let adoption = CarrierAdoption {
             slot: self.slot.clone(),

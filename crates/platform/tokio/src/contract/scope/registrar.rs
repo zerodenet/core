@@ -23,6 +23,14 @@ impl TaskRegistrar {
     }
 }
 impl WeakTaskRegistrar {
+    pub fn spawn_blocking_tracked(
+        &self,
+        class: TaskClass,
+        work: impl FnOnce() -> Result<(), ComponentError> + Send + 'static,
+    ) -> Result<(TaskId, TaskJoinWitness), SpawnError> {
+        let owner = self.0.upgrade().ok_or(SpawnError::Closing)?;
+        TaskRegistrar(owner, self.1).spawn_blocking_tracked(class, work)
+    }
     /// Actual registration authority, including a permanently taskless view.
     pub fn registration_open(&self) -> bool {
         !self.1 && self.scope_identity().registration_open()

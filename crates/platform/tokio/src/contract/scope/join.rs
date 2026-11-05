@@ -211,8 +211,18 @@ impl TaskRegistrar {
         class: TaskClass,
         task: impl Future<Output = Result<(), ComponentError>> + Send + 'static,
     ) -> Result<(TaskId, TaskJoinWitness), SpawnError> {
+        self.register_tracked_with(class, move |tasks, runtime| tasks.spawn_on(task, runtime))
+    }
+    pub(super) fn register_tracked_with(
+        &self,
+        class: TaskClass,
+        spawn: impl FnOnce(
+            &mut JoinSet<Result<(), ComponentError>>,
+            &tokio::runtime::Handle,
+        ) -> tokio::task::AbortHandle,
+    ) -> Result<(TaskId, TaskJoinWitness), SpawnError> {
         let witness = TaskJoinWitness::new(&self.0);
-        let id = self.register(class, task, Some(Arc::downgrade(&witness.0)))?;
+        let id = self.register_with(class, Some(Arc::downgrade(&witness.0)), spawn)?;
         let _ = witness.0.task.set(id);
         Ok((id, witness))
     }
@@ -221,6 +231,19 @@ impl TaskRegistrar {
         class: TaskClass,
         task: impl Future<Output = Result<(), ComponentError>> + Send + 'static,
         witness: Option<Weak<JoinedState>>,
+    ) -> Result<TaskId, SpawnError> {
+        self.register_with(class, witness, move |tasks, runtime| {
+            tasks.spawn_on(task, runtime)
+        })
+    }
+    fn register_with(
+        &self,
+        class: TaskClass,
+        witness: Option<Weak<JoinedState>>,
+        spawn: impl FnOnce(
+            &mut JoinSet<Result<(), ComponentError>>,
+            &tokio::runtime::Handle,
+        ) -> tokio::task::AbortHandle,
     ) -> Result<TaskId, SpawnError> {
         if self.1 {
             return Err(SpawnError::Capacity);
@@ -241,7 +264,7 @@ impl TaskRegistrar {
             return Err(SpawnError::Capacity);
         }
         let id = allocate_task_id()?;
-        let handle = state.tasks.spawn_on(task, &self.0.runtime);
+        let handle = spawn(&mut state.tasks, &self.0.runtime);
         state
             .records
             .insert(handle.id(), Registration { id, class, witness });

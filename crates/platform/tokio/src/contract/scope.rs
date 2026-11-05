@@ -24,6 +24,7 @@ use super::{
 };
 
 pub use super::lifecycle::TaskClass;
+mod blocking;
 mod join;
 pub use join::{TaskJoinWitness, TaskJoined};
 mod hosted;

@@ -67,8 +67,8 @@ impl CarrierAdoption {
         let mut state = self.slot.state();
         if state.closed
             || state.spawn_attempted
-            || (state.control.is_none() && state.packet.is_none())
-            || state.loan.is_some()
+            || (state.control.is_none() && state.packet.is_none() && state.loan.is_none())
+            || (state.loan.is_some() && state.loan_origin.is_none())
             || !state
                 .users
                 .as_ref()
@@ -81,7 +81,7 @@ impl CarrierAdoption {
             slot: Arc::downgrade(&self.slot),
             owner: CarrierOwnerRegistration::new(&owner),
             driver: None,
-            parent: None,
+            parent: state.loan_origin.clone(),
             completion: self.slot.completion.clone(),
         }))))
     }
