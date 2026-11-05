@@ -26,6 +26,7 @@ impl ControlTask {
         state.task = Some(task);
         Ok(())
     }
+    #[cfg(test)]
     pub(crate) fn new(task: tokio::task::JoinHandle<io::Result<()>>) -> Self {
         Self(tokio::sync::Mutex::new(State {
             task: Some(task),

@@ -2,9 +2,9 @@ use std::{io, sync::Arc, time::Duration};
 use tokio::io::AsyncWriteExt;
 use zero_api::{EventStream, EventStreamReceive, RawApiEvent};
 use zero_platform_tokio::contract::CancellationToken;
-use zero_runtime::configuration::{
-    ControlBudget, ControlBudgetLimits, ControlBudgetPermit, ControlCharge,
-};
+#[cfg(test)]
+use zero_runtime::configuration::ControlBudgetLimits;
+use zero_runtime::configuration::{ControlBudget, ControlBudgetPermit, ControlCharge};
 const SSE_HEADERS: &str = concat!(
     "HTTP/1.1 200 OK\r\n",
     "Content-Type: text/event-stream\r\n",
@@ -32,17 +32,7 @@ fn frame(event: &RawApiEvent) -> io::Result<Vec<u8>> {
     buf.push_str(&format!("data: {json}\n\n"));
     Ok(buf.into_bytes())
 }
-pub async fn write_sse_event(
-    stream: &mut (impl tokio::io::AsyncWrite + Unpin),
-    event: &RawApiEvent,
-) -> io::Result<()> {
-    stream.write_all(&frame(event)?).await
-}
-pub async fn write_sse_heartbeat(
-    stream: &mut (impl tokio::io::AsyncWrite + Unpin),
-) -> io::Result<()> {
-    stream.write_all(b": heartbeat\n\n").await
-}
+#[cfg(test)]
 pub async fn run_sse_stream(
     stream: impl tokio::io::AsyncWrite + Unpin,
     subscriber: zero_engine::EventSubscriber,
