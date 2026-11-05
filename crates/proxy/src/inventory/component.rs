@@ -124,6 +124,55 @@ impl super::ProtocolInventory {
     ) -> Result<Arc<ComponentPlan>, SharedError> {
         self.host.components().prepare(config)
     }
+    /// Accepted transactions alone extend the cold union with device recipes.
+    /// Ordinary TcpRuntimeServices readers continue to reuse prepare_components.
+    pub(crate) fn prepare_device_components(
+        &self,
+        config: Arc<RuntimeConfig>,
+    ) -> Result<Arc<ComponentPlan>, SharedError> {
+        #[cfg(feature = "raw-ip-runtime")]
+        {
+            self.host
+                .components()
+                .prepare_with_device_resources(config.clone(), |resources| {
+                    self.devices.prepare_component_resources(&config, resources)
+                })
+        }
+        #[cfg(not(feature = "raw-ip-runtime"))]
+        {
+            self.prepare_components(config)
+        }
+    }
+    #[cfg(feature = "raw-ip-runtime")]
+    pub(crate) async fn start_device_resources(
+        &self,
+        config: &Arc<RuntimeConfig>,
+        services: &crate::protocol_registry::TcpRuntimeServices,
+        deadline: tokio::time::Instant,
+        cancel: zero_platform_tokio::contract::CancellationToken,
+    ) -> Result<(), zero_engine::EngineError> {
+        self.devices
+            .resolve_component_resources(config, services, deadline, cancel)
+            .await?;
+        self.host
+            .components()
+            .start_device_components(config.clone(), deadline)
+            .await
+            .map_err(|error| zero_engine::EngineError::Io(std::io::Error::other(error)))
+    }
+    #[cfg(feature = "raw-ip-runtime")]
+    pub(crate) async fn discard_device_components(
+        &self,
+        config: &Arc<RuntimeConfig>,
+        deadline: tokio::time::Instant,
+    ) -> Result<(), zero_engine::EngineError> {
+        self.host
+            .components()
+            .discard_device_candidate(config, deadline)
+            .await
+            .map_err(|error| zero_engine::EngineError::Io(std::io::Error::other(error)))?;
+        self.devices.cleanup_discarded_resources(config).await
+    }
     pub(crate) fn validate_components(
         &self,
         config: Arc<RuntimeConfig>,

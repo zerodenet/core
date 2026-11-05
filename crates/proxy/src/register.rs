@@ -69,19 +69,27 @@ pub(crate) fn compiled_registries_with_network(
         )
         .expect("unique built-in Direct inbound component registration");
     let mut devices = crate::adapters::devices::Devices::default();
+    devices.set_node_network(node_network.as_ref().or(background.as_ref()));
     #[cfg(feature = "socks5")]
     {
         use crate::adapters::socks5::Socks5Adapter;
         components
-            .register(
+            .register_with_resources(
                 ::socks5::Socks5Protocol.descriptor(),
                 ::socks5::component::Factory,
                 {
                     let native = node_network.is_some();
-                    move |input| {
+                    move |input, resources| {
                         crate::adapters::socks5::component_options(input).map(|options| {
                             if native {
-                                options.with_carrier_limit(std::num::NonZeroUsize::new(4).unwrap())
+                                let limit = resources
+                                    .candidate()
+                                    .map(|config| {
+                                        config.runtime.effective_native_stream_max_originals()
+                                    })
+                                    .unwrap_or(4);
+                                options
+                                    .with_carrier_limit(std::num::NonZeroUsize::new(limit).unwrap())
                             } else {
                                 options
                             }

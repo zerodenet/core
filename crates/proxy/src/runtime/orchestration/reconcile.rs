@@ -70,7 +70,10 @@ impl OrchestrationState {
         }
         self.publish_reload_transitions(proxy, &new_snapshot);
         let new_config = new_snapshot.config().clone();
-        let components = match proxy.protocols.prepare_components(new_config.clone()) {
+        let components = match proxy
+            .protocols
+            .prepare_device_components(new_config.clone())
+        {
             Ok(plan) => plan,
             Err(error) => {
                 self.reject_reload(proxy, &new_snapshot, error.to_string())
@@ -104,6 +107,21 @@ impl OrchestrationState {
             return;
         }
         let candidate_tcp_services = proxy.tcp_runtime_services_for_snapshot(new_snapshot.clone());
+        #[cfg(feature = "raw-ip-runtime")]
+        if let Err(error) = proxy
+            .protocols
+            .start_device_resources(
+                &new_config,
+                &candidate_tcp_services,
+                tokio::time::Instant::now() + std::time::Duration::from_secs(5),
+                preparing.cancellation(),
+            )
+            .await
+        {
+            self.reject_reload(proxy, &new_snapshot, error.to_string())
+                .await;
+            return;
+        }
         let candidate_runtime_factory = InboundListenerRuntimeFactory::new(
             SharedIngressRuntimeServices::new(candidate_tcp_services.clone()),
             proxy.inbound_owners.clone(),

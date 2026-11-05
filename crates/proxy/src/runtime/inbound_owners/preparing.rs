@@ -9,9 +9,13 @@ use std::sync::{
 #[derive(Default)]
 pub(crate) struct PreparingInbounds {
     closing: AtomicBool,
+    cancel: zero_platform_tokio::contract::CancellationToken,
     owners: Mutex<BTreeMap<ComponentInstanceId, Weak<InboundOwner>>>,
 }
 impl PreparingInbounds {
+    pub(crate) fn cancellation(&self) -> zero_platform_tokio::contract::CancellationToken {
+        self.cancel.clone()
+    }
     pub(crate) fn register(&self, owner: &Arc<InboundOwner>) -> Result<(), EngineError> {
         let mut owners = self.owners.lock().expect("preparing listeners poisoned");
         // Metadata contains only current, unready actual owners; never a
@@ -32,6 +36,7 @@ impl PreparingInbounds {
         let owners = self.owners.lock().expect("preparing listeners poisoned");
         // The same short registration lock fences a late synchronous install.
         self.closing.store(true, Ordering::Release);
+        self.cancel.cancel();
         for (identity, owner) in owners.iter() {
             if let Some(owner) = owner.upgrade() {
                 if owner.identity() == *identity && !owner.is_ready() {

@@ -94,6 +94,10 @@ impl OrchestrationState {
         let snapshot = self.applied_snapshot.clone();
         let config = snapshot.config().clone();
         proxy.protocols.validate_dial_environment(&config)?;
+        proxy
+            .protocols
+            .prepare_device_components(config.clone())
+            .map_err(|error| EngineError::Io(std::io::Error::other(error)))?;
         dns::prepare(proxy, &snapshot).await?;
         self.preparing_inbounds.ensure_open()?;
         // Reuse the existing orchestration grace period. The migrated Direct
@@ -110,6 +114,16 @@ impl OrchestrationState {
         // initially prepared plan while startup awaited the catalog gate.
         // Capture the actual retained started generation after that gate.
         let tcp_services = proxy.tcp_runtime_services_for_snapshot(snapshot.clone());
+        #[cfg(feature = "raw-ip-runtime")]
+        proxy
+            .protocols
+            .start_device_resources(
+                &config,
+                &tcp_services,
+                tokio::time::Instant::now() + std::time::Duration::from_secs(5),
+                self.preparing_inbounds.cancellation(),
+            )
+            .await?;
         self.urltest_runtime = UrlTestRuntime::new(tcp_services.clone());
         self.inbound_runtime_factory = InboundListenerRuntimeFactory::new(
             SharedIngressRuntimeServices::new(tcp_services),
