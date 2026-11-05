@@ -21,6 +21,7 @@ use std::time::Duration;
 use tracing::{debug, info, warn};
 use zero_engine::EngineError;
 use zero_stack::UserNetworkStack;
+#[cfg(not(any(target_os = "linux", target_os = "macos")))]
 use zero_tun::TunDevice;
 
 use crate::runtime::{Proxy, TunControl, TunInfo};
@@ -544,6 +545,11 @@ impl Proxy {
             }
         }
 
+        // An exited body retains the original task/native control until this
+        // next supervisor pass actually joins and closes it.
+        if current.is_none() && self.tun_control.lock().unwrap().is_some() {
+            self.stop_tun_internal(true).await?;
+        }
         if desired.is_none() {
             if current
                 .as_ref()
@@ -701,7 +707,7 @@ impl Proxy {
                 .await,
         );
         let result = result.map_err(EngineError::Io);
-        if result.is_ok() {
+        if completion.resources_complete().await {
             let mut control = self.tun_control.lock().unwrap();
             if control.as_ref().is_some_and(|control| control.id == id) {
                 control.take();

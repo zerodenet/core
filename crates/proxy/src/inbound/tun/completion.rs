@@ -80,6 +80,28 @@ impl TunCompletion {
             None => Ok(()),
         }
     }
+    pub(super) async fn resources_complete(&self) -> bool {
+        if self.main.lock().await.task.is_some() {
+            return false;
+        }
+        let routes = self.routes.lock().await;
+        if routes.task.is_some()
+            || (routes.notification.is_some()
+                && !(matches!(routes.notified, Some(Ok(())))
+                    && matches!(routes.joined, Some(Ok(())))))
+        {
+            return false;
+        }
+        drop(routes);
+        #[cfg(any(target_os = "linux", target_os = "macos"))]
+        {
+            let owner = self.native.lock().unwrap().clone();
+            if let Some(owner) = owner {
+                return matches!(owner.closed_receipt().await, Some(Ok(_)));
+            }
+        }
+        true
+    }
     pub(super) fn install_route_notification(&self, done: oneshot::Receiver<Result<(), String>>) {
         let mut routes = self
             .routes

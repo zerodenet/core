@@ -142,6 +142,10 @@ impl<D: OwnedTunDevice + 'static> OwnedTunChannels<D> {
         state.started = true;
         Ok((write_tx, read_rx))
     }
+    /// A read-only native outcome; I/O task errors remain separately reported by close.
+    pub async fn closed_receipt(&self) -> Option<Result<Arc<TunCloseReceipt>, Arc<io::Error>>> {
+        self.state.lock().await.closed.clone()
+    }
     /// Await the actual handles in place; cancellation keeps every unobserved original.
     pub async fn close(&self) -> io::Result<Arc<TunCloseReceipt>> {
         self.stop.send_replace(true);
@@ -197,27 +201,37 @@ impl<D: OwnedTunDevice + 'static> OwnedTunChannels<D> {
                 ));
             }
         }
-        if let Some(error) = state.errors.first() {
-            return Err(io::Error::other(SharedError(error.clone())));
+        let mut failures = state.errors.clone();
+        let receipt = match state.closed.as_ref().unwrap() {
+            Ok(receipt) => Some(receipt.clone()),
+            Err(error) => {
+                failures.push(error.clone());
+                None
+            }
+        };
+        if failures.is_empty() {
+            Ok(receipt.unwrap())
+        } else {
+            Err(io::Error::other(CloseFailures(failures)))
         }
-        state
-            .closed
-            .as_ref()
-            .unwrap()
-            .clone()
-            .map_err(|error| io::Error::other(SharedError(error)))
     }
 }
 #[derive(Debug)]
-struct SharedError(Arc<io::Error>);
-impl std::fmt::Display for SharedError {
+struct CloseFailures(Vec<Arc<io::Error>>);
+impl std::fmt::Display for CloseFailures {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        self.0.fmt(f)
+        for (index, source) in self.0.iter().enumerate() {
+            if index != 0 {
+                f.write_str("; ")?;
+            }
+            source.fmt(f)?;
+        }
+        Ok(())
     }
 }
-impl std::error::Error for SharedError {
+impl std::error::Error for CloseFailures {
     fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
-        Some(self.0.as_ref())
+        self.0.first().map(|source| source.as_ref() as _)
     }
 }
 
