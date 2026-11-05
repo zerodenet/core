@@ -65,7 +65,19 @@ impl AsyncWrite for AdoptedTunIo {
     }
 }
 impl crate::TunDevice for AdoptedTunIo {
-    fn configure(&self, _: IpAddr, _: IpAddr, _: u16) -> io::Result<()> {
+    fn configure(&self, address: IpAddr, mask: IpAddr, mtu: u16) -> io::Result<()> {
+        if self
+            .owner
+            .created
+            .load(std::sync::atomic::Ordering::Acquire)
+        {
+            return match &*self.owner.lock() {
+                State::Live { device, identity } if identity.same_owner(&self.identity) => {
+                    device.configure(address, mask, mtu)
+                }
+                _ => Err(unavailable()),
+            };
+        }
         Err(io::Error::new(
             io::ErrorKind::PermissionDenied,
             "host-owned TUN configuration is read-only",
@@ -73,5 +85,31 @@ impl crate::TunDevice for AdoptedTunIo {
     }
     fn name(&self) -> &str {
         &self.name
+    }
+}
+
+impl crate::OwnedTunDevice for AdoptedTunIo {
+    fn owned_identity(&self) -> OwnedTunIdentity {
+        self.identity.clone()
+    }
+    fn close_owned(self) -> io::Result<TunCloseReceipt> {
+        let owner = self.owner.clone();
+        drop(self);
+        owner
+            .close()
+            .map(|receipt| receipt.as_ref().clone())
+            .map_err(|source| io::Error::new(source.kind(), SharedCloseError(source)))
+    }
+}
+#[derive(Debug)]
+struct SharedCloseError(Arc<io::Error>);
+impl std::fmt::Display for SharedCloseError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        self.0.fmt(f)
+    }
+}
+impl std::error::Error for SharedCloseError {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        Some(self.0.as_ref())
     }
 }

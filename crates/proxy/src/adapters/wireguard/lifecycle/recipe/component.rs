@@ -12,11 +12,11 @@ use zero_platform_tokio::contract::{
 };
 
 pub(in crate::adapters::wireguard::lifecycle) struct LinkedStackFactory;
-pub(in crate::adapters::wireguard::lifecycle) struct LinkedStackOptions {
+pub(in crate::adapters::wireguard) struct LinkedStackOptions {
     spec: ComponentSpec,
     tag: String,
     map: super::super::PendingEndpointMap,
-    pending: Arc<PendingLinkedEndpoint>,
+    pub(super) pending: Arc<PendingLinkedEndpoint>,
     peers: usize,
     stacks: Mutex<Option<Vec<EndpointStackRecipe>>>,
 }
@@ -25,8 +25,8 @@ impl LinkedStackOptions {
         recipe: &LinkedEndpointRecipe,
         stacks: Vec<EndpointStackRecipe>,
         task_limit: Option<NonZeroUsize>,
-    ) -> Self {
-        Self {
+    ) -> Result<Self, EngineError> {
+        Ok(Self {
             spec: ComponentSpec {
                 owner: ResourceOwner::Component,
                 roles: Vec::new(),
@@ -38,13 +38,36 @@ impl LinkedStackOptions {
                 task_limit,
             },
             tag: recipe.tag.clone(),
-            map: recipe.map.clone(),
+            map: recipe
+                .map
+                .upgrade()
+                .ok_or_else(|| invalid("cold recipe actual map was released"))?,
             pending: recipe.pending.clone(),
             peers: stacks.len(),
             stacks: Mutex::new(Some(stacks)),
-        }
+        })
     }
-    pub(super) fn peer_count(&self) -> usize {
+    pub(in crate::adapters::wireguard) fn matches_identity(&self, identity: &[u8]) -> bool {
+        self.spec.static_identity.as_ref() == identity
+    }
+    pub(in crate::adapters::wireguard::lifecycle) fn apply_traffic(
+        &self,
+        traffic: Vec<crate::runtime::raw_ip::RawIpTraffic>,
+    ) -> Result<(), EngineError> {
+        let mut stacks = self.stacks.lock().unwrap_or_else(|e| e.into_inner());
+        if let Some(stacks) = stacks.as_mut() {
+            if traffic.len() != stacks.len() {
+                return Err(invalid(
+                    "linked traffic declaration differs from actual peer stacks",
+                ));
+            }
+            for (stack, traffic) in stacks.iter_mut().zip(traffic) {
+                stack.set_traffic(traffic);
+            }
+        }
+        Ok(())
+    }
+    pub(in crate::adapters::wireguard::lifecycle) fn peer_count(&self) -> usize {
         self.peers
     }
     fn check_current(&self) -> Result<(), EngineError> {
