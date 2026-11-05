@@ -1,5 +1,6 @@
 //! Query custody returns independently from the same real donor's retirement.
 use super::*;
+mod doh;
 
 fn detoured(dns: &Dns, server: &Server) -> zero_config::RuntimeConfig {
     let mut config = config([server.address; 3]);

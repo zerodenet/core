@@ -4,16 +4,16 @@ use tokio::{
     net::TcpListener,
     sync::{mpsc, oneshot},
 };
-struct TlsDns {
+pub(super) struct TlsDns {
     address: std::net::SocketAddr,
-    connections: Arc<std::sync::atomic::AtomicUsize>,
-    certificate: rustls::pki_types::CertificateDer<'static>,
-    requests: mpsc::UnboundedReceiver<(Vec<u8>, oneshot::Sender<Vec<u8>>)>,
+    pub(super) connections: Arc<std::sync::atomic::AtomicUsize>,
+    pub(super) certificate: rustls::pki_types::CertificateDer<'static>,
+    pub(super) requests: mpsc::UnboundedReceiver<(Vec<u8>, oneshot::Sender<Vec<u8>>)>,
     stop: CancellationToken,
     task: tokio::task::JoinHandle<()>,
 }
 impl TlsDns {
-    async fn new(doh: bool) -> Self {
+    pub(super) async fn new(doh: bool) -> Self {
         let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
         let address = listener.local_addr().unwrap();
         let certified = rcgen::generate_simple_self_signed(vec!["native.tls.test".into()]).unwrap();
@@ -74,7 +74,7 @@ impl TlsDns {
             task,
         }
     }
-    fn server(&self, doh: bool) -> zero_config::DnsServerConfig {
+    pub(super) fn server(&self, doh: bool) -> zero_config::DnsServerConfig {
         if doh {
             zero_config::DnsServerConfig::Doh {
                 host: "127.0.0.1".into(),
@@ -94,7 +94,7 @@ impl TlsDns {
             }
         }
     }
-    async fn close(self) {
+    pub(super) async fn close(self) {
         self.stop.cancel();
         self.task.await.unwrap();
     }
