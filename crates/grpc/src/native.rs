@@ -152,6 +152,9 @@ where
                         });
                         let mut builder = hyper::server::conn::http2::Builder::new(executor);
                         builder.max_concurrent_streams(MAX_STREAMS);
+                        // A separate finite physical H2 buffer after adapter
+                        // queue handoff; poll_next never claims a native write.
+                        builder.max_send_buf_size(32 * 1024);
                         builder.timer(hyper_util::rt::TokioTimer::new());
                         if let Some(tls) = tls {
                             let stream = tokio::select! { _ = stop.cancelled() => return Ok(()), result = tls.accept(socket) => result.map_err(io_error)? };
