@@ -161,7 +161,7 @@ async fn unchanged_queue_policy_reuses_devices_and_failed_candidate_restores_aft
         // A genuinely reused current listener is not candidate-owned native I/O.
         assert!(Arc::ptr_eq(&restored_listener, &original_listener));
         assert!(original_listener.terminal_for_test().is_none());
-        assert!(!original_listener.cancellation().is_cancelled());
+        assert!(!original_listener.task_access().cancellation().is_cancelled());
     } else {
         assert_closed(&original_listener);
         assert_closed(&candidate_listener);
