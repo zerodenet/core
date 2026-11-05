@@ -21,7 +21,7 @@ impl OwnedWintunOwner {
         mtu: u16,
     ) -> io::Result<OwnedWintunIo> {
         let mut state = self.state();
-        if state.attempted {
+        if state.attempted || self.closing.load(std::sync::atomic::Ordering::Acquire) {
             return Err(state
                 .acquisition_failure
                 .clone()

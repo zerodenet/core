@@ -71,14 +71,19 @@ impl OwnedWintunOwner {
                                     state.ended.clone(),
                                     state.adapter_closed.clone(),
                                 ) {
-                                    let receipt = TunCloseReceipt::from_wintun(
+                                    match TunCloseReceipt::from_wintun(
                                         state.name.clone(),
                                         identity,
                                         ended,
                                         adapter,
-                                    )
-                                    .map_err(Arc::new)?;
-                                    state.receipt = Some(Arc::new(receipt));
+                                    ) {
+                                        Ok(receipt) => state.receipt = Some(Arc::new(receipt)),
+                                        Err(source) => {
+                                            let source = Arc::new(source);
+                                            state.native_failure = Some(source.clone());
+                                            return Err(source);
+                                        }
+                                    }
                                 }
                             }
                             if !state.errors.is_empty() {

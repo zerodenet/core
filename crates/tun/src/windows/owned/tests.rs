@@ -77,6 +77,14 @@ impl zero_traits::IoObserver for Observer {
     fn dropped(&self) {}
 }
 #[tokio::test]
+async fn stopped_cold_owner_cannot_acquire_a_late_native_original() {
+    let owner = OwnedWintunOwner::new();
+    assert!(owner.close().await.unwrap().is_none());
+    assert!(owner.create(Some("ZeroLateOriginalTest")).is_err());
+    assert!(owner.state().adapter.is_none());
+    assert!(owner.state().session.is_none());
+}
+#[tokio::test]
 #[ignore = "requires Administrator privileges and wintun.dll; creates a dedicated test adapter"]
 async fn system_channels_return_only_their_view_before_the_original_native_reader_and_session_close(
 ) {
