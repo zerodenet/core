@@ -49,7 +49,7 @@ impl Generation {
         }
         let pressured = {
             let entries = self.entries.lock().unwrap();
-            entries.len() + self.failures.lock().unwrap().len() >= ledger::ENTRY_LIMIT
+            entries.len() + self.failures.lock().unwrap().len() >= self.entry_limit.get()
                 && !entries.contains_key(&key)
         };
         if pressured {
@@ -73,7 +73,7 @@ impl Generation {
             if let Some(entry) = entries.get(&key) {
                 entry.clone()
             } else {
-                if entries.len() + self.failures.lock().unwrap().len() >= ledger::ENTRY_LIMIT {
+                if entries.len() + self.failures.lock().unwrap().len() >= self.entry_limit.get() {
                     return Err(error(Stage::Prepare, Reason::Capacity));
                 }
                 let entry = Arc::new(Entry {

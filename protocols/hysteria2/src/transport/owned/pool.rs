@@ -40,6 +40,7 @@ pub struct PoolOptions {
     identity: Arc<[u8]>,
     prepared_clients: Arc<OnceLock<Arc<[quinn::ClientConfig]>>>,
     prepared_ca: Option<material::PreparedCa>,
+    entry_limit: NonZeroUsize,
 }
 impl Pool {
     pub fn options(
@@ -53,10 +54,24 @@ impl Pool {
             identity,
             prepared_clients: Arc::new(OnceLock::new()),
             prepared_ca: None,
+            entry_limit: n(256),
         }
     }
 }
 impl PoolOptions {
+    /// Bounds the same actual pool and its retained failure evidence. No
+    /// endpoint, original, worker or logical user is allocated by this recipe.
+    pub fn with_entry_limit(mut self, limit: NonZeroUsize) -> Result<Self, ChannelError> {
+        if limit.get() > 256 {
+            return Err(error(Stage::Prepare, Reason::InvalidConfig));
+        }
+        let mut identity = self.identity.to_vec();
+        identity.extend_from_slice(b"actual-entry-and-failure-budget-v1");
+        identity.extend_from_slice(&limit.get().to_le_bytes());
+        self.identity = identity.into();
+        self.entry_limit = limit;
+        Ok(self)
+    }
     pub fn profiles(&self) -> &[PoolProfile] {
         &self.profiles
     }
@@ -93,7 +108,7 @@ impl ComponentFactory for PoolFactory {
                 dial: profile.binding.dial.clone(),
                 ports: profile.ports(),
                 limits: metadata_limits(),
-                max_origins: n(256),
+                max_origins: options.entry_limit,
             })
             .collect::<Vec<_>>();
         if options.prepared_ca.is_none() {
@@ -112,7 +127,7 @@ impl ComponentFactory for PoolFactory {
             roles: vec![],
             dependencies: vec![],
             static_identity: options.identity.clone(),
-            task_limit: Some(n(2049)),
+            task_limit: Some(n(options.entry_limit.get() * 8 + 1)),
             resources,
         }
     }
@@ -147,7 +162,7 @@ impl PoolFactory {
             .map(|_| {
                 MetadataPoolOwner::new(
                     context.instance(),
-                    n(256),
+                    options.entry_limit,
                     metadata_limits(),
                     &context.cancel,
                 )
@@ -166,6 +181,7 @@ impl PoolFactory {
             maintenance_cursor: Mutex::new(0),
             clients: options.prepared_clients.clone(),
             prepared_ca: options.prepared_ca.clone(),
+            entry_limit: options.entry_limit,
         });
         Ok(ComponentInstance {
             roles: Default::default(),
@@ -197,6 +213,7 @@ pub(super) struct Generation {
     maintenance_cursor: Mutex<usize>,
     clients: Arc<OnceLock<Arc<[quinn::ClientConfig]>>>,
     prepared_ca: Option<material::PreparedCa>,
+    entry_limit: NonZeroUsize,
 }
 #[derive(Clone, PartialEq, Eq, Hash)]
 struct Key {
