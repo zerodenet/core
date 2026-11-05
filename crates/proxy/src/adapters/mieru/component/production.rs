@@ -28,7 +28,12 @@ pub(crate) fn production_selected(candidate: Option<&RuntimeConfig>) -> bool {
         // Mixed relay preparation keeps every shorter prefix in compatibility
         // when any selected hop lacks an ordinary role. A persistent pool may
         // not reinterpret that one-use prefix as its own native root.
-        !contains_pool || (all_standard && packet_carriers)
+        // Every legal UDP consumer of this public Relay must also stay on the
+        // same executor. The current standard per-flow relay can consume a
+        // background-owned Mieru final Datagram. A final SOCKS5/ordinary role
+        // still falls through its legacy continuation, even when its TCP Stream
+        // is native; that continuation may not redial this Managed prefix.
+        !contains_pool || (all_standard && packet_carriers && packet_prefix == Some(true))
     })
 }
 

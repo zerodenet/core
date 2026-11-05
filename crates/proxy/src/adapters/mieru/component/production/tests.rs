@@ -159,3 +159,48 @@ fn unselected_socks_packet_prefix_branch_cannot_half_promote_the_shared_pool() {
     outbounds.reverse();
     assert!(!production_selected(Some(&config)));
 }
+
+#[test]
+fn unqualified_udp_suffix_keeps_all_mieru_profiles_on_the_existing_executor() {
+    let config = config(
+        &["pool", "prefix"],
+        serde_json::json!({"type":"socks5", "server":"127.0.0.1", "port":443}),
+    );
+    assert!(!production_selected(Some(&config)));
+    let proxy = crate::Proxy::new(config).unwrap();
+    let plan = proxy.tcp_runtime_services().components.clone().unwrap();
+    assert!(plan.configured("prefix").is_some());
+    for tag in ["pool", "other-pool"] {
+        assert!(plan.configured(tag).is_none());
+    }
+}
+
+#[test]
+fn unselected_udp_suffix_branch_cannot_make_a_native_mieru_prefix_fall_back() {
+    let mut config = config(
+        &["pool", "other-pool"],
+        serde_json::json!({"type":"socks5", "server":"127.0.0.1", "port":443}),
+    );
+    let OutboundGroupKind::Relay { proxies } = &mut config.outbound_groups[0].group else {
+        unreachable!()
+    };
+    proxies[1] = "choice".into();
+    config
+        .outbound_groups
+        .push(zero_config::OutboundGroupConfig {
+            tag: "choice".into(),
+            group: OutboundGroupKind::Selector {
+                outbounds: vec!["other-pool".into(), "prefix".into()],
+                default: Some("other-pool".into()),
+                selected: Some("other-pool".into()),
+            },
+        });
+    assert!(!production_selected(Some(&config)));
+    let OutboundGroupKind::Selector { outbounds, .. } =
+        &mut config.outbound_groups.last_mut().unwrap().group
+    else {
+        unreachable!()
+    };
+    outbounds.retain(|tag| tag == "other-pool");
+    assert!(production_selected(Some(&config)));
+}
