@@ -55,6 +55,10 @@ impl CarrierDriverRetained {
             if state.closed
                 || state.unknown.is_some()
                 || !state
+                    .users
+                    .as_ref()
+                    .is_some_and(super::users::Users::driver_custody_live)
+                || !state
                     .driver
                     .as_ref()
                     .is_some_and(|(_, actual)| actual.same_registration(&self.driver))
