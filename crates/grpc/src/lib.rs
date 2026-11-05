@@ -5,10 +5,15 @@
 //! compatibility with the HTTP and IPC API surfaces.
 
 use std::net::SocketAddr;
+use std::sync::{
+    atomic::{AtomicBool, Ordering},
+    Arc, Mutex,
+};
+use std::time::Duration;
 
 use tokio::sync::mpsc;
 use tonic::{Request, Response, Status};
-use tracing::{error, info};
+use tracing::info;
 
 use zero_api::event::EventFilter;
 use zero_api::{CommandService, EventSource, EventStream, QueryService};
@@ -17,6 +22,8 @@ mod pb {
     tonic::include_proto!("zero.api.v1");
 }
 mod security;
+mod tasks;
+use tasks::ControlTask;
 
 pub use security::{GrpcServerAuth, GrpcServerSecurity, GrpcServerTls};
 
@@ -42,7 +49,12 @@ where
     H: CommandService + QueryService + EventSource + Clone + Send + Sync + 'static,
 {
     security.validate_for(addr)?;
-    let svc = ControlServer::new(ControlService::new(handle, security.auth.clone()));
+    let subscriptions = Arc::new(Subscriptions::default());
+    let svc = ControlServer::new(ControlService::new(
+        handle,
+        security.auth.clone(),
+        subscriptions.clone(),
+    ));
 
     let listener = tokio::net::TcpListener::bind(addr).await?;
     let local_addr = listener.local_addr()?;
@@ -58,7 +70,7 @@ where
     let (shutdown_tx, shutdown_rx) = tokio::sync::oneshot::channel::<()>();
 
     let task = tokio::spawn(async move {
-        if let Err(e) = server
+        server
             .add_service(svc)
             .serve_with_incoming_shutdown(
                 tokio_stream::wrappers::TcpListenerStream::new(listener),
@@ -67,25 +79,25 @@ where
                 },
             )
             .await
-        {
-            error!(%e, "gRPC server exited with error");
-        }
+            .map_err(std::io::Error::other)
     });
 
     info!(listen = %local_addr, "gRPC api server ready");
 
     Ok(GrpcHandle {
         local_addr,
-        shutdown: shutdown_tx,
-        task,
+        shutdown: Mutex::new(Some(shutdown_tx)),
+        task: ControlTask::new(task),
+        subscriptions,
     })
 }
 
-/// Handle to a running gRPC server. Shuts down on drop.
+/// Retains the actual server and subscription jobs until explicit shutdown.
 pub struct GrpcHandle {
     local_addr: SocketAddr,
-    shutdown: tokio::sync::oneshot::Sender<()>,
-    task: tokio::task::JoinHandle<()>,
+    shutdown: Mutex<Option<tokio::sync::oneshot::Sender<()>>>,
+    task: ControlTask,
+    subscriptions: Arc<Subscriptions>,
 }
 
 impl GrpcHandle {
@@ -93,22 +105,66 @@ impl GrpcHandle {
         self.local_addr
     }
 
-    pub async fn shutdown(self) {
-        let _ = self.shutdown.send(());
-        let _ = self.task.await;
+    pub async fn shutdown(&self) -> std::io::Result<()> {
+        self.subscriptions.stop.store(true, Ordering::Release);
+        if let Some(stop) = self.shutdown.lock().unwrap().take() {
+            let _ = stop.send(());
+        }
+        // Await both originals even if either failed. The tonic server owns
+        // active command ACKs; subscription jobs own their actual subscribers.
+        let server = self.task.join().await;
+        let tasks = self.subscriptions.jobs.lock().unwrap().clone();
+        let mut failure = None;
+        for job in tasks {
+            if let Err(error) = job.join().await {
+                failure.get_or_insert(error);
+            }
+        }
+        server?;
+        failure.map_or(Ok(()), Err)
     }
 }
 
 // ── Service ────────────────────────────────────────────────────────────────
 
+#[derive(Default)]
+struct Subscriptions {
+    stop: AtomicBool,
+    jobs: Mutex<Vec<Arc<ControlTask>>>,
+}
+
+impl Subscriptions {
+    async fn reap_completed(&self) -> std::io::Result<()> {
+        let originals = self.jobs.lock().unwrap().clone();
+        let mut failure = None;
+        for original in originals {
+            if original.finished() {
+                if let Err(error) = original.join().await {
+                    failure.get_or_insert(error);
+                }
+            }
+        }
+        self.jobs
+            .lock()
+            .unwrap()
+            .retain(|original| !original.joined_successfully());
+        failure.map_or(Ok(()), Err)
+    }
+}
+
 struct ControlService<H> {
     handle: H,
     auth: Option<GrpcServerAuth>,
+    subscriptions: Arc<Subscriptions>,
 }
 
 impl<H> ControlService<H> {
-    fn new(handle: H, auth: Option<GrpcServerAuth>) -> Self {
-        Self { handle, auth }
+    fn new(handle: H, auth: Option<GrpcServerAuth>, subscriptions: Arc<Subscriptions>) -> Self {
+        Self {
+            handle,
+            auth,
+            subscriptions,
+        }
     }
 
     fn is_authorized<T>(&self, request: &Request<T>) -> bool {
@@ -185,6 +241,10 @@ where
             inbound_tags: Vec::new(),
         };
 
+        self.subscriptions
+            .reap_completed()
+            .await
+            .map_err(|error| Status::internal(error.to_string()))?;
         let subscriber = self
             .handle
             .subscribe(filter)
@@ -192,25 +252,45 @@ where
 
         let (tx, rx) = mpsc::channel::<Result<PbEvent, Status>>(64);
 
-        std::thread::spawn(move || {
-            #[allow(clippy::while_let_loop)]
-            loop {
-                match subscriber.recv() {
-                    Some(event) => {
-                        let pb_event = PbEvent {
-                            event_type: event.event_type,
-                            event_id: event.event_id,
-                            occurred_at: event.occurred_at_unix_ms,
-                            payload: serde_json::to_vec(&event.payload).unwrap_or_default(),
-                        };
-                        if tx.blocking_send(Ok(pb_event)).is_err() {
-                            break;
+        let subscriptions = self.subscriptions.clone();
+        let mut jobs = subscriptions.jobs.lock().unwrap();
+        if subscriptions.stop.load(Ordering::Acquire) {
+            return Err(Status::unavailable("control server is stopping"));
+        }
+        let owner = subscriptions.clone();
+        // The retained job waits with a finite idle wake and keeps a full
+        // event until the bounded channel accepts it. Stop and disconnected
+        // consumers never depend on another source event to unblock recv.
+        jobs.push(Arc::new(ControlTask::new(tokio::task::spawn_blocking(
+            move || {
+                while !owner.stop.load(Ordering::Acquire) && !tx.is_closed() {
+                    let event = match subscriber.recv_timeout(Duration::from_millis(25)) {
+                        zero_api::EventStreamReceive::Event(event) => event,
+                        zero_api::EventStreamReceive::Timeout => continue,
+                        zero_api::EventStreamReceive::Closed => break,
+                    };
+                    let mut pending = Ok(PbEvent {
+                        event_type: event.event_type,
+                        event_id: event.event_id,
+                        occurred_at: event.occurred_at_unix_ms,
+                        payload: serde_json::to_vec(&event.payload).unwrap_or_default(),
+                    });
+                    loop {
+                        if owner.stop.load(Ordering::Acquire) {
+                            return Ok(());
                         }
+                        match tx.try_send(pending) {
+                            Ok(()) => break,
+                            Err(mpsc::error::TrySendError::Closed(_)) => return Ok(()),
+                            Err(mpsc::error::TrySendError::Full(event)) => pending = event,
+                        }
+                        std::thread::sleep(Duration::from_millis(25));
                     }
-                    None => break,
                 }
-            }
-        });
+                Ok(())
+            },
+        ))));
+        drop(jobs);
 
         let stream = tokio_stream::wrappers::ReceiverStream::new(rx);
         Ok(Response::new(Box::pin(stream) as Self::SubscribeStream))

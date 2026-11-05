@@ -1,6 +1,7 @@
 pub mod client;
 mod connection;
 mod events;
+pub(crate) mod owner;
 pub mod protocol;
 
 #[cfg(unix)]

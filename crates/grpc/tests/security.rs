@@ -75,7 +75,7 @@ async fn remote_plaintext_requires_explicit_opt_in() {
     let result = zero_grpc::spawn(UnusedService, address, security).await;
     let error = match result {
         Ok(server) => {
-            server.shutdown().await;
+            server.shutdown().await.unwrap();
             panic!("remote plaintext must require explicit opt-in")
         }
         Err(error) => error,
@@ -97,7 +97,7 @@ async fn explicit_remote_plaintext_with_bearer_can_start() {
     )
     .await
     .expect("explicit remote plaintext");
-    server.shutdown().await;
+    server.shutdown().await.unwrap();
 }
 
 #[tokio::test]
@@ -127,7 +127,7 @@ async fn native_tls_accepts_a_trusted_client() {
     )
     .await
     .expect("trusted TLS client");
-    server.shutdown().await;
+    server.shutdown().await.unwrap();
 }
 
 #[tokio::test]
@@ -168,7 +168,7 @@ async fn mtls_requires_a_client_certificate_signed_by_the_configured_ca() {
     )
     .await
     .expect("client certificate signed by configured CA");
-    server.shutdown().await;
+    server.shutdown().await.unwrap();
 }
 
 async fn connect_tls(
