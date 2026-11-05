@@ -288,8 +288,6 @@ impl Proxy {
             "prepared TUN DNS physical-route exclusions"
         );
 
-        #[cfg(target_os = "linux")]
-        let device = zero_tun::LinuxTun::create(name).map_err(EngineError::Io)?;
         #[cfg(target_os = "macos")]
         let device = zero_tun::Utun::create(name).map_err(EngineError::Io)?;
         #[cfg(not(any(target_os = "linux", target_os = "macos")))]
@@ -298,10 +296,10 @@ impl Proxy {
         let (shutdown, shutdown_rx) = tokio::sync::watch::channel(false);
         let (done_tx, done) = tokio::sync::oneshot::channel();
         let completion = completion::TunCompletion::new(done, None);
-        #[cfg(any(target_os = "linux", target_os = "macos"))]
-        let device = zero_tun::OwnedTunChannels::new(device);
-        #[cfg(any(target_os = "linux", target_os = "macos"))]
-        completion.install_native(device.clone());
+        #[cfg(target_os = "linux")]
+        let acquisition = zero_tun::AdoptedTunOwner::new();
+        #[cfg(target_os = "linux")]
+        completion.install_acquisition(acquisition.clone());
         // Publish original custody before configuration or the first await.
         *self.tun_control.lock().unwrap() = Some(TunControl {
             id,
@@ -309,6 +307,14 @@ impl Proxy {
             completion: completion.clone(),
             route_recovery: None,
         });
+        #[cfg(target_os = "linux")]
+        let device = acquisition
+            .create(name)
+            .map_err(|error| EngineError::Io(io::Error::new(error.source.kind(), error)))?;
+        #[cfg(any(target_os = "linux", target_os = "macos"))]
+        let device = zero_tun::OwnedTunChannels::new(device);
+        #[cfg(any(target_os = "linux", target_os = "macos"))]
+        completion.install_native(device.clone());
         let address_pairs = interface_addresses
             .iter()
             .map(|address| (address.address, address.netmask))

@@ -26,7 +26,7 @@ impl OwnedTunIdentity {
 
 /// An explicit backend close result. It certifies neither other descriptor
 /// owners nor routes, in-flight users, task joins or a host-owned interface.
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct TunCloseReceipt {
     interface: String,
     identity: OwnedTunIdentity,

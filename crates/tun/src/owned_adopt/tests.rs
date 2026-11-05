@@ -84,3 +84,32 @@ async fn actual_adopted_tun_view_drop_does_not_release_the_persistent_original()
         -1
     );
 }
+
+#[cfg(target_os = "linux")]
+#[tokio::test]
+async fn system_create_ioctl_failure_is_closed_by_the_preinstalled_raw_original() {
+    use std::os::fd::AsRawFd;
+    let (socket, _peer) = std::os::unix::net::UnixDatagram::pair().unwrap();
+    let fd = socket.as_raw_fd();
+    let owner = AdoptedTunOwner::new();
+    let failure = owner
+        .create_with(
+            Some("zero-fail"),
+            |_| Ok(socket.into()),
+            crate::LinuxTun::initialize_created,
+        )
+        .err()
+        .unwrap();
+    assert!(failure.source.raw_os_error().is_some());
+    let receipt = match failure.outcome {
+        TunAcquisitionOutcome::Closed(receipt) => receipt,
+        outcome => panic!("raw original did not confirm native closure: {outcome:?}"),
+    };
+    assert!(Arc::ptr_eq(&receipt, &owner.close().unwrap()));
+    assert!(Arc::ptr_eq(
+        &failure.source,
+        &owner.acquisition_failure().unwrap()
+    ));
+    // Auxiliary OS check only; the decisive outcome is the original receipt.
+    assert_eq!(unsafe { libc::fcntl(fd, libc::F_GETFD) }, -1);
+}
