@@ -7,7 +7,7 @@ use tokio::{
 
 pub(super) struct DriverResult {
     pub(super) failure: Option<Arc<io::Error>>,
-    pub(super) native: Option<Result<zero_tun::TunCloseReceipt, Arc<io::Error>>>,
+    pub(super) native: Option<Result<Arc<zero_tun::TunCloseReceipt>, Arc<io::Error>>>,
 }
 struct State {
     task: Option<JoinHandle<DriverResult>>,
