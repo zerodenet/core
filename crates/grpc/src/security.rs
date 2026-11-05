@@ -1,7 +1,6 @@
 use std::net::SocketAddr;
 use std::sync::Arc;
 
-use tonic::transport::{Certificate, Identity, ServerTlsConfig};
 use tonic::Request;
 
 #[derive(Clone)]
@@ -51,13 +50,34 @@ impl GrpcServerTls {
         self.client_ca_cert_pem.is_some()
     }
 
-    pub(super) fn tonic_config(&self) -> ServerTlsConfig {
-        let identity = Identity::from_pem(self.cert_pem.as_ref(), self.key_pem.as_ref());
-        let config = ServerTlsConfig::new().identity(identity);
-        match &self.client_ca_cert_pem {
-            Some(ca) => config.client_ca_root(Certificate::from_pem(ca.as_ref())),
-            None => config,
-        }
+    pub(super) fn native_acceptor(
+        &self,
+    ) -> Result<tokio_rustls::TlsAcceptor, Box<dyn std::error::Error>> {
+        let _ = rustls::crypto::ring::default_provider().install_default();
+        let certs =
+            rustls_pemfile::certs(&mut self.cert_pem.as_ref()).collect::<Result<Vec<_>, _>>()?;
+        let key = rustls_pemfile::private_key(&mut self.key_pem.as_ref())?.ok_or_else(|| {
+            std::io::Error::new(
+                std::io::ErrorKind::InvalidInput,
+                "gRPC TLS private key is missing",
+            )
+        })?;
+        let builder = rustls::ServerConfig::builder();
+        let mut config = if let Some(ca) = &self.client_ca_cert_pem {
+            let mut roots = rustls::RootCertStore::empty();
+            for cert in rustls_pemfile::certs(&mut ca.as_ref()) {
+                roots.add(cert?)?;
+            }
+            let verifier =
+                rustls::server::WebPkiClientVerifier::builder(Arc::new(roots)).build()?;
+            builder
+                .with_client_cert_verifier(verifier)
+                .with_single_cert(certs, key)?
+        } else {
+            builder.with_no_client_auth().with_single_cert(certs, key)?
+        };
+        config.alpn_protocols = vec![b"h2".to_vec()];
+        Ok(tokio_rustls::TlsAcceptor::from(Arc::new(config)))
     }
 }
 

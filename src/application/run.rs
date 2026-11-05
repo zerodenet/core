@@ -98,10 +98,9 @@ async fn run(
                 .grpc_listen
                 .parse()
                 .map_err(|error| std::io::Error::other(format!("gRPC listen address: {error}")))?;
-            let grpc = std::sync::Arc::new(
-                zero_grpc::spawn(ipc_handle.clone(), addr, status.grpc_security.clone()).await?,
-            );
-            services.install_grpc(grpc)?;
+            let grpc = zero_grpc::prepare(addr, status.grpc_security.clone())?;
+            services.install_grpc(grpc.clone())?;
+            grpc.start(ipc_handle.clone()).await?;
         }
         Ok::<(), Box<dyn Error>>(())
     }
