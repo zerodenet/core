@@ -138,9 +138,19 @@ fn assert_retired(old: &zero_dns::OwnedDnsQueryObservation) {
     assert!(native.closed().unwrap().matches(native));
     assert!(native.closed().unwrap().had_native_acquisition());
     assert!(
-        original.closed().unwrap().had_native_acquisition(),
-        "the same DNS host owns the actual socket supplied to the protocol role"
+        !original.closed().unwrap().had_native_acquisition(),
+        "the DNS host returns its actual loan instead of claiming the donor socket"
     );
+    let donor = original
+        .parent()
+        .expect("actual native SOCKS donor lineage");
+    assert!(donor.same_original(native));
+    assert!(!original.owner().same_owner(native.owner()));
+    assert!(
+        native.driver().is_none(),
+        "the actual SOCKS role is taskless"
+    );
+    assert!(donor.closed().unwrap().matches(donor));
 }
 
 #[tokio::test]

@@ -194,7 +194,10 @@ impl UpstreamOpener for Root {
         Ok(())
     }
     fn supports_controlled_stream(&self) -> bool {
-        true
+        // Direct's multi-candidate request carries its Business-only owner.
+        // DNS services use this root's declared BackgroundControl original;
+        // prepare/acquire still accept an independently validated actual grant.
+        false
     }
     fn carrier_dns_generation(&self) -> Option<zero_platform_tokio::contract::dns::DnsGeneration> {
         Some(self.node_dns.generation())

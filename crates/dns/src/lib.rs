@@ -720,7 +720,7 @@ impl DnsSystem {
     }
 
     async fn answer_query(&self, query: &[u8]) -> Vec<u8> {
-        if self.wire_query_coordinator.ensure_open().is_err() {
+        if self.wire_query_coordinator.ensure_local_open().is_err() {
             return message::build_error_response(query, message::RCODE_SERVFAIL, false);
         }
         let question = match message::parse_question(query) {
@@ -983,7 +983,7 @@ impl DnsResolver for DnsSystem {
     type Error = io::Error;
 
     async fn resolve(&self, domain: &str) -> Result<Vec<IpAddress>, Self::Error> {
-        self.query_coordinator.ensure_open()?;
+        self.query_coordinator.ensure_local_open()?;
         let (snapshot, config_generation) = self.snapshot_with_generation();
         let snapshot = match snapshot {
             Some(s) => s,
@@ -1119,7 +1119,7 @@ async fn resolve_snapshot_type(
     role: DnsQueryRole,
     snapshot: ResolveSnapshot,
 ) -> io::Result<Vec<IpAddress>> {
-    snapshot.query_coordinator.ensure_open()?;
+    snapshot.query_coordinator.ensure_local_open()?;
     if localhost::is_localhost(domain) {
         return family::filter_addresses(
             domain,
