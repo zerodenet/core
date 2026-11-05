@@ -134,6 +134,9 @@ impl DynChannelControl for Control {
     }
 }
 impl UpstreamOpener for Root {
+    fn has_pending_carrier_observer(&self) -> bool {
+        true
+    }
     fn retain_pending_carrier(
         &self,
         binding: &UpstreamBinding,
