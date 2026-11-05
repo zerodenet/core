@@ -6,10 +6,8 @@ use tokio::{
     time::{timeout_at, Instant},
 };
 
-#[cfg(target_os = "linux")]
+#[cfg(any(target_os = "linux", target_os = "macos"))]
 type SystemTunOwner = zero_tun::OwnedTunChannels<zero_tun::AdoptedTunIo>;
-#[cfg(target_os = "macos")]
-type SystemTunOwner = zero_tun::OwnedTunChannels<zero_tun::Utun>;
 
 type Source = Arc<dyn std::error::Error + Send + Sync>;
 type Outcome = Result<(), Source>;
@@ -34,7 +32,7 @@ pub(crate) struct TunCompletion {
     routes: Mutex<Routes>,
     #[cfg(any(target_os = "linux", target_os = "macos"))]
     native: std::sync::Mutex<Option<Arc<SystemTunOwner>>>,
-    #[cfg(target_os = "linux")]
+    #[cfg(any(target_os = "linux", target_os = "macos"))]
     acquisition: std::sync::Mutex<Option<Arc<zero_tun::AdoptedTunOwner>>>,
 }
 impl TunCompletion {
@@ -45,7 +43,7 @@ impl TunCompletion {
         Arc::new(Self {
             #[cfg(any(target_os = "linux", target_os = "macos"))]
             native: std::sync::Mutex::new(None),
-            #[cfg(target_os = "linux")]
+            #[cfg(any(target_os = "linux", target_os = "macos"))]
             acquisition: std::sync::Mutex::new(None),
             main: Mutex::new(Main {
                 notification: done,
@@ -61,7 +59,7 @@ impl TunCompletion {
             }),
         })
     }
-    #[cfg(target_os = "linux")]
+    #[cfg(any(target_os = "linux", target_os = "macos"))]
     pub(super) fn install_acquisition(&self, owner: Arc<zero_tun::AdoptedTunOwner>) {
         let mut slot = self.acquisition.lock().unwrap();
         assert!(slot.is_none());
@@ -88,7 +86,7 @@ impl TunCompletion {
                 .map_err(|source| io::Error::new(io::ErrorKind::TimedOut, source))?
                 .map(|_| ()),
             None => {
-                #[cfg(target_os = "linux")]
+                #[cfg(any(target_os = "linux", target_os = "macos"))]
                 if let Some(owner) = self.acquisition.lock().unwrap().clone() {
                     return match owner.outcome() {
                         zero_tun::TunAcquisitionOutcome::KnownNoNative
@@ -122,7 +120,7 @@ impl TunCompletion {
                 return matches!(owner.closed_receipt().await, Some(Ok(_)));
             }
         }
-        #[cfg(target_os = "linux")]
+        #[cfg(any(target_os = "linux", target_os = "macos"))]
         if let Some(owner) = self.acquisition.lock().unwrap().clone() {
             return matches!(
                 owner.outcome(),

@@ -15,6 +15,7 @@ use tokio::io::unix::AsyncFd;
 use tokio::io::{AsyncRead, AsyncWrite, ReadBuf};
 
 use crate::TunDevice;
+mod creation;
 
 // XNU system controls
 const SYSPROTO_CONTROL: libc::c_int = 2; // SYSPROTO_CONTROL
