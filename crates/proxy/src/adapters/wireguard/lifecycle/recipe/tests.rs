@@ -36,6 +36,7 @@ fn recipe(adapter: &WireguardAdapter, endpoint: &str, generation: u64) -> Linked
             identity,
             network_generation: NetworkGeneration(generation),
             stacks: vec![Default::default()],
+            dependencies: Vec::new(),
         },
     )
     .unwrap()
@@ -88,6 +89,7 @@ fn linked_recipe_is_cold_and_preserves_actual_crypto_seed_across_port_move() {
             identity: first.identity,
             network_generation: NetworkGeneration(egress.generation()),
             stacks: vec![Default::default()],
+            dependencies: Vec::new(),
         },
     )
     .unwrap();

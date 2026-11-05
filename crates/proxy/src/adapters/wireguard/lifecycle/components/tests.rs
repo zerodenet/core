@@ -20,6 +20,78 @@ fn deadline() -> tokio::time::Instant {
     tokio::time::Instant::now() + std::time::Duration::from_secs(3)
 }
 #[tokio::test]
+async fn domain_peer_declares_the_actual_node_dns_resource_before_any_stack_start() {
+    let config = Arc::new(
+        zero_config::RuntimeConfig::parse(
+            &serde_json::to_string(&configuration())
+                .unwrap()
+                .replace("127.0.0.1:51821", "peer.example:51821"),
+        )
+        .unwrap(),
+    );
+    let network = Arc::new(crate::component::background::BackgroundNetwork::new(
+        zero_platform_tokio::EgressInterfaceControl::default(),
+    ));
+    let (_, factories, _) =
+        crate::register::compiled_registries_with_background(Some(network.clone()));
+    let adapter = WireguardAdapter::default();
+    let catalog = ComponentCatalog::with_factories(factories);
+    let mut actual = None;
+    let plan = catalog
+        .prepare_with_device_resources(config.clone(), |resources| {
+            let ids = adapter
+                .prepare_component_resources(
+                    &config,
+                    resources,
+                    Some(network.egress.generation()),
+                    Some(network.clone()),
+                )
+                .map_err(|source| {
+                    zero_platform_tokio::contract::ChannelError::new(
+                        zero_platform_tokio::contract::Stage::Prepare,
+                        zero_platform_tokio::contract::Reason::Io,
+                        zero_platform_tokio::contract::Impact::Component,
+                    )
+                    .with_source(source)
+                })?;
+            assert_eq!(ids.len(), 1);
+            let dns = crate::component::native_dns::prepare_node(resources, network.clone())
+                .map_err(|source| {
+                    zero_platform_tokio::contract::ChannelError::new(
+                        zero_platform_tokio::contract::Stage::Prepare,
+                        zero_platform_tokio::contract::Reason::Io,
+                        zero_platform_tokio::contract::Impact::Component,
+                    )
+                    .with_source(source)
+                })?;
+            // Fresh preparation offers no numeric substitute for an actual
+            // healthy previous DNS owner; first use must create new Options.
+            assert!(resources.reusable_resource_instance(dns).is_none());
+            actual = Some((*ids.first().unwrap(), dns));
+            Ok(ids)
+        })
+        .unwrap();
+    let (device, dns) = actual.unwrap();
+    assert_eq!(
+        plan.device_component(device)
+            .unwrap()
+            .recipe
+            .spec()
+            .dependencies,
+        vec![dns]
+    );
+    let pending = PendingEndpoints::staged(&adapter.pending_endpoints, &config).unwrap();
+    assert!(pending
+        .get("wg-in")
+        .unwrap()
+        .peer_stack(0)
+        .unwrap()
+        .device()
+        .is_none());
+    adapter.release_component_resources(&config).unwrap();
+    catalog.shutdown(deadline()).await.unwrap();
+}
+#[tokio::test]
 async fn production_candidate_owns_cold_invocation_then_installs_only_its_started_scope_graph() {
     let proxy = crate::Proxy::new(configuration()).unwrap();
     let services = proxy.tcp_runtime_services();
@@ -33,6 +105,7 @@ async fn production_candidate_owns_cold_invocation_then_installs_only_its_starte
                     &config,
                     resources,
                     Some(services.upstream().egress_generation()),
+                    None,
                 )
                 .map_err(|source| {
                     zero_platform_tokio::contract::ChannelError::new(
