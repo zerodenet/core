@@ -6,6 +6,11 @@ use tokio::{
     time::{timeout_at, Instant},
 };
 
+#[cfg(target_os = "linux")]
+type SystemTunOwner = zero_tun::OwnedTunChannels<zero_tun::LinuxTun>;
+#[cfg(target_os = "macos")]
+type SystemTunOwner = zero_tun::OwnedTunChannels<zero_tun::Utun>;
+
 type Source = Arc<dyn std::error::Error + Send + Sync>;
 type Outcome = Result<(), Source>;
 
@@ -27,6 +32,8 @@ struct Routes {
 pub(crate) struct TunCompletion {
     main: Mutex<Main>,
     routes: Mutex<Routes>,
+    #[cfg(any(target_os = "linux", target_os = "macos"))]
+    native: std::sync::Mutex<Option<Arc<SystemTunOwner>>>,
 }
 impl TunCompletion {
     pub(super) fn new(
@@ -34,6 +41,8 @@ impl TunCompletion {
         route_done: Option<oneshot::Receiver<Result<(), String>>>,
     ) -> Arc<Self> {
         Arc::new(Self {
+            #[cfg(any(target_os = "linux", target_os = "macos"))]
+            native: std::sync::Mutex::new(None),
             main: Mutex::new(Main {
                 notification: done,
                 notified: None,
@@ -47,6 +56,59 @@ impl TunCompletion {
                 joined: None,
             }),
         })
+    }
+    #[cfg(any(target_os = "linux", target_os = "macos"))]
+    pub(super) fn install_native(&self, owner: Arc<SystemTunOwner>) {
+        let mut slot = self.native.lock().unwrap();
+        assert!(slot.is_none());
+        *slot = Some(owner);
+    }
+    #[cfg(any(target_os = "linux", target_os = "macos"))]
+    pub(super) async fn wait_native(&self, deadline: Instant) -> io::Result<()> {
+        if self.main.lock().await.task.is_some() {
+            return Err(io::Error::new(
+                io::ErrorKind::WouldBlock,
+                "TUN main original task has not joined",
+            ));
+        }
+        let owner = self.native.lock().unwrap().clone();
+        match owner {
+            Some(owner) => timeout_at(deadline, owner.close())
+                .await
+                .map_err(|source| io::Error::new(io::ErrorKind::TimedOut, source))?
+                .map(|_| ()),
+            None => Ok(()),
+        }
+    }
+    pub(super) async fn resources_complete(&self) -> bool {
+        if self.main.lock().await.task.is_some() {
+            return false;
+        }
+        let routes = self.routes.lock().await;
+        if routes.task.is_some()
+            || (routes.notification.is_some()
+                && !(matches!(routes.notified, Some(Ok(())))
+                    && matches!(routes.joined, Some(Ok(())))))
+        {
+            return false;
+        }
+        drop(routes);
+        #[cfg(any(target_os = "linux", target_os = "macos"))]
+        {
+            let owner = self.native.lock().unwrap().clone();
+            if let Some(owner) = owner {
+                return matches!(owner.closed_receipt().await, Some(Ok(_)));
+            }
+        }
+        true
+    }
+    pub(super) fn install_route_notification(&self, done: oneshot::Receiver<Result<(), String>>) {
+        let mut routes = self
+            .routes
+            .try_lock()
+            .expect("unpublished route notification");
+        assert!(routes.notification.is_none());
+        routes.notification = Some(done);
     }
     /// Called synchronously before the start operation can suspend or return.
     pub(super) fn install_main(&self, task: JoinHandle<Result<(), zero_engine::EngineError>>) {
@@ -65,6 +127,10 @@ impl TunCompletion {
     pub(super) async fn wait_main(&self, deadline: Instant) -> io::Result<()> {
         timeout_at(deadline, async {
             let mut main = self.main.lock().await;
+            // A failed configuration has a native original but no main task.
+            if main.task.is_none() && main.joined.is_none() {
+                return Ok(());
+            }
             if main.notified.is_none() {
                 main.notified = Some(
                     (&mut main.notification)

@@ -21,6 +21,7 @@ use std::time::Duration;
 use tracing::{debug, info, warn};
 use zero_engine::EngineError;
 use zero_stack::UserNetworkStack;
+#[cfg(not(any(target_os = "linux", target_os = "macos")))]
 use zero_tun::TunDevice;
 
 use crate::runtime::{Proxy, TunControl, TunInfo};
@@ -287,7 +288,27 @@ impl Proxy {
             "prepared TUN DNS physical-route exclusions"
         );
 
+        #[cfg(target_os = "linux")]
+        let device = zero_tun::LinuxTun::create(name).map_err(EngineError::Io)?;
+        #[cfg(target_os = "macos")]
+        let device = zero_tun::Utun::create(name).map_err(EngineError::Io)?;
+        #[cfg(not(any(target_os = "linux", target_os = "macos")))]
         let device = zero_tun::create(name).map_err(EngineError::Io)?;
+        let id = NEXT_TUN_ID.fetch_add(1, Ordering::Relaxed);
+        let (shutdown, shutdown_rx) = tokio::sync::watch::channel(false);
+        let (done_tx, done) = tokio::sync::oneshot::channel();
+        let completion = completion::TunCompletion::new(done, None);
+        #[cfg(any(target_os = "linux", target_os = "macos"))]
+        let device = zero_tun::OwnedTunChannels::new(device);
+        #[cfg(any(target_os = "linux", target_os = "macos"))]
+        completion.install_native(device.clone());
+        // Publish original custody before configuration or the first await.
+        *self.tun_control.lock().unwrap() = Some(TunControl {
+            id,
+            shutdown: shutdown.clone(),
+            completion: completion.clone(),
+            route_recovery: None,
+        });
         let address_pairs = interface_addresses
             .iter()
             .map(|address| (address.address, address.netmask))
@@ -298,6 +319,9 @@ impl Proxy {
         let device_name = device.name().to_owned();
         debug!(name = %device_name, "TUN device configured");
         let traffic = statistics::TunTraffic::prepare(self.engine(), tag);
+        #[cfg(any(target_os = "linux", target_os = "macos"))]
+        let (device_writer, device_reader) = device.start(traffic).map_err(EngineError::Io)?;
+        #[cfg(not(any(target_os = "linux", target_os = "macos")))]
         let (device_writer, device_reader) = device
             .into_channels_observed(traffic)
             .map_err(EngineError::Io)?;
@@ -387,9 +411,6 @@ impl Proxy {
         let managed_by_config = managed_config.is_some();
         let dns_hijacked_queries = Arc::new(AtomicU64::new(0));
 
-        let id = NEXT_TUN_ID.fetch_add(1, Ordering::Relaxed);
-        let (shutdown, shutdown_rx) = tokio::sync::watch::channel(false);
-        let (done_tx, done) = tokio::sync::oneshot::channel();
         let (route_recovery, recovery_requests) = tokio::sync::mpsc::channel(1);
         let route_task = auto_route.then(|| {
             routes::spawn(
@@ -416,7 +437,9 @@ impl Proxy {
             Some((task, done)) => (Some(task), Some(done)),
             None => (None, None),
         };
-        let completion = completion::TunCompletion::new(done, route_done);
+        if let Some(done) = route_done {
+            completion.install_route_notification(done);
+        }
         if let Some(task) = route_task {
             completion.install_routes(task);
         }
@@ -522,6 +545,11 @@ impl Proxy {
             }
         }
 
+        // An exited body retains the original task/native control until this
+        // next supervisor pass actually joins and closes it.
+        if current.is_none() && self.tun_control.lock().unwrap().is_some() {
+            self.stop_tun_internal(true).await?;
+        }
         if desired.is_none() {
             if current
                 .as_ref()
@@ -670,8 +698,16 @@ impl Proxy {
         let route_cleanup = completion
             .wait_routes(tokio::time::Instant::now() + Duration::from_secs(5))
             .await;
-        let result = completion::join_results(stopped, route_cleanup).map_err(EngineError::Io);
-        if result.is_ok() {
+        let result = completion::join_results(stopped, route_cleanup);
+        #[cfg(any(target_os = "linux", target_os = "macos"))]
+        let result = completion::join_results(
+            result,
+            completion
+                .wait_native(tokio::time::Instant::now() + Duration::from_secs(5))
+                .await,
+        );
+        let result = result.map_err(EngineError::Io);
+        if completion.resources_complete().await {
             let mut control = self.tun_control.lock().unwrap();
             if control.as_ref().is_some_and(|control| control.id == id) {
                 control.take();
