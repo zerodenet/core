@@ -82,6 +82,40 @@ impl AcceptedTcpTaskReceiver {
         })?;
         pool.close_graph(claim, deadline).await
     }
+    /// Probe only already-consumed actual joins and returned custody. This
+    /// never cancels children or waits for the Scope whose exit consumer is
+    /// calling it; native close remains the original provider's operation.
+    pub async fn close_if_joined(
+        &self,
+        claim: &AcceptedTcpClaim,
+        deadline: Instant,
+    ) -> Result<Option<AcceptedTcpClosed>, ChannelError> {
+        let pool = self.0.upgrade().ok_or_else(|| {
+            failure(
+                Stage::Close,
+                Reason::Revoked,
+                "accepted owner disappeared without closure proof",
+            )
+        })?;
+        if !Arc::ptr_eq(&pool.identity, &claim.entry.identity) {
+            return Err(failure(
+                Stage::Close,
+                Reason::StalePlan,
+                "accepted graph belongs to another listener",
+            ));
+        }
+        let users = claim.entry.users.as_ref().ok_or_else(|| {
+            failure(
+                Stage::Close,
+                Reason::Unsupported,
+                "accepted task graph was not declared",
+            )
+        })?;
+        if !users.complete() {
+            return Ok(None);
+        }
+        pool.close_graph(claim, deadline).await
+    }
     pub fn observe_joined(&self, id: TaskId) -> Option<TaskJoined> {
         let pool = self.0.upgrade()?;
         let users: Vec<_> = pool

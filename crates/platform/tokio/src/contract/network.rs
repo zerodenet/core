@@ -44,6 +44,23 @@ pub struct ControlledStreamRequest {
 /// Host-supplied execution of an already selected prefix. Implementations must
 /// reject stale generations and preserve every hard dial constraint. No direct fallback.
 pub trait UpstreamOpener: Send + Sync {
+    /// The actual waiting owner retains this sealed original before a donor
+    /// can acquire I/O or suspend. This transfers cleanup authority only; it
+    /// grants no native access and never reports that an original is closed.
+    fn retain_pending_carrier(
+        &self,
+        _: &UpstreamBinding,
+        adoption: crate::controlled_carrier::CarrierAdoption,
+    ) -> Result<(), ChannelError> {
+        let mut error = ChannelError::new(
+            super::Stage::Prepare,
+            super::Reason::Unsupported,
+            super::Impact::Component,
+        );
+        error.component = Some(adoption.instance().component);
+        error.delivery = super::DeliveryState::NotSubmitted;
+        Err(error)
+    }
     fn borrow_datagram(
         &self,
         _: &UpstreamBinding,
@@ -220,6 +237,12 @@ pub struct UpstreamTransport {
 }
 
 impl UpstreamTransport {
+    pub fn retain_pending_carrier(
+        &self,
+        adoption: crate::controlled_carrier::CarrierAdoption,
+    ) -> Result<(), ChannelError> {
+        self.opener.retain_pending_carrier(&self.binding, adoption)
+    }
     pub fn borrow_datagram(
         &self,
         endpoint: Destination,
