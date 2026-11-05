@@ -27,9 +27,11 @@ pub(super) struct Events(pub(super) mpsc::Receiver<QueuedEvent>);
 impl futures_core::Stream for Events {
     type Item = Result<PbEvent, Status>;
     fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
-        self.0
-            .poll_recv(cx)
-            .map(|event| event.map(|event| event.event))
+        match self.0.poll_recv(cx) {
+            Poll::Ready(Some(event)) => Poll::Ready(Some(event.event)),
+            Poll::Ready(None) => Poll::Ready(None),
+            Poll::Pending => Poll::Pending,
+        }
     }
 }
 fn payload_len(value: &serde_json::Value) -> io::Result<usize> {
