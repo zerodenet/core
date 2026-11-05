@@ -87,20 +87,47 @@ async fn standalone_replacement_confirms_original_native_close_and_retains_disca
         .get()
         .unwrap()
         .clone();
+    let mut borrowed = owner
+        .prepare_devices(&outbounds, &[], context(&proxy, &config))
+        .await
+        .unwrap();
+    borrowed.publish_sync();
+    drop(borrowed); // A failed commit owns no cleanup right over this old socket.
+    owner.close_discarded_devices().await.unwrap();
+    assert!(original.is_usable());
+    assert!(owner
+        .pool
+        .is_current("wg", 0, identity, generation, &original));
     let mut changed = config.clone();
     if let OutboundProtocolConfig::Wireguard { mtu, .. } = &mut changed.outbounds[0].protocol {
         *mtu = 1380;
     }
     let outbounds = changed.outbounds.iter().collect::<Vec<_>>();
-    let candidate = owner
+    let mut candidate = owner
         .prepare_devices(&outbounds, &[], context(&proxy, &changed))
         .await
         .unwrap();
     assert!(original.is_closed());
     original.wait_closed().await.unwrap(); // Original worker + original native close, not a rebind probe.
     assert!(owner.pool.cell_for("wg", 0, identity, generation).is_err());
+    candidate.publish_sync();
+    let candidate_identity = owner.profiles.lock().unwrap()["wg"].device_identity;
+    let rejected = owner
+        .pool
+        .cell_for("wg", 0, candidate_identity, generation)
+        .unwrap()
+        .get()
+        .unwrap()
+        .clone();
     drop(candidate);
-    // The next pass must drain that exact discarded original before rebuilding.
+    assert!(rejected.is_closed());
+    assert!(owner
+        .pool
+        .cell_for("wg", 0, candidate_identity, generation)
+        .is_err());
+    owner.close_discarded_devices().await.unwrap();
+    rejected.wait_closed().await.unwrap(); // same native original, not Drop
+                                           // The next pass must drain that exact discarded original before rebuilding.
     let outbounds = config.outbounds.iter().collect::<Vec<_>>();
     owner
         .prepare_devices(&outbounds, &[], context(&proxy, &config))
