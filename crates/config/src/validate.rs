@@ -466,6 +466,12 @@ fn validate_runtime(
     }
 
     if let Some(device) = &runtime.network.direct_packet_device {
+        if device.write_queue.get() > 4096 {
+            return Err(ConfigError::InvalidRuntime(
+                "runtime.network.direct_packet_device.write_queue must be between 1 and 4096"
+                    .into(),
+            ));
+        }
         let binding_valid = match device.backend {
             crate::DirectPacketDeviceBackend::Descriptor => device.fd.is_some_and(|fd| fd >= 3),
             crate::DirectPacketDeviceBackend::Wintun => device.fd.is_none(),
