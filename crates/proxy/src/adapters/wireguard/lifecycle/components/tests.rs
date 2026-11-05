@@ -9,7 +9,8 @@ fn configuration() -> zero_config::RuntimeConfig {
     zero_config::RuntimeConfig::parse(&serde_json::json!({
         "inbounds":[{"tag":"wg-in","listen":{"address":"127.0.0.1","port":51820},
             "protocol":{"type":"wireguard","private_key":STANDARD.encode([1;32]),
-            "peers":[{"public_key":peer,"allowed_ips":["10.0.0.2/32"]}]}}],
+            "addresses":["10.0.0.1/24"],"mtu":1420,
+            "peers":[{"public_key":peer,"allowed_ips":["0.0.0.0/0"]}]}}],
         "outbounds":[{"tag":"wg-out","protocol":{"type":"wireguard","private_key":STANDARD.encode([1;32]),
             "inbound_tag":"wg-in","addresses":["10.0.0.1/24"],"mtu":1420,
             "peers":[{"public_key":peer,"endpoint":"127.0.0.1:51821","allowed_ips":["0.0.0.0/0"]}]}}],
