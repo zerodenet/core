@@ -156,12 +156,16 @@ impl PacketDeviceOwner {
                     Ok(granted)
                 }
                 Err(source) => {
-                    let failure = error(
+                    let unknown = matches!(source.outcome, TunAcquisitionOutcome::Unknown(_));
+                    let mut failure = error(
                         self.identity.instance().component,
                         Reason::Io,
                         "original Packet descriptor acquisition failed",
                     )
                     .with_source(source);
+                    if unknown {
+                        failure.delivery = zero_platform_tokio::contract::DeliveryState::Unknown;
+                    }
                     // Same controller retains its acquisition source. KnownNoNative
                     // must not become an unrelated sticky cleanup failure.
                     Err(failure)
@@ -338,3 +342,10 @@ impl std::error::Error for NativeSource {
         Some(self.0.as_ref())
     }
 }
+
+#[cfg(all(
+    test,
+    feature = "raw-ip-runtime",
+    any(target_os = "linux", target_os = "macos")
+))]
+mod tests;
