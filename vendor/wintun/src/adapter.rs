@@ -35,7 +35,11 @@ pub struct Adapter {
     adapter: UnsafeHandle<wintun_raw::WINTUN_ADAPTER_HANDLE>,
     wintun: Wintun,
     guid: u128,
+    identity: AdapterIdentity,
 }
+
+mod owned;
+pub use owned::{AdapterIdentity, AdapterOpenError, CloseAdapterReceipt};
 
 fn get_adapter_luid(wintun: &Wintun, adapter: wintun_raw::WINTUN_ADAPTER_HANDLE) -> NET_LUID_LH {
     let mut luid: wintun_raw::NET_LUID = unsafe { std::mem::zeroed() };
@@ -119,6 +123,7 @@ impl Adapter {
         } else {
             Ok(Arc::new(Adapter {
                 adapter: UnsafeHandle(result),
+                identity: AdapterIdentity::new(result as usize),
                 wintun: wintun.clone(),
                 guid,
             }))
@@ -146,28 +151,42 @@ impl Adapter {
         if result.is_null() {
             Err("WintunOpenAdapter failed".into())
         } else {
-            let mut guid = None;
-            util::get_adapters_addresses(|address: IP_ADAPTER_ADDRESSES_LH| {
-                let frindly_name = PCWSTR(address.FriendlyName.0 as *const u16);
-                let frindly_name = unsafe { frindly_name.to_string()? };
-                if frindly_name == name {
-                    let adapter_name = unsafe { address.AdapterName.to_string()? };
-                    let adapter_name_utf16: Vec<u16> = adapter_name
-                        .encode_utf16()
-                        .chain(std::iter::once(0))
-                        .collect();
-                    let adapter_name_ptr: *const u16 = adapter_name_utf16.as_ptr();
-                    let adapter = unsafe { CLSIDFromString(PCWSTR(adapter_name_ptr))? };
-                    guid = Some(adapter);
-                }
-                Ok(())
-            })?;
-            let guid = guid.ok_or("Unable to find matching GUID")?.to_u128();
-            Ok(Arc::new(Adapter {
+            // The exact original is installed before GUID discovery can fail.
+            let mut original = Adapter {
                 adapter: UnsafeHandle(result),
+                identity: AdapterIdentity::new(result as usize),
                 wintun: wintun.clone(),
-                guid,
-            }))
+                guid: 0,
+            };
+            let discover = || -> Result<u128, Error> {
+                let mut guid = None;
+                util::get_adapters_addresses(|address: IP_ADAPTER_ADDRESSES_LH| {
+                    let frindly_name = PCWSTR(address.FriendlyName.0 as *const u16);
+                    let frindly_name = unsafe { frindly_name.to_string()? };
+                    if frindly_name == name {
+                        let adapter_name = unsafe { address.AdapterName.to_string()? };
+                        let adapter_name_utf16: Vec<u16> = adapter_name
+                            .encode_utf16()
+                            .chain(std::iter::once(0))
+                            .collect();
+                        let adapter_name_ptr: *const u16 = adapter_name_utf16.as_ptr();
+                        let adapter = unsafe { CLSIDFromString(PCWSTR(adapter_name_ptr))? };
+                        guid = Some(adapter);
+                    }
+                    Ok(())
+                })?;
+                Ok(guid.ok_or("Unable to find matching GUID")?.to_u128())
+            };
+            match discover() {
+                Ok(guid) => {
+                    original.guid = guid;
+                    Ok(Arc::new(original))
+                }
+                Err(source) => Err(Error::Io(std::io::Error::other(AdapterOpenError::new(
+                    original.close_owned(),
+                    source,
+                )))),
+            }
         }
     }
 
@@ -455,7 +474,9 @@ impl Drop for Adapter {
     fn drop(&mut self) {
         //Close adapter on drop
         //This is why we need an Arc of wintun
-        unsafe { self.wintun.WintunCloseAdapter(self.adapter.0) };
-        self.adapter = UnsafeHandle(ptr::null_mut());
+        if !self.adapter.0.is_null() {
+            unsafe { self.wintun.WintunCloseAdapter(self.adapter.0) };
+            self.adapter = UnsafeHandle(ptr::null_mut());
+        }
     }
 }
