@@ -4,7 +4,7 @@ async fn actual_direct_role_recovers_business_dns_under_same_host_scope_and_clos
 ) {
     timeout(Duration::from_secs(12), async {
         for kind in crate::component::tests::business_carrier::sources::Kind::all() {
-            let (proxy, dns, stop_dns) = dns::proxy().await;
+            let (proxy, running, dns, stop_dns) = dns::proxy().await;
             let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
             let peer = listener.local_addr().unwrap();
             let policy = zero_traits::DialPolicy {
@@ -267,6 +267,7 @@ async fn actual_direct_role_recovers_business_dns_under_same_host_scope_and_clos
                 }
             }
             assert_eq!(accepted_receipts + closed.closed_io.len(), 4);
+            running.shutdown().await.unwrap();
         }
     })
     .await

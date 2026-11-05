@@ -155,6 +155,13 @@ impl ProxyHandle {
                     },
                 )
                 .await?;
+                // The temporary stop was Ready, not a second configuration
+                // publication. Retire its actual guard before the final pass.
+                #[cfg(feature = "raw-ip-runtime")]
+                self.proxy.protocols.discard_pending_device_candidates(
+                    tokio::time::Instant::now() + TIMEOUT,
+                ).await.map_err(|error| ApiError::new(ApiErrorCode::Internal, error.to_string()))?;
+                self.proxy.resolver.discard_prepared_reload();
                 // Allocate after the temporary stop so the final published
                 // intent revision cannot precede a visible stop revision.
                 candidate = self.proxy.engine.prepare_endpoint_change(
@@ -289,6 +296,12 @@ impl ProxyHandle {
                 .reconcile(snapshot.config().clone())
                 .await
                 .map_err(|message| ApiError::new(ApiErrorCode::Internal, message))?;
+        }
+        if !compensating {
+            // The accepted operation still owes persistence and application
+            // commit. Publishing here would discard last-good immutable recipes
+            // before the real outer commit can fail and request compensation.
+            return Ok(());
         }
         let token = self
             .retire_prepared_dns(TIMEOUT)

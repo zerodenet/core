@@ -3,6 +3,7 @@
 use super::*;
 pub(super) async fn proxy() -> (
     Proxy,
+    crate::runtime::RunningProxy,
     tokio::task::JoinHandle<usize>,
     tokio::sync::oneshot::Sender<()>,
 ) {
@@ -57,5 +58,12 @@ pub(super) async fn proxy() -> (
         queries
     });
     let config = zero_config::RuntimeConfig::parse(&format!(r#"{{"runtime":{{"dns":{{"servers":{{"actual":{{"type":"udp","host":"127.0.0.1","port":{}}}}},"default_server":"actual","policy":{{"address_family":"ipv4_only"}}}}}},"route":{{"final":{{"type":"direct"}}}}}}"#, address.port())).unwrap();
-    (Proxy::new(config).unwrap(), server, stop)
+    let proxy = Proxy::new(config).unwrap();
+    let mut ready = proxy.orchestration_ready.subscribe();
+    let running = proxy.spawn();
+    tokio::time::timeout_at(deadline(), ready.wait_for(|ready| *ready))
+        .await
+        .unwrap()
+        .unwrap();
+    (proxy, running, server, stop)
 }
