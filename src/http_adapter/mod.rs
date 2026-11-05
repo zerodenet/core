@@ -75,6 +75,9 @@ impl HttpServerAuth {
 }
 
 impl HttpServerHandle {
+    pub(crate) async fn wait_terminated(&self) -> io::Result<()> {
+        self.task.join().await
+    }
     pub async fn shutdown(&self) -> io::Result<()> {
         if let Some(shutdown) = self
             .shutdown
@@ -319,6 +322,10 @@ async fn run_server(
                         if let Err(error) = exit.result {
                             // Keep the actual original task failure in the accepted
                             // owner; client IO errors remain local to that session.
+                            if error.impact == Impact::Component && error.reason == Reason::Internal {
+                                failure.get_or_insert_with(|| io::Error::other(error));
+                                break;
+                            }
                             debug!(%error, "HTTP original handler joined with failure");
                         }
                     }

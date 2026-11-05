@@ -105,6 +105,10 @@ impl GrpcHandle {
         self.local_addr
     }
 
+    pub async fn wait_terminated(&self) -> std::io::Result<()> {
+        self.task.join().await
+    }
+
     pub async fn shutdown(&self) -> std::io::Result<()> {
         self.subscriptions.stop.store(true, Ordering::Release);
         if let Some(stop) = self.shutdown.lock().unwrap().take() {

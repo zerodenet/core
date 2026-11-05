@@ -28,6 +28,9 @@ pub struct IpcServerHandle {
 }
 
 impl IpcServerHandle {
+    pub(crate) async fn wait_terminated(&self) -> io::Result<()> {
+        self.task.join().await
+    }
     pub async fn shutdown(&self) -> io::Result<()> {
         if let Some(shutdown) = self
             .shutdown

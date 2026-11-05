@@ -27,6 +27,9 @@ pub struct IpcServerHandle {
 }
 
 impl IpcServerHandle {
+    pub(crate) async fn wait_terminated(&self) -> io::Result<()> {
+        self.task.join().await
+    }
     pub async fn shutdown(&self) -> io::Result<()> {
         if let Some(shutdown) = self
             .shutdown
@@ -319,5 +322,69 @@ async fn settle_connection(
                 failure.get_or_insert(error);
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod original_tests {
+    use super::*;
+    use std::{
+        future::{poll_fn, Future},
+        task::Poll,
+        time::Duration,
+    };
+    use tokio::io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader};
+
+    #[tokio::test]
+    async fn cancelled_ipc_shutdown_waiter_retains_actual_subscriber_and_native_originals() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("control.sock");
+        let proxy = zero_proxy::Proxy::new(
+            zero_config::RuntimeConfig::parse(
+                r#"{"route":{"rules":[],"final":{"type":"direct"}}}"#,
+            )
+            .unwrap(),
+        )
+        .unwrap();
+        let engine = zero_engine::EngineHandle::new(proxy.engine().clone());
+        let server = spawn_ipc_server(ProxyHandle::new(engine, proxy), &path)
+            .await
+            .unwrap();
+        let client = tokio::net::UnixStream::connect(&path).await.unwrap();
+        let mut client = BufReader::new(client);
+        client
+            .get_mut()
+            .write_all(b"{\"type\":\"subscribe\",\"events\":[\"test.never\"]}\n")
+            .await
+            .unwrap();
+        let mut ack = String::new();
+        client.read_line(&mut ack).await.unwrap();
+        assert!(
+            serde_json::from_str::<serde_json::Value>(&ack).unwrap()["ok"]
+                .as_bool()
+                .unwrap()
+        );
+        let mut stopping = Box::pin(server.shutdown());
+        poll_fn(|cx| {
+            assert!(stopping.as_mut().poll(cx).is_pending());
+            Poll::Ready(())
+        })
+        .await;
+        drop(stopping);
+        tokio::time::timeout(Duration::from_secs(2), server.shutdown())
+            .await
+            .unwrap()
+            .unwrap();
+        assert!(!path.exists());
+        assert!(server.originals.active.lock().unwrap().is_empty());
+        assert!(server.originals.activating.lock().unwrap().is_none());
+        let closed = server
+            .listener
+            .close(super::super::owner::close_deadline())
+            .await
+            .unwrap();
+        assert!(closed.had_native_acquisition());
+        assert!(server.listener.matches_closed(&closed));
+        assert_eq!(client.read(&mut [0]).await.unwrap(), 0);
     }
 }
