@@ -22,7 +22,13 @@ async fn hysteria2_actual_node_dns_replacement_waits_for_historical_view_and_ori
         let mut config=zero_config::RuntimeConfig::parse(&serde_json::json!({
             "outbounds":[{"tag":"hy","protocol":{"type":"hysteria2","server":"dns-generation.test","server_name":"localhost","port":server.port,"password":"p","insecure":true}}],
             "route":{"final":{"type":"route","outbound":"hy"}}
-        }).to_string()).unwrap();config.runtime.dns=Some(previous.config());
+        }).to_string()).unwrap();
+        // This test advances only DnsSystem's generation inside the existing
+        // host. Both real endpoints must already belong to that host's cold
+        // declaration; a newly introduced endpoint needs a host transaction.
+        let mut declared=previous.config();
+        declared.servers.insert("next".into(),next_dns.server());
+        config.runtime.dns=Some(declared);
         let proxy=Proxy::new(config).unwrap();start(&proxy).await;
         let mut first=Box::pin(connect(&proxy,"hy"));
         let request=tokio::select! {request=previous.request()=>request,_=&mut first=>panic!("Node DNS was bypassed")};

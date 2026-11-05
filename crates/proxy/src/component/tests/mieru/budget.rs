@@ -146,7 +146,35 @@ async fn ordinary_mieru_configured_total_budget_refuses_other_profiles_and_repla
             !replacing.is_finished(),
             "joined old driver is insufficient while its actual logical control is retained"
         );
-        assert!(original.owner().closed().is_none());
+        // Physical retirement can complete before the actual protocol loan
+        // returns. It is a native-only receipt, not a logical user ACK.
+        tokio::time::timeout_at(deadline(), async {
+            loop {
+                if let Some(closed) = original.closed() {
+                    assert!(closed.matches(&original) && closed.had_native_acquisition());
+                    break;
+                }
+                tokio::task::yield_now().await;
+            }
+        })
+        .await
+        .unwrap();
+        assert!(original.owner().closed().unwrap().matches(original.owner()));
+        assert!(first.owner.closed().is_none());
+        let retained = first
+            .owner
+            .close(tokio::time::Instant::now())
+            .await
+            .unwrap();
+        assert!(
+            !retained.is_complete(),
+            "actual logical view/control remains held"
+        );
+        assert!(first.owner.closed().is_none());
+        assert!(
+            !replacing.is_finished(),
+            "native close alone cannot ACK replacement"
+        );
         returned(first).await;
         replacing.await.unwrap().unwrap();
         assert!(original.closed().unwrap().matches(&original));
