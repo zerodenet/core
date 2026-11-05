@@ -15,7 +15,7 @@ pub(super) use invocation::LinkedInvocation;
 use std::sync::Arc;
 use tokio::sync::{mpsc, watch};
 use zero_config::{InboundConfig, OutboundConfig, OutboundProtocolConfig};
-use zero_core::component::NetworkGeneration;
+use zero_core::component::{ComponentId, ComponentInstanceId, NetworkGeneration};
 use zero_engine::EngineError;
 use zero_platform_tokio::contract::{network::UpstreamBinding, scope::TaskRegistrar};
 
@@ -23,6 +23,8 @@ pub(super) struct LinkedRecipeSettings {
     pub(super) identity: [u8; 32],
     pub(super) network_generation: NetworkGeneration,
     pub(super) stacks: Vec<RawIpStackOptions>,
+    /// Actual host cold-pass evidence; None requires a new immutable graph.
+    pub(super) dependencies: Vec<(ComponentId, Option<ComponentInstanceId>)>,
 }
 pub(super) struct LinkedEndpointRecipe {
     tag: String,
@@ -36,6 +38,7 @@ pub(super) struct LinkedEndpointRecipe {
     packets: mpsc::Receiver<crate::runtime::raw_ip::EndpointPacket>,
     static_identity: Arc<[u8]>,
     reuse: Option<std::sync::Weak<LinkedStackOptions>>,
+    dependencies: Vec<ComponentId>,
 }
 impl LinkedEndpointRecipe {
     /// No DNS, native handle, task registration or old receiver take occurs.
@@ -89,6 +92,14 @@ impl LinkedEndpointRecipe {
         for options in &settings.stacks {
             hash.update(options.identity(settings.identity));
         }
+        for (dependency, _) in &settings.dependencies {
+            hash.update(dependency.0.to_le_bytes());
+        }
+        let reusable_dependencies = settings
+            .dependencies
+            .iter()
+            .map(|(_, actual)| *actual)
+            .collect::<Option<Vec<_>>>();
         let static_identity: Arc<[u8]> = Arc::from(hash.finalize().to_vec());
         let staged = adapter
             .pending_endpoints
@@ -107,6 +118,11 @@ impl LinkedEndpointRecipe {
                     .get(&inbound.tag)
                     .and_then(|link| PendingLinkedEndpoint::from_ready(link.clone()).ok())
                     .and_then(|pending| pending.graph_for(&static_identity))
+            })
+            .filter(|graph| {
+                reusable_dependencies
+                    .as_ref()
+                    .is_some_and(|dependencies| graph.matches_dependencies(dependencies))
             });
         let pending = match &reused {
             Some(graph) => match graph.pending.ready() {
@@ -152,6 +168,11 @@ impl LinkedEndpointRecipe {
             packets,
             static_identity,
             reuse,
+            dependencies: settings
+                .dependencies
+                .into_iter()
+                .map(|(id, _)| id)
+                .collect(),
         })
     }
     /// The host grants the actual declared stack workers, never an invented

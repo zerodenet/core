@@ -48,13 +48,10 @@ impl Devices {
     ) -> Result<BTreeSet<ComponentId>, ChannelError> {
         #[cfg(feature = "wireguard")]
         if let Some(owner) = &self.wireguard {
-            let generation = self
-                .network
-                .as_ref()
-                .and_then(std::sync::Weak::upgrade)
-                .map(|network| network.egress.generation());
+            let network = self.network.as_ref().and_then(std::sync::Weak::upgrade);
+            let generation = network.as_ref().map(|network| network.egress.generation());
             return owner
-                .prepare_component_resources(config, resources, generation)
+                .prepare_component_resources(config, resources, generation, network)
                 .map_err(|source| {
                     ChannelError::new(Stage::Prepare, Reason::InvalidConfig, Impact::Component)
                         .with_source(source)

@@ -114,6 +114,7 @@ async fn same_canonical_slot_registers_the_original_workers_and_confirms_them_be
             identity: link.state.lock().unwrap().identity,
             network_generation: NetworkGeneration(upstream.egress_generation()),
             stacks: vec![Default::default()],
+            dependencies: Vec::new(),
         },
     )
     .unwrap();

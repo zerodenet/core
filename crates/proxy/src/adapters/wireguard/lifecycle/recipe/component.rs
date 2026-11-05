@@ -1,6 +1,9 @@
 //! Same passive graph and original futures, owned by one canonical host slot.
 use super::*;
-use std::{num::NonZeroUsize, sync::Mutex};
+use std::{
+    num::NonZeroUsize,
+    sync::{Mutex, OnceLock},
+};
 use zero_platform_tokio::contract::{
     component::{
         BuildContext, ComponentFactory, ComponentInstance, ComponentRoles, ComponentSpec,
@@ -19,6 +22,7 @@ pub(in crate::adapters::wireguard) struct LinkedStackOptions {
     pub(super) pending: Arc<PendingLinkedEndpoint>,
     peers: usize,
     stacks: Mutex<Option<Vec<EndpointStackRecipe>>>,
+    dependencies: OnceLock<Arc<[ComponentInstanceId]>>,
 }
 impl LinkedStackOptions {
     pub(super) fn new(
@@ -30,7 +34,7 @@ impl LinkedStackOptions {
             spec: ComponentSpec {
                 owner: ResourceOwner::Component,
                 roles: Vec::new(),
-                dependencies: Vec::new(),
+                dependencies: recipe.dependencies.clone(),
                 static_identity: recipe.static_identity.clone(),
                 // These are virtual client stacks. The original inbound owns
                 // its wire socket; no native permission is borrowed here.
@@ -45,10 +49,36 @@ impl LinkedStackOptions {
             pending: recipe.pending.clone(),
             peers: stacks.len(),
             stacks: Mutex::new(Some(stacks)),
+            dependencies: OnceLock::new(),
         })
     }
     pub(in crate::adapters::wireguard) fn matches_identity(&self, identity: &[u8]) -> bool {
         self.spec.static_identity.as_ref() == identity
+    }
+    pub(super) fn matches_dependencies(&self, actual: &[ComponentInstanceId]) -> bool {
+        (self.spec.dependencies.is_empty() && actual.is_empty())
+            || self
+                .dependencies
+                .get()
+                .is_some_and(|installed| installed.as_ref() == actual)
+    }
+    fn bind_dependencies(&self, actual: &[ComponentInstanceId]) -> Result<(), EngineError> {
+        if actual.len() != self.spec.dependencies.len()
+            || actual
+                .iter()
+                .any(|dependency| !self.spec.dependencies.contains(&dependency.component))
+        {
+            return Err(invalid(
+                "linked graph differs from its actual declared dependencies",
+            ));
+        }
+        let installed = self.dependencies.get_or_init(|| Arc::from(actual));
+        if installed.as_ref() != actual {
+            return Err(invalid(
+                "linked graph cannot reuse consumed options across dependency generations",
+            ));
+        }
+        Ok(())
     }
     pub(in crate::adapters::wireguard::lifecycle) fn apply_traffic(
         &self,
@@ -112,6 +142,9 @@ impl ComponentFactory for LinkedStackFactory {
     ) -> Result<ComponentInstance, BuildError> {
         // No task runs in build. The host-installed lifecycle owns Options
         // before start, and each peer retains only this original weak authority.
+        options
+            .bind_dependencies(&context.dependencies)
+            .map_err(prepare_error)?;
         options
             .bind(context.tasks.downgrade())
             .map_err(prepare_error)?;

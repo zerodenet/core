@@ -42,6 +42,7 @@ impl WireguardAdapter {
         config: &Arc<zero_config::RuntimeConfig>,
         resources: &mut crate::component::ResourcePreparation<'_>,
         generation: Option<u64>,
+        network: Option<Arc<crate::component::background::BackgroundNetwork>>,
     ) -> Result<BTreeSet<ComponentId>, EngineError> {
         let admission = zero_engine::EndpointAdmission::from_config(config);
         let outbounds = config
@@ -93,6 +94,20 @@ impl WireguardAdapter {
                 .find(|inbound| &inbound.tag == tag)
                 .ok_or_else(|| invalid("linked WireGuard inbound missing"))?;
             let plan = Arc::new(WireguardRawIpPlan::from_protocol(&outbound.protocol)?);
+            let needs_node_dns = (0..plan.peer_count()).any(|peer| {
+                plan.peer_endpoint(peer)
+                    .is_some_and(|(host, _)| host.parse::<IpAddr>().is_err())
+            });
+            let dependencies = if needs_node_dns {
+                let network = network.as_ref().ok_or_else(|| {
+                    invalid("linked Domain peer requires its actual Node DNS owner")
+                })?;
+                let dns = crate::component::native_dns::prepare_node(resources, network.clone())
+                    .map_err(|source| EngineError::Io(std::io::Error::other(source)))?;
+                vec![(dns, resources.reusable_resource_instance(dns))]
+            } else {
+                Vec::new()
+            };
             let identity = options.identity(
                 protocol_identity(&outbound.protocol)
                     .ok_or_else(|| invalid("cannot identify linked WireGuard outbound"))?,
@@ -114,6 +129,7 @@ impl WireguardAdapter {
                     identity,
                     network_generation: NetworkGeneration(generation),
                     stacks: vec![options.clone(); peers],
+                    dependencies,
                 },
             )?;
             if entries
