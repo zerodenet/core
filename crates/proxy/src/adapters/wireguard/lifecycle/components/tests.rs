@@ -65,6 +65,14 @@ async fn production_candidate_owns_cold_invocation_then_installs_only_its_starte
         pending.invocations.lock().await.get("wg-in").unwrap(),
         recipe::retained::RetainedInvocation::Resolved(_)
     ));
+    let traffic_count = pending.traffic.lock().unwrap().len();
+    // Resuming a pass after another device suspended must keep this original
+    // resolution, receiver and meter, rather than resolving a fresh invocation.
+    adapter
+        .resolve_component_resources(&config, &services, deadline(), CancellationToken::new())
+        .await
+        .unwrap();
+    assert_eq!(pending.traffic.lock().unwrap().len(), traffic_count);
     assert!(pending.get("wg-in").unwrap().ready().is_none());
     catalog
         .start_device_components(config.clone(), deadline())

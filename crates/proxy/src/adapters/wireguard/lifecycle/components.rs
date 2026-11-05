@@ -194,7 +194,8 @@ impl WireguardAdapter {
                     .traffic
                     .lock()
                     .unwrap_or_else(|e| e.into_inner())
-                    .push(prepared);
+                    .entry(tag.clone())
+                    .or_insert(prepared);
             }
         }
         Ok(())

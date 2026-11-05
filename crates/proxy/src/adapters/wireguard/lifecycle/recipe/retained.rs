@@ -42,7 +42,7 @@ impl RetainedInvocation {
                 }
                 Ok(())
             }
-            Self::Resolved(_) => Err(invalid("same candidate was already resolved")),
+            Self::Resolved(invocation) => invocation.validate_retained(upstream, &demand),
             Self::Failed(source) => Err(retained_error(source.clone())),
             Self::Transitioning => Err(invalid("linked invocation transition is unfinished")),
         }

@@ -249,9 +249,10 @@ impl WireguardAdapter {
             );
         }
         let pending = if let Some(candidate) = cold {
-            traffic.extend(std::mem::take(
-                &mut *candidate.traffic.lock().unwrap_or_else(|e| e.into_inner()),
-            ));
+            traffic.extend(
+                std::mem::take(&mut *candidate.traffic.lock().unwrap_or_else(|e| e.into_inner()))
+                    .into_values(),
+            );
             PendingEndpoints::adopt(self.pending_endpoints.clone(), candidate)?
         } else {
             PendingEndpoints::install(

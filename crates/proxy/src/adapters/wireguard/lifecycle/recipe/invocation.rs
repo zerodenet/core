@@ -99,6 +99,28 @@ impl LinkedInvocation {
     }
 }
 impl ResolvedLinkedInvocation {
+    pub(super) fn validate_retained(
+        &self,
+        upstream: &UpstreamConnectServices,
+        demand: &PacketCarrierDemand,
+    ) -> Result<(), EngineError> {
+        // A resumed multi-device pass may encounter this completed original.
+        // Do not replace its cancellation/deadline or repeat its DNS work.
+        self.demand.validate()?;
+        demand.validate()?;
+        self.recipe.check_staged()?;
+        if !matches!(&demand.identity, RequestIdentity::Service(_))
+            || demand.binding != self.recipe.binding
+            || upstream.egress_generation() != self.recipe.binding.network_generation.0
+            || self.egress.generation() != self.recipe.binding.network_generation.0
+        {
+            return Err(invalid(
+                "resumed linked demand differs from its actual original",
+            ));
+        }
+        Ok(())
+    }
+
     pub(super) fn binding(&self) -> UpstreamBinding {
         self.recipe.binding.clone()
     }
