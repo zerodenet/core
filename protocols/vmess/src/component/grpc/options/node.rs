@@ -1,4 +1,4 @@
-//! Production Datagram-only ownership; no adoption of legacy TCP/relay clients.
+//! One production Node owner; Stream admission is an explicit whole-config choice.
 use super::*;
 use std::{
     collections::hash_map::RandomState,
@@ -44,6 +44,38 @@ impl Options {
         TWs: WebSocketTransportProfile + ?Sized,
         TGrpc: GrpcTransportProfile + ?Sized,
     {
+        Self::from_node_options_refs_with_streams_at(
+            input,
+            dial,
+            source_dir,
+            ca_max_bytes,
+            carrier_limit,
+            cleanup_budget,
+            runtime,
+            false,
+        )
+    }
+    /// The host may enable Streams only after excluding every compatibility
+    /// Stream caller for this complete owning configuration.
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "same Node recipe plus explicit whole-config admission"
+    )]
+    pub fn from_node_options_refs_with_streams_at<TTls, TWs, TGrpc>(
+        input: crate::transport::VmessOutboundBuildOptionsRef<'_, TTls, TWs, TGrpc>,
+        dial: DialPolicy,
+        source_dir: Option<&Path>,
+        ca_max_bytes: Option<NonZeroUsize>,
+        carrier_limit: NonZeroUsize,
+        cleanup_budget: Duration,
+        runtime: &crate::transport::VmessTransportRuntime,
+        streams: bool,
+    ) -> Result<Self, Error>
+    where
+        TTls: ClientTlsProfile + ?Sized,
+        TWs: WebSocketTransportProfile + ?Sized,
+        TGrpc: GrpcTransportProfile + ?Sized,
+    {
         let tag = input.tag.to_owned();
         if cleanup_budget.is_zero() {
             return Err(Error::Config(
@@ -76,9 +108,11 @@ impl Options {
             format!("{:?}", options.grpc).hash(&mut hash);
             carrier_limit.hash(&mut hash);
             cleanup_budget.hash(&mut hash);
+            streams.hash(&mut hash);
             identity.extend_from_slice(&hash.finish().to_le_bytes());
         }
         options.identity = identity.into();
+        options.node_streams = streams;
         options.state = runtime.grpc_datagram_state(options.identity.clone(), options.state)?;
         Ok(options)
     }

@@ -1,6 +1,8 @@
-//! Cold production Datagram selection over the protocol's actual gRPC owner.
+//! Cold production role selection over the protocol's actual gRPC owner.
+mod production;
 use super::*;
 use crate::component::background::stateless;
+pub(crate) use production::streams_selected;
 use std::{num::NonZeroUsize, sync::Arc, time::Duration};
 use zero_platform_tokio::contract::{
     component::{BuildContext, ComponentFactory, ComponentInstance, ComponentSpec},
@@ -112,7 +114,7 @@ impl super::super::VmessAdapter {
             .expect("owning protocol projection");
         // Same ceiling as the existing active+retiring Datagram host admissions.
         // Neither the task limit nor native limit allocates idle sockets/tasks.
-        ::vmess::component::grpc::Options::from_node_options_refs_at(
+        ::vmess::component::grpc::Options::from_node_options_refs_with_streams_at(
             refs,
             input.dial.to_policy(),
             candidate.and_then(|config| config.source_dir()),
@@ -123,9 +125,18 @@ impl super::super::VmessAdapter {
                         zero_config::RuntimeOptionsConfig::default().effective_file_read_max_bytes()
                     }),
             ),
-            NonZeroUsize::new(4096).unwrap(),
+            NonZeroUsize::new(
+                candidate
+                    .map(|config| config.runtime.effective_vmess_grpc_max_originals())
+                    .unwrap_or(4096),
+            )
+            .filter(|limit| limit.get() <= 4096)
+            .ok_or_else(|| {
+                ConfigError::InvalidRuntime("invalid actual VMess gRPC original limit".into())
+            })?,
             Duration::from_secs(5),
             &self.runtime,
+            streams_selected(input, candidate, self.native_node_dns),
         )
         .map(|options| Options::Grpc(Arc::new(options)))
         .map_err(|source| {

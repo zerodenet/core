@@ -260,11 +260,19 @@ impl VmessAdapter {
             !component::grpc::selected(outbound, Some(config), self.native_node_dns),
             leaf.as_ref(),
         );
-        let (tcp, tcp_relay) = super::tcp::transport_operations(leaf);
+        let (tcp, tcp_relay) =
+            if component::grpc::streams_selected(outbound, Some(config), self.native_node_dns) {
+                // Every configured caller now selects the same Node Managed owner.
+                // No compatibility TCP executor may create a second original.
+                (None, None)
+            } else {
+                let (tcp, tcp_relay) = super::tcp::transport_operations(leaf);
+                (Some(tcp), Some(tcp_relay))
+            };
         Some(OutboundLeafClaim {
             tcp_path: TCP_PATH,
-            tcp: Some(tcp),
-            tcp_relay: Some(tcp_relay),
+            tcp,
+            tcp_relay,
             udp: Some(udp),
             udp_relay: Some(udp_relay),
             #[cfg(feature = "raw-ip-runtime")]

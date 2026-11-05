@@ -21,7 +21,9 @@ impl ComponentFactory for Factory {
     type Options = Options;
     fn describe(&self, options: &Options) -> ComponentSpec {
         let mut spec = super::super::Factory.describe(&options.base);
-        spec.roles = if options.node() {
+        spec.roles = if options.node_streams {
+            vec![RoleKind::Stream, RoleKind::Datagram]
+        } else if options.node() {
             vec![RoleKind::Datagram]
         } else {
             vec![RoleKind::Stream]
@@ -42,6 +44,17 @@ impl ComponentFactory for Factory {
             },
             None => ResourceDeclaration::BackgroundCarrier,
         });
+        if options.node_streams {
+            // Service borrowing uses its own typed background authority, but
+            // shares this component's one records table, total cap and Scope.
+            spec.resources
+                .push(ResourceDeclaration::ControlledCarrierPool {
+                    endpoint: options.base.endpoint.clone(),
+                    dial: options.base.dial.clone(),
+                    datagram: false,
+                    max_sockets: options.cap,
+                });
+        }
         spec.task_limit = Some(options.cap);
         spec
     }
@@ -101,6 +114,10 @@ impl ComponentFactory for Factory {
         };
         let cancel = context.cancel.child_token();
         let carriers = CarrierOwner::new(instance, options.cap, &cancel);
+        let service_carriers = options
+            .node_streams
+            .then(|| CarrierOwner::new(instance, options.cap, &cancel));
+        let native_budget = Arc::new(tokio::sync::Semaphore::new(options.cap.get()));
         let managed = Arc::new(Managed {
             instance,
             options,
@@ -111,12 +128,14 @@ impl ComponentFactory for Factory {
             cancel,
             ready: AtomicBool::new(false),
             grants: carriers.grants(),
+            service_grants: service_carriers.as_ref().map(CarrierOwner::grants),
             records: Mutex::new(Vec::new()),
+            native_budget,
             network: tokio::sync::Mutex::new(None),
         });
         Ok(ComponentInstance {
             roles: ComponentRoles {
-                stream: (!managed.options.node())
+                stream: (!managed.options.node() || managed.options.node_streams)
                     .then(|| erase_stream(super::connect::Outbound(managed.clone()))),
                 datagram: managed.options.node().then(|| {
                     zero_platform_tokio::contract::datagram::erase_datagram(
@@ -128,6 +147,7 @@ impl ComponentFactory for Factory {
             lifecycle: erase_lifecycle(Owner {
                 managed,
                 carriers,
+                service_carriers,
                 base,
                 attempted: false,
                 resources,
@@ -139,6 +159,7 @@ impl ComponentFactory for Factory {
 struct Owner {
     managed: Arc<Managed>,
     carriers: CarrierOwner,
+    service_carriers: Option<CarrierOwner>,
     base: Box<dyn DynResourceLifecycle>,
     attempted: bool,
     resources: Arc<dyn ResourceAccess>,
@@ -177,8 +198,18 @@ impl ResourceLifecycle for Owner {
                 &self.managed.tasks,
             )?;
         }
+        if let Some(service) = &self.service_carriers {
+            self.resources.register_controlled_carrier(
+                self.carrier_ordinal + 1,
+                service.registration(),
+                &self.managed.tasks,
+            )?;
+        }
         self.base.start(deadline).await?;
         self.carriers.start(deadline).await?;
+        if let Some(service) = &mut self.service_carriers {
+            service.start(deadline).await?;
+        }
         if self.managed.cancel.is_cancelled() || self.managed.tasks.cancellation().is_cancelled() {
             return Err(error(
                 self.managed.instance,
@@ -192,13 +223,22 @@ impl ResourceLifecycle for Owner {
     fn revoke(&self, reason: CloseReason) {
         self.managed.stop();
         self.carriers.revoke();
+        if let Some(service) = &self.service_carriers {
+            service.revoke();
+        }
         self.base.revoke(reason);
     }
     async fn shutdown(&mut self, deadline: Instant) -> Result<CloseReport, BuildError> {
         self.revoke(CloseReason::Shutdown);
-        let (base, physical) = tokio::join!(
+        let (base, physical, service) = tokio::join!(
             self.base.shutdown(deadline),
-            self.carriers.shutdown(deadline)
+            self.carriers.shutdown(deadline),
+            async {
+                match &mut self.service_carriers {
+                    Some(service) => service.shutdown(deadline).await,
+                    None => Ok(CloseReport::default()),
+                }
+            },
         );
         let records = self.managed.records.lock().unwrap().clone();
         for record in records {
@@ -206,6 +246,7 @@ impl ResourceLifecycle for Owner {
         }
         let mut report = base?;
         report.append(physical?);
+        report.append(service?);
         self.managed
             .records
             .lock()
@@ -216,7 +257,14 @@ impl ResourceLifecycle for Owner {
                 "VMess original gRPC carriers remain unconfirmed".into(),
             ));
         }
+        let service_closed = self.service_carriers.as_ref().is_none_or(|owner| {
+            owner
+                .registration()
+                .closed()
+                .is_some_and(|closed| closed.matches(&owner.registration()))
+        });
         if self.managed.options.node()
+            && service_closed
             && report.is_complete()
             && self
                 .carriers

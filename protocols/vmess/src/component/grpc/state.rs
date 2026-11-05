@@ -19,11 +19,19 @@ pub(super) struct Managed {
     pub(super) cancel: CancellationToken,
     pub(super) ready: AtomicBool,
     pub(super) grants: CarrierGrants,
+    pub(super) service_grants: Option<CarrierGrants>,
     pub(super) records: Mutex<Vec<Arc<Record>>>,
-    pub(super) network: tokio::sync::Mutex<Option<zero_core::component::NetworkGeneration>>,
+    pub(super) native_budget: Arc<tokio::sync::Semaphore>,
+    pub(super) network: tokio::sync::Mutex<
+        Option<(
+            zero_core::component::NetworkGeneration,
+            Option<zero_platform_tokio::contract::dns::DnsGeneration>,
+        )>,
+    >,
 }
 pub(super) struct Record {
     pub(super) adoption: CarrierAdoption,
+    pub(super) capacity: Mutex<Option<tokio::sync::OwnedSemaphorePermit>>,
     pub(super) witness: Mutex<Option<TaskJoinWitness>>,
     pub(super) received: Mutex<Option<TaskJoined>>,
     pub(super) accepted: AtomicBool,
@@ -32,6 +40,7 @@ pub(super) struct Record {
     pub(super) done: AtomicBool,
     // Actual logical view returned to the caller, distinct from driver body exit.
     pub(super) user_live: AtomicBool,
+    pub(super) tracked_view: bool,
 }
 pub(super) struct Opening(pub(super) Arc<Record>, pub(super) std::sync::Weak<Managed>);
 impl Drop for Opening {
@@ -75,19 +84,34 @@ impl Record {
         if self.user_live.load(Ordering::Acquire) || !self.failure_accepted() {
             return false;
         }
+        if self.tracked_view
+            && !self
+                .adoption
+                .users_closed()
+                .is_some_and(|closed| closed.matches(&self.adoption))
+        {
+            return false;
+        }
         let Some(closed) = self.adoption.closed() else {
             return false;
         };
         if !closed.matches(&self.adoption) || closed.instance() != self.adoption.instance() {
             return false;
         }
-        match (self.witness.lock().unwrap().as_ref(), closed.driver_exit()) {
+        let complete = match (self.witness.lock().unwrap().as_ref(), closed.driver_exit()) {
             (None, None) => !self.opening.load(Ordering::Acquire),
             (Some(witness), Some(exit)) => witness
                 .try_joined()
                 .is_some_and(|joined| joined.id() == exit.id() && joined.class() == exit.class()),
             _ => false,
+        };
+        if complete {
+            // No historical control or receipt handle may retain admission.
+            // This is reached only after the actual original, view and driver
+            // matched above and its original task failure was accepted.
+            self.capacity.lock().unwrap().take();
         }
+        complete
     }
 }
 impl Managed {

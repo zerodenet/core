@@ -1,13 +1,13 @@
 use super::{
-    state::{Body, Managed, Opening, Record},
+    state::{Managed, Opening, Record},
     *,
 };
 use std::sync::atomic::AtomicBool;
 use zero_platform_tokio::contract::{
     context::{with_deadline, OpenContext},
     network::CarrierContext,
-    scope::TaskClass,
 };
+mod prepare;
 mod stream;
 mod wait;
 pub(super) struct Outbound(pub(super) Arc<Managed>);
@@ -24,7 +24,7 @@ impl Managed {
             .map_err(|source| owner.admission.attach(source, session))?;
         let upstream = match (&owner.options.business, &owner.upstream) {
             (Some(business), None)
-                if session.is_some()
+                if (session.is_some() || owner.options.node_streams)
                     && (business.binding.as_ref() == Some(context.upstream.binding())
                         || (owner.options.node()
                             && context.upstream.binding().dial == owner.options.base.dial)) =>
@@ -87,13 +87,22 @@ impl Managed {
             None
         };
         let selected = context.upstream.binding().network_generation;
-        let dns_generation = context.upstream.carrier_dns_generation();
+        let dns_generation = matches!(
+            owner.options.base.endpoint.address,
+            zero_core::Address::Domain(_)
+        )
+        .then(|| context.upstream.carrier_dns_generation())
+        .flatten();
         if network
             .as_ref()
-            .is_some_and(|network| network.is_some_and(|old| old != selected))
+            .is_some_and(|network| network.is_some_and(|old| old != (selected, dns_generation)))
         {
             // Do not open on a new network while originals on the old network
             // still have logical users, drivers or unconfirmed native controls.
+            let records = owner.records.lock().unwrap().clone();
+            for record in records {
+                record.stop.cancel();
+            }
             owner.reap(cleanup_deadline).await?;
             if !owner.records.lock().unwrap().is_empty() {
                 return Err(owner.admission.error(
@@ -109,12 +118,37 @@ impl Managed {
             .await
             .map_err(|source| owner.admission.attach(source, session))?;
         if let Some(network) = network.as_mut() {
-            **network = Some(selected);
+            **network = Some((selected, dns_generation));
         }
         let mut last_connect: Option<ChannelError> = None;
         loop {
-            let mut grant = owner
-                .grants
+            // Both typed issuers share this one actual owner budget. A
+            // failed or retiring original keeps it until matching cleanup.
+            let capacity = owner
+                .native_budget
+                .clone()
+                .try_acquire_owned()
+                .map_err(|source| {
+                    owner
+                        .admission
+                        .error(
+                            session,
+                            Stage::Prepare,
+                            Reason::Capacity,
+                            DeliveryState::NotSubmitted,
+                        )
+                        .with_source(source)
+                })?;
+            let service = owner.options.node_streams && session.is_none();
+            let grants = if service {
+                owner
+                    .service_grants
+                    .as_ref()
+                    .expect("Node Service authority")
+            } else {
+                &owner.grants
+            };
+            let mut grant = grants
                 .reserve()
                 .map_err(|source| owner.admission.attach(source, session))?;
             // This one lease starts before physical preparation, remains with this
@@ -133,6 +167,7 @@ impl Managed {
             };
             let record = Arc::new(Record {
                 adoption: grant.adoption(),
+                capacity: Mutex::new(Some(capacity)),
                 witness: Mutex::new(None),
                 received: Mutex::new(None),
                 accepted: AtomicBool::new(false),
@@ -140,20 +175,42 @@ impl Managed {
                 opening: AtomicBool::new(true),
                 done: AtomicBool::new(false),
                 user_live: AtomicBool::new(false),
+                tracked_view: user_view.is_some(),
             });
             owner.records.lock().unwrap().push(record.clone());
             let _opening = Opening(record.clone(), Arc::downgrade(owner));
+            // The original is installed before releasing epoch admission.
+            // No mutex spans a borrow into another (possibly same) Node role.
+            drop(network.take());
+            if service {
+                if let Some(waiting) = context.upstream.observed_pending_carrier() {
+                    waiting.retain(record.adoption.clone())?;
+                }
+            }
             // Persistent same-slot record precedes native socket creation and await.
             // Identity is passed unchanged; a Service-only provider rejects business.
-            let acquiring = upstream.acquire_controlled_stream(
-                owner.options.base.endpoint.clone(),
-                CarrierContext {
-                    session,
-                    deadline: context.deadline,
-                    cancel: record.stop.clone(),
-                },
-                grant,
-            );
+            let call = CarrierContext {
+                session,
+                deadline: context.deadline,
+                cancel: record.stop.clone(),
+            };
+            let acquiring = async {
+                if service && !upstream.binding().prefix.is_empty() {
+                    let loan = upstream
+                        .borrow_stream(owner.options.base.endpoint.clone(), call.clone())
+                        .await?;
+                    grant.adopt_stream_loan(
+                        upstream.binding(),
+                        owner.options.base.endpoint.clone(),
+                        &call,
+                        loan,
+                    )
+                } else {
+                    upstream
+                        .acquire_controlled_stream(owner.options.base.endpoint.clone(), call, grant)
+                        .await
+                }
+            };
             let io = match owner
                 .wait(context, Stage::Dial, acquiring)
                 .await
@@ -201,89 +258,16 @@ impl Managed {
                     })
                 }
             };
-            let preparing = io.prepare_driver(|io| async {
-                let io = zero_transport::TcpRelayStream::new(super::super::carrier::Carrier::new(
-                    Box::pin(io),
-                ));
-                let io = if let Some(prepared) = prepared_tls {
-                    prepared.connect(io, &owner.options.base.server).await?
-                } else if let Some(tls) = &owner.options.base.tls {
-                    zero_transport::tls::connect_tls_stream(
-                        io,
-                        tls,
-                        None,
-                        &owner.options.base.server,
-                    )
-                    .await?
-                } else {
-                    io
-                };
-                let settings = io
-                    .application_settings()
-                    .filter(|settings| settings.protocol == b"h2")
-                    .map(|settings| settings.peer.clone());
-                zero_transport::grpc::PreparedSingleClient::prepare(
+            let io = owner
+                .prepare_stream(
                     io,
-                    &owner.options.grpc,
-                    &owner.options.authority,
-                    settings.as_deref(),
+                    record.clone(),
+                    prepared_tls,
+                    context,
+                    user_view,
+                    (selected, dns_generation),
                 )
-                .await
-            });
-            let tag = owner
-                .wait(context, Stage::Handshake, async {
-                    preparing.await.map_err(|source| {
-                        owner
-                            .admission
-                            .error(
-                                session,
-                                Stage::Handshake,
-                                Reason::Io,
-                                DeliveryState::NotSubmitted,
-                            )
-                            .with_source(source)
-                    })
-                })
                 .await?;
-            let (io, driver) = tag.split(zero_transport::grpc::PreparedSingleClient::into_parts);
-            let body = Body(record.clone());
-            let stop = record.stop.clone();
-            let scope_stop = owner.tasks.cancellation();
-            let instance = owner.instance;
-            let (_,witness) = record.adoption.spawn_driver(&owner.tasks,TaskClass::Auxiliary,driver,|driver|async move {
-            let _body = body;
-            tokio::select! { biased;
-                _=stop.cancelled()=>Ok(()),
-                _=scope_stop.cancelled()=>Ok(()),
-                result=driver=>result.map_err(|source|{
-                    let mut error = error(instance,Stage::Receive,Reason::Io).with_source(source);
-                    error.delivery = DeliveryState::Unknown; error.session = session; error
-                }),
-            }
-        }).map_err(|source|owner.admission.attach(source,session))?;
-            *record.witness.lock().unwrap() = Some(witness);
-            owner
-                .check()
-                .map_err(|source| owner.admission.attach(source, session))?;
-            if owner.options.node()
-                && (
-                    context.upstream.binding().network_generation,
-                    context.upstream.carrier_dns_generation(),
-                ) != (selected, dns_generation)
-            {
-                record.stop.cancel();
-                return Err(owner.admission.error(
-                    session,
-                    Stage::Handshake,
-                    Reason::StalePlan,
-                    DeliveryState::NotSubmitted,
-                ));
-            }
-            let io = zero_transport::TcpRelayStream::new(super::wire::Stream::new(
-                io,
-                record.clone(),
-                user_view,
-            ));
             return Ok((io, record));
         }
     }

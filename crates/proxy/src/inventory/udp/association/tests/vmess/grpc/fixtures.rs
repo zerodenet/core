@@ -245,8 +245,8 @@ pub(super) fn assert_no_legacy_udp(proxy: &Proxy) {
     };
     let claim = proxy.protocols.claim_outbound_leaf(&config, leaf).unwrap();
     assert!(
-        claim.tcp_connect_for_route(RouteMode::Flow).is_ok(),
-        "TCP compatibility remains executable"
+        claim.tcp_connect_for_route(RouteMode::Flow).is_err(),
+        "the whole qualified Node uses its original Managed Stream owner"
     );
     assert!(claim.into_udp_flow_for_route(RouteMode::Flow).is_err());
 }

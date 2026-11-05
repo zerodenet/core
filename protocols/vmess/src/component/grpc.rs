@@ -1,4 +1,4 @@
-//! Explicit library-only per-connection gRPC ownership; no Client reuse/pool.
+//! One per-connection gRPC owner shared by its qualified Node roles; no Client cache.
 mod options;
 pub use options::Options;
 mod lifecycle;
