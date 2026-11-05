@@ -151,6 +151,11 @@ where
         if let Some(tasks) = self.current_tasks()? {
             tasks.ensure_open()?;
         }
+        self.ensure_local_open()
+    }
+    /// Synthetic answers and cache hits borrow no task or native original.
+    /// Their local lifecycle remains fenced even before a host is started.
+    pub(super) fn ensure_local_open(&self) -> io::Result<()> {
         let mut state = self.state.lock().expect("DNS coordinator poisoned");
         state.reap_finished();
         if state.closing {
