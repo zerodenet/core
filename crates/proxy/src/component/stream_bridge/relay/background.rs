@@ -17,6 +17,13 @@ impl BackgroundPath<'_> {
         self,
         services: &TcpExecutionServices,
     ) -> Result<UpstreamTransport, ChannelError> {
+        self.select_observed(services, None).await
+    }
+    pub(crate) async fn select_observed(
+        self,
+        services: &TcpExecutionServices,
+        waiting: Option<zero_platform_tokio::contract::network::PendingCarrierObserver>,
+    ) -> Result<UpstreamTransport, ChannelError> {
         let Self {
             nodes,
             binding,
@@ -55,18 +62,19 @@ impl BackgroundPath<'_> {
                 "background prefix requires an actual endpoint role",
             )
         })?;
-        let root = Arc::new(NodeOpener::new(
-            services.upstream_observed(first.tag.as_deref().unwrap_or("")),
-            first_endpoint.clone(),
-        ));
-        let mut upstream = UpstreamTransport::new(
-            UpstreamBinding {
-                prefix: vec![],
-                dial: first.dial.clone(),
-                network_generation: binding.network_generation,
-            },
-            root,
+        let root_binding = UpstreamBinding {
+            prefix: vec![],
+            dial: first.dial.clone(),
+            network_generation: binding.network_generation,
+        };
+        let root = Arc::new(
+            NodeOpener::new(
+                services.upstream_observed(first.tag.as_deref().unwrap_or("")),
+                first_endpoint.clone(),
+            )
+            .with_pending(root_binding.clone(), waiting),
         );
+        let mut upstream = UpstreamTransport::new(root_binding, root);
         for (index, node) in nodes.iter().enumerate() {
             if index != 0 && node.slot.recipe.spec().resources.iter().any(|resource| matches!(resource,
                 zero_platform_tokio::contract::component::ResourceDeclaration::ControlledCarrierPool { .. })) {

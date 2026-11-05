@@ -101,6 +101,8 @@ impl Request<'_> {
 pub(super) struct BorrowRequest<'a> {
     pub udp: bool,
     pub upstream: zero_platform_tokio::contract::network::UpstreamTransport,
+    pub provider: zero_platform_tokio::contract::network::UpstreamTransport,
+    pub waiting: Option<zero_platform_tokio::contract::network::PendingCarrierObserver>,
     pub endpoint: zero_core::request::Destination,
     pub username: &'a str,
     pub password: &'a str,
@@ -116,6 +118,8 @@ impl BorrowRequest<'_> {
         let Self {
             udp,
             upstream,
+            provider,
+            waiting,
             endpoint,
             username,
             password,
@@ -134,6 +138,33 @@ impl BorrowRequest<'_> {
             deadline,
             cancel: attempt_cancel.clone(),
         };
+        // Keep the exact record wrapper alive across selection and borrowing.
+        // Its selected ROOT holds only a weak callback; no caller is retained
+        // by the persistent provider or the successful pool connection.
+        let pending = if let Some(waiting) = waiting {
+            // This is the record's own receiver, separate from its bounded
+            // foreign donor set. Cancellation retires receiver and donor chain.
+            waiting.retain(adoption.clone()).map_err(io::Error::other)?;
+            Some(super::pending::transport(
+                &lease,
+                upstream.binding().clone(),
+                waiting,
+            ))
+        } else {
+            None
+        };
+        let upstream = if let Some(pending) = &pending {
+            provider
+                .select_background_carrier_observed(
+                    Some(upstream.binding().clone()),
+                    context.clone(),
+                    pending.pending_carrier_observer(),
+                )
+                .await
+                .map_err(io::Error::other)?
+        } else {
+            upstream
+        };
         if udp {
             let loan = tokio::select! {biased;
                 _=attempt_cancel.cancelled()=>return Err(io::ErrorKind::Interrupted.into()),
@@ -143,6 +174,7 @@ impl BorrowRequest<'_> {
             let io = grant
                 .adopt_datagram_loan(upstream.binding(), endpoint, &context, loan)
                 .map_err(io::Error::other)?;
+            lease.release_installed_pending();
             return ClientConnection::packet_borrowed(
                 io, adoption, username, password, options, lease,
             )
@@ -159,6 +191,7 @@ impl BorrowRequest<'_> {
         let io = grant
             .adopt_stream_loan(upstream.binding(), endpoint, &context, loan)
             .map_err(io::Error::other)?;
+        lease.release_installed_pending();
         ClientConnection::tcp_controlled(io, adoption, username, password, options, lease).await
     }
 }

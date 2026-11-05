@@ -99,12 +99,13 @@ impl Outbound {
                 DeliveryState::NotSubmitted,
             ));
         }
-        let opening = pool.open_managed_via(
+        let opening = pool.open_managed_via_observed(
             self.pool,
             key,
             &prepared.options,
             Some(context.upstream.binding().clone()),
             context.deadline,
+            Some(context.upstream.pending_carrier_observer()),
         );
         let stream = tokio::select! {biased;
             _=self.admission.cancelled()=>return Err(self.admission.error(session,Stage::Handshake,Reason::Revoked,DeliveryState::Unknown)),

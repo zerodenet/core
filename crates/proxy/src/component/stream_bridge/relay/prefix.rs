@@ -64,6 +64,21 @@ impl PrefixOpener {
     }
 }
 impl UpstreamOpener for PrefixOpener {
+    fn retain_pending_carrier(
+        &self,
+        binding: &UpstreamBinding,
+        adoption: zero_platform_tokio::controlled_carrier::CarrierAdoption,
+    ) -> Result<(), ChannelError> {
+        if binding != &self.expected_binding
+            || binding.network_generation.0 != self.network.network_generation()
+        {
+            return Err(invalid(
+                Reason::StalePlan,
+                "pending original prefix changed",
+            ));
+        }
+        self.context.upstream.retain_pending_carrier(adoption)
+    }
     fn borrow_datagram(
         &self,
         binding: &UpstreamBinding,

@@ -7,6 +7,7 @@ use zero_platform_tokio::controlled_carrier::CarrierAdoption;
 pub(super) struct CarrierRecord(
     Mutex<Record>,
     zero_platform_tokio::contract::CancellationToken,
+    usize,
 );
 #[derive(Default)]
 struct Record {
@@ -15,6 +16,7 @@ struct Record {
     registering: bool,
     join: Option<TaskJoinWitness>,
     adoption: Option<CarrierAdoption>,
+    pending: Vec<CarrierAdoption>,
 }
 pub(crate) struct CarrierLease {
     pub(crate) owner: Arc<ManagedState>,
@@ -22,8 +24,34 @@ pub(crate) struct CarrierLease {
     pub(crate) view: Option<zero_platform_tokio::controlled_carrier::CarrierUserView>,
 }
 impl CarrierRecord {
-    pub(super) fn new(cancel: zero_platform_tokio::contract::CancellationToken) -> Self {
-        Self(Mutex::new(Record::default()), cancel)
+    pub(super) fn new(
+        cancel: zero_platform_tokio::contract::CancellationToken,
+        pending_limit: usize,
+    ) -> Self {
+        Self(Mutex::new(Record::default()), cancel, pending_limit)
+    }
+    fn release_installed_pending(&self) {
+        let adoption = self.adoption();
+        let Some(adoption) = adoption else { return };
+        let Some(proof) = adoption.retained_loan() else {
+            return;
+        };
+        if !proof
+            .receiver_adoption()
+            .is_some_and(|receiver| receiver.same_slot(&adoption))
+        {
+            return;
+        }
+        // Only this actual receiver's stored LoanOwner replaces its donors'
+        // cleanup claims. The receiver remains retained in the owning record.
+        self.0
+            .lock()
+            .unwrap()
+            .pending
+            .retain(|pending| !proof.retains(pending));
+    }
+    pub(super) fn pending(&self) -> Vec<CarrierAdoption> {
+        self.0.lock().unwrap().pending.clone()
     }
     pub(super) fn request_retirement(&self) {
         self.1.cancel();
@@ -46,7 +74,14 @@ impl CarrierRecord {
     }
     pub(super) fn closed(&self, instance: zero_core::component::ComponentInstanceId) -> bool {
         let record = self.0.lock().unwrap();
-        if !record.finished || record.registering {
+        if !record.finished
+            || record.registering
+            || record.pending.iter().any(|pending| {
+                pending
+                    .closed()
+                    .is_none_or(|receipt| !receipt.matches(pending))
+            })
+        {
             return false;
         }
         let Some(adoption) = &record.adoption else {
@@ -80,6 +115,14 @@ impl CarrierLease {
     }
     pub(crate) fn attempting_io(&self) {
         self.record.0.lock().unwrap().attempted = true;
+    }
+    pub(crate) fn release_installed_pending(&self) {
+        self.record.release_installed_pending();
+    }
+    pub(crate) fn pending_carriers(&self) -> PendingCarriers {
+        PendingCarriers {
+            record: self.record.clone(),
+        }
     }
     pub(crate) fn adopt(
         &self,
@@ -141,6 +184,9 @@ impl Drop for Registration {
 }
 impl Drop for CarrierLease {
     fn drop(&mut self) {
+        // Also recover installation after an error or cancellation before the
+        // caller could observe the prepared receiver.
+        self.record.release_installed_pending();
         let attempted = {
             let mut record = self.record.0.lock().unwrap();
             record.finished = true;
@@ -150,5 +196,43 @@ impl Drop for CarrierLease {
             self.owner.release_unattempted(&self.record);
         }
         self.owner.changed.notify_waiters();
+    }
+}
+
+#[derive(Clone)]
+pub(crate) struct PendingCarriers {
+    record: Arc<CarrierRecord>,
+}
+impl PendingCarriers {
+    /// Actual foreign cleanup authority is bounded by this selected prefix's
+    /// role count. It never substitutes for this pool record's root original.
+    pub(crate) fn retain_pending(
+        &self,
+        adoption: CarrierAdoption,
+    ) -> Result<(), zero_platform_tokio::contract::ChannelError> {
+        let mut record = self.record.0.lock().unwrap();
+        if record
+            .pending
+            .iter()
+            .any(|prior| prior.same_slot(&adoption))
+        {
+            return Ok(());
+        }
+        let reason = if record.finished || !record.attempted || record.adoption.is_none() {
+            Some(zero_platform_tokio::contract::Reason::StalePlan)
+        } else if record.pending.len() >= self.record.2 {
+            Some(zero_platform_tokio::contract::Reason::Capacity)
+        } else {
+            None
+        };
+        if let Some(reason) = reason {
+            return Err(zero_platform_tokio::contract::ChannelError::new(
+                zero_platform_tokio::contract::Stage::Prepare,
+                reason,
+                zero_platform_tokio::contract::Impact::Component,
+            ));
+        }
+        record.pending.push(adoption);
+        Ok(())
     }
 }

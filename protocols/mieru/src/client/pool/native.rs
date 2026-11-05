@@ -5,6 +5,7 @@ use tokio::time::Instant;
 use zero_core::{component::ComponentInstanceId, request::Destination, Address};
 use zero_platform_tokio::contract::network::CarrierContext;
 mod connect;
+mod pending;
 
 impl ClientPool {
     /// Library-only entry. No replacement pool, caller opener or business session
@@ -40,10 +41,24 @@ impl ClientPool {
     pub async fn open_managed_via(
         &self,
         owner: ComponentInstanceId,
+        key: PoolKey,
+        options: &mieru_config::MieruTransportOptions,
+        binding: Option<zero_platform_tokio::contract::network::UpstreamBinding>,
+        deadline: Option<Instant>,
+    ) -> io::Result<crate::client::NativeTcpStream> {
+        self.open_managed_via_observed(owner, key, options, binding, deadline, None)
+            .await
+    }
+    /// Cleanup observation is weak and exists only for the actual waiting
+    /// operation. The persistent provider still selects every real I/O path.
+    pub async fn open_managed_via_observed(
+        &self,
+        owner: ComponentInstanceId,
         mut key: PoolKey,
         options: &mieru_config::MieruTransportOptions,
         binding: Option<zero_platform_tokio::contract::network::UpstreamBinding>,
         deadline: Option<Instant>,
+        waiting: Option<zero_platform_tokio::contract::network::PendingCarrierObserver>,
     ) -> io::Result<crate::client::NativeTcpStream> {
         options.validate().map_err(io::Error::other)?;
         if deadline.is_some_and(|deadline| Instant::now() >= deadline) {
@@ -88,6 +103,7 @@ impl ClientPool {
             carrier.upstream.clone()
         };
         let grants = carrier.grants.clone();
+        let provider = carrier.upstream.clone();
         // An omitted caller deadline must not skip retirement forever. Reuse
         // Mieru's existing initialization bound for this close attempt only.
         let retirement =
@@ -156,10 +172,12 @@ impl ClientPool {
         let password = key.password.clone();
         let udp = key.udp;
         let opening=self.open_with_connection(key, || {
-            let lease = state.reserve();
+            let lease = state.reserve_with_pending_limit(upstream.binding().prefix.len());
             let state = state.clone();
             let upstream=upstream.clone();
             let grants=grants.clone();
+            let provider=provider.clone();
+            let waiting=waiting.clone();
             let endpoint=endpoint.clone();
             let username = username.clone();
             let password = password.clone();
@@ -168,7 +186,7 @@ impl ClientPool {
                 let attempt_cancel=lease.cancellation();
                 if let Some(grants)=&grants {
                     if !upstream.binding().prefix.is_empty() {
-                        return connect::BorrowRequest {udp,upstream,endpoint,username:&username,password:&password,options,deadline}.open(lease,grants).await;
+                        return connect::BorrowRequest {udp,upstream,provider,waiting,endpoint,username:&username,password:&password,options,deadline}.open(lease,grants).await;
                     }
                     let candidates = tokio::select! { biased;
                         _=attempt_cancel.cancelled()=>return Err(io::ErrorKind::Interrupted.into()),
