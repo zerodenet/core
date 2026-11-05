@@ -40,7 +40,12 @@ async fn replacement(taskless_middle: bool) {
         assert_eq!(&bytes, b"cross-owner");
         let original = held.owner.original().clone();
         let middle = original.parent().unwrap().clone();
-        let root = if taskless_middle { middle.clone() } else { middle.parent().unwrap().clone() };
+        let root = middle.parent().unwrap().clone();
+        if taskless_middle {
+            assert!(middle.driver().is_none(), "the middle original has no independent driver");
+            assert_ne!(middle.instance(), root.instance());
+            assert!(middle.native_origin().same_original(&root));
+        }
         assert!(root.parent().is_none());
         if !taskless_middle { assert_eq!(middle.instance(), original.instance()); }
         assert_ne!(root.instance(), original.instance());
@@ -80,6 +85,9 @@ async fn replacement(taskless_middle: bool) {
         assert!(root.closed().unwrap().matches(&root));
         assert!(root.closed().unwrap().had_native_acquisition());
         if taskless_middle {
+            let returned = middle.closed().expect("same middle borrowed original closed");
+            assert!(returned.matches(&middle));
+            assert!(!returned.had_native_acquisition(), "returning the middle loan cannot mint native I/O acquisition");
             assert!(root.owner().closed().is_none(), "unchanged donor owner stays live after its old original closed");
         } else {
             assert!(root.owner().closed().unwrap().matches(root.owner()));

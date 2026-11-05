@@ -1,6 +1,10 @@
 use super::*;
 #[path = "tests/callbacks.rs"]
 mod callbacks;
+#[path = "tests/descendants.rs"]
+mod descendants;
+#[path = "tests/system.rs"]
+mod system;
 use std::{
     sync::atomic::{AtomicBool, Ordering},
     time::Duration,
@@ -274,3 +278,5 @@ async fn coordinator_registers_only_its_original_coalesced_leader_in_the_same_ho
         .await
         .unwrap();
 }
+
+mod network;

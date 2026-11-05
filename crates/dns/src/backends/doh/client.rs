@@ -152,3 +152,4 @@ impl DohDnsResolver {
 }
 
 mod connect;
+mod native;

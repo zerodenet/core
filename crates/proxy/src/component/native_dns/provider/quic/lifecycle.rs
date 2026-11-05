@@ -10,6 +10,23 @@ impl Lifecycle {
     }
 }
 impl Query {
+    pub(super) async fn failed_open(
+        &self,
+        opening: std::io::Error,
+        end: tokio::time::Instant,
+    ) -> std::io::Error {
+        match self.close(end).await {
+            Ok(closed) => zero_dns::native::NativeDnsQuicOpenFailure::after_close(
+                opening,
+                self.origin.clone(),
+                closed,
+            ),
+            Err(cleanup) => std::io::Error::new(
+                cleanup.kind(),
+                super::super::custody::OpenCleanupFailure { opening, cleanup },
+            ),
+        }
+    }
     pub(super) async fn close(
         &self,
         end: tokio::time::Instant,

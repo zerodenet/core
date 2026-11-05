@@ -51,7 +51,7 @@ impl std::fmt::Debug for ServiceBinding {
     }
 }
 impl ServiceBinding {
-    pub(super) fn new(
+    pub(crate) fn new(
         nodes: &[ServiceNode],
         destination: Destination,
         network: NetworkGeneration,

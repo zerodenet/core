@@ -20,9 +20,11 @@ use zero_platform_tokio::{
 };
 mod provider;
 use provider::Provider;
+use zero_dns::native::NativeDnsProvider;
 pub(crate) const LIMIT: usize = 16;
 pub(crate) struct Options {
     peers: Vec<(std::net::SocketAddr, bool)>,
+    roots: Vec<crate::inventory::service::ServiceRoot>,
     identity: Arc<[u8]>,
     #[cfg(feature = "dns")]
     quic: Vec<std::net::SocketAddr>,
@@ -33,6 +35,7 @@ pub(crate) fn prepare(
 ) -> Result<ComponentId, RegistrationError> {
     let candidate = resources.candidate().expect("host cold candidate");
     let dns = candidate.runtime.dns.as_ref();
+    let roots = crate::inventory::service::dns_roots(candidate);
     let peers = zero_dns::native::native_endpoints(dns).map_err(|source| {
         RegistrationError::Options(zero_config::ConfigError::InvalidOutbound(
             source.to_string(),
@@ -44,6 +47,7 @@ pub(crate) fn prepare(
     for key in KEYS.get_or_init(|| [Default::default(), Default::default()]) {
         let mut hash = key.build_hasher();
         hash.write(&bytes);
+        hash.write(format!("{roots:?}").as_bytes());
         identity.extend_from_slice(&hash.finish().to_le_bytes());
     }
     resources
@@ -52,6 +56,7 @@ pub(crate) fn prepare(
             Arc::new(Factory(network)),
             Arc::new(Options {
                 peers,
+                roots,
                 identity: identity.into(),
                 #[cfg(feature = "dns")]
                 quic: zero_dns::native::native_quic_endpoints(dns).map_err(|source| {
@@ -71,7 +76,7 @@ struct Factory(Arc<BackgroundNetwork>);
 impl ComponentFactory for Factory {
     type Options = Options;
     fn describe(&self, options: &Options) -> ComponentSpec {
-        let resources = options
+        let mut resources = options
             .peers
             .iter()
             .map(
@@ -83,7 +88,17 @@ impl ComponentFactory for Factory {
                 },
             )
             .collect::<Vec<_>>();
-        let task_limit = LIMIT;
+        resources.extend(options.roots.iter().map(|root| {
+            ResourceDeclaration::ControlledCarrierPool {
+                endpoint: root.endpoint.clone(),
+                dial: root.dial.clone(),
+                datagram: false,
+                max_sockets: NonZeroUsize::new(LIMIT).unwrap(),
+            }
+        }));
+        // Query jobs, real blocking OS children and persistent H2 drivers
+        // share this Scope; unused capacity starts no workers.
+        let task_limit = LIMIT * 3;
         #[cfg(feature = "dns")]
         let (resources, task_limit) = {
             let mut resources = resources;
@@ -112,9 +127,7 @@ impl ComponentFactory for Factory {
         options: Arc<Options>,
         context: BuildContext,
     ) -> Result<ComponentInstance, BuildError> {
-        let owners = options
-            .peers
-            .iter()
+        let owners = (0..options.peers.len() + options.roots.len())
             .map(|_| {
                 CarrierOwner::new(
                     context.instance(),
@@ -141,6 +154,7 @@ impl ComponentFactory for Factory {
             &options,
             &owners,
             self.0.egress.clone(),
+            self.0.clone(),
             #[cfg(feature = "dns")]
             &metadata,
         ));
@@ -219,12 +233,20 @@ impl ResourceLifecycle for Owner {
     }
     async fn shutdown(&mut self, end: tokio::time::Instant) -> Result<CloseReport, BuildError> {
         self.revoke(CloseReason::Shutdown);
-        let mut failure = self
-            .provider
-            .close_queries(end)
-            .await
-            .err()
-            .map(provider::error);
+        let mut failure = None;
+        if let Some(dns) = self
+            .network
+            .resolver
+            .get()
+            .and_then(std::sync::Weak::upgrade)
+        {
+            if let Err(source) = dns.shutdown_native_pools(&self.provider.tasks(), end).await {
+                failure.get_or_insert_with(|| provider::error(source));
+            }
+        }
+        if let Err(source) = self.provider.close_queries(end).await {
+            failure.get_or_insert_with(|| provider::error(source));
+        }
         let mut unfinished = Vec::new();
         for owner in &mut self.owners {
             match owner.shutdown(end).await {

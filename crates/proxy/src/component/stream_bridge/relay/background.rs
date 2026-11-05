@@ -68,6 +68,17 @@ impl BackgroundPath<'_> {
             root,
         );
         for (index, node) in nodes.iter().enumerate() {
+            if index != 0 && node.slot.recipe.spec().resources.iter().any(|resource| matches!(resource,
+                zero_platform_tokio::contract::component::ResourceDeclaration::ControlledCarrierPool { .. })) {
+                services
+                    .components
+                    .as_ref()
+                    .map_err(|source| {
+                        invalid(Reason::StalePlan, "prefix has no actual host")
+                            .with_source(source.clone())
+                    })?
+                    .authorize_carrier_prefix(node.slot.instance_id(), &binding.prefix[..index])?;
+            }
             let (next, wire, dial, tag) = if let Some(next) = nodes.get(index + 1) {
                 let next_endpoint = next.endpoint.as_ref().ok_or_else(|| {
                     invalid(

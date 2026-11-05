@@ -35,9 +35,9 @@ pub(crate) fn compiled_registries_with_network(
             crate::adapters::direct::DirectAdapter::default().descriptor(),
             crate::component::DirectFactory,
             {
-                let background = background.clone();
+                let network = node_network.clone();
                 move |input, resources| {
-                    if let Some(network) = &background {
+                    if let Some(network) = &network {
                         crate::component::native_dns::prepare(resources, network.clone())?;
                     }
                     crate::adapters::direct::factory::decode(input)

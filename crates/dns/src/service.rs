@@ -72,6 +72,18 @@ impl DnsService for DnsSystem {
 }
 
 impl DnsSystem {
+    /// Confirm only pools bound to this exact original query Scope. A newer
+    /// owner or an unqualified library executor cannot substitute for it.
+    pub async fn shutdown_native_pools(
+        &self,
+        tasks: &crate::OwnedDnsQueryTasks,
+        deadline: Instant,
+    ) -> io::Result<()> {
+        self.transport_owners
+            .shutdown_host_pools(tasks, deadline)
+            .await
+    }
+
     /// Close every actual DoQ endpoint retained by successful or cancelled
     /// queries, await QUIC idle, drop endpoint handles, and join both drivers.
     /// Call after shutdown_queries; deadlines retain the same owner for retry.
@@ -98,7 +110,8 @@ impl DnsSystem {
             Some(node) => node.coordinator.shutdown(deadline).await,
             None => Ok(()),
         };
-        names.and(wire).and(node)
+        let system = self.transport_owners.shutdown_system(deadline).await;
+        names.and(wire).and(node).and(system)
     }
 }
 

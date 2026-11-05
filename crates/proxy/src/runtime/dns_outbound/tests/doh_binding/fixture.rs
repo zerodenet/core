@@ -134,13 +134,18 @@ impl DnsOutboundConnector for ObservedConnector {
 pub struct Harness {
     pub proxy: Proxy,
     pub connector: Arc<ObservedConnector>,
+    pub running: crate::RunningProxy,
+    pub handle: crate::ProxyHandle,
     pub socks: [SocksPeer; 2],
     pub dns: TlsPeer,
 }
 impl Harness {
     pub async fn new(loadbalance: bool) -> Self {
+        Self::with_paused_peer(loadbalance, false).await
+    }
+    pub async fn with_paused_peer(loadbalance: bool, paused: bool) -> Self {
         let dns = TlsPeer::start().await;
-        let first = SocksPeer::start(dns.endpoint).await;
+        let first = SocksPeer::with_paused_greeting(dns.endpoint, paused).await;
         let second = SocksPeer::start(dns.endpoint).await;
         let group = if loadbalance {
             serde_json::json!({"tag":"choose","type":"load_balance","outbounds":["one","two"],"strategy":"round_robin"})
@@ -159,17 +164,17 @@ impl Harness {
             "route":{"final":{"type":"direct"}}
         }).to_string()).unwrap();
         let proxy = Proxy::new(config).unwrap();
-        zero_dns::test_support::install_doh_ca(&proxy.resolver, "query", dns.certificate.clone())
-            .unwrap();
         let config = proxy.engine.runtime_snapshot().config().clone();
-        proxy
-            .protocols
-            .start_components(config.clone(), until())
+        let running = proxy.spawn();
+        let handle = crate::ProxyHandle::new(
+            zero_engine::EngineHandle::new(proxy.engine().clone()),
+            proxy.clone(),
+        );
+        handle
+            .apply_runtime_config_and_wait(config.as_ref().clone(), Duration::from_secs(5))
             .await
             .unwrap();
-        proxy
-            .protocols
-            .commit_components(&config, || Ok(()))
+        zero_dns::test_support::install_doh_ca(&proxy.resolver, "query", dns.certificate.clone())
             .unwrap();
         let connector = Arc::new(ObservedConnector {
             actual: ProxyDnsOutboundConnector::new(proxy.current_service_source()),
@@ -181,41 +186,66 @@ impl Harness {
         Self {
             proxy,
             connector,
+            running,
+            handle,
             socks: [first, second],
             dns,
         }
     }
     pub async fn query(&self, name: &str) -> Vec<IpAddress> {
-        tokio::time::timeout_at(until(), self.proxy.resolver.resolve_real_type(name, 1))
-            .await
-            .expect("bounded real DoH query")
-            .expect("real DoH response")
+        tokio::time::timeout_at(
+            until(),
+            self.proxy.protocols.drive_component_supervision(Box::pin(
+                self.proxy.resolver.resolve_real_type(name, 1),
+            )),
+        )
+        .await
+        .expect("bounded real DoH query")
+        .expect("real DoH response")
+    }
+    pub async fn pool_original(&self) -> zero_dns::OwnedDnsQueryObservation {
+        tokio::time::timeout_at(until(), async {
+            loop {
+                if let Some(original) = self
+                    .proxy
+                    .resolver
+                    .native_query_observations()
+                    .into_iter()
+                    .find(|entry| {
+                        entry.io_pending && entry.original.is_some() && !entry.task.is_joined()
+                    })
+                {
+                    return original;
+                }
+                tokio::task::yield_now().await;
+            }
+        })
+        .await
+        .expect("real persistent detour driver must be pending in native I/O")
     }
     pub fn assert_no_business_sessions(&self) {
         assert!(self.proxy.engine.active_sessions().is_empty());
         assert!(self.proxy.engine.completed_sessions().is_empty());
     }
     pub async fn finish(self) {
-        self.proxy.resolver.shutdown_queries(until()).await.unwrap();
-        self.proxy
+        let original = self.pool_original().await;
+        self.running.shutdown().await.unwrap();
+        super::assert_retired(&original);
+        assert!(self
+            .proxy
             .resolver
-            .shutdown_doh_pools(until())
+            .resolve_real_type("after.host.shutdown.test", 1)
             .await
-            .unwrap();
-        self.proxy
-            .resolver
-            .shutdown_doq_endpoints(until())
-            .await
-            .unwrap();
+            .is_err());
+        assert_eq!(
+            self.connector.opens.load(Ordering::Acquire),
+            0,
+            "a retired host cannot retry through the legacy connector"
+        );
         let witness = doh_pool_witness(&self.proxy.resolver, "query").unwrap();
         assert_eq!(witness.registered_driver_tasks, 0);
         assert_eq!(witness.active_leases, 0);
         assert!(witness.closing);
-        self.proxy
-            .protocols
-            .shutdown_components(until())
-            .await
-            .unwrap();
         let [first, second] = self.socks;
         first.task.finish().await;
         second.task.finish().await;

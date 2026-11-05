@@ -23,21 +23,12 @@ pub(crate) struct DohDnsResolver {
 }
 
 mod client;
+mod native;
+pub(crate) use native::NativeCompletion;
 pub(super) mod owner;
 use client::DohClient;
 
 impl DohDnsResolver {
-    pub(crate) fn native_tls_config(&self) -> io::Result<Arc<rustls::ClientConfig>> {
-        #[cfg(feature = "test-support")]
-        self.test_io_started
-            .store(true, std::sync::atomic::Ordering::Release);
-        self.tls.clone().ok_or_else(|| {
-            io::Error::new(
-                io::ErrorKind::Unsupported,
-                "native encrypted DNS requires TLS",
-            )
-        })
-    }
     pub(crate) fn new(
         host: String,
         port: u16,

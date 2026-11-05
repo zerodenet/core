@@ -1,8 +1,10 @@
 use super::*;
+#[path = "tests/ownership.rs"]
+mod ownership;
 
 #[tokio::test]
 async fn mapped_system_candidates_are_normalized_only_for_strict_business_families() {
-    let resolver = TokioSystemResolver;
+    let resolver = TokioSystemResolver::default();
     let domain = "::ffff:127.0.0.1";
     let mapped = IpAddress::V6(domain.parse::<std::net::Ipv6Addr>().unwrap().octets());
     assert_eq!(

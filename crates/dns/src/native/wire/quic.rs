@@ -21,7 +21,7 @@ pub(super) async fn exchange(
     );
     let loan = match OwnedDnsQueryTasks::native_io(opening).await {
         Ok(Ok(loan)) => loan,
-        Ok(Err(source)) | Err(source) => return Attempt::blocked(source),
+        Ok(Err(source)) | Err(source) => return Attempt::open_failed(source),
     };
     let crate::native::NativeDnsQuicLoan { mut io, mut owner } = loan;
     if let Err(source) = OwnedDnsQueryTasks::record_metadata(owner.original()) {

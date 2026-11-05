@@ -25,6 +25,14 @@ pub(crate) struct BackgroundNetwork {
     services: OnceLock<Weak<CurrentServiceSource>>,
 }
 impl BackgroundNetwork {
+    pub(super) fn current_services(&self) -> std::io::Result<Arc<CurrentServiceSource>> {
+        self.services.get().and_then(Weak::upgrade).ok_or_else(|| {
+            std::io::Error::new(
+                std::io::ErrorKind::NotConnected,
+                "runtime service owner retired",
+            )
+        })
+    }
     pub(crate) fn new(egress: EgressInterfaceControl) -> Self {
         Self {
             egress,

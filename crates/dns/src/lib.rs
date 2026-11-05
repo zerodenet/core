@@ -18,12 +18,14 @@ mod outbound;
 mod owned_root;
 use owned_root::OwnedDnsRoot;
 mod query_tasks;
+pub use query_tasks::NativeSystemLookup;
 pub use query_tasks::{OwnedDnsQueryObservation, OwnedDnsQueryTasks};
 mod native_node;
 mod reverse;
 mod router;
 mod service;
 mod system;
+mod system_service;
 #[cfg(feature = "test-support")]
 pub mod test_support;
 mod transport_owners;
@@ -109,7 +111,7 @@ impl fmt::Debug for DnsSystem {
 
 enum DnsSystemInner {
     /// No DNS config supplied — passthrough to the system resolver.
-    System(TokioSystemResolver),
+    System(Arc<ResolverBackend>),
     /// Fully configured with servers, routing, cache, and optional fake IP.
     Configured {
         source_config: Box<DnsConfig>,
@@ -261,6 +263,9 @@ impl DnsSystem {
             fake_ip_state_lease.clone(),
             servers,
         )?;
+        if let DnsSystemInner::System(backend) = &inner {
+            backend.register_owners(&transport_owners)?;
+        }
         let tasks = owned_root.as_ref().map(|root| root.tasks.clone());
         let query_coordinator = QueryCoordinator::with_graph_and_tasks(
             Arc::new(std::sync::Mutex::new(Default::default())),
@@ -295,7 +300,9 @@ impl DnsSystem {
         servers: BTreeMap<String, ResolverServer>,
     ) -> io::Result<DnsSystemInner> {
         let Some(cfg) = config else {
-            return Ok(DnsSystemInner::System(TokioSystemResolver));
+            return Ok(DnsSystemInner::System(Arc::new(ResolverBackend::System(
+                TokioSystemResolver::default(),
+            ))));
         };
 
         let dispatcher = DnsDispatcher::new(dispatch.ok_or_else(|| {
@@ -687,86 +694,6 @@ impl DnsSystem {
             query,
             message::build_error_response(query, message::RCODE_SERVFAIL, false),
         )
-    }
-
-    async fn resolve_system_coordinated(
-        &self,
-        domain: &str,
-        role: DnsQueryRole,
-        config_generation: u64,
-    ) -> io::Result<Vec<IpAddress>> {
-        if self.owned_root.is_some() || self.native_source.is_some() {
-            return Err(io::Error::new(
-                io::ErrorKind::Unsupported,
-                "owned DNS UDP root does not authorize OS resolver work",
-            ));
-        }
-        let sys_resolver = {
-            let guard = self.inner.read().expect("dns system lock poisoned");
-            match &*guard {
-                DnsSystemInner::System(resolver) => *resolver,
-                _ => TokioSystemResolver,
-            }
-        };
-        let generation = self.egress_interface.generation();
-        let mut scope = QueryScope::new(role, generation);
-        scope.config_generation = config_generation;
-        let key = QueryKey::new(domain, 0, scope);
-        let domain = domain.to_owned();
-        self.query_coordinator
-            .resolve(key, async move { sys_resolver.resolve(&domain).await })
-            .await
-    }
-
-    async fn resolve_system_type_coordinated(
-        &self,
-        domain: &str,
-        query_type: u16,
-        role: DnsQueryRole,
-        config_generation: u64,
-    ) -> io::Result<Vec<IpAddress>> {
-        self.resolve_system_type_with_family_coordinated(
-            domain,
-            query_type,
-            role,
-            AddressFamily::Auto,
-            config_generation,
-        )
-        .await
-    }
-
-    async fn resolve_system_type_with_family_coordinated(
-        &self,
-        domain: &str,
-        query_type: u16,
-        role: DnsQueryRole,
-        family: AddressFamily,
-        config_generation: u64,
-    ) -> io::Result<Vec<IpAddress>> {
-        if self.owned_root.is_some() || self.native_source.is_some() {
-            return Err(io::Error::new(
-                io::ErrorKind::Unsupported,
-                "owned DNS UDP root does not authorize OS resolver work",
-            ));
-        }
-        let resolver = {
-            let guard = self.inner.read().expect("dns system lock poisoned");
-            match &*guard {
-                DnsSystemInner::System(resolver) => *resolver,
-                _ => TokioSystemResolver,
-            }
-        };
-        let generation = self.egress_interface.generation();
-        let mut scope = QueryScope::new(role, generation);
-        scope.config_generation = config_generation;
-        scope.family = family;
-        let key = QueryKey::new(domain, query_type, scope);
-        let domain = domain.to_owned();
-        self.query_coordinator
-            .resolve(key, async move {
-                resolver.resolve_type(&domain, query_type, family).await
-            })
-            .await
     }
 
     async fn answer_query(&self, query: &[u8]) -> Vec<u8> {

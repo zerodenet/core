@@ -14,6 +14,9 @@ impl DnsSystem {
     /// Installs metadata only. The actual RuntimeHost must start its original
     /// DNS provider before this service can acquire any query socket or task.
     pub fn with_native_node_queries(mut self, source: Arc<native::NativeDnsSource>) -> Self {
+        self.query_coordinator.set_native_source(source.clone());
+        self.wire_query_coordinator
+            .set_native_source(source.clone());
         let mut coordinator =
             QueryCoordinator::with_graph_and_tasks(self.query_coordinator.shared_graph(), None);
         coordinator.set_native_source(source.clone());
@@ -61,12 +64,17 @@ impl DnsService for NodeService {
                 .node_queries
                 .as_ref()
                 .ok_or_else(|| failure(Reason::Unsupported))?;
-            let mut snapshot = dns.snapshot().ok_or_else(|| failure(Reason::Unsupported))?;
-            // No detour or System backend may escape this explicit native entry.
-            for server in snapshot.servers.values() {
-                native::validate_node_server(&server.config)
-                    .map_err(|source| failure(Reason::Unsupported).with_source(source))?;
+            if dns.snapshot().is_none() {
+                return dns
+                    .resolve_native_system(
+                        request,
+                        context,
+                        node.source.clone(),
+                        node.coordinator.clone(),
+                    )
+                    .await;
             }
+            let mut snapshot = dns.snapshot().ok_or_else(|| failure(Reason::Unsupported))?;
             snapshot
                 .ensure_query_role(DnsQueryRole::Node)
                 .map_err(|source| failure(Reason::Unsupported).with_source(source))?;

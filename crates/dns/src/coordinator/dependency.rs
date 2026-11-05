@@ -124,6 +124,7 @@ pub(crate) fn query_is_observed() -> bool {
         .unwrap_or(true)
 }
 
+#[cfg(any(feature = "udp", feature = "doh", feature = "dot"))]
 pub(crate) fn current_cancel() -> zero_platform_tokio::contract::CancellationToken {
     ACTIVE
         .try_with(|chain| chain.last().and_then(|entry| entry.cancel.clone()))

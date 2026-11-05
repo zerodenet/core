@@ -36,6 +36,7 @@ impl Provider {
             .map_err(std::io::Error::other)?;
         checked()?;
         let current = self.egress.generation();
+        self.tasks.fence_network(current, caller, end).await?;
         if *epoch != current {
             let old = self
                 .users

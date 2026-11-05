@@ -1,6 +1,7 @@
 use super::*;
 mod admission;
 mod custody;
+mod detour;
 #[cfg(feature = "dns")]
 pub(super) mod quic;
 use std::{net::SocketAddr, sync::Mutex};
@@ -21,9 +22,12 @@ pub(super) struct Provider {
     registrar: TaskRegistrar,
     cancel: CancellationToken,
     peers: Vec<(SocketAddr, bool, CarrierGrants)>,
+    roots: Vec<(crate::inventory::service::ServiceRoot, CarrierGrants)>,
     egress: zero_platform_tokio::EgressInterfaceControl,
     epoch: tokio::sync::Mutex<u64>,
-    users: Mutex<Vec<Arc<custody::NativeUse>>>,
+    network: Arc<BackgroundNetwork>,
+    instance: zero_core::component::ComponentInstanceId,
+    users: Arc<Mutex<Vec<Arc<custody::NativeUse>>>>,
     #[cfg(feature = "dns")]
     quic: Vec<(
         SocketAddr,
@@ -38,6 +42,7 @@ impl Provider {
         options: &Options,
         owners: &[CarrierOwner],
         egress: zero_platform_tokio::EgressInterfaceControl,
+        network: Arc<BackgroundNetwork>,
         #[cfg(feature="dns")]
         metadata: &[zero_platform_tokio::controlled_datagram::metadata_pool::MetadataPoolOwner],
     ) -> Self {
@@ -54,9 +59,22 @@ impl Provider {
                 .zip(owners)
                 .map(|((peer, packet), owner)| (*peer, *packet, owner.grants()))
                 .collect(),
+            roots: options
+                .roots
+                .iter()
+                .cloned()
+                .zip(
+                    owners
+                        .iter()
+                        .skip(options.peers.len())
+                        .map(|owner| owner.grants()),
+                )
+                .collect(),
             epoch: tokio::sync::Mutex::new(egress.generation()),
             egress,
-            users: Mutex::new(Vec::new()),
+            network,
+            instance: context.instance(),
+            users: Arc::default(),
             #[cfg(feature = "dns")]
             quic: options
                 .quic
@@ -120,6 +138,7 @@ impl Provider {
                 task: caller,
                 cancel,
                 original: grant.adoption(),
+                logical: Default::default(),
             }));
         let binding = UpstreamBinding {
             prefix: vec![],
@@ -147,6 +166,16 @@ impl Provider {
                     .map_or(LIMIT, |state| state.retained())
             })
             .fold(0, usize::saturating_add);
+        let retained = self
+            .roots
+            .iter()
+            .map(|(_, grants)| {
+                grants
+                    .registration()
+                    .observe()
+                    .map_or(LIMIT, |state| state.retained())
+            })
+            .fold(retained, usize::saturating_add);
         #[cfg(feature = "dns")]
         let retained = retained.saturating_add(
             self.quic
@@ -158,6 +187,53 @@ impl Provider {
     }
 }
 impl NativeDnsProvider for Provider {
+    fn finish_query(&self, caller: TaskJoinWitness) -> BoxFuture<'_, std::io::Result<()>> {
+        Box::pin(async move {
+            let end = tokio::time::Instant::now() + std::time::Duration::from_secs(5);
+            self.close_attempt_originals(&caller, end).await
+        })
+    }
+    fn close_failed_stream_originals(
+        &self,
+        caller: TaskJoinWitness,
+        end: tokio::time::Instant,
+    ) -> BoxFuture<'_, std::io::Result<()>> {
+        Box::pin(async move { self.close_attempt_originals(&caller, end).await })
+    }
+    fn owns_detour(&self, outbound: &str) -> bool {
+        self.detour_admitted(outbound)
+    }
+    fn detour_stream(
+        &self,
+        outbound: String,
+        peer: SocketAddr,
+        caller: TaskJoinWitness,
+        cancel: CancellationToken,
+        end: tokio::time::Instant,
+    ) -> BoxFuture<'_, std::io::Result<(StreamLoan, Arc<dyn zero_dns::DnsCarrierBinding>)>> {
+        Box::pin(self.open_detour(outbound, peer, caller, cancel, end))
+    }
+    fn close_stream_originals(
+        &self,
+        caller: TaskJoinWitness,
+        end: tokio::time::Instant,
+    ) -> BoxFuture<'_, std::io::Result<()>> {
+        Box::pin(self.close_caller_originals(caller, end))
+    }
+
+    fn system(
+        &self,
+        name: String,
+        caller: TaskJoinWitness,
+        cancel: CancellationToken,
+        end: tokio::time::Instant,
+    ) -> BoxFuture<'_, std::io::Result<zero_dns::NativeSystemLookup>> {
+        Box::pin(async move {
+            let epoch = self.admit(&caller, &cancel, end, 0).await?;
+            drop(epoch);
+            self.tasks.lookup_system(name, caller, cancel, end).await
+        })
+    }
     #[cfg(feature = "dns")]
     fn quic(
         &self,
@@ -223,21 +299,28 @@ impl NativeDnsProvider for Provider {
         Box::pin(async move {
             let (grant, view, opener, binding) =
                 self.grant(peer, true, caller, cancel.clone(), end).await?;
-            let carrier = opener
-                .prepare_controlled_datagram(
-                    &binding,
-                    destination(peer),
-                    CarrierContext {
-                        session: None,
-                        deadline: Some(end),
-                        cancel,
-                    },
-                    grant,
-                )
-                .map_err(std::io::Error::other)?;
-            carrier
-                .into_datagram_loan(view, zero_core::component::AssociationId(0))
-                .map_err(std::io::Error::other)
+            let original = grant.adoption();
+            let result = (|| {
+                let carrier = opener
+                    .prepare_controlled_datagram(
+                        &binding,
+                        destination(peer),
+                        CarrierContext {
+                            session: None,
+                            deadline: Some(end),
+                            cancel,
+                        },
+                        grant,
+                    )
+                    .map_err(std::io::Error::other)?;
+                carrier
+                    .into_datagram_loan(view, zero_core::component::AssociationId(0))
+                    .map_err(std::io::Error::other)
+            })();
+            match result {
+                Ok(loan) => Ok(loan),
+                Err(source) => Err(self.failed_open(source, &original, end).await),
+            }
         })
     }
 }

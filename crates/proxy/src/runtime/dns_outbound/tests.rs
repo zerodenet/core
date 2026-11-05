@@ -78,8 +78,10 @@ async fn proxy_installs_dns_detour_connector_without_recursive_resolution() {
 
     assert_eq!(
         proxy
-            .resolver
-            .resolve_real_type("detour.example", 1)
+            .protocols
+            .drive_component_supervision(Box::pin(
+                proxy.resolver.resolve_real_type("detour.example", 1)
+            ))
             .await
             .unwrap(),
         vec![IpAddress::V4([198, 51, 100, 53])]
@@ -91,7 +93,11 @@ async fn proxy_installs_dns_detour_connector_without_recursive_resolution() {
     assert_eq!(attempts[0].outbound, "dns-out");
     server.await.unwrap();
     let deadline = tokio::time::Instant::now() + std::time::Duration::from_secs(3);
-    proxy.resolver.shutdown_queries(deadline).await.unwrap();
+    proxy
+        .protocols
+        .drive_component_supervision(Box::pin(proxy.resolver.shutdown_queries(deadline)))
+        .await
+        .unwrap();
     proxy.protocols.shutdown_components(deadline).await.unwrap();
 }
 

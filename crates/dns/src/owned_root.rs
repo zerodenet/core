@@ -71,13 +71,28 @@ pub(crate) async fn exchange_backend_attempt(
     timeout_ms: u64,
 ) -> (io::Result<Vec<u8>>, bool) {
     let duration = std::time::Duration::from_millis(timeout_ms);
-    if let Some(source) = &snapshot.native_source {
+    if let Some(source) = snapshot.native_source.as_ref().or_else(|| {
+        let source = snapshot.query_coordinator.native_source()?;
+        #[cfg(feature = "doh")]
+        let host_pool = matches!(server.backend.as_ref(), ResolverBackend::Doh(resolver) if resolver.owner.host_bound());
+        #[cfg(not(feature = "doh"))]
+        let host_pool = false;
+        (server.config.detour().is_none()
+            || host_pool
+            || !matches!(&server.config, zero_config::DnsServerConfig::Doq { .. })
+                && server
+                    .config
+                    .detour()
+                    .is_some_and(|outbound| source.owns_detour(outbound)))
+        .then_some(source)
+    }) {
         // This path owns its attempt deadline and original close continuation.
         let result = source
             .exchange(
                 &server.config,
                 &server.backend,
                 query,
+                snapshot.family,
                 tokio::time::Instant::now() + duration,
             )
             .await;

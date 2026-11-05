@@ -27,26 +27,34 @@ impl Outbound {
             deadline: context.deadline,
             cancel: context.cancel.clone(),
         };
-        let loan = if context.upstream.binding().prefix.is_empty() {
-            let end = context
-                .deadline
-                .ok_or_else(|| reject(Reason::InvalidConfig))?;
-            carriers.reap_returned(end).await?;
-            let mut grant = carriers.reserve()?;
-            let view = grant.claim_transferred_view()?;
+        let end = context
+            .deadline
+            .ok_or_else(|| reject(Reason::InvalidConfig))?;
+        carriers.reap_returned(end).await?;
+        let mut grant = carriers.reserve()?;
+        let view = grant.claim_transferred_view()?;
+        let io = if context.upstream.binding().prefix.is_empty() {
             let prepared = context.upstream.prepare_controlled_stream(
                 self.options.endpoint.clone(),
                 call,
                 grant,
             )?;
-            let (io, _) = prepared.open(end).await?.into_parts();
-            io.into_stream_loan(view)?
+            prepared.open(end).await?.into_parts().0
         } else {
-            context
+            let loan = context
                 .upstream
-                .borrow_stream(self.options.endpoint.clone(), call)
-                .await?
+                .borrow_stream(self.options.endpoint.clone(), call.clone())
+                .await?;
+            // Install the real upstream logical controller in our persistent
+            // original slot before authentication/CONNECT can suspend or fail.
+            grant.adopt_stream_loan(
+                context.upstream.binding(),
+                self.options.endpoint.clone(),
+                &call,
+                loan,
+            )?
         };
+        let loan = io.into_stream_loan(view)?;
         if let Some(observer) = &context.observer {
             observer.record(None, ConnectFact::CarrierReady);
         }

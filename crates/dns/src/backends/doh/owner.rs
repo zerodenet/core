@@ -1,5 +1,7 @@
 //! Actual HTTP/2 driver ownership. The task budget is the configured endpoint
 //! slot count; an obsolete connection and its users drain before replacement.
+mod lifecycle;
+mod native;
 use super::{
     client::{ClientState, DohClient},
     *,
@@ -20,11 +22,18 @@ pub(crate) struct DriverOwner {
 }
 struct State {
     closing: bool,
+    mode: PoolMode,
+    native: Vec<Arc<ClientState>>,
     tasks: JoinSet<io::Result<()>>,
     records: HashMap<Id, Arc<ClientState>>,
     users: Vec<Arc<ClientState>>,
     failure: Option<Arc<io::Error>>,
     transport_error: Option<Arc<io::Error>>,
+}
+enum PoolMode {
+    Unused,
+    Standalone,
+    Host(crate::OwnedDnsQueryTasks),
 }
 #[derive(Debug)]
 struct Retained(Arc<io::Error>);
@@ -67,6 +76,24 @@ impl State {
         while let Some(result) = self.tasks.try_join_next_with_id() {
             self.exit(result);
         }
+        for client in &self.native {
+            if let Some(joined) = client
+                .native
+                .get()
+                .and_then(|native| native.task.get())
+                .and_then(|task| task.try_joined())
+            {
+                client.retire();
+                if let Err(source) = joined.result() {
+                    self.failure
+                        .get_or_insert_with(|| Arc::new(io::Error::other(source)));
+                }
+            }
+        }
+        self.native.retain(|client| {
+            !client.native.get().is_some_and(|native| native.closed())
+                || client.leases.load(std::sync::atomic::Ordering::Acquire) != 0
+        });
         self.users
             .retain(|client| client.leases.load(std::sync::atomic::Ordering::Acquire) > 0);
     }
@@ -86,6 +113,8 @@ impl DriverOwner {
             changed: Arc::new(tokio::sync::Notify::new()),
             state: Mutex::new(State {
                 closing: false,
+                mode: PoolMode::Unused,
+                native: vec![],
                 tasks: JoinSet::new(),
                 records: HashMap::new(),
                 users: vec![],
@@ -98,22 +127,33 @@ impl DriverOwner {
     pub(crate) fn test_witness(&self) -> crate::test_support::DohPoolWitness {
         let state = self.state.lock().expect("DoH driver owner poisoned");
         crate::test_support::DohPoolWitness {
-            registered_driver_tasks: state.tasks.len(),
+            registered_driver_tasks: state.tasks.len() + state.native.len(),
             active_leases: state
                 .records
                 .values()
                 .chain(state.users.iter())
+                .chain(state.native.iter())
                 .map(|client| client.leases.load(std::sync::atomic::Ordering::Acquire))
                 .sum(),
             closing: state.closing,
         }
     }
+    pub(crate) fn bound_to(&self, tasks: &crate::OwnedDnsQueryTasks) -> bool {
+        matches!(&self.state.lock().expect("DoH driver owner poisoned").mode, PoolMode::Host(current) if current.same_owner(tasks))
+    }
+    pub(crate) fn host_bound(&self) -> bool {
+        matches!(
+            self.state.lock().expect("DoH driver owner poisoned").mode,
+            PoolMode::Host(_)
+        )
+    }
     pub(crate) fn resource_admission_open(&self) -> bool {
-        !self
-            .state
-            .lock()
-            .expect("DoH driver owner poisoned")
-            .closing
+        let state = self.state.lock().expect("DoH driver owner poisoned");
+        !state.closing
+            && match &state.mode {
+                PoolMode::Host(tasks) => tasks.ensure_open().is_ok(),
+                _ => true,
+            }
     }
     pub(super) fn cancellation(&self) -> zero_platform_tokio::contract::CancellationToken {
         self.cancel.clone()
@@ -163,6 +203,13 @@ impl DriverOwner {
         if let Some(source) = &state.failure {
             return Err(io::Error::other(Retained(source.clone())));
         }
+        if matches!(state.mode, PoolMode::Host(_)) {
+            return Err(io::Error::new(
+                io::ErrorKind::PermissionDenied,
+                "host DoH pool cannot start a standalone driver",
+            ));
+        }
+        state.mode = PoolMode::Standalone;
         if state.records.len() >= self.limit {
             return Err(io::Error::new(
                 io::ErrorKind::WouldBlock,
@@ -181,88 +228,5 @@ impl DriverOwner {
         state.records.insert(handle.id(), client);
         self.changed.notify_waiters();
         Ok(())
-    }
-    /// Marks the real pool unavailable synchronously. The owner remains in the
-    /// DNS registry until shutdown has joined every driver and affected user.
-    pub(crate) fn retire(&self) {
-        let mut state = self.state.lock().expect("DoH driver owner poisoned");
-        state.closing = true;
-        self.cancel.cancel();
-        for client in state.records.values() {
-            client.retire();
-        }
-        self.changed.notify_waiters();
-    }
-    pub(crate) fn drained(&self) -> bool {
-        let mut state = self.state.lock().expect("DoH driver owner poisoned");
-        state.reap();
-        state.tasks.is_empty() && state.users.is_empty() && state.failure.is_none()
-    }
-    /// Reaps actual exits during ordinary replacement, before a new socket is
-    /// opened. Unchanged, usable endpoint slots are left running.
-    pub(super) async fn drain_retired(&self, deadline: Instant) -> io::Result<()> {
-        loop {
-            let changed = self.changed.notified();
-            tokio::pin!(changed);
-            changed.as_mut().enable();
-            let next = std::future::poll_fn(|cx| {
-                let mut state = self.state.lock().expect("DoH driver owner poisoned");
-                state.reap();
-                let retired = state
-                    .records
-                    .values()
-                    .any(|client| client.cancel.is_cancelled());
-                if !retired && state.users.is_empty() {
-                    return Poll::Ready(());
-                }
-                match state.tasks.poll_join_next_with_id(cx) {
-                    Poll::Ready(Some(result)) => {
-                        state.exit(result);
-                        Poll::Ready(())
-                    }
-                    _ => Poll::Pending,
-                }
-            });
-            tokio::time::timeout_at(deadline, async {
-                tokio::select! {biased;_=next=>{},_=&mut changed=>{}}
-            })
-            .await
-            .map_err(|source| io::Error::new(io::ErrorKind::TimedOut, source))?;
-            let mut state = self.state.lock().expect("DoH driver owner poisoned");
-            state.reap();
-            if !state
-                .records
-                .values()
-                .any(|client| client.cancel.is_cancelled())
-                && state.users.is_empty()
-            {
-                return match &state.failure {
-                    Some(source) => Err(io::Error::other(Retained(source.clone()))),
-                    None => Ok(()),
-                };
-            }
-        }
-    }
-    pub(crate) async fn shutdown(&self, deadline: Instant) -> io::Result<()> {
-        self.retire();
-        // The serialized open gate also covers inline TCP/TLS/H2 setup,
-        // before a connection driver can be registered.
-        let _opening = tokio::time::timeout_at(deadline, self.connect_lock.lock())
-            .await
-            .map_err(|source| io::Error::new(io::ErrorKind::TimedOut, source))?;
-        tokio::time::timeout_at(deadline, self.clients.lock())
-            .await
-            .map_err(|source| io::Error::new(io::ErrorKind::TimedOut, source))?
-            .clear();
-        let result = self.drain_retired(deadline).await;
-        if let Some(source) = &self
-            .state
-            .lock()
-            .expect("DoH driver owner poisoned")
-            .transport_error
-        {
-            tracing::debug!(%source,"observed DoH transport failure before confirmed pool retirement");
-        }
-        result
     }
 }

@@ -106,7 +106,7 @@ async fn actual_proxy_native_dns_timeout_closes_the_original_before_a_later_quer
 }
 
 #[tokio::test]
-async fn actual_proxy_native_dns_rejects_node_system_and_default_detour_before_unowned_io() {
+async fn actual_proxy_native_dns_admits_owned_system_and_rejects_unowned_default_detour() {
     tokio::time::timeout(Duration::from_secs(20), async {
         for mode in 0..2 {
             let mut dns = Dns::new().await;
@@ -130,13 +130,17 @@ async fn actual_proxy_native_dns_rejects_node_system_and_default_detour_before_u
             }
             config.runtime.dns = Some(settings);
             let (proxy, running, _) = start(config).await;
-            let error = if mode == 0 {
-                proxy.resolver.resolve_node("unsupported.node.test").await
+            if mode == 0 {
+                let addresses = proxy.resolver.resolve_node("127.0.0.1").await.unwrap();
+                assert_eq!(addresses, vec![zero_traits::IpAddress::V4([127, 0, 0, 1])]);
             } else {
-                proxy.resolver.resolve_real("unsupported.detour.test").await
+                let error = proxy
+                    .resolver
+                    .resolve_real("unsupported.detour.test")
+                    .await
+                    .unwrap_err();
+                assert_eq!(error.kind(), std::io::ErrorKind::Unsupported, "{error}");
             }
-            .unwrap_err();
-            assert_eq!(error.kind(), std::io::ErrorKind::Unsupported, "{error}");
             dns.no_new_request();
             assert!(proxy
                 .resolver

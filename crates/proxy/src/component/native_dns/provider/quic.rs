@@ -192,35 +192,45 @@ impl Provider {
             .expect("DNS QUIC users poisoned")
             .push(query.clone());
         OwnedDnsQueryTasks::record_metadata(&query.origin)?;
-        let handle = query.start(
+        let handle = match query.start(
             client,
             &self.egress,
             zero_core::component::NetworkGeneration(current),
             end,
-        )?;
+        ) {
+            Ok(handle) => handle,
+            Err(opening) => {
+                drop(epoch);
+                return Err(query.failed_open(opening, end).await);
+            }
+        };
         drop(epoch);
-        let work = async {
+        let work = async move {
             let connection = handle
                 .connect(peer, &server_name)
                 .await
                 .map_err(std::io::Error::other)?;
-            let stream = connection
+            connection
                 .into_bi_stream()
                 .await
-                .map_err(std::io::Error::other)?;
-            Ok(zero_dns::native::NativeDnsQuicLoan {
+                .map_err(std::io::Error::other)
+        };
+        let opened = tokio::select! {biased;
+            _=cancel.cancelled()=>Err(std::io::Error::new(std::io::ErrorKind::Interrupted,"original DoQ query cancelled")),
+            result=tokio::time::timeout_at(end,work)=>result.map_err(|source|std::io::Error::new(std::io::ErrorKind::TimedOut,source)).and_then(std::convert::identity),
+        };
+        match opened {
+            Ok(stream) => Ok(zero_dns::native::NativeDnsQuicLoan {
                 io: zero_platform_tokio::TcpRelayStream::new(stream),
                 owner: Box::new(Control {
                     origin: query.origin.clone(),
                     query,
-                }) as Box<dyn zero_dns::native::NativeDnsQuicControl>,
-            })
-        };
-        tokio::select! {biased;
-            _=cancel.cancelled()=>Err(std::io::Error::new(std::io::ErrorKind::Interrupted,"original DoQ query cancelled")),
-            result=tokio::time::timeout_at(end,work)=>result.map_err(std::io::Error::other)?,
+                }),
+            }),
+            Err(opening) => Err(query.failed_open(opening, end).await),
         }
     }
+
     pub(super) async fn reap_quic(&self, end: tokio::time::Instant) -> std::io::Result<()> {
         let entries = self
             .quic_users

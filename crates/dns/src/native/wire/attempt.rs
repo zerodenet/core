@@ -7,6 +7,12 @@ pub(crate) struct Attempt {
     closed: Option<Proof>,
 }
 enum Proof {
+    // The selected host consumed this attempt's real original ledger and
+    // nested Scope joins. No native acquisition is asserted for an empty open.
+    Service,
+    #[cfg(feature = "doh")]
+    Pool(crate::backends::doh::NativeCompletion),
+    System(zero_platform_tokio::contract::scope::TaskJoined),
     FailedOpen(zero_platform_tokio::controlled_carrier::CarrierClosed),
     Carrier(LoanClosed, CarrierOriginClosed),
     #[cfg(feature = "doq")]
@@ -16,11 +22,84 @@ enum Proof {
     ),
 }
 impl Attempt {
+    #[cfg(feature = "doh")]
+    pub(crate) fn pooled(
+        result: io::Result<Vec<u8>>,
+        settled: Option<crate::backends::doh::NativeCompletion>,
+    ) -> Self {
+        Self {
+            result,
+            closed: settled.map(Proof::Pool),
+        }
+    }
+
+    pub(super) fn system(
+        mut lookup: crate::NativeSystemLookup,
+        query: &[u8],
+        query_type: u16,
+        family: zero_traits::AddressFamily,
+    ) -> Self {
+        lookup.result = lookup.result.and_then(|addresses| {
+            let question = crate::message::parse_question(query)?;
+            crate::family::filter_addresses(&question.domain, addresses, family)
+        });
+        let result = if !matches!(
+            query_type,
+            crate::message::TYPE_A | crate::message::TYPE_AAAA
+        ) {
+            Ok(crate::message::build_error_response(
+                query,
+                crate::message::RCODE_NOTIMP,
+                false,
+            ))
+        } else {
+            match lookup.result {
+                Ok(addresses) => {
+                    let addresses = addresses
+                        .into_iter()
+                        .filter(|address| {
+                            matches!(
+                                (query_type, address),
+                                (crate::message::TYPE_A, zero_traits::IpAddress::V4(_))
+                                    | (crate::message::TYPE_AAAA, zero_traits::IpAddress::V6(_))
+                            )
+                        })
+                        .collect::<Vec<_>>();
+                    Ok(crate::message::build_address_response(
+                        query,
+                        &addresses,
+                        crate::message::DEFAULT_NEGATIVE_TTL_SECONDS,
+                    ))
+                }
+                Err(source) if source.kind() == io::ErrorKind::NotFound => {
+                    Ok(crate::message::build_error_response(
+                        query,
+                        crate::message::RCODE_NXDOMAIN,
+                        false,
+                    ))
+                }
+                Err(source) => Err(source),
+            }
+        };
+        Self {
+            result,
+            closed: Some(Proof::System(lookup.joined)),
+        }
+    }
     pub(super) fn open_failed(source: io::Error) -> Self {
         let closed = source
             .get_ref()
             .and_then(|source| source.downcast_ref::<crate::native::NativeDnsOpenFailure>())
             .map(|failure| Proof::FailedOpen(failure.original_close().clone()));
+        #[cfg(feature = "doq")]
+        let closed = closed.or_else(|| {
+            source
+                .get_ref()
+                .and_then(|source| source.downcast_ref::<crate::native::NativeDnsQuicOpenFailure>())
+                .map(|failure| {
+                    Proof::Metadata(failure.original().clone(), failure.original_close().clone())
+                })
+        });
         Self {
             result: Err(source),
             closed,
@@ -32,8 +111,21 @@ impl Attempt {
             closed: None,
         }
     }
+    pub(crate) fn cleanup_failed(query: io::Error, close: io::Error) -> Self {
+        Self::blocked(io::Error::new(
+            close.kind(),
+            CloseFailure {
+                query: Some(query),
+                close,
+            },
+        ))
+    }
     pub(super) fn can_retry(&self) -> bool {
         self.closed.as_ref().is_some_and(|proof| match proof {
+            Proof::Service => true,
+            #[cfg(feature = "doh")]
+            Proof::Pool(completion) => completion.is_settled(),
+            Proof::System(joined) => joined.result().is_ok(),
             Proof::FailedOpen(closed) => closed.had_native_acquisition(),
             Proof::Carrier(logical, native) => {
                 native.matches(logical.original()) && native.had_native_acquisition()
@@ -56,6 +148,20 @@ impl Attempt {
     pub(crate) fn into_parts(self) -> (io::Result<Vec<u8>>, bool) {
         let settled = self.can_retry();
         (self.result, settled)
+    }
+}
+pub(super) async fn failed_service(
+    provider: &dyn NativeDnsProvider,
+    caller: TaskJoinWitness,
+    end: Instant,
+    opening: io::Error,
+) -> Attempt {
+    match provider.close_failed_stream_originals(caller, end).await {
+        Ok(()) => Attempt {
+            result: Err(opening),
+            closed: Some(Proof::Service),
+        },
+        Err(close) => Attempt::cleanup_failed(opening, close),
     }
 }
 pub(super) async fn settle(

@@ -156,14 +156,47 @@ impl DnsSystem {
                 "another DNS reload is already prepared",
             ));
         }
-        let (previous, generation) = {
+        let (previous, previous_system, generation, native_profile_changed) = {
             let inner = self.inner.read().expect("DNS system lock poisoned");
             let servers = match &*inner {
                 DnsSystemInner::Configured { servers, .. } => servers.clone(),
                 _ => BTreeMap::new(),
             };
-            (servers, self.config_generation.load(Ordering::Acquire))
+            let system = match &*inner {
+                DnsSystemInner::System(backend) => Some(backend.clone()),
+                _ => None,
+            };
+            (
+                servers,
+                system,
+                self.config_generation.load(Ordering::Acquire),
+                (self.native_source.is_some() || self.node_queries.is_some())
+                    && match &*inner {
+                        DnsSystemInner::Configured {
+                            source_config,
+                            dispatcher,
+                            ..
+                        } => {
+                            config != Some(source_config.as_ref())
+                                || !dispatch
+                                    .as_ref()
+                                    .is_some_and(|next| dispatcher.matches(next))
+                        }
+                        DnsSystemInner::System(_) => config.is_some(),
+                    },
+            )
         };
+        let original_servers = previous.clone();
+        #[cfg(feature = "doh")]
+        let previous = {
+            let mut reusable = previous;
+            if native_profile_changed {
+                reusable.retain(|_, server| !matches!(server.backend.as_ref(), ResolverBackend::Doh(resolver) if resolver.owner.host_bound()));
+            }
+            reusable
+        };
+        #[cfg(not(feature = "doh"))]
+        let _ = native_profile_changed;
         let servers = config
             .map(|config| {
                 build_servers(
@@ -208,7 +241,7 @@ impl DnsSystem {
                 servers.clone(),
             )?;
         }
-        let retiring = previous
+        let mut retiring = original_servers
             .values()
             .filter(|old| {
                 old.backend.has_persistent_resources()
@@ -218,6 +251,9 @@ impl DnsSystem {
             })
             .map(|old| old.backend.clone())
             .collect::<Vec<_>>();
+        if !unchanged {
+            retiring.extend(previous_system);
+        }
         let candidate = Arc::new(PreparedDnsReload {
             config: config.cloned(),
             dispatch,
@@ -297,6 +333,39 @@ impl DnsSystem {
                 "DNS resource candidate is no longer current",
             ));
         }
+        if !token.0.retired.load(Ordering::Acquire)
+            && token
+                .0
+                .retiring
+                .iter()
+                .all(|backend| matches!(backend.as_ref(), ResolverBackend::System(_)))
+        {
+            let mut closed: Vec<&TokioSystemResolver> = Vec::new();
+            for backend in &token.0.retiring {
+                #[cfg(any(feature = "udp", feature = "doh", feature = "dot", feature = "doq"))]
+                let ResolverBackend::System(resolver) = backend.as_ref() else {
+                    unreachable!("retiring set contains only System backends")
+                };
+                #[cfg(not(any(
+                    feature = "udp",
+                    feature = "doh",
+                    feature = "dot",
+                    feature = "doq"
+                )))]
+                let ResolverBackend::System(resolver) = backend.as_ref();
+                if !resolver.close_idle() {
+                    for resolver in closed {
+                        resolver.reopen_idle();
+                    }
+                    return Err(io::Error::new(
+                        io::ErrorKind::WouldBlock,
+                        "system DNS original lookup is still running",
+                    ));
+                }
+                closed.push(resolver);
+            }
+            token.0.retired.store(true, Ordering::Release);
+        }
         if !token.0.retired.load(Ordering::Acquire) {
             return Err(io::Error::new(
                 io::ErrorKind::WouldBlock,
@@ -355,6 +424,9 @@ impl DnsSystem {
             state_lease,
             token.0.servers.clone(),
         )?;
+        if let DnsSystemInner::System(backend) = &new_inner {
+            backend.register_owners(&self.transport_owners)?;
+        }
         {
             let mut inner = self.inner.write().expect("DNS system lock poisoned");
             *inner = new_inner;

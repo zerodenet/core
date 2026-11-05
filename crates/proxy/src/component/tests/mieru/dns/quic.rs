@@ -1,6 +1,7 @@
 use super::*;
 use zero_platform_tokio::controlled_datagram::metadata_pool::MetadataPoolOrigin;
 mod limits;
+mod open_failure;
 mod peer;
 mod transition;
 use peer::Peer;

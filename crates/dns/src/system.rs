@@ -1,14 +1,15 @@
-//! System resolver backed by `tokio::net::lookup_host`.
+//! System resolver with retained original blocking lookup ownership.
 
 use std::io;
 use std::net::IpAddr;
 
-use tokio::net::lookup_host;
 use zero_traits::{AddressFamily, DnsResolver, IpAddress};
+mod owner;
 
-/// Thin wrapper around tokio's `lookup_host` — the OS resolver.
-#[derive(Debug, Clone, Copy)]
-pub(crate) struct TokioSystemResolver;
+/// One retained owner for the actual OS resolver jobs, without claiming to own
+/// the resolver service's private sockets or system configuration.
+#[derive(Debug, Clone, Default)]
+pub(crate) struct TokioSystemResolver(std::sync::Arc<owner::LookupOwner>);
 
 impl DnsResolver for TokioSystemResolver {
     type Error = io::Error;
@@ -19,17 +20,13 @@ impl DnsResolver for TokioSystemResolver {
         {
             return Ok(crate::localhost::addresses(Default::default()));
         }
-        let mut resolved = Vec::new();
-        for addr in lookup_host((domain, 0)).await? {
-            resolved.push(ip_addr_to_ip(addr.ip()));
-        }
-        Ok(resolved)
+        self.0.resolve(domain.to_owned()).await
     }
 }
 
 impl TokioSystemResolver {
     pub(crate) async fn resolve_type(
-        self,
+        &self,
         domain: &str,
         query_type: u16,
         family: AddressFamily,
@@ -46,6 +43,27 @@ impl TokioSystemResolver {
                 )
             })
             .collect())
+    }
+    pub(crate) fn revoke(&self) {
+        self.0.revoke();
+    }
+    pub(crate) fn is_open(&self) -> bool {
+        self.0.is_open()
+    }
+    pub(crate) fn externally_owned(&self) -> bool {
+        std::sync::Arc::strong_count(&self.0) > 1
+    }
+    pub(crate) fn retained(&self) -> bool {
+        self.0.retained()
+    }
+    pub(crate) fn close_idle(&self) -> bool {
+        self.0.close_idle()
+    }
+    pub(crate) fn reopen_idle(&self) {
+        self.0.reopen_idle();
+    }
+    pub(crate) async fn shutdown(&self, end: tokio::time::Instant) -> io::Result<()> {
+        self.0.shutdown(end).await
     }
 }
 

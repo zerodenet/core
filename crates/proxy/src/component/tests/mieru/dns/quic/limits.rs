@@ -65,7 +65,7 @@ async fn actual_proxy_native_doq_and_plain_udp_charge_one_global_original_budget
     udp.close().await;
 }
 #[tokio::test]
-async fn actual_proxy_native_doq_verifies_hostname_and_never_uses_an_unowned_udp_fallback_after_failed_open(
+async fn actual_proxy_native_doq_hostname_failure_allows_existing_fallback_only_after_original_close(
 ) {
     let mut peer = Peer::new(true).await;
     let mut udp = Dns::new().await;
@@ -86,10 +86,20 @@ async fn actual_proxy_native_doq_verifies_hostname_and_never_uses_an_unowned_udp
     let held = pending_quic(&proxy).await;
     let original = held.metadata.clone().unwrap();
     assert!(original.closed().is_none());
-    release.send(()).unwrap();
-    assert!(job.await.unwrap().is_err());
     udp.no_new_request();
-    peer.no_request();
+    release.send(()).unwrap();
+    let response = udp.request().await;
+    confirmed(&original);
+    assert!(
+        !held.task.is_joined(),
+        "fallback stays inside the same actual query"
+    );
+    peer.no_request(); // The failed TLS hostname never admitted a DoQ request.
+    response.answer(false, false);
+    assert_eq!(
+        job.await.unwrap().unwrap(),
+        vec![zero_traits::IpAddress::V4([127, 0, 0, 1])]
+    );
     running.shutdown().await.unwrap();
     assert!(held.task.is_joined());
     confirmed(&original);

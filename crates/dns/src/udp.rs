@@ -4,10 +4,10 @@ use std::io;
 
 use zero_traits::IpAddress;
 
+#[cfg(any(feature = "udp", test))]
+use crate::message::parse_response;
 pub use crate::message::DnsQuestion;
-use crate::message::{
-    build_address_response, parse_question, parse_response, DEFAULT_SYNTHETIC_TTL_SECONDS,
-};
+use crate::message::{build_address_response, parse_question, DEFAULT_SYNTHETIC_TTL_SECONDS};
 
 #[cfg(feature = "udp")]
 use std::net::SocketAddr;

@@ -1,3 +1,4 @@
+mod pool;
 use super::*;
 use tokio::{
     net::TcpListener,
@@ -5,6 +6,7 @@ use tokio::{
 };
 struct TlsDns {
     address: std::net::SocketAddr,
+    connections: Arc<std::sync::atomic::AtomicUsize>,
     certificate: rustls::pki_types::CertificateDer<'static>,
     requests: mpsc::UnboundedReceiver<(Vec<u8>, oneshot::Sender<Vec<u8>>)>,
     stop: CancellationToken,
@@ -33,10 +35,13 @@ impl TlsDns {
         let (sender, requests) = mpsc::unbounded_channel();
         let stop = CancellationToken::new();
         let cancel = stop.clone();
+        let connections = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let accepted_count = connections.clone();
         let task = tokio::spawn(async move {
             let mut children = tokio::task::JoinSet::new();
             loop {
                 let (socket, _) = tokio::select! {biased;_=cancel.cancelled()=>break,result=listener.accept()=>result.unwrap()};
+                accepted_count.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
                 let acceptor = acceptor.clone();
                 let sender = sender.clone();
                 let cancel = cancel.clone();
@@ -62,6 +67,7 @@ impl TlsDns {
         });
         Self {
             address,
+            connections,
             certificate,
             requests,
             stop,
@@ -138,11 +144,11 @@ async fn actual_proxy_native_dot_query_uses_original_tcp_controller_and_host_tas
     exchange(false, false).await;
 }
 #[tokio::test]
-async fn actual_proxy_native_doh_query_drives_h2_inside_the_original_host_task() {
+async fn actual_proxy_native_doh_queries_reuse_one_physical_original_and_host_driver() {
     exchange(true, false).await;
 }
 #[tokio::test]
-async fn actual_proxy_native_doh_shutdown_joins_inline_driver_and_confirms_original_close() {
+async fn actual_proxy_native_doh_shutdown_joins_actual_pool_driver_and_confirms_original_close() {
     exchange(true, true).await;
 }
 
@@ -166,6 +172,9 @@ fn actual_proxy_native_encrypted_dns_runs_on_a_two_mib_worker_stack() {
 }
 
 async fn exchange(doh: bool, shutdown: bool) {
+    exchange_in(doh, shutdown, true).await;
+}
+async fn exchange_in(doh: bool, shutdown: bool, background: bool) {
     tokio::time::timeout(Duration::from_secs(20), async {
         let mut tls = TlsDns::new(doh).await;
         let plain = Dns::new().await;
@@ -173,7 +182,21 @@ async fn exchange(doh: bool, shutdown: bool) {
         dns.servers.insert("native".into(), tls.server(doh));
         let mut config = config(["127.0.0.1:1".parse().unwrap(); 3]);
         config.runtime.dns = Some(dns);
-        let (proxy, running, _) = start(config).await;
+        let (proxy, running, _) = if background {
+            start(config).await
+        } else {
+            let proxy = Proxy::new(config.clone()).unwrap();
+            let running = proxy.spawn();
+            let handle = ProxyHandle::new(
+                zero_engine::EngineHandle::new(proxy.engine().clone()),
+                proxy.clone(),
+            );
+            handle
+                .apply_runtime_config_and_wait(config, Duration::from_secs(5))
+                .await
+                .unwrap();
+            (proxy, running, handle)
+        };
         if doh {
             zero_dns::test_support::install_doh_ca(
                 &proxy.resolver,
@@ -211,8 +234,40 @@ async fn exchange(doh: bool, shutdown: bool) {
                 ))
                 .unwrap();
             querying.await.unwrap().unwrap();
-            suspended.task.wait().await;
-            closed(&prior);
+            if doh {
+                assert!(
+                    !suspended.task.is_joined(),
+                    "the healthy physical driver is reused"
+                );
+                assert!(prior.closed().is_none());
+                let witness =
+                    zero_dns::test_support::doh_pool_witness(&proxy.resolver, "native").unwrap();
+                assert_eq!(witness.registered_driver_tasks, 1);
+                assert_eq!(witness.active_leases, 0);
+                let next = tokio::spawn({
+                    let resolver = proxy.resolver.clone();
+                    async move { resolver.resolve_node("reused.encrypted.node.test").await }
+                });
+                let (query, reply) =
+                    tokio::time::timeout(Duration::from_secs(4), tls.requests.recv())
+                        .await
+                        .unwrap()
+                        .unwrap();
+                let same = pending(&proxy).await;
+                assert!(original(&same).same_original(&prior));
+                assert!(same.task.same_registration(&suspended.task));
+                assert_eq!(tls.connections.load(std::sync::atomic::Ordering::SeqCst), 1);
+                reply
+                    .send(zero_dns::udp::build_dns_response(
+                        &query,
+                        &[zero_traits::IpAddress::V4([127, 0, 0, 1])],
+                    ))
+                    .unwrap();
+                next.await.unwrap().unwrap();
+            } else {
+                suspended.task.wait().await;
+                closed(&prior);
+            }
             running.shutdown().await.unwrap();
         }
         assert!(suspended.task.is_joined());

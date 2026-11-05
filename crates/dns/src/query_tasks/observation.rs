@@ -77,7 +77,9 @@ impl OwnedDnsQueryTasks {
             })
             .collect()
     }
-    pub(crate) fn record_native(original: &CarrierOrigin) -> io::Result<()> {
+    /// Associate the actual provider original with this registered caller
+    /// before protocol preparation awaits. This grants no close authority.
+    pub fn record_native(original: &CarrierOrigin) -> io::Result<()> {
         QUERY_RECORD
             .try_with(|record| {
                 let retired = record

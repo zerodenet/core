@@ -10,6 +10,7 @@ mod limits;
 mod open_failure;
 mod quic;
 mod replacement;
+mod system;
 
 async fn pending(proxy: &Proxy) -> zero_dns::OwnedDnsQueryObservation {
     tokio::time::timeout(Duration::from_secs(3), async {

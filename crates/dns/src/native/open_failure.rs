@@ -47,3 +47,8 @@ impl std::error::Error for NativeDnsOpenFailure {
         Some(&self.opening)
     }
 }
+
+#[cfg(feature = "doq")]
+mod quic;
+#[cfg(feature = "doq")]
+pub use quic::NativeDnsQuicOpenFailure;

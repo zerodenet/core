@@ -1,6 +1,8 @@
 //! Native service requests carry a Destination and real Service identity all the way
 //! through their selected prefix. Unsupported plans are identified before I/O.
+mod binding;
 mod receipt;
+pub(crate) use binding::NativeDnsBinding;
 mod root;
 use crate::{
     component::{
@@ -115,13 +117,6 @@ async fn chain(
     let first = nodes
         .first()
         .ok_or_else(|| failure(Reason::InvalidConfig))?;
-    let start_deadline = call
-        .deadline
-        .unwrap_or_else(|| tokio::time::Instant::now() + Duration::from_secs(5));
-    let mut roles = Vec::with_capacity(nodes.len());
-    for node in &nodes {
-        roles.push(node.slot.stream(start_deadline).await?);
-    }
     let physical = first
         .endpoint
         .clone()
@@ -144,7 +139,39 @@ async fn chain(
         role: first.role,
         evidence: Mutex::new(None),
     });
-    let mut upstream = UpstreamTransport::new(binding, root.clone());
+    let upstream = UpstreamTransport::new(binding, root.clone());
+    let io = connect_stream(services, destination, &nodes, purpose, call, upstream).await?;
+    let evidence = root
+        .take_evidence()
+        .ok_or_else(|| failure(Reason::Internal))?;
+    Ok(ServiceConnected {
+        stream: TcpRelayStream::from_client(LegacyStream::new(
+            io,
+            Some(evidence.local),
+            evidence.peer,
+        )),
+        binding: ServiceBinding::new(&nodes, destination.clone(), generation, network_updates)?,
+    })
+}
+
+/// Execute the actual standard roles over the caller's original I/O provider.
+/// Protocol handshakes and relay framing share this one execution loop.
+pub(crate) async fn connect_stream(
+    services: &TcpExecutionServices,
+    destination: &Destination,
+    nodes: &[ServiceNode],
+    purpose: ServicePurpose,
+    call: &CarrierContext,
+    mut upstream: UpstreamTransport,
+) -> Result<zero_platform_tokio::contract::stream::BoxStream, ChannelError> {
+    let start_deadline = call
+        .deadline
+        .unwrap_or_else(|| tokio::time::Instant::now() + Duration::from_secs(5));
+    let mut roles = Vec::with_capacity(nodes.len());
+    for node in nodes {
+        roles.push(node.slot.stream(start_deadline).await?);
+    }
+    let generation = upstream.binding().network_generation;
     let identity = RequestIdentity::Service(Arc::new(ServiceRequestFacts {
         origin: ServiceOrigin::Runtime,
         purpose,
@@ -167,19 +194,7 @@ async fn chain(
                     context,
                 )
                 .await?;
-            let evidence = root
-                .take_evidence()
-                .ok_or_else(|| failure(Reason::Internal))?;
-            let binding =
-                ServiceBinding::new(&nodes, destination.clone(), generation, network_updates)?;
-            return Ok(ServiceConnected {
-                stream: TcpRelayStream::from_client(LegacyStream::new(
-                    connected.io,
-                    Some(evidence.local),
-                    evidence.peer,
-                )),
-                binding,
-            });
+            return Ok(connected.io);
         };
         let endpoint = next
             .endpoint

@@ -124,7 +124,11 @@ async fn native_selected_socks_prefix_transports_actual_dns_without_allocating_b
     {
         result.unwrap();
     }
-    proxy.resolver.shutdown_queries(deadline()).await.unwrap();
+    proxy
+        .protocols
+        .drive_component_supervision(Box::pin(proxy.resolver.shutdown_queries(deadline())))
+        .await
+        .unwrap();
     proxy
         .protocols
         .shutdown_components(deadline())
@@ -168,23 +172,26 @@ async fn native_dns_service_cancels_an_actual_pending_socks_handshake_without_le
     });
     let cancel = CancellationToken::new();
     let query = {
+        let proxy = proxy.clone();
         let resolver = proxy.resolver.clone();
         let cancel = cancel.clone();
         tokio::spawn(async move {
-            DnsService::resolve(
-                resolver.as_ref(),
-                DnsRequest {
-                    name: "cancel-native.test".into(),
-                    role: DnsQueryRole::Default,
-                    family: zero_traits::AddressFamily::OnlyIpv4,
-                },
-                DnsQueryContext {
-                    deadline: Some(deadline()),
-                    cancel,
-                    expected_generation: None,
-                },
-            )
-            .await
+            proxy
+                .protocols
+                .drive_component_supervision(Box::pin(DnsService::resolve(
+                    resolver.as_ref(),
+                    DnsRequest {
+                        name: "cancel-native.test".into(),
+                        role: DnsQueryRole::Default,
+                        family: zero_traits::AddressFamily::OnlyIpv4,
+                    },
+                    DnsQueryContext {
+                        deadline: Some(deadline()),
+                        cancel,
+                        expected_generation: None,
+                    },
+                )))
+                .await
         })
     };
     tokio::time::timeout_at(deadline(), received)
@@ -192,8 +199,28 @@ async fn native_dns_service_cancels_an_actual_pending_socks_handshake_without_le
         .unwrap()
         .unwrap();
     assert!(!query.is_finished());
+    let original = proxy
+        .resolver
+        .native_query_observations()
+        .into_iter()
+        .find(|entry| entry.io_pending && entry.original.is_some() && !entry.task.is_joined())
+        .expect("the actual native query is pending in the protocol greeting");
     cancel.cancel();
     assert_eq!(query.await.unwrap().unwrap_err().reason, Reason::Cancelled);
+    proxy
+        .protocols
+        .drive_component_supervision(Box::pin(async {
+            tokio::time::timeout_at(deadline(), original.task.wait())
+                .await
+                .unwrap()
+                .result()
+                .unwrap();
+        }))
+        .await;
+    let native = original.original.as_ref().unwrap();
+    assert!(native
+        .closed()
+        .is_some_and(|closed| { closed.matches(native) && closed.had_native_acquisition() }));
     tokio::time::timeout_at(deadline(), server)
         .await
         .unwrap()
@@ -204,7 +231,11 @@ async fn native_dns_service_cancels_an_actual_pending_socks_handshake_without_le
         .inspect_cache("cancel-native.test")
         .await
         .is_none());
-    proxy.resolver.shutdown_queries(deadline()).await.unwrap();
+    proxy
+        .protocols
+        .drive_component_supervision(Box::pin(proxy.resolver.shutdown_queries(deadline())))
+        .await
+        .unwrap();
     proxy
         .protocols
         .shutdown_components(deadline())

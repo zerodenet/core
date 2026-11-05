@@ -76,3 +76,55 @@ NativeDnsSource 只撤下身份匹配的原 provider；旧 owner 的重复 revok
 新增回归使用内核拒绝 TCP 连接的广播目的地址，检查真实 socket 的原始错误和关闭凭据；另一条先保持 15 个实际 UDP 查询暂停于 I/O，确认失败的第 16 个 TCP 原始槽位清理后，既有 UDP 后备才可获得额度。初版夹具把“绑定但不监听”视为立即拒连，在 macOS 实际等待超时，已据真实失败修正，不扩大限额。普通错误种类的负向回归不构造成功关闭凭据。此变更不补造 DoQ failed-open、system resolver、detour 或池化资格；普通生产登记保持关闭。
 
 2026-10-26，修正后的 Mieru/DNS 定向 34 项、错误种类负向回归及完整工作区验收通过；完整结果和同二进制客户端/面板兼容结果见[当前状态](README.md)。本轮原始输出仅留在系统临时目录，源码、公开契约与消费者状态在测试后复核；未提交、未推送。
+
+## Z003-01 本地验收进展（2026-11-04）
+
+本节保留各阶段实现和验证记录；当前实现及未完成边界以最后的“标准 detour 与同一持久池”小节为准，旧检查点结果不代表当前源码的全量资格。
+
+在云端候选 `66902032` 的本地验收工作区推进，未提交、推送或合入 develop。Z003-01 仍按完整 DNS 职责域收尾；已确认纳入保持既有 detour 所必需的出站原件转交适配，沿用标准角色，不新增 SPI 或协议组合。下面是阶段性实现，不能据此关闭 Z003-01。
+
+System 的普通库入口保留实际 blocking lookup 的原始 JoinHandle，调用者取消、关闭等待中断和容量回收都不能丢掉尚未 join 的原件。默认 System 后端也进入同一 DNS 资源退休事务；仅临时暂停的准入可在提交失败后恢复，已撤销的原件不可复活。冷候选回收不保留没有任务的历史 owner，原任务 panic 的来源仍保留。旧快照在真正开始 System lookup 前发生配置替换，返回 Interrupted，不以临时 resolver 继续查询或触发 unreachable panic。
+
+标准 native System 查询使用原 DNS owner 的真实 TaskScope blocking 子任务。答案发送不等于完成，必须消费同一子任务的 join；OS resolver 的任务完成不冒充系统 DNS 服务或其私有 socket 的关闭凭据。普通 Proxy 已装配实际 roleless Node DNS owner，支持无显式 DNS 配置的标准 Node 请求。网络代次切换取消旧查询，并在父查询 join 后再次扫描原 blocking 子任务，旧代次任务未 join 时不放行新 native 申请。
+
+UDP 和 DoQ 打开失败继续由实际 provider 保留原件。只有 matching Carrier/Metadata 关闭、转交用户归还和所需真实 driver joins 全部完成，类型化错误才允许已有后备。DoQ 的准备句柄在错误清理前归还；TLS 主机名校验失败不会进入协议请求。后备测试分别检查原件仍 pending 时禁止申请，以及原件确认关闭后允许原配置的 UDP 后备，不扩大期限或资源预算。
+
+必须继续完成的实现：普通 name/wire 查询监督整体迁入同一 host；普通 System 的失败重试及换代旧链收敛；detour Stream/Datagram 的必要出站原件适配；既有持久 DoH 等池的实际 driver、用户和原件所有权；迁完裸流/回包调用者后删除 DnsOutboundConnector 旧执行链。现有 standard Service 身份或裸流 Drop 都不能替代这些关闭凭据；本批未把该旧桥宣告删除，也未开启普通 native Mieru/MUX 登记。
+
+`TEMP-WG-OUTER-UDP-01` 单独保留，未关闭；上述 DNS 待办不是临时豁免。只改内核及其实施记录，未修改客户端、面板、公开配置、API/events 或 FFI。当前采用 Rust 1.99.0 的 DNS/Scope/Proxy DNS 定向回归及既有架构守卫，不重跑 workspace 全量；云端旧证据和本地不同源码快照的结果分别留档。
+
+### 同日续推进：普通查询监督、持久池与前缀原件
+
+普通 Proxy 的 name/wire 查询现在与 Node 查询共用同一个真实 DNS TaskScope，原始 query coordinator 不再在生产路径启动自己的 JoinSet。无 detour 的 System、UDP、DoT、DoH、DoQ 通过原 native provider 执行；standalone 库入口仍保留明确的独立执行方式，不能与同一个后端的宿主模式混用。
+
+DoH 使用原有 clients 缓存和连接建立锁，没有建立第二个池。物理连接的准备、TLS/H2 和持久 driver 在原 Scope 中登记，真实 LoanOwner 在 TLS 等待前进入持久 owner；关闭独立检查 H2 用户归还、原 driver join、实际 logical loan 及 provider 原件。中断打开但尚未交付 LoanOwner 的原件也由对应 provider 的同一 caller 登记保留和关闭。成功请求只证明本次逻辑使用归还，健康物理连接保持复用；错误、取消或换代必须清理旧连接后才能替换。
+
+宿主关闭显式清理绑定该原始 query Scope 的池，不能以新 Scope 或库内 JoinSet 替代旧凭据。DNS 配置或编译后 dispatch 变化时，已绑定旧宿主的后端进入原退休事务；相同服务器配置不能让旧 Scope 的池跨 owner 复活。实际无变化的配置继续保留原后端、物理连接和 driver。删除了 native 路径原来每请求内联建立 H2 的执行器及专用 request/response 转发方法。
+
+SOCKS5 标准 Stream carrier 的非根分支改用既有 CarrierGrant::adopt_stream_loan：先将借来的真实控制器存入本组件原始 slot，再等待认证/CONNECT。无独立 driver 的转交保留这个 slot 的真实 parent，不伪造 TaskJoinWitness 或 native acquisition。每个有实际 carrier 声明的中间 owner 都取得其真实前缀授权，依赖记录继续用于确认停旧及传递替换。
+
+必要定向结果已包含真实 Proxy 的 6 项加密 DNS/复用/网络换代/无变化 reload/owner 替换/退出检查、其余 DNS 宿主 24 项，以及两项实际单/多 taskless 前缀与保留控制视图的替换检查。detour 手动夹具的新 Scope join 监督修复和普通生产 Proxy 的新增 DoH 检查另留本轮结果，未用取消通知代替 join，也未扩大生产/测试期限。
+
+剩余边界仍明确：生产 detour 的裸流和 packet exchange 出站适配、detoured DoH 池的完整原件转交、所有调用者迁完后删除 DnsOutboundConnector/service/packet 旧链。上述遗留路径仍是必须完成的实施缺口；本批不能把直连池及前缀基础完成等同 Z003-01 关闭。普通 native Mieru/MUX 登记未开启，TEMP-WG-OUTER-UDP-01 未扩展或关闭，客户端/面板与公开 schema 未改。
+
+本轮收尾结果：Rust 1.99.0 的 detour 定向 10 项、普通 Proxy DoH 宿主池 1 项、DoH 库/池 18 项、最小 System 所有权 10 项及最小网络代次 blocking 子任务 1 项均通过；DNS/平台/SOCKS5 全 feature lib 严格 Clippy、DNS 最小 feature lib 严格 Clippy 通过。之前同批的 6 项加密宿主池、24 项其余 DNS 宿主及 2 项真实跨 owner 前缀结果分别保留，不冒充同一源码快照的全量验收。Proxy 的最后定向二进制之后仅补齐了 DNS 内部 cfg/穷尽匹配及格式，未重编其大测试目标；这些编译边界改动由最新 DNS 最小测试和全/最小 feature Clippy 检查。未执行 workspace 全量。
+
+下一批必须沿实际生产调用者继续，而不是扩展协议组合：`crates/proxy/src/runtime/dns_outbound.rs` 中仍有 `Session::new(0, ...)` 的裸 TCP 后备和 `prepare_datagram_exchange` 回包桥；`crates/dns/src/backends/doh/client/connect.rs` 仍为 detour 池消费缺少完整原件的 `DnsOutboundCarrier`。先把这些既有出站的标准角色、真实原件和传递替换接通同一宿主，确认待定打开、TLS/H2 driver、转交用户、旧代次和失败重试的清理门槛，才能删除 `DnsOutboundConnector` 及对应执行链。不能靠返回裸流、Drop 或另设临时豁免来关闭 Z003-01。
+
+### 标准 detour 与同一持久池
+
+本地继续推进了一个完整的标准 Stream 职责类别：已登记、无独立任务及共享依赖的角色，由 DNS owner 提供其真实受控 TCP 原件，协议只在该 I/O 上执行既有握手、加密和封装。角色选择检查实际组件图及资源声明，不按协议名称选择执行器。现阶段要求默认 dial，资源限于无独立驱动的 Stream carrier 和已声明文件；Direct 只允许根位置。共享池、独立驱动、设备或进程路径不能据此取得资格，普通 Mieru/MUX 登记没有开启。
+
+冷装配从现有 DNS detour 目标图提取 endpoint/dial 事实，声明 DNS owner 的实际原始 carrier slots；原件归属与静态身份包含这些完整事实。节点域名仍由真实 Node DNS provider 在同一 Scope 解析，未借用系统裸 resolver。所有权在 native open、协议握手和 TLS/H2 等待前安装，失败候选必须确认自己的真实原件和嵌套工作清理，才可尝试原配置的下一个候选。已经确认关闭的失败 IP 原件从同一有界 custody 中移除，不积累查询历史。
+
+生产 detoured DoH 已接入原来的 clients/connect_lock 和真实宿主 H2 driver，未另建 resolver、连接池或执行器。单次调度解析只发生在新物理连接建立时，健康缓存复用不再消耗 load-balance 轮转；selector、实际角色代次及网络代次进入原 binding。配置替换、选择变化或网络换代先停止旧使用、消费真实 driver join、logical loan 和原始 controller 凭据，再开放新连接。标准角色的 TCP DNS、DoT 及既有 UDP→TCP 后备也复用同一个实际 Stream 执行循环。
+
+本次接管的 Stream 查询取消收尾留在原始注册任务中：先丢弃已取消的实际 I/O future，再消费本 caller 的原件；不等待下一次请求才清理，不另起清理任务。嵌套 Node/System 工作保留真实原任务祖先身份，父任务完成不释放仍在执行的 blocking lookup；清理必须等待原 blocking 子任务的 Scope join。持久池 driver 使用独立生命周期，不作为首次查询的待结束子任务。弱 provider 引用不会额外保留宿主；清理超时或失败保留实际责任并阻止完成，不能伪造成功关闭。DoH 查询和原件清理同时失败时保留两个原始错误，不丢弃导致清理的查询错误。
+
+上述接管路径不调用 `ProxyDnsOutboundConnector`。该旧桥仍由尚未取得完整原件资格的既有出站使用，包括 resourceful/shared-pool/设备等路径及原 packet exchange；不得删除后让这些能力静默失效。`runtime/dns_outbound.rs` 的裸 TCP 后备、`Session::new(0, ...)`、`prepare_datagram_exchange` 及 standalone detour 的 `DnsOutboundCarrier` 消费者仍存在。**Z003-01 尚未关闭**：下一批必须迁完这些真实调用者和必要出站所有权，再删除对应旧链；这不是仅剩验收，也没有新增临时豁免。
+
+本批只修改内核及其实施记录，公开配置、API/events、FFI 和客户端/面板项目没有改动；兼容性结论限于这些边界保持，未重做 GUI/面板联调。`TEMP-WG-OUTER-UDP-01` 单独保留，未扩展、未关闭。所有改动留在本地验收分支，未提交、推送或合入 develop；测试仅使用 Rust 1.99.0 的必要定向范围，不重跑 workspace 全量。
+
+最终源码的定向结果：Proxy DNS detour 13 项、DoH 库/持久池 18 项、DNS 原始任务/嵌套 blocking 所有权在全 feature 和最小 feature 下各 10 项通过。取消用例检查真实 I/O Pending、原始任务 join 和 matching native close，不以对端 EOF 为清理凭据；持续复用用例连续完成超过单类查询额度的请求，仍只建立同一个健康物理连接。DNS/平台/SOCKS5 全 feature lib 严格 Clippy、DNS 最小 feature lib 严格 Clippy、格式检查通过；这不是 workspace 严格 Clippy。既有 189/27 项边界守卫及 315 source/95 target 集成布局检查通过。
+
+中间失败分别保留：初版 native detour 准备缺少 Datagram 方法/类型标注、夹具监督未接通、旧 H2 嵌套错误的提取，以及取消后清理延迟至下一次申请等；最终结果不覆盖或隐藏这些诊断。源码摘要、精确命令和各阶段日志存于仓库之外的本地 `zero-cloud-acceptance-20261104` 任务产物，最终主记录为 `z00301-standard-detour-results.json`。此前 HY2/设备回滚修复的 9 个文件摘要未变化，`HEAD=66902032`、`develop=bab00b69` 未移动；未启动全量或消费者工程验收。

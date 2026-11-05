@@ -5,7 +5,7 @@ use std::{io, sync::Arc};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct DohPoolWitness {
-    /// Actual JoinSet members, including completed tasks not yet joined.
+    /// Actual Scope/standalone driver registrations, including unjoined exits.
     pub registered_driver_tasks: usize,
     /// Actual admitted H2 users, including users of retired joined drivers.
     pub active_leases: usize,

@@ -83,6 +83,10 @@ impl<T> Default for QueryCoordinator<T> {
 }
 
 impl<T> QueryCoordinator<T> {
+    pub(crate) fn native_source(&self) -> Option<&Arc<crate::native::NativeDnsSource>> {
+        self.native_source.as_ref()
+    }
+
     pub(crate) fn with_graph(graph: Arc<Mutex<dependency::Graph>>) -> Self {
         Self::with_graph_and_tasks(graph, None)
     }
@@ -279,7 +283,11 @@ where
                             .native_tasks
                             .set(tasks.clone())
                             .expect("one native query admission");
-                        tasks.spawn(job, flight.cancel.clone())
+                        tasks.spawn_in_network(
+                            job,
+                            flight.cancel.clone(),
+                            Some(admission_key.scope.egress_generation),
+                        )
                     }) {
                         flight.cancel(error);
                     }
@@ -411,7 +419,9 @@ fn negative_ttl(kind: io::ErrorKind) -> Duration {
     }
 }
 
-pub(crate) use dependency::{current_cancel, query_is_observed};
+#[cfg(any(feature = "udp", feature = "doh", feature = "dot"))]
+pub(crate) use dependency::current_cancel;
+pub(crate) use dependency::query_is_observed;
 
 #[cfg(test)]
 mod tests;

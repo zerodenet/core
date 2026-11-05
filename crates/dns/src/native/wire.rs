@@ -4,7 +4,7 @@ use zero_platform_tokio::controlled_carrier::loan::LoanOwner;
 mod attempt;
 #[cfg(feature = "doq")]
 mod quic;
-#[cfg(any(feature = "dot", feature = "doh"))]
+#[cfg(feature = "dot")]
 mod tls;
 pub(crate) use attempt::Attempt;
 struct Query<'a> {
@@ -14,8 +14,14 @@ struct Query<'a> {
     end: Instant,
 }
 
-/// Pure admission for native Node resolution; never select System/detour I/O.
+/// Pure admission for native Node resolution; performs no query I/O.
 pub fn validate_node_server(server: &DnsServerConfig) -> io::Result<()> {
+    if server.detour().is_some() {
+        return Err(unsupported("native Node DNS cannot authorize a detour"));
+    }
+    if matches!(server, DnsServerConfig::System) {
+        return Ok(());
+    }
     if validated_peers(server)?.is_empty() {
         return Err(unsupported("node DNS has no native peers"));
     }
@@ -38,9 +44,6 @@ pub fn native_endpoints(
         .into_iter()
         .flat_map(|config| config.servers.values())
     {
-        if server.detour().is_some() {
-            continue;
-        }
         if let Some(port) = server.port() {
             for peer in crate::backends::server_endpoints(server, port)? {
                 if matches!(server, DnsServerConfig::Udp { .. }) {
@@ -71,15 +74,36 @@ pub fn native_quic_endpoints(
     }
     Ok(peers.into_iter().collect())
 }
+#[allow(clippy::too_many_arguments)]
 pub(super) async fn exchange(
     provider: &dyn NativeDnsProvider,
     config: &DnsServerConfig,
     backend: &crate::backends::ResolverBackend,
     query: &[u8],
+    family: zero_traits::AddressFamily,
     caller: TaskJoinWitness,
     cancel: CancellationToken,
     end: Instant,
 ) -> Attempt {
+    if config
+        .detour()
+        .is_some_and(|outbound| !provider.owns_detour(outbound))
+    {
+        return Attempt::blocked(unsupported(
+            "DNS detour has no actual standard Stream owner",
+        ));
+    }
+    if matches!(config, DnsServerConfig::System) {
+        let question = match crate::message::parse_question(query) {
+            Ok(question) => question,
+            Err(source) => return Attempt::blocked(source),
+        };
+        let lookup = match provider.system(question.domain, caller, cancel, end).await {
+            Ok(lookup) => lookup,
+            Err(source) => return Attempt::blocked(source),
+        };
+        return Attempt::system(lookup, query, question.query_type, family);
+    }
     let request = Query {
         bytes: query,
         caller,
@@ -110,9 +134,6 @@ pub(super) async fn exchange(
     }
 }
 fn validated_peers(config: &DnsServerConfig) -> io::Result<Vec<SocketAddr>> {
-    if config.detour().is_some() {
-        return Err(unsupported("native DNS root cannot authorize a detour"));
-    }
     let port = config
         .port()
         .ok_or_else(|| unsupported("OS resolver has no native original-close provider"))?;
@@ -145,20 +166,20 @@ async fn exchange_peer(
         cancel,
         end,
     } = request;
-    #[cfg(not(any(feature = "dot", feature = "doh")))]
+    #[cfg(not(any(feature = "dot", feature = "doq")))]
     let _ = backend;
     let end = *end;
     #[cfg(feature = "doq")]
     if matches!(config, DnsServerConfig::Doq { .. }) {
         return Box::pin(quic::exchange(provider, backend, request, peer)).await;
     }
-    if matches!(config, DnsServerConfig::Udp { .. }) {
+    if matches!(config, DnsServerConfig::Udp { .. }) && config.detour().is_none() {
         let loan = match provider
             .datagram(peer, caller.clone(), cancel.clone(), end)
             .await
         {
             Ok(loan) => loan,
-            Err(source) => return Attempt::blocked(source),
+            Err(source) => return Attempt::open_failed(source),
         };
         let (io, mut owner) = (loan.io, loan.owner);
         if let Err(source) = OwnedDnsQueryTasks::record_native(owner.original()) {
@@ -183,11 +204,32 @@ async fn exchange_peer(
         }
         // The original UDP controller has confirmed close before TCP exists.
     }
-    let loan = match provider
-        .stream(peer, caller.clone(), cancel.clone(), end)
-        .await
-    {
+    let opened = OwnedDnsQueryTasks::native_io(async {
+        match config.detour() {
+            Some(outbound) => provider
+                .detour_stream(
+                    outbound.to_owned(),
+                    peer,
+                    caller.clone(),
+                    cancel.clone(),
+                    end,
+                )
+                .await
+                .map(|(loan, _)| loan),
+            None => {
+                provider
+                    .stream(peer, caller.clone(), cancel.clone(), end)
+                    .await
+            }
+        }
+    })
+    .await
+    .and_then(std::convert::identity);
+    let loan = match opened {
         Ok(loan) => loan,
+        Err(source) if config.detour().is_some() => {
+            return attempt::failed_service(provider, caller.clone(), end, source).await
+        }
         Err(source) => return Attempt::open_failed(source),
     };
     let (mut io, mut owner) = (loan.io, loan.owner);
@@ -201,10 +243,10 @@ async fn exchange_peer(
                 crate::backends::write_framed(&mut io, query).await?;
                 crate::backends::read_framed(&mut io).await
             }
-            #[cfg(any(feature = "dot", feature = "doh"))]
+            #[cfg(feature = "dot")]
             _ => Box::pin(tls::exchange(config, backend, io, query)).await,
-            #[cfg(not(any(feature = "dot", feature = "doh")))]
-            _ => Err(unsupported("native encrypted DNS feature is disabled")),
+            #[cfg(not(feature = "dot"))]
+            _ => Err(unsupported("native DoT feature is disabled")),
         }
     };
     let response = attempt(end, async { OwnedDnsQueryTasks::native_io(work).await? }).await;

@@ -16,8 +16,14 @@ tokio::task_local! {
     static QUERY_CANCEL: CancellationToken;
     static QUERY_RECORD: Arc<Record>;
 }
+mod descendants;
+#[cfg(feature = "doh")]
+mod driver;
+mod network;
 mod observation;
+mod system;
 pub use observation::OwnedDnsQueryObservation;
+pub use system::NativeSystemLookup;
 
 /// Query-task registration only. This weak context grants neither native I/O
 /// nor service/business authority. A native provider must separately validate
@@ -31,6 +37,7 @@ struct Shared {
     limit: NonZeroUsize,
     class: TaskClass,
     state: Mutex<State>,
+    finalizer: OnceLock<std::sync::Weak<dyn crate::native::NativeDnsProvider>>,
 }
 #[derive(Debug, Default)]
 struct State {
@@ -39,7 +46,17 @@ struct State {
     records: Vec<Arc<Record>>,
     first_failure: Option<Arc<ChannelError>>,
 }
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum TaskKind {
+    Query,
+    Blocking,
+    #[cfg(feature = "doh")]
+    Driver,
+}
 struct Record {
+    kind: TaskKind,
+    ancestors: Vec<TaskJoinWitness>,
+    network: OnceLock<u64>,
     registration: OnceLock<Option<QueryRegistration>>,
     bound: Notify,
     cancel: CancellationToken,
@@ -92,6 +109,7 @@ impl OwnedDnsQueryTasks {
             limit: max_queries,
             class,
             state: Mutex::new(State::default()),
+            finalizer: OnceLock::new(),
         }))
     }
     pub(crate) fn current_witness() -> io::Result<TaskJoinWitness> {
@@ -116,13 +134,43 @@ impl OwnedDnsQueryTasks {
         }
         Ok(())
     }
+    #[cfg(any(test, feature = "test-support"))]
     pub(crate) fn spawn(
         &self,
         job: impl Future<Output = ()> + Send + 'static,
         cancel: CancellationToken,
     ) -> io::Result<()> {
+        self.spawn_in_network(job, cancel, None)
+    }
+    pub(crate) fn spawn_in_network(
+        &self,
+        job: impl Future<Output = ()> + Send + 'static,
+        cancel: CancellationToken,
+        network: Option<u64>,
+    ) -> io::Result<()> {
+        self.spawn_kind(job, cancel, network, TaskKind::Query)
+            .map(|_| ())
+    }
+    fn spawn_kind(
+        &self,
+        job: impl Future<Output = ()> + Send + 'static,
+        cancel: CancellationToken,
+        network: Option<u64>,
+        kind: TaskKind,
+    ) -> io::Result<TaskJoinWitness> {
         self.ensure_open()?;
+        #[cfg(feature = "doh")]
+        let ancestors = if kind == TaskKind::Driver {
+            Vec::new()
+        } else {
+            self.inherited_tasks()?
+        };
+        #[cfg(not(feature = "doh"))]
+        let ancestors = self.inherited_tasks()?;
         let record = Arc::new(Record {
+            kind,
+            ancestors,
+            network: network.map(OnceLock::from).unwrap_or_default(),
             registration: OnceLock::new(),
             bound: Notify::new(),
             cancel,
@@ -138,7 +186,13 @@ impl OwnedDnsQueryTasks {
                     "DNS query admission retired",
                 ));
             }
-            if state.records.len() >= self.0.limit.get() {
+            if state
+                .records
+                .iter()
+                .filter(|record| record.kind == kind)
+                .count()
+                >= self.0.limit.get()
+            {
                 return Err(io::Error::new(
                     io::ErrorKind::WouldBlock,
                     "DNS query task capacity exhausted",
@@ -149,15 +203,17 @@ impl OwnedDnsQueryTasks {
             // never discarded by cancellation or a shutdown waiter timeout.
             state.records.push(record.clone());
         }
-        let (sender, receiver) = oneshot::channel();
+        let (sender, receiver) = oneshot::channel::<TaskJoinWitness>();
         let parent = self.0.parent.clone();
         let cancellation = record.cancel.clone();
         let query_record = record.clone();
         let callbacks = self.0.registrar.defer_callbacks();
+        let finalizer = self.0.finalizer.get().cloned();
         let spawned = self.0.registrar.spawn_tracked(self.0.class, async move {
             let Ok(witness) = receiver.await else {
                 return Ok(());
             };
+            let caller = witness.clone();
             // No original resolution/native I/O can run before the same spawn's
             // witness has been persisted and delivered by its original caller.
             QUERY_RECORD
@@ -175,6 +231,25 @@ impl OwnedDnsQueryTasks {
                     ),
                 )
                 .await;
+            // This stays in the original registered task, outside the cancelled
+            // work future. Actual caller join is published only after cleanup.
+            if let Some(finalizer) = finalizer {
+                let provider = finalizer.upgrade().ok_or_else(|| {
+                    ChannelError::new(
+                        zero_platform_tokio::contract::Stage::Close,
+                        zero_platform_tokio::contract::Reason::Revoked,
+                        zero_platform_tokio::contract::Impact::Component,
+                    )
+                })?;
+                provider.finish_query(caller).await.map_err(|source| {
+                    ChannelError::new(
+                        zero_platform_tokio::contract::Stage::Close,
+                        zero_platform_tokio::contract::Reason::Io,
+                        zero_platform_tokio::contract::Impact::Component,
+                    )
+                    .with_source(source)
+                })?;
+            }
             Ok(())
         });
         match spawned {
@@ -187,9 +262,9 @@ impl OwnedDnsQueryTasks {
                     }))
                     .expect("query bound once");
                 record.bound.notify_waiters();
-                let _ = sender.send(witness);
+                let _ = sender.send(witness.clone());
                 drop(callbacks);
-                Ok(())
+                Ok(witness)
             }
             Err(source) => {
                 // Failed synchronous registration never started a task/native.

@@ -10,12 +10,13 @@ use std::{
 use zero_platform_tokio::contract::CancellationToken;
 
 pub(in super::super) struct ClientState {
+    pub(in super::super) native: std::sync::OnceLock<super::super::native::NativeClient>,
     usable: AtomicBool,
     pub(in super::super) reusable: bool,
     pub(in super::super) leases: AtomicUsize,
     pub(in super::super) cancel: CancellationToken,
     pub(super) changed: Arc<tokio::sync::Notify>,
-    binding: Option<Arc<dyn DnsCarrierBinding>>,
+    binding: std::sync::OnceLock<Arc<dyn DnsCarrierBinding>>,
     egress: zero_platform_tokio::EgressInterfaceControl,
     generation: u64,
 }
@@ -28,12 +29,13 @@ impl ClientState {
         generation: u64,
     ) -> Self {
         Self {
+            native: Default::default(),
             usable: AtomicBool::new(true),
             reusable: direct || binding.is_some(),
             leases: AtomicUsize::new(0),
             cancel: CancellationToken::new(),
             changed,
-            binding,
+            binding: binding.map(std::sync::OnceLock::from).unwrap_or_default(),
             egress,
             generation,
         }
@@ -57,7 +59,7 @@ impl ClientState {
                 "DoH connection was retired",
             ));
         }
-        if let Some(binding) = &self.binding {
+        if let Some(binding) = self.binding.get() {
             if let Err(source) = binding.check_current() {
                 self.retire();
                 return Err(source);
@@ -69,7 +71,7 @@ impl ClientState {
         self.reusable && self.ensure_current().is_ok()
     }
     pub(in super::super) async fn revoked(&self) -> io::Error {
-        match self.binding.as_deref() {
+        match self.binding.get().map(Arc::as_ref) {
             Some(binding) => binding.revoked().await,
             None => {
                 let mut changes = self.egress.subscribe_generation();
@@ -86,6 +88,13 @@ impl ClientState {
                 }
             }
         }
+    }
+}
+impl ClientState {
+    pub(in super::super) fn bind(&self, binding: Arc<dyn DnsCarrierBinding>) -> io::Result<()> {
+        self.binding
+            .set(binding)
+            .map_err(|_| io::Error::other("DoH physical binding installed twice"))
     }
 }
 pub(super) async fn revoked(binding: Option<&dyn DnsCarrierBinding>) -> io::Error {

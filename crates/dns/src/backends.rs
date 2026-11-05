@@ -6,14 +6,18 @@ use std::net::SocketAddr;
 use zero_config::DnsServerConfig;
 use zero_traits::{AddressFamily, IpAddress};
 
+#[cfg(feature = "udp")]
+use crate::message::parse_response;
 use crate::message::{
-    build_address_response, build_error_response, parse_question, parse_response,
-    DEFAULT_NEGATIVE_TTL_SECONDS, RCODE_NOTIMP, RCODE_NXDOMAIN, TYPE_A, TYPE_AAAA,
+    build_address_response, build_error_response, parse_question, DEFAULT_NEGATIVE_TTL_SECONDS,
+    RCODE_NOTIMP, RCODE_NXDOMAIN, TYPE_A, TYPE_AAAA,
 };
 use crate::system::TokioSystemResolver;
 #[cfg(feature = "udp")]
 use crate::udp::UdpDnsResolver;
-use crate::{DnsConnectContext, DnsOutboundConnector};
+#[cfg(any(feature = "udp", feature = "doh", feature = "dot"))]
+use crate::DnsConnectContext;
+use crate::DnsOutboundConnector;
 mod lifecycle;
 tokio::task_local! { pub(crate) static ATTEMPT_DEADLINE:tokio::time::Instant; }
 
@@ -44,32 +48,13 @@ impl ResolverBackend {
             )),
         }
     }
-    #[cfg(feature = "doh")]
-    pub(crate) fn native_doh_request(&self, length: usize) -> io::Result<http::Request<()>> {
-        match self {
-            Self::Doh(resolver) => resolver.request(length),
-            _ => Err(io::Error::new(
-                io::ErrorKind::Unsupported,
-                "native backend is not DoH",
-            )),
-        }
-    }
-    #[cfg(feature = "doh")]
-    pub(crate) async fn native_doh_response(
-        response: http::Response<h2::RecvStream>,
-    ) -> io::Result<Vec<u8>> {
-        doh::read_response(response).await
-    }
-    #[cfg(any(feature = "dot", feature = "doh"))]
+    #[cfg(feature = "dot")]
     pub(crate) fn native_tls_config(&self) -> io::Result<std::sync::Arc<rustls::ClientConfig>> {
         match self {
-            #[cfg(feature = "dot")]
             Self::Dot(resolver) => Ok(resolver.native_tls_config()),
-            #[cfg(feature = "doh")]
-            Self::Doh(resolver) => resolver.native_tls_config(),
             _ => Err(io::Error::new(
                 io::ErrorKind::Unsupported,
-                "native stream DNS backend has no TLS profile",
+                "not a native DoT backend",
             )),
         }
     }
@@ -79,7 +64,7 @@ impl ResolverBackend {
     ) -> io::Result<Self> {
         let _ = &egress;
         match server {
-            DnsServerConfig::System => Ok(Self::System(TokioSystemResolver)),
+            DnsServerConfig::System => Ok(Self::System(TokioSystemResolver::default())),
             #[cfg(feature = "udp")]
             DnsServerConfig::Udp { port, .. } => {
                 let addrs = server_endpoints(server, *port)?;
@@ -179,8 +164,9 @@ impl ResolverBackend {
         connector: Option<&dyn DnsOutboundConnector>,
         family: AddressFamily,
     ) -> io::Result<Vec<u8>> {
+        let _ = (detour, connector);
         match self {
-            Self::System(resolver) => system_exchange(*resolver, query, family).await,
+            Self::System(resolver) => system_exchange(resolver, query, family).await,
             #[cfg(feature = "udp")]
             Self::Udp {
                 resolver,
@@ -235,15 +221,15 @@ impl ResolverBackend {
         &self,
         owners: &std::sync::Arc<crate::transport_owners::TransportOwners>,
     ) -> io::Result<()> {
-        #[cfg(feature = "doh")]
-        if let Self::Doh(resolver) = self {
-            owners.register_doh(resolver.owner.clone())?;
+        match self {
+            Self::System(resolver) => owners.register_system(resolver.clone())?,
+            #[cfg(feature = "doh")]
+            Self::Doh(resolver) => owners.register_doh(resolver.owner.clone())?,
+            #[cfg(feature = "doq")]
+            Self::Doq(resolver) => resolver.attach_registry(owners.clone()),
+            #[cfg(any(feature = "udp", feature = "dot"))]
+            _ => {}
         }
-        #[cfg(feature = "doq")]
-        if let Self::Doq(resolver) = self {
-            resolver.attach_registry(owners.clone());
-        }
-        let _ = owners;
         Ok(())
     }
 
@@ -309,7 +295,7 @@ pub(crate) struct ResolvedAddresses {
 }
 
 async fn system_exchange(
-    resolver: TokioSystemResolver,
+    resolver: &TokioSystemResolver,
     query: &[u8],
     family: AddressFamily,
 ) -> io::Result<Vec<u8>> {
@@ -393,6 +379,7 @@ async fn exchange_tcp(
     read_framed(&mut stream).await
 }
 
+#[cfg(any(feature = "udp", feature = "dot"))]
 async fn connect_tcp(
     addr: SocketAddr,
     egress: &zero_platform_tokio::EgressInterfaceControl,
@@ -404,6 +391,7 @@ async fn connect_tcp(
         .map(|carrier| carrier.stream)
 }
 
+#[cfg(any(feature = "udp", feature = "doh", feature = "dot"))]
 async fn connect_tcp_carrier(
     addr: SocketAddr,
     egress: &zero_platform_tokio::EgressInterfaceControl,
@@ -484,7 +472,7 @@ pub(crate) async fn read_framed<S: tokio::io::AsyncRead + Unpin>(
 }
 
 #[cfg(feature = "doh")]
-mod doh;
+pub(crate) mod doh;
 #[cfg(feature = "doh")]
 pub(crate) use doh::owner::DriverOwner as DohDriverOwner;
 #[cfg(feature = "doh")]
