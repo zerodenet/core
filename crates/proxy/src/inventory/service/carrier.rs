@@ -27,10 +27,17 @@ impl ProtocolInventory {
                     let spec = slot.recipe.spec();
                     let direct =
                         outbound.runtime_kind() == zero_config::OutboundRuntimeKind::Direct;
+                    // Shared roles borrow their donor's actual logical control.
+                    // The cold graph must contain an integrated carrier provider;
+                    // taskless framing alone still uses the caller's DNS original.
+                    let borrowed = spec.task_limit.is_none()
+                        && components.has_carrier_provider(slot.role_id())
+                        && components.stream_dependencies_supported(slot.role_id());
                     if slot.dial != Default::default()
                         || !spec.roles.contains(&RoleKind::Stream)
                         || direct && relay
                         || !direct
+                            && !borrowed
                             && (spec.task_limit.is_some()
                                 || !spec.dependencies.is_empty()
                                 || !spec.resources.iter().all(|resource| {
