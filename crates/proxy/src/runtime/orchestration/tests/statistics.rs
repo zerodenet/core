@@ -41,7 +41,7 @@ async fn statistics_drive_keeps_real_periodic_panel_events_running_while_the_ope
             owner.start(engine).await.unwrap();
             // This is the same pinned operation held in a long reload/network
             // await. Both samples use the unchanged production one-second timer.
-            tokio::time::timeout(Duration::from_secs(3), async {
+            tokio::time::timeout(Duration::from_secs(3), async move {
                 let mut samples = 0;
                 loop {
                     if events.try_recv().is_some() {

@@ -1,10 +1,7 @@
 //! Actual bounded channel and its original consumed caller join. No native proof.
 use super::*;
 use std::{future::Future, pin::Pin, task::Poll, time::Duration};
-use zero_core::{
-    component::*,
-    packet::{PacketIngress, ReturnAssociation},
-};
+use zero_core::packet::{PacketIngress, ReturnAssociation};
 use zero_platform_tokio::contract::{
     packet,
     scope::{TaskClass, TaskScope},
@@ -125,12 +122,12 @@ async fn cancelled_owned_capacity_wait_keeps_the_source_original_until_same_real
     // unrelated marker task or a native-close provider fixture.
     let (_,witness)=scope.registrar().spawn_tracked(TaskClass::Critical,async move {loop {tokio::select!{biased;_=stopped.cancelled()=>break,next=received.recv()=>if next.is_none(){break;}}}Ok(())}).unwrap();
     let (stop, _) = watch::channel(false);
-    let mut control = Control {
+    let mut control = zero_platform_tokio::contract::lifecycle::erase_control(Control {
         cancel: cancel.clone(),
         stop,
         witness: witness.clone(),
         pending: pending.clone(),
-    };
+    });
     let mut sender = tx(send, cancel, pending.clone());
     let original = frame(40003);
     let pointer = original.payload().as_ptr();
@@ -142,7 +139,7 @@ async fn cancelled_owned_capacity_wait_keeps_the_source_original_until_same_real
     };
     let mut writing = Box::pin(packet::send_owned(
         Pin::new(&mut sender),
-        &mut control,
+        control.as_mut(),
         original,
         &limits,
     ));
