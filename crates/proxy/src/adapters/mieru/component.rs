@@ -125,7 +125,7 @@ impl MieruAdapter {
         let dns = options
             .carrier_specs()
             .any(|spec| matches!(spec.endpoint.address, zero_core::Address::Domain(_)))
-            .then(|| crate::component::native_dns::prepare(resources, factory.network.clone()))
+            .then(|| crate::component::native_dns::prepare_node(resources, factory.network.clone()))
             .transpose()?;
         let shared = resources
             .share(

@@ -1,6 +1,9 @@
 mod production;
 use super::super::VlessAdapter;
-use crate::component::{background::pool, RegistrationError, ResourcePreparation};
+use crate::component::{
+    background::{pool, stateless},
+    RegistrationError, ResourcePreparation,
+};
 use std::{num::NonZeroUsize, sync::Arc, time::Duration};
 use zero_config::{OutboundConfig, OutboundProtocolConfig};
 use zero_platform_tokio::contract::{
@@ -10,7 +13,7 @@ use zero_platform_tokio::contract::{
 };
 
 pub(crate) enum Options {
-    Ordinary(Arc<::vless::component::Options>),
+    Ordinary(Arc<stateless::Options<::vless::component::Options>>),
     Mux(Arc<::vless::component::mux::Options>),
 }
 pub(crate) struct Factory;
@@ -18,7 +21,9 @@ impl ComponentFactory for Factory {
     type Options = Options;
     fn describe(&self, options: &Options) -> ComponentSpec {
         match options {
-            Options::Ordinary(options) => ::vless::component::Factory.describe(options),
+            Options::Ordinary(options) => {
+                stateless::Factory(::vless::component::Factory).describe(options)
+            }
             Options::Mux(options) => ::vless::component::mux::Factory.describe(options),
         }
     }
@@ -29,7 +34,7 @@ impl ComponentFactory for Factory {
     ) -> Result<ComponentInstance, BuildError> {
         match options.as_ref() {
             Options::Ordinary(options) => {
-                ::vless::component::Factory.build(options.clone(), context)
+                stateless::Factory(::vless::component::Factory).build(options.clone(), context)
             }
             Options::Mux(options) => {
                 ::vless::component::mux::Factory.build(options.clone(), context)
@@ -113,9 +118,19 @@ impl VlessAdapter {
             unreachable!("owning adapter projection")
         };
         if mux_concurrency.is_none() {
-            return Ok(Options::Ordinary(Arc::new(super::component_options(
-                input,
-            )?)));
+            return Ok(Options::Ordinary(Arc::new(stateless::Options::new(
+                super::component_options(input)?,
+                zero_core::request::Destination::new(
+                    match zero_core::address::parse_ip_literal(server) {
+                        Some(std::net::IpAddr::V4(ip)) => zero_core::Address::Ipv4(ip.octets()),
+                        Some(std::net::IpAddr::V6(ip)) => zero_core::Address::Ipv6(ip.octets()),
+                        None => zero_core::Address::Domain(server.clone()),
+                    },
+                    *port,
+                ),
+                input.dial.to_policy(),
+                limit,
+            ))));
         }
         let input_refs =
             super::super::outbound_options(&input.tag, (server, *port), &input.protocol)
