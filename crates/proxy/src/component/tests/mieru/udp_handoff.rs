@@ -47,8 +47,8 @@ async fn ordinary_mieru_owned_udp_handoff_preserves_both_underlays_reuse_and_pay
                     .as_ref()
                     .unwrap()
                     .configured("node")
-                    .is_none(),
-                "this migration must not enable ordinary native Mieru registration"
+                    .is_some(),
+                "ordinary UDP must execute the same actual Mieru Datagram generation"
             );
             let mut dispatch = UdpIngressRuntime::new(proxy.tcp_runtime_services())
                 .new_dispatch("incoming")
