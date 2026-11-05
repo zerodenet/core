@@ -16,22 +16,41 @@ use zero_platform_tokio::contract::{
 pub(crate) struct Factory {
     network: Arc<BackgroundNetwork>,
 }
+pub(crate) struct NativePoolOptions {
+    pool: Arc<PoolOptions>,
+    dns: Option<zero_core::component::ComponentId>,
+}
 impl Factory {
     pub(crate) fn new(network: Arc<BackgroundNetwork>) -> Self {
         Self { network }
     }
 }
 impl ComponentFactory for Factory {
-    type Options = PoolOptions;
-    fn describe(&self, options: &PoolOptions) -> ComponentSpec {
-        PoolFactory.describe(options)
+    type Options = NativePoolOptions;
+    fn describe(&self, options: &NativePoolOptions) -> ComponentSpec {
+        let mut spec = PoolFactory.describe(&options.pool);
+        spec.dependencies.extend(options.dns);
+        spec
     }
     fn build(
         &self,
-        options: Arc<PoolOptions>,
-        context: BuildContext,
+        options: Arc<NativePoolOptions>,
+        mut context: BuildContext,
     ) -> Result<ComponentInstance, BuildError> {
+        if context.dependencies.len() != usize::from(options.dns.is_some())
+            || options
+                .dns
+                .is_some_and(|dns| context.dependency(dns).is_none())
+        {
+            return Err(zero_platform_tokio::contract::ChannelError::new(
+                zero_platform_tokio::contract::Stage::Prepare,
+                zero_platform_tokio::contract::Reason::StalePlan,
+                zero_platform_tokio::contract::Impact::Component,
+            ));
+        }
+        context.dependencies = Arc::from([]);
         let upstreams = options
+            .pool
             .profiles()
             .iter()
             .map(|profile| {
@@ -46,7 +65,7 @@ impl ComponentFactory for Factory {
                 .transport()
             })
             .collect();
-        PoolFactory.build_with_upstreams(options, context, upstreams)
+        PoolFactory.build_with_upstreams(options.pool.clone(), context, upstreams)
     }
 }
 impl Hysteria2Adapter {
@@ -153,7 +172,20 @@ impl Hysteria2Adapter {
                 .with_prepared_ca(materials)
                 .map_err(RegistrationError::Planning)?,
         );
-        let owner = resources.share("hysteria2.authenticated_pool", factory, options.clone())?;
+        let dns = options
+            .profiles()
+            .iter()
+            .any(|profile| matches!(profile.endpoint().address, zero_core::Address::Domain(_)))
+            .then(|| crate::component::native_dns::prepare_node(resources, factory.network.clone()))
+            .transpose()?;
+        let owner = resources.share(
+            "hysteria2.authenticated_pool",
+            factory,
+            Arc::new(NativePoolOptions {
+                pool: options.clone(),
+                dns,
+            }),
+        )?;
         Ok(options.bind(index, owner))
     }
 }
