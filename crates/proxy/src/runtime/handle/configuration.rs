@@ -318,6 +318,7 @@ impl ProxyHandle {
         #[cfg(feature = "raw-ip-runtime")]
         self.proxy.protocols.finish_device_publication(&component_config).await
             .map_err(|error| format!("configuration committed; device completion remains owned: {error}; query current state"))?;
+        self.proxy.publish_endpoint_facts(&snapshot);
         self.proxy.engine.configuration_source().finalize_committed()
             .map_err(|error| format!("configuration committed; source finalization failed: {error}; query current state"))
     }
@@ -432,6 +433,7 @@ impl ProxyHandle {
             .finish_device_publication(&component_config)
             .await
             .map_err(|error| error.to_string())?;
+        self.proxy.publish_endpoint_facts(&previous);
         Ok(())
     }
 }

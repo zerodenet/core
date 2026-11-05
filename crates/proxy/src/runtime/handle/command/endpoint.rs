@@ -174,6 +174,8 @@ impl ProxyHandle {
             }
             self.apply_endpoint_snapshot(candidate.clone(), false)
                 .await?;
+            let dns = self.retire_prepared_dns(TIMEOUT).await
+                .map_err(|message| ApiError::new(ApiErrorCode::Internal, message))?;
             let component_config = candidate.config().clone();
             self.proxy
                 .protocols
@@ -203,6 +205,8 @@ impl ProxyHandle {
                     self.proxy
                         .protocols
                         .commit_components(&component_config, || {
+                            self.proxy.resolver.commit_reload_resources(&dns)
+                                .map_err(|error| format!("endpoint DNS commit failed: {error}"))?;
                             self.proxy
                                 .engine
                                 .publish_prepared_snapshot(candidate.clone())
@@ -221,6 +225,7 @@ impl ProxyHandle {
             #[cfg(feature = "raw-ip-runtime")]
             self.proxy.protocols.finish_device_publication(&component_config).await
                 .map_err(|error| ApiError::new(ApiErrorCode::Internal, format!("endpoint committed; device completion remains owned: {error}")))?;
+            self.proxy.publish_endpoint_facts(&candidate);
             // Revocation is irreversible. Failed application readiness or
             // source persistence must leave the old business sessions intact.
             if revoked.inbound || revoked.outbound {
@@ -343,6 +348,7 @@ impl ProxyHandle {
                     format!("endpoint committed; device completion remains owned: {error}"),
                 )
             })?;
+        self.proxy.publish_endpoint_facts(&snapshot);
         if compensating {
             if let Some(reconciler) = &self.config_reconciler {
                 reconciler

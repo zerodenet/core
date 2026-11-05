@@ -9,27 +9,7 @@ use crate::runtime::Proxy;
 
 impl OrchestrationState {
     pub(super) fn publish_endpoint_facts(&self, proxy: &Proxy) {
-        for binding in self.applied_snapshot.config().endpoint_bindings() {
-            let query = EndpointGetQuery {
-                endpoint_id: binding.endpoint_id.clone(),
-            };
-            let Ok(mut endpoint) = proxy
-                .engine
-                .endpoint_snapshot_in(&self.applied_snapshot, &query)
-            else {
-                continue;
-            };
-            // The existing fact is a prior generation, not evidence that
-            // the newly reconciled listener/device is still running.
-            endpoint.state = EndpointRuntimeState::Stopped;
-            let observation = proxy
-                .protocols
-                .observe_endpoint(self.applied_snapshot.config(), &mut endpoint);
-            proxy.engine.record_endpoint_device_state(
-                &endpoint,
-                observation.map(|o| o.incarnations).unwrap_or_default(),
-            );
-        }
+        proxy.publish_endpoint_facts(&self.applied_snapshot);
     }
 
     pub(super) fn publish_starting(&self, proxy: &Proxy, snapshot: &EngineRuntimeSnapshot) {
@@ -278,5 +258,29 @@ impl OrchestrationState {
             }
         }
         Ok(())
+    }
+}
+
+impl Proxy {
+    /// Observe only the actual installed resources. Deferred Ready precedes
+    /// device publication, so an accepted apply also calls this after its same
+    /// original publication guard has completed, before releasing serialization.
+    pub(in crate::runtime) fn publish_endpoint_facts(&self, snapshot: &EngineRuntimeSnapshot) {
+        for binding in snapshot.config().endpoint_bindings() {
+            let query = EndpointGetQuery {
+                endpoint_id: binding.endpoint_id.clone(),
+            };
+            let Ok(mut endpoint) = self.engine.endpoint_snapshot_in(snapshot, &query) else {
+                continue;
+            };
+            endpoint.state = EndpointRuntimeState::Stopped;
+            let observation = self
+                .protocols
+                .observe_endpoint(snapshot.config(), &mut endpoint);
+            self.engine.record_endpoint_device_state(
+                &endpoint,
+                observation.map(|o| o.incarnations).unwrap_or_default(),
+            );
+        }
     }
 }
