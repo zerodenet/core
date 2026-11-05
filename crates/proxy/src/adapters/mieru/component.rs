@@ -106,12 +106,12 @@ impl MieruAdapter {
                 PoolProfile::new(input, binding).map_err(options_error)
             })
             .collect::<Result<Vec<_>, _>>()?;
-        // One existing conservative policy bound for all identities and both
-        // underlays together. A profile never creates a separate native pool.
-        let limit = NonZeroUsize::new(
-            ::mieru::client::ClientPoolPolicy::default().max_connections_per_identity,
-        )
-        .unwrap();
+        // One on-demand budget for all identities and both underlays together.
+        // The actual managed record and TaskScope limits use this same value;
+        // incomplete original cleanup never refunds a carrier position.
+        let limit = NonZeroUsize::new(candidate.runtime.effective_mieru_max_carriers())
+            .filter(|limit| limit.get() <= 256)
+            .ok_or_else(|| options_error("invalid actual Mieru pool carrier budget"))?;
         let options = self
             .pool
             .component_options(limit)

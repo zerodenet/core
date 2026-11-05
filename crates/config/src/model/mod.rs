@@ -101,6 +101,23 @@ pub struct RuntimeOptionsConfig {
     /// exported configuration shape and uses a conservative four-carrier cap.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub native_mux_max_carriers: Option<usize>,
+    /// Total live or unconfirmed physical carriers in the one Mieru adapter
+    /// pool, across every profile and both underlays. Four by default.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub mieru_max_carriers: Option<usize>,
+    /// Original DNS custody shared by Node/bootstrap and Default query owners.
+    /// An unconfirmed close still consumes one position; DoQ needs two.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub native_dns_max_originals: Option<usize>,
+    /// Actual registered DNS query tasks shared by both purpose owners.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub native_dns_max_queries: Option<usize>,
+    /// Actual blocking DNS jobs, retained through their original task join.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub native_dns_max_blocking_jobs: Option<usize>,
+    /// Actual DNS H2 connection drivers, retained through their original join.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub native_dns_max_h2_drivers: Option<usize>,
     /// Native Direct egress originals per standard accepted UDP association.
     /// On demand, 64 by default; omission preserves the legacy export shape.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -136,6 +153,11 @@ impl Default for RuntimeOptionsConfig {
         Self {
             file_read_max_bytes: None,
             native_mux_max_carriers: None,
+            mieru_max_carriers: None,
+            native_dns_max_originals: None,
+            native_dns_max_queries: None,
+            native_dns_max_blocking_jobs: None,
+            native_dns_max_h2_drivers: None,
             udp_direct_max_sockets: None,
             udp_upstream_idle_timeout_seconds: default_udp_upstream_idle_timeout_seconds(),
             event_log_capacity: default_event_log_capacity(),
@@ -154,6 +176,21 @@ pub const DEFAULT_LATENCY_TEST_URL: &str = "http://www.gstatic.com/generate_204"
 pub const DEFAULT_EVENT_LOG_CAPACITY: usize = 1024;
 
 impl RuntimeOptionsConfig {
+    pub fn effective_mieru_max_carriers(&self) -> usize {
+        self.mieru_max_carriers.unwrap_or(4)
+    }
+    pub fn effective_native_dns_max_originals(&self) -> usize {
+        self.native_dns_max_originals.unwrap_or(16)
+    }
+    pub fn effective_native_dns_max_queries(&self) -> usize {
+        self.native_dns_max_queries.unwrap_or(16)
+    }
+    pub fn effective_native_dns_max_blocking_jobs(&self) -> usize {
+        self.native_dns_max_blocking_jobs.unwrap_or(16)
+    }
+    pub fn effective_native_dns_max_h2_drivers(&self) -> usize {
+        self.native_dns_max_h2_drivers.unwrap_or(16)
+    }
     pub fn effective_udp_direct_max_sockets(&self) -> usize {
         self.udp_direct_max_sockets.unwrap_or(64)
     }
