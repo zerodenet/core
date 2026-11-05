@@ -14,6 +14,7 @@ use zero_runtime::configuration::{ControlBudget, ControlBudgetLimits};
 struct OneEvent {
     event: Arc<Mutex<Option<zero_api::RawApiEvent>>>,
     taken: Arc<AtomicUsize>,
+    received: Arc<tokio::sync::Notify>,
     dropped: Arc<AtomicUsize>,
 }
 struct OneStream {
@@ -28,6 +29,7 @@ impl zero_api::EventStream for OneStream {
         let event = self.source.event.lock().unwrap().take();
         if event.is_some() {
             self.source.taken.fetch_add(1, Ordering::AcqRel);
+            self.source.received.notify_one();
         }
         event
     }
@@ -80,6 +82,7 @@ async fn oversized_event(disconnect: Option<bool>) {
             payload.clone(),
         )))),
         taken: Arc::new(AtomicUsize::new(0)),
+        received: Arc::new(tokio::sync::Notify::new()),
         dropped: Arc::new(AtomicUsize::new(0)),
     };
     let budget = ControlBudget::new(ControlBudgetLimits {
@@ -96,6 +99,9 @@ async fn oversized_event(disconnect: Option<bool>) {
         .await
         .unwrap()
         .into_inner();
+    tokio::time::timeout(Duration::from_secs(1), source.received.notified())
+        .await
+        .unwrap();
     // Poll the actual adapter receiver. An oversize frame neither closes this
     // stream nor allocates a charged serialized frame while awaiting capacity.
     assert!(tokio::time::timeout(
