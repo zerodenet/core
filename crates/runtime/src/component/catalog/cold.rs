@@ -125,6 +125,7 @@ impl ComponentCatalog {
                 previous
                     .map(|(_, plan)| plan.order.as_slice())
                     .unwrap_or_default(),
+                self.admission.loan_snapshot().1,
             );
         let builtin_input = OutboundConfig {
             tag: "direct".into(),

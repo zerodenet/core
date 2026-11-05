@@ -44,6 +44,10 @@ pub struct ResourcePreparation<'a> {
     failed: Cell<bool>,
     previous: SharedResourceIdentities,
     previous_slots: &'a [Arc<super::instance::ComponentSlot>],
+    previous_loans: Vec<(
+        zero_core::component::ComponentInstanceId,
+        zero_core::component::ComponentInstanceId,
+    )>,
     candidate: Option<&'a zero_config::RuntimeConfig>,
     source_dir: Option<&'a std::path::Path>,
 }
@@ -56,6 +60,7 @@ impl<'a> ResourcePreparation<'a> {
             failed: Cell::new(false),
             previous: SharedResourceIdentities::default(),
             previous_slots: &[],
+            previous_loans: Vec::new(),
             candidate: None,
             source_dir: None,
         }
@@ -64,8 +69,15 @@ impl<'a> ResourcePreparation<'a> {
     pub(super) fn with_previous_slots(
         mut self,
         previous: &'a [Arc<super::instance::ComponentSlot>],
+        loans: impl IntoIterator<
+            Item = (
+                zero_core::component::ComponentInstanceId,
+                zero_core::component::ComponentInstanceId,
+            ),
+        >,
     ) -> Self {
         self.previous_slots = previous;
+        self.previous_loans = loans.into_iter().collect();
         self
     }
     /// Read-only evidence from this host's actual previous slot. A dependency
@@ -95,7 +107,13 @@ impl<'a> ResourcePreparation<'a> {
             if !old.can_reuse() || candidate.recipe.spec() != old.recipe.spec() {
                 return None;
             }
-            for dependency in old.dependency_instances() {
+            for dependency in old.dependency_instances().iter().chain(
+                preparation
+                    .previous_loans
+                    .iter()
+                    .filter(|(from, _)| *from == old.instance_id())
+                    .map(|(_, to)| to),
+            ) {
                 if check(preparation, dependency.component, seen)? != *dependency {
                     return None;
                 }
