@@ -403,6 +403,11 @@ fn validate_runtime(
             "runtime.hysteria2_udp_pending_bytes must be between 1 and 67108864".into(),
         ));
     }
+    if !(1..=4096).contains(&runtime.effective_native_stream_max_originals()) {
+        return Err(ConfigError::InvalidRuntime(
+            "runtime.native_stream_max_originals must be between 1 and 4096".into(),
+        ));
+    }
     for (name, limit) in [
         (
             "control_max_connections",

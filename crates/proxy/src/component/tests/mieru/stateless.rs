@@ -41,6 +41,7 @@ async fn ordinary_taskless_protocol_prefixes_transfer_their_actual_original_to_t
             let c = Server::new(false).await;
             let mut config = config([b.address, b.address, c.address]);
             config.outbounds[0] = prefix.node.clone();
+            config.runtime.native_stream_max_originals = Some(1);
             let proxy = Proxy::new(config.clone()).unwrap();
             let running = proxy.spawn();
             let handle = ProxyHandle::new(
@@ -60,6 +61,11 @@ async fn ordinary_taskless_protocol_prefixes_transfer_their_actual_original_to_t
             let middle = final_original.parent().unwrap();
             let root = middle.parent().unwrap().clone();
             assert!(root.parent().is_none());
+            assert_eq!(
+                root.owner().limit().get(),
+                1,
+                "the actual taskless original owner consumes its own configured Stream cap"
+            );
             assert!(
                 root.driver().is_none(),
                 "taskless protocol must not invent a driver"

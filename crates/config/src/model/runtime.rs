@@ -12,6 +12,10 @@ pub struct RuntimeOptionsConfig {
     /// exported configuration shape and uses a conservative four-carrier cap.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub native_mux_max_carriers: Option<usize>,
+    /// Actual native or borrowed original slots per taskless Stream role.
+    /// Four by default, shared by its pending and delivered carrier uses.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub native_stream_max_originals: Option<usize>,
     /// Total live or unconfirmed physical carriers in the one Mieru adapter
     /// pool, across every profile and both underlays. Four by default.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -86,6 +90,7 @@ impl Default for RuntimeOptionsConfig {
         Self {
             file_read_max_bytes: None,
             native_mux_max_carriers: None,
+            native_stream_max_originals: None,
             mieru_max_carriers: None,
             hysteria2_max_entries: None,
             hysteria2_max_udp_sessions: None,
@@ -115,6 +120,9 @@ pub const DEFAULT_LATENCY_TEST_URL: &str = "http://www.gstatic.com/generate_204"
 pub const DEFAULT_EVENT_LOG_CAPACITY: usize = 1024;
 
 impl RuntimeOptionsConfig {
+    pub fn effective_native_stream_max_originals(&self) -> usize {
+        self.native_stream_max_originals.unwrap_or(4)
+    }
     pub fn effective_mieru_max_carriers(&self) -> usize {
         self.mieru_max_carriers.unwrap_or(4)
     }

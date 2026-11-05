@@ -84,8 +84,8 @@ impl super::super::VmessAdapter {
             unreachable!("owning protocol projection")
         };
         if grpc.is_none() {
-            return super::component_options(input).map(|options| {
-                Options::Ordinary(Arc::new(stateless::Options::new(
+            return super::component_options(input).and_then(|options| {
+                Ok(Options::Ordinary(Arc::new(stateless::Options::new(
                     options,
                     zero_core::request::Destination::new(
                         match zero_core::address::parse_ip_literal(server) {
@@ -96,8 +96,16 @@ impl super::super::VmessAdapter {
                         *port,
                     ),
                     input.dial.to_policy(),
-                    NonZeroUsize::new(4).unwrap(),
-                )))
+                    NonZeroUsize::new(
+                        candidate
+                            .map(|config| config.runtime.effective_native_stream_max_originals())
+                            .unwrap_or(4),
+                    )
+                    .filter(|limit| limit.get() <= 4096)
+                    .ok_or_else(|| {
+                        ConfigError::InvalidRuntime("invalid taskless Stream original limit".into())
+                    })?,
+                ))))
             });
         }
         let refs = super::super::outbound_options(&input.tag, (server, *port), &input.protocol)
