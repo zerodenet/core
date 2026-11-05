@@ -92,6 +92,31 @@ impl ComponentCatalog {
             .map(|resource| resource.component())
             .collect();
         let deferred_devices = prepare(&mut resources)?;
+        let requested: std::collections::BTreeSet<_> = resources
+            .resources()
+            .map(|resource| resource.component())
+            .collect();
+        if !deferred_devices.is_subset(&requested) {
+            return Err(invalid(
+                Reason::InvalidConfig,
+                "deferred recovery identity was not issued by this actual resource pass",
+            ));
+        }
+        if std::iter::once(&original.builtin)
+            .chain(original.outbounds.values())
+            .any(|slot| {
+                slot.recipe
+                    .spec()
+                    .dependencies
+                    .iter()
+                    .any(|dependency| deferred_devices.contains(dependency))
+            })
+        {
+            return Err(invalid(
+                Reason::InvalidConfig,
+                "ordinary recovery role cannot depend on deferred device activation",
+            ));
+        }
         if resources.resources().any(|resource| {
             !inherited.contains(&resource.component())
                 && !deferred_devices.contains(&resource.component())
