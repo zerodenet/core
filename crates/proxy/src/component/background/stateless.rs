@@ -252,8 +252,13 @@ impl StreamOutbound for Outbound {
             .unwrap()
             .retain(|transfer| !transfer.finished());
         self.grants.reap_returned(end).await?;
+        let grant = self.grants.reserve()?;
+        // The actual waiting caller must hold cleanup authority before this
+        // protocol can suspend or acquire native I/O. A persistent component
+        // ledger alone cannot clean a cancelled, never-delivered attempt.
+        context.upstream.retain_pending_carrier(grant.adoption())?;
         let transfer = Arc::new(Transfer {
-            grant: Mutex::new(Some(self.grants.reserve()?)),
+            grant: Mutex::new(Some(grant)),
             owner: tokio::sync::Mutex::new(None),
             stop: context.cancel.child_token(),
             published: false.into(),
@@ -300,6 +305,19 @@ struct Opener {
     transfer: Arc<Transfer>,
 }
 impl UpstreamOpener for Opener {
+    fn retain_pending_carrier(
+        &self,
+        binding: &UpstreamBinding,
+        adoption: zero_platform_tokio::controlled_carrier::CarrierAdoption,
+    ) -> Result<(), ChannelError> {
+        if binding != self.upstream.binding() {
+            return Err(super::super::instance::invalid(
+                Reason::StalePlan,
+                "nested pending original binding changed",
+            ));
+        }
+        self.upstream.retain_pending_carrier(adoption)
+    }
     fn open_stream(
         &self,
         binding: &UpstreamBinding,
@@ -327,7 +345,7 @@ impl UpstreamOpener for Opener {
                 )
             })?;
             let view = grant.claim_transferred_view()?;
-            let end = call.deadline.ok_or_else(|| {
+            call.deadline.ok_or_else(|| {
                 super::super::instance::invalid(
                     Reason::InvalidConfig,
                     "taskless native acquisition requires a deadline",
@@ -335,11 +353,8 @@ impl UpstreamOpener for Opener {
             })?;
             let io = if binding.prefix.is_empty() {
                 self.upstream
-                    .prepare_controlled_stream(endpoint, call, grant)?
-                    .open(end)
+                    .acquire_controlled_stream(endpoint, call, grant)
                     .await?
-                    .into_parts()
-                    .0
             } else {
                 let loan = self
                     .upstream

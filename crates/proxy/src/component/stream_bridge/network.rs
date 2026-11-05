@@ -8,7 +8,7 @@ use std::{
 use zero_core::request::Destination;
 use zero_platform_tokio::contract::{
     datagram::{BoxDatagramSession, DatagramRequest},
-    network::{CarrierContext, UpstreamBinding, UpstreamOpener},
+    network::{CarrierContext, PendingCarrierObserver, UpstreamBinding, UpstreamOpener},
     stream::BoxStream,
     BoxFuture, ChannelError, DeliveryState, Impact, Reason, Stage,
 };
@@ -30,6 +30,7 @@ pub(in crate::component) struct NodeOpener {
     evidence: Arc<Mutex<Option<Evidence>>>,
     business: Option<BusinessCarrierRequest>,
     resolved: tokio::sync::Mutex<Option<Resolved>>,
+    pending: Option<(UpstreamBinding, PendingCarrierObserver)>,
 }
 impl NodeOpener {
     pub(in crate::component) fn new(
@@ -44,6 +45,7 @@ impl NodeOpener {
             evidence: Arc::new(Mutex::new(None)),
             business: None,
             resolved: tokio::sync::Mutex::new(None),
+            pending: None,
         }
     }
     pub(in crate::component) fn with_business(
@@ -51,6 +53,14 @@ impl NodeOpener {
         business: Option<BusinessCarrierRequest>,
     ) -> Self {
         self.business = business;
+        self
+    }
+    pub(in crate::component) fn with_pending(
+        mut self,
+        binding: UpstreamBinding,
+        waiting: Option<PendingCarrierObserver>,
+    ) -> Self {
+        self.pending = waiting.map(|waiting| (binding, waiting));
         self
     }
     pub(super) fn generation(&self) -> u64 {
@@ -70,6 +80,22 @@ impl CarrierEndpointObserver for ConnectedEvidence {
     }
 }
 impl UpstreamOpener for NodeOpener {
+    fn retain_pending_carrier(
+        &self,
+        binding: &UpstreamBinding,
+        adoption: zero_platform_tokio::controlled_carrier::CarrierAdoption,
+    ) -> Result<(), ChannelError> {
+        let (expected, waiting) = self.pending.as_ref().ok_or_else(|| {
+            invalid(
+                Reason::Unsupported,
+                "node has no actual waiting cleanup owner",
+            )
+        })?;
+        if binding != expected || self.services.network_generation() != self.generation {
+            return Err(invalid(Reason::StalePlan, "pending node binding changed"));
+        }
+        waiting.retain(adoption)
+    }
     fn observe_carrier_origin(
         &self,
         origin: &zero_platform_tokio::controlled_carrier::CarrierOrigin,

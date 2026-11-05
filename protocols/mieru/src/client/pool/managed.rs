@@ -1,8 +1,8 @@
 //! One actual pool's explicit native owner; cache retirement never releases a budget lease.
 use super::ClientPool;
 mod record;
-pub(crate) use record::CarrierLease;
 use record::CarrierRecord;
+pub(crate) use record::{CarrierLease, PendingCarriers};
 use std::{
     io,
     num::NonZeroUsize,
@@ -124,7 +124,14 @@ impl ManagedState {
         state.ready = true;
         Ok(())
     }
+    #[cfg(test)]
     pub(crate) fn reserve(self: &Arc<Self>) -> io::Result<CarrierLease> {
+        self.reserve_with_pending_limit(0)
+    }
+    pub(crate) fn reserve_with_pending_limit(
+        self: &Arc<Self>,
+        pending_limit: usize,
+    ) -> io::Result<CarrierLease> {
         self.harvest_closed();
         let mut state = self.state.lock().unwrap();
         if !state.ready
@@ -140,7 +147,7 @@ impl ManagedState {
                 "mieru native carrier budget exhausted",
             ));
         }
-        let record = Arc::new(CarrierRecord::new(self.cancel.child_token()));
+        let record = Arc::new(CarrierRecord::new(self.cancel.child_token(), pending_limit));
         state.records.push(record.clone());
         Ok(CarrierLease::new(self.clone(), record))
     }
@@ -166,6 +173,9 @@ impl ManagedState {
             if record.body_finished() {
                 if let Some(adoption) = record.adoption() {
                     complete &= adoption.retire(deadline).await?.is_complete();
+                }
+                for pending in record.pending() {
+                    complete &= pending.retire(deadline).await?.is_complete();
                 }
             }
         }

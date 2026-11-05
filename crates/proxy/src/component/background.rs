@@ -8,7 +8,10 @@ use zero_dns::DnsSystem;
 use zero_platform_tokio::{
     contract::{
         dns::{DnsGeneration, DnsService},
-        network::{CarrierContext, UpstreamBinding, UpstreamOpener, UpstreamTransport},
+        network::{
+            CarrierContext, PendingCarrierObserver, UpstreamBinding, UpstreamOpener,
+            UpstreamTransport,
+        },
         stream::BoxStream,
         BoxFuture, ChannelError, Reason,
     },
@@ -91,8 +94,40 @@ impl UpstreamOpener for BackgroundCarrier {
     }
     fn select_background_carrier(
         &self,
+        binding: Option<UpstreamBinding>,
+        call: CarrierContext,
+    ) -> BoxFuture<'_, Result<UpstreamTransport, ChannelError>> {
+        self.select(binding, call, None)
+    }
+    fn select_background_carrier_observed(
+        &self,
+        binding: Option<UpstreamBinding>,
+        call: CarrierContext,
+        waiting: PendingCarrierObserver,
+    ) -> BoxFuture<'_, Result<UpstreamTransport, ChannelError>> {
+        self.select(binding, call, Some(waiting))
+    }
+    fn open_stream(
+        &self,
+        _: &UpstreamBinding,
+        _: Destination,
+        _: CarrierContext,
+    ) -> BoxFuture<'_, Result<BoxStream, ChannelError>> {
+        Box::pin(async {
+            Err(invalid(
+                Reason::Unsupported,
+                "select the current background provider before acquisition",
+            ))
+        })
+    }
+}
+
+impl BackgroundCarrier {
+    fn select(
+        &self,
         selected: Option<UpstreamBinding>,
         call: CarrierContext,
+        waiting: Option<PendingCarrierObserver>,
     ) -> BoxFuture<'_, Result<UpstreamTransport, ChannelError>> {
         Box::pin(async move {
             let invalid = || {
@@ -162,22 +197,9 @@ impl UpstreamOpener for BackgroundCarrier {
                     final_tag: &self.tag,
                     call,
                 }
-                .select(&services)
+                .select_observed(&services, waiting)
                 .await
             }
-        })
-    }
-    fn open_stream(
-        &self,
-        _: &UpstreamBinding,
-        _: Destination,
-        _: CarrierContext,
-    ) -> BoxFuture<'_, Result<BoxStream, ChannelError>> {
-        Box::pin(async {
-            Err(invalid(
-                Reason::Unsupported,
-                "select the current background provider before acquisition",
-            ))
         })
     }
 }
