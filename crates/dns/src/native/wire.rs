@@ -31,7 +31,34 @@ pub fn validate_node_config(config: Option<&zero_config::DnsConfig>) -> io::Resu
     let config = config
         .filter(|config| !config.servers.is_empty())
         .ok_or_else(|| unsupported("node DNS requires configured native servers"))?;
-    for server in config.servers.values() {
+    let tags = match config.policy.node_server.as_deref() {
+        Some(selected) => std::iter::once(selected)
+            .chain(
+                config
+                    .policy
+                    .node_fallback_servers
+                    .iter()
+                    .map(String::as_str),
+            )
+            .collect::<Vec<_>>(),
+        None => std::iter::once(config.default_server.as_str())
+            .chain(config.policy.fallback_servers.iter().map(String::as_str))
+            // Without an explicit Node policy, Node resolution follows the
+            // same real domain dispatcher as ordinary resolution.
+            .chain(config.dispatch.iter().map(|rule| rule.server.as_str()))
+            .collect(),
+    };
+    let mut seen = std::collections::BTreeSet::new();
+    for tag in tags {
+        if !seen.insert(tag) {
+            continue;
+        }
+        let server = config.servers.get(tag).ok_or_else(|| {
+            io::Error::new(
+                io::ErrorKind::InvalidInput,
+                format!("native Node DNS selected undefined backend `{tag}`"),
+            )
+        })?;
         validate_node_server(server)?;
     }
     Ok(())
