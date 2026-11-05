@@ -397,7 +397,7 @@ pub(crate) fn compiled_registries_with_network(
                 |input, _| crate::adapters::mieru::inbound::options(input),
             )
             .expect("unique standard Mieru inbound registration");
-        if let Some(network) = background {
+        if let Some(network) = node_network {
             let factory = Arc::new(crate::adapters::mieru::component::Factory::new(network));
             let component_adapter = adapter.clone();
             components
