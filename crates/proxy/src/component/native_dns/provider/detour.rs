@@ -151,6 +151,7 @@ impl Provider {
                     root_grants.clone(),
                     self.budget.clone(),
                     self.users.clone(),
+                    self.pending.clone(),
                     caller.clone(),
                     cancel.clone(),
                     execution.current_source.clone(),

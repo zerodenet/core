@@ -30,6 +30,13 @@ impl ConfigApplyReconciler for ApplicationServices {
             return Err("application candidate still requires confirmed retirement".to_owned());
         }
         drop(state);
+        let limits =
+            zero_runtime::configuration::ControlBudgetLimits::from_runtime(&candidate.runtime);
+        if self.control_budget.limits() != limits {
+            self.control_budget
+                .validate(limits)
+                .map_err(|error| error.to_string())?;
+        }
         if current.api.control != candidate.api.control {
             return Err(
                 "`api.control` cannot be changed by live config.apply; keep the active control endpoint and restart explicitly to replace its listener or credentials"
@@ -62,6 +69,13 @@ impl ConfigApplyReconciler for ApplicationServices {
                             return Err(message);
                         }
                     }
+                    if let Some(candidate) = state
+                        .attempt
+                        .as_ref()
+                        .and_then(|attempt| attempt.control_budget.as_ref())
+                    {
+                        candidate.commit().map_err(|error| error.to_string())?;
+                    }
                     state.attempt = None;
                 } else {
                     return Err(
@@ -75,7 +89,18 @@ impl ConfigApplyReconciler for ApplicationServices {
             target: target.clone(),
             dispatcher_touched: false,
             hooks_touched: false,
+            control_budget: None,
         });
+        let limits =
+            zero_runtime::configuration::ControlBudgetLimits::from_runtime(&target.runtime);
+        let attempt = state.attempt.as_mut().unwrap();
+        if attempt.control_budget.is_none() && self.control_budget.limits() != limits {
+            attempt.control_budget = Some(
+                self.control_budget
+                    .prepare(limits)
+                    .map_err(|error| error.to_string())?,
+            );
+        }
         self.install_target(&mut state, target).await
     }
 
@@ -112,6 +137,13 @@ impl ConfigApplyReconciler for ApplicationServices {
                 "original application cleanup is unresolved: {error}"
             ));
         }
+        if let Some(candidate) = state
+            .attempt
+            .as_ref()
+            .and_then(|attempt| attempt.control_budget.as_ref())
+        {
+            candidate.retire().map_err(|error| error.to_string())?;
+        }
         state.attempt = None;
         Ok(())
     }
@@ -133,6 +165,13 @@ impl ConfigApplyReconciler for ApplicationServices {
                 state.cleanup_fault.get_or_insert_with(|| Arc::new(error));
                 return Err(message);
             }
+        }
+        if let Some(candidate) = state
+            .attempt
+            .as_ref()
+            .and_then(|attempt| attempt.control_budget.as_ref())
+        {
+            candidate.commit().map_err(|error| error.to_string())?;
         }
         state.attempt = None;
         Ok(())

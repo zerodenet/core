@@ -29,6 +29,7 @@ pub(super) struct Provider {
     network: Arc<BackgroundNetwork>,
     instance: zero_core::component::ComponentInstanceId,
     users: Arc<Mutex<Vec<Arc<custody::NativeUse>>>>,
+    pending: Arc<Mutex<Vec<Arc<custody::NativeUse>>>>,
     #[cfg(feature = "dns")]
     quic: Vec<(
         SocketAddr,
@@ -87,6 +88,7 @@ impl Provider {
             network,
             instance: context.instance(),
             users: Arc::default(),
+            pending: Arc::default(),
             #[cfg(feature = "dns")]
             quic: options
                 .quic

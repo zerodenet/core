@@ -25,9 +25,15 @@ pub const PIPE_NAME: &str = r"\\.\pipe\zero-control";
 pub struct IpcServerHandle {
     shutdown: std::sync::Mutex<Option<oneshot::Sender<()>>>,
     task: crate::ipc::owner::ControlTask,
+    path: PathBuf,
+    started: std::sync::atomic::AtomicBool,
+    budget: Arc<zero_runtime::configuration::ControlBudget>,
 }
 
 impl IpcServerHandle {
+    pub(crate) async fn wait_terminated(&self) -> io::Result<()> {
+        self.task.join().await
+    }
     pub async fn shutdown(&self) -> io::Result<()> {
         if let Some(shutdown) = self
             .shutdown
@@ -52,27 +58,61 @@ pub fn resolve_socket_path(explicit: Option<&str>) -> io::Result<PathBuf> {
     Ok(PathBuf::from(PIPE_NAME))
 }
 
+pub fn prepare_ipc_server(pipe_path: &std::path::Path) -> Arc<IpcServerHandle> {
+    prepare_ipc_server_with_budget(
+        pipe_path,
+        zero_runtime::configuration::ControlBudget::new(
+            zero_runtime::configuration::ControlBudgetLimits::from_runtime(
+                &zero_config::RuntimeOptionsConfig::default(),
+            ),
+        ),
+    )
+}
+pub fn prepare_ipc_server_with_budget(
+    pipe_path: &std::path::Path,
+    budget: Arc<zero_runtime::configuration::ControlBudget>,
+) -> Arc<IpcServerHandle> {
+    Arc::new(IpcServerHandle {
+        shutdown: std::sync::Mutex::new(None),
+        task: crate::ipc::owner::ControlTask::empty(),
+        path: pipe_path.to_owned(),
+        started: std::sync::atomic::AtomicBool::new(false),
+        budget,
+    })
+}
+impl IpcServerHandle {
+    pub(crate) async fn start(&self, handle: ProxyHandle) -> io::Result<()> {
+        if self.started.swap(true, Ordering::AcqRel) {
+            return Err(io::Error::other("IPC original owner already started"));
+        }
+        let (shutdown_tx, shutdown_rx) = oneshot::channel();
+        *self
+            .shutdown
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner) = Some(shutdown_tx);
+        let pipe = self.path.to_string_lossy().to_string();
+        let budget = self.budget.clone();
+        self.task.install(tokio::spawn(async move {
+            run_ipc_server(&pipe, handle, shutdown_rx, budget).await
+        }))?;
+        info!(pipe = %self.path.display(), "ipc server ready");
+        Ok(())
+    }
+}
 pub async fn spawn_ipc_server(
     handle: ProxyHandle,
     pipe_path: &std::path::Path,
-) -> io::Result<IpcServerHandle> {
-    let (shutdown_tx, shutdown_rx) = oneshot::channel();
-    let pipe = pipe_path.to_string_lossy().to_string();
-
-    let task = tokio::spawn(async move { run_ipc_server(&pipe, handle, shutdown_rx).await });
-
-    info!(pipe = %pipe_path.display(), "ipc server ready");
-
-    Ok(IpcServerHandle {
-        shutdown: std::sync::Mutex::new(Some(shutdown_tx)),
-        task: crate::ipc::owner::ControlTask::new(task),
-    })
+) -> io::Result<Arc<IpcServerHandle>> {
+    let owner = prepare_ipc_server(pipe_path);
+    owner.start(handle).await?;
+    Ok(owner)
 }
 
 async fn run_ipc_server(
     pipe_name: &str,
     handle: ProxyHandle,
     mut shutdown: oneshot::Receiver<()>,
+    budget: Arc<zero_runtime::configuration::ControlBudget>,
 ) -> io::Result<()> {
     let mut connections = JoinSet::new();
     let stop = CancellationToken::new();
@@ -106,9 +146,10 @@ async fn run_ipc_server(
                       "ipc client connected");
 
                 let connection_stop = stop.child_token();
+                let connection_budget = budget.clone();
                 connections.spawn(async move {
                     let emit_handle = handle.clone();
-                    let result = connection::handle_ipc_connection_until(server, handle, connection_stop).await;
+                    let result = connection::handle_ipc_connection_with_budget_until(server, handle, connection_stop, connection_budget).await;
 
                     let n = active.fetch_sub(1, Ordering::Relaxed) - 1;
                     let error_str = match &result {

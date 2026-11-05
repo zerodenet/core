@@ -95,6 +95,11 @@ impl CarrierAdoption {
     }
 }
 impl CarrierOrigin {
+    pub(super) fn names_adoption(&self, adoption: &CarrierAdoption) -> bool {
+        matches!(self.0.as_ref(), Original::Carrier(origin)
+            if Weak::ptr_eq(&origin.slot, &Arc::downgrade(&adoption.slot)))
+    }
+
     /// Retain the real ancillary original, without inventing a carrier slot,
     /// driver or a second native provider.
     pub fn from_metadata(

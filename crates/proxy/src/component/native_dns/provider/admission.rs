@@ -59,6 +59,17 @@ impl Provider {
                 .iter()
                 .map(|entry| (entry.task.clone(), entry.cancel.clone()))
                 .collect::<Vec<_>>();
+            let old = {
+                let mut old = old;
+                old.extend(
+                    self.pending
+                        .lock()
+                        .expect("DNS pending originals poisoned")
+                        .iter()
+                        .map(|entry| (entry.task.clone(), entry.cancel.clone())),
+                );
+                old
+            };
             #[cfg(feature = "dns")]
             let old = {
                 let mut old = old;

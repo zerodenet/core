@@ -49,6 +49,49 @@ impl ComponentPlan {
         }
         true
     }
+    /// Validate an actual pending original against the selected role's same
+    /// installed resource graph before any native acquisition or borrowing.
+    pub fn validate_carrier_adoption(
+        &self,
+        role: zero_core::component::RoleInstanceId,
+        adoption: &zero_platform_tokio::controlled_carrier::CarrierAdoption,
+    ) -> Result<(), ChannelError> {
+        let fail = || {
+            invalid(
+                Reason::StalePlan,
+                "pending carrier is not owned by the actual selected role graph",
+            )
+        };
+        let selected = self.role_slot(role).ok_or_else(fail)?;
+        let mut pending = vec![selected.instance_id()];
+        let mut seen = std::collections::BTreeSet::new();
+        while let Some(id) = pending.pop() {
+            if !seen.insert(id) {
+                continue;
+            }
+            let slot = self
+                .order
+                .iter()
+                .find(|slot| slot.instance_id() == id)
+                .ok_or_else(fail)?;
+            if id == adoption.instance()
+                && slot
+                    .recipe
+                    .spec()
+                    .resources
+                    .iter()
+                    .enumerate()
+                    .any(|(ordinal, _)| {
+                        slot.original_carrier_owner(ordinal)
+                            .is_some_and(|owner| owner.matches_adoption(adoption))
+                    })
+            {
+                return Ok(());
+            }
+            pending.extend(self.retirement_dependencies(slot));
+        }
+        Err(fail())
+    }
     pub fn validate_carrier_origin(
         &self,
         role: zero_core::component::RoleInstanceId,
