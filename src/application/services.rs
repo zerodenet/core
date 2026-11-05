@@ -28,12 +28,14 @@ pub(super) struct ApplicationServices {
     event_network: zero_connector::EventDispatcherNetwork,
     state: Mutex<ApplicationServiceState>,
     control: std::sync::Mutex<control::ControlServers>,
+    control_budget: Arc<zero_runtime::configuration::ControlBudget>,
 }
 
 struct ApplicationAttempt {
     target: Arc<RuntimeConfig>,
     dispatcher_touched: bool,
     hooks_touched: bool,
+    control_budget: Option<zero_runtime::configuration::ControlBudgetCandidate>,
 }
 struct ApplicationServiceState {
     attempt: Option<ApplicationAttempt>,
@@ -113,6 +115,9 @@ impl ApplicationServices {
             #[cfg(feature = "event-dispatcher")]
             event_network,
             control: std::sync::Mutex::new(control::ControlServers::default()),
+            control_budget: zero_runtime::configuration::ControlBudget::new(
+                zero_runtime::configuration::ControlBudgetLimits::from_runtime(&config.runtime),
+            ),
             state: Mutex::new(ApplicationServiceState {
                 config: config.clone(),
                 installed: false,

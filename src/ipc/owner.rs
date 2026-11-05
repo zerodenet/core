@@ -121,3 +121,42 @@ mod tests {
             .is_panic());
     }
 }
+
+pub(crate) fn serialized_len(value: &impl serde::Serialize) -> io::Result<usize> {
+    struct Count(usize);
+    impl io::Write for Count {
+        fn write(&mut self, bytes: &[u8]) -> io::Result<usize> {
+            self.0 = self
+                .0
+                .checked_add(bytes.len())
+                .ok_or_else(|| io::Error::other("control event length overflow"))?;
+            Ok(bytes.len())
+        }
+        fn flush(&mut self) -> io::Result<()> {
+            Ok(())
+        }
+    }
+    let mut count = Count(0);
+    serde_json::to_writer(&mut count, value).map_err(io::Error::other)?;
+    Ok(count.0)
+}
+
+pub(crate) fn reserve_event_bytes_blocking(
+    budget: &Arc<zero_runtime::configuration::ControlBudget>,
+    bytes: usize,
+    stop: &tokio_util::sync::CancellationToken,
+    closed: impl Fn() -> bool,
+) -> Option<zero_runtime::configuration::ControlBudgetPermit> {
+    loop {
+        if stop.is_cancelled() || closed() {
+            return None;
+        }
+        match budget.reserve(zero_runtime::configuration::ControlCharge::QueuedEventBytes(bytes)) {
+            Ok(permit) => return Some(permit),
+            Err(error) if error.kind() == io::ErrorKind::WouldBlock => {
+                std::thread::sleep(std::time::Duration::from_millis(25))
+            }
+            Err(_) => return None,
+        }
+    }
+}

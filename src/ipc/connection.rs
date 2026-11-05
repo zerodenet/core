@@ -19,6 +19,9 @@ use zero_api::{
     QueryService,
 };
 use zero_proxy::ProxyHandle;
+use zero_runtime::configuration::{
+    ControlBudget, ControlBudgetLimits, ControlBudgetPermit, ControlCharge,
+};
 
 use super::protocol::{ipc_api_error, ipc_error, ipc_ok, serialize_frame, IpcRequest};
 
@@ -125,6 +128,20 @@ pub(crate) async fn handle_ipc_connection_until<S>(
 where
     S: tokio::io::AsyncRead + tokio::io::AsyncWrite + Unpin + Send + 'static,
 {
+    let budget = ControlBudget::new(ControlBudgetLimits::from_runtime(
+        &zero_config::RuntimeOptionsConfig::default(),
+    ));
+    handle_ipc_connection_with_budget_until(stream, handle, stop, budget).await
+}
+pub(crate) async fn handle_ipc_connection_with_budget_until<S>(
+    stream: S,
+    handle: ProxyHandle,
+    stop: CancellationToken,
+    budget: Arc<ControlBudget>,
+) -> io::Result<()>
+where
+    S: tokio::io::AsyncRead + tokio::io::AsyncWrite + Unpin + Send + 'static,
+{
     // IPC connections are protected by OS-level file permissions
     // (Unix socket 0o600).  All callers are trusted with admin.
     let auth_ctx = AuthContext {
@@ -137,7 +154,7 @@ where
         ],
     };
 
-    handle_ipc_connection_with_auth_until(stream, handle, auth_ctx, stop).await
+    handle_ipc_connection_with_auth_until(stream, handle, auth_ctx, stop, budget).await
 }
 
 async fn handle_ipc_connection_with_auth<S>(
@@ -148,7 +165,16 @@ async fn handle_ipc_connection_with_auth<S>(
 where
     S: tokio::io::AsyncRead + tokio::io::AsyncWrite + Unpin + Send + 'static,
 {
-    handle_ipc_connection_with_auth_until(stream, handle, auth_ctx, CancellationToken::new()).await
+    handle_ipc_connection_with_auth_until(
+        stream,
+        handle,
+        auth_ctx,
+        CancellationToken::new(),
+        ControlBudget::new(ControlBudgetLimits::from_runtime(
+            &zero_config::RuntimeOptionsConfig::default(),
+        )),
+    )
+    .await
 }
 
 async fn handle_ipc_connection_with_auth_until<S>(
@@ -156,6 +182,7 @@ async fn handle_ipc_connection_with_auth_until<S>(
     handle: ProxyHandle,
     auth_ctx: AuthContext,
     stop: CancellationToken,
+    budget: Arc<ControlBudget>,
 ) -> io::Result<()>
 where
     S: tokio::io::AsyncRead + tokio::io::AsyncWrite + Unpin + Send + 'static,
@@ -165,6 +192,7 @@ where
     let writer = Arc::new(TokioMutex::new(BufWriter::new(writer)));
 
     let mut subscribed = false;
+    let mut subscription_charge: Option<ControlBudgetPermit> = None;
     let mut line = String::new();
     let mut bg_blocking: Option<tokio::task::JoinHandle<()>> = None;
     let mut bg_events: Option<tokio::task::JoinHandle<io::Result<()>>> = None;
@@ -266,6 +294,14 @@ where
                         continue;
                     }
 
+                    let charge = match budget.reserve(ControlCharge::Subscription) {
+                        Ok(charge) => charge,
+                        Err(error) => {
+                            let resp = ipc_error(id, "resource_exhausted", &error.to_string());
+                            write_ipc_response(&mut *writer.lock().await, &resp).await?;
+                            continue;
+                        }
+                    };
                     let mut filter = EventFilter::default();
                     if let Some(types) = events {
                         filter.event_types = types;
@@ -277,6 +313,7 @@ where
                     match handle.subscribe(filter) {
                         Ok(subscriber) => {
                             subscribed = true;
+                            subscription_charge = Some(charge);
                             let resp = ipc_ok(id, "subscribed");
                             write_ipc_response(&mut *writer.lock().await, &resp).await?;
                             // Tokio (async) channel so the writer task can
@@ -285,6 +322,7 @@ where
                             let (event_tx, mut event_rx) = tokio::sync::mpsc::channel(32);
 
                             let cancel_for_task = stop.clone();
+                            let event_budget = budget.clone();
 
                             // Drain ready events without throttling the subscription.
                             // Only idle polls sleep; the bounded bridge applies backpressure
@@ -298,11 +336,23 @@ where
                                         // Serialize the full ApiEvent envelope (same format
                                         // as SSE) so consumers use one parsing code path
                                         // for both channels.
-                                        let value = serde_json::to_value(&event);
-                                        if let Ok(value) = value {
-                                            if event_tx.blocking_send(value).is_err() {
-                                                break;
-                                            }
+                                        let bytes = super::owner::serialized_len(&event)
+                                            .expect("event envelope is serializable")
+                                            + 1;
+                                        let Some(charge) =
+                                            super::owner::reserve_event_bytes_blocking(
+                                                &event_budget,
+                                                bytes,
+                                                &cancel_for_task,
+                                                || event_tx.is_closed(),
+                                            )
+                                        else {
+                                            break;
+                                        };
+                                        let frame = serialize_frame(&event)
+                                            .expect("measured event envelope serialization");
+                                        if event_tx.blocking_send((frame, charge)).is_err() {
+                                            break;
                                         }
                                         continue;
                                     }
@@ -324,9 +374,7 @@ where
                                         )
                                         .await
                                         {
-                                            Ok(Some(value)) => {
-                                                let frame = serialize_frame(&value)
-                                                    .map_err(io::Error::other)?;
+                                            Ok(Some((frame, _charge))) => {
                                                 let mut w = event_writer.lock().await;
                                                 w.write_all(&frame).await?;
                                                 w.flush().await?;
@@ -383,6 +431,8 @@ where
         None => Ok(()),
     };
     let commands = concurrent_commands.cancel_all().await;
+    // Actual queue/writer/worker custody has returned before this capacity.
+    drop(subscription_charge);
     let result = match result {
         Ok(result) => result,
         Err(payload) => std::panic::resume_unwind(payload),

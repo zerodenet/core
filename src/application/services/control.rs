@@ -11,6 +11,11 @@ pub(super) struct ControlServers {
     pub(super) grpc: Option<Arc<zero_grpc::GrpcHandle>>,
 }
 impl ApplicationServices {
+    pub(in crate::application) fn control_budget(
+        &self,
+    ) -> Arc<zero_runtime::configuration::ControlBudget> {
+        self.control_budget.clone()
+    }
     pub(in crate::application) fn retain_control_startup(self: &Arc<Self>) -> io::Result<()> {
         APPLICATION_STARTUP.install(self.clone())
     }
