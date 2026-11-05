@@ -111,8 +111,10 @@ impl Sampler {
     }
     /// Drive alongside the same pinned orchestration future, including its
     /// reload/network awaits. No additional owner task or runtime is created.
-    pub(super) async fn drive<T>(&self, operation: impl std::future::Future<Output = T>) -> T {
-        tokio::pin!(operation);
+    pub(super) async fn drive<T>(
+        &self,
+        mut operation: zero_platform_tokio::contract::BoxFuture<'_, T>,
+    ) -> T {
         let mut sampling = true;
         loop {
             tokio::select! {

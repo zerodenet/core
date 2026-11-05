@@ -1,6 +1,6 @@
 use super::*;
 use std::future::Future;
-use zero_api::{EventSource, EventStream};
+use zero_api::EventSource;
 
 fn engine() -> zero_engine::Engine {
     zero_engine::Engine::new(
@@ -37,7 +37,7 @@ async fn statistics_drive_keeps_real_periodic_panel_events_running_while_the_ope
         })
         .unwrap();
     owner
-        .drive(async {
+        .drive(Box::pin(async {
             owner.start(engine).await.unwrap();
             // This is the same pinned operation held in a long reload/network
             // await. Both samples use the unchanged production one-second timer.
@@ -56,7 +56,7 @@ async fn statistics_drive_keeps_real_periodic_panel_events_running_while_the_ope
             .await
             .unwrap();
             owner.shutdown().await.unwrap();
-        })
+        }))
         .await;
     assert!(owner.state.lock().await.as_ref().unwrap().closed);
 }
@@ -94,7 +94,7 @@ async fn statistics_stop_wakes_the_interval_without_starting_another_original_wo
 async fn statistics_driver_failure_waits_for_the_original_operation_cleanup() {
     let owner = Sampler::default();
     let failure = owner
-        .drive(async {
+        .drive(Box::pin(async {
             owner.start(engine()).await.unwrap();
             {
                 let mut state = owner.state.lock().await;
@@ -118,7 +118,7 @@ async fn statistics_driver_failure_waits_for_the_original_operation_cleanup() {
                 .unwrap();
             assert!(Arc::ptr_eq(original, retained));
             original.clone()
-        })
+        }))
         .await;
     assert!(Arc::ptr_eq(
         owner.failure.lock().unwrap().as_ref().unwrap(),

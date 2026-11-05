@@ -14,11 +14,9 @@ where
 {
     proxy
         .statistics
-        .drive(
-            proxy
-                .protocols
-                .drive_component_supervision(Box::pin(run_supervised_until(proxy, shutdown))),
-        )
+        .drive(Box::pin(proxy.protocols.drive_component_supervision(
+            Box::pin(run_supervised_until(proxy, shutdown)),
+        )))
         .await
 }
 
