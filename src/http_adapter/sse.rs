@@ -2,7 +2,6 @@ use std::io;
 use std::time::Duration;
 
 use tokio::io::AsyncWriteExt;
-use tokio::net::TcpStream;
 use zero_api::{EventStream, EventStreamReceive, RawApiEvent};
 
 const SSE_HEADERS: &str = concat!(
@@ -15,7 +14,10 @@ const SSE_HEADERS: &str = concat!(
 );
 
 /// Write a single SSE event to the stream.
-pub async fn write_sse_event(stream: &mut TcpStream, event: &RawApiEvent) -> io::Result<()> {
+pub async fn write_sse_event(
+    stream: &mut (impl tokio::io::AsyncWrite + Unpin),
+    event: &RawApiEvent,
+) -> io::Result<()> {
     let json = serde_json::to_string(event).map_err(io::Error::other)?;
 
     let mut buf = String::new();
@@ -29,14 +31,16 @@ pub async fn write_sse_event(stream: &mut TcpStream, event: &RawApiEvent) -> io:
 }
 
 /// Send a heartbeat comment to keep the SSE connection alive.
-pub async fn write_sse_heartbeat(stream: &mut TcpStream) -> io::Result<()> {
+pub async fn write_sse_heartbeat(
+    stream: &mut (impl tokio::io::AsyncWrite + Unpin),
+) -> io::Result<()> {
     stream.write_all(b": heartbeat\n\n").await
 }
 
 /// Stream ordered events through one bounded, retained blocking bridge.
 /// Stop wakes pending writes and joins the original subscriber worker.
 pub async fn run_sse_stream(
-    stream: TcpStream,
+    stream: impl tokio::io::AsyncWrite + Unpin,
     subscriber: zero_engine::EventSubscriber,
     catch_up: Vec<RawApiEvent>,
     heartbeat_interval: Duration,
@@ -67,7 +71,7 @@ pub async fn run_sse_stream(
             }
         }
     });
-    let result = async {
+    let result = crate::ipc::owner::catch_work(async {
         // Initial headers and replay can backpressure just like live events.
         let initial = async {
             stream.write_all(SSE_HEADERS.as_bytes()).await?;
@@ -105,12 +109,16 @@ pub async fn run_sse_stream(
     }
 
         Ok(())
-    }.await;
+    }).await;
     // Closing the actual receiver wakes blocking_send even when the bridge
     // was full. Await the original worker before dropping the connection.
     event_rx.close();
     drop(event_rx);
     let joined = handle.await.map_err(io::Error::other);
+    let result = match result {
+        Ok(result) => result,
+        Err(payload) => std::panic::resume_unwind(payload),
+    };
     result?;
     joined?;
     Ok(())

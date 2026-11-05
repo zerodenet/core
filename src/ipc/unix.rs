@@ -4,11 +4,14 @@ use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 
-use tokio::net::UnixListener;
 use tokio::sync::oneshot;
 use tokio::task::JoinSet;
 use tokio_util::sync::CancellationToken;
 use tracing::{debug, error, info, warn};
+use zero_platform_tokio::contract::{lifecycle::ChannelControl, CloseReason};
+use zero_platform_tokio::{
+    ControlledTcpControl, ControlledUnixListener, ControlledUnixListenerOwner,
+};
 use zero_proxy::ProxyHandle;
 
 use super::connection;
@@ -19,7 +22,8 @@ pub const DEFAULT_SOCKET_REL_PATH: &str = ".zero/control.sock";
 pub struct IpcServerHandle {
     shutdown: std::sync::Mutex<Option<oneshot::Sender<()>>>,
     task: crate::ipc::owner::ControlTask,
-    socket_path: PathBuf,
+    listener: ControlledUnixListenerOwner,
+    originals: Arc<UnixOriginals>,
 }
 
 impl IpcServerHandle {
@@ -33,7 +37,13 @@ impl IpcServerHandle {
             let _ = shutdown.send(());
         }
         let result = self.task.join().await;
-        let _ = std::fs::remove_file(&self.socket_path);
+        let accepted = self.originals.close_all().await;
+        let closed = self.listener.close(super::owner::close_deadline()).await?;
+        if !self.listener.matches_closed(&closed) {
+            return Err(io::Error::other("IPC listener closed a foreign original"));
+        }
+        self.listener.remove_bound_path(&closed)?;
+        accepted?;
         result
     }
 }
@@ -82,41 +92,71 @@ pub async fn spawn_ipc_server(
         std::fs::create_dir_all(parent)?;
     }
 
-    let listener = UnixListener::bind(socket_path)?;
-    let metadata = socket_path.metadata()?;
-    let mut perms = metadata.permissions();
-    perms.set_mode(0o600);
-    std::fs::set_permissions(socket_path, perms)?;
+    let owner = ControlledUnixListenerOwner::new(socket_path.to_owned(), CancellationToken::new());
+    let listener = match owner.bind() {
+        Ok(listener) => listener,
+        Err(error) => {
+            owner.close(super::owner::close_deadline()).await?;
+            return Err(error);
+        }
+    };
+    let permissions = (|| {
+        let metadata = socket_path.metadata()?;
+        let mut perms = metadata.permissions();
+        perms.set_mode(0o600);
+        std::fs::set_permissions(socket_path, perms)
+    })();
+    if let Err(error) = permissions {
+        drop(listener);
+        let closed = owner.close(super::owner::close_deadline()).await?;
+        owner.remove_bound_path(&closed)?;
+        return Err(error);
+    }
 
     let (shutdown_tx, shutdown_rx) = oneshot::channel();
-    let path_for_handle = socket_path.to_path_buf();
 
-    let task = tokio::spawn(async move { run_ipc_server(listener, handle, shutdown_rx).await });
+    let originals = Arc::new(UnixOriginals::default());
+    let task_originals = originals.clone();
+    let task =
+        tokio::spawn(
+            async move { run_ipc_server(listener, handle, shutdown_rx, task_originals).await },
+        );
 
     info!(socket = %socket_path.display(), "ipc server ready");
 
     Ok(IpcServerHandle {
         shutdown: std::sync::Mutex::new(Some(shutdown_tx)),
         task: crate::ipc::owner::ControlTask::new(task),
-        socket_path: path_for_handle,
+        listener: owner,
+        originals,
     })
 }
 
 async fn run_ipc_server(
-    listener: UnixListener,
+    mut listener: ControlledUnixListener,
     handle: ProxyHandle,
     mut shutdown: oneshot::Receiver<()>,
+    originals: Arc<UnixOriginals>,
 ) -> io::Result<()> {
     let mut connections = JoinSet::new();
     let stop = CancellationToken::new();
     let mut failure = None;
     let active = Arc::new(AtomicU64::new(0));
 
+    let work = super::owner::catch_work(async {
     loop {
         tokio::select! {
             _ = &mut shutdown => break,
             accept_result = listener.accept() => {
-                let (stream, peer_addr) = match accept_result { Ok(value) => value, Err(error) => { failure.get_or_insert(error); break; } };
+                let (mut pending, control) = match accept_result { Ok(value) => value, Err(error) => { failure.get_or_insert(error); break; } };
+                // Preserve the real accepted original before the first await.
+                *originals.activating.lock().unwrap_or_else(std::sync::PoisonError::into_inner) = Some(Arc::new(tokio::sync::Mutex::new(control)));
+                let stream = match pending.activate(super::owner::close_deadline()).await {
+                    Ok(stream) => stream,
+                    Err(error) => { failure.get_or_insert(error); break; }
+                };
+                drop(pending);
+                let peer_addr = "unix";
                 let handle = handle.clone();
                 let active = active.clone();
                 let pipe = format!("{:?}", peer_addr);
@@ -126,7 +166,7 @@ async fn run_ipc_server(
                       "ipc client connected");
 
                 let connection_stop = stop.child_token();
-                connections.spawn(async move {
+                let task = connections.spawn(async move {
                     let emit_handle = handle.clone();
                     let result = connection::handle_ipc_connection_until(stream, handle, connection_stop).await;
 
@@ -151,28 +191,29 @@ async fn run_ipc_server(
                         }
                     }
                 });
+                let original = originals.activating.lock().unwrap_or_else(std::sync::PoisonError::into_inner).take().expect("accepted original installed before activation");
+                originals.active.lock().unwrap_or_else(std::sync::PoisonError::into_inner).insert(task.id(), original);
             }
-            result = connections.join_next(), if !connections.is_empty() => {
-                if let Some(Err(error)) = result {
-                    if !error.is_cancelled() {
-                        error!(error = %error, "ipc connection task panicked");
-                        failure.get_or_insert_with(|| io::Error::other(error));
-                    }
+            result = connections.join_next_with_id(), if !connections.is_empty() => {
+                if let Some(result) = result {
+                    settle_connection(result, &originals, &mut failure).await;
                 }
             }
         }
     }
 
+    }).await;
     stop.cancel();
-    while let Some(result) = connections.join_next().await {
-        if let Err(error) = result {
-            if !error.is_cancelled() {
-                error!(error = %error, "ipc connection task panicked during shutdown");
-                failure.get_or_insert_with(|| io::Error::other(error));
-            }
-        }
+    drop(listener);
+    while let Some(result) = connections.join_next_with_id().await {
+        settle_connection(result, &originals, &mut failure).await;
     }
-
+    if let Err(error) = originals.close_all().await {
+        failure.get_or_insert(error);
+    }
+    if let Err(payload) = work {
+        std::panic::resume_unwind(payload);
+    }
     info!("ipc server stopped");
     failure.map_or(Ok(()), Err)
 }
@@ -181,4 +222,102 @@ fn dirs_home() -> Option<PathBuf> {
     std::env::var_os("HOME")
         .map(PathBuf::from)
         .filter(|p| p.is_dir())
+}
+
+#[derive(Default)]
+struct UnixOriginals {
+    activating: std::sync::Mutex<Option<Arc<tokio::sync::Mutex<ControlledTcpControl>>>>,
+    active: std::sync::Mutex<
+        std::collections::HashMap<tokio::task::Id, Arc<tokio::sync::Mutex<ControlledTcpControl>>>,
+    >,
+}
+impl UnixOriginals {
+    async fn close(original: &tokio::sync::Mutex<ControlledTcpControl>) -> io::Result<()> {
+        let mut original = original.lock().await;
+        original.cancel(CloseReason::Shutdown);
+        let report = original
+            .wait_closed(super::owner::close_deadline())
+            .await
+            .map_err(io::Error::other)?;
+        if !report.is_complete() {
+            return Err(io::Error::other("IPC accepted original close incomplete"));
+        }
+        Ok(())
+    }
+    async fn close_all(&self) -> io::Result<()> {
+        let mut failure = None;
+        let activating = self
+            .activating
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .clone();
+        if let Some(original) = activating {
+            match Self::close(&original).await {
+                Ok(()) => {
+                    self.activating
+                        .lock()
+                        .unwrap_or_else(std::sync::PoisonError::into_inner)
+                        .take();
+                }
+                Err(error) => {
+                    failure.get_or_insert(error);
+                }
+            }
+        }
+        let originals: Vec<_> = self
+            .active
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .iter()
+            .map(|(id, original)| (*id, original.clone()))
+            .collect();
+        for (id, original) in originals {
+            match Self::close(&original).await {
+                Ok(()) => {
+                    self.active
+                        .lock()
+                        .unwrap_or_else(std::sync::PoisonError::into_inner)
+                        .remove(&id);
+                }
+                Err(error) => {
+                    failure.get_or_insert(error);
+                }
+            }
+        }
+        failure.map_or(Ok(()), Err)
+    }
+}
+async fn settle_connection(
+    result: Result<(tokio::task::Id, ()), tokio::task::JoinError>,
+    originals: &UnixOriginals,
+    failure: &mut Option<io::Error>,
+) {
+    let id = match result {
+        Ok((id, ())) => id,
+        Err(error) => {
+            let id = error.id();
+            failure.get_or_insert_with(|| io::Error::other(error));
+            id
+        }
+    };
+    let original = originals
+        .active
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+        .get(&id)
+        .cloned();
+    if let Some(original) = original {
+        match UnixOriginals::close(&original).await {
+            Ok(()) => {
+                originals
+                    .active
+                    .lock()
+                    .unwrap_or_else(std::sync::PoisonError::into_inner)
+                    .remove(&id);
+            }
+            Err(error) => {
+                failure.get_or_insert(error);
+            }
+        }
+    }
 }

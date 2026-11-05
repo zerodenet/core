@@ -361,10 +361,13 @@ where
 
         io::Result::Ok(())
     };
-    let result = tokio::select! {
-        _ = stop.cancelled() => Ok(()),
-        result = work => result,
-    };
+    let result = super::owner::catch_work(async {
+        tokio::select! {
+            _ = stop.cancelled() => Ok(()),
+            result = work => result,
+        }
+    })
+    .await;
     stop.cancel();
     // The event writer drops its actual receiver, waking a full blocking
     // bridge. Join both originals even when an earlier read/write failed.
@@ -380,6 +383,10 @@ where
         None => Ok(()),
     };
     let commands = concurrent_commands.cancel_all().await;
+    let result = match result {
+        Ok(result) => result,
+        Err(payload) => std::panic::resume_unwind(payload),
+    };
     result?;
     events?;
     bridge?;
