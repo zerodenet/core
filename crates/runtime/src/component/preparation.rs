@@ -145,6 +145,49 @@ impl<'a> ResourcePreparation<'a> {
         self.candidate
     }
 
+    /// Recovery uses the actual published immutable recipes, never rereads
+    /// mutable source files. Deferred device recipes are rebuilt by their real
+    /// caller after original cleanup because their one-use stacks were consumed.
+    pub(in crate::component) fn inherit_canonical_resources(
+        &mut self,
+        slots: &[Arc<super::instance::ComponentSlot>],
+        deferred: &BTreeSet<ComponentId>,
+    ) -> Result<(), BuildError> {
+        for (key, id) in &self.previous.entries {
+            if deferred.contains(id) {
+                continue;
+            }
+            let slot = slots.iter().find(|slot| slot.id == *id).ok_or_else(|| {
+                invalid(
+                    Reason::InvalidConfig,
+                    "published canonical resource has no original recipe",
+                )
+            })?;
+            if !slot.recipe.spec().roles.is_empty()
+                || slot.recipe.spec().static_identity != key.identity
+            {
+                return Err(invalid(
+                    Reason::InvalidConfig,
+                    "published canonical resource identity differs",
+                ));
+            }
+            if !self.identities.insert(*id) {
+                return Err(invalid(
+                    Reason::InvalidConfig,
+                    "duplicate original canonical resource",
+                ));
+            }
+            self.resources.insert(
+                key.clone(),
+                PreparedSharedResource {
+                    component: *id,
+                    recipe: slot.recipe.clone(),
+                },
+            );
+        }
+        Ok(())
+    }
+
     /// Namespace identifies one owning factory/state within this assembly.
     /// Options come from that same actual protocol state. Identity is the
     /// factory's validated secret-free static identity, never a config document.

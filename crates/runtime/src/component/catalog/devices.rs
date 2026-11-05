@@ -80,6 +80,27 @@ impl ComponentCatalog {
             &mut ResourcePreparation<'_>,
         ) -> Result<BTreeSet<ComponentId>, ChannelError>,
     ) -> Result<Arc<ComponentPlan>, SharedError> {
+        self.prepare_devices(config, false, prepare)
+    }
+    /// Explicit rollback of the exact published input retains its already
+    /// prepared protocol crypto/material and rebuilds only consumed device recipes.
+    pub fn prepare_recovered_device_resources(
+        &self,
+        config: Arc<RuntimeConfig>,
+        prepare: impl FnOnce(
+            &mut ResourcePreparation<'_>,
+        ) -> Result<BTreeSet<ComponentId>, ChannelError>,
+    ) -> Result<Arc<ComponentPlan>, SharedError> {
+        self.prepare_devices(config, true, prepare)
+    }
+    fn prepare_devices(
+        &self,
+        config: Arc<RuntimeConfig>,
+        recovering: bool,
+        prepare: impl FnOnce(
+            &mut ResourcePreparation<'_>,
+        ) -> Result<BTreeSet<ComponentId>, ChannelError>,
+    ) -> Result<Arc<ComponentPlan>, SharedError> {
         let mut state = self.state.lock().expect("component catalog poisoned");
         if state.maintenance
             || state
@@ -98,10 +119,30 @@ impl ComponentCatalog {
             .chain(state.staged.iter())
             .chain(state.cold.iter())
             .find_map(|entry| entry.plan.as_ref().ok().map(|plan| (&entry.config, plan)));
-        let plan = self
-            .prepare_plan_with_devices(&config, previous, &state.issued, prepare)
-            .map(Arc::new)
-            .map_err(Arc::new);
+        let plan = if recovering {
+            state
+                .current
+                .as_ref()
+                .filter(|entry| entry.matches(&config))
+                .ok_or_else(|| {
+                    invalid(
+                        Reason::StalePlan,
+                        "recovery does not name the original published configuration",
+                    )
+                })
+                .and_then(|entry| {
+                    self.restore_published_with_devices(
+                        &config,
+                        entry.ready(),
+                        &state.issued,
+                        prepare,
+                    )
+                })
+        } else {
+            self.prepare_plan_with_devices(&config, previous, &state.issued, prepare)
+        }
+        .map(Arc::new)
+        .map_err(Arc::new);
         if let Ok(plan) = &plan {
             for slot in &plan.order {
                 state

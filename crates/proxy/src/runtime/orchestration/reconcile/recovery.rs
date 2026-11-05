@@ -21,8 +21,7 @@ impl OrchestrationState {
         #[cfg(feature = "raw-ip-runtime")]
         let discarded = proxy
             .protocols
-            .discard_device_components(
-                rejected.config(),
+            .discard_pending_device_candidates(
                 tokio::time::Instant::now() + std::time::Duration::from_secs(5),
             )
             .await;
@@ -88,7 +87,7 @@ impl OrchestrationState {
         if can_restore {
             if let Err(error) = proxy
                 .protocols
-                .prepare_device_components(previous_config.clone())
+                .prepare_recovered_device_components(previous_config.clone())
             {
                 can_restore = false;
                 acknowledgement.push_str(&format!("; cold component recovery failed: {error}"));
