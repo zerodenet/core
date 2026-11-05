@@ -75,6 +75,12 @@ impl CarrierGrants {
     }
 }
 impl CarrierGrant {
+    /// Stop this exact reserved original and its driver, without cancelling the
+    /// owning pool or granting any I/O, join or native-close acknowledgement.
+    pub fn cancellation(&self) -> crate::contract::CancellationToken {
+        self.slot.cancel.clone()
+    }
+
     pub fn instance(&self) -> ComponentInstanceId {
         self.slot.instance
     }

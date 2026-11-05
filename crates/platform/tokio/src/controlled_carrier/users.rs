@@ -112,6 +112,10 @@ impl Drop for CarrierUserView {
     }
 }
 impl Users {
+    pub(super) fn driver_custody_live(&self) -> bool {
+        self.driver_owned && self.live
+    }
+
     pub(super) fn transferred(&self) -> bool {
         self.transferred_owned
     }
