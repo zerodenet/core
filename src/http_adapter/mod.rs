@@ -1,3 +1,4 @@
+mod connections;
 pub mod handlers;
 pub mod ratelimit;
 pub mod response;
@@ -10,10 +11,10 @@ use std::time::Duration;
 use std::{num::NonZeroUsize, sync::Arc};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::sync::oneshot;
-use tokio_util::sync::CancellationToken;
 use tracing::{debug, error, info, warn};
 use zero_api::{AuthContext, Permission};
 use zero_core::{request::Destination, Address};
+use zero_platform_tokio::contract::CancellationToken;
 use zero_platform_tokio::contract::{
     component::{AcceptedTcpLimits, ResourceDeclaration},
     scope::{TaskClass, TaskScope},
@@ -37,6 +38,7 @@ pub struct HttpServerHandle {
     auth: Option<HttpServerAuth>,
     started: std::sync::atomic::AtomicBool,
     budget: Arc<zero_runtime::configuration::ControlBudget>,
+    connections: Arc<connections::Connections>,
 }
 
 /// A single token entry parsed from configuration.
@@ -112,6 +114,7 @@ impl HttpServerHandle {
                 "HTTP original tasks or native IO remain retained",
             ));
         }
+        self.connections.confirm_all_closed();
         server
     }
 }
@@ -147,6 +150,7 @@ pub fn prepare_http_server_with_budget(
         auth,
         started: std::sync::atomic::AtomicBool::new(false),
         budget,
+        connections: Arc::new(connections::Connections::default()),
     })
 }
 impl HttpServerHandle {
@@ -179,6 +183,7 @@ impl HttpServerHandle {
         let task_original = self.original.clone();
         let auth = self.auth.clone();
         let budget = self.budget.clone();
+        let connections = self.connections.clone();
         self.task.install(tokio::spawn(async move {
             run_server(
                 listener,
@@ -189,6 +194,7 @@ impl HttpServerHandle {
                 task_original,
                 receiver,
                 budget,
+                connections,
             )
             .await
         }))?;
@@ -343,20 +349,26 @@ async fn run_server(
     original: Arc<tokio::sync::Mutex<Option<ControlledTcpListenerOwner>>>,
     receiver: zero_platform_tokio::AcceptedTcpTaskReceiver,
     budget: Arc<zero_runtime::configuration::ControlBudget>,
+    connections: Arc<connections::Connections>,
 ) -> io::Result<()> {
     let limiters = Arc::new(ratelimit::ApiRateLimiters::default());
     let stop = CancellationToken::new();
     let mut failure = None;
     let mut scope = scope.lock().await;
-    let mut entries =
-        std::collections::HashMap::<zero_core::component::TaskId, AcceptedTcpClaim>::new();
     let work = crate::ipc::owner::catch_work(async {
         loop {
             tokio::select! {
                 _ = &mut shutdown => break,
-                accept_result = listener.accept_owned() => {
-                    let (accepted, remote_addr) = match accept_result { Ok(value) => value, Err(error) => { failure.get_or_insert_with(|| io::Error::other(error)); break; } };
-                    let claim = accepted.claim();
+                accept_result = listener.accept_owned_with_admission(|| connections.before(&budget), || connections.no_native()) => {
+                    let (accepted, remote_addr) = match accept_result {
+                        Ok(value) => value,
+                        Err(error) if error.reason == Reason::Capacity => {
+                            tokio::time::sleep(Duration::from_millis(25)).await;
+                            continue;
+                        }
+                        Err(error) => { failure.get_or_insert_with(|| io::Error::other(error)); break; }
+                    };
+                    connections.installed(accepted.claim());
                     let handle = handle.clone();
                     let auth = auth.clone();
                     let limiters = limiters.clone();
@@ -370,16 +382,14 @@ async fn run_server(
                         }
                         Ok(())
                     }) {
-                        Ok((id, _)) => { entries.insert(id, claim); }
+                        Ok(_) => {}
                         Err(error) => { failure.get_or_insert_with(|| io::Error::other(error)); break; }
                     }
                 }
                 exit = scope.next_exit() => {
                     if let Some(exit) = exit {
                         receiver.observe_joined(exit.id);
-                        if let Some(claim) = entries.remove(&exit.id) {
-                            receiver.close(&claim, crate::ipc::owner::close_deadline()).await.map_err(io::Error::other)?;
-                        }
+                        connections.reap(&receiver).await?;
                         if let Err(error) = exit.result {
                             // Keep the actual original task failure in the accepted
                             // owner; client IO errors remain local to that session.
@@ -419,6 +429,7 @@ async fn run_server(
     if !native?.is_complete() {
         return Err(io::Error::other("HTTP original closure incomplete"));
     }
+    connections.confirm_all_closed();
     info!("http api server stopped");
     failure.map_or(Ok(()), Err)
 }

@@ -26,13 +26,6 @@ impl ControlTask {
         state.task = Some(task);
         Ok(())
     }
-    pub(super) fn new(task: tokio::task::JoinHandle<io::Result<()>>) -> Self {
-        Self(tokio::sync::Mutex::new(State {
-            task: Some(task),
-            result: None,
-            charge: None,
-        }))
-    }
     pub(super) fn with_charge(
         task: tokio::task::JoinHandle<io::Result<()>>,
         charge: zero_runtime::configuration::ControlBudgetPermit,

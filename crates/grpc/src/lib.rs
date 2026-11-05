@@ -75,6 +75,7 @@ pub fn prepare_with_budget(
             scope: tokio::sync::Mutex::new(scope),
             subscriptions,
             stop: tokio_util::sync::CancellationToken::new(),
+            connections: Arc::new(native::connections::Connections::default()),
         }),
     }))
 }
@@ -96,6 +97,7 @@ struct GrpcOriginals {
     scope: tokio::sync::Mutex<zero_platform_tokio::contract::scope::TaskScope>,
     subscriptions: Arc<Subscriptions>,
     stop: tokio_util::sync::CancellationToken,
+    connections: Arc<native::connections::Connections>,
 }
 /// Retains the actual server, Scope, native controls and subscription jobs.
 pub struct GrpcHandle {
@@ -170,6 +172,7 @@ impl GrpcHandle {
                 "gRPC actual Scope or native original remains retained",
             ));
         }
+        self.originals.connections.confirm_all_closed();
         server?;
         jobs
     }

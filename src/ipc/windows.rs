@@ -13,8 +13,8 @@ use std::time::Duration;
 use tokio::net::windows::named_pipe::ServerOptions;
 use tokio::sync::oneshot;
 use tokio::task::JoinSet;
-use tokio_util::sync::CancellationToken;
 use tracing::{debug, error, info, warn};
+use zero_platform_tokio::contract::CancellationToken;
 use zero_proxy::ProxyHandle;
 
 use super::connection;

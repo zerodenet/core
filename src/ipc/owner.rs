@@ -144,7 +144,7 @@ pub(crate) fn serialized_len(value: &impl serde::Serialize) -> io::Result<usize>
 pub(crate) fn reserve_event_bytes_blocking(
     budget: &Arc<zero_runtime::configuration::ControlBudget>,
     bytes: usize,
-    stop: &tokio_util::sync::CancellationToken,
+    stop: &zero_platform_tokio::contract::CancellationToken,
     closed: impl Fn() -> bool,
 ) -> Option<zero_runtime::configuration::ControlBudgetPermit> {
     loop {
