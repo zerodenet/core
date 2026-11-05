@@ -12,14 +12,23 @@ use std::{sync::atomic::Ordering, time::Duration};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
 #[test]
-fn ordinary_proxy_accepts_existing_mieru_configuration_and_keeps_unqualified_native_registration_closed(
-) {
+fn ordinary_proxy_compiles_mieru_roles_over_the_same_actual_shared_pool() {
     let address = "127.0.0.1:1".parse().unwrap();
     let proxy = Proxy::new(config([address; 3])).unwrap();
     let services = proxy.tcp_runtime_services();
     let components = services.components.as_ref().unwrap();
     for tag in ["a", "b", "c", "unused"] {
-        assert!(components.configured(tag).is_none());
+        let slot = components
+            .configured(tag)
+            .expect("ordinary Mieru component");
+        assert_eq!(slot.recipe.spec().dependencies.len(), 1);
+        assert_eq!(
+            slot.recipe.spec().roles,
+            vec![
+                zero_platform_tokio::contract::component::RoleKind::Stream,
+                zero_platform_tokio::contract::component::RoleKind::Datagram,
+            ]
+        );
     }
 }
 
@@ -31,11 +40,7 @@ async fn actual_proxy_mieru_network_change_closes_original_prefix_before_new_car
         let b = Server::new(true).await;
         let c = Server::new(false).await;
         let config = config([a.address, b.address, c.address]);
-        let proxy = Proxy::from_engine_with_background(
-            zero_engine::Engine::new(config.clone()).unwrap(),
-            true,
-        )
-        .unwrap();
+        let proxy = Proxy::new(config.clone()).unwrap();
         let running = proxy.spawn();
         let handle = ProxyHandle::new(
             zero_engine::EngineHandle::new(proxy.engine().clone()),
@@ -138,11 +143,7 @@ async fn replacement(udp: bool) {
                 *transport = zero_config::MieruTransport::Udp;
             }
         }
-        let proxy = Proxy::from_engine_with_background(
-            zero_engine::Engine::new(config.clone()).unwrap(),
-            true,
-        )
-        .unwrap();
+        let proxy = Proxy::new(config.clone()).unwrap();
         let running = proxy.spawn();
         let handle = ProxyHandle::new(
             zero_engine::EngineHandle::new(proxy.engine().clone()),

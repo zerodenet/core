@@ -47,76 +47,84 @@ async fn ordinary_mieru_owned_udp_handoff_preserves_both_underlays_reuse_and_pay
                     .as_ref()
                     .unwrap()
                     .configured("node")
-                    .is_none(),
-                "this migration must not enable ordinary native Mieru registration"
+                    .is_some(),
+                "ordinary UDP must execute the same actual Mieru Datagram generation"
             );
-            let mut dispatch = UdpIngressRuntime::new(proxy.tcp_runtime_services())
-                .new_dispatch("incoming")
-                .await
-                .unwrap();
-            let mut total = 0;
-            let mut previous = None;
-            for payload in [b"owned-one".as_slice(), b"owned-two".as_slice()] {
-                let id = dispatch
-                    .dispatch(UdpPipeInput {
-                        peer_identity: None,
-                        target: Address::Ipv4([203, 0, 113, 1]),
-                        port: 443,
-                        payload,
-                        route_target: None,
-                        sniffed_original_target: None,
-                        sniffed_host_source: None,
-                        skip_fake_ip_restore: false,
-                        protocol: ProtocolType::new("test"),
-                        auth: None,
-                        source_addr: None,
-                        client_session_id: None,
-                        transparent_target: false,
-                        transparent_original_target: None,
-                        transparent_host_source: None,
-                    })
-                    .await
-                    .unwrap();
-                if let Some(previous) = previous {
-                    assert_eq!(id, previous);
-                }
-                previous = Some(id);
-                let (_, tasks, _) = dispatch.poll_sockets();
-                let packet = tasks.join_next_with_id().await.unwrap().unwrap().unwrap();
-                assert_eq!(packet.0, Address::Ipv4([203, 0, 113, 1]));
-                assert_eq!(packet.1, 443);
-                assert_eq!(packet.2, payload);
-                crate::runtime::udp_delivery::record_chain_udp_response_parts(
-                    &proxy.udp_runtime_services(),
-                    &dispatch,
-                    packet.0,
-                    packet.1,
-                    packet.2,
-                    packet.3,
-                );
-                total += payload.len() as u64;
-                let active = proxy
-                    .engine()
-                    .active_sessions()
-                    .into_iter()
-                    .find(|session| session.id == id)
-                    .unwrap();
-                assert_eq!(active.outbound_tag.as_deref(), Some("node"));
-                assert_eq!(active.outbound_tx_bytes, total);
-                assert_eq!(active.outbound_rx_bytes, total);
-            }
-            assert_eq!(
-                server.accepts.load(Ordering::SeqCst),
-                1,
-                "same UDP flow must reuse its actual carrier"
-            );
-            dispatch.finish_all();
-            server.close().await;
             proxy
                 .protocols
-                .shutdown_components(deadline())
-                .await
-                .unwrap();
+                .drive_component_supervision(async {
+                    let mut dispatch = UdpIngressRuntime::new(proxy.tcp_runtime_services())
+                        .new_dispatch("incoming")
+                        .await
+                        .unwrap();
+                    let mut total = 0;
+                    let mut previous = None;
+                    for payload in [b"owned-one".as_slice(), b"owned-two".as_slice()] {
+                        let id = dispatch
+                            .dispatch(UdpPipeInput {
+                                peer_identity: None,
+                                target: Address::Ipv4([203, 0, 113, 1]),
+                                port: 443,
+                                payload,
+                                route_target: None,
+                                sniffed_original_target: None,
+                                sniffed_host_source: None,
+                                skip_fake_ip_restore: false,
+                                protocol: ProtocolType::new("test"),
+                                auth: None,
+                                source_addr: None,
+                                client_session_id: None,
+                                transparent_target: false,
+                                transparent_original_target: None,
+                                transparent_host_source: None,
+                            })
+                            .await
+                            .unwrap();
+                        if let Some(previous) = previous {
+                            assert_eq!(id, previous);
+                        }
+                        previous = Some(id);
+                        let (_, tasks, _) = dispatch.poll_sockets();
+                        let packet = tasks.join_next_with_id().await.unwrap().unwrap().unwrap();
+                        assert_eq!(packet.0, Address::Ipv4([203, 0, 113, 1]));
+                        assert_eq!(packet.1, 443);
+                        assert_eq!(packet.2, payload);
+                        crate::runtime::udp_delivery::record_chain_udp_response_parts(
+                            &proxy.udp_runtime_services(),
+                            &dispatch,
+                            packet.0,
+                            packet.1,
+                            packet.2,
+                            packet.3,
+                        );
+                        total += payload.len() as u64;
+                        let active = proxy
+                            .engine()
+                            .active_sessions()
+                            .into_iter()
+                            .find(|session| session.id == id)
+                            .unwrap();
+                        assert_eq!(active.outbound_tag.as_deref(), Some("node"));
+                        assert_eq!(active.outbound_tx_bytes, total);
+                        assert_eq!(active.outbound_rx_bytes, total);
+                    }
+                    assert_eq!(
+                        server.accepts.load(Ordering::SeqCst),
+                        1,
+                        "same UDP flow must reuse its actual carrier"
+                    );
+                    let retired = proxy.tcp_runtime_services().execution().retired_datagrams();
+                    dispatch.finish_all();
+                    let closed = retired.wait_closed(deadline()).await.unwrap();
+                    assert!(closed.is_complete(), "{closed:?}");
+                    server.close().await;
+                    proxy
+                        .protocols
+                        .shutdown_components(deadline())
+                        .await
+                        .unwrap();
+                })
+                .await;
         }
     })
     .await

@@ -1,4 +1,5 @@
 //! Project the complete candidate once into the adapter's actual shared pool.
+mod production;
 use super::MieruAdapter;
 use crate::component::{
     background::{BackgroundCarrier, BackgroundNetwork},
@@ -8,6 +9,7 @@ use ::mieru::{
     component::{PoolFactory, PoolOptions, PoolProfile, StreamOptions, TcpPreparation},
     transport::MieruOutboundOptionsRef,
 };
+pub(crate) use production::production_selected;
 use std::{num::NonZeroUsize, sync::Arc};
 use zero_config::{ConfigError, OutboundConfig, OutboundProtocolConfig};
 use zero_core::component::NetworkGeneration;
@@ -19,7 +21,7 @@ use zero_platform_tokio::contract::{
 
 pub(crate) struct NativePoolOptions {
     pool: Arc<PoolOptions>,
-    dns: zero_core::component::ComponentId,
+    dns: Option<zero_core::component::ComponentId>,
 }
 pub(crate) struct Factory {
     pub(crate) network: Arc<BackgroundNetwork>,
@@ -40,7 +42,7 @@ impl ComponentFactory for Factory {
     type Options = NativePoolOptions;
     fn describe(&self, options: &NativePoolOptions) -> ComponentSpec {
         let mut spec = PoolFactory.describe(&options.pool);
-        spec.dependencies.push(options.dns);
+        spec.dependencies.extend(options.dns);
         spec
     }
     fn build(
@@ -48,7 +50,11 @@ impl ComponentFactory for Factory {
         options: Arc<NativePoolOptions>,
         mut context: BuildContext,
     ) -> Result<ComponentInstance, BuildError> {
-        if context.dependencies.len() != 1 || context.dependencies[0].component != options.dns {
+        if context.dependencies.len() != usize::from(options.dns.is_some())
+            || options
+                .dns
+                .is_some_and(|dns| context.dependency(dns).is_none())
+        {
             return Err(zero_platform_tokio::contract::ChannelError::new(
                 zero_platform_tokio::contract::Stage::Prepare,
                 zero_platform_tokio::contract::Reason::StalePlan,
@@ -116,7 +122,11 @@ impl MieruAdapter {
                 preparation(input).ok_or_else(|| options_error("expected Mieru outbound"))?,
             )
             .map_err(options_error)?;
-        let dns = crate::component::native_dns::prepare(resources, factory.network.clone())?;
+        let dns = options
+            .carrier_specs()
+            .any(|spec| matches!(spec.endpoint.address, zero_core::Address::Domain(_)))
+            .then(|| crate::component::native_dns::prepare(resources, factory.network.clone()))
+            .transpose()?;
         let shared = resources
             .share(
                 "mieru.client_pool",

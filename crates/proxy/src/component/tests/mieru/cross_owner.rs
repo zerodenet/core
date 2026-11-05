@@ -29,7 +29,7 @@ async fn replacement(taskless_middle: bool) {
         let mut separate = socks.outbounds[0].clone();
         separate.tag = "unrelated-socks".into();
         config.outbounds.push(separate);
-        let proxy = Proxy::from_engine_with_background(zero_engine::Engine::new(config.clone()).unwrap(), true).unwrap();
+        let proxy = Proxy::new(config.clone()).unwrap();
         let running = proxy.spawn();
         let handle = ProxyHandle::new(zero_engine::EngineHandle::new(proxy.engine().clone()), proxy.clone());
         handle.apply_runtime_config_and_wait(config.clone(), Duration::from_secs(5)).await.unwrap();
