@@ -96,6 +96,21 @@ impl OwnedDnsQueryTasks {
                 )
             })
     }
+    /// Record an already acquired sealed original only for the actual current
+    /// caller registration. This observes lineage; it grants no I/O, task,
+    /// adoption, cleanup or native-close authority.
+    pub fn record_native_for_caller(
+        caller: &TaskJoinWitness,
+        original: &CarrierOrigin,
+    ) -> io::Result<()> {
+        if !Self::current_witness()?.same_registration(caller) {
+            return Err(io::Error::new(
+                io::ErrorKind::PermissionDenied,
+                "DNS original observation names a different actual caller",
+            ));
+        }
+        Self::record_native(original)
+    }
     pub(crate) async fn native_io<T>(work: impl Future<Output = T>) -> io::Result<T> {
         let record = QUERY_RECORD.try_with(Clone::clone).map_err(|_| {
             io::Error::new(
