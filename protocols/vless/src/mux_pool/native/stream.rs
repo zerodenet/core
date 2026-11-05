@@ -1,37 +1,48 @@
 //! Same native physical FIFO for TCP NEW/DATA and reserved END.
 use super::*;
-impl MuxPoolConn {
-    pub(in crate::mux_pool) fn open_bounded_tcp_stream(
-        self: &Arc<Self>,
+pub(super) struct StreamReservation {
+    stream: Option<MuxStreamRelay>,
+}
+impl StreamReservation {
+    pub(super) fn new(
+        connection: Arc<MuxPoolConn>,
         sid: u16,
         port: u16,
         address: &Address,
-    ) -> Result<MuxStreamRelay, RuntimeError> {
-        let writer = match self.native_udp_tx.writer(encode_mux_end_frame(sid)?) {
-            Ok(writer) => writer,
-            Err(source) => {
-                self.release_stream(sid);
-                return Err(source.into());
-            }
-        };
-        let (tx, rx) = mpsc::channel(self.response_backlog_frames + 1);
-        self.streams.lock().unwrap().insert(
+    ) -> Self {
+        let (tx, rx) = mpsc::channel(connection.response_backlog_frames + 1);
+        connection.streams.lock().unwrap().insert(
             sid,
             MuxClientStreamState {
                 downlink: MuxClientDownlink::Tcp(tx),
                 target: Some((address.clone(), port)),
             },
         );
-        Ok(MuxStreamRelay {
-            native_writer: Some(writer),
-            native_initial: Some((port, address.clone())),
-            write_open: true,
-            sid,
-            down_rx: Some(rx),
-            read_pending: Vec::new(),
-            read_offset: 0,
-            conn: self.clone(),
-        })
+        Self {
+            stream: Some(MuxStreamRelay {
+                native_writer: None,
+                native_initial: Some((port, address.clone())),
+                // No NEW is accepted while this actual stream waits for its FIFO
+                // control permit. Drop only returns this real SID/downlink.
+                write_open: false,
+                sid,
+                down_rx: Some(rx),
+                read_pending: Vec::new(),
+                read_offset: 0,
+                conn: connection,
+            }),
+        }
+    }
+    pub(super) async fn open(mut self) -> Result<MuxStreamRelay, RuntimeError> {
+        let stream = self.stream.as_ref().unwrap();
+        let queue = stream.conn.native_udp_tx.clone();
+        let writer = queue
+            .writer_when_ready(encode_mux_end_frame(stream.sid)?)
+            .await?;
+        let mut stream = self.stream.take().unwrap();
+        stream.native_writer = Some(writer);
+        stream.write_open = true;
+        Ok(stream)
     }
 }
 impl MuxStreamRelay {

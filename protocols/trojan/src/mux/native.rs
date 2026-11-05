@@ -33,19 +33,22 @@ impl TrojanMuxConnectionPool {
         F: FnOnce(zero_platform_tokio::controlled_carrier::CarrierIo) -> Fut,
         Fut: Future<Output = Result<S, RuntimeError>>,
     {
-        self.native_connection(
-            key,
-            concurrency,
-            binding,
-            wrap,
-            |connection, sid, usage, _| {
-                Ok(UserStream::new(
-                    connection.open_native_stream(sid, target, port, Network::Udp)?,
-                    usage,
-                ))
-            },
-        )
-        .await
+        let (reserved, usage) = self
+            .native_connection(
+                key,
+                concurrency,
+                binding,
+                wrap,
+                |connection, sid, usage, _| {
+                    Ok((
+                        stream::StreamReservation::new(connection, sid, target, port, Network::Udp),
+                        usage,
+                    ))
+                },
+            )
+            .await?;
+        let stream = reserved.open().await?;
+        Ok(UserStream::new(stream, usage))
     }
     pub(crate) fn bind_current(
         &self,
@@ -175,20 +178,26 @@ impl TrojanMuxConnectionPool {
         F: FnOnce(zero_platform_tokio::controlled_carrier::CarrierIo) -> Fut,
         Fut: Future<Output = Result<S, RuntimeError>>,
     {
-        self.native_connection(
-            key,
-            concurrency,
-            binding,
-            wrap,
-            |connection, sid, usage, origin| {
-                let stream = connection.open_native_stream(sid, target, port, Network::Tcp)?;
-                Ok(zero_transport::pooled_driver::PooledStream {
-                    origin,
-                    io: Box::pin(UserStream::new(stream, usage)),
-                })
-            },
-        )
-        .await
+        let (reserved, usage, origin) = self
+            .native_connection(
+                key,
+                concurrency,
+                binding,
+                wrap,
+                |connection, sid, usage, origin| {
+                    Ok((
+                        stream::StreamReservation::new(connection, sid, target, port, Network::Tcp),
+                        usage,
+                        origin,
+                    ))
+                },
+            )
+            .await?;
+        let stream = reserved.open().await?;
+        Ok(zero_transport::pooled_driver::PooledStream {
+            origin,
+            io: Box::pin(UserStream::new(stream, usage)),
+        })
     }
     pub(crate) async fn open_native_udp<S, F, Fut>(
         &self,
