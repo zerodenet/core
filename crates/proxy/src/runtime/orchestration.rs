@@ -14,7 +14,7 @@ mod pending_dns;
 mod reconcile;
 mod startup;
 mod state;
-mod statistics;
+pub(super) mod statistics;
 #[cfg(test)]
 mod tests;
 

@@ -33,7 +33,30 @@ impl ProtocolInventory {
                     let borrowed = spec.task_limit.is_none()
                         && components.has_carrier_provider(slot.role_id())
                         && components.stream_dependencies_supported(slot.role_id());
-                    if slot.dial != Default::default() && !(direct && !relay)
+                    // A single taskless literal root already carries this exact
+                    // policy in its original-provider declaration. This is only
+                    // selection: the actual grant still checks endpoint/dial.
+                    let custom_root = !relay
+                        && borrowed
+                        && spec.dependencies.is_empty()
+                        && spec.resources.iter().all(|resource| {
+                            matches!(
+                                resource,
+                                ResourceDeclaration::ControlledCarrierPool {
+                                    datagram: false,
+                                    ..
+                                } | ResourceDeclaration::File { .. }
+                            )
+                        })
+                        && spec.resources.iter().any(|resource| {
+                            matches!(resource,
+                                ResourceDeclaration::ControlledCarrierPool {
+                                    endpoint, dial, datagram: false, ..
+                                } if dial == &slot.dial
+                                    && matches!(&endpoint.address,
+                                        zero_core::Address::Ipv4(_) | zero_core::Address::Ipv6(_)))
+                        });
+                    if slot.dial != Default::default() && !(direct && !relay || custom_root)
                         || !spec.roles.contains(&RoleKind::Stream)
                         || direct && relay
                         || !direct

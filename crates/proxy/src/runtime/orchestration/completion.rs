@@ -14,6 +14,15 @@ impl OrchestrationState {
         mut result: Result<(), EngineError>,
     ) -> Result<(), EngineError> {
         let mut cleanup_errors = Vec::new();
+        // No component/Engine resource may close while its original sampling
+        // worker still reads it. The cold Proxy retains this exact Scope even
+        // when a shutdown waiter is cancelled.
+        if let Err(error) = proxy.statistics.shutdown().await {
+            cleanup_errors.push(format!("statistics worker shutdown failed: {error}"));
+            if result.is_ok() {
+                result = Err(EngineError::Io(error));
+            }
+        }
         // Error/startup paths reach this method without the normal drain arm.
         // Stop admission, retain and join the accepted transaction while its
         // real reconciliation/rollback notifications can still be serviced.

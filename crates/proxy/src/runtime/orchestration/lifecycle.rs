@@ -54,7 +54,9 @@ where
         };
         return Box::pin(state.finish(proxy, result)).await;
     }
-    let _sampler = super::statistics::Sampler::start(proxy.engine.clone());
+    if let Err(error) = proxy.statistics.start(proxy.engine.clone()).await {
+        return Box::pin(state.finish(proxy, Err(error.into()))).await;
+    }
     let result = Box::pin(run_loop(proxy, &mut state, shutdown)).await;
     let result = Box::pin(state.finish(proxy, result)).await;
     log_stopped(proxy);
@@ -92,6 +94,9 @@ where
         let network_change = std::future::pending::<()>();
 
         tokio::select! {
+            sample = proxy.statistics.next_sample() => {
+                sample?;
+            }
             failure = proxy.protocols.component_failure() => {
                 return Err(failure);
             }
