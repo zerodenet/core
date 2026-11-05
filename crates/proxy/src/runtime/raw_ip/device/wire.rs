@@ -89,7 +89,7 @@ impl SharedRawIpDevice {
         endpoint: SocketAddr,
         carrier: Arc<dyn RawIpWireCarrier>,
         tunnel: Box<dyn RawIpTunnel>,
-        options: super::RawIpStackOptions,
+        options: super::super::RawIpStackOptions,
     ) -> Result<Arc<Self>, EngineError> {
         let task = workers::DeviceWorkers::new();
         Self::start_wire_stack(
@@ -109,7 +109,7 @@ impl SharedRawIpDevice {
         endpoint: SocketAddr,
         carrier: Arc<dyn RawIpWireCarrier>,
         tunnel: Box<dyn RawIpTunnel>,
-        options: super::RawIpStackOptions,
+        options: super::super::RawIpStackOptions,
         task: Arc<workers::DeviceWorkers>,
     ) -> Result<Arc<Self>, EngineError> {
         let traffic = options.traffic;
@@ -155,7 +155,7 @@ impl SharedRawIpDevice {
         };
         task.spawn_driver(run_device(driver, ready_tx))?;
         Ok(Arc::new(Self {
-            incarnation: super::next_incarnation(),
+            incarnation: super::super::next_incarnation(),
             udp,
             tcp,
             forwarded_packets,
