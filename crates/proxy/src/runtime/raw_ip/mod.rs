@@ -16,7 +16,7 @@ pub(crate) use contract::{RawIpAction, RawIpOutboundPlan, RawIpPeerPlan, RawIpTu
 pub(crate) use datagram::RawIpDatagramOperation;
 pub(crate) use device::PacketReturns;
 pub(crate) use device::{
-    EndpointPacket, EndpointStackOwner, EndpointStackRecipe, SharedRawIpDevice,
+    EndpointPacket, EndpointStackOwner, EndpointStackRecipe, SharedRawIpDevice, WireStackRecipe,
 };
 pub(crate) use packet::RawIpPacketOperation;
 pub(crate) use pool::{RawIpDevicePool, StagedRawIpDevices, MAX_RAW_IP_DEVICES};

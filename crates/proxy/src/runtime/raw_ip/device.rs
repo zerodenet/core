@@ -9,6 +9,7 @@ mod returns;
 #[cfg(test)]
 mod tests;
 mod translation;
+mod wire;
 mod workers;
 
 use std::{
@@ -34,6 +35,7 @@ use driver::{run_device, Device};
 pub(crate) use endpoint::{EndpointPacket, EndpointStackOwner, EndpointStackRecipe};
 use health::DeviceHealth;
 pub(crate) use returns::PacketReturns;
+pub(crate) use wire::WireStackRecipe;
 
 pub(super) struct ForwardedPackets {
     return_channel: zero_stack::packet_output::PacketSender,
@@ -62,107 +64,6 @@ impl SharedRawIpDevice {
 
     pub(crate) fn is_usable(&self) -> bool {
         !self.retired.load(Ordering::Acquire) && !self.is_closed()
-    }
-
-    #[cfg(test)]
-    pub(crate) fn start(
-        local_addresses: Vec<IpAddr>,
-        mtu: u16,
-        endpoint: SocketAddr,
-        socket: TokioDatagramSocket,
-        tunnel: Box<dyn RawIpTunnel>,
-    ) -> Result<Arc<Self>, EngineError> {
-        Self::start_with_carrier(
-            local_addresses,
-            mtu,
-            endpoint,
-            Arc::new(DirectRawIpWireCarrier::new(socket)),
-            tunnel,
-        )
-    }
-
-    #[cfg(test)]
-    pub(crate) fn start_with_carrier(
-        local_addresses: Vec<IpAddr>,
-        mtu: u16,
-        endpoint: SocketAddr,
-        carrier: Arc<dyn RawIpWireCarrier>,
-        tunnel: Box<dyn RawIpTunnel>,
-    ) -> Result<Arc<Self>, EngineError> {
-        Self::start_metered(
-            local_addresses,
-            mtu,
-            endpoint,
-            carrier,
-            tunnel,
-            Default::default(),
-        )
-    }
-
-    pub(crate) fn start_metered(
-        local_addresses: Vec<IpAddr>,
-        mtu: u16,
-        endpoint: SocketAddr,
-        carrier: Arc<dyn RawIpWireCarrier>,
-        tunnel: Box<dyn RawIpTunnel>,
-        options: super::RawIpStackOptions,
-    ) -> Result<Arc<Self>, EngineError> {
-        let task = workers::DeviceWorkers::new();
-        let traffic = options.traffic;
-        let (outbound, raw_packets) =
-            mpsc::channel::<zero_stack::packet_output::ObservedPacket>(128);
-        let (forwarded_packets, forwarded_rx) = mpsc::channel(128);
-        let udp = ClientUdpStack::new_with_queue(
-            local_addresses.clone(),
-            outbound.clone().into(),
-            mtu,
-            Some(Arc::new(traffic.clone())),
-            options.udp_receive_queue,
-        )
-        .map_err(stack_udp_error)?;
-        let tcp = Arc::new(
-            ClientTcpStack::new_observed_with_task_owner(
-                local_addresses,
-                outbound.clone(),
-                mtu,
-                task.clone(),
-            )
-            .map_err(stack_tcp_error)?,
-        );
-        let returns = Arc::new(PacketReturns::with_drop_observer(Some(Arc::new(
-            traffic.clone(),
-        ))));
-        let closed = Arc::new(AtomicBool::new(false));
-        let health = Arc::new(Mutex::new(DeviceHealth::default()));
-        let (ready_tx, ready) = watch::channel(None);
-        let driver = Device {
-            traffic,
-            endpoint,
-            carrier: carrier.clone(),
-            tunnel,
-            udp: udp.clone(),
-            tcp: tcp.clone(),
-            returns: returns.clone(),
-            fragments: FragmentReassembler::new(),
-            raw_packets,
-            forwarded_packets: forwarded_rx,
-            closed: closed.clone(),
-            health: health.clone(),
-        };
-        task.spawn_driver(run_device(driver, ready_tx))?;
-        Ok(Arc::new(Self {
-            incarnation: super::next_incarnation(),
-            udp,
-            tcp,
-            forwarded_packets,
-            returns,
-            closed,
-            health,
-            retired: AtomicBool::new(false),
-            ready,
-            task,
-            carrier: Some(carrier),
-        }))
     }
 
     pub(crate) async fn wait_ready(&self) -> Result<(), EngineError> {
