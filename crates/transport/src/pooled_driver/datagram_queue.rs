@@ -87,7 +87,33 @@ impl PacketQueue {
             .clone()
             .try_reserve_owned()
             .map_err(|_| capacity())?;
-        Ok(PacketWriter {
+        Ok(self.writer_reserved(end_frame, control, ending))
+    }
+    /// Wait on this original control/FIFO capacity, without creating a second
+    /// queue. Cancellation returns only the real unsubmitted reservation.
+    pub async fn writer_when_ready(&self, end_frame: Vec<u8>) -> io::Result<PacketWriter> {
+        if end_frame.len() > 1024 {
+            return Err(io::ErrorKind::InvalidInput.into());
+        }
+        let control = tokio::select! { biased;
+            _ = self.sender.closed() => return Err(io::ErrorKind::BrokenPipe.into()),
+            permit = self.controls.clone().acquire_owned() => permit.map_err(|_| io::ErrorKind::BrokenPipe)?,
+        };
+        let ending = self
+            .sender
+            .clone()
+            .reserve_owned()
+            .await
+            .map_err(|_| io::ErrorKind::BrokenPipe)?;
+        Ok(self.writer_reserved(end_frame, control, ending))
+    }
+    fn writer_reserved(
+        &self,
+        end_frame: Vec<u8>,
+        control: OwnedSemaphorePermit,
+        ending: mpsc::OwnedPermit<QueuedPacket>,
+    ) -> PacketWriter {
+        PacketWriter {
             sender: self.sender.clone(),
             data: self.data.clone(),
             control: Some(control),
@@ -102,7 +128,7 @@ impl PacketQueue {
                 let sender = self.sender.clone();
                 async move { sender.closed().await }
             })),
-        })
+        }
     }
 }
 impl PacketWriter {
