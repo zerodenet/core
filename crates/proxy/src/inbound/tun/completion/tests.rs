@@ -72,3 +72,36 @@ async fn original_tun_panic_is_retained_alongside_missing_notification() {
             .is_panic());
     }
 }
+
+#[tokio::test]
+async fn exited_main_failure_is_reported_while_its_quiescent_control_is_reclaimed() {
+    let proxy = crate::Proxy::new(zero_config::RuntimeConfig::default()).unwrap();
+    let (done, notification) = oneshot::channel();
+    let completion = TunCompletion::new(notification, None);
+    completion.install_main(tokio::spawn(async move {
+        done.send(()).unwrap();
+        Err(zero_engine::EngineError::Io(io::Error::other(
+            "actual main runtime failure",
+        )))
+    }));
+    let (shutdown, _) = tokio::sync::watch::channel(false);
+    *proxy.tun_control.lock().unwrap() = Some(crate::runtime::TunControl {
+        id: 812,
+        shutdown,
+        completion: completion.clone(),
+        route_recovery: None,
+    });
+    let error = proxy.stop_tun_if_running().await.unwrap_err();
+    assert!(error.to_string().contains("actual main runtime failure"));
+    assert!(proxy.tun_control.lock().unwrap().is_none());
+    let retained = completion.main.lock().await;
+    assert!(retained.task.is_none());
+    assert!(retained
+        .joined
+        .as_ref()
+        .unwrap()
+        .as_ref()
+        .unwrap_err()
+        .downcast_ref::<zero_engine::EngineError>()
+        .is_some());
+}

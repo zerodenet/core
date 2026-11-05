@@ -117,3 +117,31 @@ async fn cancelled_close_keeps_actual_tasks_and_reunites_the_same_device() {
     assert!(receipt.identity().same_owner(&identity));
     assert!(Arc::ptr_eq(&receipt, &owner.close().await.unwrap()));
 }
+
+#[tokio::test]
+async fn actual_driver_io_failure_and_matching_native_close_are_both_retained() {
+    let (device, peer) = Device::pair();
+    let identity = device.owned_identity();
+    let owner = OwnedTunChannels::new(device);
+    let (writer, _reader) = owner.start(Arc::new(Observer)).unwrap();
+    drop(peer);
+    writer
+        .send(b"write to closed actual peer".to_vec())
+        .await
+        .unwrap();
+    writer.closed().await;
+    for _ in 0..2 {
+        let error = owner.close().await.unwrap_err();
+        let failures = error
+            .get_ref()
+            .unwrap()
+            .downcast_ref::<CloseFailures>()
+            .unwrap();
+        assert!(failures
+            .0
+            .iter()
+            .any(|source| source.kind() == io::ErrorKind::BrokenPipe));
+        let receipt = owner.closed_receipt().await.unwrap().unwrap();
+        assert!(receipt.identity().same_owner(&identity));
+    }
+}
