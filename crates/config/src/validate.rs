@@ -383,6 +383,11 @@ fn validate_runtime(
             "runtime.udp_direct_max_sockets must be between 1 and 4096".into(),
         ));
     }
+    if !(1..=4096).contains(&runtime.effective_vmess_grpc_max_originals()) {
+        return Err(ConfigError::InvalidRuntime(
+            "runtime.vmess_grpc_max_originals must be between 1 and 4096".into(),
+        ));
+    }
     if !(1..=256).contains(&runtime.effective_mieru_max_carriers()) {
         return Err(ConfigError::InvalidRuntime(
             "runtime.mieru_max_carriers must be between 1 and 256".into(),
