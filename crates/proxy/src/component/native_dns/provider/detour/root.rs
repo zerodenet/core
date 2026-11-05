@@ -185,6 +185,7 @@ impl UpstreamOpener for Root {
             cancel: self.cancel.clone(),
             original: adoption,
             capacity: Mutex::new(None),
+            pending_roles: self.roles.clone().into(),
             logical: Default::default(),
         }));
         Ok(())
@@ -328,6 +329,7 @@ impl UpstreamOpener for Root {
                     task: self.caller.clone(),
                     cancel: self.cancel.clone(),
                     original: grant.adoption(),
+                    pending_roles: Arc::from([]),
                     logical: Default::default(),
                     capacity: Mutex::new(Some(capacity)),
                 });

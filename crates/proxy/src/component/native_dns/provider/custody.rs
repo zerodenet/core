@@ -5,6 +5,9 @@ pub(super) struct NativeUse {
     pub(super) task: TaskJoinWitness,
     pub(super) cancel: CancellationToken,
     pub(super) original: CarrierAdoption,
+    // Only pending foreign originals have the actual frozen selection IDs.
+    // These metadata identities retain no host, role, driver or provider.
+    pub(super) pending_roles: Arc<[zero_core::component::RoleInstanceId]>,
     pub(super) capacity: Mutex<Option<tokio::sync::OwnedSemaphorePermit>>,
     pub(super) logical:
         tokio::sync::Mutex<Option<zero_platform_tokio::controlled_carrier::loan::LoanOwner>>,
@@ -55,17 +58,38 @@ impl NativeUse {
     }
 }
 impl Provider {
-    /// Transfer cleanup claims only through actual installed controllers.
-    /// Pending receivers stay in this ledger while they cover lower donors;
-    /// final DNS receivers stay in `users`. This also recovers installation
-    /// when an acquisition unwound before returning its view.
+    /// Transfer cleanup claims only through actual installed controllers or
+    /// an original pool's retained same-Scope driver. Logical return and these
+    /// custody proofs never claim native closure or consume a driver failure.
     pub(super) fn release_installed_pending(&self, caller: &TaskJoinWitness) {
-        let installed = self
+        let users = self
             .users
             .lock()
             .expect("DNS users poisoned")
             .iter()
             .filter(|entry| entry.task.same_registration(caller))
+            .cloned()
+            .collect::<Vec<_>>();
+        let pending = self
+            .pending
+            .lock()
+            .expect("DNS pending originals poisoned")
+            .iter()
+            .filter(|entry| entry.task.same_registration(caller))
+            .cloned()
+            .collect::<Vec<_>>();
+        // Borrow the actual current plan for this synchronous check only.
+        // No persistent cleanup record keeps a graph or old configuration alive.
+        let current = self
+            .network
+            .current_services()
+            .ok()
+            .and_then(|source| source.runtime_services().ok())
+            .map(|services| services.execution().components);
+        let plan = current.as_ref().and_then(|plan| plan.as_ref().ok());
+        let loans = users
+            .iter()
+            .chain(pending.iter())
             .filter_map(|entry| {
                 let proof = entry.original.retained_loan()?;
                 proof
@@ -74,29 +98,43 @@ impl Provider {
                     .then_some((entry.original.clone(), proof))
             })
             .collect::<Vec<_>>();
-        let mut pending = self.pending.lock().expect("DNS pending originals poisoned");
-        let mut receipts = installed;
-        receipts.extend(
-            pending
-                .iter()
-                .filter(|entry| entry.task.same_registration(caller))
-                .filter_map(|entry| {
-                    let proof = entry.original.retained_loan()?;
-                    proof
-                        .receiver_adoption()
-                        .is_some_and(|receiver| receiver.same_slot(&entry.original))
-                        .then_some((entry.original.clone(), proof))
-                }),
-        );
-        // A receiver can itself be covered only by another receiver's actual
-        // stored LoanOwner. Its custody then remains strong along that chain;
-        // no read-only origin can manufacture this topology or a self-edge.
-        pending.retain(|entry| {
-            !entry.task.same_registration(caller)
-                || !receipts.iter().any(|(receiver, proof)| {
-                    !receiver.same_slot(&entry.original) && proof.retains(&entry.original)
-                })
-        });
+        let transferred = pending
+            .into_iter()
+            .filter(|entry| {
+                let actual_pool_driver = entry.original.retained_driver().is_some_and(|proof| {
+                    proof.retains(&entry.original)
+                        && proof
+                            .adoption()
+                            .is_some_and(|adoption| adoption.same_slot(&entry.original))
+                        && proof
+                            .owner()
+                            .is_some_and(|owner| owner.matches_adoption(&entry.original))
+                        && plan.is_some_and(|plan| {
+                            entry.pending_roles.iter().any(|role| {
+                                plan.validate_carrier_adoption(*role, &entry.original)
+                                    .is_ok()
+                            })
+                        })
+                });
+                // Before its first driver exists, an undelivered receiver stays in
+                // this caller ledger. Once its real Pool Scope owns the registered
+                // driver, cancelling this waiter must preserve other pool users.
+                actual_pool_driver
+                    || loans.iter().any(|(receiver, proof)| {
+                        !receiver.same_slot(&entry.original) && proof.retains(&entry.original)
+                    })
+            })
+            .collect::<Vec<_>>();
+        // Proof checks can upgrade original owners and deliver their callbacks;
+        // never execute them under this caller's custody mutex.
+        self.pending
+            .lock()
+            .expect("DNS pending originals poisoned")
+            .retain(|entry| {
+                !transferred
+                    .iter()
+                    .any(|retained| Arc::ptr_eq(retained, entry))
+            });
     }
     pub(super) async fn close_caller_originals(
         &self,
