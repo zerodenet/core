@@ -1,6 +1,21 @@
 //! Explicit cleanup of an exact rejected device pass, preserving current users.
 use super::*;
 impl ComponentCatalog {
+    /// Finite actual retained candidates for compensation, including a candidate
+    /// that differs from the requested last-good target. No admission is granted.
+    pub fn pending_candidates(&self) -> Vec<Arc<RuntimeConfig>> {
+        let state = self.state.lock().expect("component catalog poisoned");
+        let mut configs: Vec<Arc<RuntimeConfig>> = Vec::new();
+        for entry in state.staged.iter().chain(state.cold.iter()) {
+            if !configs
+                .iter()
+                .any(|config| Arc::ptr_eq(config, &entry.config))
+            {
+                configs.push(entry.config.clone());
+            }
+        }
+        configs
+    }
     /// Retain the candidate in catalog state across every join/close await.
     /// Only exclusive candidate slots are retired; shared healthy current slots
     /// retain their exact Arc, Scope and transferred business users.

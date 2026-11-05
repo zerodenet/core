@@ -68,12 +68,32 @@ impl OrchestrationState {
                 .await;
             return;
         }
+        #[cfg(feature = "raw-ip-runtime")]
+        if compensating {
+            if let Err(error) = proxy
+                .protocols
+                .discard_pending_device_candidates(
+                    tokio::time::Instant::now() + std::time::Duration::from_secs(5),
+                )
+                .await
+            {
+                self.reject_reload(proxy, &new_snapshot, error.to_string())
+                    .await;
+                return;
+            }
+        }
         self.publish_reload_transitions(proxy, &new_snapshot);
         let new_config = new_snapshot.config().clone();
-        let components = match proxy
-            .protocols
-            .prepare_device_components(new_config.clone())
-        {
+        let prepared = if compensating {
+            proxy
+                .protocols
+                .prepare_recovered_device_components(new_config.clone())
+        } else {
+            proxy
+                .protocols
+                .prepare_device_components(new_config.clone())
+        };
+        let components = match prepared {
             Ok(plan) => plan,
             Err(error) => {
                 self.reject_reload(proxy, &new_snapshot, error.to_string())

@@ -157,3 +157,38 @@ impl ProtocolInventory {
         }
     }
 }
+
+impl ProtocolInventory {
+    /// Compensation retires the actual retained candidate, rather than naming
+    /// its different last-good target as if it owned that candidate's guard.
+    pub(crate) async fn discard_pending_device_candidates(
+        &self,
+        deadline: tokio::time::Instant,
+    ) -> Result<(), EngineError> {
+        let publication = self
+            .device_publication
+            .lock()
+            .expect("device publication poisoned")
+            .clone();
+        let mut configs = Vec::new();
+        if let Some(publication) = publication {
+            let config = publication.config.upgrade().ok_or_else(|| {
+                std::io::Error::other("actual device publication lost its retained catalog input")
+            })?;
+            if publication.committed.load(Ordering::Acquire) {
+                self.finish_device_publication(&config).await?;
+            } else {
+                configs.push(config);
+            }
+        }
+        for config in self.host.components().pending_candidates() {
+            if !configs.iter().any(|actual| Arc::ptr_eq(actual, &config)) {
+                configs.push(config);
+            }
+        }
+        for config in configs {
+            self.discard_device_components(&config, deadline).await?;
+        }
+        Ok(())
+    }
+}

@@ -176,6 +176,23 @@ impl super::ProtocolInventory {
             self.prepare_components(config)
         }
     }
+    pub(crate) fn prepare_recovered_device_components(
+        &self,
+        config: Arc<RuntimeConfig>,
+    ) -> Result<Arc<ComponentPlan>, SharedError> {
+        #[cfg(feature = "raw-ip-runtime")]
+        {
+            self.host
+                .components()
+                .prepare_recovered_device_resources(config.clone(), |resources| {
+                    self.devices.prepare_component_resources(&config, resources)
+                })
+        }
+        #[cfg(not(feature = "raw-ip-runtime"))]
+        {
+            self.prepare_components(config)
+        }
+    }
     #[cfg(feature = "raw-ip-runtime")]
     pub(crate) async fn start_device_resources(
         &self,

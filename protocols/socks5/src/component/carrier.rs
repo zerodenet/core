@@ -32,6 +32,9 @@ impl Outbound {
             .ok_or_else(|| reject(Reason::InvalidConfig))?;
         carriers.reap_returned(end).await?;
         let mut grant = carriers.reserve()?;
+        if let Some(waiting) = context.upstream.observed_pending_carrier() {
+            waiting.retain(grant.adoption())?;
+        }
         let view = grant.claim_transferred_view()?;
         let io = if context.upstream.binding().prefix.is_empty() {
             let prepared = context.upstream.prepare_controlled_stream(
@@ -55,6 +58,9 @@ impl Outbound {
             )?
         };
         let loan = io.into_stream_loan(view)?;
+        context
+            .upstream
+            .observe_carrier_origin(loan.owner.original());
         if let Some(observer) = &context.observer {
             observer.record(None, ConnectFact::CarrierReady);
         }
