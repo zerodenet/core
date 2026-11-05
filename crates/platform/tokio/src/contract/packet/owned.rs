@@ -6,7 +6,7 @@ use crate::contract::{DeliveryState, Impact, Reason, Stage};
 /// An original returned with Unknown is still not permission to retry.
 #[derive(Debug)]
 pub struct OwnedSendFailure {
-    pub failure: SendFailure,
+    pub failure: Box<SendFailure>,
     pub packet: Option<IpPacket>,
 }
 
@@ -18,7 +18,7 @@ pub async fn send_owned<T: PacketTx + ?Sized>(
 ) -> Result<SendReceipt, OwnedSendFailure> {
     if let Err(failure) = limits.validate(&packet) {
         return Err(OwnedSendFailure {
-            failure,
+            failure: Box::new(failure),
             packet: Some(packet),
         });
     }
@@ -62,7 +62,7 @@ pub async fn send_owned<T: PacketTx + ?Sized>(
         };
         guard.armed = false;
         Poll::Ready(result.map_err(|failure| OwnedSendFailure {
-            failure: super::super::datagram::check_failure(failure, guard.control),
+            failure: Box::new(super::super::datagram::check_failure(failure, guard.control)),
             packet: packet.take(),
         }))
     })
