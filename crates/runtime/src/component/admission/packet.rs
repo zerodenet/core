@@ -17,21 +17,24 @@ impl DynPacketOutbound for FencedPacket {
         Box::pin(async move {
             let facts = context.packet_facts()?;
             if request.endpoint != facts.endpoint {
-                return Err(invalid(
+                return Err(packet_failure(invalid(
                     Reason::InvalidConfig,
                     "Packet request differs from actual ingress endpoint",
-                ));
+                )));
             }
-            self.host.check(self.instance, &self.owner, &context)?;
+            self.host
+                .check(self.instance, &self.owner, &context)
+                .map_err(packet_failure)?;
             let inner = self
                 .inner
                 .upgrade()
-                .ok_or_else(|| super::retired_role(self.instance, None))?;
+                .ok_or_else(|| packet_failure(super::retired_role(self.instance, None)))?;
             let Some(lease) = super::super::instance::users::Lease::enter(
                 self.instance.component,
                 &self.users,
                 None,
-            )?
+            )
+            .map_err(packet_failure)?
             else {
                 return inner.open(request, context).await;
             };
@@ -42,4 +45,9 @@ impl DynPacketOutbound for FencedPacket {
             Ok(lease.packet(session))
         })
     }
+}
+
+fn packet_failure(mut error: ChannelError) -> ChannelError {
+    error.impact = zero_platform_tokio::contract::Impact::Packet;
+    error
 }

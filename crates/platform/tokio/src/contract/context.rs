@@ -17,9 +17,31 @@ pub enum ConnectFact {
     PeerRejected,
 }
 
+/// Neutral actual Packet-plane outcomes. Delivery and native-close proofs remain
+/// separate; these facts carry no synthetic business SessionId or task ID.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PacketIoFact {
+    Sent {
+        bytes: usize,
+    },
+    Received {
+        bytes: usize,
+    },
+    Dropped {
+        bytes: usize,
+        reason: zero_traits::PacketDropReason,
+    },
+    Error,
+    ReceiveCoverageLost,
+}
+
 /// Implementations must record bounded facts synchronously, without blocking I/O.
 pub trait ConnectObserver: Send + Sync {
     fn record(&self, session: Option<SessionId>, fact: ConnectFact);
+    /// Native Packet driver facts for the original actual return association.
+    /// Production Packet assembly adapts its existing Inner observer here.
+    fn packet_io(&self, _association: &zero_core::packet::ReturnAssociation, _fact: PacketIoFact) {}
+
     /// Optional locally accepted protocol-framed datagram bytes for compatibility Flow
     /// accounting. This is separate from business payload receipts and physical
     /// carrier traffic, and does not prove peer delivery.
