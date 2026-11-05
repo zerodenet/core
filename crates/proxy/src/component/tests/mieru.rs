@@ -1,4 +1,5 @@
 //! The actual Proxy constructor, registry, shared pool, host apply and I/O.
+mod budget;
 #[cfg(feature = "socks5")]
 mod cross_owner;
 #[cfg(feature = "dns")]
