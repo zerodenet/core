@@ -176,3 +176,57 @@ fn wintun_packet_sink_rejects_case_insensitive_and_implicit_ingress_aliases() {
     value["runtime"]["network"]["direct_packet_device"]["interface"] = "Dedicated".into();
     RuntimeConfig::parse(&value.to_string()).unwrap();
 }
+
+#[test]
+fn direct_packet_write_queue_budget_defaults_omit_and_configured_bounds_round_trip() {
+    let raw = serde_json::json!({
+        "runtime":{"network":{"direct_packet_device":{
+            "fd":9,"interface":"host-l3","router_addresses":["10.64.0.1"]
+        }}},"route":{"final":{"type":"direct"}}
+    });
+    let parsed = zero_config::RuntimeConfig::parse(&raw.to_string()).unwrap();
+    let device = parsed
+        .runtime
+        .network
+        .direct_packet_device
+        .as_ref()
+        .unwrap();
+    assert_eq!(device.write_queue.get(), 128);
+    let exported = serde_json::to_value(&parsed).unwrap();
+    assert!(exported["runtime"]["network"]["direct_packet_device"]
+        .get("write_queue")
+        .is_none());
+    for limit in [1, 128, 4096] {
+        let mut configured = raw.clone();
+        configured["runtime"]["network"]["direct_packet_device"]["write_queue"] = limit.into();
+        let parsed = zero_config::RuntimeConfig::parse(&configured.to_string()).unwrap();
+        assert_eq!(
+            parsed
+                .runtime
+                .network
+                .direct_packet_device
+                .as_ref()
+                .unwrap()
+                .write_queue
+                .get(),
+            limit
+        );
+        let exported = serde_json::to_value(&parsed).unwrap();
+        let restored = zero_config::RuntimeConfig::parse(&exported.to_string()).unwrap();
+        assert_eq!(
+            restored
+                .runtime
+                .network
+                .direct_packet_device
+                .unwrap()
+                .write_queue
+                .get(),
+            limit
+        );
+    }
+    for limit in [0, 4097, usize::MAX] {
+        let mut configured = raw.clone();
+        configured["runtime"]["network"]["direct_packet_device"]["write_queue"] = limit.into();
+        assert!(zero_config::RuntimeConfig::parse(&configured.to_string()).is_err());
+    }
+}

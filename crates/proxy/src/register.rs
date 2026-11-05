@@ -39,6 +39,7 @@ pub(crate) fn compiled_registries_with_network(
                 move |input, resources| {
                     if let Some(network) = &network {
                         crate::component::native_dns::prepare(resources, network.clone())?;
+                        crate::component::native_dns::prepare_node(resources, network.clone())?;
                     }
                     crate::adapters::direct::factory::decode(input)
                         .map_err(crate::component::RegistrationError::Options)
@@ -224,7 +225,9 @@ pub(crate) fn compiled_registries_with_network(
         components
             .register_with_resources_where(
                 ::shadowsocks::ShadowsocksProtocol.descriptor(),
-                ::shadowsocks::component::StreamFactory,
+                crate::component::background::stateless::Factory(
+                    ::shadowsocks::component::StreamFactory,
+                ),
                 crate::adapters::shadowsocks::component::native_input,
                 move |input, resources| {
                     component_adapter.component_options(input, resources, replay_factory.clone())
@@ -350,7 +353,7 @@ pub(crate) fn compiled_registries_with_network(
                                     .is_ok()
                                 })
                             {
-                                let dns = crate::component::native_dns::prepare(
+                                let dns = crate::component::native_dns::prepare_node(
                                     resources,
                                     network.clone().expect("selected native node DNS"),
                                 )?;

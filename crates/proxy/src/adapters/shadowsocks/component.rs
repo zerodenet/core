@@ -1,6 +1,6 @@
 //! Cold config projection into protocol-owned options and one canonical replay owner.
 use super::ShadowsocksAdapter;
-use crate::component::{RegistrationError, ResourcePreparation};
+use crate::component::{background::stateless, RegistrationError, ResourcePreparation};
 use shadowsocks::component::{ReplayFactory, StreamOptions, TcpPreparation};
 use std::sync::Arc;
 use zero_config::{ConfigError, OutboundConfig, OutboundProtocolConfig};
@@ -17,7 +17,7 @@ impl ShadowsocksAdapter {
         input: &OutboundConfig,
         resources: &mut ResourcePreparation<'_>,
         replay_factory: Arc<ReplayFactory>,
-    ) -> Result<StreamOptions, RegistrationError> {
+    ) -> Result<stateless::Options<StreamOptions>, RegistrationError> {
         let OutboundProtocolConfig::Shadowsocks {
             server,
             port,
@@ -52,7 +52,27 @@ impl ShadowsocksAdapter {
                 )
             })
             .transpose()?;
-        prepared.bind(replay).map_err(options_error)
+        let options = prepared.bind(replay).map_err(options_error)?;
+        Ok(stateless::Options::new(
+            options,
+            zero_core::request::Destination::new(
+                match zero_core::address::parse_ip_literal(server) {
+                    Some(std::net::IpAddr::V4(ip)) => zero_core::Address::Ipv4(ip.octets()),
+                    Some(std::net::IpAddr::V6(ip)) => zero_core::Address::Ipv6(ip.octets()),
+                    None => zero_core::Address::Domain(server.clone()),
+                },
+                *port,
+            ),
+            input.dial.to_policy(),
+            std::num::NonZeroUsize::new(
+                resources
+                    .candidate()
+                    .map(|config| config.runtime.effective_native_stream_max_originals())
+                    .unwrap_or(4),
+            )
+            .filter(|limit| limit.get() <= 4096)
+            .ok_or_else(|| options_error("invalid taskless Stream original limit"))?,
+        ))
     }
 }
 fn options_error(error: impl std::fmt::Display) -> RegistrationError {

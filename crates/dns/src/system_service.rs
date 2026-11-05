@@ -35,26 +35,34 @@ impl DnsSystem {
         scope.config_generation = config_generation;
         let key = QueryKey::new(domain, 0, scope);
         let domain = domain.to_owned();
-        let native = self
-            .native_source
-            .clone()
-            .or_else(|| self.node_queries.as_ref().map(|node| node.source.clone()));
-        self.query_coordinator
-            .resolve(key, async move {
-                match native {
-                    Some(source) => {
-                        source
-                            .lookup_system(
-                                domain,
-                                tokio::time::Instant::now() + std::time::Duration::from_secs(5),
-                            )
-                            .await?
-                            .result
-                    }
-                    None => sys_resolver.resolve(&domain).await,
+        let node = matches!(role, DnsQueryRole::Node | DnsQueryRole::Bootstrap)
+            .then_some(self.node_queries.as_ref())
+            .flatten();
+        let native = node
+            .map(|node| node.source.clone())
+            .or_else(|| self.native_source.clone())
+            .or_else(|| self.query_coordinator.native_source().cloned());
+        let coordinator = node
+            .map(|node| &node.coordinator)
+            .unwrap_or(&self.query_coordinator);
+        let work = coordinator.resolve(key, async move {
+            match native {
+                Some(source) => {
+                    source
+                        .lookup_system(
+                            domain,
+                            tokio::time::Instant::now() + std::time::Duration::from_secs(5),
+                        )
+                        .await?
+                        .result
                 }
-            })
-            .await
+                None => sys_resolver.resolve(&domain).await,
+            }
+        });
+        match node {
+            Some(node) => node.source.tasks()?.bootstrap(work).await?,
+            None => work.await,
+        }
     }
 
     pub(super) async fn resolve_system_type_coordinated(
@@ -95,37 +103,45 @@ impl DnsSystem {
         scope.family = family;
         let key = QueryKey::new(domain, query_type, scope);
         let domain = domain.to_owned();
-        let native = self
-            .native_source
-            .clone()
-            .or_else(|| self.node_queries.as_ref().map(|node| node.source.clone()));
-        self.query_coordinator
-            .resolve(key, async move {
-                match native {
-                    Some(source) => {
-                        let lookup = source
-                            .lookup_system(
-                                domain.clone(),
-                                tokio::time::Instant::now() + std::time::Duration::from_secs(5),
+        let node = matches!(role, DnsQueryRole::Node | DnsQueryRole::Bootstrap)
+            .then_some(self.node_queries.as_ref())
+            .flatten();
+        let native = node
+            .map(|node| node.source.clone())
+            .or_else(|| self.native_source.clone())
+            .or_else(|| self.query_coordinator.native_source().cloned());
+        let coordinator = node
+            .map(|node| &node.coordinator)
+            .unwrap_or(&self.query_coordinator);
+        let work = coordinator.resolve(key, async move {
+            match native {
+                Some(source) => {
+                    let lookup = source
+                        .lookup_system(
+                            domain.clone(),
+                            tokio::time::Instant::now() + std::time::Duration::from_secs(5),
+                        )
+                        .await?;
+                    let addresses =
+                        crate::family::filter_addresses(&domain, lookup.result?, family)?;
+                    Ok(addresses
+                        .into_iter()
+                        .filter(|address| {
+                            matches!(
+                                (query_type, address),
+                                (message::TYPE_A, IpAddress::V4(_))
+                                    | (message::TYPE_AAAA, IpAddress::V6(_))
                             )
-                            .await?;
-                        let addresses =
-                            crate::family::filter_addresses(&domain, lookup.result?, family)?;
-                        Ok(addresses
-                            .into_iter()
-                            .filter(|address| {
-                                matches!(
-                                    (query_type, address),
-                                    (message::TYPE_A, IpAddress::V4(_))
-                                        | (message::TYPE_AAAA, IpAddress::V6(_))
-                                )
-                            })
-                            .collect())
-                    }
-                    None => resolver.resolve_type(&domain, query_type, family).await,
+                        })
+                        .collect())
                 }
-            })
-            .await
+                None => resolver.resolve_type(&domain, query_type, family).await,
+            }
+        });
+        match node {
+            Some(node) => node.source.tasks()?.bootstrap(work).await?,
+            None => work.await,
+        }
     }
 }
 

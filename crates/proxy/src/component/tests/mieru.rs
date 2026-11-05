@@ -1,10 +1,13 @@
 //! The actual Proxy constructor, registry, shared pool, host apply and I/O.
+mod budget;
 #[cfg(feature = "socks5")]
 mod cross_owner;
 #[cfg(feature = "dns")]
 mod dns;
 mod fixtures;
 mod reject;
+#[cfg(all(feature = "vless", feature = "vmess", feature = "trojan"))]
+mod stateless;
 mod udp_handoff;
 use crate::{Proxy, ProxyHandle};
 use fixtures::*;

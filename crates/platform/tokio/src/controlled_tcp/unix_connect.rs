@@ -24,7 +24,7 @@ impl AsRawFd for Registration {
 pub(super) struct NativeUnix {
     original: Arc<Original>,
     registration: Option<AsyncFd<Registration>>,
-    address: socket2::SockAddr,
+    address: Option<socket2::SockAddr>,
     started: bool,
 }
 impl NativeUnix {
@@ -39,12 +39,14 @@ impl NativeUnix {
             .expect("original Unix fd")
             .set_nonblocking(true)?;
         let socket = socket2::SockRef::from(guard.as_ref().expect("original Unix fd"));
-        if let Err(error) = socket.connect(&self.address) {
-            if !matches!(
-                error.raw_os_error(),
-                Some(libc::EINPROGRESS) | Some(libc::EAGAIN)
-            ) {
-                return Err(error);
+        if let Some(address) = &self.address {
+            if let Err(error) = socket.connect(address) {
+                if !matches!(
+                    error.raw_os_error(),
+                    Some(libc::EINPROGRESS) | Some(libc::EAGAIN)
+                ) {
+                    return Err(error);
+                }
             }
         }
         drop(guard);
@@ -59,6 +61,9 @@ impl NativeUnix {
     fn poll_connect(&mut self, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
         if let Err(error) = self.begin() {
             return Poll::Ready(Err(error));
+        }
+        if self.address.is_none() {
+            return Poll::Ready(Ok(()));
         }
         self.poll_io(cx, true, |socket| {
             if let Some(error) = socket.take_error()? {
@@ -170,7 +175,7 @@ impl PendingUnixConnect {
                 socket: Some(socket::Socket::Unix(NativeUnix {
                     original: Arc::new(Original(Mutex::new(Some(socket)))),
                     registration: None,
-                    address,
+                    address: Some(address),
                     started: false,
                 })),
                 closed: false,
@@ -217,5 +222,56 @@ impl PendingUnixConnect {
         result?;
         guard.disarm();
         Ok(ControlledTcpStream::from_shared(self.shared.clone()))
+    }
+}
+
+/// The original accepted descriptor is retained before flags/registration.
+/// Its separate native control must be installed before `activate` can suspend.
+pub struct PendingUnixAccept(PendingUnixConnect);
+impl PendingUnixAccept {
+    pub(crate) fn new(
+        socket: socket2::Socket,
+        parent: CancellationToken,
+    ) -> (Self, ControlledTcpControl) {
+        use std::os::fd::FromRawFd;
+        // SAFETY: transfer the one newly accepted fd with no clone or await.
+        let socket = unsafe { std::os::unix::net::UnixStream::from_raw_fd(socket.into_raw_fd()) };
+        let shared = Arc::new(Shared {
+            state: Mutex::new(State {
+                socket: Some(socket::Socket::Unix(NativeUnix {
+                    original: Arc::new(Original(Mutex::new(Some(socket)))),
+                    registration: None,
+                    address: None,
+                    started: false,
+                })),
+                closed: false,
+                error: None,
+                retry: None,
+                unknown: None,
+                closing: false,
+                polling: false,
+                metadata: None,
+            }),
+            cancel: parent.child_token(),
+            label: "native accepted Unix stream".into(),
+            observer: Mutex::new(None),
+            observations: Arc::new(observation::Capture::default()),
+            wakes: IoRelays::new(),
+        });
+        let pending = PendingUnixConnect {
+            waiter: shared.wakes.write.waiter(),
+            shared: shared.clone(),
+            attempted: false,
+        };
+        (
+            Self(pending),
+            ControlledTcpControl {
+                shared,
+                reported: false,
+            },
+        )
+    }
+    pub async fn activate(&mut self, deadline: Instant) -> io::Result<ControlledTcpStream> {
+        self.0.connect(deadline).await
     }
 }

@@ -17,6 +17,7 @@ impl ConfigurationPreparationStartupSlot {
         let slot = self.owner.lock().unwrap_or_else(|error| error.into_inner());
         if let Some(original) = slot.as_ref() {
             original.io.ensure_available()?;
+            original.quota_io_available()?;
             return Err(io::Error::other(
                 "original configuration startup was interrupted before ownership transfer",
             ));
@@ -39,6 +40,7 @@ impl ConfigurationPreparationStartupSlot {
         let mut slot = self.owner.lock().unwrap_or_else(|error| error.into_inner());
         if let Some(original) = slot.as_ref() {
             original.io.ensure_available()?;
+            original.quota_io_available()?;
             return Err(io::Error::other(
                 "original configuration startup was interrupted before ownership transfer",
             ));
@@ -47,7 +49,7 @@ impl ConfigurationPreparationStartupSlot {
         let result = prepare();
         // A successful cache begin hands the actual owner to that source's
         // concrete retained attempt, not to an async borrow of this cold gate.
-        if !source.io.has_retained_failure() {
+        if !source.io.has_retained_failure() && source.quota_io_available().is_ok() {
             *slot = None;
         }
         result
@@ -63,6 +65,7 @@ impl ConfigurationPreparationStartupSlot {
         // Cache namespace state is already resolved by its caller. Inspect the
         // original IO slot only; never clear it from cancellation or Drop.
         source.io.ensure_available()?;
+        source.quota_io_available()?;
         *slot = None;
         Ok(())
     }
@@ -75,14 +78,16 @@ impl ConfigurationPreparationStartupSlot {
         let mut slot = self.owner.lock().unwrap_or_else(|error| error.into_inner());
         if let Some(original) = slot.as_ref() {
             original.io.ensure_available()?;
+            original.quota_io_available()?;
             return Err(io::Error::other(
                 "original configuration startup was interrupted before ownership transfer",
             ));
         }
         *slot = Some(source.clone());
         let result = prepare();
-        if source.io.ensure_available().is_ok()
-            || (!source.io.has_retained_failure() && source.has_retained_cache())
+        if source.quota_io_available().is_ok()
+            && (source.io.ensure_available().is_ok()
+                || (!source.io.has_retained_failure() && source.has_retained_cache()))
         {
             *slot = None;
         }

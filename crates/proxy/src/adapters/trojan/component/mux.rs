@@ -1,6 +1,9 @@
 mod production;
 use super::super::TrojanAdapter;
-use crate::component::{background::pool, RegistrationError, ResourcePreparation};
+use crate::component::{
+    background::{pool, stateless},
+    RegistrationError, ResourcePreparation,
+};
 use std::{num::NonZeroUsize, sync::Arc, time::Duration};
 use zero_config::{OutboundConfig, OutboundProtocolConfig};
 use zero_platform_tokio::contract::{
@@ -10,7 +13,7 @@ use zero_platform_tokio::contract::{
 };
 
 pub(crate) enum Options {
-    Ordinary(Arc<::trojan::component::Options>),
+    Ordinary(Arc<stateless::Options<::trojan::component::Options>>),
     Mux(Arc<::trojan::component::mux::Options>),
 }
 pub(crate) struct Factory;
@@ -18,7 +21,9 @@ impl ComponentFactory for Factory {
     type Options = Options;
     fn describe(&self, options: &Options) -> ComponentSpec {
         match options {
-            Options::Ordinary(options) => ::trojan::component::Factory.describe(options),
+            Options::Ordinary(options) => {
+                stateless::Factory(::trojan::component::Factory).describe(options)
+            }
             Options::Mux(options) => ::trojan::component::mux::Factory.describe(options),
         }
     }
@@ -29,7 +34,7 @@ impl ComponentFactory for Factory {
     ) -> Result<ComponentInstance, BuildError> {
         match options.as_ref() {
             Options::Ordinary(options) => {
-                ::trojan::component::Factory.build(options.clone(), context)
+                stateless::Factory(::trojan::component::Factory).build(options.clone(), context)
             }
             Options::Mux(options) => {
                 ::trojan::component::mux::Factory.build(options.clone(), context)
@@ -107,9 +112,37 @@ impl TrojanAdapter {
             unreachable!("owning adapter projection")
         };
         if mux_concurrency.is_none() {
-            return Ok(Options::Ordinary(Arc::new(super::component_options(
-                input,
-            )?)));
+            // Physical MUX carriers and taskless native/borrowed originals have
+            // different actual owners. A MUX setting must not alter this role.
+            let limit = if stream_only {
+                NonZeroUsize::new(
+                    resources
+                        .candidate()
+                        .map(|config| config.runtime.effective_native_stream_max_originals())
+                        .unwrap_or(4),
+                )
+                .filter(|limit| limit.get() <= 4096)
+                .ok_or_else(|| {
+                    RegistrationError::Options(zero_config::ConfigError::InvalidRuntime(
+                        "invalid taskless Stream original limit".into(),
+                    ))
+                })?
+            } else {
+                limit
+            };
+            return Ok(Options::Ordinary(Arc::new(stateless::Options::new(
+                super::component_options(input)?,
+                zero_core::request::Destination::new(
+                    match zero_core::address::parse_ip_literal(server) {
+                        Some(std::net::IpAddr::V4(ip)) => zero_core::Address::Ipv4(ip.octets()),
+                        Some(std::net::IpAddr::V6(ip)) => zero_core::Address::Ipv6(ip.octets()),
+                        None => zero_core::Address::Domain(server.clone()),
+                    },
+                    *port,
+                ),
+                input.dial.to_policy(),
+                limit,
+            ))));
         }
         let input_refs =
             super::super::outbound_options(&input.tag, (server, *port), &input.protocol)

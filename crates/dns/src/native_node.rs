@@ -13,10 +13,19 @@ pub(super) struct NodeQueries {
 impl DnsSystem {
     /// Installs metadata only. The actual RuntimeHost must start its original
     /// DNS provider before this service can acquire any query socket or task.
-    pub fn with_native_node_queries(mut self, source: Arc<native::NativeDnsSource>) -> Self {
+    pub fn with_native_query_queries(mut self, source: Arc<native::NativeDnsSource>) -> Self {
         self.query_coordinator.set_native_source(source.clone());
-        self.wire_query_coordinator
-            .set_native_source(source.clone());
+        self.wire_query_coordinator.set_native_source(source);
+        self
+    }
+    pub fn with_native_node_queries(mut self, source: Arc<native::NativeDnsSource>) -> Self {
+        // Explicit library callers can still install one source for both
+        // roles. Production supplies the independent Default source first.
+        if self.query_coordinator.native_source().is_none() && self.native_source.is_none() {
+            self.query_coordinator.set_native_source(source.clone());
+            self.wire_query_coordinator
+                .set_native_source(source.clone());
+        }
         let mut coordinator =
             QueryCoordinator::with_graph_and_tasks(self.query_coordinator.shared_graph(), None);
         coordinator.set_native_source(source.clone());
@@ -25,6 +34,34 @@ impl DnsSystem {
             coordinator,
         });
         self
+    }
+    pub(super) fn use_node_source(&self, snapshot: &mut ResolveSnapshot) {
+        if let Some(node) = &self.node_queries {
+            snapshot.native_source = Some(node.source.clone());
+            snapshot.query_coordinator = node.coordinator.clone();
+            snapshot.cache = snapshot.cache.as_ref().map(DnsCache::isolated);
+        }
+    }
+    pub fn retire_native_query_source(&self, source: &Arc<native::NativeDnsSource>) {
+        if self
+            .query_coordinator
+            .native_source()
+            .is_some_and(|actual| Arc::ptr_eq(actual, source))
+        {
+            self.query_coordinator.cancel_pending();
+        }
+        if self
+            .wire_query_coordinator
+            .native_source()
+            .is_some_and(|actual| Arc::ptr_eq(actual, source))
+        {
+            self.wire_query_coordinator.cancel_pending();
+        }
+        if let Some(node) = &self.node_queries {
+            if Arc::ptr_eq(&node.source, source) {
+                node.coordinator.cancel_pending();
+            }
+        }
     }
     pub fn native_node_service(self: &Arc<Self>) -> Arc<dyn DnsService> {
         Arc::new(NodeService(Arc::downgrade(self)))
@@ -65,14 +102,19 @@ impl DnsService for NodeService {
                 .as_ref()
                 .ok_or_else(|| failure(Reason::Unsupported))?;
             if dns.snapshot().is_none() {
-                return dns
-                    .resolve_native_system(
+                let tasks = node
+                    .source
+                    .tasks()
+                    .map_err(|source| failure(Reason::Io).with_source(source))?;
+                return tasks
+                    .bootstrap(dns.resolve_native_system(
                         request,
                         context,
                         node.source.clone(),
                         node.coordinator.clone(),
-                    )
-                    .await;
+                    ))
+                    .await
+                    .map_err(|source| failure(Reason::Io).with_source(source))?;
             }
             let mut snapshot = dns.snapshot().ok_or_else(|| failure(Reason::Unsupported))?;
             snapshot
@@ -99,7 +141,12 @@ impl DnsService for NodeService {
             if *network.borrow() != generation.network.0 {
                 return Err(failure(Reason::StalePlan));
             }
-            let work = resolve_snapshot(&domain, DnsQueryRole::Node, snapshot);
+            let work = async {
+                node.source
+                    .tasks()?
+                    .bootstrap(resolve_snapshot(&domain, DnsQueryRole::Node, snapshot))
+                    .await?
+            };
             let addresses = tokio::select! {biased;
                 _=context.cancel.cancelled()=>return Err(failure(Reason::Cancelled)),
                 _=network.changed()=>return Err(failure(Reason::StalePlan)),

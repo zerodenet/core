@@ -627,7 +627,12 @@ impl MuxPoolConn {
         let (read_half, write_half) = tokio::io::split(stream);
         let (write_tx, write_rx) = mpsc::unbounded_channel::<Vec<u8>>();
         let (native_udp_tx, native_udp_rx) =
-            zero_transport::pooled_driver::datagram_queue::channel();
+            zero_transport::pooled_driver::datagram_queue::channel_with_limits(
+                8,
+                (max_concurrency as usize).max(1).min(u16::MAX as usize),
+                65535 + 1024,
+            )
+            .expect("bounded actual MUX FIFO limits");
         let streams: Arc<Mutex<HashMap<u16, MuxClientStreamState>>> =
             Arc::new(Mutex::new(HashMap::new()));
         let closed = Arc::new(AtomicBool::new(false));
@@ -730,6 +735,8 @@ impl MuxPoolConn {
         }
 
         Ok(MuxStreamRelay {
+            native_writer: None,
+            native_initial: None,
             write_open: true,
             sid,
             down_rx: Some(down_rx),
@@ -782,7 +789,9 @@ impl MuxPoolConn {
     pub(crate) fn try_reserve_stream_id(&self) -> Option<u16> {
         let streams = self.streams.lock().unwrap();
         let mut active = self.active.lock().unwrap();
-        if self.closed.load(Ordering::Acquire) || *active >= self.max_concurrency as usize {
+        if self.closed.load(Ordering::Acquire)
+            || *active >= self.max_concurrency.min(u16::MAX as u32) as usize
+        {
             return None;
         }
         let sid = loop {
@@ -843,6 +852,8 @@ impl MuxPoolConn {
 /// A single MUX stream — implements `AsyncRead` + `AsyncWrite` over the
 /// shared MUX connection.
 struct MuxStreamRelay {
+    native_writer: Option<zero_transport::pooled_driver::datagram_queue::PacketWriter>,
+    native_initial: Option<(u16, Address)>,
     write_open: bool,
     sid: u16,
     down_rx: Option<mpsc::Receiver<MuxDownlink<Vec<u8>>>>,
@@ -855,6 +866,9 @@ impl MuxStreamRelay {
     fn end_upload(&mut self) {
         if self.write_open {
             self.write_open = false;
+            if self.native_writer.take().is_some() {
+                return;
+            }
             if let Ok(end) = encode_mux_end_frame(self.sid) {
                 let _ = self.conn.write_tx.send(end);
             }
@@ -875,6 +889,7 @@ impl AsyncRead for MuxStreamRelay {
         cx: &mut Context<'_>,
         buf: &mut ReadBuf<'_>,
     ) -> Poll<io::Result<()>> {
+        std::task::ready!(self.poll_native_initial(cx))?;
         if self.read_offset < self.read_pending.len() {
             let remaining = &self.read_pending[self.read_offset..];
             let n = remaining.len().min(buf.remaining());
@@ -916,10 +931,11 @@ impl AsyncRead for MuxStreamRelay {
 
 impl AsyncWrite for MuxStreamRelay {
     fn poll_write(
-        self: Pin<&mut Self>,
-        _: &mut Context<'_>,
+        mut self: Pin<&mut Self>,
+        cx: &mut Context<'_>,
         buf: &[u8],
     ) -> Poll<Result<usize, io::Error>> {
+        std::task::ready!(self.poll_native_initial(cx))?;
         let count = buf.len().min(crate::mux::MUX_MAX_PAYLOAD);
         if count == 0 {
             return Poll::Ready(Ok(0));
@@ -930,10 +946,16 @@ impl AsyncWrite for MuxStreamRelay {
                 "MUX upload is closed",
             )));
         }
+        if let Some(writer) = &mut self.native_writer {
+            std::task::ready!(writer.poll_ready(cx))?;
+        }
         let frame = match encode_mux_data_frame(self.sid, &buf[..count]) {
             Ok(frame) => frame,
             Err(source) => return Poll::Ready(Err(io::Error::other(source))),
         };
+        if let Some(writer) = &mut self.native_writer {
+            return Poll::Ready(writer.send(frame).map(|_| count));
+        }
         Poll::Ready(
             self.conn
                 .write_tx
@@ -942,10 +964,14 @@ impl AsyncWrite for MuxStreamRelay {
                 .map_err(|_| io::Error::new(io::ErrorKind::BrokenPipe, "MUX upstream closed")),
         )
     }
-    fn poll_flush(self: Pin<&mut Self>, _: &mut Context<'_>) -> Poll<Result<(), io::Error>> {
-        Poll::Ready(Ok(()))
+    fn poll_flush(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<(), io::Error>> {
+        self.poll_native_initial(cx)
     }
-    fn poll_shutdown(mut self: Pin<&mut Self>, _: &mut Context<'_>) -> Poll<Result<(), io::Error>> {
+    fn poll_shutdown(
+        mut self: Pin<&mut Self>,
+        cx: &mut Context<'_>,
+    ) -> Poll<Result<(), io::Error>> {
+        std::task::ready!(self.poll_native_initial(cx))?;
         self.end_upload();
         Poll::Ready(Ok(()))
     }

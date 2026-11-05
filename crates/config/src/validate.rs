@@ -383,6 +383,76 @@ fn validate_runtime(
             "runtime.udp_direct_max_sockets must be between 1 and 4096".into(),
         ));
     }
+    if !(1..=256).contains(&runtime.effective_mieru_max_carriers()) {
+        return Err(ConfigError::InvalidRuntime(
+            "runtime.mieru_max_carriers must be between 1 and 256".into(),
+        ));
+    }
+    if !(1..=256).contains(&runtime.effective_hysteria2_max_entries()) {
+        return Err(ConfigError::InvalidRuntime(
+            "runtime.hysteria2_max_entries must be between 1 and 256".into(),
+        ));
+    }
+    if !(1..=4096).contains(&runtime.effective_hysteria2_max_udp_sessions()) {
+        return Err(ConfigError::InvalidRuntime(
+            "runtime.hysteria2_max_udp_sessions must be between 1 and 4096".into(),
+        ));
+    }
+    if !(1..=64 * 1024 * 1024).contains(&runtime.effective_hysteria2_udp_pending_bytes()) {
+        return Err(ConfigError::InvalidRuntime(
+            "runtime.hysteria2_udp_pending_bytes must be between 1 and 67108864".into(),
+        ));
+    }
+    if !(1..=4096).contains(&runtime.effective_native_stream_max_originals()) {
+        return Err(ConfigError::InvalidRuntime(
+            "runtime.native_stream_max_originals must be between 1 and 4096".into(),
+        ));
+    }
+    for (name, limit) in [
+        (
+            "control_max_connections",
+            runtime.effective_control_max_connections(),
+        ),
+        (
+            "control_max_subscriptions",
+            runtime.effective_control_max_subscriptions(),
+        ),
+    ] {
+        if !(1..=4096).contains(&limit) {
+            return Err(ConfigError::InvalidRuntime(format!(
+                "runtime.{name} must be between 1 and 4096"
+            )));
+        }
+    }
+    if !(1024..=64 * 1024 * 1024).contains(&runtime.effective_control_max_queued_event_bytes()) {
+        return Err(ConfigError::InvalidRuntime(
+            "runtime.control_max_queued_event_bytes must be between 1024 and 67108864".into(),
+        ));
+    }
+    for (name, limit) in [
+        (
+            "native_dns_max_originals",
+            runtime.effective_native_dns_max_originals(),
+        ),
+        (
+            "native_dns_max_queries",
+            runtime.effective_native_dns_max_queries(),
+        ),
+        (
+            "native_dns_max_blocking_jobs",
+            runtime.effective_native_dns_max_blocking_jobs(),
+        ),
+        (
+            "native_dns_max_h2_drivers",
+            runtime.effective_native_dns_max_h2_drivers(),
+        ),
+    ] {
+        if !(1..=4096).contains(&limit) {
+            return Err(ConfigError::InvalidRuntime(format!(
+                "runtime.{name} must be between 1 and 4096"
+            )));
+        }
+    }
     if runtime.event_log_capacity == 0 {
         return Err(ConfigError::InvalidRuntime(
             "`runtime.event_log_capacity` must be greater than 0".to_owned(),
@@ -396,6 +466,12 @@ fn validate_runtime(
     }
 
     if let Some(device) = &runtime.network.direct_packet_device {
+        if device.write_queue.get() > 4096 {
+            return Err(ConfigError::InvalidRuntime(
+                "runtime.network.direct_packet_device.write_queue must be between 1 and 4096"
+                    .into(),
+            ));
+        }
         let binding_valid = match device.backend {
             crate::DirectPacketDeviceBackend::Descriptor => device.fd.is_some_and(|fd| fd >= 3),
             crate::DirectPacketDeviceBackend::Wintun => device.fd.is_none(),

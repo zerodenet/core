@@ -19,7 +19,7 @@ mod owned_root;
 use owned_root::OwnedDnsRoot;
 mod query_tasks;
 pub use query_tasks::NativeSystemLookup;
-pub use query_tasks::{OwnedDnsQueryObservation, OwnedDnsQueryTasks};
+pub use query_tasks::{OwnedDnsQueryBudget, OwnedDnsQueryObservation, OwnedDnsQueryTasks};
 mod native_node;
 mod reverse;
 mod router;
@@ -219,13 +219,27 @@ impl DnsSystem {
     }
     /// Current actual query registrations only; these facts grant no I/O or close authority.
     pub fn native_query_observations(&self) -> Vec<query_tasks::OwnedDnsQueryObservation> {
-        self.native_source
+        let mut observations = Vec::new();
+        for source in self
+            .native_source
             .as_ref()
-            .or_else(|| self.node_queries.as_ref().map(|node| &node.source))
-            .and_then(|source| source.tasks().ok())
-            .map(|tasks| tasks.observe())
-            .unwrap_or_default()
+            .into_iter()
+            .chain(self.query_coordinator.native_source())
+            .chain(self.node_queries.as_ref().map(|node| &node.source))
+        {
+            if let Ok(tasks) = source.tasks() {
+                for actual in tasks.observe() {
+                    if !observations.iter().any(|prior: &OwnedDnsQueryObservation| {
+                        prior.task.same_registration(&actual.task)
+                    }) {
+                        observations.push(actual);
+                    }
+                }
+            }
+        }
+        observations
     }
+
     fn build_internal(
         config: Option<&DnsConfig>,
         dispatch: Option<zero_router::DomainDispatcher<String>>,
@@ -622,9 +636,18 @@ impl DnsSystem {
         let domain = message::normalize_domain(domain)?;
         let (snapshot, config_generation) = self.snapshot_with_generation();
         match snapshot {
-            Some(snapshot) => {
+            Some(mut snapshot) => {
                 snapshot.ensure_query_role(role)?;
-                resolve_snapshot(&domain, role, snapshot).await
+                if matches!(role, DnsQueryRole::Node | DnsQueryRole::Bootstrap) {
+                    self.use_node_source(&mut snapshot);
+                }
+                let work = resolve_snapshot(&domain, role, snapshot);
+                if matches!(role, DnsQueryRole::Node | DnsQueryRole::Bootstrap) {
+                    if let Some(node) = &self.node_queries {
+                        return node.source.tasks()?.bootstrap(work).await?;
+                    }
+                }
+                work.await
             }
             None => {
                 let (ipv4, ipv6) = tokio::join!(

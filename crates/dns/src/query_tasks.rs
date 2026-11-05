@@ -5,7 +5,7 @@ use std::{
     num::NonZeroUsize,
     sync::{Arc, Mutex, OnceLock},
 };
-use tokio::sync::{oneshot, Notify};
+use tokio::sync::{oneshot, Notify, OwnedSemaphorePermit, Semaphore};
 use zero_platform_tokio::contract::{
     scope::{TaskClass, TaskId, TaskJoinWitness, TaskRegistrar, WeakTaskRegistrar},
     CancellationToken, ChannelError,
@@ -15,6 +15,7 @@ tokio::task_local! {
     static QUERY_ORIGIN: TaskJoinWitness;
     static QUERY_CANCEL: CancellationToken;
     static QUERY_RECORD: Arc<Record>;
+    static BOOTSTRAP_TARGET: std::sync::Weak<Shared>;
 }
 mod descendants;
 #[cfg(feature = "doh")]
@@ -36,6 +37,7 @@ struct Shared {
     parent: CancellationToken,
     limit: NonZeroUsize,
     class: TaskClass,
+    budget: OwnedDnsQueryBudget,
     state: Mutex<State>,
     finalizer: OnceLock<std::sync::Weak<dyn crate::native::NativeDnsProvider>>,
 }
@@ -54,6 +56,8 @@ enum TaskKind {
     Driver,
 }
 struct Record {
+    budget: OwnedDnsQueryBudget,
+    capacity: Mutex<Option<OwnedSemaphorePermit>>,
     kind: TaskKind,
     ancestors: Vec<TaskJoinWitness>,
     network: OnceLock<u64>,
@@ -76,6 +80,71 @@ impl std::fmt::Debug for Record {
 struct QueryRegistration {
     id: TaskId,
     witness: TaskJoinWitness,
+}
+/// Finite task capacity shared by the actual Node and query owners. Each
+/// registration retains its permit until the original task is joined/reaped.
+#[derive(Clone, Debug)]
+pub struct OwnedDnsQueryBudget {
+    query: Arc<Semaphore>,
+    blocking: Arc<Semaphore>,
+    #[cfg(feature = "doh")]
+    driver: Arc<Semaphore>,
+    retained: Arc<Mutex<Vec<std::sync::Weak<Record>>>>,
+}
+impl OwnedDnsQueryBudget {
+    pub fn new(limit: NonZeroUsize) -> Self {
+        Self::with_limits(limit, limit, limit)
+    }
+    pub fn with_limits(query: NonZeroUsize, blocking: NonZeroUsize, _driver: NonZeroUsize) -> Self {
+        Self {
+            query: Arc::new(Semaphore::new(query.get())),
+            blocking: Arc::new(Semaphore::new(blocking.get())),
+            #[cfg(feature = "doh")]
+            driver: Arc::new(Semaphore::new(_driver.get())),
+            retained: Arc::default(),
+        }
+    }
+    fn same_budget(&self, other: &Self) -> bool {
+        Arc::ptr_eq(&self.retained, &other.retained)
+    }
+    fn reserve(&self, kind: TaskKind) -> io::Result<OwnedSemaphorePermit> {
+        // Budget bookkeeping observes only the actual original join. It
+        // cannot cancel, join or retire a task or its native resources.
+        self.retained
+            .lock()
+            .expect("DNS budget poisoned")
+            .retain(|weak| {
+                let Some(record) = weak.upgrade() else {
+                    return false;
+                };
+                if record.registration.get().is_some_and(|registered| {
+                    registered
+                        .as_ref()
+                        .is_none_or(|registered| registered.witness.is_joined())
+                }) {
+                    record
+                        .capacity
+                        .lock()
+                        .expect("DNS task capacity poisoned")
+                        .take();
+                    false
+                } else {
+                    true
+                }
+            });
+        let capacity = match kind {
+            TaskKind::Query => &self.query,
+            TaskKind::Blocking => &self.blocking,
+            #[cfg(feature = "doh")]
+            TaskKind::Driver => &self.driver,
+        };
+        capacity.clone().try_acquire_owned().map_err(|_| {
+            io::Error::new(
+                io::ErrorKind::WouldBlock,
+                "shared native DNS task capacity exhausted",
+            )
+        })
+    }
 }
 impl OwnedDnsQueryTasks {
     pub(crate) fn same_owner(&self, other: &Self) -> bool {
@@ -103,11 +172,32 @@ impl OwnedDnsQueryTasks {
         Self::with_class(registrar, max_queries, TaskClass::Critical)
     }
     fn with_class(registrar: &TaskRegistrar, max_queries: NonZeroUsize, class: TaskClass) -> Self {
+        Self::with_budget(
+            registrar,
+            max_queries,
+            class,
+            OwnedDnsQueryBudget::new(max_queries),
+        )
+    }
+    pub fn new_critical_with_budget(
+        registrar: &TaskRegistrar,
+        max_queries: NonZeroUsize,
+        budget: OwnedDnsQueryBudget,
+    ) -> Self {
+        Self::with_budget(registrar, max_queries, TaskClass::Critical, budget)
+    }
+    fn with_budget(
+        registrar: &TaskRegistrar,
+        max_queries: NonZeroUsize,
+        class: TaskClass,
+        budget: OwnedDnsQueryBudget,
+    ) -> Self {
         Self(Arc::new(Shared {
             registrar: registrar.downgrade(),
             parent: registrar.cancellation(),
             limit: max_queries,
             class,
+            budget,
             state: Mutex::new(State::default()),
             finalizer: OnceLock::new(),
         }))
@@ -168,6 +258,8 @@ impl OwnedDnsQueryTasks {
         #[cfg(not(feature = "doh"))]
         let ancestors = self.inherited_tasks()?;
         let record = Arc::new(Record {
+            budget: self.0.budget.clone(),
+            capacity: Mutex::new(Some(self.0.budget.reserve(kind)?)),
             kind,
             ancestors,
             network: network.map(OnceLock::from).unwrap_or_default(),
@@ -178,6 +270,12 @@ impl OwnedDnsQueryTasks {
             original: Mutex::new(None),
             metadata: Mutex::new(None),
         });
+        self.0
+            .budget
+            .retained
+            .lock()
+            .expect("DNS budget poisoned")
+            .push(Arc::downgrade(&record));
         {
             let mut state = self.0.state.lock().expect("DNS query tasks poisoned");
             if state.closing || self.0.parent.is_cancelled() {

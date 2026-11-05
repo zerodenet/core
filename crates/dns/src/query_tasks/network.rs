@@ -8,35 +8,55 @@ impl OwnedDnsQueryTasks {
         caller: &TaskJoinWitness,
         end: tokio::time::Instant,
     ) -> io::Result<()> {
+        self.fence_network_inner(generation, Some(caller), end)
+            .await
+    }
+    /// Used under the common host admission fence to settle the other DNS
+    /// purpose's old tasks. It grants no current caller or acquisition rights.
+    pub async fn fence_old_network(
+        &self,
+        generation: u64,
+        end: tokio::time::Instant,
+    ) -> io::Result<()> {
+        self.fence_network_inner(generation, None, end).await
+    }
+    async fn fence_network_inner(
+        &self,
+        generation: u64,
+        caller: Option<&TaskJoinWitness>,
+        end: tokio::time::Instant,
+    ) -> io::Result<()> {
         self.ensure_open()?;
         loop {
             let originals = {
                 let state = self.0.state.lock().expect("DNS query tasks poisoned");
-                let current = state
-                    .records
-                    .iter()
-                    .find(|record| {
-                        record
-                            .registration
-                            .get()
-                            .and_then(Option::as_ref)
-                            .is_some_and(|registration| {
-                                registration.witness.same_registration(caller)
-                            })
-                    })
-                    .ok_or_else(|| {
-                        io::Error::new(
-                            io::ErrorKind::PermissionDenied,
-                            "network fence requires the actual DNS job",
-                        )
-                    })?;
-                if current.network.get().is_some_and(|old| *old != generation) {
-                    return Err(io::Error::new(
-                        io::ErrorKind::Interrupted,
-                        "old DNS query cannot cross its original network",
-                    ));
+                if let Some(caller) = caller {
+                    let current = state
+                        .records
+                        .iter()
+                        .find(|record| {
+                            record
+                                .registration
+                                .get()
+                                .and_then(Option::as_ref)
+                                .is_some_and(|registration| {
+                                    registration.witness.same_registration(caller)
+                                })
+                        })
+                        .ok_or_else(|| {
+                            io::Error::new(
+                                io::ErrorKind::PermissionDenied,
+                                "network fence requires the actual DNS job",
+                            )
+                        })?;
+                    if current.network.get().is_some_and(|old| *old != generation) {
+                        return Err(io::Error::new(
+                            io::ErrorKind::Interrupted,
+                            "old DNS query cannot cross its original network",
+                        ));
+                    }
+                    let _ = current.network.set(generation);
                 }
-                let _ = current.network.set(generation);
                 state
                     .records
                     .iter()

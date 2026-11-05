@@ -141,17 +141,24 @@ async fn run(
     tokio::task::yield_now().await;
 
     let dispatcher_shutdown = services.shutdown_dispatcher().await;
-    ipc_server.shutdown().await?;
+    let ipc_shutdown = ipc_server.shutdown().await;
     #[cfg(feature = "status-api")]
-    if let Some(s) = http_server {
-        s.shutdown().await?;
-    }
+    let http_shutdown = match http_server {
+        Some(s) => s.shutdown().await,
+        None => Ok(()),
+    };
     #[cfg(feature = "grpc-api")]
-    if let Some(s) = grpc_server {
-        s.shutdown().await;
-    }
+    let grpc_shutdown = match grpc_server {
+        Some(s) => s.shutdown().await,
+        None => Ok(()),
+    };
 
     proxy_result?;
+    ipc_shutdown?;
+    #[cfg(feature = "status-api")]
+    http_shutdown?;
+    #[cfg(feature = "grpc-api")]
+    grpc_shutdown?;
     monitor_shutdown.map_err(std::io::Error::other)?;
     dispatcher_shutdown.map_err(std::io::Error::other)?;
     Ok(())
@@ -226,7 +233,11 @@ fn status_server_spec(
         Some(http_adapter::HttpServerAuth::single_admin(key))
     };
     #[cfg(feature = "grpc-api")]
-    let grpc_security = grpc_server_security(control, engine.config().source_dir())?;
+    let grpc_security = grpc_server_security(
+        control,
+        engine.config().source_dir(),
+        &engine.configuration_source_owner(),
+    )?;
 
     let control_listen = zero_core::address::format_socket_addr(&listen.address, listen.port);
     Ok(Some(StatusServerSpec {
@@ -245,6 +256,7 @@ fn status_server_spec(
 fn grpc_server_security(
     control: &zero_config::ControlApiConfig,
     source_dir: Option<&std::path::Path>,
+    source: &std::sync::Arc<zero_runtime::configuration::ConfigurationSource>,
 ) -> Result<zero_grpc::GrpcServerSecurity, Box<dyn Error>> {
     let grpc = control.grpc.as_ref().cloned().unwrap_or_default();
     let auth = if grpc.bearer_auth {
@@ -256,7 +268,7 @@ fn grpc_server_security(
     let tls = grpc
         .tls
         .as_ref()
-        .map(|tls| load_grpc_tls(tls, source_dir))
+        .map(|tls| load_grpc_tls(tls, source_dir, source))
         .transpose()?;
     Ok(zero_grpc::GrpcServerSecurity {
         auth,
@@ -269,16 +281,17 @@ fn grpc_server_security(
 fn load_grpc_tls(
     config: &zero_config::ControlGrpcTlsConfig,
     source_dir: Option<&std::path::Path>,
+    source: &std::sync::Arc<zero_runtime::configuration::ConfigurationSource>,
 ) -> Result<zero_grpc::GrpcServerTls, Box<dyn Error>> {
     let cert_path = resolve_config_path(&config.cert_path, source_dir);
     let key_path = resolve_config_path(&config.key_path, source_dir);
-    let cert_pem = std::fs::read(&cert_path).map_err(|error| {
+    let cert_pem = source.read_initial_material(&cert_path).map_err(|error| {
         std::io::Error::other(format!(
             "read gRPC TLS certificate `{}`: {error}",
             cert_path.display()
         ))
     })?;
-    let key_pem = std::fs::read(&key_path).map_err(|error| {
+    let key_pem = source.read_initial_material(&key_path).map_err(|error| {
         std::io::Error::other(format!(
             "read gRPC TLS private key `{}`: {error}",
             key_path.display()
@@ -287,7 +300,7 @@ fn load_grpc_tls(
     let mut tls = zero_grpc::GrpcServerTls::new(cert_pem, key_pem);
     if let Some(path) = &config.client_ca_cert_path {
         let path = resolve_config_path(path, source_dir);
-        let client_ca = std::fs::read(&path).map_err(|error| {
+        let client_ca = source.read_initial_material(&path).map_err(|error| {
             std::io::Error::other(format!(
                 "read gRPC mTLS client CA `{}`: {error}",
                 path.display()

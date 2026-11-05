@@ -20,6 +20,7 @@ impl Provider {
             .find(|(address, packet, _)| *address == peer && !packet)
             .ok_or_else(|| std::io::Error::other("DNS borrowed endpoint was not declared"))?
             .2;
+        let capacity = self.budget.reserve(1)?;
         let mut grant = grants.reserve().map_err(std::io::Error::other)?;
         let view = grant
             .claim_transferred_view()
@@ -29,10 +30,11 @@ impl Provider {
             cancel: call.cancel.clone(),
             original: grant.adoption(),
             logical: Default::default(),
+            capacity: Mutex::new(Some(capacity)),
         });
         {
             let mut users = self.users.lock().expect("DNS users poisoned");
-            if users.len() >= LIMIT {
+            if users.len() >= self.budget.limits().originals.get() {
                 return Err(std::io::Error::new(
                     std::io::ErrorKind::WouldBlock,
                     "DNS original capacity exhausted",

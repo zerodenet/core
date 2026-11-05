@@ -1,5 +1,10 @@
 //! Configuration resource preparation belongs to runtime ownership, never validation.
 mod compile;
+mod control_budget;
+pub use control_budget::{
+    ControlBudget, ControlBudgetCandidate, ControlBudgetLimits, ControlBudgetPermit,
+    ControlBudgetUsage, ControlCharge,
+};
 mod io;
 mod notifications;
 mod rule_sets;
@@ -8,7 +13,7 @@ mod startup;
 pub use compile::{DnsConfigPreparation, RuntimeConfigPreparation};
 pub use notifications::{ConfigurationReconcileChanges, ConfigurationReconcileNotifications};
 pub use source::{
-    ConfigurationSource, RuleSetCacheDownload, SourceDisposition, SourcePersistError,
+    ConfigurationSource, QuotaStorage, RuleSetCacheDownload, SourceDisposition, SourcePersistError,
     SourceWriteObservation, MAX_RULE_SET_CACHE_BYTES,
 };
 use std::sync::Arc;

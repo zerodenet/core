@@ -31,6 +31,20 @@ impl Provider {
             }
         };
         checked()?;
+        let _global = tokio::time::timeout_at(end, self.budget.admission().lock())
+            .await
+            .map_err(std::io::Error::other)?;
+        checked()?;
+        let current = self.egress.generation();
+        self.tasks.fence_network(current, caller, end).await?;
+        self.network
+            .native_dns
+            .fence_old_network(current, end)
+            .await?;
+        self.network
+            .query_dns
+            .fence_old_network(current, end)
+            .await?;
         let mut epoch = tokio::time::timeout_at(end, self.epoch.lock())
             .await
             .map_err(std::io::Error::other)?;
@@ -82,7 +96,7 @@ impl Provider {
         }
         self.reap(end).await?;
         checked()?;
-        if self.retained().saturating_add(cost) > LIMIT {
+        if self.retained().saturating_add(cost) > self.budget.limits().originals.get() {
             return Err(std::io::Error::new(
                 std::io::ErrorKind::WouldBlock,
                 "native DNS original socket capacity exhausted",

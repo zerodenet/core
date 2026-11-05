@@ -21,7 +21,7 @@ use zero_platform_tokio::contract::{
 
 pub(crate) struct NativePoolOptions {
     pool: Arc<PoolOptions>,
-    dns: zero_core::component::ComponentId,
+    dns: Option<zero_core::component::ComponentId>,
 }
 pub(crate) struct Factory {
     pub(crate) network: Arc<BackgroundNetwork>,
@@ -42,7 +42,7 @@ impl ComponentFactory for Factory {
     type Options = NativePoolOptions;
     fn describe(&self, options: &NativePoolOptions) -> ComponentSpec {
         let mut spec = PoolFactory.describe(&options.pool);
-        spec.dependencies.push(options.dns);
+        spec.dependencies.extend(options.dns);
         spec
     }
     fn build(
@@ -50,7 +50,11 @@ impl ComponentFactory for Factory {
         options: Arc<NativePoolOptions>,
         mut context: BuildContext,
     ) -> Result<ComponentInstance, BuildError> {
-        if context.dependencies.len() != 1 || context.dependencies[0].component != options.dns {
+        if context.dependencies.len() != usize::from(options.dns.is_some())
+            || options
+                .dns
+                .is_some_and(|dns| context.dependency(dns).is_none())
+        {
             return Err(zero_platform_tokio::contract::ChannelError::new(
                 zero_platform_tokio::contract::Stage::Prepare,
                 zero_platform_tokio::contract::Reason::StalePlan,
@@ -102,12 +106,12 @@ impl MieruAdapter {
                 PoolProfile::new(input, binding).map_err(options_error)
             })
             .collect::<Result<Vec<_>, _>>()?;
-        // One existing conservative policy bound for all identities and both
-        // underlays together. A profile never creates a separate native pool.
-        let limit = NonZeroUsize::new(
-            ::mieru::client::ClientPoolPolicy::default().max_connections_per_identity,
-        )
-        .unwrap();
+        // One on-demand budget for all identities and both underlays together.
+        // The actual managed record and TaskScope limits use this same value;
+        // incomplete original cleanup never refunds a carrier position.
+        let limit = NonZeroUsize::new(candidate.runtime.effective_mieru_max_carriers())
+            .filter(|limit| limit.get() <= 256)
+            .ok_or_else(|| options_error("invalid actual Mieru pool carrier budget"))?;
         let options = self
             .pool
             .component_options(limit)
@@ -118,7 +122,11 @@ impl MieruAdapter {
                 preparation(input).ok_or_else(|| options_error("expected Mieru outbound"))?,
             )
             .map_err(options_error)?;
-        let dns = crate::component::native_dns::prepare(resources, factory.network.clone())?;
+        let dns = options
+            .carrier_specs()
+            .any(|spec| matches!(spec.endpoint.address, zero_core::Address::Domain(_)))
+            .then(|| crate::component::native_dns::prepare_node(resources, factory.network.clone()))
+            .transpose()?;
         let shared = resources
             .share(
                 "mieru.client_pool",

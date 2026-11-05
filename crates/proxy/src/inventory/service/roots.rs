@@ -24,7 +24,7 @@ pub(crate) fn dns_roots(config: &zero_config::RuntimeConfig) -> Vec<ServiceRoot>
             }
             if let Some(outbound) = config.outbounds.iter().find(|outbound| outbound.tag == tag) {
                 let endpoints =
-                    if outbound.runtime_kind() == zero_config::OutboundRuntimeKind::Direct {
+                    if outbound.protocol.runtime_kind() == zero_config::OutboundRuntimeKind::Direct {
                         server
                             .port()
                             .into_iter()

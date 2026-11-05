@@ -17,11 +17,14 @@ use zero_platform_tokio::{
 };
 
 pub(crate) mod pool;
+pub(crate) mod stateless;
 
 pub(crate) struct BackgroundNetwork {
     pub(crate) egress: EgressInterfaceControl,
     pub(super) resolver: OnceLock<Weak<DnsSystem>>,
     pub(crate) native_dns: Arc<zero_dns::native::NativeDnsSource>,
+    pub(crate) query_dns: Arc<zero_dns::native::NativeDnsSource>,
+    pub(crate) dns_budget: std::sync::Mutex<std::sync::Weak<super::native_dns::Budget>>,
     services: OnceLock<Weak<CurrentServiceSource>>,
 }
 impl BackgroundNetwork {
@@ -38,6 +41,8 @@ impl BackgroundNetwork {
             egress,
             resolver: OnceLock::new(),
             native_dns: Arc::default(),
+            query_dns: Arc::default(),
+            dns_budget: Default::default(),
             services: OnceLock::new(),
         }
     }

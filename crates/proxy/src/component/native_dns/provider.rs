@@ -19,6 +19,7 @@ use zero_platform_tokio::{
 };
 pub(super) struct Provider {
     tasks: OwnedDnsQueryTasks,
+    budget: Arc<super::Budget>,
     registrar: TaskRegistrar,
     cancel: CancellationToken,
     peers: Vec<(SocketAddr, bool, CarrierGrants)>,
@@ -47,10 +48,21 @@ impl Provider {
         metadata: &[zero_platform_tokio::controlled_datagram::metadata_pool::MetadataPoolOwner],
     ) -> Self {
         Self {
-            tasks: OwnedDnsQueryTasks::new_critical(
+            tasks: OwnedDnsQueryTasks::new_critical_with_budget(
                 &context.tasks,
-                NonZeroUsize::new(LIMIT).unwrap(),
+                NonZeroUsize::new(
+                    options
+                        .budget
+                        .limits()
+                        .queries
+                        .get()
+                        .max(options.budget.limits().blocking_jobs.get())
+                        .max(options.budget.limits().h2_drivers.get()),
+                )
+                .unwrap(),
+                options.budget.tasks(),
             ),
+            budget: options.budget.clone(),
             registrar: context.tasks.clone(),
             cancel: context.cancel.clone(),
             peers: options
@@ -127,6 +139,7 @@ impl Provider {
                 )
             })?
             .2;
+        let capacity = self.budget.reserve(1)?;
         let mut grant = grants.reserve().map_err(std::io::Error::other)?;
         let view = grant
             .claim_transferred_view()
@@ -139,6 +152,7 @@ impl Provider {
                 cancel,
                 original: grant.adoption(),
                 logical: Default::default(),
+                capacity: Mutex::new(Some(capacity)),
             }));
         let binding = UpstreamBinding {
             prefix: vec![],
@@ -163,7 +177,9 @@ impl Provider {
                 grants
                     .registration()
                     .observe()
-                    .map_or(LIMIT, |state| state.retained())
+                    .map_or(self.budget.limits().originals.get(), |state| {
+                        state.retained()
+                    })
             })
             .fold(0, usize::saturating_add);
         let retained = self
@@ -173,20 +189,40 @@ impl Provider {
                 grants
                     .registration()
                     .observe()
-                    .map_or(LIMIT, |state| state.retained())
+                    .map_or(self.budget.limits().originals.get(), |state| {
+                        state.retained()
+                    })
             })
             .fold(retained, usize::saturating_add);
         #[cfg(feature = "dns")]
         let retained = retained.saturating_add(
             self.quic
                 .iter()
-                .map(|(_, grants)| grants.retained().unwrap_or(LIMIT).saturating_mul(2))
+                .map(|(_, grants)| {
+                    grants
+                        .retained()
+                        .unwrap_or(self.budget.limits().originals.get())
+                        .saturating_mul(2)
+                })
                 .fold(0, usize::saturating_add),
         );
         retained
     }
 }
 impl NativeDnsProvider for Provider {
+    fn budget(&self) -> Option<Arc<super::Budget>> {
+        Some(self.budget.clone())
+    }
+    fn fence_old_network(
+        &self,
+        generation: u64,
+        end: tokio::time::Instant,
+    ) -> BoxFuture<'_, std::io::Result<()>> {
+        Box::pin(async move {
+            self.tasks.fence_old_network(generation, end).await?;
+            self.reap(end).await
+        })
+    }
     fn finish_query(&self, caller: TaskJoinWitness) -> BoxFuture<'_, std::io::Result<()>> {
         Box::pin(async move {
             let end = tokio::time::Instant::now() + std::time::Duration::from_secs(5);

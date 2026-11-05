@@ -2,6 +2,8 @@
 //! The same accepted host operation drives persist, commit, or compensation.
 mod cache;
 mod document;
+mod quota;
+pub use quota::QuotaStorage;
 mod embedded;
 mod files;
 mod model;
@@ -28,6 +30,7 @@ pub struct ConfigurationSource {
     state: Mutex<SourceState>,
     cache: cache::CacheState,
     pub(super) io: super::io::ConfigurationIo,
+    quota: quota::QuotaSlot,
 }
 impl std::fmt::Debug for ConfigurationSource {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -44,6 +47,7 @@ impl ConfigurationSource {
             state: Mutex::default(),
             io: super::io::ConfigurationIo::default(),
             cache: Default::default(),
+            quota: Default::default(),
         }
     }
     pub fn path(&self) -> Option<&Path> {
@@ -73,6 +77,7 @@ impl ConfigurationSource {
         cache::is_retained(&self.cache)
     }
     pub(super) fn ensure_resource_io_available(&self) -> io::Result<()> {
+        self.quota_io_available()?;
         cache::ensure_idle(&self.cache)?;
         self.io.ensure_available()
     }

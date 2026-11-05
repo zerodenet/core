@@ -90,92 +90,8 @@ impl RuntimeConfig {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct RuntimeOptionsConfig {
-    /// Per-file bound for component-owned file snapshots. Omission keeps the
-    /// legacy exported config shape; production readers use 8 MiB by default.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub file_read_max_bytes: Option<usize>,
-    /// On-demand physical carriers per native MUX pool. Omission preserves the
-    /// exported configuration shape and uses a conservative four-carrier cap.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub native_mux_max_carriers: Option<usize>,
-    /// Native Direct egress originals per standard accepted UDP association.
-    /// On demand, 64 by default; omission preserves the legacy export shape.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub udp_direct_max_sockets: Option<usize>,
-    #[serde(default = "default_udp_upstream_idle_timeout_seconds")]
-    pub udp_upstream_idle_timeout_seconds: u64,
-    /// Maximum number of runtime events retained for replay.
-    #[serde(default = "default_event_log_capacity")]
-    pub event_log_capacity: usize,
-    /// Global URL used by end-to-end outbound latency probes.
-    #[serde(default)]
-    pub latency_test_url: Option<String>,
-    /// Optional crash-recovery snapshot for shared principal quota balances.
-    /// Relative paths resolve beside the runtime config.
-    #[serde(default)]
-    pub principal_quota_state_path: Option<String>,
-    #[serde(default)]
-    pub network: NetworkOptionsConfig,
-    #[serde(default)]
-    pub udp: UdpPolicyConfig,
-    #[serde(default)]
-    pub log: LogConfig,
-    /// Optional DNS subsystem configuration. Omit for system resolver.
-    #[serde(default)]
-    pub dns: Option<DnsConfig>,
-    /// Optional declarative TUN inbound managed by the proxy lifecycle.
-    #[serde(default)]
-    pub tun: Option<TunConfig>,
-}
-
-impl Default for RuntimeOptionsConfig {
-    fn default() -> Self {
-        Self {
-            file_read_max_bytes: None,
-            native_mux_max_carriers: None,
-            udp_direct_max_sockets: None,
-            udp_upstream_idle_timeout_seconds: default_udp_upstream_idle_timeout_seconds(),
-            event_log_capacity: default_event_log_capacity(),
-            latency_test_url: None,
-            principal_quota_state_path: None,
-            network: NetworkOptionsConfig::default(),
-            udp: UdpPolicyConfig::default(),
-            log: LogConfig::default(),
-            dns: None,
-            tun: None,
-        }
-    }
-}
-
-pub const DEFAULT_LATENCY_TEST_URL: &str = "http://www.gstatic.com/generate_204";
-pub const DEFAULT_EVENT_LOG_CAPACITY: usize = 1024;
-
-impl RuntimeOptionsConfig {
-    pub fn effective_udp_direct_max_sockets(&self) -> usize {
-        self.udp_direct_max_sockets.unwrap_or(64)
-    }
-    pub fn effective_native_mux_max_carriers(&self) -> usize {
-        self.native_mux_max_carriers.unwrap_or(4)
-    }
-
-    pub fn effective_file_read_max_bytes(&self) -> usize {
-        self.file_read_max_bytes.unwrap_or(8 * 1024 * 1024)
-    }
-
-    pub fn effective_latency_test_url(&self) -> &str {
-        self.latency_test_url_or(None)
-    }
-
-    pub fn latency_test_url_or<'a>(&'a self, fallback: Option<&'a str>) -> &'a str {
-        self.latency_test_url
-            .as_deref()
-            .or(fallback)
-            .unwrap_or(DEFAULT_LATENCY_TEST_URL)
-    }
-}
+mod runtime;
+pub use runtime::*;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -214,6 +130,20 @@ pub struct DirectPacketDeviceConfig {
     pub interface: String,
     /// Host-owned interface addresses used as sources for local ICMP errors.
     pub router_addresses: Vec<std::net::IpAddr>,
+    /// Accepted writes retained by this actual host Packet device's FIFO.
+    /// On demand, 128 by default; changing this value replaces the old device.
+    #[serde(
+        default = "default_direct_packet_write_queue",
+        skip_serializing_if = "is_default_direct_packet_write_queue"
+    )]
+    pub write_queue: std::num::NonZeroUsize,
+}
+
+fn default_direct_packet_write_queue() -> std::num::NonZeroUsize {
+    std::num::NonZeroUsize::new(128).unwrap()
+}
+fn is_default_direct_packet_write_queue(value: &std::num::NonZeroUsize) -> bool {
+    *value == default_direct_packet_write_queue()
 }
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]

@@ -92,6 +92,10 @@ impl Query {
                 .close(receipt.as_ref(), &state.tasks)
                 .map_err(std::io::Error::other)?;
             state.closed = Some(native);
+            self.capacity
+                .lock()
+                .expect("DNS QUIC budget poisoned")
+                .take();
         }
         if let Some(source) = state
             .received

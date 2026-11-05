@@ -5,6 +5,7 @@ pub(super) struct NativeUse {
     pub(super) task: TaskJoinWitness,
     pub(super) cancel: CancellationToken,
     pub(super) original: CarrierAdoption,
+    pub(super) capacity: Mutex<Option<tokio::sync::OwnedSemaphorePermit>>,
     pub(super) logical:
         tokio::sync::Mutex<Option<zero_platform_tokio::controlled_carrier::loan::LoanOwner>>,
 }
@@ -46,6 +47,10 @@ impl NativeUse {
             ));
         }
         report.append(closed);
+        self.capacity
+            .lock()
+            .expect("DNS original budget poisoned")
+            .take();
         Ok(report)
     }
 }
@@ -85,6 +90,11 @@ impl Provider {
                 "DNS cleanup requires the actual original caller Scope",
             ));
         }
+        let bootstrap = self
+            .network
+            .native_dns
+            .close_bootstrap_descendants(caller, end)
+            .await;
         let descendants = self.tasks.close_descendants(caller, end).await;
         let entries = self
             .users
@@ -108,6 +118,7 @@ impl Provider {
         // Original close and nested Scope joins remain separate gates. A
         // failed descendant must not prevent collection of socket originals.
         descendants?;
+        bootstrap?;
         self.reap(end).await
     }
 

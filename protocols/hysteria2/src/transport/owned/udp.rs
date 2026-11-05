@@ -7,13 +7,16 @@ use zero_platform_tokio::contract::{
     scope::{TaskClass, TaskJoinWitness, TaskJoined},
     CancellationToken,
 };
+mod buffer;
 #[derive(Default)]
 struct State {
     next: u64,
     stopped: bool,
-    sessions: BTreeMap<u32, mpsc::Sender<crate::udp::Hysteria2UdpPacket>>,
+    sessions: BTreeMap<u32, mpsc::Sender<buffer::Packet>>,
 }
 pub struct OwnedUdpDispatcher {
+    sessions: std::num::NonZeroUsize,
+    payload_bytes: Arc<tokio::sync::Semaphore>,
     state: Arc<Mutex<State>>,
     cancel: CancellationToken,
     pending: Option<(
@@ -29,8 +32,12 @@ impl OwnedUdpDispatcher {
         connection: OwnedConnection,
         tasks: &zero_platform_tokio::contract::scope::WeakTaskRegistrar,
         cancel: CancellationToken,
+        sessions: std::num::NonZeroUsize,
+        payload_bytes: std::num::NonZeroUsize,
     ) -> Self {
         Self {
+            sessions,
+            payload_bytes: Arc::new(tokio::sync::Semaphore::new(payload_bytes.get())),
             state: Arc::new(Mutex::new(State {
                 next: 1,
                 ..Default::default()
@@ -56,6 +63,7 @@ impl OwnedUdpDispatcher {
             .ok_or_else(|| self.registration_error())?;
         let shared = self.state.clone();
         let stop = self.cancel.clone();
+        let payload_bytes = self.payload_bytes.clone();
         // Only the actual registered Scope owns/joins this worker. No raw
         // tokio task or second registry is created for a pooled connection.
         // The original prepared dispatcher is installed before this call can
@@ -74,7 +82,9 @@ impl OwnedUdpDispatcher {
                 if let Some(sender)=sender {
                     // Preserve the original per-session loss policy: slow
                     // consumers cannot block siblings or fabricate delivery.
-                    let _=sender.try_send(packet);
+                    if let Some(packet)=buffer::Packet::reserve(packet,&payload_bytes) {
+                        let _=sender.try_send(packet);
+                    }
                 }
             }
             let retired={let mut shared=shared.lock().unwrap();shared.stopped=true;std::mem::take(&mut shared.sessions)};drop(retired);
@@ -137,7 +147,7 @@ impl OwnedUdpDispatcher {
         if self.task.is_none() || state.stopped || self.cancel.is_cancelled() {
             return Err(error(Stage::Prepare, Reason::Revoked));
         }
-        if state.sessions.len() >= 4096 || state.next > u32::MAX as u64 {
+        if state.sessions.len() >= self.sessions.get() || state.next > u32::MAX as u64 {
             return Err(error(Stage::Prepare, Reason::Capacity));
         }
         let id = state.next as u32;
@@ -161,8 +171,8 @@ impl Drop for OwnedUdpDispatcher {
     }
 }
 struct Receive {
-    rx: mpsc::Receiver<crate::udp::Hysteria2UdpPacket>,
-    reassembly: crate::udp::Hysteria2UdpReassembler,
+    rx: mpsc::Receiver<buffer::Packet>,
+    reassembly: buffer::Reassembly,
 }
 pub struct OwnedUdpChannel {
     connection: Arc<OwnedAuthentication>,
@@ -238,7 +248,7 @@ impl OwnedUdpChannel {
                 .recv()
                 .await
                 .ok_or_else(|| error(Stage::Receive, Reason::Revoked))?;
-            if let Ok(Some(packet)) = state.reassembly.push(packet) {
+            if let Some(packet) = state.reassembly.push(packet) {
                 return Ok(packet.into_datagram_parts());
             }
         }
