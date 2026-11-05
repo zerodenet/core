@@ -139,6 +139,7 @@ async fn ordinary_vmess_grpc_relay_rejected_prefix_never_bypasses_to_final_or_le
                     .new_dispatch("incoming")
                     .await
                     .unwrap();
+                let (registration,donor,native,consumer) = {
                 let opening=dispatch.dispatch(input(53,b"must-not-send"));
                 tokio::pin!(opening);
                 tokio::select! { biased;
@@ -155,6 +156,8 @@ async fn ordinary_vmess_grpc_relay_rejected_prefix_never_bypasses_to_final_or_le
                 let native=waiting.slots()[0].original().clone();
                 prefix.release_response();
                 assert!(opening.await.is_err());
+                (registration,donor,native,consumer)
+                };
                 assert!(consumer.matches_closed(&consumer.closed().unwrap()));
                 assert!(!consumer.closed().unwrap().had_native_acquisition());
                 assert_eq!(prefix.count.load(std::sync::atomic::Ordering::SeqCst), 1);
@@ -205,6 +208,10 @@ async fn ordinary_vmess_grpc_relay_revoked_prefix_cannot_reopen_through_legacy_o
             .drive_component_supervision(async {
                 let plan = proxy.tcp_runtime_services().components.clone().unwrap();
                 let stopped = plan.configured("first").unwrap();
+                let donor = donor_owner(&proxy, "first");
+                let consumer = original(&proxy);
+                assert_eq!(donor.observe().unwrap().retained(), 0);
+                assert_eq!(consumer.observe().unwrap().retained(), 0);
                 assert!(stopped
                     .shutdown(Instant::now() + Duration::from_secs(3))
                     .await
@@ -214,24 +221,10 @@ async fn ordinary_vmess_grpc_relay_revoked_prefix_cannot_reopen_through_legacy_o
                     .new_dispatch("incoming")
                     .await
                     .unwrap();
-                let opening=dispatch.dispatch(input(53,b"must-not-send"));
-                tokio::pin!(opening);
-                tokio::select! { biased;
-                    result=&mut opening=>panic!("actual rejected CONNECT still awaits peer response: {result:?}"),
-                    _=prefix.request()=>{}
-                }
-                let registration=original(&proxy);
-                let waiting=registration.observe().unwrap();assert_eq!(waiting.retained(),1);
-                assert!(waiting.slots()[0].native().is_none());assert!(waiting.slots()[0].driver().is_none());
-                let consumer=waiting.slots()[0].original().clone();
-                let donor=donor_owner(&proxy,"first");let waiting=donor.observe().unwrap();
-                assert_eq!(waiting.retained(),1);assert!(waiting.slots()[0].native().is_some());
-                assert!(waiting.slots()[0].physical_view_live());
-                let native=waiting.slots()[0].original().clone();
-                prefix.release_response();
-                assert!(opening.await.is_err());
-                assert!(consumer.matches_closed(&consumer.closed().unwrap()));
-                assert!(!consumer.closed().unwrap().had_native_acquisition());
+                assert!(dispatch
+                    .dispatch(input(53, b"must-not-send"))
+                    .await
+                    .is_err());
                 assert_eq!(prefix.count.load(std::sync::atomic::Ordering::SeqCst), 0);
                 assert_eq!(server.accepted(), 0);
                 assert_eq!(
@@ -245,6 +238,12 @@ async fn ordinary_vmess_grpc_relay_revoked_prefix_cannot_reopen_through_legacy_o
                     .shutdown_components(Instant::now() + Duration::from_secs(3))
                     .await
                     .unwrap();
+                assert!(donor.closed().unwrap().matches(&donor));
+                let returned = donor.users_closed().unwrap();
+                assert!(returned.matches(&donor) && !returned.had_native_acquisition());
+                assert!(consumer.closed().unwrap().matches(&consumer));
+                let returned = consumer.users_closed().unwrap();
+                assert!(returned.matches(&consumer) && !returned.had_native_acquisition());
                 server.finish().await;
             })
             .await;
@@ -278,24 +277,14 @@ async fn ordinary_vmess_grpc_relay_udp_policy_rejects_before_any_prefix_or_final
                     .new_dispatch("incoming")
                     .await
                     .unwrap();
-                let opening=dispatch.dispatch(input(53,b"must-not-send"));
-                tokio::pin!(opening);
-                tokio::select! { biased;
-                    result=&mut opening=>panic!("actual rejected CONNECT still awaits peer response: {result:?}"),
-                    _=prefix.request()=>{}
-                }
-                let registration=original(&proxy);
-                let waiting=registration.observe().unwrap();assert_eq!(waiting.retained(),1);
-                assert!(waiting.slots()[0].native().is_none());assert!(waiting.slots()[0].driver().is_none());
-                let consumer=waiting.slots()[0].original().clone();
-                let donor=donor_owner(&proxy,"first");let waiting=donor.observe().unwrap();
-                assert_eq!(waiting.retained(),1);assert!(waiting.slots()[0].native().is_some());
-                assert!(waiting.slots()[0].physical_view_live());
-                let native=waiting.slots()[0].original().clone();
-                prefix.release_response();
-                assert!(opening.await.is_err());
-                assert!(consumer.matches_closed(&consumer.closed().unwrap()));
-                assert!(!consumer.closed().unwrap().had_native_acquisition());
+                let donor = donor_owner(&proxy, "first");
+                let consumer = original(&proxy);
+                assert_eq!(donor.observe().unwrap().retained(), 0);
+                assert_eq!(consumer.observe().unwrap().retained(), 0);
+                assert!(dispatch
+                    .dispatch(input(53, b"must-not-send"))
+                    .await
+                    .is_err());
                 assert_eq!(prefix.count.load(std::sync::atomic::Ordering::SeqCst), 0);
                 assert_eq!(server.accepted(), 0);
                 assert_eq!(original(&proxy).observe().unwrap().retained(), 0);
@@ -305,6 +294,12 @@ async fn ordinary_vmess_grpc_relay_udp_policy_rejects_before_any_prefix_or_final
                     .shutdown_components(Instant::now() + Duration::from_secs(3))
                     .await
                     .unwrap();
+                assert!(donor.closed().unwrap().matches(&donor));
+                let returned = donor.users_closed().unwrap();
+                assert!(returned.matches(&donor) && !returned.had_native_acquisition());
+                assert!(consumer.closed().unwrap().matches(&consumer));
+                let returned = consumer.users_closed().unwrap();
+                assert!(returned.matches(&consumer) && !returned.had_native_acquisition());
                 server.finish().await;
             })
             .await;
