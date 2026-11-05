@@ -12,12 +12,24 @@ pub(in crate::runtime) async fn run_until<F>(proxy: &Proxy, shutdown: F) -> Resu
 where
     F: Future<Output = ()> + Send,
 {
-    proxy
-        .statistics
-        .drive(Box::pin(proxy.protocols.drive_component_supervision(
-            Box::pin(run_supervised_until(proxy, shutdown)),
-        )))
-        .await
+    run_owned_until(proxy, Box::pin(shutdown)).await
+}
+
+// Compile the concrete orchestration graph in its owning crate. Downstream
+// generic shutdown futures carry only this erased operation, rather than the
+// layout of every reload/recovery phase through their own public async ABI.
+fn run_owned_until<'a>(
+    proxy: &'a Proxy,
+    shutdown: zero_platform_tokio::contract::BoxFuture<'a, ()>,
+) -> zero_platform_tokio::contract::BoxFuture<'a, Result<(), EngineError>> {
+    Box::pin(async move {
+        proxy
+            .statistics
+            .drive(Box::pin(proxy.protocols.drive_component_supervision(
+                Box::pin(run_supervised_until(proxy, shutdown)),
+            )))
+            .await
+    })
 }
 
 async fn run_supervised_until<F>(proxy: &Proxy, shutdown: F) -> Result<(), EngineError>
