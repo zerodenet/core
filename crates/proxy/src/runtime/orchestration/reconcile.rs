@@ -267,8 +267,10 @@ impl OrchestrationState {
         self.applied_snapshot = new_snapshot;
         // Only successful DNS/resource confirmation can precede irreversible
         // cancellation of the old business sessions in revoked directions.
-        for (binding, directions) in revoked_directions {
-            proxy.engine.cancel_endpoint_flows(&binding, directions);
+        if !proxy.pending_reload_matches(&self.applied_snapshot) {
+            for (binding, directions) in revoked_directions {
+                proxy.engine.cancel_endpoint_flows(&binding, directions);
+            }
         }
         self.publish_endpoint_facts(proxy);
         log_reload_reconciled(&new_config);

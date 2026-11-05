@@ -264,6 +264,8 @@ impl ProxyHandle {
             return Err("proxy stopped before configuration commit".to_owned());
         }
         let token = self.retire_prepared_dns(timeout).await?;
+        let revoked_directions =
+            snapshot.revoked_endpoint_directions(&self.proxy.engine.runtime_snapshot());
         let component_config = snapshot.config().clone();
         self.proxy
             .protocols
@@ -302,6 +304,11 @@ impl ProxyHandle {
             self.proxy
                 .inbound_owners
                 .finish_recovery_transition(&component_config);
+            for (binding, directions) in revoked_directions {
+                self.proxy
+                    .engine
+                    .cancel_endpoint_flows(&binding, directions);
+            }
             Ok(())
         })?;
         self.proxy.engine.configuration_source().finalize_committed()

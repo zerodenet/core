@@ -1,5 +1,6 @@
 //! Transactional device preparation; protocol config stays inside this adapter.
 
+mod directions;
 mod linked;
 mod pending;
 mod pending_map;
@@ -81,14 +82,12 @@ impl WireguardAdapter {
         let desired = selected
             .iter()
             .map(|(outbound, _, identity, plan)| {
-                let count = if context.disabled_outbounds.contains(&outbound.tag) {
-                    0
-                } else {
-                    plan.peer_count()
-                };
-                (outbound.tag.clone(), (*identity, generation, count))
+                let count = self.prepared_peer_count(
+                    outbound, inbounds, plan, *identity, generation, &context,
+                )?;
+                Ok((outbound.tag.clone(), (*identity, generation, count)))
             })
-            .collect::<HashMap<_, _>>();
+            .collect::<Result<HashMap<_, _>, EngineError>>()?;
         // No candidate device/task/socket may start before these actual
         // originals (including discarded candidates) have confirmed cleanup.
         self.pool.retire_changed(&desired).await?;
@@ -131,6 +130,7 @@ impl WireguardAdapter {
                         &mut staged,
                         device_identity,
                         generation,
+                        desired[&outbound.tag].2,
                         meters.as_ref(),
                     )
                     .await?;

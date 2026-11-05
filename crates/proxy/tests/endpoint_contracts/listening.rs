@@ -84,7 +84,13 @@ async fn passive_peer_learns_authenticated_address_and_live_outbound_revocation_
         }).to_string()).unwrap()
     };
     let a_config = config(71, 72, a_wire, None, a_socks, "10.0.0.1/32");
-    let a_proxy = Proxy::new(a_config.clone()).unwrap();
+    let source = tempfile::tempdir().unwrap();
+    let parent = source.path().join("source");
+    std::fs::write(&parent, b"parent is a file").unwrap();
+    let engine =
+        zero_engine::Engine::new_with_config_path(a_config.clone(), parent.join("zero.json"))
+            .unwrap();
+    let a_proxy = Proxy::from_engine(engine).unwrap();
     let handle = ProxyHandle::new(EngineHandle::new(a_proxy.engine().clone()), a_proxy.clone());
     let a = spawn_engine(a_proxy);
     let b = spawn_engine(
@@ -154,7 +160,7 @@ async fn passive_peer_learns_authenticated_address_and_live_outbound_revocation_
     echo(&mut inbound, b"inbound-before").await;
     // A rejected candidate must not revoke the existing stacks or sessions.
     let occupied = TcpListener::bind(("127.0.0.1", 0)).await.unwrap();
-    let mut rejected = a_config;
+    let mut rejected = a_config.clone();
     rejected.endpoints[0].directions.outbound = false;
     rejected.inbounds.push(serde_json::from_value(json!({"tag":"occupied", "listen":{"address":"127.0.0.1", "port":occupied.local_addr().unwrap().port()}, "protocol":{"type":"socks5"}})).unwrap());
     assert!(handle
@@ -165,6 +171,64 @@ async fn passive_peer_learns_authenticated_address_and_live_outbound_revocation_
     echo(&mut outbound, b"rollback-outbound-live").await;
     echo(&mut inbound, b"rollback-inbound-live").await;
     drop(occupied);
+    // Readiness alone cannot revoke old sessions: persistence can still fail.
+    let mut rejected = a_config.clone();
+    rejected.endpoints[0].directions.outbound = false;
+    let error = handle
+        .apply_config_and_wait(rejected, Duration::from_secs(5))
+        .await
+        .unwrap_err();
+    assert!(
+        error.contains("configuration persistence failed"),
+        "{error}"
+    );
+    assert!(endpoint(&handle).effective.outbound);
+    echo(&mut outbound, b"source-rollback-outbound-live").await;
+    echo(&mut inbound, b"source-rollback-inbound-live").await;
+    let error = handle
+        .execute_acknowledged(CommandRequest::EndpointSetDirections(
+            EndpointSetDirectionsCommand {
+                endpoint_id: "endpoint:wg".into(),
+                directions: EndpointDirections {
+                    inbound: true,
+                    outbound: false,
+                },
+                persistence: EndpointPersistence::SourceFile,
+                expected_intent_revision: None,
+                expected_core_instance_id: None,
+            },
+        ))
+        .await
+        .unwrap_err();
+    assert!(
+        error.message.contains("endpoint source persistence failed"),
+        "{error:?}"
+    );
+    assert!(endpoint(&handle).effective.outbound);
+    echo(&mut outbound, b"command-rollback-outbound-live").await;
+    echo(&mut inbound, b"command-rollback-inbound-live").await;
+    assert_eq!(std::fs::read(&parent).unwrap(), b"parent is a file");
+    let mut contracted_config = a_config.clone();
+    contracted_config.endpoints[0].directions.outbound = false;
+    handle
+        .apply_runtime_config_and_wait(contracted_config, Duration::from_secs(5))
+        .await
+        .unwrap();
+    assert!(!endpoint(&handle).effective.outbound);
+    let mut buffer = [0; 32];
+    let closed = timeout(Duration::from_secs(2), outbound.read(&mut buffer))
+        .await
+        .unwrap();
+    assert!(matches!(closed, Ok(0) | Err(_)), "{closed:?}");
+    echo(&mut inbound, b"config-contraction-inbound-live").await;
+    handle
+        .apply_runtime_config_and_wait(a_config, Duration::from_secs(5))
+        .await
+        .unwrap();
+    let mut outbound = timeout(Duration::from_secs(20), connect(a_socks, host, tcp_port))
+        .await
+        .unwrap();
+    echo(&mut outbound, b"config-resume-outbound-live").await;
     let before = endpoint(&handle);
     let directions = |outbound| {
         CommandRequest::EndpointSetDirections(EndpointSetDirectionsCommand {

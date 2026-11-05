@@ -29,6 +29,7 @@ impl WireguardAdapter {
         staged: &mut StagedRawIpDevices,
         identity: [u8; 32],
         generation: u64,
+        client_peer_count: usize,
         meters: Option<&(zero_engine::TrafficMeter, Vec<zero_engine::TrafficMeter>)>,
     ) -> Result<
         (
@@ -38,11 +39,6 @@ impl WireguardAdapter {
         EngineError,
     > {
         let upstream = &context.upstream;
-        let client_peer_count = if context.disabled_outbounds.contains(&outbound.tag) {
-            0
-        } else {
-            plan.peer_count()
-        };
         let inbound_identity = inbound_protocol_identity(&inbound.protocol)
             .ok_or_else(|| invalid("cannot identify WireGuard inbound"))?;
         let outer_udp_proxy = match &outbound.protocol {
@@ -107,6 +103,14 @@ impl WireguardAdapter {
                     }),
                 ));
             }
+        }
+
+        // A policy-only contraction may retain existing stacks, never allocate
+        // replacements while disabled if those exact originals became stale.
+        if client_peer_count != 0 && context.disabled_outbounds.contains(&outbound.tag) {
+            return Err(invalid(
+                "retained WireGuard client stacks changed during preparation",
+            ));
         }
 
         let (sender_watch, packets) = if let Some(link) = &existing {

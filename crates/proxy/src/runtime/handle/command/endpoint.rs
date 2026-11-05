@@ -167,9 +167,6 @@ impl ProxyHandle {
             }
             self.apply_endpoint_snapshot(candidate.clone(), false)
                 .await?;
-            if revoked.inbound || revoked.outbound {
-                self.wait_endpoint_flows_ended(&binding, revoked).await?;
-            }
             let component_config = candidate.config().clone();
             self.proxy
                 .protocols
@@ -214,6 +211,11 @@ impl ProxyHandle {
                     Ok(())
                 })
                 .map_err(|message| ApiError::new(ApiErrorCode::Internal, message))?;
+            // Revocation is irreversible. Failed application readiness or
+            // source persistence must leave the old business sessions intact.
+            if revoked.inbound || revoked.outbound {
+                self.wait_endpoint_flows_ended(&binding, revoked).await?;
+            }
             if let Some(reconciler) = &self.config_reconciler {
                 reconciler.committed(candidate.config().clone()).await.map_err(|message| ApiError::new(ApiErrorCode::Internal, format!("endpoint committed; application finalization failed: {message}")))?;
             }
