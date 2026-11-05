@@ -68,13 +68,24 @@ async fn ordinary_vmess_grpc_mixed_relay_reuses_real_shadowsocks_replay_scope_an
                     assert_eq!(session.outbound_rx_bytes, 5);
                     let registration = original(&proxy);
                     let view = registration.observe().unwrap();
-                    assert!(view.slots()[0].native().is_some());
-                    assert!(view.slots()[0].borrowed_origin().is_none());
+                    assert!(view.slots()[0].native().is_none());
+                    let borrowed = view.slots()[0].borrowed_origin().unwrap();
+                    plan.validate_carrier_origin(role.role_id(), borrowed)
+                        .unwrap();
+                    let donor = donor_owner(&proxy, "shared");
+                    assert!(borrowed.owner().same_owner(&donor));
+                    let held = donor.observe().unwrap();
+                    assert_eq!(held.retained(), 1);
+                    assert!(held.slots()[0].native().is_some());
+                    let root = held.slots()[0].original().clone();
                     let native = view.slots()[0].original().clone();
                     let driver = view.slots()[0].driver().unwrap().1.clone();
                     close_flow(&proxy, flow).await;
                     assert!(driver.is_joined());
                     assert!(native.matches_closed(&native.closed().unwrap()));
+                    assert!(!native.closed().unwrap().had_native_acquisition());
+                    assert!(root.matches_closed(&root.closed().unwrap()));
+                    assert!(root.closed().unwrap().had_native_acquisition());
                     server.finish().await;
                     proxy.protocols.shutdown_components(end()).await.unwrap();
                 })

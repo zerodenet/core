@@ -119,7 +119,7 @@ async fn ordinary_vmess_grpc_relay_datagram_preserves_stream_prefixes_tls_modes_
 #[tokio::test]
 async fn ordinary_vmess_grpc_relay_rejected_prefix_never_bypasses_to_final_or_legacy_udp() {
     timeout(Duration::from_secs(12), async {
-        let prefix = Prefix::new(Kind::Reject, false).await;
+        let mut prefix = Prefix::new(Kind::Reject, true).await;
         let (proxy, server) = start_config(
             false,
             false,
@@ -139,21 +139,31 @@ async fn ordinary_vmess_grpc_relay_rejected_prefix_never_bypasses_to_final_or_le
                     .new_dispatch("incoming")
                     .await
                     .unwrap();
-                assert!(dispatch
-                    .dispatch(input(53, b"must-not-send"))
-                    .await
-                    .is_err());
+                let opening=dispatch.dispatch(input(53,b"must-not-send"));
+                tokio::pin!(opening);
+                tokio::select! { biased;
+                    result=&mut opening=>panic!("actual rejected CONNECT still awaits peer response: {result:?}"),
+                    _=prefix.request()=>{}
+                }
+                let registration=original(&proxy);
+                let waiting=registration.observe().unwrap();assert_eq!(waiting.retained(),1);
+                assert!(waiting.slots()[0].native().is_none());assert!(waiting.slots()[0].driver().is_none());
+                let consumer=waiting.slots()[0].original().clone();
+                let donor=donor_owner(&proxy,"first");let waiting=donor.observe().unwrap();
+                assert_eq!(waiting.retained(),1);assert!(waiting.slots()[0].native().is_some());
+                assert!(waiting.slots()[0].physical_view_live());
+                let native=waiting.slots()[0].original().clone();
+                prefix.release_response();
+                assert!(opening.await.is_err());
+                assert!(consumer.matches_closed(&consumer.closed().unwrap()));
+                assert!(!consumer.closed().unwrap().had_native_acquisition());
                 assert_eq!(prefix.count.load(std::sync::atomic::Ordering::SeqCst), 1);
                 assert_eq!(
                     server.accepted(),
                     0,
                     "the bound final listener must receive no direct connection"
                 );
-                let registration = original(&proxy);
-                let observed = registration.observe().unwrap();
-                assert_eq!(observed.retained(), 1);
-                let native = observed.slots()[0].original().clone();
-                assert!(observed.slots()[0].driver().is_none());
+                assert_eq!(registration.observe().unwrap().retained(),0,"rejected unused consumer is reclaimed");
                 dispatch.finish_all();
                 proxy
                     .protocols
@@ -161,6 +171,9 @@ async fn ordinary_vmess_grpc_relay_rejected_prefix_never_bypasses_to_final_or_le
                     .await
                     .unwrap();
                 assert!(native.matches_closed(&native.closed().unwrap()));
+                assert!(native.closed().unwrap().had_native_acquisition());
+                assert!(donor.closed().unwrap().matches(&donor));
+                assert!(donor.users_closed().unwrap().matches(&donor));
                 assert!(registration.closed().unwrap().matches(&registration));
                 server.finish().await;
             })
@@ -201,10 +214,24 @@ async fn ordinary_vmess_grpc_relay_revoked_prefix_cannot_reopen_through_legacy_o
                     .new_dispatch("incoming")
                     .await
                     .unwrap();
-                assert!(dispatch
-                    .dispatch(input(53, b"must-not-send"))
-                    .await
-                    .is_err());
+                let opening=dispatch.dispatch(input(53,b"must-not-send"));
+                tokio::pin!(opening);
+                tokio::select! { biased;
+                    result=&mut opening=>panic!("actual rejected CONNECT still awaits peer response: {result:?}"),
+                    _=prefix.request()=>{}
+                }
+                let registration=original(&proxy);
+                let waiting=registration.observe().unwrap();assert_eq!(waiting.retained(),1);
+                assert!(waiting.slots()[0].native().is_none());assert!(waiting.slots()[0].driver().is_none());
+                let consumer=waiting.slots()[0].original().clone();
+                let donor=donor_owner(&proxy,"first");let waiting=donor.observe().unwrap();
+                assert_eq!(waiting.retained(),1);assert!(waiting.slots()[0].native().is_some());
+                assert!(waiting.slots()[0].physical_view_live());
+                let native=waiting.slots()[0].original().clone();
+                prefix.release_response();
+                assert!(opening.await.is_err());
+                assert!(consumer.matches_closed(&consumer.closed().unwrap()));
+                assert!(!consumer.closed().unwrap().had_native_acquisition());
                 assert_eq!(prefix.count.load(std::sync::atomic::Ordering::SeqCst), 0);
                 assert_eq!(server.accepted(), 0);
                 assert_eq!(
@@ -251,10 +278,24 @@ async fn ordinary_vmess_grpc_relay_udp_policy_rejects_before_any_prefix_or_final
                     .new_dispatch("incoming")
                     .await
                     .unwrap();
-                assert!(dispatch
-                    .dispatch(input(53, b"must-not-send"))
-                    .await
-                    .is_err());
+                let opening=dispatch.dispatch(input(53,b"must-not-send"));
+                tokio::pin!(opening);
+                tokio::select! { biased;
+                    result=&mut opening=>panic!("actual rejected CONNECT still awaits peer response: {result:?}"),
+                    _=prefix.request()=>{}
+                }
+                let registration=original(&proxy);
+                let waiting=registration.observe().unwrap();assert_eq!(waiting.retained(),1);
+                assert!(waiting.slots()[0].native().is_none());assert!(waiting.slots()[0].driver().is_none());
+                let consumer=waiting.slots()[0].original().clone();
+                let donor=donor_owner(&proxy,"first");let waiting=donor.observe().unwrap();
+                assert_eq!(waiting.retained(),1);assert!(waiting.slots()[0].native().is_some());
+                assert!(waiting.slots()[0].physical_view_live());
+                let native=waiting.slots()[0].original().clone();
+                prefix.release_response();
+                assert!(opening.await.is_err());
+                assert!(consumer.matches_closed(&consumer.closed().unwrap()));
+                assert!(!consumer.closed().unwrap().had_native_acquisition());
                 assert_eq!(prefix.count.load(std::sync::atomic::Ordering::SeqCst), 0);
                 assert_eq!(server.accepted(), 0);
                 assert_eq!(original(&proxy).observe().unwrap().retained(), 0);
