@@ -221,6 +221,15 @@ impl ControlledUnixListenerOwner {
 }
 impl ControlledUnixListener {
     pub async fn accept(&mut self) -> io::Result<(PendingUnixAccept, ControlledTcpControl)> {
+        self.accept_with_admission(|| Ok(()), || {}).await
+    }
+    /// Reserve before the actual native accept. Known WouldBlock returns the
+    /// reservation; an acquired/ambiguous original remains charged by its owner.
+    pub async fn accept_with_admission(
+        &mut self,
+        mut before: impl FnMut() -> io::Result<()>,
+        mut no_native: impl FnMut(),
+    ) -> io::Result<(PendingUnixAccept, ControlledTcpControl)> {
         tokio::select! { biased;
             _ = self.shared.cancel.cancelled() => Err(io::ErrorKind::Interrupted.into()),
             result = poll_fn(|cx| {
@@ -231,10 +240,17 @@ impl ControlledUnixListener {
                         Poll::Ready(Err(error)) => return Poll::Ready(Err(error)),
                         Poll::Ready(Ok(ready)) => ready,
                     };
+                    if let Err(error) = before() {
+                        return Poll::Ready(Err(error));
+                    }
                     let result = ready.try_io(|_| self.shared.state.lock().unwrap().socket.as_ref()
                         .expect("original Unix listener").accept());
                     match result {
-                        Err(_) => continue,
+                        Err(_) => {
+                            drop(ready);
+                            no_native();
+                            continue;
+                        },
                         Ok(Err(error)) => return Poll::Ready(Err(error)),
                         Ok(Ok((socket, _))) => {
                             return Poll::Ready(Ok(PendingUnixAccept::new(socket, self.shared.cancel.clone())));

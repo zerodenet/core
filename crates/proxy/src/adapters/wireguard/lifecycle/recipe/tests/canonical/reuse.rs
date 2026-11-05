@@ -60,8 +60,35 @@ async fn unchanged_candidate_reuses_actual_factory_peer_owners_and_pending_tcp()
     guard.published();
     drop(guard);
 
+    // A discarded transaction only borrowed this already-published graph.
+    // Its wrapper can neither revoke the current TCP nor wait for its retirement.
+    let abandoned = recipe(&adapter, "127.0.0.1:51821", upstream.egress_generation());
+    assert!(!Arc::ptr_eq(&pending, &abandoned.pending()));
+    assert!(pending.same_resources(&abandoned.pending()));
+    let abandoned_guard = install(&adapter, &abandoned);
+    assert!(!abandoned.pending().needs_cleanup());
+    let abandoned_expected = adapter
+        .pending_endpoints
+        .lock()
+        .unwrap()
+        .as_ref()
+        .unwrap()
+        .clone();
+    PendingEndpoints::release_closed(&adapter.pending_endpoints, &abandoned_expected).unwrap();
+    drop(abandoned);
+    drop(abandoned_guard);
+    assert!(device.is_usable());
+    assert!(pending.peer_stack(0).unwrap().is_open());
+    assert!(witnesses.iter().all(|witness| !witness.is_joined()));
+    std::future::poll_fn(|cx| {
+        assert!(connecting.as_mut().poll(cx).is_pending());
+        Poll::Ready(())
+    })
+    .await;
+
     let next = recipe(&adapter, "127.0.0.1:51821", upstream.egress_generation());
-    assert!(Arc::ptr_eq(&pending, &next.pending()));
+    assert!(!Arc::ptr_eq(&pending, &next.pending()));
+    assert!(pending.same_resources(&next.pending()));
     let guard = install(&adapter, &next);
     let request = demand(&next);
     let mut invocation = None;

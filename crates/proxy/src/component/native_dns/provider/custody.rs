@@ -55,6 +55,35 @@ impl NativeUse {
     }
 }
 impl Provider {
+    /// Transfer only cleanup claims whose actual controller is now retained by
+    /// a persistent DNS receiver. Recover this from that original slot even if
+    /// an acquisition unwound after installation and before returning its view.
+    pub(super) fn release_installed_pending(&self, caller: &TaskJoinWitness) {
+        let receipts = self
+            .users
+            .lock()
+            .expect("DNS users poisoned")
+            .iter()
+            .filter(|entry| entry.task.same_registration(caller))
+            .filter_map(|entry| {
+                let proof = entry.original.retained_loan()?;
+                proof
+                    .receiver_adoption()
+                    .is_some_and(|receiver| receiver.same_slot(&entry.original))
+                    .then_some(proof)
+            })
+            .collect::<Vec<_>>();
+        if receipts.is_empty() {
+            return;
+        }
+        self.pending
+            .lock()
+            .expect("DNS pending originals poisoned")
+            .retain(|entry| {
+                !entry.task.same_registration(caller)
+                    || !receipts.iter().any(|proof| proof.retains(&entry.original))
+            });
+    }
     pub(super) async fn close_caller_originals(
         &self,
         caller: TaskJoinWitness,
@@ -90,6 +119,7 @@ impl Provider {
                 "DNS cleanup requires the actual original caller Scope",
             ));
         }
+        self.release_installed_pending(caller);
         let bootstrap = self
             .network
             .native_dns
@@ -104,8 +134,12 @@ impl Provider {
             .filter(|entry| entry.task.same_registration(caller))
             .cloned()
             .collect::<Vec<_>>();
+        let mut original_failure = None;
         for entry in entries {
-            entry.settle(end).await?;
+            if let Err(error) = entry.settle(end).await {
+                original_failure.get_or_insert(error);
+                continue;
+            }
             let removed = {
                 let mut users = self.users.lock().expect("DNS users poisoned");
                 users
@@ -115,11 +149,54 @@ impl Provider {
             };
             drop(removed);
         }
+        let pending = self.close_pending_originals(caller, end).await;
         // Original close and nested Scope joins remain separate gates. A
         // failed descendant must not prevent collection of socket originals.
         descendants?;
         bootstrap?;
+        if let Some(error) = original_failure {
+            return Err(error);
+        }
+        pending?;
         self.reap(end).await
+    }
+
+    async fn close_pending_originals(
+        &self,
+        caller: &TaskJoinWitness,
+        end: tokio::time::Instant,
+    ) -> std::io::Result<()> {
+        // Retire receivers before their transferred donors. Every entry is an
+        // actual pre-await adoption; successful query installation removes only
+        // originals whose real logical controller was transferred out of here.
+        let entries = self
+            .pending
+            .lock()
+            .expect("DNS pending originals poisoned")
+            .iter()
+            .filter(|entry| entry.task.same_registration(caller))
+            .cloned()
+            .collect::<Vec<_>>();
+        let mut failure = None;
+        for entry in entries {
+            match entry.settle(end).await {
+                Ok(_) => {
+                    let removed = {
+                        let mut pending =
+                            self.pending.lock().expect("DNS pending originals poisoned");
+                        pending
+                            .iter()
+                            .position(|old| Arc::ptr_eq(old, &entry))
+                            .map(|index| pending.remove(index))
+                    };
+                    drop(removed);
+                }
+                Err(error) => {
+                    failure.get_or_insert(error);
+                }
+            }
+        }
+        failure.map_or(Ok(()), Err)
     }
 
     pub(super) async fn failed_open(
@@ -146,6 +223,18 @@ impl Provider {
     ) -> std::io::Result<()> {
         #[cfg(feature = "dns")]
         self.reap_quic(end).await?;
+        let callers = self
+            .pending
+            .lock()
+            .expect("DNS pending originals poisoned")
+            .iter()
+            .filter(|entry| entry.task.is_joined())
+            .map(|entry| entry.task.clone())
+            .collect::<Vec<_>>();
+        for caller in callers {
+            self.release_installed_pending(&caller);
+            self.close_pending_originals(&caller, end).await?;
+        }
         let entries = self.users.lock().expect("DNS users poisoned").clone();
         for entry in entries {
             // A live query can still be dialing or reading. Its completed

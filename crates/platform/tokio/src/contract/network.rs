@@ -96,6 +96,24 @@ pub trait UpstreamOpener: Send + Sync {
         error.delivery = super::DeliveryState::NotSubmitted;
         Box::pin(async move { Err(error) })
     }
+    /// Selection with the actual waiting caller's weak cleanup authority.
+    /// The host installs it before constructing any prefix opener or doing I/O.
+    fn select_background_carrier_observed(
+        &self,
+        _: Option<UpstreamBinding>,
+        _: CarrierContext,
+        _: PendingCarrierObserver,
+    ) -> BoxFuture<'_, Result<UpstreamTransport, ChannelError>> {
+        Box::pin(async {
+            let mut error = ChannelError::new(
+                super::Stage::Prepare,
+                super::Reason::Unsupported,
+                super::Impact::Component,
+            );
+            error.delivery = super::DeliveryState::NotSubmitted;
+            Err(error)
+        })
+    }
     /// Opt-in logical borrowing from the selected real donor. An unowned
     /// BoxStream is never promoted to a controlled carrier after opening it.
     fn borrow_stream(
@@ -236,7 +254,47 @@ pub struct UpstreamTransport {
     opener: Arc<dyn UpstreamOpener>,
 }
 
+/// Weak reference to the actual waiting owner's existing cleanup ledger.
+/// It cannot authorize native I/O and does not retain a historical caller.
+#[derive(Clone)]
+pub struct PendingCarrierObserver {
+    binding: Arc<UpstreamBinding>,
+    opener: std::sync::Weak<dyn UpstreamOpener>,
+}
+impl PendingCarrierObserver {
+    pub fn retain(
+        &self,
+        adoption: crate::controlled_carrier::CarrierAdoption,
+    ) -> Result<(), ChannelError> {
+        let opener = self.opener.upgrade().ok_or_else(|| {
+            let mut error = ChannelError::new(
+                super::Stage::Prepare,
+                super::Reason::Revoked,
+                super::Impact::Component,
+            );
+            error.delivery = super::DeliveryState::NotSubmitted;
+            error
+        })?;
+        opener.retain_pending_carrier(&self.binding, adoption)
+    }
+}
+
 impl UpstreamTransport {
+    pub fn pending_carrier_observer(&self) -> PendingCarrierObserver {
+        PendingCarrierObserver {
+            binding: self.binding.clone(),
+            opener: Arc::downgrade(&self.opener),
+        }
+    }
+    pub fn select_background_carrier_observed(
+        &self,
+        binding: Option<UpstreamBinding>,
+        context: CarrierContext,
+        waiting: PendingCarrierObserver,
+    ) -> BoxFuture<'_, Result<Self, ChannelError>> {
+        self.opener
+            .select_background_carrier_observed(binding, context, waiting)
+    }
     pub fn retain_pending_carrier(
         &self,
         adoption: crate::controlled_carrier::CarrierAdoption,

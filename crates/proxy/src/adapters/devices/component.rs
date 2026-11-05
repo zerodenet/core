@@ -4,6 +4,17 @@ use std::collections::BTreeSet;
 use zero_core::component::ComponentId;
 use zero_platform_tokio::contract::{ChannelError, Impact, Reason, Stage};
 impl Devices {
+    pub(crate) fn release_component_resources(
+        &self,
+        config: &RuntimeConfig,
+    ) -> Result<(), EngineError> {
+        #[cfg(feature = "wireguard")]
+        if let Some(owner) = &self.wireguard {
+            return owner.release_component_resources(config);
+        }
+        let _ = config;
+        Ok(())
+    }
     pub(crate) fn prepare_component_resources(
         &self,
         config: &Arc<RuntimeConfig>,

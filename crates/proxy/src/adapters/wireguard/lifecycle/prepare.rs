@@ -87,6 +87,12 @@ impl WireguardAdapter {
                         .await?;
                     (link, None)
                 } else {
+                    if outer_udp_proxy.is_none() {
+                        return Err(invalid(
+                            "plain linked graph cannot restart through the legacy worker path",
+                        ));
+                    }
+                    // TEMP-WG-OUTER-UDP-01 retains this original compatibility branch.
                     self.prepare_linked_endpoint(
                         outbound,
                         inbound,
@@ -243,9 +249,10 @@ impl WireguardAdapter {
             );
         }
         let pending = if let Some(candidate) = cold {
-            traffic.extend(std::mem::take(
-                &mut *candidate.traffic.lock().unwrap_or_else(|e| e.into_inner()),
-            ));
+            traffic.extend(
+                std::mem::take(&mut *candidate.traffic.lock().unwrap_or_else(|e| e.into_inner()))
+                    .into_values(),
+            );
             PendingEndpoints::adopt(self.pending_endpoints.clone(), candidate)?
         } else {
             PendingEndpoints::install(

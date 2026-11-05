@@ -45,6 +45,7 @@ async fn host_packet_sink_is_bidirectional_preserves_source_and_waits_for_device
         Device(io),
         zero_config::DirectPacketDeviceConfig {
             backend: zero_config::DirectPacketDeviceBackend::Descriptor,
+            write_queue: std::num::NonZeroUsize::new(128).unwrap(),
             fd: Some(9),
             interface: "host-test".into(),
             router_addresses: vec!["10.64.0.1".parse().unwrap()],
@@ -100,6 +101,7 @@ async fn staged_host_device_does_not_read_before_publish_and_cancel_confirms_rel
         Device(io),
         zero_config::DirectPacketDeviceConfig {
             backend: zero_config::DirectPacketDeviceBackend::Descriptor,
+            write_queue: std::num::NonZeroUsize::new(128).unwrap(),
             fd: Some(9),
             interface: "host-test".into(),
             router_addresses: vec!["10.64.0.1".parse().unwrap()],
@@ -122,6 +124,7 @@ async fn direct_packet_sink_accepts_other_ip_protocols_and_uses_real_router_addr
         Device(io),
         zero_config::DirectPacketDeviceConfig {
             backend: zero_config::DirectPacketDeviceBackend::Descriptor,
+            write_queue: std::num::NonZeroUsize::new(128).unwrap(),
             fd: Some(9),
             interface: "host-test".into(),
             router_addresses: vec!["10.64.0.1".parse().unwrap(), "fd64::1".parse().unwrap()],
@@ -195,6 +198,7 @@ async fn closing_a_blocked_host_write_preserves_the_shared_device_and_other_path
         Device(io),
         zero_config::DirectPacketDeviceConfig {
             backend: zero_config::DirectPacketDeviceBackend::Descriptor,
+            write_queue: std::num::NonZeroUsize::new(128).unwrap(),
             fd: Some(9),
             interface: "host-test".into(),
             router_addresses: vec!["10.64.0.1".parse().unwrap()],
@@ -270,6 +274,7 @@ async fn fragmented_host_returns_preserve_delivery_and_declare_incomplete_role_m
         Device(io),
         zero_config::DirectPacketDeviceConfig {
             backend: zero_config::DirectPacketDeviceBackend::Descriptor,
+            write_queue: std::num::NonZeroUsize::new(128).unwrap(),
             fd: Some(9),
             interface: "host-test".into(),
             router_addresses: vec!["10.64.0.1".parse().unwrap()],
@@ -331,3 +336,5 @@ async fn fragmented_host_returns_preserve_delivery_and_declare_incomplete_role_m
 
 #[path = "tests/ownership.rs"]
 mod ownership;
+
+mod budget;

@@ -103,7 +103,11 @@ impl ExistingWindowsTun {
 }
 
 // Read-only configuration preflight, including while the host link is dormant.
-fn validate_host_configuration(name: &str, addresses: &[IpAddr], mtu: u16) -> io::Result<()> {
+pub(super) fn validate_host_configuration(
+    name: &str,
+    addresses: &[IpAddr],
+    mtu: u16,
+) -> io::Result<()> {
     let luid = interface_luid(name)?;
     for &address in addresses {
         let mut row = MIB_UNICASTIPADDRESS_ROW::default();
@@ -133,7 +137,10 @@ fn validate_host_configuration(name: &str, addresses: &[IpAddr], mtu: u16) -> io
 
 // Deprecated is transitional only during session activation; it never means
 // ready. Invalid/duplicate states still fail immediately and the wait is bounded.
-fn activating_dad_state_is_ready(address: IpAddr, state: NL_DAD_STATE) -> io::Result<bool> {
+pub(super) fn activating_dad_state_is_ready(
+    address: IpAddr,
+    state: NL_DAD_STATE,
+) -> io::Result<bool> {
     if state == IpDadStateDeprecated {
         Ok(false)
     } else {
@@ -208,7 +215,7 @@ impl AsyncWrite for ExistingWindowsTun {
     }
 }
 
-fn buffer_full(error: &wintun::Error) -> bool {
+pub(super) fn buffer_full(error: &wintun::Error) -> bool {
     match error {
         wintun::Error::Io(error) => error.raw_os_error() == Some(ERROR_BUFFER_OVERFLOW as i32),
         wintun::Error::WindowsCore(error) => {

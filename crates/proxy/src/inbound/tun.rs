@@ -21,7 +21,7 @@ use std::time::Duration;
 use tracing::{debug, info, warn};
 use zero_engine::EngineError;
 use zero_stack::UserNetworkStack;
-#[cfg(not(any(target_os = "linux", target_os = "macos")))]
+#[cfg(not(any(target_os = "linux", target_os = "macos", target_os = "windows")))]
 use zero_tun::TunDevice;
 
 use crate::runtime::{Proxy, TunControl, TunInfo};
@@ -288,17 +288,17 @@ impl Proxy {
             "prepared TUN DNS physical-route exclusions"
         );
 
-        #[cfg(target_os = "macos")]
-        let device = zero_tun::Utun::create(name).map_err(EngineError::Io)?;
-        #[cfg(not(any(target_os = "linux", target_os = "macos")))]
+        #[cfg(not(any(target_os = "linux", target_os = "macos", target_os = "windows")))]
         let device = zero_tun::create(name).map_err(EngineError::Io)?;
         let id = NEXT_TUN_ID.fetch_add(1, Ordering::Relaxed);
         let (shutdown, shutdown_rx) = tokio::sync::watch::channel(false);
         let (done_tx, done) = tokio::sync::oneshot::channel();
         let completion = completion::TunCompletion::new(done, None);
-        #[cfg(target_os = "linux")]
+        #[cfg(any(target_os = "linux", target_os = "macos"))]
         let acquisition = zero_tun::AdoptedTunOwner::new();
-        #[cfg(target_os = "linux")]
+        #[cfg(target_os = "windows")]
+        let acquisition = zero_tun::OwnedWintunOwner::new();
+        #[cfg(any(target_os = "linux", target_os = "macos", target_os = "windows"))]
         completion.install_acquisition(acquisition.clone());
         // Publish original custody before configuration or the first await.
         *self.tun_control.lock().unwrap() = Some(TunControl {
@@ -307,13 +307,19 @@ impl Proxy {
             completion: completion.clone(),
             route_recovery: None,
         });
-        #[cfg(target_os = "linux")]
+        #[cfg(any(target_os = "linux", target_os = "macos"))]
         let device = acquisition
             .create(name)
             .map_err(|error| EngineError::Io(io::Error::new(error.source.kind(), error)))?;
         #[cfg(any(target_os = "linux", target_os = "macos"))]
         let device = zero_tun::OwnedTunChannels::new(device);
-        #[cfg(any(target_os = "linux", target_os = "macos"))]
+        #[cfg(target_os = "windows")]
+        let device = {
+            let view = acquisition.create(name).map_err(EngineError::Io)?;
+            let identity = view.owned_identity().clone();
+            zero_tun::OwnedTunChannels::new_with_identity(view, identity)
+        };
+        #[cfg(any(target_os = "linux", target_os = "macos", target_os = "windows"))]
         completion.install_native(device.clone());
         let address_pairs = interface_addresses
             .iter()
@@ -325,9 +331,9 @@ impl Proxy {
         let device_name = device.name().to_owned();
         debug!(name = %device_name, "TUN device configured");
         let traffic = statistics::TunTraffic::prepare(self.engine(), tag);
-        #[cfg(any(target_os = "linux", target_os = "macos"))]
+        #[cfg(any(target_os = "linux", target_os = "macos", target_os = "windows"))]
         let (device_writer, device_reader) = device.start(traffic).map_err(EngineError::Io)?;
-        #[cfg(not(any(target_os = "linux", target_os = "macos")))]
+        #[cfg(not(any(target_os = "linux", target_os = "macos", target_os = "windows")))]
         let (device_writer, device_reader) = device
             .into_channels_observed(traffic)
             .map_err(EngineError::Io)?;
@@ -705,7 +711,7 @@ impl Proxy {
             .wait_routes(tokio::time::Instant::now() + Duration::from_secs(5))
             .await;
         let result = completion::join_results(stopped, route_cleanup);
-        #[cfg(any(target_os = "linux", target_os = "macos"))]
+        #[cfg(any(target_os = "linux", target_os = "macos", target_os = "windows"))]
         let result = completion::join_results(
             result,
             completion

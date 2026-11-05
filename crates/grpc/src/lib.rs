@@ -21,6 +21,7 @@ use zero_api::{CommandService, EventSource, EventStream, QueryService};
 mod pb {
     tonic::include_proto!("zero.api.v1");
 }
+mod native;
 mod security;
 mod tasks;
 use tasks::ControlTask;
@@ -38,90 +39,147 @@ mod tests;
 
 // ── Public API ─────────────────────────────────────────────────────────────
 
-/// Start the gRPC server on `addr` with optional native TLS, mTLS, and bearer
-/// authentication.
+/// Pure owner preparation. The application installs this original before
+/// `start` may bind or register any listener/accepted protocol task.
+pub fn prepare(
+    addr: SocketAddr,
+    security: GrpcServerSecurity,
+) -> Result<Arc<GrpcHandle>, Box<dyn std::error::Error>> {
+    security.validate_for(addr)?;
+    let tls = security
+        .tls
+        .as_ref()
+        .map(GrpcServerTls::native_acceptor)
+        .transpose()?;
+    let (scope, original) = native::cold(addr)?;
+    let subscriptions = Arc::new(Subscriptions::default());
+    Ok(Arc::new(GrpcHandle {
+        address: addr,
+        local_addr: Mutex::new(addr),
+        auth: security.auth,
+        tls,
+        started: AtomicBool::new(false),
+        shutdown: Mutex::new(None),
+        task: ControlTask::empty(),
+        originals: Arc::new(GrpcOriginals {
+            original: tokio::sync::Mutex::new(original),
+            scope: tokio::sync::Mutex::new(scope),
+            subscriptions,
+            stop: tokio_util::sync::CancellationToken::new(),
+        }),
+    }))
+}
+
 pub async fn spawn<H>(
     handle: H,
     addr: SocketAddr,
     security: GrpcServerSecurity,
-) -> Result<GrpcHandle, Box<dyn std::error::Error>>
+) -> Result<Arc<GrpcHandle>, Box<dyn std::error::Error>>
 where
     H: CommandService + QueryService + EventSource + Clone + Send + Sync + 'static,
 {
-    security.validate_for(addr)?;
-    let subscriptions = Arc::new(Subscriptions::default());
-    let svc = ControlServer::new(ControlService::new(
-        handle,
-        security.auth.clone(),
-        subscriptions.clone(),
-    ));
-
-    let listener = tokio::net::TcpListener::bind(addr).await?;
-    let local_addr = listener.local_addr()?;
-    let mut server = tonic::transport::Server::builder();
-    if let Some(tls) = &security.tls {
-        // The workspace can enable more than one rustls backend through
-        // independent dependencies. Select Zero's ring backend explicitly
-        // when no process-wide provider has been installed yet.
-        let _ = rustls::crypto::ring::default_provider().install_default();
-        server = server.tls_config(tls.tonic_config())?;
-    }
-
-    let (shutdown_tx, shutdown_rx) = tokio::sync::oneshot::channel::<()>();
-
-    let task = tokio::spawn(async move {
-        server
-            .add_service(svc)
-            .serve_with_incoming_shutdown(
-                tokio_stream::wrappers::TcpListenerStream::new(listener),
-                async {
-                    let _ = shutdown_rx.await;
-                },
-            )
-            .await
-            .map_err(std::io::Error::other)
-    });
-
-    info!(listen = %local_addr, "gRPC api server ready");
-
-    Ok(GrpcHandle {
-        local_addr,
-        shutdown: Mutex::new(Some(shutdown_tx)),
-        task: ControlTask::new(task),
-        subscriptions,
-    })
+    let owner = prepare(addr, security)?;
+    owner.start(handle).await?;
+    Ok(owner)
 }
-
-/// Retains the actual server and subscription jobs until explicit shutdown.
+struct GrpcOriginals {
+    original: tokio::sync::Mutex<zero_platform_tokio::ControlledTcpListenerOwner>,
+    scope: tokio::sync::Mutex<zero_platform_tokio::contract::scope::TaskScope>,
+    subscriptions: Arc<Subscriptions>,
+    stop: tokio_util::sync::CancellationToken,
+}
+/// Retains the actual server, Scope, native controls and subscription jobs.
 pub struct GrpcHandle {
-    local_addr: SocketAddr,
+    address: SocketAddr,
+    local_addr: Mutex<SocketAddr>,
+    auth: Option<GrpcServerAuth>,
+    tls: Option<tokio_rustls::TlsAcceptor>,
+    started: AtomicBool,
     shutdown: Mutex<Option<tokio::sync::oneshot::Sender<()>>>,
     task: ControlTask,
-    subscriptions: Arc<Subscriptions>,
+    originals: Arc<GrpcOriginals>,
 }
-
 impl GrpcHandle {
     pub fn local_addr(&self) -> SocketAddr {
-        self.local_addr
+        *self.local_addr.lock().unwrap()
     }
-
+    pub async fn start<H>(&self, handle: H) -> Result<(), Box<dyn std::error::Error>>
+    where
+        H: CommandService + QueryService + EventSource + Clone + Send + Sync + 'static,
+    {
+        if self.started.swap(true, Ordering::AcqRel) {
+            return Err(std::io::Error::other("gRPC original owner already started").into());
+        }
+        let listener = self
+            .originals
+            .original
+            .lock()
+            .await
+            .bind_listener(self.address)?;
+        *self.local_addr.lock().unwrap() = listener.local_addr()?;
+        let (shutdown_tx, shutdown_rx) = tokio::sync::oneshot::channel();
+        *self.shutdown.lock().unwrap() = Some(shutdown_tx);
+        let originals = self.originals.clone();
+        let auth = self.auth.clone();
+        let tls = self.tls.clone();
+        self.task.install(tokio::spawn(async move {
+            native::run(listener, handle, auth, tls, shutdown_rx, originals).await
+        }))?;
+        info!(listen = %self.local_addr(), "gRPC api server ready");
+        Ok(())
+    }
+    pub async fn wait_terminated(&self) -> std::io::Result<()> {
+        self.task.join().await
+    }
     pub async fn shutdown(&self) -> std::io::Result<()> {
-        self.subscriptions.stop.store(true, Ordering::Release);
+        self.originals
+            .subscriptions
+            .stop
+            .store(true, Ordering::Release);
         if let Some(stop) = self.shutdown.lock().unwrap().take() {
             let _ = stop.send(());
         }
-        // Await both originals even if either failed. The tonic server owns
-        // active command ACKs; subscription jobs own their actual subscribers.
         let server = self.task.join().await;
-        let tasks = self.subscriptions.jobs.lock().unwrap().clone();
-        let mut failure = None;
-        for job in tasks {
-            if let Err(error) = job.join().await {
-                failure.get_or_insert(error);
-            }
+        let jobs = self.originals.subscriptions.join_all().await;
+        let tasks = self
+            .originals
+            .scope
+            .lock()
+            .await
+            .shutdown(native::deadline())
+            .await;
+        let native = self
+            .originals
+            .original
+            .lock()
+            .await
+            .wait_closed(native::deadline())
+            .await
+            .map_err(std::io::Error::other)?;
+        if !tasks.is_complete() || !native.is_complete() {
+            return Err(std::io::Error::other(
+                "gRPC actual Scope or native original remains retained",
+            ));
         }
         server?;
-        failure.map_or(Ok(()), Err)
+        jobs
+    }
+}
+impl Drop for GrpcHandle {
+    fn drop(&mut self) {
+        self.originals
+            .subscriptions
+            .stop
+            .store(true, Ordering::Release);
+        self.originals.stop.cancel();
+        if let Some(stop) = self
+            .shutdown
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .take()
+        {
+            let _ = stop.send(());
+        }
     }
 }
 
@@ -134,6 +192,16 @@ struct Subscriptions {
 }
 
 impl Subscriptions {
+    async fn join_all(&self) -> std::io::Result<()> {
+        let tasks = self.jobs.lock().unwrap().clone();
+        let mut failure = None;
+        for job in tasks {
+            if let Err(error) = job.join().await {
+                failure.get_or_insert(error);
+            }
+        }
+        failure.map_or(Ok(()), Err)
+    }
     async fn reap_completed(&self) -> std::io::Result<()> {
         let originals = self.jobs.lock().unwrap().clone();
         let mut failure = None;

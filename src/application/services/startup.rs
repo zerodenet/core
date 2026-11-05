@@ -24,6 +24,19 @@ impl ApplicationStartupSlot {
         *slot = Some(owner);
         Ok(())
     }
+    pub(super) fn retain(&self, original: Arc<ApplicationServices>) -> Result<(), std::io::Error> {
+        let mut slot = self.owner.lock().expect("application startup slot");
+        if slot
+            .as_ref()
+            .is_some_and(|owner| !Arc::ptr_eq(owner, &original))
+        {
+            return Err(std::io::Error::other(
+                "foreign original application still owns startup",
+            ));
+        }
+        *slot = Some(original);
+        Ok(())
+    }
     pub(super) fn clear(&self, original: &Arc<ApplicationServices>) {
         let mut slot = self.owner.lock().expect("application startup slot");
         if slot

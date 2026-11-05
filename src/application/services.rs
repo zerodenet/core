@@ -8,6 +8,7 @@ use zero_proxy::{ConfigApplyReconciler, ConfigReconcileResult};
 
 use crate::hooks;
 
+mod control;
 mod startup;
 use startup::{ApplicationStartupSlot, APPLICATION_STARTUP};
 mod dispatcher;
@@ -26,12 +27,15 @@ pub(super) struct ApplicationServices {
     #[cfg(feature = "event-dispatcher")]
     event_network: zero_connector::EventDispatcherNetwork,
     state: Mutex<ApplicationServiceState>,
+    control: std::sync::Mutex<control::ControlServers>,
+    control_budget: Arc<zero_runtime::configuration::ControlBudget>,
 }
 
 struct ApplicationAttempt {
     target: Arc<RuntimeConfig>,
     dispatcher_touched: bool,
     hooks_touched: bool,
+    control_budget: Option<zero_runtime::configuration::ControlBudgetCandidate>,
 }
 struct ApplicationServiceState {
     attempt: Option<ApplicationAttempt>,
@@ -110,6 +114,10 @@ impl ApplicationServices {
             ipc_hook_socket: ipc_hook_socket.map(str::to_owned),
             #[cfg(feature = "event-dispatcher")]
             event_network,
+            control: std::sync::Mutex::new(control::ControlServers::default()),
+            control_budget: zero_runtime::configuration::ControlBudget::new(
+                zero_runtime::configuration::ControlBudgetLimits::from_runtime(&config.runtime),
+            ),
             state: Mutex::new(ApplicationServiceState {
                 config: config.clone(),
                 installed: false,
