@@ -16,7 +16,13 @@ fn actual_owner_budgets_are_optional_finite_and_preserve_omitted_export_shape() 
         usize,
         usize,
     );
-    let fields: [BudgetField; 11] = [
+    let fields: [BudgetField; 12] = [
+        (
+            "vmess_grpc_max_originals",
+            RuntimeOptionsConfig::effective_vmess_grpc_max_originals,
+            4096,
+            4096,
+        ),
         (
             "native_stream_max_originals",
             RuntimeOptionsConfig::effective_native_stream_max_originals,

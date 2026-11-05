@@ -20,6 +20,11 @@ pub struct RuntimeOptionsConfig {
     /// pool, across every profile and both underlays. Four by default.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub mieru_max_carriers: Option<usize>,
+    /// Total original native/borrowed carriers per actual VMess gRPC Node,
+    /// shared by TCP, UDP and Service opens, including pending and retiring.
+    /// On demand, 4096 by default; separate from logical UDP association limits.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub vmess_grpc_max_originals: Option<usize>,
     /// Live HY2 pool entries plus retained original failure groups, across
     /// every profile. On demand, 256 by default; failures are never evicted.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -93,6 +98,7 @@ impl Default for RuntimeOptionsConfig {
             native_mux_max_carriers: None,
             native_stream_max_originals: None,
             mieru_max_carriers: None,
+            vmess_grpc_max_originals: None,
             hysteria2_max_entries: None,
             hysteria2_max_udp_sessions: None,
             hysteria2_udp_pending_bytes: None,
@@ -123,6 +129,9 @@ pub const DEFAULT_EVENT_LOG_CAPACITY: usize = 1024;
 impl RuntimeOptionsConfig {
     pub fn effective_native_stream_max_originals(&self) -> usize {
         self.native_stream_max_originals.unwrap_or(4)
+    }
+    pub fn effective_vmess_grpc_max_originals(&self) -> usize {
+        self.vmess_grpc_max_originals.unwrap_or(4096)
     }
     pub fn effective_mieru_max_carriers(&self) -> usize {
         self.mieru_max_carriers.unwrap_or(4)
