@@ -1,9 +1,9 @@
 use super::*;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
-struct PointerDevice {
-    writes: Arc<AtomicUsize>,
-    block: bool,
+pub(super) struct PointerDevice {
+    pub(super) writes: Arc<AtomicUsize>,
+    pub(super) block: bool,
 }
 impl AsyncRead for PointerDevice {
     fn poll_read(
@@ -54,6 +54,7 @@ async fn native_host_write_transfers_and_acknowledges_the_same_buffer() {
         },
         zero_config::DirectPacketDeviceConfig {
             backend: zero_config::DirectPacketDeviceBackend::Descriptor,
+            write_queue: std::num::NonZeroUsize::new(128).unwrap(),
             fd: Some(9),
             interface: "host-test".into(),
             router_addresses: vec!["10.64.0.1".parse().unwrap()],
@@ -107,6 +108,7 @@ async fn rejected_invalid_header_is_not_repaired_by_rollback() {
         },
         zero_config::DirectPacketDeviceConfig {
             backend: zero_config::DirectPacketDeviceBackend::Descriptor,
+            write_queue: std::num::NonZeroUsize::new(128).unwrap(),
             fd: Some(9),
             interface: "host-test".into(),
             router_addresses: vec![],
@@ -149,6 +151,7 @@ async fn host_shutdown_returns_an_unaccepted_buffer_for_fallback() {
         },
         zero_config::DirectPacketDeviceConfig {
             backend: zero_config::DirectPacketDeviceBackend::Descriptor,
+            write_queue: std::num::NonZeroUsize::new(128).unwrap(),
             fd: Some(9),
             interface: "host-test".into(),
             router_addresses: vec![],

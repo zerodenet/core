@@ -112,6 +112,24 @@ impl TrojanAdapter {
             unreachable!("owning adapter projection")
         };
         if mux_concurrency.is_none() {
+            // Physical MUX carriers and taskless native/borrowed originals have
+            // different actual owners. A MUX setting must not alter this role.
+            let limit = if stream_only {
+                NonZeroUsize::new(
+                    resources
+                        .candidate()
+                        .map(|config| config.runtime.effective_native_stream_max_originals())
+                        .unwrap_or(4),
+                )
+                .filter(|limit| limit.get() <= 4096)
+                .ok_or_else(|| {
+                    RegistrationError::Options(zero_config::ConfigError::InvalidRuntime(
+                        "invalid taskless Stream original limit".into(),
+                    ))
+                })?
+            } else {
+                limit
+            };
             return Ok(Options::Ordinary(Arc::new(stateless::Options::new(
                 super::component_options(input)?,
                 zero_core::request::Destination::new(

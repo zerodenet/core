@@ -2,19 +2,28 @@
 use super::*;
 
 impl AdoptedTunOwner {
-    /// The same original slot also owns Linux system-TUN creation. No
+    /// The same original slot also owns Unix system-TUN creation. No
     /// configuration failure can hide its acquired descriptor behind Drop.
-    #[cfg(target_os = "linux")]
     pub fn create(
         self: &Arc<Self>,
         name: Option<&str>,
     ) -> Result<AdoptedTunIo, TunAcquisitionError> {
-        self.create_with(name, Backend::open_created, Backend::initialize_created)
+        #[cfg(target_os = "linux")]
+        let remote = false;
+        #[cfg(target_os = "macos")]
+        let remote =
+            unsafe { libc::geteuid() } != 0 && Backend::validate_created_name(name).is_ok();
+        self.create_with(
+            name,
+            remote,
+            Backend::open_created,
+            Backend::initialize_created,
+        )
     }
-    #[cfg(target_os = "linux")]
     pub(super) fn create_with(
         self: &Arc<Self>,
         name: Option<&str>,
+        remote: bool,
         open: impl FnOnce(Option<&str>) -> io::Result<OwnedFd>,
         initialize: impl FnOnce(i32, Option<&str>) -> io::Result<String>,
     ) -> Result<AdoptedTunIo, TunAcquisitionError> {
@@ -34,7 +43,16 @@ impl AdoptedTunOwner {
             Err(source) => {
                 let source = Arc::new(source);
                 self.remember_failure(source.clone());
-                *state = State::NoNative(source.clone());
+                *state = if remote {
+                    // The helper may have acquired an original before a failed
+                    // transfer. No local descriptor is not proof of no native.
+                    State::Unknown {
+                        identity: None,
+                        source: source.clone(),
+                    }
+                } else {
+                    State::NoNative(source.clone())
+                };
                 return Err(TunAcquisitionError {
                     outcome: state.outcome(),
                     source,

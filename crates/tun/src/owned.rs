@@ -11,8 +11,21 @@ pub struct OwnedTunIdentity {
 struct HandleIdentity {
     #[cfg(any(target_os = "linux", target_os = "macos"))]
     descriptor: std::os::fd::RawFd,
+    #[cfg(target_os = "windows")]
+    session: wintun::SessionIdentity,
+    #[cfg(target_os = "windows")]
+    adapter: wintun::AdapterIdentity,
 }
 impl OwnedTunIdentity {
+    #[cfg(target_os = "windows")]
+    pub(crate) fn from_wintun(
+        session: wintun::SessionIdentity,
+        adapter: wintun::AdapterIdentity,
+    ) -> Self {
+        Self {
+            inner: Arc::new(HandleIdentity { session, adapter }),
+        }
+    }
     #[cfg(any(target_os = "linux", target_os = "macos"))]
     pub(crate) fn from_fd(descriptor: std::os::fd::RawFd) -> Self {
         Self {
@@ -30,8 +43,42 @@ impl OwnedTunIdentity {
 pub struct TunCloseReceipt {
     interface: String,
     identity: OwnedTunIdentity,
+    #[cfg(target_os = "windows")]
+    session: Arc<wintun::EndSessionReceipt>,
+    #[cfg(target_os = "windows")]
+    adapter: wintun::CloseAdapterReceipt,
 }
 impl TunCloseReceipt {
+    #[cfg(target_os = "windows")]
+    pub fn ended_session(&self) -> &wintun::EndSessionReceipt {
+        &self.session
+    }
+    #[cfg(target_os = "windows")]
+    pub fn closed_adapter(&self) -> &wintun::CloseAdapterReceipt {
+        &self.adapter
+    }
+    #[cfg(target_os = "windows")]
+    pub(crate) fn from_wintun(
+        interface: String,
+        identity: OwnedTunIdentity,
+        session: Arc<wintun::EndSessionReceipt>,
+        adapter: wintun::CloseAdapterReceipt,
+    ) -> io::Result<Self> {
+        if !session.identity().same_owner(&identity.inner.session)
+            || !adapter.identity().same_owner(&identity.inner.adapter)
+        {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidData,
+                "Wintun original close identities differ",
+            ));
+        }
+        Ok(Self {
+            interface,
+            identity,
+            session,
+            adapter,
+        })
+    }
     pub fn identity(&self) -> &OwnedTunIdentity {
         &self.identity
     }

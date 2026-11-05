@@ -1,4 +1,5 @@
 //! Native execution uses the same actual map and protocol wire driver.
+mod stream;
 use super::*;
 use zero_platform_tokio::contract::network::UpstreamBinding;
 use zero_transport::{
@@ -49,7 +50,11 @@ impl MuxConnectionPool {
         budget: Duration,
     ) -> Result<PoolOptions, RuntimeError> {
         let options = self.control.options(
-            format!("{:?}:{key:?}:{concurrency}", self.scope).into(),
+            format!(
+                "{:?}:{key:?}:{concurrency}:native-upload-fifo-v1:8:66559",
+                self.scope
+            )
+            .into(),
             endpoint,
             binding,
             limit,
@@ -86,7 +91,10 @@ impl MuxConnectionPool {
         Fut: Future<Output = Result<S, RuntimeError>>,
     {
         let owner = self.control.managed()?;
-        let profile = format!("{:?}:{key:?}:{concurrency}", self.scope);
+        let profile = format!(
+            "{:?}:{key:?}:{concurrency}:native-upload-fifo-v1:8:66559",
+            self.scope
+        );
         let _operation = owner.operation()?;
         let _connecting = owner.serialize().await?;
         owner.prepare_epoch(&profile, &binding).await?;
@@ -139,20 +147,25 @@ impl MuxConnectionPool {
         F: FnOnce(zero_platform_tokio::controlled_carrier::CarrierIo) -> Fut,
         Fut: Future<Output = Result<S, RuntimeError>>,
     {
-        self.native_connection(
-            key,
-            concurrency,
-            binding,
-            wrap,
-            |connection, sid, usage, origin| {
-                let stream = connection.open_tcp_stream(sid, port, &target)?;
-                Ok(zero_transport::pooled_driver::PooledStream {
-                    origin,
-                    io: Box::pin(UserStream::new(stream, usage)),
-                })
-            },
-        )
-        .await
+        let (mut stream, usage, origin) = self
+            .native_connection(
+                key,
+                concurrency,
+                binding,
+                wrap,
+                |connection, sid, usage, origin| {
+                    let stream = connection.open_bounded_tcp_stream(sid, port, &target)?;
+                    Ok((stream, usage, origin))
+                },
+            )
+            .await?;
+        // The actual NEW must enter the bounded FIFO before connect returns.
+        // Interrupted readiness retains no encoded user DATA or detached work.
+        std::future::poll_fn(|cx| stream.poll_native_initial(cx)).await?;
+        Ok(zero_transport::pooled_driver::PooledStream {
+            origin,
+            io: Box::pin(UserStream::new(stream, usage)),
+        })
     }
     pub(crate) async fn open_native_udp<S, F, Fut>(
         &self,

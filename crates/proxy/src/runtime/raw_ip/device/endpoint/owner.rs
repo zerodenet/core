@@ -49,6 +49,18 @@ impl EndpointStackOwner {
         &self,
         recipe: EndpointStackRecipe,
     ) -> Result<Arc<SharedRawIpDevice>, EngineError> {
+        self.start_original(|| recipe.start_with_workers(self.workers.clone()))
+    }
+    pub(crate) fn start_wire(
+        &self,
+        recipe: super::super::wire::WireStackRecipe,
+    ) -> Result<Arc<SharedRawIpDevice>, EngineError> {
+        self.start_original(|| recipe.start_with_workers(self.workers.clone()))
+    }
+    fn start_original(
+        &self,
+        start: impl FnOnce() -> Result<Arc<SharedRawIpDevice>, EngineError>,
+    ) -> Result<Arc<SharedRawIpDevice>, EngineError> {
         {
             let mut state = self.state.lock().unwrap_or_else(|error| error.into_inner());
             if state.stopped || state.attempted {
@@ -60,7 +72,7 @@ impl EndpointStackOwner {
         // The same candidate retains all original tasks during this call, but
         // no resource lock spans host registration or its notification callbacks.
         let _attempt = BuildAttempt(self);
-        match recipe.start_with_workers(self.workers.clone()) {
+        match start() {
             Ok(device) => {
                 let stopped = {
                     let mut state = self.state.lock().unwrap_or_else(|error| error.into_inner());

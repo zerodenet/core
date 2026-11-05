@@ -6,7 +6,7 @@ use zero_engine::EngineError;
 pub(in crate::adapters::wireguard) struct PendingEntries {
     entries: HashMap<String, Arc<PendingLinkedEndpoint>>,
     candidate: Option<std::sync::Weak<zero_config::RuntimeConfig>>,
-    pub(super) traffic: std::sync::Mutex<Vec<zero_engine::PreparedEndpointTraffic>>,
+    pub(super) traffic: std::sync::Mutex<HashMap<String, zero_engine::PreparedEndpointTraffic>>,
     pub(super) invocations:
         tokio::sync::Mutex<HashMap<String, super::recipe::retained::RetainedInvocation>>,
 }
@@ -17,7 +17,7 @@ impl PendingEntries {
         Self {
             entries,
             candidate: None,
-            traffic: std::sync::Mutex::new(Vec::new()),
+            traffic: std::sync::Mutex::new(HashMap::new()),
             invocations: tokio::sync::Mutex::new(HashMap::new()),
         }
     }

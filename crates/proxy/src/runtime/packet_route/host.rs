@@ -69,6 +69,26 @@ impl HostPacketDevice {
         })
     }
 
+    #[cfg(target_os = "windows")]
+    pub(crate) fn start_wintun(
+        device: zero_tun::OwnedWintunIo,
+        original: Arc<zero_tun::OwnedWintunOwner>,
+        config: zero_config::DirectPacketDeviceConfig,
+        mtu: u16,
+    ) -> Arc<Self> {
+        let identity = device.owned_identity().clone();
+        Self::start_with_completion(device, config, mtu, move |view| async move {
+            drop(view);
+            Some(original.close().await.and_then(|receipt| match receipt {
+                Some(receipt) if receipt.identity().same_owner(&identity) => Ok(receipt),
+                _ => Err(Arc::new(io::Error::new(
+                    io::ErrorKind::InvalidData,
+                    "host Wintun close did not return this original's receipt",
+                ))),
+            }))
+        })
+    }
+
     fn start_with_close<D, C>(
         device: D,
         config: zero_config::DirectPacketDeviceConfig,
@@ -81,7 +101,26 @@ impl HostPacketDevice {
             + Send
             + 'static,
     {
-        let (writes, rx) = mpsc::channel::<Write>(128);
+        Self::start_with_completion(device, config, mtu, move |device| {
+            std::future::ready(close(device))
+        })
+    }
+
+    fn start_with_completion<D, C, F>(
+        device: D,
+        config: zero_config::DirectPacketDeviceConfig,
+        mtu: u16,
+        close: C,
+    ) -> Arc<Self>
+    where
+        D: zero_tun::TunDevice + 'static,
+        C: FnOnce(D) -> F + Send + 'static,
+        F: std::future::Future<
+                Output = Option<Result<Arc<zero_tun::TunCloseReceipt>, Arc<io::Error>>>,
+            > + Send
+            + 'static,
+    {
+        let (writes, rx) = mpsc::channel::<Write>(config.write_queue.get());
         let returns = Arc::new(PacketReturns::default());
         let (stop, stopped) = watch::channel(false);
         let (activate, activated) = watch::channel(false);
@@ -92,7 +131,7 @@ impl HostPacketDevice {
                 .parts();
             task::DriverResult {
                 failure,
-                native: close(device),
+                native: close(device).await,
             }
         });
         Arc::new(Self {

@@ -13,6 +13,27 @@ use zero_platform_tokio::contract::{
 };
 
 impl WireguardAdapter {
+    /// After the host drove exact discarded slots through their actual joins.
+    /// Cold or borrowed wrappers can be released without revoking current work.
+    pub(crate) fn release_component_resources(
+        &self,
+        config: &zero_config::RuntimeConfig,
+    ) -> Result<(), EngineError> {
+        let current = self
+            .pending_endpoints
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .clone();
+        match current {
+            Some(candidate) if candidate.candidate_matches(config) => {
+                PendingEndpoints::release_closed(&self.pending_endpoints, &candidate)
+            }
+            Some(_) => Err(invalid(
+                "device cleanup belongs to another actual candidate",
+            )),
+            None => Ok(()),
+        }
+    }
     pub(crate) fn prepare_component_resources(
         &self,
         config: &Arc<zero_config::RuntimeConfig>,
@@ -194,7 +215,8 @@ impl WireguardAdapter {
                     .traffic
                     .lock()
                     .unwrap_or_else(|e| e.into_inner())
-                    .push(prepared);
+                    .entry(tag.clone())
+                    .or_insert(prepared);
             }
         }
         Ok(())

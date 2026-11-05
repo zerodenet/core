@@ -4,6 +4,7 @@ use std::os::fd::AsRawFd;
 fn config(fd: i32) -> zero_config::DirectPacketDeviceConfig {
     zero_config::DirectPacketDeviceConfig {
         backend: zero_config::DirectPacketDeviceBackend::Descriptor,
+        write_queue: std::num::NonZeroUsize::new(128).unwrap(),
         fd: Some(fd),
         interface: "not-a-tun".into(),
         router_addresses: vec![],
