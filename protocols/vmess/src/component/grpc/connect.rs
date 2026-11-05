@@ -153,9 +153,16 @@ impl Managed {
                 .map_err(|source| owner.admission.attach(source, session))?;
             // This one lease starts before physical preparation, remains with this
             // inline opening on error/cancel, and moves into the actual logical view.
+            // A real host-tracked Business caller must bind its original join
+            // witness to an ordinary view. Transferred custody is reserved for
+            // Service or the existing callerless entry, never both at once.
+            // This hint chooses custody only; native preparation still checks
+            // the original host-issued Business grant and its actual caller.
             let user_view = if owner.options.business.is_some() {
                 Some(
-                    (if owner.options.node() {
+                    (if owner.options.node()
+                        && !(session.is_some() && upstream.has_tracked_business_caller())
+                    {
                         grant.claim_transferred_view()
                     } else {
                         grant.claim_user_view()

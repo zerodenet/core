@@ -67,7 +67,7 @@ impl DatagramOutbound for Outbound {
         let stream = tokio::select! {biased;
             _=self.admission.cancelled()=>return Err(self.admission.error(session,Stage::Handshake,Reason::Revoked,DeliveryState::Unknown)),
             _=context.cancel.cancelled()=>return Err(self.admission.error(session,Stage::Handshake,Reason::Cancelled,DeliveryState::Unknown)),
-            result=pool.open_managed_via(self.pool,key,&prepared.options,Some(context.upstream.binding().clone()),context.deadline)=>result.map_err(|source|self.pool_failure(source,session))?,
+            result=pool.open_managed_via_observed(self.pool,key,&prepared.options,Some(context.upstream.binding().clone()),context.deadline,context.upstream.observed_pending_carrier())=>result.map_err(|source|self.pool_failure(source,session))?,
         };
         if let Some(origin) = stream.original_carrier() {
             context.upstream.observe_carrier_origin(origin);
