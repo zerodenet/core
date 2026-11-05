@@ -170,9 +170,7 @@ impl Provider {
             let mut retry = false;
             let operation = async {
                 let last = nodes.last().expect("selected DNS Stream path");
-                if !last.slot.recipe.spec().dependencies.is_empty()
-                    && components.has_carrier_provider(last.slot.role_id())
-                {
+                if components.has_carrier_provider(last.slot.role_id()) {
                     let loan = self
                         .borrow_detour(
                             &execution,
