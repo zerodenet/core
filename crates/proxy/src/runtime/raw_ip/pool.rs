@@ -44,6 +44,19 @@ pub(crate) struct StagedRawIpDevices {
 }
 
 impl RawIpDevicePool {
+    #[cfg(test)]
+    pub(crate) fn test_current_devices(&self, tags: &[String]) -> Vec<Arc<SharedRawIpDevice>> {
+        let state = self.state.lock().unwrap_or_else(|error| error.into_inner());
+        let mut devices: Vec<_> = state
+            .entries
+            .iter()
+            .filter(|((tag, _), _)| tags.contains(tag))
+            .filter_map(|(_, entry)| entry.cell.get().cloned())
+            .collect();
+        devices.sort_by_key(|device| device.incarnation);
+        devices
+    }
+
     pub(crate) fn incarnations(&self, tags: &[String]) -> Vec<u64> {
         let state = self.state.lock().unwrap_or_else(|e| e.into_inner());
         let mut ids: Vec<_> = state
