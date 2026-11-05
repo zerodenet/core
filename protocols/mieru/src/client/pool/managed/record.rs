@@ -32,23 +32,39 @@ impl CarrierRecord {
     }
     fn release_installed_pending(&self) {
         let adoption = self.adoption();
-        let Some(adoption) = adoption else { return };
-        let Some(proof) = adoption.retained_loan() else {
-            return;
-        };
-        if !proof
-            .receiver_adoption()
-            .is_some_and(|receiver| receiver.same_slot(&adoption))
+        let installed = adoption.and_then(|adoption| {
+            let proof = adoption.retained_loan()?;
+            proof
+                .receiver_adoption()
+                .is_some_and(|receiver| receiver.same_slot(&adoption))
+                .then_some(proof)
+        });
+        // Inspect actual slot/Scope facts outside the record lock. The
+        // persistent pool may already have registered the donor driver before
+        // this request's logical CONNECT has received its reply.
+        let pending = self.pending();
+        let transferred = pending
+            .iter()
+            .filter(|pending| {
+                installed
+                    .as_ref()
+                    .is_some_and(|proof| proof.retains(pending))
+                    || pending
+                        .retained_driver()
+                        .is_some_and(|proof| proof.retains(pending))
+            })
+            .cloned()
+            .collect::<Vec<_>>();
         {
-            return;
+            let mut record = self.0.lock().unwrap();
+            record.pending.retain(|pending| {
+                !transferred
+                    .iter()
+                    .any(|original| original.same_slot(pending))
+            });
         }
-        // Only this actual receiver's stored LoanOwner replaces its donors'
-        // cleanup claims. The receiver remains retained in the owning record.
-        self.0
-            .lock()
-            .unwrap()
-            .pending
-            .retain(|pending| !proof.retains(pending));
+        // Original adoptions are released outside the record mutex. Neither
+        // handoff claims native closure, driver exit or a refunded pool slot.
     }
     pub(super) fn pending(&self) -> Vec<CarrierAdoption> {
         self.0.lock().unwrap().pending.clone()

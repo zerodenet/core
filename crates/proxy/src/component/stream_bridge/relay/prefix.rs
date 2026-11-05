@@ -64,6 +64,9 @@ impl PrefixOpener {
     }
 }
 impl UpstreamOpener for PrefixOpener {
+    fn has_pending_carrier_observer(&self) -> bool {
+        self.context.upstream.observed_pending_carrier().is_some()
+    }
     fn retain_pending_carrier(
         &self,
         binding: &UpstreamBinding,

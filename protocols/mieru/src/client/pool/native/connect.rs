@@ -12,6 +12,7 @@ pub(super) struct Request<'a> {
     pub options: &'a mieru_config::MieruTransportOptions,
     pub deadline: Option<Instant>,
     pub udp: bool,
+    pub waiting: Option<zero_platform_tokio::contract::network::PendingCarrierObserver>,
 }
 impl Request<'_> {
     pub async fn open(
@@ -38,6 +39,12 @@ impl Request<'_> {
             let adoption = grant.adoption();
             lease.adopt(adoption.clone()).map_err(io::Error::other)?;
             lease.attempting_io();
+            // An opted-in caller retains the actual receiver before native
+            // preparation or wire authentication can suspend. Bare callers
+            // keep their old pool debt, without immediate Drop cleanup.
+            if let Some(waiting) = &self.waiting {
+                waiting.retain(adoption.clone()).map_err(io::Error::other)?;
+            }
             if self.udp {
                 match self.candidates.prepare_datagram(index, grant) {
                     Ok(io) => {

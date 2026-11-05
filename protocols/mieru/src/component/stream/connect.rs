@@ -105,7 +105,7 @@ impl Outbound {
             &prepared.options,
             Some(context.upstream.binding().clone()),
             context.deadline,
-            Some(context.upstream.pending_carrier_observer()),
+            context.upstream.observed_pending_carrier(),
         );
         let stream = tokio::select! {biased;
             _=self.admission.cancelled()=>return Err(self.admission.error(session,Stage::Handshake,Reason::Revoked,DeliveryState::Unknown)),

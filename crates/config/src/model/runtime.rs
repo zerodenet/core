@@ -39,7 +39,8 @@ pub struct RuntimeOptionsConfig {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub control_max_subscriptions: Option<usize>,
     /// Retained serialized event payload bytes across the same control root's
-    /// queues and pending writes. One MiB by default; replay history is separate.
+    /// adapter queues and IPC/SSE pending writes. One MiB by default. gRPC
+    /// releases on Tonic handoff; physical H2 buffers and replay are separate.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub control_max_queued_event_bytes: Option<usize>,
     /// Original DNS custody shared by Node/bootstrap and Default query owners.
