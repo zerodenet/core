@@ -1,7 +1,11 @@
 //! A DNS service's selected physical root. It cannot execute a prefix or
 //! substitute a different destination, caller identity, or network generation.
 use crate::protocol_registry::UpstreamConnectServices;
-use std::{net::SocketAddr, sync::Mutex};
+use std::{
+    net::SocketAddr,
+    sync::{Arc, Mutex, Weak},
+};
+mod controlled;
 use zero_core::request::Destination;
 use zero_platform_tokio::contract::{
     datagram::{BoxDatagramSession, DatagramRequest},
@@ -20,7 +24,16 @@ pub(super) struct RootOpener {
     pub(super) binding: UpstreamBinding,
     pub(super) endpoint: Destination,
     pub(super) role: DnsQueryRole,
-    pub(super) evidence: Mutex<Option<Evidence>>,
+    pub(super) evidence: Arc<Mutex<Option<Evidence>>>,
+    pub(super) source: Weak<crate::runtime::current_services::CurrentServiceSource>,
+    pub(super) selected: zero_core::component::RoleInstanceId,
+    pub(super) call: CarrierContext,
+    pub(super) candidates: tokio::sync::Mutex<
+        Option<(
+            zero_platform_tokio::controlled_carrier::CarrierCandidates,
+            usize,
+        )>,
+    >,
 }
 impl RootOpener {
     pub(super) fn take_evidence(&self) -> Option<Evidence> {
@@ -31,6 +44,20 @@ impl RootOpener {
     }
 }
 impl UpstreamOpener for RootOpener {
+    fn carrier_dns_generation(&self) -> Option<zero_platform_tokio::contract::dns::DnsGeneration> {
+        matches!(self.endpoint.address, zero_core::Address::Domain(_))
+            .then(|| self.services.dns_generation())
+    }
+    fn acquire_controlled_stream(
+        &self,
+        binding: &UpstreamBinding,
+        destination: Destination,
+        context: CarrierContext,
+        grant: zero_platform_tokio::controlled_carrier::CarrierGrant,
+    ) -> BoxFuture<'_, Result<zero_platform_tokio::controlled_carrier::CarrierIo, ChannelError>>
+    {
+        self.acquire_original(binding.clone(), destination, context, grant)
+    }
     fn observe_carrier_origin(
         &self,
         origin: &zero_platform_tokio::controlled_carrier::CarrierOrigin,

@@ -17,6 +17,7 @@ use zero_platform_tokio::controlled_carrier::{
 };
 
 mod dns;
+mod service_dns;
 use dns::Resolved;
 
 pub(in crate::component) struct Evidence {
@@ -30,6 +31,13 @@ pub(in crate::component) struct NodeOpener {
     evidence: Arc<Mutex<Option<Evidence>>>,
     business: Option<BusinessCarrierRequest>,
     resolved: tokio::sync::Mutex<Option<Resolved>>,
+    service_call: Option<CarrierContext>,
+    service_candidates: tokio::sync::Mutex<
+        Option<(
+            zero_platform_tokio::controlled_carrier::CarrierCandidates,
+            usize,
+        )>,
+    >,
     pending: Option<(UpstreamBinding, PendingCarrierObserver)>,
 }
 impl NodeOpener {
@@ -45,8 +53,18 @@ impl NodeOpener {
             evidence: Arc::new(Mutex::new(None)),
             business: None,
             resolved: tokio::sync::Mutex::new(None),
+            service_call: None,
+            service_candidates: tokio::sync::Mutex::new(None),
             pending: None,
         }
+    }
+    pub(in crate::component) fn with_service_call(mut self, call: CarrierContext) -> Self {
+        // An actual invocation's cancellation/deadline, never the per-attempt
+        // carrier token. Business preparation keeps its existing sealed issuer.
+        if call.session.is_none() {
+            self.service_call = Some(call);
+        }
+        self
     }
     pub(in crate::component) fn with_business(
         mut self,

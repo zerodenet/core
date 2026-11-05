@@ -29,6 +29,11 @@ impl NodeOpener {
                     "node DNS cannot replace endpoint, prefix or network",
                 ));
             }
+            if context.session.is_none() {
+                return self
+                    .prepare_service_stream(binding, destination, context, grant)
+                    .await;
+            }
             let request = self.business.as_ref().ok_or_else(|| {
                 invalid(
                     Reason::Unsupported,

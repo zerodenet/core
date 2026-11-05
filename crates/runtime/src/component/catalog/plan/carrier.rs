@@ -1,6 +1,22 @@
 //! Check borrowed lineage against actual installed roles and original providers.
 use super::*;
 impl ComponentPlan {
+    /// This exact ordinary owner has both typed issuers installed by its same
+    /// host Slot. Declarations alone do not qualify a resourceful Stream loan.
+    pub fn has_node_stream_provider(&self, role: zero_core::component::RoleInstanceId) -> bool {
+        let Some(slot) = self.role_slot(role) else {
+            return false;
+        };
+        let Some((node, service, capacity)) = node_stream_declarations(slot.recipe.spec()) else {
+            return false;
+        };
+        [node, service].into_iter().all(|ordinal| {
+            slot.original_carrier_owner(ordinal).is_some_and(|owner| {
+                owner.instance() == slot.instance_id() && owner.limit() == capacity
+            })
+        })
+    }
+
     /// Planning prerequisite only; actual borrowing still validates the original
     /// registration and executable role before using its transferred stream.
     pub fn has_carrier_provider(&self, role: zero_core::component::RoleInstanceId) -> bool {
@@ -44,7 +60,9 @@ impl ComponentPlan {
                 zero_platform_tokio::contract::component::ResourceDeclaration::File {..} |
                 zero_platform_tokio::contract::component::ResourceDeclaration::ControlledCarrierPool {..} |
                 zero_platform_tokio::contract::component::ResourceDeclaration::ControlledMetadataCarrier {..} |
-                zero_platform_tokio::contract::component::ResourceDeclaration::ControlledMetadataDatagram {..})) {return false;}
+                zero_platform_tokio::contract::component::ResourceDeclaration::ControlledMetadataDatagram {..})
+                && !(matches!(resource, zero_platform_tokio::contract::component::ResourceDeclaration::ControlledNodeStream { .. })
+                    && node_stream_declarations(slot.recipe.spec()).is_some())) {return false;}
             pending.extend(slot.dependency_instances());
         }
         true
@@ -138,4 +156,44 @@ impl ComponentPlan {
         }
         Err(fail())
     }
+}
+
+fn node_stream_declarations(
+    spec: &zero_platform_tokio::contract::component::ComponentSpec,
+) -> Option<(usize, usize, std::num::NonZeroUsize)> {
+    use zero_platform_tokio::contract::component::{ResourceDeclaration, RoleKind};
+    let capacity = spec.task_limit?;
+    if !spec.roles.contains(&RoleKind::Stream) || !spec.roles.contains(&RoleKind::Datagram) {
+        return None;
+    }
+    let mut node = None;
+    let mut service = None;
+    for (ordinal, resource) in spec.resources.iter().enumerate() {
+        match resource {
+            ResourceDeclaration::ControlledNodeStream {
+                endpoint,
+                dial,
+                max_sockets,
+            } if *max_sockets == capacity && node.is_none() => {
+                node = Some((ordinal, endpoint, dial));
+            }
+            ResourceDeclaration::ControlledCarrierPool {
+                endpoint,
+                dial,
+                datagram: false,
+                max_sockets,
+            } if *max_sockets == capacity && service.is_none() => {
+                service = Some((ordinal, endpoint, dial));
+            }
+            ResourceDeclaration::File { .. } => {}
+            _ => return None,
+        }
+    }
+    let (node_ordinal, endpoint, dial) = node?;
+    let (service_ordinal, service_endpoint, service_dial) = service?;
+    (endpoint == service_endpoint && dial == service_dial).then_some((
+        node_ordinal,
+        service_ordinal,
+        capacity,
+    ))
 }

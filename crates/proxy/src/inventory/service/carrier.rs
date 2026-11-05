@@ -30,33 +30,11 @@ impl ProtocolInventory {
                     // Shared roles borrow their donor's actual logical control.
                     // The cold graph must contain an integrated carrier provider;
                     // taskless framing alone still uses the caller's DNS original.
-                    let borrowed = spec.task_limit.is_none()
+                    let borrowed = (spec.task_limit.is_none()
+                        || (!relay && components.has_node_stream_provider(slot.role_id())))
                         && components.has_carrier_provider(slot.role_id())
                         && components.stream_dependencies_supported(slot.role_id());
-                    // A single taskless literal root already carries this exact
-                    // policy in its original-provider declaration. This is only
-                    // selection: the actual grant still checks endpoint/dial.
-                    let custom_root = !relay
-                        && borrowed
-                        && spec.dependencies.is_empty()
-                        && spec.resources.iter().all(|resource| {
-                            matches!(
-                                resource,
-                                ResourceDeclaration::ControlledCarrierPool {
-                                    datagram: false,
-                                    ..
-                                } | ResourceDeclaration::File { .. }
-                            )
-                        })
-                        && spec.resources.iter().any(|resource| {
-                            matches!(resource,
-                                ResourceDeclaration::ControlledCarrierPool {
-                                    endpoint, dial, datagram: false, ..
-                                } if dial == &slot.dial
-                                    && matches!(&endpoint.address,
-                                        zero_core::Address::Ipv4(_) | zero_core::Address::Ipv6(_)))
-                        });
-                    if slot.dial != Default::default() && !(direct && !relay || custom_root)
+                    if slot.dial != Default::default() && !(direct && !relay)
                         || !spec.roles.contains(&RoleKind::Stream)
                         || direct && relay
                         || !direct

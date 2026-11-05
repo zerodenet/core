@@ -72,7 +72,12 @@ pub(crate) async fn connect(
             upstream.with_observer(Some(traffic.clone())),
             Destination::new(address, endpoint.1),
         )
-        .with_business(business),
+        .with_business(business)
+        .with_service_call(zero_platform_tokio::contract::network::CarrierContext {
+            session: invocation.identity.session(),
+            deadline: invocation.deadline,
+            cancel: invocation.cancellation(),
+        }),
     );
     let cancel = invocation.cancellation();
     let context = OpenContext {

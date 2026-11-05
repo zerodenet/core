@@ -16,10 +16,7 @@ use crate::{
     transport::TcpOutboundFailure,
 };
 pub(crate) use receipt::{ServiceBinding, ServiceConnected};
-use std::{
-    sync::{Arc, Mutex},
-    time::Duration,
-};
+use std::{sync::Arc, time::Duration};
 use zero_core::{
     component::NetworkGeneration,
     request::{Destination, ServiceOrigin, ServicePurpose, ServiceRequestFacts},
@@ -137,7 +134,11 @@ async fn chain(
         binding: binding.clone(),
         endpoint: physical,
         role: first.role,
-        evidence: Mutex::new(None),
+        evidence: Arc::default(),
+        source: services.current_source.clone(),
+        selected: first.slot.role_id(),
+        call: call.clone(),
+        candidates: tokio::sync::Mutex::new(None),
     });
     let upstream = UpstreamTransport::new(binding, root.clone());
     let io = connect_stream(services, destination, &nodes, purpose, call, upstream).await?;

@@ -72,7 +72,8 @@ impl BackgroundPath<'_> {
                 services.upstream_observed(first.tag.as_deref().unwrap_or("")),
                 first_endpoint.clone(),
             )
-            .with_pending(root_binding.clone(), waiting),
+            .with_pending(root_binding.clone(), waiting)
+            .with_service_call(call.clone()),
         );
         let mut upstream = UpstreamTransport::new(root_binding, root);
         for (index, node) in nodes.iter().enumerate() {
