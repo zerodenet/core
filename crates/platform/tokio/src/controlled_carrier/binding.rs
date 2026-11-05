@@ -268,6 +268,12 @@ impl BoundAuthority {
             && self.scope.same_scope(&registrar.scope_identity())
             && self.scope.registration_open()
     }
+    pub(super) fn retains_driver(&self, witness: &crate::contract::scope::TaskJoinWitness) -> bool {
+        self.pool_kind().is_some()
+            && !self.host_cancel.is_cancelled()
+            && self.scope.resource_open()
+            && self.scope.same_scope(&witness.scope_identity())
+    }
     pub(super) fn permits_driver(&self, registrar: &TaskRegistrar) -> bool {
         !self.host_cancel.is_cancelled()
             && self.scope.matches(registrar)
