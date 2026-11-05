@@ -1,13 +1,9 @@
 //! Actual original driver registration, native acquisition failure and close gates.
 use super::*;
 use std::{
-    error::Error as _, future::Future, num::NonZeroUsize, os::fd::AsRawFd, pin::Pin, task::Poll,
-    time::Duration,
+    future::Future, num::NonZeroUsize, os::fd::AsRawFd, pin::Pin, task::Poll, time::Duration,
 };
-use tokio::{
-    io::{AsyncRead, ReadBuf},
-    sync::oneshot,
-};
+use tokio::{io::ReadBuf, sync::oneshot};
 use zero_core::component::{ComponentId, ResourceGeneration};
 use zero_platform_tokio::contract::scope::{HostedScope, TaskClass, TaskScope};
 
