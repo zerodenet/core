@@ -18,6 +18,18 @@ impl OrchestrationState {
         // those candidates before rebuilding any last-good dependency or TUN.
         let retired = retire_rejected_bindings(&self.inbound_runtime_factory).await;
         let mut can_restore = retired.is_ok();
+        #[cfg(feature = "raw-ip-runtime")]
+        let discarded = proxy
+            .protocols
+            .discard_device_components(
+                rejected.config(),
+                tokio::time::Instant::now() + std::time::Duration::from_secs(5),
+            )
+            .await;
+        #[cfg(feature = "raw-ip-runtime")]
+        if discarded.is_err() {
+            can_restore = false;
+        }
         self.pending_dns_reload = None;
         proxy.resolver.discard_prepared_reload();
         let previous = if !rejected.configuration_publication().is_committed() {
@@ -33,6 +45,12 @@ impl OrchestrationState {
         let mut acknowledgement = message;
         if let Err(error) = retired {
             acknowledgement.push_str(&format!("; candidate cleanup remains unconfirmed: {error}"));
+        }
+        #[cfg(feature = "raw-ip-runtime")]
+        if let Err(error) = discarded {
+            acknowledgement.push_str(&format!(
+                "; device candidate originals remain unconfirmed: {error}"
+            ));
         }
         if let Err(rollback_error) = rollback {
             can_restore = false;
@@ -70,6 +88,15 @@ impl OrchestrationState {
         if can_restore {
             if let Err(error) = proxy
                 .protocols
+                .prepare_device_components(previous_config.clone())
+            {
+                can_restore = false;
+                acknowledgement.push_str(&format!("; cold component recovery failed: {error}"));
+            }
+        }
+        if can_restore {
+            if let Err(error) = proxy
+                .protocols
                 .start_components(
                     previous_config.clone(),
                     tokio::time::Instant::now() + std::time::Duration::from_secs(5),
@@ -83,52 +110,42 @@ impl OrchestrationState {
             }
         }
 
-        // Devices may resolve peer names. Rebuild the original DNS dependency
-        // before any last-good device/listener can acquire a fresh carrier.
+        // Rebuild DNS before peer resolution, retaining its exact token until
+        // the same recovered device graph has actually started and scanned.
+        let mut dns_recovery = None;
         if recover_dns && can_restore {
-            if let Err(error) = restore_dns(proxy, &self.applied_snapshot).await {
-                can_restore = false;
-                acknowledgement.push_str(&format!("; DNS recovery remains unconfirmed: {error}"));
+            match restore_dns(proxy, &self.applied_snapshot).await {
+                Ok(token) => dns_recovery = Some(token),
+                Err(error) => {
+                    can_restore = false;
+                    acknowledgement
+                        .push_str(&format!("; DNS recovery remains unconfirmed: {error}"));
+                }
             }
         }
-
-        // A source-preparation failure can require fresh original component
-        // generations without replacing DNS. Stage/start is not publication:
-        // admit only the actually restored plan after its real task scan.
-        if !recover_dns && can_restore {
-            let restored = async {
-                proxy
-                    .protocols
-                    .scan_components(
-                        &previous_config,
-                        tokio::time::Instant::now() + std::time::Duration::from_secs(5),
-                    )
-                    .await
-                    .map_err(|error| error.to_string())?;
-                proxy
-                    .protocols
-                    .commit_components(&previous_config, || Ok(()))
-            }
-            .await;
-            if let Err(error) = restored {
-                can_restore = false;
-                acknowledgement.push_str(&format!(
-                    "; component recovery publication remains unconfirmed: {error}"
-                ));
-            }
-        }
-
+        #[cfg(feature = "raw-ip-runtime")]
+        let mut recovered_devices = None;
         #[cfg(feature = "raw-ip-runtime")]
         if can_restore {
-            match proxy
-                .protocols
-                .prepare_devices(
-                    &previous_config,
-                    proxy.tcp_runtime_services_for_snapshot(self.applied_snapshot.clone()),
-                )
-                .await
-            {
-                Ok(devices) => devices.publish().await,
+            let services = proxy.tcp_runtime_services_for_snapshot(self.applied_snapshot.clone());
+            let result = async {
+                proxy
+                    .protocols
+                    .start_device_resources(
+                        &previous_config,
+                        &services,
+                        tokio::time::Instant::now() + std::time::Duration::from_secs(5),
+                        self.preparing_inbounds.cancellation(),
+                    )
+                    .await?;
+                proxy
+                    .protocols
+                    .prepare_devices(&previous_config, services)
+                    .await
+            }
+            .await;
+            match result {
+                Ok(devices) => recovered_devices = Some(devices),
                 Err(error) => {
                     can_restore = false;
                     acknowledgement.push_str(&format!(
@@ -137,6 +154,43 @@ impl OrchestrationState {
                 }
             }
         }
+        if can_restore {
+            let result = async {
+                proxy
+                    .protocols
+                    .scan_components(
+                        &previous_config,
+                        tokio::time::Instant::now() + std::time::Duration::from_secs(5),
+                    )
+                    .await
+                    .map_err(|error| error.to_string())?;
+                proxy.protocols.commit_components(&previous_config, || {
+                    dns_recovery.as_ref().map_or(Ok(()), |token| {
+                        proxy
+                            .resolver
+                            .commit_reload_resources(token)
+                            .map_err(|error| error.to_string())
+                    })
+                })
+            }
+            .await;
+            if let Err(error) = result {
+                can_restore = false;
+                acknowledgement.push_str(&format!(
+                    "; component recovery publication remains unconfirmed: {error}"
+                ));
+            }
+        }
+        #[cfg(feature = "raw-ip-runtime")]
+        if can_restore {
+            if let Some(devices) = recovered_devices.take() {
+                devices.publish().await;
+            }
+        }
+        // Dropping an unpublished candidate requests stop only. Its actual
+        // controllers remain in the catalog/device owners for the next drain.
+        #[cfg(feature = "raw-ip-runtime")]
+        drop(recovered_devices);
 
         let previous_runtime = self.inbound_runtime_factory.clone().for_recovery();
         // Only pre-existing actual owners may grant one recovery re-entry.
@@ -183,7 +237,7 @@ impl OrchestrationState {
 async fn restore_dns(
     proxy: &Proxy,
     snapshot: &std::sync::Arc<zero_engine::EngineRuntimeSnapshot>,
-) -> Result<(), String> {
+) -> Result<zero_dns::DnsReloadResources, String> {
     let config = snapshot.config();
     let dispatch = snapshot.dns_dispatch();
     let token = proxy
@@ -202,20 +256,7 @@ async fn restore_dns(
         )
         .await
         .map_err(|error| error.to_string())?;
-    proxy
-        .protocols
-        .scan_components(
-            config,
-            tokio::time::Instant::now() + std::time::Duration::from_secs(5),
-        )
-        .await
-        .map_err(|error| error.to_string())?;
-    proxy.protocols.commit_components(config, || {
-        proxy
-            .resolver
-            .commit_reload_resources(&token)
-            .map_err(|error| error.to_string())
-    })
+    Ok(token)
 }
 
 /// Only physically closed, actually published pre-existing faults permit a
