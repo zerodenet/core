@@ -36,7 +36,7 @@ impl DnsService for DnsSystem {
             }
             let generation = self.generation();
             self.query_coordinator
-                .ensure_open()
+                .ensure_local_open()
                 .map_err(|source| failure(Reason::Revoked, false).with_source(source))?;
             if context
                 .expected_generation

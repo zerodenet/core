@@ -36,7 +36,7 @@ async fn ordinary_taskless_dns_prefixes_return_only_query_loans_and_reuse_actual
             let server = Server::new(true).await;
             let mut config = detoured(&dns, &server);
             config.outbounds.push(prefix.node.clone());
-            config.outbound_groups = zero_config::RuntimeConfig::parse(r#"{"outbound_groups":[{"tag":"query-chain","type":"relay","proxies":["prefix","a"]}],"outbounds":[{"tag":"prefix","protocol":{"type":"direct"}},{"tag":"a","protocol":{"type":"direct"}}]}"#).unwrap().outbound_groups;
+            config.outbound_groups = zero_config::RuntimeConfig::parse(r#"{"outbound_groups":[{"tag":"query-chain","type":"relay","proxies":["prefix","a"]}],"outbounds":[{"tag":"prefix","protocol":{"type":"direct"}},{"tag":"a","protocol":{"type":"direct"}}],"route":{"final":{"type":"direct"}}}"#).unwrap().outbound_groups;
             let zero_config::DnsServerConfig::Udp { detour, .. } = config.runtime.dns.as_mut().unwrap().servers.get_mut("query").unwrap() else { unreachable!() };
             *detour = Some("query-chain".into());
             let (proxy, running, _) = start(config).await;
