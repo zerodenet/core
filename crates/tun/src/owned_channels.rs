@@ -38,10 +38,18 @@ impl<D> std::fmt::Debug for OwnedTunChannels<D> {
             .finish_non_exhaustive()
     }
 }
-impl<D: OwnedTunDevice + 'static> OwnedTunChannels<D> {
+impl<D: crate::TunDevice + 'static> OwnedTunChannels<D> {
     /// Install the original before configuration or spawning any I/O task.
-    pub fn new(device: D) -> Arc<Self> {
+    pub fn new(device: D) -> Arc<Self>
+    where
+        D: OwnedTunDevice,
+    {
         let identity = device.owned_identity();
+        Self::new_with_identity(device, identity)
+    }
+    /// The identity comes from the same persistent native provider that
+    /// transferred this unique I/O view. This grants no native close authority.
+    pub fn new_with_identity(device: D, identity: OwnedTunIdentity) -> Arc<Self> {
         let name = device.name().to_owned();
         let (stop, _) = watch::channel(false);
         Arc::new(Self {
@@ -146,39 +154,39 @@ impl<D: OwnedTunDevice + 'static> OwnedTunChannels<D> {
     pub async fn closed_receipt(&self) -> Option<Result<Arc<TunCloseReceipt>, Arc<io::Error>>> {
         self.state.lock().await.closed.clone()
     }
-    /// Await the actual handles in place; cancellation keeps every unobserved original.
-    pub async fn close(&self) -> io::Result<Arc<TunCloseReceipt>> {
+    /// Join the actual I/O tasks, then return only the transferred view.
+    /// The independent persistent provider must still close its original and
+    /// present its own matching receipt. Cancellation retains the saved tasks.
+    pub async fn return_io_view(&self) -> io::Result<()> {
         self.stop.send_replace(true);
         let mut state = self.state.lock().await;
-        if let Some(task) = state.reader.as_mut() {
-            match task.await {
-                Ok((half, result)) => {
-                    state.read_half = Some(half);
-                    if let Err(error) = result {
-                        state.errors.push(Arc::new(error));
-                    }
-                }
-                Err(error) => state.errors.push(Arc::new(io::Error::other(error))),
-            }
-            state.reader = None;
+        state.join_originals().await;
+        drop(state.device.take());
+        drop(state.read_half.take());
+        drop(state.write_half.take());
+        if state.errors.is_empty() {
+            Ok(())
+        } else {
+            Err(io::Error::other(CloseFailures(state.errors.clone())))
         }
-        if let Some(task) = state.writer.as_mut() {
-            match task.await {
-                Ok((half, result)) => {
-                    state.write_half = Some(half);
-                    if let Err(error) = result {
-                        state.errors.push(Arc::new(error));
-                    }
-                }
-                Err(error) => state.errors.push(Arc::new(io::Error::other(error))),
-            }
-            state.writer = None;
-        }
-        if state.device.is_none() && state.read_half.is_some() && state.write_half.is_some() {
-            let reader = state.read_half.take().unwrap();
-            let writer = state.write_half.take().unwrap();
-            state.device = Some(reader.unsplit(writer));
-        }
+    }
+    /// Actual task joins and unique view return only, never native closure.
+    pub async fn io_complete(&self) -> bool {
+        let state = self.state.lock().await;
+        state.reader.is_none()
+            && state.writer.is_none()
+            && state.device.is_none()
+            && state.read_half.is_none()
+            && state.write_half.is_none()
+    }
+    /// Await the actual handles in place; cancellation keeps every unobserved original.
+    pub async fn close(&self) -> io::Result<Arc<TunCloseReceipt>>
+    where
+        D: OwnedTunDevice,
+    {
+        self.stop.send_replace(true);
+        let mut state = self.state.lock().await;
+        state.join_originals().await;
         if state.closed.is_none() {
             if let Some(device) = state.device.take() {
                 state.closed = Some(
@@ -213,6 +221,39 @@ impl<D: OwnedTunDevice + 'static> OwnedTunChannels<D> {
             Ok(receipt.unwrap())
         } else {
             Err(io::Error::other(CloseFailures(failures)))
+        }
+    }
+}
+impl<D: crate::TunDevice> State<D> {
+    async fn join_originals(&mut self) {
+        if let Some(task) = self.reader.as_mut() {
+            match task.await {
+                Ok((half, result)) => {
+                    self.read_half = Some(half);
+                    if let Err(error) = result {
+                        self.errors.push(Arc::new(error));
+                    }
+                }
+                Err(error) => self.errors.push(Arc::new(io::Error::other(error))),
+            }
+            self.reader = None;
+        }
+        if let Some(task) = self.writer.as_mut() {
+            match task.await {
+                Ok((half, result)) => {
+                    self.write_half = Some(half);
+                    if let Err(error) = result {
+                        self.errors.push(Arc::new(error));
+                    }
+                }
+                Err(error) => self.errors.push(Arc::new(io::Error::other(error))),
+            }
+            self.writer = None;
+        }
+        if self.device.is_none() && self.read_half.is_some() && self.write_half.is_some() {
+            let reader = self.read_half.take().unwrap();
+            let writer = self.write_half.take().unwrap();
+            self.device = Some(reader.unsplit(writer));
         }
     }
 }

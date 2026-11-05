@@ -67,3 +67,56 @@ async fn cancelled_close_retains_actual_reader_and_both_native_originals_until_s
     ));
     assert!(matches!(owner.outcome(), WintunAcquisitionOutcome::Closed));
 }
+
+#[derive(Debug)]
+struct Observer;
+impl zero_traits::IoObserver for Observer {
+    fn received(&self, _: usize) {}
+    fn sent(&self, _: usize) {}
+    fn error(&self) {}
+    fn dropped(&self) {}
+}
+#[tokio::test]
+#[ignore = "requires Administrator privileges and wintun.dll; creates a dedicated test adapter"]
+async fn system_channels_return_only_their_view_before_the_original_native_reader_and_session_close(
+) {
+    let owner = OwnedWintunOwner::new();
+    let view = owner.create(Some("ZeroOwnedChannelTest")).unwrap();
+    let identity = view.owned_identity().clone();
+    let channels = crate::OwnedTunChannels::new_with_identity(view, identity.clone());
+    let (_writer, _reader) = channels.start(Arc::new(Observer)).unwrap();
+    tokio::time::timeout(std::time::Duration::from_secs(3), async {
+        loop {
+            if owner.state().reader.is_some() {
+                break;
+            }
+            tokio::task::yield_now().await;
+        }
+    })
+    .await
+    .unwrap();
+    let original_reader = owner.state().reader.as_ref().unwrap().thread().id();
+    let mut returning = Box::pin(channels.return_io_view());
+    std::future::poll_fn(|cx| {
+        assert!(returning.as_mut().poll(cx).is_pending());
+        Poll::Ready(())
+    })
+    .await;
+    drop(returning);
+    assert_eq!(
+        owner.state().reader.as_ref().unwrap().thread().id(),
+        original_reader
+    );
+    assert!(owner.closed_receipt().is_none());
+    channels.return_io_view().await.unwrap();
+    assert!(channels.io_complete().await);
+    assert!(matches!(owner.outcome(), WintunAcquisitionOutcome::Unknown));
+    let receipt = tokio::time::timeout(std::time::Duration::from_secs(5), owner.close())
+        .await
+        .unwrap()
+        .unwrap()
+        .unwrap();
+    assert!(receipt.identity().same_owner(&identity));
+    assert!(matches!(owner.state().reader_joined, Some(Ok(()))));
+    assert!(matches!(owner.outcome(), WintunAcquisitionOutcome::Closed));
+}

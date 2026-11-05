@@ -8,6 +8,14 @@ use tokio::{
 
 #[cfg(any(target_os = "linux", target_os = "macos"))]
 type SystemTunOwner = zero_tun::OwnedTunChannels<zero_tun::AdoptedTunIo>;
+#[cfg(any(target_os = "linux", target_os = "macos"))]
+type AcquisitionOwner = zero_tun::AdoptedTunOwner;
+#[cfg(target_os = "windows")]
+type SystemTunOwner = zero_tun::OwnedTunChannels<zero_tun::OwnedWintunIo>;
+#[cfg(target_os = "windows")]
+type AcquisitionOwner = zero_tun::OwnedWintunOwner;
+#[cfg(target_os = "windows")]
+mod native_windows;
 
 type Source = Arc<dyn std::error::Error + Send + Sync>;
 type Outcome = Result<(), Source>;
@@ -30,10 +38,10 @@ struct Routes {
 pub(crate) struct TunCompletion {
     main: Mutex<Main>,
     routes: Mutex<Routes>,
-    #[cfg(any(target_os = "linux", target_os = "macos"))]
+    #[cfg(any(target_os = "linux", target_os = "macos", target_os = "windows"))]
     native: std::sync::Mutex<Option<Arc<SystemTunOwner>>>,
-    #[cfg(any(target_os = "linux", target_os = "macos"))]
-    acquisition: std::sync::Mutex<Option<Arc<zero_tun::AdoptedTunOwner>>>,
+    #[cfg(any(target_os = "linux", target_os = "macos", target_os = "windows"))]
+    acquisition: std::sync::Mutex<Option<Arc<AcquisitionOwner>>>,
 }
 impl TunCompletion {
     pub(super) fn new(
@@ -41,9 +49,9 @@ impl TunCompletion {
         route_done: Option<oneshot::Receiver<Result<(), String>>>,
     ) -> Arc<Self> {
         Arc::new(Self {
-            #[cfg(any(target_os = "linux", target_os = "macos"))]
+            #[cfg(any(target_os = "linux", target_os = "macos", target_os = "windows"))]
             native: std::sync::Mutex::new(None),
-            #[cfg(any(target_os = "linux", target_os = "macos"))]
+            #[cfg(any(target_os = "linux", target_os = "macos", target_os = "windows"))]
             acquisition: std::sync::Mutex::new(None),
             main: Mutex::new(Main {
                 notification: done,
@@ -59,13 +67,13 @@ impl TunCompletion {
             }),
         })
     }
-    #[cfg(any(target_os = "linux", target_os = "macos"))]
-    pub(super) fn install_acquisition(&self, owner: Arc<zero_tun::AdoptedTunOwner>) {
+    #[cfg(any(target_os = "linux", target_os = "macos", target_os = "windows"))]
+    pub(super) fn install_acquisition(&self, owner: Arc<AcquisitionOwner>) {
         let mut slot = self.acquisition.lock().unwrap();
         assert!(slot.is_none());
         *slot = Some(owner);
     }
-    #[cfg(any(target_os = "linux", target_os = "macos"))]
+    #[cfg(any(target_os = "linux", target_os = "macos", target_os = "windows"))]
     pub(super) fn install_native(&self, owner: Arc<SystemTunOwner>) {
         let mut slot = self.native.lock().unwrap();
         assert!(slot.is_none());
@@ -128,6 +136,9 @@ impl TunCompletion {
                     | zero_tun::TunAcquisitionOutcome::Closed(_)
             );
         }
+        #[cfg(target_os = "windows")]
+        return self.windows_resources_complete().await;
+        #[cfg(not(target_os = "windows"))]
         true
     }
     pub(super) fn install_route_notification(&self, done: oneshot::Receiver<Result<(), String>>) {
