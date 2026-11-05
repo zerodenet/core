@@ -7,6 +7,12 @@ use zero_platform_tokio::{
 };
 pub(super) struct Root {
     native: ResolvingCarrierOpener,
+    binding: UpstreamBinding,
+    endpoint: Destination,
+    node_dns: Arc<dyn zero_platform_tokio::contract::dns::DnsService>,
+    egress: Arc<zero_platform_tokio::EgressInterfaceControl>,
+    observer: Option<Arc<dyn zero_traits::IoObserver>>,
+    pending: Arc<Mutex<Vec<Arc<custody::NativeUse>>>>,
     grants: CarrierGrants,
     budget: Arc<crate::component::native_dns::Budget>,
     users: Arc<Mutex<Vec<Arc<custody::NativeUse>>>>,
@@ -25,6 +31,7 @@ impl Root {
         grants: CarrierGrants,
         budget: Arc<crate::component::native_dns::Budget>,
         users: Arc<Mutex<Vec<Arc<custody::NativeUse>>>>,
+        pending: Arc<Mutex<Vec<Arc<custody::NativeUse>>>>,
         caller: TaskJoinWitness,
         cancel: CancellationToken,
         current: std::sync::Weak<crate::runtime::current_services::CurrentServiceSource>,
@@ -33,12 +40,18 @@ impl Root {
         Ok(Self {
             native: ResolvingCarrierOpener::new(
                 grants.registration().instance(),
-                binding,
-                endpoint,
+                binding.clone(),
+                endpoint.clone(),
                 services.native_node_dns(),
                 Arc::new(services.egress_control()),
                 services.observer(),
             )?,
+            binding,
+            endpoint,
+            node_dns: services.native_node_dns(),
+            egress: Arc::new(services.egress_control()),
+            observer: services.observer(),
+            pending,
             grants,
             budget,
             users,
@@ -49,6 +62,44 @@ impl Root {
             roles,
         })
     }
+    fn check_pending(
+        &self,
+        binding: &UpstreamBinding,
+        adoption: &zero_platform_tokio::controlled_carrier::CarrierAdoption,
+    ) -> Result<(), ChannelError> {
+        let fail = || {
+            crate::component::instance::invalid(
+                zero_platform_tokio::contract::Reason::StalePlan,
+                "DNS pending carrier differs from its original current role/binding",
+            )
+        };
+        if binding != &self.binding
+            || self.egress.generation() != binding.network_generation.0
+            || self.cancel.is_cancelled()
+            || self.caller.is_joined()
+            || !self.caller.scope_identity().registration_open()
+            || self
+                .grants
+                .registration()
+                .bound()
+                .is_none_or(|bound| bound.host_cancelled())
+        {
+            return Err(fail());
+        }
+        let source = self.current.upgrade().ok_or_else(fail)?;
+        let services = source.runtime_services().map_err(|_| fail())?;
+        let execution = services.execution();
+        let plan = execution.components.as_ref().map_err(|_| fail())?;
+        if !self
+            .roles
+            .iter()
+            .any(|role| plan.validate_carrier_adoption(*role, adoption).is_ok())
+        {
+            return Err(fail());
+        }
+        Ok(())
+    }
+
     pub(super) async fn loan(&self, io: BoxStream) -> std::io::Result<StreamLoan> {
         let entry = self
             .original
@@ -83,6 +134,127 @@ impl DynChannelControl for Control {
     }
 }
 impl UpstreamOpener for Root {
+    fn retain_pending_carrier(
+        &self,
+        binding: &UpstreamBinding,
+        adoption: zero_platform_tokio::controlled_carrier::CarrierAdoption,
+    ) -> Result<(), ChannelError> {
+        self.check_pending(binding, &adoption)?;
+        let mut pending = self.pending.lock().expect("DNS pending originals poisoned");
+        if pending.iter().any(|entry| {
+            entry.task.same_registration(&self.caller) && entry.original.same_slot(&adoption)
+        }) {
+            return Ok(());
+        }
+        // A selected path has finitely many roles and at most one in-progress
+        // donor plus its actual receiver per hop. Actual query/driver scopes
+        // independently bound the number of callers; completed history is absent.
+        let ceiling = self.roles.len().checked_mul(2).ok_or_else(|| {
+            crate::component::instance::invalid(
+                zero_platform_tokio::contract::Reason::Capacity,
+                "DNS pending path capacity overflow",
+            )
+        })?;
+        if pending
+            .iter()
+            .filter(|entry| entry.task.same_registration(&self.caller))
+            .count()
+            >= ceiling
+        {
+            return Err(crate::component::instance::invalid(
+                zero_platform_tokio::contract::Reason::Capacity,
+                "DNS actual pending carrier path is full",
+            ));
+        }
+        pending.push(Arc::new(custody::NativeUse {
+            task: self.caller.clone(),
+            cancel: self.cancel.clone(),
+            original: adoption,
+            capacity: Mutex::new(None),
+            logical: Default::default(),
+        }));
+        Ok(())
+    }
+    fn supports_controlled_stream(&self) -> bool {
+        true
+    }
+    fn carrier_dns_generation(&self) -> Option<zero_platform_tokio::contract::dns::DnsGeneration> {
+        Some(self.node_dns.generation())
+    }
+    fn prepare_controlled_stream(
+        &self,
+        binding: &UpstreamBinding,
+        endpoint: Destination,
+        call: CarrierContext,
+        grant: zero_platform_tokio::controlled_carrier::CarrierGrant,
+    ) -> Result<zero_platform_tokio::controlled_carrier::PreparedCarrier, ChannelError> {
+        if endpoint != self.endpoint {
+            return Err(crate::component::instance::invalid(
+                zero_platform_tokio::contract::Reason::StalePlan,
+                "DNS controlled root endpoint differs from its declaration",
+            ));
+        }
+        let peer = match &endpoint.address {
+            zero_core::Address::Ipv4(ip) => {
+                SocketAddr::new(std::net::Ipv4Addr::from(*ip).into(), endpoint.port)
+            }
+            zero_core::Address::Ipv6(ip) => {
+                SocketAddr::new(std::net::Ipv6Addr::from(*ip).into(), endpoint.port)
+            }
+            zero_core::Address::Domain(_) => {
+                return Err(crate::component::instance::invalid(
+                    zero_platform_tokio::contract::Reason::Unsupported,
+                    "DNS domain root requires its actual asynchronous Node resolver",
+                ))
+            }
+        };
+        self.retain_pending_carrier(binding, grant.adoption())?;
+        NativeCarrierOpener::new(
+            grant.instance(),
+            binding.clone(),
+            peer,
+            self.egress.clone(),
+            self.observer.clone(),
+        )?
+        .prepare_controlled_stream(binding, endpoint, call, grant)
+    }
+    fn acquire_controlled_stream(
+        &self,
+        binding: &UpstreamBinding,
+        endpoint: Destination,
+        call: CarrierContext,
+        grant: zero_platform_tokio::controlled_carrier::CarrierGrant,
+    ) -> BoxFuture<'_, Result<zero_platform_tokio::controlled_carrier::CarrierIo, ChannelError>>
+    {
+        let binding = binding.clone();
+        Box::pin(async move {
+            if endpoint != self.endpoint {
+                return Err(crate::component::instance::invalid(
+                    zero_platform_tokio::contract::Reason::StalePlan,
+                    "DNS controlled root endpoint differs from its declaration",
+                ));
+            }
+            self.retain_pending_carrier(&binding, grant.adoption())?;
+            let opener = ResolvingCarrierOpener::new(
+                grant.instance(),
+                binding.clone(),
+                endpoint.clone(),
+                self.node_dns.clone(),
+                self.egress.clone(),
+                self.observer.clone(),
+            )?;
+            let candidates = opener
+                .resolve_controlled_carrier(&binding, endpoint, call.clone())
+                .await?;
+            self.check_pending(&binding, &grant.adoption())?;
+            let prepared = candidates.prepare_stream(0, grant)?;
+            Ok(prepared
+                .open_with_deadline(call.deadline)
+                .await?
+                .into_parts()
+                .0)
+        })
+    }
     fn observe_carrier_origin(
         &self,
         origin: &zero_platform_tokio::controlled_carrier::CarrierOrigin,

@@ -26,7 +26,7 @@ impl Provider {
             .claim_transferred_view()
             .map_err(std::io::Error::other)?;
         let entry = Arc::new(custody::NativeUse {
-            task: caller,
+            task: caller.clone(),
             cancel: call.cancel.clone(),
             original: grant.adoption(),
             logical: Default::default(),
@@ -58,6 +58,7 @@ impl Provider {
         let io = grant
             .adopt_stream_loan(binding, destination(peer), call, loan)
             .map_err(std::io::Error::other)?;
+        self.release_installed_pending(&caller);
         execution
             .components
             .as_ref()
