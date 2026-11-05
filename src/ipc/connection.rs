@@ -19,9 +19,9 @@ use zero_api::{
 };
 use zero_platform_tokio::contract::CancellationToken;
 use zero_proxy::ProxyHandle;
-use zero_runtime::configuration::{
-    ControlBudget, ControlBudgetLimits, ControlBudgetPermit, ControlCharge,
-};
+#[cfg(test)]
+use zero_runtime::configuration::ControlBudgetLimits;
+use zero_runtime::configuration::{ControlBudget, ControlBudgetPermit, ControlCharge};
 
 use super::protocol::{ipc_api_error, ipc_error, ipc_ok, serialize_frame, IpcRequest};
 
@@ -113,6 +113,7 @@ pub(crate) fn parse_command(
 /// AND continues to accept `Query` / `Command` / `Ping` frames.
 /// Responses echo the request `id` so the client can pair them on a
 /// multiplexed connection.
+#[cfg(test)]
 pub(crate) async fn handle_ipc_connection<S>(stream: S, handle: ProxyHandle) -> io::Result<()>
 where
     S: tokio::io::AsyncRead + tokio::io::AsyncWrite + Unpin + Send + 'static,
@@ -120,7 +121,8 @@ where
     handle_ipc_connection_until(stream, handle, CancellationToken::new()).await
 }
 
-pub(crate) async fn handle_ipc_connection_until<S>(
+#[cfg(test)]
+async fn handle_ipc_connection_until<S>(
     stream: S,
     handle: ProxyHandle,
     stop: CancellationToken,
@@ -157,6 +159,7 @@ where
     handle_ipc_connection_with_auth_until(stream, handle, auth_ctx, stop, budget).await
 }
 
+#[cfg(all(test, unix, feature = "wireguard"))]
 async fn handle_ipc_connection_with_auth<S>(
     stream: S,
     handle: ProxyHandle,
@@ -297,7 +300,7 @@ where
                     let charge = match budget.reserve(ControlCharge::Subscription) {
                         Ok(charge) => charge,
                         Err(error) => {
-                            let resp = ipc_error(id, "resource_exhausted", &error.to_string());
+                            let resp = ipc_error(id, "resource_exhausted", error.to_string());
                             write_ipc_response(&mut *writer.lock().await, &resp).await?;
                             continue;
                         }

@@ -119,17 +119,6 @@ impl HttpServerHandle {
     }
 }
 
-pub fn prepare_http_server(listen: &str, auth: Option<HttpServerAuth>) -> Arc<HttpServerHandle> {
-    prepare_http_server_with_budget(
-        listen,
-        auth,
-        zero_runtime::configuration::ControlBudget::new(
-            zero_runtime::configuration::ControlBudgetLimits::from_runtime(
-                &zero_config::RuntimeOptionsConfig::default(),
-            ),
-        ),
-    )
-}
 pub fn prepare_http_server_with_budget(
     listen: &str,
     auth: Option<HttpServerAuth>,
@@ -190,11 +179,13 @@ impl HttpServerHandle {
                 proxy_handle,
                 auth,
                 shutdown_rx,
-                task_scope,
-                task_original,
-                receiver,
-                budget,
-                connections,
+                ServerResources {
+                    scope: task_scope,
+                    original: task_original,
+                    receiver,
+                    budget,
+                    connections,
+                },
             )
             .await
         }))?;
@@ -202,16 +193,6 @@ impl HttpServerHandle {
         Ok(())
     }
 }
-pub async fn spawn_http_server(
-    proxy_handle: ProxyHandle,
-    listen: &str,
-    auth: Option<HttpServerAuth>,
-) -> io::Result<Arc<HttpServerHandle>> {
-    let owner = prepare_http_server(listen, auth);
-    owner.start(proxy_handle).await?;
-    Ok(owner)
-}
-
 fn component_io(error: io::Error) -> ChannelError {
     ChannelError::new(Stage::Receive, Reason::Io, Impact::Session).with_source(error)
 }
@@ -340,17 +321,27 @@ async fn bind_control_listener(
     ))
 }
 
-async fn run_server(
-    mut listener: ControlledTcpListener,
-    handle: ProxyHandle,
-    auth: Option<HttpServerAuth>,
-    mut shutdown: oneshot::Receiver<()>,
+struct ServerResources {
     scope: Arc<tokio::sync::Mutex<TaskScope>>,
     original: Arc<tokio::sync::Mutex<Option<ControlledTcpListenerOwner>>>,
     receiver: zero_platform_tokio::AcceptedTcpTaskReceiver,
     budget: Arc<zero_runtime::configuration::ControlBudget>,
     connections: Arc<connections::Connections>,
+}
+async fn run_server(
+    mut listener: ControlledTcpListener,
+    handle: ProxyHandle,
+    auth: Option<HttpServerAuth>,
+    mut shutdown: oneshot::Receiver<()>,
+    resources: ServerResources,
 ) -> io::Result<()> {
+    let ServerResources {
+        scope,
+        original,
+        receiver,
+        budget,
+        connections,
+    } = resources;
     let limiters = Arc::new(ratelimit::ApiRateLimiters::default());
     let stop = CancellationToken::new();
     let mut failure = None;
