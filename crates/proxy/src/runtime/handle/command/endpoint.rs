@@ -211,6 +211,9 @@ impl ProxyHandle {
                     Ok(())
                 })
                 .map_err(|message| ApiError::new(ApiErrorCode::Internal, message))?;
+            #[cfg(feature = "raw-ip-runtime")]
+            self.proxy.protocols.finish_device_publication(&component_config).await
+                .map_err(|error| ApiError::new(ApiErrorCode::Internal, format!("endpoint committed; device completion remains owned: {error}")))?;
             // Revocation is irreversible. Failed application readiness or
             // source persistence must leave the old business sessions intact.
             if revoked.inbound || revoked.outbound {
@@ -316,6 +319,17 @@ impl ProxyHandle {
             self.proxy.host.apply().commit(publish)
         };
         result.map_err(|message| ApiError::new(ApiErrorCode::Internal, message))?;
+        #[cfg(feature = "raw-ip-runtime")]
+        self.proxy
+            .protocols
+            .finish_device_publication(snapshot.config())
+            .await
+            .map_err(|error| {
+                ApiError::new(
+                    ApiErrorCode::Internal,
+                    format!("endpoint committed; device completion remains owned: {error}"),
+                )
+            })?;
         if compensating {
             if let Some(reconciler) = &self.config_reconciler {
                 reconciler
