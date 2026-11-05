@@ -8,6 +8,7 @@ use zero_proxy::{ConfigApplyReconciler, ConfigReconcileResult};
 
 use crate::hooks;
 
+mod control;
 mod startup;
 use startup::{ApplicationStartupSlot, APPLICATION_STARTUP};
 mod dispatcher;
@@ -26,6 +27,7 @@ pub(super) struct ApplicationServices {
     #[cfg(feature = "event-dispatcher")]
     event_network: zero_connector::EventDispatcherNetwork,
     state: Mutex<ApplicationServiceState>,
+    control: std::sync::Mutex<control::ControlServers>,
 }
 
 struct ApplicationAttempt {
@@ -110,6 +112,7 @@ impl ApplicationServices {
             ipc_hook_socket: ipc_hook_socket.map(str::to_owned),
             #[cfg(feature = "event-dispatcher")]
             event_network,
+            control: std::sync::Mutex::new(control::ControlServers::default()),
             state: Mutex::new(ApplicationServiceState {
                 config: config.clone(),
                 installed: false,

@@ -31,8 +31,11 @@ const REQUEST_END: &[u8] = b"\r\n\r\n";
 pub struct HttpServerHandle {
     shutdown: std::sync::Mutex<Option<oneshot::Sender<()>>>,
     task: crate::ipc::owner::ControlTask,
-    original: Arc<tokio::sync::Mutex<ControlledTcpListenerOwner>>,
+    original: Arc<tokio::sync::Mutex<Option<ControlledTcpListenerOwner>>>,
     scope: Arc<tokio::sync::Mutex<TaskScope>>,
+    listen: String,
+    auth: Option<HttpServerAuth>,
+    started: std::sync::atomic::AtomicBool,
 }
 
 /// A single token entry parsed from configuration.
@@ -94,14 +97,16 @@ impl HttpServerHandle {
             .await
             .shutdown(crate::ipc::owner::close_deadline())
             .await;
-        let native = self
-            .original
-            .lock()
-            .await
-            .wait_closed(crate::ipc::owner::close_deadline())
-            .await
-            .map_err(io::Error::other)?;
-        if !tasks.is_complete() || !native.is_complete() {
+        let mut original = self.original.lock().await;
+        let native_complete = match original.as_mut() {
+            Some(original) => original
+                .wait_closed(crate::ipc::owner::close_deadline())
+                .await
+                .map_err(io::Error::other)?
+                .is_complete(),
+            None => true,
+        };
+        if !tasks.is_complete() || !native_complete {
             return Err(io::Error::other(
                 "HTTP original tasks or native IO remain retained",
             ));
@@ -110,47 +115,74 @@ impl HttpServerHandle {
     }
 }
 
+pub fn prepare_http_server(listen: &str, auth: Option<HttpServerAuth>) -> Arc<HttpServerHandle> {
+    let sockets = 256;
+    Arc::new(HttpServerHandle {
+        shutdown: std::sync::Mutex::new(None),
+        task: crate::ipc::owner::ControlTask::empty(),
+        original: Arc::new(tokio::sync::Mutex::new(None)),
+        scope: Arc::new(tokio::sync::Mutex::new(TaskScope::new(
+            tokio::runtime::Handle::current(),
+            NonZeroUsize::new(sockets * 3 + 1).unwrap(),
+        ))),
+        listen: listen.to_owned(),
+        auth,
+        started: std::sync::atomic::AtomicBool::new(false),
+    })
+}
+impl HttpServerHandle {
+    pub(crate) async fn start(&self, proxy_handle: ProxyHandle) -> io::Result<()> {
+        if self.started.swap(true, std::sync::atomic::Ordering::AcqRel) {
+            return Err(io::Error::other("HTTP original owner already started"));
+        }
+        let sockets = NonZeroUsize::new(256).unwrap();
+        let per_entry = NonZeroUsize::new(3).unwrap();
+        let mut scope = self.scope.lock().await;
+        let listener =
+            bind_control_listener(&self.listen, &mut scope, sockets, per_entry, &self.original)
+                .await?;
+        drop(scope);
+        let local_addr = listener.local_addr().map_err(io::Error::other)?;
+        let receiver = self
+            .original
+            .lock()
+            .await
+            .as_ref()
+            .expect("cold HTTP listener installed before bind")
+            .accepted_task_receiver()
+            .expect("declared HTTP accepted graph");
+        let (shutdown_tx, shutdown_rx) = oneshot::channel();
+        *self
+            .shutdown
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner) = Some(shutdown_tx);
+        let task_scope = self.scope.clone();
+        let task_original = self.original.clone();
+        let auth = self.auth.clone();
+        self.task.install(tokio::spawn(async move {
+            run_server(
+                listener,
+                proxy_handle,
+                auth,
+                shutdown_rx,
+                task_scope,
+                task_original,
+                receiver,
+            )
+            .await
+        }))?;
+        info!(listen = %local_addr, "http api server ready");
+        Ok(())
+    }
+}
 pub async fn spawn_http_server(
     proxy_handle: ProxyHandle,
     listen: &str,
     auth: Option<HttpServerAuth>,
-) -> io::Result<HttpServerHandle> {
-    let sockets = NonZeroUsize::new(256).unwrap();
-    let per_entry = NonZeroUsize::new(3).unwrap();
-    let mut scope = TaskScope::new(
-        tokio::runtime::Handle::current(),
-        NonZeroUsize::new(sockets.get() * per_entry.get() + 1).unwrap(),
-    );
-    let (original, listener) =
-        bind_control_listener(listen, &mut scope, sockets, per_entry).await?;
-    let local_addr = listener.local_addr().map_err(io::Error::other)?;
-    let receiver = original
-        .accepted_task_receiver()
-        .expect("declared HTTP accepted graph");
-    let original = Arc::new(tokio::sync::Mutex::new(original));
-    let scope = Arc::new(tokio::sync::Mutex::new(scope));
-    let (shutdown_tx, shutdown_rx) = oneshot::channel();
-    let task_scope = scope.clone();
-    let task_original = original.clone();
-    let task = tokio::spawn(async move {
-        run_server(
-            listener,
-            proxy_handle,
-            auth,
-            shutdown_rx,
-            task_scope,
-            task_original,
-            receiver,
-        )
-        .await
-    });
-    info!(listen = %local_addr, "http api server ready");
-    Ok(HttpServerHandle {
-        shutdown: std::sync::Mutex::new(Some(shutdown_tx)),
-        task: crate::ipc::owner::ControlTask::new(task),
-        original,
-        scope,
-    })
+) -> io::Result<Arc<HttpServerHandle>> {
+    let owner = prepare_http_server(listen, auth);
+    owner.start(proxy_handle).await?;
+    Ok(owner)
 }
 
 fn component_io(error: io::Error) -> ChannelError {
@@ -162,7 +194,8 @@ async fn bind_control_listener(
     scope: &mut TaskScope,
     sockets: NonZeroUsize,
     per_entry: NonZeroUsize,
-) -> io::Result<(ControlledTcpListenerOwner, ControlledTcpListener)> {
+    slot: &tokio::sync::Mutex<Option<ControlledTcpListenerOwner>>,
+) -> io::Result<ControlledTcpListener> {
     let attempts = NonZeroUsize::new(16).unwrap();
     let limits = AcceptedTcpLimits {
         max_sockets: sockets,
@@ -251,10 +284,15 @@ async fn bind_control_listener(
             .install_resolved_addresses(addresses.clone().into())
             .map_err(io::Error::other)?;
     }
+    let mut slot = slot.lock().await;
+    *slot = Some(owner);
+    let owner = slot
+        .as_mut()
+        .expect("cold native owner installed before bind");
     let mut failure = None;
     for address in addresses {
         match owner.bind_listener(address) {
-            Ok(listener) => return Ok((owner, listener)),
+            Ok(listener) => return Ok(listener),
             Err(error) => {
                 failure = Some(error);
                 if owner.native_unconfirmed() {
@@ -281,7 +319,7 @@ async fn run_server(
     auth: Option<HttpServerAuth>,
     mut shutdown: oneshot::Receiver<()>,
     scope: Arc<tokio::sync::Mutex<TaskScope>>,
-    original: Arc<tokio::sync::Mutex<ControlledTcpListenerOwner>>,
+    original: Arc<tokio::sync::Mutex<Option<ControlledTcpListenerOwner>>>,
     receiver: zero_platform_tokio::AcceptedTcpTaskReceiver,
 ) -> io::Result<()> {
     let limiters = Arc::new(ratelimit::ApiRateLimiters::default());
@@ -345,6 +383,8 @@ async fn run_server(
     let native = original
         .lock()
         .await
+        .as_mut()
+        .expect("installed actual HTTP native owner")
         .wait_closed(crate::ipc::owner::close_deadline())
         .await
         .map_err(io::Error::other);

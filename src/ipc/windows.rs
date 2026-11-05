@@ -25,6 +25,8 @@ pub const PIPE_NAME: &str = r"\\.\pipe\zero-control";
 pub struct IpcServerHandle {
     shutdown: std::sync::Mutex<Option<oneshot::Sender<()>>>,
     task: crate::ipc::owner::ControlTask,
+    path: PathBuf,
+    started: std::sync::atomic::AtomicBool,
 }
 
 impl IpcServerHandle {
@@ -55,21 +57,39 @@ pub fn resolve_socket_path(explicit: Option<&str>) -> io::Result<PathBuf> {
     Ok(PathBuf::from(PIPE_NAME))
 }
 
+pub fn prepare_ipc_server(pipe_path: &std::path::Path) -> Arc<IpcServerHandle> {
+    Arc::new(IpcServerHandle {
+        shutdown: std::sync::Mutex::new(None),
+        task: crate::ipc::owner::ControlTask::empty(),
+        path: pipe_path.to_owned(),
+        started: std::sync::atomic::AtomicBool::new(false),
+    })
+}
+impl IpcServerHandle {
+    pub(crate) async fn start(&self, handle: ProxyHandle) -> io::Result<()> {
+        if self.started.swap(true, Ordering::AcqRel) {
+            return Err(io::Error::other("IPC original owner already started"));
+        }
+        let (shutdown_tx, shutdown_rx) = oneshot::channel();
+        *self
+            .shutdown
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner) = Some(shutdown_tx);
+        let pipe = self.path.to_string_lossy().to_string();
+        self.task.install(tokio::spawn(async move {
+            run_ipc_server(&pipe, handle, shutdown_rx).await
+        }))?;
+        info!(pipe = %self.path.display(), "ipc server ready");
+        Ok(())
+    }
+}
 pub async fn spawn_ipc_server(
     handle: ProxyHandle,
     pipe_path: &std::path::Path,
-) -> io::Result<IpcServerHandle> {
-    let (shutdown_tx, shutdown_rx) = oneshot::channel();
-    let pipe = pipe_path.to_string_lossy().to_string();
-
-    let task = tokio::spawn(async move { run_ipc_server(&pipe, handle, shutdown_rx).await });
-
-    info!(pipe = %pipe_path.display(), "ipc server ready");
-
-    Ok(IpcServerHandle {
-        shutdown: std::sync::Mutex::new(Some(shutdown_tx)),
-        task: crate::ipc::owner::ControlTask::new(task),
-    })
+) -> io::Result<Arc<IpcServerHandle>> {
+    let owner = prepare_ipc_server(pipe_path);
+    owner.start(handle).await?;
+    Ok(owner)
 }
 
 async fn run_ipc_server(

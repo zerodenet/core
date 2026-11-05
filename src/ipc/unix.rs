@@ -24,6 +24,8 @@ pub struct IpcServerHandle {
     task: crate::ipc::owner::ControlTask,
     listener: ControlledUnixListenerOwner,
     originals: Arc<UnixOriginals>,
+    path: PathBuf,
+    started: std::sync::atomic::AtomicBool,
 }
 
 impl IpcServerHandle {
@@ -83,56 +85,72 @@ pub fn resolve_socket_path(explicit: Option<&str>) -> io::Result<PathBuf> {
 ///
 /// The socket file is created with `0o600` permissions so only the owning
 /// user can connect.  If the socket file already exists it is removed first.
+pub fn prepare_ipc_server(socket_path: &Path) -> Arc<IpcServerHandle> {
+    Arc::new(IpcServerHandle {
+        shutdown: std::sync::Mutex::new(None),
+        task: crate::ipc::owner::ControlTask::empty(),
+        listener: ControlledUnixListenerOwner::new(
+            socket_path.to_owned(),
+            CancellationToken::new(),
+        ),
+        originals: Arc::new(UnixOriginals::default()),
+        path: socket_path.to_owned(),
+        started: std::sync::atomic::AtomicBool::new(false),
+    })
+}
+impl IpcServerHandle {
+    pub(crate) async fn start(&self, handle: ProxyHandle) -> io::Result<()> {
+        if self.started.swap(true, Ordering::AcqRel) {
+            return Err(io::Error::other("IPC original owner already started"));
+        }
+        let socket_path = &self.path;
+        if socket_path.exists() {
+            std::fs::remove_file(socket_path)?;
+        }
+        if let Some(parent) = socket_path.parent() {
+            std::fs::create_dir_all(parent)?;
+        }
+        let listener = match self.listener.bind() {
+            Ok(listener) => listener,
+            Err(error) => {
+                self.listener.close(super::owner::close_deadline()).await?;
+                return Err(error);
+            }
+        };
+        let permissions = (|| {
+            let metadata = socket_path.metadata()?;
+            let mut perms = metadata.permissions();
+            perms.set_mode(0o600);
+            std::fs::set_permissions(socket_path, perms)
+        })();
+        if let Err(error) = permissions {
+            drop(listener);
+            let closed = self.listener.close(super::owner::close_deadline()).await?;
+            self.listener.remove_bound_path(&closed)?;
+            return Err(error);
+        }
+        let (shutdown_tx, shutdown_rx) = oneshot::channel();
+        *self
+            .shutdown
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner) = Some(shutdown_tx);
+        let originals = self.originals.clone();
+        let task =
+            tokio::spawn(
+                async move { run_ipc_server(listener, handle, shutdown_rx, originals).await },
+            );
+        self.task.install(task)?;
+        info!(socket = %socket_path.display(), "ipc server ready");
+        Ok(())
+    }
+}
 pub async fn spawn_ipc_server(
     handle: ProxyHandle,
     socket_path: &Path,
-) -> io::Result<IpcServerHandle> {
-    if socket_path.exists() {
-        std::fs::remove_file(socket_path)?;
-    }
-
-    if let Some(parent) = socket_path.parent() {
-        std::fs::create_dir_all(parent)?;
-    }
-
-    let owner = ControlledUnixListenerOwner::new(socket_path.to_owned(), CancellationToken::new());
-    let listener = match owner.bind() {
-        Ok(listener) => listener,
-        Err(error) => {
-            owner.close(super::owner::close_deadline()).await?;
-            return Err(error);
-        }
-    };
-    let permissions = (|| {
-        let metadata = socket_path.metadata()?;
-        let mut perms = metadata.permissions();
-        perms.set_mode(0o600);
-        std::fs::set_permissions(socket_path, perms)
-    })();
-    if let Err(error) = permissions {
-        drop(listener);
-        let closed = owner.close(super::owner::close_deadline()).await?;
-        owner.remove_bound_path(&closed)?;
-        return Err(error);
-    }
-
-    let (shutdown_tx, shutdown_rx) = oneshot::channel();
-
-    let originals = Arc::new(UnixOriginals::default());
-    let task_originals = originals.clone();
-    let task =
-        tokio::spawn(
-            async move { run_ipc_server(listener, handle, shutdown_rx, task_originals).await },
-        );
-
-    info!(socket = %socket_path.display(), "ipc server ready");
-
-    Ok(IpcServerHandle {
-        shutdown: std::sync::Mutex::new(Some(shutdown_tx)),
-        task: crate::ipc::owner::ControlTask::new(task),
-        listener: owner,
-        originals,
-    })
+) -> io::Result<Arc<IpcServerHandle>> {
+    let owner = prepare_ipc_server(socket_path);
+    owner.start(handle).await?;
+    Ok(owner)
 }
 
 async fn run_ipc_server(
