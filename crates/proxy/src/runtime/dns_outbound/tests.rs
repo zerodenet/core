@@ -106,3 +106,5 @@ mod service;
 
 #[cfg(feature = "socks5")]
 mod doh_binding;
+
+mod direct;
