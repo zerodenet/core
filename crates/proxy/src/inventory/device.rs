@@ -15,6 +15,14 @@ use crate::runtime::udp_dispatch::packet_path_operation::PreparedDatagramRelayCa
 type PacketPaths = HashMap<String, PreparedDevicePacketPath>;
 
 impl ProtocolInventory {
+    #[cfg(all(test, feature = "wireguard"))]
+    pub(crate) fn test_outbound_devices(
+        &self,
+        config: &RuntimeConfig,
+    ) -> Vec<Arc<crate::runtime::raw_ip::SharedRawIpDevice>> {
+        self.devices.test_current_wireguard_devices(config)
+    }
+
     pub(super) fn prepare_device_packet_paths(
         &self,
         config: &RuntimeConfig,
