@@ -4,6 +4,7 @@ use std::sync::Arc;
 use zero_platform_tokio::contract::CancellationToken;
 mod fixture;
 use fixture::Dns;
+mod borrowed;
 mod encrypted;
 mod faults;
 mod limits;

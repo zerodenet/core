@@ -12,8 +12,11 @@ pub(super) struct Root {
     caller: TaskJoinWitness,
     cancel: CancellationToken,
     original: Mutex<Option<Arc<custody::NativeUse>>>,
+    current: std::sync::Weak<crate::runtime::current_services::CurrentServiceSource>,
+    roles: Vec<zero_core::component::RoleInstanceId>,
 }
 impl Root {
+    #[allow(clippy::too_many_arguments)]
     pub(super) fn new(
         services: crate::protocol_registry::UpstreamConnectServices,
         endpoint: Destination,
@@ -22,6 +25,8 @@ impl Root {
         users: Arc<Mutex<Vec<Arc<custody::NativeUse>>>>,
         caller: TaskJoinWitness,
         cancel: CancellationToken,
+        current: std::sync::Weak<crate::runtime::current_services::CurrentServiceSource>,
+        roles: Vec<zero_core::component::RoleInstanceId>,
     ) -> Result<Self, ChannelError> {
         Ok(Self {
             native: ResolvingCarrierOpener::new(
@@ -37,6 +42,8 @@ impl Root {
             caller,
             cancel,
             original: Mutex::default(),
+            current,
+            roles,
         })
     }
     pub(super) async fn loan(&self, io: BoxStream) -> std::io::Result<StreamLoan> {
@@ -73,6 +80,26 @@ impl DynChannelControl for Control {
     }
 }
 impl UpstreamOpener for Root {
+    fn observe_carrier_origin(
+        &self,
+        origin: &zero_platform_tokio::controlled_carrier::CarrierOrigin,
+    ) -> bool {
+        let Ok(services) = self
+            .current
+            .upgrade()
+            .ok_or(())
+            .and_then(|source| source.runtime_services().map_err(|_| ()))
+        else {
+            return false;
+        };
+        let execution = services.execution();
+        let Ok(plan) = execution.components.as_ref() else {
+            return false;
+        };
+        self.roles
+            .iter()
+            .any(|role| plan.validate_carrier_origin(*role, origin).is_ok())
+    }
     fn open_stream(
         &self,
         binding: &UpstreamBinding,
