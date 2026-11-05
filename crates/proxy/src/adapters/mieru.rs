@@ -50,6 +50,19 @@ fn transport_leaf(tag: &str, protocol: &OutboundProtocolConfig) -> Option<MieruT
 impl NamedProtocolAdapter for MieruAdapter {
     const PROTOCOL_NAME: &'static str = "mieru";
     const FEATURE_NAME: &'static str = "mieru";
+    fn validate_runtime_candidate(
+        &self,
+        config: &zero_config::RuntimeConfig,
+    ) -> Result<(), zero_engine::EngineError> {
+        let present = config
+            .outbounds
+            .iter()
+            .any(|node| matches!(node.protocol, OutboundProtocolConfig::Mieru { .. }));
+        let native = present && component::production_selected(Some(config));
+        self.pool
+            .validate_component_candidate(native, present && !native)
+            .map_err(zero_engine::EngineError::Io)
+    }
     fn on_config_reloaded(&self, _config: &zero_config::RuntimeConfig) {
         self.pool.clear_legacy();
     }

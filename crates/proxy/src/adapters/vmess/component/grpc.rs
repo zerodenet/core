@@ -2,7 +2,7 @@
 mod production;
 use super::*;
 use crate::component::background::stateless;
-pub(crate) use production::streams_selected;
+pub(crate) use production::{streams_selected, whole_streams_selected};
 use std::{num::NonZeroUsize, sync::Arc, time::Duration};
 use zero_platform_tokio::contract::{
     component::{BuildContext, ComponentFactory, ComponentInstance, ComponentSpec},

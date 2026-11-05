@@ -45,3 +45,6 @@ mod relay;
 
 #[path = "grpc/stream.rs"]
 mod stream;
+
+#[path = "grpc/transition.rs"]
+mod transition;

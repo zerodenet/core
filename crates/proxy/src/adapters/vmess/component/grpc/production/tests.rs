@@ -76,3 +76,24 @@ fn whole_node_projection_removes_legacy_tcp_and_keeps_datagram_only_relay_bounda
         assert_eq!(claim.tcp_relay.is_none(), enabled);
     }
 }
+
+#[test]
+fn another_grpc_nodes_legacy_grammar_keeps_the_entire_adapter_on_its_existing_tcp_executor() {
+    let mut config = config(serde_json::json!([]));
+    let mut legacy = config.outbounds[0].clone();
+    legacy.tag = "legacy-node".into();
+    config.outbounds.push(legacy);
+    config.outbound_groups.push(
+        serde_json::from_value(serde_json::json!({
+            "tag":"unused-chain","type":"relay","proxies":["legacy-node","other"]
+        }))
+        .unwrap(),
+    );
+    for node in config
+        .outbounds
+        .iter()
+        .filter(|node| node.protocol.protocol_name() == "vmess")
+    {
+        assert!(!streams_selected(node, Some(&config), false));
+    }
+}

@@ -301,3 +301,6 @@ async fn replacement(udp: bool) {
     .await
     .unwrap();
 }
+
+#[cfg(feature = "vmess")]
+mod transition;

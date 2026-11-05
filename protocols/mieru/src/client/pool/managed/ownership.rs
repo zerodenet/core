@@ -1,6 +1,21 @@
 use super::*;
 
 impl ClientPool {
+    /// Cold application check against the same actual pool used by open/claim.
+    /// A negative legacy debt has no close proof and never becomes Pristine.
+    pub fn validate_component_candidate(&self, native: bool, legacy: bool) -> io::Result<()> {
+        match &*self.ownership.lock().unwrap() {
+            Ownership::LegacyUsed if native => Err(io::Error::new(
+                io::ErrorKind::AlreadyExists,
+                "Mieru legacy originals lack verified native/driver transfer",
+            )),
+            Ownership::Managed(_) if legacy => Err(io::Error::new(
+                io::ErrorKind::PermissionDenied,
+                "Mieru native owner cannot switch to an unsupported legacy grammar",
+            )),
+            _ => Ok(()),
+        }
+    }
     pub(in crate::client::pool) fn enter_legacy(&self) -> io::Result<()> {
         let mut owner = self.ownership.lock().unwrap();
         match &*owner {
