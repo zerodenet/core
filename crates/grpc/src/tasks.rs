@@ -5,12 +5,14 @@ pub(super) struct ControlTask(tokio::sync::Mutex<State>);
 struct State {
     task: Option<tokio::task::JoinHandle<io::Result<()>>>,
     result: Option<Result<(), Arc<io::Error>>>,
+    charge: Option<zero_runtime::configuration::ControlBudgetPermit>,
 }
 impl ControlTask {
     pub(super) fn empty() -> Self {
         Self(tokio::sync::Mutex::new(State {
             task: None,
             result: None,
+            charge: None,
         }))
     }
     pub(super) fn install(&self, task: tokio::task::JoinHandle<io::Result<()>>) -> io::Result<()> {
@@ -24,10 +26,14 @@ impl ControlTask {
         state.task = Some(task);
         Ok(())
     }
-    pub(super) fn new(task: tokio::task::JoinHandle<io::Result<()>>) -> Self {
+    pub(super) fn with_charge(
+        task: tokio::task::JoinHandle<io::Result<()>>,
+        charge: zero_runtime::configuration::ControlBudgetPermit,
+    ) -> Self {
         Self(tokio::sync::Mutex::new(State {
             task: Some(task),
             result: None,
+            charge: Some(charge),
         }))
     }
     pub(super) fn finished(&self) -> bool {
@@ -56,6 +62,9 @@ impl ControlTask {
                     .map_err(Arc::new),
             );
             state.task = None;
+            // The actual blocking subscriber has exited and its original join
+            // was consumed. A cancelled waiter cannot release this charge.
+            state.charge.take();
         }
         state
             .result

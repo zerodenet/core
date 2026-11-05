@@ -21,6 +21,7 @@ use zero_api::{CommandService, EventSource, EventStream, QueryService};
 mod pb {
     tonic::include_proto!("zero.api.v1");
 }
+mod budget;
 mod native;
 mod security;
 mod tasks;
@@ -45,6 +46,14 @@ pub fn prepare(
     addr: SocketAddr,
     security: GrpcServerSecurity,
 ) -> Result<Arc<GrpcHandle>, Box<dyn std::error::Error>> {
+    prepare_with_budget(addr, security, budget::defaults())
+}
+
+pub fn prepare_with_budget(
+    addr: SocketAddr,
+    security: GrpcServerSecurity,
+    budget: Arc<zero_runtime::configuration::ControlBudget>,
+) -> Result<Arc<GrpcHandle>, Box<dyn std::error::Error>> {
     security.validate_for(addr)?;
     let tls = security
         .tls
@@ -52,7 +61,7 @@ pub fn prepare(
         .map(GrpcServerTls::native_acceptor)
         .transpose()?;
     let (scope, original) = native::cold(addr)?;
-    let subscriptions = Arc::new(Subscriptions::default());
+    let subscriptions = Arc::new(Subscriptions::new(budget));
     Ok(Arc::new(GrpcHandle {
         address: addr,
         local_addr: Mutex::new(addr),
@@ -66,6 +75,7 @@ pub fn prepare(
             scope: tokio::sync::Mutex::new(scope),
             subscriptions,
             stop: tokio_util::sync::CancellationToken::new(),
+            connections: Arc::new(native::connections::Connections::default()),
         }),
     }))
 }
@@ -87,6 +97,7 @@ struct GrpcOriginals {
     scope: tokio::sync::Mutex<zero_platform_tokio::contract::scope::TaskScope>,
     subscriptions: Arc<Subscriptions>,
     stop: tokio_util::sync::CancellationToken,
+    connections: Arc<native::connections::Connections>,
 }
 /// Retains the actual server, Scope, native controls and subscription jobs.
 pub struct GrpcHandle {
@@ -161,6 +172,7 @@ impl GrpcHandle {
                 "gRPC actual Scope or native original remains retained",
             ));
         }
+        self.originals.connections.confirm_all_closed();
         server?;
         jobs
     }
@@ -185,13 +197,24 @@ impl Drop for GrpcHandle {
 
 // ── Service ────────────────────────────────────────────────────────────────
 
-#[derive(Default)]
 struct Subscriptions {
     stop: AtomicBool,
     jobs: Mutex<Vec<Arc<ControlTask>>>,
+    budget: Arc<zero_runtime::configuration::ControlBudget>,
 }
-
+impl Default for Subscriptions {
+    fn default() -> Self {
+        Self::new(budget::defaults())
+    }
+}
 impl Subscriptions {
+    fn new(budget: Arc<zero_runtime::configuration::ControlBudget>) -> Self {
+        Self {
+            stop: AtomicBool::new(false),
+            jobs: Mutex::new(Vec::new()),
+            budget,
+        }
+    }
     async fn join_all(&self) -> std::io::Result<()> {
         let tasks = self.jobs.lock().unwrap().clone();
         let mut failure = None;
@@ -313,12 +336,17 @@ where
             .reap_completed()
             .await
             .map_err(|error| Status::internal(error.to_string()))?;
+        let subscription_charge = self
+            .subscriptions
+            .budget
+            .reserve(zero_runtime::configuration::ControlCharge::Subscription)
+            .map_err(|error| Status::resource_exhausted(error.to_string()))?;
         let subscriber = self
             .handle
             .subscribe(filter)
             .map_err(|e: zero_api::ApiError| Status::internal(format!("subscribe failed: {e}")))?;
 
-        let (tx, rx) = mpsc::channel::<Result<PbEvent, Status>>(64);
+        let (tx, rx) = mpsc::channel::<budget::QueuedEvent>(64);
 
         let subscriptions = self.subscriptions.clone();
         let mut jobs = subscriptions.jobs.lock().unwrap();
@@ -329,20 +357,30 @@ where
         // The retained job waits with a finite idle wake and keeps a full
         // event until the bounded channel accepts it. Stop and disconnected
         // consumers never depend on another source event to unblock recv.
-        jobs.push(Arc::new(ControlTask::new(tokio::task::spawn_blocking(
-            move || {
+        jobs.push(Arc::new(ControlTask::with_charge(
+            tokio::task::spawn_blocking(move || {
                 while !owner.stop.load(Ordering::Acquire) && !tx.is_closed() {
                     let event = match subscriber.recv_timeout(Duration::from_millis(25)) {
                         zero_api::EventStreamReceive::Event(event) => event,
                         zero_api::EventStreamReceive::Timeout => continue,
                         zero_api::EventStreamReceive::Closed => break,
                     };
-                    let mut pending = Ok(PbEvent {
+                    let mut message = PbEvent {
                         event_type: event.event_type,
                         event_id: event.event_id,
                         occurred_at: event.occurred_at_unix_ms,
-                        payload: serde_json::to_vec(&event.payload).unwrap_or_default(),
-                    });
+                        payload: Vec::new(),
+                    };
+                    let bytes = budget::frame_len(&message, &event.payload)?;
+                    let Some(charge) = budget::reserve(&owner, bytes, || tx.is_closed())? else {
+                        return Ok(());
+                    };
+                    message.payload =
+                        serde_json::to_vec(&event.payload).map_err(std::io::Error::other)?;
+                    let mut pending = budget::QueuedEvent {
+                        event: Ok(message),
+                        _charge: Some(charge),
+                    };
                     loop {
                         if owner.stop.load(Ordering::Acquire) {
                             return Ok(());
@@ -356,11 +394,12 @@ where
                     }
                 }
                 Ok(())
-            },
-        ))));
+            }),
+            subscription_charge,
+        )));
         drop(jobs);
 
-        let stream = tokio_stream::wrappers::ReceiverStream::new(rx);
+        let stream = budget::Events(rx);
         Ok(Response::new(Box::pin(stream) as Self::SubscribeStream))
     }
 }
