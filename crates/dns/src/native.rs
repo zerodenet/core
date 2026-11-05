@@ -13,6 +13,9 @@ use zero_platform_tokio::{
 mod budget;
 mod open_failure;
 pub use budget::{NativeDnsBudget, NativeDnsBudgetLimits};
+#[cfg(test)]
+#[path = "native/tests/validation.rs"]
+mod validation;
 mod wire;
 pub use open_failure::NativeDnsOpenFailure;
 #[cfg(feature = "doq")]
