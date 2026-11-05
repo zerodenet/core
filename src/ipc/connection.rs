@@ -423,10 +423,14 @@ where
     // The event writer drops its actual receiver, waking a full blocking
     // bridge. Join both originals even when an earlier read/write failed.
     let events = match bg_events.take() {
-        Some(task) => task
-            .await
-            .map_err(io::Error::other)
-            .and_then(|result| result),
+        Some(task) => match task.await {
+            Ok(Err(error)) if is_transient_disconnect(&error) => {
+                tracing::debug!(%error, "IPC event writer observed peer disconnect");
+                Ok(())
+            }
+            Ok(result) => result,
+            Err(error) => Err(io::Error::other(error)),
+        },
         None => Ok(()),
     };
     let bridge = match bg_blocking.take() {
