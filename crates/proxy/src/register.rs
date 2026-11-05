@@ -76,7 +76,7 @@ pub(crate) fn compiled_registries_with_network(
                 ::socks5::Socks5Protocol.descriptor(),
                 ::socks5::component::Factory,
                 {
-                    let native = background.is_some();
+                    let native = node_network.is_some();
                     move |input| {
                         crate::adapters::socks5::component_options(input).map(|options| {
                             if native {
@@ -409,6 +409,9 @@ pub(crate) fn compiled_registries_with_network(
                     },
                 )
                 .expect("unique Mieru component registration");
+            components.set_candidate_acceptance("mieru", |_, candidate| {
+                crate::adapters::mieru::component::production_selected(candidate)
+            });
         }
         registry.register_standard_protocol(adapter, Some(MieruAdapter::claim_outbound_leaf_impl));
     }
