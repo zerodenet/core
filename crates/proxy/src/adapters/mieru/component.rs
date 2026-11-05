@@ -1,4 +1,5 @@
 //! Project the complete candidate once into the adapter's actual shared pool.
+mod production;
 use super::MieruAdapter;
 use crate::component::{
     background::{BackgroundCarrier, BackgroundNetwork},
@@ -8,6 +9,7 @@ use ::mieru::{
     component::{PoolFactory, PoolOptions, PoolProfile, StreamOptions, TcpPreparation},
     transport::MieruOutboundOptionsRef,
 };
+pub(crate) use production::production_selected;
 use std::{num::NonZeroUsize, sync::Arc};
 use zero_config::{ConfigError, OutboundConfig, OutboundProtocolConfig};
 use zero_core::component::NetworkGeneration;
