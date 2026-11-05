@@ -106,51 +106,79 @@ async fn actual_proxy_native_dns_timeout_closes_the_original_before_a_later_quer
 }
 
 #[tokio::test]
-async fn actual_proxy_native_dns_admits_owned_system_and_rejects_unowned_default_detour() {
+async fn actual_proxy_native_dns_owned_system_literal_needs_no_query_or_native_original() {
     tokio::time::timeout(Duration::from_secs(20), async {
-        for mode in 0..2 {
-            let mut dns = Dns::new().await;
-            let mut config = config(["127.0.0.1:1".parse().unwrap(); 3]);
-            let mut settings = dns.config();
-            let server = match mode {
-                0 => zero_config::DnsServerConfig::System,
-                _ => zero_config::DnsServerConfig::Udp {
-                    host: "127.0.0.1".into(),
-                    port: dns.address.port(),
-                    bootstrap: vec![],
-                    detour: Some("a".into()),
-                },
-            };
-            settings.servers.insert("native".into(), server);
-            if mode == 1 {
-                // A legal independent Node bootstrap prevents detour recursion.
-                // The request below targets Default's detour, never bootstrap.
-                settings.servers.insert("bootstrap".into(), dns.server());
-                settings.policy.node_server = Some("bootstrap".into());
-            }
-            config.runtime.dns = Some(settings);
-            let (proxy, running, _) = start(config).await;
-            if mode == 0 {
-                let addresses = proxy.resolver.resolve_node("127.0.0.1").await.unwrap();
-                assert_eq!(addresses, vec![zero_traits::IpAddress::V4([127, 0, 0, 1])]);
-            } else {
-                let error = proxy
-                    .resolver
-                    .resolve_real("unsupported.detour.test")
-                    .await
-                    .unwrap_err();
-                assert_eq!(error.kind(), std::io::ErrorKind::Unsupported, "{error}");
-            }
-            dns.no_new_request();
-            assert!(proxy
-                .resolver
-                .native_query_observations()
-                .iter()
-                .all(|query| query.original.is_none()));
-            running.shutdown().await.unwrap();
-            dns.close().await;
-        }
+        let mut dns = Dns::new().await;
+        let mut config = config(["127.0.0.1:1".parse().unwrap(); 3]);
+        let mut settings = dns.config();
+        settings
+            .servers
+            .insert("native".into(), zero_config::DnsServerConfig::System);
+        config.runtime.dns = Some(settings);
+        let (proxy, running, _) = start(config).await;
+        let addresses = proxy.resolver.resolve_node("127.0.0.1").await.unwrap();
+        assert_eq!(addresses, vec![zero_traits::IpAddress::V4([127, 0, 0, 1])]);
+        dns.no_new_request();
+        assert!(proxy
+            .resolver
+            .native_query_observations()
+            .iter()
+            .all(|query| query.original.is_none()));
+        running.shutdown().await.unwrap();
+        dns.close().await;
     })
     .await
     .unwrap();
+}
+
+#[tokio::test]
+async fn actual_domain_pool_bootstrap_cycle_is_rejected_before_either_purpose_starts_io() {
+    let mut dns = Dns::new().await;
+    let mut config = config(["127.0.0.1:1".parse().unwrap(); 3]);
+    config.outbounds.truncate(1);
+    config.outbound_groups.clear();
+    let zero_config::OutboundProtocolConfig::Mieru { server, .. } =
+        &mut config.outbounds[0].protocol
+    else {
+        unreachable!()
+    };
+    *server = "cyclic.node.test".into();
+    let mut settings = dns.config();
+    let mut detour = dns.server();
+    let zero_config::DnsServerConfig::Udp { detour: target, .. } = &mut detour else {
+        unreachable!()
+    };
+    *target = Some("a".into());
+    settings.servers.insert("native".into(), detour);
+    settings.policy.node_server = Some("native".into());
+    config.runtime.dns = Some(settings);
+    let error = Proxy::new(config)
+        .err()
+        .expect("the actual domain pool cannot bootstrap through itself");
+    let zero_engine::EngineError::Io(error) = error else {
+        panic!("expected actual component planning error: {error}")
+    };
+    let channel = error
+        .get_ref()
+        .unwrap()
+        .downcast_ref::<zero_platform_tokio::contract::ChannelError>()
+        .unwrap();
+    assert_eq!(
+        channel.reason,
+        zero_platform_tokio::contract::Reason::InvalidConfig
+    );
+    let mut source: Option<&(dyn std::error::Error + 'static)> = Some(channel);
+    let mut actual_cycle = false;
+    while let Some(error) = source {
+        actual_cycle |= error
+            .to_string()
+            .contains("actual background dependency graph contains a cycle");
+        source = error.source();
+    }
+    assert!(
+        actual_cycle,
+        "the actual Node -> domain pool -> Node cycle must be the rejection source"
+    );
+    dns.no_new_request();
+    dns.close().await;
 }
