@@ -67,8 +67,14 @@ async fn unchanged_candidate_reuses_actual_factory_peer_owners_and_pending_tcp()
     assert!(pending.same_resources(&abandoned.pending()));
     let abandoned_guard = install(&adapter, &abandoned);
     assert!(!abandoned.pending().needs_cleanup());
-    PendingEndpoints::release_closed(&adapter.pending_endpoints, &abandoned_guard.expected)
-        .unwrap();
+    let abandoned_expected = adapter
+        .pending_endpoints
+        .lock()
+        .unwrap()
+        .as_ref()
+        .unwrap()
+        .clone();
+    PendingEndpoints::release_closed(&adapter.pending_endpoints, &abandoned_expected).unwrap();
     drop(abandoned);
     drop(abandoned_guard);
     assert!(device.is_usable());
