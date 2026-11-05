@@ -11,6 +11,7 @@ pub(in crate::component) struct HostIoEvidence {
     pub files: Vec<FileIoEvidence>,
     pub native: Vec<NativeIoEvidence>,
     pub roots: Vec<super::root_datagram::RootDatagramEvidence>,
+    pub packets: Vec<super::packet_device::PacketDeviceEvidence>,
     pub carriers: Vec<super::carrier::CarrierIoEvidence>,
     pub metadata: Vec<super::metadata::MetadataIoEvidence>,
     pub metapools: Vec<super::metapool::MetadataPoolEvidence>,
@@ -79,6 +80,8 @@ impl HostResources {
                 .iter()
                 .filter_map(|carrier| carrier.first_fault.clone()),
         );
+        let packets: Vec<_> = self.packets.iter().map(|owner| owner.evidence()).collect();
+        sticky_faults.extend(packets.iter().filter_map(|owner| owner.close_fault.clone()));
         let declarations = self
             .coverage
             .iter()
@@ -117,6 +120,13 @@ impl HostResources {
                         .map(coverage::DeclarationProvider::RootDatagram)
                         .unwrap_or(coverage::DeclarationProvider::Unaccounted);
                 }
+                if matches!(binding, coverage::CoverageBinding::PacketDevice) {
+                    proof.provider = packets
+                        .iter()
+                        .position(|owner| owner.ordinal == ordinal)
+                        .map(coverage::DeclarationProvider::PacketDevice)
+                        .unwrap_or(coverage::DeclarationProvider::Unaccounted);
+                }
                 proof
             })
             .collect();
@@ -128,6 +138,7 @@ impl HostResources {
             native,
             carriers,
             roots,
+            packets,
             metadata,
             metapools,
             sticky_faults,

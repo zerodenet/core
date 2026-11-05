@@ -22,6 +22,7 @@ pub struct HostResources {
     metadata: metadata::MetadataDeclarations,
     metapools: metapool::MetadataPools,
     roots: root_datagram::RootDeclarations,
+    packets: Vec<packet_device::PacketDeviceOwner>,
     cancel: CancellationToken,
     state: Mutex<State>,
     changed: Arc<tokio::sync::Notify>,
@@ -60,6 +61,7 @@ mod files;
 mod listener;
 mod metadata;
 mod metapool;
+mod packet_device;
 mod prepare;
 mod root_datagram;
 pub use listener::HostDatagramListenerOwner;
@@ -105,6 +107,25 @@ impl HostResources {
         }
         self.roots.activate();
         Ok(access)
+    }
+    fn require_start(&self) -> Result<(), ChannelError> {
+        let state = self
+            .state
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        if state.closed
+            || self.cancel.is_cancelled()
+            || state
+                .start_deadline
+                .is_none_or(|deadline| Instant::now() >= deadline)
+        {
+            return Err(error(
+                self.component,
+                Reason::Revoked,
+                "Packet native acquisition requires its bounded lifecycle start",
+            ));
+        }
+        Ok(())
     }
     fn denied(&self) -> ChannelError {
         error(
@@ -260,6 +281,18 @@ impl ResourceAccess for HostResources {
         Result<zero_platform_tokio::contract::component::GrantedDatagramListener, ChannelError>,
     > {
         Box::pin(async move { self.bind_datagram(address) })
+    }
+    fn open_packet_device(
+        &self,
+        name: Arc<str>,
+        driver: zero_platform_tokio::contract::scope::TaskJoinWitness,
+    ) -> Result<zero_platform_tokio::contract::component::GrantedPacketDevice, ChannelError> {
+        self.require_start()?;
+        self.packets
+            .iter()
+            .find(|owner| owner.name() == name.as_ref())
+            .ok_or_else(|| self.denied())?
+            .open(driver)
     }
     fn open_device(&self, _: Arc<str>) -> BoxFuture<'_, Result<BoxPacketSession, ChannelError>> {
         Box::pin(async { Err(self.denied()) })

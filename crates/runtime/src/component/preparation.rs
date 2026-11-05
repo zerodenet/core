@@ -163,9 +163,7 @@ impl<'a> ResourcePreparation<'a> {
                     "published canonical resource has no original recipe",
                 )
             })?;
-            if !slot.recipe.spec().roles.is_empty()
-                || slot.recipe.spec().static_identity != key.identity
-            {
+            if slot.recipe.spec().static_identity != key.identity {
                 return Err(invalid(
                     Reason::InvalidConfig,
                     "published canonical resource identity differs",
@@ -198,30 +196,46 @@ impl<'a> ResourcePreparation<'a> {
         options: Arc<F::Options>,
     ) -> Result<ComponentId, BuildError> {
         self.ensure_valid()?;
-        let result = self.share_validated(namespace, factory, options);
+        let recipe = ComponentRecipe::from_validated(factory, options);
+        if !recipe.spec().roles.is_empty() {
+            self.invalidate();
+            return Err(invalid(
+                Reason::InvalidConfig,
+                "shared resource recipe must declare its actual roleless owner",
+            ));
+        }
+        let result = self.prepare_validated(namespace, recipe);
         if result.is_err() {
             self.invalidate();
         }
         result
     }
 
-    fn share_validated<F: ComponentFactory>(
+    /// Add one typed ordinary component to this same cold union and allocator.
+    /// Catalog role/provider validation and actual StopOld remain mandatory.
+    pub fn prepare_component<F: ComponentFactory>(
         &mut self,
         namespace: &'static str,
         factory: Arc<F>,
         options: Arc<F::Options>,
     ) -> Result<ComponentId, BuildError> {
+        self.ensure_valid()?;
+        let result =
+            self.prepare_validated(namespace, ComponentRecipe::from_validated(factory, options));
+        if result.is_err() {
+            self.invalidate();
+        }
+        result
+    }
+    fn prepare_validated(
+        &mut self,
+        namespace: &'static str,
+        recipe: ComponentRecipe,
+    ) -> Result<ComponentId, BuildError> {
         if namespace.is_empty() {
             return Err(invalid(
                 Reason::InvalidConfig,
-                "shared resource namespace is empty",
-            ));
-        }
-        let recipe = ComponentRecipe::from_validated(factory, options);
-        if !recipe.spec().roles.is_empty() {
-            return Err(invalid(
-                Reason::InvalidConfig,
-                "shared resource recipe must declare its actual roleless owner",
+                "component namespace is empty",
             ));
         }
         let key = Key {

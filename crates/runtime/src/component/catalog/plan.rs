@@ -212,6 +212,10 @@ impl ComponentPlan {
                 )
             })
     }
+    /// Lookup only the actual component already in this exact accepted union.
+    pub fn component(&self, id: ComponentId) -> Option<Arc<ComponentSlot>> {
+        self.order.iter().find(|slot| slot.id == id).cloned()
+    }
     pub fn configured(&self, tag: &str) -> Option<Arc<ComponentSlot>> {
         self.outbounds.get(tag).cloned()
     }

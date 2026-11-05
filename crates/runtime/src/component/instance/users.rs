@@ -5,6 +5,7 @@ use std::future::Future;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use tokio::sync::Notify;
 mod datagram;
+mod packet;
 mod stream;
 
 pub(in crate::component) struct Users {
@@ -165,6 +166,12 @@ impl Lease {
             io,
             _lease: self,
         })
+    }
+    pub(in crate::component) fn packet(
+        self: Arc<Self>,
+        session: zero_platform_tokio::contract::packet::BoxPacketSession,
+    ) -> zero_platform_tokio::contract::packet::BoxPacketSession {
+        packet::wrap(self, session)
     }
     pub(in crate::component) fn datagram(
         self: Arc<Self>,

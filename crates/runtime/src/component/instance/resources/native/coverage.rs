@@ -9,6 +9,7 @@ pub(in crate::component) enum DeclaredResourceKind {
     ControlledDatagramCarrier,
     ControlledOutboundDatagram,
     ControlledDirectStream,
+    ControlledPacketDevice,
     ControlledNodeStream,
     NativeIcmp,
     MetadataDatagram,
@@ -34,6 +35,7 @@ pub(in crate::component) enum DeclarationProvider {
     Metadata(usize),
     MetadataPool(usize),
     RootDatagram(usize),
+    PacketDevice(usize),
     Unaccounted,
 }
 #[derive(Clone, Debug)]
@@ -49,6 +51,7 @@ pub(super) enum CoverageBinding {
     Metadata,
     MetadataPool,
     RootDatagram,
+    PacketDevice,
     File(PathBuf),
     Tcp(SocketAddr),
     Datagram(SocketAddr),
@@ -60,6 +63,7 @@ impl CoverageBinding {
         declaration: &ResourceDeclaration,
     ) -> Result<Self, ChannelError> {
         Ok(match declaration {
+            ResourceDeclaration::ControlledPacketDevice { .. } => Self::PacketDevice,
             ResourceDeclaration::ControlledOutboundDatagram { .. } => Self::RootDatagram,
             ResourceDeclaration::ControlledCarrierPool { .. } => {
                 Self::Carrier(DeclaredResourceKind::ControlledCarrierPool)
@@ -134,6 +138,7 @@ impl CoverageBinding {
             Self::Metadata => (DeclaredResourceKind::MetadataDatagram, None),
             Self::MetadataPool => (DeclaredResourceKind::ControlledMetadataDatagram, None),
             Self::RootDatagram => (DeclaredResourceKind::ControlledOutboundDatagram, None),
+            Self::PacketDevice => (DeclaredResourceKind::ControlledPacketDevice, None),
             Self::File(path) => (
                 DeclaredResourceKind::File,
                 files
@@ -177,11 +182,24 @@ impl evidence::HostIoEvidence {
         let mut carriers = vec![false; self.carriers.len()];
         let mut metadata = vec![false; self.metadata.len()];
         let mut roots = vec![false; self.roots.len()];
+        let mut packets = vec![false; self.packets.len()];
         for (ordinal, declaration) in self.declarations.iter().enumerate() {
             if declaration.ordinal != ordinal {
                 return false;
             }
             let confirmed = match declaration.provider {
+                DeclarationProvider::PacketDevice(index)
+                    if declaration.kind == DeclaredResourceKind::ControlledPacketDevice =>
+                {
+                    match (self.packets.get(index), packets.get_mut(index)) {
+                        (Some(owner), Some(seen)) if !*seen && owner.ordinal == ordinal => {
+                            *seen = true;
+                            owner.physical_confirmed()
+                        }
+                        _ => false,
+                    }
+                }
+
                 DeclarationProvider::File(index)
                     if declaration.kind == DeclaredResourceKind::File =>
                 {
@@ -276,6 +294,7 @@ impl evidence::HostIoEvidence {
             && carriers.into_iter().all(|seen| seen)
             && metadata.into_iter().all(|seen| seen)
             && roots.into_iter().all(|seen| seen)
+            && packets.into_iter().all(|seen| seen)
     }
 }
 

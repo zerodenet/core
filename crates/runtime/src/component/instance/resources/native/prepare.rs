@@ -46,13 +46,44 @@ impl HostResources {
             identity.clone(),
             cancel.clone(),
         )?;
+        let mut packets = Vec::new();
         let mut icmp = None;
         let mut remaining = BTreeMap::new();
         let mut tcp = BTreeMap::new();
         let mut datagram = BTreeMap::new();
         let mut files = files::FileReads::default();
-        for declaration in declarations {
+        for (ordinal, declaration) in declarations.iter().enumerate() {
             match declaration {
+                ResourceDeclaration::ControlledPacketDevice { name, binding } => {
+                    if packets
+                        .iter()
+                        .any(|owner: &packet_device::PacketDeviceOwner| {
+                            owner.name() == name.as_ref()
+                        })
+                    {
+                        return Err(error(
+                            component,
+                            Reason::InvalidConfig,
+                            "duplicate Packet device declaration",
+                        ));
+                    }
+                    let (instance, scope) = identity.as_ref().ok_or_else(|| {
+                        error(
+                            component,
+                            Reason::InvalidConfig,
+                            "Packet device requires its actual instance and Scope",
+                        )
+                    })?;
+                    packets.push(packet_device::PacketDeviceOwner::new(
+                        ordinal,
+                        *instance,
+                        scope.clone(),
+                        name.clone(),
+                        binding.clone(),
+                        cancel.clone(),
+                    )?);
+                }
+
                 ResourceDeclaration::NativeIcmp { .. } => {
                     if icmp.is_some() {
                         return Err(error(
@@ -184,6 +215,7 @@ impl HostResources {
             metadata,
             metapools,
             roots,
+            packets,
             cancel,
             state: Mutex::new(State {
                 closed: false,

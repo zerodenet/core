@@ -16,12 +16,40 @@ use super::{
     BoxFuture, ChannelError, SendFailure, SendReceipt,
 };
 
+mod owned;
+pub use owned::{send_owned, OwnedSendFailure};
+
 pub trait PacketTx: Send {
     fn poll_send(
         self: Pin<&mut Self>,
         cx: &mut Context<'_>,
         packet: &IpPacket,
     ) -> Poll<Result<SendReceipt, SendFailure>>;
+
+    /// Transfer this exact original into the existing session/driver owner.
+    /// Before Pending, take `packet` and persist it in that actual owner; the
+    /// send future must never be the only custodian across a suspension.
+    /// NotSubmitted restores that same packet (bytes, ingress and association)
+    /// into `packet`. Successful acceptance consumes it. Unknown must retain
+    /// any in-flight original until the same driver is joined and cleaned up.
+    /// Cancellation uses this session's control; it is no completion receipt.
+    /// Implementations may not emulate ownership by copying a borrowed packet.
+    /// Capacity before transfer returns Ready(NotSubmitted), never Pending.
+    /// Subsequent polls for this same send receive None while the owner works.
+    fn poll_send_owned(
+        self: Pin<&mut Self>,
+        _cx: &mut Context<'_>,
+        _packet: &mut Option<IpPacket>,
+    ) -> Poll<Result<SendReceipt, SendFailure>> {
+        Poll::Ready(Err(SendFailure::new(
+            ChannelError::new(
+                super::Stage::Send,
+                super::Reason::Unsupported,
+                super::Impact::Packet,
+            ),
+            super::DeliveryState::NotSubmitted,
+        )))
+    }
 }
 pub trait PacketRx: Send {
     fn poll_recv(
@@ -107,6 +135,13 @@ impl<T: PacketTx + ?Sized> PacketTx for Pin<Box<T>> {
         packet: &IpPacket,
     ) -> Poll<Result<SendReceipt, SendFailure>> {
         self.get_mut().as_mut().poll_send(cx, packet)
+    }
+    fn poll_send_owned(
+        self: Pin<&mut Self>,
+        cx: &mut Context<'_>,
+        packet: &mut Option<IpPacket>,
+    ) -> Poll<Result<SendReceipt, SendFailure>> {
+        self.get_mut().as_mut().poll_send_owned(cx, packet)
     }
 }
 impl<T: PacketRx + ?Sized> PacketRx for Pin<Box<T>> {

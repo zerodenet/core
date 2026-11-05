@@ -65,6 +65,12 @@ impl ComponentSlot {
                                 | zero_platform_tokio::contract::component::RoleKind::Datagram)
                             })
                             .then_some(OutboundId(self.id.0)),
+                        endpoint: self
+                            .recipe
+                            .spec()
+                            .roles
+                            .contains(&zero_platform_tokio::contract::component::RoleKind::Packet)
+                            .then_some(EndpointId(self.id.0)),
                         ..Default::default()
                     },
                     resources: resources.clone(),
@@ -103,6 +109,21 @@ impl ComponentSlot {
                             None => inner,
                         }
                     }),
+                    packet: instance
+                        .roles
+                        .packet
+                        .clone()
+                        .map(|inner| match self.admission.get() {
+                            Some(host) => Arc::new(crate::component::admission::FencedPacket {
+                                inner: Arc::downgrade(&inner),
+                                host: host.clone(),
+                                instance: self.instance_id(),
+                                owner: self.admission_owner.clone(),
+                                users: self.user_roots.get().cloned().unwrap_or_default(),
+                            })
+                                as Arc<dyn DynPacketOutbound>,
+                            None => inner,
+                        }),
                     started: OnceLock::new(),
                     owner: Mutex::new(Owner {
                         instance,

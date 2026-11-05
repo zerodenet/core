@@ -68,7 +68,18 @@ impl HostResources {
             .clear();
         // Neither an IO failure nor a slow file job prevents driving the other
         // actual owners. No tasks are spawned; these futures stay structured.
-        tokio::join!(self.drive_native(deadline), self.drive_files(deadline));
+        let packet_reports = async {
+            let mut report = CloseReport::default();
+            for owner in &self.packets {
+                report.append(owner.shutdown(deadline).await);
+            }
+            report
+        };
+        let ((), (), packet_report) = tokio::join!(
+            self.drive_native(deadline),
+            self.drive_files(deadline),
+            packet_reports
+        );
         let original_failure = {
             let state = self
                 .state
@@ -118,6 +129,7 @@ impl HostResources {
             .unwrap_or_else(std::sync::PoisonError::into_inner);
         let mut report = std::mem::take(&mut state.io.receipts);
         report.append(std::mem::take(&mut state.files.receipts));
+        report.append(packet_report);
         report.unfinished.extend(
             state
                 .files

@@ -31,6 +31,7 @@ use zero_platform_tokio::contract::{
     component::{BuildContext, ComponentInstance},
     datagram::DynDatagramOutbound,
     lifecycle::CloseReport,
+    packet::DynPacketOutbound,
     scope::TaskScope,
     stream::DynStreamOutbound,
     CancellationToken, ChannelError, CloseReason, DeliveryState, Impact, Reason, Stage,
@@ -68,6 +69,7 @@ pub struct ComponentSlot {
     start_gate: Mutex<()>,
 }
 struct Live {
+    packet: Option<Arc<dyn DynPacketOutbound>>,
     stream: Option<Arc<dyn DynStreamOutbound>>,
     datagram: Option<Arc<dyn DynDatagramOutbound>>,
     started: OnceLock<Result<(), SharedError>>,

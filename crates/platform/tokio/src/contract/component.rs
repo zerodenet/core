@@ -25,6 +25,10 @@ use zero_traits::IoObserver;
 
 mod controlled_stream;
 pub use controlled_stream::ControlledStreamDemandClass;
+mod packet_device;
+pub use packet_device::{
+    GrantedPacketDevice, PacketDeviceBinding, PacketDeviceIdentity, PacketDeviceIo,
+};
 mod process;
 pub use process::ProcessRequest;
 mod outbound_datagram;
@@ -199,6 +203,11 @@ pub enum ResourceDeclaration {
         peer: std::net::SocketAddr,
         network_generation: zero_core::component::NetworkGeneration,
         max_sockets: NonZeroUsize,
+    },
+    /// One concrete host original, issued once to its same-Scope driver.
+    ControlledPacketDevice {
+        name: Arc<str>,
+        binding: PacketDeviceBinding,
     },
     Device {
         name: Arc<str>,
@@ -487,6 +496,21 @@ pub trait ResourceAccess: Send + Sync {
         &self,
         address: Destination,
     ) -> BoxFuture<'_, Result<GrantedDatagramListener, BuildError>>;
+    /// The caller registers its actual driver first. This grants only that
+    /// driver's unique I/O view; the native controller stays in HostResources.
+    fn open_packet_device(
+        &self,
+        _name: Arc<str>,
+        _driver: super::scope::TaskJoinWitness,
+    ) -> Result<GrantedPacketDevice, BuildError> {
+        let mut error = super::ChannelError::new(
+            super::Stage::Prepare,
+            super::Reason::Unsupported,
+            super::Impact::Component,
+        );
+        error.delivery = super::DeliveryState::NotSubmitted;
+        Err(error)
+    }
     fn open_device(&self, name: Arc<str>) -> BoxFuture<'_, Result<BoxPacketSession, BuildError>>;
 }
 

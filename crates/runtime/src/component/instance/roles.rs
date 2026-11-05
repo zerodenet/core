@@ -33,6 +33,18 @@ impl ComponentSlot {
     pub fn legacy_connect_stage(&self) -> &'static str {
         self.legacy_connect_stage
     }
+    pub async fn packet(
+        &self,
+        deadline: Instant,
+    ) -> Result<Arc<dyn zero_platform_tokio::contract::packet::DynPacketOutbound>, ChannelError>
+    {
+        self.start(deadline).await?;
+        self.live
+            .get()
+            .and_then(|live| live.as_ref().ok())
+            .and_then(|live| live.packet.clone())
+            .ok_or_else(|| self.failure(Reason::Internal, "missing built Packet role"))
+    }
     pub async fn stream(
         &self,
         deadline: Instant,

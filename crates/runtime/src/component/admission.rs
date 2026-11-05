@@ -11,6 +11,8 @@ use zero_platform_tokio::contract::{
     BoxFuture, ChannelError, Reason,
 };
 pub(in crate::component) mod borrowing;
+mod packet;
+pub(super) use packet::FencedPacket;
 mod service;
 pub use service::ServiceAdmission;
 
