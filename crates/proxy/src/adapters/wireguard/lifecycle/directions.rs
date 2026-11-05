@@ -11,7 +11,25 @@ impl WireguardAdapter {
         generation: u64,
         context: &OutboundDevicePreparationContext,
     ) -> Result<usize, EngineError> {
-        if !context.disabled_outbounds.contains(&outbound.tag) {
+        self.retained_peer_count(
+            outbound,
+            inbounds,
+            plan,
+            identity,
+            generation,
+            context.disabled_outbounds.contains(&outbound.tag),
+        )
+    }
+    pub(super) fn retained_peer_count(
+        &self,
+        outbound: &OutboundConfig,
+        inbounds: &[InboundConfig],
+        plan: &WireguardRawIpPlan,
+        identity: [u8; 32],
+        generation: u64,
+        disabled: bool,
+    ) -> Result<usize, EngineError> {
+        if !disabled {
             return Ok(plan.peer_count());
         }
         // The temporary proxied-carrier path keeps its existing ownership and

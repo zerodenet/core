@@ -120,6 +120,13 @@ impl PendingLinkedEndpoint {
         *slot = Arc::downgrade(graph);
         Ok(())
     }
+    pub(super) fn actual_graph(&self) -> Option<Arc<super::recipe::component::LinkedStackOptions>> {
+        self.resources
+            .graph
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .upgrade()
+    }
     pub(super) fn graph_for(
         &self,
         identity: &[u8],

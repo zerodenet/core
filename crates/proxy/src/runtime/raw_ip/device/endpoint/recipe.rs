@@ -42,6 +42,9 @@ impl EndpointStackRecipe {
     ) -> Result<Self, EngineError> {
         Self::prepare(local_addresses, mtu, peer, endpoint, options).map_err(super::stack_udp_error)
     }
+    pub(crate) fn set_traffic(&mut self, traffic: super::super::super::RawIpTraffic) {
+        self.options.traffic = traffic;
+    }
     /// BuildNew is the only phase allowed to consume this recipe.
     /// This does not certify old resources closed; the host must hold that proof.
     pub(crate) fn start(self) -> Result<Arc<SharedRawIpDevice>, EngineError> {
