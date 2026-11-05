@@ -35,6 +35,9 @@ impl ComponentCatalog {
             let plan = candidate.ready();
             if state.maintenance
                 || !plan.device_pass
+                || plan
+                    .startable_before_devices()
+                    .any(|slot| !slot.has_started() || !slot.can_reuse())
                 || !state.replacement.as_ref().is_some_and(|pending| {
                     Arc::ptr_eq(&pending.candidate, plan)
                         && pending.released()
