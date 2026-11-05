@@ -21,33 +21,49 @@ use zero_platform_tokio::{
 mod provider;
 use provider::Provider;
 use zero_dns::native::NativeDnsProvider;
+#[cfg(test)]
 pub(crate) const LIMIT: usize = 16;
-pub(crate) struct Budget {
-    pub(super) sockets: Arc<tokio::sync::Semaphore>,
-    tasks: zero_dns::OwnedDnsQueryBudget,
-    admission: tokio::sync::Mutex<()>,
-}
-impl Default for Budget {
-    fn default() -> Self {
-        Self {
-            sockets: Arc::new(tokio::sync::Semaphore::new(LIMIT)),
-            tasks: zero_dns::OwnedDnsQueryBudget::new(NonZeroUsize::new(LIMIT).unwrap()),
-            admission: Default::default(),
-        }
+pub(crate) type Budget = zero_dns::native::NativeDnsBudget;
+use zero_dns::native::NativeDnsBudgetLimits;
+fn candidate_budget(
+    network: &BackgroundNetwork,
+    limits: NativeDnsBudgetLimits,
+) -> Result<Arc<Budget>, RegistrationError> {
+    let node = network
+        .native_dns
+        .current_budget()
+        .filter(|budget| budget.limits() == limits);
+    let query = network
+        .query_dns
+        .current_budget()
+        .filter(|budget| budget.limits() == limits);
+    if node
+        .as_ref()
+        .zip(query.as_ref())
+        .is_some_and(|(node, query)| !Arc::ptr_eq(node, query))
+    {
+        return Err(RegistrationError::Options(
+            zero_config::ConfigError::InvalidOutbound(
+                "actual DNS purposes have forked shared capacity".into(),
+            ),
+        ));
     }
-}
-impl Budget {
-    fn reserve(&self, cost: u32) -> std::io::Result<tokio::sync::OwnedSemaphorePermit> {
-        self.sockets
-            .clone()
-            .try_acquire_many_owned(cost)
-            .map_err(|_| {
-                std::io::Error::new(
-                    std::io::ErrorKind::WouldBlock,
-                    "shared native DNS original capacity exhausted",
-                )
-            })
+    if let Some(current) = node.or(query) {
+        return Ok(current);
     }
+    let mut candidate = network
+        .dns_budget
+        .lock()
+        .expect("DNS candidate budget poisoned");
+    if let Some(current) = candidate
+        .upgrade()
+        .filter(|budget| budget.limits() == limits)
+    {
+        return Ok(current);
+    }
+    let budget = Arc::new(Budget::new(limits));
+    *candidate = Arc::downgrade(&budget);
+    Ok(budget)
 }
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum Purpose {
@@ -69,6 +85,7 @@ impl Purpose {
     }
 }
 pub(crate) struct Options {
+    budget: Arc<Budget>,
     purpose: Purpose,
     peers: Vec<(std::net::SocketAddr, bool)>,
     roots: Vec<crate::inventory::service::ServiceRoot>,
@@ -94,6 +111,14 @@ fn prepare_purpose(
     purpose: Purpose,
 ) -> Result<ComponentId, RegistrationError> {
     let candidate = resources.candidate().expect("host cold candidate");
+    let runtime = &candidate.runtime;
+    let limits = NativeDnsBudgetLimits {
+        originals: NonZeroUsize::new(runtime.effective_native_dns_max_originals()).unwrap(),
+        queries: NonZeroUsize::new(runtime.effective_native_dns_max_queries()).unwrap(),
+        blocking_jobs: NonZeroUsize::new(runtime.effective_native_dns_max_blocking_jobs()).unwrap(),
+        h2_drivers: NonZeroUsize::new(runtime.effective_native_dns_max_h2_drivers()).unwrap(),
+    };
+    let budget = candidate_budget(&network, limits)?;
     let mut configured = candidate.runtime.dns.clone();
     if purpose == Purpose::Node {
         if let Some(dns) = &mut configured {
@@ -126,6 +151,7 @@ fn prepare_purpose(
     for key in KEYS.get_or_init(|| [Default::default(), Default::default()]) {
         let mut hash = key.build_hasher();
         hash.write(purpose.key().as_bytes());
+        hash.write(format!("{limits:?}").as_bytes());
         hash.write(&bytes);
         hash.write(format!("{roots:?}").as_bytes());
         identity.extend_from_slice(&hash.finish().to_le_bytes());
@@ -135,6 +161,7 @@ fn prepare_purpose(
             purpose.key(),
             Arc::new(Factory(network)),
             Arc::new(Options {
+                budget,
                 purpose,
                 peers,
                 roots,
@@ -157,6 +184,7 @@ struct Factory(Arc<BackgroundNetwork>);
 impl ComponentFactory for Factory {
     type Options = Options;
     fn describe(&self, options: &Options) -> ComponentSpec {
+        let limits = options.budget.limits();
         let mut resources = options
             .peers
             .iter()
@@ -165,7 +193,7 @@ impl ComponentFactory for Factory {
                     endpoint: provider::destination(*peer),
                     dial: Default::default(),
                     datagram: *datagram,
-                    max_sockets: NonZeroUsize::new(LIMIT).unwrap(),
+                    max_sockets: limits.originals,
                 },
             )
             .collect::<Vec<_>>();
@@ -174,22 +202,28 @@ impl ComponentFactory for Factory {
                 endpoint: root.endpoint.clone(),
                 dial: root.dial.clone(),
                 datagram: false,
-                max_sockets: NonZeroUsize::new(LIMIT).unwrap(),
+                max_sockets: limits.originals,
             }
         }));
         // Query jobs, real blocking OS children and persistent H2 drivers
         // share this Scope; unused capacity starts no workers.
-        let task_limit = LIMIT * 3;
+        let task_limit =
+            limits.queries.get() + limits.blocking_jobs.get() + limits.h2_drivers.get();
         #[cfg(feature = "dns")]
         let (resources, task_limit) = {
             let mut resources = resources;
-            let task_limit = task_limit + if options.quic.is_empty() { 0 } else { LIMIT };
+            let task_limit = task_limit
+                + if options.quic.is_empty() {
+                    0
+                } else {
+                    limits.originals.get()
+                };
             resources.extend(options.quic.iter().map(|peer| {
                 ResourceDeclaration::ControlledMetadataDatagram {
                     endpoint: *peer,
                     dial: Default::default(),
                     limits: provider::quic::metadata_limits(),
-                    max_origins: NonZeroUsize::new(LIMIT / 2).unwrap(),
+                    max_origins: NonZeroUsize::new((limits.originals.get() / 2).max(1)).unwrap(),
                 }
             }));
             (resources, task_limit)
@@ -208,14 +242,9 @@ impl ComponentFactory for Factory {
         options: Arc<Options>,
         context: BuildContext,
     ) -> Result<ComponentInstance, BuildError> {
+        let limits = options.budget.limits();
         let owners = (0..options.peers.len() + options.roots.len())
-            .map(|_| {
-                CarrierOwner::new(
-                    context.instance(),
-                    NonZeroUsize::new(LIMIT).unwrap(),
-                    &context.cancel,
-                )
-            })
+            .map(|_| CarrierOwner::new(context.instance(), limits.originals, &context.cancel))
             .collect::<Vec<_>>();
         #[cfg(feature = "dns")]
         let metadata = options
@@ -224,7 +253,7 @@ impl ComponentFactory for Factory {
             .map(|_| {
                 zero_platform_tokio::controlled_datagram::metadata_pool::MetadataPoolOwner::new(
                     context.instance(),
-                    NonZeroUsize::new(LIMIT / 2).unwrap(),
+                    NonZeroUsize::new((limits.originals.get() / 2).max(1)).unwrap(),
                     provider::quic::metadata_limits(),
                     &context.cancel,
                 )

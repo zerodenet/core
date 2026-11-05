@@ -96,18 +96,25 @@ impl DohDnsResolver {
                     .ready_native_client(addr, detour, provider.clone(), end)
                     .await?;
                 let request = self.request(query.len())?;
-                let (response, mut body) = client
+                let (response, body) = client
                     .sender
                     .send_request(request, false)
                     .map_err(io::Error::other)?;
-                body.send_data(Bytes::copy_from_slice(query), true)
+                let mut request = NativeRequest {
+                    body,
+                    complete: false,
+                };
+                request
+                    .body
+                    .send_data(Bytes::copy_from_slice(query), true)
                     .map_err(io::Error::other)?;
                 let answer = read_response(response.await.map_err(io::Error::other)?).await?;
                 crate::message::parse_response(query, &answer)?;
                 client.complete()?;
+                request.complete = true;
                 // The same actual lease is dropped here before evidence of
                 // logical completion can be handed to the retry policy.
-                drop(body);
+                drop(request);
                 drop(client);
                 Ok(answer)
             })
@@ -131,5 +138,19 @@ impl DohDnsResolver {
             Err(last.unwrap_or_else(|| io::Error::other("DoH has no original endpoint"))),
             Some(NativeCompletion(())),
         )
+    }
+}
+
+// A cancelled logical request resets only its actual H2 stream. The host's
+// independent driver and carrier owner remain available to other/future users.
+struct NativeRequest {
+    body: h2::SendStream<Bytes>,
+    complete: bool,
+}
+impl Drop for NativeRequest {
+    fn drop(&mut self) {
+        if !self.complete {
+            self.body.send_reset(h2::Reason::CANCEL);
+        }
     }
 }

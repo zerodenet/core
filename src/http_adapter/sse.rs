@@ -3,7 +3,7 @@ use std::time::Duration;
 
 use tokio::io::AsyncWriteExt;
 use tokio::net::TcpStream;
-use zero_api::RawApiEvent;
+use zero_api::{EventStream, EventStreamReceive, RawApiEvent};
 
 const SSE_HEADERS: &str = concat!(
     "HTTP/1.1 200 OK\r\n",
@@ -33,58 +33,51 @@ pub async fn write_sse_heartbeat(stream: &mut TcpStream) -> io::Result<()> {
     stream.write_all(b": heartbeat\n\n").await
 }
 
-/// Blocking helper that runs the SSE event loop on a dedicated OS thread so
-/// that the `std::sync::mpsc::Receiver` (which is `Send` but not `Sync`)
-/// is never borrowed across an `.await` point.
-///
-/// The inner function polls `subscriber.try_recv()` with a short sleep,
-/// writing every matching event to `writer`.  A heartbeat is sent after
-/// `heartbeat_interval` of silence.  When the `shutdown` receiver fires
-/// the connection is closed cleanly.
+/// Stream ordered events through one bounded, retained blocking bridge.
+/// Stop wakes pending writes and joins the original subscriber worker.
 pub async fn run_sse_stream(
     stream: TcpStream,
     subscriber: zero_engine::EventSubscriber,
     catch_up: Vec<RawApiEvent>,
     heartbeat_interval: Duration,
-    mut shutdown: tokio::sync::oneshot::Receiver<()>,
+    shutdown: impl std::future::Future + Send,
 ) -> io::Result<()> {
-    // Send headers first.
+    let mut shutdown = Box::pin(shutdown);
     let mut stream = stream;
-    stream.write_all(SSE_HEADERS.as_bytes()).await?;
-
-    // Write catch-up events (resumption after disconnect).
-    for event in &catch_up {
-        write_sse_event(&mut stream, event).await?;
-    }
-
-    // Offload the blocking recv loop to a dedicated OS thread so that the
-    // mpsc Receiver (Send but not Sync) is never held across an await.
     let (event_tx, mut event_rx) = tokio::sync::mpsc::channel(32);
-
     let handle = tokio::task::spawn_blocking(move || {
         let mut last_event_at = std::time::Instant::now();
-        loop {
-            if event_tx.is_closed() {
-                break;
-            }
-            if let Some(event) = subscriber.try_recv() {
-                if event_tx
-                    .blocking_send(SseItem::Event(Box::new(event)))
-                    .is_err()
-                {
+        while !event_tx.is_closed() {
+            let item = match subscriber.recv_timeout(Duration::from_millis(25)) {
+                EventStreamReceive::Event(event) => {
+                    last_event_at = std::time::Instant::now();
+                    Some(SseItem::Event(event))
+                }
+                EventStreamReceive::Closed => break,
+                EventStreamReceive::Timeout if last_event_at.elapsed() >= heartbeat_interval => {
+                    last_event_at = std::time::Instant::now();
+                    Some(SseItem::Heartbeat)
+                }
+                EventStreamReceive::Timeout => None,
+            };
+            if let Some(item) = item {
+                if event_tx.blocking_send(item).is_err() {
                     break;
                 }
-                last_event_at = std::time::Instant::now();
-                continue;
-            } else if last_event_at.elapsed() >= heartbeat_interval {
-                if event_tx.blocking_send(SseItem::Heartbeat).is_err() {
-                    break;
-                }
-                last_event_at = std::time::Instant::now();
             }
-            std::thread::sleep(Duration::from_millis(100));
         }
     });
+    let result = async {
+        // Initial headers and replay can backpressure just like live events.
+        let initial = async {
+            stream.write_all(SSE_HEADERS.as_bytes()).await?;
+            for event in &catch_up { write_sse_event(&mut stream, event).await?; }
+            io::Result::Ok(())
+        };
+        tokio::select! {
+            _ = &mut shutdown => return Ok(()),
+            result = initial => result?,
+        }
 
     loop {
         tokio::select! {
@@ -104,14 +97,22 @@ pub async fn run_sse_stream(
                 tokio::select! {
                     _ = &mut shutdown => break,
                     result = write => {
-                        if result.is_err() { break; }
+                        result?;
                     }
                 }
             }
         }
     }
 
-    handle.abort();
+        Ok(())
+    }.await;
+    // Closing the actual receiver wakes blocking_send even when the bridge
+    // was full. Await the original worker before dropping the connection.
+    event_rx.close();
+    drop(event_rx);
+    let joined = handle.await.map_err(io::Error::other);
+    result?;
+    joined?;
     Ok(())
 }
 

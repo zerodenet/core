@@ -56,7 +56,7 @@ impl ReadyClient {
 }
 impl Drop for ReadyClient {
     fn drop(&mut self) {
-        if !self.complete || !self.state.reusable {
+        if (!self.complete && self.state.native.get().is_none()) || !self.state.reusable {
             self.state.retire();
         }
         self.state

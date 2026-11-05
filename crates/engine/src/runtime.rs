@@ -182,7 +182,10 @@ impl Engine {
                         .join(path)
                 }
             });
-        let principal_quotas = Arc::new(PrincipalQuotaRegistry::open(principal_quota_state_path)?);
+        let principal_quotas = Arc::new(PrincipalQuotaRegistry::open(
+            principal_quota_state_path,
+            source.clone(),
+        )?);
         let stats = EngineStats::shared();
         let engine = Self {
             runtime_snapshot: Arc::new(std::sync::RwLock::new(Arc::new(EngineRuntimeSnapshot {
@@ -293,6 +296,12 @@ impl Engine {
         &self,
     ) -> Arc<zero_runtime::configuration::ConfigurationSource> {
         self.config_source.clone()
+    }
+
+    /// Finalize quota persistence after actual session settlement. Embedded
+    /// callers can close this owner without constructing or starting a Proxy.
+    pub fn shutdown_principal_quota_state(&self) -> std::io::Result<()> {
+        self.principal_quotas.shutdown()
     }
 
     /// UNIX epoch milliseconds when this engine was created.

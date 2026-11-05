@@ -9,6 +9,8 @@ use std::{
 type Backend = crate::LinuxTun;
 #[cfg(target_os = "macos")]
 type Backend = crate::Utun;
+#[cfg(target_os = "linux")]
+mod create;
 mod io_view;
 pub use io_view::AdoptedTunIo;
 
@@ -41,6 +43,14 @@ impl std::error::Error for TunAcquisitionError {
 pub struct AdoptedTunOwner {
     state: Mutex<State>,
     acquisition_failure: Mutex<Option<Arc<io::Error>>>,
+    created: std::sync::atomic::AtomicBool,
+}
+impl std::fmt::Debug for AdoptedTunOwner {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("AdoptedTunOwner")
+            .field("outcome", &self.outcome())
+            .finish_non_exhaustive()
+    }
 }
 enum State {
     Cold,
@@ -65,6 +75,7 @@ impl AdoptedTunOwner {
         Arc::new(Self {
             state: Mutex::new(State::Cold),
             acquisition_failure: Mutex::new(None),
+            created: std::sync::atomic::AtomicBool::new(false),
         })
     }
     fn lock(&self) -> std::sync::MutexGuard<'_, State> {

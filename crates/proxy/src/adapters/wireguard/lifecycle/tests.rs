@@ -1,7 +1,7 @@
 use super::*;
 use zero_config::RuntimeConfig;
 
-fn context(
+pub(super) fn context(
     proxy: &crate::runtime::Proxy,
     config: &RuntimeConfig,
 ) -> OutboundDevicePreparationContext {

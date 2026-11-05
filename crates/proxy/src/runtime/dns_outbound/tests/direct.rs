@@ -71,7 +71,7 @@ async fn direct(reject: bool) {
             stream.write_u16(answer.len() as u16).await.unwrap();
             stream.write_all(&answer).await.unwrap();
             assert_eq!(query.await.unwrap().unwrap(),vec![IpAddress::V4([198,51,100,27])]);
-            observed.task.wait().await;
+            proxy.protocols.drive_component_supervision(Box::pin(observed.task.wait())).await;
             let closed=original.closed().expect("same original native controller receipt");
             assert!(closed.matches(original)&&closed.had_native_acquisition());
         }

@@ -50,10 +50,19 @@ impl Provider {
         Self {
             tasks: OwnedDnsQueryTasks::new_critical_with_budget(
                 &context.tasks,
-                NonZeroUsize::new(LIMIT).unwrap(),
-                network.dns_budget.tasks.clone(),
+                NonZeroUsize::new(
+                    options
+                        .budget
+                        .limits()
+                        .queries
+                        .get()
+                        .max(options.budget.limits().blocking_jobs.get())
+                        .max(options.budget.limits().h2_drivers.get()),
+                )
+                .unwrap(),
+                options.budget.tasks(),
             ),
-            budget: network.dns_budget.clone(),
+            budget: options.budget.clone(),
             registrar: context.tasks.clone(),
             cancel: context.cancel.clone(),
             peers: options
@@ -168,7 +177,9 @@ impl Provider {
                 grants
                     .registration()
                     .observe()
-                    .map_or(LIMIT, |state| state.retained())
+                    .map_or(self.budget.limits().originals.get(), |state| {
+                        state.retained()
+                    })
             })
             .fold(0, usize::saturating_add);
         let retained = self
@@ -178,20 +189,30 @@ impl Provider {
                 grants
                     .registration()
                     .observe()
-                    .map_or(LIMIT, |state| state.retained())
+                    .map_or(self.budget.limits().originals.get(), |state| {
+                        state.retained()
+                    })
             })
             .fold(retained, usize::saturating_add);
         #[cfg(feature = "dns")]
         let retained = retained.saturating_add(
             self.quic
                 .iter()
-                .map(|(_, grants)| grants.retained().unwrap_or(LIMIT).saturating_mul(2))
+                .map(|(_, grants)| {
+                    grants
+                        .retained()
+                        .unwrap_or(self.budget.limits().originals.get())
+                        .saturating_mul(2)
+                })
                 .fold(0, usize::saturating_add),
         );
         retained
     }
 }
 impl NativeDnsProvider for Provider {
+    fn budget(&self) -> Option<Arc<super::Budget>> {
+        Some(self.budget.clone())
+    }
     fn fence_old_network(
         &self,
         generation: u64,

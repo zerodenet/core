@@ -6,7 +6,6 @@
 
 use std::future::Future;
 use std::io;
-use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -14,6 +13,7 @@ use serde::Serialize;
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader, BufWriter};
 use tokio::sync::Mutex as TokioMutex;
 use tokio::task::JoinSet;
+use tokio_util::sync::CancellationToken;
 use zero_api::{
     ApiResponse, AuthContext, CommandRequest, CommandService, EventFilter, EventSource, Permission,
     QueryService,
@@ -27,17 +27,25 @@ const MAX_PENDING_CONCURRENT_IPC_COMMANDS: usize = 32;
 
 struct ConcurrentCommandTasks {
     tasks: JoinSet<()>,
+    stop: CancellationToken,
+    failure: Option<tokio::task::JoinError>,
 }
 
 impl ConcurrentCommandTasks {
-    fn new() -> Self {
+    fn new(stop: CancellationToken) -> Self {
         Self {
             tasks: JoinSet::new(),
+            stop,
+            failure: None,
         }
     }
 
     fn reap_finished(&mut self) {
-        while self.tasks.try_join_next().is_some() {}
+        while let Some(result) = self.tasks.try_join_next() {
+            if let Err(error) = result {
+                self.failure.get_or_insert(error);
+            }
+        }
     }
 
     fn try_spawn(&mut self, future: impl Future<Output = ()> + Send + 'static) -> bool {
@@ -45,13 +53,23 @@ impl ConcurrentCommandTasks {
         if self.tasks.len() >= MAX_PENDING_CONCURRENT_IPC_COMMANDS {
             return false;
         }
-        self.tasks.spawn(future);
+        let stop = self.stop.clone();
+        self.tasks.spawn(async move {
+            tokio::select! { _=stop.cancelled()=>{}, _=future=>{} }
+        });
         true
     }
 
-    async fn cancel_all(&mut self) {
-        self.tasks.abort_all();
-        while self.tasks.join_next().await.is_some() {}
+    async fn cancel_all(&mut self) -> io::Result<()> {
+        self.stop.cancel();
+        while let Some(result) = self.tasks.join_next().await {
+            if let Err(error) = result {
+                self.failure.get_or_insert(error);
+            }
+        }
+        self.failure
+            .take()
+            .map_or(Ok(()), |error| Err(io::Error::other(error)))
     }
 }
 
@@ -96,6 +114,17 @@ pub(crate) async fn handle_ipc_connection<S>(stream: S, handle: ProxyHandle) -> 
 where
     S: tokio::io::AsyncRead + tokio::io::AsyncWrite + Unpin + Send + 'static,
 {
+    handle_ipc_connection_until(stream, handle, CancellationToken::new()).await
+}
+
+pub(crate) async fn handle_ipc_connection_until<S>(
+    stream: S,
+    handle: ProxyHandle,
+    stop: CancellationToken,
+) -> io::Result<()>
+where
+    S: tokio::io::AsyncRead + tokio::io::AsyncWrite + Unpin + Send + 'static,
+{
     // IPC connections are protected by OS-level file permissions
     // (Unix socket 0o600).  All callers are trusted with admin.
     let auth_ctx = AuthContext {
@@ -108,7 +137,7 @@ where
         ],
     };
 
-    handle_ipc_connection_with_auth(stream, handle, auth_ctx).await
+    handle_ipc_connection_with_auth_until(stream, handle, auth_ctx, stop).await
 }
 
 async fn handle_ipc_connection_with_auth<S>(
@@ -119,224 +148,242 @@ async fn handle_ipc_connection_with_auth<S>(
 where
     S: tokio::io::AsyncRead + tokio::io::AsyncWrite + Unpin + Send + 'static,
 {
+    handle_ipc_connection_with_auth_until(stream, handle, auth_ctx, CancellationToken::new()).await
+}
+
+async fn handle_ipc_connection_with_auth_until<S>(
+    stream: S,
+    handle: ProxyHandle,
+    auth_ctx: AuthContext,
+    stop: CancellationToken,
+) -> io::Result<()>
+where
+    S: tokio::io::AsyncRead + tokio::io::AsyncWrite + Unpin + Send + 'static,
+{
     let (reader, writer) = tokio::io::split(stream);
     let mut reader = BufReader::new(reader);
     let writer = Arc::new(TokioMutex::new(BufWriter::new(writer)));
 
     let mut subscribed = false;
     let mut line = String::new();
-    // Handles for the background tasks spawned by a `Subscribe` request.
-    // Kept here so we can abort them when the connection ends, instead of
-    // relying on a write failure up to 30s later to reap them.
     let mut bg_blocking: Option<tokio::task::JoinHandle<()>> = None;
     let mut bg_events: Option<tokio::task::JoinHandle<io::Result<()>>> = None;
-    // Cancel flag shared with the blocking subscriber poller; set when the
-    // connection ends so the poller exits within ~100ms instead of looping
-    // forever (which would keep the engine pushing events at a dead client).
-    let mut bg_cancel: Option<Arc<AtomicBool>> = None;
-    let mut concurrent_commands = ConcurrentCommandTasks::new();
-    loop {
-        line.clear();
-        let n = reader.read_line(&mut line).await?;
-        if n == 0 {
-            break;
-        }
-        if line.trim().is_empty() {
-            continue;
-        }
-
-        let request: IpcRequest = match serde_json::from_str(line.trim()) {
-            Ok(req) => req,
-            Err(_) => {
-                let resp = ipc_error(None, "invalid_argument", "invalid request frame");
-                write_ipc_response(&mut *writer.lock().await, &resp).await?;
+    let mut concurrent_commands = ConcurrentCommandTasks::new(stop.clone());
+    // Every error/cancellation exits this work future into the same retained
+    // cleanup path. The original job handles live outside that future.
+    let work = async {
+        loop {
+            line.clear();
+            let n = reader.read_line(&mut line).await?;
+            if n == 0 {
+                break;
+            }
+            if line.trim().is_empty() {
                 continue;
             }
-        };
 
-        match request {
-            IpcRequest::Ping { id } => {
-                let resp = ipc_ok(id, "pong");
-                write_ipc_response(&mut *writer.lock().await, &resp).await?;
-            }
-            IpcRequest::Query { id, request } => match handle.query(request) {
-                Ok(query_resp) => {
-                    let value = serde_json::to_value(query_resp).map_err(io::Error::other)?;
-                    let resp = ipc_ok(id, value);
+            let request: IpcRequest = match serde_json::from_str(line.trim()) {
+                Ok(req) => req,
+                Err(_) => {
+                    let resp = ipc_error(None, "invalid_argument", "invalid request frame");
+                    write_ipc_response(&mut *writer.lock().await, &resp).await?;
+                    continue;
+                }
+            };
+
+            match request {
+                IpcRequest::Ping { id } => {
+                    let resp = ipc_ok(id, "pong");
                     write_ipc_response(&mut *writer.lock().await, &resp).await?;
                 }
-                Err(error) => {
-                    let resp = ipc_api_error(id, &error);
-                    write_ipc_response(&mut *writer.lock().await, &resp).await?;
-                }
-            },
-            IpcRequest::Command { id, method, params } => {
-                let command = parse_command(&method, &params);
-                match command {
-                    Ok(ref cmd) if !auth_ctx.allows(cmd.required_permission()) => {
-                        let error =
-                            zero_api::ApiError::permission_denied(cmd.required_permission());
+                IpcRequest::Query { id, request } => match handle.query(request) {
+                    Ok(query_resp) => {
+                        let value = serde_json::to_value(query_resp).map_err(io::Error::other)?;
+                        let resp = ipc_ok(id, value);
+                        write_ipc_response(&mut *writer.lock().await, &resp).await?;
+                    }
+                    Err(error) => {
                         let resp = ipc_api_error(id, &error);
                         write_ipc_response(&mut *writer.lock().await, &resp).await?;
                     }
-                    Ok(cmd) => {
-                        if command_can_run_concurrently(&cmd) {
-                            let command_handle = handle.clone();
-                            let response_writer = writer.clone();
-                            let rejected_id = id.clone();
-                            let spawned = concurrent_commands.try_spawn(async move {
-                                let result = execute_ipc_command(command_handle, cmd).await;
-                                if let Err(error) =
-                                    write_command_result(response_writer, id, result).await
-                                {
-                                    if !is_transient_disconnect(&error) {
-                                        tracing::warn!(
-                                            %error,
-                                            "failed to write concurrent IPC command response"
-                                        );
+                },
+                IpcRequest::Command { id, method, params } => {
+                    let command = parse_command(&method, &params);
+                    match command {
+                        Ok(ref cmd) if !auth_ctx.allows(cmd.required_permission()) => {
+                            let error =
+                                zero_api::ApiError::permission_denied(cmd.required_permission());
+                            let resp = ipc_api_error(id, &error);
+                            write_ipc_response(&mut *writer.lock().await, &resp).await?;
+                        }
+                        Ok(cmd) => {
+                            if command_can_run_concurrently(&cmd) {
+                                let command_handle = handle.clone();
+                                let response_writer = writer.clone();
+                                let rejected_id = id.clone();
+                                let spawned = concurrent_commands.try_spawn(async move {
+                                    let result = execute_ipc_command(command_handle, cmd).await;
+                                    if let Err(error) =
+                                        write_command_result(response_writer, id, result).await
+                                    {
+                                        if !is_transient_disconnect(&error) {
+                                            tracing::warn!(
+                                                %error,
+                                                "failed to write concurrent IPC command response"
+                                            );
+                                        }
                                     }
-                                }
-                            });
-                            if !spawned {
-                                let error = zero_api::ApiError::new(
+                                });
+                                if !spawned {
+                                    let error = zero_api::ApiError::new(
                                     zero_api::ApiErrorCode::Conflict,
                                     format!(
                                         "this IPC connection already has {MAX_PENDING_CONCURRENT_IPC_COMMANDS} pending outbound probes"
                                     ),
                                 );
-                                write_command_result(writer.clone(), rejected_id, Err(error))
-                                    .await?;
+                                    write_command_result(writer.clone(), rejected_id, Err(error))
+                                        .await?;
+                                }
+                            } else {
+                                let result = execute_ipc_command(handle.clone(), cmd).await;
+                                write_command_result(writer.clone(), id, result).await?;
                             }
-                        } else {
-                            let result = execute_ipc_command(handle.clone(), cmd).await;
-                            write_command_result(writer.clone(), id, result).await?;
+                        }
+                        Err(error) => {
+                            let resp = error.with_id(id);
+                            write_ipc_response(&mut *writer.lock().await, &resp).await?;
                         }
                     }
-                    Err(error) => {
-                        let resp = error.with_id(id);
+                }
+                IpcRequest::Subscribe { id, events } => {
+                    if subscribed {
+                        let resp = ipc_error(
+                            id,
+                            "already_subscribed",
+                            "this connection is already subscribed to events",
+                        );
                         write_ipc_response(&mut *writer.lock().await, &resp).await?;
+                        continue;
                     }
-                }
-            }
-            IpcRequest::Subscribe { id, events } => {
-                if subscribed {
-                    let resp = ipc_error(
-                        id,
-                        "already_subscribed",
-                        "this connection is already subscribed to events",
-                    );
-                    write_ipc_response(&mut *writer.lock().await, &resp).await?;
-                    continue;
-                }
 
-                let mut filter = EventFilter::default();
-                if let Some(types) = events {
-                    filter.event_types = types;
-                }
+                    let mut filter = EventFilter::default();
+                    if let Some(types) = events {
+                        filter.event_types = types;
+                    }
 
-                // Ack only after the subscription actually succeeds, so the
-                // request `id` is moved exactly once (no clone) and
-                // "subscribed" truthfully reflects engine state.
-                match handle.subscribe(filter) {
-                    Ok(subscriber) => {
-                        subscribed = true;
-                        let resp = ipc_ok(id, "subscribed");
-                        write_ipc_response(&mut *writer.lock().await, &resp).await?;
-                        // Tokio (async) channel so the writer task can
-                        // `recv().await` without blocking a worker thread, and so
-                        // aborting it cancels at the await point immediately.
-                        let (event_tx, mut event_rx) = tokio::sync::mpsc::channel(32);
+                    // Ack only after the subscription actually succeeds, so the
+                    // request `id` is moved exactly once (no clone) and
+                    // "subscribed" truthfully reflects engine state.
+                    match handle.subscribe(filter) {
+                        Ok(subscriber) => {
+                            subscribed = true;
+                            let resp = ipc_ok(id, "subscribed");
+                            write_ipc_response(&mut *writer.lock().await, &resp).await?;
+                            // Tokio (async) channel so the writer task can
+                            // `recv().await` without blocking a worker thread, and so
+                            // aborting it cancels at the await point immediately.
+                            let (event_tx, mut event_rx) = tokio::sync::mpsc::channel(32);
 
-                        // Cooperative cancel flag. `abort()` does not interrupt a
-                        // `spawn_blocking` task mid-sleep, and `try_recv()` returning
-                        // `None` cannot distinguish "empty" from "publisher gone" — so
-                        // neither alone reaps the poller. The flag is set when the
-                        // connection ends; the loop checks it each iteration and exits
-                        // within ~100ms, dropping the subscriber so the engine stops
-                        // pushing events at a dead connection.
-                        let cancel = Arc::new(AtomicBool::new(false));
-                        let cancel_for_task = cancel.clone();
+                            let cancel_for_task = stop.clone();
 
-                        // Drain ready events without throttling the subscription.
-                        // Only idle polls sleep; the bounded bridge applies backpressure
-                        // until the writer consumes events or drops its receiver.
-                        bg_blocking = Some(tokio::task::spawn_blocking(move || {
-                            loop {
-                                if cancel_for_task.load(Ordering::Relaxed) || event_tx.is_closed() {
-                                    break;
+                            // Drain ready events without throttling the subscription.
+                            // Only idle polls sleep; the bounded bridge applies backpressure
+                            // until the writer consumes events or drops its receiver.
+                            bg_blocking = Some(tokio::task::spawn_blocking(move || {
+                                loop {
+                                    if cancel_for_task.is_cancelled() || event_tx.is_closed() {
+                                        break;
+                                    }
+                                    if let Some(event) = subscriber.try_recv() {
+                                        // Serialize the full ApiEvent envelope (same format
+                                        // as SSE) so consumers use one parsing code path
+                                        // for both channels.
+                                        let value = serde_json::to_value(&event);
+                                        if let Ok(value) = value {
+                                            if event_tx.blocking_send(value).is_err() {
+                                                break;
+                                            }
+                                        }
+                                        continue;
+                                    }
+                                    std::thread::sleep(Duration::from_millis(25));
                                 }
-                                if let Some(event) = subscriber.try_recv() {
-                                    // Serialize the full ApiEvent envelope (same format
-                                    // as SSE) so consumers use one parsing code path
-                                    // for both channels.
-                                    let value = serde_json::to_value(&event);
-                                    if let Ok(value) = value {
-                                        if event_tx.blocking_send(value).is_err() {
-                                            break;
+                            }));
+
+                            // Writer task: pushes events and 30s heartbeats to the
+                            // client. Runs concurrently with the main read loop so
+                            // query/command/ping frames keep working after subscribe.
+                            let event_writer = writer.clone();
+                            let event_stop = stop.clone();
+                            bg_events = Some(tokio::spawn(async move {
+                                let work = async {
+                                    loop {
+                                        match tokio::time::timeout(
+                                            Duration::from_secs(30),
+                                            event_rx.recv(),
+                                        )
+                                        .await
+                                        {
+                                            Ok(Some(value)) => {
+                                                let frame = serialize_frame(&value)
+                                                    .map_err(io::Error::other)?;
+                                                let mut w = event_writer.lock().await;
+                                                w.write_all(&frame).await?;
+                                                w.flush().await?;
+                                            }
+                                            Ok(None) => break, // sender dropped
+                                            Err(_) => {
+                                                // heartbeat (SSE comment line; clients ignore)
+                                                let mut w = event_writer.lock().await;
+                                                w.write_all(b":\n").await?;
+                                                w.flush().await?;
+                                            }
                                         }
                                     }
-                                    continue;
-                                }
-                                std::thread::sleep(Duration::from_millis(100));
-                            }
-                        }));
-                        bg_cancel = Some(cancel);
-
-                        // Writer task: pushes events and 30s heartbeats to the
-                        // client. Runs concurrently with the main read loop so
-                        // query/command/ping frames keep working after subscribe.
-                        let event_writer = writer.clone();
-                        bg_events = Some(tokio::spawn(async move {
-                            loop {
-                                match tokio::time::timeout(Duration::from_secs(30), event_rx.recv())
-                                    .await
-                                {
-                                    Ok(Some(value)) => {
-                                        let frame =
-                                            serialize_frame(&value).map_err(io::Error::other)?;
-                                        let mut w = event_writer.lock().await;
-                                        w.write_all(&frame).await?;
-                                        w.flush().await?;
-                                    }
-                                    Ok(None) => break, // sender dropped
-                                    Err(_) => {
-                                        // heartbeat (SSE comment line; clients ignore)
-                                        let mut w = event_writer.lock().await;
-                                        w.write_all(b":\n").await?;
-                                        w.flush().await?;
-                                    }
-                                }
-                            }
-                            io::Result::Ok(())
-                        }));
-                    }
-                    Err(error) => {
-                        let resp = ipc_api_error(id, &error);
-                        write_ipc_response(&mut *writer.lock().await, &resp).await?;
+                                    io::Result::Ok(())
+                                };
+                                let result = tokio::select! {
+                                    _ = event_stop.cancelled() => Ok(()),
+                                    result = work => result,
+                                };
+                                event_stop.cancel();
+                                result
+                            }));
+                        }
+                        Err(error) => {
+                            let resp = ipc_api_error(id, &error);
+                            write_ipc_response(&mut *writer.lock().await, &resp).await?;
+                        }
                     }
                 }
             }
         }
-    }
 
-    // Connection ended (client EOF or shutdown). Tear down the background
-    // tasks spawned by any Subscribe request so they don't linger holding a
-    // subscriber (which would otherwise keep the engine pushing events at a
-    // dead connection). The writer task cancels at its await point; setting
-    // the cancel flag stops the blocking poller within ~100ms; abort is a
-    // belt-and-suspenders fallback.
-    if let Some(handle) = bg_events.take() {
-        handle.abort();
-    }
-    if let Some(flag) = bg_cancel.take() {
-        flag.store(true, Ordering::Relaxed);
-    }
-    if let Some(handle) = bg_blocking.take() {
-        handle.abort();
-    }
-    concurrent_commands.cancel_all().await;
-
-    Ok(())
+        io::Result::Ok(())
+    };
+    let result = tokio::select! {
+        _ = stop.cancelled() => Ok(()),
+        result = work => result,
+    };
+    stop.cancel();
+    // The event writer drops its actual receiver, waking a full blocking
+    // bridge. Join both originals even when an earlier read/write failed.
+    let events = match bg_events.take() {
+        Some(task) => task
+            .await
+            .map_err(io::Error::other)
+            .and_then(|result| result),
+        None => Ok(()),
+    };
+    let bridge = match bg_blocking.take() {
+        Some(task) => task.await.map_err(io::Error::other),
+        None => Ok(()),
+    };
+    let commands = concurrent_commands.cancel_all().await;
+    result?;
+    events?;
+    bridge?;
+    commands
 }
 
 fn command_can_run_concurrently(command: &CommandRequest) -> bool {

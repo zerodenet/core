@@ -15,6 +15,11 @@ pub(in crate::adapters::wireguard::lifecycle) struct ResolvedLinkedInvocation {
     demand: PacketCarrierDemand,
     egress: zero_platform_tokio::EgressInterfaceControl,
 }
+pub(super) struct ResolvedRequest {
+    endpoints: Vec<Option<SocketAddr>>,
+    demand: PacketCarrierDemand,
+    egress: zero_platform_tokio::EgressInterfaceControl,
+}
 impl LinkedInvocation {
     /// Actual Node DNS and original caller deadline/cancellation precede graph
     /// start. Resolving a candidate cannot register one of its stack workers.
@@ -23,6 +28,14 @@ impl LinkedInvocation {
         upstream: &UpstreamConnectServices,
         demand: PacketCarrierDemand,
     ) -> Result<ResolvedLinkedInvocation, EngineError> {
+        let request = self.resolve_request(upstream, demand).await?;
+        Ok(self.into_resolved(request))
+    }
+    pub(super) async fn resolve_request(
+        &self,
+        upstream: &UpstreamConnectServices,
+        demand: PacketCarrierDemand,
+    ) -> Result<ResolvedRequest, EngineError> {
         demand.validate()?;
         if !matches!(&demand.identity, RequestIdentity::Service(_))
             || demand.binding != self.recipe.binding
@@ -69,16 +82,27 @@ impl LinkedInvocation {
         };
         demand.validate()?;
         self.recipe.check_staged()?;
-        Ok(ResolvedLinkedInvocation {
-            recipe: self.recipe,
-            peers: self.peers,
+        Ok(ResolvedRequest {
             endpoints,
             demand,
             egress: upstream.egress_control(),
         })
     }
+    pub(super) fn into_resolved(self, request: ResolvedRequest) -> ResolvedLinkedInvocation {
+        ResolvedLinkedInvocation {
+            recipe: self.recipe,
+            peers: self.peers,
+            endpoints: request.endpoints,
+            demand: request.demand,
+            egress: request.egress,
+        }
+    }
 }
 impl ResolvedLinkedInvocation {
+    pub(super) fn binding(&self) -> UpstreamBinding {
+        self.recipe.binding.clone()
+    }
+
     /// Only after the actual canonical slot's fallible start succeeded. Missing
     /// or retired actual cells are errors; no legacy/local worker is started.
     pub(in crate::adapters::wireguard::lifecycle) fn install(
@@ -88,6 +112,11 @@ impl ResolvedLinkedInvocation {
         self.recipe.check_staged()?;
         if self.egress.generation() != self.recipe.binding.network_generation.0 {
             return Err(invalid("linked candidate network changed during BuildNew"));
+        }
+        if let Some(link) = self.recipe.pending.ready() {
+            // Reuse is of the same sealed PeerResources and full graph identity;
+            // no new stack, receiver take, native acquisition or worker starts.
+            return Ok(link);
         }
         let devices = (0..self.peers)
             .map(|peer| {
@@ -113,7 +142,11 @@ impl ResolvedLinkedInvocation {
         self.recipe.pending.install(link.clone())?;
         self.demand.validate()?;
         LinkedEndpointRecipe::check_owner(
-            &self.recipe.map,
+            &self
+                .recipe
+                .map
+                .upgrade()
+                .ok_or_else(|| invalid("linked candidate actual map was released"))?,
             &self.recipe.tag,
             &self.recipe.pending,
         )?;

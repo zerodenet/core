@@ -130,7 +130,7 @@ base64 = "0.22"
 bytes = "1"
 http = "1"
 http-body-util = "0.1"
-hyper = { version = "=1.9.0", default-features = false, features = ["client", "http1"] }
+hyper = { version = "=1.9.0", default-features = false, features = ["client", "server", "http1"] }
 hyper-util = { version = "0.1", default-features = false, features = ["tokio"] }
 tokio-rustls = { version = "0.26", default-features = false }
 url = "2"

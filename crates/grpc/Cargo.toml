@@ -9,12 +9,18 @@ homepage.workspace = true
 
 [dependencies]
 futures-core = "0.3"
+http-body-util = "0.1"
+hyper = { version = "=1.9.0", default-features = false, features = ["server", "http2"] }
+hyper-util = { version = "0.1", default-features = false, features = ["tokio", "service"] }
 prost = "0.13"
 rustls.workspace = true
+rustls-pemfile = "2"
 tonic = { version = "0.12", features = ["transport", "tls"] }
 tokio = { workspace = true, features = ["sync", "rt", "net"] }
 tokio-stream = "0.1"
 tokio-util.workspace = true
+tokio-rustls = { version = "0.26", default-features = false }
+tower-service = "0.3"
 tracing.workspace = true
 serde_json.workspace = true
 zero-api = { path = "../api" }

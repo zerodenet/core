@@ -7,6 +7,7 @@ use std::sync::Arc;
 use tokio::net::UnixListener;
 use tokio::sync::oneshot;
 use tokio::task::JoinSet;
+use tokio_util::sync::CancellationToken;
 use tracing::{debug, error, info, warn};
 use zero_proxy::ProxyHandle;
 
@@ -16,17 +17,22 @@ use super::connection;
 pub const DEFAULT_SOCKET_REL_PATH: &str = ".zero/control.sock";
 
 pub struct IpcServerHandle {
-    shutdown: Option<oneshot::Sender<()>>,
-    task: tokio::task::JoinHandle<io::Result<()>>,
+    shutdown: std::sync::Mutex<Option<oneshot::Sender<()>>>,
+    task: crate::ipc::owner::ControlTask,
     socket_path: PathBuf,
 }
 
 impl IpcServerHandle {
-    pub async fn shutdown(mut self) -> io::Result<()> {
-        if let Some(shutdown) = self.shutdown.take() {
+    pub async fn shutdown(&self) -> io::Result<()> {
+        if let Some(shutdown) = self
+            .shutdown
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .take()
+        {
             let _ = shutdown.send(());
         }
-        let result = self.task.await.expect("ipc server task should join");
+        let result = self.task.join().await;
         let _ = std::fs::remove_file(&self.socket_path);
         result
     }
@@ -90,8 +96,8 @@ pub async fn spawn_ipc_server(
     info!(socket = %socket_path.display(), "ipc server ready");
 
     Ok(IpcServerHandle {
-        shutdown: Some(shutdown_tx),
-        task,
+        shutdown: std::sync::Mutex::new(Some(shutdown_tx)),
+        task: crate::ipc::owner::ControlTask::new(task),
         socket_path: path_for_handle,
     })
 }
@@ -102,13 +108,15 @@ async fn run_ipc_server(
     mut shutdown: oneshot::Receiver<()>,
 ) -> io::Result<()> {
     let mut connections = JoinSet::new();
+    let stop = CancellationToken::new();
+    let mut failure = None;
     let active = Arc::new(AtomicU64::new(0));
 
     loop {
         tokio::select! {
             _ = &mut shutdown => break,
             accept_result = listener.accept() => {
-                let (stream, peer_addr) = accept_result?;
+                let (stream, peer_addr) = match accept_result { Ok(value) => value, Err(error) => { failure.get_or_insert(error); break; } };
                 let handle = handle.clone();
                 let active = active.clone();
                 let pipe = format!("{:?}", peer_addr);
@@ -117,9 +125,10 @@ async fn run_ipc_server(
                 debug!(?peer_addr, active = active.load(Ordering::Relaxed),
                       "ipc client connected");
 
+                let connection_stop = stop.child_token();
                 connections.spawn(async move {
                     let emit_handle = handle.clone();
-                    let result = connection::handle_ipc_connection(stream, handle).await;
+                    let result = connection::handle_ipc_connection_until(stream, handle, connection_stop).await;
 
                     let n = active.fetch_sub(1, Ordering::Relaxed) - 1;
                     let error_str = match &result {
@@ -147,23 +156,25 @@ async fn run_ipc_server(
                 if let Some(Err(error)) = result {
                     if !error.is_cancelled() {
                         error!(error = %error, "ipc connection task panicked");
+                        failure.get_or_insert_with(|| io::Error::other(error));
                     }
                 }
             }
         }
     }
 
-    connections.abort_all();
+    stop.cancel();
     while let Some(result) = connections.join_next().await {
         if let Err(error) = result {
             if !error.is_cancelled() {
                 error!(error = %error, "ipc connection task panicked during shutdown");
+                failure.get_or_insert_with(|| io::Error::other(error));
             }
         }
     }
 
     info!("ipc server stopped");
-    Ok(())
+    failure.map_or(Ok(()), Err)
 }
 
 fn dirs_home() -> Option<PathBuf> {
