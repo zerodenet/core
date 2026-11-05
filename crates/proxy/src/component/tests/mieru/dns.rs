@@ -4,6 +4,7 @@ use std::sync::Arc;
 use zero_platform_tokio::contract::CancellationToken;
 mod fixture;
 use fixture::Dns;
+mod borrowed;
 mod encrypted;
 mod faults;
 mod limits;
@@ -49,9 +50,7 @@ fn closed(original: &zero_platform_tokio::controlled_carrier::CarrierOrigin) {
     assert!(closed.matches(original) && closed.had_native_acquisition());
 }
 async fn start(config: zero_config::RuntimeConfig) -> (Proxy, crate::RunningProxy, ProxyHandle) {
-    let proxy =
-        Proxy::from_engine_with_background(zero_engine::Engine::new(config.clone()).unwrap(), true)
-            .unwrap();
+    let proxy = Proxy::new(config.clone()).unwrap();
     let running = proxy.spawn();
     let handle = ProxyHandle::new(
         zero_engine::EngineHandle::new(proxy.engine().clone()),
