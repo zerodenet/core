@@ -182,12 +182,11 @@ impl Provider {
                             UpstreamTransport::new(root_binding, root),
                         )
                         .await
-                        .map_err(|source| {
+                        .inspect_err(|source| {
                             retry = source
                                 .get_ref()
                                 .and_then(|source| source.downcast_ref::<zero_platform_tokio::contract::ChannelError>())
                                 .is_some_and(|source| source.retry_permitted());
-                            source
                         })?;
                     receipt.check_current()?;
                     return Ok((loan, receipt));
