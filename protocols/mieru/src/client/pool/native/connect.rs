@@ -140,6 +140,12 @@ impl BorrowRequest<'_> {
         lease.attempting_io();
         let state = lease.owner.clone();
         let attempt_cancel = lease.cancellation();
+        // Business callers have no absolute connect deadline. The physical
+        // background prefix still needs the same finite preparation bound as
+        // this pool's existing native initialization, independently of the
+        // business stream and its per-operation timers.
+        let deadline =
+            Some(deadline.unwrap_or_else(|| Instant::now() + std::time::Duration::from_secs(15)));
         let context = zero_platform_tokio::contract::network::CarrierContext {
             session: None,
             deadline,

@@ -121,6 +121,7 @@ fn grpc_ca_production_projection_keeps_candidate_directory_and_file_budget() {
         zero_config::RuntimeConfig::parse(r#"{"route":{"final":{"type":"direct"}}}"#).unwrap();
     config.source_dir = Some("/not-opened/config".into());
     config.runtime.file_read_max_bytes = Some(12345);
+    config.outbounds.push(raw.clone());
     assert!(grpc::eligible(&raw));
     let options = super::super::VmessAdapter::default()
         .standard_options_for(&raw, Some(&config))

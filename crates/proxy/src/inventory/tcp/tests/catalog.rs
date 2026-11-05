@@ -1,4 +1,4 @@
-#![cfg(feature = "mieru")]
+#![cfg(all(feature = "mieru", feature = "vless"))]
 use super::*;
 
 #[tokio::test]
@@ -21,9 +21,13 @@ async fn mixed_factory_only_stream_suffix_needs_no_tcp_claim_and_keeps_the_legac
             "outbounds":[
                 {"tag":"first","protocol":{"type":"socks5","server":"127.0.0.1","port":ports[0]}},
                 {"tag":"pooled","protocol":{"type":"mieru","server":"127.0.0.1","port":ports[1],"username":"test-user","password":"test-password"}},
-                {"tag":"last","protocol":{"type":"socks5","server":"127.0.0.1","port":ports[2]}}
+                {"tag":"last","protocol":{"type":"socks5","server":"127.0.0.1","port":ports[2]}},
+                {"tag":"unmigrated","protocol":{"type":"vless","server":"127.0.0.1","port":ports[0],"id":"11111111-2222-3333-4444-555555555555","http_upgrade":{"path":"/transport"}}}
             ],
-            "outbound_groups":[{"tag":"relay","type":"relay","proxies":members}],
+            "outbound_groups":[
+                {"tag":"relay","type":"relay","proxies":members},
+                {"tag":"unmigrated-relay","type":"relay","proxies":["unmigrated","pooled"]}
+            ],
             "route":{"final":{"type":"route","outbound":"relay"}}
         });
         let mut proxy =
@@ -64,7 +68,7 @@ async fn mixed_factory_only_stream_suffix_needs_no_tcp_claim_and_keeps_the_legac
                 .unwrap()
                 .configured("pooled")
                 .is_none(),
-            "ordinary Mieru native registration remains closed"
+            "the same pool retains its complete legacy executor while a real HTTP-upgrade prefix remains unmigrated"
         );
         let (resolved, _) = proxy
             .engine()
