@@ -153,6 +153,7 @@ impl Provider {
                 task: caller,
                 cancel,
                 original: grant.adoption(),
+                pending_roles: Arc::from([]),
                 logical: Default::default(),
                 capacity: Mutex::new(Some(capacity)),
             }));

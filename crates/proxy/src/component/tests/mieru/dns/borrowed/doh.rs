@@ -65,7 +65,7 @@ async fn doh(network_change: bool) {
             .apply_runtime_config_and_wait(settings, Duration::from_secs(5))
             .await
             .unwrap();
-        let mut query = tokio::spawn({
+        let query = tokio::spawn({
             let resolver = proxy.resolver.clone();
             async move {
                 resolver
