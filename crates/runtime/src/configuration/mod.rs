@@ -1,5 +1,10 @@
 //! Configuration resource preparation belongs to runtime ownership, never validation.
 mod compile;
+mod control_budget;
+pub use control_budget::{
+    ControlBudget, ControlBudgetCandidate, ControlBudgetLimits, ControlBudgetPermit,
+    ControlBudgetUsage, ControlCharge,
+};
 mod io;
 mod notifications;
 mod rule_sets;
