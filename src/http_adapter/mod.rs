@@ -11,7 +11,7 @@ use std::time::Duration;
 use std::{num::NonZeroUsize, sync::Arc};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::sync::oneshot;
-use tracing::{debug, error, info, warn};
+use tracing::{debug, info, warn};
 use zero_api::{AuthContext, Permission};
 use zero_core::{request::Destination, Address};
 use zero_platform_tokio::contract::CancellationToken;
