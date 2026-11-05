@@ -35,6 +35,17 @@ impl std::fmt::Debug for Devices {
 }
 #[cfg(feature = "raw-ip-runtime")]
 impl Devices {
+    #[cfg(all(test, feature = "wireguard"))]
+    pub(crate) fn test_current_wireguard_devices(
+        &self,
+        config: &RuntimeConfig,
+    ) -> Vec<Arc<crate::runtime::raw_ip::SharedRawIpDevice>> {
+        self.wireguard
+            .as_ref()
+            .map(|owner| owner.test_current_devices(config))
+            .unwrap_or_default()
+    }
+
     pub(crate) async fn prepare(
         &self,
         config: &RuntimeConfig,

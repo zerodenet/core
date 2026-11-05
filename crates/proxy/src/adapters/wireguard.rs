@@ -240,6 +240,20 @@ fn invalid(message: &'static str) -> EngineError {
 }
 
 impl WireguardAdapter {
+    #[cfg(test)]
+    pub(crate) fn test_current_devices(
+        &self,
+        config: &zero_config::RuntimeConfig,
+    ) -> Vec<Arc<crate::runtime::raw_ip::SharedRawIpDevice>> {
+        self.pool.test_current_devices(
+            &config
+                .outbounds
+                .iter()
+                .map(|outbound| outbound.tag.clone())
+                .collect::<Vec<_>>(),
+        )
+    }
+
     pub(crate) fn inbound_listener_requires_restart(&self, inbound: &InboundConfig) -> bool {
         let pending = self
             .pending_endpoints
