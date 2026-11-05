@@ -43,6 +43,7 @@ pub struct ResourcePreparation<'a> {
     identities: BTreeSet<ComponentId>,
     failed: Cell<bool>,
     previous: SharedResourceIdentities,
+    previous_slots: &'a [Arc<super::instance::ComponentSlot>],
     candidate: Option<&'a zero_config::RuntimeConfig>,
     source_dir: Option<&'a std::path::Path>,
 }
@@ -54,9 +55,56 @@ impl<'a> ResourcePreparation<'a> {
             identities: BTreeSet::new(),
             failed: Cell::new(false),
             previous: SharedResourceIdentities::default(),
+            previous_slots: &[],
             candidate: None,
             source_dir: None,
         }
+    }
+
+    pub(super) fn with_previous_slots(
+        mut self,
+        previous: &'a [Arc<super::instance::ComponentSlot>],
+    ) -> Self {
+        self.previous_slots = previous;
+        self
+    }
+    /// Read-only evidence from this host's actual previous slot. A dependency
+    /// must already have been requested in this very pass with the same spec
+    /// and exact healthy dependency instances. Unknown dependencies deny reuse.
+    /// This never grants admission or constructs a replacement owner.
+    pub fn reusable_resource_instance(
+        &self,
+        component: ComponentId,
+    ) -> Option<zero_core::component::ComponentInstanceId> {
+        fn check(
+            preparation: &ResourcePreparation<'_>,
+            id: ComponentId,
+            seen: &mut BTreeSet<ComponentId>,
+        ) -> Option<zero_core::component::ComponentInstanceId> {
+            if !seen.insert(id) {
+                return None;
+            }
+            let candidate = preparation
+                .resources
+                .values()
+                .find(|node| node.component == id)?;
+            let old = preparation
+                .previous_slots
+                .iter()
+                .find(|node| node.id == id)?;
+            if !old.can_reuse() || candidate.recipe.spec() != old.recipe.spec() {
+                return None;
+            }
+            for dependency in old.dependency_instances() {
+                if check(preparation, dependency.component, seen)? != *dependency {
+                    return None;
+                }
+            }
+            seen.remove(&id);
+            Some(old.instance_id())
+        }
+        self.ensure_valid().ok()?;
+        check(self, component, &mut BTreeSet::new())
     }
 
     /// Borrow the whole current candidate for assembly-owned shared profile sets.

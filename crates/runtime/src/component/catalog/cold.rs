@@ -119,8 +119,13 @@ impl ComponentCatalog {
         let identities = previous
             .map(|(_, plan)| plan.shared_identities.clone())
             .unwrap_or_default();
-        let mut resources =
-            ResourcePreparation::with_identities(&mut allocate, &identities).with_candidate(config);
+        let mut resources = ResourcePreparation::with_identities(&mut allocate, &identities)
+            .with_candidate(config)
+            .with_previous_slots(
+                previous
+                    .map(|(_, plan)| plan.order.as_slice())
+                    .unwrap_or_default(),
+            );
         let builtin_input = OutboundConfig {
             tag: "direct".into(),
             protocol: OutboundProtocolConfig::Direct,
