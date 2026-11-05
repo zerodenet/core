@@ -13,54 +13,48 @@ pub(super) struct NativeUse {
         tokio::sync::Mutex<Option<zero_platform_tokio::controlled_carrier::loan::LoanOwner>>,
 }
 impl NativeUse {
-    pub(super) fn settle(
-        &self,
-        end: tokio::time::Instant,
-    ) -> BoxFuture<'_, std::io::Result<CloseReport>> {
-        Box::pin(async move {
-            let mut report = CloseReport::default();
-            let mut logical = tokio::time::timeout_at(end, self.logical.lock())
-                .await
-                .map_err(std::io::Error::other)?;
-            if let Some(owner) = logical.as_mut() {
-                let closed = owner.close(end).await.map_err(std::io::Error::other)?;
-                if !closed.is_complete()
-                    || !owner.closed().is_some_and(|closed| closed.matches(owner))
-                {
-                    return Err(std::io::Error::new(
-                        std::io::ErrorKind::TimedOut,
-                        "DNS protocol carrier view remains retained",
-                    ));
-                }
-                report.append(closed);
-            }
-            let closed = self
-                .original
-                .retire(end)
-                .await
-                .map_err(std::io::Error::other)?;
-            if !closed.is_complete()
-                || !self
-                    .original
-                    .closed()
-                    .is_some_and(|closed| closed.matches(&self.original))
-                || !self
-                    .original
-                    .users_closed()
-                    .is_some_and(|closed| closed.matches(&self.original))
+    pub(super) async fn settle(&self, end: tokio::time::Instant) -> std::io::Result<CloseReport> {
+        let mut report = CloseReport::default();
+        let mut logical = tokio::time::timeout_at(end, self.logical.lock())
+            .await
+            .map_err(std::io::Error::other)?;
+        if let Some(owner) = logical.as_mut() {
+            let closed = owner.close(end).await.map_err(std::io::Error::other)?;
+            if !closed.is_complete() || !owner.closed().is_some_and(|closed| closed.matches(owner))
             {
                 return Err(std::io::Error::new(
                     std::io::ErrorKind::TimedOut,
-                    "DNS original or transferred view is not closed",
+                    "DNS protocol carrier view remains retained",
                 ));
             }
             report.append(closed);
-            self.capacity
-                .lock()
-                .expect("DNS original budget poisoned")
-                .take();
-            Ok(report)
-        })
+        }
+        let closed = self
+            .original
+            .retire(end)
+            .await
+            .map_err(std::io::Error::other)?;
+        if !closed.is_complete()
+            || !self
+                .original
+                .closed()
+                .is_some_and(|closed| closed.matches(&self.original))
+            || !self
+                .original
+                .users_closed()
+                .is_some_and(|closed| closed.matches(&self.original))
+        {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::TimedOut,
+                "DNS original or transferred view is not closed",
+            ));
+        }
+        report.append(closed);
+        self.capacity
+            .lock()
+            .expect("DNS original budget poisoned")
+            .take();
+        Ok(report)
     }
 }
 impl Provider {
@@ -163,62 +157,60 @@ impl Provider {
     /// Called after the actual taskless open returned, or after the original
     /// query/driver I/O future dropped. Consume the originals before another
     /// candidate or task exit, without minting a join for the active caller.
-    pub(super) fn close_attempt_originals<'a>(
-        &'a self,
-        caller: &'a TaskJoinWitness,
+    pub(super) async fn close_attempt_originals(
+        &self,
+        caller: &TaskJoinWitness,
         end: tokio::time::Instant,
-    ) -> BoxFuture<'a, std::io::Result<()>> {
-        Box::pin(async move {
-            if !caller
-                .scope_identity()
-                .same_scope(&self.registrar.scope_identity())
-            {
-                return Err(std::io::Error::new(
-                    std::io::ErrorKind::PermissionDenied,
-                    "DNS cleanup requires the actual original caller Scope",
-                ));
+    ) -> std::io::Result<()> {
+        if !caller
+            .scope_identity()
+            .same_scope(&self.registrar.scope_identity())
+        {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::PermissionDenied,
+                "DNS cleanup requires the actual original caller Scope",
+            ));
+        }
+        self.release_installed_pending(caller);
+        let bootstrap = self
+            .network
+            .native_dns
+            .close_bootstrap_descendants(caller, end)
+            .await;
+        let descendants = self.tasks.close_descendants(caller, end).await;
+        let entries = self
+            .users
+            .lock()
+            .expect("DNS users poisoned")
+            .iter()
+            .filter(|entry| entry.task.same_registration(caller))
+            .cloned()
+            .collect::<Vec<_>>();
+        let mut original_failure = None;
+        for entry in entries {
+            if let Err(error) = entry.settle(end).await {
+                original_failure.get_or_insert(error);
+                continue;
             }
-            self.release_installed_pending(caller);
-            let bootstrap = self
-                .network
-                .native_dns
-                .close_bootstrap_descendants(caller, end)
-                .await;
-            let descendants = self.tasks.close_descendants(caller, end).await;
-            let entries = self
-                .users
-                .lock()
-                .expect("DNS users poisoned")
-                .iter()
-                .filter(|entry| entry.task.same_registration(caller))
-                .cloned()
-                .collect::<Vec<_>>();
-            let mut original_failure = None;
-            for entry in entries {
-                if let Err(error) = entry.settle(end).await {
-                    original_failure.get_or_insert(error);
-                    continue;
-                }
-                let removed = {
-                    let mut users = self.users.lock().expect("DNS users poisoned");
-                    users
-                        .iter()
-                        .position(|old| Arc::ptr_eq(old, &entry))
-                        .map(|index| users.swap_remove(index))
-                };
-                drop(removed);
-            }
-            let pending = self.close_pending_originals(caller, end).await;
-            // Original close and nested Scope joins remain separate gates. A
-            // failed descendant must not prevent collection of socket originals.
-            descendants?;
-            bootstrap?;
-            if let Some(error) = original_failure {
-                return Err(error);
-            }
-            pending?;
-            self.reap(end).await
-        })
+            let removed = {
+                let mut users = self.users.lock().expect("DNS users poisoned");
+                users
+                    .iter()
+                    .position(|old| Arc::ptr_eq(old, &entry))
+                    .map(|index| users.swap_remove(index))
+            };
+            drop(removed);
+        }
+        let pending = self.close_pending_originals(caller, end).await;
+        // Original close and nested Scope joins remain separate gates. A
+        // failed descendant must not prevent collection of socket originals.
+        descendants?;
+        bootstrap?;
+        if let Some(error) = original_failure {
+            return Err(error);
+        }
+        pending?;
+        self.reap(end).await
     }
 
     async fn close_pending_originals(
@@ -277,47 +269,45 @@ impl Provider {
         };
         std::io::Error::new(cleanup.kind(), OpenCleanupFailure { opening, cleanup })
     }
-    pub(in crate::component::native_dns) fn reap(
+    pub(in crate::component::native_dns) async fn reap(
         &self,
         end: tokio::time::Instant,
-    ) -> BoxFuture<'_, std::io::Result<()>> {
-        Box::pin(async move {
-            #[cfg(feature = "dns")]
-            self.reap_quic(end).await?;
-            let callers = self
-                .pending
-                .lock()
-                .expect("DNS pending originals poisoned")
-                .iter()
-                .filter(|entry| entry.task.is_joined())
-                .map(|entry| entry.task.clone())
-                .collect::<Vec<_>>();
-            for caller in callers {
-                self.release_installed_pending(&caller);
-                self.close_pending_originals(&caller, end).await?;
+    ) -> std::io::Result<()> {
+        #[cfg(feature = "dns")]
+        self.reap_quic(end).await?;
+        let callers = self
+            .pending
+            .lock()
+            .expect("DNS pending originals poisoned")
+            .iter()
+            .filter(|entry| entry.task.is_joined())
+            .map(|entry| entry.task.clone())
+            .collect::<Vec<_>>();
+        for caller in callers {
+            self.release_installed_pending(&caller);
+            self.close_pending_originals(&caller, end).await?;
+        }
+        let entries = self.users.lock().expect("DNS users poisoned").clone();
+        for entry in entries {
+            // A live query can still be dialing or reading. Its completed
+            // original may also be reclaimed during the same task's fallback.
+            if !entry.task.is_joined() && entry.original.closed().is_none() {
+                continue;
             }
-            let entries = self.users.lock().expect("DNS users poisoned").clone();
-            for entry in entries {
-                // A live query can still be dialing or reading. Its completed
-                // original may also be reclaimed during the same task's fallback.
-                if !entry.task.is_joined() && entry.original.closed().is_none() {
-                    continue;
-                }
-                entry.settle(end).await?;
-                // This same ledger also retains a detour's real foreign grants,
-                // installed before its handshake and DNS loan handoff. Task
-                // failures remain in their original host TaskScope.
-                let retired = {
-                    let mut users = self.users.lock().expect("DNS users poisoned");
-                    users
-                        .iter()
-                        .position(|old| Arc::ptr_eq(old, &entry))
-                        .map(|index| users.swap_remove(index))
-                };
-                drop(retired);
-            }
-            Ok(())
-        })
+            entry.settle(end).await?;
+            // This same ledger also retains a detour's real foreign grants,
+            // installed before its handshake and DNS loan handoff. Task
+            // failures remain in their original host TaskScope.
+            let retired = {
+                let mut users = self.users.lock().expect("DNS users poisoned");
+                users
+                    .iter()
+                    .position(|old| Arc::ptr_eq(old, &entry))
+                    .map(|index| users.swap_remove(index))
+            };
+            drop(retired);
+        }
+        Ok(())
     }
 }
 
