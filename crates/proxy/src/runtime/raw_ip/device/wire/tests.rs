@@ -87,9 +87,24 @@ async fn same_wire_driver_and_client_tasks_join_in_scope_with_authenticated_sour
     )
     .await
     .is_err());
-    let (joined, monitor) = tokio::join!(owner.stop(deadline()), scope.shutdown(deadline()));
+    owner.revoke();
+    scope.begin_shutdown();
+    let drain = async {
+        let mut original_joins = Vec::new();
+        while let Some(receipt) = tokio::time::timeout_at(deadline(), scope.next_receipt())
+            .await
+            .unwrap()
+        {
+            assert!(receipt.result().is_ok(), "{receipt:?}");
+            original_joins.push(receipt.joined().clone());
+            scope.acknowledge(&receipt).unwrap();
+        }
+        assert!(scope.is_drained());
+        original_joins
+    };
+    let (joined, monitor) = tokio::join!(owner.stop(deadline()), drain);
     assert!(joined.unwrap().is_complete());
-    assert!(monitor.is_complete());
+    assert_eq!(monitor.len(), 3);
     assert!(witnesses.iter().all(|witness| witness.is_joined()));
     assert!(owner.is_drained());
     // This library carrier's explicit close is separate from host task joins.
