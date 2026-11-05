@@ -89,6 +89,11 @@ impl ResolvedLinkedInvocation {
         if self.egress.generation() != self.recipe.binding.network_generation.0 {
             return Err(invalid("linked candidate network changed during BuildNew"));
         }
+        if let Some(link) = self.recipe.pending.ready() {
+            // Reuse is of the same sealed PeerResources and full graph identity;
+            // no new stack, receiver take, native acquisition or worker starts.
+            return Ok(link);
+        }
         let devices = (0..self.peers)
             .map(|peer| {
                 self.recipe

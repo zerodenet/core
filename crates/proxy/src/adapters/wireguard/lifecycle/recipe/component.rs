@@ -12,11 +12,11 @@ use zero_platform_tokio::contract::{
 };
 
 pub(in crate::adapters::wireguard::lifecycle) struct LinkedStackFactory;
-pub(in crate::adapters::wireguard::lifecycle) struct LinkedStackOptions {
+pub(in crate::adapters::wireguard) struct LinkedStackOptions {
     spec: ComponentSpec,
     tag: String,
     map: super::super::PendingEndpointMap,
-    pending: Arc<PendingLinkedEndpoint>,
+    pub(super) pending: Arc<PendingLinkedEndpoint>,
     peers: usize,
     stacks: Mutex<Option<Vec<EndpointStackRecipe>>>,
 }
@@ -43,6 +43,9 @@ impl LinkedStackOptions {
             peers: stacks.len(),
             stacks: Mutex::new(Some(stacks)),
         }
+    }
+    pub(in crate::adapters::wireguard) fn matches_identity(&self, identity: &[u8]) -> bool {
+        self.spec.static_identity.as_ref() == identity
     }
     pub(super) fn peer_count(&self) -> usize {
         self.peers

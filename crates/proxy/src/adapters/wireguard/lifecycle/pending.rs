@@ -20,6 +20,7 @@ pub(in crate::adapters::wireguard) struct PendingLinkedEndpoint {
 }
 pub(in crate::adapters::wireguard) struct PeerResources {
     owned: bool,
+    graph: std::sync::Mutex<std::sync::Weak<super::recipe::component::LinkedStackOptions>>,
     peer_stacks: Vec<Arc<crate::runtime::raw_ip::EndpointStackOwner>>,
     peer_carriers: Vec<Arc<crate::runtime::udp_dispatch::packet_owner::PacketCarrierOwnerSlot>>,
 }
@@ -61,6 +62,7 @@ impl PendingLinkedEndpoint {
             ready: OnceLock::new(),
             resources: Arc::new(PeerResources {
                 owned,
+                graph: std::sync::Mutex::new(std::sync::Weak::new()),
                 peer_stacks: (0..peers)
                     .map(|_| crate::runtime::raw_ip::EndpointStackOwner::suspended())
                     .collect(),
@@ -97,6 +99,37 @@ impl PendingLinkedEndpoint {
         peer: usize,
     ) -> Option<Arc<crate::runtime::raw_ip::EndpointStackOwner>> {
         self.resources.peer_stacks.get(peer).cloned()
+    }
+    pub(super) fn same_resources(&self, other: &Self) -> bool {
+        Arc::ptr_eq(&self.resources, &other.resources)
+    }
+    pub(super) fn bind_graph(
+        &self,
+        graph: &Arc<super::recipe::component::LinkedStackOptions>,
+    ) -> Result<(), EngineError> {
+        let mut slot = self
+            .resources
+            .graph
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
+        if slot.upgrade().is_some_and(|old| !Arc::ptr_eq(&old, graph)) {
+            return Err(super::invalid(
+                "peer originals already belong to a different actual graph",
+            ));
+        }
+        *slot = Arc::downgrade(graph);
+        Ok(())
+    }
+    pub(super) fn graph_for(
+        &self,
+        identity: &[u8],
+    ) -> Option<Arc<super::recipe::component::LinkedStackOptions>> {
+        self.resources
+            .graph
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .upgrade()
+            .filter(|graph| graph.matches_identity(identity) && self.is_usable())
     }
     pub(super) fn from_ready(link: Arc<LinkedEndpoint>) -> Result<Self, EngineError> {
         let pending = match link.owned_resources() {

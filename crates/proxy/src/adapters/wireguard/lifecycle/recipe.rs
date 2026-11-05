@@ -1,5 +1,5 @@
 //! Cold linked-client recipe. Only BuildNew may resolve or register originals.
-mod component;
+pub(super) mod component;
 mod invocation;
 use super::{inbound, invalid, PendingLinkedEndpoint, WireguardAdapter, WireguardRawIpPlan};
 use crate::{
@@ -34,6 +34,7 @@ pub(super) struct LinkedEndpointRecipe {
     sender: watch::Sender<mpsc::Sender<crate::runtime::raw_ip::EndpointPacket>>,
     packets: mpsc::Receiver<crate::runtime::raw_ip::EndpointPacket>,
     static_identity: Arc<[u8]>,
+    reuse: Option<std::sync::Weak<LinkedStackOptions>>,
 }
 impl LinkedEndpointRecipe {
     /// No DNS, native handle, task registration or old receiver take occurs.
@@ -88,11 +89,22 @@ impl LinkedEndpointRecipe {
             hash.update(options.identity(settings.identity));
         }
         let static_identity: Arc<[u8]> = Arc::from(hash.finalize().to_vec());
-        let pending = Arc::new(PendingLinkedEndpoint::with_peer_slots(
-            inbound.listen.clone(),
-            adapter.passive_inbound_live(inbound)?,
-            plan.peer_count(),
-        )?);
+        let reused = adapter
+            .linked_endpoints
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .get(&inbound.tag)
+            .and_then(|link| PendingLinkedEndpoint::from_ready(link.clone()).ok())
+            .and_then(|pending| pending.graph_for(&static_identity));
+        let pending = match &reused {
+            Some(graph) => graph.pending.clone(),
+            None => Arc::new(PendingLinkedEndpoint::with_peer_slots(
+                inbound.listen.clone(),
+                adapter.passive_inbound_live(inbound)?,
+                plan.peer_count(),
+            )?),
+        };
+        let reuse = reused.as_ref().map(Arc::downgrade);
         let (sender, packets) = mpsc::channel(256);
         let (sender, endpoint) = watch::channel(sender);
         let stacks = settings
@@ -124,6 +136,7 @@ impl LinkedEndpointRecipe {
             sender,
             packets,
             static_identity,
+            reuse,
         })
     }
     /// The host grants the actual declared stack workers, never an invented
@@ -153,7 +166,9 @@ impl LinkedEndpointRecipe {
         if !map
             .as_ref()
             .and_then(|map| map.get(tag))
-            .is_some_and(|candidate| Arc::ptr_eq(candidate, pending))
+            .is_some_and(|candidate| {
+                Arc::ptr_eq(candidate, pending) || candidate.same_resources(pending)
+            })
         {
             return Err(invalid(
                 "linked resource owner was not installed in this actual candidate",
@@ -181,12 +196,21 @@ impl LinkedEndpointRecipe {
         Ok((id, invocation))
     }
     fn into_parts(mut self) -> Result<(Arc<LinkedStackOptions>, LinkedInvocation), EngineError> {
-        let task_limit = self.task_limit()?;
-        let stacks = std::mem::take(&mut self.stacks);
-        let options = LinkedStackOptions::new(&self, stacks, task_limit);
+        let options = match &self.reuse {
+            Some(owner) => owner.upgrade().ok_or_else(|| {
+                invalid("same canonical linked owner was released during cold preparation")
+            })?,
+            None => {
+                let task_limit = self.task_limit()?;
+                let stacks = std::mem::take(&mut self.stacks);
+                let options = Arc::new(LinkedStackOptions::new(&self, stacks, task_limit));
+                self.pending.bind_graph(&options)?;
+                options
+            }
+        };
         let peers = options.peer_count();
         Ok((
-            Arc::new(options),
+            options,
             LinkedInvocation {
                 recipe: self,
                 peers,

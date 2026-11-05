@@ -253,3 +253,5 @@ async fn actual_cold_union_and_ordinary_service_start_cannot_grant_deferred_grap
 
 #[path = "canonical/device_start.rs"]
 mod device_start;
+#[path = "canonical/reuse.rs"]
+mod reuse;
