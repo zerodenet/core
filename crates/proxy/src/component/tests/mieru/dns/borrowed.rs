@@ -21,29 +21,57 @@ fn detoured(dns: &Dns, server: &Server) -> zero_config::RuntimeConfig {
 
 #[tokio::test]
 async fn actual_dns_queries_return_borrowed_originals_and_reuse_the_same_mieru_donor() {
-    borrowed(false).await;
+    borrowed(false, false).await;
 }
 
 #[tokio::test]
 async fn actual_pending_dns_cancellation_returns_its_loan_without_retiring_the_mieru_donor() {
-    borrowed(true).await;
+    borrowed(true, false).await;
 }
 
-async fn borrowed(cancel: bool) {
+#[tokio::test]
+async fn actual_domain_mieru_detour_uses_a_distinct_bootstrap_scope_and_the_same_donor_pool() {
+    borrowed(false, true).await;
+}
+
+async fn borrowed(cancel: bool, domain: bool) {
     tokio::time::timeout(Duration::from_secs(25), async {
         let mut dns = Dns::new().await;
         let server = Server::new(true).await;
-        let settings = detoured(&dns, &server);
+        let mut settings = detoured(&dns, &server);
+        if domain {
+            let zero_config::OutboundProtocolConfig::Mieru { server, .. } = &mut settings.outbounds[0].protocol else { unreachable!() };
+            *server = "borrowed.node.test".into();
+        }
         let (proxy, running, handle) = start(settings.clone()).await;
         let mut query = tokio::spawn({
             let resolver = proxy.resolver.clone();
             async move { resolver.resolve_real_type("first.borrowed.test", 1).await }
         });
+        let bootstrap = if domain {
+            let request = tokio::select! {
+                request = dns.request() => request,
+                result = &mut query => panic!("detour query failed before bootstrap: {result:?}"),
+            };
+            assert!(!request.tcp);
+            let bootstrap = pending(&proxy).await;
+            let original = bootstrap.original.as_ref().unwrap();
+            assert!(original.parent().is_none());
+            request.answer(false, false);
+            bootstrap.task.wait().await;
+            closed(original);
+            Some(bootstrap)
+        } else { None };
         let request = tokio::select! {
             request = dns.request() => request,
             result = &mut query => panic!("DNS query returned before its actual request reached the fixture: {result:?}"),
         };
         assert!(request.tcp);
+        if let Some(bootstrap) = &bootstrap {
+            let query = pending(&proxy).await;
+            assert!(!query.task.scope_identity().same_scope(&bootstrap.task.scope_identity()),
+                "bootstrap and the borrowing Default query must have distinct actual owners");
+        }
         let first = pending(&proxy).await;
         let child = first.original.clone().expect("actual DNS child original");
         let donor = child

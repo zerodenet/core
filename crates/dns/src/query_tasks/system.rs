@@ -73,6 +73,7 @@ impl OwnedDnsQueryTasks {
         let network = parent.network.get().copied();
         let ancestors = self.ancestors_of(&parent, &caller)?;
         let record = Arc::new(Record {
+            capacity: Mutex::new(Some(self.0.budget.reserve(TaskKind::Blocking)?)),
             kind: TaskKind::Blocking,
             ancestors,
             network: network.map(OnceLock::from).unwrap_or_default(),
@@ -83,6 +84,12 @@ impl OwnedDnsQueryTasks {
             original: Mutex::new(None),
             metadata: Mutex::new(None),
         });
+        self.0
+            .budget
+            .retained
+            .lock()
+            .expect("DNS budget poisoned")
+            .push(Arc::downgrade(&record));
         {
             let mut state = self.0.state.lock().expect("DNS query tasks poisoned");
             if state.closing || self.0.parent.is_cancelled() {

@@ -8,6 +8,7 @@ use zero_platform_tokio::{
 pub(super) struct Root {
     native: ResolvingCarrierOpener,
     grants: CarrierGrants,
+    budget: Arc<crate::component::native_dns::Budget>,
     users: Arc<Mutex<Vec<Arc<custody::NativeUse>>>>,
     caller: TaskJoinWitness,
     cancel: CancellationToken,
@@ -22,6 +23,7 @@ impl Root {
         endpoint: Destination,
         binding: UpstreamBinding,
         grants: CarrierGrants,
+        budget: Arc<crate::component::native_dns::Budget>,
         users: Arc<Mutex<Vec<Arc<custody::NativeUse>>>>,
         caller: TaskJoinWitness,
         cancel: CancellationToken,
@@ -38,6 +40,7 @@ impl Root {
                 services.observer(),
             )?,
             grants,
+            budget,
             users,
             caller,
             cancel,
@@ -132,6 +135,7 @@ impl UpstreamOpener for Root {
             let mut last = None;
             for index in 0..candidates.len() {
                 self.grants.reap_returned(end).await?;
+                let capacity = self.budget.reserve(1).map_err(error)?;
                 let mut grant = self.grants.reserve()?;
                 let view = grant.claim_transferred_view()?;
                 let entry = Arc::new(custody::NativeUse {
@@ -139,6 +143,7 @@ impl UpstreamOpener for Root {
                     cancel: self.cancel.clone(),
                     original: grant.adoption(),
                     logical: Default::default(),
+                    capacity: Mutex::new(Some(capacity)),
                 });
                 {
                     let mut users = self.users.lock().expect("DNS users poisoned");

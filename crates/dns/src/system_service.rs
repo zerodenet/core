@@ -35,11 +35,17 @@ impl DnsSystem {
         scope.config_generation = config_generation;
         let key = QueryKey::new(domain, 0, scope);
         let domain = domain.to_owned();
-        let native = self
-            .native_source
-            .clone()
-            .or_else(|| self.node_queries.as_ref().map(|node| node.source.clone()));
-        self.query_coordinator
+        let node = matches!(role, DnsQueryRole::Node | DnsQueryRole::Bootstrap)
+            .then_some(self.node_queries.as_ref())
+            .flatten();
+        let native = node
+            .map(|node| node.source.clone())
+            .or_else(|| self.native_source.clone())
+            .or_else(|| self.query_coordinator.native_source().cloned());
+        let coordinator = node
+            .map(|node| &node.coordinator)
+            .unwrap_or(&self.query_coordinator);
+        coordinator
             .resolve(key, async move {
                 match native {
                     Some(source) => {
@@ -95,11 +101,17 @@ impl DnsSystem {
         scope.family = family;
         let key = QueryKey::new(domain, query_type, scope);
         let domain = domain.to_owned();
-        let native = self
-            .native_source
-            .clone()
-            .or_else(|| self.node_queries.as_ref().map(|node| node.source.clone()));
-        self.query_coordinator
+        let node = matches!(role, DnsQueryRole::Node | DnsQueryRole::Bootstrap)
+            .then_some(self.node_queries.as_ref())
+            .flatten();
+        let native = node
+            .map(|node| node.source.clone())
+            .or_else(|| self.native_source.clone())
+            .or_else(|| self.query_coordinator.native_source().cloned());
+        let coordinator = node
+            .map(|node| &node.coordinator)
+            .unwrap_or(&self.query_coordinator);
+        coordinator
             .resolve(key, async move {
                 match native {
                     Some(source) => {

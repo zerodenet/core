@@ -149,6 +149,7 @@ impl Provider {
                     endpoint,
                     root_binding.clone(),
                     root_grants.clone(),
+                    self.budget.clone(),
                     self.users.clone(),
                     caller.clone(),
                     cancel.clone(),

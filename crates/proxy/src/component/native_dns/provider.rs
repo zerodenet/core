@@ -19,6 +19,7 @@ use zero_platform_tokio::{
 };
 pub(super) struct Provider {
     tasks: OwnedDnsQueryTasks,
+    budget: Arc<super::Budget>,
     registrar: TaskRegistrar,
     cancel: CancellationToken,
     peers: Vec<(SocketAddr, bool, CarrierGrants)>,
@@ -47,10 +48,12 @@ impl Provider {
         metadata: &[zero_platform_tokio::controlled_datagram::metadata_pool::MetadataPoolOwner],
     ) -> Self {
         Self {
-            tasks: OwnedDnsQueryTasks::new_critical(
+            tasks: OwnedDnsQueryTasks::new_critical_with_budget(
                 &context.tasks,
                 NonZeroUsize::new(LIMIT).unwrap(),
+                network.dns_budget.tasks.clone(),
             ),
+            budget: network.dns_budget.clone(),
             registrar: context.tasks.clone(),
             cancel: context.cancel.clone(),
             peers: options
@@ -127,6 +130,7 @@ impl Provider {
                 )
             })?
             .2;
+        let capacity = self.budget.reserve(1)?;
         let mut grant = grants.reserve().map_err(std::io::Error::other)?;
         let view = grant
             .claim_transferred_view()
@@ -139,6 +143,7 @@ impl Provider {
                 cancel,
                 original: grant.adoption(),
                 logical: Default::default(),
+                capacity: Mutex::new(Some(capacity)),
             }));
         let binding = UpstreamBinding {
             prefix: vec![],
@@ -187,6 +192,16 @@ impl Provider {
     }
 }
 impl NativeDnsProvider for Provider {
+    fn fence_old_network(
+        &self,
+        generation: u64,
+        end: tokio::time::Instant,
+    ) -> BoxFuture<'_, std::io::Result<()>> {
+        Box::pin(async move {
+            self.tasks.fence_old_network(generation, end).await?;
+            self.reap(end).await
+        })
+    }
     fn finish_query(&self, caller: TaskJoinWitness) -> BoxFuture<'_, std::io::Result<()>> {
         Box::pin(async move {
             let end = tokio::time::Instant::now() + std::time::Duration::from_secs(5);

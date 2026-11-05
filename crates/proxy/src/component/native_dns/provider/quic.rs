@@ -23,6 +23,7 @@ pub(super) struct Query {
     pub(super) cancel: CancellationToken,
     origin: MetadataPoolOrigin,
     state: tokio::sync::Mutex<Lifecycle>,
+    capacity: Mutex<Option<tokio::sync::OwnedSemaphorePermit>>,
 }
 struct Lifecycle {
     permit: MetadataPoolPermit,
@@ -40,11 +41,13 @@ impl Query {
         cancel: CancellationToken,
         permit: MetadataPoolPermit,
         tasks: TaskRegistrar,
+        capacity: tokio::sync::OwnedSemaphorePermit,
     ) -> Self {
         let origin = permit.origin();
         Self {
             task,
             cancel,
+            capacity: Mutex::new(Some(capacity)),
             origin,
             state: tokio::sync::Mutex::new(Lifecycle {
                 permit,
@@ -180,12 +183,14 @@ impl Provider {
                 )
             })?
             .1;
+        let capacity = self.budget.reserve(2)?;
         let permit = grants.reserve(&caller).map_err(std::io::Error::other)?;
         let query = Arc::new(Query::new(
             caller,
             cancel.clone(),
             permit,
             self.registrar.clone(),
+            capacity,
         ));
         self.quic_users
             .lock()
