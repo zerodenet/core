@@ -79,7 +79,7 @@ pub trait UpstreamOpener: Send + Sync {
         error.delivery = DeliveryState::NotSubmitted;
         Box::pin(async move { Err(error) })
     }
-    fn carrier_dns_generation(&self) -> Option<super::dns::DnsGeneration> {
+    fn carrier_dns_generation(&self) -> Option<crate::contract::dns::DnsGeneration> {
         None
     }
     /// Host-owned node resolution only. The result retains the original domain
