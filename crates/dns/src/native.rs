@@ -179,6 +179,27 @@ impl NativeDnsSource {
     }
     /// Inspect only the actual currently installed provider's typed capacity.
     /// No service snapshot, native resource, task or admission is acquired.
+    pub async fn close_bootstrap_descendants(
+        &self,
+        caller: &TaskJoinWitness,
+        end: Instant,
+    ) -> io::Result<()> {
+        let provider = self
+            .0
+            .read()
+            .expect("DNS native source poisoned")
+            .as_ref()
+            .and_then(Weak::upgrade);
+        match provider {
+            Some(provider) => {
+                provider
+                    .tasks()
+                    .close_bootstrap_descendants(caller, end)
+                    .await
+            }
+            None => Ok(()),
+        }
+    }
     pub fn current_budget(&self) -> Option<Arc<NativeDnsBudget>> {
         self.provider().ok()?.budget()
     }

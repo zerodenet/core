@@ -102,14 +102,19 @@ impl DnsService for NodeService {
                 .as_ref()
                 .ok_or_else(|| failure(Reason::Unsupported))?;
             if dns.snapshot().is_none() {
-                return dns
-                    .resolve_native_system(
+                let tasks = node
+                    .source
+                    .tasks()
+                    .map_err(|source| failure(Reason::Io).with_source(source))?;
+                return tasks
+                    .bootstrap(dns.resolve_native_system(
                         request,
                         context,
                         node.source.clone(),
                         node.coordinator.clone(),
-                    )
-                    .await;
+                    ))
+                    .await
+                    .map_err(|source| failure(Reason::Io).with_source(source))?;
             }
             let mut snapshot = dns.snapshot().ok_or_else(|| failure(Reason::Unsupported))?;
             snapshot
@@ -136,7 +141,12 @@ impl DnsService for NodeService {
             if *network.borrow() != generation.network.0 {
                 return Err(failure(Reason::StalePlan));
             }
-            let work = resolve_snapshot(&domain, DnsQueryRole::Node, snapshot);
+            let work = async {
+                node.source
+                    .tasks()?
+                    .bootstrap(resolve_snapshot(&domain, DnsQueryRole::Node, snapshot))
+                    .await?
+            };
             let addresses = tokio::select! {biased;
                 _=context.cancel.cancelled()=>return Err(failure(Reason::Cancelled)),
                 _=network.changed()=>return Err(failure(Reason::StalePlan)),

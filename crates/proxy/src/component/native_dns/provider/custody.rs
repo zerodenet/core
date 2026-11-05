@@ -90,6 +90,11 @@ impl Provider {
                 "DNS cleanup requires the actual original caller Scope",
             ));
         }
+        let bootstrap = self
+            .network
+            .native_dns
+            .close_bootstrap_descendants(caller, end)
+            .await;
         let descendants = self.tasks.close_descendants(caller, end).await;
         let entries = self
             .users
@@ -113,6 +118,7 @@ impl Provider {
         // Original close and nested Scope joins remain separate gates. A
         // failed descendant must not prevent collection of socket originals.
         descendants?;
+        bootstrap?;
         self.reap(end).await
     }
 
