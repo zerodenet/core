@@ -35,6 +35,15 @@ impl ProtocolRegistry {
             .unwrap_or_default()
     }
 
+    pub(crate) fn validate_runtime_candidate(
+        &self,
+        config: &RuntimeConfig,
+    ) -> Result<(), zero_engine::EngineError> {
+        for entry in &self.entries {
+            entry.support.validate_runtime_candidate(config)?;
+        }
+        Ok(())
+    }
     pub(crate) fn on_config_reloaded(&self, config: &RuntimeConfig) {
         for entry in &self.entries {
             entry.support.on_config_reloaded(config);

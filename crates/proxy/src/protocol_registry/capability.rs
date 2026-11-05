@@ -79,5 +79,8 @@ pub(crate) trait ProtocolSupportCapability: ProtocolMetadata + Send + Sync {
         Ok(())
     }
 
+    fn validate_runtime_candidate(&self, _config: &RuntimeConfig) -> Result<(), EngineError> {
+        Ok(())
+    }
     fn on_config_reloaded(&self, _config: &RuntimeConfig) {}
 }

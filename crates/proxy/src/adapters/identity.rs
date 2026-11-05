@@ -18,6 +18,12 @@ pub(crate) trait NamedProtocolAdapter: ProtocolMetadata + Send + Sync {
         Ok(())
     }
 
+    fn validate_runtime_candidate(
+        &self,
+        _config: &RuntimeConfig,
+    ) -> Result<(), zero_engine::EngineError> {
+        Ok(())
+    }
     fn on_config_reloaded(&self, _config: &RuntimeConfig) {}
 }
 
@@ -56,6 +62,12 @@ where
         NamedProtocolAdapter::validate_inbound_config(self, config)
     }
 
+    fn validate_runtime_candidate(
+        &self,
+        config: &RuntimeConfig,
+    ) -> Result<(), zero_engine::EngineError> {
+        NamedProtocolAdapter::validate_runtime_candidate(self, config)
+    }
     fn on_config_reloaded(&self, config: &RuntimeConfig) {
         NamedProtocolAdapter::on_config_reloaded(self, config);
     }

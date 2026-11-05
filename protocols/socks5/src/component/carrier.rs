@@ -37,12 +37,10 @@ impl Outbound {
         }
         let view = grant.claim_transferred_view()?;
         let io = if context.upstream.binding().prefix.is_empty() {
-            let prepared = context.upstream.prepare_controlled_stream(
-                self.options.endpoint.clone(),
-                call,
-                grant,
-            )?;
-            prepared.open(end).await?.into_parts().0
+            context
+                .upstream
+                .acquire_controlled_stream(self.options.endpoint.clone(), call, grant)
+                .await?
         } else {
             let loan = context
                 .upstream

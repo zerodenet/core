@@ -228,10 +228,17 @@ impl super::ProtocolInventory {
         }
         Ok(())
     }
+    pub(crate) fn validate_runtime_candidate(
+        &self,
+        config: &RuntimeConfig,
+    ) -> Result<(), zero_engine::EngineError> {
+        self.registry.validate_runtime_candidate(config)
+    }
     pub(crate) fn validate_components(
         &self,
         config: Arc<RuntimeConfig>,
     ) -> Result<(), zero_engine::EngineError> {
+        self.validate_runtime_candidate(&config)?;
         self.prepare_components(config)
             .map(|_| ())
             .map_err(|error| zero_engine::EngineError::Io(std::io::Error::other(retained(error))))

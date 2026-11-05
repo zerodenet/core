@@ -138,6 +138,10 @@ impl ProxyHandle {
             return Ok(None);
         }
         self.proxy
+            .protocols
+            .validate_runtime_candidate(&candidate)
+            .map_err(|error| error.to_string())?;
+        self.proxy
             .engine
             .configuration_source()
             .ensure_available()
