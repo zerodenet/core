@@ -1,7 +1,6 @@
 //! Unpublished actual failures charge the same finite entry budget. Successes
 //! consume no lifetime credit once their original native/user/task gates settle.
 use super::*;
-pub(super) const ENTRY_LIMIT: usize = 256;
 pub(super) struct FailedGroup {
     pub(super) drivers: Vec<DriverDelivery>,
     pub(super) application: Vec<zero_platform_tokio::contract::scope::TaskJoined>,
@@ -45,7 +44,7 @@ impl Generation {
             let failures = self.failures.lock().unwrap();
             (entries.len(), failures.len())
         };
-        tracing::debug!(target: "hysteria2::pool_budget", entries, failure_groups, entry_limit=ENTRY_LIMIT, "original pool budget");
+        tracing::debug!(target: "hysteria2::pool_budget", entries, failure_groups, entry_limit=self.entry_limit.get(), "original pool budget");
     }
     /// A failed candidate's current original is fully settled first. Reserve
     /// room for that immutable group before the same active entry can construct
@@ -59,7 +58,7 @@ impl Generation {
         }
         let entries = self.entries.lock().unwrap();
         let mut failures = self.failures.lock().unwrap();
-        if entries.len() + failures.len() >= ENTRY_LIMIT {
+        if entries.len() + failures.len() >= self.entry_limit.get() {
             return Err(error(Stage::Prepare, Reason::Capacity));
         }
         failures.push(state.take_failures());

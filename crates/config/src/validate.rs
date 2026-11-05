@@ -388,6 +388,11 @@ fn validate_runtime(
             "runtime.mieru_max_carriers must be between 1 and 256".into(),
         ));
     }
+    if !(1..=256).contains(&runtime.effective_hysteria2_max_entries()) {
+        return Err(ConfigError::InvalidRuntime(
+            "runtime.hysteria2_max_entries must be between 1 and 256".into(),
+        ));
+    }
     for (name, limit) in [
         (
             "native_dns_max_originals",

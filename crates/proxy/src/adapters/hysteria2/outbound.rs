@@ -166,12 +166,22 @@ impl Hysteria2Adapter {
         if let Some(source) = resources.source_dir() {
             bytes.extend(source.as_os_str().as_encoded_bytes());
         }
-        let options = Arc::new(
-            self.outbound_pool
-                .options(profiles, identity(&bytes, &materials))
-                .with_prepared_ca(materials)
-                .map_err(RegistrationError::Planning)?,
-        );
+        let options =
+            Arc::new(
+                self.outbound_pool
+                    .options(profiles, identity(&bytes, &materials))
+                    .with_entry_limit(
+                        std::num::NonZeroUsize::new(
+                            config.runtime.effective_hysteria2_max_entries(),
+                        )
+                        .ok_or_else(|| {
+                            options_error("invalid actual Hysteria2 pool entry budget")
+                        })?,
+                    )
+                    .map_err(RegistrationError::Planning)?
+                    .with_prepared_ca(materials)
+                    .map_err(RegistrationError::Planning)?,
+            );
         let dns = options
             .profiles()
             .iter()

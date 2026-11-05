@@ -329,6 +329,8 @@ async fn hysteria2_finite_original_udp_session_capacity_refuses_then_reclaims_ac
 
 #[path = "lifecycle/budget.rs"]
 mod budget;
+#[path = "lifecycle/configured_budget.rs"]
+mod configured_budget;
 #[path = "lifecycle/dns.rs"]
 mod dns;
 

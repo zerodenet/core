@@ -42,7 +42,10 @@ impl tracing::Subscriber for Budgets {
         }
     }
 }
-fn context(proxy: &Proxy, slot: &crate::component::instance::ComponentSlot) -> OpenContext {
+pub(super) fn context(
+    proxy: &Proxy,
+    slot: &crate::component::instance::ComponentSlot,
+) -> OpenContext {
     OpenContext {
         identity: RequestIdentity::Service(Arc::new(zero_core::request::ServiceRequestFacts {
             origin: zero_core::request::ServiceOrigin::Runtime,
@@ -78,10 +81,20 @@ fn actual_peer_close_source(error: &(dyn std::error::Error + 'static)) -> bool {
 }
 #[tokio::test]
 async fn hysteria2_real_peer_failures_keep_finite_unpublished_positions_until_host_shutdown() {
+    failure_budget(None).await;
+}
+#[tokio::test]
+async fn hysteria2_configured_actual_entry_budget_retains_real_peer_failures_without_refund() {
+    failure_budget(Some(2)).await;
+}
+async fn failure_budget(limit: Option<usize>) {
     tokio::time::timeout(Duration::from_secs(60), async {
         let budgets=Budgets::default();let _capture=tracing::subscriber::set_default(budgets.clone());
         let server = Server::new().await;
-        let proxy = server.proxy();
+        let mut config=super::reload::config(&server, None);
+        config.runtime.hysteria2_max_entries=limit;
+        let maximum=config.runtime.effective_hysteria2_max_entries();
+        let proxy=Proxy::new(config).unwrap();
         start(&proxy).await;
         let services = proxy.tcp_runtime_services().execution();
         let slot = services
@@ -96,7 +109,7 @@ async fn hysteria2_real_peer_failures_keep_finite_unpublished_positions_until_ho
             targets: DatagramTargets::Fixed(Destination::new(Address::Ipv4([203, 0, 113, 11]), 53)),
         };
         let mut saved_root = None;
-        for id in 1..=256 {
+        for id in 1..=maximum as u64 {
             let loan = proxy
                 .protocols
                 .drive_component_supervision(role.open_carrier(request(id), context(&proxy, &slot)))
@@ -125,7 +138,7 @@ async fn hysteria2_real_peer_failures_keep_finite_unpublished_positions_until_ho
         }
         let failure = match proxy
             .protocols
-            .drive_component_supervision(role.open(request(257), context(&proxy, &slot)))
+            .drive_component_supervision(role.open(request(maximum as u64+1), context(&proxy, &slot)))
             .await
         {
             Err(error) => error,
@@ -134,11 +147,11 @@ async fn hysteria2_real_peer_failures_keep_finite_unpublished_positions_until_ho
         assert_eq!(failure.reason, Reason::Capacity);
         assert_eq!(
             server.authenticated.load(Ordering::SeqCst),
-            256,
+            maximum,
             "no new authentication may bypass retained original failures"
         );
-        assert!(budgets.0.lock().unwrap().contains(&(0,256)),"actual map entries and retained fault groups are distinct original budget positions");
-        assert!(budgets.0.lock().unwrap().iter().all(|(entries,failures)|entries+failures<=256));
+        assert!(budgets.0.lock().unwrap().contains(&(0,maximum as u64)),"actual map entries and retained fault groups are distinct original budget positions");
+        assert!(budgets.0.lock().unwrap().iter().all(|(entries,failures)|entries+failures<=maximum as u64));
         let root = saved_root.unwrap();
         assert!(matches!(root.owner(),CarrierOriginOwner::Metadata(owner) if owner.current_original().is_none()),"all original slots are closed while the fault ledger remains full");
         assert!(

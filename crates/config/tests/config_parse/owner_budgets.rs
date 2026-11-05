@@ -10,11 +10,23 @@ fn parse(name: &str, value: usize) -> Result<RuntimeConfig, zero_config::ConfigE
 fn actual_owner_budgets_are_optional_finite_and_preserve_omitted_export_shape() {
     let defaults = RuntimeOptionsConfig::default();
     let exported = serde_json::to_value(&defaults).unwrap();
-    let fields: [(&str, fn(&RuntimeOptionsConfig) -> usize, usize, usize); 5] = [
+    type BudgetField = (
+        &'static str,
+        fn(&RuntimeOptionsConfig) -> usize,
+        usize,
+        usize,
+    );
+    let fields: [BudgetField; 6] = [
         (
             "mieru_max_carriers",
             RuntimeOptionsConfig::effective_mieru_max_carriers,
             4,
+            256,
+        ),
+        (
+            "hysteria2_max_entries",
+            RuntimeOptionsConfig::effective_hysteria2_max_entries,
+            256,
             256,
         ),
         (
