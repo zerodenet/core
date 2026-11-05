@@ -474,7 +474,7 @@ impl Proxy {
                 shutdown_rx,
             )
             .await;
-            if let Err(error) = result {
+            if let Err(error) = &result {
                 warn!(error = %error, "TUN runtime stopped unexpectedly");
                 *proxy.tun_last_error.lock().unwrap() = Some(error.to_string());
                 if managed_by_config {
@@ -483,6 +483,7 @@ impl Proxy {
             }
             finalize_tun_runtime_exit(&proxy, id).await;
             let _ = done_tx.send(());
+            result
         });
         completion.install_main(task);
 
@@ -669,7 +670,7 @@ impl Proxy {
         let route_cleanup = completion
             .wait_routes(tokio::time::Instant::now() + Duration::from_secs(5))
             .await;
-        let result = stopped.and(route_cleanup).map_err(EngineError::Io);
+        let result = completion::join_results(stopped, route_cleanup).map_err(EngineError::Io);
         if result.is_ok() {
             let mut control = self.tun_control.lock().unwrap();
             if control.as_ref().is_some_and(|control| control.id == id) {

@@ -22,6 +22,7 @@ async fn cancelled_tun_join_retains_the_original_handle_after_body_notification(
         })
         .await
         .unwrap();
+        Ok(())
     }));
     suspended.await.unwrap();
     let id = completion.main.lock().await.task.as_ref().unwrap().id();

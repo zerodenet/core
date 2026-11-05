@@ -312,7 +312,7 @@ pub(super) fn spawn(
     shutdown: watch::Receiver<bool>,
     recovery_requests: mpsc::Receiver<oneshot::Sender<Result<(), String>>>,
 ) -> (
-    tokio::task::JoinHandle<()>,
+    tokio::task::JoinHandle<io::Result<()>>,
     oneshot::Receiver<Result<(), String>>,
 ) {
     let (done_tx, done) = oneshot::channel();
@@ -327,7 +327,13 @@ pub(super) fn spawn(
             recovery_requests,
         )
         .await;
-        let _ = done_tx.send(result.map_err(|error| error.to_string()));
+        let _ = done_tx.send(
+            result
+                .as_ref()
+                .map(|_| ())
+                .map_err(|error| error.to_string()),
+        );
+        result
     });
     (task, done)
 }

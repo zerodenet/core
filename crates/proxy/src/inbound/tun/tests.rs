@@ -72,6 +72,7 @@ async fn unexpected_runtime_exit_waits_for_route_cleanup_before_clearing_egress(
         shutdown_rx.changed().await.unwrap();
         assert!(*shutdown_rx.borrow());
         route_done_tx.send(Ok(())).unwrap();
+        Ok(())
     });
     completion.install_routes(acknowledge);
     super::finalize_tun_runtime_exit(&proxy, 41).await;
@@ -112,6 +113,7 @@ async fn unexpected_runtime_cleanup_failure_retains_egress_and_error() {
         route_done_tx
             .send(Err("remove stale capture route".to_owned()))
             .unwrap();
+        Err(std::io::Error::other("remove stale capture route"))
     });
     completion.install_routes(reject_cleanup);
     super::finalize_tun_runtime_exit(&proxy, 42).await;

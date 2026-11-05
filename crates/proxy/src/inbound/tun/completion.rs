@@ -13,14 +13,14 @@ type Outcome = Result<(), Source>;
 struct Main {
     notification: oneshot::Receiver<()>,
     notified: Option<Outcome>,
-    task: Option<JoinHandle<()>>,
+    task: Option<JoinHandle<Result<(), zero_engine::EngineError>>>,
     joined: Option<Outcome>,
 }
 #[derive(Debug)]
 struct Routes {
     notification: Option<oneshot::Receiver<Result<(), String>>>,
     notified: Option<Outcome>,
-    task: Option<JoinHandle<()>>,
+    task: Option<JoinHandle<io::Result<()>>>,
     joined: Option<Outcome>,
 }
 #[derive(Debug)]
@@ -49,12 +49,12 @@ impl TunCompletion {
         })
     }
     /// Called synchronously before the start operation can suspend or return.
-    pub(super) fn install_main(&self, task: JoinHandle<()>) {
+    pub(super) fn install_main(&self, task: JoinHandle<Result<(), zero_engine::EngineError>>) {
         let mut main = self.main.try_lock().expect("unpublished TUN task owner");
         assert!(main.task.is_none() && main.joined.is_none());
         main.task = Some(task);
     }
-    pub(super) fn install_routes(&self, task: JoinHandle<()>) {
+    pub(super) fn install_routes(&self, task: JoinHandle<io::Result<()>>) {
         let mut routes = self
             .routes
             .try_lock()
@@ -74,7 +74,10 @@ impl TunCompletion {
             }
             if main.joined.is_none() {
                 main.joined = Some(match main.task.as_mut() {
-                    Some(task) => task.await.map_err(join_source),
+                    Some(task) => match task.await {
+                        Ok(result) => result.map_err(|source| Arc::new(source) as Source),
+                        Err(source) => Err(join_source(source)),
+                    },
                     None => Err(Arc::new(io::Error::other(
                         "TUN main original task was not installed",
                     )) as Source),
@@ -107,7 +110,10 @@ impl TunCompletion {
                     None => Err(Arc::new(io::Error::other(
                         "TUN route original task was not installed",
                     )) as Source),
-                    Some(task) => task.await.map_err(join_source),
+                    Some(task) => match task.await {
+                        Ok(result) => result.map_err(|source| Arc::new(source) as Source),
+                        Err(source) => Err(join_source(source)),
+                    },
                 });
                 routes.task = None;
             }
@@ -116,6 +122,11 @@ impl TunCompletion {
         .await
         .map_err(|source| io::Error::new(io::ErrorKind::TimedOut, source))?
     }
+}
+pub(super) fn join_results(main: io::Result<()>, routes: io::Result<()>) -> io::Result<()> {
+    let main = main.map_err(|source| Arc::new(source) as Source);
+    let routes = routes.map_err(|source| Arc::new(source) as Source);
+    combine(Some(&main), Some(&routes))
 }
 fn join_source(error: JoinError) -> Source {
     Arc::new(error)

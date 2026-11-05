@@ -75,11 +75,13 @@ async fn explicit_stop_interrupts_recovery_without_waiting_for_its_timeout() {
     completion.install_main(tokio::spawn(async move {
         main_finished.await.unwrap();
         done_tx.send(()).unwrap();
+        Ok(())
     }));
     let (finish_route, route_finished) = tokio::sync::oneshot::channel();
     completion.install_routes(tokio::spawn(async move {
         route_finished.await.unwrap();
         route_tx.send(Ok(())).unwrap();
+        Ok(())
     }));
     *proxy.tun_control.lock().unwrap() = Some(TunControl {
         id: 7,
