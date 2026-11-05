@@ -110,3 +110,50 @@ async fn hysteria2_configured_actual_entry_budget_rejects_active_pressure_reclai
         server.close().await;
     }).await.unwrap();
 }
+
+#[tokio::test]
+async fn hysteria2_configured_udp_registration_budget_refuses_then_reuses_actual_logical_capacity()
+{
+    tokio::time::timeout(Duration::from_secs(20), async {
+        let server = Server::new().await;
+        let mut config = super::reload::config(&server, None);
+        config.runtime.hysteria2_max_udp_sessions = Some(1);
+        config.runtime.hysteria2_udp_pending_bytes = Some(64);
+        let proxy = Proxy::new(config).unwrap();
+        start(&proxy).await;
+        assert_eq!(server.authenticated.load(Ordering::SeqCst), 0);
+        let held = open(&proxy, "hy", 1).await.unwrap();
+        echo(&held).await;
+        let root = held.owner.original().clone();
+        let error = match open(&proxy, "hy", 2).await {
+            Ok(_) => panic!("the configured one-registration budget was bypassed"),
+            Err(error) => error,
+        };
+        assert_eq!(error.reason, Reason::Capacity);
+        assert_eq!(server.authenticated.load(Ordering::SeqCst), 1);
+        echo(&held).await;
+        let DatagramLoan { io, mut owner } = held;
+        assert!(!owner
+            .close(tokio::time::Instant::now())
+            .await
+            .unwrap()
+            .is_complete());
+        drop(io);
+        assert!(owner.close(end()).await.unwrap().is_complete());
+        drop(owner);
+        let recovered = open(&proxy, "hy", 3).await.unwrap();
+        assert!(recovered.owner.original().same_original(&root));
+        echo(&recovered).await;
+        assert_eq!(
+            server.authenticated.load(Ordering::SeqCst),
+            1,
+            "logical recovery retains the actual physical authentication"
+        );
+        returned(recovered).await;
+        proxy.protocols.shutdown_components(end()).await.unwrap();
+        assert!(root.closed().unwrap().matches(&root));
+        server.close().await;
+    })
+    .await
+    .unwrap();
+}

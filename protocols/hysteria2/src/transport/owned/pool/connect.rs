@@ -164,6 +164,8 @@ impl Generation {
             endpoint,
             state.owner.as_ref().unwrap(),
         )?);
+        state.pending.as_mut().unwrap().udp_sessions = self.udp_sessions;
+        state.pending.as_mut().unwrap().udp_pending_bytes = self.udp_pending_bytes;
         tokio::time::timeout_at(
             end,
             state.pending.as_mut().unwrap().authenticate(

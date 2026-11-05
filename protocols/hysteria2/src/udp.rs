@@ -680,6 +680,25 @@ pub(crate) struct Hysteria2UdpReassembler {
 
 #[cfg(feature = "tokio")]
 impl Hysteria2UdpReassembler {
+    #[cfg(feature = "runtime")]
+    pub(crate) fn contains(&self, key: (u32, u16)) -> bool {
+        self.pending.contains_key(&key)
+    }
+    #[cfg(feature = "runtime")]
+    pub(crate) fn can_accept(&self, packet: &Hysteria2UdpPacket) -> bool {
+        self.contains((packet.session_id, packet.packet_id)) || self.pending.len() < 64
+    }
+    #[cfg(feature = "runtime")]
+    pub(crate) fn has_fragment(&self, packet: &Hysteria2UdpPacket) -> bool {
+        self.pending
+            .get(&(packet.session_id, packet.packet_id))
+            .is_some_and(|assembly| {
+                assembly
+                    .parts
+                    .get(usize::from(packet.fragment_id))
+                    .is_some_and(Option::is_some)
+            })
+    }
     pub(crate) fn push(
         &mut self,
         packet: Hysteria2UdpPacket,
