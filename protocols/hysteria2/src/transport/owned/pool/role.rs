@@ -118,6 +118,7 @@ impl Role {
 pub struct Stream {
     io: OwnedBiStream,
     _authentication: Arc<OwnedAuthentication>,
+    original: zero_platform_tokio::controlled_carrier::CarrierOrigin,
 }
 impl tokio::io::AsyncRead for Stream {
     fn poll_read(
@@ -151,6 +152,18 @@ impl tokio::io::AsyncWrite for Stream {
 }
 impl StreamOutbound for Role {
     type Stream = Stream;
+    async fn connect_carrier(
+        &self,
+        request: ConnectRequest,
+        context: OpenContext,
+    ) -> Result<Connected<zero_platform_tokio::controlled_carrier::loan::StreamLoan>, ChannelError>
+    {
+        let connected = self.connect(request, context).await?;
+        Ok(Connected {
+            io: stream::loan(connected.io),
+            peer_confirmation: connected.peer_confirmation,
+        })
+    }
     async fn connect(
         &self,
         request: ConnectRequest,
@@ -163,9 +176,9 @@ impl StreamOutbound for Role {
             .unwrap()
             .clone()
             .ok_or_else(|| error(Stage::Prepare, Reason::StalePlan))?;
-        context.upstream.observe_carrier_origin(
-            &zero_platform_tokio::controlled_carrier::CarrierOrigin::from_metadata_pool(origin),
-        );
+        let original =
+            zero_platform_tokio::controlled_carrier::CarrierOrigin::from_metadata_pool(origin);
+        context.upstream.observe_carrier_origin(&original);
         let session = context.session_identity()?;
         if let Some(observer) = &context.observer {
             observer.record(session, ConnectFact::CarrierReady);
@@ -178,6 +191,7 @@ impl StreamOutbound for Role {
             io: Stream {
                 io,
                 _authentication: auth,
+                original,
             },
             peer_confirmation: PeerConfirmation::Confirmed,
         })
@@ -242,3 +256,4 @@ impl DatagramOutbound for Role {
     }
 }
 mod datagram;
+mod stream;

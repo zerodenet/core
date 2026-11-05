@@ -135,8 +135,7 @@ pub(crate) struct TunInfo {
 pub(crate) struct TunControl {
     pub id: u64,
     pub shutdown: tokio::sync::watch::Sender<bool>,
-    pub done: oneshot::Receiver<()>,
-    pub route_done: Option<oneshot::Receiver<Result<(), String>>>,
+    pub completion: Arc<crate::inbound::tun::completion::TunCompletion>,
     pub route_recovery: Option<tokio::sync::mpsc::Sender<oneshot::Sender<Result<(), String>>>>,
 }
 

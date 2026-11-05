@@ -48,6 +48,14 @@ impl OwnedBiStream {
     pub fn remote_address(&self) -> std::net::SocketAddr {
         self.connection.remote_address()
     }
+
+    /// Retire these original logical stream directions. This does not close
+    /// the shared connection, join its driver or return a native-close receipt.
+    /// `ClosedStream` means the same direction has already terminated.
+    pub fn retire_logical(&mut self) {
+        let _ = self.receive.stop(0u32.into());
+        let _ = self.send.reset(0u32.into());
+    }
 }
 impl AsyncRead for OwnedBiStream {
     fn poll_read(

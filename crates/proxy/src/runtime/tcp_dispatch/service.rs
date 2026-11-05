@@ -162,8 +162,55 @@ pub(crate) async fn connect_stream(
     nodes: &[ServiceNode],
     purpose: ServicePurpose,
     call: &CarrierContext,
-    mut upstream: UpstreamTransport,
+    upstream: UpstreamTransport,
 ) -> Result<zero_platform_tokio::contract::stream::BoxStream, ChannelError> {
+    let (role, context) = prepare_stream_path(services, nodes, purpose, call, upstream).await?;
+    Ok(role
+        .connect(
+            ConnectRequest {
+                destination: destination.clone(),
+            },
+            context,
+        )
+        .await?
+        .io)
+}
+
+/// Transfer the selected role's actual logical control and original lineage.
+/// The caller retains the returned owner; native retirement stays with its donor.
+pub(crate) async fn connect_carrier_stream(
+    services: &TcpExecutionServices,
+    destination: &Destination,
+    nodes: &[ServiceNode],
+    purpose: ServicePurpose,
+    call: &CarrierContext,
+    upstream: UpstreamTransport,
+) -> Result<zero_platform_tokio::controlled_carrier::loan::StreamLoan, ChannelError> {
+    let (role, context) = prepare_stream_path(services, nodes, purpose, call, upstream).await?;
+    Ok(role
+        .connect_carrier(
+            ConnectRequest {
+                destination: destination.clone(),
+            },
+            context,
+        )
+        .await?
+        .io)
+}
+
+async fn prepare_stream_path(
+    services: &TcpExecutionServices,
+    nodes: &[ServiceNode],
+    purpose: ServicePurpose,
+    call: &CarrierContext,
+    mut upstream: UpstreamTransport,
+) -> Result<
+    (
+        Arc<dyn zero_platform_tokio::contract::stream::DynStreamOutbound>,
+        OpenContext,
+    ),
+    ChannelError,
+> {
     let start_deadline = call
         .deadline
         .unwrap_or_else(|| tokio::time::Instant::now() + Duration::from_secs(5));
@@ -186,15 +233,7 @@ pub(crate) async fn connect_stream(
             upstream,
         };
         let Some(next) = nodes.get(index + 1) else {
-            let connected = role
-                .connect(
-                    ConnectRequest {
-                        destination: destination.clone(),
-                    },
-                    context,
-                )
-                .await?;
-            return Ok(connected.io);
+            return Ok((role, context));
         };
         let endpoint = next
             .endpoint

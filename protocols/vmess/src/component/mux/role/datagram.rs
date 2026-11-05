@@ -7,11 +7,52 @@ impl DatagramOutbound for Outbound {
     type Tx = Tx<crate::mux::native::DatagramIo>;
     type Rx = Rx<crate::mux::native::DatagramIo>;
     type Control = Control<crate::mux::native::DatagramIo>;
+    async fn open_carrier(
+        &self,
+        request: DatagramRequest,
+        context: OpenContext,
+    ) -> Result<zero_platform_tokio::controlled_carrier::loan::DatagramLoan, ChannelError> {
+        let zero_core::request::DatagramTargets::Fixed(endpoint) = request.targets.clone() else {
+            return Err(self.admission.error(
+                context.session_identity()?,
+                Stage::Prepare,
+                Reason::Unsupported,
+                DeliveryState::NotSubmitted,
+            ));
+        };
+        let association = request.association;
+        let (session, original) = self.open_actual(request, context).await?;
+        Ok(
+            zero_platform_tokio::controlled_carrier::loan::DatagramLoan::new(
+                zero_platform_tokio::contract::datagram::erase_session(session),
+                original,
+                association,
+                endpoint,
+            ),
+        )
+    }
     async fn open(
         &self,
         request: DatagramRequest,
         context: OpenContext,
     ) -> Result<DatagramSession<Self::Tx, Self::Rx, Self::Control>, ChannelError> {
+        self.open_actual(request, context)
+            .await
+            .map(|(session, _)| session)
+    }
+}
+impl Outbound {
+    async fn open_actual(
+        &self,
+        request: DatagramRequest,
+        context: OpenContext,
+    ) -> Result<
+        (
+            zero_transport::pooled_driver::datagram::PooledSession<crate::mux::native::DatagramIo>,
+            zero_platform_tokio::controlled_carrier::CarrierOrigin,
+        ),
+        ChannelError,
+    > {
         let session = self.admission.check(&context)?;
         let leaf = self.selected_leaf(&context)?;
         let opening = leaf.open_native_mux_udp(context.upstream.binding().clone());
@@ -36,13 +77,15 @@ impl DatagramOutbound for Outbound {
             targets: request.targets.clone(),
             queued_bytes: 0,
         };
-        datagram::session(
+        let original = opened.origin;
+        let session = datagram::session(
             opened.io,
             opened.usage,
             self.admission.clone(),
             &context,
             request,
             limits,
-        )
+        )?;
+        Ok((session, original))
     }
 }

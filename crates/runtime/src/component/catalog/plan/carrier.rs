@@ -42,7 +42,9 @@ impl ComponentPlan {
             };
             if slot.recipe.spec().resources.iter().any(|resource|!matches!(resource,
                 zero_platform_tokio::contract::component::ResourceDeclaration::File {..} |
-                zero_platform_tokio::contract::component::ResourceDeclaration::ControlledCarrierPool {..} | zero_platform_tokio::contract::component::ResourceDeclaration::ControlledMetadataCarrier {..})) {return false;}
+                zero_platform_tokio::contract::component::ResourceDeclaration::ControlledCarrierPool {..} |
+                zero_platform_tokio::contract::component::ResourceDeclaration::ControlledMetadataCarrier {..} |
+                zero_platform_tokio::contract::component::ResourceDeclaration::ControlledMetadataDatagram {..})) {return false;}
             pending.extend(slot.dependency_instances());
         }
         true

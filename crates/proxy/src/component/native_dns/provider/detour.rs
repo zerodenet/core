@@ -5,6 +5,7 @@ use crate::{
     runtime::tcp_dispatch::service::{NativeDnsBinding, ServiceBinding},
 };
 use zero_platform_tokio::contract::network::UpstreamTransport;
+mod borrowed;
 mod root;
 
 impl Provider {
@@ -151,6 +152,8 @@ impl Provider {
                     self.users.clone(),
                     caller.clone(),
                     cancel.clone(),
+                    execution.current_source.clone(),
+                    binding.prefix.clone(),
                 )
                 .map_err(std::io::Error::other)?,
             );
@@ -164,6 +167,31 @@ impl Provider {
             drop(epoch);
             let mut retry = false;
             let operation = async {
+                let last = nodes.last().expect("selected DNS Stream path");
+                if !last.slot.recipe.spec().dependencies.is_empty()
+                    && components.has_carrier_provider(last.slot.role_id())
+                {
+                    let loan = self
+                        .borrow_detour(
+                            &execution,
+                            &nodes,
+                            peer,
+                            &binding,
+                            &call,
+                            caller.clone(),
+                            UpstreamTransport::new(root_binding, root),
+                        )
+                        .await
+                        .map_err(|source| {
+                            retry = source
+                                .get_ref()
+                                .and_then(|source| source.downcast_ref::<zero_platform_tokio::contract::ChannelError>())
+                                .is_some_and(|source| source.retry_permitted());
+                            source
+                        })?;
+                    receipt.check_current()?;
+                    return Ok((loan, receipt));
+                }
                 let io = crate::runtime::tcp_dispatch::service::connect_stream(
                     &execution,
                     &destination(peer),
@@ -177,7 +205,9 @@ impl Provider {
                     retry = source.retry_permitted();
                     std::io::Error::other(source)
                 })?;
-                Ok((root.loan(io).await?, receipt))
+                let loan = root.loan(io).await?;
+                receipt.check_current()?;
+                Ok((loan, receipt))
             }
             .await;
             match operation {

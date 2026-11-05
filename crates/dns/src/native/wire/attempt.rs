@@ -15,6 +15,9 @@ enum Proof {
     System(zero_platform_tokio::contract::scope::TaskJoined),
     FailedOpen(zero_platform_tokio::controlled_carrier::CarrierClosed),
     Carrier(LoanClosed, CarrierOriginClosed),
+    // This is the DNS child's original borrowed slot, never the donor's
+    // native-close receipt. Its retained parent names the actual pool owner.
+    Borrowed(LoanClosed, CarrierOriginClosed),
     #[cfg(feature = "doq")]
     Metadata(
         zero_platform_tokio::controlled_datagram::metadata_pool::MetadataPoolOrigin,
@@ -130,6 +133,11 @@ impl Attempt {
             Proof::Carrier(logical, native) => {
                 native.matches(logical.original()) && native.had_native_acquisition()
             }
+            Proof::Borrowed(logical, borrowed) => {
+                borrowed.matches(logical.original())
+                    && !borrowed.had_native_acquisition()
+                    && logical.original().parent().is_some()
+            }
             #[cfg(feature = "doq")]
             Proof::Metadata(original, native) => {
                 native.matches(original) && native.had_native_acquisition()
@@ -172,10 +180,10 @@ pub(super) async fn settle(
     let confirmation = async {
         let report = owner.close(end).await.map_err(io::Error::other)?;
         let logical = owner.closed().filter(|closed| closed.matches(owner));
-        let native = owner
-            .original()
-            .closed()
-            .filter(|closed| closed.matches(owner.original()) && closed.had_native_acquisition());
+        let native = owner.original().closed().filter(|closed| {
+            closed.matches(owner.original())
+                && (closed.had_native_acquisition() || owner.original().parent().is_some())
+        });
         match (report.is_complete(), logical, native) {
             (true, Some(logical), Some(native)) => Ok((logical, native)),
             _ => Err(io::Error::new(
@@ -186,10 +194,17 @@ pub(super) async fn settle(
     }
     .await;
     match confirmation {
-        Ok(closed) => Attempt {
-            result,
-            closed: Some(Proof::Carrier(closed.0, closed.1)),
-        },
+        Ok((logical, original)) => {
+            let proof = if original.had_native_acquisition() {
+                Proof::Carrier(logical, original)
+            } else {
+                Proof::Borrowed(logical, original)
+            };
+            Attempt {
+                result,
+                closed: Some(proof),
+            }
+        }
         Err(close) => Attempt::blocked(io::Error::new(
             close.kind(),
             CloseFailure {
