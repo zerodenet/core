@@ -55,11 +55,12 @@ impl NativeUse {
     }
 }
 impl Provider {
-    /// Transfer only cleanup claims whose actual controller is now retained by
-    /// a persistent DNS receiver. Recover this from that original slot even if
-    /// an acquisition unwound after installation and before returning its view.
+    /// Transfer cleanup claims only through actual installed controllers.
+    /// Pending receivers stay in this ledger while they cover lower donors;
+    /// final DNS receivers stay in `users`. This also recovers installation
+    /// when an acquisition unwound before returning its view.
     pub(super) fn release_installed_pending(&self, caller: &TaskJoinWitness) {
-        let receipts = self
+        let installed = self
             .users
             .lock()
             .expect("DNS users poisoned")
@@ -70,19 +71,32 @@ impl Provider {
                 proof
                     .receiver_adoption()
                     .is_some_and(|receiver| receiver.same_slot(&entry.original))
-                    .then_some(proof)
+                    .then_some((entry.original.clone(), proof))
             })
             .collect::<Vec<_>>();
-        if receipts.is_empty() {
-            return;
-        }
-        self.pending
-            .lock()
-            .expect("DNS pending originals poisoned")
-            .retain(|entry| {
-                !entry.task.same_registration(caller)
-                    || !receipts.iter().any(|proof| proof.retains(&entry.original))
-            });
+        let mut pending = self.pending.lock().expect("DNS pending originals poisoned");
+        let mut receipts = installed;
+        receipts.extend(
+            pending
+                .iter()
+                .filter(|entry| entry.task.same_registration(caller))
+                .filter_map(|entry| {
+                    let proof = entry.original.retained_loan()?;
+                    proof
+                        .receiver_adoption()
+                        .is_some_and(|receiver| receiver.same_slot(&entry.original))
+                        .then_some((entry.original.clone(), proof))
+                }),
+        );
+        // A receiver can itself be covered only by another receiver's actual
+        // stored LoanOwner. Its custody then remains strong along that chain;
+        // no read-only origin can manufacture this topology or a self-edge.
+        pending.retain(|entry| {
+            !entry.task.same_registration(caller)
+                || !receipts.iter().any(|(receiver, proof)| {
+                    !receiver.same_slot(&entry.original) && proof.retains(&entry.original)
+                })
+        });
     }
     pub(super) async fn close_caller_originals(
         &self,
