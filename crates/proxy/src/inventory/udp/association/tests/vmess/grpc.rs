@@ -42,3 +42,6 @@ mod dns;
 #[cfg(feature = "socks5")]
 #[path = "grpc/relay.rs"]
 mod relay;
+
+#[path = "grpc/stream.rs"]
+mod stream;
