@@ -60,27 +60,80 @@ impl OrchestrationState {
             None,
             None,
         );
-        let prepared = proxy
-            .protocols
-            .prepare_devices(
-                snapshot.config(),
-                proxy.tcp_runtime_services_for_snapshot(snapshot.clone()),
-            )
-            .await;
-        // Preparation can await endpoint resolution. A candidate bound to an
-        // obsolete topology must never replace the committed devices.
+        let prepared = self.prepare_network_devices(proxy, &snapshot).await;
+        // A superseded candidate remains owned until this exact graph and
+        // its real native originals have completed their separate cleanup.
         if proxy.egress_interface.generation() != generation {
-            self.publish_network_recovery(
-                proxy,
-                generation,
-                zero_api::EndpointRecoveryPhase::Superseded,
-                None,
-                None,
-            );
+            drop(prepared);
+            let cleanup = proxy
+                .protocols
+                .discard_device_components(
+                    snapshot.config(),
+                    Instant::now() + Duration::from_secs(5),
+                )
+                .await;
+            if let Err(error) = cleanup {
+                self.device_retry_at = Some(Instant::now() + self.device_retry_delay);
+                self.publish_network_recovery(
+                    proxy,
+                    generation,
+                    zero_api::EndpointRecoveryPhase::Retrying,
+                    Some(self.device_retry_delay.as_millis() as u64),
+                    Some(error.to_string()),
+                );
+            } else {
+                self.publish_network_recovery(
+                    proxy,
+                    generation,
+                    zero_api::EndpointRecoveryPhase::Superseded,
+                    None,
+                    None,
+                );
+            }
             return;
         }
         match prepared {
             Ok(prepared) => {
+                let publication = async {
+                    proxy
+                        .protocols
+                        .scan_components(snapshot.config(), Instant::now() + Duration::from_secs(5))
+                        .await?;
+                    self.preparing_inbounds.ensure_open()?;
+                    if proxy.egress_interface.generation() != generation {
+                        return Err(zero_engine::EngineError::Io(std::io::Error::new(
+                            std::io::ErrorKind::Interrupted,
+                            "network candidate was superseded before publication",
+                        )));
+                    }
+                    proxy
+                        .protocols
+                        .commit_components(snapshot.config(), || Ok(()))
+                        .map_err(|error| zero_engine::EngineError::Io(std::io::Error::other(error)))
+                }
+                .await;
+                if let Err(error) = publication {
+                    drop(prepared);
+                    if let Err(cleanup) = proxy
+                        .protocols
+                        .discard_device_components(
+                            snapshot.config(),
+                            Instant::now() + Duration::from_secs(5),
+                        )
+                        .await
+                    {
+                        warn!(%cleanup, "network publication cleanup remains owned");
+                    }
+                    self.device_retry_at = Some(Instant::now() + self.device_retry_delay);
+                    self.publish_network_recovery(
+                        proxy,
+                        generation,
+                        zero_api::EndpointRecoveryPhase::Retrying,
+                        Some(self.device_retry_delay.as_millis() as u64),
+                        Some(error.to_string()),
+                    );
+                    return;
+                }
                 prepared.publish().await;
                 self.publish_endpoint_facts(proxy);
                 self.publish_network_recovery(
@@ -100,6 +153,16 @@ impl OrchestrationState {
                 );
             }
             Err(error) => {
+                if let Err(cleanup) = proxy
+                    .protocols
+                    .discard_device_components(
+                        snapshot.config(),
+                        Instant::now() + Duration::from_secs(5),
+                    )
+                    .await
+                {
+                    warn!(%cleanup, "network candidate original cleanup remains owned");
+                }
                 self.device_retry_at = Some(Instant::now() + self.device_retry_delay);
                 self.publish_network_recovery(
                     proxy,
@@ -118,5 +181,35 @@ impl OrchestrationState {
                     (self.device_retry_delay * 2).min(Duration::from_secs(30));
             }
         }
+    }
+    async fn prepare_network_devices(
+        &self,
+        proxy: &Proxy,
+        snapshot: &std::sync::Arc<zero_engine::EngineRuntimeSnapshot>,
+    ) -> Result<crate::adapters::devices::PreparedDevices, zero_engine::EngineError> {
+        let config = snapshot.config();
+        proxy
+            .protocols
+            .discard_device_components(config, Instant::now() + Duration::from_secs(5))
+            .await?;
+        proxy
+            .protocols
+            .prepare_device_components(config.clone())
+            .map_err(|error| zero_engine::EngineError::Io(std::io::Error::other(error)))?;
+        proxy
+            .protocols
+            .start_components(config.clone(), Instant::now() + Duration::from_secs(5))
+            .await?;
+        let services = proxy.tcp_runtime_services_for_snapshot(snapshot.clone());
+        proxy
+            .protocols
+            .start_device_resources(
+                config,
+                &services,
+                Instant::now() + Duration::from_secs(5),
+                self.preparing_inbounds.cancellation(),
+            )
+            .await?;
+        proxy.protocols.prepare_devices(config, services).await
     }
 }
