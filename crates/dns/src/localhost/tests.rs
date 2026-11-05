@@ -1,4 +1,5 @@
 use crate::fake_ip::FakeIpAllocator;
+mod cold_system;
 
 #[tokio::test]
 async fn fake_ip_allocator_rejects_reserved_localhost_names_without_allocating() {
