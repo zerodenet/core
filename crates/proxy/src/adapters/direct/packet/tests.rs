@@ -36,7 +36,7 @@ async fn failed_host_duplicate_keeps_the_same_original_error_until_explicit_clea
         zero_tun::TunAcquisitionOutcome::KnownNoNative
     ));
     assert!(adapter.packet.lock().unwrap().is_none());
-    adapter.close_devices().await.unwrap();
+    adapter.close_discarded_device().await.unwrap();
     assert!(adapter.packet_original.lock().unwrap().is_none());
     assert!(Arc::ptr_eq(
         &source.source,
@@ -67,7 +67,7 @@ async fn failed_host_validation_retains_matching_duplicate_close_and_preserves_b
     let retained = owner.close().unwrap();
     assert!(Arc::ptr_eq(receipt, &retained));
     assert!(receipt.identity().same_owner(retained.identity()));
-    adapter.close_devices().await.unwrap();
+    adapter.close_discarded_device().await.unwrap();
     assert!(adapter.packet_original.lock().unwrap().is_none());
     host.send(b"borrowed host remains live").unwrap();
     let mut bytes = [0; 64];

@@ -4,6 +4,32 @@ use std::collections::BTreeSet;
 use zero_core::component::ComponentId;
 use zero_platform_tokio::contract::{ChannelError, Impact, Reason, Stage};
 impl Devices {
+    /// The host has confirmed the rejected canonical slots and dropped their
+    /// PreparedDevices guard. Finish only retained discarded originals before
+    /// another cold pass; never revoke a healthy borrowed current device.
+    pub(crate) async fn cleanup_discarded_resources(
+        &self,
+        config: &RuntimeConfig,
+    ) -> Result<(), EngineError> {
+        self.release_component_resources(config)?;
+        #[cfg(feature = "wireguard")]
+        let wireguard = match &self.wireguard {
+            Some(owner) => owner.close_discarded_devices().await,
+            None => Ok(()),
+        };
+        #[cfg(not(feature = "wireguard"))]
+        let wireguard: Result<(), EngineError> = Ok(());
+        let direct = match &self.direct {
+            Some(owner) => owner.close_discarded_device().await,
+            None => Ok(()),
+        };
+        if wireguard.is_err() {
+            if let Err(error) = &direct {
+                tracing::warn!(%error, "additional discarded Direct original cleanup failure");
+            }
+        }
+        wireguard.and(direct)
+    }
     pub(crate) fn release_component_resources(
         &self,
         config: &RuntimeConfig,

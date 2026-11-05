@@ -28,6 +28,21 @@ impl Prepared {
     }
 }
 impl DirectAdapter {
+    /// Called after the rejected Prepared guard was dropped. Its fresh device
+    /// is fenced there, while a borrowed healthy published device stays live.
+    pub(crate) async fn close_discarded_device(&self) -> Result<(), zero_engine::EngineError> {
+        let healthy = self
+            .packet
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .as_ref()
+            .is_some_and(|device| device.usable());
+        if healthy {
+            return Ok(());
+        }
+        // Also collect a failed native acquisition with no returned I/O view.
+        self.close_devices().await
+    }
     pub(crate) async fn prepare_devices(
         &self,
         context: OutboundDevicePreparationContext,

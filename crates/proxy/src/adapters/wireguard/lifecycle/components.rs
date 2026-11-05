@@ -13,6 +13,9 @@ use zero_platform_tokio::contract::{
 };
 
 impl WireguardAdapter {
+    pub(crate) async fn close_discarded_devices(&self) -> Result<(), EngineError> {
+        self.pool.close_discarded().await
+    }
     /// After the host drove exact discarded slots through their actual joins.
     /// Cold or borrowed wrappers can be released without revoking current work.
     pub(crate) fn release_component_resources(
