@@ -119,6 +119,37 @@ impl VlessAdapter {
                 crate::component::native_dns::prepare_node(resources, factory.network.clone())?;
             prepared = prepared.with_node_dns(node_dns);
         }
+        let file = matches!(&input.protocol,OutboundProtocolConfig::Vless{tls:Some(tls),..} if tls.ca_cert_path.is_some());
+        let mut inherited = false;
+        if file && resources.same_source_as_previous() {
+            if let Some(previous) = resources.previous_named_dependencies(&input.tag) {
+                for dependency in previous {
+                    inherited =
+                        prepared
+                            .reuse_file_material_from(*dependency)
+                            .map_err(|source| {
+                                zero_config::ConfigError::InvalidOutbound(source.to_string())
+                            })?;
+                    if !inherited {
+                        if let Some(identity) =
+                            resources.previous_resource_identity(dependency.component)
+                        {
+                            inherited = prepared.reuse_cold_file_material_from(identity).map_err(
+                                |source| {
+                                    zero_config::ConfigError::InvalidOutbound(source.to_string())
+                                },
+                            )?;
+                        }
+                    }
+                    if inherited {
+                        break;
+                    }
+                }
+            }
+        }
+        prepared
+            .remember_cold_file_material()
+            .map_err(|source| zero_config::ConfigError::InvalidOutbound(source.to_string()))?;
         let pool_id = resources.share(
             "vless.grpc.actual_pool",
             Arc::new(grpc::Factory {
@@ -130,26 +161,8 @@ impl VlessAdapter {
                 tag: input.tag.clone(),
             }),
         )?;
-        if matches!(&input.protocol,OutboundProtocolConfig::Vless{tls:Some(tls),..} if tls.ca_cert_path.is_some())
-        {
-            let inherited = if resources.same_source_as_previous() {
-                resources
-                    .previous_resource_instance(pool_id)
-                    .map(|previous| prepared.reuse_file_material_from(previous))
-                    .transpose()
-                    .map_err(|source| {
-                        zero_config::ConfigError::InvalidOutbound(format!(
-                            "outbound `{}`: {source}",
-                            input.tag
-                        ))
-                    })?
-                    .unwrap_or(false)
-            } else {
-                false
-            };
-            if !inherited {
-                resources.require_fresh_resource(pool_id)?;
-            }
+        if file && !inherited {
+            resources.require_fresh_resource(pool_id)?;
         }
         Ok(super::mux::Options::Grpc(Arc::new(prepared.bind(pool_id))))
     }

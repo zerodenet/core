@@ -70,8 +70,16 @@ impl super::super::super::VmessAdapter {
             .with_owned_material(&self.runtime, resources.source_dir(), max)
             .map_err(|error| ConfigError::InvalidOutbound(error.to_string()))?;
             if let Some(previous) = previous {
-                base.reuse_file_material_from(previous)
+                let inherited = base
+                    .reuse_file_material_from(previous)
                     .map_err(|error| ConfigError::InvalidOutbound(error.to_string()))?;
+                if !inherited {
+                    if let Some(identity) = resources.previous_resource_identity(previous.component)
+                    {
+                        base.reuse_cold_file_material_from(identity)
+                            .map_err(|error| ConfigError::InvalidOutbound(error.to_string()))?;
+                    }
+                }
             }
             Options::Ordinary(Arc::new(
                 stateless::Options::new(
@@ -101,8 +109,16 @@ impl super::super::super::VmessAdapter {
                 )
                 .map_err(|error| ConfigError::InvalidOutbound(error.to_string()))?;
             if let Some(previous) = previous {
-                base.reuse_file_material_from(previous)
+                let inherited = base
+                    .reuse_file_material_from(previous)
                     .map_err(|error| ConfigError::InvalidOutbound(error.to_string()))?;
+                if !inherited {
+                    if let Some(identity) = resources.previous_resource_identity(previous.component)
+                    {
+                        base.reuse_cold_file_material_from(identity)
+                            .map_err(|error| ConfigError::InvalidOutbound(error.to_string()))?;
+                    }
+                }
             }
             Options::Grpc(Arc::new(base))
         };
@@ -114,6 +130,15 @@ impl super::super::super::VmessAdapter {
             let dns = crate::component::native_dns::prepare_node(resources, network.clone())?;
             selected.bind_node_dns(dns);
         }
+        let identity = Factory.describe(&selected).static_identity;
+        match &selected {
+            Options::Ordinary(options) => options
+                .inner_options()
+                .remember_cold_material_identity(&identity),
+            Options::Grpc(options) => options.remember_cold_material_identity(&identity),
+            Options::Owned(..) => unreachable!("owning cold material projection"),
+        }
+        .map_err(|error| ConfigError::InvalidOutbound(error.to_string()))?;
         Ok(Options::Owned(Arc::new(selected), network))
     }
 }

@@ -9,7 +9,10 @@ impl std::fmt::Debug for Registry {
             .finish_non_exhaustive()
     }
 }
-pub(super) struct Census(Mutex<Vec<(ComponentInstanceId, Weak<Material>)>>);
+pub(super) struct Census {
+    records: Mutex<Vec<(ComponentInstanceId, Weak<Material>)>>,
+    pub(super) cold: Mutex<HashMap<Vec<u8>, Weak<Material>>>,
+}
 impl Registry {
     pub(super) fn access(&self, key: &[u8]) -> Arc<Census> {
         let mut roots = self.0.lock().unwrap();
@@ -17,14 +20,17 @@ impl Registry {
         if let Some(root) = roots.get(key).and_then(Weak::upgrade) {
             return root;
         }
-        let root = Arc::new(Census(Mutex::default()));
+        let root = Arc::new(Census {
+            records: Mutex::default(),
+            cold: Mutex::default(),
+        });
         roots.insert(key.to_vec(), Arc::downgrade(&root));
         root
     }
 }
 impl Census {
     pub(super) fn previous(&self, instance: ComponentInstanceId) -> Option<Arc<Material>> {
-        self.0
+        self.records
             .lock()
             .unwrap()
             .iter()
@@ -36,7 +42,7 @@ impl Census {
         instance: ComponentInstanceId,
         material: &Arc<Material>,
     ) -> Result<(), ChannelError> {
-        let mut records = self.0.lock().unwrap();
+        let mut records = self.records.lock().unwrap();
         records.retain(|(_, material)| material.strong_count() != 0);
         if let Some((_, previous)) = records.iter().find(|(actual, _)| *actual == instance) {
             return if previous.ptr_eq(&Arc::downgrade(material)) {

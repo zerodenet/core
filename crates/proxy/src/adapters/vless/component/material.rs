@@ -69,9 +69,17 @@ impl super::super::VlessAdapter {
             && resources.same_source_as_previous()
         {
             if let Some(previous) = resources.previous_named_instance(&input.tag) {
-                options
+                let inherited = options
                     .reuse_file_material_from(previous)
                     .map_err(|error| ConfigError::InvalidOutbound(error.to_string()))?;
+                if !inherited {
+                    if let Some(identity) = resources.previous_resource_identity(previous.component)
+                    {
+                        options
+                            .reuse_cold_file_material_from(identity)
+                            .map_err(|error| ConfigError::InvalidOutbound(error.to_string()))?;
+                    }
+                }
             }
         }
         let mut result = stateless::Options::new(
@@ -86,9 +94,17 @@ impl super::super::VlessAdapter {
                 .as_ref()
                 .is_some_and(|tls| tls.options.ech_config_list.contains("://"))
         {
-            let dependency = crate::component::native_dns::prepare_node(resources, network)?;
+            let dependency =
+                crate::component::native_dns::prepare_node(resources, network.clone())?;
             result = result.with_node_dns(dependency);
         }
+        let identity = stateless::Factory(Factory { network })
+            .describe(&result)
+            .static_identity;
+        result
+            .inner_options()
+            .remember_cold_material_identity(&identity)
+            .map_err(|error| ConfigError::InvalidOutbound(error.to_string()))?;
         Ok(result)
     }
 }
