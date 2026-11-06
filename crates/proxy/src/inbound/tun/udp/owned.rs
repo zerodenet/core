@@ -1,7 +1,7 @@
 //! Raw-IP's actual child handles; the ordinary TUN entry keeps its legacy owner.
 use super::*;
 use crate::runtime::{
-    inbound_operation::raw_ip::tasks::RetainedTasks, inbound_owners::InboundInstallContext,
+    inbound_owners::InboundInstallContext, raw_ip::tasks::scoped::ScopedSourceTasks,
 };
 
 type AssociationExit = (SocketAddress, u64, Result<(), EngineError>);
@@ -12,7 +12,7 @@ pub(crate) struct OwnedTunUdpTasks {
     pub(super) scope: Arc<std::sync::OnceLock<super::scoped::AssociationScope>>,
     pub(super) completed: mpsc::Sender<AssociationExit>,
     pub(super) receiver: Arc<tokio::sync::Mutex<mpsc::Receiver<AssociationExit>>>,
-    pub(super) dns: RetainedTasks<Result<(), std::io::Error>>,
+    pub(super) dns: ScopedSourceTasks<Result<(), std::io::Error>>,
 }
 impl OwnedTunUdpTasks {
     pub(crate) const MAX_ASSOCIATIONS: usize = association::MAX_ACTIVE_ASSOCIATIONS;
@@ -26,7 +26,11 @@ impl OwnedTunUdpTasks {
             scope: Arc::new(std::sync::OnceLock::new()),
             completed,
             receiver: Arc::new(tokio::sync::Mutex::new(receiver)),
-            dns: RetainedTasks::new("raw-IP UDP DNS queries joined", MAX_CONCURRENT_DNS_QUERIES),
+            dns: ScopedSourceTasks::new(
+                "raw-IP UDP DNS queries joined",
+                MAX_CONCURRENT_DNS_QUERIES,
+                zero_platform_tokio::contract::scope::TaskClass::Auxiliary,
+            ),
         }
     }
     pub(crate) fn install(&self, context: &InboundInstallContext) -> Result<(), EngineError> {
@@ -38,7 +42,10 @@ impl OwnedTunUdpTasks {
                 host: context.tasks(),
             })
             .map_err(|_| std::io::Error::other("raw-IP association Scope already installed"))?;
-        context.register(self.dns.resource())?;
+        self.dns
+            .bind(context.source_registrar())
+            .map_err(std::io::Error::other)?;
+        context.register_after_scope(self.dns.resource())?;
         Ok(())
     }
 }
