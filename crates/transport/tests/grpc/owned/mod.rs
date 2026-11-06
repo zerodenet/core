@@ -3,8 +3,8 @@ use crate::{grpc::GrpcPool, profile::OwnedClientTlsProfile};
 use std::{
     num::NonZeroUsize,
     sync::{
-        atomic::{AtomicUsize, Ordering},
         Arc,
+        atomic::{AtomicUsize, Ordering},
     },
     time::Duration,
 };
@@ -18,16 +18,16 @@ use zero_core::{
     request::Destination,
 };
 use zero_platform_tokio::{
+    EgressInterfaceControl,
     contract::{
+        BoxFuture,
         component::{BuildContext, ComponentFactory, ComponentInstance, ResourceAccess},
         lifecycle::{BuildError, CloseReport},
         network::{UpstreamBinding, UpstreamTransport},
         packet::BoxPacketSession,
         scope::TaskScope,
-        BoxFuture,
     },
     controlled_carrier::NativeCarrierOpener,
-    EgressInterfaceControl,
 };
 #[path = "fixtures.rs"]
 mod fixtures;
@@ -41,3 +41,5 @@ mod unknown;
 mod wire;
 
 mod hosted;
+
+mod loan;

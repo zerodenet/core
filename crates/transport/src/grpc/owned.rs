@@ -12,6 +12,7 @@ pub(super) use client::NativeClient;
 mod budget;
 mod carrier;
 mod connect;
+mod logical;
 mod stream;
 pub use stream::NativeGrpcStream;
 use tokio::time::Instant;

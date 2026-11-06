@@ -1,17 +1,17 @@
 use super::*;
 use crate::{
-    grpc::{pool::State, GrpcPool},
-    profile::{OwnedClientTlsProfile, OwnedGrpcProfile},
     RuntimeError,
+    grpc::{GrpcPool, pool::State},
+    profile::{OwnedClientTlsProfile, OwnedGrpcProfile},
 };
 use std::{
     num::NonZeroUsize,
     sync::{
-        atomic::{AtomicU64, Ordering},
         Arc, Weak,
+        atomic::{AtomicU64, Ordering},
     },
 };
-use zero_core::{request::Destination, Address};
+use zero_core::{Address, request::Destination};
 use zero_traits::DialPolicy;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -119,7 +119,7 @@ impl NativePoolOptions {
                         std::io::ErrorKind::InvalidInput,
                         "conflicting complete native gRPC recipe for the same actual pool",
                     )
-                    .into())
+                    .into());
                 }
                 None => {
                     static NEXT: AtomicU64 = AtomicU64::new(0);

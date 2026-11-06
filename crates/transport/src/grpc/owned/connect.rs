@@ -6,11 +6,11 @@ use crate::grpc::pool::Cached;
 use std::{
     future::Future,
     sync::{
-        atomic::{AtomicBool, Ordering},
         Arc, Mutex,
+        atomic::{AtomicBool, Ordering},
     },
 };
-use zero_platform_tokio::contract::{lifecycle::TaskClass, network::CarrierContext, DeliveryState};
+use zero_platform_tokio::contract::{DeliveryState, lifecycle::TaskClass, network::CarrierContext};
 
 impl Managed {
     pub(super) async fn wait<T>(
@@ -87,9 +87,12 @@ impl Managed {
         if Instant::now() >= demand.deadline {
             return Err(demand_error(self.instance, Reason::Timeout));
         }
-        let grant = self.grants.reserve()?;
+        let mut grant = self.grants.reserve()?;
+        let view = grant.claim_driver_view()?;
         let physical = Arc::new(Physical {
             adoption: grant.adoption(),
+            stop: grant.cancellation(),
+            view: Mutex::new(Some(view)),
             witness: Mutex::new(None),
             received: Mutex::new(None),
             accepted: AtomicBool::new(false),
@@ -97,17 +100,24 @@ impl Managed {
         });
         self.records.lock().unwrap().push(physical.clone());
         let body = Body(physical.clone());
-        let prepared = self.upstream.prepare_controlled_stream(
+        // The receiver and exact native cancellation are installed before the
+        // actual caller or Node provider can await resolution/connect/TLS/H2.
+        if let Some(waiting) = self.upstream.observed_pending_carrier() {
+            waiting.retain(physical.adoption.clone())?;
+        }
+        let acquiring = self.upstream.acquire_controlled_stream(
             self.options.endpoint.clone(),
             CarrierContext {
                 session: None,
                 deadline: Some(demand.deadline),
-                cancel: self.cancel.clone(),
+                cancel: physical.stop.clone(),
             },
             grant,
-        )?;
-        let ready = self.wait(demand, prepared.open(demand.deadline)).await?;
-        let (io, _) = ready.into_parts();
+        );
+        let io = tokio::select! { biased;
+            _=physical.stop.cancelled()=>return Err(demand_error(self.instance,Reason::Cancelled)),
+            result=self.wait(demand, acquiring)=>result?,
+        };
         let preparing = io.prepare_driver(|io| async {
             let io = zero_platform_tokio::TcpRelayStream::new(super::carrier::Exclusive::new(io));
             #[cfg(feature = "tls")]
@@ -129,19 +139,21 @@ impl Managed {
             )
             .await
         });
-        let prepared = self
-            .wait(demand, async {
-                preparing.await.map_err(|source| {
-                    error(self.instance, Stage::Handshake, Reason::Io).with_source(source)
-                })
+        let preparing = self.wait(demand, async {
+            preparing.await.map_err(|source| {
+                error(self.instance, Stage::Handshake, Reason::Io).with_source(source)
             })
-            .await?;
+        });
+        let prepared = tokio::select! { biased;
+            _=physical.stop.cancelled()=>return Err(demand_error(self.instance,Reason::Cancelled)),
+            result=preparing=>result?,
+        };
         let (client, driver) = prepared.split(|connection| {
             NativeClient::prepare(
                 connection,
                 physical.clone(),
                 self.options.stream_limit.get(),
-                &self.cancel,
+                &physical.stop,
             )
         });
         let stop = client.life.stop.clone();

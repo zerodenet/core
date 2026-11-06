@@ -1,14 +1,14 @@
 use super::*;
-use crate::grpc::{pool::State, GrpcPool};
+use crate::grpc::{GrpcPool, pool::State};
 use std::sync::Arc;
 use zero_platform_tokio::{
     contract::{
+        CloseReason,
         component::{
             BuildContext, ComponentFactory, ComponentInstance, ComponentRoles, ComponentSpec,
-            ResourceDeclaration, ResourceOwner,
+            ResourceAccess, ResourceDeclaration, ResourceOwner,
         },
-        lifecycle::{erase_lifecycle, BuildError, CloseReport, ResourceLifecycle, Unfinished},
-        CloseReason,
+        lifecycle::{BuildError, CloseReport, ResourceLifecycle, Unfinished, erase_lifecycle},
     },
     controlled_carrier::CarrierOwner,
 };
@@ -21,7 +21,12 @@ impl ComponentFactory for NativePoolFactory {
             roles: vec![],
             dependencies: vec![],
             static_identity: options.identity.clone(),
-            resources: vec![ResourceDeclaration::BackgroundCarrier],
+            resources: vec![ResourceDeclaration::ControlledCarrierPool {
+                endpoint: options.endpoint.clone(),
+                dial: options.settings.dial.clone(),
+                datagram: false,
+                max_sockets: options.carrier_limit,
+            }],
             task_limit: Some(options.carrier_limit),
         }
     }
@@ -62,6 +67,7 @@ impl ComponentFactory for NativePoolFactory {
                 pool,
                 managed,
                 carriers,
+                resources: context.resources,
                 attempted: false,
                 claimed: false,
             }),
@@ -72,6 +78,7 @@ struct Owner {
     pool: Arc<State>,
     managed: Arc<Managed>,
     carriers: CarrierOwner,
+    resources: Arc<dyn ResourceAccess>,
     attempted: bool,
     claimed: bool,
 }
@@ -100,6 +107,11 @@ impl ResourceLifecycle for Owner {
             ));
         }
         self.attempted = true;
+        self.resources.register_controlled_carrier(
+            0,
+            self.carriers.registration(),
+            &self.managed.tasks,
+        )?;
         {
             let mut ownership = self.pool.ownership.lock().unwrap();
             if self.pool.retired.load(std::sync::atomic::Ordering::Acquire)

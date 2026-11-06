@@ -1,15 +1,15 @@
 use super::*;
-use crate::grpc::{pool::State, GrpcPool};
+use crate::grpc::{GrpcPool, pool::State};
 use std::sync::{
-    atomic::{AtomicBool, Ordering},
     Arc, Mutex,
+    atomic::{AtomicBool, Ordering},
 };
 use zero_platform_tokio::{
     contract::{
         network::UpstreamTransport,
         scope::{TaskJoinWitness, TaskJoined, TaskRegistrar},
     },
-    controlled_carrier::{CarrierAdoption, CarrierGrants},
+    controlled_carrier::{CarrierAdoption, CarrierGrants, CarrierUserView},
 };
 
 #[derive(Default)]
@@ -33,6 +33,8 @@ pub(in crate::grpc) struct Managed {
 }
 pub(super) struct Physical {
     pub(super) adoption: CarrierAdoption,
+    pub(super) stop: CancellationToken,
+    pub(super) view: Mutex<Option<CarrierUserView>>,
     pub(super) witness: Mutex<Option<TaskJoinWitness>>,
     pub(super) received: Mutex<Option<TaskJoined>>,
     pub(super) accepted: AtomicBool,
@@ -41,12 +43,21 @@ pub(super) struct Physical {
 pub(super) struct Body(pub(super) Arc<Physical>);
 impl Drop for Body {
     fn drop(&mut self) {
+        self.0.adoption.request_retirement();
+        self.0.view.lock().unwrap().take();
         self.0.done.store(true, Ordering::Release);
     }
 }
 impl Physical {
     pub(super) fn closed(&self) -> bool {
         if !self.failure_accepted() {
+            return false;
+        }
+        if !self
+            .adoption
+            .users_closed()
+            .is_some_and(|users| users.matches(&self.adoption))
+        {
             return false;
         }
         let Some(receipt) = self.adoption.closed() else {

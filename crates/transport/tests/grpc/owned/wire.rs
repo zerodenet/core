@@ -1,7 +1,7 @@
 use super::*;
 #[tokio::test]
-async fn same_owned_pool_reuses_one_scoped_tls_free_driver_with_bounded_logical_workers_and_half_close(
-) {
+async fn same_owned_pool_reuses_one_scoped_tls_free_driver_with_bounded_logical_workers_and_half_close()
+ {
     timeout(Duration::from_secs(8), async {
         let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
         let peer = listener.local_addr().unwrap();

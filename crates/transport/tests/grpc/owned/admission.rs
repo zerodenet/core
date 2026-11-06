@@ -149,6 +149,8 @@ impl zero_platform_tokio::contract::network::UpstreamOpener for NoControlledProv
 async fn default_controlled_denial_never_calls_old_opener_or_fabricates_a_native_close_or_task() {
     let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
     let mut fixture = Fixture::cold(listener.local_addr().unwrap(), 1, 2, None, None);
+    let cancel = CancellationToken::new();
+    let tasks = fixture.scope.registrar();
     fixture.owner = NativePoolFactory
         .build(
             fixture.options.clone(),
@@ -157,9 +159,9 @@ async fn default_controlled_denial_never_calls_old_opener_or_fabricates_a_native
                 generation: fixture.actual.generation,
                 dependencies: Arc::from([]),
                 roles: ComponentRoleIds::default(),
-                resources: Arc::new(Denied),
-                tasks: fixture.scope.registrar(),
-                cancel: CancellationToken::new(),
+                resources: granted(&fixture.options, fixture.actual, &tasks, &cancel),
+                tasks,
+                cancel,
                 background_carrier: Some(UpstreamTransport::new(
                     fixture.binding.clone(),
                     Arc::new(NoControlledProvider),
@@ -188,8 +190,8 @@ async fn default_controlled_denial_never_calls_old_opener_or_fabricates_a_native
     assert!(tasks.exited_tasks.is_empty());
 }
 #[tokio::test]
-async fn actual_task_registration_capacity_failure_keeps_original_source_and_closes_socket_without_task_id(
-) {
+async fn actual_task_registration_capacity_failure_keeps_original_source_and_closes_socket_without_task_id()
+ {
     timeout(Duration::from_secs(6), async {
         let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
         let peer = listener.local_addr().unwrap();
@@ -212,6 +214,8 @@ async fn actual_task_registration_capacity_failure_keeps_original_source_and_clo
         let native =
             NativeCarrierOpener::new(fixture.actual, fixture.binding.clone(), peer, egress, None)
                 .unwrap();
+        let cancel = CancellationToken::new();
+        let tasks = fixture.scope.registrar();
         fixture.owner = NativePoolFactory
             .build(
                 fixture.options.clone(),
@@ -220,9 +224,9 @@ async fn actual_task_registration_capacity_failure_keeps_original_source_and_clo
                     generation: fixture.actual.generation,
                     dependencies: Arc::from([]),
                     roles: ComponentRoleIds::default(),
-                    resources: Arc::new(Denied),
-                    tasks: fixture.scope.registrar(),
-                    cancel: CancellationToken::new(),
+                    resources: granted(&fixture.options, fixture.actual, &tasks, &cancel),
+                    tasks,
+                    cancel,
                     background_carrier: Some(UpstreamTransport::new(
                         fixture.binding.clone(),
                         Arc::new(native),

@@ -66,6 +66,8 @@ impl HostedFixture {
             )
             .unwrap(),
         );
+        let cancel = CancellationToken::new();
+        let tasks = scope.registrar();
         let owner = NativePoolFactory
             .build(
                 options.clone(),
@@ -74,9 +76,9 @@ impl HostedFixture {
                     generation: actual.generation,
                     dependencies: Arc::from([]),
                     roles: Default::default(),
-                    resources: Arc::new(Denied),
-                    tasks: scope.registrar(),
-                    cancel: CancellationToken::new(),
+                    resources: granted(&options, actual, &tasks, &cancel),
+                    tasks,
+                    cancel,
                     background_carrier: Some(upstream),
                 },
             )
