@@ -1,6 +1,6 @@
 //! Structured cleanup of the exact providers held by these declarations.
 use super::*;
-use zero_platform_tokio::contract::lifecycle::{CloseReport, Unfinished};
+use zero_platform_tokio::contract::lifecycle::Unfinished;
 impl BoundDeclarations {
     pub(in crate::component::instance::resources::native) fn revoke(&self) {
         for entry in self.entries.values() {
