@@ -4,7 +4,7 @@ use zero_core::{Address, Network, ProtocolType, Session, SessionAuth};
 mod streaming;
 
 use zero_engine::{
-    inspect_principal_quota_state, Engine, EngineError, PrincipalQuotaStateStatus, SessionHandle,
+    Engine, EngineError, PrincipalQuotaStateStatus, SessionHandle,
     SessionOutcome,
 };
 

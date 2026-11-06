@@ -170,3 +170,5 @@ async fn ready_original_report_survives_cancelled_close_while_second_real_tcp_vi
     .await
     .unwrap();
 }
+
+mod faults;
