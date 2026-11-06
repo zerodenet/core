@@ -84,6 +84,11 @@ impl<F: ComponentFactory> ComponentFactory for Factory<F> {
     type Options = Options<F::Options>;
     fn describe(&self, options: &Self::Options) -> ComponentSpec {
         let mut spec = self.0.describe(&options.inner);
+        // The inner protocol remains taskless. The same original carrier owns
+        // at most one actual preparation Auxiliary per outstanding reservation.
+        if spec.task_limit.is_none() {
+            spec.task_limit = Some(options.limit);
+        }
         spec.resources
             .push(ResourceDeclaration::ControlledNodeCarrier {
                 endpoint: options.endpoint.clone(),
@@ -101,7 +106,7 @@ impl<F: ComponentFactory> ComponentFactory for Factory<F> {
             }
         }
         let mut identity = spec.static_identity.to_vec();
-        identity.extend_from_slice(b"same-slot-taskless-carrier-v1");
+        identity.extend_from_slice(b"same-slot-prepared-carrier-v2");
         identity.extend_from_slice(&options.limit.get().to_le_bytes());
         identity.extend_from_slice(format!("{:?}{:?}", options.endpoint, options.dial).as_bytes());
         if let Some(node) = options.node_dns {
@@ -187,6 +192,7 @@ impl<F: ComponentFactory> ComponentFactory for Factory<F> {
         })?;
         let outbound = Outbound {
             inner,
+            tasks: Some(tasks.clone()),
             process,
             endpoint,
             dial,
@@ -241,6 +247,10 @@ mod business;
 #[cfg(test)]
 mod tests;
 
+mod attempt;
+mod closing;
+mod pending;
 mod service;
+mod setup;
 
 mod datagram;

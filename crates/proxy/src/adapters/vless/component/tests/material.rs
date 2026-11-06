@@ -1,4 +1,6 @@
 //! Ordinary full TLS/H2/upgrade callers retain their exact native originals.
+#[path = "material/domain.rs"]
+mod domain;
 #[path = "material/fixture.rs"]
 mod fixture;
 #[path = "material/udp.rs"]

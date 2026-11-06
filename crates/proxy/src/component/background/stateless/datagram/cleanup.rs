@@ -6,18 +6,18 @@ struct Segment {
     complete: bool,
 }
 #[derive(Default)]
-pub(super) struct Cleanup {
+pub(in crate::component::background::stateless) struct Cleanup {
     parts: [Segment; 2],
     faults: Option<Arc<FaultSources>>,
     receipt: Option<zero_platform_tokio::contract::CleanupFailureReceipt>,
 }
 impl Cleanup {
-    pub(super) fn completed(&self, index: usize) -> bool {
+    pub(in crate::component::background::stateless) fn completed(&self, index: usize) -> bool {
         self.parts[index].complete
     }
     /// Result ownership enters the original controller before the branch is
     /// Ready. Cancellation of a sibling cannot discard reports or error Arcs.
-    pub(super) fn accept(
+    pub(in crate::component::background::stateless) fn accept(
         &mut self,
         index: usize,
         outcome: Result<CloseReport, ChannelError>,
@@ -60,7 +60,7 @@ impl Cleanup {
         }
         None
     }
-    pub(super) fn snapshot(
+    pub(in crate::component::background::stateless) fn snapshot(
         &mut self,
         original_complete: bool,
     ) -> Result<CloseReport, ChannelError> {
@@ -93,13 +93,13 @@ impl Cleanup {
                 .extend(part.report.unfinished.iter().cloned());
             if !part.complete && part.report.unfinished.is_empty() {
                 report.unfinished.push(Unfinished::Resource(format!(
-                    "Datagram cleanup segment {index} has no positive completion"
+                    "Carrier cleanup segment {index} has no positive completion"
                 )));
             }
         }
         if !original_complete {
             report.unfinished.push(Unfinished::Resource(
-                "Datagram original or actual caller registration ACK remains pending".into(),
+                "Carrier original or actual caller registration ACK remains pending".into(),
             ));
         }
         Ok(report)

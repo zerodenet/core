@@ -159,7 +159,9 @@ impl super::super::ProtocolInventory {
             {
                 return None;
             }
-            if spec.task_limit.is_some() || !plan.stream_dependencies_supported(node.slot.role_id())
+            if (spec.task_limit.is_some()
+                && !plan.has_preparing_node_carrier_provider(node.slot.role_id()))
+                || !plan.stream_dependencies_supported(node.slot.role_id())
             {
                 return None;
             }

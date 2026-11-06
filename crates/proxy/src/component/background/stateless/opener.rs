@@ -12,7 +12,8 @@ pub(super) struct Opener {
 }
 impl UpstreamOpener for Opener {
     fn has_pending_carrier_observer(&self) -> bool {
-        self.upstream.observed_pending_carrier().is_some()
+        self.transfer.preparing.lock().unwrap().is_some()
+            || self.upstream.observed_pending_carrier().is_some()
     }
     fn pending_carrier_capacity(&self, binding: &UpstreamBinding) -> Option<usize> {
         if binding != self.upstream.binding() {
@@ -32,7 +33,11 @@ impl UpstreamOpener for Opener {
                 "Packet caller binding changed",
             ));
         }
-        self.upstream.packet_caller(identity, call)
+        let setup = self.transfer.preparing.lock().unwrap().clone();
+        match setup {
+            Some(setup) => setup.packet_caller(identity, call),
+            None => self.upstream.packet_caller(identity, call),
+        }
     }
     fn resolve_packet_target(
         &self,
@@ -63,7 +68,11 @@ impl UpstreamOpener for Opener {
                 "nested pending original binding changed",
             ));
         }
-        self.upstream.retain_pending_carrier(adoption)
+        let setup = self.transfer.preparing.lock().unwrap().clone();
+        match setup {
+            Some(setup) => setup.retain_pending_carrier(adoption),
+            None => self.upstream.retain_pending_carrier(adoption),
+        }
     }
     fn open_stream(
         &self,
@@ -138,8 +147,20 @@ impl UpstreamOpener for Opener {
                     .acquire_controlled_stream(endpoint, call, grant)
                     .await?
             } else {
-                let loan = self
-                    .upstream
+                let setup = self.transfer.preparing.lock().unwrap().clone();
+                let selected = match setup {
+                    Some(setup) => {
+                        self.upstream
+                            .select_background_carrier_observed(
+                                Some(binding.clone()),
+                                call.clone(),
+                                setup.pending_carrier_observer(),
+                            )
+                            .await?
+                    }
+                    None => self.upstream.clone(),
+                };
+                let loan = selected
                     .borrow_stream(endpoint.clone(), call.clone())
                     .await?;
                 grant.adopt_stream_loan(&binding, endpoint, &call, loan)?

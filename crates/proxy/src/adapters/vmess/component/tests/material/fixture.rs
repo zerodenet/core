@@ -96,7 +96,11 @@ pub(super) fn capture(proxy: &Proxy) -> (CarrierOwnerRegistration, CarrierOrigin
         .unwrap()
         .configured("node")
         .unwrap();
-    let grpc = slot.recipe.spec().task_limit.is_some();
+    let grpc =
+        slot.recipe.spec().resources.iter().any(|resource| {
+            matches!(resource,
+        zero_platform_tokio::contract::component::ResourceDeclaration::ControlledNodeStream { .. })
+        });
     for ordinal in 0..slot.recipe.spec().resources.len() {
         let Some(owner) = slot.original_carrier_owner(ordinal) else {
             continue;
@@ -123,7 +127,21 @@ pub(super) fn capture(proxy: &Proxy) -> (CarrierOwnerRegistration, CarrierOrigin
             } else {
                 assert!(original.driver().is_none());
             }
-            assert!(original.auxiliary().is_none());
+            if grpc {
+                assert!(original.auxiliary().is_none());
+            } else {
+                let auxiliary = original
+                    .auxiliary()
+                    .expect("same per-connection setup task");
+                let joined = auxiliary
+                    .try_joined()
+                    .expect("actual setup joined before delivery");
+                assert!(auxiliary.matches_joined(&joined) && joined.registration_released());
+                let bound = owner.bound().expect("actual native owner bound");
+                assert!(auxiliary
+                    .scope_identity()
+                    .same_scope(&bound.scope_identity()));
+            }
             assert_eq!(observed.retained(), 1);
             return (owner, original.original().clone());
         }

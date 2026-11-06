@@ -4,6 +4,10 @@ pub(super) struct Transfer {
     pub(super) grant: Mutex<Option<CarrierGrant>>,
     pub(super) view: Mutex<Option<zero_platform_tokio::controlled_carrier::CarrierUserView>>,
     pub(super) caller: Option<zero_platform_tokio::contract::scope::TaskJoinWitness>,
+    pub(super) preparation: Option<zero_platform_tokio::controlled_carrier::CarrierPreparation>,
+    pub(super) pending: Mutex<Vec<CarrierAdoption>>,
+    pub(super) preparing: Mutex<Option<UpstreamTransport>>,
+    pub(super) cleanup: Mutex<super::datagram::cleanup::Cleanup>,
     pub(super) owner: tokio::sync::Mutex<Option<LoanOwner>>,
     pub(super) stop: CancellationToken,
     pub(super) adoption: CarrierAdoption,
@@ -12,8 +16,9 @@ pub(super) struct Transfer {
 }
 pub(super) type Transfers = Arc<Mutex<Vec<Arc<Transfer>>>>;
 impl Transfer {
-    pub(super) async fn close(&self, end: Instant) -> Result<CloseReport, ChannelError> {
+    pub(super) async fn close_original(&self, end: Instant) -> Result<CloseReport, ChannelError> {
         self.stop.cancel();
+        self.request_pending_retirement();
         let mut guard = tokio::time::timeout_at(end, self.owner.lock())
             .await
             .map_err(|source| {
@@ -23,24 +28,25 @@ impl Transfer {
                 )
                 .with_source(source)
             })?;
-        let Some(owner) = guard.as_mut() else {
-            // The Opener takes this grant while holding the same owner lock.
-            // A grant still here never entered native preparation; dispose its
-            // actual unused reservation before requesting a close receipt.
-            let unused = self.grant.lock().unwrap().take();
-            let view = self.view.lock().unwrap().take();
-            drop(unused);
-            drop(view);
-            return self.adoption.retire(end).await;
+        let result = match guard.as_mut() {
+            Some(owner) => owner.close(end).await,
+            None => {
+                let unused = self.grant.lock().unwrap().take();
+                let view = self.view.lock().unwrap().take();
+                drop(unused);
+                drop(view);
+                self.adoption.retire(end).await
+            }
         };
-        let report = owner.close(end).await?;
-        if report.is_complete() {
+        if result.as_ref().is_ok_and(CloseReport::is_complete) {
             *guard = None;
         }
-        Ok(report)
+        drop(guard);
+        result
     }
-    pub(super) fn try_close(&self) -> Result<CloseReport, ChannelError> {
+    pub(super) fn try_close_original(&self) -> Result<CloseReport, ChannelError> {
         self.stop.cancel();
+        self.request_pending_retirement();
         let Ok(mut guard) = self.owner.try_lock() else {
             return Ok(CloseReport {
                 unfinished: vec![
@@ -64,10 +70,13 @@ impl Transfer {
         if report.is_complete() {
             *guard = None;
         }
+        drop(guard);
         Ok(report)
     }
     pub(super) fn finished(&self) -> bool {
-        !self.opening.load(std::sync::atomic::Ordering::Acquire)
+        self.release_pending();
+        self.pending.lock().unwrap().is_empty()
+            && !self.opening.load(std::sync::atomic::Ordering::Acquire)
             && self.owner.try_lock().is_ok_and(|owner| owner.is_none())
             && self
                 .adoption
@@ -75,7 +84,18 @@ impl Transfer {
                 .is_some_and(|closed| closed.matches(&self.adoption))
             && self.adoption.users_closed().is_some_and(|closed| {
                 closed.matches(&self.adoption)
+                    && self.preparation.as_ref().is_none_or(|preparation| {
+                        preparation.is_published()
+                            || preparation.matches_unpublished_closed(&closed)
+                    })
                     && self.caller.as_ref().is_none_or(|caller| {
+                        if self
+                            .preparation
+                            .as_ref()
+                            .is_some_and(|preparation| !preparation.is_published())
+                        {
+                            return true;
+                        }
                         // Positive unused-reservation receipts permit a retry
                         // in the still-live caller. No actual I/O/custody bound
                         // a caller here; native acquisition still needs its ACK.
@@ -100,6 +120,7 @@ impl Drop for Opening {
             .store(false, std::sync::atomic::Ordering::Release);
         if !self.0.published.load(std::sync::atomic::Ordering::Acquire) {
             self.0.stop.cancel();
+            self.0.request_pending_retirement();
             // If no opener consumed the unique grant, return its actual view
             // synchronously. Holding it until another dial would prevent the
             // original Host provider from finishing this unused cancellation.
@@ -110,6 +131,8 @@ impl Drop for Opening {
                 drop(view);
             }
             self.0.adoption.request_retirement();
+            let metadata = self.0.preparing.lock().unwrap().take();
+            drop(metadata);
         }
     }
 }

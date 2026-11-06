@@ -35,13 +35,31 @@ impl PrefixOpener {
             // This seals the same actual admitted caller on the receiver before
             // any donor acquisition can suspend. It is not Service authority.
             let ticket = business.authorize(&endpoint, &binding, &grant)?;
+            let preparation = grant.preparation();
             let service = CarrierContext {
                 session: None,
                 deadline: call.deadline,
-                cancel: call.cancel.clone(),
+                cancel: if preparation.is_some() {
+                    grant.cancellation()
+                } else {
+                    call.cancel.clone()
+                },
             };
+            let prepared_caller = preparation
+                .map(|preparation| {
+                    self.preparation_transport(
+                        preparation,
+                        business.clone(),
+                        call.clone(),
+                        service.clone(),
+                    )
+                })
+                .transpose()?;
+            let waiting = prepared_caller
+                .as_ref()
+                .map(|transport| transport.pending_carrier_observer());
             let loan = self
-                .borrow_selected(binding.clone(), endpoint.clone(), service)
+                .borrow_selected_observed(binding.clone(), endpoint.clone(), service, waiting)
                 .await?;
             let original = loan.owner.original().clone();
             // Install the authentic donor before post-acquisition checks. Error

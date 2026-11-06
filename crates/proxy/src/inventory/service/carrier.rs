@@ -32,6 +32,7 @@ impl ProtocolInventory {
                     // taskless framing alone still uses the caller's DNS original.
                     let borrowed = components.has_device_carrier_provider(slot.role_id())
                         || (spec.task_limit.is_none()
+                            || components.has_preparing_node_carrier_provider(slot.role_id())
                             || (!relay && components.has_node_stream_provider(slot.role_id())))
                             && components.has_carrier_provider(slot.role_id())
                             && components.stream_dependencies_supported(slot.role_id());

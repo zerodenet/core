@@ -11,7 +11,7 @@ impl Outbound {
     pub(super) async fn connect_business(
         &self,
         request: ConnectRequest,
-        mut context: OpenContext,
+        context: OpenContext,
     ) -> Result<Connected<BoxStream>, ChannelError> {
         if context.upstream.binding().dial != self.dial {
             return Err(crate::component::instance::invalid(
@@ -28,41 +28,55 @@ impl Outbound {
         // original Node opener independently issues and validates its actual
         // Business ticket for this same grant, facts and live caller.
         let caller = context.upstream.packet_caller(&context.identity, &call)?;
-        self.reap(&context).await?;
-        let transfer = self.reserve_transfer(Some(caller))?;
-        let _opening = Opening(transfer.clone());
-        if let Some(waiting) = context.upstream.observed_pending_carrier() {
-            waiting.retain(transfer.adoption.clone())?;
+        loop {
+            self.reap(&context).await?;
+            let transfer = self.reserve_transfer(Some(caller.clone()))?;
+            let opening = Opening(transfer.clone());
+            if let Some(waiting) = context.upstream.observed_pending_carrier() {
+                waiting.retain(transfer.adoption.clone())?;
+            }
+            let actual = self.clone();
+            let input = context.clone();
+            let original = transfer.clone();
+            let inner = self.inner.clone();
+            let next_request = request.clone();
+            let connected = match self
+                .prepare(&transfer, &context, move |caller| async move {
+                    let attempt = actual.context_for_attempt(&input, &original, caller)?;
+                    inner.connect(next_request, attempt).await
+                })
+                .await
+            {
+                Ok(connected) => connected,
+                Err(source) => {
+                    drop(opening);
+                    if self.retry_original(&context, &transfer, &source).await? {
+                        continue;
+                    }
+                    return Err(source);
+                }
+            };
+            if transfer.grant.lock().unwrap().is_some() {
+                return Err(crate::component::instance::invalid(
+                    Reason::InvalidConfig,
+                    "Business protocol did not consume its actual original grant",
+                ));
+            }
+            if let Some(preparation) = &transfer.preparation {
+                preparation.publish(&caller)?;
+            }
+            transfer
+                .published
+                .store(true, std::sync::atomic::Ordering::Release);
+            return Ok(Connected {
+                io: Box::pin(super::caller::CallerIo::new(
+                    connected.io,
+                    context.cancel.clone(),
+                    transfer.adoption.clone(),
+                )),
+                peer_confirmation: connected.peer_confirmation,
+            });
         }
-        context.upstream = UpstreamTransport::new(
-            context.upstream.binding().clone(),
-            Arc::new(Opener {
-                upstream: context.upstream.clone(),
-                endpoint: self.endpoint.clone(),
-                process: self.process,
-                transfer: transfer.clone(),
-                association: None,
-            }),
-        );
-        let caller_cancel = context.cancel.clone();
-        let connected = self.inner.connect(request, context).await?;
-        if transfer.grant.lock().unwrap().is_some() {
-            return Err(crate::component::instance::invalid(
-                Reason::InvalidConfig,
-                "Business protocol did not consume its actual original grant",
-            ));
-        }
-        transfer
-            .published
-            .store(true, std::sync::atomic::Ordering::Release);
-        Ok(Connected {
-            io: Box::pin(super::caller::CallerIo::new(
-                connected.io,
-                caller_cancel,
-                transfer.adoption.clone(),
-            )),
-            peer_confirmation: connected.peer_confirmation,
-        })
     }
 }
 pub(super) struct BusinessIo {

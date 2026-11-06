@@ -27,6 +27,8 @@ mod resolution;
 mod service;
 mod slot;
 mod users;
+mod preparation;
+pub use preparation::CarrierPreparation;
 mod view;
 use crate::contract::{ChannelError, DeliveryState, Impact, Reason, Stage};
 pub use adoption::{CarrierAdoption, CarrierClosed};

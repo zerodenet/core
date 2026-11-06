@@ -1,5 +1,6 @@
 //! Check borrowed lineage against actual installed roles and original providers.
 use super::*;
+mod preparation;
 mod process;
 impl ComponentPlan {
     /// Planning capacity only; retain still validates each installed original

@@ -95,9 +95,10 @@ pub(super) fn capture(proxy: &Proxy) -> (CarrierOwnerRegistration, CarrierOrigin
         .unwrap()
         .configured("node")
         .unwrap();
-    assert!(
-        slot.recipe.spec().task_limit.is_none(),
-        "the actual per-connection gRPC connection is driven inline in the original caller"
+    assert_eq!(
+        slot.recipe.spec().task_limit.unwrap().get(),
+        1,
+        "same original N1 permits one setup task; protocol driver remains inline"
     );
     for ordinal in 0..slot.recipe.spec().resources.len() {
         let Some(owner) = slot.original_carrier_owner(ordinal) else {
@@ -111,7 +112,18 @@ pub(super) fn capture(proxy: &Proxy) -> (CarrierOwnerRegistration, CarrierOrigin
             .iter()
             .find(|slot| slot.native().is_some_and(|native| !native.is_closed()))
         {
-            assert!(original.driver().is_none() && original.auxiliary().is_none());
+            assert!(original.driver().is_none());
+            let auxiliary = original
+                .auxiliary()
+                .expect("same per-connection setup task");
+            let joined = auxiliary
+                .try_joined()
+                .expect("actual setup joined before delivery");
+            assert!(auxiliary.matches_joined(&joined) && joined.registration_released());
+            let bound = owner.bound().expect("actual native owner bound");
+            assert!(auxiliary
+                .scope_identity()
+                .same_scope(&bound.scope_identity()));
             assert_eq!(observed.retained(), 1);
             return (owner, original.original().clone());
         }

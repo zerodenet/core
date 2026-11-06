@@ -3,6 +3,7 @@ mod compatibility;
 mod datagram;
 mod loan;
 mod packet_loan;
+mod preparation;
 mod selection;
 use super::health::FirstHopHealth;
 use crate::component::instance::invalid;
@@ -117,7 +118,47 @@ impl UpstreamOpener for PrefixOpener {
         {
             return None;
         }
-        self.context.upstream.pending_carrier_capacity()
+        self.context
+            .upstream
+            .pending_carrier_capacity()
+            .or_else(|| {
+                self.plan
+                    .as_ref()?
+                    .upgrade()?
+                    .pending_carrier_capacity(&binding.prefix)
+                    .ok()
+            })
+    }
+    fn validate_pending_carrier(
+        &self,
+        binding: &UpstreamBinding,
+        adoption: &zero_platform_tokio::controlled_carrier::CarrierAdoption,
+    ) -> Result<(), ChannelError> {
+        if binding != &self.expected_binding
+            || binding.network_generation.0 != self.network.network_generation()
+        {
+            return Err(invalid(
+                Reason::StalePlan,
+                "pending validation prefix changed",
+            ));
+        }
+        let plan = self
+            .plan
+            .as_ref()
+            .and_then(std::sync::Weak::upgrade)
+            .ok_or_else(|| invalid(Reason::Revoked, "pending validation plan retired"))?;
+        if binding
+            .prefix
+            .iter()
+            .any(|role| plan.validate_carrier_adoption(*role, adoption).is_ok())
+        {
+            Ok(())
+        } else {
+            Err(invalid(
+                Reason::StalePlan,
+                "pending original is outside actual prefix graph",
+            ))
+        }
     }
     fn packet_caller(
         &self,

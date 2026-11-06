@@ -219,6 +219,13 @@ impl BoundAuthority {
                     | ResourceDeclaration::ControlledAssociationPool { .. }
             )
     }
+    pub(super) fn preparation_available(&self) -> bool {
+        self.available()
+            && matches!(
+                self.declaration,
+                ResourceDeclaration::ControlledNodeCarrier { .. }
+            )
+    }
     pub(super) fn service_candidates_available(&self) -> bool {
         self.background_custody_available()
             || (self.available()

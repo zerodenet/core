@@ -24,7 +24,7 @@ impl Datagram {
     async fn open_original(
         &self,
         request: DatagramRequest,
-        mut context: OpenContext,
+        context: OpenContext,
     ) -> Result<(BoxDatagramSession, Arc<Transfer>), ChannelError> {
         let session = context.session_identity()?;
         if context.upstream.binding().dial != self.owner.dial {
@@ -39,46 +39,88 @@ impl Datagram {
                 "Datagram association has no actual pending-original caller",
             )
         })?;
-        self.owner.reap(&context).await?;
-        let transfer = self.owner.reserve_transfer(None)?;
-        let _opening = Opening(transfer.clone());
-        waiting.retain(transfer.adoption.clone())?;
         let call = CarrierContext {
             session: None,
             deadline: context.deadline,
             cancel: context.cancel.clone(),
         };
-        // This existing metadata API validates real Business admission before
-        // reselecting a separate Service demand. It creates no native grant.
-        let upstream = context
-            .upstream
-            .select_background_carrier_observed(
-                Some(context.upstream.binding().clone()),
-                call.clone(),
-                waiting,
-            )
-            .await?;
-        context.upstream = UpstreamTransport::new(
-            upstream.binding().clone(),
-            Arc::new(Opener {
-                upstream,
-                endpoint: self.owner.endpoint.clone(),
-                process: self.owner.process,
-                transfer: transfer.clone(),
-                association: Some(Association { session, call }),
-            }),
-        );
-        let channel = self.inner.open(request, context).await?;
-        if transfer.grant.lock().unwrap().is_some() {
-            return Err(crate::component::instance::invalid(
-                Reason::InvalidConfig,
-                "Datagram protocol did not consume its one actual stream grant",
-            ));
+        let mut selected = None;
+        loop {
+            self.owner.reap(&context).await?;
+            let transfer = self.owner.reserve_transfer(None)?;
+            let opening = Opening(transfer.clone());
+            waiting.retain(transfer.adoption.clone())?;
+            if selected.is_none() {
+                selected = Some(
+                    context
+                        .upstream
+                        .select_background_carrier_observed(
+                            Some(context.upstream.binding().clone()),
+                            call.clone(),
+                            waiting.clone(),
+                        )
+                        .await?,
+                );
+            }
+            let upstream = selected
+                .as_ref()
+                .expect("actual Service selection installed")
+                .clone();
+            let mut attempt = context.clone();
+            attempt.upstream = UpstreamTransport::new(
+                upstream.binding().clone(),
+                Arc::new(Opener {
+                    upstream,
+                    endpoint: self.owner.endpoint.clone(),
+                    process: self.owner.process,
+                    transfer: transfer.clone(),
+                    association: Some(Association {
+                        session,
+                        call: call.clone(),
+                    }),
+                }),
+            );
+            let inner = self.inner.clone();
+            let request = request.clone();
+            let original = transfer.clone();
+            let channel = match self
+                .owner
+                .prepare(&transfer, &context, move |caller| async move {
+                    if let Some(caller) = caller {
+                        let pending = super::pending::transport(&attempt, &original, caller)?;
+                        *original.preparing.lock().unwrap() = Some(pending);
+                    }
+                    inner.open(request, attempt).await
+                })
+                .await
+            {
+                Ok(channel) => channel,
+                Err(source) => {
+                    drop(opening);
+                    if self
+                        .owner
+                        .retry_original(&context, &transfer, &source)
+                        .await?
+                    {
+                        continue;
+                    }
+                    return Err(source);
+                }
+            };
+            if transfer.grant.lock().unwrap().is_some() {
+                return Err(crate::component::instance::invalid(
+                    Reason::InvalidConfig,
+                    "Datagram protocol did not consume its one actual stream grant",
+                ));
+            }
+            if let Some(preparation) = &transfer.preparation {
+                preparation.publish_transferred()?;
+            }
+            transfer
+                .published
+                .store(true, std::sync::atomic::Ordering::Release);
+            return Ok((channel, transfer.clone()));
         }
-        transfer
-            .published
-            .store(true, std::sync::atomic::Ordering::Release);
-        Ok((channel, transfer.clone()))
     }
 }
 impl DatagramOutbound for Datagram {
@@ -158,7 +200,7 @@ pub(super) struct Control {
     transfer: Arc<Transfer>,
     cleanup: Mutex<cleanup::Cleanup>,
 }
-mod cleanup;
+pub(super) mod cleanup;
 impl ChannelControl for Control {
     fn revoked(&self) -> BoxFuture<'static, ()> {
         let inner = self.inner.revoked();

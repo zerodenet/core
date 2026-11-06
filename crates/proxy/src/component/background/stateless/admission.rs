@@ -44,10 +44,17 @@ impl Outbound {
             ));
         }
         let mut grant = self.grants.reserve()?;
-        let view = if caller.is_some() {
-            grant.claim_user_view()?
-        } else {
-            grant.claim_transferred_view()?
+        let (view, preparation) = match (&caller, &self.tasks) {
+            (Some(caller), Some(_)) => {
+                let (view, preparation) = grant.claim_preparing_user_view(caller)?;
+                (view, Some(preparation))
+            }
+            (Some(_), None) => (grant.claim_user_view()?, None),
+            (None, Some(_)) => {
+                let (view, preparation) = grant.claim_preparing_transferred_view()?;
+                (view, Some(preparation))
+            }
+            (None, None) => (grant.claim_transferred_view()?, None),
         };
         let transfer = Arc::new(Transfer {
             stop: grant.cancellation(),
@@ -56,6 +63,10 @@ impl Outbound {
             view: Mutex::new(Some(view)),
             owner: tokio::sync::Mutex::new(None),
             caller,
+            preparation,
+            pending: Mutex::new(Vec::new()),
+            preparing: Mutex::new(None),
+            cleanup: Default::default(),
             published: false.into(),
             opening: true.into(),
         });

@@ -32,7 +32,7 @@ impl Running {
         assert!(closed.native_bound_failures().is_empty());
     }
 }
-async fn start(document: serde_json::Value, tag: &str) -> Running {
+pub(super) async fn start(document: serde_json::Value, tag: &str) -> Running {
     let config = zero_config::RuntimeConfig::parse(&document.to_string()).unwrap();
     let proxy = Proxy::new(config.clone()).unwrap();
     let registry = proxy.system_tun_source_registry();
@@ -86,9 +86,10 @@ pub(super) fn capture(proxy: &Proxy) -> (CarrierOwnerRegistration, CarrierOrigin
         .unwrap()
         .configured("node")
         .unwrap();
-    assert!(
-        slot.recipe.spec().task_limit.is_none(),
-        "the actual H2 connection is driven inline in the original caller"
+    assert_eq!(
+        slot.recipe.spec().task_limit.unwrap().get(),
+        1,
+        "same original N1 permits one setup task; protocol driver remains inline"
     );
     for ordinal in 0..slot.recipe.spec().resources.len() {
         let Some(owner) = slot.original_carrier_owner(ordinal) else {
@@ -102,7 +103,18 @@ pub(super) fn capture(proxy: &Proxy) -> (CarrierOwnerRegistration, CarrierOrigin
             .iter()
             .find(|slot| slot.native().is_some_and(|native| !native.is_closed()))
         {
-            assert!(original.driver().is_none() && original.auxiliary().is_none());
+            assert!(original.driver().is_none());
+            let auxiliary = original
+                .auxiliary()
+                .expect("same per-connection setup task");
+            let joined = auxiliary
+                .try_joined()
+                .expect("actual setup joined before delivery");
+            assert!(auxiliary.matches_joined(&joined) && joined.registration_released());
+            let bound = owner.bound().expect("actual native owner bound");
+            assert!(auxiliary
+                .scope_identity()
+                .same_scope(&bound.scope_identity()));
             assert_eq!(observed.retained(), 1);
             return (owner, original.original().clone());
         }
@@ -110,6 +122,12 @@ pub(super) fn capture(proxy: &Proxy) -> (CarrierOwnerRegistration, CarrierOrigin
     panic!("actual ordinary H2/upgrade wire must own its same native grant")
 }
 pub(super) async fn echo(client: &Running) -> (CarrierOwnerRegistration, CarrierOriginObservation) {
+    echo_inspect(client, |_, _| {}).await
+}
+pub(super) async fn echo_inspect(
+    client: &Running,
+    inspect: impl FnOnce(&CarrierOwnerRegistration, &CarrierOriginObservation),
+) -> (CarrierOwnerRegistration, CarrierOriginObservation) {
     let target = TcpListener::bind("127.0.0.1:0").await.unwrap();
     let port = target.local_addr().unwrap().port();
     let payload: Vec<u8> = (0..262144).map(|index| (index % 251) as u8).collect();
@@ -138,6 +156,7 @@ pub(super) async fn echo(client: &Running) -> (CarrierOwnerRegistration, Carrier
     io.write_all(&payload).await.unwrap();
     io.flush().await.unwrap();
     let original = capture(&client.proxy);
+    inspect(&original.0, &original.1);
     io.shutdown().await.unwrap();
     let mut received = Vec::new();
     io.read_to_end(&mut received).await.unwrap();
