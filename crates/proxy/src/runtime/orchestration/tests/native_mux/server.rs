@@ -1,9 +1,7 @@
 use super::*;
-use tokio::{sync::watch, task::JoinHandle};
 pub(super) struct Server {
-    upstream: Proxy,
-    shutdown: watch::Sender<bool>,
-    worker: JoinHandle<Result<(), zero_engine::EngineError>>,
+    running: crate::RunningProxy,
+    source: std::sync::Arc<crate::runtime::inbound_owners::InboundOwner>,
     pub fixture: Fixture,
     _material: tempfile::TempDir,
 }
@@ -15,40 +13,45 @@ impl Server {
         inbound["ws"] = json!({"path":"/mux"});
         let config = config_at(
             json!({"inbounds":[{"tag":"incoming",
-            "listen":{"address":"127.0.0.1","port":1},"protocol":inbound}],
+            "listen":{"address":"127.0.0.1","port":0},"protocol":inbound}],
             "route":{"final":{"type":"direct"}}}),
             material.path(),
         );
         let upstream = Proxy::new(config.clone()).unwrap();
-        start_components(&upstream).await;
-        let mut input = config.inbounds[0].clone();
-        input.listen.port = 0;
-        let listener = crate::runtime::test_listener::start(&upstream, input).await;
-        let address = listener.address;
-        let shutdown = listener.stop;
-        let inbound_worker = listener.worker;
-
+        let registry = upstream.system_tun_source_registry();
+        let running = start_components(&upstream).await;
+        let source = timeout(Duration::from_secs(5), async {
+            loop {
+                if let Some(source) = registry.owner("incoming") {
+                    break source;
+                }
+                tokio::task::yield_now().await;
+            }
+        })
+        .await
+        .unwrap();
+        source.wait_ready().await.unwrap();
+        let address = *source
+            .original_listener_address
+            .get()
+            .expect("same actual Source bound address");
         Self {
-            upstream,
-            shutdown,
-            worker: inbound_worker,
+            running,
+            source,
             fixture: Fixture::start(address).await,
             _material: material,
         }
     }
     pub async fn close(self) {
-        self.shutdown.send(true).unwrap();
-        self.worker.await.unwrap().unwrap();
-        self.upstream
-            .inbound_owners
-            .shutdown("incoming", deadline())
-            .await
-            .unwrap();
+        self.running.shutdown().await.unwrap();
+        let closed = self
+            .source
+            .terminal_for_test()
+            .expect("same actual Source native/users/Scope closure");
+        assert_eq!(closed.identity(), self.source.identity());
+        assert!(closed.failure().is_none());
+        assert!(closed.task_failures().is_empty());
+        assert!(closed.native_bound_failures().is_empty());
         self.fixture.finish().await;
-        self.upstream
-            .protocols
-            .shutdown_components(deadline())
-            .await
-            .unwrap();
     }
 }

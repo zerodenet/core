@@ -5,7 +5,10 @@ use zero_platform_tokio::contract::{
     network::{CarrierContext, UpstreamBinding},
     Reason, Stage,
 };
-pub(super) type Epoch = (UpstreamBinding, Option<DnsGeneration>);
+pub(super) type Epoch = (
+    zero_core::component::NetworkGeneration,
+    Option<DnsGeneration>,
+);
 impl ManagedPool {
     /// Select the actual current root provider for compatibility users of this
     /// same pool. Selection grants no carrier and never replaces an original.
@@ -32,8 +35,12 @@ impl ManagedPool {
     /// changed DNS generation keeps the already installed original for cleanup.
     pub fn verify_epoch(&self, binding: &UpstreamBinding) -> Result<(), crate::RuntimeError> {
         if !self.ready()
+            || binding.dial != self.options.binding.dial
             || self.epoch.lock().unwrap().as_ref()
-                != Some(&(binding.clone(), self.upstream.carrier_dns_generation()))
+                != Some(&(
+                    binding.network_generation,
+                    self.upstream.carrier_dns_generation(),
+                ))
         {
             return Err(std::io::Error::other(failure(
                 self.instance,
@@ -64,13 +71,24 @@ impl ManagedPool {
         let deadline = Instant::now()
             .checked_add(self.options.open_budget)
             .ok_or_else(|| std::io::Error::other("carrier deadline overflow"))?;
+        // Root metadata can be selected without a caller witness. The actual
+        // prefix (especially endpoint-free devices) is selected only inside
+        // the already registered setup task with its exact observer/witness.
         tokio::select! { biased;
             _=self.cancel.cancelled()=>return Err(std::io::Error::other(failure(self.instance,Stage::Prepare,Reason::Revoked)).into()),
-            selected=tokio::time::timeout_at(deadline,self.upstream.select_background_carrier(Some(binding.clone()),CarrierContext {
+            selected=tokio::time::timeout_at(deadline,self.upstream.select_background_carrier(None,CarrierContext {
                 session:None,deadline:Some(deadline),cancel:self.cancel.child_token(),
-            }))=>{selected.map_err(|source|std::io::Error::new(std::io::ErrorKind::TimedOut,source))?.map_err(std::io::Error::other)?;},
+            }))=>{
+                let selected=selected.map_err(|source|std::io::Error::new(std::io::ErrorKind::TimedOut,source))?.map_err(std::io::Error::other)?;
+                if selected.binding().dial!=binding.dial || selected.binding().network_generation!=binding.network_generation {
+                    return Err(std::io::Error::other(failure(self.instance,Stage::Prepare,Reason::StalePlan)).into());
+                }
+            },
         }
-        let epoch = (binding.clone(), self.upstream.carrier_dns_generation());
+        let epoch = (
+            binding.network_generation,
+            self.upstream.carrier_dns_generation(),
+        );
         if self
             .epoch
             .lock()

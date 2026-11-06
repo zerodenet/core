@@ -9,6 +9,7 @@ use zero_platform_tokio::{
 };
 
 pub struct Physical {
+    pub(super) pending: Mutex<Vec<CarrierAdoption>>,
     pub(super) original: CarrierAdoption,
     pub(super) owner: Weak<ManagedPool>,
     pub(super) opening: AtomicBool,
@@ -29,6 +30,7 @@ impl Physical {
         owner: &Arc<ManagedPool>,
     ) -> Arc<Self> {
         Arc::new(Self {
+            pending: Mutex::new(Vec::new()),
             original,
             owner: Arc::downgrade(owner),
             opening: AtomicBool::new(true),
@@ -95,7 +97,8 @@ impl Physical {
         }
     }
     pub(super) fn closed(&self) -> bool {
-        if self.opening.load(Ordering::Acquire)
+        if !self.pending.lock().unwrap().is_empty()
+            || self.opening.load(Ordering::Acquire)
             || self.users.load(Ordering::Acquire) != 0
             || self.view.lock().unwrap().is_some()
             || self
@@ -163,6 +166,11 @@ impl Physical {
                 failure(self.original.instance(), Stage::Prepare, Reason::StalePlan)
             })?;
         self.original.origin(&witness)
+    }
+    /// Positive matching native/users/real task-ACK evidence, for reclaiming
+    /// only this already closed protocol map entry. Never grants replacement IO.
+    pub fn confirmed_closed(&self) -> bool {
+        self.closed()
     }
     pub fn instance(&self) -> zero_core::component::ComponentInstanceId {
         self.original.instance()

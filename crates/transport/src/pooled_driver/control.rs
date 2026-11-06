@@ -130,12 +130,11 @@ impl PoolControl {
         let invalid = || {
             std::io::Error::new(
                 std::io::ErrorKind::InvalidInput,
-                "native carrier pool requires a scoped literal root and finite budget",
+                "native carrier pool requires an actual scoped owner and finite budget",
             )
         };
         if self.key.is_none()
             || !self.native_eligible()
-            || matches!(endpoint.address, zero_core::Address::Domain(_))
             || endpoint.port == 0
             || !binding.prefix.is_empty()
             || open_budget.is_zero()
@@ -187,6 +186,7 @@ impl PoolControl {
             open_budget.hash(&mut hash);
             identity.extend_from_slice(&hash.finish().to_le_bytes());
         }
+        let identity: Arc<[u8]> = identity.into();
         Ok(PoolOptions {
             registry: Arc::downgrade(&self.registry),
             key: self.key.clone().unwrap(),
@@ -195,12 +195,16 @@ impl PoolControl {
             binding,
             limit,
             open_budget,
-            identity: identity.into(),
+            identity: identity.clone(),
+            base_identity: identity,
             on_closed: None,
+            dependencies: Vec::new(),
         })
     }
 }
+#[derive(Clone)]
 pub struct PoolOptions {
+    pub(super) dependencies: Vec<zero_core::component::ComponentId>,
     pub(super) registry: Weak<Registry>,
     pub(super) key: Arc<str>,
     pub(super) profile: Arc<str>,
@@ -209,6 +213,7 @@ pub struct PoolOptions {
     pub(super) limit: NonZeroUsize,
     pub(super) open_budget: Duration,
     pub(super) identity: Arc<[u8]>,
+    base_identity: Arc<[u8]>,
     pub(super) on_closed:
         Option<Arc<dyn Fn(zero_core::component::ComponentInstanceId) + Send + Sync>>,
 }
@@ -221,6 +226,16 @@ impl std::fmt::Debug for PoolOptions {
     }
 }
 impl PoolOptions {
+    /// Actual Node/ECH source prepared by the owning protocol adapter. Cold
+    /// identity metadata never grants IO or substitutes for an actual provider.
+    pub fn with_node_dependency(mut self, dependency: zero_core::component::ComponentId) -> Self {
+        self.dependencies = vec![dependency];
+        let mut identity = self.base_identity.to_vec();
+        identity.extend_from_slice(b"actual-node-dependency");
+        identity.extend_from_slice(&dependency.0.to_le_bytes());
+        self.identity = identity.into();
+        self
+    }
     /// Protocol-private cache reclamation runs only after actual closure. The
     /// callback grants no I/O authority and supplies no closure evidence.
     pub fn on_confirmed_close(

@@ -5,7 +5,7 @@ async fn native_mux_datagram_cleanup_keeps_original_until_both_views_and_control
     timeout(Duration::from_secs(40),async {
         for protocol in ["vless","vmess","trojan"] {
             let server=Server::start(protocol).await;let udp=UdpEcho::start().await;
-            let proxy=Proxy::from_engine_with_background(zero_engine::Engine::new(config(protocol,server.fixture.front.port())).unwrap(),true).unwrap();start_components(&proxy).await;
+            let proxy=Proxy::from_engine_with_background(zero_engine::Engine::new(config(protocol,server.fixture.front.port())).unwrap(),true).unwrap();let running=start_components(&proxy).await;
             let mut channel=open(&proxy,40,DatagramTargets::Fixed(udp.target())).await.unwrap();
             send_packet(&mut channel,40,udp.target(),b"owned").await;receive(&mut channel,40,udp.target(),b"owned").await;
             let registration=registration(&proxy);let observed=registration.observe().unwrap();let original=observed.slots()[0].original().clone();let driver=observed.slots()[0].driver().unwrap().1.clone();
@@ -39,7 +39,8 @@ async fn native_mux_datagram_cleanup_keeps_original_until_both_views_and_control
             }
             assert!(original.matches_closed(&original.closed().unwrap()));
             assert!(registration.closed().unwrap().matches(&registration));assert!(registration.users_closed().unwrap().matches(&registration));
-            udp.close().await;server.close().await;
+            udp.close().await;running.shutdown().await.unwrap();
+            server.close().await;
         }
     }).await.unwrap();
 }

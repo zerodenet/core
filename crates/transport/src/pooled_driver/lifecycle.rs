@@ -25,7 +25,7 @@ impl ComponentFactory for PoolFactory {
         ComponentSpec {
             owner: ResourceOwner::Endpoint("shared.stream_pool".into()),
             roles: vec![],
-            dependencies: vec![],
+            dependencies: options.dependencies.clone(),
             static_identity: options.identity.clone(),
             resources: vec![ResourceDeclaration::ControlledCarrierPool {
                 endpoint: options.endpoint.clone(),
@@ -42,7 +42,15 @@ impl ComponentFactory for PoolFactory {
         context: BuildContext,
     ) -> Result<ComponentInstance, BuildError> {
         let instance = context.instance();
-        if !context.dependencies.is_empty() || context.roles != Default::default() {
+        if context.dependencies.len() != options.dependencies.len()
+            || options
+                .dependencies
+                .iter()
+                .any(|dependency| context.dependency(*dependency).is_none())
+            || (matches!(options.endpoint.address, zero_core::Address::Domain(_))
+                && options.dependencies.is_empty())
+            || context.roles != Default::default()
+        {
             return Err(failure(instance, Stage::Prepare, Reason::InvalidConfig));
         }
         let registry = options
@@ -141,6 +149,15 @@ impl ResourceLifecycle for Owner {
             .append(std::mem::take(&mut *self.managed.settled.lock().unwrap()));
         self.pending.unfinished.clear();
         self.pending.append(self.carriers.shutdown(deadline).await?);
+        let records = self.managed.records.lock().unwrap().clone();
+        for record in records {
+            record.release_installed_pending();
+            let pending = record.pending.lock().unwrap().clone();
+            for original in pending {
+                self.pending.append(original.retire(deadline).await?);
+            }
+            record.release_installed_pending();
+        }
         loop {
             let changed = self.managed.changed.notified();
             tokio::pin!(changed);

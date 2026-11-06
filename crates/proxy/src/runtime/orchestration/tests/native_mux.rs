@@ -42,17 +42,19 @@ fn config(protocol: &str, port: u16) -> zero_config::RuntimeConfig {
     )
     .unwrap()
 }
-async fn start_components(proxy: &Proxy) {
-    let config = proxy.engine().config();
-    proxy
-        .protocols
-        .start_components(config.clone(), deadline())
-        .await
-        .unwrap();
-    proxy
-        .protocols
-        .commit_components(&config, || Ok(()))
-        .unwrap();
+async fn start_components(proxy: &Proxy) -> crate::RunningProxy {
+    let running = proxy.spawn();
+    crate::ProxyHandle::new(
+        zero_engine::EngineHandle::new(proxy.engine().clone()),
+        proxy.clone(),
+    )
+    .apply_runtime_config_and_wait(
+        proxy.engine().config().as_ref().clone(),
+        Duration::from_secs(5),
+    )
+    .await
+    .unwrap();
+    running
 }
 async fn connect(proxy: &Proxy, port: u16) -> Result<crate::transport::TcpRelayStream, String> {
     let mut session = Session::new(
@@ -133,7 +135,7 @@ async fn native_mux_actual_proxy_reuses_one_original_and_confirms_tasks_users_an
                 true,
             )
             .unwrap();
-            start_components(&proxy).await;
+            let running = start_components(&proxy).await;
             let registration = registration(&proxy);
             let mut first = connect(&proxy, server.fixture.echo.port()).await.unwrap();
             echo(&mut first).await;
@@ -173,6 +175,7 @@ async fn native_mux_actual_proxy_reuses_one_original_and_confirms_tasks_users_an
             assert!(driver.matches_joined(&driver.try_joined().unwrap()));
             assert!(registration.closed().unwrap().matches(&registration));
             assert!(registration.users_closed().unwrap().matches(&registration));
+            running.shutdown().await.unwrap();
             server.close().await;
         }
     })
