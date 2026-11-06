@@ -121,7 +121,13 @@ impl OrchestrationState {
             }
         };
         let _source_pauses = if budget_changed {
-            match budget_barrier::pause_sources(proxy, self.applied_snapshot.config()).await {
+            match budget_barrier::pause_sources(
+                proxy,
+                self.applied_snapshot.config(),
+                new_snapshot.config(),
+            )
+            .await
+            {
                 Ok(pauses) => Some(pauses),
                 Err(error) => {
                     self.reject_before_start(proxy, &new_snapshot, error.to_string(), true)

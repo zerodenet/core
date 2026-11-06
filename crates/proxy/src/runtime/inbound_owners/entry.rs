@@ -475,6 +475,9 @@ impl InboundOwner {
 
 #[cfg(feature = "raw-ip-runtime")]
 impl InboundOwner {
+    pub(in crate::runtime) fn has_packet_source_pause(&self) -> bool {
+        self.packet_pause.get().is_some()
+    }
     pub(in crate::runtime) fn prepare_packet_source_pause(
         &self,
     ) -> Arc<zero_platform_tokio::contract::packet::PacketSourcePause> {

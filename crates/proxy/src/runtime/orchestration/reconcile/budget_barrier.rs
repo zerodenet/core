@@ -12,6 +12,10 @@ pub(in crate::runtime) fn ss_budget_changed(old: &RuntimeConfig, next: &RuntimeC
     {
         return true;
     }
+    #[cfg(feature = "raw-ip-runtime")]
+    if packet_budget_changed(old, next) {
+        return true;
+    }
     let configured = old
         .inbounds
         .iter()
@@ -32,16 +36,57 @@ pub(in crate::runtime) fn ss_budget_changed(old: &RuntimeConfig, next: &RuntimeC
         }
 }
 
+#[cfg(feature = "raw-ip-runtime")]
+fn packet_budget_changed(old: &RuntimeConfig, next: &RuntimeConfig) -> bool {
+    old.runtime.effective_packet_return_max_frames()
+        != next.runtime.effective_packet_return_max_frames()
+        || old.runtime.effective_packet_return_max_bytes()
+            != next.runtime.effective_packet_return_max_bytes()
+        || old.runtime.effective_packet_return_total_max_frames()
+            != next.runtime.effective_packet_return_total_max_frames()
+        || old.runtime.effective_packet_return_total_max_bytes()
+            != next.runtime.effective_packet_return_total_max_bytes()
+}
+pub(super) struct SourceBudgetPauses {
+    _sources: Vec<crate::runtime::inbound_owners::AcquisitionPause>,
+    #[cfg(feature = "raw-ip-runtime")]
+    _direct: Option<crate::runtime::packet_route::host::NativeDevicePaused>,
+}
 pub(super) async fn pause_sources(
     proxy: &Proxy,
     previous: &RuntimeConfig,
-) -> Result<Vec<crate::runtime::inbound_owners::AcquisitionPause>, EngineError> {
+    next: &RuntimeConfig,
+) -> Result<SourceBudgetPauses, EngineError> {
+    #[cfg(feature = "raw-ip-runtime")]
+    let packet_changed = packet_budget_changed(previous, next);
+    #[cfg(not(feature = "raw-ip-runtime"))]
+    let _ = next;
     let mut pauses = Vec::new();
     for input in &previous.inbounds {
-        if input.protocol.protocol_name() != "shadowsocks" {
+        let Some(original) = proxy.inbound_owners.owner(&input.tag) else {
+            continue;
+        };
+        let needed = input.protocol.protocol_name() == "shadowsocks";
+        #[cfg(feature = "raw-ip-runtime")]
+        let needed = needed || packet_changed && original.has_packet_source_pause();
+        if !needed {
             continue;
         }
-        if let Some(original) = proxy.inbound_owners.owner(&input.tag) {
+        if let Some(pause) = original
+            .pause_acquisition_if_idle(
+                tokio::time::Instant::now() + std::time::Duration::from_secs(5),
+            )
+            .await?
+        {
+            pauses.push(pause);
+        }
+    }
+    #[cfg(feature = "raw-ip-runtime")]
+    if packet_changed {
+        if let Some(original) = proxy
+            .inbound_owners
+            .owner(crate::runtime::inbound_owners::system_tun::SYSTEM_TUN_OWNER)
+        {
             if let Some(pause) = original
                 .pause_acquisition_if_idle(
                     tokio::time::Instant::now() + std::time::Duration::from_secs(5),
@@ -52,10 +97,29 @@ pub(super) async fn pause_sources(
             }
         }
     }
+    #[cfg(feature = "raw-ip-runtime")]
+    let direct = if packet_changed {
+        proxy
+            .protocols
+            .pause_direct_packet_if_idle(
+                tokio::time::Instant::now() + std::time::Duration::from_secs(5),
+            )
+            .await?
+    } else {
+        None
+    };
     for pause in &pauses {
         pause.validate()?;
     }
-    Ok(pauses)
+    #[cfg(feature = "raw-ip-runtime")]
+    if let Some(direct) = &direct {
+        direct.validate().map_err(std::io::Error::other)?;
+    }
+    Ok(SourceBudgetPauses {
+        _sources: pauses,
+        #[cfg(feature = "raw-ip-runtime")]
+        _direct: direct,
+    })
 }
 
 #[cfg(feature = "raw-ip-runtime")]

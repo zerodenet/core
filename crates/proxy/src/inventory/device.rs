@@ -15,8 +15,18 @@ use crate::runtime::udp_dispatch::packet_path_operation::PreparedDatagramRelayCa
 type PacketPaths = HashMap<String, PreparedDevicePacketPath>;
 
 impl ProtocolInventory {
-    #[cfg(all(test,feature="wireguard"))]
-    pub(crate) fn test_packet_source_origins(&self,config:&RuntimeConfig)->Vec<zero_platform_tokio::controlled_carrier::CarrierOrigin> {
+    pub(crate) async fn pause_direct_packet_if_idle(
+        &self,
+        deadline: tokio::time::Instant,
+    ) -> Result<Option<crate::runtime::packet_route::host::NativeDevicePaused>, EngineError> {
+        self.devices.pause_direct_packet_if_idle(deadline).await
+    }
+
+    #[cfg(all(test, feature = "wireguard"))]
+    pub(crate) fn test_packet_source_origins(
+        &self,
+        config: &RuntimeConfig,
+    ) -> Vec<zero_platform_tokio::controlled_carrier::CarrierOrigin> {
         self.devices.test_current_wireguard_sources(config)
     }
     #[cfg(all(test, feature = "wireguard"))]
