@@ -35,6 +35,7 @@ pub(crate) struct Options<T> {
     endpoint: Destination,
     dial: zero_traits::DialPolicy,
     limit: NonZeroUsize,
+    node_dns: Option<zero_core::component::ComponentId>,
 }
 impl<T> Options<T> {
     pub(crate) fn new(
@@ -48,6 +49,22 @@ impl<T> Options<T> {
             endpoint,
             dial,
             limit,
+            node_dns: None,
+        }
+    }
+    pub(crate) fn with_node_dns(mut self, dependency: zero_core::component::ComponentId) -> Self {
+        self.node_dns = Some(dependency);
+        self
+    }
+}
+impl<T> Clone for Options<T> {
+    fn clone(&self) -> Self {
+        Self {
+            inner: self.inner.clone(),
+            endpoint: self.endpoint.clone(),
+            dial: self.dial.clone(),
+            limit: self.limit,
+            node_dns: self.node_dns,
         }
     }
 }
@@ -63,17 +80,26 @@ impl<F: ComponentFactory> ComponentFactory for Factory<F> {
                 datagram: false,
                 max_sockets: options.limit,
             });
+        if let Some(node) = options.node_dns {
+            if !spec.dependencies.contains(&node) {
+                spec.dependencies.push(node);
+            }
+        }
         let mut identity = spec.static_identity.to_vec();
         identity.extend_from_slice(b"same-slot-taskless-carrier-v1");
         identity.extend_from_slice(&options.limit.get().to_le_bytes());
         identity.extend_from_slice(format!("{:?}{:?}", options.endpoint, options.dial).as_bytes());
+        if let Some(node) = options.node_dns {
+            identity.extend_from_slice(b"taskless.actual-node-dns");
+            identity.extend_from_slice(&node.0.to_le_bytes());
+        }
         spec.static_identity = identity.into();
         spec
     }
     fn build(
         &self,
         options: Arc<Self::Options>,
-        context: BuildContext,
+        mut context: BuildContext,
     ) -> Result<ComponentInstance, BuildError> {
         let original = self.0.describe(&options.inner);
         // A transport driver must keep its actual protocol owner; it cannot be
@@ -84,6 +110,29 @@ impl<F: ComponentFactory> ComponentFactory for Factory<F> {
                 "carrier framing requires the actual taskless role",
             ));
         }
+        let mut expected = original.dependencies.clone();
+        if let Some(node) = options.node_dns {
+            if !expected.contains(&node) {
+                expected.push(node);
+            }
+        }
+        if context.dependencies.len() != expected.len()
+            || expected.iter().any(|id| context.dependency(*id).is_none())
+        {
+            return Err(super::super::instance::invalid(
+                Reason::StalePlan,
+                "taskless actual Node dependency changed",
+            ));
+        }
+        // This custody owner consumes the real Node dependency; the original
+        // protocol factory receives exactly its own unchanged dependency set.
+        context.dependencies = context
+            .dependencies
+            .iter()
+            .copied()
+            .filter(|id| original.dependencies.contains(&id.component))
+            .collect::<Vec<_>>()
+            .into();
         let carrier = CarrierOwner::new(context.instance(), options.limit, &context.cancel);
         let resources = context.resources.clone();
         let tasks = context.tasks.clone();

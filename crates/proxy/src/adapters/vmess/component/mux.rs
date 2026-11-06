@@ -14,6 +14,13 @@ pub(crate) enum Options {
     Ordinary(Arc<super::grpc::Options>),
     Mux(Arc<::vmess::component::mux::Options>),
 }
+impl Options {
+    pub(crate) fn bind_node_dns(&mut self, dependency: zero_core::component::ComponentId) {
+        if let Self::Ordinary(options) = self {
+            Arc::make_mut(options).bind_node_dns(dependency);
+        }
+    }
+}
 pub(crate) struct Factory;
 impl ComponentFactory for Factory {
     type Options = Options;

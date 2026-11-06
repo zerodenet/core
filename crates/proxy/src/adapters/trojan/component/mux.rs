@@ -16,6 +16,17 @@ pub(crate) enum Options {
     Ordinary(Arc<stateless::Options<::trojan::component::Options>>),
     Mux(Arc<::trojan::component::mux::Options>),
 }
+impl Options {
+    pub(crate) fn bind_node_dns(&mut self, dependency: zero_core::component::ComponentId) {
+        if let Self::Ordinary(options) = self {
+            *options = Arc::new((**options).clone().with_node_dns(dependency));
+        }
+    }
+}
+pub(crate) fn taskless_domain(input: &OutboundConfig) -> bool {
+    super::native_input(input)
+        && matches!(&input.protocol,OutboundProtocolConfig::Trojan{server,..} if zero_core::address::parse_ip_literal(server).is_none())
+}
 pub(crate) struct Factory;
 impl ComponentFactory for Factory {
     type Options = Options;
