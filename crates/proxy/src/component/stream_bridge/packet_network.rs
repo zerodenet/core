@@ -246,6 +246,47 @@ pub(super) async fn connect(
 /// The background path already validated the selected role sequence. Its first
 /// Packet role consumes only this actual setup caller, never a fabricated TCP
 /// root endpoint or the first waiting business/query task.
+pub(in crate::component::stream_bridge) fn business_transport(
+    services: &TcpExecutionServices,
+    slot: &Arc<ComponentSlot>,
+    binding: UpstreamBinding,
+) -> Result<UpstreamTransport, ChannelError> {
+    let invocation = services.invocation.clone().ok_or_else(|| {
+        invalid(
+            Reason::InvalidConfig,
+            "Packet relay requires its actual admitted invocation",
+        )
+    })?;
+    let plan = services
+        .components
+        .as_ref()
+        .map_err(|source| super::super::instance::retained(source.clone()))?;
+    if !binding.prefix.is_empty()
+        || binding.dial != slot.dial
+        || binding.network_generation.0 != services.upstream().network_generation()
+        || !plan.has_device_carrier_provider(slot.role_id())
+    {
+        return Err(invalid(
+            Reason::StalePlan,
+            "Packet relay source is not actually current",
+        ));
+    }
+    let tag = plan.role_tag(slot.role_id()).ok_or_else(|| {
+        invalid(
+            Reason::StalePlan,
+            "Packet relay has no actual configured owner",
+        )
+    })?;
+    let opener = Arc::new(PacketOpener {
+        services: services.upstream_observed(tag),
+        binding: binding.clone(),
+        invocation,
+        engine: services.engine().clone(),
+        slot: Arc::downgrade(slot),
+    });
+    Ok(UpstreamTransport::new(binding, opener))
+}
+
 pub(in crate::component::stream_bridge) fn service_transport(
     services: UpstreamConnectServices,
     binding: UpstreamBinding,
