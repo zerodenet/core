@@ -4,7 +4,11 @@ pub(crate) mod completion;
 mod config;
 #[cfg(feature = "raw-ip-runtime")]
 mod packet;
+#[cfg(feature = "raw-ip-runtime")]
+mod policy;
 mod recovery;
+#[cfg(feature = "raw-ip-runtime")]
+pub(crate) use policy::TunIngressOptions;
 mod routes;
 mod runtime;
 mod sniff;

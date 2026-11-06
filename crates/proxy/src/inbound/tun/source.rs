@@ -94,6 +94,18 @@ impl SystemTunSourceOptions {
             state: Arc::default(),
         }))
     }
+    pub(crate) fn ingress_options(
+        &self,
+        dns_hijack: bool,
+        dns_hijacked_queries: Arc<std::sync::atomic::AtomicU64>,
+    ) -> super::TunIngressOptions {
+        super::TunIngressOptions {
+            addresses: self.addresses.clone(),
+            mtu: self.mtu,
+            dns_hijack,
+            dns_hijacked_queries,
+        }
+    }
     pub(crate) fn state(&self) -> Arc<SystemTunSourceState> {
         self.state.clone()
     }
