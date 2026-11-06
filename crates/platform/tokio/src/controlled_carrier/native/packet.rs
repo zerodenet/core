@@ -72,6 +72,19 @@ impl NativeCarrierOpener {
         if let Some(parent) = related {
             grant.link_related_datagram(parent)?;
         }
+        #[cfg(target_os = "linux")]
+        if let Some(derived) = &self.derived {
+            derived.claim(&grant, binding, true).map_err(|source| {
+                error(
+                    grant.instance(),
+                    Stage::Prepare,
+                    Reason::StalePlan,
+                    DeliveryState::NotSubmitted,
+                )
+                .with_source(source)
+            })?;
+            grant.slot.state().process_endpoint = Some(derived.fence());
+        }
         let selection = self
             .egress
             .select_for_peer_with_policy(self.peer, &binding.dial)

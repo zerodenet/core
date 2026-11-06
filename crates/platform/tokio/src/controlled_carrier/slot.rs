@@ -1,7 +1,7 @@
 use super::owner::Shared;
 use crate::{
-    contract::{scope::TaskJoinWitness, ChannelError},
     ControlledTcpControl,
+    contract::{ChannelError, scope::TaskJoinWitness},
 };
 use std::sync::{Arc, Mutex, Weak};
 use tokio::sync::{Mutex as AsyncMutex, Notify};
@@ -20,6 +20,8 @@ pub(super) struct Slot {
 }
 #[derive(Default)]
 pub(super) struct State {
+    #[cfg(target_os = "linux")]
+    pub(super) process_endpoint: Option<crate::owned_process::ProcessEndpointFence>,
     pub(super) related_parent: Option<Weak<Slot>>,
     pub(super) related_child: Option<Arc<Slot>>,
     pub(super) transferred_origin: bool,
@@ -54,6 +56,17 @@ pub(super) struct State {
     pub(super) closed: bool,
 }
 impl Slot {
+    pub(super) fn check_process_endpoint(&self) -> std::io::Result<()> {
+        #[cfg(target_os = "linux")]
+        {
+            let derived = { self.state().process_endpoint.clone() };
+            if let Some(derived) = derived {
+                derived.check()?;
+            }
+        }
+        Ok(())
+    }
+
     pub(super) fn state(&self) -> std::sync::MutexGuard<'_, State> {
         self.state
             .lock()

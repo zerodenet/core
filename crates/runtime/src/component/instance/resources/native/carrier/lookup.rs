@@ -273,3 +273,53 @@ impl HostResources {
         bound.direct_service_issuer(fence, grant, caller, endpoint, binding)
     }
 }
+
+#[cfg(target_os = "linux")]
+impl HostResources {
+    pub(in crate::component) fn process_endpoint_consumer_use(
+        &self,
+        instance: ComponentInstanceId,
+        handoff: &Arc<zero_platform_tokio::owned_process::ProcessEndpointHandoff>,
+        endpoint: &Destination,
+        binding: &zero_platform_tokio::contract::network::UpstreamBinding,
+        demand: zero_platform_tokio::contract::component::ControlledStreamDemandClass,
+        grant: &zero_platform_tokio::controlled_carrier::CarrierGrant,
+    ) -> Result<zero_platform_tokio::owned_process::ProcessEndpointUse, ChannelError> {
+        // ControlledNodeCarrier is the one existing dual Business/Service
+        // descriptor. Its metadata label is Business; selecting that exact
+        // registered descriptor does not issue a Business ticket or Session.
+        // Other NodeStream/Direct/Association declarations gain no new class.
+        let physical_demand = if matches!(
+            demand,
+            ControlledStreamDemandClass::Service | ControlledStreamDemandClass::BackgroundControl
+        ) {
+            let records = self
+                .carriers
+                .records
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner);
+            let node=self.carriers.declarations.iter().any(|(ordinal,declaration)|
+                matches!(declaration,ResourceDeclaration::ControlledNodeCarrier{endpoint:actual,dial,..}
+                    if actual==endpoint&&dial==&binding.dial)
+                &&records.get(ordinal).is_some_and(|entry|entry.actual.matches_grant(grant)));
+            if node {
+                ControlledStreamDemandClass::Business
+            } else {
+                demand
+            }
+        } else {
+            demand
+        };
+        let bound = self.registered_carrier(instance, endpoint, binding, physical_demand, grant)?;
+        // Exact private Arc allocation; bound's public cancellation clone or a
+        // protocol-created token cannot reconstruct this minting capability.
+        let fence = self
+            .carriers
+            .host_cancel
+            .as_ref()
+            .ok_or_else(|| self.denied())?;
+        handoff
+            .authorize_consumer(fence, bound, grant)
+            .map_err(|source| self.denied().with_source(source))
+    }
+}

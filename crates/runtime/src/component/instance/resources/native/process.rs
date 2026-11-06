@@ -19,6 +19,7 @@ struct Entry {
     ordinal: usize,
     legacy: bool,
     jobs: Vec<Job>,
+    endpoint: Option<endpoint::Endpoint>,
 }
 struct Job {
     original: Arc<OwnedProcess>,
@@ -36,8 +37,8 @@ impl ProcessDeclarations {
         declarations: &[ResourceDeclaration],
         identity: Option<(ComponentInstanceId, TaskScopeIdentity)>,
         budget: Arc<zero_platform_tokio::owned_process::ProcessBudget>,
-    ) -> Self {
-        let entries = declarations
+    ) -> Result<Self, ChannelError> {
+        let mut entries: BTreeMap<PathBuf, Entry> = declarations
             .iter()
             .enumerate()
             .filter_map(|(ordinal, declaration)| {
@@ -50,15 +51,17 @@ impl ProcessDeclarations {
                         ordinal,
                         legacy: false,
                         jobs: Vec::new(),
+                        endpoint: None,
                     },
                 ))
             })
             .collect();
-        Self {
+        endpoint::prepare(declarations, &mut entries)?;
+        Ok(Self {
             budget,
             identity,
             entries: Mutex::new(entries),
-        }
+        })
     }
     fn lock(&self) -> std::sync::MutexGuard<'_, BTreeMap<PathBuf, Entry>> {
         self.entries
@@ -79,7 +82,8 @@ impl ProcessDeclarations {
         self.budget.poll_released(cx);
     }
     pub(super) fn evidence(&self, component: ComponentId) -> Vec<ProcessIoEvidence> {
-        self.lock()
+        let mut evidence: Vec<_> = self
+            .lock()
             .values()
             .map(|entry| ProcessIoEvidence {
                 ordinal: entry.ordinal,
@@ -107,9 +111,20 @@ impl ProcessDeclarations {
                         )
                     }),
             })
-            .collect()
+            .collect();
+        evidence.extend(self.endpoint_evidence());
+        evidence
     }
     pub(super) async fn shutdown(&self, component: ComponentId, deadline: Instant) -> CloseReport {
+        let endpoints: Vec<_> = {
+            self.lock()
+                .values()
+                .filter_map(|entry| entry.endpoint.as_ref()?.original.clone())
+                .collect()
+        };
+        for endpoint in &endpoints {
+            endpoint.request_stop();
+        }
         let jobs: Vec<_> = self
             .lock()
             .values()
@@ -120,8 +135,16 @@ impl ProcessDeclarations {
         }
         // Structured progress in the same existing host cleanup, no provider
         // task, actor self-join, separate runtime or replacement pool.
-        futures_util::future::join_all(jobs.iter().map(|job| job.wait_closed(deadline))).await;
+        let (endpoint_results, _) = tokio::join!(
+            futures_util::future::join_all(
+                endpoints.iter().map(|endpoint| endpoint.shutdown(deadline))
+            ),
+            futures_util::future::join_all(jobs.iter().map(|job| job.wait_closed(deadline)))
+        );
         let mut report = CloseReport::default();
+        // Endpoint originals retain every original failure for io_evidence,
+        // independently of matching physical completion. No report text is proof.
+        drop(endpoint_results);
         for entry in self.lock().values_mut() {
             for job in &mut entry.jobs {
                 if let Some(closed) = job
@@ -143,10 +166,12 @@ impl ProcessDeclarations {
                 }
             }
         }
+        self.report_endpoints(component, &mut report);
         report
     }
 }
 mod acquire;
+mod endpoint;
 #[derive(Debug)]
 struct ProcessFailure(Arc<io::Error>);
 impl std::fmt::Display for ProcessFailure {

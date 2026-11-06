@@ -5,6 +5,8 @@ mod cleanup;
 mod original_budgets;
 mod packet_source;
 mod probe;
+#[cfg(target_os = "linux")]
+mod process_endpoint;
 mod resources;
 mod roles;
 mod start;
@@ -22,9 +24,9 @@ pub use resources::NoResources;
 #[cfg(feature = "raw-ip-runtime")]
 pub use resources::{HostIcmpProbeGrant, HostIcmpProbeOwner};
 use std::sync::{Arc, OnceLock};
-pub(crate) use tasks::wake::{MonitorWake, WaitTarget};
 pub use tasks::ComponentTaskFault;
 use tasks::TaskMonitor;
+pub(crate) use tasks::wake::{MonitorWake, WaitTarget};
 use tokio::{
     sync::{Mutex, OnceCell},
     time::Instant,
@@ -32,13 +34,13 @@ use tokio::{
 pub(in crate::component) use users::PausedUsers;
 use zero_core::component::*;
 use zero_platform_tokio::contract::{
+    CancellationToken, ChannelError, CloseReason, DeliveryState, Impact, Reason, Stage,
     component::{BuildContext, ComponentInstance},
     datagram::DynDatagramOutbound,
     lifecycle::CloseReport,
     packet::DynPacketOutbound,
     scope::TaskScope,
     stream::DynStreamOutbound,
-    CancellationToken, ChannelError, CloseReason, DeliveryState, Impact, Reason, Stage,
 };
 
 pub type SharedError = Arc<ChannelError>;

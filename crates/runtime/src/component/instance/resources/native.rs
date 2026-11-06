@@ -9,9 +9,9 @@ use tokio::sync::Mutex as AsyncMutex;
 use tokio::time::Instant;
 use zero_core::{component::ComponentId, request::Destination};
 use zero_platform_tokio::contract::{
+    BoxFuture, CancellationToken, ChannelError, Reason,
     component::{GrantedDatagramListener, ProcessRequest, ResourceAccess, ResourceDeclaration},
     packet::BoxPacketSession,
-    BoxFuture, CancellationToken, ChannelError, Reason,
 };
 
 pub struct HostResources {
@@ -353,6 +353,24 @@ impl ResourceAccess for HostResources {
         tasks: &zero_platform_tokio::contract::scope::TaskRegistrar,
     ) -> Result<Arc<zero_platform_tokio::owned_process::OwnedProcess>, ChannelError> {
         self.prepare_process(request, tasks)
+    }
+    #[cfg(target_os = "linux")]
+    fn reserve_process_endpoint(
+        &self,
+        ordinal: usize,
+        tasks: &zero_platform_tokio::contract::scope::TaskRegistrar,
+        actor: &zero_platform_tokio::contract::scope::TaskJoinWitness,
+    ) -> Result<Arc<zero_platform_tokio::owned_process::ProcessEndpointHandoff>, ChannelError> {
+        self.reserve_endpoint(ordinal, tasks, actor)
+    }
+    #[cfg(target_os = "linux")]
+    fn prepare_owned_process_with_endpoint(
+        &self,
+        request: ProcessRequest,
+        tasks: &zero_platform_tokio::contract::scope::TaskRegistrar,
+        endpoint: &Arc<zero_platform_tokio::owned_process::ProcessEndpointHandoff>,
+    ) -> Result<Arc<zero_platform_tokio::owned_process::OwnedProcess>, ChannelError> {
+        self.prepare_process_with_endpoint(request, tasks, endpoint)
     }
     fn read_file(
         &self,

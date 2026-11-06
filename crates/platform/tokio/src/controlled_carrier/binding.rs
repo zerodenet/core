@@ -1,13 +1,13 @@
 //! Bind the actual cold owner once; host registration remains separate authority.
-use super::{error, CarrierOwnerRegistration};
+use super::{CarrierOwnerRegistration, error};
 use crate::contract::{
+    CancellationToken, ChannelError, DeliveryState, Reason, Stage,
     component::{ControlledStreamDemandClass, ResourceDeclaration},
     network::{CarrierContext, UpstreamBinding},
     scope::{TaskRegistrar, TaskScopeIdentity, WeakTaskRegistrar},
-    CancellationToken, ChannelError, DeliveryState, Reason, Stage,
 };
 use std::sync::Arc;
-use zero_core::{request::Destination, Address};
+use zero_core::{Address, request::Destination};
 
 pub(super) struct BoundAuthority {
     declaration: ResourceDeclaration,
@@ -361,7 +361,7 @@ impl CarrierOwnerBinding {
     pub(super) fn matches_authority(&self, actual: &Arc<BoundAuthority>) -> bool {
         Arc::ptr_eq(&self.authority, actual)
     }
-    pub(super) fn registration(&self) -> &CarrierOwnerRegistration {
+    pub(crate) fn registration(&self) -> &CarrierOwnerRegistration {
         &self.registration
     }
     pub fn matches_host_cancel(&self, host_cancel: &Arc<CancellationToken>) -> bool {

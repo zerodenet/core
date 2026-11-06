@@ -62,7 +62,7 @@ impl HostResources {
             declarations,
             identity.clone(),
             originals.process.clone(),
-        );
+        )?;
         let roots =
             root_datagram::RootDeclarations::new(component, declarations, identity.clone())?;
         let metadata =
@@ -141,6 +141,14 @@ impl HostResources {
                     )?);
                 }
 
+                ResourceDeclaration::ProcessEndpoint { .. } => {
+                    #[cfg(not(target_os = "linux"))]
+                    return Err(error(
+                        component,
+                        Reason::Unsupported,
+                        "process endpoint native provider is unavailable",
+                    ));
+                }
                 ResourceDeclaration::Process {
                     program,
                     max_starts,

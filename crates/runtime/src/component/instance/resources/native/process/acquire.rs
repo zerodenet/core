@@ -6,6 +6,21 @@ impl HostResources {
         request: ProcessRequest,
         tasks: &TaskRegistrar,
     ) -> Result<Arc<OwnedProcess>, ChannelError> {
+        if self
+            .processes
+            .lock()
+            .get(&request.program)
+            .is_some_and(|entry| entry.endpoint.is_some())
+        {
+            return Err(self.denied());
+        }
+        self.prepare_process_original(request, tasks)
+    }
+    pub(super) fn prepare_process_original(
+        &self,
+        request: ProcessRequest,
+        tasks: &TaskRegistrar,
+    ) -> Result<Arc<OwnedProcess>, ChannelError> {
         // Original Scope observations occur outside host locks: upgrading a
         // weak scope can deliver callbacks when its last owner is released.
         if !self.processes.validate(tasks) {

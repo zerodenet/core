@@ -1,7 +1,7 @@
 use super::{adoption::CarrierAdoption, connect_error, error, slot::Slot, view::CarrierIo};
 use crate::{
-    contract::{CancellationToken, ChannelError, DeliveryState, Reason, Stage},
     EgressInterfaceControl, PendingTcpConnect,
+    contract::{CancellationToken, ChannelError, DeliveryState, Reason, Stage},
 };
 use std::sync::Arc;
 use tokio::time::Instant;
@@ -135,6 +135,15 @@ impl PreparedCarrier {
                 DeliveryState::Unknown,
             ));
         }
+        self.slot.check_process_endpoint().map_err(|source| {
+            error(
+                self.slot.instance,
+                Stage::Dial,
+                Reason::StalePlan,
+                DeliveryState::Unknown,
+            )
+            .with_source(source)
+        })?;
         let end = deadline.map_or(self.end, |deadline| self.end.min(deadline));
         let business_cancel = self
             .business
@@ -199,6 +208,15 @@ impl PreparedCarrier {
                 failure
             })?;
         }
+        self.slot.check_process_endpoint().map_err(|source| {
+            error(
+                self.slot.instance,
+                Stage::Dial,
+                Reason::StalePlan,
+                DeliveryState::Unknown,
+            )
+            .with_source(source)
+        })?;
         // Read real socket facts before boxing; original native control is
         // already persistent. No enclosing carrier lock surrounds these getters.
         let endpoints = super::CarrierEndpoints {

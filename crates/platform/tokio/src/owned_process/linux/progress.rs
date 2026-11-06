@@ -27,7 +27,10 @@ impl OwnedProcess {
                 Poll::Pending
             });
             tokio::select! {
-                result = progress => return result,
+                result = progress => {
+                    if let Some(endpoint)=self.endpoint(){endpoint.request_stop();}
+                    return result;
+                },
                 _ = &mut changed => {},
                 _ = tokio::time::sleep(std::time::Duration::from_millis(100)) => {},
             }
