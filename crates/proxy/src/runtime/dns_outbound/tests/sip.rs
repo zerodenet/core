@@ -61,7 +61,7 @@ fn original(proxy: &Proxy, child: &CarrierOrigin) -> CarrierOrigin {
     assert_eq!(slot.instance_id(), original.instance());
     let owner = (0..slot.recipe.spec().resources.len())
         .filter_map(|ordinal| slot.original_carrier_owner(ordinal))
-        .find(|owner| owner.instance() == original.instance())
+        .find(|owner| original.owner().same_owner(owner))
         .unwrap();
     let held = owner.observe().unwrap();
     assert_eq!(held.retained(), 1);

@@ -74,7 +74,10 @@ async fn start_server_with_business(
             .or_insert_with(|| serde_json::json!([]))
             .as_array_mut()
             .unwrap();
-        inbounds.push(serde_json::json!({"tag":"entry","listen":{"address":"127.0.0.1","port":0},"protocol":{"type":"socks5"}}));
+        // Keep both real ephemeral binds. Config validation distinguishes
+        // the two actual listener addresses even before their ports exist.
+        let address = if linked { "127.0.0.2" } else { "127.0.0.1" };
+        inbounds.push(serde_json::json!({"tag":"entry","listen":{"address":address,"port":0},"protocol":{"type":"socks5"}}));
         document["route"]["rules"] = serde_json::json!([{"condition":{"type":"inbound","values":["entry"]},"action":{"type":"route","outbound":"wg"}}]);
     }
     let config = zero_config::RuntimeConfig::parse(&document.to_string()).unwrap();
