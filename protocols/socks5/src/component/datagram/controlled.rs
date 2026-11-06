@@ -38,6 +38,10 @@ impl Outbound {
         let mut parent = carriers
             .reserve()
             .map_err(|error| self.admission.attach(error, session))?;
+        // reserve has already installed this original in the actual CarrierOwner.
+        // Claim its unique view before publishing a protocol cleanup record so
+        // a synchronous claim failure cannot leave a record with no users proof.
+        let view = parent.claim_transferred_view()?;
         let adoption = parent.adoption();
         let original = self
             .associations
@@ -48,7 +52,6 @@ impl Outbound {
             )
             .map_err(|error| self.admission.attach(error, session))?;
         let _preparing = Preparing(original.clone());
-        let view = parent.claim_transferred_view()?;
         if let Some(waiting) = context.upstream.observed_pending_carrier() {
             waiting
                 .retain(adoption.clone())
