@@ -14,7 +14,14 @@ impl VlessAdapter {
         if super::super::owned_input(input) {
             return true;
         }
-        if !eligible(input) || !crate::adapters::mux_prefix::qualified(input, candidate, native) {
+        let grpc = grpc_eligible(input);
+        if !eligible(input)
+            || if grpc {
+                !super::super::grpc::selected(input, candidate, native)
+            } else {
+                !crate::adapters::mux_prefix::qualified(input, candidate, native)
+            }
+        {
             return false;
         }
         let OutboundProtocolConfig::Vless {

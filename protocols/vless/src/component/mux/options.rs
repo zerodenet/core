@@ -60,7 +60,13 @@ impl PreparedMux {
             .into());
         }
         ordinary.protocol.xudp_concurrency = None;
-        super::super::Options::from_options_refs(ordinary, binding.dial.clone())?;
+        if input.grpc.is_some() {
+            // Validation remains protocol-owned. The actual cached gRPC owner
+            // is a separately declared dependency; it supplies its real loan.
+            super::super::Options::from_options_refs_inner(ordinary, binding.dial.clone(), true)?;
+        } else {
+            super::super::Options::from_options_refs(ordinary, binding.dial.clone())?;
+        }
         let leaf =
             crate::transport::VlessOutboundLeaf::from_options_refs(source_dir, input, runtime)?;
         let pool = Arc::new(leaf.native_mux_options(binding, carriers, open_budget)?);
@@ -69,6 +75,12 @@ impl PreparedMux {
     pub fn with_node_dependency(mut self, dependency: ComponentId) -> Self {
         let pool = (*self.pool).clone().with_node_dependency(dependency);
         self.pool = Arc::new(pool);
+        self
+    }
+    /// The same runtime gRPC cache lends the already layered carrier. The MUX
+    /// wire still runs in this pool's one original driver, without another H2.
+    pub fn with_grpc_lender(mut self, dependency: ComponentId) -> Self {
+        self.pool = Arc::new((*self.pool).clone().with_stream_dependency(dependency));
         self
     }
     pub fn pool_options(&self) -> &Arc<PoolOptions> {

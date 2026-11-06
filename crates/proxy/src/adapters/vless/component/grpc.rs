@@ -58,6 +58,21 @@ impl VlessAdapter {
         resources: &mut ResourcePreparation<'_>,
         factory: &Arc<pool::Factory>,
     ) -> Result<super::mux::Options, RegistrationError> {
+        let (prepared, pool_id) = self.grpc_pool_options(input, resources, factory)?;
+        Ok(super::mux::Options::Grpc(Arc::new(prepared.bind(pool_id))))
+    }
+    pub(super) fn grpc_pool_options(
+        &self,
+        input: &OutboundConfig,
+        resources: &mut ResourcePreparation<'_>,
+        factory: &Arc<pool::Factory>,
+    ) -> Result<
+        (
+            ::vless::component::grpc::PreparedGrpc,
+            zero_core::component::ComponentId,
+        ),
+        RegistrationError,
+    > {
         let OutboundProtocolConfig::Vless { server, port, .. } = &input.protocol else {
             unreachable!("owning VLESS projection")
         };
@@ -164,6 +179,6 @@ impl VlessAdapter {
         if file && !inherited {
             resources.require_fresh_resource(pool_id)?;
         }
-        Ok(super::mux::Options::Grpc(Arc::new(prepared.bind(pool_id))))
+        Ok((prepared, pool_id))
     }
 }

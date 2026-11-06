@@ -41,6 +41,11 @@ impl MuxConnectionPool {
         Ok(current)
     }
 
+    pub(crate) fn native_stream_dependency(
+        &self,
+    ) -> Result<Option<zero_core::component::ComponentInstanceId>, RuntimeError> {
+        Ok(self.control.managed()?.stream_dependency())
+    }
     pub(crate) fn native_instance(
         &self,
     ) -> Result<zero_core::component::ComponentInstanceId, RuntimeError> {

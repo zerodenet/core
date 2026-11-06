@@ -5,6 +5,19 @@ use zero_core::{component::ComponentInstanceId, request::Destination};
 use zero_platform_tokio::contract::network::UpstreamBinding;
 use zero_transport::pooled_driver::PoolOptions;
 impl VlessOutboundLeaf {
+    pub(in crate::transport) async fn open_native_mux_carrier(
+        &self,
+        io: zero_transport::TcpRelayStream,
+    ) -> Result<zero_transport::TcpRelayStream, RuntimeError> {
+        if self.mux_pool.native_stream_dependency()?.is_some() {
+            // TLS, H2 and the gRPC body belong to the lower real cache. Keep
+            // VLESS's own optional encryption above that exact logical view.
+            self.transport.encrypt(io).await
+        } else {
+            self.transport.open_relay(io).await
+        }
+    }
+
     pub fn native_mux_eligible(&self) -> bool {
         self.mux_pool.native_eligible()
     }
@@ -70,7 +83,7 @@ impl VlessOutboundLeaf {
                     let io = zero_transport::TcpRelayStream::new(
                         zero_transport::pooled_driver::ExclusiveIo::new(raw),
                     );
-                    leaf.transport.open_relay(io).await
+                    leaf.open_native_mux_carrier(io).await
                 },
             )
             .await
@@ -100,7 +113,7 @@ impl VlessOutboundLeaf {
                 let io = zero_transport::TcpRelayStream::new(
                     zero_transport::pooled_driver::ExclusiveIo::new(raw),
                 );
-                leaf.transport.open_relay(io).await
+                leaf.open_native_mux_carrier(io).await
             })
             .await
     }

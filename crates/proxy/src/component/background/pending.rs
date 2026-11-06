@@ -43,6 +43,20 @@ impl BackgroundCarrier {
             })?
             .pending_carrier_capacity(&binding.prefix)
     }
+    pub(crate) fn declared_pending_capacity_with_dependency(
+        &self,
+        binding: &UpstreamBinding,
+        dependency: ComponentInstanceId,
+    ) -> Result<usize, ChannelError> {
+        let services = self.pending_services(binding)?;
+        services
+            .components
+            .as_ref()
+            .map_err(|source| {
+                invalid(Reason::StalePlan, "background plan retired").with_source(source.clone())
+            })?
+            .pending_carrier_capacity_with_dependency(self.instance, dependency, &binding.prefix)
+    }
     pub(super) fn validate_pending_original(
         &self,
         binding: &UpstreamBinding,
@@ -54,10 +68,19 @@ impl BackgroundCarrier {
         let source = self.network.current_services().map_err(|source| {
             invalid(Reason::Revoked, "original host retired").with_source(source)
         })?;
-        // Cleanup must inspect the actual retained catalog. Preparing services
-        // from a staged Engine candidate would erase the old pool's real graph.
-        if !binding.prefix.iter().any(|role| source.validate_owned_carrier_adoption(*role, adoption).is_ok()) {
-            return Err(invalid(Reason::StalePlan, "pending original differs from the actual retained prefix"));
+        if source
+            .validate_owned_carrier_instance(self.instance, adoption)
+            .is_err()
+            && !binding.prefix.iter().any(|role| {
+                source
+                    .validate_owned_carrier_adoption(*role, adoption)
+                    .is_ok()
+            })
+        {
+            return Err(invalid(
+                Reason::StalePlan,
+                "pending original differs from the actual retained provider graph",
+            ));
         }
         Ok(())
     }
