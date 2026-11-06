@@ -71,10 +71,18 @@ impl Transfer {
             && self.adoption.users_closed().is_some_and(|closed| {
                 closed.matches(&self.adoption)
                     && self.caller.as_ref().is_none_or(|caller| {
-                        closed.matches_caller(caller)
-                            && caller
-                                .try_joined()
-                                .is_some_and(|joined| joined.registration_released())
+                        // Positive unused-reservation receipts permit a retry
+                        // in the still-live caller. No actual I/O/custody bound
+                        // a caller here; native acquisition still needs its ACK.
+                        (!closed.had_native_acquisition()
+                            && self.adoption.closed().is_some_and(|native| {
+                                !native.had_native_acquisition()
+                                    && native.borrowed_origin().is_none()
+                            }))
+                            || (closed.matches_caller(caller)
+                                && caller
+                                    .try_joined()
+                                    .is_some_and(|joined| joined.registration_released()))
                     })
             })
     }

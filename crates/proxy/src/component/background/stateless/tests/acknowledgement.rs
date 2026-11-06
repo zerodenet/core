@@ -84,6 +84,13 @@ async fn same_taskless_record_keeps_n1_through_real_business_join_and_deferred_h
             transfers: transfers.clone(),
             limit: one,
         };
+        let invalid = role.connect(
+            ConnectRequest { destination: Destination::new(Address::Ipv4([127,0,0,1]), 0) },
+            OpenContext { identity: RequestIdentity::Business(facts.clone()), deadline: None,
+                cancel: demand.0.clone(), upstream: transport.clone(), observer: None },
+        ).await.err().unwrap();
+        assert_eq!(invalid.reason, Reason::InvalidConfig);
+        assert!(!witness.is_joined(), "real caller can retry a positively unused reservation");
         let connected = role
             .connect(
                 ConnectRequest {
