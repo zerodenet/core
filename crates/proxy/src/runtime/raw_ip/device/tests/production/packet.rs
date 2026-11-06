@@ -78,7 +78,13 @@ async fn ordinary_packet_roles_return_original_source_and_retire_old_graph_witho
             handle
                 .apply_runtime_config_and_wait(changed, Duration::from_secs(5))
                 .await
-                .unwrap();
+                .unwrap_or_else(|source| {
+                    panic!(
+                        "same actual graph replacement failed: {source}; original worker fault: {:?}; matching joined receipts: {:?}",
+                        previous[0].task.first_scoped_failure(),
+                        original_joins.iter().map(|witness| witness.try_joined()).collect::<Vec<_>>(),
+                    )
+                });
         }
         tokio::time::timeout_at(end(), async {
             loop {
