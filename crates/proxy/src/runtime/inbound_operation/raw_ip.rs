@@ -149,7 +149,13 @@ impl PacketSourceContext {
 
     pub(crate) const MAX_ICMP_PROBES: usize = icmp::MAX_ECHO_PROBES;
     pub(crate) fn internal_task_limit() -> usize {
-        tcp::MAX_CONNECTIONS + crate::inbound::tun::udp::OwnedTunUdpTasks::MAX_ASSOCIATIONS + 1
+        tcp::MAX_CONNECTIONS
+            + crate::inbound::tun::udp::OwnedTunUdpTasks::MAX_ASSOCIATIONS
+            + crate::inbound::tun::udp::OwnedTunUdpTasks::MAX_DNS
+            + zero_stack::UserTcpStack::BACKGROUND_TASK_LIMIT
+            + Self::MAX_ICMP_PROBES
+            + 2 // actual TCP accept and UDP dispatch loops
+            + 1 // original native wire driver
     }
     pub(in crate::runtime) fn install(
         context: &crate::runtime::inbound_owners::InboundInstallContext,
