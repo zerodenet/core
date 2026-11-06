@@ -47,8 +47,8 @@ async fn physically_closed_failed_dns_owner_reports_original_faults_then_restart
                 && contains_source(&fault.error, source)), "original TaskId/class/Arc must be handed off: {received:?}");
         }
         assert!(native.closed().unwrap().matches(&native));
-        assert!(native.owner().closed().unwrap().matches(&native.owner()));
-        assert!(native.owner().users_closed().unwrap().matches(&native.owner()));
+        assert!(native.owner().closed().unwrap().matches(native.owner()));
+        assert!(native.owner().users_closed().unwrap().matches(native.owner()));
         assert!(!actual.task.scope_identity().resource_open());
         let closed = call.wait_closed(end()).await.unwrap();
         assert!(closed.matches(&call) && closed.failure_accepted() && closed.cleanup_failure_accepted());
@@ -88,8 +88,8 @@ async fn physically_closed_failed_dns_owner_reports_original_faults_then_restart
         assert!(second_closed.query().unwrap().same_registration(&next.task));
         proxy.protocols.shutdown_components(end()).await.unwrap();
         assert!(new_native.closed().unwrap().matches(new_native));
-        assert!(new_native.owner().closed().unwrap().matches(&new_native.owner()));
-        assert!(new_native.owner().users_closed().unwrap().matches(&new_native.owner()));
+        assert!(new_native.owner().closed().unwrap().matches(new_native.owner()));
+        assert!(new_native.owner().users_closed().unwrap().matches(new_native.owner()));
         assert!(!next.task.scope_identity().resource_open());
         // Keep the actual bounded lifecycle receiver alive through recovery.
         assert!(!received.failed_tasks.is_empty());

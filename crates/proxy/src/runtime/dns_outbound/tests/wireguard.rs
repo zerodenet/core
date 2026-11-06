@@ -113,12 +113,8 @@ async fn close(
     driver.try_joined().unwrap().result().unwrap();
     for child in children {
         returned(child);
-        assert!(child.owner().closed().unwrap().matches(&child.owner()));
-        assert!(child
-            .owner()
-            .users_closed()
-            .unwrap()
-            .matches(&child.owner()));
+        assert!(child.owner().closed().unwrap().matches(child.owner()));
+        assert!(child.owner().users_closed().unwrap().matches(child.owner()));
     }
     let terminal = source.terminal_for_test().unwrap();
     assert_eq!(terminal.identity(), source.identity());
