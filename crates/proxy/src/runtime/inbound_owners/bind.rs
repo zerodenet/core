@@ -102,10 +102,16 @@ impl InboundOwnerRegistry {
         );
         #[cfg(all(feature = "raw-ip-runtime", feature = "datagram-route-runtime"))]
         if let native::NativeBindGrant::Datagram(original) = grant.as_ref() {
-            owner
-                .packet_native
-                .set(Arc::downgrade(original))
-                .map_err(|_| io("actual packet listener was already installed"))?;
+            if grant.needs_packet_reads() {
+                owner
+                    .packet_native
+                    .set(Arc::downgrade(original))
+                    .map_err(|_| io("actual packet listener was already installed"))?;
+                // Install the same controller before BoundResources snapshots
+                // it or the first workspace/native bind can run. Actual main
+                // and wire registrations still supply their own participants.
+                owner.prepare_packet_source_pause();
+            }
         }
         // Construction above is cold. The unique actual native holder is a
         // registered resource before this owner or any bind capability escapes.
