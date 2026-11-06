@@ -114,7 +114,7 @@ impl Plan {
         &mut self,
         protocols: &ProtocolInventory,
         runtime_factory: &InboundListenerRuntimeFactory,
-        _source_dir: Option<&Path>,
+        source_dir: Option<&Path>,
         state: &mut InboundReconcileState<'_>,
     ) -> Result<(), EngineError> {
         for candidate in std::mem::take(&mut self.candidates) {
