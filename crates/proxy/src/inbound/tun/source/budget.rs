@@ -17,9 +17,22 @@ fn contains_capacity(mut source: &(dyn Error + 'static)) -> bool {
         {
             return true;
         }
-        match source.source() {
-            Some(parent) => source = parent,
-            None => return false,
+        if let Some(zero_engine::EngineError::Io(original)) =
+            source.downcast_ref::<zero_engine::EngineError>()
+        {
+            source = original;
+        } else if let Some(original) = source.downcast_ref::<std::io::Error>() {
+            match original.get_ref() {
+                Some(original) => source = original.as_ref(),
+                None => return false,
+            }
+        } else if let Some(original) = source.downcast_ref::<Arc<ChannelError>>() {
+            source = original.as_ref();
+        } else {
+            match source.source() {
+                Some(parent) => source = parent,
+                None => return false,
+            }
         }
     }
 }
