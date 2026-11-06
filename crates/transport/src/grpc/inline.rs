@@ -57,13 +57,18 @@ impl Inline {
         let Some(driver) = &mut state.driver else {
             return;
         };
-        // Clear before polling; a real inline wake preserves the next turn.
-        // Capacity-Pending by itself supplies no new native readiness.
+        let wake = waker_ref(&state.wake);
+        let mut driver_context = Context::from_waker(&wake);
+        // A scheduler-budget yield is not an absence of original-driver
+        // readiness. Retain that turn and use Tokio's existing deferred wake;
+        // never consume it in a post-drive call with an exhausted caller budget.
+        if !tokio::task::coop::has_budget_remaining() {
+            let _ = tokio::task::coop::poll_proceed(&mut driver_context);
+            return;
+        }
         if !state.wake.ready.swap(false, Ordering::AcqRel) {
             return;
         }
-        let wake = waker_ref(&state.wake);
-        let mut driver_context = Context::from_waker(&wake);
         if let Poll::Ready(result) = driver.as_mut().poll(&mut driver_context) {
             if let Err(source) = result {
                 state.failure = Some(Arc::new(source));
@@ -72,6 +77,13 @@ impl Inline {
             drop(finished);
             state.wake.reader.wake();
             state.wake.writer.wake();
+        } else if !tokio::task::coop::has_budget_remaining() {
+            // Connection/read/write share the actual application caller. Its
+            // budget can be exhausted while polling any one original branch.
+            // Re-entry after the real deferred scheduler wake still owes this
+            // same driver's turn even when the native fd had no new event.
+            state.wake.ready.store(true, Ordering::Release);
+            let _ = tokio::task::coop::poll_proceed(&mut driver_context);
         }
     }
     /// A real queued frame was accepted/delivered, or the original write
