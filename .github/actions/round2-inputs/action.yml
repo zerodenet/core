@@ -1,0 +1,7 @@
+name: Freeze round2 inputs
+description: Preserve the exact selected source and verified candidate lock
+runs:
+  using: composite
+  steps:
+    - shell: bash
+      run: python scripts/round2-candidate-inputs.py
