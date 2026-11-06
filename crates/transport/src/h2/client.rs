@@ -3,14 +3,27 @@
 use super::owned::{H2ClientDriver, OwnedH2Client, PreparedH2Client};
 use super::*;
 use futures_util::task::{ArcWake, AtomicWaker, waker_ref};
-use std::sync::{Arc, Mutex};
-#[derive(Default)]
+use std::sync::{
+    Arc, Mutex,
+    atomic::{AtomicBool, Ordering},
+};
 struct WakeBoth {
     reader: AtomicWaker,
     writer: AtomicWaker,
+    ready: AtomicBool,
+}
+impl Default for WakeBoth {
+    fn default() -> Self {
+        Self {
+            reader: AtomicWaker::new(),
+            writer: AtomicWaker::new(),
+            ready: AtomicBool::new(true),
+        }
+    }
 }
 impl ArcWake for WakeBoth {
     fn wake_by_ref(this: &Arc<Self>) {
+        this.ready.store(true, Ordering::Release);
         this.reader.wake();
         this.writer.wake();
     }
@@ -35,6 +48,12 @@ impl State {
         let Some(driver) = &mut self.driver else {
             return;
         };
+        // Poll only the original driver's initial turn or actual wake. An
+        // application capacity-Pending poll supplies no new native readiness.
+        // Clear before polling so an inline wake preserves the next turn.
+        if !self.wake.ready.swap(false, Ordering::AcqRel) {
+            return;
+        }
         let wake = waker_ref(&self.wake);
         let mut cx = Context::from_waker(&wake);
         if driver.as_mut().poll(&mut cx).is_ready() {
