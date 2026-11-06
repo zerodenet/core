@@ -234,8 +234,26 @@ struct Owner {
     options: Arc<LinkedStackOptions>,
 }
 impl ResourceLifecycle for Owner {
-    async fn start(&mut self, _: tokio::time::Instant) -> Result<(), BuildError> {
-        self.options.start_graph().map_err(prepare_error)
+    async fn start(&mut self, deadline: tokio::time::Instant) -> Result<(), BuildError> {
+        self.options.start_graph().map_err(prepare_error)?;
+        for peer in 0..self.options.peers {
+            let device = self
+                .options
+                .pending
+                .peer_stack(peer)
+                .and_then(|owner| owner.device())
+                .ok_or_else(|| {
+                    prepare_error(invalid("same linked software driver was not installed"))
+                })?;
+            tokio::time::timeout_at(deadline, device.wait_ready())
+                .await
+                .map_err(|source| {
+                    ChannelError::new(Stage::Prepare, Reason::Timeout, Impact::Component)
+                        .with_source(source)
+                })?
+                .map_err(prepare_error)?;
+        }
+        Ok(())
     }
     fn revoke(&self, _: CloseReason) {
         self.options.pending.revoke();
