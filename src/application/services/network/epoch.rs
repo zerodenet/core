@@ -106,7 +106,10 @@ impl Epoch {
         self.confirmed.load(Ordering::Acquire)
     }
     pub(super) fn spawn(&self, task: EventTask) -> io::Result<TaskJoinWitness> {
-        let _admission = self.admission.lock().unwrap();
+        // No Epoch ledger/native acquisition is installed by this operation.
+        // The original Scope's atomic registration/closing gate owns its task
+        // race with shutdown. A supplied task destructor or Scope waker may
+        // reenter this owner, so never register/drop it under admission.
         self.spawn_original(task)
     }
     fn spawn_original(&self, task: EventTask) -> io::Result<TaskJoinWitness> {
