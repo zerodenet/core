@@ -59,14 +59,12 @@ pub(crate) fn eligible(input: &OutboundConfig) -> bool {
     }
     let mut ordinary = input.clone();
     let OutboundProtocolConfig::Trojan {
-        mux_concurrency,
-        server,
-        ..
+        mux_concurrency, ..
     } = &mut ordinary.protocol
     else {
         return false;
     };
-    if mux_concurrency.take().is_none() || zero_core::address::parse_ip_literal(server).is_none() {
+    if mux_concurrency.take().is_none() {
         return false;
     }
     super::native_input(&ordinary)

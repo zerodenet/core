@@ -5,6 +5,8 @@ mod domain;
 mod fixture;
 #[path = "material/mux.rs"]
 mod mux;
+#[path = "material/mux_material.rs"]
+mod mux_material;
 #[path = "material/udp.rs"]
 mod udp;
 use fixture::*;

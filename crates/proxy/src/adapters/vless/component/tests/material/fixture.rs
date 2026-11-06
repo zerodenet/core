@@ -64,9 +64,18 @@ pub(super) async fn start(document: serde_json::Value, tag: &str) -> Running {
         original,
     }
 }
+fn transport(input: &mut serde_json::Value, kind: &str) {
+    match kind.strip_prefix("mux-").unwrap_or(kind) {
+        "raw" => {}
+        "ws" => input["protocol"]["ws"] = serde_json::json!({"path":"/original"}),
+        kind => {
+            input["protocol"][kind] = serde_json::json!({"host":"front.test","path":"/original"})
+        }
+    }
+}
 pub(super) async fn server(kind: &str, cert: &Path, key: &Path) -> Running {
     let mut input = serde_json::json!({"tag":"remote","listen":{"address":"127.0.0.1","port":0},"protocol":{"type":"vless","users":[{"id":ID}],"tls":{"cert_path":cert,"key_path":key}}});
-    input["protocol"][kind] = serde_json::json!({"host":"front.test","path":"/original"});
+    transport(&mut input, kind);
     start(
         serde_json::json!({"inbounds":[input],"route":{"final":{"type":"direct"}}}),
         "remote",
@@ -75,21 +84,35 @@ pub(super) async fn server(kind: &str, cert: &Path, key: &Path) -> Running {
 }
 pub(super) async fn client(kind: &str, backend: &str, endpoint: SocketAddr, ca: &Path) -> Running {
     let mut node = serde_json::json!({"tag":"node","protocol":{"type":"vless","server":"127.0.0.1","port":endpoint.port(),"id":ID,"tls":{"server_name":"localhost","ca_cert_path":ca,"client_fingerprint":null,"options":{"backend":backend}}}});
-    node["protocol"][kind] = serde_json::json!({"host":"front.test","path":"/original"});
-    start(serde_json::json!({"runtime":{"native_stream_max_originals":1},"inbounds":[{"tag":"entry","listen":{"address":"127.0.0.1","port":0},"protocol":{"type":"socks5"}}],"outbounds":[node],"route":{"final":{"type":"route","outbound":"node"}}}),"entry").await
+    transport(&mut node, kind);
+    if kind.starts_with("mux-") {
+        node["protocol"]["mux_concurrency"] = serde_json::json!(8);
+        node["protocol"]["xudp_concurrency"] = serde_json::json!(8);
+    }
+    start(serde_json::json!({"runtime":{"native_stream_max_originals":1,"native_mux_max_carriers":1},"inbounds":[{"tag":"entry","listen":{"address":"127.0.0.1","port":0},"protocol":{"type":"socks5"}}],"outbounds":[node],"route":{"final":{"type":"route","outbound":"node"}}}),"entry").await
 }
 pub(super) fn capture(proxy: &Proxy) -> (CarrierOwnerRegistration, CarrierOriginObservation) {
-    let slot = proxy
+    let named = proxy
         .tcp_runtime_services()
         .components
         .as_ref()
         .unwrap()
         .configured("node")
         .unwrap();
+    let cached = named.recipe.spec().resources.is_empty();
+    let slot = if cached {
+        let plan = proxy.tcp_runtime_services().components.clone().unwrap();
+        named.dependency_instances().iter().filter_map(|instance| plan.component(instance.component))
+            .find(|slot| slot.recipe.spec().resources.iter().any(|resource| matches!(resource,
+                zero_platform_tokio::contract::component::ResourceDeclaration::ControlledCarrierPool { .. })))
+            .expect("same actual VLESS MUX pool dependency")
+    } else {
+        named
+    };
     assert_eq!(
         slot.recipe.spec().task_limit.unwrap().get(),
         1,
-        "same original N1 permits one setup task; protocol driver remains inline"
+        "same original N1 permits one setup or driver registration"
     );
     for ordinal in 0..slot.recipe.spec().resources.len() {
         let Some(owner) = slot.original_carrier_owner(ordinal) else {
@@ -103,7 +126,15 @@ pub(super) fn capture(proxy: &Proxy) -> (CarrierOwnerRegistration, CarrierOrigin
             .iter()
             .find(|slot| slot.native().is_some_and(|native| !native.is_closed()))
         {
-            assert!(original.driver().is_none());
+            if cached {
+                let (_, driver) = original.driver().expect("actual cached MUX driver");
+                assert!(!driver.is_joined());
+                assert!(driver
+                    .scope_identity()
+                    .same_scope(&owner.bound().unwrap().scope_identity()));
+            } else {
+                assert!(original.driver().is_none());
+            }
             let auxiliary = original
                 .auxiliary()
                 .expect("same per-connection setup task");
@@ -185,4 +216,18 @@ pub(super) async fn wait_returned(
     .unwrap();
     let closed = original.closed().unwrap();
     assert!(original.matches_closed(&closed) && closed.had_native_acquisition());
+}
+
+pub(super) fn cached_driver(
+    owner: &CarrierOwnerRegistration,
+    original: &CarrierOriginObservation,
+) -> zero_platform_tokio::contract::scope::TaskJoinWitness {
+    owner
+        .observe()
+        .unwrap()
+        .slots()
+        .iter()
+        .find(|slot| slot.original().same_original(original))
+        .and_then(|slot| slot.driver().map(|(_, task)| task.clone()))
+        .expect("same actual MUX driver")
 }

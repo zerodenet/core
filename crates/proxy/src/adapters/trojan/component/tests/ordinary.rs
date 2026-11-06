@@ -33,6 +33,49 @@ async fn ordinary_trojan_carriers_drain_large_half_closed_tcp_and_real_datagrams
     .unwrap();
 }
 
+#[tokio::test]
+async fn ordinary_trojan_mux_full_transports_reuse_the_same_original_and_driver_for_tcp_udp_and_network_retirement(
+) {
+    tokio::time::timeout(Duration::from_secs(40), async {
+        for kind in ["mux-plain", "mux-ws", "mux-grpc-single", "mux-grpc-multi"] {
+            let directory = tempfile::tempdir().unwrap();
+            let cert = rcgen::generate_simple_self_signed(vec!["localhost".into()]).unwrap();
+            let certificate = directory.path().join("server.pem");
+            let key = directory.path().join("server.key");
+            std::fs::write(&certificate, cert.cert.pem()).unwrap();
+            std::fs::write(&key, cert.signing_key.serialize_pem()).unwrap();
+            let remote = server(kind, &certificate, &key).await;
+            let client = client(kind, remote.address).await;
+            let (owner, original) = echo(&client).await;
+            let first_driver = cached_driver(&owner, &original);
+            let (same, reused) = echo(&client).await;
+            assert!(owner.same_owner(&same) && original.same_original(&reused));
+            let (udp_owner, udp) = datagrams(&client).await;
+            assert!(owner.same_owner(&udp_owner) && original.same_original(&udp));
+            assert!(original.closed().is_none() && !first_driver.is_joined());
+            client.proxy.egress_interface.invalidate_network();
+            let (next_owner, next) = echo(&client).await;
+            assert!(!original.same_original(&next));
+            let old = original.closed().unwrap();
+            assert!(original.matches_closed(&old) && old.had_native_acquisition());
+            let second_driver = cached_driver(&next_owner, &next);
+            client.close().await;
+            for driver in [first_driver, second_driver] {
+                let joined = driver.try_joined().unwrap();
+                assert!(driver.matches_joined(&joined) && joined.registration_released());
+            }
+            for (owner, original) in [(owner, original), (next_owner, next)] {
+                assert!(owner.closed().unwrap().matches(&owner));
+                assert!(owner.users_closed().unwrap().matches(&owner));
+                assert!(original.matches_closed(&original.closed().unwrap()));
+            }
+            remote.close().await;
+        }
+    })
+    .await
+    .unwrap();
+}
+
 async fn datagrams(
     client: &Running,
 ) -> (

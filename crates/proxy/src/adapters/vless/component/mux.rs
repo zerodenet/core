@@ -1,8 +1,9 @@
 mod lender;
+mod pool;
 mod production;
 use super::super::VlessAdapter;
 use crate::component::{
-    background::{pool, stateless},
+    background::{pool as background_pool, stateless},
     RegistrationError, ResourcePreparation,
 };
 use std::{num::NonZeroUsize, sync::Arc, time::Duration};
@@ -90,7 +91,6 @@ pub(crate) fn eligible(input: &OutboundConfig) -> bool {
     let OutboundProtocolConfig::Vless {
         mux_concurrency,
         xudp_concurrency,
-        server,
         flow,
         ..
     } = &mut ordinary.protocol
@@ -101,17 +101,17 @@ pub(crate) fn eligible(input: &OutboundConfig) -> bool {
     if xudp_concurrency.take().is_some_and(|x| Some(x) != mux) {
         return false;
     }
-    if mux.is_none() || zero_core::address::parse_ip_literal(server).is_none() || flow.is_some() {
+    if mux.is_none() || flow.is_some() {
         return false;
     }
-    super::native_input(&ordinary)
+    super::owned_input(&ordinary)
 }
 impl VlessAdapter {
     pub(crate) fn owned_mux_options(
         &self,
         input: &OutboundConfig,
         resources: &mut ResourcePreparation<'_>,
-        factory: Arc<pool::Factory>,
+        factory: Arc<background_pool::Factory>,
     ) -> Result<Options, RegistrationError> {
         self.mux_options(
             input,
@@ -125,7 +125,7 @@ impl VlessAdapter {
         &self,
         input: &OutboundConfig,
         resources: &mut ResourcePreparation<'_>,
-        factory: Arc<pool::Factory>,
+        factory: Arc<background_pool::Factory>,
     ) -> Result<Options, RegistrationError> {
         let limit = resources
             .candidate()
@@ -144,7 +144,7 @@ impl VlessAdapter {
         &self,
         input: &OutboundConfig,
         resources: &mut ResourcePreparation<'_>,
-        factory: Arc<pool::Factory>,
+        factory: Arc<background_pool::Factory>,
         limit: NonZeroUsize,
         stream_only: bool,
     ) -> Result<Options, RegistrationError> {
@@ -194,7 +194,7 @@ impl VlessAdapter {
             dial: input.dial.to_policy(),
             network_generation: factory.generation,
         };
-        let mut prepared = ::vless::component::mux::PreparedMux::from_options_refs(
+        let mut prepared = ::vless::component::mux::PreparedMux::from_owned_options_refs(
             input_refs,
             &self.runtime,
             resources
@@ -203,11 +203,24 @@ impl VlessAdapter {
             binding,
             limit,
             Duration::from_secs(5),
+            NonZeroUsize::new(
+                resources
+                    .candidate()
+                    .map(|config| config.runtime.effective_file_read_max_bytes())
+                    .unwrap_or_else(|| {
+                        zero_config::RuntimeOptionsConfig::default().effective_file_read_max_bytes()
+                    }),
+            )
+            .ok_or_else(|| {
+                zero_config::ConfigError::InvalidRuntime("zero File material bound".into())
+            })?,
         )
         .map_err(|source| {
             zero_config::ConfigError::InvalidOutbound(format!("outbound `{}`: {source}", input.tag))
         })?;
-        if zero_core::address::parse_ip_literal(server).is_none() {
+        if zero_core::address::parse_ip_literal(server).is_none()
+            || matches!(&input.protocol, OutboundProtocolConfig::Vless { tls:Some(tls),.. } if tls.options.ech_config_list.contains("://"))
+        {
             let node =
                 crate::component::native_dns::prepare_node(resources, factory.network.clone())?;
             prepared = prepared.with_node_dependency(node);
@@ -234,15 +247,28 @@ impl VlessAdapter {
         } else {
             None
         };
+        pool::reuse_material(&mut prepared, resources, &input.tag)?;
         let cached_grpc_lender = lower.is_some();
         let pool_options = Arc::new(pool::Options {
-            pool: prepared.pool_options().clone(),
+            pool: Arc::new(
+                (*prepared.owned_pool_options())
+                    .clone()
+                    .with_scoped_preparation(),
+            ),
             tag: input.tag.clone(),
             wire_endpoint: zero_core::request::Destination::new(
                 zero_core::Address::Domain(server.clone()),
                 *port,
             ),
         });
+        let metadata_factory = pool::Factory {
+            background: factory.clone(),
+        };
+        prepared
+            .remember_cold_material_identity(
+                &metadata_factory.describe(&pool_options).static_identity,
+            )
+            .map_err(|source| zero_config::ConfigError::InvalidOutbound(source.to_string()))?;
         let owner = match lower {
             Some((dependency, grpc)) => resources.share(
                 "vless.mux.actual_pool",
@@ -253,7 +279,11 @@ impl VlessAdapter {
                 }),
                 pool_options,
             )?,
-            None => resources.share("vless.mux.actual_pool", factory, pool_options)?,
+            None => resources.share(
+                "vless.mux.actual_pool",
+                Arc::new(metadata_factory),
+                pool_options,
+            )?,
         };
         let options = prepared.bind(owner);
         Ok(Options::Mux(Arc::new(

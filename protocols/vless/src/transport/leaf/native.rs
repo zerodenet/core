@@ -14,7 +14,9 @@ impl VlessOutboundLeaf {
             // VLESS's own optional encryption above that exact logical view.
             self.transport.encrypt(io).await
         } else {
-            self.transport.open_relay(io).await
+            self.transport
+                .open_owned_mux_carrier(io, self.mux_pool.native_instance()?)
+                .await
         }
     }
 
