@@ -504,6 +504,22 @@ fn validate_runtime(
             "runtime.hysteria2_udp_pending_bytes must be between 1 and 67108864".into(),
         ));
     }
+    for (name, limit) in [
+        (
+            "ss_udp_max_pending_responses",
+            runtime.effective_ss_udp_max_pending_responses(),
+        ),
+        (
+            "ss_udp_total_max_pending_responses",
+            runtime.effective_ss_udp_total_max_pending_responses(),
+        ),
+    ] {
+        if !(1..=65536).contains(&limit) {
+            return Err(ConfigError::InvalidRuntime(format!(
+                "runtime.{name} must be between 1 and 65536"
+            )));
+        }
+    }
     if !(1..=4096).contains(&runtime.effective_native_stream_max_originals()) {
         return Err(ConfigError::InvalidRuntime(
             "runtime.native_stream_max_originals must be between 1 and 4096".into(),

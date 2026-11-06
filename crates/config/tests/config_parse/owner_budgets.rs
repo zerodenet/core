@@ -16,22 +16,109 @@ fn actual_owner_budgets_are_optional_finite_and_preserve_omitted_export_shape() 
         usize,
         usize,
     );
-    let fields: [BudgetField; 28] = [
-        ("ss_legacy_replay_max_bytes", RuntimeOptionsConfig::effective_ss_legacy_replay_max_bytes, 64*1024*1024, usize::MAX-1),
-        ("grpc_pool_max_carriers", RuntimeOptionsConfig::effective_grpc_pool_max_carriers, 4, 4096),
-        ("grpc_pool_max_streams", RuntimeOptionsConfig::effective_grpc_pool_max_streams, 256, 65536),
-        ("grpc_total_max_carriers", RuntimeOptionsConfig::effective_grpc_total_max_carriers, 16, 4096),
-        ("grpc_total_max_streams", RuntimeOptionsConfig::effective_grpc_total_max_streams, 1024, 65536),
-        ("diagnostic_max_operations", RuntimeOptionsConfig::effective_diagnostic_max_operations, 8, 8),
-        ("ss_udp_replay_max_windows", RuntimeOptionsConfig::effective_ss_udp_replay_max_windows, 8192, usize::MAX - 1),
-        ("ss_udp_max_senders", RuntimeOptionsConfig::effective_ss_udp_max_senders, 8192, usize::MAX - 1),
-        ("ss_udp_max_associations", RuntimeOptionsConfig::effective_ss_udp_max_associations, 8192, usize::MAX - 1),
-        ("ss_udp_max_return_bindings", RuntimeOptionsConfig::effective_ss_udp_max_return_bindings, 65536, usize::MAX - 1),
-        ("ss_udp_max_authenticated_codecs", RuntimeOptionsConfig::effective_ss_udp_max_authenticated_codecs, 4096, usize::MAX - 1),
-        ("packet_return_max_frames", RuntimeOptionsConfig::effective_packet_return_max_frames, 256, 65536),
-        ("packet_return_max_bytes", RuntimeOptionsConfig::effective_packet_return_max_bytes, 16777216, 1073741824),
-        ("packet_return_total_max_frames", RuntimeOptionsConfig::effective_packet_return_total_max_frames, 1024, 65536),
-        ("packet_return_total_max_bytes", RuntimeOptionsConfig::effective_packet_return_total_max_bytes, 67108864, 1073741824),
+    let fields: [BudgetField; 30] = [
+        (
+            "ss_udp_max_pending_responses",
+            RuntimeOptionsConfig::effective_ss_udp_max_pending_responses,
+            4096,
+            65536,
+        ),
+        (
+            "ss_udp_total_max_pending_responses",
+            RuntimeOptionsConfig::effective_ss_udp_total_max_pending_responses,
+            4096,
+            65536,
+        ),
+        (
+            "ss_legacy_replay_max_bytes",
+            RuntimeOptionsConfig::effective_ss_legacy_replay_max_bytes,
+            64 * 1024 * 1024,
+            usize::MAX - 1,
+        ),
+        (
+            "grpc_pool_max_carriers",
+            RuntimeOptionsConfig::effective_grpc_pool_max_carriers,
+            4,
+            4096,
+        ),
+        (
+            "grpc_pool_max_streams",
+            RuntimeOptionsConfig::effective_grpc_pool_max_streams,
+            256,
+            65536,
+        ),
+        (
+            "grpc_total_max_carriers",
+            RuntimeOptionsConfig::effective_grpc_total_max_carriers,
+            16,
+            4096,
+        ),
+        (
+            "grpc_total_max_streams",
+            RuntimeOptionsConfig::effective_grpc_total_max_streams,
+            1024,
+            65536,
+        ),
+        (
+            "diagnostic_max_operations",
+            RuntimeOptionsConfig::effective_diagnostic_max_operations,
+            8,
+            8,
+        ),
+        (
+            "ss_udp_replay_max_windows",
+            RuntimeOptionsConfig::effective_ss_udp_replay_max_windows,
+            8192,
+            usize::MAX - 1,
+        ),
+        (
+            "ss_udp_max_senders",
+            RuntimeOptionsConfig::effective_ss_udp_max_senders,
+            8192,
+            usize::MAX - 1,
+        ),
+        (
+            "ss_udp_max_associations",
+            RuntimeOptionsConfig::effective_ss_udp_max_associations,
+            8192,
+            usize::MAX - 1,
+        ),
+        (
+            "ss_udp_max_return_bindings",
+            RuntimeOptionsConfig::effective_ss_udp_max_return_bindings,
+            65536,
+            usize::MAX - 1,
+        ),
+        (
+            "ss_udp_max_authenticated_codecs",
+            RuntimeOptionsConfig::effective_ss_udp_max_authenticated_codecs,
+            4096,
+            usize::MAX - 1,
+        ),
+        (
+            "packet_return_max_frames",
+            RuntimeOptionsConfig::effective_packet_return_max_frames,
+            256,
+            65536,
+        ),
+        (
+            "packet_return_max_bytes",
+            RuntimeOptionsConfig::effective_packet_return_max_bytes,
+            16777216,
+            1073741824,
+        ),
+        (
+            "packet_return_total_max_frames",
+            RuntimeOptionsConfig::effective_packet_return_total_max_frames,
+            1024,
+            65536,
+        ),
+        (
+            "packet_return_total_max_bytes",
+            RuntimeOptionsConfig::effective_packet_return_total_max_bytes,
+            67108864,
+            1073741824,
+        ),
         (
             "ss_tcp_replay_max_salts",
             RuntimeOptionsConfig::effective_ss_tcp_replay_max_salts,
@@ -139,12 +226,10 @@ fn control_event_payload_budget_preserves_omission_and_checks_real_byte_boundari
         defaults.effective_control_max_queued_event_bytes(),
         1024 * 1024
     );
-    assert!(
-        serde_json::to_value(&defaults)
-            .unwrap()
-            .get("control_max_queued_event_bytes")
-            .is_none()
-    );
+    assert!(serde_json::to_value(&defaults)
+        .unwrap()
+        .get("control_max_queued_event_bytes")
+        .is_none());
     for bytes in [1024, 1024 * 1024, 64 * 1024 * 1024] {
         let config = parse("control_max_queued_event_bytes", bytes).unwrap();
         assert_eq!(
@@ -161,11 +246,9 @@ fn control_event_payload_budget_preserves_omission_and_checks_real_byte_boundari
         );
     }
     for bytes in [0, 1023, 64 * 1024 * 1024 + 1, usize::MAX] {
-        assert!(
-            parse("control_max_queued_event_bytes", bytes)
-                .unwrap_err()
-                .to_string()
-                .contains("control_max_queued_event_bytes")
-        );
+        assert!(parse("control_max_queued_event_bytes", bytes)
+            .unwrap_err()
+            .to_string()
+            .contains("control_max_queued_event_bytes"));
     }
 }

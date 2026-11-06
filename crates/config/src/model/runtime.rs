@@ -60,6 +60,16 @@ pub struct RuntimeOptionsConfig {
     /// Successfully authenticated UDP user codecs retained by the same SS adapter.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub ss_udp_max_authenticated_codecs: Option<usize>,
+    /// Response registrations in each actual SS cached Flow, including send
+    /// Pending, failed/retiring and received-but-not-consumed responses.
+    /// On demand,4096 by default; distinct from native originals and replay.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub ss_udp_max_pending_responses: Option<usize>,
+    /// Same response registrations across the actual SS adapter's one pending
+    /// book, shared by every cached Flow/consumer.4096 by default, on demand.
+    /// Local and adapter bounds both apply; this is a count, not RSS/FD/bytes.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub ss_udp_total_max_pending_responses: Option<usize>,
     /// Actual physical carriers in one cached gRPC pool across every binding and retirement.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub grpc_pool_max_carriers: Option<usize>,
@@ -174,6 +184,8 @@ impl Default for RuntimeOptionsConfig {
             ss_udp_max_associations: None,
             ss_udp_max_return_bindings: None,
             ss_udp_max_authenticated_codecs: None,
+            ss_udp_max_pending_responses: None,
+            ss_udp_total_max_pending_responses: None,
             grpc_pool_max_carriers: None,
             grpc_pool_max_streams: None,
             grpc_total_max_carriers: None,
@@ -242,6 +254,12 @@ impl RuntimeOptionsConfig {
     }
     pub fn effective_ss_udp_max_return_bindings(&self) -> usize {
         self.ss_udp_max_return_bindings.unwrap_or(65536)
+    }
+    pub fn effective_ss_udp_max_pending_responses(&self) -> usize {
+        self.ss_udp_max_pending_responses.unwrap_or(4096)
+    }
+    pub fn effective_ss_udp_total_max_pending_responses(&self) -> usize {
+        self.ss_udp_total_max_pending_responses.unwrap_or(4096)
     }
     pub fn effective_ss_udp_max_authenticated_codecs(&self) -> usize {
         self.ss_udp_max_authenticated_codecs.unwrap_or(4096)
