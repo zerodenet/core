@@ -1,4 +1,6 @@
 //! Compatibility state follows the exact original main exit; never a close proof.
+#[cfg(test)]
+mod tests;
 use crate::runtime::{Proxy, TunControl, TunInfo};
 use std::sync::{Arc, Mutex, Weak};
 use zero_core::component::ComponentInstanceId;
