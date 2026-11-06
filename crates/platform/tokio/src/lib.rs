@@ -76,7 +76,9 @@ pub use egress::{
     EgressBindingReason, EgressFamilySnapshot, EgressInterface, EgressInterfaceControl,
     EgressRouteLookupStatus, EgressSelection,
 };
-pub use process::{lookup_local_tcp_process, lookup_local_udp_process, LocalProcessInfo};
+pub use process::{
+    LocalProcessInfo, LocalProcessLookup, LocalProcessLookupStart, LocalProcessTransport,
+};
 pub use system_dns::system_dns_servers;
 
 #[derive(Debug)]

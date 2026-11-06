@@ -175,3 +175,6 @@ mod pending;
 
 #[path = "tests/dns.rs"]
 mod dns;
+
+#[path = "tests/admission.rs"]
+mod admission;

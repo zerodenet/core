@@ -132,6 +132,13 @@ impl Users {
         let node = self.state().tasks.get(&id).cloned()?;
         // The actual Scope, never this graph, consumes the native task exit.
         let joined = node.witness.try_joined()?;
+        if node.process_helper {
+            if let Some(original) = &node.process {
+                if let Err(source) = original.collect_native_after_join() {
+                    self.remember(Arc::new(source));
+                }
+            }
+        }
         if let Err(source) = joined.result() {
             // Persist original ID/class/Arc before accepting a local client
             // rejection. This bounded first receipt survives slot reuse.
@@ -176,7 +183,14 @@ impl Users {
             {
                 self.logical_dirty.store(true, Ordering::Release);
             }
-            state.tasks.remove(&id)
+            if node.process_helper {
+                // Deliver the original fault first so the actual Scope can
+                // ACK. The helper's native controller and credit stay until
+                // that same registration is released, not just body/join.
+                None
+            } else {
+                state.tasks.remove(&id)
+            }
         };
         // A last receipt/source Drop and Notify can run callbacks; no graph or
         // host mutex encloses either operation.

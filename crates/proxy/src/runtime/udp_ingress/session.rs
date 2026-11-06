@@ -17,6 +17,12 @@ impl UdpIngressRuntime {
         session: &mut Session,
         inbound_tag: &str,
     ) -> Result<crate::component::business_demand::AdmittedBusinessDemand, EngineError> {
+        #[cfg(feature = "raw-ip-runtime")]
+        let phase = self
+            .native()
+            .map(|caller| caller.begin_session_admission())
+            .transpose()
+            .map_err(std::io::Error::other)?;
         self.tcp_services.ensure_configuration_committed()?;
         if session.inbound_local.is_none() {
             session.inbound_local = self.local_addr.map(|addr| {
@@ -40,8 +46,7 @@ impl UdpIngressRuntime {
         }
         if session.process_id.is_none() {
             if let Some(source_addr) = self.source_addr {
-                if let Some(info) = zero_platform_tokio::lookup_local_udp_process(source_addr).await
-                {
+                if let Some(info) = self.lookup_local_process(source_addr).await? {
                     session.process_id = Some(info.pid);
                     session.process_name = info.name;
                     session.process_path = info.path;
@@ -51,11 +56,16 @@ impl UdpIngressRuntime {
         apply_kernel_rate_limits_from_config(self.tcp_services.config(), session, inbound_tag);
         let engine = self.tcp_services.engine();
         let admission = engine.prepare_session_admitted(session, inbound_tag)?;
-        crate::component::business_demand::AdmittedBusinessDemand::new(
+        let admitted = crate::component::business_demand::AdmittedBusinessDemand::new(
             engine,
             zero_core::component::SessionId(session.id),
             admission,
-        )
+        )?;
+        #[cfg(feature = "raw-ip-runtime")]
+        if let Some(phase) = phase {
+            phase.admitted();
+        }
+        Ok(admitted)
     }
 
     pub(crate) fn track_session(&self, session_id: u64) -> SessionHandle {

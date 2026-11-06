@@ -160,8 +160,11 @@ impl PacketSourceContext {
             + usize::from(cfg!(target_os = "windows")) // actual same-Scope SDK reader
     }
     pub(crate) fn internal_task_limit() -> usize {
-        tcp::MAX_CONNECTIONS
-            + crate::inbound::tun::udp::OwnedTunUdpTasks::MAX_ASSOCIATIONS
+        // Each existing TCP/UDP caller may own one already-existing metadata
+        // blocking worker. Same Scope, actual registration and separate ACK;
+        // protocol group limits are unchanged, and no worker is pre-spawned.
+        tcp::MAX_CONNECTIONS * 2
+            + crate::inbound::tun::udp::OwnedTunUdpTasks::MAX_ASSOCIATIONS * 2
             + crate::inbound::tun::udp::OwnedTunUdpTasks::MAX_DNS
             + zero_stack::UserTcpStack::BACKGROUND_TASK_LIMIT
             + Self::MAX_ICMP_PROBES

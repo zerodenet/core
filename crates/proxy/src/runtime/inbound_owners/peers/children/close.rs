@@ -15,6 +15,10 @@ impl InboundPeerTasks {
         };
         let mut failure = None;
         for (task, binding, child) in joined {
+            if let Err(source) = binding.close_process_lookup(deadline).await {
+                failure.get_or_insert(source);
+                continue;
+            }
             match binding.close_responses(deadline).await {
                 Err(error) => {
                     failure.get_or_insert(error);

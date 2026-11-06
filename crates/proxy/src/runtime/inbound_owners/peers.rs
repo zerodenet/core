@@ -47,6 +47,7 @@ impl Drop for Registration<'_> {
         // A cold factory may panic before an actual task is accepted. Reject
         // its admission, never invent a joined TaskId or an I/O close report.
         state.closing = true;
+        drop(state);
         self.binding.reject(Arc::new(
             zero_platform_tokio::contract::ChannelError::new(
                 zero_platform_tokio::contract::Stage::Prepare,
@@ -57,7 +58,6 @@ impl Drop for Registration<'_> {
                 "peer registration ended before scope acceptance",
             )),
         ));
-        drop(state);
         self.group.notify_changed();
     }
 }
@@ -117,17 +117,25 @@ impl InboundPeerTasks {
         &self,
         task: TaskId,
     ) -> Option<zero_platform_tokio::contract::scope::TaskJoined> {
-        let scopes: Vec<_> = self
+        let bindings = self
             .state
             .lock()
             .unwrap()
             .active
             .values()
-            .filter_map(|b| b.peer_scope())
-            .collect();
-        scopes
-            .into_iter()
-            .find_map(|scope| scope.observe_joined(task))
+            .cloned()
+            .collect::<Vec<_>>();
+        let joined = bindings.into_iter().find_map(|binding| {
+            binding.observe_process_joined(task).or_else(|| {
+                binding
+                    .peer_scope()
+                    .and_then(|scope| scope.observe_joined(task))
+            })
+        });
+        if joined.is_some() {
+            self.notify_changed();
+        }
+        joined
     }
     pub(super) async fn retire_logical_resources(
         &self,
@@ -227,7 +235,11 @@ impl InboundPeerTasks {
                 return Ok(false);
             }
             state.preparing += 1;
-            Arc::new(HostPeerBinding::new(self.identity, self.cancel.clone()))
+            Arc::new(HostPeerBinding::new(
+                self.identity,
+                self.cancel.clone(),
+                host.peer_registrar(),
+            ))
         };
         let mut registration = Registration {
             group: self,
@@ -288,23 +300,40 @@ impl InboundPeerTasks {
         class: zero_platform_tokio::contract::scope::TaskClass,
         failure: Option<SharedError>,
     ) -> bool {
-        let mut state = self.state.lock().expect("peer task state poisoned");
-        let Some(binding) = state.active.get(&id).cloned() else {
-            return false;
+        let binding = {
+            let mut state = self.state.lock().expect("peer task state poisoned");
+            let Some(binding) = state.active.get(&id).cloned() else {
+                return false;
+            };
+            // Persist the actual source before releasing locks/callbacks. A
+            // real joined failure cannot vanish if a woken cleanup progresses.
+            if let Some(source) = &failure {
+                state.failure.get_or_insert_with(|| source.clone());
+                state.closing = true;
+            }
+            binding
         };
-        binding.joined(id, class, failure.clone());
-        if let Some(failure) = failure {
-            state.failure.get_or_insert(failure);
-            state.closing = true;
-        }
-        if !state.children.contains_key(&id)
-            && !state.claiming.contains(&id)
-            && !binding.responses_pending()
-        {
-            state.active.remove(&id);
-            state.reclaimed = state.reclaimed.saturating_add(1);
-        }
-        drop(state);
+        binding.joined(id, class, failure);
+        let removed = {
+            let mut state = self.state.lock().expect("peer task state poisoned");
+            if !state.children.contains_key(&id)
+                && !state.claiming.contains(&id)
+                && !binding.responses_pending()
+                && binding.process_retired()
+                && state
+                    .active
+                    .get(&id)
+                    .is_some_and(|actual| Arc::ptr_eq(actual, &binding))
+            {
+                state.reclaimed = state.reclaimed.saturating_add(1);
+                state.active.remove(&id)
+            } else {
+                None
+            }
+        };
+        // Last original/view/waker drops and all stop notifications are
+        // outside the same existing group's mutex.
+        drop(removed);
         self.notify_changed();
         true
     }
@@ -330,9 +359,12 @@ impl InboundPeerTasks {
             .closed_io_receipts
     }
     pub(crate) fn begin_shutdown(&self) {
-        let mut state = self.state.lock().expect("peer task state poisoned");
-        state.closing = true;
-        for binding in state.active.values() {
+        let bindings = {
+            let mut state = self.state.lock().expect("peer task state poisoned");
+            state.closing = true;
+            state.active.values().cloned().collect::<Vec<_>>()
+        };
+        for binding in bindings {
             binding.request_stop();
         }
         self.notify_changed();

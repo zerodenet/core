@@ -59,6 +59,9 @@ impl NativeRegistration {
         if let Some(settled) = self.settle_dns(deadline).await? {
             return Ok(settled);
         }
+        if let Some(settled) = self.settle_pre_admission()? {
+            return Ok(settled);
+        }
         // Pending preparation cleanup is local to this actual caller. It does
         // not certify any separately uncovered raw-IP gateway.
         if !self.settle_pending(deadline).await? {
@@ -162,6 +165,7 @@ impl NativeObligations {
             .values()
             .any(|record| {
                 record.dns.is_some()
+                    || record.no_business_admission
                     || !record.pending_carriers.is_empty()
                     || record.gateways > 0
                         && !record.uncovered_gateway

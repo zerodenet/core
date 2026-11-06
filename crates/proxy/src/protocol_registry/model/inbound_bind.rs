@@ -27,20 +27,19 @@ impl PreparedInboundBind {
         let metadata_destination;
         let destination = match spec.resources.as_slice() {
             #[cfg(feature = "raw-ip-runtime")]
-            [
-                ResourceDeclaration::DatagramListener {
-                    destination,
-                    accepted: None,
-                    max_pending_sends,
-                    ..
-                },
-                ResourceDeclaration::NativeIcmp { .. },
-                ResourceDeclaration::PacketDatagramReads { datagram: 0, .. },
-            ] if spec.task_limit.is_some() && max_pending_sends.get() == 1 => destination,
-            [
-                ResourceDeclaration::MetadataDatagram { source, .. },
-                auxiliary @ ..,
-            ] if spec.task_limit.is_some() && valid_metadata_aux(auxiliary) => {
+            [ResourceDeclaration::DatagramListener {
+                destination,
+                accepted: None,
+                max_pending_sends,
+                ..
+            }, ResourceDeclaration::NativeIcmp { .. }, ResourceDeclaration::PacketDatagramReads { datagram: 0, .. }]
+                if spec.task_limit.is_some() && max_pending_sends.get() == 1 =>
+            {
+                destination
+            }
+            [ResourceDeclaration::MetadataDatagram { source, .. }, auxiliary @ ..]
+                if spec.task_limit.is_some() && valid_metadata_aux(auxiliary) =>
+            {
                 metadata_destination = zero_core::request::Destination::new(
                     match source.ip() {
                         std::net::IpAddr::V4(ip) => zero_core::Address::Ipv4(ip.octets()),
@@ -50,33 +49,31 @@ impl PreparedInboundBind {
                 );
                 &metadata_destination
             }
-            [
-                ResourceDeclaration::DatagramListener {
-                    destination,
-                    accepted: Some(limits),
-                    ..
-                },
-                auxiliary @ ..,
-            ] if limits.task_slots().is_some() && valid_associations(auxiliary) => destination,
-            [
-                ResourceDeclaration::TcpListener {
-                    destination,
-                    accepted: Some(limits),
-                    ..
-                },
-                auxiliary @ ..,
-            ] if limits.task_slots().is_some() => {
+            [ResourceDeclaration::DatagramListener {
+                destination,
+                accepted: Some(limits),
+                ..
+            }, auxiliary @ ..]
+                if limits.task_slots().is_some() && valid_associations(auxiliary) =>
+            {
+                destination
+            }
+            [ResourceDeclaration::TcpListener {
+                destination,
+                accepted: Some(limits),
+                ..
+            }, auxiliary @ ..]
+                if limits.task_slots().is_some() =>
+            {
                 match auxiliary {
                     [] => {}
                     auxiliary if valid_associations(auxiliary) => {}
                     _ if spec.task_limit.is_some() && valid_handoff(&spec.resources) => {}
-                    [
-                        ResourceDeclaration::DatagramListener {
-                            destination: datagram,
-                            accepted: Some(peers),
-                            ..
-                        },
-                    ] if datagram == destination
+                    [ResourceDeclaration::DatagramListener {
+                        destination: datagram,
+                        accepted: Some(peers),
+                        ..
+                    }] if datagram == destination
                         && limits.max_resources_per_socket == 0
                         && peers.task_slots().is_some() => {}
                     [ResourceDeclaration::AcceptedDatagram { .. }]
@@ -153,7 +150,7 @@ impl PreparedInboundBind {
                 ResourceDeclaration::TcpListener {
                     accepted: Some(limits),
                     ..
-                } => sum.checked_add(limits.task_slots()?.get()),
+                } => sum.checked_add(limits.task_slots()?.get().checked_mul(2)?),
                 _ => Some(sum),
             })
     }
@@ -167,14 +164,18 @@ impl PreparedInboundBind {
                 ResourceDeclaration::DatagramListener {
                     accepted: Some(limits),
                     ..
-                } => limits.task_slots().map_or(usize::MAX, |s| s.get()),
+                } => limits
+                    .task_slots()
+                    .and_then(|slots| slots.get().checked_mul(2))
+                    .unwrap_or(usize::MAX),
                 ResourceDeclaration::DatagramAssociations {
                     max_associations,
                     max_tasks_per_association,
                     ..
                 } => max_associations
                     .get()
-                    .saturating_mul(max_tasks_per_association.get()),
+                    .saturating_mul(max_tasks_per_association.get())
+                    .saturating_mul(2),
                 _ => 0,
             })
             .try_fold(recipe.spec().task_limit.map_or(0, |n| n.get()), |sum, n| {

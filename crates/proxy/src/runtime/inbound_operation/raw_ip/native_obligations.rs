@@ -37,6 +37,9 @@ struct State {
 }
 struct Record {
     kind: ChildKind,
+    admission_active: usize,
+    business_admitted: bool,
+    no_business_admission: bool,
     dns: Option<dns::DnsOriginal>,
     entered: bool,
     retiring: bool,
@@ -101,6 +104,9 @@ impl NativeObligations {
             id,
             Record {
                 kind,
+                admission_active: 0,
+                business_admitted: false,
+                no_business_admission: false,
                 dns: None,
                 entered: false,
                 retiring: false,
@@ -146,6 +152,7 @@ mod carrier;
 mod completion;
 mod dns;
 pub(crate) use dns::DnsSourceCaller;
+mod admission;
 mod pending;
 mod registration;
 impl NativePermit {

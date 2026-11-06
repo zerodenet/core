@@ -79,6 +79,26 @@ impl OriginalFile {
         // SAFETY: the caller accepts the backing-file lifetime obligation.
         unsafe { memmap2::MmapOptions::new().map(self.original()?) }
     }
+    /// Internal Linux directory enumeration on this same retained original.
+    /// No RawFd, duplicate or consuming File escapes its matching close owner.
+    #[cfg(target_os = "linux")]
+    pub(crate) fn read_linux_directory_entries(&mut self, bytes: &mut [u8]) -> io::Result<usize> {
+        use std::os::fd::AsRawFd;
+        let result = unsafe {
+            libc::syscall(
+                libc::SYS_getdents64,
+                self.original()?.as_raw_fd(),
+                bytes.as_mut_ptr(),
+                bytes.len(),
+            )
+        };
+        if result < 0 {
+            Err(io::Error::last_os_error())
+        } else {
+            Ok(result as usize)
+        }
+    }
+
     pub fn metadata(&self) -> io::Result<Metadata> {
         self.original()?.metadata()
     }

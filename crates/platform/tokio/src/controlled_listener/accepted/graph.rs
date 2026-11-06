@@ -19,6 +19,7 @@ mod inbound;
 mod receiver;
 pub(super) mod resources;
 pub use resources::AcceptedResource;
+mod process;
 mod spawn;
 pub use caller::{AcceptedCaller, AcceptedOrigin};
 pub(crate) use inbound::PendingTcp;
@@ -58,6 +59,7 @@ pub(super) struct Users {
 struct State {
     primary: bool,
     spawning: usize,
+    lookup_spawning: usize,
     sealed: bool,
     unaccounted: bool,
     tasks: BTreeMap<TaskId, Node>,
@@ -68,6 +70,8 @@ struct State {
 struct Node {
     witness: TaskJoinWitness,
     primary: bool,
+    process: Option<Arc<crate::LocalProcessLookup>>,
+    process_helper: bool,
 }
 /// A unique byte view disappearing is independent of every actual task join.
 pub(super) struct ViewUse(Arc<Users>);
@@ -121,6 +125,7 @@ impl Users {
         self.state().unaccounted = true;
     }
     pub(super) fn status(&self) -> AcceptedTcpUsers {
+        self.reap_process_lookups();
         let (sealed, pending, unaccounted, tasks, resources, carriers) = {
             let state = self.state();
             (
@@ -157,6 +162,7 @@ impl Users {
     pub(super) async fn retire(&self, deadline: Instant) -> bool {
         self.state().sealed = true;
         self.cancel.cancel();
+        self.cancel_process_lookups();
         self.revoke_resources();
         self.revoke_carriers();
         let tasks: Vec<_> = self
@@ -172,6 +178,9 @@ impl Users {
             {
                 return false;
             }
+        }
+        if !self.retire_process_lookups(deadline).await {
+            return false;
         }
         loop {
             let changed = self.changed.notified();

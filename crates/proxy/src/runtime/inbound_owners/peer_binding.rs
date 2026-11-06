@@ -3,6 +3,7 @@ use super::*;
 use crate::component::instance::{retained, SharedError};
 use tokio::sync::Notify;
 mod observer;
+mod process;
 mod responses;
 use zero_core::component::TaskId;
 use zero_platform_tokio::contract::{scope::TaskClass, ChannelError, Impact, Reason, Stage};
@@ -38,6 +39,10 @@ struct JoinCell {
 }
 pub(crate) struct HostPeerBinding {
     parent: ComponentInstanceId,
+    registrar: zero_platform_tokio::contract::scope::WeakTaskRegistrar,
+    process: Mutex<Option<Arc<zero_platform_tokio::LocalProcessLookup>>>,
+    process_failure: Mutex<Option<zero_platform_tokio::contract::scope::TaskJoined>>,
+    process_cleanup_failure: Mutex<Option<Arc<ChannelError>>>,
     join: Arc<JoinCell>,
     cancel: CancellationToken,
     responses: Mutex<Option<responses::ResponseOwner>>,
@@ -62,9 +67,17 @@ impl HostPeerBinding {
     pub(super) fn peer_scope(&self) -> Option<zero_platform_tokio::AcceptedPeerScope> {
         self.peer_scope.lock().unwrap().clone()
     }
-    pub(super) fn new(parent: ComponentInstanceId, cancel: CancellationToken) -> Self {
+    pub(super) fn new(
+        parent: ComponentInstanceId,
+        cancel: CancellationToken,
+        registrar: zero_platform_tokio::contract::scope::WeakTaskRegistrar,
+    ) -> Self {
         Self {
             parent,
+            registrar,
+            process: Mutex::new(None),
+            process_failure: Mutex::new(None),
+            process_cleanup_failure: Mutex::new(None),
             join: Arc::default(),
             cancel: cancel.child_token(),
             responses: Mutex::new(None),
@@ -141,6 +154,10 @@ impl HostPeerBinding {
     }
     pub(crate) fn request_stop(&self) {
         self.cancel.cancel();
+        let original = self.process.lock().unwrap().clone();
+        if let Some(original) = original {
+            original.cancel();
+        }
     }
     pub(crate) fn registration_rejection(&self) -> Option<SharedError> {
         self.join

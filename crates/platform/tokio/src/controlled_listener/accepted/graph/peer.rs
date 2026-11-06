@@ -76,6 +76,8 @@ impl DatagramPeerAdmission {
             Node {
                 witness: witness.clone(),
                 primary: true,
+                process: None,
+                process_helper: false,
             },
         );
         let origin = Arc::new(OnceLock::new());
@@ -142,6 +144,8 @@ impl AcceptedPeerScope {
             Node {
                 witness: witness.clone(),
                 primary: true,
+                process: None,
+                process_helper: false,
             },
         );
         let origin = Arc::new(OnceLock::new());

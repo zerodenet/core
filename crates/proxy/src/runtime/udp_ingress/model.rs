@@ -35,6 +35,45 @@ impl UdpIngressRuntime {
             .expect("validated independent UDP native budget")
         })
     }
+    pub(crate) async fn lookup_local_process(
+        &self,
+        source: std::net::SocketAddr,
+    ) -> Result<Option<zero_platform_tokio::LocalProcessInfo>, zero_engine::EngineError> {
+        let transport = zero_platform_tokio::LocalProcessTransport::Udp;
+        let read_limit = std::num::NonZeroUsize::new(
+            self.tcp_services
+                .config()
+                .runtime
+                .effective_file_read_max_bytes(),
+        )
+        .expect("validated metadata file read budget");
+        if let Some(caller) = &self.accepted_caller {
+            return caller
+                .lookup_local_process(source, transport, read_limit)
+                .await
+                .map_err(|source| std::io::Error::other(source).into());
+        }
+        #[cfg(feature = "raw-ip-runtime")]
+        if let Some(caller) = &self.native {
+            return caller
+                .lookup_local_process(source, transport, read_limit)
+                .await
+                .map_err(|source| std::io::Error::other(source).into());
+        }
+        #[cfg(feature = "managed-datagram-runtime")]
+        if let Some(peer) = &self.peer_resources {
+            return peer
+                .binding()
+                .lookup_local_process(source, transport, read_limit)
+                .await
+                .map_err(|source| std::io::Error::other(source).into());
+        }
+        Err(
+            std::io::Error::other("process metadata lookup has no actual ingress caller Scope")
+                .into(),
+        )
+    }
+
     pub(crate) fn with_accepted_caller(
         mut self,
         caller: zero_platform_tokio::AcceptedCaller,
