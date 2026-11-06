@@ -72,6 +72,17 @@ async fn exercise(domain: bool) {
     let config = configuration(endpoint, socks, domain);
     let inbound = config.endpoints[0].inbound_tag();
     let proxy = Proxy::new(config.clone()).unwrap();
+    let packet_memory = proxy
+        .protocols
+        .runtime_host()
+        .original_budgets()
+        .packet
+        .clone();
+    assert_eq!(
+        packet_memory.native().occupied.frames,
+        0,
+        "cold recipes acquire no read workspace"
+    );
     let handle = ProxyHandle::new(
         zero_engine::EngineHandle::new(proxy.engine().clone()),
         proxy.clone(),
@@ -87,6 +98,12 @@ async fn exercise(domain: bool) {
         .owner(&inbound)
         .expect("the same actual WG source owner");
     source.wait_ready().await.unwrap();
+    assert_eq!(
+        packet_memory.native().occupied.frames,
+        2,
+        "one original Source prepays its scratch and decode workspaces"
+    );
+    assert_eq!(packet_memory.native().occupied.bytes, 2 * 65_536);
     let origins = proxy
         .protocols
         .test_packet_source_origins(snapshot.config());
@@ -170,6 +187,12 @@ async fn exercise(domain: bool) {
     assert!(closed.matches(&original));
     assert!(closed.had_native_acquisition());
     assert!(original.driver().unwrap().is_joined());
+    assert_eq!(
+        packet_memory.native().occupied.frames,
+        0,
+        "all actual read payloads and workspace promises returned"
+    );
+    assert_eq!(packet_memory.native().occupied.bytes, 0);
     let terminal = source
         .terminal_for_test()
         .expect("actual original Source Scope and native terminal");
