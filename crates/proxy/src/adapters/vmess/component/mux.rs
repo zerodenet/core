@@ -1,6 +1,9 @@
+mod pool;
 mod production;
 use super::super::VmessAdapter;
-use crate::component::{background::pool, RegistrationError, ResourcePreparation};
+use crate::component::{
+    background::pool as background_pool, RegistrationError, ResourcePreparation,
+};
 pub(crate) use production::has_mux;
 use std::{num::NonZeroUsize, sync::Arc, time::Duration};
 use zero_config::{OutboundConfig, OutboundProtocolConfig};
@@ -49,24 +52,22 @@ pub(crate) fn eligible(input: &OutboundConfig) -> bool {
     }
     let mut ordinary = input.clone();
     let OutboundProtocolConfig::Vmess {
-        mux_concurrency,
-        server,
-        ..
+        mux_concurrency, ..
     } = &mut ordinary.protocol
     else {
         return false;
     };
-    if mux_concurrency.take().is_none() || zero_core::address::parse_ip_literal(server).is_none() {
+    if mux_concurrency.take().is_none() {
         return false;
     }
-    super::native_input(&ordinary)
+    super::owned_input(&ordinary)
 }
 impl VmessAdapter {
     pub(crate) fn owned_mux_options(
         &self,
         input: &OutboundConfig,
         resources: &mut ResourcePreparation<'_>,
-        factory: Arc<pool::Factory>,
+        factory: Arc<background_pool::Factory>,
     ) -> Result<Options, RegistrationError> {
         self.mux_options(
             input,
@@ -80,7 +81,7 @@ impl VmessAdapter {
         &self,
         input: &OutboundConfig,
         resources: &mut ResourcePreparation<'_>,
-        factory: Arc<pool::Factory>,
+        factory: Arc<background_pool::Factory>,
     ) -> Result<Options, RegistrationError> {
         let limit = resources
             .candidate()
@@ -100,7 +101,7 @@ impl VmessAdapter {
         &self,
         input: &OutboundConfig,
         resources: &mut ResourcePreparation<'_>,
-        factory: Arc<pool::Factory>,
+        factory: Arc<background_pool::Factory>,
         limit: NonZeroUsize,
         stream_only: bool,
     ) -> Result<Options, RegistrationError> {
@@ -126,7 +127,7 @@ impl VmessAdapter {
             dial: input.dial.to_policy(),
             network_generation: factory.generation,
         };
-        let mut prepared = ::vmess::component::mux::PreparedMux::from_options_refs(
+        let mut prepared = ::vmess::component::mux::PreparedMux::from_owned_options_refs(
             input_refs,
             &self.runtime,
             resources
@@ -135,27 +136,71 @@ impl VmessAdapter {
             binding,
             limit,
             Duration::from_secs(5),
+            NonZeroUsize::new(
+                resources
+                    .candidate()
+                    .map(|config| config.runtime.effective_file_read_max_bytes())
+                    .unwrap_or_else(|| {
+                        zero_config::RuntimeOptionsConfig::default().effective_file_read_max_bytes()
+                    }),
+            )
+            .ok_or_else(|| {
+                zero_config::ConfigError::InvalidRuntime("zero File material bound".into())
+            })?,
         )
         .map_err(|source| {
             zero_config::ConfigError::InvalidOutbound(format!("outbound `{}`: {source}", input.tag))
         })?;
-        if zero_core::address::parse_ip_literal(server).is_none() {
+        if zero_core::address::parse_ip_literal(server).is_none()
+            || matches!(&input.protocol, OutboundProtocolConfig::Vmess { tls:Some(tls),.. } if tls.options.ech_config_list.contains("://"))
+        {
             let node =
                 crate::component::native_dns::prepare_node(resources, factory.network.clone())?;
             prepared = prepared.with_node_dependency(node);
         }
-        let owner = resources.share(
-            "vmess.mux.actual_pool",
-            factory,
-            Arc::new(pool::Options {
-                pool: prepared.pool_options().clone(),
-                tag: input.tag.clone(),
-                wire_endpoint: zero_core::request::Destination::new(
-                    zero_core::Address::Domain(server.clone()),
-                    *port,
-                ),
-            }),
-        )?;
+        if resources.same_source_as_previous() {
+            if let Some(dependencies) = resources.previous_named_dependencies(&input.tag) {
+                for dependency in dependencies {
+                    let inherited =
+                        prepared
+                            .reuse_file_material_from(*dependency)
+                            .map_err(|source| {
+                                zero_config::ConfigError::InvalidOutbound(source.to_string())
+                            })?;
+                    let inherited = inherited
+                        || resources
+                            .previous_resource_identity(dependency.component)
+                            .map(|identity| prepared.reuse_cold_file_material_from(identity))
+                            .transpose()
+                            .map_err(|source| {
+                                zero_config::ConfigError::InvalidOutbound(source.to_string())
+                            })?
+                            .unwrap_or(false);
+                    if inherited {
+                        break;
+                    }
+                }
+            }
+        }
+        let factory = Arc::new(pool::Factory {
+            background: factory,
+        });
+        let pool_options = Arc::new(pool::Options {
+            pool: Arc::new(
+                (*prepared.owned_pool_options())
+                    .clone()
+                    .with_scoped_preparation(),
+            ),
+            tag: input.tag.clone(),
+            wire_endpoint: zero_core::request::Destination::new(
+                zero_core::Address::Domain(server.clone()),
+                *port,
+            ),
+        });
+        prepared
+            .remember_cold_material_identity(&factory.describe(&pool_options).static_identity)
+            .map_err(|source| zero_config::ConfigError::InvalidOutbound(source.to_string()))?;
+        let owner = resources.share("vmess.mux.actual_pool", factory, pool_options)?;
         let options = prepared.bind(owner);
         Ok(Options::Mux(Arc::new(if stream_only {
             options.stream_only()

@@ -71,7 +71,9 @@ impl VmessOutboundLeaf {
                     let io = zero_transport::TcpRelayStream::new(
                         zero_transport::pooled_driver::ExclusiveIo::new(raw),
                     );
-                    leaf.transport.open_relay(io).await
+                    leaf.transport
+                        .open_native_mux_carrier(io, leaf.mux_pool.native_instance()?)
+                        .await
                 },
             )
             .await
@@ -99,7 +101,9 @@ impl VmessOutboundLeaf {
                 let io = zero_transport::TcpRelayStream::new(
                     zero_transport::pooled_driver::ExclusiveIo::new(raw),
                 );
-                leaf.transport.open_relay(io).await
+                leaf.transport
+                    .open_native_mux_carrier(io, leaf.mux_pool.native_instance()?)
+                    .await
             })
             .await
     }
