@@ -1,3 +1,4 @@
+mod owned;
 use std::io;
 use std::io::Write;
 use std::net::IpAddr;
@@ -28,24 +29,11 @@ impl SystemLeakGuard {
         protected: &[IpNet],
         excluded: &[IpAddr],
     ) -> io::Result<Self> {
-        validate_interface_name(tun_name)?;
-        let table = format!("zero_killswitch_{}", safe_resource_name(recovery_key));
-        let protected = normalized_prefixes(protected);
-        let excluded = normalized_exclusions(excluded);
-        let socket_mark = strict_route_socket_mark(recovery_key);
-        let exists = table_snapshot(&table)?.is_some();
-        apply_policy(&table, tun_name, &protected, &excluded, socket_mark, exists)?;
-        let mut guard = Self {
-            installed_rules: String::new(),
-            table,
-            tun_name: tun_name.to_owned(),
-            protected,
-            excluded,
-            socket_mark,
-            active: true,
-        };
-        guard.installed_rules = required_table_snapshot(&guard.table)?;
-        Ok(guard)
+        let mut original = None;
+        Self::install_retained(&mut original, tun_name, recovery_key, protected, excluded)?;
+        Ok(original
+            .take()
+            .expect("same installed leak-protection original"))
     }
 
     pub fn reconcile(&mut self, protected: &[IpNet], excluded: &[IpAddr]) -> io::Result<bool> {
@@ -80,6 +68,10 @@ impl SystemLeakGuard {
     }
 
     pub fn close(mut self) -> io::Result<()> {
+        self.close_retained()
+    }
+
+    pub fn close_retained(&mut self) -> io::Result<()> {
         self.cleanup()
     }
 

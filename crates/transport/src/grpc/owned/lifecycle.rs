@@ -23,6 +23,7 @@ impl ComponentFactory for NativePoolFactory {
                 .totals
                 .iter()
                 .map(|totals| totals.dependency)
+                .chain(options.node_dns)
                 .collect(),
             static_identity: options.identity.clone(),
             resources: vec![ResourceDeclaration::ControlledCarrierPool {
@@ -40,7 +41,17 @@ impl ComponentFactory for NativePoolFactory {
         context: BuildContext,
     ) -> Result<ComponentInstance, BuildError> {
         let instance = context.instance();
-        if context.dependencies.len() != usize::from(options.totals.is_some())
+        if context.dependencies.len()
+            != usize::from(options.totals.is_some()) + usize::from(options.node_dns.is_some())
+            || options
+                .node_dns
+                .is_some_and(|node| context.dependency(node).is_none())
+            || options.node_dns.is_some_and(|node| {
+                options
+                    .totals
+                    .as_ref()
+                    .is_some_and(|root| root.dependency == node)
+            })
             || options
                 .totals
                 .as_ref()
@@ -122,21 +133,44 @@ impl ResourceLifecycle for Owner {
             self.carriers.registration(),
             &self.managed.tasks,
         )?;
-        {
+        // Read actual native/users/task ACK receipts outside the pool lock.
+        let previous = match &*self.pool.ownership.lock().unwrap() {
+            Ownership::Managed(old) => Some(old.clone()),
+            _ => None,
+        };
+        let replaceable = self.managed.options.selected_background
+            && previous
+                .as_ref()
+                .is_some_and(|old| old.instance != self.managed.instance && old.ready_to_replace());
+        let retired = self.pool.retired.load(std::sync::atomic::Ordering::Acquire);
+        let previous = {
             let mut ownership = self.pool.ownership.lock().unwrap();
-            if self.pool.retired.load(std::sync::atomic::Ordering::Acquire)
-                || !matches!(*ownership, Ownership::Pristine)
-                || self.pool.cached.lock().unwrap().is_some()
-            {
+            let allowed = match &*ownership {
+                Ownership::Pristine => !retired || self.managed.options.selected_background,
+                Ownership::Managed(old) => {
+                    replaceable
+                        && previous
+                            .as_ref()
+                            .is_some_and(|actual| Arc::ptr_eq(old, actual))
+                }
+                Ownership::LegacyUsed => false,
+            };
+            if !allowed || self.pool.cached.lock().unwrap().is_some() {
                 return Err(error(
                     self.managed.instance,
                     Stage::Prepare,
                     Reason::StalePlan,
                 ));
             }
-            *ownership = Ownership::Managed(self.managed.clone());
+            self.pool
+                .retired
+                .store(false, std::sync::atomic::Ordering::Release);
+            let previous =
+                std::mem::replace(&mut *ownership, Ownership::Managed(self.managed.clone()));
             self.claimed = true;
-        }
+            previous
+        };
+        drop(previous);
         self.carriers.start(deadline).await?;
         self.managed.activate()
     }

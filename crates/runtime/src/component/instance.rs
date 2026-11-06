@@ -1,6 +1,7 @@
 //! Ownership of one cold recipe, installed before its first start.
 use super::{ComponentRecipe, ValidatedRecipe};
 mod business;
+mod probe;
 mod cleanup;
 mod packet_source;
 mod resources;

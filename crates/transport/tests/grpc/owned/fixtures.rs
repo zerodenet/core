@@ -1,4 +1,7 @@
+mod background;
+mod totals;
 use super::*;
+use background::BackgroundRoot;
 pub(super) fn deadline() -> Instant {
     Instant::now() + Duration::from_secs(4)
 }
@@ -64,6 +67,23 @@ impl Fixture {
     ) -> Self {
         Self::on_pool_setup(pool, peer, carriers, streams, tls, (observer, false))
     }
+    pub(super) fn background(
+        pool: GrpcPool,
+        peer: std::net::SocketAddr,
+        carriers: usize,
+        streams: usize,
+        actual: ComponentInstanceId,
+    ) -> Self {
+        Self::on_pool_recipe(
+            pool,
+            peer,
+            carriers,
+            streams,
+            None,
+            (None, true),
+            Some(actual),
+        )
+    }
     fn on_pool_setup(
         pool: GrpcPool,
         peer: std::net::SocketAddr,
@@ -71,6 +91,17 @@ impl Fixture {
         streams: usize,
         tls: Option<OwnedClientTlsProfile>,
         setup: (Option<Arc<dyn zero_traits::IoObserver>>, bool),
+    ) -> Self {
+        Self::on_pool_recipe(pool, peer, carriers, streams, tls, setup, None)
+    }
+    fn on_pool_recipe(
+        pool: GrpcPool,
+        peer: std::net::SocketAddr,
+        carriers: usize,
+        streams: usize,
+        tls: Option<OwnedClientTlsProfile>,
+        setup: (Option<Arc<dyn zero_traits::IoObserver>>, bool),
+        background: Option<ComponentInstanceId>,
     ) -> Self {
         let (observer, scoped) = setup;
         let cap = NonZeroUsize::new(carriers).unwrap();
@@ -81,10 +112,10 @@ impl Fixture {
             dial: Default::default(),
             network_generation: NetworkGeneration(egress.generation()),
         };
-        let actual = ComponentInstanceId {
+        let actual = background.unwrap_or(ComponentInstanceId {
             component: ComponentId(810),
             generation: ResourceGeneration(4),
-        };
+        });
         let traffic = Arc::new(Traffic::default());
         let upstream = UpstreamTransport::new(
             binding.clone(),
@@ -99,7 +130,17 @@ impl Fixture {
                 .unwrap(),
             ),
         );
-        let options = NativePoolOptions::from_pool(
+        let upstream = if background.is_some() {
+            UpstreamTransport::new(binding.clone(), Arc::new(BackgroundRoot(upstream)))
+        } else {
+            upstream
+        };
+        let prepare = if background.is_some() {
+            NativePoolOptions::for_background_pool
+        } else {
+            NativePoolOptions::from_pool
+        };
+        let options = prepare(
             &pool,
             NativePoolSettings {
                 server: peer.ip().to_string(),
@@ -144,59 +185,6 @@ impl Fixture {
             traffic,
             egress,
         }
-    }
-    pub(super) fn with_totals(
-        mut self,
-        root: &TotalsOptions,
-        root_instance: ComponentInstanceId,
-        instance: ComponentInstanceId,
-    ) -> Self {
-        let options = Arc::new(
-            self.options
-                .as_ref()
-                .clone()
-                .with_root_budget(root_instance.component, root.proposal())
-                .unwrap(),
-        );
-        let peer = std::net::SocketAddr::new(
-            options.settings.server.parse().unwrap(),
-            options.settings.port,
-        );
-        let upstream = UpstreamTransport::new(
-            self.binding.clone(),
-            Arc::new(
-                NativeCarrierOpener::new(
-                    instance,
-                    self.binding.clone(),
-                    peer,
-                    self.egress.clone(),
-                    Some(self.traffic.clone()),
-                )
-                .unwrap(),
-            ),
-        );
-        let cancel = CancellationToken::new();
-        let tasks = self.scope.registrar();
-        let owner = NativePoolFactory
-            .build(
-                options.clone(),
-                BuildContext {
-                    component: instance.component,
-                    generation: instance.generation,
-                    dependencies: Arc::from([root_instance]),
-                    roles: Default::default(),
-                    resources: granted(&options, instance, &tasks, &cancel),
-                    tasks,
-                    cancel,
-                    background_carrier: Some(upstream),
-                },
-            )
-            .unwrap();
-        // The previous fixture owner never started or acquired native I/O.
-        self.owner = owner;
-        self.actual = instance;
-        self.options = options;
-        self
     }
     pub(super) async fn start(&mut self) {
         self.owner.lifecycle.start(deadline()).await.unwrap();

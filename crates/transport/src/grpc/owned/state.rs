@@ -1,3 +1,4 @@
+mod ownership;
 use super::*;
 use crate::grpc::{pool::State, GrpcPool};
 use std::sync::{
@@ -94,22 +95,6 @@ impl Physical {
                 .unwrap()
                 .as_ref()
                 .is_none_or(|witness| witness.is_joined())
-    }
-}
-impl GrpcPool {
-    pub(in crate::grpc) fn enter_legacy(&self) -> Result<(), crate::RuntimeError> {
-        let mut owner = self.0.ownership.lock().unwrap();
-        match &*owner {
-            Ownership::Pristine | Ownership::LegacyUsed => {
-                *owner = Ownership::LegacyUsed;
-                Ok(())
-            }
-            Ownership::Managed(_) => Err(std::io::Error::new(
-                std::io::ErrorKind::PermissionDenied,
-                "gRPC pool belongs to its controlled native generation",
-            )
-            .into()),
-        }
     }
 }
 impl State {
@@ -235,6 +220,24 @@ impl Managed {
             .unwrap()
             .retain(|record| !record.closed());
         self.budget.harvest();
+    }
+    /// Positive old-generation settlement. Neither an expired Arc nor cancel
+    /// alone permits a replacement executor for the same physical pool.
+    pub(super) fn ready_to_replace(&self) -> bool {
+        if !self.cancel.is_cancelled() {
+            return false;
+        }
+        self.records
+            .lock()
+            .unwrap()
+            .iter()
+            .all(|record| record.closed())
+            && self.budget.all_returned()
+            && self
+                .grants
+                .registration()
+                .observe()
+                .is_some_and(|owner| owner.closed().is_some_and(|closed| closed.matches(&owner)))
     }
     pub(super) fn physical_unconfirmed(&self) -> bool {
         !self.records.lock().unwrap().is_empty()

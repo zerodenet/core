@@ -77,6 +77,13 @@ impl Budget {
             .unwrap()
             .retain(|record| !record.complete());
     }
+    pub(super) fn all_returned(&self) -> bool {
+        self.records
+            .lock()
+            .unwrap()
+            .iter()
+            .all(|record| record.complete())
+    }
     pub(super) fn retained(&self) -> usize {
         self.harvest();
         self.records.lock().unwrap().len()

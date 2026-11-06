@@ -21,18 +21,36 @@ struct CallbackContext {
 pub(super) struct RouteChangeMonitor {
     context: Arc<CallbackContext>,
     receiver: watch::Receiver<u64>,
-    route_handle: usize,
-    interface_handle: usize,
+    route_handle: Option<usize>,
+    interface_handle: Option<usize>,
+    attempted: bool,
+    closed: bool,
 }
 
 impl RouteChangeMonitor {
-    pub(super) fn new() -> io::Result<Self> {
+    pub(super) fn prepare() -> Self {
         let (sender, receiver) = watch::channel(0);
-        let context = Arc::new(CallbackContext {
-            generation: AtomicU64::new(0),
-            sender,
-        });
-        let callback_context = Arc::as_ptr(&context).cast::<c_void>();
+        Self {
+            context: Arc::new(CallbackContext {
+                generation: AtomicU64::new(0),
+                sender,
+            }),
+            receiver,
+            route_handle: None,
+            interface_handle: None,
+            attempted: false,
+            closed: false,
+        }
+    }
+    pub(super) fn acquire(&mut self) -> io::Result<()> {
+        if self.attempted || self.closed {
+            return Err(io::Error::new(
+                io::ErrorKind::AlreadyExists,
+                "route monitor registration was already attempted",
+            ));
+        }
+        self.attempted = true;
+        let callback_context = Arc::as_ptr(&self.context).cast::<c_void>();
         let mut route_handle: HANDLE = std::ptr::null_mut();
         let result = unsafe {
             NotifyRouteChange2(
@@ -43,10 +61,12 @@ impl RouteChangeMonitor {
                 &mut route_handle,
             )
         };
+        if !route_handle.is_null() {
+            self.route_handle = Some(route_handle as usize);
+        }
         if result != 0 {
             return Err(io::Error::from_raw_os_error(result as i32));
         }
-
         let mut interface_handle: HANDLE = std::ptr::null_mut();
         let result = unsafe {
             NotifyIpInterfaceChange(
@@ -57,22 +77,43 @@ impl RouteChangeMonitor {
                 &mut interface_handle,
             )
         };
+        if !interface_handle.is_null() {
+            self.interface_handle = Some(interface_handle as usize);
+        }
         if result != 0 {
-            unsafe {
-                CancelMibChangeNotify2(route_handle);
-            }
             return Err(io::Error::from_raw_os_error(result as i32));
         }
-
-        Ok(Self {
-            context,
-            receiver,
-            route_handle: route_handle as usize,
-            interface_handle: interface_handle as usize,
-        })
+        Ok(())
+    }
+    pub(super) fn close(&mut self) -> io::Result<()> {
+        let mut failure = None;
+        for original in [&mut self.interface_handle, &mut self.route_handle] {
+            if let Some(handle) = *original {
+                let status = unsafe { CancelMibChangeNotify2(handle as HANDLE) };
+                if status == 0 {
+                    original.take();
+                } else {
+                    failure.get_or_insert_with(|| io::Error::from_raw_os_error(status as i32));
+                }
+            }
+        }
+        if let Some(failure) = failure {
+            return Err(failure);
+        }
+        self.closed = true;
+        Ok(())
+    }
+    pub(super) fn is_closed(&self) -> bool {
+        self.closed
     }
 
     pub(super) async fn changed(&mut self) -> io::Result<()> {
+        if self.closed || self.route_handle.is_none() || self.interface_handle.is_none() {
+            return Err(io::Error::new(
+                io::ErrorKind::NotConnected,
+                "route monitor registration is incomplete or closed",
+            ));
+        }
         self.receiver.changed().await.map_err(|_| {
             io::Error::new(
                 io::ErrorKind::BrokenPipe,
@@ -89,14 +130,12 @@ impl RouteChangeMonitor {
 
 impl Drop for RouteChangeMonitor {
     fn drop(&mut self) {
-        unsafe {
-            CancelMibChangeNotify2(self.route_handle as HANDLE);
-            CancelMibChangeNotify2(self.interface_handle as HANDLE);
+        if self.close().is_err() {
+            // Compatibility callers may drop a failed close. An active native
+            // callback must never point at freed context. Managed owners retain
+            // this entire original and never use Drop as close evidence.
+            let _ = Arc::into_raw(self.context.clone());
         }
-        // Keep the callback context alive until both registrations have been
-        // cancelled. The field is intentionally read here to make that
-        // lifetime relationship explicit.
-        let _ = Arc::strong_count(&self.context);
     }
 }
 

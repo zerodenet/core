@@ -6,20 +6,20 @@ use std::{
     future::Future,
     num::NonZeroUsize,
     sync::{
-        Arc, Mutex, OnceLock, Weak,
         atomic::{AtomicBool, Ordering},
+        Arc, Mutex, OnceLock, Weak,
     },
     task::{Context, Poll, Waker},
 };
 use tokio::{
-    sync::{Notify, OwnedSemaphorePermit, Semaphore, oneshot},
+    sync::{oneshot, Notify, OwnedSemaphorePermit, Semaphore},
     time::Instant,
 };
 use zero_core::request::{ServiceOrigin, ServicePurpose, ServiceRequestFacts};
 use zero_platform_tokio::{
     contract::{
-        BoxFuture, CancellationToken, ChannelError, DeliveryState, Impact, Reason, Stage,
         scope::{TaskClass, TaskJoinWitness, TaskRegistrar},
+        BoxFuture, CancellationToken, ChannelError, DeliveryState, Impact, Reason, Stage,
     },
     controlled_carrier::{CarrierAdoption, CarrierOwnerRegistration},
 };
@@ -96,6 +96,9 @@ impl Drop for CancelWaiter {
     }
 }
 impl ProbeCall {
+    pub(crate) fn belongs_to(&self, owner: &Weak<ProbeOwner>) -> bool {
+        self.0.owner.ptr_eq(owner)
+    }
     pub fn identity(&self) -> Arc<ServiceRequestFacts> {
         self.0.facts.clone()
     }

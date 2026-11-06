@@ -52,6 +52,7 @@ impl ResourceLifecycle for Owner {
         // Persist the unique view in the original source owner before waking
         // the driver. A lost/cancelled waiter cannot orphan acquired native IO.
         self.shared.state.lock().unwrap().io = Some(grant);
+        self.shared.metadata.changed.notify_waiters();
         self.shared.changed.notify_waiters();
         Ok(())
     }

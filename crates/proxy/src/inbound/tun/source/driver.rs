@@ -82,16 +82,19 @@ pub(super) async fn run(
                 if result.is_pending() || matches!(&result, Poll::Ready(Ok(()))) { observer.ready(); }
                 result.map(|result| result.map(|()| buffer.filled().len()))
             }), if receiving => {
-                let size = result.map_err(|source| error(Stage::Receive, Reason::Io).with_source(source))?;
+                let size = result.map_err(|source| {
+                    observer.event(PacketPlane::Inner, None, PacketEvent::Error { identified: false });
+                    error(Stage::Receive, Reason::Io).with_source(source)
+                })?;
                 if size == 0 { return Err(error(Stage::Receive, Reason::Io).with_source(io::Error::new(io::ErrorKind::UnexpectedEof, "original TUN read ended"))); }
                 let association = ReturnAssociation { endpoint: facts.endpoint, generation: facts.inbound.generation, peer: None, correlation };
                 let packet = std::mem::replace(&mut bytes, vec![0; 65_536]);
                 let mut packet = packet;
                 packet.truncate(size);
+                observer.event(PacketPlane::Inner, None, PacketEvent::Received { identified: false, bytes: size });
                 match IpPacket::new(packet.into(), association) {
                     Ok(packet) => {
                         let local_destination = zero_stack::packet::ip_destination(packet.payload()).is_some_and(|destination| shared.addresses.iter().any(|(address, _)| *address == destination));
-                        observer.event(PacketPlane::Inner, None, PacketEvent::Received { identified: false, bytes: size });
                         *shared.incoming.lock().unwrap() = Some(packet.with_ingress(PacketIngress { local_destination, mtu: shared.mtu }));
                     }
                     Err(_) => dropped(&observer, zero_traits::PacketDropReason::InvalidPacket, 1),
@@ -118,7 +121,10 @@ pub(super) async fn run(
                 let packet = packet.as_ref().expect("actual queued original TUN frame");
                 std::pin::Pin::new(&mut write).poll_write(cx, packet.payload())
             }), if sending => {
-                let written = result.map_err(|source| error(Stage::Send, Reason::Io).with_source(source))?;
+                let written = result.map_err(|source| {
+                    observer.event(PacketPlane::Inner, None, PacketEvent::Error { identified: false });
+                    error(Stage::Send, Reason::Io).with_source(source)
+                })?;
                 let expected = shared.outgoing.lock().unwrap().as_ref().unwrap().payload().len();
                 if written != expected {
                     return Err(error(Stage::Send, Reason::Io).with_source(io::Error::new(io::ErrorKind::WriteZero, "original TUN packet write was partial")));

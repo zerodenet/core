@@ -6,13 +6,19 @@ use ipnet::IpNet;
 use tokio::sync::{mpsc, oneshot, watch};
 use zero_engine::EngineError;
 use zero_tun::{
-    capture_route_prefixes_with_exclusions, strict_route_socket_mark, FamilyEgressState,
-    RouteChangeMonitor, RouteInterface, SystemLeakGuard, SystemRouteGuard,
+    strict_route_socket_mark, FamilyEgressState, RouteChangeMonitor, RouteInterface,
+    SystemRouteGuard,
 };
 
 use crate::runtime::Proxy;
+#[cfg(any(test, not(feature = "raw-ip-runtime")))]
+use zero_tun::{capture_route_prefixes_with_exclusions, SystemLeakGuard};
 
+#[cfg(feature = "raw-ip-runtime")]
+pub(super) mod owned;
+#[cfg(any(test, not(feature = "raw-ip-runtime")))]
 mod state;
+#[cfg(any(test, not(feature = "raw-ip-runtime")))]
 use state::{publish_error, publish_state, publish_unavailable};
 
 const ROUTE_EVENT_DEBOUNCE: Duration = Duration::from_millis(400);
@@ -42,12 +48,14 @@ impl ReconcileTrigger {
     }
 }
 
+#[cfg(any(test, not(feature = "raw-ip-runtime")))]
 pub(super) struct InstalledRoutes {
     pub guards: Vec<SystemRouteGuard>,
     pub leak_guard: Option<SystemLeakGuard>,
     pub last_error: Option<String>,
 }
 
+#[cfg(any(test, not(feature = "raw-ip-runtime")))]
 pub(super) struct RouteInstallSpec {
     pub tun_name: String,
     pub recovery_key: String,
@@ -58,6 +66,7 @@ pub(super) struct RouteInstallSpec {
     pub strict: bool,
 }
 
+#[cfg(any(test, not(feature = "raw-ip-runtime")))]
 pub(super) async fn install(
     spec: RouteInstallSpec,
     egress_control: zero_platform_tokio::EgressInterfaceControl,
@@ -303,6 +312,7 @@ impl RouteRuntimeSpec {
     }
 }
 
+#[cfg(any(test, not(feature = "raw-ip-runtime")))]
 pub(super) fn spawn(
     proxy: Proxy,
     spec: RouteRuntimeSpec,
@@ -338,6 +348,7 @@ pub(super) fn spawn(
     (task, done)
 }
 
+#[cfg(any(test, not(feature = "raw-ip-runtime")))]
 async fn run(
     proxy: Proxy,
     spec: RouteRuntimeSpec,
@@ -571,6 +582,7 @@ async fn run(
     cleanup_guards(guards, leak_guard).await
 }
 
+#[cfg(any(test, not(feature = "raw-ip-runtime")))]
 fn publish_runtime_error(proxy: &Proxy, spec: &RouteRuntimeSpec, error: String) {
     if spec.strict_route {
         publish_unavailable(proxy, spec, error);
@@ -579,6 +591,7 @@ fn publish_runtime_error(proxy: &Proxy, spec: &RouteRuntimeSpec, error: String) 
     }
 }
 
+#[cfg(any(test, not(feature = "raw-ip-runtime")))]
 async fn monitor_changed(monitor: &mut Option<RouteChangeMonitor>) -> io::Result<()> {
     match monitor.as_mut() {
         Some(monitor) => monitor.changed().await,
@@ -593,6 +606,7 @@ fn next_retry(current: Option<usize>) -> usize {
         .min(ROUTE_RETRY_DELAYS.len() - 1)
 }
 
+#[cfg(any(test, not(feature = "raw-ip-runtime")))]
 fn reconcile_guards(
     guards: &mut Vec<SystemRouteGuard>,
     tun_name: &str,
@@ -624,6 +638,7 @@ fn reconcile_guards(
     Ok(changed)
 }
 
+#[cfg(any(test, not(feature = "raw-ip-runtime")))]
 pub(super) async fn cleanup_guards(
     guards: Vec<SystemRouteGuard>,
     leak_guard: Option<SystemLeakGuard>,
@@ -648,6 +663,7 @@ pub(super) async fn cleanup_guards(
     .map_err(|error| io::Error::other(format!("TUN route cleanup task panicked: {error}")))?
 }
 
+#[cfg(any(test, not(feature = "raw-ip-runtime")))]
 pub(super) fn route_names(guards: &[SystemRouteGuard]) -> (Option<String>, Option<String>) {
     state::route_names(guards)
 }
