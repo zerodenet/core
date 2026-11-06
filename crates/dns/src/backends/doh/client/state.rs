@@ -62,9 +62,10 @@ impl ClientState {
         }
     }
     pub(in super::super) fn retire(&self) {
-        self.usable.store(false, Ordering::Release);
-        self.cancel.cancel();
-        self.changed.notify_waiters();
+        if self.usable.swap(false, Ordering::AcqRel) {
+            self.cancel.cancel();
+            self.changed.notify_waiters();
+        }
     }
     pub(super) fn ensure_current(&self) -> io::Result<()> {
         if self.egress.generation() != self.generation {

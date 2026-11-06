@@ -4,17 +4,25 @@ impl DriverOwner {
     /// Marks the real pool unavailable synchronously. The owner remains in the
     /// DNS registry until shutdown has joined every driver and affected user.
     pub(crate) fn retire(&self) {
-        let mut state = self.state.lock().expect("DoH driver owner poisoned");
-        state.closing = true;
+        let clients = {
+            let mut state = self.state.lock().expect("DoH driver owner poisoned");
+            state.closing = true;
+            state
+                .records
+                .values()
+                .chain(state.native.iter())
+                .cloned()
+                .collect::<Vec<_>>()
+        };
         self.cancel.cancel();
-        for client in state.records.values().chain(state.native.iter()) {
+        for client in clients {
             client.retire();
         }
         self.changed.notify_waiters();
     }
     pub(crate) fn drained(&self) -> bool {
-        let mut state = self.state.lock().expect("DoH driver owner poisoned");
-        state.reap();
+        self.reap();
+        let state = self.state.lock().expect("DoH driver owner poisoned");
         state.tasks.is_empty()
             && state.users.is_empty()
             && state.native.is_empty()
@@ -28,9 +36,9 @@ impl DriverOwner {
             let changed = self.changed.notified();
             tokio::pin!(changed);
             changed.as_mut().enable();
+            self.reap();
             let next = std::future::poll_fn(|cx| {
                 let mut state = self.state.lock().expect("DoH driver owner poisoned");
-                state.reap();
                 let retired = state
                     .records
                     .values()
@@ -40,7 +48,9 @@ impl DriverOwner {
                 }
                 match state.tasks.poll_join_next_with_id(cx) {
                     Poll::Ready(Some(result)) => {
-                        state.exit(result);
+                        let client = state.exit(result);
+                        drop(state);
+                        client.retire();
                         Poll::Ready(())
                     }
                     _ => Poll::Pending,
@@ -51,8 +61,8 @@ impl DriverOwner {
             })
             .await
             .map_err(|source| io::Error::new(io::ErrorKind::TimedOut, source))?;
-            let mut state = self.state.lock().expect("DoH driver owner poisoned");
-            state.reap();
+            self.reap();
+            let state = self.state.lock().expect("DoH driver owner poisoned");
             if !state
                 .records
                 .values()
@@ -77,10 +87,13 @@ impl DriverOwner {
         let _opening = tokio::time::timeout_at(deadline, self.connect_lock.lock())
             .await
             .map_err(|source| io::Error::new(io::ErrorKind::TimedOut, source))?;
-        tokio::time::timeout_at(deadline, self.clients.lock())
-            .await
-            .map_err(|source| io::Error::new(io::ErrorKind::TimedOut, source))?
-            .clear();
+        let clients = {
+            let mut clients = tokio::time::timeout_at(deadline, self.clients.lock())
+                .await
+                .map_err(|source| io::Error::new(io::ErrorKind::TimedOut, source))?;
+            std::mem::take(&mut *clients)
+        };
+        drop(clients);
         let result = self.drain_retired(deadline).await;
         if let Some(source) = &self
             .state

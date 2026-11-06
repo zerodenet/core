@@ -3,8 +3,8 @@ use super::*;
 use crate::OwnedDnsQueryTasks;
 impl DriverOwner {
     pub(in super::super) fn native_at_capacity(&self) -> bool {
-        let mut state = self.state.lock().expect("DoH driver owner poisoned");
-        state.reap();
+        self.reap();
+        let state = self.state.lock().expect("DoH driver owner poisoned");
         state.native.len() >= self.limit
     }
     pub(in super::super) fn original_changes(&self) -> &tokio::sync::Notify {
@@ -70,7 +70,7 @@ impl DriverOwner {
                     return Err(io::Error::new(
                         io::ErrorKind::PermissionDenied,
                         "DoH pool has another original owner",
-                    ))
+                    ));
                 }
             }
         };
@@ -97,8 +97,8 @@ impl DriverOwner {
         job: impl Future<Output = ()> + Send + 'static,
     ) -> io::Result<()> {
         let _callbacks = tasks.defer_callbacks();
+        self.reap();
         let mut state = self.state.lock().expect("DoH driver owner poisoned");
-        state.reap();
         if state.closing
             || self.cancel.is_cancelled()
             || !matches!(&state.mode, PoolMode::Host(current) if current.same_owner(tasks))
@@ -124,6 +124,7 @@ impl DriverOwner {
                     .task
                     .set(witness)
                     .expect("original task bound once");
+                drop(state);
                 self.changed.notify_waiters();
                 Ok(())
             }
@@ -134,9 +135,9 @@ impl DriverOwner {
         }
     }
     pub(super) async fn drain_native(&self, end: Instant) -> io::Result<()> {
+        self.reap();
         let entries = {
-            let mut state = self.state.lock().expect("DoH driver owner poisoned");
-            state.reap();
+            let state = self.state.lock().expect("DoH driver owner poisoned");
             state
                 .native
                 .iter()
@@ -173,7 +174,7 @@ impl DriverOwner {
                 failure.get_or_insert(source);
             }
         }
-        self.state.lock().expect("DoH driver owner poisoned").reap();
+        self.reap();
         failure.map_or(Ok(()), Err)
     }
 }
