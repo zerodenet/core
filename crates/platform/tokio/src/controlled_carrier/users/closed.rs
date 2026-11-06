@@ -62,7 +62,7 @@ impl CarrierAdoption {
 /// every acquired original's caller/view/driver/native facts were confirmed.
 #[derive(Clone)]
 pub struct CarrierOwnerUsersClosed {
-    completion: Arc<super::registration::Completion>,
+    completion: Arc<crate::controlled_carrier::registration::Completion>,
 }
 impl CarrierOwnerUsersClosed {
     pub fn matches(&self, registration: &CarrierOwnerRegistration) -> bool {
