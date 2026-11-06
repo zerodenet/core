@@ -4,24 +4,40 @@ const ID: &str = "11111111-2222-3333-4444-555555555555";
 pub(super) struct Remote {
     pub(super) address: std::net::SocketAddr,
     pub(super) ca: std::path::PathBuf,
+    protocol: &'static str,
     _material: tempfile::TempDir,
     proxy: Proxy,
     running: crate::RunningProxy,
     original: Arc<crate::runtime::inbound_owners::InboundOwner>,
 }
-fn transport() -> serde_json::Value {
-    serde_json::json!({"host":"front.actual.test","path":"/actual-dns"})
+fn transport(protocol: &mut serde_json::Value, kind: &str) {
+    match kind {
+        "raw" => {}
+        "grpc-single" | "grpc-multi" => {
+            protocol["grpc"] = serde_json::json!({"service_names":["actual.dns/Tun"],"multi_mode":kind=="grpc-multi"})
+        }
+        kind => {
+            protocol[kind] = serde_json::json!({"host":"front.actual.test","path":"/actual-dns"})
+        }
+    }
 }
 impl Remote {
     pub(super) async fn new(kind: &str) -> Self {
+        Self::for_protocol("vless", kind).await
+    }
+    pub(super) async fn for_protocol(flavor: &'static str, kind: &str) -> Self {
         let material = tempfile::tempdir().unwrap();
         let certificate = rcgen::generate_simple_self_signed(vec!["localhost".into()]).unwrap();
         let ca = material.path().join("tls.pem");
         let key = material.path().join("tls.key");
         std::fs::write(&ca, certificate.cert.pem()).unwrap();
         std::fs::write(&key, certificate.signing_key.serialize_pem()).unwrap();
-        let mut protocol = serde_json::json!({"type":"vless","users":[{"id":ID}],"tls":{"cert_path":ca,"key_path":key}});
-        protocol[kind] = transport();
+        let mut protocol = if flavor == "trojan" {
+            serde_json::json!({"type":flavor,"password":"actual-dns-secret","tls":{"cert_path":ca,"key_path":key}})
+        } else {
+            serde_json::json!({"type":flavor,"users":[{"id":ID}],"tls":{"cert_path":ca,"key_path":key}})
+        };
+        transport(&mut protocol, kind);
         let config = zero_config::RuntimeConfig::parse(&serde_json::json!({
             "inbounds":[{"tag":"incoming","listen":{"address":"127.0.0.1","port":0},"protocol":protocol}],
             "route":{"final":{"type":"direct"}}
@@ -55,6 +71,7 @@ impl Remote {
         Self {
             address,
             ca,
+            protocol: flavor,
             _material: material,
             proxy,
             running,
@@ -79,7 +96,7 @@ struct NoLegacy;
 impl zero_dns::DnsOutboundConnector for NoLegacy {
     fn connect(&self, _: String, _: std::net::SocketAddr) -> zero_dns::DnsOutboundConnectFuture {
         Box::pin(async {
-            panic!("ordinary H2/upgrade DNS must use the actual same configured owner")
+            panic!("ordinary transport DNS must use the actual same configured owner")
         })
     }
 }
@@ -88,7 +105,15 @@ pub(super) async fn start(
     kind: &str,
     backend: zero_config::DnsServerConfig,
 ) -> (Proxy, crate::RunningProxy) {
-    start_at(remote.address, &remote.ca, kind, backend).await
+    start_config(
+        remote.protocol,
+        remote.address,
+        &remote.ca,
+        kind,
+        backend,
+        None,
+    )
+    .await
 }
 pub(super) async fn start_with_node(
     remote: &Remote,
@@ -96,7 +121,15 @@ pub(super) async fn start_with_node(
     backend: zero_config::DnsServerConfig,
     node: &crate::dns_fixture::Dns,
 ) -> (Proxy, crate::RunningProxy) {
-    start_config(remote.address, &remote.ca, kind, backend, Some(node)).await
+    start_config(
+        remote.protocol,
+        remote.address,
+        &remote.ca,
+        kind,
+        backend,
+        Some(node),
+    )
+    .await
 }
 pub(super) async fn start_at(
     address: std::net::SocketAddr,
@@ -104,9 +137,20 @@ pub(super) async fn start_at(
     kind: &str,
     backend: zero_config::DnsServerConfig,
 ) -> (Proxy, crate::RunningProxy) {
-    start_config(address, ca, kind, backend, None).await
+    start_config("vless", address, ca, kind, backend, None).await
+}
+#[cfg(all(feature = "vmess", feature = "trojan"))]
+pub(super) async fn start_protocol_at(
+    flavor: &'static str,
+    address: std::net::SocketAddr,
+    ca: &std::path::Path,
+    kind: &str,
+    backend: zero_config::DnsServerConfig,
+) -> (Proxy, crate::RunningProxy) {
+    start_config(flavor, address, ca, kind, backend, None).await
 }
 async fn start_config(
+    flavor: &'static str,
     address: std::net::SocketAddr,
     ca: &std::path::Path,
     kind: &str,
@@ -119,8 +163,17 @@ async fn start_config(
         | zero_config::DnsServerConfig::Doh { detour, .. } => *detour = Some("node".into()),
         _ => panic!("existing framed UDP/DoT/DoH detours only"),
     }
-    let mut protocol = serde_json::json!({"type":"vless","server":if node.is_some(){"transport.actual.node.test"}else{"127.0.0.1"},"port":address.port(),"id":ID,"tls":{"server_name":"localhost","ca_cert_path":ca}});
-    protocol[kind] = transport();
+    let host = if node.is_some() {
+        "transport.actual.node.test"
+    } else {
+        "127.0.0.1"
+    };
+    let mut protocol = if flavor == "trojan" {
+        serde_json::json!({"type":flavor,"server":host,"port":address.port(),"password":"actual-dns-secret","sni":"localhost","insecure":true})
+    } else {
+        serde_json::json!({"type":flavor,"server":host,"port":address.port(),"id":ID,"tls":{"server_name":"localhost","ca_cert_path":ca}})
+    };
+    transport(&mut protocol, kind);
     let node_server = node.map_or_else(
         || serde_json::json!({"type":"system"}),
         |node| serde_json::to_value(node.server()).unwrap(),

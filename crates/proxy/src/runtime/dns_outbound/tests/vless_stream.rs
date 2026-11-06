@@ -99,3 +99,9 @@ mod wire_pending;
 mod domain;
 
 mod quiescence;
+
+#[cfg(all(feature = "vmess", feature = "trojan"))]
+mod other_streams;
+
+#[cfg(all(feature = "vmess", feature = "trojan"))]
+mod other_domain;
