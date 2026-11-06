@@ -26,8 +26,9 @@ pub use plan::{
     TargetKind, TargetNode, UrlTestGroupPlan, UrlTestSelection, UrlTestSelectionReason,
 };
 pub use principal::{
-    inspect_principal_quota_state, PrincipalCancellationRegistration, PrincipalDeviceRegistration,
-    PrincipalQuotaStateReport, PrincipalQuotaStateStatus,
+    inspect_principal_quota_state, inspect_principal_quota_state_with_source,
+    PrincipalCancellationRegistration, PrincipalDeviceRegistration, PrincipalQuotaStateReport,
+    PrincipalQuotaStateStatus,
 };
 pub use runtime::{
     ConfigurationPublication, EndpointAdmission, EndpointChange, Engine, EngineRuntimeSnapshot,

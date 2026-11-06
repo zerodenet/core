@@ -496,6 +496,18 @@ fn read_book(storage: &QuotaStorage) -> io::Result<QuotaBook> {
 pub fn inspect_principal_quota_state(
     config: &zero_config::RuntimeConfig,
 ) -> Option<PrincipalQuotaStateReport> {
+    // Explicit standalone inspection has no already loaded application source.
+    // Its source is nevertheless retained by the same startup close barrier.
+    inspect_principal_quota_state_with_source(config, &Arc::new(ConfigurationSource::default()))
+}
+
+/// Inspect through the source that loaded this application's configuration.
+/// CLI connector-state uses this entry so an unknown document/quota original
+/// remains with that same owner and fences further reads; no fallback source.
+pub fn inspect_principal_quota_state_with_source(
+    config: &zero_config::RuntimeConfig,
+    source: &Arc<ConfigurationSource>,
+) -> Option<PrincipalQuotaStateReport> {
     let configured = config.runtime.principal_quota_state_path.as_deref()?;
     let path = {
         let path = PathBuf::from(configured);
@@ -508,31 +520,30 @@ pub fn inspect_principal_quota_state(
                 .join(path)
         }
     };
-    let (bytes, decoded) = match Arc::new(ConfigurationSource::default())
-        .read_quota_snapshot(&path, |reader| decode_persisted_book(reader))
-    {
-        Ok(snapshot) => snapshot,
-        Err(error) if error.kind() == io::ErrorKind::NotFound => {
-            return Some(PrincipalQuotaStateReport {
-                format: "zero.engine.principal-quota.v1",
-                path: path.display().to_string(),
-                status: PrincipalQuotaStateStatus::Missing,
-                bytes: 0,
-                balances: None,
-                error: None,
-            });
-        }
-        Err(error) => {
-            return Some(PrincipalQuotaStateReport {
-                format: "zero.engine.principal-quota.v1",
-                path: path.display().to_string(),
-                status: PrincipalQuotaStateStatus::Incompatible,
-                bytes: 0,
-                balances: None,
-                error: Some(format!("read failed: {error}")),
-            });
-        }
-    };
+    let (bytes, decoded) =
+        match source.read_quota_snapshot(&path, |reader| decode_persisted_book(reader)) {
+            Ok(snapshot) => snapshot,
+            Err(error) if error.kind() == io::ErrorKind::NotFound => {
+                return Some(PrincipalQuotaStateReport {
+                    format: "zero.engine.principal-quota.v1",
+                    path: path.display().to_string(),
+                    status: PrincipalQuotaStateStatus::Missing,
+                    bytes: 0,
+                    balances: None,
+                    error: None,
+                });
+            }
+            Err(error) => {
+                return Some(PrincipalQuotaStateReport {
+                    format: "zero.engine.principal-quota.v1",
+                    path: path.display().to_string(),
+                    status: PrincipalQuotaStateStatus::Incompatible,
+                    bytes: 0,
+                    balances: None,
+                    error: Some(format!("read failed: {error}")),
+                });
+            }
+        };
     match decoded {
         Ok(book) => Some(PrincipalQuotaStateReport {
             format: "zero.engine.principal-quota.v1",
