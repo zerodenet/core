@@ -4,7 +4,7 @@ mod recovery;
 use super::{logging::log_reload_reconciled, state::OrchestrationState};
 use crate::groups::UrlTestRuntime;
 use crate::runtime::route_runtime::{InboundListenerRuntimeFactory, SharedIngressRuntimeServices};
-use crate::runtime::{Proxy, listeners};
+use crate::runtime::{listeners, Proxy};
 use tracing::warn;
 
 impl OrchestrationState {
@@ -120,10 +120,14 @@ impl OrchestrationState {
                 return;
             }
         };
-        let source_dependency_changes = match proxy.inbound_owners.changed_source_dependency_tags(&new_config, &components) {
+        let source_dependency_changes = match proxy
+            .inbound_owners
+            .changed_source_dependency_tags(&new_config, &components)
+        {
             Ok(changed) => changed,
             Err(error) => {
-                self.reject_before_start(proxy, &new_snapshot, error.to_string(), true).await;
+                self.reject_before_start(proxy, &new_snapshot, error.to_string(), true)
+                    .await;
                 return;
             }
         };
@@ -288,7 +292,8 @@ impl OrchestrationState {
                     for tag in &source_dependency_changes {
                         if stopped.terminal(tag).is_none() && !stopped.owner_was_absent(tag) {
                             return Err(zero_engine::EngineError::Io(std::io::Error::other(
-                                "actual dependent Source has no original StopOld receipt")));
+                                "actual dependent Source has no original StopOld receipt",
+                            )));
                         }
                     }
                     for input in start_retained {
