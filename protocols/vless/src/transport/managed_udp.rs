@@ -108,6 +108,7 @@ impl VlessManagedUdpFlowResume {
             let Some(binding) = self.mux_pool.installed_root_binding().await? else {
                 return Ok(None);
             };
+            let leaf = self.clone();
             self.protocol
                 .open_native_mux_flow(
                     session,
@@ -115,8 +116,8 @@ impl VlessManagedUdpFlowResume {
                     self.transport.port(),
                     &self.mux_pool,
                     binding,
-                    |raw| async move {
-                        self.transport
+                    move |raw| async move {
+                        leaf.transport
                             .open_relay(TcpRelayStream::new(
                                 zero_transport::pooled_driver::ExclusiveIo::new(raw),
                             ))

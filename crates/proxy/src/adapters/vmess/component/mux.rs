@@ -126,7 +126,7 @@ impl VmessAdapter {
             dial: input.dial.to_policy(),
             network_generation: factory.generation,
         };
-        let prepared = ::vmess::component::mux::PreparedMux::from_options_refs(
+        let mut prepared = ::vmess::component::mux::PreparedMux::from_options_refs(
             input_refs,
             &self.runtime,
             resources
@@ -139,6 +139,11 @@ impl VmessAdapter {
         .map_err(|source| {
             zero_config::ConfigError::InvalidOutbound(format!("outbound `{}`: {source}", input.tag))
         })?;
+        if zero_core::address::parse_ip_literal(server).is_none() {
+            let node =
+                crate::component::native_dns::prepare_node(resources, factory.network.clone())?;
+            prepared = prepared.with_node_dependency(node);
+        }
         let owner = resources.share(
             "vmess.mux.actual_pool",
             factory,

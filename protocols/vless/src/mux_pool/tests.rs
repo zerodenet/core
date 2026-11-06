@@ -30,7 +30,7 @@ async fn eviction_through_a_bridge_clone_removes_cached_mux_connections() {
     pool.pool
         .lock()
         .expect("mux pool lock")
-        .insert((bridge_pool.scope.clone(), key), connection);
+        .insert((bridge_pool.scope.clone(), key, None), connection);
 
     assert_eq!(pool.pool.lock().expect("mux pool lock").len(), 1);
     bridge_pool.evict_all();

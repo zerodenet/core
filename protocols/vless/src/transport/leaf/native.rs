@@ -25,15 +25,10 @@ impl VlessOutboundLeaf {
         budget: Duration,
     ) -> Result<PoolOptions, RuntimeError> {
         let (key, concurrency) = self.protocol.native_mux_plan(&self.server, self.port)?;
-        let ip = zero_core::address::parse_ip_literal(&self.server).ok_or_else(|| {
-            std::io::Error::new(
-                std::io::ErrorKind::Unsupported,
-                "native MUX currently requires a literal controlled endpoint",
-            )
-        })?;
-        let address = match ip {
-            std::net::IpAddr::V4(ip) => zero_core::Address::Ipv4(ip.octets()),
-            std::net::IpAddr::V6(ip) => zero_core::Address::Ipv6(ip.octets()),
+        let address = match zero_core::address::parse_ip_literal(&self.server) {
+            Some(std::net::IpAddr::V4(ip)) => zero_core::Address::Ipv4(ip.octets()),
+            Some(std::net::IpAddr::V6(ip)) => zero_core::Address::Ipv6(ip.octets()),
+            None => zero_core::Address::Domain(self.server.clone()),
         };
         self.mux_pool.native_options(
             &key,
@@ -50,9 +45,19 @@ impl VlessOutboundLeaf {
     pub(crate) async fn open_native_mux(
         &self,
         destination: Destination,
-        binding: UpstreamBinding,
+        context: &zero_platform_tokio::contract::context::OpenContext,
     ) -> Result<zero_transport::pooled_driver::PooledStream, RuntimeError> {
         let (key, concurrency) = self.protocol.native_mux_plan(&self.server, self.port)?;
+        let binding = context.upstream.binding().clone();
+        let call = Some((
+            zero_platform_tokio::contract::network::CarrierContext {
+                session: context.session_identity().map_err(std::io::Error::other)?,
+                deadline: context.deadline,
+                cancel: context.cancel.clone(),
+            },
+            context.upstream.observed_pending_carrier(),
+        ));
+        let leaf = self.clone();
         self.mux_pool
             .open_native(
                 key,
@@ -60,18 +65,19 @@ impl VlessOutboundLeaf {
                 destination.address,
                 destination.port,
                 binding,
-                |raw| async move {
+                call,
+                move |raw| async move {
                     let io = zero_transport::TcpRelayStream::new(
                         zero_transport::pooled_driver::ExclusiveIo::new(raw),
                     );
-                    self.transport.open_relay(io).await
+                    leaf.transport.open_relay(io).await
                 },
             )
             .await
     }
     pub(crate) async fn open_native_mux_udp(
         &self,
-        binding: UpstreamBinding,
+        context: &zero_platform_tokio::contract::context::OpenContext,
     ) -> Result<
         zero_transport::pooled_driver::datagram::PooledDatagram<
             crate::mux_pool::native::DatagramIo,
@@ -79,12 +85,22 @@ impl VlessOutboundLeaf {
         RuntimeError,
     > {
         let (key, concurrency) = self.protocol.native_mux_plan(&self.server, self.port)?;
+        let binding = context.upstream.binding().clone();
+        let call = Some((
+            zero_platform_tokio::contract::network::CarrierContext {
+                session: context.session_identity().map_err(std::io::Error::other)?,
+                deadline: context.deadline,
+                cancel: context.cancel.clone(),
+            },
+            context.upstream.observed_pending_carrier(),
+        ));
+        let leaf = self.clone();
         self.mux_pool
-            .open_native_udp(key, concurrency, binding, |raw| async move {
+            .open_native_udp(key, concurrency, binding, call, move |raw| async move {
                 let io = zero_transport::TcpRelayStream::new(
                     zero_transport::pooled_driver::ExclusiveIo::new(raw),
                 );
-                self.transport.open_relay(io).await
+                leaf.transport.open_relay(io).await
             })
             .await
     }

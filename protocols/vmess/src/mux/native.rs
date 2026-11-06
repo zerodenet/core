@@ -1,11 +1,17 @@
 //! Native execution uses the same actual map and protocol wire driver.
 mod stream;
 use super::*;
+mod datagram;
+pub(crate) use datagram::DatagramIo;
 use zero_platform_tokio::contract::network::UpstreamBinding;
 use zero_transport::{
     pooled_driver::{PoolOptions, UserStream},
     RuntimeError,
 };
+type NativeCall = Option<(
+    zero_platform_tokio::contract::network::CarrierContext,
+    Option<zero_platform_tokio::contract::network::PendingCarrierObserver>,
+)>;
 impl VmessMuxConnectionPool {
     pub(crate) fn native_eligible(&self) -> bool {
         self.control.native_eligible()
@@ -31,14 +37,15 @@ impl VmessMuxConnectionPool {
     ) -> Result<impl AsyncRead + AsyncWrite + Send + Sync + Unpin + 'static, RuntimeError>
     where
         S: zero_traits::AsyncSocket + AsyncRead + AsyncWrite + Unpin + Send + 'static,
-        F: FnOnce(zero_platform_tokio::controlled_carrier::CarrierIo) -> Fut,
-        Fut: Future<Output = Result<S, RuntimeError>>,
+        F: FnOnce(zero_platform_tokio::controlled_carrier::CarrierIo) -> Fut + Send + 'static,
+        Fut: Future<Output = Result<S, RuntimeError>> + Send + 'static,
     {
         let (reserved, usage) = self
             .native_connection(
                 key,
                 concurrency,
                 binding,
+                None,
                 wrap,
                 |connection, sid, usage, _| {
                     Ok((
@@ -119,6 +126,7 @@ impl VmessMuxConnectionPool {
         key: VmessMuxPoolKey,
         concurrency: u32,
         binding: UpstreamBinding,
+        call: NativeCall,
         wrap: F,
         finish: impl FnOnce(
             Arc<VmessMuxConn>,
@@ -129,8 +137,8 @@ impl VmessMuxConnectionPool {
     ) -> Result<R, RuntimeError>
     where
         S: zero_traits::AsyncSocket + AsyncRead + AsyncWrite + Unpin + Send + 'static,
-        F: FnOnce(zero_platform_tokio::controlled_carrier::CarrierIo) -> Fut,
-        Fut: Future<Output = Result<S, RuntimeError>>,
+        F: FnOnce(zero_platform_tokio::controlled_carrier::CarrierIo) -> Fut + Send + 'static,
+        Fut: Future<Output = Result<S, RuntimeError>> + Send + 'static,
     {
         let owner = self.control.managed()?;
         let profile = format!(
@@ -143,17 +151,28 @@ impl VmessMuxConnectionPool {
         let selected = binding.clone();
         let opening = owner.clone();
         let (connection, sid) = self
-            .get_or_create_conn(key, concurrency, |key, concurrency| async move {
-                let (mut connection, original) = opening
-                    .open(&profile, &binding, |raw| async move {
+            .get_or_create_conn_with_binding(
+                key,
+                concurrency,
+                Some(binding.clone()),
+                |key, concurrency| async move {
+                    let prepare = move |raw| async move {
                         let io = wrap(raw).await?;
                         let io = key.establish_mux_outbound_stream(io).await?;
                         Ok(key.prepare_pool_conn(io, concurrency))
-                    })
-                    .await?;
-                connection.original = Some(original);
-                Ok::<_, RuntimeError>(connection)
-            })
+                    };
+                    let (mut connection, original) = match call {
+                        Some((call, waiting)) => {
+                            opening
+                                .open_observed(&profile, &binding, call, waiting, prepare)
+                                .await?
+                        }
+                        None => opening.open(&profile, &binding, prepare).await?,
+                    };
+                    connection.original = Some(original);
+                    Ok::<_, RuntimeError>(connection)
+                },
+            )
             .await?;
         owner.verify_epoch(&selected)?;
         let original = connection
@@ -182,18 +201,20 @@ impl VmessMuxConnectionPool {
         target: Address,
         port: u16,
         binding: UpstreamBinding,
+        call: NativeCall,
         wrap: F,
     ) -> Result<zero_transport::pooled_driver::PooledStream, RuntimeError>
     where
         S: zero_traits::AsyncSocket + AsyncRead + AsyncWrite + Unpin + Send + 'static,
-        F: FnOnce(zero_platform_tokio::controlled_carrier::CarrierIo) -> Fut,
-        Fut: Future<Output = Result<S, RuntimeError>>,
+        F: FnOnce(zero_platform_tokio::controlled_carrier::CarrierIo) -> Fut + Send + 'static,
+        Fut: Future<Output = Result<S, RuntimeError>> + Send + 'static,
     {
         let (reserved, usage, origin) = self
             .native_connection(
                 key,
                 concurrency,
                 binding,
+                call,
                 wrap,
                 |connection, sid, usage, origin| {
                     Ok((
@@ -215,17 +236,19 @@ impl VmessMuxConnectionPool {
         key: VmessMuxPoolKey,
         concurrency: u32,
         binding: UpstreamBinding,
+        call: NativeCall,
         wrap: F,
     ) -> Result<zero_transport::pooled_driver::datagram::PooledDatagram<DatagramIo>, RuntimeError>
     where
         S: zero_traits::AsyncSocket + AsyncRead + AsyncWrite + Unpin + Send + 'static,
-        F: FnOnce(zero_platform_tokio::controlled_carrier::CarrierIo) -> Fut,
-        Fut: Future<Output = Result<S, RuntimeError>>,
+        F: FnOnce(zero_platform_tokio::controlled_carrier::CarrierIo) -> Fut + Send + 'static,
+        Fut: Future<Output = Result<S, RuntimeError>> + Send + 'static,
     {
         self.native_connection(
             key,
             concurrency,
             binding,
+            call,
             wrap,
             |connection, sid, usage, origin| {
                 let writer = match connection.native_udp_tx.writer(encode_end_stream(sid)?) {
@@ -251,74 +274,5 @@ impl VmessMuxConnectionPool {
             },
         )
         .await
-    }
-}
-
-/// Direct packet access to the existing protocol map; no stream flattening or upload task.
-pub(crate) struct DatagramIo {
-    connection: Arc<VmessMuxConn>,
-    sid: u16,
-    rx: mpsc::Receiver<VmessMuxDownlink>,
-    writer: Option<zero_transport::pooled_driver::datagram_queue::PacketWriter>,
-    first: bool,
-}
-impl zero_transport::pooled_driver::datagram::PacketIo for DatagramIo {
-    fn send(&mut self, frame: &zero_core::packet::Datagram) -> std::io::Result<()> {
-        if self.connection.closed.load(Ordering::Acquire) {
-            return Err(std::io::ErrorKind::BrokenPipe.into());
-        }
-        let payload = crate::udp::encode_udp_flow_packet(
-            &frame.address.address,
-            frame.address.port,
-            &frame.payload,
-        )
-        .map_err(std::io::Error::other)?;
-        let wire = if self.first {
-            encode_open_stream_with_network(
-                self.sid,
-                &frame.address.address,
-                frame.address.port,
-                Network::Udp,
-                &payload,
-            )
-        } else {
-            encode_keep_stream(self.sid, &payload)
-        }
-        .map_err(std::io::Error::other)?;
-        let streams = self.connection.streams.lock().unwrap();
-        if !streams.contains_key(&self.sid) {
-            return Err(std::io::ErrorKind::BrokenPipe.into());
-        }
-        self.writer
-            .as_mut()
-            .expect("live packet writer")
-            .send(wire)?;
-        self.first = false;
-        Ok(())
-    }
-    fn poll_recv(
-        &mut self,
-        cx: &mut Context<'_>,
-    ) -> zero_transport::pooled_driver::datagram::PacketPoll {
-        match std::task::ready!(self.rx.poll_recv(cx)) {
-            Some(VmessMuxDownlink::Data(packet)) => Poll::Ready(
-                crate::udp::decode_udp_flow_packet(&packet.into_inner())
-                    .map(|packet| {
-                        let (address, port, payload) = packet.into_parts();
-                        Some((zero_core::request::Destination::new(address, port), payload))
-                    })
-                    .map_err(std::io::Error::other),
-            ),
-            Some(VmessMuxDownlink::Overflow) => Poll::Ready(Err(std::io::Error::other(
-                "MUX UDP response capacity exceeded",
-            ))),
-            None => Poll::Ready(Ok(None)),
-        }
-    }
-}
-impl Drop for DatagramIo {
-    fn drop(&mut self) {
-        drop(self.writer.take());
-        self.connection.release_stream(self.sid);
     }
 }

@@ -161,7 +161,7 @@ impl Outbound {
     ) -> Result<zero_transport::pooled_driver::PooledStream, ChannelError> {
         let session = self.admission.check(&context)?;
         let leaf = self.selected_leaf(&context)?;
-        let opening = leaf.open_native_mux(request.destination, context.upstream.binding().clone());
+        let opening = leaf.open_native_mux(request.destination, &context);
         let io = tokio::select! { biased;
             _=self.admission.cancelled()=>return Err(self.admission.error(session,Stage::Handshake,Reason::Revoked,DeliveryState::Unknown)),
             _=context.cancel.cancelled()=>return Err(self.admission.error(session,Stage::Handshake,Reason::Cancelled,DeliveryState::Unknown)),

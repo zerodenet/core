@@ -60,7 +60,12 @@ pub(crate) struct TrojanMuxPoolKey {
     response_backlog: MuxResponseBacklogPolicy,
 }
 
-type PoolEntries = HashMap<(Option<Arc<str>>, TrojanMuxPoolKey), Arc<TrojanMuxConn>>;
+#[cfg(feature = "runtime")]
+type NativeBinding = zero_platform_tokio::contract::network::UpstreamBinding;
+#[cfg(not(feature = "runtime"))]
+type NativeBinding = ();
+type PoolEntries =
+    HashMap<(Option<Arc<str>>, TrojanMuxPoolKey, Option<NativeBinding>), Arc<TrojanMuxConn>>;
 
 #[derive(Clone)]
 pub struct TrojanMuxConnectionPool {
@@ -274,7 +279,37 @@ impl TrojanMuxConnectionPool {
         Fut: Future<Output = Result<TrojanMuxConn, E>>,
         E: From<Error>,
     {
-        let lookup = (self.scope.clone(), key.clone());
+        self.get_or_create_conn_with_binding(key, max_concurrency, None, create_conn)
+            .await
+    }
+    async fn get_or_create_conn_with_binding<F, Fut, E>(
+        &self,
+        key: TrojanMuxPoolKey,
+        max_concurrency: u32,
+        binding: Option<NativeBinding>,
+        create_conn: F,
+    ) -> Result<(Arc<TrojanMuxConn>, u16), E>
+    where
+        F: FnOnce(TrojanMuxPoolKey, u32) -> Fut,
+        Fut: Future<Output = Result<TrojanMuxConn, E>>,
+        E: From<Error>,
+    {
+        #[cfg(feature = "runtime")]
+        let retired = {
+            let mut entries = self.pool.lock().expect("actual protocol MUX map");
+            entries
+                .extract_if(|_, connection| {
+                    connection
+                        .original
+                        .as_ref()
+                        .is_some_and(|original| original.confirmed_closed())
+                })
+                .map(|(_, connection)| connection)
+                .collect::<Vec<_>>()
+        };
+        #[cfg(feature = "runtime")]
+        drop(retired);
+        let lookup = (self.scope.clone(), key.clone(), binding);
         let cached = self
             .pool
             .lock()

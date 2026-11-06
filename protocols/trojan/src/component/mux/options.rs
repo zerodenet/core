@@ -40,6 +40,11 @@ impl PreparedMux {
         let pool = Arc::new(leaf.native_mux_options(binding, carriers, open_budget)?);
         Ok(Self { leaf, pool })
     }
+    pub fn with_node_dependency(mut self, dependency: ComponentId) -> Self {
+        let pool = (*self.pool).clone().with_node_dependency(dependency);
+        self.pool = Arc::new(pool);
+        self
+    }
     pub fn pool_options(&self) -> &Arc<PoolOptions> {
         &self.pool
     }
