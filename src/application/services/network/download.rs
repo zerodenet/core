@@ -76,7 +76,7 @@ async fn exchange(
             return Err(io::Error::new(
                 io::ErrorKind::InvalidInput,
                 "rule URL requires HTTP or HTTPS",
-            ))
+            ));
         }
     };
     let host = url
