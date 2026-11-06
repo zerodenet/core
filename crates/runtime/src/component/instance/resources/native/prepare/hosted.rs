@@ -9,7 +9,7 @@ impl HostResources {
         originals: Arc<crate::HostOriginalBudgets>,
         source: Arc<
             std::sync::OnceLock<
-                zero_platform_tokio::controlled_datagram::provider::NativeDatagramOrigin,
+                zero_platform_tokio::controlled_carrier::CarrierOrigin,
             >,
         >,
     ) -> Result<Arc<Self>, ChannelError> {

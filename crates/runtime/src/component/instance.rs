@@ -78,7 +78,7 @@ pub struct ComponentSlot {
     start_wake: Arc<MonitorWake>,
     originals: OnceLock<Arc<crate::HostOriginalBudgets>>,
     packet_source:
-        Arc<OnceLock<zero_platform_tokio::controlled_datagram::provider::NativeDatagramOrigin>>,
+        Arc<OnceLock<zero_platform_tokio::controlled_carrier::CarrierOrigin>>,
 }
 struct Live {
     packet: Option<Arc<dyn DynPacketOutbound>>,

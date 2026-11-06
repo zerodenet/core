@@ -38,7 +38,7 @@ pub use native::NativeCarrierOpener;
 pub use native_settlement::CarrierNativeSettlement;
 pub use origin::{
     CarrierOrigin, CarrierOriginClosed, CarrierOriginOwner, CarrierOriginOwnerClosed,
-    CarrierOriginUsersClosed, PacketProviderClosed, PacketProviderRegistration,
+    CarrierOriginUsersClosed, LogicalPacketProviderRegistration, PacketProviderClosed, PacketProviderRegistration,
 };
 pub use owner::CarrierOwner;
 pub use packet::CarrierDatagram;

@@ -351,6 +351,16 @@ pub trait ResourceAccess: Send + Sync {
         ))
     }
 
+    /// Install only this actual Host Scope's registered software Packet driver.
+    /// Its separately owned physical ancestor receives no native-close proof.
+    fn install_logical_packet_source(
+        &self,
+        _source: crate::controlled_carrier::LogicalPacketProviderRegistration,
+    ) -> Result<(), BuildError> {
+        Err(super::ChannelError::new(super::Stage::Prepare,
+            super::Reason::Unsupported, super::Impact::Component))
+    }
+
     /// Read the same actual linked Packet source dependency installed by the
     /// host. This grants no IO and cannot create a source or close receipt.
     fn packet_carrier_origin(

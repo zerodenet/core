@@ -11,6 +11,7 @@ impl ComponentSlot {
         &self,
         source: NativeDatagramOrigin,
     ) -> Result<(), ChannelError> {
+        let source = CarrierOrigin::from_listener(source);
         let spec = self.recipe.spec();
         if !spec.resources.is_empty()
             || ![RoleKind::Packet, RoleKind::Stream, RoleKind::Datagram]
@@ -42,11 +43,8 @@ impl ComponentSlot {
         })
     }
     pub(in crate::component) fn matches_packet_source(&self, origin: &CarrierOrigin) -> bool {
-        origin.listener().is_some_and(|original| {
-            self.packet_source
-                .get()
-                .is_some_and(|source| source.same_original(original) && !source.is_retired())
-        })
+        self.packet_source.get().is_some_and(|source|
+            source.same_original(origin) && !source.is_retired())
     }
     pub(in crate::component) fn matches_bound_packet_origin(
         &self,

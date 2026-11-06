@@ -44,7 +44,7 @@ impl HostResources {
         packet_source: Option<
             Arc<
                 std::sync::OnceLock<
-                    zero_platform_tokio::controlled_datagram::provider::NativeDatagramOrigin,
+                    zero_platform_tokio::controlled_carrier::CarrierOrigin,
                 >,
             >,
         >,
@@ -315,6 +315,7 @@ impl HostResources {
             original_tasks,
             packet_source: packet_source.unwrap_or_default(),
             component,
+            instance: identity.as_ref().map(|(instance, _)| *instance),
             icmp,
             coverage,
             carriers,

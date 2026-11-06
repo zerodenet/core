@@ -21,10 +21,11 @@ pub struct HostResources {
     original_tasks: Option<zero_platform_tokio::contract::scope::WeakTaskRegistrar>,
     packet_source: Arc<
         std::sync::OnceLock<
-            zero_platform_tokio::controlled_datagram::provider::NativeDatagramOrigin,
+            zero_platform_tokio::controlled_carrier::CarrierOrigin,
         >,
     >,
     component: ComponentId,
+    instance: Option<zero_core::component::ComponentInstanceId>,
     icmp: Option<super::icmp::HostIcmpProbeOwner>,
     coverage: Vec<coverage::CoverageBinding>,
     carriers: carrier::CarrierDeclarations,
@@ -187,6 +188,24 @@ impl HostResources {
     }
 }
 impl ResourceAccess for HostResources {
+    fn install_logical_packet_source(
+        &self,
+        source: zero_platform_tokio::controlled_carrier::LogicalPacketProviderRegistration,
+    ) -> Result<(), ChannelError> {
+        self.require_start()?;
+        if self.instance != Some(source.instance())
+            || source.is_retired()
+            || !self.original_tasks.as_ref().is_some_and(|tasks|
+                tasks.scope_identity().same_scope(source.device().scope()))
+        {
+            return Err(self.denied());
+        }
+        let source = zero_platform_tokio::controlled_carrier::CarrierOrigin::from_logical_packet(source);
+        if let Some(actual) = self.packet_source.get() {
+            return if actual.same_original(&source) { Ok(()) } else { Err(self.denied()) };
+        }
+        self.packet_source.set(source).map_err(|_| self.denied())
+    }
     fn packet_source_pause(
         &self,
     ) -> Option<Arc<zero_platform_tokio::contract::packet::PacketSourcePause>> {
@@ -217,7 +236,6 @@ impl ResourceAccess for HostResources {
             .get()
             .filter(|origin| !origin.is_retired())
             .cloned()
-            .map(zero_platform_tokio::controlled_carrier::CarrierOrigin::from_listener)
             .ok_or_else(|| self.denied())
     }
 
