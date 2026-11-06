@@ -123,11 +123,13 @@ async fn domain_peer_declares_the_actual_node_dns_resource_before_any_stack_star
         &plan.device_component(device).unwrap(),
         &again.device_component(device).unwrap()
     ));
-    assert!(retained
-        .scope
-        .lock()
-        .unwrap_or_else(|e| e.into_inner())
-        .is_none());
+    assert!(pending
+        .get("wg-in")
+        .unwrap()
+        .peer_stack(0)
+        .unwrap()
+        .test_original_witnesses()
+        .is_empty());
     assert!(pending
         .get("wg-in")
         .unwrap()
