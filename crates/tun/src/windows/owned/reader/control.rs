@@ -1,5 +1,5 @@
-mod native;
 //! The original SDK reader's own reversible wake event, not a watcher/thread.
+mod native;
 use crate::packet_memory::NativeReadGrant;
 use std::{
     io,
@@ -246,7 +246,6 @@ impl OwnedWintunReadControl {
     pub fn signal_failure(&self) -> Option<Arc<io::Error>> {
         self.state().signal_fault.clone()
     }
-
 }
 impl Drop for OwnedWintunReadPause {
     fn drop(&mut self) {
