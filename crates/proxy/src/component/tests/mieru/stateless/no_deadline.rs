@@ -124,6 +124,17 @@ async fn actual_taskless_none_deadline_keeps_n1_and_cancels_the_same_pending_vie
                 .apply_runtime_config_and_wait(settings, Duration::from_secs(5))
                 .await
                 .unwrap();
+            if protocol == "vless" {
+                let invalid = std::net::SocketAddr::new(target.ip(), 0);
+                assert_eq!(
+                    open(&proxy, invalid, CancellationToken::new())
+                        .await
+                        .err()
+                        .unwrap()
+                        .reason,
+                    zero_platform_tokio::contract::Reason::InvalidConfig,
+                );
+            }
             let cancel = CancellationToken::new();
             let mut loan = open(&proxy, target, cancel.clone()).await.unwrap();
             let original = loan.owner.original().clone();
