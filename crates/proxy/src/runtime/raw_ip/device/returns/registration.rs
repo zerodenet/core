@@ -26,7 +26,7 @@ impl PacketReturns {
             conversation,
         )
     }
-    pub(super) fn register_source(
+    pub(in crate::runtime::raw_ip::device) fn register_source(
         &self,
         source: IpAddr,
         ingress_id: ReturnSource,
