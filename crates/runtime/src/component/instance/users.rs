@@ -22,6 +22,13 @@ pub(in crate::component) struct PausedUsers {
     owner: Arc<Users>,
     _receivers: Vec<zero_platform_tokio::controlled_carrier::CarrierAdoption>,
 }
+impl PausedUsers {
+    pub(in crate::component) fn receivers(
+        &self,
+    ) -> &[zero_platform_tokio::controlled_carrier::CarrierAdoption] {
+        &self._receivers
+    }
+}
 impl Drop for PausedUsers {
     fn drop(&mut self) {
         let mut paused = self

@@ -31,6 +31,26 @@ impl CarrierIo {
     }
 }
 impl CarrierLoanRetained {
+    /// Read-only custody in the actual installed loan's sealed parent chain.
+    /// This neither closes a Source nor substitutes for its driver/user joins.
+    pub fn retains_origin(&self, expected: &CarrierOrigin) -> bool {
+        if self.receiver_slot().is_none() {
+            return false;
+        }
+        let mut current = Some(self.origin.clone());
+        let mut seen: Vec<CarrierOrigin> = Vec::new();
+        while let Some(origin) = current {
+            if origin.same_original(expected) {
+                return true;
+            }
+            if seen.iter().any(|previous| previous.same_original(&origin)) {
+                return false;
+            }
+            current = origin.parent().cloned();
+            seen.push(origin);
+        }
+        false
+    }
     fn receiver_slot(&self) -> Option<Arc<Slot>> {
         let receiver = self.receiver.upgrade()?;
         let valid = {

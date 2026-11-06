@@ -6,6 +6,33 @@ mod receiver;
 /// Dropping it only restores admission; normal StopOld still proves closure.
 pub struct ReplacementUsersPause {
     _roots: Vec<crate::component::instance::PausedUsers>,
+    candidate: std::sync::Weak<ComponentPlan>,
+}
+impl ReplacementUsersPause {
+    /// A Source preflight may classify only its exact stored flow loan whose
+    /// cached receiver was proved to belong to this actual StopOld set. Counts
+    /// remain charged; real view return, Source checkpoints and joins follow.
+    pub fn retains_source_receiver(
+        &self,
+        observation: &zero_platform_tokio::controlled_carrier::loan::CarrierLoanReceiver,
+        source: &zero_platform_tokio::controlled_carrier::CarrierOrigin,
+    ) -> bool {
+        let Some(loan) = observation.retained() else {
+            return false;
+        };
+        if !loan.retains_origin(source) {
+            return false;
+        }
+        let Some(receiver) = loan.receiver_adoption() else {
+            return false;
+        };
+        self.candidate.upgrade().is_some()
+            && self._roots.iter().any(|root| {
+                root.receivers()
+                    .iter()
+                    .any(|actual| actual.same_slot(&receiver))
+            })
+    }
 }
 
 impl ComponentCatalog {
@@ -138,6 +165,9 @@ impl ComponentCatalog {
                 })?);
             }
         }
-        Ok(ReplacementUsersPause { _roots: roots })
+        Ok(ReplacementUsersPause {
+            _roots: roots,
+            candidate: Arc::downgrade(candidate),
+        })
     }
 }
