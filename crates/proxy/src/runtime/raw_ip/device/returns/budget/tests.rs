@@ -1,3 +1,5 @@
+#[path = "tests/derivation.rs"]
+mod derivation;
 use super::*;
 
 #[test]

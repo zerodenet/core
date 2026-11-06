@@ -125,21 +125,36 @@ impl PacketReturns {
         );
         Ok(self)
     }
-    pub(crate) fn retain_reply_buffer(
+    pub(crate) fn retain_reply_buffer_for(
         &self,
         packet: zero_traits::PacketBuffer,
+        return_mtu: u16,
     ) -> Result<zero_traits::PacketBuffer, zero_traits::PacketBuffer> {
-        self.budget.retain(packet)
+        self.budget
+            .retain_for_return(packet, return_mtu)
+            .map_err(|failure| {
+                tracing::trace!(cause = ?failure.cause, bytes = failure.original.len(), "same original Packet return admission rejected");
+                failure.original
+            })
     }
     pub(super) fn queue_reply(
         &self,
         replies: &zero_stack::packet_output::PacketSender,
         packet: zero_traits::PacketBuffer,
     ) -> Result<(), mpsc::error::TrySendError<zero_traits::PacketBuffer>> {
-        let packet = self
-            .budget
-            .retain(packet)
-            .map_err(mpsc::error::TrySendError::Full)?;
+        let packet = match replies.return_mtu() {
+            Some(mtu) => self
+                .budget
+                .retain_for_return(packet, mtu)
+                .map_err(|failure| {
+                tracing::trace!(cause = ?failure.cause, bytes = failure.original.len(), "same original Packet return admission rejected");
+                failure.original
+            }),
+            // Explicit pre-standard library sinks only. Actual Source sinks
+            // carry their separately validated original link MTU.
+            None => self.budget.retain(packet),
+        }
+        .map_err(mpsc::error::TrySendError::Full)?;
         replies.try_send_buffer(packet)
     }
     fn discard(

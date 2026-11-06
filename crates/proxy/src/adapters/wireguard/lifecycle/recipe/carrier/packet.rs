@@ -23,6 +23,10 @@ impl DynPacketOutbound for Carrier {
         context: OpenContext,
     ) -> BoxFuture<'_, Result<BoxPacketSession, ChannelError>> {
         Box::pin(async move {
+            let return_mtu = request
+                .return_mtu
+                .filter(|mtu| *mtu != 0)
+                .ok_or_else(|| error(Stage::Prepare, Reason::InvalidConfig))?;
             let facts = context.packet_facts()?.clone();
             if request.endpoint != facts.endpoint {
                 return Err(error(Stage::Prepare, Reason::InvalidConfig));
@@ -41,6 +45,7 @@ impl DynPacketOutbound for Carrier {
                 users: Arc::downgrade(&users),
                 carrier,
                 facts,
+                return_mtu,
                 observer: context.observer,
                 translate: request.limits.source_adaptation
                     == SourceAdaptation::ValidatedTranslation,

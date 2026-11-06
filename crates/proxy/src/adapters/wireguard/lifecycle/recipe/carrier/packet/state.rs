@@ -13,6 +13,7 @@ pub(super) struct Shared {
     pub(super) caller: zero_platform_tokio::contract::scope::TaskJoinWitness,
     pub(super) users: std::sync::Weak<ViewUsers>,
     pub(super) facts: PacketFacts,
+    pub(super) return_mtu: u16,
     pub(super) observer: Option<Arc<dyn ConnectObserver>>,
     pub(super) translate: bool,
     pub(super) cancel: CancellationToken,
@@ -128,7 +129,8 @@ impl Shared {
                 state.peers.len() - 1
             }
         };
-        let sender = state.peers[index].tx.clone().into();
+        let sender = zero_stack::packet_output::PacketSender::from(state.peers[index].tx.clone())
+            .with_return_mtu(self.return_mtu);
         let receiver = state.receiver.take();
         drop(state);
         if let Some(receiver) = receiver {

@@ -1,6 +1,7 @@
 //! Credits remain attached to the same owned buffer, including after dequeue.
 use std::sync::{Arc, Mutex};
 use zero_traits::{PacketBuffer, PacketStorage};
+mod derived;
 
 #[derive(Clone)]
 pub(super) struct ReturnBudget(Arc<Inner>);
@@ -8,20 +9,24 @@ struct Inner {
     limits: (usize, usize),
     occupied: Mutex<(usize, usize)>,
     totals: Arc<PacketReturnTotals>,
+    changed: tokio::sync::Notify,
 }
 /// One Devices-root counter; actual old buffers retain this same Arc across
 /// graph/role/network changes. This owns no frame queue or native resource.
-pub(crate) struct PacketReturnTotals(Mutex<Totals>);
+pub(crate) struct PacketReturnTotals(Mutex<Totals>, tokio::sync::Notify);
 struct Totals {
     limits: (usize, usize),
     occupied: (usize, usize),
 }
 impl Default for PacketReturnTotals {
     fn default() -> Self {
-        Self(Mutex::new(Totals {
-            limits: (1024, 64 * 1024 * 1024),
-            occupied: (0, 0),
-        }))
+        Self(
+            Mutex::new(Totals {
+                limits: (1024, 64 * 1024 * 1024),
+                occupied: (0, 0),
+            }),
+            tokio::sync::Notify::new(),
+        )
     }
 }
 impl PacketReturnTotals {
@@ -37,6 +42,8 @@ impl PacketReturnTotals {
             ));
         }
         total.limits = (frames, bytes);
+        drop(total);
+        self.1.notify_waiters();
         Ok(())
     }
 }
@@ -58,6 +65,7 @@ impl ReturnBudget {
             limits: (frames, bytes),
             occupied: Mutex::new((0, 0)),
             totals,
+            changed: tokio::sync::Notify::new(),
         }))
     }
     pub(super) fn retain(&self, packet: PacketBuffer) -> Result<PacketBuffer, PacketBuffer> {
@@ -84,6 +92,8 @@ impl ReturnBudget {
                 budget: self.clone(),
                 bytes,
             },
+            derived: Mutex::new(None),
+            derivation_reserved: false,
         }))
     }
 }
@@ -110,11 +120,17 @@ impl Drop for Credit {
             .unwrap_or_else(|e| e.into_inner());
         total.occupied.0 -= 1;
         total.occupied.1 -= self.bytes;
+        drop(total);
+        drop(occupied);
+        self.budget.0.changed.notify_waiters();
+        self.budget.0.totals.1.notify_waiters();
     }
 }
 struct Charged {
     packet: PacketBuffer,
     credit: Credit,
+    derived: Mutex<Option<derived::Prepared>>,
+    derivation_reserved: bool,
 }
 impl AsRef<[u8]> for Charged {
     fn as_ref(&self) -> &[u8] {
@@ -127,12 +143,21 @@ impl AsMut<[u8]> for Charged {
     }
 }
 impl PacketStorage for Charged {
+    fn derive_zeroed<'a>(&'a self, lengths: &'a [usize]) -> zero_traits::PacketDerivation<'a> {
+        Box::pin(async move { derived::claim(self, lengths) })
+    }
     fn into_vec(self: Box<Self>) -> Vec<u8> {
-        let Self { packet, credit } = *self;
+        let Self {
+            packet,
+            credit,
+            derived,
+            derivation_reserved: _,
+        } = *self;
         // An explicit Vec-only consumer ends this owned view here. Standard
         // Packet queues preserve PacketBuffer through the real RX consumer.
         let bytes = packet.into_vec();
         drop(credit);
+        drop(derived);
         bytes
     }
 }
