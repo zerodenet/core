@@ -7,8 +7,10 @@ async fn inline_single_and_multi_clients_drain_upload_without_application_reads_
 ) {
     let phase = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
     let peer_phase = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
+    let received = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
     timeout(Duration::from_secs(8),async {
         for multi_mode in [false,true] {
+            received.store(0,std::sync::atomic::Ordering::SeqCst);
             let listener=tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();let address=listener.local_addr().unwrap();
             let profile=OwnedGrpcProfile{service_names:vec!["inline/Tun".into()],multi_mode,..Default::default()};
             let server_profile=profile.clone();let(done,finished)=tokio::sync::oneshot::channel();let peer_observation=peer_phase.clone();
@@ -19,16 +21,52 @@ async fn inline_single_and_multi_clients_drain_upload_without_application_reads_
                 assert_eq!(body,vec![0x79;2*1024*1024+13]);AsyncWriteExt::write_all(&mut io,&body).await.unwrap();peer_observation.store(3,std::sync::atomic::Ordering::SeqCst);
                 AsyncWriteExt::shutdown(&mut io).await.unwrap();peer_observation.store(4,std::sync::atomic::Ordering::SeqCst);finished.await.unwrap();incoming.close();
             });
-            let raw=tokio::net::TcpStream::connect(address).await.unwrap();let mut io=connect_grpc_inline_with_settings(raw,&profile,"localhost",None).await.unwrap();
+            let raw=tokio::net::TcpStream::connect(address).await.unwrap();let io=connect_grpc_inline_with_settings(raw,&profile,"localhost",None).await.unwrap();
             phase.store(if multi_mode{11}else{1},std::sync::atomic::Ordering::SeqCst);
             assert!(io.inline.is_some() && io.driver.is_none() && io.scoped.is_none());
+            let mut io=Counted{io,received:received.clone()};
             AsyncWriteExt::write_all(&mut io,&vec![0x79;2*1024*1024+13]).await.unwrap();phase.store(if multi_mode{12}else{2},std::sync::atomic::Ordering::SeqCst);
             AsyncWriteExt::shutdown(&mut io).await.unwrap();phase.store(if multi_mode{13}else{3},std::sync::atomic::Ordering::SeqCst);
             let mut body=Vec::new();io.read_to_end(&mut body).await.unwrap();phase.store(if multi_mode{14}else{4},std::sync::atomic::Ordering::SeqCst);
             assert_eq!(body,vec![0x79;2*1024*1024+13]);done.send(()).unwrap();drop(io);server.await.unwrap();
         }
-    }).await.unwrap_or_else(|_|panic!("actual inline phase {} peer {} (1 connected/2 uploaded/3 halfclosed/4 reverseEOF; +10 multi; peer 1 accepted/2 EOF/3 uploaded/4 halfclosed)",phase.load(std::sync::atomic::Ordering::SeqCst),peer_phase.load(std::sync::atomic::Ordering::SeqCst)));
+    }).await.unwrap_or_else(|_|panic!("actual inline phase {} peer {} received {} of 2097165 (1 connected/2 uploaded/3 halfclosed/4 reverseEOF; +10 multi; peer 1 accepted/2 EOF/3 uploaded/4 halfclosed)",phase.load(std::sync::atomic::Ordering::SeqCst),peer_phase.load(std::sync::atomic::Ordering::SeqCst),received.load(std::sync::atomic::Ordering::SeqCst)));
     // Actual per-connection wire diagnostics only, no native/Scope close claim.
+}
+
+struct Counted {
+    io: GrpcStream,
+    received: std::sync::Arc<std::sync::atomic::AtomicUsize>,
+}
+impl AsyncRead for Counted {
+    fn poll_read(
+        mut self: Pin<&mut Self>,
+        cx: &mut Context<'_>,
+        out: &mut ReadBuf<'_>,
+    ) -> Poll<io::Result<()>> {
+        let before = out.filled().len();
+        let result = Pin::new(&mut self.io).poll_read(cx, out);
+        self.received.fetch_add(
+            out.filled().len() - before,
+            std::sync::atomic::Ordering::SeqCst,
+        );
+        result
+    }
+}
+impl AsyncWrite for Counted {
+    fn poll_write(
+        mut self: Pin<&mut Self>,
+        cx: &mut Context<'_>,
+        bytes: &[u8],
+    ) -> Poll<io::Result<usize>> {
+        Pin::new(&mut self.io).poll_write(cx, bytes)
+    }
+    fn poll_flush(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
+        Pin::new(&mut self.io).poll_flush(cx)
+    }
+    fn poll_shutdown(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
+        Pin::new(&mut self.io).poll_shutdown(cx)
+    }
 }
 
 #[derive(Default)]
