@@ -23,6 +23,11 @@ fn handed_off(adoption: &CarrierAdoption, originals: &[CarrierAdoption]) -> bool
                     .is_some_and(|proof| proof.retains(adoption))
         })
 }
+pub(super) fn settled(originals: &[CarrierAdoption]) -> bool {
+    originals
+        .iter()
+        .all(|original| complete(original) || handed_off(original, originals))
+}
 impl ProbeCall {
     pub(super) fn retain(&self, adoption: CarrierAdoption) -> Result<(), ChannelError> {
         self.check_open()?;

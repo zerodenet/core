@@ -16,6 +16,7 @@ pub(super) struct Slot {
     pub(super) state: Mutex<State>,
     pub(super) changed: Notify,
     pub(super) closing: AsyncMutex<()>,
+    pub(super) retirement: Mutex<super::retirement_progress::Retirement>,
 }
 #[derive(Default)]
 pub(super) struct State {
@@ -77,11 +78,13 @@ impl Slot {
         let _ = self.completion.set(native);
         drop(state);
         if let Some(owner) = self.owner.upgrade() {
-            owner
-                .state()
-                .slots
-                .retain(|stored| !Arc::ptr_eq(stored, self));
+            owner.state().slots.retain(|stored| !Arc::ptr_eq(stored, self));
         }
+        // An explicit close may win while its inline continuation is waiting
+        // for the original close gate. Positive settlement breaks that exact
+        // continuation's custody cycle outside all metadata locks.
+        let work=self.retirement.lock().unwrap_or_else(std::sync::PoisonError::into_inner).take_closed_work();
+        drop(work);
     }
     pub(super) fn unused(self: &Arc<Self>) {
         let unused = {

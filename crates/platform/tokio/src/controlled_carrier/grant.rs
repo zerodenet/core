@@ -66,6 +66,7 @@ impl CarrierGrants {
             state: Mutex::new(State::default()),
             changed: Notify::new(),
             closing: tokio::sync::Mutex::new(()),
+            retirement: Mutex::default(),
         });
         state.slots.push(slot.clone());
         Ok(CarrierGrant {

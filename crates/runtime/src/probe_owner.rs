@@ -248,17 +248,23 @@ impl ProbeOwner {
                 )));
             }
             let Some(mut cleanup) = cleanup else {
+                // A failed cleanup retains this exact entry and its credit.
+                // Later explicit provider cleanup may supply matching positive
+                // receipts; that is recovery, not a permanent synthetic fault.
+                let originals: Vec<_> = lock(&entry.pending)
+                    .iter()
+                    .map(|claim| claim.adoption.clone())
+                    .collect();
+                if pending::settled(&originals) {
+                    self.confirm_complete(&entry);
+                }
                 entry.changed.notify_waiters();
                 continue;
             };
             match cleanup.as_mut().poll(&mut cx) {
                 Poll::Pending => *lock(&entry.cleanup) = Some(cleanup),
                 Poll::Ready(Ok(())) => {
-                    entry.complete.store(true, Ordering::Release);
-                    let credit = lock(&entry.credit).take();
-                    drop(credit);
-                    lock(&self.entries).retain(|actual| !Arc::ptr_eq(actual, &entry));
-                    entry.changed.notify_waiters();
+                    self.confirm_complete(&entry);
                 }
                 Poll::Ready(Err(error)) => {
                     entry.fault.get_or_init(|| Arc::new(error));
@@ -266,6 +272,20 @@ impl ProbeOwner {
                 }
             }
         }
+    }
+    fn confirm_complete(&self, entry: &Arc<Entry>) {
+        entry.complete.store(true, Ordering::Release);
+        let credit = lock(&entry.credit).take();
+        drop(credit);
+        let removed = {
+            let mut entries = lock(&self.entries);
+            entries
+                .iter()
+                .position(|actual| Arc::ptr_eq(actual, entry))
+                .map(|index| entries.remove(index))
+        };
+        drop(removed);
+        entry.changed.notify_waiters();
     }
     pub(crate) fn validate_limit(&self, limit: usize) -> Result<(), ChannelError> {
         if limit == 0 || limit > 8 || lock(&self.entries).len() > limit {

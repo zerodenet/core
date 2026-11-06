@@ -9,9 +9,9 @@ use tokio::sync::Mutex as AsyncMutex;
 use tokio::time::Instant;
 use zero_core::{component::ComponentId, request::Destination};
 use zero_platform_tokio::contract::{
-    BoxFuture, CancellationToken, ChannelError, Reason,
     component::{GrantedDatagramListener, ProcessRequest, ResourceAccess, ResourceDeclaration},
     packet::BoxPacketSession,
+    BoxFuture, CancellationToken, ChannelError, Reason,
 };
 
 pub struct HostResources {
@@ -379,4 +379,13 @@ fn error(component: ComponentId, reason: Reason, message: &'static str) -> Chann
     let mut error = crate::component::instance::invalid(reason, message);
     error.component = Some(component);
     error
+}
+
+impl HostResources {
+    pub(in crate::component) fn poll_cancelled_carriers(
+        &self,
+        cx: &mut std::task::Context<'_>,
+    ) -> bool {
+        self.carriers.poll_cancelled(cx)
+    }
 }
