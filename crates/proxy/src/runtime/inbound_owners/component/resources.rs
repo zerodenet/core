@@ -24,6 +24,17 @@ pub(super) struct BoundResources {
 }
 impl ResourceAccess for BoundResources {
     #[cfg(all(feature = "raw-ip-runtime", feature = "datagram-route-runtime"))]
+    fn take_packet_datagram_reads(
+        &self,
+        datagram: usize,
+    ) -> Result<[zero_tun::packet_memory::NativeReadGrant; 2], BuildError> {
+        self.packet_native
+            .as_ref()
+            .and_then(std::sync::Weak::upgrade)
+            .ok_or_else(denied)?
+            .take_packet_reads(datagram)
+    }
+    #[cfg(all(feature = "raw-ip-runtime", feature = "datagram-route-runtime"))]
     fn register_packet_source_driver(
         &self,
         original: &zero_platform_tokio::controlled_datagram::listener::DatagramListenerIdentity,

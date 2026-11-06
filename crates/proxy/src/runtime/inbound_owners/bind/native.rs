@@ -1,12 +1,12 @@
 //! One native holder for the canonical listener declaration, never two budgets.
 use super::*;
 use zero_platform_tokio::{
-    contract::{
-        component::ResourceDeclaration,
-        lifecycle::{erase_lifecycle, DynResourceLifecycle},
-        ChannelError,
-    },
     ControlledTcpListener,
+    contract::{
+        ChannelError,
+        component::ResourceDeclaration,
+        lifecycle::{DynResourceLifecycle, erase_lifecycle},
+    },
 };
 pub(in crate::runtime::inbound_owners) mod handoff;
 mod metadata;
@@ -125,7 +125,11 @@ impl NativeBindGrant {
                 cancel,
                 registrar.clone(),
             )
-            .map(|grant| grant.with_original_budgets(originals))
+            .and_then(|grant| {
+                grant
+                    .with_original_budgets(originals)
+                    .with_packet_reads(declarations)
+            })
             .map(Arc::new)
             .map(Self::Datagram),
             _ => Err(ChannelError::new(
@@ -179,6 +183,13 @@ impl NativeBindGrant {
             #[cfg(feature = "datagram-route-runtime")]
             Self::Datagram(grant) => erase_lifecycle(udp::DatagramResource(grant.clone())),
         }
+    }
+    pub(super) fn needs_packet_reads(&self) -> bool {
+        #[cfg(feature = "datagram-route-runtime")]
+        if let Self::Datagram(grant) = self {
+            return grant.needs_packet_reads();
+        }
+        false
     }
     pub(super) fn bind(&self) -> Result<NativeListenerView, EngineError> {
         match self {

@@ -51,6 +51,7 @@ impl ObservedTraffic {
         );
     }
 }
+#[derive(Clone)]
 pub(super) struct WireTraffic {
     pub aggregate: ObservedTraffic,
     identities: Vec<Option<Arc<str>>>,
@@ -118,9 +119,12 @@ impl PacketObserver for HostObserver {
         }
     }
     fn peers(&self, identities: &[Option<String>]) {
-        *self.traffic.lock().unwrap() = Arc::new(
-            super::statistics::IngressTraffic::from_identities(identities.to_vec(), &self.route, self.native_io.clone()),
-        );
+        *self.traffic.lock().unwrap() =
+            Arc::new(super::statistics::IngressTraffic::from_identities(
+                identities.to_vec(),
+                &self.route,
+                self.native_io.clone(),
+            ));
     }
     fn ingress_allowed(&self) -> bool {
         self.route.endpoint_inbound_allowed()
@@ -137,11 +141,13 @@ impl PacketObserver for HostObserver {
                     PacketEvent::Sent { bytes } => io.sent(bytes),
                     PacketEvent::Error { .. } => io.error(),
                     PacketEvent::Dropped { reason, count, .. } => {
-                        for _ in 0..count { io.dropped_reason(reason); }
+                        for _ in 0..count {
+                            io.dropped_reason(reason);
+                        }
                     }
                     // TUN has no authenticated wire peer; accepted native
                     // writes already provide the real sent-byte observation.
-                    PacketEvent::Responded { .. } | PacketEvent::PeerReceived { .. } => {},
+                    PacketEvent::Responded { .. } | PacketEvent::PeerReceived { .. } => {}
                 }
                 return;
             }
@@ -171,16 +177,15 @@ impl PacketObserver for HostObserver {
 pub(super) fn packet_drop_reason(reason: TrafficDropReason) -> zero_traits::PacketDropReason {
     use zero_traits::PacketDropReason as D;
     match reason {
-            TrafficDropReason::QueueFull => D::QueueFull,
-            TrafficDropReason::QueueClosed => D::QueueClosed,
-            TrafficDropReason::InvalidPacket => D::InvalidPacket,
-            TrafficDropReason::SourceRejected => D::SourceRejected,
-            TrafficDropReason::FragmentRejected => D::FragmentRejected,
-            TrafficDropReason::PolicyRejected => D::PolicyRejected,
-            TrafficDropReason::IoFailure => D::IoFailure,
-            TrafficDropReason::NoRoute => D::NoRoute,
-            TrafficDropReason::HopLimit => D::HopLimit,
-            _ => D::Unspecified,
+        TrafficDropReason::QueueFull => D::QueueFull,
+        TrafficDropReason::QueueClosed => D::QueueClosed,
+        TrafficDropReason::InvalidPacket => D::InvalidPacket,
+        TrafficDropReason::SourceRejected => D::SourceRejected,
+        TrafficDropReason::FragmentRejected => D::FragmentRejected,
+        TrafficDropReason::PolicyRejected => D::PolicyRejected,
+        TrafficDropReason::IoFailure => D::IoFailure,
+        TrafficDropReason::NoRoute => D::NoRoute,
+        TrafficDropReason::HopLimit => D::HopLimit,
+        _ => D::Unspecified,
     }
-
 }

@@ -51,6 +51,12 @@ impl HostResources {
         originals: Arc<crate::HostOriginalBudgets>,
         original_tasks: Option<zero_platform_tokio::contract::scope::WeakTaskRegistrar>,
     ) -> Result<Arc<Self>, ChannelError> {
+        let reads = read_workspaces::ReadDeclarations::new(
+            component,
+            declarations,
+            identity.clone(),
+            originals.clone(),
+        )?;
         let bounds = bound_datagram::BoundDeclarations::new(
             component,
             declarations,
@@ -224,7 +230,8 @@ impl HostResources {
                 ResourceDeclaration::File { path, max_bytes } => {
                     files.declare(component, path, *max_bytes)?
                 }
-                ResourceDeclaration::BoundOutboundDatagram { .. }
+                ResourceDeclaration::PacketDatagramReads { .. }
+                | ResourceDeclaration::BoundOutboundDatagram { .. }
                 | ResourceDeclaration::ControlledOutboundDatagram { .. }
                 | ResourceDeclaration::ControlledOutboundStream { .. }
                 | ResourceDeclaration::ControlledCarrierPool { .. }
@@ -269,6 +276,7 @@ impl HostResources {
             metapools,
             roots,
             bounds,
+            reads,
             packets,
             #[cfg(any(target_os = "linux", windows))]
             processes,

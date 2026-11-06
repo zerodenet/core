@@ -2,18 +2,20 @@
 use super::*;
 use crate::component::instance::HostDatagramListenerOwner;
 use std::sync::{
-    atomic::{AtomicBool, Ordering},
     Mutex,
+    atomic::{AtomicBool, Ordering},
 };
 use zero_platform_tokio::contract::{
+    CloseReason, Impact, Reason, Stage,
     component::GrantedDatagramListener,
     lifecycle::{CloseReport, ResourceLifecycle},
-    CloseReason, Impact, Reason, Stage,
 };
 
 pub(in crate::runtime::inbound_owners) struct NativeDatagramGrant {
     identity: ComponentInstanceId,
     originals: Option<Arc<zero_runtime::HostOriginalBudgets>>,
+    #[cfg(feature = "raw-ip-runtime")]
+    packet_reads: Option<Arc<crate::component::instance::HostPacketReadReservation>>,
     addresses: std::sync::OnceLock<Arc<[std::net::SocketAddr]>>,
     declaration: ResourceDeclaration,
     attempts: NonZeroUsize,
@@ -69,6 +71,8 @@ impl NativeDatagramGrant {
         Ok(Self {
             identity,
             originals: None,
+            #[cfg(feature = "raw-ip-runtime")]
+            packet_reads: None,
             addresses,
             declaration: declaration.clone(),
             attempts,
@@ -158,6 +162,14 @@ impl NativeDatagramGrant {
         if self.cancel.is_cancelled() {
             return Err(crate::runtime::inbound_owners::preparing::stopped_preparation());
         }
+        #[cfg(feature = "raw-ip-runtime")]
+        if let Some(reads) = &self.packet_reads {
+            reads
+                .prepare_before_listener_bind(self.scope.as_ref().ok_or_else(|| {
+                    ChannelError::new(Stage::Prepare, Reason::Revoked, Impact::Component)
+                })?)
+                .map_err(std::io::Error::other)?;
+        }
         let mut native = self.native.lock().expect("native datagram owner poisoned");
         if self.cancel.is_cancelled() {
             return Err(crate::runtime::inbound_owners::preparing::stopped_preparation());
@@ -217,6 +229,10 @@ impl ResourceLifecycle for DatagramResource {
     }
     fn revoke(&self, _: CloseReason) {
         self.0.cancel.cancel();
+        #[cfg(feature = "raw-ip-runtime")]
+        if let Some(reads) = &self.0.packet_reads {
+            reads.revoke();
+        }
         // Every native operation is synchronous. This same short lock makes
         // revoke linearize after an in-flight bind, including another thread.
         if let Some(owner) = self
@@ -231,6 +247,10 @@ impl ResourceLifecycle for DatagramResource {
     }
     async fn shutdown(&mut self, deadline: Instant) -> Result<CloseReport, ChannelError> {
         self.0.cancel.cancel();
+        #[cfg(feature = "raw-ip-runtime")]
+        if let Some(reads) = &self.0.packet_reads {
+            reads.revoke();
+        }
         let mut native = self
             .0
             .native
@@ -245,6 +265,7 @@ impl ResourceLifecycle for DatagramResource {
     }
 }
 
+mod packet_reads;
 mod resolution;
 
 #[cfg(test)]

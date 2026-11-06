@@ -6,13 +6,14 @@ use std::{path::PathBuf, sync::Arc};
 use zero_core::request::Destination;
 #[cfg(any(test, feature = "test-support"))]
 use zero_platform_tokio::contract::{
-    component::ResourceAccess, packet::BoxPacketSession, BoxFuture, ChannelError, Reason,
+    BoxFuture, ChannelError, Reason, component::ResourceAccess, packet::BoxPacketSession,
 };
 mod icmp;
 mod native;
 pub use icmp::{HostIcmpProbeGrant, HostIcmpProbeOwner};
 pub use native::HostDatagramListenerOwner;
 pub use native::HostResources;
+pub use native::{HostPacketReadReservation, packet_datagram_read_spec};
 mod outbound_datagram;
 pub use outbound_datagram::HostOutboundDatagramResources;
 

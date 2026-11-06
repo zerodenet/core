@@ -86,6 +86,10 @@ impl HostDatagramListenerOwner {
         self.originals = Some((originals, tasks));
         Ok(())
     }
+    /// Read the actual original acquisition state; no native I/O or close grant.
+    pub fn known_no_acquisition(&self) -> bool {
+        self.native.known_no_acquisition()
+    }
     pub fn original_budgets(&self) -> Option<&Arc<crate::HostOriginalBudgets>> {
         self.originals.as_ref().map(|(roots, _)| roots)
     }

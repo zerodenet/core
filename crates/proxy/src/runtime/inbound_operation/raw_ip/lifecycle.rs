@@ -1,6 +1,6 @@
 //! Neutral listener channel and generation lifecycle.
 use super::*;
-use zero_stack::FragmentReassembler;
+use zero_stack::OwnedFragmentReassembler;
 
 pub(super) async fn peers_changed(
     peers: &mut Option<watch::Receiver<Arc<EndpointPeerState>>>,
@@ -34,8 +34,8 @@ pub(super) fn refresh_device_generation(
     device: &dyn RawIpInboundDevice,
     generation: &mut u64,
     endpoints: &mut Vec<Option<SocketAddr>>,
-    fragments: &mut FragmentReassembler,
-    endpoint_fragments: &mut FragmentReassembler,
+    fragments: &mut OwnedFragmentReassembler<(u64, usize)>,
+    endpoint_fragments: &mut OwnedFragmentReassembler<(u64, usize)>,
     initial_endpoints: &[Option<SocketAddr>],
 ) {
     let current = device.generation();
@@ -44,8 +44,8 @@ pub(super) fn refresh_device_generation(
         *endpoints = (0..device.peer_count())
             .map(|peer| retained_endpoint(device, initial_endpoints, peer))
             .collect();
-        *fragments = FragmentReassembler::new();
-        *endpoint_fragments = FragmentReassembler::new();
+        *fragments = OwnedFragmentReassembler::new();
+        *endpoint_fragments = OwnedFragmentReassembler::new();
     }
 }
 

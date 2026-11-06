@@ -104,14 +104,10 @@ impl InboundOwnerRegistry {
         #[cfg(feature = "raw-ip-runtime")]
         if let [zero_platform_tokio::contract::component::ResourceDeclaration::DatagramListener {
             ..
-        }, declaration] = prepared.resources()
+        }, declaration @ zero_platform_tokio::contract::component::ResourceDeclaration::NativeIcmp { .. },
+        zero_platform_tokio::contract::component::ResourceDeclaration::PacketDatagramReads { datagram: 0, .. }] = prepared.resources()
         {
-            if matches!(
-                declaration,
-                zero_platform_tokio::contract::component::ResourceDeclaration::NativeIcmp { .. }
-            ) {
-                owner.install_icmp_probe(declaration)?;
-            }
+            owner.install_icmp_probe(declaration)?;
         }
         reserved.config = Arc::downgrade(config);
         reserved.entries.insert(tag.to_owned(), owner.clone());

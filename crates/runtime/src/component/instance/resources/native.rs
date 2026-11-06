@@ -31,6 +31,7 @@ pub struct HostResources {
     roots: root_datagram::RootDeclarations,
     bounds: bound_datagram::BoundDeclarations,
     packets: Vec<packet_device::PacketDeviceOwner>,
+    reads: read_workspaces::ReadDeclarations,
     #[cfg(any(target_os = "linux", windows))]
     processes: process::ProcessDeclarations,
     cancel: CancellationToken,
@@ -92,8 +93,10 @@ mod prepare;
 mod process;
 mod root_datagram;
 pub use listener::HostDatagramListenerOwner;
+mod read_workspaces;
 mod shutdown;
 mod sockets;
+pub use read_workspaces::{HostPacketReadReservation, packet_datagram_read_spec};
 
 /// Closing the grant phase does not claim that its children have exited.
 pub struct StartAccess(Arc<HostResources>);
@@ -163,6 +166,14 @@ impl HostResources {
     }
 }
 impl ResourceAccess for HostResources {
+    #[cfg(feature = "raw-ip-runtime")]
+    fn take_packet_datagram_reads(
+        &self,
+        datagram: usize,
+    ) -> Result<[zero_tun::packet_memory::NativeReadGrant; 2], ChannelError> {
+        self.require_start()?;
+        self.reads.take(datagram)
+    }
     fn packet_carrier_origin(
         &self,
     ) -> Result<zero_platform_tokio::controlled_carrier::CarrierOrigin, ChannelError> {
@@ -189,7 +200,9 @@ impl ResourceAccess for HostResources {
         driver: &zero_platform_tokio::contract::scope::TaskJoinWitness,
     ) -> Result<zero_platform_tokio::contract::component::DatagramBindingId, ChannelError> {
         self.require_start()?;
-        self.bounds.activate(ordinal, driver)
+        let binding = self.bounds.activate(ordinal, driver)?;
+        self.reads.prepare_driver(ordinal, driver)?;
+        Ok(binding)
     }
     fn select_bound_outbound_datagram(
         &self,
