@@ -32,7 +32,11 @@ async fn ordinary_ech_refresh_at_one_query_retains_original_until_success_and_pe
             let mut wire = vec![0; 65536];
             let (size, source) = peer.recv_from(&mut wire).await.unwrap();
             wire.truncate(size);
-            assert_eq!(&wire[size - 4..], &[0, 65, 0, 1]);
+            // The parser validates QCLASS=IN and the complete EDNS record;
+            // the packet suffix belongs to OPT, not this original question.
+            let question = zero_dns::udp::parse_dns_question(&wire).unwrap();
+            assert_eq!(question.domain, "cover.ech.test");
+            assert_eq!(question.query_type, 65);
             let observed = loop {
                 if let Some(observed) =
                     proxy
@@ -68,6 +72,32 @@ async fn ordinary_ech_refresh_at_one_query_retains_original_until_success_and_pe
                 .expect("the exact actual ECH native original closed before its Query join");
             assert!(closed.matches(&original) && closed.had_native_acquisition());
         }
+        let (answer, result) = tokio::sync::oneshot::channel();
+        let (finish, finishing) = tokio::sync::oneshot::channel();
+        let local = proxy
+            .resolver
+            .spawn_ech_refresh("nested.LOCALHOST.".into(), server.clone(), move |value| {
+                Box::pin(async move {
+                    let _ = answer.send(value);
+                    let _ = finishing.await;
+                })
+            })
+            .unwrap();
+        assert_eq!(result.await.unwrap().unwrap().config_list, None);
+        let observed = proxy
+            .resolver
+            .native_query_observations()
+            .into_iter()
+            .find(|record| record.task.same_registration(&local.task))
+            .expect("same real Node registration also owns local cache publication");
+        assert!(observed.original.is_none() && !observed.io_pending);
+        finish.send(()).unwrap();
+        local.task.wait().await.result().unwrap();
+        let mut unexpected = [0; 512];
+        assert_eq!(
+            peer.try_recv_from(&mut unexpected).unwrap_err().kind(),
+            std::io::ErrorKind::WouldBlock
+        );
         let (answer, result) = tokio::sync::oneshot::channel();
         let unauthorized = proxy
             .resolver

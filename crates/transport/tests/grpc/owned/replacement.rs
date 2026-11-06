@@ -33,6 +33,8 @@ async fn background_cold_caps_replace_only_after_same_pool_native_users_and_actu
         let prepared=tokio::select!{exit=old.scope.next_exit()=>exit.unwrap(),result=&mut opening=>panic!("actual auxiliary must precede driver: {}",result.is_ok())};
         assert!(prepared.result.is_ok());
         let mut stream=opening.await.unwrap();stream.write_all(b"a").await.unwrap();stream.flush().await.unwrap();let mut byte=[0;1];stream.read_exact(&mut byte).await.unwrap();assert_eq!(byte,*b"a");
+        let managed=old.managed();let weak=Arc::downgrade(&managed);drop(managed);
+        assert!(!pool.compact_closed_owner(),"a live original cannot be compacted");
         let physical=old.managed().records.lock().unwrap()[0].clone();let witness=physical.witness.lock().unwrap().clone().unwrap();
         assert!(pool.has_host_owner());assert!(physical.adoption.closed().is_none());assert!(pool.validate_mode_candidate(false,true).is_err());
         assert_eq!(next.traffic.boundaries.load(Ordering::SeqCst),0);
@@ -40,6 +42,10 @@ async fn background_cold_caps_replace_only_after_same_pool_native_users_and_actu
         let (native,tasks)=old.close().await;assert!(native.is_complete()&&tasks.is_complete());
         let joined=witness.wait_registration_released().await;assert!(witness.matches_joined(&joined)&&joined.registration_released());
         assert!(physical.closed());assert!(physical.adoption.closed().unwrap().matches(&physical.adoption));assert!(physical.adoption.users_closed().unwrap().matches(&physical.adoption));
+        assert!(pool.compact_closed_owner());
+        // Only removal after real matching closure/ACK releases the heavy
+        // protocol owner. This Weak assertion is memory evidence, not closure.
+        drop(old);assert!(weak.upgrade().is_none());
         assert!(pool.validate_mode_candidate(false,true).is_ok());next.start().await;assert_eq!(next.traffic.boundaries.load(Ordering::SeqCst),0);
         let options=next.options.clone();let demand=next.demand();let mut opening=Box::pin(options.open(next.actual,demand));
         let prepared=tokio::select!{exit=next.scope.next_exit()=>exit.unwrap(),result=&mut opening=>panic!("same real setup owner: {}",result.is_ok())};assert!(prepared.result.is_ok());

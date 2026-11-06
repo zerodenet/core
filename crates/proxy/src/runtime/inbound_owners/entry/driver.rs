@@ -52,6 +52,8 @@ impl InboundOwner {
                         return Ok(());
                     }
                     work.await.map_err(|source| {
+                        #[cfg(test)]
+                        eprintln!("actual retained Source main {identity:?} returned original failure: {source:#?}");
                         let mut error =
                             ChannelError::new(Stage::Close, Reason::Io, Impact::Component)
                                 .with_source(source);

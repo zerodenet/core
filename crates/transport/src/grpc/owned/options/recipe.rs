@@ -47,7 +47,8 @@ impl NativePoolOptions {
             if matches!(
                 tls.options.ech.source().map_err(|_| invalid())?,
                 Some(zero_traits::EchConfigSource::Dns { .. })
-            ) {
+            ) && !background
+            {
                 return Err(std::io::Error::new(
                     std::io::ErrorKind::Unsupported,
                     "native gRPC ECH DNS requires its service owner",

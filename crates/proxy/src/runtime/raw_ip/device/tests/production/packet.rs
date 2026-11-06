@@ -23,6 +23,7 @@ async fn ordinary_packet_roles_return_original_source_and_retire_old_graph_witho
     let socket = UdpSocket::bind("127.0.0.1:0").await.unwrap();
     let config = config(remote, socket.local_addr().unwrap());
     let input = config.endpoints[0].inbound().unwrap();
+    let output = config.endpoints[1].inbound().unwrap();
     let proxy = Proxy::new(config.clone()).unwrap();
     let handle = ProxyHandle::new(
         zero_engine::EngineHandle::new(proxy.engine().clone()),
@@ -35,6 +36,7 @@ async fn ordinary_packet_roles_return_original_source_and_retire_old_graph_witho
         .unwrap();
     let input_owner = proxy.inbound_owners.owner(&input.tag).unwrap();
     input_owner.wait_ready().await.unwrap();
+    let output_owner = proxy.inbound_owners.owner(&output.tag).unwrap();
     let main = input_owner
         .task_access()
         .source_main_witness()
@@ -75,16 +77,18 @@ async fn ordinary_packet_roles_return_original_source_and_retire_old_graph_witho
                 } else {
                     64
                 };
-            handle
+            if let Err(error) = handle
                 .apply_runtime_config_and_wait(changed, Duration::from_secs(5))
                 .await
-                .unwrap_or_else(|source| {
-                    panic!(
-                        "same actual graph replacement failed: {source:?}; original worker fault: {:?}; matching joined receipts: {:?}",
-                        previous[0].task.first_scoped_failure(),
-                        original_joins.iter().map(|witness| witness.try_joined()).collect::<Vec<_>>(),
-                    )
-                });
+            {
+                let actual_input = input_owner.wait_ready().await;
+                let actual_output = output_owner.wait_ready().await;
+                panic!(
+                    "same actual graph replacement failed: {error:?}; original input Source readiness: {actual_input:#?}; original output Source readiness: {actual_output:#?}; original worker fault: {:?}; matching joined receipts: {:?}",
+                    previous[0].task.first_scoped_failure(),
+                    original_joins.iter().map(|witness| witness.try_joined()).collect::<Vec<_>>(),
+                );
+            }
         }
         tokio::time::timeout_at(end(), async {
             loop {

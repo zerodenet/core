@@ -89,11 +89,18 @@ impl OrchestrationState {
             }
             self.applied_snapshot = previous;
             let previous_config = self.applied_snapshot.config().clone();
-            let mut recovery_components=None;
+            let mut recovery_components = None;
             if can_restore {
-                match proxy.protocols.prepare_recovered_device_components(previous_config.clone()){
-                    Ok(plan)=>recovery_components=Some(plan),
-                    Err(error)=>{can_restore=false;acknowledgement.push_str(&format!("; cold component recovery failed: {error}"));}
+                match proxy
+                    .protocols
+                    .prepare_recovered_device_components(previous_config.clone())
+                {
+                    Ok(plan) => recovery_components = Some(plan),
+                    Err(error) => {
+                        can_restore = false;
+                        acknowledgement
+                            .push_str(&format!("; cold component recovery failed: {error}"));
+                    }
                 }
             }
             if can_restore {
@@ -116,7 +123,13 @@ impl OrchestrationState {
             // the same recovered device graph has actually started and scanned.
             let mut dns_recovery = None;
             if recover_dns && can_restore {
-                match restore_dns(proxy, &self.applied_snapshot,recovery_components.as_deref()).await {
+                match restore_dns(
+                    proxy,
+                    &self.applied_snapshot,
+                    recovery_components.as_deref(),
+                )
+                .await
+                {
                     Ok(token) => dns_recovery = Some(token),
                     Err(error) => {
                         can_restore = false;
@@ -260,7 +273,7 @@ impl OrchestrationState {
 async fn restore_dns(
     proxy: &Proxy,
     snapshot: &std::sync::Arc<zero_engine::EngineRuntimeSnapshot>,
-    components:Option<&crate::component::catalog::ComponentPlan>,
+    components: Option<&crate::component::catalog::ComponentPlan>,
 ) -> Result<zero_dns::DnsReloadResources, String> {
     let config = snapshot.config();
     let dispatch = snapshot.dns_dispatch();
@@ -270,7 +283,13 @@ async fn restore_dns(
             config.runtime.dns.as_ref(),
             dispatch,
             &std::collections::BTreeSet::new(),
-            |instance,scope|components.and_then(|plan|plan.component(instance.component)).is_some_and(|slot|slot.instance_id()==instance && slot.matches_live_scope(scope)),
+            |instance, scope| {
+                components
+                    .and_then(|plan| plan.component(instance.component))
+                    .is_some_and(|slot| {
+                        slot.instance_id() == instance && slot.matches_live_scope(scope)
+                    })
+            },
         )
         .map_err(|error| error.to_string())?;
     proxy

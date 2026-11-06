@@ -5,7 +5,7 @@ use zero_engine::EngineError;
 pub(super) async fn prepare(
     proxy: &Proxy,
     snapshot: &Arc<zero_engine::EngineRuntimeSnapshot>,
-    components:&crate::component::catalog::ComponentPlan,
+    components: &crate::component::catalog::ComponentPlan,
 ) -> Result<(), EngineError> {
     let dispatch = snapshot.dns_dispatch();
     let config = snapshot.config();
@@ -25,7 +25,13 @@ pub(super) async fn prepare(
         config.runtime.dns.as_ref(),
         dispatch,
         &affected,
-        |instance,scope|components.component(instance.component).is_some_and(|slot|slot.instance_id()==instance && slot.matches_live_scope(scope)),
+        |instance, scope| {
+            components
+                .component(instance.component)
+                .is_some_and(|slot| {
+                    slot.instance_id() == instance && slot.matches_live_scope(scope)
+                })
+        },
     )?;
     proxy
         .resolver

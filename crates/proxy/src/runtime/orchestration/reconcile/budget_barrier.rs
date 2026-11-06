@@ -120,6 +120,11 @@ pub(super) fn prepare_devices<'a>(
                 .protocols
                 .prepare_devices(config, services.clone())
                 .await
+                .inspect_err(|source| {
+                    #[cfg(test)]
+                    eprintln!("actual post-start device installation retained original failure: {source:#?}");
+                    tracing::warn!(?source, "same post-start device original installation failed");
+                })
         }
         #[cfg(not(feature = "raw-ip-runtime"))]
         {

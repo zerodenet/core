@@ -63,6 +63,8 @@ impl HostResources {
             identity.clone(),
             cancel.clone(),
         )?;
+        #[cfg(target_os = "linux")]
+        let processes = process::ProcessDeclarations::new(declarations, identity.clone());
         let roots =
             root_datagram::RootDeclarations::new(component, declarations, identity.clone())?;
         let metadata =
@@ -257,6 +259,8 @@ impl HostResources {
             roots,
             bounds,
             packets,
+            #[cfg(target_os = "linux")]
+            processes,
             cancel,
             state: Mutex::new(State {
                 closed: false,
