@@ -36,8 +36,8 @@ impl DohDnsResolver {
             .await
             .retain(|entry| entry.key.addr != key.addr);
         self.owner.drain_retired(end).await?;
-        if let Some(peers) = dynamic_candidates {
-            self.make_candidate_room(peers, end).await?;
+        if dynamic_candidates.is_some() {
+            self.make_candidate_room(end).await?;
         }
         self.owner.ensure_open()?;
         #[cfg(feature = "test-support")]

@@ -177,3 +177,5 @@ async fn actual_domain_ech_joins_node_bootstrap_retries_candidates_and_replaces_
 }
 
 mod candidates;
+
+mod capacity;
