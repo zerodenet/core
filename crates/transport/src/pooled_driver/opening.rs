@@ -52,15 +52,19 @@ impl ManagedPool {
             deadline: call.deadline,
             cancel: physical.stop.clone(),
         };
-        let selected = if self.options.scoped_preparation {
-            let pending = super::pending::transport(
+        let pending = if self.options.scoped_preparation {
+            Some(super::pending::transport(
                 self.clone(),
                 physical.clone(),
                 binding.clone(),
                 physical_call.clone(),
                 waiting,
                 caller.ok_or_else(|| failure(self.instance, Stage::Prepare, Reason::StalePlan))?,
-            )?;
+            )?)
+        } else {
+            None
+        };
+        let selected = if let Some(pending) = &pending {
             self.upstream
                 .select_background_carrier_observed(
                     Some(binding.clone()),
