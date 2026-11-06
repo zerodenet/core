@@ -42,7 +42,7 @@ impl Shared {
         Ok(status)
     }
     async fn wait_native_exit(&self) -> std::io::Result<ExitStatus> {
-        #[cfg(target_os = "linux")]
+        #[cfg(any(target_os = "linux", windows))]
         {
             let original = self
                 .state
@@ -136,7 +136,7 @@ impl ResourceLifecycle for Owner {
                 ));
             }
         }
-        #[cfg(target_os = "linux")]
+        #[cfg(any(target_os = "linux", windows))]
         {
             let original = self
                 .shared

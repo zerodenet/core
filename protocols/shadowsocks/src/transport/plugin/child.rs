@@ -1,5 +1,5 @@
 //! The one process backend retained by each existing protocol lease.
-#[cfg(target_os = "linux")]
+#[cfg(any(target_os = "linux", windows))]
 use std::sync::Arc;
 use std::{io, process::ExitStatus};
 use tokio::process::Child;
@@ -7,14 +7,14 @@ use tokio::process::Child;
 /// Linux Host plans retain the Host's same original process tree instead.
 pub(crate) enum PluginChild {
     Library(Child),
-    #[cfg(target_os = "linux")]
+    #[cfg(any(target_os = "linux", windows))]
     Owned(Arc<zero_platform_tokio::owned_process::OwnedProcess>),
 }
 impl PluginChild {
     pub(crate) fn try_wait(&mut self) -> io::Result<Option<ExitStatus>> {
         match self {
             Self::Library(child) => child.try_wait(),
-            #[cfg(target_os = "linux")]
+            #[cfg(any(target_os = "linux", windows))]
             Self::Owned(original) => {
                 if let Some(status) = original.root_status() {
                     return Ok(Some(status));
@@ -29,22 +29,22 @@ impl PluginChild {
     pub(crate) fn start_kill(&mut self) -> io::Result<()> {
         match self {
             Self::Library(child) => child.start_kill(),
-            #[cfg(target_os = "linux")]
+            #[cfg(any(target_os = "linux", windows))]
             Self::Owned(original) => {
                 original.request_stop();
                 Ok(())
             }
         }
     }
-    #[cfg(any(test, not(target_os = "linux")))]
+    #[cfg(any(test, not(any(target_os = "linux", windows))))]
     pub(crate) fn id(&self) -> Option<u32> {
         match self {
             Self::Library(child) => child.id(),
-            #[cfg(target_os = "linux")]
+            #[cfg(any(target_os = "linux", windows))]
             Self::Owned(_) => None,
         }
     }
-    #[cfg(target_os = "linux")]
+    #[cfg(any(target_os = "linux", windows))]
     pub(crate) fn owned(&self) -> Option<Arc<zero_platform_tokio::owned_process::OwnedProcess>> {
         match self {
             Self::Owned(original) => Some(original.clone()),
@@ -52,16 +52,16 @@ impl PluginChild {
         }
     }
 }
-#[cfg(target_os = "linux")]
+#[cfg(any(target_os = "linux", windows))]
 #[derive(Debug)]
 struct OriginalFailure(Arc<io::Error>);
-#[cfg(target_os = "linux")]
+#[cfg(any(target_os = "linux", windows))]
 impl std::fmt::Display for OriginalFailure {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         self.0.fmt(f)
     }
 }
-#[cfg(target_os = "linux")]
+#[cfg(any(target_os = "linux", windows))]
 impl std::error::Error for OriginalFailure {
     fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
         Some(self.0.as_ref())

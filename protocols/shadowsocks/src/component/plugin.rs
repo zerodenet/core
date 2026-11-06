@@ -27,11 +27,22 @@ pub struct PluginOptions {
     resource: ShadowsocksPluginResource,
     identity: Arc<str>,
     static_identity: Arc<[u8]>,
+    endpoint: Option<zero_platform_tokio::owned_process::ProcessEndpointSpec>,
     legacy_budget: Option<crate::shared::LegacyReplayBudgetProposal>,
     #[cfg(feature = "blake3")]
     udp_budget: Option<crate::udp::UdpBudgetProposal>,
 }
 impl PluginOptions {
+    /// Bind this actual process recipe to its declared derived endpoint epoch.
+    pub fn with_process_endpoint(
+        mut self,
+        generation: zero_core::component::NetworkGeneration,
+    ) -> Self {
+        self.endpoint = Some(self.resource.endpoint_spec(generation));
+        self.rebuild_identity();
+        self
+    }
+
     #[cfg(feature = "blake3")]
     pub fn with_udp_budget_proposal(mut self, proposal: crate::udp::UdpBudgetProposal) -> Self {
         self.udp_budget = Some(proposal);
@@ -54,6 +65,15 @@ impl PluginOptions {
         };
         static KEYS: OnceLock<[RandomState; 2]> = OnceLock::new();
         let mut identity = self.identity.as_bytes().to_vec();
+        if let Some(endpoint) = &self.endpoint {
+            identity.extend_from_slice(b"same-job-process-endpoint-v1");
+            identity.extend_from_slice(&[
+                u8::from(endpoint.stream),
+                u8::from(endpoint.datagram),
+                u8::from(endpoint.ipv6),
+            ]);
+            identity.extend_from_slice(&endpoint.network_generation.0.to_le_bytes());
+        }
         for key in KEYS.get_or_init(|| [RandomState::new(), RandomState::new()]) {
             let mut hash = key.build_hasher();
             #[cfg(feature = "blake3")]
@@ -75,6 +95,7 @@ impl PluginOptions {
         Self {
             identity: resource.identity().into(),
             static_identity: resource.identity().as_bytes().into(),
+            endpoint: None,
             legacy_budget: None,
             #[cfg(feature = "blake3")]
             udp_budget: None,
@@ -86,16 +107,22 @@ pub struct PluginFactory;
 impl ComponentFactory for PluginFactory {
     type Options = PluginOptions;
     fn describe(&self, options: &PluginOptions) -> ComponentSpec {
+        let mut resources = vec![ResourceDeclaration::Process {
+            program: options.resource.program(),
+            max_starts: NonZeroUsize::new(1).unwrap(),
+        }];
+        if let Some(spec) = &options.endpoint {
+            resources.push(ResourceDeclaration::ProcessEndpoint {
+                process_ordinal: 0,
+                spec: spec.clone(),
+            });
+        }
         ComponentSpec {
             owner: ResourceOwner::Endpoint(options.identity.clone()),
             roles: vec![],
             dependencies: vec![],
             static_identity: options.static_identity.clone(),
-            resources: vec![ResourceDeclaration::Process {
-                program: options.resource.program(),
-                // One plan has one actual Child; it never respawns that child.
-                max_starts: NonZeroUsize::new(1).unwrap(),
-            }],
+            resources,
             task_limit: NonZeroUsize::new(1),
         }
     }
@@ -106,7 +133,13 @@ impl ComponentFactory for PluginFactory {
     ) -> Result<ComponentInstance, BuildError> {
         Ok(ComponentInstance {
             lifecycle: erase_lifecycle(Owner {
-                resource: options.resource.clone(),
+                // Build runs only after the previous actual generation stops.
+                // A canonical immutable recipe cannot restart its terminated job.
+                resource: if options.endpoint.is_some() {
+                    options.resource.fresh_owner()
+                } else {
+                    options.resource.clone()
+                },
                 legacy_budget: options.legacy_budget.clone(),
                 #[cfg(feature = "blake3")]
                 udp_budget: options.udp_budget.clone(),
@@ -114,6 +147,7 @@ impl ComponentFactory for PluginFactory {
                 component: context.component,
                 tasks: context.tasks,
                 cancel: context.cancel.child_token(),
+                endpoint_ordinal: options.endpoint.as_ref().map(|_| 1),
                 attempted: false,
                 started: false,
                 claimed: Arc::new(AtomicBool::new(false)),
@@ -132,6 +166,7 @@ struct Owner {
     component: ComponentId,
     tasks: TaskRegistrar,
     cancel: CancellationToken,
+    endpoint_ordinal: Option<usize>,
     attempted: bool,
     started: bool,
     claimed: Arc<AtomicBool>,
