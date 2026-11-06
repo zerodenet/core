@@ -64,6 +64,8 @@ async fn unpublished_original_waits_for_real_auxiliary_ack_then_same_business_ca
             assert!(!witness.is_joined(), "Business caller still owns the same live invocation");
             assert!(!transfer.adoption.try_retire().unwrap().is_complete());
             assert_eq!(owner.retained(), 1);
+            assert!(transfer.adoption.unpublished_preparation_closed_for(&witness).is_none(),
+                "actual Aux Host ACK is still owed");
             assert_eq!(role.reserve_transfer(Some(witness.clone())).err().unwrap().reason, Reason::Capacity);
             let deferred = scope.defer_callbacks();
             scope.acknowledge(&receipt).unwrap();
@@ -76,6 +78,8 @@ async fn unpublished_original_waits_for_real_auxiliary_ack_then_same_business_ca
             let closed = transfer.adoption.users_closed().unwrap();
             assert!(transfer.preparation.as_ref().unwrap().matches_unpublished_closed(&closed));
             assert!(!closed.matches_caller(&witness));
+            let proof=transfer.adoption.unpublished_preparation_closed_for(&witness).unwrap();
+            assert!(proof.matches_receipts(&transfer.adoption.closed().unwrap(), &closed, &witness));
             assert_eq!(owner.retained(), 0);
         }
         let listener = socket.listen(1).unwrap();
@@ -101,6 +105,8 @@ async fn unpublished_original_waits_for_real_auxiliary_ack_then_same_business_ca
         };
         let transfer = transfers.lock().unwrap().last().unwrap().clone();
         assert!(transfer.preparation.as_ref().unwrap().is_published());
+        assert!(transfer.adoption.unpublished_preparation_closed_for(&witness).is_none(),
+            "publication is irreversible; a live Business cannot return its native credit early");
         assert!(!witness.is_joined());
         send_io.send(connected.io).unwrap_or_else(|_| panic!("actual caller awaiting IO"));
         let receipt = caller.next_receipt().await.unwrap(); assert!(receipt.result().is_ok());

@@ -21,14 +21,14 @@ mod native_settlement;
 mod origin;
 mod owner;
 mod packet;
+mod preparation;
 mod prepared;
 mod registration;
 mod resolution;
 mod service;
 mod slot;
 mod users;
-mod preparation;
-pub use preparation::CarrierPreparation;
+pub use preparation::{CarrierPreparation, CarrierPreparationClosed};
 mod view;
 use crate::contract::{ChannelError, DeliveryState, Impact, Reason, Stage};
 pub use adoption::{CarrierAdoption, CarrierClosed};
@@ -40,7 +40,8 @@ pub use native::NativeCarrierOpener;
 pub use native_settlement::CarrierNativeSettlement;
 pub use origin::{
     CarrierOrigin, CarrierOriginClosed, CarrierOriginOwner, CarrierOriginOwnerClosed,
-    CarrierOriginUsersClosed, LogicalPacketProviderRegistration, PacketProviderClosed, PacketProviderRegistration,
+    CarrierOriginUsersClosed, LogicalPacketProviderRegistration, PacketProviderClosed,
+    PacketProviderRegistration,
 };
 pub use owner::CarrierOwner;
 pub use packet::CarrierDatagram;

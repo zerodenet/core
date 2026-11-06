@@ -18,6 +18,7 @@ pub(crate) struct NativeCarrierCompletion {
 struct SlotCompletion {
     native: CarrierClosed,
     users: CarrierUsersClosed,
+    unpublished: Option<zero_platform_tokio::controlled_carrier::CarrierPreparationClosed>,
 }
 mod bounded;
 impl NativeCarrierCompletion {
@@ -28,10 +29,12 @@ impl NativeCarrierCompletion {
             && self.slots.iter().all(|slot| {
                 slot.native.had_native_acquisition()
                     && slot.users.had_native_acquisition()
-                    && slot.users.matches_caller(&self.witness)
-                    && slot.users.caller_exit().is_some_and(|exit| {
-                        exit.id() == self.caller.task() && exit.class() == self.caller.class()
-                    })
+                    && (slot.unpublished.as_ref().is_some_and(|proof| {
+                        proof.matches_receipts(&slot.native, &slot.users, &self.witness)
+                    }) || slot.users.matches_caller(&self.witness)
+                        && slot.users.caller_exit().is_some_and(|exit| {
+                            exit.id() == self.caller.task() && exit.class() == self.caller.class()
+                        }))
             })
     }
 }
@@ -116,13 +119,18 @@ impl NativeRegistration {
                 continue;
             }
             let users = adoption.users_closed()?;
+            let unpublished = adoption.unpublished_preparation_closed_for(&witness);
             if !users.matches(&adoption)
                 || !users.had_native_acquisition()
-                || !users.matches_caller(&witness)
+                || (!users.matches_caller(&witness) && unpublished.is_none())
             {
                 return None;
             }
-            slots.push(SlotCompletion { native, users });
+            slots.push(SlotCompletion {
+                native,
+                users,
+                unpublished,
+            });
         }
         let receipt = NativeCarrierCompletion {
             owner: self.owner.clone(),

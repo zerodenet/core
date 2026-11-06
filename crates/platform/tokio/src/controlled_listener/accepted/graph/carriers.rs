@@ -60,6 +60,7 @@ impl AcceptedCaller {
                 let closed = slot.closed().is_some_and(|closed| {
                     closed.matches(&slot)
                         && (!closed.had_native_acquisition()
+                            || slot.unpublished_preparation_closed_for(&caller).is_some()
                             || pending
                                 && slot
                                     .users_closed()
@@ -244,6 +245,10 @@ impl Users {
             let receipts = record.slot.closed().is_some_and(|closed| {
                 closed.matches(&record.slot)
                     && (!closed.had_native_acquisition()
+                        || record
+                            .slot
+                            .unpublished_preparation_closed_for(&record.caller)
+                            .is_some()
                         || record.slot.users_closed().is_some_and(|users| {
                             users.matches(&record.slot)
                                 && if record.pending {

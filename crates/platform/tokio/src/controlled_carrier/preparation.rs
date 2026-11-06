@@ -1,8 +1,10 @@
 //! One-way delivery of the original Business view after its real setup task.
 //! Native authorization remains bound to the admitted Business caller.
+mod closed;
 mod publication;
 use super::{error, slot::Slot, CarrierGrant, CarrierUserView, CarrierUsersClosed};
 use crate::contract::{scope::TaskJoinWitness, ChannelError, DeliveryState, Reason, Stage};
+pub use closed::CarrierPreparationClosed;
 use std::sync::{
     atomic::{AtomicBool, Ordering},
     Arc, OnceLock, Weak,
