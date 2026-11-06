@@ -2,6 +2,7 @@
 use super::*;
 use zero_platform_tokio::controlled_carrier::CarrierOrigin;
 mod fixture;
+mod pending_ack;
 use fixture::Prefix;
 
 #[tokio::test]
