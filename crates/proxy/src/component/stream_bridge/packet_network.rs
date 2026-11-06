@@ -383,7 +383,7 @@ impl UpstreamOpener for ServicePacketOpener {
     fn pending_carrier_capacity(&self, binding: &UpstreamBinding) -> Option<usize> {
         (binding == &self.binding
             && binding.network_generation.0 == self.services.network_generation())
-        .then(|| self.pending.capacity())
+        .then(|| self.pending.as_ref().and_then(|pending| pending.capacity()))
         .flatten()
     }
     fn retain_pending_carrier(

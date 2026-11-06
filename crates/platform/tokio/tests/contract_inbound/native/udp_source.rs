@@ -72,7 +72,12 @@ async fn native_udp_source_retains_original_identity_and_blocks_reuse_until_peer
         assert_eq!(pending.connection_facts().unwrap().effective_source, Some(client.local_addr().unwrap()));
         assert_eq!(pending.connection_facts().unwrap().local_endpoint, Some(endpoint));
         let retirement = admission.retirement();
-        let (send, mut receive, mut peer_control) = peer.lock().unwrap().take().unwrap().split();
+        let actual_peer = peer.lock().unwrap().take().unwrap();
+        let protocol_observer = actual_peer.retirement();
+        assert!(protocol_observer.same_retirement(&retirement));
+        let (send, mut receive, mut peer_control) = actual_peer.split();
+        assert!(protocol_observer.same_retirement(&peer_control.retirement()));
+        assert!(!protocol_observer.is_released());
         assert_eq!(poll_fn(|cx| receive.poll_recv(cx)).await.unwrap(), Some(Vec::new()), "empty packet is not EOF");
         send.send(b"reply").await.unwrap();
         let mut buffer = [0;32];
@@ -83,6 +88,7 @@ async fn native_udp_source_retains_original_identity_and_blocks_reuse_until_peer
         drop(receive);
         drop(pending);
         assert!(peer_control.wait_closed(Instant::now() + Duration::from_secs(1)).await.unwrap().is_complete());
+        assert!(!protocol_observer.is_released(), "all original protocol views returned, but host has not retired");
         assert!(!retirement.is_released(), "logical view return does not close retained peer originals");
         client.send_to(b"early", endpoint).await.unwrap();
         assert!(matches!(source.next(AcceptContext {
@@ -91,6 +97,7 @@ async fn native_udp_source_retains_original_identity_and_blocks_reuse_until_peer
         // This fixture acquired no peer egress resources or tasks; all original
         // peer views above have returned. Only the host releases this admission.
         retirement.release_after_cleanup();
+        assert!(protocol_observer.is_released());
         client.send_to(b"new", endpoint).await.unwrap();
         let replacement = source.next(AcceptContext { deadline: None, cancel: CancellationToken::new() }).await.unwrap().unwrap();
         assert!(replacement.datagram_peer().unwrap().matches(&identity, limits));
