@@ -6,11 +6,11 @@ use crate::grpc::pool::Cached;
 use std::{
     future::Future,
     sync::{
-        Arc, Mutex,
         atomic::{AtomicBool, Ordering},
+        Arc, Mutex,
     },
 };
-use zero_platform_tokio::contract::{DeliveryState, lifecycle::TaskClass, network::CarrierContext};
+use zero_platform_tokio::contract::{lifecycle::TaskClass, network::CarrierContext, DeliveryState};
 
 impl Managed {
     pub(super) async fn wait<T>(
@@ -73,11 +73,8 @@ impl Managed {
         {
             return client.open(self, &demand, lease).await;
         }
-        // No request deadline means no invented setup deadline. For an actual
-        // done+joined prior original, attempt only immediately ready cleanup;
-        // unfinished originals retain capacity and their original controller.
-        let cleanup_end = demand.deadline.unwrap_or_else(Instant::now);
-        self.wait(&demand, self.reap(cleanup_end)).await?;
+        self.wait(&demand, self.reap_demand(demand.deadline))
+            .await?;
         let client = self.create(&demand, waiting).await?;
         if !self.ready() || pool.retired.load(Ordering::Acquire) {
             return Err(error(self.instance, Stage::Prepare, Reason::Revoked));

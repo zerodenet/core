@@ -37,7 +37,10 @@ impl ProtocolInventory {
             return Ok(None);
         };
         let roles = &slot.recipe.spec().roles;
-        if !roles.contains(&RoleKind::Packet) || !roles.contains(&RoleKind::Datagram) {
+        if !roles.contains(&RoleKind::Packet)
+            || !roles.contains(&RoleKind::Datagram)
+            || !components.has_device_carrier_provider(slot.role_id())
+        {
             return Ok(None);
         }
         Ok(Some(ServiceDatagram {

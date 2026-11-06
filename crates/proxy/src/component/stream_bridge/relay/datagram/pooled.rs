@@ -22,6 +22,21 @@ impl UpstreamOpener for Selected {
         }
         self.upstream.pending_carrier_capacity()
     }
+    fn resolve_packet_target(
+        &self,
+        binding: &UpstreamBinding,
+        destination: Destination,
+        identity: zero_platform_tokio::contract::context::RequestIdentity,
+        call: CarrierContext,
+    ) -> BoxFuture<'_, Result<Vec<std::net::SocketAddr>, ChannelError>> {
+        if binding != self.upstream.binding() {
+            return Box::pin(async {
+                Err(invalid(Reason::StalePlan, "packet target binding changed"))
+            });
+        }
+        self.upstream
+            .resolve_packet_target(destination, identity, call)
+    }
     fn retain_pending_carrier(
         &self,
         binding: &UpstreamBinding,

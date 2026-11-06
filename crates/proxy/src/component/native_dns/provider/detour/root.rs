@@ -86,7 +86,7 @@ impl Root {
             || self.egress.generation() != binding.network_generation.0
             || self.cancel.is_cancelled()
             || self.caller.is_joined()
-            || !self.caller.scope_identity().registration_open()
+            || !self.caller.scope_identity().resource_open()
             || self
                 .grants
                 .registration()
@@ -143,6 +143,49 @@ impl DynChannelControl for Control {
     }
 }
 impl UpstreamOpener for Root {
+    fn packet_caller(
+        &self,
+        binding: &UpstreamBinding,
+        identity: &zero_platform_tokio::contract::context::RequestIdentity,
+        call: &CarrierContext,
+    ) -> Result<TaskJoinWitness, ChannelError> {
+        let failure = || {
+            crate::component::instance::invalid(
+                zero_platform_tokio::contract::Reason::StalePlan,
+                "Packet caller differs from its actual DNS query source",
+            )
+        };
+        if binding != &self.binding
+            || call.session.is_some()
+            || call.cancel.is_cancelled()
+            || self.cancel.is_cancelled()
+            || self.caller.is_joined()
+            || !self.caller.scope_identity().resource_open()
+            || self.egress.generation() != binding.network_generation.0
+            || !matches!(identity, zero_platform_tokio::contract::context::RequestIdentity::Service(facts)
+                if facts.origin == zero_core::request::ServiceOrigin::Runtime
+                && facts.purpose == zero_core::request::ServicePurpose::DnsQuery)
+            || self
+                .grants
+                .registration()
+                .bound()
+                .is_none_or(|bound| bound.host_cancelled())
+        {
+            return Err(failure());
+        }
+        let source = self.current.upgrade().ok_or_else(failure)?;
+        let services = source.runtime_services().map_err(|_| failure())?;
+        let execution = services.execution();
+        let plan = execution.components.as_ref().map_err(|_| failure())?;
+        for role in &self.roles {
+            plan.role_slot(*role)
+                .and_then(|slot| slot.service_admission())
+                .ok_or_else(failure)?
+                .check_current()?;
+        }
+        Ok(self.caller.clone())
+    }
+
     fn resolve_packet_target(
         &self,
         binding: &UpstreamBinding,

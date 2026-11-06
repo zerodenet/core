@@ -2,7 +2,7 @@ use zero_config::RuntimeConfig;
 use zero_engine::RouteMode;
 use zero_engine::{EngineError, ResolvedLeafOutbound};
 
-use super::service::{endpoint, ServiceNode};
+use super::service::{ServiceNode, endpoint};
 use super::{PreparedTcpCandidateExecution, ProtocolInventory};
 use crate::component::catalog::ComponentPlan;
 use crate::protocol_registry::OutboundAdapterContext;
@@ -13,7 +13,7 @@ use crate::runtime::tcp_dispatch::operation::{
 #[cfg(feature = "udp-runtime")]
 use crate::runtime::udp_dispatch::operation::PreparedUdpFlowOperation;
 use crate::transport::TcpOutboundFailure;
-use zero_core::{request::Destination, Address};
+use zero_core::{Address, request::Destination};
 use zero_platform_tokio::contract::dns::DnsQueryRole;
 
 pub(crate) struct ClaimedInventoryLeaf<'a> {
@@ -143,7 +143,16 @@ impl ProtocolInventory {
                     return Ok(None);
                 };
                 let Some((host, port)) = candidate.endpoint else {
-                    return Ok(None);
+                    return Ok(components
+                        .has_device_carrier_provider(slot.role_id())
+                        .then(|| ServiceNode {
+                            dial: slot.dial.clone(),
+                            slot,
+                            tag: candidate.tag,
+                            endpoint: None,
+                            wire_endpoint: None,
+                            role: DnsQueryRole::Node,
+                        }));
                 };
                 Ok(Some(ServiceNode {
                     dial: slot.dial.clone(),
@@ -212,16 +221,16 @@ impl ProtocolInventory {
                 message: format!("{reason}: {endpoint}"),
             })));
         }
-        let Some((server, port)) = outbound.protocol.endpoint() else {
-            return Some(Err(failure(EngineError::InvalidPlan {
-                message: "native network Stream is missing its declared endpoint".into(),
-            })));
+        let endpoint = match outbound.protocol.endpoint() {
+            Some((server, port)) => Some((server.into(), port)),
+            None if components?.has_device_carrier_provider(slot.role_id()) => None,
+            None => return None, // cold device preparation has no native qualification yet
         };
         Some(Ok(super::PreparedTcpCandidate {
             health_tag: Some(outbound.tag.clone()),
             tag: Some(outbound.tag.clone()),
             protocol: outbound.protocol.protocol_name().into(),
-            endpoint: Some((server.into(), port)),
+            endpoint,
             execution: super::PreparedTcpCandidateExecution::Native(slot),
         }))
     }

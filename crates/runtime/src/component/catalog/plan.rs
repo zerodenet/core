@@ -96,7 +96,8 @@ impl ComponentPlan {
             let slot = self
                 .role_slot(*role)
                 .ok_or_else(|| invalid(Reason::StalePlan, "background donor role changed"))?;
-            if self.deferred_devices.contains(&slot.id) && !slot.device_carrier_ready() {
+            if self.deferred_devices.contains(&slot.id) && !self.has_device_carrier_provider(*role)
+            {
                 return Err(invalid(
                     Reason::Unsupported,
                     "background borrowing cannot depend on deferred native device start",

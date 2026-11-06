@@ -78,6 +78,24 @@ impl UpstreamOpener for PrefixOpener {
         }
         self.context.upstream.pending_carrier_capacity()
     }
+    fn resolve_packet_target(
+        &self,
+        binding: &UpstreamBinding,
+        destination: Destination,
+        identity: zero_platform_tokio::contract::context::RequestIdentity,
+        call: CarrierContext,
+    ) -> BoxFuture<'_, Result<Vec<std::net::SocketAddr>, ChannelError>> {
+        if binding != &self.expected_binding
+            || binding.network_generation.0 != self.network.network_generation()
+        {
+            return Box::pin(async {
+                Err(invalid(Reason::StalePlan, "packet target prefix changed"))
+            });
+        }
+        self.context
+            .upstream
+            .resolve_packet_target(destination, identity, call)
+    }
     fn retain_pending_carrier(
         &self,
         binding: &UpstreamBinding,

@@ -104,6 +104,16 @@ impl UpstreamTransport {
         self.opener
             .resolve_related_datagram(&self.binding, parent, peer, context)
     }
+    /// Original caller observation from this exact host demand/binding. The
+    /// actual opener must check admission, full identity and live generation;
+    /// merely matching a public session number grants no caller provenance.
+    pub fn packet_caller(
+        &self,
+        identity: &crate::contract::context::RequestIdentity,
+        call: &CarrierContext,
+    ) -> Result<crate::contract::scope::TaskJoinWitness, ChannelError> {
+        self.opener.packet_caller(&self.binding, identity, call)
+    }
     pub fn has_tracked_business_caller(&self) -> bool {
         self.opener.has_tracked_business_caller()
     }

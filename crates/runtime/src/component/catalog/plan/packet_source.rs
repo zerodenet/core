@@ -21,7 +21,34 @@ impl ComponentPlan {
             .bind_packet_source(actual)
     }
     pub fn has_device_carrier_provider(&self, role: zero_core::component::RoleInstanceId) -> bool {
-        self.role_slot(role)
-            .is_some_and(|slot| slot.device_carrier_ready())
+        let Some(selected) = self.role_slot(role) else {
+            return false;
+        };
+        let spec = selected.recipe.spec();
+        if ![
+            zero_platform_tokio::contract::component::RoleKind::Packet,
+            zero_platform_tokio::contract::component::RoleKind::Stream,
+            zero_platform_tokio::contract::component::RoleKind::Datagram,
+        ]
+        .iter()
+        .all(|role| spec.roles.contains(role))
+        {
+            return false;
+        }
+        let mut pending = vec![selected.instance_id()];
+        let mut seen = std::collections::BTreeSet::new();
+        while let Some(id) = pending.pop() {
+            if !seen.insert(id) {
+                continue;
+            }
+            let Some(slot) = self.order.iter().find(|slot| slot.instance_id() == id) else {
+                return false;
+            };
+            if slot.device_carrier_ready() {
+                return true;
+            }
+            pending.extend(slot.dependency_instances());
+        }
+        false
     }
 }

@@ -42,3 +42,7 @@ mod contract_factory;
 
 #[path = "../contract_packet.rs"]
 mod contract_packet;
+
+#[cfg(windows)]
+#[path = "../controlled_pipe.rs"]
+mod controlled_pipe;

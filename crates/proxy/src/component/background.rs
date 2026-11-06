@@ -107,6 +107,38 @@ impl UpstreamOpener for BackgroundCarrier {
     ) -> BoxFuture<'_, Result<UpstreamTransport, ChannelError>> {
         self.select(binding, call, Some(waiting))
     }
+    fn resolve_packet_target(
+        &self,
+        binding: &UpstreamBinding,
+        destination: Destination,
+        identity: zero_platform_tokio::contract::context::RequestIdentity,
+        call: CarrierContext,
+    ) -> BoxFuture<'_, Result<Vec<std::net::SocketAddr>, ChannelError>> {
+        let binding = binding.clone();
+        Box::pin(async move {
+            if call.cancel.is_cancelled()
+                || binding.dial != self.initial.dial
+                || binding.network_generation.0 != self.network.egress.generation()
+            {
+                return Err(invalid(
+                    Reason::StalePlan,
+                    "background packet target binding changed",
+                ));
+            }
+            let source = self.network.current_services().map_err(|source| {
+                invalid(Reason::Revoked, "packet target source retired").with_source(source)
+            })?;
+            let services = source.runtime_services().map_err(|source| {
+                invalid(Reason::Revoked, "packet target services retired").with_source(source)
+            })?;
+            // Preserve the actual identity/call. This delegates metadata DNS to
+            // the existing host source; it never selects or opens a new socket.
+            services
+                .upstream_observed(&self.tag)
+                .resolve_inner_packet_target(destination, identity, call)
+                .await
+        })
+    }
     fn open_stream(
         &self,
         _: &UpstreamBinding,

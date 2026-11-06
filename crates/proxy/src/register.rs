@@ -445,6 +445,28 @@ pub(crate) fn compiled_registries_with_network(
                 move |input, _| Ok(inbound_adapter.inbound_options(input)?),
             )
             .expect("unique standard WireGuard inbound registration");
+        let outbound_adapter = adapter.clone();
+        components
+            .register_with_resources(
+                adapter.descriptor(),
+                crate::adapters::wireguard::lifecycle::LinkedOutboundFactory,
+                move |input, resources| {
+                    outbound_adapter
+                        .linked_outbound_options(input, resources)
+                        .map_err(crate::component::RegistrationError::from)
+                },
+            )
+            .expect("unique canonical WireGuard outbound registration");
+        components.set_candidate_acceptance("wireguard", |outbound, _| {
+            matches!(
+                &outbound.protocol,
+                zero_config::OutboundProtocolConfig::Wireguard {
+                    inbound_tag: Some(_),
+                    outer_udp_proxy: None,
+                    ..
+                }
+            )
+        });
         registry
             .register_standard_protocol(adapter, Some(WireguardAdapter::claim_outbound_leaf_impl));
     }
@@ -483,8 +505,8 @@ pub(crate) fn compiled_registries_with_network(
 }
 
 #[cfg(test)]
-pub(crate) fn component_registry(
-) -> crate::component::ComponentRegistry<zero_config::OutboundConfig> {
+pub(crate) fn component_registry()
+-> crate::component::ComponentRegistry<zero_config::OutboundConfig> {
     compiled_registries().1
 }
 
