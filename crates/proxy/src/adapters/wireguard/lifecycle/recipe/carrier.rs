@@ -59,6 +59,26 @@ impl Carrier {
             .find(|peer| self.options.plan.peer_for_target(peer.ip()).is_ok())
             .ok_or_else(|| error(Stage::Dial, Reason::InvalidConfig))
     }
+    fn flow_borrow(
+        &self,
+        context: &OpenContext,
+    ) -> Result<crate::runtime::raw_ip::PacketFlowBorrow, ChannelError> {
+        let caller = context.upstream.packet_caller(
+            &context.identity,
+            &zero_platform_tokio::contract::network::CarrierContext {
+                session: context.identity.session(),
+                deadline: context.deadline,
+                cancel: context.cancel.clone(),
+            },
+        )?;
+        Ok(crate::runtime::raw_ip::PacketFlowBorrow {
+            caller,
+            observer: context
+                .observer
+                .as_ref()
+                .and_then(|observer| observer.packet_flow_io()),
+        })
+    }
     fn observe_peer(&self, target: IpAddr, context: &OpenContext) -> Result<(), ChannelError> {
         use crate::runtime::raw_ip::RawIpOutboundPlan;
         let peer = self.options.plan.peer_for_target(target).map_err(failure)?;

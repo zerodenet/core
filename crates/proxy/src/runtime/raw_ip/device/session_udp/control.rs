@@ -28,6 +28,7 @@ impl ChannelControl for Control {
         })
         .await
         .map_err(|source| failure(Stage::Close, Reason::Timeout).with_source(source))?;
+        self.0.user.lock().unwrap().take();
         if let Some(source) = self
             .0
             .state

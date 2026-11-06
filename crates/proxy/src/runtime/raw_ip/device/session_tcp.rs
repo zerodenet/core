@@ -32,10 +32,20 @@ pub(crate) struct Stream {
     deadline: Option<Pin<Box<tokio::time::Sleep>>>,
     observer: Option<Arc<dyn ConnectObserver>>,
     session: Option<zero_core::component::SessionId>,
+    users_cancelled: Pin<Box<dyn Future<Output = ()> + Send>>,
+    // Declared after the original IO/control: view release follows IO Drop.
+    _user: crate::runtime::packet_flow::FlowUser,
 }
 impl Stream {
-    pub(super) fn new(opening: ClientTcpOpening, context: OpenContext) -> Self {
+    pub(super) fn new(
+        opening: ClientTcpOpening,
+        context: OpenContext,
+        user: crate::runtime::packet_flow::FlowUser,
+        stop: zero_platform_tokio::contract::CancellationToken,
+    ) -> Self {
         Self {
+            _user: user,
+            users_cancelled: Box::pin(stop.cancelled_owned()),
             control: opening.control(),
             connecting: Some(Box::pin(opening.connect())),
             stream: None,
@@ -67,6 +77,11 @@ impl Stream {
         }
         Ok(self)
     }
+    pub(crate) async fn close_failed(mut self) {
+        self.connecting.take();
+        self.stream.take();
+        self.control.close().await;
+    }
     pub(crate) fn into_loan(self, original: CarrierOrigin) -> StreamLoan {
         let control = Control(self.control.clone());
         StreamLoan::new(
@@ -76,7 +91,10 @@ impl Stream {
         )
     }
     fn prepare(&mut self, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
-        if self.control.is_stopped() || self.cancelled.as_mut().poll(cx).is_ready() {
+        if self.control.is_stopped()
+            || self.cancelled.as_mut().poll(cx).is_ready()
+            || self.users_cancelled.as_mut().poll(cx).is_ready()
+        {
             self.control.cancel();
             return Poll::Ready(Err(io::ErrorKind::BrokenPipe.into()));
         }
