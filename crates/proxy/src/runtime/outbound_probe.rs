@@ -276,3 +276,7 @@ fn global_shared_probes() -> Arc<Mutex<HashMap<ProbeKey, SharedProbeEntry>>> {
 
 #[cfg(test)]
 mod tests;
+
+#[cfg(test)]
+#[path = "outbound_probe/ownership_tests.rs"]
+mod ownership_tests;
