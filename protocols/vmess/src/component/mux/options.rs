@@ -7,6 +7,7 @@ pub struct PreparedMux {
     pub(super) leaf: crate::transport::VmessOutboundLeaf,
     pub(super) pool: Arc<PoolOptions>,
     pub(super) material: Option<Arc<super::super::Options>>,
+    pub(super) grpc_admission: Option<Arc<super::super::grpc::registry::State>>,
 }
 impl PreparedMux {
     pub fn from_options_refs<TTls, TWs, TGrpc>(
@@ -79,16 +80,16 @@ impl PreparedMux {
         }
         // The owning recipe retains the same full TLS/File profile. Fixed
         // library construction keeps its original stricter resource policy;
-        // gRPC/browser still require their complete transport owners.
+        // the inline gRPC connection stays inside that same original MUX driver.
         let mut ordinary = input;
         ordinary.protocol.mux_concurrency = None;
         let material = match max_file_bytes {
             Some(max) => Some(Arc::new(
-                super::super::Options::from_owned_options_refs_at(
+                super::super::Options::from_mux_transport_options_refs_at(
                     ordinary,
                     binding.dial.clone(),
                     source_dir,
-                    Some(max),
+                    max,
                 )?
                 .with_owned_material(runtime, source_dir, max)?,
             )),
@@ -104,6 +105,7 @@ impl PreparedMux {
             leaf,
             pool,
             material,
+            grpc_admission: input.grpc.is_some().then(|| runtime.grpc_carrier_state()),
         })
     }
     pub fn with_node_dependency(mut self, dependency: ComponentId) -> Self {
@@ -136,6 +138,7 @@ impl PreparedMux {
         Arc::new(super::OwnedPoolOptions {
             pool: self.pool.clone(),
             material: self.material.clone(),
+            grpc_admission: self.grpc_admission.clone(),
         })
     }
     pub fn pool_options(&self) -> &Arc<PoolOptions> {

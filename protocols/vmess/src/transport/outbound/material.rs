@@ -14,30 +14,47 @@ impl OwnedVmessOutboundTransportPlan {
         stream: TcpRelayStream,
         original: zero_core::component::ComponentInstanceId,
     ) -> Result<TcpRelayStream, RuntimeError> {
-        let Some(bound) = self.material.bound(original)? else {
-            if self.transport.tls.as_ref().is_some_and(|profile| {
-                profile.ca_cert_path.is_some()
-                    || profile
-                        .options
-                        .ech
-                        .source()
-                        .map(|source| {
-                            matches!(source, Some(zero_traits::EchConfigSource::Dns { .. }))
-                        })
-                        .unwrap_or(true)
-            }) {
-                return Err(std::io::Error::new(
-                    std::io::ErrorKind::PermissionDenied,
-                    "same actual VMess MUX material owner is not installed",
-                )
-                .into());
+        let grpc_owned = self
+            .grpc_state
+            .as_ref()
+            .is_some_and(|state| state.current_node_streams(original));
+        if self.transport.grpc.is_some() && !grpc_owned {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::PermissionDenied,
+                "same actual VMess gRPC MUX owner is not installed",
+            )
+            .into());
+        }
+        let io = match self.material.bound(original)? {
+            Some(bound) => {
+                let prepared = bound.material.prepare(bound.resolver.as_deref()).await?;
+                prepared.connect(stream).await?
             }
-            // Original fixed library setup, without a File or dynamic DNS
-            // requirement, retains its existing inline transport duties.
-            return self.open_relay(stream).await;
+            None if self.transport.tls.is_some() => {
+                if grpc_owned
+                    || self.transport.tls.as_ref().is_some_and(|profile| {
+                        profile.ca_cert_path.is_some()
+                            || profile
+                                .options
+                                .ech
+                                .source()
+                                .map(|source| {
+                                    matches!(source, Some(zero_traits::EchConfigSource::Dns { .. }))
+                                })
+                                .unwrap_or(true)
+                    })
+                {
+                    return Err(std::io::Error::new(
+                        std::io::ErrorKind::PermissionDenied,
+                        "same actual VMess MUX material owner is not installed",
+                    )
+                    .into());
+                }
+                return self.open_relay(stream).await;
+            }
+            None if grpc_owned => stream,
+            None => return self.open_relay(stream).await,
         };
-        let prepared = bound.material.prepare(bound.resolver.as_deref()).await?;
-        let io = prepared.connect(stream).await?;
         if let Some(grpc) = &self.transport.grpc {
             let settings = io
                 .application_settings()

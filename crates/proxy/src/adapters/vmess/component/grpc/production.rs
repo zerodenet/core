@@ -24,20 +24,27 @@ pub(crate) fn whole_streams_selected(config: &RuntimeConfig, native: bool) -> bo
         .collect::<Vec<_>>();
     !nodes.is_empty()
         && nodes.into_iter().all(|node| {
-            selected(node, Some(config), native)
-                && config.outbound_groups.iter().all(|group| {
-                    let OutboundGroupKind::Relay { proxies } = &group.group else {
-                        return true;
-                    };
-                    proxies.iter().all(|name| {
-                        reaches(
-                            config,
-                            name,
-                            node.tag(),
-                            &mut std::collections::BTreeSet::new(),
-                        ) == Some(false)
-                    })
+            (if super::super::mux::has_mux(node) {
+                super::super::mux::eligible(node)
+                    && native
+                    && (!super::super::mux::needs_ip_backend(node)
+                        || zero_dns::native::validate_node_config(config.runtime.dns.as_ref())
+                            .is_ok())
+            } else {
+                selected(node, Some(config), native)
+            }) && config.outbound_groups.iter().all(|group| {
+                let OutboundGroupKind::Relay { proxies } = &group.group else {
+                    return true;
+                };
+                proxies.iter().all(|name| {
+                    reaches(
+                        config,
+                        name,
+                        node.tag(),
+                        &mut std::collections::BTreeSet::new(),
+                    ) == Some(false)
                 })
+            })
         })
 }
 

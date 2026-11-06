@@ -16,6 +16,7 @@ use zero_transport::{
 pub struct OwnedPoolOptions {
     pub(super) pool: Arc<PoolOptions>,
     pub(super) material: Option<Arc<super::super::Options>>,
+    pub(super) grpc_admission: Option<Arc<super::super::grpc::registry::State>>,
 }
 impl OwnedPoolOptions {
     pub fn pool_options(&self) -> &Arc<PoolOptions> {
@@ -82,6 +83,7 @@ impl OwnedPoolFactory {
                 resources,
                 cancel,
                 resolver,
+                grpc_claimed: false,
             }),
         })
     }
@@ -93,9 +95,16 @@ struct Owner {
     resources: Arc<dyn ResourceAccess>,
     cancel: CancellationToken,
     resolver: Option<Arc<dyn EchConfigResolver>>,
+    grpc_claimed: bool,
 }
 impl ResourceLifecycle for Owner {
     async fn start(&mut self, end: tokio::time::Instant) -> Result<(), BuildError> {
+        if !self.grpc_claimed {
+            if let Some(admission) = &self.options.grpc_admission {
+                admission.claim_node_streams(self.instance)?;
+                self.grpc_claimed = true;
+            }
+        }
         if let Some(material) = self
             .options
             .material
@@ -121,6 +130,15 @@ impl ResourceLifecycle for Owner {
         self.original.revoke(reason);
     }
     async fn shutdown(&mut self, end: tokio::time::Instant) -> Result<CloseReport, BuildError> {
-        self.original.shutdown(end).await
+        let report = self.original.shutdown(end).await?;
+        if report.is_complete() && self.grpc_claimed {
+            self.options
+                .grpc_admission
+                .as_ref()
+                .unwrap()
+                .release_node_streams(self.instance);
+            self.grpc_claimed = false;
+        }
+        Ok(report)
     }
 }
