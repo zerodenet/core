@@ -1,7 +1,7 @@
 //! Cold same-host process reservation before its actor receives authority.
 use super::*;
 impl HostResources {
-    pub(super) fn prepare_process(
+    pub(in crate::component) fn prepare_process(
         &self,
         request: ProcessRequest,
         tasks: &TaskRegistrar,

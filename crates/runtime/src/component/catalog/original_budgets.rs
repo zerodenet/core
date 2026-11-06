@@ -12,7 +12,7 @@ impl ComponentCatalog {
             );
         }
     }
-    fn original_budgets(&self) -> Arc<crate::HostOriginalBudgets> {
+    pub(super) fn original_budgets(&self) -> Arc<crate::HostOriginalBudgets> {
         // Public standalone catalogs own one explicit lifetime; RuntimeHost always injects before prepare.
         self.originals.get_or_init(Arc::default).clone()
     }
