@@ -11,6 +11,40 @@ pub struct HostOriginalBudgets {
     pub packet: std::sync::Arc<zero_tun::packet_memory::PacketReturnTotals>,
 }
 impl HostOriginalBudgets {
+    pub(crate) fn limits_changed(
+        current: &zero_config::RuntimeOptionsConfig,
+        target: &zero_config::RuntimeOptionsConfig,
+    ) -> bool {
+        if current.effective_carrier_max_total_originals()
+            != target.effective_carrier_max_total_originals()
+            || current.effective_process_max_jobs() != target.effective_process_max_jobs()
+            || current.effective_process_max_jobs_per_instance()
+                != target.effective_process_max_jobs_per_instance()
+        {
+            return true;
+        }
+        #[cfg(feature = "raw-ip-runtime")]
+        if current.effective_packet_return_max_frames()
+            != target.effective_packet_return_max_frames()
+            || current.effective_packet_return_max_bytes()
+                != target.effective_packet_return_max_bytes()
+            || current.effective_packet_return_total_max_frames()
+                != target.effective_packet_return_total_max_frames()
+            || current.effective_packet_return_total_max_bytes()
+                != target.effective_packet_return_total_max_bytes()
+            || current.effective_packet_native_read_total_max_frames()
+                != target.effective_packet_native_read_total_max_frames()
+            || current.effective_packet_native_read_total_max_bytes()
+                != target.effective_packet_native_read_total_max_bytes()
+            || current.effective_packet_transmit_total_max_frames()
+                != target.effective_packet_transmit_total_max_frames()
+            || current.effective_packet_transmit_total_max_bytes()
+                != target.effective_packet_transmit_total_max_bytes()
+        {
+            return true;
+        }
+        false
+    }
     pub(crate) fn install_original_limits(
         &self,
         runtime: &zero_config::RuntimeOptionsConfig,

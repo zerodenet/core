@@ -58,18 +58,7 @@ impl ComponentCatalog {
         let changes_limits = {
             let state = self.state.lock().expect("component catalog poisoned");
             state.current.as_ref().is_some_and(|current| {
-                current
-                    .config
-                    .runtime
-                    .effective_carrier_max_total_originals()
-                    != config.runtime.effective_carrier_max_total_originals()
-                    || current.config.runtime.effective_process_max_jobs()
-                        != config.runtime.effective_process_max_jobs()
-                    || current
-                        .config
-                        .runtime
-                        .effective_process_max_jobs_per_instance()
-                        != config.runtime.effective_process_max_jobs_per_instance()
+                crate::HostOriginalBudgets::limits_changed(&current.config.runtime, &config.runtime)
             })
         };
         let already_paused = previous_replacement.as_ref().is_some_and(|original| {
