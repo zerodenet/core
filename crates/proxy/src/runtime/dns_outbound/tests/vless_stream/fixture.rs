@@ -148,8 +148,8 @@ async fn start_config(
         .configured("node")
         .unwrap();
     assert!(
-        slot.recipe.spec().task_limit.is_none(),
-        "inline per-connection transport must not invent a driver task"
+        slot.recipe.spec().task_limit.map(|limit| limit.get()) == Some(1),
+        "same N=1 owner retains the actual preparation Aux until Host ACK"
     );
     (proxy, running)
 }
@@ -178,10 +178,32 @@ pub(super) async fn pending(proxy: &Proxy) -> zero_dns::OwnedDnsQueryObservation
     .await
     .unwrap()
 }
-pub(super) fn donor(child: &CarrierOrigin) -> CarrierOrigin {
+pub(super) fn donor(proxy: &Proxy, child: &CarrierOrigin) -> CarrierOrigin {
     let donor = child.parent().expect("same per-connection donor");
     assert!(donor.driver().is_none() && donor.parent().is_none());
     assert!(donor.closed().is_none());
+    let plan = proxy.tcp_runtime_services().components.clone().unwrap();
+    let slot = plan.component(donor.instance().component).unwrap();
+    assert_eq!(slot.instance_id(), donor.instance());
+    let owner = (0..slot.recipe.spec().resources.len())
+        .filter_map(|ordinal| slot.original_carrier_owner(ordinal))
+        .find(|owner| owner.instance() == donor.instance())
+        .unwrap();
+    let observed = owner.observe().unwrap();
+    assert_eq!(observed.retained(), 1);
+    let original = &observed.slots()[0];
+    assert!(original.driver().is_none(), "protocol I/O remains inline");
+    let auxiliary = original.auxiliary().expect("real same-slot preparation");
+    assert!(
+        auxiliary
+            .scope_identity()
+            .same_scope(&owner.bound().unwrap().scope_identity())
+    );
+    let joined = auxiliary
+        .try_joined()
+        .expect("preparation joined before loan delivery");
+    assert!(auxiliary.matches_joined(&joined) && joined.registration_released());
+    joined.result().unwrap();
     let endpoints = donor
         .endpoints()
         .expect("actual connected native endpoints");

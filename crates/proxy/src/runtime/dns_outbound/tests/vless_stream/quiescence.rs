@@ -13,7 +13,7 @@ async fn actual_pending_dns_is_busy_but_idle_doh_releases_same_donor_and_rolls_b
             request=tokio::time::timeout_at(deadline(),tls.requests.recv())=>request.unwrap().unwrap(),
             result=&mut first=>panic!("actual DoH failed before real HTTP Pending: {result:?}"),
         };
-        let actual=pending(&proxy).await;let child=actual.original.as_ref().unwrap();let original=donor(child);
+        let actual=pending(&proxy).await;let child=actual.original.as_ref().unwrap();let original=donor(&proxy,child);
         let replaced=[original.instance()];
         assert!(proxy.resolver.native_donor_instances().unwrap().contains(&replaced[0]));
         let unrelated=proxy.resolver.try_pause_donor_replacement(&[]).unwrap();
@@ -48,7 +48,7 @@ async fn actual_pending_dns_is_busy_but_idle_doh_releases_same_donor_and_rolls_b
             request=tokio::time::timeout_at(deadline(),tls.requests.recv())=>request.unwrap().unwrap(),
             result=&mut next=>panic!("same actual backend did not recover its admission: {result:?}"),
         };
-        let fresh=pending(&proxy).await;let successor=fresh.original.as_ref().unwrap();let fresh_donor=donor(successor);
+        let fresh=pending(&proxy).await;let successor=fresh.original.as_ref().unwrap();let fresh_donor=donor(&proxy,successor);
         assert!(!fresh.task.same_registration(&actual.task));
         assert!(fresh.task.scope_identity().same_scope(&actual.task.scope_identity()),"same backend/provider Scope reconnects without a second owner");
         assert!(!original.same_original(&fresh_donor));
@@ -73,7 +73,7 @@ async fn ordinary_total_budget_replacement_rejects_pending_dns_then_retires_idle
             request=tokio::time::timeout_at(deadline(),tls.requests.recv())=>request.unwrap().unwrap(),
             result=&mut first=>panic!("original DoH failed before actual Pending: {result:?}"),
         };
-        let actual=pending(&proxy).await;let child=actual.original.as_ref().unwrap();let old=donor(child);
+        let actual=pending(&proxy).await;let child=actual.original.as_ref().unwrap();let old=donor(&proxy,child);
         let old_plan=proxy.tcp_runtime_services().components.clone().unwrap();
         let old_slot=old_plan.component(old.instance().component).unwrap();
         let owner=(0..old_slot.recipe.spec().resources.len()).filter_map(|ordinal|old_slot.original_carrier_owner(ordinal))
@@ -105,7 +105,7 @@ async fn ordinary_total_budget_replacement_rejects_pending_dns_then_retires_idle
             request=tokio::time::timeout_at(deadline(),tls.requests.recv())=>request.unwrap().unwrap(),
             result=&mut next=>panic!("actual successor DNS failed after old native/Scope closure: {result:?}"),
         };
-        let successor=pending(&proxy).await;let next_child=successor.original.as_ref().unwrap();let fresh=donor(next_child);
+        let successor=pending(&proxy).await;let next_child=successor.original.as_ref().unwrap();let fresh=donor(&proxy,next_child);
         assert!(!old.same_original(&fresh));
         assert!(!actual.task.scope_identity().same_scope(&successor.task.scope_identity()));
         answer.send(zero_dns::udp::build_dns_response(&bytes,&[IpAddress::V4([127,0,0,1])])).unwrap();next.await.unwrap().unwrap();

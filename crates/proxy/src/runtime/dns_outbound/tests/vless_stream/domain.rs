@@ -30,7 +30,7 @@ async fn ordinary_vless_h2_and_upgrade_domain_dns_consumes_each_failed_original_
                 result=&mut query=>panic!("ordinary {kind} did not retire failed candidate and acquire the next original: {result:?}"),
             };
             assert!(request.tcp);
-            let actual=pending(&proxy).await;let child=actual.original.as_ref().unwrap();let original=donor(child);
+            let actual=pending(&proxy).await;let child=actual.original.as_ref().unwrap();let original=donor(&proxy,child);
             assert_eq!(original.selected_binding().unwrap().0.address,zero_core::Address::Domain("transport.actual.node.test".into()));
             assert_eq!(original.endpoints().unwrap().peer(),remote.address);
             let plan=proxy.tcp_runtime_services().components.clone().unwrap();let slot=plan.configured("node").unwrap();
@@ -38,7 +38,11 @@ async fn ordinary_vless_h2_and_upgrade_domain_dns_consumes_each_failed_original_
                 .find(|owner|owner.observe().is_some_and(|held|held.retained()==1)).unwrap();
             let held=owner.observe().unwrap();assert_eq!(held.retained(),1);
             assert_eq!(held.slots()[0].ordinal(),2,"same actual issuer fully returned its first failed original before this N=1 successor");
-            assert!(held.slots()[0].driver().is_none()&&held.slots()[0].auxiliary().is_none());
+            assert!(held.slots()[0].driver().is_none());
+            let auxiliary=held.slots()[0].auxiliary().unwrap();
+            assert!(auxiliary.scope_identity().same_scope(&owner.bound().unwrap().scope_identity()));
+            let joined=auxiliary.try_joined().unwrap();
+            assert!(auxiliary.matches_joined(&joined)&&joined.registration_released());joined.result().unwrap();
             request.answer(false,false);assert_eq!(query.await.unwrap().unwrap(),vec![IpAddress::V4([127,0,0,1])]);
             tokio::time::timeout_at(deadline(),actual.task.wait()).await.unwrap().result().unwrap();
             returned(child);native_closed(&original);node.no_new_request();
