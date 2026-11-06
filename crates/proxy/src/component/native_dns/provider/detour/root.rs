@@ -65,7 +65,7 @@ impl Root {
             candidates: Default::default(),
         })
     }
-    /// A device Datagram donor needs the same actual pending ledger, but no
+    /// A device donor needs the same actual pending ledger, but no
     /// authorization to dial a second native Stream behind that device.
     pub(super) fn observer_only(mut self) -> Self {
         self.native = None;
