@@ -157,14 +157,6 @@ impl fmt::Debug for NativeDnsSource {
     }
 }
 impl NativeDnsSource {
-    pub(crate) fn owns_detour(&self, outbound: &str) -> bool {
-        match self.provider() {
-            Ok(provider) => provider.owns_detour(outbound),
-            // A missing original host is a terminal admission failure, never
-            // permission to run a submitted query through a naked connector.
-            Err(_) => true,
-        }
-    }
     /// Settle old actual registrations if this purpose is assembled. A source
     /// with no installed provider grants no resource and has nothing to poll;
     /// the RuntimeHost retains withdrawn owners through its replacement barrier.

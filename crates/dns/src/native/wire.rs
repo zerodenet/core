@@ -112,6 +112,13 @@ pub(super) async fn exchange(
     cancel: CancellationToken,
     end: Instant,
 ) -> Attempt {
+    // Existing DoQ detours have never had a proxy-aware QUIC carrier. Do not
+    // turn host-only execution into a direct QUIC bypass of that detour.
+    if matches!(config, DnsServerConfig::Doq { .. }) && config.detour().is_some() {
+        return Attempt::blocked(unsupported(
+            "DoQ detour requires a proxy-aware UDP/QUIC carrier",
+        ));
+    }
     if config
         .detour()
         .is_some_and(|outbound| !provider.owns_detour(outbound))
