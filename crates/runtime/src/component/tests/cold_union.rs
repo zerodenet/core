@@ -306,3 +306,49 @@ async fn cold_shared_union_does_not_start_owners_or_publish_admission() {
 
 #[path = "cold_union/transactions.rs"]
 mod transactions;
+
+#[test]
+fn actual_named_callee_prepares_once_before_devices_and_is_consumed_by_the_same_primary() {
+    use std::collections::{BTreeMap, BTreeSet};
+    let controls = Arc::new(Controls::default());
+    let catalog = catalog(&controls);
+    let input = config();
+    let prepare = |previous: Option<&Arc<ComponentPlan>>, before: usize| {
+        Arc::new(
+            catalog
+                .compile_with_floor(
+                    &input,
+                    previous.map(|plan| (&input, plan)),
+                    &BTreeMap::new(),
+                    true,
+                    |resources| {
+                        let id = resources.prepare_named_component("a")?;
+                        assert_eq!(controls.conversions.load(Ordering::SeqCst), before + 1);
+                        assert_eq!(resources.prepare_named_component("a")?, id);
+                        assert_eq!(controls.conversions.load(Ordering::SeqCst), before + 1);
+                        if let Some(old) = previous {
+                            assert_eq!(
+                                resources.reusable_resource_instance(id),
+                                Some(old.configured("a").unwrap().instance_id())
+                            );
+                        }
+                        Ok(BTreeSet::new())
+                    },
+                )
+                .unwrap(),
+        )
+    };
+    let first = prepare(None, 0);
+    assert_eq!(controls.conversions.load(Ordering::SeqCst), 2);
+    let second = prepare(Some(&first), 2);
+    assert_eq!(controls.conversions.load(Ordering::SeqCst), 4);
+    assert!(Arc::ptr_eq(
+        &first.configured("a").unwrap(),
+        &second.configured("a").unwrap()
+    ));
+    assert_eq!(
+        controls.builds.load(Ordering::SeqCst),
+        0,
+        "cold preparation creates no owner or task"
+    );
+}

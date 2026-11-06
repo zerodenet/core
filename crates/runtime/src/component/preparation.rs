@@ -52,6 +52,9 @@ pub struct ResourcePreparation<'a> {
     allocate: &'a mut dyn FnMut() -> Result<ComponentId, BuildError>,
     builtin_component: Option<ComponentId>,
     named_components: BTreeMap<String, ComponentId>,
+    primary_factories: Option<&'a super::ComponentRegistry<zero_config::OutboundConfig>>,
+    named_recipes: BTreeMap<String, (ComponentRecipe, Option<super::ValidatedRecipe>)>,
+    preparing_named: BTreeSet<String>,
     source_dependencies: Option<SourceDependencyDeclarations>,
     resources: BTreeMap<Key, PreparedSharedResource>,
     identities: BTreeSet<ComponentId>,
@@ -75,6 +78,9 @@ impl<'a> ResourcePreparation<'a> {
             allocate,
             builtin_component: None,
             named_components: BTreeMap::new(),
+            primary_factories: None,
+            named_recipes: BTreeMap::new(),
+            preparing_named: BTreeSet::new(),
             source_dependencies: None,
             resources: BTreeMap::new(),
             identities: BTreeSet::new(),
@@ -121,19 +127,24 @@ impl<'a> ResourcePreparation<'a> {
             if !seen.insert(id) {
                 return None;
             }
-            let candidate = preparation
-                .resources
-                .values()
-                .find(|node| node.component == id)?;
+            let shared = preparation.resources.values().find(|node| node.component == id);
+            let (recipe, fresh) = match shared {
+                Some(candidate) => (&candidate.recipe, candidate.fresh),
+                None => {
+                    let tag = preparation.named_components.iter().find(|(_, actual)| **actual == id)?.0;
+                    let (recipe, _) = preparation.named_recipes.get(tag)?;
+                    (recipe, false)
+                }
+            };
             let old = preparation
                 .previous_slots
                 .iter()
                 .find(|node| node.id == id)?;
-            if candidate.fresh
+            if fresh
                 || !old.can_reuse()
-                || candidate.recipe.spec() != old.recipe.spec()
-                || candidate.recipe.carrier_total_limit() != old.recipe.carrier_total_limit()
-                || candidate.recipe.process_limits() != old.recipe.process_limits()
+                || recipe.spec() != old.recipe.spec()
+                || recipe.carrier_total_limit() != old.recipe.carrier_total_limit()
+                || recipe.process_limits() != old.recipe.process_limits()
             {
                 return None;
             }

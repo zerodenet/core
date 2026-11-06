@@ -107,6 +107,7 @@ impl ComponentCatalog {
             .unwrap_or_default();
         let mut resources = ResourcePreparation::with_identities(&mut allocate, &identities)
             .with_candidate(config)
+            .with_primary_factories(self.factories())
             .with_previous_named(previous.map(|(_, plan)| &plan.outbounds))
             .with_same_source_as_previous(
                 previous.is_some_and(|(source, _)| std::ptr::eq(config, source.as_ref())),
@@ -261,12 +262,13 @@ impl ComponentCatalog {
         previous: Option<(bool, &ComponentSlot)>,
         resources: &mut ResourcePreparation<'_>,
     ) -> Result<Arc<ComponentSlot>, ChannelError> {
-        let recipe = self
-            .factories()
-            .prepare_with_resources(input.protocol.protocol_name(), input, resources)
-            .map_err(|source| {
-                invalid(Reason::Internal, "component option validation failed").with_source(source)
-            })?;
+        let recipe = if resources.named_component(&input.tag) == Some(id) {
+            resources.prepared_named_recipe(&input.tag)?
+        } else {
+            self.factories()
+                .prepare_with_resources(input.protocol.protocol_name(), input, resources)
+                .map_err(|source| invalid(Reason::Internal, "component option validation failed").with_source(source))?
+        };
         let generation = match previous {
             Some((unchanged, previous)) => {
                 if id != previous.id {

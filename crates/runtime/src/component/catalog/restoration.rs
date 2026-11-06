@@ -90,6 +90,10 @@ impl ComponentCatalog {
         .with_previous_named(Some(&original.outbounds))
         .enable_device_alias_rebinding()
         .with_previous_slots(&original.order, self.admission.loan_snapshot().1);
+        resources.reserve_primary_components(
+            Some(original.builtin.id),
+            original.outbounds.iter().map(|(tag, slot)| (tag.clone(), Some(slot.id))),
+        )?;
         resources.inherit_canonical_resources(&original.order, &original.deferred_devices)?;
         let inherited: std::collections::BTreeSet<_> = resources
             .resources()
