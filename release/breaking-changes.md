@@ -3,6 +3,14 @@
 
 本文记录会影响 GUI、SDK、面板、事件 Sink 或进程内 Rust 集成的控制面语义变化。公开接口与事件说明由 [ZeroDeNet 文档仓库](https://github.com/zerodenet/docs)维护；本文只维护 Core 的版本边界和迁移要求。
 
+第二轮续作的内部 Rust 错误转发须保留 `ChannelError` 可选的结构化 cleanup receipt；
+同 payload 的显式交接不替代 native/view/Scope/用户关闭。实际 Registrar 的 Scope 退休
+观察和同 ConfigurationSource 的 quota 检查入口见
+[续作兼容说明](../design/v0.0.3/compatibility.md#同原件故障交接与控制-scope-续作)。
+Application 状态采样改由原 TaskScope 监督并等待真实 join，正常配置替换继续监督下一
+实例。保留 V1 配置/API/events、CLI/FFI、ACK/revision 与计量语义，不需要消费者改动。
+当前仍为开发中续作，历史局部限制/资格不代表当前完整迁移或最终候选已完成。
+
 ## 消费者如何判断兼容性
 
 外部消费者连接内核后应依次检查：

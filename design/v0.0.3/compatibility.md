@@ -218,3 +218,24 @@ binding 交给同一个冷分配器，保留失败后整次准备失效的规则
 分别限制同实际 Flow 与同 adapter 账本的响应票据，pending、失败退休及收到未取走均计额。
 该 schema 的普通生产消费仍在同一轮实现，字段存在不代表该职责域取得资格。
 V1 信封、控制 ACK/revision、事件与计量、CLI/FFI 及客户端/面板工作流沿用现契约。
+
+## 同原件故障交接与控制 Scope 续作
+
+`ChannelError` 的可选 `CleanupFailureReceipt` 是同一控制器有限错误记录的交接元数据。
+生产者先一次绑定同一稳定 payload，接收方先强留实际返回的错误 Arc，再显式 ACK；
+晚到次错误继续进入同一 payload。未绑定或 foreign receipt 不能 ACK。转发错误须保留
+该结构化字段，诊断 `Error::source()` 不授予交接权限。回执不证明 native close、view
+归还、业务用户结束、TaskScope join 或 Host registration ACK，也不授予预算退款。
+
+`TaskRegistrar::retirement_observation()` 与实际 issued `WeakTaskRegistrar` 的同名观察
+方法只读同一个 Scope 的封闭、实际 join 与 registration 归还状态；不重建任务权限，
+不创建/取消任务，不消费退出或清理原件。Scope identity 仍只有身份匹配职责。
+
+CLI connector-state 使用 `inspect_principal_quota_state_with_source`，接续加载文档的真实
+ConfigurationSource；独立库检查仍有显式 standalone 入口，均经过同原件关闭屏障。
+状态采样器在 ApplicationServices 中先安装冷 owner，再注册唯一 Critical TaskScope
+任务；正常配置替换转移监督到下一实际 owner，取消关闭等待不丢失原 Scope。
+终止故障继续保留类型和来源，原任务、文件和用户的实际退休单独判断。
+
+上述接线仍在整域迁移与必要回归中，不代表五域结题、统一候选 CI、跨平台或同产物
+GUI/面板资格已通过。配置/API/events 与 ACK/revision/计量标识继续保持，未改消费者。
