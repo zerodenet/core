@@ -249,6 +249,21 @@ impl OrchestrationState {
         let ss_source_budget_changed =
             budget_barrier::ss_source_budget_changed(self.applied_snapshot.config(), &new_config);
         let mut charged_source_changes = std::collections::BTreeSet::new();
+        #[cfg(feature = "raw-ip-runtime")]
+        if budget_barrier::packet_budget_changed(self.applied_snapshot.config(), &new_config) {
+            for input in &self.applied_snapshot.config().inbounds {
+                if proxy
+                    .inbound_owners
+                    .owner(&input.tag)
+                    .is_some_and(|owner| owner.has_packet_source_pause())
+                {
+                    // A live Source owns its native-read/workspace promises
+                    // even while it admits no business. Idle pause is not their
+                    // release: require this exact old Source's StopOld receipt.
+                    charged_source_changes.insert(input.tag.clone());
+                }
+            }
+        }
         if budget_barrier::carrier_budget_changed(self.applied_snapshot.config(), &new_config) {
             for input in &new_config.inbounds {
                 match proxy.protocols.prepare_inbound_bind_in_config(

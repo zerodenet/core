@@ -80,7 +80,7 @@ pub(in crate::runtime) fn ss_source_budget_changed(
 }
 
 #[cfg(feature = "raw-ip-runtime")]
-fn packet_budget_changed(old: &RuntimeConfig, next: &RuntimeConfig) -> bool {
+pub(in crate::runtime) fn packet_budget_changed(old: &RuntimeConfig, next: &RuntimeConfig) -> bool {
     old.runtime.effective_packet_return_max_frames()
         != next.runtime.effective_packet_return_max_frames()
         || old.runtime.effective_packet_return_max_bytes()

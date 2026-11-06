@@ -81,7 +81,17 @@ pub(super) fn prepare(
         let replay_budget_changed = inbound.protocol.protocol_name() == "shadowsocks"
             && crate::runtime::orchestration::ss_source_budget_changed(&previous_config, config);
         let dependencies_changed = runtime_factory.source_dependencies_changed(inbound)?;
+        #[cfg(feature = "raw-ip-runtime")]
+        let packet_source_changed =
+            crate::runtime::orchestration::packet_budget_changed(&previous_config, config)
+                && runtime_factory
+                    .owners()
+                    .owner(&inbound.tag)
+                    .is_some_and(|owner| owner.has_packet_source_pause());
+        #[cfg(not(feature = "raw-ip-runtime"))]
+        let packet_source_changed = false;
         let reuse = running
+            && !packet_source_changed
             && !dependencies_changed
             && !mode_changed
             && !replay_budget_changed
@@ -93,6 +103,7 @@ pub(super) fn prepare(
                 )
             });
         let update = running
+            && !packet_source_changed
             && !dependencies_changed
             && !source_total_changed
             && current.is_some_and(|current| {
