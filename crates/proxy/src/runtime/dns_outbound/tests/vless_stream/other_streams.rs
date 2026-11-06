@@ -92,8 +92,8 @@ async fn ordinary_vmess_and_trojan_dns_consumes_real_stream_loans_and_persistent
     }).await.unwrap();
 }
 #[tokio::test]
-async fn ordinary_vmess_and_trojan_first_tls_pending_cancel_joins_the_actual_preparation_and_native()
- {
+async fn ordinary_vmess_and_trojan_first_tls_pending_cancel_joins_the_actual_preparation_and_native(
+) {
     tokio::time::timeout(Duration::from_secs(15), async {
         for (protocol, kind) in CASES {
             let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
@@ -139,11 +139,9 @@ async fn ordinary_vmess_and_trojan_first_tls_pending_cancel_joins_the_actual_pre
             let held = &held.slots()[0];
             assert!(held.driver().is_none());
             let auxiliary = held.auxiliary().unwrap().clone();
-            assert!(
-                auxiliary
-                    .scope_identity()
-                    .same_scope(&owner.bound().unwrap().scope_identity())
-            );
+            assert!(auxiliary
+                .scope_identity()
+                .same_scope(&owner.bound().unwrap().scope_identity()));
             assert!(!auxiliary.is_joined() && !auxiliary.same_registration(&caller.task));
             let original = held.original().clone();
             assert!(original.closed().is_none());

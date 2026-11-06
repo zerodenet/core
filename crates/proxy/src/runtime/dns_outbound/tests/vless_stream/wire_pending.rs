@@ -1,8 +1,8 @@
 //! Cancel an actual ClientHello wait before the per-connection loan is returned.
 use super::*;
 #[tokio::test]
-async fn ordinary_vless_h2_and_upgrade_first_tls_await_retains_actual_taskless_native_until_query_cleanup()
- {
+async fn ordinary_vless_h2_and_upgrade_first_tls_await_retains_actual_taskless_native_until_query_cleanup(
+) {
     tokio::time::timeout(Duration::from_secs(15),async {
         for kind in ["h2","http_upgrade"] {
             let listener=tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();

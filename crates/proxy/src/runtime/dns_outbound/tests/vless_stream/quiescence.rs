@@ -1,8 +1,8 @@
 //! Same existing DoH driver/loan is retired before the donor can be replaced.
 use super::*;
 #[tokio::test]
-async fn actual_pending_dns_is_busy_but_idle_doh_releases_same_donor_and_rolls_back_query_admission()
- {
+async fn actual_pending_dns_is_busy_but_idle_doh_releases_same_donor_and_rolls_back_query_admission(
+) {
     tokio::time::timeout(Duration::from_secs(20),async {
         let remote=Remote::new("h2").await;
         let mut tls=crate::dns_fixture::TlsDns::new(true).await;
@@ -61,8 +61,8 @@ async fn actual_pending_dns_is_busy_but_idle_doh_releases_same_donor_and_rolls_b
 }
 
 #[tokio::test]
-async fn ordinary_total_budget_replacement_rejects_pending_dns_then_retires_idle_same_doh_before_new_native()
- {
+async fn ordinary_total_budget_replacement_rejects_pending_dns_then_retires_idle_same_doh_before_new_native(
+) {
     tokio::time::timeout(Duration::from_secs(25),async {
         let remote=Remote::new("h2").await;
         let mut tls=crate::dns_fixture::TlsDns::new(true).await;
@@ -118,8 +118,8 @@ async fn ordinary_total_budget_replacement_rejects_pending_dns_then_retires_idle
 }
 
 #[tokio::test]
-async fn ordinary_same_endpoint_ca_replacement_rejects_pending_dns_then_retires_idle_same_doh_before_new_native()
- {
+async fn ordinary_same_endpoint_ca_replacement_rejects_pending_dns_then_retires_idle_same_doh_before_new_native(
+) {
     tokio::time::timeout(Duration::from_secs(25),async {
         let remote=Remote::new("h2").await;
         let mut tls=crate::dns_fixture::TlsDns::new(true).await;

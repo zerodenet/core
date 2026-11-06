@@ -2,8 +2,8 @@
 use super::*;
 use std::{
     sync::{
-        Weak,
         atomic::{AtomicBool, AtomicUsize, Ordering},
+        Weak,
     },
     task::{Context, Wake, Waker},
     time::Duration,

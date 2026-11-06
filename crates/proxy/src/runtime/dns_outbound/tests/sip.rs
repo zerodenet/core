@@ -66,11 +66,9 @@ fn original(proxy: &Proxy, child: &CarrierOrigin) -> CarrierOrigin {
     let held = owner.observe().unwrap();
     assert_eq!(held.retained(), 1);
     let auxiliary = held.slots()[0].auxiliary().unwrap();
-    assert!(
-        auxiliary
-            .scope_identity()
-            .same_scope(&owner.bound().unwrap().scope_identity())
-    );
+    assert!(auxiliary
+        .scope_identity()
+        .same_scope(&owner.bound().unwrap().scope_identity()));
     let joined = auxiliary.try_joined().unwrap();
     assert!(auxiliary.matches_joined(&joined) && joined.registration_released());
     joined.result().unwrap();
@@ -83,8 +81,8 @@ fn closed(child: &CarrierOrigin, original: &CarrierOrigin) {
     assert!(native.matches(original) && native.had_native_acquisition());
 }
 #[tokio::test]
-async fn ordinary_sip_dns_pending_cancel_and_warm_doh_retire_the_actual_process_before_limit_replacement()
- {
+async fn ordinary_sip_dns_pending_cancel_and_warm_doh_retire_the_actual_process_before_limit_replacement(
+) {
     tokio::time::timeout(Duration::from_secs(25), async {
         let remote_config = zero_config::RuntimeConfig::parse(&serde_json::json!({
             "inbounds":[{"tag":"ss","listen":{"address":"127.0.0.1","port":0},"protocol":{"type":"shadowsocks","cipher":"aes-128-gcm","password":"actual-sip-dns"}}],

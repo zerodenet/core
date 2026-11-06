@@ -2,8 +2,8 @@
 use super::other_streams::CASES;
 use super::*;
 #[tokio::test]
-async fn ordinary_vmess_and_trojan_domain_dns_consumes_each_failed_original_before_the_next_candidate()
- {
+async fn ordinary_vmess_and_trojan_domain_dns_consumes_each_failed_original_before_the_next_candidate(
+) {
     tokio::time::timeout(Duration::from_secs(20),async {
         for (protocol,kind) in CASES {
             let remote=Remote::for_protocol(protocol,kind).await;

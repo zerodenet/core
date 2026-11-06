@@ -1,6 +1,6 @@
 //! Normal Proxy DNS consumes the same canonical WG device's actual loans.
 use super::*;
-use base64::{Engine as _, engine::general_purpose::STANDARD};
+use base64::{engine::general_purpose::STANDARD, Engine as _};
 use std::{sync::Arc, time::Duration};
 use zero_platform_tokio::controlled_carrier::CarrierOrigin;
 mod peer;

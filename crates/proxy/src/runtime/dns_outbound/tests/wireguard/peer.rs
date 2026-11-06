@@ -1,5 +1,5 @@
 //! External WG peer forwards actual inner UDP/TCP to the held DNS fixture.
-use base64::{Engine as _, engine::general_purpose::STANDARD};
+use base64::{engine::general_purpose::STANDARD, Engine as _};
 use gotatun::x25519::{PublicKey, StaticSecret};
 use std::net::{Ipv4Addr, SocketAddr};
 use tokio::{
@@ -9,10 +9,10 @@ use tokio::{
 };
 use wireguard::{
     runtime::{PeerTunnel, TunnelAction},
-    validation::{OutboundInput, PeerInput, validate_outbound},
+    validation::{validate_outbound, OutboundInput, PeerInput},
 };
 use zero_platform_tokio::contract::CancellationToken;
-use zero_stack::{UserNetworkStack, packet};
+use zero_stack::{packet, UserNetworkStack};
 use zero_traits::TcpStack;
 pub(super) fn public(seed: u8) -> String {
     STANDARD.encode(PublicKey::from(&StaticSecret::from([seed; 32])).as_bytes())
