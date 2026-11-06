@@ -1,16 +1,16 @@
 #![cfg(unix)]
 use crate::component::catalog::supervision::testing::TestContext;
-use crate::component::{catalog::ComponentCatalog, instance::ComponentSlot, ComponentRecipe};
+use crate::component::{ComponentRecipe, catalog::ComponentCatalog, instance::ComponentSlot};
 use shadowsocks::{
     component::PluginFactory,
-    transport::{plugin::PluginTermination, ShadowsocksTransportState},
+    transport::{ShadowsocksTransportState, plugin::PluginTermination},
     validation::{PluginConfig, PluginMode},
 };
 use std::{
     path::PathBuf,
     sync::{
-        atomic::{AtomicU64, Ordering},
         Arc,
+        atomic::{AtomicU64, Ordering},
     },
 };
 use tokio::time::{Duration, Instant};
@@ -35,7 +35,13 @@ impl Marker {
     fn config(&self, tail: &str) -> PluginConfig {
         PluginConfig {
             command: "python3".into(),
-            args: vec!["-c".into(), format!("import os,socket,time; s=socket.socket(); s.bind((os.environ['SS_LOCAL_HOST'],int(os.environ['SS_LOCAL_PORT']))); s.listen(); open({:?},'a').write(str(os.getpid())+'\\n'); {tail}", self.0.to_str().unwrap())],
+            args: vec![
+                "-c".into(),
+                format!(
+                    "import os,socket,time; s=socket.socket(); s.bind((os.environ['SS_LOCAL_HOST'],int(os.environ['SS_LOCAL_PORT']))); s.listen(); open({:?},'a').write(str(os.getpid())+'\\n'); {tail}",
+                    self.0.to_str().unwrap()
+                ),
+            ],
             options: None,
             mode: PluginMode::TcpOnly,
         }
@@ -84,8 +90,8 @@ fn slot(state: &ShadowsocksTransportState, config: PluginConfig) -> Arc<Componen
 }
 
 #[tokio::test]
-async fn actual_host_slot_grants_one_real_plugin_child_and_joins_its_actual_monitor_before_reporting_exit(
-) {
+async fn actual_host_slot_grants_one_real_plugin_child_and_joins_its_actual_monitor_before_reporting_exit()
+ {
     let marker = Marker::new();
     let config = marker.config("time.sleep(60)");
     let state = ShadowsocksTransportState::default();
@@ -99,14 +105,19 @@ async fn actual_host_slot_grants_one_real_plugin_child_and_joins_its_actual_moni
     host.drive(slot.start(deadline())).await.unwrap();
     assert_eq!(marker.starts(), 1);
     let report = host.drive(slot.shutdown(deadline())).await.unwrap();
-    // The protocol reaped its actual Child and the host joined its monitor.
-    // Bare Process grants still have no native provider witness; keep that
-    // declaration explicitly unaccounted rather than infer whole-owner close.
-    assert!(!report.is_complete());
-    assert!(report.unfinished.iter().any(|item| matches!(item,
-        zero_platform_tokio::contract::lifecycle::Unfinished::Resource(message)
-            if message.contains("declaration coverage remains unconfirmed")
-    )));
+    // The actual owned process tree, native originals and same-Scope monitor
+    // must all be complete; a protocol child status alone cannot qualify this.
+    assert!(report.is_complete(), "{report:?}");
+    assert!(
+        slot.live
+            .get()
+            .unwrap()
+            .as_ref()
+            .unwrap()
+            .resources
+            .io_evidence()
+            .physical_confirmed()
+    );
     assert_eq!(report.exited_tasks.len(), 1);
     assert_eq!(report.released_resources.len(), 1);
     assert!(matches!(
@@ -142,15 +153,15 @@ async fn rejected_native_adoption_and_its_discarded_owner_never_revoke_the_legac
 }
 
 #[tokio::test]
-async fn actual_registered_plugin_monitor_reports_the_actual_child_exit_with_its_real_component_identity(
-) {
+async fn actual_registered_plugin_monitor_reports_the_actual_child_exit_with_its_real_component_identity()
+ {
     use crate::component::instance::HostResources;
     use zero_core::component::ComponentRoleIds;
     use zero_platform_tokio::contract::{
+        CancellationToken,
         component::{BuildContext, ComponentFactory},
         lifecycle::TaskClass,
         scope::TaskScope,
-        CancellationToken,
     };
     let marker = Marker::new();
     let config = marker.config("time.sleep(60)");
@@ -159,16 +170,20 @@ async fn actual_registered_plugin_monitor_reports_the_actual_child_exit_with_its
     let options = Arc::new(state.plugin_component_options("127.0.0.1", 9999, config));
     let component = ComponentCatalog::default().allocate_id().unwrap();
     let cancel = CancellationToken::new();
-    let grants = HostResources::new(
-        component,
-        &PluginFactory.describe(&options).resources,
-        cancel.clone(),
-    )
-    .unwrap();
     let mut scope = TaskScope::new(
         tokio::runtime::Handle::current(),
         std::num::NonZeroUsize::new(1).unwrap(),
     );
+    let grants = HostResources::new_for_instance(
+        zero_core::component::ComponentInstanceId {
+            component,
+            generation: ResourceGeneration(1),
+        },
+        &PluginFactory.describe(&options).resources,
+        cancel.clone(),
+        scope.registrar().scope_identity(),
+    )
+    .unwrap();
     let mut instance = PluginFactory
         .build(
             options,
@@ -189,28 +204,32 @@ async fn actual_registered_plugin_monitor_reports_the_actual_child_exit_with_its
     drop(access);
     marker.pid().await;
     // External termination is a real process fault from the component's view.
-    assert!(matches!(
-        resource.shutdown(deadline()).await.unwrap(),
-        PluginTermination::Exited(_)
-    ));
-    let exit = tokio::time::timeout_at(deadline(), scope.next_exit())
-        .await
-        .unwrap()
-        .unwrap();
+    // Retirement waits for the actual actor join, so drive the original Scope
+    // concurrently rather than blocking the only join consumer behind it.
+    let (termination, exit) = tokio::join!(
+        resource.shutdown(deadline()),
+        tokio::time::timeout_at(deadline(), scope.next_exit()),
+    );
+    assert!(matches!(termination.unwrap(), PluginTermination::Exited(_)));
+    let exit = exit.unwrap().unwrap();
     assert_eq!(exit.class, TaskClass::Critical);
     let error = exit.result.unwrap_err();
     assert_eq!(error.component, Some(component));
     assert_eq!(error.reason, zero_platform_tokio::contract::Reason::Io);
-    assert!(std::error::Error::source(&error)
-        .unwrap()
-        .to_string()
-        .contains("native plugin child exited:"));
+    assert!(
+        std::error::Error::source(&error)
+            .unwrap()
+            .to_string()
+            .contains("native plugin child exited:")
+    );
     assert_eq!(marker.starts(), 1);
-    assert!(instance
-        .lifecycle
-        .shutdown(deadline())
-        .await
-        .unwrap()
-        .is_complete());
+    assert!(
+        instance
+            .lifecycle
+            .shutdown(deadline())
+            .await
+            .unwrap()
+            .is_complete()
+    );
     assert!(scope.shutdown(deadline()).await.is_complete());
 }
