@@ -55,8 +55,10 @@ fn packet_tail(
                     Some(true)
                 }
             }
-            // SOCKS5's current UDP role still owns a bare TCP control and a
-            // dynamic BND raw socket. It cannot issue a sealed DatagramLoan.
+            // The root SOCKS association now transfers the real TCP+negotiated
+            // UDP originals in one sealed LoanOwner. A non-root SOCKS packet
+            // capability never existed and remains unqualified here.
+            OutboundProtocolConfig::Socks5 { .. } => Some(previous.is_none()),
             _ => Some(false),
         };
     }
