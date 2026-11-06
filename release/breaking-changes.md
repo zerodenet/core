@@ -107,6 +107,19 @@ Root Hysteria2 出站统一到协议拥有的同一真实认证池和标准角�
 
 没有改变 V1 配置/API/events、CLI、FFI ABI 或协议基线，也没有增加协议组合。GUI/面板、特权 TUN、其他平台及 1 CPU/1 GiB 仍待最终候选真实验收；TEMP-WG-OUTER-UDP-01 保留未关闭。
 
+运行配置增加可选的 `runtime.event_network_max_tasks`、`event_network_max_originals`、
+`event_network_max_lookups`，默认分别为 1024、256、256，范围 1..4096；
+省略时导出仍省略。实际应用网络 Epoch 使用这些限制，并与同一个 RuntimeHost 的
+Carrier 总原件额度共同约束；不是第二个连接池。初始规则下载持有的
+`ProxyPreparation` 在原网络、缓存原件及 Scope 清理确认后移交 `Proxy::from_preparation`，
+继续使用同一个 Host。Rust 嵌入者使用应用网络构造器时须提供该 Host 真实签发的
+component identity 与实际 root；不能自行拼装 ID 或建立替代 Host。
+
+进程查找不再暴露无 owner 的执行入口；实际 lookup 在原 caller Scope 内登记阻塞
+worker，持有平台原始 File/DIR/HANDLE 和同 Host 原件额度，原生关闭、worker join 与
+Host ACK 分别确认。Logical Packet 注册只观察真实软件 driver 和同 Scope 的计额责任，
+不会签发物理设备或 outer carrier 的 native-close 凭据；唯一 TEMP 债务不因此关闭。
+
 ### HTTP 标准监听与原始连接所有权
 
 HTTP 字面量及域名监听使用协议的 `ComponentFactory`/`InboundSource` 和真实宿主所有者，HTTP 的旧 listener capability/operation 准备已删除。接受条目、任务登记与关闭接收方来自同一个原始监听；热更新继续先确认旧资源关闭，再装配替代，候选失败后使用实际旧配置恢复。域名沿用系统解析，在原始 Scope 内监督实际 lookup worker 并等待其真实 join，冻结系统顺序的多个地址，失败原始句柄明确关闭后才允许尝试下一地址；所有尝试共用一份有限 native 创建预算。HTTP CONNECT、Forward、逐消息路由与计量、keep-alive、Upgrade 保留既有线格式和 V1 控制面形状，客户端与面板沿用既有接入方式。

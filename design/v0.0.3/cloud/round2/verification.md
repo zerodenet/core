@@ -8,6 +8,23 @@
 Rust 1.99.0，当前同锁 SHA-256：
 `9026e3253d6a42c91cd557ee3ff95c2b1e93e46ba7749c707dec592e055ca6a1`。
 
+2026-11-06 21:10 UTC 接续，仍无统一最终候选：
+
+| 精确输入 | 实际结果与限制 |
+| --- | --- |
+| `90ac0f97f3bf2bf69863e425f364273f704edcc8` | Rust 1.99.0，zero/platform/runtime/proxy 全 feature 含测试代码 check exit0/373.83s；仅类型检查，没有执行新增暖 DNS、Source 换代或 G8 回归 |
+| `c5848c57`（完整 SHA 见原 input） | platform/transport 构建 exit101/19.91s；新增 HostedScope helper 标注及 gRPC fixture 私有路径/旧字段问题。修正追加提交，原始失败保留 |
+| `2bb13461`（完整 SHA 见原 input） | platform 构建 exit101/10.53s，拆分 user receipt 后模块路径遗漏；`5c511b72` 修正，没有变更关闭断言 |
+| `5c511b72d80acfbb43f7825d224f180b6d4e3360` | platform lib build exit0/22.02s；Logical Packet 真实 Pending 软件 driver 与同总额度 N1 两项 PASS：body 结束未 ACK 不退款，实际 ACK 后才复用，始终无 native close；未覆盖尚未落地的 TEMP 实际消费者 |
+| `c31dabd3b3cb791bb481d0cffdd45f30b2a58537` | transport lib/web build exit0/38.37s；gRPC 原 8s/2MiB 单/多路完整回程及半关在实际生产 provider 下 1 PASS/0.08s，断原 TCP_NODELAY、matching native close，accepted 用户仍明确 Unaccounted，不冒称 Scope 完整资格 |
+| 同 `c31dabd3` | H2 原期限/窗口/容量 4 PASS/1 FAIL，实际199246/262144字节 phase1；没有提高8s、一字节窗口、生产栈或队列。随后生产唤醒合并 `9c1667bc` 尚未复验，不称已解决 |
+
+本次新增 Source 同 pass 命名 ID/最终 generation 投影、原 Source StopOld 屏障、
+同 DNS token 的所有实际 donor 换代、B 原 Slot 准备 Aux/Host ACK→单向交付、
+应用初启同一个 Host/root 及多故障接收均继续接线与定向回归；准备值不等于域完成。
+当前 GitHub REST 在云端返回 Forbidden；Pages 先前上传仍无可确认文件引用。
+已向用户请求可写证据上传地址，期间内核实现不停；尚未交付可下载云端原始证据。
+
 | 精确被测实现 | 必要定向及实际结果 |
 | --- | --- |
 | `04babdd4d35763f679981e31290b6952534046bb` | Runtime/Platform lib build exit0；OwnedStart 实际冷拒/取消/退休后首启 4 PASS，未选进程 Plan 1 PASS，真实 Process/Endpoint 4 PASS，原 Process tree/actor/延迟 Host ACK 1 PASS，真实 Carrier 总额度替换 1 PASS。误筛选零项的单独记录不算通过 |
