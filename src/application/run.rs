@@ -51,14 +51,15 @@ async fn run(
     let source = std::sync::Arc::new(zero_runtime::configuration::ConfigurationSource::new(
         config_path,
     ));
-    let config = rule_set_fetch::load_initial_configuration(source.clone(), config_path).await?;
+    let (config, preparation) =
+        rule_set_fetch::load_initial_configuration(source.clone(), config_path).await?;
     let prepared = zero_runtime::configuration::PreparedConfiguration::prepare_startup(
         config,
         source.clone(),
     )?;
     let engine = zero_engine::Engine::from_prepared(prepared)?;
     source.complete_recovered_boot()?;
-    let proxy = Proxy::from_engine(engine)?;
+    let proxy = Proxy::from_preparation(engine, preparation)?;
     let engine = proxy.engine().clone();
 
     let engine_handle = EngineHandle::new(engine.clone());

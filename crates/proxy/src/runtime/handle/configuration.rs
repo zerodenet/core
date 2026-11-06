@@ -5,6 +5,7 @@ use async_trait::async_trait;
 use zero_config::RuntimeConfig;
 
 use super::ProxyHandle;
+mod carrier_budget;
 
 /// Application-owned services that must follow a full runtime configuration.
 ///
@@ -23,6 +24,19 @@ pub trait ConfigApplyReconciler: Send + Sync {
     /// restores the previous proxy configuration and invokes this method again
     /// with the previous target before returning the failure.
     async fn reconcile(&self, target: Arc<RuntimeConfig>) -> Result<ConfigReconcileResult, String>;
+
+    /// Application event networking shares the actual Host carrier total.
+    /// An owner of those originals may stop its old generation and prepare its
+    /// target paused before the proxy installs a changed total. Returning Some
+    /// means normal reconciliation is already prepared, never activated. The
+    /// default owns no such originals and retains the usual reconcile order.
+    async fn prepare_carrier_budget(
+        &self,
+        _current: &RuntimeConfig,
+        _target: Arc<RuntimeConfig>,
+    ) -> Result<Option<ConfigReconcileResult>, String> {
+        Ok(None)
+    }
 
     /// Confirm retirement of the actual failed/uncommitted application attempt
     /// before Proxy/DNS dependencies can be reconstructed. A lost caller,
@@ -154,9 +168,45 @@ impl ProxyHandle {
             return Err("proxy stopped before accepting configuration changes".to_owned());
         }
 
-        let prepared = self
+        let application_prepared = if let Some(reconciler) = &self.config_reconciler {
+            match reconciler
+                .prepare_carrier_budget(previous.config(), Arc::new(candidate.clone()))
+                .await
+            {
+                Ok(prepared) => prepared,
+                Err(error) => {
+                    return Err(self
+                        .restore_carrier_budget_application(
+                            previous.clone(),
+                            Arc::new(candidate.clone()),
+                            timeout,
+                            false,
+                            error,
+                        )
+                        .await);
+                }
+            }
+        } else {
+            None
+        };
+        let prepared = match self
             .apply_proxy_config_under_guard(candidate.clone(), timeout, None, false)
-            .await?;
+            .await
+        {
+            Ok(prepared) => prepared,
+            Err(error) if application_prepared.is_some() => {
+                return Err(self
+                    .restore_carrier_budget_application(
+                        previous.clone(),
+                        Arc::new(candidate.clone()),
+                        timeout,
+                        true,
+                        error,
+                    )
+                    .await);
+            }
+            Err(error) => return Err(error),
+        };
 
         let Some(reconciler) = &self.config_reconciler else {
             if let Err(error) = self
@@ -178,7 +228,11 @@ impl ProxyHandle {
             return Ok(Some(ConfigReconcileResult::default()));
         };
         let candidate = Arc::new(candidate);
-        match reconciler.reconcile(candidate.clone()).await {
+        let application = match application_prepared {
+            Some(prepared) => Ok(prepared),
+            None => reconciler.reconcile(candidate.clone()).await,
+        };
+        match application {
             Ok(result) => {
                 if let Err(error) = self
                     .commit_configuration(prepared.clone(), timeout, persist)

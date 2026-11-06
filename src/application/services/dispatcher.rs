@@ -32,7 +32,15 @@ pub(super) fn dispatcher_changed(previous: &RuntimeConfig, target: &RuntimeConfi
         || previous.api.dead_letter_path != target.api.dead_letter_path
         || previous.api.outbox_path != target.api.outbox_path
         || previous.api.dispatcher != target.api.dispatcher
-        || (previous.source_dir != target.source_dir
+        || ((previous.source_dir != target.source_dir
+            || previous.runtime.effective_event_network_max_tasks()
+                != target.runtime.effective_event_network_max_tasks()
+            || previous.runtime.effective_event_network_max_originals()
+                != target.runtime.effective_event_network_max_originals()
+            || previous.runtime.effective_event_network_max_lookups()
+                != target.runtime.effective_event_network_max_lookups()
+            || previous.runtime.effective_carrier_max_total_originals()
+                != target.runtime.effective_carrier_max_total_originals())
             && (dispatcher_enabled(previous) || dispatcher_enabled(target)))
 }
 

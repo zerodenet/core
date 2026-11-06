@@ -55,6 +55,23 @@ impl ConfigApplyReconciler for ApplicationServices {
         Ok(())
     }
 
+    async fn prepare_carrier_budget(
+        &self,
+        current: &RuntimeConfig,
+        target: Arc<RuntimeConfig>,
+    ) -> Result<Option<ConfigReconcileResult>, String> {
+        if current.runtime.effective_carrier_max_total_originals()
+            == target.runtime.effective_carrier_max_total_originals()
+            || !(dispatcher_enabled(current) || dispatcher_enabled(&target))
+        {
+            return Ok(None);
+        }
+        // The existing dispatcher is prepared paused: old native/task custody
+        // returns before the same Host total changes, while target delivery
+        // cannot acquire a new native original until the real host commit.
+        self.reconcile(target).await.map(Some)
+    }
+
     async fn reconcile(&self, target: Arc<RuntimeConfig>) -> Result<ConfigReconcileResult, String> {
         let mut state = self.state.lock().await;
         if let Some(attempt) = &state.attempt {

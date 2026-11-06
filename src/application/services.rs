@@ -70,11 +70,20 @@ impl ApplicationServices {
         ipc_hook_socket: Option<&str>,
     ) -> Result<Arc<Self>, Box<dyn Error>> {
         #[cfg(feature = "event-dispatcher")]
-        let event_network = zero_connector::EventDispatcherNetwork::new(Arc::new(
-            ApplicationEventSinkTcpDialer::new(
-                zero_platform_tokio::EgressInterfaceControl::default(),
-            ),
-        ));
+        let event_network = {
+            // Explicit standalone test fixture: a real catalog issues the
+            // identity and its actual root is retained by the tested owner.
+            let preparation = zero_proxy::ProxyPreparation::new();
+            preparation.configure_original_limit(&engine.config().runtime)?;
+            let (instance, originals) = preparation.application_network_originals()?;
+            zero_connector::EventDispatcherNetwork::new(Arc::new(
+                ApplicationEventSinkTcpDialer::new(
+                    preparation.egress_interface_control(),
+                    instance,
+                    originals,
+                ),
+            ))
+        };
         let slot = ApplicationStartupSlot::new();
         Self::start_with_network(
             engine,
@@ -92,9 +101,16 @@ impl ApplicationServices {
     ) -> Result<Arc<Self>, Box<dyn Error>> {
         let engine = proxy.engine().clone();
         #[cfg(feature = "event-dispatcher")]
-        let event_network = zero_connector::EventDispatcherNetwork::new(Arc::new(
-            ApplicationEventSinkTcpDialer::new(proxy.egress_interface_control()),
-        ));
+        let event_network = {
+            let (instance, originals) = proxy.application_network_originals()?;
+            zero_connector::EventDispatcherNetwork::new(Arc::new(
+                ApplicationEventSinkTcpDialer::new(
+                    proxy.egress_interface_control(),
+                    instance,
+                    originals,
+                ),
+            ))
+        };
         Self::start_with_network(
             engine,
             ipc_hook_socket,

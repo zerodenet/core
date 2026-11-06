@@ -59,17 +59,17 @@ impl ApplicationServices {
                 }
             }
             if state.network_generation_started {
-                match self
+                let outcome = self
                     .event_network
                     .retire_generation(
                         tokio::time::Instant::now() + std::time::Duration::from_secs(5),
                     )
-                    .await
-                {
-                    Ok(()) => state.network_generation_started = false,
-                    Err(error) => {
-                        state.cleanup_fault.get_or_insert_with(|| Arc::new(error));
-                    }
+                    .await;
+                if self.event_network.retirement_complete() {
+                    state.network_generation_started = false;
+                }
+                if let Err(error) = outcome {
+                    state.cleanup_fault.get_or_insert_with(|| Arc::new(error));
                 }
             }
         }
@@ -171,15 +171,15 @@ impl ApplicationServices {
             Ok(())
         };
         if _state.network_generation_started {
-            match self
+            let outcome = self
                 .event_network
                 .retire_generation(tokio::time::Instant::now() + std::time::Duration::from_secs(5))
-                .await
-            {
-                Ok(()) => _state.network_generation_started = false,
-                Err(error) => {
-                    _state.cleanup_fault.get_or_insert_with(|| Arc::new(error));
-                }
+                .await;
+            if self.event_network.retirement_complete() {
+                _state.network_generation_started = false;
+            }
+            if let Err(error) = outcome {
+                _state.cleanup_fault.get_or_insert_with(|| Arc::new(error));
             }
         }
         monitor.map_err(|error| format!("original status monitor failed: {error}"))?;

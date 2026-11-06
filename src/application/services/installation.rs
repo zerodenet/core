@@ -61,7 +61,17 @@ impl ApplicationServices {
         }
 
         #[cfg(feature = "event-dispatcher")]
-        if rebuild_dispatcher {
+        if rebuild_dispatcher && dispatcher_enabled(&target) {
+            self.event_network
+                .configure_limits(
+                    zero_connector::EventNetworkLimits::new(
+                        target.runtime.effective_event_network_max_tasks(),
+                        target.runtime.effective_event_network_max_originals(),
+                        target.runtime.effective_event_network_max_lookups(),
+                    )
+                    .map_err(|error| error.to_string())?,
+                )
+                .map_err(|error| error.to_string())?;
             let has_delivery_sinks = !target.api.event_sinks.is_empty();
             let bootstrap_engine_started = has_delivery_sinks && !state.engine_started_bootstrapped;
             self.event_network
