@@ -46,9 +46,15 @@ impl StreamOutbound for RawRole {
     type Stream = BoxStream;
     async fn connect(
         &self,
-        _: ConnectRequest,
+        request: ConnectRequest,
         context: OpenContext,
     ) -> Result<Connected<BoxStream>, ChannelError> {
+        if request.destination.port == 0 {
+            return Err(crate::component::instance::invalid(
+                Reason::InvalidConfig,
+                "protocol rejected before carrier I/O",
+            ));
+        }
         let io = context
             .upstream
             .open_stream(
