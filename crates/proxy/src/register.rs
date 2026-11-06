@@ -318,7 +318,9 @@ pub(crate) fn compiled_registries_with_network(
     #[cfg(feature = "trojan")]
     {
         use crate::adapters::trojan::TrojanAdapter;
-        let adapter = Arc::new(TrojanAdapter::default());
+        let mut adapter = TrojanAdapter::default();
+        adapter.native_node_dns = node_network.is_some() || background.is_some();
+        let adapter = Arc::new(adapter);
         if let Some(network) = background.clone() {
             let factory = Arc::new(crate::component::background::pool::Factory::new(network));
             let projected = adapter.clone();

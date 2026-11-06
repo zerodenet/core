@@ -108,8 +108,11 @@ async fn startup_unknown_cleanup_retains_exact_original_and_rejects_next_startup
     // cleanup. Independently retire hooks/files/generation before any restart.
     assert!(original.shutdown_dispatcher().await.is_err());
     assert!(original.service_retirement_complete().await);
+    original.shutdown_control().await.unwrap();
     assert!(original.control_retirement_complete());
     assert!(original.parent_input_retirement_complete());
+    original.engine.shutdown_principal_quota_state().unwrap();
+    assert!(original.engine.principal_quota_retirement_complete());
     slot.clear(&original);
     assert!(slot.original().is_none());
     let config = (*original.engine.config()).clone();

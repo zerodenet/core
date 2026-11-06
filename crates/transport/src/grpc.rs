@@ -60,6 +60,8 @@ fn choose_grpc_service_name(service_names: &[String]) -> Result<&str, RuntimeErr
 }
 
 mod client;
+mod inline;
+pub use inline::connect_grpc_inline_with_settings;
 mod codec;
 mod keepalive;
 mod options;
