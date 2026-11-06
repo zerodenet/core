@@ -1,7 +1,7 @@
 //! Dependency-ordered start and confirmed retirement of the actual owners.
 mod carrier;
 mod packet_source;
-#[cfg(target_os = "linux")]
+#[cfg(any(target_os = "linux", windows))]
 mod process_endpoint;
 use super::*;
 use zero_platform_tokio::contract::lifecycle::TaskFailure;

@@ -72,7 +72,7 @@ impl NativeCarrierOpener {
         if let Some(parent) = related {
             grant.link_related_datagram(parent)?;
         }
-        #[cfg(target_os = "linux")]
+        #[cfg(any(target_os = "linux", windows))]
         if let Some(derived) = &self.derived {
             derived.claim(&grant, binding, true).map_err(|source| {
                 error(

@@ -15,13 +15,13 @@ pub use budget::{ProcessBudget, ProcessBudgetLimits, ProcessBudgetSnapshot};
 
 mod endpoint_spec;
 pub use endpoint_spec::ProcessEndpointSpec;
-#[cfg(target_os = "linux")]
+#[cfg(any(target_os = "linux", windows))]
 mod endpoint;
-#[cfg(target_os = "linux")]
+#[cfg(any(target_os = "linux", windows))]
 pub use endpoint::{
     ProcessEndpointClosed, ProcessEndpointDemand, ProcessEndpointHandoff, ProcessEndpointUse,
     ProcessProbe, ProcessProbeClosed, ProcessReservationsClosed,
 };
 
-#[cfg(target_os = "linux")]
+#[cfg(any(target_os = "linux", windows))]
 pub(crate) use endpoint::ProcessEndpointFence;

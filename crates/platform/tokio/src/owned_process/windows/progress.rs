@@ -28,7 +28,11 @@ impl OwnedProcess {
             })?
     }
     pub async fn wait_root_exit(&self) -> io::Result<ExitStatus> {
-        self.wait(Target::Root).await?;
+        let result = self.wait(Target::Root).await;
+        if let Some(endpoint) = self.endpoint() {
+            endpoint.request_stop();
+        }
+        result?;
         self.root_status()
             .ok_or_else(|| io::Error::other("original root has no native wait status"))
     }

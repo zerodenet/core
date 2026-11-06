@@ -280,6 +280,6 @@ fn channel(source: impl std::error::Error + Send + Sync + 'static) -> ChannelErr
     .with_source(source)
 }
 
-#[cfg(test)]
+#[cfg(all(test, target_os = "linux"))]
 #[path = "../../tests/owned_process/endpoint/mod.rs"]
 mod tests;

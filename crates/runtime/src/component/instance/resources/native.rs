@@ -31,7 +31,7 @@ pub struct HostResources {
     roots: root_datagram::RootDeclarations,
     bounds: bound_datagram::BoundDeclarations,
     packets: Vec<packet_device::PacketDeviceOwner>,
-    #[cfg(target_os = "linux")]
+    #[cfg(any(target_os = "linux", windows))]
     processes: process::ProcessDeclarations,
     cancel: CancellationToken,
     state: Mutex<State>,
@@ -88,7 +88,7 @@ mod metapool;
 mod original_budgets;
 mod packet_device;
 mod prepare;
-#[cfg(target_os = "linux")]
+#[cfg(any(target_os = "linux", windows))]
 mod process;
 mod root_datagram;
 pub use listener::HostDatagramListenerOwner;
@@ -341,12 +341,12 @@ impl ResourceAccess for HostResources {
         let child = request.command().spawn().map_err(|source| {
             error(self.component, Reason::Io, "native process spawn failed").with_source(source)
         })?;
-        #[cfg(target_os = "linux")]
+        #[cfg(any(target_os = "linux", windows))]
         self.processes.mark_legacy(&request.program);
         *remaining -= 1;
         Ok(child)
     }
-    #[cfg(target_os = "linux")]
+    #[cfg(any(target_os = "linux", windows))]
     fn prepare_owned_process(
         &self,
         request: ProcessRequest,
@@ -354,7 +354,7 @@ impl ResourceAccess for HostResources {
     ) -> Result<Arc<zero_platform_tokio::owned_process::OwnedProcess>, ChannelError> {
         self.prepare_process(request, tasks)
     }
-    #[cfg(target_os = "linux")]
+    #[cfg(any(target_os = "linux", windows))]
     fn reserve_process_endpoint(
         &self,
         ordinal: usize,
@@ -363,7 +363,7 @@ impl ResourceAccess for HostResources {
     ) -> Result<Arc<zero_platform_tokio::owned_process::ProcessEndpointHandoff>, ChannelError> {
         self.reserve_endpoint(ordinal, tasks, actor)
     }
-    #[cfg(target_os = "linux")]
+    #[cfg(any(target_os = "linux", windows))]
     fn prepare_owned_process_with_endpoint(
         &self,
         request: ProcessRequest,
@@ -421,7 +421,7 @@ impl HostResources {
         &self,
         cx: &mut std::task::Context<'_>,
     ) -> bool {
-        #[cfg(target_os = "linux")]
+        #[cfg(any(target_os = "linux", windows))]
         self.processes.poll_budget(cx);
         self.carriers.poll_cancelled(cx)
     }

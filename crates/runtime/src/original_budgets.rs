@@ -2,7 +2,7 @@
 //! No allocator, native controller, task registry or generic resource map.
 #[derive(Default)]
 pub struct HostOriginalBudgets {
-    #[cfg(target_os = "linux")]
+    #[cfg(any(target_os = "linux", windows))]
     pub process: std::sync::Arc<zero_platform_tokio::owned_process::ProcessBudget>,
     #[cfg(feature = "raw-ip-runtime")]
     pub packet: std::sync::Arc<zero_tun::packet_memory::PacketReturnTotals>,
@@ -12,7 +12,7 @@ impl HostOriginalBudgets {
         &self,
         runtime: &zero_config::RuntimeOptionsConfig,
     ) -> Result<(), zero_platform_tokio::contract::ChannelError> {
-        #[cfg(target_os = "linux")]
+        #[cfg(any(target_os = "linux", windows))]
         self.process
             .install(zero_platform_tokio::owned_process::ProcessBudgetLimits {
                 max_jobs: runtime.effective_process_max_jobs(),
@@ -26,7 +26,7 @@ impl HostOriginalBudgets {
                 )
                 .with_source(source)
             })?;
-        #[cfg(not(target_os = "linux"))]
+        #[cfg(not(any(target_os = "linux", windows)))]
         let _ = runtime;
         Ok(())
     }
