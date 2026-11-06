@@ -1,6 +1,7 @@
 //! Durable quota bytes belong to the same deployment source; the Engine owns
 //! accounting and its actual persistence worker, never an original file handle.
 mod lock_error;
+mod worker;
 use super::*;
 use std::{
     fs::{OpenOptions, TryLockError},
@@ -14,6 +15,7 @@ pub struct QuotaStorage {
     source: Weak<ConfigurationSource>,
     path: PathBuf,
     lease: Mutex<Lease>,
+    worker: worker::WorkerReceiver,
 }
 #[derive(Default)]
 struct Lease {
@@ -38,8 +40,16 @@ impl Drop for RetainUnknownOnUnwind {
         }
     }
 }
+#[derive(Debug)]
+struct RetainedQuotaSource(Arc<io::Error>);
+impl std::fmt::Display for RetainedQuotaSource {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result { self.0.fmt(f) }
+}
+impl std::error::Error for RetainedQuotaSource {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> { Some(self.0.as_ref()) }
+}
 fn retained(source: &Arc<io::Error>) -> io::Error {
-    io::Error::new(source.kind(), source.clone())
+    io::Error::new(source.kind(), RetainedQuotaSource(source.clone()))
 }
 #[derive(Debug)]
 struct AcquisitionCleanupFailure {
@@ -121,11 +131,15 @@ impl ConfigurationSource {
                 .unwrap_or_else(std::sync::PoisonError::into_inner);
             if let Some(previous) = slot.as_ref() {
                 previous.confirm_closed()?;
+                if let Some(failure) = previous.report_worker_failure() {
+                    return Err(failure);
+                }
             }
             let storage = Arc::new(QuotaStorage {
                 source: Arc::downgrade(self),
                 path,
                 lease: Mutex::new(Lease::default()),
+                worker: Default::default(),
             });
             *slot = Some(storage.clone());
             drop(slot);
