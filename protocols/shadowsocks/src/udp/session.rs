@@ -68,6 +68,9 @@ mod window_budget;
 pub(crate) use window_budget::{Charge, Unit as BudgetUnit};
 pub use window_budget::{UdpBudgetLimits, UdpReplayBudget};
 
+mod proposal;
+pub use proposal::UdpBudgetProposal;
+
 mod responses;
 pub(crate) use responses::ResponseSessions;
 

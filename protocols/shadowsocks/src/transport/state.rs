@@ -46,6 +46,16 @@ impl ShadowsocksTransportState {
         self.udp_replay.validate(limits)
     }
 
+    /// A weak cold proposal for the existing process owner. No cap is installed
+    /// and no child, socket, worker or second protocol pool is created here.
+    #[cfg(feature = "blake3")]
+    pub fn udp_budget_proposal(
+        &self,
+        limits: crate::udp::UdpBudgetLimits,
+    ) -> Result<crate::udp::UdpBudgetProposal, zero_core::Error> {
+        crate::udp::UdpBudgetProposal::new(&self.udp_replay, limits)
+    }
+
     /// Prepare protocol framing with this actual adapter's nonce history.
     /// No proxy Session, socket, child or maintenance task is created here.
     #[cfg(feature = "blake3")]
