@@ -24,12 +24,26 @@ pub struct PluginOptions {
     resource: ShadowsocksPluginResource,
     identity: Arc<str>,
     static_identity: Arc<[u8]>,
+    legacy_budget: Option<crate::shared::LegacyReplayBudgetProposal>,
     #[cfg(feature = "blake3")]
     udp_budget: Option<crate::udp::UdpBudgetProposal>,
 }
 impl PluginOptions {
     #[cfg(feature = "blake3")]
     pub fn with_udp_budget_proposal(mut self, proposal: crate::udp::UdpBudgetProposal) -> Self {
+        self.udp_budget = Some(proposal);
+        self.rebuild_identity();
+        self
+    }
+    pub fn with_legacy_replay_budget_proposal(
+        mut self,
+        proposal: crate::shared::LegacyReplayBudgetProposal,
+    ) -> Self {
+        self.legacy_budget = Some(proposal);
+        self.rebuild_identity();
+        self
+    }
+    fn rebuild_identity(&mut self) {
         use std::{
             collections::hash_map::RandomState,
             hash::{BuildHasher, Hash, Hasher},
@@ -39,19 +53,26 @@ impl PluginOptions {
         let mut identity = self.identity.as_bytes().to_vec();
         for key in KEYS.get_or_init(|| [RandomState::new(), RandomState::new()]) {
             let mut hash = key.build_hasher();
-            proposal.identity().hash(&mut hash);
+            #[cfg(feature = "blake3")]
+            self.udp_budget
+                .as_ref()
+                .map(|proposal| proposal.identity())
+                .hash(&mut hash);
+            self.legacy_budget
+                .as_ref()
+                .map(|proposal| proposal.identity())
+                .hash(&mut hash);
             identity.extend_from_slice(&hash.finish().to_le_bytes());
         }
-        // ResourceOwner remains the same actual plan identity. A cap change
-        // must replace that owner after StopOld, never name a parallel Child.
+        // Same original Child/plan ResourceOwner; static replacement identity
+        // depends on all actual budget views, independently of setter order.
         self.static_identity = identity.into();
-        self.udp_budget = Some(proposal);
-        self
     }
     pub(crate) fn new(resource: ShadowsocksPluginResource) -> Self {
         Self {
             identity: resource.identity().into(),
             static_identity: resource.identity().as_bytes().into(),
+            legacy_budget: None,
             #[cfg(feature = "blake3")]
             udp_budget: None,
             resource,
@@ -83,6 +104,7 @@ impl ComponentFactory for PluginFactory {
         Ok(ComponentInstance {
             lifecycle: erase_lifecycle(Owner {
                 resource: options.resource.clone(),
+                legacy_budget: options.legacy_budget.clone(),
                 #[cfg(feature = "blake3")]
                 udp_budget: options.udp_budget.clone(),
                 resources: context.resources,
@@ -98,6 +120,7 @@ impl ComponentFactory for PluginFactory {
     }
 }
 struct Owner {
+    legacy_budget: Option<crate::shared::LegacyReplayBudgetProposal>,
     #[cfg(feature = "blake3")]
     udp_budget: Option<crate::udp::UdpBudgetProposal>,
     resource: ShadowsocksPluginResource,
@@ -140,6 +163,17 @@ impl ResourceLifecycle for Owner {
             ));
         }
         self.attempted = true;
+        if let Some(proposal) = &self.legacy_budget {
+            proposal.activate().map_err(|source| {
+                failure(
+                    self.component,
+                    Stage::Prepare,
+                    Reason::Capacity,
+                    "legacy Bloom bitmap budget proposal cannot start",
+                )
+                .with_source(source)
+            })?;
+        }
         #[cfg(feature = "blake3")]
         if let Some(proposal) = &self.udp_budget {
             proposal.activate().map_err(|source| {
