@@ -11,7 +11,7 @@ const MAX_CONVERSATIONS: usize = 4096;
 const ROUTE_IDLE: Duration = Duration::from_secs(300);
 const CONVERSATION_IDLE: Duration = Duration::from_secs(600);
 #[derive(Default)]
-pub(super) struct Returns {
+pub(in crate::runtime::packet_route::host) struct Returns {
     state: Mutex<State>,
 }
 #[derive(Default)]
