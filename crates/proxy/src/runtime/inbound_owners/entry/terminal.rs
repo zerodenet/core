@@ -270,6 +270,13 @@ impl InboundOwner {
         self.last_accepted_join.lock().unwrap().clone()
     }
 
+    /// Observes this same original Source's registrar, without acquiring users.
+    #[cfg(test)]
+    pub(crate) fn original_scope_for_test(
+        &self,
+    ) -> zero_platform_tokio::contract::scope::TaskScopeIdentity {
+        self.registrar.scope_identity()
+    }
     #[cfg(test)]
     pub(crate) fn terminal_for_test(&self) -> Option<Arc<InboundTerminal>> {
         self.terminal()
