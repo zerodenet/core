@@ -68,14 +68,14 @@ pub(super) fn prepare_flow(
     }
     let endpoint = input.protocol.endpoint();
     if endpoint.is_none()
-        && ![
+        && (![
             zero_platform_tokio::contract::component::RoleKind::Packet,
             zero_platform_tokio::contract::component::RoleKind::Stream,
             zero_platform_tokio::contract::component::RoleKind::Datagram,
         ]
         .iter()
         .all(|role| slot.recipe.spec().roles.contains(role))
-        || endpoint.is_none() && plan.device_component(slot.id).is_err()
+            || plan.device_component(slot.id).is_err())
     {
         return Some(Err(crate::runtime::udp_dispatch::FlowFailure {
             stage: "udp_datagram_open",
