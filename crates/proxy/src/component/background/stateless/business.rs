@@ -49,6 +49,9 @@ impl Outbound {
             {
                 Ok(connected) => connected,
                 Err(source) => {
+                    #[cfg(test)]
+                    eprintln!("actual Business preparation failed before publication endpoint={:?} binding={:?} callerJoined={} source={source:?}",
+                        self.endpoint, context.upstream.binding(), caller.is_joined());
                     drop(opening);
                     if self.retry_original(&context, &transfer, &source).await? {
                         continue;

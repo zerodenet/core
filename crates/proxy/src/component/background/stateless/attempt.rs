@@ -36,6 +36,12 @@ impl Outbound {
         transfer: &Arc<Transfer>,
         source: &ChannelError,
     ) -> Result<bool, ChannelError> {
+        #[cfg(test)]
+        eprintln!("actual original retry input endpoint={:?} prefixEmpty={} nativeConnected={} taggedConnect={:?} cancelled={} expired={} originalClosed={:?}",
+            self.endpoint, context.upstream.binding().prefix.is_empty(), transfer.adoption.endpoints().is_some(),
+            zero_platform_tokio::controlled_carrier::original_connect_error(source).map(|original| original.stage()),
+            context.cancel.is_cancelled(), context.deadline.is_some_and(|end| Instant::now() >= end),
+            transfer.adoption.closed().map(|native| (native.had_native_acquisition(),native.borrowed_origin().is_some())));
         if !matches!(self.endpoint.address, zero_core::Address::Domain(_))
             || !context.upstream.binding().prefix.is_empty()
             || !zero_platform_tokio::controlled_carrier::original_connect_error(source)
@@ -53,6 +59,9 @@ impl Outbound {
             Some(end) => transfer.close(end).await?,
             None => transfer.try_close()?,
         };
+        #[cfg(test)]
+        eprintln!("actual original retry settled report={report:?} finished={} ownClosed={:?}", transfer.finished(),
+            transfer.adoption.closed().map(|native| (native.had_native_acquisition(),native.borrowed_origin().is_some())));
         Ok(report.is_complete()
             && transfer.finished()
             && transfer.adoption.closed().is_some_and(|native| {
