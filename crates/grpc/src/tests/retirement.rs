@@ -22,8 +22,12 @@ async fn actual_retired_grpc_server_fault_keeps_its_source_and_allows_a_new_owne
         let dropped = Arc::new(AtomicUsize::new(0));
         old.start(PendingEvents(dropped.clone())).await.unwrap();
         let address = old.local_addr();
-        original_budget.close_admission();
         let pending = tokio::net::TcpStream::connect(address).await.unwrap();
+        // Do not require a successful handshake after the listener may close.
+        // EOF wakes an already accepted handler; otherwise the same readiness
+        // wakes accept and its real admission check reports the server fault.
+        original_budget.close_admission();
+        drop(pending);
         let fault = old.wait_terminated().await.unwrap_err();
         assert!(!old.retirement_complete());
         let retired = old.shutdown().await.unwrap_err();
@@ -54,7 +58,6 @@ async fn actual_retired_grpc_server_fault_keeps_its_source_and_allows_a_new_owne
             assert!(!original.native_unconfirmed());
         }
         original_budget.confirm_released().unwrap();
-        drop(pending);
         let fresh_budget = budget::defaults();
         let fresh = crate::prepare_with_budget(
             address,
