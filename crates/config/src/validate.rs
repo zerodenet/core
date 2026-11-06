@@ -395,6 +395,17 @@ fn validate_runtime(
     if !(1..=1073741824).contains(&runtime.effective_packet_return_total_max_bytes()) {
         return Err(ConfigError::InvalidRuntime("runtime.packet_return_total_max_bytes must be between 1 and 1073741824".into()));
     }
+    for (name, limit) in [
+        ("ss_udp_replay_max_windows", runtime.effective_ss_udp_replay_max_windows()),
+        ("ss_udp_max_senders", runtime.effective_ss_udp_max_senders()),
+        ("ss_udp_max_associations", runtime.effective_ss_udp_max_associations()),
+        ("ss_udp_max_return_bindings", runtime.effective_ss_udp_max_return_bindings()),
+        ("ss_udp_max_authenticated_codecs", runtime.effective_ss_udp_max_authenticated_codecs()),
+    ] {
+        if limit == 0 || limit.checked_add(1).is_none() {
+            return Err(ConfigError::InvalidRuntime(format!("runtime.{name} must be positive and leave room for checked accounting")));
+        }
+    }
     if runtime.effective_ss_tcp_replay_max_salts() == 0
         || runtime
             .effective_ss_tcp_replay_max_salts()

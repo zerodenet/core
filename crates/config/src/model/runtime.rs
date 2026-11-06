@@ -37,6 +37,21 @@ pub struct RuntimeOptionsConfig {
     /// Original Packet return payload bytes across the same actual device root.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub packet_return_total_max_bytes: Option<usize>,
+    /// Authenticated UDP2022 fixed replay windows in the same SS adapter; live history is never evicted.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub ss_udp_replay_max_windows: Option<usize>,
+    /// Actual retained UDP sender session IDs and counters across the same SS adapter.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub ss_udp_max_senders: Option<usize>,
+    /// Authenticated UDP associations across the same SS adapter, including retiring originals.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub ss_udp_max_associations: Option<usize>,
+    /// Actual UDP return bindings across the same SS adapter; one association can have several targets.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub ss_udp_max_return_bindings: Option<usize>,
+    /// Successfully authenticated UDP user codecs retained by the same SS adapter.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub ss_udp_max_authenticated_codecs: Option<usize>,
     /// Total retained TCP2022 replay salts in this actual SS adapter, across
     /// all inbound/outbound histories and per-profile capacity views. On demand,
     /// 500000 by default; live security history is never evicted for admission.
@@ -121,6 +136,11 @@ impl Default for RuntimeOptionsConfig {
             packet_return_max_bytes: None,
             packet_return_total_max_frames: None,
             packet_return_total_max_bytes: None,
+            ss_udp_replay_max_windows: None,
+            ss_udp_max_senders: None,
+            ss_udp_max_associations: None,
+            ss_udp_max_return_bindings: None,
+            ss_udp_max_authenticated_codecs: None,
             ss_tcp_replay_max_salts: None,
             hysteria2_max_entries: None,
             hysteria2_max_udp_sessions: None,
@@ -164,6 +184,21 @@ impl RuntimeOptionsConfig {
     }
     pub fn effective_packet_return_total_max_bytes(&self) -> usize {
         self.packet_return_total_max_bytes.unwrap_or(67108864)
+    }
+    pub fn effective_ss_udp_replay_max_windows(&self) -> usize {
+        self.ss_udp_replay_max_windows.unwrap_or(8192)
+    }
+    pub fn effective_ss_udp_max_senders(&self) -> usize {
+        self.ss_udp_max_senders.unwrap_or(8192)
+    }
+    pub fn effective_ss_udp_max_associations(&self) -> usize {
+        self.ss_udp_max_associations.unwrap_or(8192)
+    }
+    pub fn effective_ss_udp_max_return_bindings(&self) -> usize {
+        self.ss_udp_max_return_bindings.unwrap_or(65536)
+    }
+    pub fn effective_ss_udp_max_authenticated_codecs(&self) -> usize {
+        self.ss_udp_max_authenticated_codecs.unwrap_or(4096)
     }
     pub fn effective_ss_tcp_replay_max_salts(&self) -> usize {
         self.ss_tcp_replay_max_salts.unwrap_or(500_000)

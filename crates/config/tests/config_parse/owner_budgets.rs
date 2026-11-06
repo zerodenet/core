@@ -16,7 +16,12 @@ fn actual_owner_budgets_are_optional_finite_and_preserve_omitted_export_shape() 
         usize,
         usize,
     );
-    let fields: [BudgetField; 17] = [
+    let fields: [BudgetField; 22] = [
+        ("ss_udp_replay_max_windows", RuntimeOptionsConfig::effective_ss_udp_replay_max_windows, 8192, usize::MAX - 1),
+        ("ss_udp_max_senders", RuntimeOptionsConfig::effective_ss_udp_max_senders, 8192, usize::MAX - 1),
+        ("ss_udp_max_associations", RuntimeOptionsConfig::effective_ss_udp_max_associations, 8192, usize::MAX - 1),
+        ("ss_udp_max_return_bindings", RuntimeOptionsConfig::effective_ss_udp_max_return_bindings, 65536, usize::MAX - 1),
+        ("ss_udp_max_authenticated_codecs", RuntimeOptionsConfig::effective_ss_udp_max_authenticated_codecs, 4096, usize::MAX - 1),
         ("packet_return_max_frames", RuntimeOptionsConfig::effective_packet_return_max_frames, 256, 65536),
         ("packet_return_max_bytes", RuntimeOptionsConfig::effective_packet_return_max_bytes, 16777216, 1073741824),
         ("packet_return_total_max_frames", RuntimeOptionsConfig::effective_packet_return_total_max_frames, 1024, 65536),
