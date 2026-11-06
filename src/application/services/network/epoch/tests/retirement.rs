@@ -61,9 +61,9 @@ async fn repeated_retirement_retains_each_actual_task_fault_once_while_the_nativ
         let mut matched = false;
         while let Some(actual) = source {
             if let Some(actual) =
-                actual.downcast_ref::<Arc<zero_platform_tokio::contract::ChannelError>>()
+                actual.downcast_ref::<zero_platform_tokio::contract::ChannelError>()
             {
-                matched |= Arc::ptr_eq(actual, &retained);
+                matched |= std::ptr::eq(actual, retained.as_ref());
             }
             source = actual.source();
         }

@@ -125,9 +125,9 @@ async fn physically_retired_epoch_fault_retains_original_task_sources_and_allows
     let mut retained_actual = false;
     while let Some(current) = source {
         if let Some(original) =
-            current.downcast_ref::<Arc<zero_platform_tokio::contract::ChannelError>>()
+            current.downcast_ref::<zero_platform_tokio::contract::ChannelError>()
         {
-            retained_actual |= Arc::ptr_eq(original, &actual);
+            retained_actual |= std::ptr::eq(original, actual.as_ref());
         }
         source = current.source();
     }
