@@ -37,7 +37,7 @@ async fn accepted_metadata_uses_real_same_entry_helper_and_keeps_original_until_
             &scope.registrar(),
         )
         .unwrap();
-        let roots = crate::CarrierOriginalTotals::new(NonZeroUsize::new(3).unwrap());
+        let roots = crate::controlled_carrier::CarrierOriginalTotals::new(NonZeroUsize::new(3).unwrap());
         let instance = zero_core::component::ComponentInstanceId {
             component: zero_core::component::ComponentId(913),
             generation: zero_core::component::ResourceGeneration(1),

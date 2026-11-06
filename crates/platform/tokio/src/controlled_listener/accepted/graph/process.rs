@@ -69,7 +69,7 @@ impl AcceptedPeerScope {
         &self,
         instance: zero_core::component::ComponentInstanceId,
         registrar: &crate::contract::scope::WeakTaskRegistrar,
-        root: &Arc<crate::CarrierOriginalTotals>,
+        root: &Arc<crate::controlled_carrier::CarrierOriginalTotals>,
     ) -> Result<(), ChannelError> {
         if !self
             .users

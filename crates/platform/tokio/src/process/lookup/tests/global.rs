@@ -5,7 +5,7 @@ async fn global_lookup_custody_retains_original_after_join_until_same_helper_ack
     let mut scope = TaskScope::suspended_hosted(Handle::current(), NonZeroUsize::new(3));
     scope.enable_registration().unwrap();
     let registrar = scope.registrar();
-    let roots = crate::CarrierOriginalTotals::new(NonZeroUsize::MIN);
+    let roots = crate::controlled_carrier::CarrierOriginalTotals::new(NonZeroUsize::MIN);
     let (mut reader, mut writer) = tokio::io::duplex(1);
     let (ready, pending) = tokio::sync::oneshot::channel();
     let (caller_id, caller) = registrar

@@ -61,7 +61,7 @@ pub(super) struct Users {
     pending_acks: Mutex<Vec<TaskJoinWitness>>,
     lookup_totals: OnceLock<(
         zero_core::component::ComponentInstanceId,
-        Weak<crate::CarrierOriginalTotals>,
+        Weak<crate::controlled_carrier::CarrierOriginalTotals>,
     )>,
 }
 #[derive(Default)]

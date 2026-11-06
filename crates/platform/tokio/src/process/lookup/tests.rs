@@ -11,7 +11,7 @@ async fn actual_start_wait_and_cancel_keep_same_blocking_join_credit_until_host_
     let mut scope = TaskScope::suspended_hosted(Handle::current(), NonZeroUsize::new(2));
     scope.enable_registration().unwrap();
     let registrar = scope.registrar();
-    let roots = crate::CarrierOriginalTotals::new(NonZeroUsize::MIN);
+    let roots = crate::controlled_carrier::CarrierOriginalTotals::new(NonZeroUsize::MIN);
     let (mut reader, mut writer) = tokio::io::duplex(1);
     let (entered, observed) = tokio::sync::oneshot::channel();
     let (caller_id, caller) = registrar
@@ -108,7 +108,7 @@ async fn real_local_tcp_and_udp_metadata_use_original_worker_and_matching_native
     let mut scope = TaskScope::suspended_hosted(Handle::current(), NonZeroUsize::new(2));
     scope.enable_registration().unwrap();
     let registrar = scope.registrar();
-    let roots = crate::CarrierOriginalTotals::new(NonZeroUsize::MIN);
+    let roots = crate::controlled_carrier::CarrierOriginalTotals::new(NonZeroUsize::MIN);
     let (mut reader, mut writer) = tokio::io::duplex(1);
     let (id, caller) = registrar
         .spawn_tracked(TaskClass::Critical, async move {
