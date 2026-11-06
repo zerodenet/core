@@ -7,8 +7,9 @@ pub type ShadowsocksUdpResponse = (Address, u16, Vec<u8>);
 
 #[derive(Debug, Clone)]
 pub struct ShadowsocksManagedDatagramFlowResume {
+    pub(crate) root: Option<crate::component::udp::PoolSelection>,
     pub(super) plugin: Option<super::plugin::outbound::PluginPlan>,
-    pub(super) protocol: crate::udp::ShadowsocksUdpFlowResume,
+    pub(crate) protocol: crate::udp::ShadowsocksUdpFlowResume,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -52,6 +53,7 @@ pub struct ShadowsocksManagedUdpFlowConfig<'a> {
 #[derive(Clone)]
 pub struct ShadowsocksTransportLeaf {
     pub(super) limits: crate::validation::StateLimits,
+    pub(super) udp_root: Option<crate::component::udp::PoolSelection>,
     pub(super) plugin: Option<super::plugin::outbound::PluginPlan>,
     pub(super) tag: String,
     pub(super) server: String,
@@ -76,89 +78,14 @@ pub struct ShadowsocksInboundBindings {
     pub(super) udp_relay: crate::udp::ShadowsocksInboundUdpRelay,
 }
 
-impl<'a> ShadowsocksManagedUdpFlowConfig<'a> {
-    pub(super) fn with_replay_guard(
-        mut self,
-        replay: crate::shared::legacy_replay::LegacyReplay,
-    ) -> Self {
-        self.replay = replay;
-        self
-    }
-
-    pub fn new(
-        tag: &'a str,
-        server: &'a str,
-        port: u16,
-        cipher: &'a str,
-        password: &'a str,
-    ) -> Self {
-        Self {
-            limits: Default::default(),
-            tag,
-            server,
-            port,
-            cipher,
-            password,
-            replay: crate::shared::legacy_replay::LegacyReplay::new(Default::default(), false),
-        }
-    }
-
-    pub fn flow_resume(&self) -> Result<ShadowsocksManagedDatagramFlowResume, zero_core::Error> {
-        self.protocol_config()
-            .flow_resume()
-            .map(ShadowsocksManagedDatagramFlowResume::new)
-    }
-
-    pub fn packet_path_carrier_descriptor(
-        &self,
-    ) -> Result<ShadowsocksManagedUdpPacketPathCarrierDescriptor, zero_core::Error> {
-        Ok(ShadowsocksManagedUdpPacketPathCarrierDescriptor::new(
-            self.protocol_config()
-                .packet_path_spec()?
-                .carrier_descriptor(self.server, self.port),
-        ))
-    }
-
-    pub fn packet_path_carrier_codec(
-        &self,
-    ) -> Result<Arc<dyn DatagramCodec<Address, Error = zero_core::Error>>, zero_core::Error> {
-        Ok(self.protocol_config().packet_path_spec()?.carrier_codec())
-    }
-
-    pub(super) fn packet_path_spec(
-        &self,
-    ) -> Result<crate::udp::ShadowsocksUdpPacketPathSpec, zero_core::Error> {
-        self.protocol_config().packet_path_spec()
-    }
-
-    pub fn packet_path_datagram_source_build(
-        &self,
-    ) -> Result<ShadowsocksManagedUdpPacketPathDatagramSourceBuild, zero_core::Error> {
-        Ok(ShadowsocksManagedUdpPacketPathDatagramSourceBuild::new(
-            self.protocol_config()
-                .packet_path_spec()?
-                .datagram_source_build(self.tag, self.server, self.port),
-        ))
-    }
-
-    fn protocol_config(&self) -> crate::udp::ShadowsocksUdpFlowConfig<'a> {
-        crate::udp::ShadowsocksUdpFlowConfig::new(
-            self.tag,
-            self.server,
-            self.port,
-            self.cipher,
-            self.password,
-        )
-        .with_replay_guard(self.replay.clone())
-        .with_state_limits(self.limits)
-    }
-}
+mod flow_config;
 
 impl ShadowsocksManagedDatagramFlowResume {
     fn new(protocol: crate::udp::ShadowsocksUdpFlowResume) -> Self {
         Self {
             protocol,
             plugin: None,
+            root: None,
         }
     }
 
@@ -166,7 +93,7 @@ impl ShadowsocksManagedDatagramFlowResume {
         crate::udp::managed_socket_flow_from_resume(&self.protocol)
     }
 
-    pub(super) fn into_shared_managed_socket_flow_codec(
+    pub(crate) fn into_shared_managed_socket_flow_codec(
         self,
     ) -> Arc<dyn DatagramCodec<Address, Error = zero_core::Error>> {
         self.protocol.into_shared_managed_socket_flow_codec()

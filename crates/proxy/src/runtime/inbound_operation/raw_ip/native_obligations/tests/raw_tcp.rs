@@ -119,7 +119,8 @@ async fn actual_raw_tcp_accept_serve_refusal_does_not_stop_the_next_admitted_wir
             .spawn_driver(async move {
                 tokio::select! {
                     result = crate::runtime::inbound_operation::raw_ip::tcp::accept(
-                        server, factory, group, accept_host, for_accept, None, None,
+                        server, factory, group, accept_host, for_accept, None,
+                        crate::runtime::inbound_operation::raw_ip::tcp::TcpSourceTasks::fixture(),
                     ) => result,
                     _ = parent_stopped => Ok(()),
                 }

@@ -37,6 +37,7 @@ impl ShadowsocksTransportLeaf {
     ) -> Self {
         Self {
             plugin: None,
+            udp_root: None,
             limits: Default::default(),
             tag: tag.into(),
             server: server.into(),
@@ -75,6 +76,7 @@ impl ShadowsocksTransportLeaf {
                 .with_carrier_identity(&plugin.cache_identity());
             resume.plugin = Some(plugin.clone());
         }
+        resume.root = self.udp_root.clone();
         Ok(resume)
     }
 

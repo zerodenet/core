@@ -1,3 +1,7 @@
+#[cfg(any(feature = "tls", feature = "grpc"))]
+mod client_recipe;
+#[cfg(any(feature = "tls", feature = "grpc"))]
+pub use client_recipe::OwnedClientRecipe;
 #[cfg(any(feature = "tls", feature = "quic"))]
 pub mod fingerprint;
 #[cfg(feature = "grpc")]

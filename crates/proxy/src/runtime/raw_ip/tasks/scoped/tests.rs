@@ -52,6 +52,7 @@ async fn real_pending_io_and_completed_body_cannot_refund_original_scope_before_
     let owner = ScopedSourceTasks::new("actual Source IO", 1, TaskClass::Critical);
     owner.bind(scope.registrar().downgrade()).unwrap();
     let mut guard = owner.lock().await.unwrap();
+    assert!(owner.quiescent(), "the sole consumer lease holds no work");
     let (read, mut write) = tokio::io::duplex(1);
     let observed = Arc::new(Notify::new());
     let id = guard
@@ -62,6 +63,7 @@ async fn real_pending_io_and_completed_body_cannot_refund_original_scope_before_
         .unwrap();
     observed.notified().await; // notification follows the original I/O's Pending poll
     assert_eq!(guard.len(), 1);
+    assert!(!owner.quiescent(), "the original Pending IO remains owned");
     write.write_u8(42).await.unwrap();
     loop {
         let changed = owner.inner.changed.notified();
@@ -78,6 +80,10 @@ async fn real_pending_io_and_completed_body_cannot_refund_original_scope_before_
         changed.await;
     }
     assert_eq!(guard.len(), 1); // actual body output is not a consumed TaskExit
+    assert!(
+        !owner.quiescent(),
+        "body completion cannot erase the record"
+    );
     assert_eq!(
         guard.spawn(async { Ok(()) }).unwrap_err().reason,
         Reason::Capacity
@@ -93,6 +99,10 @@ async fn real_pending_io_and_completed_body_cannot_refund_original_scope_before_
     assert_eq!(receipt.id(), id);
     guard.join_next().await.unwrap().unwrap();
     assert_eq!(guard.len(), 0);
+    assert!(
+        owner.quiescent(),
+        "same consumer consumed the real joined output"
+    );
     assert!(!scope.is_drained());
     scope.acknowledge(&receipt).unwrap();
     drop(guard);

@@ -127,6 +127,8 @@ pub(crate) struct InboundTaskAccess {
     #[cfg(feature = "raw-ip-runtime")]
     main_registration: std::sync::Weak<MainRegistration>,
     #[cfg(feature = "raw-ip-runtime")]
+    packet_pause: Arc<OnceLock<Arc<zero_platform_tokio::contract::packet::PacketSourcePause>>>,
+    #[cfg(feature = "raw-ip-runtime")]
     packet_source: std::sync::Weak<
         Mutex<Option<crate::runtime::inbound_operation::raw_ip::PacketSourceContext>>,
     >,
@@ -171,6 +173,22 @@ impl InboundTaskAccess {
                 _ = published => {},
             }
         }
+    }
+
+    /// Observe only this Source's existing pause cell, after its actual main
+    /// registration has been published. This grants no actor/native authority.
+    #[cfg(feature = "raw-ip-runtime")]
+    pub(crate) async fn packet_source_admission(
+        &self,
+    ) -> Result<Arc<zero_platform_tokio::contract::packet::PacketSourcePause>, ChannelError> {
+        let main = self.source_main_witness().await?;
+        let pause = self.packet_pause.get().ok_or_else(|| {
+            ChannelError::new(Stage::Prepare, Reason::Revoked, Impact::Component)
+        })?;
+        if pause.instance() != self.identity || !pause.scope().same_scope(&main.scope_identity()) {
+            return Err(ChannelError::new(Stage::Prepare, Reason::Revoked, Impact::Component));
+        }
+        Ok(pause.clone())
     }
 
     #[cfg(feature = "raw-ip-runtime")]
@@ -377,6 +395,8 @@ impl InboundOwner {
             registrar: self.registrar.clone(),
             #[cfg(feature = "raw-ip-runtime")]
             main_registration: Arc::downgrade(&self.main_registration),
+            #[cfg(feature = "raw-ip-runtime")]
+            packet_pause: self.packet_pause.clone(),
             #[cfg(feature = "raw-ip-runtime")]
             packet_source: Arc::downgrade(&self.packet_source),
             cancel: self.cancel.clone(),

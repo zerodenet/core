@@ -28,7 +28,7 @@ pub(crate) use connection::ManagedPacketUdpFlowConnection;
 ))]
 pub(crate) use connection::ManagedTupleUdpFlowConnection;
 #[cfg(feature = "managed-datagram-runtime")]
-pub(crate) use datagram::ManagedDatagramFlowConnection;
+pub(crate) use datagram::{ManagedDatagramFlowConnection, ManagedDatagramPendingResponse};
 #[cfg(feature = "raw-ip-runtime")]
 pub(crate) mod packet;
 #[cfg(feature = "managed-stream-runtime")]

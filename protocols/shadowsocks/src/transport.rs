@@ -8,7 +8,7 @@ pub mod plugin;
 mod state;
 mod tcp;
 pub use state::ShadowsocksTransportState;
-mod udp_socket;
+pub(crate) mod udp_socket;
 
 pub use model::{
     ShadowsocksInboundBindings, ShadowsocksInboundTcpAcceptor,
@@ -23,5 +23,6 @@ pub use options::{
 pub use tcp::{apply_shadowsocks_tcp_relay_hop, establish_shadowsocks_tcp_connect};
 pub use udp_socket::{
     establish_shadowsocks_udp_socket_flow, establish_shadowsocks_udp_socket_flow_with_resume,
-    managed_socket_flow_from_resume, ShadowsocksUdpResponseSink, ShadowsocksUdpSocketFlow,
+    managed_socket_flow_from_resume, ShadowsocksUdpPendingLimits, ShadowsocksUdpPendingResponse,
+    ShadowsocksUdpResponseSink, ShadowsocksUdpSocketFlow,
 };

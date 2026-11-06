@@ -1,5 +1,6 @@
 //! Cold config projection into protocol-owned options and one canonical replay owner.
 use super::ShadowsocksAdapter;
+mod udp;
 use crate::component::{background::stateless, RegistrationError, ResourcePreparation};
 use shadowsocks::component::{ReplayFactory, StreamOptions, TcpPreparation};
 use std::sync::Arc;
@@ -8,7 +9,8 @@ use zero_config::{ConfigError, OutboundConfig, OutboundProtocolConfig};
 pub(crate) fn native_input(input: &OutboundConfig) -> bool {
     matches!(
         &input.protocol,
-        OutboundProtocolConfig::Shadowsocks { plugin: None, .. }
+        OutboundProtocolConfig::Shadowsocks { plugin, .. }
+            if plugin.is_none() || cfg!(any(target_os = "linux", windows))
     )
 }
 impl ShadowsocksAdapter {
@@ -119,7 +121,11 @@ impl ShadowsocksAdapter {
                 )
             })
             .transpose()?;
-        let options = prepared.bind(replay).map_err(options_error)?;
+        let mut options = prepared.bind(replay).map_err(options_error)?;
+        if let Some(network) = node_network.clone() {
+            let (owner, pool) = self.prepare_udp(input, resources, network, process)?;
+            options = options.with_udp_pool(&pool, owner).map_err(options_error)?;
+        }
         let options = stateless::Options::new(
             options,
             zero_core::request::Destination::new(

@@ -127,6 +127,9 @@ impl OwnedProcess {
     pub(super) fn actor(&self) -> Option<TaskJoinWitness> {
         self.lock().actor.clone()
     }
+    pub(super) fn budget_scope_matches(&self, tasks: &crate::contract::scope::TaskRegistrar) -> bool {
+        self.scope.matches(tasks)
+    }
     pub(super) fn bind_budget(&self, budget: Arc<super::ProcessBudget>) -> io::Result<()> {
         let mut state = self.lock();
         if state.actor.is_some() || state.stop || state.budget.is_some() || state.attempted {

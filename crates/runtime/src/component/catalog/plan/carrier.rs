@@ -1,5 +1,6 @@
 //! Check borrowed lineage against actual installed roles and original providers.
 use super::*;
+mod process;
 impl ComponentPlan {
     /// Planning capacity only; retain still validates each installed original
     /// through validate_carrier_adoption before it can enter the caller ledger.
@@ -133,6 +134,13 @@ impl ComponentPlan {
             let Some(slot) = self.order.iter().find(|slot| slot.instance_id() == id) else {
                 return false;
             };
+            // This is only the exact declared same-job pair. Actual endpoint
+            // demand still checks the direct dependency, original grant and
+            // both started slots through ensure_process_endpoint_use.
+            if process::paired_endpoint(slot.recipe.spec()) {
+                pending.extend(slot.dependency_instances());
+                continue;
+            }
             if slot.recipe.spec().resources.iter().any(|resource|!matches!(resource,
                 zero_platform_tokio::contract::component::ResourceDeclaration::File {..} |
                 zero_platform_tokio::contract::component::ResourceDeclaration::ControlledNodeCarrier {..} | zero_platform_tokio::contract::component::ResourceDeclaration::ControlledServiceStream {..} | zero_platform_tokio::contract::component::ResourceDeclaration::ControlledCarrierPool {..} | zero_platform_tokio::contract::component::ResourceDeclaration::ControlledAssociationPool { .. } |

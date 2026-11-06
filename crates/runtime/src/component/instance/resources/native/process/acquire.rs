@@ -80,6 +80,7 @@ impl HostResources {
             )
             .with_source(source)
         })?;
+        let ordinal = entry.ordinal;
         entry.jobs.push(Job {
             original: original.clone(),
             reported: false,
@@ -93,7 +94,19 @@ impl HostResources {
             .as_ref()
             .expect("validated actual process instance")
             .0;
-        if let Err(source) = self.processes.budget.reserve(instance, &original) {
+        let reservation = match self
+            .processes
+            .prepaid
+            .get()
+            .filter(|paid| paid.ordinal() == ordinal)
+        {
+            Some(paid) => self
+                .processes
+                .budget
+                .reserve_prepaid(instance, ordinal, &original, tasks, paid),
+            None => self.processes.budget.reserve(instance, &original),
+        };
+        if let Err(source) = reservation {
             // This reservation has never escaped to its actor and acquired
             // no native resource. Preserve/finish that exact cold original
             // before refunding only its unused declaration start permission.
@@ -137,10 +150,16 @@ impl HostResources {
                 removed
             };
             drop(removed);
+            let reason = match source.kind() {
+                std::io::ErrorKind::WouldBlock => Reason::Capacity,
+                std::io::ErrorKind::PermissionDenied => Reason::Revoked,
+                std::io::ErrorKind::AlreadyExists => Reason::StalePlan,
+                _ => Reason::Io,
+            };
             let mut failure = error(
                 self.component,
-                Reason::Capacity,
-                "actual kernel process job budget is occupied",
+                reason,
+                "actual kernel process job reservation refused",
             )
             .with_source(source);
             failure.delivery = zero_platform_tokio::contract::DeliveryState::NotSubmitted;

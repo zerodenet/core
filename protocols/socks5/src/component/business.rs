@@ -9,10 +9,7 @@ use core::{
 use std::io;
 use tokio::io::{AsyncRead, AsyncWrite, ReadBuf};
 use zero_core::component::SessionId;
-use zero_platform_tokio::{
-    contract::CancellationToken,
-    controlled_carrier::{CarrierAdoption, CarrierIo, CarrierUserView},
-};
+use zero_platform_tokio::controlled_carrier::{CarrierAdoption, CarrierIo, CarrierUserView};
 struct Attempt(CarrierAdoption, bool);
 impl Drop for Attempt {
     fn drop(&mut self) {

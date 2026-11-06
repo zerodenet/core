@@ -10,6 +10,7 @@ pub struct ShadowsocksTransportState {
     udp_replay: std::sync::Arc<crate::udp::UdpReplayBudget>,
     bloom_budget: std::sync::Arc<crate::shared::LegacyReplayBudget>,
     plugins: super::plugin::outbound::PluginPool,
+    udp_roots: std::sync::Arc<crate::component::udp::PoolRegistry>,
     guards: std::sync::Mutex<std::collections::HashMap<ReplayPolicy, LegacyReplay>>,
 }
 impl ShadowsocksTransportState {
@@ -34,6 +35,7 @@ impl ShadowsocksTransportState {
             udp_replay,
             bloom_budget,
             plugins: Default::default(),
+            udp_roots: Default::default(),
             guards: Default::default(),
             modern: std::sync::Arc::new(crate::shared::ReplaySaltPool::configured_with_budget(
                 crate::shared::ReplaySaltPool::DEFAULT_TTL,
@@ -104,6 +106,27 @@ impl ShadowsocksTransportState {
     ) -> crate::component::PluginOptions {
         crate::component::PluginOptions::new(self.plugin_resource(host, port, config))
     }
+    /// The existing adapter cache root; preparation performs no native IO.
+    pub fn udp_component_options(
+        &self,
+        leaf: &ShadowsocksTransportLeaf,
+        binding: zero_platform_tokio::contract::network::UpstreamBinding,
+    ) -> Result<crate::component::udp::UdpPoolOptions, zero_core::Error> {
+        let endpoint = zero_core::request::Destination::new(
+            match zero_core::address::parse_ip_literal(leaf.server()) {
+                Some(std::net::IpAddr::V4(ip)) => zero_core::Address::Ipv4(ip.octets()),
+                Some(std::net::IpAddr::V6(ip)) => zero_core::Address::Ipv6(ip.octets()),
+                None => zero_core::Address::Domain(leaf.server().into()),
+            },
+            leaf.port(),
+        );
+        crate::component::udp::UdpPoolOptions::new(leaf.flow_resume()?, endpoint, binding)
+    }
+    /// Trim only positively retired actual UDP owner metadata, never an IO or
+    /// view whose cleanup is unknown. The actual replay history stays separate.
+    pub fn compact_udp(&self) {
+        self.udp_roots.compact();
+    }
     pub fn clear_plugins(&self) {
         self.plugins.clear();
     }
@@ -113,6 +136,9 @@ impl ShadowsocksTransportState {
         config: Option<crate::validation::PluginConfig>,
     ) -> ShadowsocksTransportLeaf {
         leaf.plugin = config.map(|config| self.plugins.plan(&leaf.server, leaf.port, config));
+        if let Ok(resume) = leaf.flow_resume() {
+            leaf.udp_root = Some(self.udp_roots.selection(resume.protocol.cache_key()));
+        }
         leaf
     }
 

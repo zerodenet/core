@@ -13,6 +13,30 @@ use zero_traits::{IpAddress, SocketAddress, TcpStack};
 
 pub(super) const MAX_CONNECTIONS: usize = 4096;
 
+/// The existing DNS consumer plus this actual Source's input admission. The
+/// standalone stack fixture deliberately has no Source/native-wire identity.
+pub(super) struct TcpSourceTasks {
+    dns: Option<crate::runtime::raw_ip::tasks::scoped::ScopedSourceTasks<Result<(), io::Error>>>,
+    input: SourceInput,
+}
+enum SourceInput {
+    Hosted(Arc<zero_platform_tokio::contract::packet::PacketSourcePause>),
+    #[cfg(test)]
+    ExplicitStackFixture,
+}
+impl TcpSourceTasks {
+    pub(super) fn hosted(
+        dns: Option<crate::runtime::raw_ip::tasks::scoped::ScopedSourceTasks<Result<(), io::Error>>>,
+        admission: Arc<zero_platform_tokio::contract::packet::PacketSourcePause>,
+    ) -> Self {
+        Self { dns, input: SourceInput::Hosted(admission) }
+    }
+    #[cfg(test)]
+    pub(super) fn fixture() -> Self {
+        Self { dns: None, input: SourceInput::ExplicitStackFixture }
+    }
+}
+
 pub(super) async fn accept(
     tcp: Arc<UserTcpStack>,
     runtime_factory: InboundRouteRuntimeFactory,
@@ -20,12 +44,24 @@ pub(super) async fn accept(
     host: InboundTaskAccess,
     native: super::native_obligations::NativeObligations,
     tun: Option<crate::inbound::tun::TunIngressOptions>,
-    dns: Option<crate::runtime::raw_ip::tasks::scoped::ScopedSourceTasks<Result<(),std::io::Error>>>,
+    source_tasks: TcpSourceTasks,
 ) -> Result<(), EngineError> {
-    let mut dns_tasks=match &dns {Some(dns)=>Some(dns.lock().await.map_err(std::io::Error::other)?),None=>None};
+    let dns = &source_tasks.dns;
+    let mut dns_tasks=match dns {Some(dns)=>Some(dns.lock().await.map_err(std::io::Error::other)?),None=>None};
     loop {
         let accepted=tokio::select! {
-            accepted=tcp.accept()=>accepted,
+            accepted=async {
+                match &source_tasks.input {
+                    SourceInput::Hosted(admission) => {
+                        let (accepted, acquisition) = crate::runtime::raw_ip::tasks::input::admitted(
+                            tcp.accept(), admission,
+                        ).await.map_err(io::Error::other)?;
+                        Ok::<_, EngineError>((accepted, Some(acquisition)))
+                    }
+                    #[cfg(test)]
+                    SourceInput::ExplicitStackFixture => Ok((tcp.accept().await, None)),
+                }
+            }=>accepted?,
             completed=async {dns_tasks.as_mut().expect("declared device DNS receiver").join_next().await},if dns_tasks.as_ref().is_some_and(|tasks|tasks.len()!=0)=>{
                 match completed {
                     Some(Ok(Ok(())))=>{},
@@ -36,6 +72,9 @@ pub(super) async fn accept(
                 continue;
             }
         };
+        // Keep the same admission across reserve and actual spawn_bound. A
+        // pause cannot ACK between accepted socket dequeue and its real owner.
+        let (accepted, _acquisition) = accepted;
         let Some((stream, source, destination)) = accepted else {
             return Err(EngineError::Io(io::Error::new(
                 io::ErrorKind::UnexpectedEof,

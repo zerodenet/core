@@ -16,7 +16,16 @@ pub(in crate::component) type OwnedStart = Shared<BoxFuture<'static, Result<(), 
 impl ComponentSlot {
     /// Called only after the plan validates the actual current consumer grant
     /// and its direct Process dependency. A witness/identity cannot call this.
-    pub(in crate::component) fn start_owned(self: &Arc<Self>, deadline: Instant) -> OwnedStart {
+    pub(in crate::component) fn start_owned(
+        self: &Arc<Self>,
+        deadline: Instant,
+    ) -> Result<OwnedStart, ChannelError> {
+        let admission = self
+            .owned_start_gate
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        #[cfg(any(target_os = "linux", windows))]
+        self.pay_process_admission()?;
         let original = self
             .owned_start
             .get_or_init(|| {
@@ -47,10 +56,44 @@ impl ComponentSlot {
                 operation.shared()
             })
             .clone();
+        drop(admission);
         self.owned_start_host
             .get_or_init(|| std::sync::Mutex::new(Some(original.clone())));
         self.wake_supervision();
-        original
+        Ok(original)
+    }
+    #[cfg(any(target_os = "linux", windows))]
+    pub(super) fn pay_process_admission(&self) -> Result<(), ChannelError> {
+        // Caller holds the same short admission gate. No cleanup polling,
+        // native operation or external callback runs under that gate.
+        if self.prepaid_process.get().is_some() {
+            return Ok(());
+        }
+        if self.cancel.is_cancelled() {
+            return Err(self.failure(Reason::Revoked, "process initializer admission revoked"));
+        }
+        if let Some(ordinal) = self.demand_process_endpoint_ordinal() {
+            let roots = self.original_budgets_for_start()?;
+            let paid = roots
+                .process
+                .reserve_declared(self.instance_id(), ordinal)
+                .map_err(|source| {
+                    self.failure(
+                        if source.kind() == std::io::ErrorKind::WouldBlock {
+                            Reason::Capacity
+                        } else {
+                            Reason::StalePlan
+                        },
+                        "actual process declaration admission refused",
+                    )
+                    .with_source(source)
+                })?;
+            assert!(
+                self.prepaid_process.set(paid).is_ok(),
+                "one paid declaration per actual initializer"
+            );
+        }
+        Ok(())
     }
     pub(in crate::component) fn owned_start_failure(&self) -> Option<SharedError> {
         self.owned_start.get()?.peek()?.as_ref().err().cloned()

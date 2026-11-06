@@ -21,7 +21,7 @@ pub(super) fn prepare(
     protocols: &ProtocolInventory,
     runtime_factory: &InboundListenerRuntimeFactory,
     rollback_runtime_factory: &InboundListenerRuntimeFactory,
-    source_dir: Option<&Path>,
+    _source_dir: Option<&Path>,
     config: &RuntimeConfig,
     active: &HashMap<String, InboundConfig>,
 ) -> Result<Plan, EngineError> {
