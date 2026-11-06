@@ -22,6 +22,7 @@ pub mod supervision;
 #[path = "tests/plan.rs"]
 mod tests;
 mod transaction;
+pub use transaction::PreparedComponentStart;
 use super::{
     instance::{invalid, ComponentSlot, SharedError},
     ComponentRegistry,

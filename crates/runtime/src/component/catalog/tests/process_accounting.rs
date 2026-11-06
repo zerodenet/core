@@ -32,11 +32,14 @@ async fn process_limits_replace_the_actual_warm_job_before_install_preserving_li
         assert!(Arc::ptr_eq(&plan,&catalog.current(&initial).unwrap()));assert!(old.closed().is_none());assert_eq!(root.process.snapshot().charged_jobs,1);
         peer.write_all(b"alive!").await.unwrap();admitted.read_exact(&mut bytes).await.unwrap();assert_eq!(&bytes,b"alive!");
         drop(admitted);assert_eq!(peer.read(&mut[0;1]).await.unwrap(),0);
-        catalog.start(next.clone(),end()).await.unwrap();
+        let prepared=catalog.prepare_resource_start(next.clone(),end()).await.unwrap();
+        assert!(Arc::ptr_eq(prepared.plan(),&candidate));
+        assert!(!candidate.started.load(Ordering::Acquire));
         assert!(old.closed().unwrap().matches(&old));
         assert_eq!(root.process.snapshot().charged_jobs,0,"new cap installs only after the old native job, actor and actual Host ACK refund");
         assert_eq!(root.process.snapshot().limits.max_jobs,2);assert_eq!(root.process.snapshot().limits.max_jobs_per_instance,2);
         assert!(Arc::ptr_eq(&root,&catalog.original_budgets()));assert!(new_process.is_unbuilt_demand_process());
+        prepared.start(end()).await.unwrap();
         catalog.commit(&next,||Ok(())).unwrap();
         let current=catalog.current(&next).unwrap();let(accepted_process,accepted_replay)=fixtures::dependencies(&current);
         assert!(Arc::ptr_eq(&new_process,&accepted_process));assert!(Arc::ptr_eq(&replay,&accepted_replay));

@@ -1,6 +1,63 @@
 //! Persisted staging and explicit confirmation; cold readers cannot publish.
 use super::*;
 
+/// The same retained replacement after actual old closure and policy install,
+/// before any new component owner is constructed. Drop releases only serial
+/// coordination; the catalog continues to own the candidate and cleanup fence.
+#[must_use]
+pub struct PreparedComponentStart<'a> {
+    catalog: &'a ComponentCatalog,
+    config: Arc<RuntimeConfig>,
+    plan: Arc<ComponentPlan>,
+    _transition: tokio::sync::MutexGuard<'a, ()>,
+}
+impl PreparedComponentStart<'_> {
+    pub fn plan(&self) -> &Arc<ComponentPlan> {
+        &self.plan
+    }
+    /// Start only this same confirmed candidate. Source preparation may have
+    /// changed the real network generation before the caller reaches this step.
+    pub async fn start(self, deadline: tokio::time::Instant) -> Result<(), ChannelError> {
+        self.catalog
+            .drive_supervised(self.start_inner(deadline))
+            .await
+    }
+    async fn start_inner(self, deadline: tokio::time::Instant) -> Result<(), ChannelError> {
+        {
+            let mut state = self
+                .catalog
+                .state
+                .lock()
+                .expect("component catalog poisoned");
+            if state.maintenance
+                || !state.replacement.as_ref().is_some_and(|pending| {
+                    Arc::ptr_eq(&pending.candidate, &self.plan)
+                        && pending.released()
+                        && pending.matches_current(state.current.as_ref().map(Current::ready))
+                })
+            {
+                return Err(invalid(
+                    Reason::StalePlan,
+                    "prepared start no longer owns its actual replacement",
+                ));
+            }
+            state.retired = None;
+            state.cold = None;
+            state.staged = Some(Current {
+                config: self.config.clone(),
+                plan: Ok(self.plan.clone()),
+            });
+            state.prune_issued();
+            self.catalog.admission.stage(
+                self.plan
+                    .startable_before_devices()
+                    .map(|slot| slot.admission_grant()),
+            );
+        }
+        self.plan.start(deadline).await
+    }
+}
+
 impl ComponentCatalog {
     pub fn stop_business(&self) {
         self.admission.stop_business();
@@ -32,12 +89,38 @@ impl ComponentCatalog {
             .await
     }
 
+    /// Confirm StopOld and install the exact target limits on the existing
+    /// roots, leaving BuildNew sealed. The owning Source transaction retains
+    /// this token while its own original device changes network facts.
+    pub async fn prepare_resource_start<'a>(
+        &'a self,
+        config: Arc<RuntimeConfig>,
+        deadline: tokio::time::Instant,
+    ) -> Result<PreparedComponentStart<'a>, ChannelError> {
+        self.drive_supervised(self.prepare_start_inner(config, deadline, &mut |terminal| {
+            terminal
+                .failure()
+                .map_or(Ok(()), |failure| Err(failure.retained()))
+        }))
+        .await
+    }
     async fn start_reported_inner(
         &self,
         config: Arc<RuntimeConfig>,
         deadline: tokio::time::Instant,
-        mut publish: impl FnMut(&replacement::DeclaredComponentTerminal) -> Result<(), ChannelError>,
+        publish: &mut impl FnMut(&replacement::DeclaredComponentTerminal) -> Result<(), ChannelError>,
     ) -> Result<(), ChannelError> {
+        self.prepare_start_inner(config, deadline, publish)
+            .await?
+            .start_inner(deadline)
+            .await
+    }
+    async fn prepare_start_inner<'a>(
+        &'a self,
+        config: Arc<RuntimeConfig>,
+        deadline: tokio::time::Instant,
+        mut publish: impl FnMut(&replacement::DeclaredComponentTerminal) -> Result<(), ChannelError>,
+    ) -> Result<PreparedComponentStart<'a>, ChannelError> {
         let _transition = tokio::time::timeout_at(deadline, self.transition.lock())
             .await
             .map_err(|_| invalid(Reason::Timeout, "component transition remains owned"))?;
@@ -111,21 +194,12 @@ impl ComponentCatalog {
         // Install on the same root before any candidate native job starts.
         self.original_budgets()
             .install_original_limits(&config.runtime)?;
-        {
-            let mut state = self.state.lock().expect("component catalog poisoned");
-            state.retired = None;
-            state.cold = None;
-            state.staged = Some(Current {
-                config,
-                plan: Ok(plan.clone()),
-            });
-            state.prune_issued();
-            self.admission.stage(
-                plan.startable_before_devices()
-                    .map(|slot| slot.admission_grant()),
-            );
-        }
-        plan.start(deadline).await
+        Ok(PreparedComponentStart {
+            catalog: self,
+            config,
+            plan,
+            _transition,
+        })
     }
 
     pub(super) async fn finish_replacement(

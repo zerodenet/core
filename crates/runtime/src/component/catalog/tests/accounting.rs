@@ -60,7 +60,15 @@ async fn actual_host_total_change_preserves_admitted_transferred_io_and_commits_
     drop(transferred);
     assert_eq!(peer.read(&mut [0; 1]).await.unwrap(), 0);
     let external = catalog.try_pause_replacement_users(&candidate).unwrap();
-    catalog.start(next.clone(), end()).await.unwrap();
+    let prepared = catalog
+        .prepare_resource_start(next.clone(), end())
+        .await
+        .unwrap();
+    assert!(Arc::ptr_eq(prepared.plan(), &candidate));
+    assert!(
+        pending.original_carrier_owner(0).is_none(),
+        "StopOld/policy install constructs no new carrier owner"
+    );
     drop(external);
     let actual = catalog.state.lock().unwrap().replacement.clone().unwrap();
     assert!(actual.retains_budget_pause());
@@ -72,6 +80,11 @@ async fn actual_host_total_change_preserves_admitted_transferred_io_and_commits_
     );
     assert_eq!(roots.carrier.snapshot().limit.get(), 1);
     assert!(Arc::ptr_eq(&roots, &catalog.original_budgets()));
+    prepared.start(end()).await.unwrap();
+    assert!(
+        pending.original_carrier_owner(0).is_some(),
+        "BuildNew follows original retirement and installed policy"
+    );
     catalog.commit(&next, || Ok(())).unwrap();
     assert!(catalog.state.lock().unwrap().replacement.is_none());
     drop(actual);
