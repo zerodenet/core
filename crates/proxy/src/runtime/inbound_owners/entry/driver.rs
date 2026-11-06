@@ -26,9 +26,9 @@ impl InboundOwner {
             .expect("inbound resources poisoned")
             .clone();
         let parent = Arc::downgrade(self);
-        let task = self
+        let (task, witness) = self
             .registrar
-            .spawn(TaskClass::Critical, async move {
+            .spawn_tracked(TaskClass::Critical, async move {
                 let outcome = AssertUnwindSafe(async {
                     for resource in &resources {
                         if cancel.is_cancelled() || *stopping.borrow() {
@@ -93,6 +93,16 @@ impl InboundOwner {
                 }
             })
             .map_err(std::io::Error::other)?;
+        #[cfg(feature = "raw-ip-runtime")]
+        {
+            self.main_registration
+                .witness
+                .set(witness)
+                .expect("one original source main witness");
+            self.main_registration.published.notify_waiters();
+        }
+        #[cfg(not(feature = "raw-ip-runtime"))]
+        let _ = witness;
         self.publish_driver(task);
         Ok(())
     }

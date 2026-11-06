@@ -383,6 +383,16 @@ fn validate_runtime(
             "runtime.udp_direct_max_sockets must be between 1 and 4096".into(),
         ));
     }
+    if runtime.effective_ss_tcp_replay_max_salts() == 0
+        || runtime
+            .effective_ss_tcp_replay_max_salts()
+            .checked_add(1)
+            .is_none()
+    {
+        return Err(ConfigError::InvalidRuntime(
+            "runtime.ss_tcp_replay_max_salts must be positive and leave room for checked accounting".into(),
+        ));
+    }
     if !(1..=4096).contains(&runtime.effective_vmess_grpc_max_originals()) {
         return Err(ConfigError::InvalidRuntime(
             "runtime.vmess_grpc_max_originals must be between 1 and 4096".into(),

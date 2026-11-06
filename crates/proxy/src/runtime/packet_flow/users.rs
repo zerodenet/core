@@ -9,13 +9,13 @@ use std::{
 pub(super) use stream::TrackedStream;
 use tokio::{
     sync::Notify,
-    time::{timeout_at, Instant},
+    time::{Instant, timeout_at},
 };
 use zero_platform_tokio::{
     contract::{
+        CancellationToken, ChannelError, Impact, Reason, Stage,
         lifecycle::{CloseReport, Unfinished},
         scope::TaskJoinWitness,
-        CancellationToken, ChannelError, Impact, Reason, Stage,
     },
     controlled_datagram::metadata::users::{LogicalUserPermit, LogicalUsers, UserAdmission},
 };
@@ -60,6 +60,17 @@ impl FlowUsers {
             state: Mutex::new(State::default()),
             changed: Notify::new(),
         })
+    }
+    /// Same existing users ledger and original caller. No task/native owner or
+    /// second user table is created by this internal standard-role projection.
+    pub(crate) fn acquire_from_witness(
+        self: &Arc<Self>,
+        witness: TaskJoinWitness,
+    ) -> Result<FlowUser, ChannelError> {
+        if witness.is_joined() || !witness.scope_identity().resource_open() {
+            return Err(revoked());
+        }
+        self.acquire(Some(FlowCaller { witness }))
     }
     pub(super) fn acquire(
         self: &Arc<Self>,

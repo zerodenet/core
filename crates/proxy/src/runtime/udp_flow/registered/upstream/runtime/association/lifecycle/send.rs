@@ -58,13 +58,15 @@ where
 
         if !needs_new_association {
             services.record_udp_upstream_association_reused();
-            let (outbound_tag, server, port) = association.log_parts();
-            crate::logging::log_udp_upstream_association_reused(
-                inbound_tag,
-                outbound_tag,
-                server,
-                port,
-            );
+            let (outbound_tag, endpoint) = association.log_parts();
+            if let Some((server, port)) = endpoint {
+                crate::logging::log_udp_upstream_association_reused(
+                    inbound_tag,
+                    outbound_tag,
+                    server,
+                    port,
+                );
+            }
             return Ok(());
         }
 
@@ -97,14 +99,16 @@ where
                 services.record_udp_upstream_association_created();
                 self.idle_deadline =
                     Some(TokioInstant::now() + services.udp_upstream_idle_timeout());
-                let (outbound_tag, server, port) = association.log_parts();
-                crate::logging::log_udp_upstream_association_created(
-                    inbound_tag,
-                    outbound_tag,
-                    server,
-                    port,
-                    services.udp_upstream_idle_timeout(),
-                );
+                let (outbound_tag, endpoint) = association.log_parts();
+                if let Some((server, port)) = endpoint {
+                    crate::logging::log_udp_upstream_association_created(
+                        inbound_tag,
+                        outbound_tag,
+                        server,
+                        port,
+                        services.udp_upstream_idle_timeout(),
+                    );
+                }
                 let _ = self.upstream.insert(association, a);
                 Ok(())
             }

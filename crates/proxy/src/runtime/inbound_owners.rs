@@ -7,6 +7,8 @@ pub(crate) use bind::tests::test_standard_native_listener;
 mod entry;
 mod observers;
 #[cfg(feature = "raw-ip-runtime")]
+mod packet_source;
+#[cfg(feature = "raw-ip-runtime")]
 pub(crate) mod system_tun;
 pub(crate) use bind::LeasedInbound;
 pub(crate) use bind::NativeListenerView;
@@ -110,7 +112,9 @@ impl InboundInstallContext {
         self.entry.task_access()
     }
     #[cfg(feature = "raw-ip-runtime")]
-    pub(crate) fn source_registrar(&self) -> zero_platform_tokio::contract::scope::WeakTaskRegistrar {
+    pub(crate) fn source_registrar(
+        &self,
+    ) -> zero_platform_tokio::contract::scope::WeakTaskRegistrar {
         self.entry.accepted_registrar().downgrade()
     }
 }

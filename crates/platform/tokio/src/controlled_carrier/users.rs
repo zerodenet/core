@@ -1,10 +1,10 @@
 //! The same reservation's logical view and actual caller exit, never a second ledger.
-use super::{error, slot::Slot, CarrierAdoption, CarrierGrant, CarrierOwnerRegistration};
+use super::{CarrierAdoption, CarrierGrant, CarrierOwnerRegistration, error, slot::Slot};
 use crate::contract::{
-    scope::{TaskJoinWitness, TaskJoined},
     ChannelError, DeliveryState, Reason, Stage,
+    scope::{TaskJoinWitness, TaskJoined},
 };
-use std::sync::{atomic::Ordering, Arc};
+use std::sync::{Arc, atomic::Ordering};
 
 #[derive(Clone, Default)]
 pub(super) struct Users {
@@ -112,6 +112,10 @@ impl Drop for CarrierUserView {
     }
 }
 impl Users {
+    pub(super) fn caller_joined(&self) -> Option<TaskJoined> {
+        self.caller.as_ref().and_then(TaskJoinWitness::try_joined)
+    }
+
     pub(super) fn driver_custody_live(&self) -> bool {
         self.driver_owned && self.live
     }

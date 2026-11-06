@@ -4,6 +4,16 @@ use crate::contract::{DeliveryState, Impact, Reason, Stage};
 /// Host-supplied execution of an already selected prefix. Implementations must
 /// reject stale generations and preserve every hard dial constraint. No direct fallback.
 pub trait UpstreamOpener: Send + Sync {
+    fn packet_caller(
+        &self,
+        _: &UpstreamBinding,
+        _: &crate::contract::context::RequestIdentity,
+        _: &CarrierContext,
+    ) -> Result<crate::contract::scope::TaskJoinWitness, ChannelError> {
+        let mut failure = ChannelError::new(Stage::Prepare, Reason::Unsupported, Impact::Session);
+        failure.delivery = DeliveryState::NotSubmitted;
+        Err(failure)
+    }
     /// Finite cleanup metadata of this actual selected graph. This neither
     /// raises native capacity nor grants IO, task credit or a close receipt.
     fn pending_carrier_capacity(&self, _: &UpstreamBinding) -> Option<usize> {

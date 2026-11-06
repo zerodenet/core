@@ -168,9 +168,9 @@ impl Managed {
                     .closed()
                     .is_some_and(|closed| closed.matches(&record.adoption))
                 {
-                    // The original native stage already completed. This call
-                    // settles only immediately returned logical users/receipts.
-                    let _ = record.adoption.retire(Instant::now()).await?;
+                    // Native closure is already recorded. Full nonwaiting
+                    // settlement still checks the same returned users/caller.
+                    let _ = record.adoption.try_retire()?;
                 }
             }
         }

@@ -22,14 +22,19 @@ use zero_stack::client_udp::{
 };
 
 mod control;
+mod tx;
 type Cancelled = Pin<Box<dyn Future<Output = ()> + Send>>;
 pub(super) struct Tx {
     shared: Arc<Shared>,
     cancelled: Cancelled,
+    users_cancelled: Cancelled,
+    _user: Arc<crate::runtime::packet_flow::FlowUser>,
 }
 pub(super) struct Rx {
     shared: Arc<Shared>,
     cancelled: Cancelled,
+    users_cancelled: Cancelled,
+    _user: Arc<crate::runtime::packet_flow::FlowUser>,
 }
 pub(super) struct Control(Arc<Shared>);
 pub(super) type Session = DatagramSession<Tx, Rx, Control>;
@@ -53,6 +58,9 @@ struct Shared {
     target: Destination,
     association: AssociationId,
     cancel: CancellationToken,
+    // The same token requires both returned actual views and matching logical
+    // socket closure; a retained control alone cannot refund this user.
+    user: Mutex<Option<Arc<crate::runtime::packet_flow::FlowUser>>>,
 }
 pub(super) fn session(
     socket: ClientUdpSocket,
@@ -60,7 +68,10 @@ pub(super) fn session(
     target: Destination,
     association: AssociationId,
     cancel: CancellationToken,
+    user: crate::runtime::packet_flow::FlowUser,
+    user_stop: CancellationToken,
 ) -> Session {
+    let user = Arc::new(user);
     let shared = Arc::new(Shared {
         original: Mutex::new(Original {
             socket,
@@ -74,15 +85,20 @@ pub(super) fn session(
         target: target.clone(),
         association,
         cancel: cancel.child_token(),
+        user: Mutex::new(Some(user.clone())),
     });
     DatagramSession {
         tx: Tx {
             shared: shared.clone(),
             cancelled: Box::pin(shared.cancel.clone().cancelled_owned()),
+            users_cancelled: Box::pin(user_stop.clone().cancelled_owned()),
+            _user: user.clone(),
         },
         rx: Rx {
             shared: shared.clone(),
             cancelled: Box::pin(shared.cancel.clone().cancelled_owned()),
+            users_cancelled: Box::pin(user_stop.clone().cancelled_owned()),
+            _user: user.clone(),
         },
         control: Control(shared),
         limits: DatagramLimits {
@@ -126,114 +142,14 @@ impl Shared {
         Poll::Ready(result)
     }
 }
-impl DatagramTx for Tx {
-    fn poll_send(
-        mut self: Pin<&mut Self>,
-        cx: &mut Context<'_>,
-        frame: &Datagram,
-    ) -> Poll<Result<SendReceipt, SendFailure>> {
-        if self.cancelled.as_mut().poll(cx).is_ready() {
-            self.shared.stop();
-        }
-        let shared = &self.shared;
-        if frame.association != shared.association
-            || frame.address != shared.target
-            || frame.payload.len() > 65_507
-        {
-            return Poll::Ready(Err(SendFailure::new(
-                failure(Stage::Send, Reason::InvalidConfig),
-                DeliveryState::NotSubmitted,
-            )));
-        }
-        {
-            let mut state = shared
-                .state
-                .lock()
-                .unwrap_or_else(std::sync::PoisonError::into_inner);
-            if state
-                .pending
-                .as_ref()
-                .is_some_and(|pending| pending.frame.as_ref() != frame)
-            {
-                drop(state);
-                shared.stop();
-                return Poll::Ready(Err(SendFailure::new(
-                    failure(Stage::Send, Reason::Protocol),
-                    DeliveryState::Unknown,
-                )));
-            }
-            if state.pending.is_none() {
-                if shared.cancel.is_cancelled() {
-                    drop(state);
-                    shared.stop();
-                    return Poll::Ready(Err(SendFailure::new(
-                        failure(Stage::Send, Reason::Revoked),
-                        DeliveryState::NotSubmitted,
-                    )));
-                }
-                let sender = shared
-                    .original
-                    .lock()
-                    .unwrap_or_else(std::sync::PoisonError::into_inner)
-                    .socket
-                    .sender();
-                let frame = Arc::new(Datagram {
-                    address: frame.address.clone(),
-                    association: frame.association,
-                    payload: frame.payload.to_vec().into(),
-                });
-                let bytes = frame.clone();
-                let peer = shared.peer;
-                state.pending = Some(Pending {
-                    frame,
-                    sending: Box::pin(async move {
-                        sender
-                            .send_to(
-                                &bytes.payload,
-                                zero_stack::packet::Endpoint {
-                                    ip: peer.ip(),
-                                    port: peer.port(),
-                                },
-                            )
-                            .await
-                    }),
-                });
-            }
-        }
-        // A canceled already-pending send must report its real accepted prefix.
-        // Closing the actual socket wakes that original future; do not relabel
-        // partially submitted packets as NotSubmitted merely from cancellation.
-        if shared.cancel.is_cancelled() {
-            shared.stop();
-        }
-        match std::task::ready!(shared.poll_pending(cx)) {
-            Ok(()) => Poll::Ready(Ok(SendReceipt {
-                accepted_bytes: frame.payload.len(),
-                delivery: DeliveryState::LocallyAccepted,
-            })),
-            Err(source) => {
-                let delivery = if source.accepted_fragments == 0 {
-                    DeliveryState::NotSubmitted
-                } else {
-                    DeliveryState::Unknown
-                };
-                if delivery == DeliveryState::Unknown {
-                    shared.stop();
-                }
-                Poll::Ready(Err(SendFailure::new(
-                    failure(Stage::Send, Reason::Io).with_source(source),
-                    delivery,
-                )))
-            }
-        }
-    }
-}
 impl DatagramRx for Rx {
     fn poll_recv(
         mut self: Pin<&mut Self>,
         cx: &mut Context<'_>,
     ) -> Poll<Result<Option<Datagram>, ChannelError>> {
-        if self.cancelled.as_mut().poll(cx).is_ready() {
+        if self.cancelled.as_mut().poll(cx).is_ready()
+            || self.users_cancelled.as_mut().poll(cx).is_ready()
+        {
             self.shared.stop();
         }
         let shared = &self.shared;

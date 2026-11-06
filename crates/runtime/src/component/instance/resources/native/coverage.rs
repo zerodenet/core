@@ -6,6 +6,7 @@ use super::*;
 pub(in crate::component) enum DeclaredResourceKind {
     ControlledOutboundStream,
     ControlledCarrierPool,
+    ControlledServiceStream,
     ControlledDatagramCarrier,
     ControlledOutboundDatagram,
     ControlledDirectStream,
@@ -72,6 +73,9 @@ impl CoverageBinding {
             ResourceDeclaration::ControlledCarrierPool { .. }
             | ResourceDeclaration::ControlledAssociationPool { .. } => {
                 Self::Carrier(DeclaredResourceKind::ControlledCarrierPool)
+            }
+            ResourceDeclaration::ControlledServiceStream { .. } => {
+                Self::Carrier(DeclaredResourceKind::ControlledServiceStream)
             }
             ResourceDeclaration::ControlledOutboundStream { .. } => {
                 Self::Carrier(DeclaredResourceKind::ControlledOutboundStream)
@@ -266,6 +270,7 @@ impl evidence::HostIoEvidence {
                         declaration.kind,
                         DeclaredResourceKind::ControlledOutboundStream
                             | DeclaredResourceKind::ControlledCarrierPool
+                            | DeclaredResourceKind::ControlledServiceStream
                             | DeclaredResourceKind::ControlledDatagramCarrier
                             | DeclaredResourceKind::ControlledNodeStream
                             | DeclaredResourceKind::ControlledDirectStream

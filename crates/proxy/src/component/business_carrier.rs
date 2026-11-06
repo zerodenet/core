@@ -2,7 +2,7 @@
 use super::{
     business_demand::AdmittedBusinessDemand,
     direct_bridge::Invocation,
-    instance::{invalid, ComponentSlot},
+    instance::{ComponentSlot, invalid},
 };
 use std::sync::{Arc, Weak};
 use tokio::time::Instant;
@@ -10,7 +10,7 @@ use zero_core::{component::SessionId, request::Destination};
 use zero_engine::Engine;
 use zero_platform_tokio::{
     contract::{
-        context::RequestIdentity, network::UpstreamBinding, CancellationToken, ChannelError, Reason,
+        CancellationToken, ChannelError, Reason, context::RequestIdentity, network::UpstreamBinding,
     },
     controlled_carrier::{CarrierBusinessDemand, CarrierBusinessGrant, CarrierGrant},
 };
@@ -82,7 +82,7 @@ impl BusinessCarrierRequest {
         self.prefix = prefix.into();
         self
     }
-    fn caller_witness(
+    pub(super) fn caller_witness(
         &self,
     ) -> Result<Option<zero_platform_tokio::contract::scope::TaskJoinWitness>, ChannelError> {
         #[cfg(feature = "raw-ip-runtime")]
@@ -111,6 +111,31 @@ impl BusinessCarrierRequest {
             });
         }
         Ok(None)
+    }
+    pub(super) fn packet_caller(
+        &self,
+        identity: &RequestIdentity,
+        call: &zero_platform_tokio::contract::network::CarrierContext,
+    ) -> Result<zero_platform_tokio::contract::scope::TaskJoinWitness, ChannelError> {
+        if !matches!((&self.identity, identity), (RequestIdentity::Business(actual), RequestIdentity::Business(request)) if Arc::ptr_eq(actual, request))
+            || call.session != Some(self.session)
+            || call.deadline != self.deadline
+            || call.cancel.is_cancelled()
+        {
+            return Err(invalid(
+                Reason::StalePlan,
+                "Packet caller differs from original business demand",
+            ));
+        }
+        CarrierBusinessDemand::check(self)?;
+        self.caller_witness()?
+            .filter(|witness| !witness.is_joined() && witness.scope_identity().resource_open())
+            .ok_or_else(|| {
+                invalid(
+                    Reason::Revoked,
+                    "Packet caller original join is unavailable",
+                )
+            })
     }
     pub(super) fn has_tracked_caller(&self) -> bool {
         self.caller_witness().is_ok_and(|caller| caller.is_some())

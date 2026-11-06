@@ -59,7 +59,7 @@ fn whole_node_projection_removes_legacy_tcp_and_keeps_datagram_only_relay_bounda
                 .iter()
                 .filter(|resource| matches!(
                     resource,
-                    ResourceDeclaration::ControlledCarrierPool { .. }
+                    ResourceDeclaration::ControlledServiceStream { .. }
                 ))
                 .count(),
             usize::from(enabled)

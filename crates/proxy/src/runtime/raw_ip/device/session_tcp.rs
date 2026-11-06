@@ -1,6 +1,6 @@
 //! A real cold TCP opening is installed in LoanOwner before the first SYN poll.
 use std::{
-    future::Future,
+    future::{poll_fn, Future},
     io,
     pin::Pin,
     sync::Arc,
@@ -32,10 +32,20 @@ pub(crate) struct Stream {
     deadline: Option<Pin<Box<tokio::time::Sleep>>>,
     observer: Option<Arc<dyn ConnectObserver>>,
     session: Option<zero_core::component::SessionId>,
+    users_cancelled: Pin<Box<dyn Future<Output = ()> + Send>>,
+    // Declared after the original IO/control: view release follows IO Drop.
+    _user: crate::runtime::packet_flow::FlowUser,
 }
 impl Stream {
-    pub(super) fn new(opening: ClientTcpOpening, context: OpenContext) -> Self {
+    pub(super) fn new(
+        opening: ClientTcpOpening,
+        context: OpenContext,
+        user: crate::runtime::packet_flow::FlowUser,
+        stop: zero_platform_tokio::contract::CancellationToken,
+    ) -> Self {
         Self {
+            _user: user,
+            users_cancelled: Box::pin(stop.cancelled_owned()),
             control: opening.control(),
             connecting: Some(Box::pin(opening.connect())),
             stream: None,
@@ -47,6 +57,31 @@ impl Stream {
             session: context.identity.session(),
         }
     }
+    /// Normal Flow connect keeps its established-before-ACK contract. A
+    /// carrier loan instead returns the original controller before this poll.
+    pub(crate) async fn establish(mut self) -> Result<Self, ChannelError> {
+        if let Err(source) = poll_fn(|cx| self.prepare(cx)).await {
+            // Settle this same opening before the matching logical removal;
+            // cancellation of this cleanup still leaves its actual worker in
+            // the original host Scope, with its same send-control/tuple ID.
+            self.connecting.take();
+            self.control.close().await;
+            let reason = match source.kind() {
+                io::ErrorKind::TimedOut => Reason::Timeout,
+                io::ErrorKind::WouldBlock => Reason::Capacity,
+                io::ErrorKind::InvalidInput => Reason::InvalidConfig,
+                io::ErrorKind::BrokenPipe => Reason::Revoked,
+                _ => Reason::Io,
+            };
+            return Err(ChannelError::new(Stage::Dial, reason, Impact::Session).with_source(source));
+        }
+        Ok(self)
+    }
+    pub(crate) async fn close_failed(mut self) {
+        self.connecting.take();
+        self.stream.take();
+        self.control.close().await;
+    }
     pub(crate) fn into_loan(self, original: CarrierOrigin) -> StreamLoan {
         let control = Control(self.control.clone());
         StreamLoan::new(
@@ -56,7 +91,10 @@ impl Stream {
         )
     }
     fn prepare(&mut self, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
-        if self.control.is_stopped() || self.cancelled.as_mut().poll(cx).is_ready() {
+        if self.control.is_stopped()
+            || self.cancelled.as_mut().poll(cx).is_ready()
+            || self.users_cancelled.as_mut().poll(cx).is_ready()
+        {
             self.control.cancel();
             return Poll::Ready(Err(io::ErrorKind::BrokenPipe.into()));
         }
@@ -81,7 +119,7 @@ impl Stream {
                 Err(source) => {
                     self.connecting = None;
                     self.control.cancel();
-                    return Poll::Ready(Err(io::Error::other(source)));
+                    return Poll::Ready(Err(stack_io_error(source)));
                 }
             }
         }
@@ -145,4 +183,20 @@ impl ChannelControl for Control {
             })?;
         Ok(CloseReport::default()) // matching logical TCP only; original Scope/native remain separate
     }
+}
+
+fn stack_io_error(source: zero_stack::ClientTcpStackError) -> io::Error {
+    use zero_stack::ClientTcpStackError as Error;
+    let kind = match source {
+        Error::MissingLocalAddress
+        | Error::InvalidMtu
+        | Error::UnknownLocalAddress
+        | Error::AddressFamilyMismatch => io::ErrorKind::InvalidInput,
+        Error::ConnectionLimit => io::ErrorKind::WouldBlock,
+        Error::OutboundClosed => io::ErrorKind::BrokenPipe,
+        Error::ConnectTimeout => io::ErrorKind::TimedOut,
+        Error::ConnectionReset => io::ErrorKind::ConnectionReset,
+        Error::DestinationUnreachable => io::ErrorKind::NetworkUnreachable,
+    };
+    io::Error::new(kind, source)
 }

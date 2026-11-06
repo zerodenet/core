@@ -223,8 +223,14 @@ impl ProtocolInventory {
         }
         let endpoint = match outbound.protocol.endpoint() {
             Some((server, port)) => Some((server.into(), port)),
-            None if components?.has_device_carrier_provider(slot.role_id()) => None,
-            None => return None, // cold device preparation has no native qualification yet
+            None if [zero_platform_tokio::contract::component::RoleKind::Packet,
+                     zero_platform_tokio::contract::component::RoleKind::Stream,
+                     zero_platform_tokio::contract::component::RoleKind::Datagram]
+                .iter().all(|role| slot.recipe.spec().roles.contains(role))
+                && components?.device_component(slot.id).is_ok() => None,
+            None => return Some(Err(failure(EngineError::InvalidPlan {
+                message: "registered Stream has neither a node endpoint nor a canonical device dependency".into(),
+            }))),
         };
         Some(Ok(super::PreparedTcpCandidate {
             health_tag: Some(outbound.tag.clone()),

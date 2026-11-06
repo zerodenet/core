@@ -58,6 +58,24 @@ pub struct PendingCarrierObserver {
     opener: std::sync::Weak<dyn UpstreamOpener>,
 }
 impl PendingCarrierObserver {
+    /// Read only the actual waiting opener's independently registered caller.
+    /// This neither authorizes I/O nor turns a query/task number into a grant.
+    pub fn packet_caller(
+        &self,
+        identity: &crate::contract::context::RequestIdentity,
+        call: &CarrierContext,
+    ) -> Result<crate::contract::scope::TaskJoinWitness, ChannelError> {
+        let opener = self.opener.upgrade().ok_or_else(|| {
+            let mut error = ChannelError::new(
+                super::Stage::Prepare,
+                super::Reason::Revoked,
+                super::Impact::Component,
+            );
+            error.delivery = super::DeliveryState::NotSubmitted;
+            error
+        })?;
+        opener.packet_caller(&self.binding, identity, call)
+    }
     pub fn capacity(&self) -> Option<usize> {
         self.opener
             .upgrade()?
@@ -103,6 +121,16 @@ impl UpstreamTransport {
     ) -> BoxFuture<'_, Result<crate::controlled_carrier::CarrierCandidates, ChannelError>> {
         self.opener
             .resolve_related_datagram(&self.binding, parent, peer, context)
+    }
+    /// Original caller observation from this exact host demand/binding. The
+    /// actual opener must check admission, full identity and live generation;
+    /// merely matching a public session number grants no caller provenance.
+    pub fn packet_caller(
+        &self,
+        identity: &crate::contract::context::RequestIdentity,
+        call: &CarrierContext,
+    ) -> Result<crate::contract::scope::TaskJoinWitness, ChannelError> {
+        self.opener.packet_caller(&self.binding, identity, call)
     }
     pub fn has_tracked_business_caller(&self) -> bool {
         self.opener.has_tracked_business_caller()

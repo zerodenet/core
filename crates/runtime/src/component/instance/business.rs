@@ -18,7 +18,7 @@ impl ComponentSlot {
                 self.failure(Reason::StalePlan, "business carrier owner has not built")
             })?;
         if !matches!(live.started.get(), Some(Ok(())))
-            || !live.tasks.scope_identity().registration_open()
+            || !live.tasks.scope_identity().resource_open()
         {
             return Err(self.failure(
                 Reason::Revoked,

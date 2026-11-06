@@ -34,6 +34,12 @@ impl CarrierAdoption {
         Arc::ptr_eq(&self.slot, &other.slot)
     }
 
+    pub(crate) fn cleanup_owner(&self) -> Option<super::CarrierOwnerRegistration> {
+        self.slot
+            .owner
+            .upgrade()
+            .map(|owner| super::CarrierOwnerRegistration::new(&owner))
+    }
     pub fn instance(&self) -> ComponentInstanceId {
         self.slot.instance
     }
@@ -55,6 +61,11 @@ impl CarrierAdoption {
         self.slot.cancel.cancel();
         self.slot.notify();
         super::owner::close_slot(&self.slot, deadline).await
+    }
+    /// Settle only already returned native/users/join facts, without waiting.
+    pub fn try_retire(&self) -> Result<crate::contract::lifecycle::CloseReport, ChannelError> {
+        self.request_retirement();
+        super::owner::try_close_slot(&self.slot)
     }
     /// Registers the protocol's existing one driver, not an extra worker. The
     /// original control already lives in the persistent slot. No await separates
@@ -176,6 +187,12 @@ impl CarrierClosed {
                 state.packet_disposition,
                 Some(crate::controlled_datagram::AcquisitionOutcome::Closed(_))
             )
+    }
+    pub(crate) fn cleanup_owner(&self) -> Option<super::CarrierOwnerRegistration> {
+        self.slot
+            .owner
+            .upgrade()
+            .map(|owner| super::CarrierOwnerRegistration::new(&owner))
     }
     pub fn instance(&self) -> ComponentInstanceId {
         self.slot.instance

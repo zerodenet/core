@@ -43,6 +43,11 @@ impl CarrierOwnerRegistration {
                 max_sockets,
                 ..
             }
+            | ResourceDeclaration::ControlledServiceStream {
+                endpoint,
+                dial,
+                max_sockets,
+            }
             | ResourceDeclaration::ControlledAssociationPool {
                 endpoint,
                 dial,
@@ -160,6 +165,7 @@ impl BoundAuthority {
                 }
                 | ResourceDeclaration::ControlledDirectStream { .. }
                 | ResourceDeclaration::ControlledNodeStream { .. }
+                | ResourceDeclaration::ControlledServiceStream { .. }
         )
     }
     pub(super) fn background_custody_available(&self) -> bool {
@@ -171,6 +177,7 @@ impl BoundAuthority {
                     ..
                 } | ResourceDeclaration::ControlledDatagramCarrier { .. }
                     | ResourceDeclaration::ControlledCarrierPool { .. }
+                    | ResourceDeclaration::ControlledServiceStream { .. }
                     | ResourceDeclaration::ControlledAssociationPool { .. }
             )
     }
@@ -191,6 +198,7 @@ impl BoundAuthority {
             && match declaration {
                 ResourceDeclaration::ControlledOutboundStream { max_sockets, .. }
                 | ResourceDeclaration::ControlledCarrierPool { max_sockets, .. }
+                | ResourceDeclaration::ControlledServiceStream { max_sockets, .. }
                 | ResourceDeclaration::ControlledAssociationPool { max_sockets, .. }
                 | ResourceDeclaration::ControlledDatagramCarrier { max_sockets, .. }
                 | ResourceDeclaration::ControlledDirectStream { max_sockets, .. } => {
@@ -218,6 +226,12 @@ impl BoundAuthority {
         context: &CarrierContext,
     ) -> bool {
         let descriptor = match &self.declaration {
+            ResourceDeclaration::ControlledServiceStream { endpoint, dial, .. } => {
+                endpoint == destination
+                    && dial == &binding.dial
+                    && binding.prefix.is_empty()
+                    && context.session.is_none()
+            }
             ResourceDeclaration::ControlledCarrierPool { endpoint, dial, .. }
             | ResourceDeclaration::ControlledAssociationPool { endpoint, dial, .. } => {
                 endpoint == destination && dial == &binding.dial && context.session.is_none()
@@ -263,7 +277,8 @@ impl BoundAuthority {
     pub(super) fn pool_kind(&self) -> Option<bool> {
         match self.declaration {
             ResourceDeclaration::ControlledCarrierPool { datagram, .. } => Some(datagram),
-            ResourceDeclaration::ControlledAssociationPool { .. } => Some(false),
+            ResourceDeclaration::ControlledAssociationPool { .. }
+            | ResourceDeclaration::ControlledServiceStream { .. } => Some(false),
             _ => None,
         }
     }
@@ -287,6 +302,10 @@ impl BoundAuthority {
     }
     pub(super) fn retains_driver(&self, witness: &crate::contract::scope::TaskJoinWitness) -> bool {
         self.pool_kind().is_some()
+            && !matches!(
+                self.declaration,
+                ResourceDeclaration::ControlledServiceStream { .. }
+            )
             && !self.host_cancel.is_cancelled()
             && self.scope.resource_open()
             && self.scope.same_scope(&witness.scope_identity())
@@ -349,6 +368,7 @@ impl CarrierOwnerBinding {
                 ControlledStreamDemandClass::BackgroundControl
             }
             ResourceDeclaration::ControlledCarrierPool { .. }
+            | ResourceDeclaration::ControlledServiceStream { .. }
             | ResourceDeclaration::ControlledAssociationPool { .. } => {
                 ControlledStreamDemandClass::BackgroundControl
             }

@@ -40,6 +40,10 @@ mod controlled_tcp;
 mod datagram;
 #[cfg(windows)]
 mod windows_socket;
+#[cfg(windows)]
+mod controlled_pipe;
+#[cfg(windows)]
+pub use controlled_pipe::{ControlledPipe, ControlledPipeOwner, PipeClosed, PipeNativeFailures};
 #[cfg(any(unix, windows))]
 pub use controlled_tcp::PendingTcpConnect;
 #[cfg(unix)]

@@ -84,6 +84,16 @@ impl Record {
                     .as_ref()
                     .is_some_and(|physical| physical.closed()))
     }
+    pub(super) fn returned(&self) -> bool {
+        let state = self.state.lock().unwrap();
+        state.app.upgrade().is_none()
+            && (!state.attempted
+                || (state.read_returned && state.write_returned)
+                || state
+                    .physical
+                    .as_ref()
+                    .is_some_and(|physical| physical.closed()))
+    }
     pub(super) fn worker_returned(&self, read: bool) {
         {
             let mut state = self.state.lock().unwrap();
@@ -103,16 +113,7 @@ impl Record {
             let changed = self.changed.notified();
             tokio::pin!(changed);
             changed.as_mut().enable();
-            let complete = {
-                let state = self.state.lock().unwrap();
-                state.app.upgrade().is_none()
-                    && (!state.attempted
-                        || (state.read_returned && state.write_returned)
-                        || state
-                            .physical
-                            .as_ref()
-                            .is_some_and(|physical| physical.closed()))
-            };
+            let complete = self.returned();
             if complete {
                 return Ok(Default::default());
             }

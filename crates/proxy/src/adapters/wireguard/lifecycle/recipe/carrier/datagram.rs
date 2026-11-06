@@ -17,8 +17,17 @@ impl Carrier {
         };
         let peer = self.resolve(target, &context).await?;
         let (device, local) = self.device(peer.ip())?;
+        let borrowed = self.flow_borrow(&context)?;
+        let session = device.open_standard_datagram(
+            &self.scope,
+            local,
+            peer,
+            request,
+            context.clone(),
+            borrowed,
+        )?;
         self.observe_peer(peer.ip(), &context)?;
-        device.open_standard_datagram(&self.scope, local, peer, request, context.cancel)
+        Ok(session)
     }
 }
 impl DynDatagramOutbound for Carrier {

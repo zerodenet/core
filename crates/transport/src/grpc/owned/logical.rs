@@ -14,6 +14,20 @@ impl Drop for WorkerReturn {
 }
 struct Control(Arc<Record>);
 impl DynChannelControl for Control {
+    fn try_close(&mut self) -> Result<CloseReport, ChannelError> {
+        self.0.stop.cancel();
+        Ok(if self.0.returned() {
+            CloseReport::default()
+        } else {
+            CloseReport {
+                unfinished: vec![zero_platform_tokio::contract::lifecycle::Unfinished::Io(
+                    "actual gRPC logical stream/workers remain retained".into(),
+                )],
+                ..Default::default()
+            }
+        })
+    }
+
     fn cancel(&self, _: CloseReason) {
         self.0.stop.cancel();
     }

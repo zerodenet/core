@@ -98,6 +98,55 @@ impl CarrierEndpointObserver for ConnectedEvidence {
     }
 }
 impl UpstreamOpener for NodeOpener {
+    fn packet_caller(
+        &self,
+        binding: &UpstreamBinding,
+        identity: &zero_platform_tokio::contract::context::RequestIdentity,
+        call: &CarrierContext,
+    ) -> Result<zero_platform_tokio::contract::scope::TaskJoinWitness, ChannelError> {
+        if !binding.prefix.is_empty()
+            || binding.network_generation.0 != self.generation
+            || self.services.network_generation() != self.generation
+        {
+            return Err(invalid(
+                Reason::StalePlan,
+                "Packet caller node binding changed",
+            ));
+        }
+        if let Some(business) = &self.business {
+            return business.packet_caller(identity, call);
+        }
+        let (actual, waiting) = self.pending.as_ref().ok_or_else(|| {
+            invalid(
+                Reason::Unsupported,
+                "node lacks its actual independent Packet caller",
+            )
+        })?;
+        let invocation = self.service_call.as_ref().ok_or_else(|| {
+            invalid(
+                Reason::Unsupported,
+                "node lacks its actual Service invocation",
+            )
+        })?;
+        if actual != binding
+            || call.session.is_some()
+            || invocation.session.is_some()
+            || call.deadline != invocation.deadline
+            || call.cancel.is_cancelled()
+            || invocation.cancel.is_cancelled()
+            || !matches!(
+                identity,
+                zero_platform_tokio::contract::context::RequestIdentity::Service(_)
+            )
+        {
+            return Err(invalid(
+                Reason::StalePlan,
+                "Service Packet caller binding changed",
+            ));
+        }
+        waiting.packet_caller(identity, call)
+    }
+
     fn resolve_packet_target(
         &self,
         binding: &UpstreamBinding,
