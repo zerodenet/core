@@ -17,12 +17,14 @@ async fn large_response_is_complete_and_drop_releases_idle_socket() {
         ShadowsocksDatagramCodec::new(CipherKind::Aes128Gcm, b"secret"),
     );
     let (recv_tx, mut received) = broadcast::channel(32);
+    let responses = Arc::new(Responses::default());
     let receiver_task = tokio::spawn(recv_loop(
         socket.clone(),
         endpoint,
         codec.clone(),
         recv_tx.clone(),
         None,
+        responses.clone(),
     ));
     let receiver = receiver_task.abort_handle();
     let flow = ShadowsocksUdpSocketFlow {
@@ -31,6 +33,7 @@ async fn large_response_is_complete_and_drop_releases_idle_socket() {
         endpoint,
         codec: codec.clone(),
         recv_tx: recv_tx.downgrade(),
+        responses,
         receiver: receiver.clone(),
     };
     let payload = vec![7; 8_000];
@@ -61,5 +64,70 @@ async fn large_response_is_complete_and_drop_releases_idle_socket() {
     // Keep the subscription alive: cancellation is tied to the flow owner.
     // Observe the owned socket directly. Another parallel test can claim the
     // released ephemeral port before a rebind, even when cleanup succeeded.
+    assert!(socket_lifetime.upgrade().is_none());
+}
+
+#[tokio::test]
+async fn actual_receive_future_routes_to_the_same_cache_without_a_forwarding_task() {
+    let server = tokio::net::UdpSocket::bind("127.0.0.1:0").await.unwrap();
+    let endpoint = server.local_addr().unwrap();
+    let socket = Arc::new(
+        zero_platform_tokio::TokioDatagramSocket::bind_for_peer_on(endpoint, None)
+            .await
+            .unwrap(),
+    );
+    let local = SocketAddr::new(endpoint.ip(), socket.local_addr().unwrap().port());
+    let socket_lifetime = Arc::downgrade(&socket);
+    let codec: Arc<dyn DatagramCodec<Address, Error = zero_core::Error>> = Arc::new(
+        ShadowsocksDatagramCodec::new(CipherKind::Aes128Gcm, b"same-secret"),
+    );
+    let (recv_tx, _) = broadcast::channel(32);
+    let responses = Arc::new(Responses::default());
+    let receiver_task = tokio::spawn(recv_loop(
+        socket.clone(),
+        endpoint,
+        codec.clone(),
+        recv_tx.clone(),
+        None,
+        responses.clone(),
+    ));
+    let receiver = receiver_task.abort_handle();
+    let flow = ShadowsocksUdpSocketFlow {
+        plugin: None,
+        socket,
+        endpoint,
+        codec: codec.clone(),
+        recv_tx: recv_tx.downgrade(),
+        responses,
+        receiver: receiver.clone(),
+    };
+    let (send, mut received) = tokio::sync::mpsc::channel(2);
+    let sink: Arc<ShadowsocksUdpResponseSink> = Arc::new(move |response| {
+        send.try_send(response).unwrap();
+    });
+    assert!(flow.install_response_sink(&sink));
+    let other_sink: Arc<ShadowsocksUdpResponseSink> =
+        Arc::new(|_| panic!("foreign cache stole FIFO"));
+    assert!(!flow.install_response_sink(&other_sink));
+    for payload in [vec![], vec![9; 8_000]] {
+        let datagram = codec
+            .encode(&Address::Ipv4([1, 2, 3, 4]), 53, &payload)
+            .unwrap();
+        server.send_to(&datagram, local).await.unwrap();
+        let response = tokio::time::timeout(std::time::Duration::from_secs(2), received.recv())
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(response, (Address::Ipv4([1, 2, 3, 4]), 53, payload));
+    }
+    drop(flow);
+    assert!(
+        tokio::time::timeout(std::time::Duration::from_secs(2), receiver_task)
+            .await
+            .unwrap()
+            .unwrap_err()
+            .is_cancelled()
+    );
+    assert!(receiver.is_finished());
     assert!(socket_lifetime.upgrade().is_none());
 }

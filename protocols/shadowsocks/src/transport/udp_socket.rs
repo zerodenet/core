@@ -8,6 +8,9 @@ use zero_traits::DatagramCodec;
 use zero_transport::RuntimeError;
 
 use super::{ShadowsocksManagedDatagramFlowResume, ShadowsocksUdpResponse};
+mod responses;
+use responses::Responses;
+pub use responses::ShadowsocksUdpResponseSink;
 
 pub struct ShadowsocksUdpSocketFlow {
     plugin: Option<Arc<super::plugin::outbound::PluginLease>>,
@@ -15,6 +18,7 @@ pub struct ShadowsocksUdpSocketFlow {
     endpoint: SocketAddr,
     codec: Arc<dyn DatagramCodec<Address, Error = zero_core::Error>>,
     recv_tx: broadcast::WeakSender<ShadowsocksUdpResponse>,
+    responses: Arc<Responses>,
     receiver: tokio::task::AbortHandle,
 }
 
@@ -40,12 +44,14 @@ pub(super) async fn establish_with_plugin(
 ) -> Result<ShadowsocksUdpSocketFlow, RuntimeError> {
     let socket = Arc::new(sockets.bind_tokio(endpoint).await?);
     let (recv_tx, _) = broadcast::channel::<ShadowsocksUdpResponse>(32);
+    let responses = Arc::new(Responses::default());
     let receiver = tokio::spawn(recv_loop(
         socket.clone(),
         endpoint,
         codec.clone(),
         recv_tx.clone(),
         plugin.clone(),
+        responses.clone(),
     ))
     .abort_handle();
     Ok(ShadowsocksUdpSocketFlow {
@@ -54,6 +60,7 @@ pub(super) async fn establish_with_plugin(
         endpoint,
         codec,
         recv_tx: recv_tx.downgrade(),
+        responses,
         receiver,
     })
 }
@@ -78,6 +85,12 @@ pub async fn establish_shadowsocks_udp_socket_flow_with_resume(
 }
 
 impl ShadowsocksUdpSocketFlow {
+    /// Bind the existing cache's FIFO response destination to this same receive
+    /// future. The cache must retain the callback; this stores only a Weak and
+    /// creates neither a second socket nor a response-forwarding task.
+    pub fn install_response_sink(&self, sink: &Arc<ShadowsocksUdpResponseSink>) -> bool {
+        self.responses.install(sink)
+    }
     pub fn subscribe(&self) -> broadcast::Receiver<ShadowsocksUdpResponse> {
         if let Some(sender) = self.recv_tx.upgrade() {
             sender.subscribe()
@@ -119,6 +132,7 @@ async fn recv_loop(
     codec: Arc<dyn DatagramCodec<Address, Error = zero_core::Error>>,
     recv_tx: broadcast::Sender<ShadowsocksUdpResponse>,
     plugin: Option<Arc<super::plugin::outbound::PluginLease>>,
+    responses: Arc<Responses>,
 ) {
     let mut buf = vec![0u8; 65535];
     let exited = async {
@@ -155,7 +169,7 @@ async fn recv_loop(
             bytes = payload.len(),
             "decoded shadowsocks udp response"
         );
-        if recv_tx.send((target, port, payload)).is_err() {
+        if !responses.deliver((target, port, payload), &recv_tx) {
             break;
         }
     }

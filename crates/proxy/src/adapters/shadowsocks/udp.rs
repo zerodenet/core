@@ -67,6 +67,13 @@ impl ManagedDatagramFlowConnection for ::shadowsocks::transport::ShadowsocksUdpS
         .map_err(EngineError::from)
     }
 
+    fn install_response_sink(
+        &self,
+        sink: &std::sync::Arc<dyn Fn((zero_core::Address, u16, Vec<u8>)) + Send + Sync>,
+    ) -> bool {
+        ::shadowsocks::transport::ShadowsocksUdpSocketFlow::install_response_sink(self, sink)
+    }
+
     fn subscribe_responses(
         &self,
     ) -> tokio::sync::broadcast::Receiver<(zero_core::Address, u16, Vec<u8>)> {

@@ -23,5 +23,5 @@ pub use options::{
 pub use tcp::{apply_shadowsocks_tcp_relay_hop, establish_shadowsocks_tcp_connect};
 pub use udp_socket::{
     establish_shadowsocks_udp_socket_flow, establish_shadowsocks_udp_socket_flow_with_resume,
-    managed_socket_flow_from_resume, ShadowsocksUdpSocketFlow,
+    managed_socket_flow_from_resume, ShadowsocksUdpResponseSink, ShadowsocksUdpSocketFlow,
 };
