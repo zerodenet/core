@@ -2,6 +2,7 @@
 //! One persistent caller owner holds every original control before connect await;
 //! the admitted protocol driver is joined before native close releases capacity.
 mod adoption;
+mod caller_credit;
 mod auxiliary;
 mod binding;
 mod business;
