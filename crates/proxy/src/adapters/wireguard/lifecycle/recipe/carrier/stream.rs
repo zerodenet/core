@@ -66,7 +66,7 @@ impl DynStreamOutbound for Carrier {
             drop(acquiring);
             self.observe_peer(peer.ip(), &context)?;
             Ok(Connected {
-                io: connected.io.into_loan(original),
+                io: connected.io.into_loan(original)?,
                 peer_confirmation: connected.peer_confirmation,
             })
         })

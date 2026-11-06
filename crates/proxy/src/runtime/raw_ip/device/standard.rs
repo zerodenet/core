@@ -40,7 +40,13 @@ impl SharedRawIpDevice {
         request: DatagramRequest,
         context: OpenContext,
         borrowed: PacketFlowBorrow,
-    ) -> Result<BoxDatagramSession, ChannelError> {
+    ) -> Result<
+        (
+            BoxDatagramSession,
+            crate::runtime::packet_flow::FlowReceiverBinding,
+        ),
+        ChannelError,
+    > {
         self.check_standard_scope(scope)?;
         let DatagramTargets::Fixed(target) = request.targets else {
             return Err(ChannelError::new(
@@ -54,6 +60,7 @@ impl SharedRawIpDevice {
             .flow_users()
             .ok_or_else(|| ChannelError::new(Stage::Prepare, Reason::Revoked, Impact::Session))?;
         let user = users.acquire_from_witness(borrowed.caller)?;
+        let receiver = user.receiver_binding();
         let socket = self
             .udp
             .bind_observed(local, borrowed.observer)
@@ -63,8 +70,8 @@ impl SharedRawIpDevice {
             })?;
         // Same legacy users table: the real caller join and each transferred
         // original view remain separate from the role and native-driver fences.
-        Ok(zero_platform_tokio::contract::datagram::erase_session(
-            super::session_udp::session(
+        let session =
+            zero_platform_tokio::contract::datagram::erase_session(super::session_udp::session(
                 socket,
                 peer,
                 target,
@@ -72,8 +79,8 @@ impl SharedRawIpDevice {
                 context.cancel,
                 user,
                 users.cancellation().clone(),
-            ),
-        ))
+            ));
+        Ok((session, receiver))
     }
     pub(crate) fn open_standard_stream(
         &self,
