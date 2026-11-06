@@ -7,7 +7,7 @@ use zero_platform_tokio::{
 };
 mod controlled;
 pub(super) struct Root {
-    native: ResolvingCarrierOpener,
+    native: Option<ResolvingCarrierOpener>,
     binding: UpstreamBinding,
     endpoint: Destination,
     node_dns: Arc<dyn zero_platform_tokio::contract::dns::DnsService>,
@@ -40,14 +40,14 @@ impl Root {
         roles: Vec<zero_core::component::RoleInstanceId>,
     ) -> Result<Self, ChannelError> {
         Ok(Self {
-            native: ResolvingCarrierOpener::new(
+            native: Some(ResolvingCarrierOpener::new(
                 grants.registration().instance(),
                 binding.clone(),
                 endpoint.clone(),
                 services.native_node_dns(),
                 Arc::new(services.egress_control()),
                 services.observer(),
-            )?,
+            )?),
             binding,
             endpoint,
             node_dns: services.native_node_dns(),
@@ -64,6 +64,12 @@ impl Root {
             roles,
             candidates: Default::default(),
         })
+    }
+    /// A device Datagram donor needs the same actual pending ledger, but no
+    /// authorization to dial a second native Stream behind that device.
+    pub(super) fn observer_only(mut self) -> Self {
+        self.native = None;
+        self
     }
     fn check_pending(
         &self,
@@ -212,6 +218,12 @@ impl UpstreamOpener for Root {
         call: CarrierContext,
         grant: zero_platform_tokio::controlled_carrier::CarrierGrant,
     ) -> Result<zero_platform_tokio::controlled_carrier::PreparedCarrier, ChannelError> {
+        if self.native.is_none() {
+            return Err(crate::component::instance::invalid(
+                zero_platform_tokio::contract::Reason::Unsupported,
+                "DNS datagram observer cannot prepare a native Stream",
+            ));
+        }
         if endpoint != self.endpoint {
             return Err(crate::component::instance::invalid(
                 zero_platform_tokio::contract::Reason::StalePlan,
@@ -307,6 +319,13 @@ impl UpstreamOpener for Root {
             }
             let candidates = self
                 .native
+                .as_ref()
+                .ok_or_else(|| {
+                    crate::component::instance::invalid(
+                        zero_platform_tokio::contract::Reason::Unsupported,
+                        "DNS datagram observer does not authorize native Stream acquisition",
+                    )
+                })?
                 .resolve_controlled_carrier(&binding, endpoint, call)
                 .await?;
             let mut last = None;

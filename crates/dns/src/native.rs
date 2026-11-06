@@ -44,6 +44,14 @@ pub trait NativeDnsQuicControl: Send {
     >;
 }
 
+/// Existing UDP DNS semantics: packet-capable detours lend their datagram,
+/// while stream detours retain the existing length-prefixed DNS wire form.
+/// The host chooses once, before either real I/O operation is submitted.
+pub enum NativeDnsUdpLoan {
+    Datagram(DatagramLoan),
+    Stream(StreamLoan),
+}
+
 /// Executable native I/O, not a Service label or a declaration-only capability.
 pub trait NativeDnsProvider: Send + Sync {
     fn budget(&self) -> Option<Arc<NativeDnsBudget>> {
@@ -91,6 +99,26 @@ pub trait NativeDnsProvider: Send + Sync {
                 io::ErrorKind::Unsupported,
                 "DNS detour has no original provider",
             ))
+        })
+    }
+    fn detour_udp(
+        &self,
+        outbound: String,
+        peer: SocketAddr,
+        caller: TaskJoinWitness,
+        cancel: CancellationToken,
+        end: Instant,
+    ) -> BoxFuture<'_, io::Result<NativeDnsUdpLoan>> {
+        Box::pin(async move {
+            if !self.owns_detour(&outbound) {
+                return Err(io::Error::new(
+                    io::ErrorKind::Unsupported,
+                    "DNS UDP detour has no original provider",
+                ));
+            }
+            self.detour_stream(outbound, peer, caller, cancel, end)
+                .await
+                .map(|(loan, _)| NativeDnsUdpLoan::Stream(loan))
         })
     }
     /// Called after the actual driver joins. The provider settles its retained

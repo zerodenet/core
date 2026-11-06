@@ -4,24 +4,21 @@ use zero_traits::IpAddress;
 use crate::runtime::Proxy;
 
 #[test]
-fn dns_callback_does_not_keep_outbound_pools_alive_after_proxy_drop() {
+fn retained_dns_cannot_keep_outbound_pools_alive_after_proxy_drop() {
     let config =
         zero_config::RuntimeConfig::parse(r#"{"route":{"final":{"type":"direct"}}}"#).unwrap();
     let proxy = Proxy::new(config).unwrap();
     let _retained_resolver = proxy.resolver.clone();
-    let callback = super::ProxyDnsOutboundConnector::new(proxy.current_service_source());
-    assert!(callback.source().unwrap().runtime_services().is_ok());
+    let source = proxy.current_service_source();
+    assert!(source.upgrade().unwrap().runtime_services().is_ok());
     drop(proxy);
-    // A retained resolver (as held by an established carrier) may outlive the
-    // proxy, but its callback must no longer revive the outbound inventory.
-    let error = callback
-        .source()
-        .expect_err("inventory retained by DNS callback");
-    assert_eq!(error.kind(), std::io::ErrorKind::NotConnected);
+    // The resolver's actual native sources are weak. Keeping the resolver
+    // after its Proxy cannot revive its outbound inventory or original pools.
+    assert!(source.upgrade().is_none());
 }
 
 #[tokio::test]
-async fn proxy_installs_dns_detour_connector_without_recursive_resolution() {
+async fn proxy_executes_dns_detour_in_its_actual_host_without_recursive_resolution() {
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
         .await
         .expect("bind DNS TCP server");

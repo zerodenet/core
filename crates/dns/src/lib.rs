@@ -361,6 +361,9 @@ impl DnsSystem {
     }
 
     /// Install the runtime bridge used by DNS servers that specify a detour.
+    /// Configure explicit standalone detours. A resolver bound to an actual
+    /// native query source keeps all attempts with that source, including
+    /// admission failures; this is not a production fallback executor.
     pub fn set_outbound_connector(&self, connector: Arc<dyn DnsOutboundConnector>) {
         *self
             .outbound_connector
