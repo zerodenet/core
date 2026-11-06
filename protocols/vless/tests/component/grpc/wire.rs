@@ -1,13 +1,17 @@
 use super::*;
 #[tokio::test]
 async fn standard_service_tcp_and_real_udp_wire_share_original_pool_and_defer_only_real_response() {
-    run(false).await;
+    run(false, false).await;
 }
 #[tokio::test]
 async fn standard_service_and_udp_wire_keep_the_original_tls_h2_profile_and_shared_driver() {
-    run(true).await;
+    run(true, false).await;
 }
-async fn run(secure: bool) {
+#[tokio::test]
+async fn carrier_service_loan_preserves_actual_pool_original_and_closes_only_its_logical_workers() {
+    run(false, true).await;
+}
+async fn run(secure: bool, borrowed: bool) {
     timeout(Duration::from_secs(8), async {
         let runtime = crate::transport::VlessTransportRuntime::default();
         let grpc = OwnedGrpcProfile {
@@ -81,15 +85,27 @@ async fn run(secure: bool) {
         let mut assembly = Assembly::cold(prepared, peer);
         assembly.start().await;
         let role = assembly.role.roles.stream.clone().unwrap();
-        let connected = role
-            .connect(
-                ConnectRequest {
-                    destination: destination(),
-                },
-                assembly.context(),
-            )
-            .await
-            .unwrap();
+        let mut borrowed_owner = None;
+        let request = ConnectRequest {
+            destination: destination(),
+        };
+        let connected = if borrowed {
+            let connected = role
+                .connect_carrier(request, assembly.context())
+                .await
+                .unwrap();
+            let zero_platform_tokio::controlled_carrier::loan::StreamLoan { io, owner } =
+                connected.io;
+            assert_eq!(owner.original().instance(), assembly.actual);
+            assert!(owner.original().driver().is_some());
+            borrowed_owner = Some(owner);
+            zero_platform_tokio::contract::stream::Connected {
+                io: Box::pin(io) as zero_platform_tokio::contract::stream::BoxStream,
+                peer_confirmation: connected.peer_confirmation,
+            }
+        } else {
+            role.connect(request, assembly.context()).await.unwrap()
+        };
         assert_eq!(connected.peer_confirmation, PeerConfirmation::Deferred);
         assert_eq!(
             *assembly.observations.facts.lock().unwrap(),
@@ -140,6 +156,16 @@ async fn run(secure: bool) {
             ]
         );
         drop(tcp);
+        if let Some(owner) = &mut borrowed_owner {
+            let report = owner.close(deadline()).await.unwrap();
+            assert!(report.is_complete(), "{report:?}");
+            assert!(owner.closed().unwrap().matches(owner));
+            assert!(
+                owner.original().closed().is_none(),
+                "logical return cannot close the shared physical carrier"
+            );
+            assert!(!owner.original().driver().unwrap().is_joined());
+        }
         drop(udp);
         let (pool, tasks) = assembly.close().await;
         assert!(pool.is_complete(), "{pool:?}");
