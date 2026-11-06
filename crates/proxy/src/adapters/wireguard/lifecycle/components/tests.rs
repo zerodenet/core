@@ -33,9 +33,9 @@ async fn domain_peer_declares_the_actual_node_dns_resource_before_any_stack_star
     let network = Arc::new(crate::component::background::BackgroundNetwork::new(
         zero_platform_tokio::EgressInterfaceControl::default(),
     ));
-    let (_, factories, _) =
+    let (_, factories, devices) =
         crate::register::compiled_registries_with_background(Some(network.clone()));
-    let adapter = WireguardAdapter::default();
+    let adapter = devices.wireguard.as_ref().unwrap().clone();
     let catalog = ComponentCatalog::with_factories(factories);
     let mut actual = None;
     let plan = catalog
@@ -89,6 +89,54 @@ async fn domain_peer_declares_the_actual_node_dns_resource_before_any_stack_star
         .unwrap()
         .device()
         .is_none());
+    let original = pending.get("wg-in").unwrap().actual_graph().unwrap();
+    let again = catalog
+        .prepare_with_device_resources(config.clone(), |resources| {
+            adapter
+                .prepare_component_resources(
+                    &config,
+                    resources,
+                    Some(network.egress.generation()),
+                    Some(network.clone()),
+                )
+                .map_err(|source| {
+                    zero_platform_tokio::contract::ChannelError::new(
+                        zero_platform_tokio::contract::Stage::Prepare,
+                        zero_platform_tokio::contract::Reason::Io,
+                        zero_platform_tokio::contract::Impact::Component,
+                    )
+                    .with_source(source)
+                })
+        })
+        .unwrap();
+    let retained = PendingEndpoints::staged(&adapter.pending_endpoints, &config)
+        .unwrap()
+        .get("wg-in")
+        .unwrap()
+        .actual_graph()
+        .unwrap();
+    assert!(
+        Arc::ptr_eq(&original, &retained),
+        "same unattempted cold Options and original invocation"
+    );
+    assert!(Arc::ptr_eq(
+        &plan.device_component(device).unwrap(),
+        &again.device_component(device).unwrap()
+    ));
+    assert!(pending
+        .get("wg-in")
+        .unwrap()
+        .peer_stack(0)
+        .unwrap()
+        .test_original_witnesses()
+        .is_empty());
+    assert!(pending
+        .get("wg-in")
+        .unwrap()
+        .peer_stack(0)
+        .unwrap()
+        .device()
+        .is_none());
     adapter.release_component_resources(&config).unwrap();
     catalog.shutdown(deadline()).await.unwrap();
 }
@@ -97,8 +145,9 @@ async fn production_candidate_owns_cold_invocation_then_installs_only_its_starte
     let proxy = crate::Proxy::new(configuration()).unwrap();
     let services = proxy.tcp_runtime_services();
     let config = services.snapshot().config().clone();
-    let adapter = WireguardAdapter::default();
-    let catalog = ComponentCatalog::with_factories(crate::register::component_registry());
+    let (_, factories, devices) = crate::register::compiled_registries();
+    let adapter = devices.wireguard.as_ref().unwrap().clone();
+    let catalog = ComponentCatalog::with_factories(factories);
     catalog
         .prepare_with_device_resources(config.clone(), |resources| {
             adapter
