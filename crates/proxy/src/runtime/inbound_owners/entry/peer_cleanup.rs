@@ -73,6 +73,10 @@ impl InboundOwner {
                 first_failure.get_or_insert_with(|| retained(source));
             }
         }
+        // Wake only after the real joined-child/native cleanup pass. This
+        // signal grants no quiescence/closure: the source must read its exact
+        // closing futures and actual active/preparing/child/claiming tables.
+        self.acquisition.peer_cleanup_progressed();
         first_failure.map_or(Ok(()), Err)
     }
 }
