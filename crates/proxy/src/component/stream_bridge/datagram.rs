@@ -282,10 +282,12 @@ async fn open_with_accounting(
             upstream.clone().with_observer(Some(traffic.clone())),
             endpoint.clone(),
         )
+        .with_plan(services.components.as_ref().ok().map(Arc::downgrade))
         .with_business(business)
         .with_service_call(association_call)
         .with_pending(binding.clone(), waiting),
-        datagram: NodeOpener::new(upstream.with_observer(Some(wire.clone())), endpoint),
+        datagram: NodeOpener::new(upstream.with_observer(Some(wire.clone())), endpoint)
+            .with_plan(services.components.as_ref().ok().map(Arc::downgrade)),
     });
     let context = OpenContext {
         identity: invocation.identity.clone(),

@@ -7,10 +7,10 @@ use std::{
 };
 use zero_core::request::Destination;
 use zero_platform_tokio::contract::{
+    BoxFuture, ChannelError, DeliveryState, Impact, Reason, Stage,
     datagram::{BoxDatagramSession, DatagramRequest},
     network::{CarrierContext, PendingCarrierObserver, UpstreamBinding, UpstreamOpener},
     stream::BoxStream,
-    BoxFuture, ChannelError, DeliveryState, Impact, Reason, Stage,
 };
 use zero_platform_tokio::controlled_carrier::{
     CarrierEndpointObserver, CarrierEndpoints, CarrierGrant, NativeCarrierOpener, PreparedCarrier,
@@ -18,6 +18,8 @@ use zero_platform_tokio::controlled_carrier::{
 
 mod candidates;
 mod dns;
+#[cfg(any(target_os = "linux", windows))]
+mod process;
 mod service_dns;
 mod service_selection;
 use dns::Resolved;
@@ -28,6 +30,7 @@ pub(in crate::component) struct Evidence {
 }
 pub(in crate::component) struct NodeOpener {
     services: UpstreamConnectServices,
+    plan: Option<std::sync::Weak<crate::component::catalog::ComponentPlan>>,
     endpoint: Destination,
     generation: u64,
     evidence: Arc<Mutex<Option<Evidence>>>,
@@ -51,6 +54,7 @@ impl NodeOpener {
         let generation = services.network_generation();
         Self {
             services,
+            plan: None,
             endpoint,
             generation,
             evidence: Arc::new(Mutex::new(None)),
@@ -61,6 +65,13 @@ impl NodeOpener {
             pending: None,
             carrier_owner: None,
         }
+    }
+    pub(in crate::component) fn with_plan(
+        mut self,
+        plan: Option<std::sync::Weak<crate::component::catalog::ComponentPlan>>,
+    ) -> Self {
+        self.plan = plan;
+        self
     }
     pub(in crate::component) fn with_service_call(mut self, call: CarrierContext) -> Self {
         // An actual invocation's cancellation/deadline, never the per-attempt
@@ -102,6 +113,15 @@ impl CarrierEndpointObserver for ConnectedEvidence {
     }
 }
 impl UpstreamOpener for NodeOpener {
+    #[cfg(any(target_os = "linux", windows))]
+    fn acquire_process_endpoint_stream(
+        &self,
+        binding: &UpstreamBinding,
+        request: zero_platform_tokio::contract::network::ProcessEndpointStreamRequest,
+    ) -> BoxFuture<'_, Result<zero_platform_tokio::controlled_carrier::CarrierIo, ChannelError>>
+    {
+        self.open_process_endpoint_stream(binding.clone(), request)
+    }
     fn select_background_carrier(
         &self,
         binding: Option<UpstreamBinding>,

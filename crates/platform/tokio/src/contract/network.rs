@@ -8,9 +8,9 @@ use zero_core::{
 use zero_traits::DialPolicy;
 
 use super::{
+    BoxFuture, ChannelError,
     datagram::{BoxDatagramSession, DatagramRequest},
     stream::BoxStream,
-    BoxFuture, ChannelError,
 };
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -39,6 +39,16 @@ pub struct ControlledStreamRequest {
     pub tasks: super::scope::WeakTaskRegistrar,
     /// Inline retirement budget only; never a replacement handshake deadline.
     pub retirement: std::time::Duration,
+}
+
+/// One selected, real Process dependency and the same caller's original native grant.
+/// This carries no Process authority, Business admission or new pool capacity.
+pub struct ProcessEndpointStreamRequest {
+    pub process: zero_core::component::ComponentInstanceId,
+    pub process_ordinal: usize,
+    pub endpoint: Destination,
+    pub context: CarrierContext,
+    pub grant: crate::controlled_carrier::CarrierGrant,
 }
 
 mod opener;
@@ -100,6 +110,14 @@ impl PendingCarrierObserver {
 }
 
 impl UpstreamTransport {
+    pub fn acquire_process_endpoint_stream(
+        &self,
+        request: ProcessEndpointStreamRequest,
+    ) -> BoxFuture<'_, Result<crate::controlled_carrier::CarrierIo, ChannelError>> {
+        self.opener
+            .acquire_process_endpoint_stream(&self.binding, request)
+    }
+
     pub fn pending_carrier_capacity(&self) -> Option<usize> {
         self.opener.pending_carrier_capacity(&self.binding)
     }
