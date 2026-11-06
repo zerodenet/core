@@ -74,13 +74,7 @@ async fn run(
         });
     }
 
-    #[cfg(not(any(feature = "status-api", feature = "grpc-api")))]
-    ensure_status_api_not_configured(&engine, status_listen)?;
-
     tracing::info!(config = %config_path, "loaded proxy configuration");
-
-    #[cfg(any(feature = "status-api", feature = "grpc-api"))]
-    let status_spec = status_server_spec(&engine, status_listen)?;
 
     // Install the same application before cold control preparation. A cancelled
     // initializer leaves the exact listener/scope owner in its existing slot.
@@ -89,6 +83,10 @@ async fn run(
 
 
     let control_start = async {
+        #[cfg(not(any(feature = "status-api", feature = "grpc-api")))]
+        ensure_status_api_not_configured(&engine, status_listen)?;
+        #[cfg(any(feature = "status-api", feature = "grpc-api"))]
+        let status_spec = status_server_spec(&engine, status_listen)?;
         let ipc_socket_path = ipc::resolve_ipc_path(control_socket)?;
         let ipc_server =
             ipc::prepare_ipc_server_with_budget(&ipc_socket_path, services.control_budget());

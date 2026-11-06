@@ -66,3 +66,27 @@ fn control_commands_and_application_supervision_do_not_embed_the_entire_runtime_
         "application supervision must retain a pointer to runtime state"
     );
 }
+
+#[cfg(feature="grpc-api")]
+#[tokio::test]
+async fn initial_tls_failure_retires_original_application_before_same_config_retry() {
+    let directory=tempfile::tempdir().unwrap();
+    let config_path=directory.path().join("zero.json");
+    let ipc=directory.path().join("control.sock");
+    let config=serde_json::json!({
+        "api":{"control":{"enabled":true,"listen":{"address":"127.0.0.1","port":18080},"api_key":"fixture-key",
+            "grpc":{"tls":{"cert_path":"absent.pem","key_path":"absent-key.pem"}}}},
+        "runtime":{"principal_quota_state_path":"quota.json"},
+        "route":{"final":{"type":"direct"}}
+    });
+    std::fs::write(&config_path,config.to_string()).unwrap();
+    for _ in 0..2 {
+        let error=tokio::time::timeout(std::time::Duration::from_secs(5),super::run(
+            config_path.to_str().unwrap(),None,Some(ipc.to_str().unwrap()),None,true,
+        )).await.unwrap().unwrap_err();
+        assert!(error.to_string().contains("absent.pem"),"{error}");
+        assert!(!error.to_string().contains("unresolved preparation/cleanup"),"{error}");
+        #[cfg(unix)]
+        assert!(!ipc.exists(),"TLS preparation fails before creating a listener");
+    }
+}
