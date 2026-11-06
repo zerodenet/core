@@ -15,15 +15,10 @@ impl StreamOutbound for Outbound {
         request: ConnectRequest,
         context: OpenContext,
     ) -> Result<Connected<BoxStream>, ChannelError> {
-        if context.session_identity()?.is_some()
-            && context.upstream.has_tracked_business_caller()
-            && context.upstream.binding().prefix.is_empty()
-        {
+        if context.session_identity()?.is_some() && context.upstream.has_tracked_business_caller() {
             return self.connect_business(request, context).await;
         }
         // Fixed library users retain their own original inline responsibilities.
-        // Relay's actual next-slot Business loan adoption is separate from the
-        // root native permission and cannot be inferred from a nonempty prefix.
         self.inner.connect(request, context).await
     }
     async fn connect_carrier(

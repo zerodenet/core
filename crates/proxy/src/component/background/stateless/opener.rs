@@ -94,7 +94,7 @@ impl UpstreamOpener for Opener {
             } else {
                 grant.claim_transferred_view()?
             };
-            let io = if binding.prefix.is_empty() {
+            let io = if business || binding.prefix.is_empty() {
                 self.upstream
                     .acquire_controlled_stream(endpoint, call, grant)
                     .await?
