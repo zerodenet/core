@@ -252,6 +252,13 @@ impl<'a> ResourcePreparation<'a> {
             .find(|slot| slot.id == component)
             .map(|slot| slot.instance_id())
     }
+    /// Opaque identity of the actual previous Slot, for the owning protocol's
+    /// same-source immutable cold recipe lookup only. This cannot establish
+    /// liveness, material authorization, native acquisition or cleanup.
+    pub fn previous_resource_identity(&self, component: ComponentId) -> Option<&[u8]> {
+        self.ensure_valid().ok()?;
+        Some(self.previous_slots.iter().find(|slot| slot.id == component)?.recipe.spec().static_identity.as_ref())
+    }
     pub(super) fn with_previous_named(
         mut self,
         previous: Option<&'a BTreeMap<String, Arc<super::instance::ComponentSlot>>>,
