@@ -164,3 +164,32 @@ impl WireguardAdapter {
             .collect()
     }
 }
+
+#[cfg(test)]
+impl WireguardAdapter {
+    pub(crate) fn test_standard_source_origins(
+        &self,
+        config: &zero_config::RuntimeConfig,
+    ) -> Vec<zero_platform_tokio::controlled_carrier::CarrierOrigin> {
+        let links = self.linked_endpoints.lock().unwrap();
+        config
+            .outbounds
+            .iter()
+            .filter_map(|outbound| {
+                let OutboundProtocolConfig::Wireguard {
+                    inbound_tag: Some(tag),
+                    outer_udp_proxy: None,
+                    ..
+                } = &outbound.protocol
+                else {
+                    return None;
+                };
+                links
+                    .get(tag)?
+                    .owned_resources()?
+                    .test_actual_graph()?
+                    .test_actual_origin()
+            })
+            .collect()
+    }
+}
