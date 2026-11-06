@@ -22,7 +22,7 @@ pub use owned_channels::OwnedTunChannels;
 mod owned_adopt;
 #[cfg(any(target_os = "linux", target_os = "macos"))]
 pub use adopt::adopt;
-pub use owned::{OwnedTunDevice, OwnedTunIdentity, TunCloseReceipt};
+pub use owned::{OwnedTunClosed, OwnedTunDevice, OwnedTunIdentity, TunCloseReceipt};
 #[cfg(any(target_os = "linux", target_os = "macos"))]
 pub use owned_adopt::{AdoptedTunIo, AdoptedTunOwner, TunAcquisitionError, TunAcquisitionOutcome};
 mod route;

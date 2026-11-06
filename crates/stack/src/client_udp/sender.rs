@@ -39,7 +39,7 @@ impl SocketState {
             return Err(ClientUdpSendError::closed(0));
         }
         self.active
-            .fetch_update(Ordering::AcqRel, Ordering::Acquire, |active| {
+            .try_update(Ordering::AcqRel, Ordering::Acquire, |active| {
                 active.checked_add(1)
             })
             .map_err(|_| ClientUdpSendError::before(ClientUdpStackError::SocketLimit))?;
