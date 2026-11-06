@@ -9,7 +9,10 @@ async fn every_actual_connection_error_and_panic_survives_the_original_join_drai
     let source = original.clone();
     let mut tasks = JoinSet::new();
     tasks.spawn(async move { Err::<(), _>(io::Error::new(source.kind(), source)) });
-    tasks.spawn(async move { std::panic::panic_any("actual accepted connection task panic") });
+    fn original_panic() -> io::Result<()> {
+        std::panic::panic_any("actual accepted connection task panic")
+    }
+    tasks.spawn(async move { original_panic() });
     let originals = UnixOriginals::default();
     let mut failures = Vec::new();
     while let Some(joined) = tasks.join_next_with_id().await {
