@@ -1,4 +1,6 @@
 //! Ordinary encrypted Source -> exact Packet role -> same original Source sink.
+#[path = "packet/budget.rs"]
+mod budget;
 #[path = "packet/client.rs"]
 mod client;
 use super::*;
