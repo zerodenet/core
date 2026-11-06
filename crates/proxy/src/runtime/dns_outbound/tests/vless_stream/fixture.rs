@@ -86,6 +86,14 @@ impl zero_dns::DnsOutboundConnector for NoLegacy {
 pub(super) async fn start(
     remote: &Remote,
     kind: &str,
+    backend: zero_config::DnsServerConfig,
+) -> (Proxy, crate::RunningProxy) {
+    start_at(remote.address, &remote.ca, kind, backend).await
+}
+pub(super) async fn start_at(
+    address: std::net::SocketAddr,
+    ca: &std::path::Path,
+    kind: &str,
     mut backend: zero_config::DnsServerConfig,
 ) -> (Proxy, crate::RunningProxy) {
     match &mut backend {
@@ -94,7 +102,7 @@ pub(super) async fn start(
         | zero_config::DnsServerConfig::Doh { detour, .. } => *detour = Some("node".into()),
         _ => panic!("existing framed UDP/DoT/DoH detours only"),
     }
-    let mut protocol = serde_json::json!({"type":"vless","server":"127.0.0.1","port":remote.address.port(),"id":ID,"tls":{"server_name":"localhost","ca_cert_path":remote.ca}});
+    let mut protocol = serde_json::json!({"type":"vless","server":"127.0.0.1","port":address.port(),"id":ID,"tls":{"server_name":"localhost","ca_cert_path":ca}});
     protocol[kind] = transport();
     let config=zero_config::RuntimeConfig::parse(&serde_json::json!({
         "runtime":{"native_stream_max_originals":1,"dns":{"servers":{"node":{"type":"system"},"query":backend},"default_server":"query","policy":{"node_server":"node","address_family":"ipv4_only"}}},

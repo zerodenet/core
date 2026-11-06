@@ -93,3 +93,5 @@ async fn ordinary_vless_h2_and_upgrade_dot_and_doh_keep_persistent_dns_driver_se
         }
     }).await.unwrap();
 }
+
+mod wire_pending;
