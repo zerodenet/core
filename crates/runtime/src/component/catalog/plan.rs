@@ -170,7 +170,7 @@ impl ComponentPlan {
     }
 
     pub async fn start(&self, deadline: tokio::time::Instant) -> Result<(), ChannelError> {
-        for slot in self.startable_before_devices() {
+        for slot in self.startable_for_initial_activation() {
             slot.start(deadline).await?;
         }
         self.scan_tasks(deadline).await?;
@@ -198,6 +198,14 @@ impl ComponentPlan {
             slot.scan_tasks(deadline).await?;
         }
         Ok(())
+    }
+    /// Real install/stage still includes the complete graph. Only this initial
+    /// activation traversal leaves outbound Process endpoints cold on demand.
+    pub(super) fn startable_for_initial_activation(
+        &self,
+    ) -> impl Iterator<Item = &Arc<ComponentSlot>> {
+        self.startable_before_devices()
+            .filter(|slot| slot.demand_process_endpoint_ordinal().is_none())
     }
     pub(super) fn startable_before_devices(&self) -> impl Iterator<Item = &Arc<ComponentSlot>> {
         self.order

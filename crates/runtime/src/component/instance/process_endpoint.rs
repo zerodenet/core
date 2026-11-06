@@ -6,6 +6,33 @@ use zero_platform_tokio::{
     owned_process::ProcessEndpointHandoff,
 };
 impl ComponentSlot {
+    pub(in crate::component) fn check_process_endpoint_consumer(
+        &self,
+        endpoint: &zero_core::request::Destination,
+        binding: &UpstreamBinding,
+        demand: ControlledStreamDemandClass,
+        grant: &CarrierGrant,
+    ) -> Result<(), ChannelError> {
+        if self.cancel.is_cancelled() {
+            return Err(self.failure(Reason::Revoked, "derived consumer stopped"));
+        }
+        if let Some(host) = self.admission.get() {
+            host.check_installed(self.instance_id(), &self.admission_owner)?;
+        }
+        let Some(Ok(live)) = self.live.get() else {
+            return Err(self.failure(Reason::Revoked, "derived consumer is not installed"));
+        };
+        if !matches!(live.started.get(), Some(Ok(()))) {
+            return Err(self.failure(Reason::Revoked, "derived consumer is not started"));
+        }
+        live.resources.check_process_endpoint_consumer(
+            self.instance_id(),
+            endpoint,
+            binding,
+            demand,
+            grant,
+        )
+    }
     pub(in crate::component) fn ready_process_endpoint(
         &self,
         ordinal: usize,

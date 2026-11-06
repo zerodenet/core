@@ -2,8 +2,8 @@
 use super::*;
 use std::{
     sync::{
-        atomic::{AtomicU64, Ordering},
         Mutex as SyncMutex,
+        atomic::{AtomicU64, Ordering},
     },
     task::{Context, Poll},
 };
@@ -269,6 +269,7 @@ impl ComponentSlot {
         }
     }
     pub(in crate::component) fn poll_tasks(&self, target: &Arc<WaitTarget>) -> bool {
+        let initialized = self.poll_owned_start(target);
         let budget = self.recipe.spec().task_limit.map_or(1, |limit| limit.get());
         let progress = self
             .live
@@ -284,7 +285,7 @@ impl ComponentSlot {
         if self.task_fault().is_some() {
             self.revoke();
         }
-        progress
+        progress || initialized
     }
     pub(in crate::component) async fn scan_tasks(
         &self,

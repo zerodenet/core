@@ -276,15 +276,25 @@ impl HostResources {
 
 #[cfg(any(target_os = "linux", windows))]
 impl HostResources {
-    pub(in crate::component) fn process_endpoint_consumer_use(
+    pub(in crate::component) fn check_process_endpoint_consumer(
         &self,
         instance: ComponentInstanceId,
-        handoff: &Arc<zero_platform_tokio::owned_process::ProcessEndpointHandoff>,
         endpoint: &Destination,
         binding: &zero_platform_tokio::contract::network::UpstreamBinding,
-        demand: zero_platform_tokio::contract::component::ControlledStreamDemandClass,
+        demand: ControlledStreamDemandClass,
         grant: &zero_platform_tokio::controlled_carrier::CarrierGrant,
-    ) -> Result<zero_platform_tokio::owned_process::ProcessEndpointUse, ChannelError> {
+    ) -> Result<(), ChannelError> {
+        self.registered_process_endpoint_consumer(instance, endpoint, binding, demand, grant)
+            .map(|_| ())
+    }
+    fn registered_process_endpoint_consumer(
+        &self,
+        instance: ComponentInstanceId,
+        endpoint: &Destination,
+        binding: &zero_platform_tokio::contract::network::UpstreamBinding,
+        demand: ControlledStreamDemandClass,
+        grant: &zero_platform_tokio::controlled_carrier::CarrierGrant,
+    ) -> Result<zero_platform_tokio::controlled_carrier::CarrierOwnerBinding, ChannelError> {
         // ControlledNodeCarrier is the one existing dual Business/Service
         // descriptor. Its metadata label is Business; selecting that exact
         // registered descriptor does not issue a Business ticket or Session.
@@ -310,7 +320,19 @@ impl HostResources {
         } else {
             demand
         };
-        let bound = self.registered_carrier(instance, endpoint, binding, physical_demand, grant)?;
+        self.registered_carrier(instance, endpoint, binding, physical_demand, grant)
+    }
+    pub(in crate::component) fn process_endpoint_consumer_use(
+        &self,
+        instance: ComponentInstanceId,
+        handoff: &Arc<zero_platform_tokio::owned_process::ProcessEndpointHandoff>,
+        endpoint: &Destination,
+        binding: &zero_platform_tokio::contract::network::UpstreamBinding,
+        demand: zero_platform_tokio::contract::component::ControlledStreamDemandClass,
+        grant: &zero_platform_tokio::controlled_carrier::CarrierGrant,
+    ) -> Result<zero_platform_tokio::owned_process::ProcessEndpointUse, ChannelError> {
+        let bound =
+            self.registered_process_endpoint_consumer(instance, endpoint, binding, demand, grant)?;
         // Exact private Arc allocation; bound's public cancellation clone or a
         // protocol-created token cannot reconstruct this minting capability.
         let fence = self

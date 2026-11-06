@@ -36,7 +36,7 @@ impl ComponentCatalog {
             if state.maintenance
                 || !plan.device_pass
                 || plan
-                    .startable_before_devices()
+                    .startable_for_initial_activation()
                     .any(|slot| !slot.has_started() || !slot.can_reuse())
                 || !state.replacement.as_ref().is_some_and(|pending| {
                     Arc::ptr_eq(&pending.candidate, plan)

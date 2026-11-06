@@ -2,7 +2,7 @@
 use super::*;
 use crate::component::instance::{ComponentTaskFault, WaitTarget};
 use std::{
-    future::{poll_fn, Future},
+    future::{Future, poll_fn},
     task::Poll,
 };
 
@@ -116,6 +116,13 @@ impl ComponentCatalog {
             changed.as_mut().enable();
             if let Some(fault) = self.first_task_fault() {
                 return fault.error();
+            }
+            if let Some(fault) = self
+                .supervised_slots()
+                .iter()
+                .find_map(|slot| slot.owned_start_failure())
+            {
+                return crate::component::instance::retained(fault);
             }
             changed.await;
         }

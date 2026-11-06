@@ -3,6 +3,7 @@ use super::{ComponentRecipe, ValidatedRecipe};
 mod business;
 mod cleanup;
 mod original_budgets;
+mod owned_start;
 mod packet_source;
 mod probe;
 #[cfg(any(target_os = "linux", windows))]
@@ -74,6 +75,8 @@ pub struct ComponentSlot {
     admission_owner: Arc<()>,
     live: OnceCell<Result<Live, SharedError>>,
     start_gate: Mutex<()>,
+    owned_start: OnceLock<owned_start::OwnedStart>,
+    start_wake: Arc<MonitorWake>,
     originals: OnceLock<Arc<crate::HostOriginalBudgets>>,
     packet_source:
         Arc<OnceLock<zero_platform_tokio::controlled_datagram::provider::NativeDatagramOrigin>>,
@@ -203,6 +206,8 @@ impl ComponentSlot {
             admission_owner: Arc::new(()),
             live: OnceCell::new(),
             start_gate: Mutex::new(()),
+            owned_start: OnceLock::new(),
+            start_wake: Arc::default(),
             originals: OnceLock::new(),
             packet_source: Arc::new(OnceLock::new()),
         }
@@ -211,6 +216,7 @@ impl ComponentSlot {
     /// This observes the actual persistent initializer, not a synthetic health flag.
     pub(in crate::component) fn can_reuse(&self) -> bool {
         !self.cancel.is_cancelled()
+            && self.owned_start_failure().is_none()
             && match self.live.get() {
                 None => true,
                 Some(Err(_)) => false,
@@ -232,6 +238,18 @@ impl ComponentSlot {
         !self.cancel.is_cancelled()
             && self.task_fault().is_none()
             && matches!(self.live.get(), Some(Ok(live)) if matches!(live.started.get(), Some(Ok(()))))
+    }
+    /// Cold activation policy only. This mints no Process/native capability.
+    pub(in crate::component) fn demand_process_endpoint_ordinal(&self) -> Option<usize> {
+        let spec = self.recipe.spec();
+        if !spec.roles.is_empty() || spec.task_limit.is_none() {
+            return None;
+        }
+        spec.resources.iter().find_map(|resource|match resource {
+            zero_platform_tokio::contract::component::ResourceDeclaration::ProcessEndpoint{process_ordinal,..}
+                if matches!(spec.resources.get(*process_ordinal),Some(zero_platform_tokio::contract::component::ResourceDeclaration::Process{max_starts,..}) if max_starts.get()==1)=>Some(*process_ordinal),
+            _=>None,
+        })
     }
     pub fn instance_id(&self) -> ComponentInstanceId {
         ComponentInstanceId {
@@ -281,6 +299,7 @@ impl ComponentSlot {
     }
     pub async fn shutdown(&self, deadline: Instant) -> Result<CloseReport, ChannelError> {
         self.revoke();
+        self.finish_owned_start(deadline).await?;
         let _starting = tokio::time::timeout_at(deadline, self.start_gate.lock())
             .await
             .map_err(|_| {
