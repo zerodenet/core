@@ -133,10 +133,13 @@ pub(crate) fn compiled_registries_with_network(
     #[cfg(feature = "vless")]
     {
         use crate::adapters::vless::VlessAdapter;
-        let adapter = Arc::new(VlessAdapter::default());
+        let mut adapter = VlessAdapter::default();
+        adapter.native_node_dns = node_network.is_some() || background.is_some();
+        let adapter = Arc::new(adapter);
         if let Some(network) = background.clone() {
             let factory = Arc::new(crate::component::background::pool::Factory::new(network));
             let projected = adapter.clone();
+            let selected = adapter.clone();
             components
                 .register_with_resources_where(
                     ::vless::metadata::VlessProtocol.descriptor(),
@@ -147,6 +150,11 @@ pub(crate) fn compiled_registries_with_network(
                     },
                 )
                 .expect("unique owned vless component registration");
+            components.set_candidate_acceptance("vless", move |input, config| {
+                if crate::adapters::vless::component::grpc::eligible(input) {
+                    crate::adapters::vless::component::grpc::selected(input, config, selected.native_node_dns)
+                } else { true }
+            });
         } else if let Some(network) = node_network.clone() {
             let factory = Arc::new(crate::component::background::pool::Factory::new(network));
             let projected = adapter.clone();
