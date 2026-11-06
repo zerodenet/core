@@ -1,12 +1,8 @@
 use super::*;
-use crate::contract::{
-    lifecycle::ChannelControl,
-    scope::{TaskClass, TaskScope},
-};
+use crate::contract::scope::{TaskClass, TaskScope};
 use std::{
     num::NonZeroUsize,
     os::windows::io::{AsRawHandle, FromRawHandle, OwnedHandle},
-    task::Poll,
 };
 use tokio::{sync::oneshot, time::Instant};
 use windows_sys::Win32::{
@@ -174,9 +170,7 @@ async fn tree(natural: bool) {
         original.root_status().unwrap().code(),
         Some(if natural { 23 } else { 1 })
     );
-    scope.begin_shutdown();
-    assert!(std::future::poll_fn(|cx| Poll::Ready(scope.poll_exit(cx).is_ready())).await);
-    assert!(scope.is_drained());
+    assert!(scope.shutdown(end()).await.is_complete());
 }
 #[tokio::test]
 async fn suspended_job_stop_joins_real_descendants_and_all_original_handles() {
@@ -217,6 +211,5 @@ async fn missing_program_retains_original_failure_and_cold_actor_join_until_clea
             .unwrap()
             .had_native_acquisition()
     );
-    scope.begin_shutdown();
-    assert!(std::future::poll_fn(|cx| Poll::Ready(scope.poll_exit(cx).is_ready())).await);
+    assert!(scope.shutdown(end()).await.is_complete());
 }
