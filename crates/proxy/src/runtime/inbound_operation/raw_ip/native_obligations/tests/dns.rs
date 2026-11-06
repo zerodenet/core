@@ -55,7 +55,7 @@ async fn local_dns_call_cannot_refund_datagram_child_before_original_source_join
             "body return is not the Source task's join"
         );
         scope.next_exit().await.unwrap();
-        consumer.join_next().await.unwrap().unwrap();
+        consumer.join_next().await.unwrap().unwrap().unwrap();
         owner.settle_joined(end()).await.unwrap();
         assert!(owner.0.lock().unwrap().records.is_empty());
         let closed = call.closed().unwrap();
@@ -139,7 +139,7 @@ async fn long_tcp_caller_reuses_query_quota_while_its_real_read_and_source_scope
         );
         writer.write_all(&[1]).await.unwrap();
         scope.next_exit().await.unwrap();
-        consumer.join_next().await.unwrap().unwrap();
+        consumer.join_next().await.unwrap().unwrap().unwrap();
         assert!(actual.is_joined() && tasks.quiescent());
     })
     .await
