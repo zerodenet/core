@@ -83,7 +83,7 @@ struct QuotaPersistence {
     storage: Arc<QuotaStorage>,
     source: Arc<ConfigurationSource>,
     sender: SyncSender<PersistenceMessage>,
-    worker: Mutex<Worker>,
+    worker: Arc<Mutex<Worker>>,
     last_error: Arc<Mutex<Option<Arc<io::Error>>>>,
 }
 struct Worker {
@@ -142,8 +142,20 @@ fn finish_cleanup<T>(work: io::Result<T>, cleanup: io::Result<()>) -> io::Result
         (Err(work), Err(cleanup)) => Err(io::Error::other(CleanupFailure { work, cleanup })),
     }
 }
+#[derive(Debug)]
+struct RetainedQuotaError(Arc<io::Error>);
+impl std::fmt::Display for RetainedQuotaError {
+    fn fmt(&self, fmt: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        self.0.fmt(fmt)
+    }
+}
+impl std::error::Error for RetainedQuotaError {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        Some(self.0.as_ref())
+    }
+}
 fn retained(error: &Arc<io::Error>) -> io::Error {
-    io::Error::new(error.kind(), error.clone())
+    io::Error::new(error.kind(), RetainedQuotaError(error.clone()))
 }
 
 #[derive(Debug)]
@@ -192,6 +204,9 @@ impl PrincipalQuotaRegistry {
     /// Fence admission before checking actual leases. A retry after the last
     /// registration returns consumes the original worker, then the native lease.
     pub(crate) fn shutdown(&self) -> io::Result<()> {
+        self.shutdown_received(true)
+    }
+    fn shutdown_received(&self, reported: bool) -> io::Result<()> {
         let book = self.inner.lock().unwrap_or_else(|error| error.into_inner());
         self.stopping.store(true, Ordering::Release);
         if book.states.values().any(|state| state.references != 0) {
@@ -203,7 +218,7 @@ impl PrincipalQuotaRegistry {
         drop(book);
         self.persistence
             .as_ref()
-            .map_or(Ok(()), |owner| owner.shutdown())
+            .map_or(Ok(()), |owner| owner.shutdown(reported))
     }
 
     pub(crate) fn retirement_complete(&self) -> bool {
@@ -324,7 +339,7 @@ impl Drop for PrincipalQuotaRegistry {
     fn drop(&mut self) {
         // Active registrations retain the same actual worker owner and book.
         // Drop never substitutes for the explicit successful shutdown receipt.
-        if let Err(error) = self.shutdown() {
+        if let Err(error) = self.shutdown_received(false) {
             if error.kind() != io::ErrorKind::WouldBlock {
                 error!(%error, "quota shutdown failed during fallback cleanup");
             }
@@ -416,22 +431,25 @@ impl QuotaPersistence {
             }
             Ok(())
         })?;
-        info!(path = %storage.path().display(), "principal quota recovery enabled");
-        Ok(Self {
+        let owner = Self {
             storage,
             source,
             sender,
-            worker: Mutex::new(Worker {
+            worker: Arc::new(Mutex::new(Worker {
                 original: Some(worker),
                 joined: None,
-            }),
+            })),
             last_error,
-        })
+        };
+        // The channel cannot request any persistence work before this owner
+        // returns. Install its actual std handle before even a logger callback.
+        info!(path = %owner.storage.path().display(), "principal quota recovery enabled");
+        Ok(owner)
     }
     fn mark_dirty(&self) {
         mark_sender_dirty(Some(&self.sender));
     }
-    fn shutdown(&self) -> io::Result<()> {
+    fn shutdown(&self, reported: bool) -> io::Result<()> {
         let mut state = self
             .worker
             .lock()
@@ -456,18 +474,27 @@ impl QuotaPersistence {
             .as_ref()
             .map(|_| ())
             .map_err(retained);
+        // This same actual joined result has a concrete Source receiver even
+        // when the last registration, rather than a live Registry, drops us.
+        // The diagnostic handoff is neither a worker join nor a native receipt.
+        let handoff = match state.joined.as_ref().expect("actual worker joined") {
+            Ok(()) => Ok(()),
+            Err(original) => self
+                .storage
+                .receive_worker_failure(original.clone(), reported),
+        };
         // Even a failed worker has exited; its original native lease can now
         // close. Keep both the typed worker result and matching close failure.
         let cleanup = self.storage.close_lease();
         if cleanup.is_err() {
             self.source.retain_quota_cleanup();
         }
-        finish_cleanup(joined, cleanup)
+        finish_cleanup(finish_cleanup(joined, handoff), cleanup)
     }
 }
 impl Drop for QuotaPersistence {
     fn drop(&mut self) {
-        if let Err(error) = self.shutdown() {
+        if let Err(error) = self.shutdown(false) {
             error!(%error, "quota fallback cleanup failed");
         }
     }
