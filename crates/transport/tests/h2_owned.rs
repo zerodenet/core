@@ -217,3 +217,6 @@ async fn actual_peer_reset_wakes_a_capacity_pending_writer_without_application_r
         server.await.unwrap();
     }).await.unwrap();
 }
+
+#[path = "h2_owned/scoped_flush.rs"]
+mod scoped_flush;

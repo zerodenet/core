@@ -877,6 +877,11 @@ impl Prioritize {
                         self.pending_send.push(&mut stream);
                     }
 
+                    // Includes an empty END frame and headers/trailers. There
+                    // need not be a DATA byte or a capacity-increase event.
+                    if stream.buffered_send_data == 0 && stream.pending_send.is_empty() {
+                        stream.notify_send();
+                    }
                     counts.transition_after(stream, is_pending_reset);
 
                     return Some(frame);

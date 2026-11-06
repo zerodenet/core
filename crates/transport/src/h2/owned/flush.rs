@@ -1,14 +1,14 @@
 //! Actual underlying flush observation for this same original H2 connection.
 use super::*;
 #[derive(Default)]
-pub(super) struct Flushed {
-    pub(super) count: AtomicU64,
-    pub(super) writer: AtomicWaker,
-    pub(super) waiting: AtomicBool,
+pub(in crate::h2) struct Flushed {
+    pub(in crate::h2) count: AtomicU64,
+    pub(in crate::h2) writer: AtomicWaker,
+    pub(in crate::h2) waiting: AtomicBool,
 }
-pub(super) struct FlushIo<S> {
-    pub(super) io: S,
-    pub(super) flush: Arc<Flushed>,
+pub(in crate::h2) struct FlushIo<S> {
+    pub(in crate::h2) io: S,
+    pub(in crate::h2) flush: Arc<Flushed>,
 }
 impl<S: AsyncRead + Unpin> AsyncRead for FlushIo<S> {
     fn poll_read(

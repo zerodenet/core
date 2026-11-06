@@ -1328,6 +1328,13 @@ impl<B> StreamRef<B> {
         me.actions.send.poll_capacity(cx, &mut stream)
     }
 
+    pub fn poll_send_drained(&mut self, cx: &Context) -> Poll<Result<(), crate::Error>> {
+        let mut me = self.opaque.inner.lock().unwrap();
+        let me = &mut *me;
+        let mut stream = me.store.resolve(self.opaque.key);
+        me.actions.send.poll_send_drained(cx, &mut stream)
+    }
+
     /// Request to be notified for if a `RST_STREAM` is received for this stream.
     pub(crate) fn poll_reset(
         &mut self,

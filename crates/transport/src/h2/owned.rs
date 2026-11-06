@@ -1,7 +1,7 @@
 //! The original client connection and application stream, before choosing its owner.
 use super::*;
 mod flush;
-use flush::{FlushIo, Flushed};
+pub(super) use flush::{FlushIo, Flushed};
 use futures_util::task::AtomicWaker;
 use std::{
     error::Error,
@@ -91,7 +91,7 @@ impl Error for Original {
         Some(self.0.as_ref())
     }
 }
-fn retained(error: &Arc<io::Error>) -> io::Error {
+pub(super) fn retained(error: &Arc<io::Error>) -> io::Error {
     io::Error::new(error.kind(), Original(error.clone()))
 }
 /// Direct H2 flow control: copy at most one credited DATA frame per write.

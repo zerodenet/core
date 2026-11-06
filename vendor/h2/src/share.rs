@@ -316,6 +316,13 @@ impl<B: Buf> SendStream<B> {
             .map_err(Into::into)
     }
 
+    /// Observe this sender's original DATA/header/trailer queue reaching the
+    /// connection codec. This does not prove that the underlying IO flushed.
+    /// END_STREAM with an empty DATA frame is included in the same queue.
+    pub fn poll_send_drained(&mut self, cx: &mut Context) -> Poll<Result<(), crate::Error>> {
+        self.inner.poll_send_drained(cx)
+    }
+
     /// Sends a single data frame to the remote peer.
     ///
     /// This function may be called repeatedly as long as `end_of_stream` is set
