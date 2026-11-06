@@ -4,31 +4,13 @@ use std::sync::atomic::Ordering;
 impl OwnedWintunOwner {
     pub fn stop(&self) {
         if !self.closing.swap(true, Ordering::AcqRel) {
-            let (reader, control, session) = {
-                let state = self.state();
-                (
-                    state
-                        .prepared_reader
-                        .as_ref()
-                        .map(|reader| reader.grant.clone()),
-                    state
-                        .prepared_reader
-                        .as_ref()
-                        .map(|reader| reader.control.clone()),
-                    state.session.clone(),
-                )
-            };
-            // Grant wakeups may run an external task waker synchronously.
-            // Preserve these same originals, but hold no owner mutex there.
-            if let Some(reader) = reader {
-                reader.revoke();
+            if let Some(control) = self.reader_control.get() {
+                // This same control persists any signal failure. Do not block
+                // a cancelling async caller behind a native acquisition mutex.
+                let _ = control.stop();
+                return;
             }
-            if let Some(control) = control {
-                if let Err(source) = control.stop() {
-                    self.state().errors.push(Arc::new(source));
-                }
-            }
-            self.reader_ready.notify_all();
+            let session = self.state().session.clone();
             if let Some(session) = session {
                 if let Err(source) = session.shutdown() {
                     self.state().errors.push(Arc::new(io::Error::from(source)));
