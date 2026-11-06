@@ -1,7 +1,7 @@
 use super::{budget::Lease, state::Physical, *};
 use crate::grpc::{prepared::PreparedConnection, prepared_stream::PreparedStream};
 use bytes::Bytes;
-use futures_util::{StreamExt, stream::FuturesUnordered};
+use futures_util::{stream::FuturesUnordered, StreamExt};
 use std::{future::Future, pin::Pin, sync::Arc};
 use tokio::sync::mpsc;
 type Driver = Pin<Box<dyn Future<Output = std::io::Result<()>> + Send>>;
@@ -53,6 +53,7 @@ impl Pump {
     }
 }
 pub(in crate::grpc) struct NativeClient {
+    pub(super) binding: zero_platform_tokio::contract::network::UpstreamBinding,
     sender: h2::client::SendRequest<Bytes>,
     commands: mpsc::Sender<Work>,
     active: Arc<std::sync::atomic::AtomicUsize>,
@@ -73,6 +74,7 @@ impl NativeClient {
         physical: Arc<Physical>,
         limit: usize,
         parent: &CancellationToken,
+        binding: zero_platform_tokio::contract::network::UpstreamBinding,
     ) -> (Arc<Self>, Driver) {
         let (commands, receiver) = mpsc::channel::<Work>(limit);
         let PreparedConnection {
@@ -95,6 +97,7 @@ impl NativeClient {
         );
         (
             Arc::new(Self {
+                binding,
                 sender,
                 commands,
                 active,

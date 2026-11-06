@@ -30,8 +30,11 @@ pub(in crate::grpc) struct Managed {
     pub(super) budget: Arc<super::budget::Budget>,
     pub(super) records: Mutex<Vec<Arc<Physical>>>,
     ready: AtomicBool,
+    pub(super) epoch: Mutex<Option<super::epoch::Epoch>>,
+    pub(super) totals: Mutex<Option<super::totals::Active>>,
 }
 pub(super) struct Physical {
+    pub(super) pending: Mutex<Vec<CarrierAdoption>>,
     pub(super) adoption: CarrierAdoption,
     pub(super) stop: CancellationToken,
     pub(super) view: Mutex<Option<CarrierUserView>>,
@@ -50,7 +53,13 @@ impl Drop for Body {
 }
 impl Physical {
     pub(super) fn closed(&self) -> bool {
-        if !self.failure_accepted() {
+        if !self.failure_accepted()
+            || !self.pending.lock().unwrap().is_empty()
+            || self
+                .adoption
+                .auxiliary_exit()
+                .is_some_and(|joined| !joined.registration_released())
+        {
             return false;
         }
         if !self
@@ -68,9 +77,11 @@ impl Physical {
         }
         match (self.witness.lock().unwrap().as_ref(), receipt.driver_exit()) {
             (None, None) => self.done.load(Ordering::Acquire),
-            (Some(witness), Some(exit)) => witness
-                .try_joined()
-                .is_some_and(|joined| joined.id() == exit.id() && joined.class() == exit.class()),
+            (Some(witness), Some(exit)) => witness.try_joined().is_some_and(|joined| {
+                joined.id() == exit.id()
+                    && joined.class() == exit.class()
+                    && joined.registration_released()
+            }),
             _ => false,
         }
     }
@@ -138,9 +149,18 @@ impl Managed {
             budget: super::budget::Budget::new(options.stream_limit),
             records: Mutex::new(Vec::new()),
             ready: AtomicBool::new(false),
+            epoch: Mutex::new(None),
+            totals: Mutex::new(None),
         })
     }
     pub(super) fn activate(&self) -> Result<(), ChannelError> {
+        let totals = self
+            .options
+            .totals
+            .as_ref()
+            .map(|totals| totals.proposal.activate())
+            .transpose()?;
+        *self.totals.lock().unwrap() = totals;
         if self.cancel.is_cancelled() || self.scope_cancel.is_cancelled() {
             return Err(error(self.instance, Stage::Prepare, Reason::Revoked));
         }
@@ -151,6 +171,12 @@ impl Managed {
         self.ready.load(Ordering::Acquire)
             && !self.cancel.is_cancelled()
             && !self.scope_cancel.is_cancelled()
+            && self
+                .totals
+                .lock()
+                .unwrap()
+                .as_ref()
+                .is_none_or(|totals| totals.live())
     }
     pub(in crate::grpc) fn stop(&self) {
         self.ready.store(false, Ordering::Release);
@@ -163,6 +189,7 @@ impl Managed {
         let records = self.records.lock().unwrap().clone();
         for record in records {
             if record.can_retire() {
+                record.release_installed_pending();
                 let native = record.adoption.try_retire_native()?;
                 if native
                     .closed()
@@ -172,6 +199,11 @@ impl Managed {
                     // settlement still checks the same returned users/caller.
                     let _ = record.adoption.try_retire()?;
                 }
+                let pending = record.pending.lock().unwrap().clone();
+                for original in pending {
+                    let _ = original.try_retire()?;
+                }
+                record.release_installed_pending();
             }
         }
         self.harvest();
@@ -181,7 +213,13 @@ impl Managed {
         let records = self.records.lock().unwrap().clone();
         for record in records {
             if record.can_retire() {
+                record.release_installed_pending();
                 let _ = record.adoption.retire(deadline).await?;
+                let pending = record.pending.lock().unwrap().clone();
+                for original in pending {
+                    let _ = original.retire(deadline).await?;
+                }
+                record.release_installed_pending();
             }
         }
         self.harvest();

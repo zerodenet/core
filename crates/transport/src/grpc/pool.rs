@@ -18,7 +18,7 @@ pub(super) struct State {
 #[derive(Clone)]
 pub(super) enum Cached {
     Legacy(Arc<Client>),
-    Owned(Arc<super::owned::NativeClient>),
+    Owned(Vec<Arc<super::owned::NativeClient>>),
 }
 impl std::fmt::Debug for GrpcPool {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {

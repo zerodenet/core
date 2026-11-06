@@ -1,14 +1,14 @@
 use super::*;
-use crate::grpc::{GrpcPool, pool::State};
+use crate::grpc::{pool::State, GrpcPool};
 use std::sync::Arc;
 use zero_platform_tokio::{
     contract::{
-        CloseReason,
         component::{
             BuildContext, ComponentFactory, ComponentInstance, ComponentRoles, ComponentSpec,
             ResourceAccess, ResourceDeclaration, ResourceOwner,
         },
-        lifecycle::{BuildError, CloseReport, ResourceLifecycle, Unfinished, erase_lifecycle},
+        lifecycle::{erase_lifecycle, BuildError, CloseReport, ResourceLifecycle, Unfinished},
+        CloseReason,
     },
     controlled_carrier::CarrierOwner,
 };
@@ -19,7 +19,11 @@ impl ComponentFactory for NativePoolFactory {
         ComponentSpec {
             owner: ResourceOwner::Endpoint("grpc.client_pool".into()),
             roles: vec![],
-            dependencies: vec![],
+            dependencies: options
+                .totals
+                .iter()
+                .map(|totals| totals.dependency)
+                .collect(),
             static_identity: options.identity.clone(),
             resources: vec![ResourceDeclaration::ControlledCarrierPool {
                 endpoint: options.endpoint.clone(),
@@ -36,7 +40,13 @@ impl ComponentFactory for NativePoolFactory {
         context: BuildContext,
     ) -> Result<ComponentInstance, BuildError> {
         let instance = context.instance();
-        if !context.dependencies.is_empty() || context.roles != Default::default() {
+        if context.dependencies.len() != usize::from(options.totals.is_some())
+            || options
+                .totals
+                .as_ref()
+                .is_some_and(|totals| context.dependency(totals.dependency).is_none())
+            || context.roles != Default::default()
+        {
             return Err(error(instance, Stage::Prepare, Reason::InvalidConfig));
         }
         let upstream = context
@@ -140,8 +150,12 @@ impl ResourceLifecycle for Owner {
             GrpcPool(self.pool.clone()).retire();
         }
         let physical = self.carriers.shutdown(deadline).await;
+        // Foreign originals live in these same physical records, including a
+        // prefix that failed before its loan could be installed in our slot.
+        let pending = self.managed.reap(deadline).await;
         self.managed.harvest();
         let mut report = physical?;
+        pending?;
         if self.managed.physical_unconfirmed() && report.is_complete() {
             report.unfinished.push(Unfinished::Io(
                 "gRPC original carrier lacks a matching close receipt".into(),
