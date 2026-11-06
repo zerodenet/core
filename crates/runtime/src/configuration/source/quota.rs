@@ -1,5 +1,6 @@
 //! Durable quota bytes belong to the same deployment source; the Engine owns
 //! accounting and its actual persistence worker, never an original file handle.
+mod lock_error;
 use super::*;
 use std::{
     fs::{OpenOptions, TryLockError},
@@ -214,7 +215,7 @@ impl QuotaStorage {
             match lease.original.as_ref().unwrap().try_lock() {
                 Ok(()) => { lease.acquired = true; Ok(()) }
                 Err(TryLockError::WouldBlock) => Err(io::Error::new(io::ErrorKind::WouldBlock, format!("principal quota state `{}` is already owned by another Zero process (lock `{}`)", self.path.display(), path.display()))),
-                Err(TryLockError::Error(error)) => Err(io::Error::new(error.kind(), format!("failed to acquire principal quota state lock `{}` for `{}`: {error}", path.display(), self.path.display()))),
+                Err(TryLockError::Error(error)) => Err(lock_error::retain(&self.path, &path, error)),
             }
         })();
         lease.opening = false;
