@@ -18,7 +18,7 @@ impl CarrierOriginalTotals {
         state.metadata.push(original);
         Ok(())
     }
-    fn release_metadata(
+    pub(super) fn release_metadata(
         &self,
         original: &Arc<crate::controlled_datagram::metadata_pool::MetadataTotalsOriginal>,
     ) {
@@ -51,7 +51,7 @@ impl CarrierOriginalTotals {
         state.bound.push(original);
         Ok(())
     }
-    fn release_bound(&self, original: &Arc<crate::controlled_datagram::BoundTotalsOriginal>) {
+    pub(super) fn release_bound(&self, original: &Arc<crate::controlled_datagram::BoundTotalsOriginal>) {
         let removed = {
             let mut state = self.lock();
             state
