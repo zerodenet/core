@@ -51,3 +51,68 @@ async fn actual_accepted_caller_retires_pending_service_native_after_its_real_vi
         assert!(source_scope.shutdown(deadline()).await.is_complete());assert!(native_scope.shutdown(deadline()).await.is_complete());
     }).await.unwrap();
 }
+
+#[tokio::test]
+async fn actual_live_accepted_caller_can_retry_two_closed_service_originals_with_one_native_slot() {
+    timeout(Duration::from_secs(5),async {
+        let mut fixture=Fixture::cold(1).await;
+        let mut native_scope=TaskScope::empty(tokio::runtime::Handle::current());
+        let owner=fixture.owner.registration();
+        owner.bind_declared(&ResourceDeclaration::ControlledServiceStream {
+            endpoint:fixture.destination.clone(),dial:fixture.transport.binding().dial.clone(),max_sockets:NonZeroUsize::new(1).unwrap()
+        },&native_scope.registrar(),&Arc::new(CancellationToken::new())).unwrap();
+        fixture.owner.start(deadline()).await.unwrap();
+        let mut source_scope=TaskScope::new(tokio::runtime::Handle::current(),NonZeroUsize::new(1).unwrap());
+        let cancel=CancellationToken::new();let body_cancel=cancel.clone();
+        type Attempt=(crate::controlled_carrier::loan::LoanIo,tokio::sync::oneshot::Receiver<()>,tokio::sync::oneshot::Sender<()>);
+        let (send,mut receive)=tokio::sync::mpsc::channel::<Attempt>(1);
+        let pending=Arc::new(tokio::sync::Notify::new());let observed=pending.clone();
+        let (id,witness)=source_scope.registrar().spawn_tracked(TaskClass::Auxiliary,async move {
+            loop {
+                let next=tokio::select! {biased;_=body_cancel.cancelled()=>return Ok(()),next=receive.recv()=>next};
+                let Some((mut io,finish,returned))=next else {return Ok(())};
+                {
+                    let mut byte=[0;1];let read=io.read_exact(&mut byte);tokio::pin!(read);
+                    std::future::poll_fn(|cx| { use std::future::Future;assert!(read.as_mut().poll(cx).is_pending());observed.notify_one();std::task::Poll::Ready(()) }).await;
+                    tokio::select! {biased;_=body_cancel.cancelled()=>return Ok(()),_=finish=>{},result=read=>panic!("peer withheld native bytes: {result:?}")}
+                }
+                drop(io);
+                returned.send(()).unwrap();
+            }
+        }).unwrap();
+        let mut graph=crate::AcceptedPeerScope::for_carrier(&source_scope.registrar().downgrade(),id,witness.clone(),cancel,NonZeroUsize::new(1).unwrap(),1,fixture.listener.local_addr().unwrap()).unwrap();
+        let caller=graph.tasks().caller().unwrap();
+        for attempt in 0..2 {
+            let mut grant=fixture.grants.reserve().unwrap();let view=grant.claim_transferred_view().unwrap();let adoption=grant.adoption();
+            // The second attempt must replace the first matching closed cleanup
+            // record while this exact original source task remains running.
+            caller.observe_pending_carrier(adoption.clone()).unwrap();
+            assert_eq!(caller.observe_carrier_with_owner(&owner,adoption.clone()).unwrap_err().reason,Reason::StalePlan);
+            let carrier=fixture.transport.prepare_controlled_stream(fixture.destination.clone(),context(),grant).unwrap().open(deadline()).await.unwrap();
+            let (mut peer,_)=fixture.listener.accept().await.unwrap();let (io,_)=carrier.into_parts();let loan=io.into_stream_loan(view).unwrap();let mut control=loan.owner;
+            let (finish,finished)=tokio::sync::oneshot::channel();let (returned,returning)=tokio::sync::oneshot::channel();
+            send.send((loan.io,finished,returned)).await.unwrap_or_else(|_|panic!("actual source remains alive"));pending.notified().await;
+            assert!(!witness.is_joined());assert!(adoption.closed().is_none());
+            assert_eq!(fixture.grants.reserve().err().unwrap().reason,Reason::Capacity);
+            if attempt==0 {
+                finish.send(()).unwrap();returning.await.unwrap();
+                let report=control.try_close().unwrap();assert!(report.is_complete());assert_eq!(report.closed_io.len(),1);
+                assert!(!witness.is_joined(),"returning one failed Service original does not complete the actual accepted source");
+                caller.check_open().unwrap();
+            } else {
+                graph.revoke(crate::contract::CloseReason::Cancelled);
+                let exit=source_scope.next_exit().await.unwrap();assert_eq!(exit.id,id);assert!(exit.result.is_ok());
+                assert!(graph.observe_joined(id).is_some());
+                graph.retire_logical_resources(deadline()).await.unwrap();
+                assert!(witness.is_joined());
+                assert!(control.try_close().unwrap().is_complete());
+                drop(finish);drop(returning);
+            }
+            assert!(adoption.closed().unwrap().matches(&adoption));assert!(adoption.users_closed().unwrap().matches(&adoption));
+            assert_eq!(peer.read(&mut [0;1]).await.unwrap(),0);
+        }
+        let report=graph.shutdown(deadline()).await.unwrap();assert!(report.is_complete(),"{report:?}");assert_eq!(report.closed_io.len(),1,"the first attempt's matching close report was already consumed by its actual controller");
+        assert!(fixture.owner.shutdown(deadline()).await.unwrap().is_complete());assert!(owner.closed().unwrap().matches(&owner));
+        assert!(source_scope.shutdown(deadline()).await.is_complete());assert!(native_scope.shutdown(deadline()).await.is_complete());
+    }).await.unwrap();
+}

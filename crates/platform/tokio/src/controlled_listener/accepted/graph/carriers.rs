@@ -44,19 +44,28 @@ impl AcceptedCaller {
                 "carrier differs from actual accepted caller",
             ));
         }
-        // Only original closed, unacquired reservations may be pruned before
-        // caller join. Get original slot observations outside the graph lock.
+        // Pending Service cleanup may be returned once both original native
+        // and transferred users actually closed; its waiting caller can retry.
+        // Bound Business callers still require their actual caller join.
+        // Get original slot observations outside the graph lock.
         let observed: Vec<_> = users
             .state()
             .carriers
             .iter()
-            .map(|record| record.slot.clone())
+            .map(|record| (record.slot.clone(), record.pending))
             .collect();
         let unused: Vec<_> = observed
             .into_iter()
-            .filter(|slot| {
-                slot.closed()
-                    .is_some_and(|closed| closed.matches(slot) && !closed.had_native_acquisition())
+            .filter_map(|(slot, pending)| {
+                let closed = slot.closed().is_some_and(|closed| {
+                    closed.matches(&slot)
+                        && (!closed.had_native_acquisition()
+                            || pending
+                                && slot
+                                    .users_closed()
+                                    .is_some_and(|users| users.matches(&slot)))
+                });
+                closed.then_some(slot)
             })
             .collect();
         let mut removed = Vec::new();
