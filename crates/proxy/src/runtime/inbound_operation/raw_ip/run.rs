@@ -149,7 +149,12 @@ pub(in crate::runtime) async fn run(
                 .ok_or_else(|| std::io::Error::other("packet host absent"))?,
             children.native.clone(),
             tun.clone(),
-            children.tcp_dns.clone(),
+            tcp::TcpSourceTasks::hosted(
+                children.tcp_dns.clone(),
+                children.host.as_ref()
+                    .ok_or_else(|| std::io::Error::other("packet host absent"))?
+                    .packet_source_admission().await.map_err(std::io::Error::other)?,
+            ),
         ))
         .map_err(std::io::Error::other)?;
     let udp_runtime = runtime.udp_runtime();
