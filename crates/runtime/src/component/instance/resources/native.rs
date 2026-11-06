@@ -15,6 +15,11 @@ use zero_platform_tokio::contract::{
 };
 
 pub struct HostResources {
+    packet_source: Arc<
+        std::sync::OnceLock<
+            zero_platform_tokio::controlled_datagram::provider::NativeDatagramOrigin,
+        >,
+    >,
     component: ComponentId,
     icmp: Option<super::icmp::HostIcmpProbeOwner>,
     coverage: Vec<coverage::CoverageBinding>,
@@ -151,6 +156,26 @@ impl HostResources {
     }
 }
 impl ResourceAccess for HostResources {
+    fn packet_carrier_origin(
+        &self,
+    ) -> Result<zero_platform_tokio::controlled_carrier::CarrierOrigin, ChannelError> {
+        if self.cancel.is_cancelled()
+            || self
+                .state
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner)
+                .closed
+        {
+            return Err(self.denied());
+        }
+        self.packet_source
+            .get()
+            .filter(|origin| !origin.is_retired())
+            .cloned()
+            .map(zero_platform_tokio::controlled_carrier::CarrierOrigin::from_listener)
+            .ok_or_else(|| self.denied())
+    }
+
     fn activate_bound_datagram(
         &self,
         ordinal: usize,

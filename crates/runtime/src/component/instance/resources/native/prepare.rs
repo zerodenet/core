@@ -9,7 +9,7 @@ impl HostResources {
         declarations: &[ResourceDeclaration],
         cancel: CancellationToken,
     ) -> Result<Arc<Self>, ChannelError> {
-        Self::construct(component, declarations, cancel, None)
+        Self::construct(component, declarations, cancel, None, None)
     }
     pub fn new_for_instance(
         instance: ComponentInstanceId,
@@ -22,6 +22,26 @@ impl HostResources {
             declarations,
             cancel,
             Some((instance, scope)),
+            None,
+        )
+    }
+    pub(in crate::component) fn new_for_instance_with_packet_source(
+        instance: ComponentInstanceId,
+        declarations: &[ResourceDeclaration],
+        cancel: CancellationToken,
+        scope: TaskScopeIdentity,
+        source: Arc<
+            std::sync::OnceLock<
+                zero_platform_tokio::controlled_datagram::provider::NativeDatagramOrigin,
+            >,
+        >,
+    ) -> Result<Arc<Self>, ChannelError> {
+        Self::construct(
+            instance.component,
+            declarations,
+            cancel,
+            Some((instance, scope)),
+            Some(source),
         )
     }
     fn construct(
@@ -29,6 +49,13 @@ impl HostResources {
         declarations: &[ResourceDeclaration],
         cancel: CancellationToken,
         identity: Option<(ComponentInstanceId, TaskScopeIdentity)>,
+        packet_source: Option<
+            Arc<
+                std::sync::OnceLock<
+                    zero_platform_tokio::controlled_datagram::provider::NativeDatagramOrigin,
+                >,
+            >,
+        >,
     ) -> Result<Arc<Self>, ChannelError> {
         let bounds = bound_datagram::BoundDeclarations::new(
             component,
@@ -134,8 +161,11 @@ impl HostResources {
                     accepted,
                 } => {
                     if accepted.is_some() {
-                        return Err(error(component, Reason::Unsupported,
-                            "accepted TCP authority requires the actual host handler Scope provider"));
+                        return Err(error(
+                            component,
+                            Reason::Unsupported,
+                            "accepted TCP authority requires the actual host handler Scope provider",
+                        ));
                     }
                     let address = sockets::literal(component, destination)?;
                     let owner = sockets::TcpGrant {
@@ -207,7 +237,7 @@ impl HostResources {
                         component,
                         Reason::InvalidConfig,
                         "resource grant is not implemented",
-                    ))
+                    ));
                 }
             }
         }
@@ -216,6 +246,7 @@ impl HostResources {
             .map(|declaration| coverage::CoverageBinding::new(component, declaration))
             .collect::<Result<Vec<_>, _>>()?;
         Ok(Arc::new(Self {
+            packet_source: packet_source.unwrap_or_default(),
             component,
             icmp,
             coverage,

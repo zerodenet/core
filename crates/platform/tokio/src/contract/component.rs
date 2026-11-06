@@ -292,6 +292,17 @@ pub trait ResourceAccess: Send + Sync {
         ))
     }
 
+    /// Read the same actual linked Packet source dependency installed by the
+    /// host. This grants no IO and cannot create a source or close receipt.
+    fn packet_carrier_origin(
+        &self,
+    ) -> Result<crate::controlled_carrier::CarrierOrigin, BuildError> {
+        Err(super::ChannelError::new(
+            super::Stage::Prepare,
+            super::Reason::Unsupported,
+            super::Impact::Component,
+        ))
+    }
     /// Match the actual acquired listener controller and this same Scope's
     /// real wire task before its unique views are allowed to perform I/O.
     fn register_packet_source_driver(

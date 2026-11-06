@@ -9,16 +9,16 @@ use zero_core::{
     component::*,
     packet::{IpPacket, PacketFacts},
 };
+use zero_platform_tokio::PollSender;
 use zero_platform_tokio::contract::{
+    ChannelError, CloseReason, DeliveryState, Impact, Reason, SendFailure, SendReceipt, Stage,
     component::*,
     context::{AcceptContext, HandshakeContext},
     inbound::*,
     lifecycle::*,
     packet::*,
     scope::{TaskClass, TaskJoinWitness, TaskRegistrar},
-    ChannelError, CloseReason, DeliveryState, Impact, Reason, SendFailure, SendReceipt, Stage,
 };
-use zero_platform_tokio::PollSender;
 mod channel;
 use channel::{Control, Rx, Tx};
 struct Shared {
@@ -29,6 +29,7 @@ struct Shared {
     proxies: tasks::RetainedTasks<()>,
     done: Mutex<Option<TaskJoinWitness>>,
     pending_tx: Arc<Mutex<Option<IpPacket>>>,
+    resources: Arc<dyn ResourceAccess>,
 }
 struct State {
     wire: Option<wire::Wire>,
@@ -74,6 +75,7 @@ pub(crate) fn source(
         proxies,
         done: Mutex::new(None),
         pending_tx: Arc::new(Mutex::new(None)),
+        resources: context.resources.clone(),
     });
     (
         Owner {
@@ -215,6 +217,8 @@ impl PacketReply for Reply {
                 state.grant.take().ok_or_else(|| error(Reason::Revoked))?,
             )
         };
+        let original = grant.tx.identity();
+        let (registered, original_registration) = tokio::sync::oneshot::channel::<()>();
         let mtu = wire.device.mtu();
         let (packets, received) = mpsc::channel(1);
         let (responses, returned) = mpsc::channel(1);
@@ -223,6 +227,7 @@ impl PacketReply for Reply {
         let egress = observer.egress();
         let proxies = self.shared.proxies.clone();
         let guard = cancel.clone().drop_guard();
+        let waiting_cancel = cancel.clone();
         let source_facts = self.facts.clone();
         let facts = self.facts;
         let (_id, witness) = self
@@ -230,6 +235,14 @@ impl PacketReply for Reply {
             .tasks
             .spawn_tracked(TaskClass::Critical, async move {
                 let _guard = guard;
+                // This is the same real wire registration. It owns the unique
+                // views while waiting; no IO begins before its retained native
+                // controller has validated and saved this exact witness.
+                tokio::select! {
+                    biased;
+                    _ = waiting_cancel.cancelled() => return Ok(()),
+                    ready = original_registration => ready.map_err(|source| error(Reason::Revoked).with_source(source))?,
+                }
                 let result = wire::run(
                     wire, grant, egress, packets, returned, facts, observer, shutdown,
                 )
@@ -239,6 +252,10 @@ impl PacketReply for Reply {
             })
             .map_err(|source| error(Reason::Capacity).with_source(source))?;
         *self.shared.done.lock().unwrap() = Some(witness.clone());
+        self.shared
+            .resources
+            .register_packet_source_driver(&original, &witness)?;
+        registered.send(()).map_err(|_| error(Reason::Revoked))?;
         Ok(Some(PacketSession {
             tx: Tx {
                 sender: PollSender::new(responses),

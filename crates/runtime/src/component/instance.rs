@@ -196,7 +196,7 @@ impl ComponentSlot {
             admission_owner: Arc::new(()),
             live: OnceCell::new(),
             start_gate: Mutex::new(()),
-            packet_source: OnceLock::new(),
+            packet_source: Arc::new(OnceLock::new()),
         }
     }
     /// Cold recipes remain reusable; revoked or failed runtime owners do not.
