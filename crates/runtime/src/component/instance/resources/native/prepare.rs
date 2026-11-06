@@ -114,6 +114,8 @@ impl HostResources {
                         name.clone(),
                         binding.clone(),
                         cancel.clone(),
+                        originals.clone(),
+                        original_tasks.clone(),
                     )?);
                 }
 
