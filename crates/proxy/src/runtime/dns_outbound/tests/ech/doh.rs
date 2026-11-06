@@ -82,3 +82,5 @@ async fn ech_and_default_questions_share_actual_doh_pool_and_cancel_only_the_log
         peer.finish().await;
     }).await.unwrap();
 }
+
+mod domain;
