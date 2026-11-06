@@ -35,35 +35,14 @@ impl StoppedInbounds {
     pub(super) fn record_absent(&mut self, tag: String) {
         self.absent.insert(tag);
     }
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "explicit cold-device library path; production activation requires the owning replacement transaction"
-        )
-    )]
     pub(in crate::runtime) fn matches_candidate(&self, config: &Arc<RuntimeConfig>) -> bool {
         self.candidate.ptr_eq(&Arc::downgrade(config))
     }
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "explicit cold-device library path; production activation requires the owning replacement transaction"
-        )
-    )]
     pub(in crate::runtime) fn terminal(&self, tag: &str) -> Option<&InboundTerminal> {
         self.closed.get(tag).map(Arc::as_ref)
     }
     /// This is only observed registry absence after reservation cleanup, not
     /// historical physical-close proof. A retained Unknown owner is never absent.
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "explicit cold-device library path; production activation requires the owning replacement transaction"
-        )
-    )]
     pub(in crate::runtime) fn owner_was_absent(&self, tag: &str) -> bool {
         self.absent.contains(tag)
     }
