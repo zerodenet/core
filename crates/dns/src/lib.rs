@@ -78,6 +78,9 @@ pub use outbound::{
     DnsOutboundDatagramFuture, DnsQuicBidiConnector, DnsQuicBidiRequest,
 };
 
+#[cfg(feature = "doq")]
+pub use backends::DnsQuicCleanupFailure;
+
 mod donor_pause;
 pub use donor_pause::DnsDonorPause;
 
