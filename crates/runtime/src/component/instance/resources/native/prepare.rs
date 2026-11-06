@@ -57,7 +57,7 @@ impl HostResources {
             identity.clone(),
             cancel.clone(),
         )?;
-        #[cfg(target_os = "linux")]
+        #[cfg(any(target_os = "linux", windows))]
         let processes = process::ProcessDeclarations::new(
             declarations,
             identity.clone(),
@@ -142,7 +142,7 @@ impl HostResources {
                 }
 
                 ResourceDeclaration::ProcessEndpoint { .. } => {
-                    #[cfg(not(target_os = "linux"))]
+                    #[cfg(not(any(target_os = "linux", windows)))]
                     return Err(error(
                         component,
                         Reason::Unsupported,
@@ -270,7 +270,7 @@ impl HostResources {
             roots,
             bounds,
             packets,
-            #[cfg(target_os = "linux")]
+            #[cfg(any(target_os = "linux", windows))]
             processes,
             cancel,
             state: Mutex::new(State {

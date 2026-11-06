@@ -274,7 +274,7 @@ impl HostResources {
     }
 }
 
-#[cfg(target_os = "linux")]
+#[cfg(any(target_os = "linux", windows))]
 impl HostResources {
     pub(in crate::component) fn process_endpoint_consumer_use(
         &self,

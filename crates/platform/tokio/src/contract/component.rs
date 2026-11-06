@@ -520,7 +520,7 @@ pub trait ResourceAccess: Send + Sync {
     }
     /// Cold original installed by the actual host before native acquisition.
     /// The existing registered actor starts/drives it; no second Scope exists.
-    #[cfg(target_os = "linux")]
+    #[cfg(any(target_os = "linux", windows))]
     fn prepare_owned_process(
         &self,
         _: ProcessRequest,
@@ -535,7 +535,7 @@ pub trait ResourceAccess: Send + Sync {
     }
     /// Start-only, same actual Process entry. The host stores this cold owner
     /// before it creates either native reservation. No protocol environment is read.
-    #[cfg(target_os = "linux")]
+    #[cfg(any(target_os = "linux", windows))]
     fn reserve_process_endpoint(
         &self,
         _: usize,
@@ -549,7 +549,7 @@ pub trait ResourceAccess: Send + Sync {
         ))
     }
     /// Explicitly associates the exact prepared job with its actual handoff.
-    #[cfg(target_os = "linux")]
+    #[cfg(any(target_os = "linux", windows))]
     fn prepare_owned_process_with_endpoint(
         &self,
         _: ProcessRequest,

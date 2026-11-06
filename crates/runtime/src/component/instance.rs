@@ -5,7 +5,7 @@ mod cleanup;
 mod original_budgets;
 mod packet_source;
 mod probe;
-#[cfg(target_os = "linux")]
+#[cfg(any(target_os = "linux", windows))]
 mod process_endpoint;
 mod resources;
 mod roles;

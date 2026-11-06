@@ -1,28 +1,42 @@
 use super::*;
 impl ApplicationServices {
-    pub(in crate::application) fn install_parent_input(self: &Arc<Self>) -> std::io::Result<Arc<zero_platform_tokio::parent_input::ParentInputOwner>> {
+    pub(in crate::application) fn install_parent_input(
+        self: &Arc<Self>,
+    ) -> std::io::Result<Arc<zero_platform_tokio::parent_input::ParentInputOwner>> {
         APPLICATION_STARTUP.retain(self.clone())?;
-        Ok(self.parent_input.get_or_init(zero_platform_tokio::parent_input::ParentInputOwner::new).clone())
+        Ok(self
+            .parent_input
+            .get_or_init(zero_platform_tokio::parent_input::ParentInputOwner::new)
+            .clone())
     }
     pub(in crate::application) async fn shutdown_parent_input(&self) -> std::io::Result<()> {
-        let Some(owner)=self.parent_input.get() else { return Ok(()); };
-        let report=owner.shutdown(tokio::time::Instant::now()+std::time::Duration::from_secs(5)).await?;
-        if report.is_complete() {Ok(())} else {Err(std::io::Error::other(format!("same parent input cleanup remains retained: {report:?}")))}
+        let Some(owner) = self.parent_input.get() else {
+            return Ok(());
+        };
+        let report = owner
+            .shutdown(tokio::time::Instant::now() + std::time::Duration::from_secs(5))
+            .await?;
+        if report.is_complete() {
+            Ok(())
+        } else {
+            Err(std::io::Error::other(format!(
+                "same parent input cleanup remains retained: {report:?}"
+            )))
+        }
     }
     pub(in crate::application) fn parent_input_retirement_complete(&self) -> bool {
-        self.parent_input.get().is_none_or(|owner|owner.retirement_complete())
+        self.parent_input
+            .get()
+            .is_none_or(|owner| owner.retirement_complete())
     }
 
     pub(in crate::application) async fn shutdown_status_monitor(&self) -> std::io::Result<()> {
         #[cfg(feature = "event-dispatcher")]
         {
             let mut state = self.state.lock().await;
-            if let Err(error) = Self::stop_status_monitor(&mut state).await {
-                return Err(match &state.cleanup_fault {
-                    Some(original) => std::io::Error::other(original.clone()),
-                    None => std::io::Error::other(error),
-                });
-            }
+            Self::stop_status_monitor(&mut state)
+                .await
+                .map_err(std::io::Error::other)?;
         }
         Ok(())
     }
@@ -70,7 +84,7 @@ impl ApplicationServices {
     #[cfg(feature = "event-dispatcher")]
     pub(super) async fn stop_status_monitor(
         state: &mut ApplicationServiceState,
-    ) -> Result<(), String> {
+    ) -> Result<(), Arc<tokio::task::JoinError>> {
         if state.monitor_exit.is_none() {
             if let Some(monitor) = state.status_monitor.as_mut() {
                 monitor.abort(); // request only; the actual original join follows
@@ -81,7 +95,7 @@ impl ApplicationServices {
         if let Some(Err(error)) = &state.monitor_exit {
             if !error.is_cancelled() {
                 state.cleanup_fault.get_or_insert_with(|| error.clone());
-                return Err(format!("original status monitor failed: {error}"));
+                return Err(error.clone());
             }
         }
         Ok(())
@@ -149,7 +163,7 @@ impl ApplicationServices {
                 }
             }
         }
-        monitor?;
+        monitor.map_err(|error| format!("original status monitor failed: {error}"))?;
         dispatcher?;
         if let Some(error) = &_state.cleanup_fault {
             return Err(format!(

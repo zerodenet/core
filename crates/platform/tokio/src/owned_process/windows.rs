@@ -13,6 +13,7 @@ use std::{
 };
 use windows_sys::Win32::Foundation::{CloseHandle, HANDLE};
 mod arguments;
+mod endpoint;
 mod finish;
 mod launch;
 mod progress;
@@ -30,6 +31,8 @@ struct OriginalHandle {
 }
 struct State {
     request: Option<ProcessRequest>,
+    endpoint: Option<Arc<super::endpoint::ProcessEndpointHandoff>>,
+    endpoint_request_ready: bool,
     actor: Option<TaskJoinWitness>,
     attempted: bool,
     originals: [OriginalHandle; 4],
@@ -79,6 +82,8 @@ impl OwnedProcess {
             changed: tokio::sync::Notify::new(),
             state: Mutex::new(State {
                 request: Some(request),
+                endpoint: None,
+                endpoint_request_ready: false,
                 actor: None,
                 attempted: false,
                 originals: std::array::from_fn(|_| OriginalHandle::default()),
@@ -110,6 +115,9 @@ impl OwnedProcess {
         self.lock().root_status.map(ExitStatus::from_raw)
     }
     pub fn request_stop(&self) {
+        if let Some(endpoint) = self.endpoint() {
+            endpoint.request_stop();
+        }
         self.lock().stop = true;
         self.changed.notify_waiters();
     }

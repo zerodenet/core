@@ -1,5 +1,7 @@
+mod client;
+mod owned;
 mod scoped;
-pub use scoped::{accept_h2_scoped, ScopedH2Stream};
+pub use scoped::{ScopedH2Stream, accept_h2_scoped};
 // HTTP/2 transport 鈥?h2.rs
 //
 // Raw DATA frames over HTTP/2 (no gRPC framing).
@@ -21,7 +23,7 @@ use zero_traits::{AsyncSocket, H2TransportProfile};
 use zero_platform_tokio::ClientStream;
 
 /// Bidirectional HTTP/2 stream.
-pub struct H2Stream {
+struct RelayStream {
     read_rx: mpsc::Receiver<Result<Vec<u8>, String>>,
     write_tx: mpsc::UnboundedSender<Vec<u8>>,
     read_buffer: Vec<u8>,
@@ -29,7 +31,7 @@ pub struct H2Stream {
     write_closed: bool,
 }
 
-impl H2Stream {
+impl RelayStream {
     fn new(
         read_rx: mpsc::Receiver<Result<Vec<u8>, String>>,
         write_tx: mpsc::UnboundedSender<Vec<u8>>,
@@ -99,26 +101,10 @@ pub(crate) async fn connect_h2_request_with_settings<S>(
 where
     S: AsyncRead + AsyncWrite + Unpin + Send + 'static,
 {
-    let mut builder = h2::client::Builder::new();
-    if let Some(settings) = settings {
-        builder.peer_application_settings(settings);
-    }
-    let (mut client, conn) = builder
-        .handshake(stream)
-        .await
-        .map_err(|e| RuntimeError::Io(io::Error::other(format!("h2 client handshake: {e}"))))?;
-
-    tokio::spawn(async move {
-        if let Err(error) = conn.await {
-            tracing::warn!(%error, "h2 client connection error");
-        }
-    });
-
-    let (response, send_stream) = client
-        .send_request(request, false)
-        .map_err(|e| RuntimeError::Io(io::Error::other(format!("h2 send request: {e}"))))?;
-
-    Ok(build_h2_client_stream(send_stream, response))
+    let prepared = owned::prepare_request(stream, request, settings).await?;
+    Ok(H2Stream {
+        inner: Inner::Client(client::Inline::new(prepared)),
+    })
 }
 
 // 鈹€鈹€ server (inbound) accept 鈹€鈹€
@@ -215,40 +201,9 @@ fn build_h2_stream(
     spawn_h2_write_relay(send_stream, write_rx);
     spawn_h2_read_relay(recv_stream, read_tx);
 
-    Ok(H2Stream::new(read_rx, write_tx))
-}
-
-fn build_h2_client_stream(
-    send_stream: h2::SendStream<Bytes>,
-    response: h2::client::ResponseFuture,
-) -> H2Stream {
-    let (write_tx, write_rx) = mpsc::unbounded_channel::<Vec<u8>>();
-    let (read_tx, read_rx) = mpsc::channel::<Result<Vec<u8>, String>>(32);
-
-    spawn_h2_write_relay(send_stream, write_rx);
-    tokio::spawn(async move {
-        let response = match response.await {
-            Ok(response) => response,
-            Err(error) => {
-                let _ = read_tx
-                    .send(Err(format!("h2 response failed: {error}")))
-                    .await;
-                return;
-            }
-        };
-        let status = response.status();
-        if !status.is_success() {
-            let _ = read_tx
-                .send(Err(format!(
-                    "h2 server returned non-success status {status}"
-                )))
-                .await;
-            return;
-        }
-        read_h2_data(response.into_body(), read_tx).await;
-    });
-
-    H2Stream::new(read_rx, write_tx)
+    Ok(H2Stream {
+        inner: Inner::Relay(RelayStream::new(read_rx, write_tx)),
+    })
 }
 
 fn spawn_h2_write_relay(
@@ -301,7 +256,7 @@ async fn read_h2_data(
 
 // 鈹€鈹€ AsyncRead / AsyncWrite / AsyncSocket / ClientStream 鈹€鈹€
 
-impl AsyncRead for H2Stream {
+impl AsyncRead for RelayStream {
     fn poll_read(
         mut self: Pin<&mut Self>,
         cx: &mut Context<'_>,
@@ -338,7 +293,7 @@ impl AsyncRead for H2Stream {
     }
 }
 
-impl AsyncWrite for H2Stream {
+impl AsyncWrite for RelayStream {
     fn poll_write(
         self: Pin<&mut Self>,
         _cx: &mut Context<'_>,
@@ -375,6 +330,52 @@ impl AsyncWrite for H2Stream {
     }
 }
 
+/// One original H2 application stream. Outbound connections execute inline
+/// in their real caller; the server compatibility API retains its original
+/// explicit library relay responsibility.
+pub struct H2Stream {
+    inner: Inner,
+}
+enum Inner {
+    Client(client::Inline),
+    Relay(RelayStream),
+}
+impl AsyncRead for H2Stream {
+    fn poll_read(
+        self: Pin<&mut Self>,
+        cx: &mut Context<'_>,
+        out: &mut ReadBuf<'_>,
+    ) -> Poll<io::Result<()>> {
+        match &mut self.get_mut().inner {
+            Inner::Client(io) => Pin::new(io).poll_read(cx, out),
+            Inner::Relay(io) => Pin::new(io).poll_read(cx, out),
+        }
+    }
+}
+impl AsyncWrite for H2Stream {
+    fn poll_write(
+        self: Pin<&mut Self>,
+        cx: &mut Context<'_>,
+        bytes: &[u8],
+    ) -> Poll<io::Result<usize>> {
+        match &mut self.get_mut().inner {
+            Inner::Client(io) => Pin::new(io).poll_write(cx, bytes),
+            Inner::Relay(io) => Pin::new(io).poll_write(cx, bytes),
+        }
+    }
+    fn poll_flush(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
+        match &mut self.get_mut().inner {
+            Inner::Client(io) => Pin::new(io).poll_flush(cx),
+            Inner::Relay(io) => Pin::new(io).poll_flush(cx),
+        }
+    }
+    fn poll_shutdown(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
+        match &mut self.get_mut().inner {
+            Inner::Client(io) => Pin::new(io).poll_shutdown(cx),
+            Inner::Relay(io) => Pin::new(io).poll_shutdown(cx),
+        }
+    }
+}
 impl AsyncSocket for H2Stream {
     type Error = io::Error;
 

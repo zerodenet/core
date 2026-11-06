@@ -7,24 +7,48 @@ impl OwnedProcess {
         deadline: tokio::time::Instant,
     ) -> io::Result<Option<Arc<ProcessTreeClosed>>> {
         self.request_stop();
-        if let Some(closed) = self.try_finish()? {
-            return Ok(Some(closed));
+        // Derived originals settle inline in this same existing outer cleanup.
+        // Actor/root observations remain independent from these native receipts.
+        let endpoint_failure = match self.endpoint() {
+            Some(endpoint) => endpoint.shutdown(deadline).await.err(),
+            None => None,
+        };
+        let process_result = async {
+            if let Some(closed) = self.try_finish()? {
+                return Ok(Some(closed));
+            }
+            self.wait_tree_ended(deadline).await?;
+            let actor = self.lock().actor.clone();
+            if let Some(actor) = actor {
+                tokio::time::timeout_at(deadline, actor.wait())
+                    .await
+                    .map_err(|_| {
+                        io::Error::new(
+                            io::ErrorKind::TimedOut,
+                            "original process actor join is pending",
+                        )
+                    })?;
+            }
+            self.try_finish()
         }
-        self.wait_tree_ended(deadline).await?;
-        let actor = self.lock().actor.clone();
-        if let Some(actor) = actor {
-            tokio::time::timeout_at(deadline, actor.wait())
-                .await
-                .map_err(|_| {
-                    io::Error::new(
-                        io::ErrorKind::TimedOut,
-                        "original process actor join is pending",
-                    )
-                })?;
+        .await;
+        match (endpoint_failure, process_result) {
+            (Some(endpoint), Err(process)) => Err(io::Error::other(EndpointAndProcessFailure {
+                endpoint,
+                process,
+            })),
+            (Some(endpoint), Ok(_)) => Err(io::Error::other(endpoint)),
+            (None, result) => result,
         }
-        self.try_finish()
     }
+
     pub fn try_finish(&self) -> io::Result<Option<Arc<ProcessTreeClosed>>> {
+        if self
+            .endpoint()
+            .is_some_and(|endpoint| endpoint.closed().is_none())
+        {
+            return Ok(None);
+        }
         let mut state = self.lock();
         if let Some(closed) = &state.closed {
             return Ok(Some(closed.clone()));
@@ -71,5 +95,25 @@ impl OwnedProcess {
             budget.reconcile();
         }
         Ok(Some(closed))
+    }
+}
+
+#[derive(Debug)]
+struct EndpointAndProcessFailure {
+    endpoint: crate::contract::ChannelError,
+    process: io::Error,
+}
+impl std::fmt::Display for EndpointAndProcessFailure {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "process endpoint cleanup failed ({}); actual process cleanup also failed ({})",
+            self.endpoint, self.process
+        )
+    }
+}
+impl std::error::Error for EndpointAndProcessFailure {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        Some(&self.endpoint)
     }
 }

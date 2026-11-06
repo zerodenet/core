@@ -20,7 +20,7 @@ mod stream;
 pub struct NativeCarrierOpener {
     grantee: ComponentInstanceId,
     pub(super) related_parent: Option<super::CarrierAdoption>,
-    #[cfg(target_os = "linux")]
+    #[cfg(any(target_os = "linux", windows))]
     derived: Option<crate::owned_process::ProcessEndpointUse>,
     binding: UpstreamBinding,
     peer: SocketAddr,
@@ -34,7 +34,7 @@ pub struct NativeCarrierOpener {
         crate::contract::dns::DnsGeneration,
     )>,
 }
-#[cfg(target_os = "linux")]
+#[cfg(any(target_os = "linux", windows))]
 mod process_endpoint;
 mod relay;
 impl NativeCarrierOpener {
@@ -59,7 +59,7 @@ impl NativeCarrierOpener {
         Ok(Self {
             grantee,
             related_parent: None,
-            #[cfg(target_os = "linux")]
+            #[cfg(any(target_os = "linux", windows))]
             derived: None,
             binding,
             peer,
@@ -180,8 +180,6 @@ impl UpstreamOpener for NativeCarrierOpener {
             let original = super::resolution::Source {
                 grantee: self.grantee,
                 related_parent: None,
-                #[cfg(target_os = "linux")]
-                derived: None,
                 binding: self.binding.clone(),
                 endpoint: self.endpoint.clone(),
                 egress: self.egress.clone(),
@@ -233,8 +231,6 @@ impl UpstreamOpener for NativeCarrierOpener {
         let source = super::resolution::Source {
             grantee: self.grantee,
             related_parent: None,
-            #[cfg(target_os = "linux")]
-            derived: None,
             binding: self.binding.clone(),
             endpoint: self.endpoint.clone(),
             egress: self.egress.clone(),

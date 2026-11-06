@@ -32,14 +32,29 @@ impl OwnedProcess {
                 "process actor is not in its original open Scope",
             ));
         }
+        if let Some(endpoint) = self.endpoint() {
+            endpoint.check_start(&actor, self)?;
+        }
         let mut state = self.lock();
-        if state.actor.is_some() || state.stop || state.attempted {
+        if state.stop
+            || state.attempted
+            || (state.endpoint.is_some() && !state.endpoint_request_ready)
+        {
             return Err(io::Error::new(
                 io::ErrorKind::PermissionDenied,
                 "process start is terminal",
             ));
         }
-        state.actor = Some(actor);
+        if let Some(actual) = &state.actor {
+            if !actual.same_registration(&actor) {
+                return Err(io::Error::new(
+                    io::ErrorKind::PermissionDenied,
+                    "process start crossed its bound original actor",
+                ));
+            }
+        } else {
+            state.actor = Some(actor);
+        }
         state.attempted = true;
         let result = self.start_inner(&mut state);
         state.request = None;

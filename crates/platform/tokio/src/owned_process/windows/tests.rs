@@ -3,7 +3,6 @@ use crate::contract::scope::{TaskClass, TaskScope};
 use std::{
     num::NonZeroUsize,
     os::windows::io::{AsRawHandle, FromRawHandle, OwnedHandle},
-    task::Poll,
 };
 use tokio::{sync::oneshot, time::Instant};
 use windows_sys::Win32::{
@@ -73,7 +72,7 @@ async fn tree(natural: bool) {
     assert!(!event.is_null());
     let event = unsafe { OwnedHandle::from_raw_handle(event) };
     let mut request = request();
-    request.environment = vec![
+    request.environment = [
         ("ZERO_R2_PROCESS_FIXTURE".into(), Some("ROOT".into())),
         (
             "ZERO_R2_PROCESS_DIRECTORY".into(),
@@ -83,7 +82,9 @@ async fn tree(natural: bool) {
             "ZERO_R2_PROCESS_EVENT".into(),
             Some((event.as_raw_handle() as usize).to_string().into()),
         ),
-    ];
+    ]
+    .into_iter()
+    .collect();
     let mut scope = TaskScope::new(
         tokio::runtime::Handle::current(),
         NonZeroUsize::new(1).unwrap(),
@@ -169,9 +170,7 @@ async fn tree(natural: bool) {
         original.root_status().unwrap().code(),
         Some(if natural { 23 } else { 1 })
     );
-    scope.begin_shutdown();
-    assert!(std::future::poll_fn(|cx| Poll::Ready(scope.poll_exit(cx).is_ready())).await);
-    assert!(scope.is_drained());
+    assert!(scope.shutdown(end()).await.is_complete());
 }
 #[tokio::test]
 async fn suspended_job_stop_joins_real_descendants_and_all_original_handles() {
@@ -212,6 +211,5 @@ async fn missing_program_retains_original_failure_and_cold_actor_join_until_clea
             .unwrap()
             .had_native_acquisition()
     );
-    scope.begin_shutdown();
-    assert!(std::future::poll_fn(|cx| Poll::Ready(scope.poll_exit(cx).is_ready())).await);
+    assert!(scope.shutdown(end()).await.is_complete());
 }
