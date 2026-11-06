@@ -22,13 +22,13 @@ pub use resources::HostOutboundDatagramResources;
 pub use resources::HostResources;
 #[cfg(any(test, feature = "test-support"))]
 pub use resources::NoResources;
+pub use resources::{packet_datagram_read_spec, HostPacketReadReservation};
 #[cfg(feature = "raw-ip-runtime")]
 pub use resources::{HostIcmpProbeGrant, HostIcmpProbeOwner};
-pub use resources::{HostPacketReadReservation, packet_datagram_read_spec};
 use std::sync::{Arc, OnceLock};
+pub(crate) use tasks::wake::{MonitorWake, WaitTarget};
 pub use tasks::ComponentTaskFault;
 use tasks::TaskMonitor;
-pub(crate) use tasks::wake::{MonitorWake, WaitTarget};
 use tokio::{
     sync::{Mutex, OnceCell},
     time::Instant,
@@ -36,13 +36,13 @@ use tokio::{
 pub(in crate::component) use users::PausedUsers;
 use zero_core::component::*;
 use zero_platform_tokio::contract::{
-    CancellationToken, ChannelError, CloseReason, DeliveryState, Impact, Reason, Stage,
     component::{BuildContext, ComponentInstance},
     datagram::DynDatagramOutbound,
     lifecycle::CloseReport,
     packet::DynPacketOutbound,
     scope::TaskScope,
     stream::DynStreamOutbound,
+    CancellationToken, ChannelError, CloseReason, DeliveryState, Impact, Reason, Stage,
 };
 
 pub type SharedError = Arc<ChannelError>;
@@ -53,12 +53,7 @@ pub fn invalid(reason: Reason, message: impl Into<String>) -> ChannelError {
     error
 }
 pub fn retained(error: SharedError) -> ChannelError {
-    let mut retained = ChannelError::new(error.stage, error.reason, error.impact);
-    retained.component = error.component;
-    retained.session = error.session;
-    retained.delivery = error.delivery;
-    retained.retry = error.retry;
-    retained.with_source(error)
+    ChannelError::retained(error)
 }
 
 pub struct ComponentSlot {
@@ -258,12 +253,9 @@ impl ComponentSlot {
         // activation. Other resourceful roleless components retain their
         // normal start order; this is not a generic lazy-resource policy.
         match spec.resources.as_slice() {
-            [
-                ResourceDeclaration::Process { max_starts, .. },
-                ResourceDeclaration::ProcessEndpoint {
-                    process_ordinal: 0, ..
-                },
-            ] if max_starts.get() == 1 => Some(0),
+            [ResourceDeclaration::Process { max_starts, .. }, ResourceDeclaration::ProcessEndpoint {
+                process_ordinal: 0, ..
+            }] if max_starts.get() == 1 => Some(0),
             _ => None,
         }
     }
