@@ -77,6 +77,8 @@ pub(super) struct SourceBudgetPauses {
     _sources: Vec<crate::runtime::inbound_owners::AcquisitionPause>,
     #[cfg(feature = "raw-ip-runtime")]
     _direct: Option<crate::runtime::packet_route::host::NativeDevicePaused>,
+    #[cfg(feature = "wireguard")]
+    _standalone: Vec<crate::runtime::packet_route::host::NativeDevicePaused>,
 }
 pub(super) async fn pause_sources(
     proxy: &Proxy,
@@ -135,8 +137,23 @@ pub(super) async fn pause_sources(
     } else {
         None
     };
+    #[cfg(feature = "wireguard")]
+    let standalone = if packet_changed || carrier_changed {
+        proxy
+            .protocols
+            .pause_standalone_packet_if_idle(
+                tokio::time::Instant::now() + std::time::Duration::from_secs(5),
+            )
+            .await?
+    } else {
+        Vec::new()
+    };
     for pause in &pauses {
         pause.validate()?;
+    }
+    #[cfg(feature = "wireguard")]
+    for pause in &standalone {
+        pause.validate().map_err(std::io::Error::other)?;
     }
     #[cfg(feature = "raw-ip-runtime")]
     if let Some(direct) = &direct {
@@ -146,6 +163,8 @@ pub(super) async fn pause_sources(
         _sources: pauses,
         #[cfg(feature = "raw-ip-runtime")]
         _direct: direct,
+        #[cfg(feature = "wireguard")]
+        _standalone: standalone,
     })
 }
 

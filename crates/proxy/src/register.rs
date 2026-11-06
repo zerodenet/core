@@ -551,7 +551,6 @@ pub(crate) fn compiled_registries_with_network(
             matches!(
                 &outbound.protocol,
                 zero_config::OutboundProtocolConfig::Wireguard {
-                    inbound_tag: Some(_),
                     outer_udp_proxy: None,
                     ..
                 }

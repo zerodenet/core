@@ -22,6 +22,14 @@ impl ProtocolInventory {
         self.devices.pause_direct_packet_if_idle(deadline).await
     }
 
+    #[cfg(feature = "wireguard")]
+    pub(crate) async fn pause_standalone_packet_if_idle(
+        &self,
+        deadline: tokio::time::Instant,
+    ) -> Result<Vec<crate::runtime::packet_route::host::NativeDevicePaused>, EngineError> {
+        self.devices.pause_standalone_packet_if_idle(deadline).await
+    }
+
     #[cfg(all(test, feature = "wireguard"))]
     pub(crate) fn test_packet_source_origins(
         &self,
