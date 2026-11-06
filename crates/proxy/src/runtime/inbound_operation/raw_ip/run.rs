@@ -231,6 +231,13 @@ pub(in crate::runtime) async fn run(
                         Err(source)=>{checkpoint.reject(request,source);false}
                     }
                 }else{false};
+                // No admitted pin or actual queued/native child work may be
+                // evicted to make a policy change fit. Only this same Source
+                // main may settle its own now-idle logical session cache.
+                let idle=if idle { match packet_roles.close_idle(deadline).await {
+                    Ok(())=>true,
+                    Err(source)=>{checkpoint.reject(request,source);false}
+                }}else{false};
                 checkpoint.acknowledge(request,idle);
                 tokio::select! {_=cancel.cancelled()=>break Ok(()),_=checkpoint.resumed(request)=>{}}
             },

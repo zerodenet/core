@@ -19,6 +19,13 @@ async fn actual_reader(
     loop {
         tokio::select! {
             request=checkpoint.requested()=>{
+                if matches!(checkpoint.participant, PacketPauseParticipant::Wire) {
+                    assert_eq!(
+                        checkpoint.original.state.lock().unwrap().acknowledged[0],
+                        Some(true),
+                        "Wire checks real custody only after Main consumed its idle logical views"
+                    );
+                }
                 // No byte has been read; the same original future stays live.
                 checkpoint.acknowledge(request,true);
                 checkpoint.resumed(request).await;

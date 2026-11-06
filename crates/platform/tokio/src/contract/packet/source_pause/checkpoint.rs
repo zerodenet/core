@@ -27,7 +27,30 @@ impl PacketSourceCheckpoint {
         &self.witness
     }
     pub async fn requested(&self) -> u64 {
-        self.original.requested().await
+        loop {
+            let request = self.original.requested().await;
+            if matches!(self.participant, PacketPauseParticipant::Main) {
+                return request;
+            }
+            // Main first consumes only its already-idle logical session cache.
+            // Wire subsequently checks real returned views/queues. It cannot
+            // acknowledge on behalf of Main, or infer closure from this order.
+            loop {
+                let changed = self.original.changed.notified();
+                tokio::pin!(changed);
+                changed.as_mut().enable();
+                {
+                    let state = self.original.state.lock().unwrap();
+                    if state.request != Some(request) {
+                        break;
+                    }
+                    if state.acknowledged[PacketPauseParticipant::Main.index()] == Some(true) {
+                        return request;
+                    }
+                }
+                changed.await;
+            }
+        }
     }
     pub fn request_deadline(&self, request: u64) -> Option<tokio::time::Instant> {
         let state = self.original.state.lock().unwrap();

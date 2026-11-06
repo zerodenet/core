@@ -188,6 +188,18 @@ impl PacketRoleSessions {
             Err(crate::component::instance::retained(source))
         })
     }
+    /// Called only by this collection's real Source main after its admitted
+    /// pins, children, native obligations and queued sends are actually idle.
+    /// Retire cached logical views, then consume their real controllers. The
+    /// collection stays open so a resumed Source may acquire a fresh session.
+    pub(crate) async fn close_idle(&self, deadline: Instant) -> Result<(), ChannelError> {
+        let _opening = self.0.opening.lock().await;
+        let entries = self.0.state.lock().unwrap().entries.clone();
+        for entry in entries {
+            entry.request_stop();
+        }
+        self.close_retired(deadline).await
+    }
     fn stop(&self) {
         let entries = {
             let mut state = self.0.state.lock().unwrap();
