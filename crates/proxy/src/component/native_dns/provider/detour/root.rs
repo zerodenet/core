@@ -2,7 +2,7 @@
 use super::*;
 use zero_core::request::Destination;
 use zero_platform_tokio::{
-    contract::{lifecycle::DynChannelControl, stream::BoxStream, ChannelError, CloseReason},
+    contract::{ChannelError, CloseReason, lifecycle::DynChannelControl, stream::BoxStream},
     controlled_carrier::{CarrierGrants, ResolvingCarrierOpener},
 };
 mod controlled;
@@ -270,6 +270,20 @@ impl UpstreamOpener for Root {
 
     fn has_pending_carrier_observer(&self) -> bool {
         true
+    }
+    fn validate_pending_carrier(
+        &self,
+        binding: &UpstreamBinding,
+        adoption: &zero_platform_tokio::controlled_carrier::CarrierAdoption,
+    ) -> Result<(), ChannelError> {
+        self.check_pending(binding, adoption)?;
+        self.pending_carrier_capacity(binding).ok_or_else(|| {
+            crate::component::instance::invalid(
+                zero_platform_tokio::contract::Reason::StalePlan,
+                "DNS pending graph capacity is no longer available",
+            )
+        })?;
+        Ok(())
     }
     fn retain_pending_carrier(
         &self,

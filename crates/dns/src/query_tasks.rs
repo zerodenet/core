@@ -220,9 +220,7 @@ impl OwnedDnsQueryTasks {
             )
         })
     }
-    pub(crate) fn ensure_open(&self) -> io::Result<()> {
-        self.reap();
-        let state = self.0.state.lock().expect("DNS query tasks poisoned");
+    fn check_resource_open(&self, state: &State) -> io::Result<()> {
         if let Some(source) = &state.first_failure {
             return Err(io::Error::other(source.clone()));
         }
@@ -232,6 +230,20 @@ impl OwnedDnsQueryTasks {
                 "DNS query tasks are closing",
             ));
         }
+        Ok(())
+    }
+    // A temporary query admission pause does not retire the actual backend;
+    // cold prepare/commit may preserve unrelated same-Scope live resources.
+    #[cfg(feature = "doh")]
+    pub(crate) fn ensure_resource_open(&self) -> io::Result<()> {
+        self.reap();
+        let state = self.0.state.lock().expect("DNS query tasks poisoned");
+        self.check_resource_open(&state)
+    }
+    pub(crate) fn ensure_open(&self) -> io::Result<()> {
+        self.reap();
+        let state = self.0.state.lock().expect("DNS query tasks poisoned");
+        self.check_resource_open(&state)?;
         if state.pauses != 0 {
             return Err(io::Error::new(
                 io::ErrorKind::WouldBlock,

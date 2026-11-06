@@ -12,10 +12,18 @@ pub struct DnsDonorPause {
     _providers: Vec<Arc<dyn NativeDnsProvider>>,
     #[cfg(feature = "doh")]
     owners: Vec<Arc<crate::backends::DohDriverOwner>>,
-    #[cfg(feature = "doh")]
     replaced: Vec<ComponentInstanceId>,
 }
 impl DnsDonorPause {
+    pub(crate) fn matches_replacement(&self, replaced: &[ComponentInstanceId]) -> bool {
+        self.replaced
+            == replaced
+                .iter()
+                .copied()
+                .collect::<BTreeSet<_>>()
+                .into_iter()
+                .collect::<Vec<_>>()
+    }
     /// No new owner, driver or executor: retire selected existing clients and
     /// consume their actual native/loan, original joins and registration ACKs.
     pub async fn retire(&self, end: tokio::time::Instant) -> io::Result<()> {
@@ -88,8 +96,12 @@ impl DnsSystem {
             _providers: Vec::new(),
             #[cfg(feature = "doh")]
             owners: Vec::new(),
-            #[cfg(feature = "doh")]
-            replaced: replaced.to_vec(),
+            replaced: replaced
+                .iter()
+                .copied()
+                .collect::<BTreeSet<_>>()
+                .into_iter()
+                .collect(),
         };
         if replaced.is_empty()
             || !self

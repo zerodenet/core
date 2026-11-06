@@ -154,7 +154,7 @@ impl DriverOwner {
         let state = self.state.lock().expect("DoH driver owner poisoned");
         !state.closing
             && match &state.mode {
-                PoolMode::Host(tasks) => tasks.ensure_open().is_ok(),
+                PoolMode::Host(tasks) => tasks.ensure_resource_open().is_ok(),
                 _ => true,
             }
     }

@@ -141,6 +141,7 @@ impl DnsSystem {
             retiring,
             generation,
             unchanged,
+            donor_pause: Default::default(),
         });
         *prepared = Some(candidate.clone());
         Ok(DnsReloadResources(candidate))
