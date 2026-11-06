@@ -85,6 +85,14 @@ pub(super) async fn start_at(
     multi: bool,
     dns: &crate::dns_fixture::Dns,
 ) -> (Proxy, crate::RunningProxy) {
+    start_with_node(address, multi, dns, None).await
+}
+pub(super) async fn start_with_node(
+    address: std::net::SocketAddr,
+    multi: bool,
+    dns: &crate::dns_fixture::Dns,
+    node: Option<&crate::dns_fixture::Dns>,
+) -> (Proxy, crate::RunningProxy) {
     let mut policy = dns.config();
     let mut backend = dns.server();
     let zero_config::DnsServerConfig::Udp { detour, .. } = &mut backend else {
@@ -94,9 +102,12 @@ pub(super) async fn start_at(
     policy.servers.insert("query".into(), backend);
     policy.default_server = "query".into();
     policy.policy.node_server = Some("native".into());
+    if let Some(node) = node {
+        policy.servers.insert("native".into(), node.server());
+    }
     let config=zero_config::RuntimeConfig::parse(&serde_json::json!({
         "runtime":{"dns":policy},
-        "outbounds":[{"tag":"grpc","protocol":{"type":"vless","server":"127.0.0.1","port":address.port(),"id":ID,"grpc":{"service_names":["actual.dns/Tun"],"multi_mode":multi}}}],
+        "outbounds":[{"tag":"grpc","protocol":{"type":"vless","server":if node.is_some(){"grpc.actual.node.test"}else{"127.0.0.1"},"port":address.port(),"id":ID,"grpc":{"service_names":["actual.dns/Tun"],"multi_mode":multi}}}],
         "route":{"final":{"type":"direct"}}
     }).to_string()).unwrap();
     let proxy = Proxy::new(config.clone()).unwrap();
