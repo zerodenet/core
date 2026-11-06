@@ -320,9 +320,17 @@ impl<'a> ResourcePreparation<'a> {
         factory: Arc<F>,
         options: Arc<F::Options>,
     ) -> Result<ComponentId, BuildError> {
+        self.prepare_component_recipe(namespace, ComponentRecipe::from_validated(factory, options))
+    }
+    /// Preserve the same typed validated recipe's concrete host native bindings
+    /// while adding it to this pass's one namespace/allocator and cold graph.
+    pub fn prepare_component_recipe(
+        &mut self,
+        namespace: &'static str,
+        recipe: ComponentRecipe,
+    ) -> Result<ComponentId, BuildError> {
         self.ensure_valid()?;
-        let result =
-            self.prepare_validated(namespace, ComponentRecipe::from_validated(factory, options));
+        let result = self.prepare_validated(namespace, recipe);
         if result.is_err() {
             self.invalidate();
         }
