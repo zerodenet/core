@@ -11,8 +11,7 @@ async fn inline_single_and_multi_clients_drain_upload_without_application_reads_
     use std::num::NonZeroUsize;
     use zero_platform_tokio::{
         contract::{component::ResourceDeclaration, lifecycle::ChannelControl, CancellationToken},
-        controlled_listener::{AcceptedTcpUsers, ControlledTcpListenerOwner},
-        EgressSelection, PendingTcpConnect,
+        AcceptedTcpUsers, ControlledTcpListenerOwner, EgressInterfaceControl, PendingTcpConnect,
     };
     let end = tokio::time::Instant::now() + Duration::from_secs(8);
     let phase = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
@@ -59,7 +58,9 @@ async fn inline_single_and_multi_clients_drain_upload_without_application_reads_
                 assert!(matches!(evidence.users,AcceptedTcpUsers::Unaccounted));
                 assert!(!report.is_complete());
             });
-            let selection=EgressSelection::local_service(address).unwrap();
+            let selection=EgressInterfaceControl::default().select_for_peer_with_policy(address,&Default::default()).unwrap();
+            assert_eq!(selection.binding_reason(),zero_platform_tokio::EgressBindingReason::Loopback);
+            assert_eq!(selection.route_lookup_status(),zero_platform_tokio::EgressRouteLookupStatus::Skipped);
             // The exact original control precedes the first connect await.
             let(mut pending,mut client_original)=PendingTcpConnect::prepare(address,&Default::default(),&selection,CancellationToken::new(),None).unwrap();
             let raw=pending.connect(end).await.unwrap();
@@ -75,7 +76,7 @@ async fn inline_single_and_multi_clients_drain_upload_without_application_reads_
             let mut body=Vec::new();io.read_to_end(&mut body).await.unwrap();phase.store(if multi_mode{14}else{4},std::sync::atomic::Ordering::SeqCst);
             assert_eq!(body,vec![0x79;2*1024*1024+13]);done.send(()).unwrap();drop(io);
             let native=client_original.wait_closed(end).await.unwrap();
-            assert!(native.is_complete());assert_eq!(native.released_io.len(),1);
+            assert!(native.is_complete());assert_eq!(native.closed_io.len(),1);
             server.await.unwrap();
         }
     }).await.unwrap_or_else(|_|panic!("actual inline phase {} peer {} received {} of 2097165 (1 connected/2 uploaded/3 halfclosed/4 reverseEOF; +10 multi; peer 1 accepted/2 EOF/3 uploaded/4 halfclosed) native={:#?}",phase.load(std::sync::atomic::Ordering::SeqCst),peer_phase.load(std::sync::atomic::Ordering::SeqCst),received.load(std::sync::atomic::Ordering::SeqCst),native.lock().unwrap().iter().map(|state|state.snapshot()).collect::<Vec<_>>()));
