@@ -4,7 +4,6 @@ use crate::runtime::inbound_operation::raw_ip::native_obligations::{ChildKind, N
 use std::{
     future::{poll_fn, Future},
     num::NonZeroUsize,
-    task::Poll,
     time::Duration,
 };
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
