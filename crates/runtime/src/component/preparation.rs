@@ -259,6 +259,15 @@ impl<'a> ResourcePreparation<'a> {
         self.ensure_valid().ok()?;
         self.previous_named?.get(tag).map(|slot| slot.instance_id())
     }
+    /// Exact direct dependencies of the actual previously published named Slot.
+    /// Read-only metadata, never a recipe match, reuse grant or close receipt.
+    pub fn previous_named_dependencies(
+        &self,
+        tag: &str,
+    ) -> Option<&[zero_core::component::ComponentInstanceId]> {
+        self.ensure_valid().ok()?;
+        Some(self.previous_named?.get(tag)?.dependency_instances())
+    }
     /// Borrow only for this cold pass; owned protocol profiles resolve their
     /// own paths and cannot retain a previous configuration document.
     pub fn with_source_dir(mut self, directory: Option<&'a std::path::Path>) -> Self {
