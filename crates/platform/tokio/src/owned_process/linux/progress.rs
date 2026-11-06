@@ -2,6 +2,37 @@ use super::*;
 use std::task::{Context, Poll};
 
 impl OwnedProcess {
+    /// Monitor the original root for its actual lifetime. The startup deadline
+    /// is not a lifetime limit. A root exit is never a tree/fd/Scope receipt.
+    pub async fn wait_root_exit(&self) -> io::Result<ExitStatus> {
+        use std::os::unix::process::ExitStatusExt;
+        loop {
+            let changed = self.changed.notified();
+            tokio::pin!(changed);
+            changed.as_mut().enable();
+            let progress = std::future::poll_fn(|cx| {
+                let mut state = self.lock();
+                self.progress(&mut state, cx);
+                if let Some(status) = state.root_status {
+                    return Poll::Ready(Ok(ExitStatus::from_raw(status)));
+                }
+                if state.helper_status.is_some() {
+                    let source = state.first_error.clone().unwrap_or_else(|| {
+                        Arc::new(io::Error::other(
+                            "original supervisor ended without a root wait status",
+                        ))
+                    });
+                    return Poll::Ready(Err(io::Error::other(start::SharedFailure(source))));
+                }
+                Poll::Pending
+            });
+            tokio::select! {
+                result = progress => return result,
+                _ = &mut changed => {},
+                _ = tokio::time::sleep(std::time::Duration::from_millis(100)) => {},
+            }
+        }
+    }
     /// Drives the same original. Dropping this waiter retains every acquired
     /// fd, message, native wait status and first failure in the original.
     pub async fn wait_started(&self, deadline: tokio::time::Instant) -> io::Result<()> {
