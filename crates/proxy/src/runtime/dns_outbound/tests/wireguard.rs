@@ -23,8 +23,23 @@ impl zero_dns::DnsOutboundConnector for NoLegacy {
     }
 }
 async fn start(peer: &peer::Peer, dns: &crate::dns_fixture::Dns) -> (Proxy, crate::RunningProxy) {
+    start_server(peer, dns.server()).await
+}
+async fn start_server(
+    peer: &peer::Peer,
+    mut backend: zero_config::DnsServerConfig,
+) -> (Proxy, crate::RunningProxy) {
+    match &mut backend {
+        zero_config::DnsServerConfig::Udp { host, detour, .. }
+        | zero_config::DnsServerConfig::Dot { host, detour, .. }
+        | zero_config::DnsServerConfig::Doh { host, detour, .. } => {
+            *host = "10.0.0.2".into();
+            *detour = Some("wg".into());
+        }
+        _ => panic!("fixture requires an existing UDP/DoT/DoH WG detour"),
+    }
     let config=zero_config::RuntimeConfig::parse(&serde_json::json!({
-        "runtime":{"dns":{"servers":{"node":{"type":"system"},"query":{"type":"udp","host":"10.0.0.2","port":dns.address.port(),"detour":"wg"}},"default_server":"query","policy":{"node_server":"node","address_family":"ipv4_only"}}},
+        "runtime":{"dns":{"servers":{"node":{"type":"system"},"query":backend},"default_server":"query","policy":{"node_server":"node","address_family":"ipv4_only"}}},
         "inbounds":[{"tag":"wg-source","listen":{"address":"127.0.0.1","port":0},"protocol":{"type":"wireguard","private_key":STANDARD.encode([121;32]),"addresses":["10.0.0.1/32"],"peers":[{"public_key":peer::public(122),"allowed_ips":["0.0.0.0/0"]}]}}],
         "outbounds":[{"tag":"wg","protocol":{"type":"wireguard","private_key":STANDARD.encode([121;32]),"addresses":["10.0.0.1/32"],"inbound_tag":"wg-source","peers":[{"public_key":peer::public(122),"endpoint":peer.address.to_string(),"allowed_ips":["0.0.0.0/0"]}]}}],
         "route":{"final":{"type":"direct"}}
@@ -160,3 +175,5 @@ async fn ordinary_linked_wireguard_truncated_dns_retires_udp_before_actual_frame
         close(&proxy,running,&root,&[first.clone(),next.clone()]).await;peer.close().await;dns.close().await;
     }).await.unwrap();
 }
+
+mod encrypted;
