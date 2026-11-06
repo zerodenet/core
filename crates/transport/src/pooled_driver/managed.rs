@@ -16,7 +16,7 @@ use zero_platform_tokio::{
     contract::{
         network::{CarrierContext, PendingCarrierObserver, UpstreamBinding, UpstreamTransport},
         scope::{TaskClass, TaskRegistrar},
-        CancellationToken, ChannelError, Reason, Stage,
+        CancellationToken, Reason, Stage,
     },
     controlled_carrier::{CarrierGrants, CarrierIo},
 };

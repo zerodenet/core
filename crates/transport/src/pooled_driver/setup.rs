@@ -82,5 +82,5 @@ where
     if outcome.is_ok() {
         drop(cancel_on_drop.0.take());
     }
-    outcome.map_err(same_source)
+    outcome.map_err(ChannelError::retained)
 }

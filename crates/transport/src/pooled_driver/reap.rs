@@ -1,6 +1,6 @@
 //! Reclaim only actual returned original records; never block a different live binding.
 use super::ManagedPool;
-use std::sync::{atomic::Ordering, Arc};
+use std::sync::atomic::Ordering;
 use zero_platform_tokio::contract::ChannelError;
 impl ManagedPool {
     pub(super) fn harvest(&self) {
