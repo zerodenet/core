@@ -74,19 +74,36 @@ pub(crate) async fn connect(
                 })?,
         );
     }
-    let root = Arc::new(NodeOpener::new(
-        services.upstream_observed(&first.tag),
-        destination(&first.endpoint),
-    ));
-    let generation = NetworkGeneration(root.generation());
-    let mut upstream = UpstreamTransport::new(
-        UpstreamBinding {
-            prefix: vec![],
-            dial: first.dial.clone(),
-            network_generation: generation,
-        },
-        root.clone(),
+    let generation = NetworkGeneration(services.upstream().network_generation());
+    let binding = UpstreamBinding {
+        prefix: vec![],
+        dial: first.dial.clone(),
+        network_generation: generation,
+    };
+    let waiting = super::pending::PendingCaller::new(
+        services,
+        &invocation,
+        prepared
+            .nodes
+            .iter()
+            .map(|node| node.slot.role_id())
+            .collect(),
+        binding.clone(),
+    )
+    .map_err(normalize)?;
+    let root = Arc::new(
+        NodeOpener::new(
+            services.upstream_observed(&first.tag),
+            destination(&first.endpoint),
+        )
+        .with_pending(
+            binding.clone(),
+            waiting
+                .as_ref()
+                .map(super::pending::PendingCaller::observer),
+        ),
     );
+    let mut upstream = UpstreamTransport::new(binding, root.clone());
     let cancel = invocation.cancellation();
     let mut prefix = Vec::with_capacity(prepared.nodes.len());
     for (index, (node, role)) in prepared.nodes.iter().zip(roles).enumerate() {
