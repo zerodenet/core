@@ -10,7 +10,7 @@ pub(super) unsafe fn signal_owned() -> i32 {
         // task directory, prepared with decimal syscall PID on the stack.
         let fd = if fd >= 0 { fd } else { open_children() };
         if fd < 0 {
-            return *libc::__errno_location();
+            return scan_proc();
         }
         let mut bytes = [0u8; 4096];
         let mut child = 0i32;
@@ -69,6 +69,84 @@ unsafe fn signal(child: i32) {
         {
             libc::kill(child, libc::SIGKILL);
         }
+    }
+}
+/// CONFIG_CHECKPOINT_RESTORE is optional: some kernels expose no children
+/// file. Enumerate only numeric PIDs, then ask the kernel whether each is our
+/// actual unreaped child. This sole waiter cannot release/recycle its identity
+/// between that native custody check and the signal. Nonchildren are untouched.
+unsafe fn scan_proc() -> i32 {
+    unsafe {
+        let directory = libc::open(
+            c"/proc".as_ptr(),
+            libc::O_RDONLY | libc::O_DIRECTORY | libc::O_CLOEXEC,
+        );
+        if directory < 0 {
+            return *libc::__errno_location();
+        }
+        let mut bytes = [0u8; 4096];
+        loop {
+            let size = libc::syscall(
+                libc::SYS_getdents64,
+                directory,
+                bytes.as_mut_ptr(),
+                bytes.len(),
+            );
+            if size < 0 {
+                if *libc::__errno_location() == libc::EINTR {
+                    continue;
+                }
+                let error = *libc::__errno_location();
+                libc::close(directory);
+                return error;
+            }
+            if size == 0 {
+                break;
+            }
+            let mut offset = 0;
+            while offset < size as usize {
+                if offset + 19 > size as usize {
+                    libc::close(directory);
+                    return libc::EIO;
+                }
+                let length = u16::from_ne_bytes([bytes[offset + 16], bytes[offset + 17]]) as usize;
+                if length < 20 || offset + length > size as usize {
+                    libc::close(directory);
+                    return libc::EIO;
+                }
+                let mut position = offset + 19;
+                let mut pid = 0i32;
+                let mut valid = false;
+                while position < offset + length {
+                    let byte = bytes[position];
+                    if byte == 0 {
+                        break;
+                    }
+                    if !byte.is_ascii_digit() {
+                        valid = false;
+                        break;
+                    }
+                    match pid
+                        .checked_mul(10)
+                        .and_then(|n| n.checked_add((byte - b'0') as i32))
+                    {
+                        Some(value) => pid = value,
+                        None => {
+                            valid = false;
+                            break;
+                        }
+                    }
+                    valid = true;
+                    position += 1;
+                }
+                if valid && pid > 0 {
+                    signal(pid);
+                }
+                offset += length;
+            }
+        }
+        libc::close(directory);
+        0
     }
 }
 unsafe fn open_children() -> i32 {
