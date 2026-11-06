@@ -59,6 +59,12 @@ fn packet_tail(
             // UDP originals in one sealed LoanOwner. A non-root SOCKS packet
             // capability never existed and remains unqualified here.
             OutboundProtocolConfig::Socks5 { .. } => Some(previous.is_none()),
+            #[cfg(feature = "wireguard")]
+            OutboundProtocolConfig::Wireguard {
+                inbound_tag: Some(_),
+                outer_udp_proxy: None,
+                ..
+            } => previous.is_none().then_some(true),
             _ => Some(false),
         };
     }
@@ -95,6 +101,12 @@ fn inspect(config: &RuntimeConfig, name: &str, stack: &mut Vec<String>) -> Optio
         let pooled = matches!(node.protocol, OutboundProtocolConfig::Mieru { .. });
         let standard = match &node.protocol {
             OutboundProtocolConfig::Mieru { .. } | OutboundProtocolConfig::Socks5 { .. } => true,
+            #[cfg(feature = "wireguard")]
+            OutboundProtocolConfig::Wireguard {
+                inbound_tag: Some(_),
+                outer_udp_proxy: None,
+                ..
+            } => true,
             #[cfg(feature = "vless")]
             OutboundProtocolConfig::Vless { .. } => {
                 crate::adapters::vless::component::native_input(node)

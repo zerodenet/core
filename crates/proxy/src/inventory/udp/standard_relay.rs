@@ -77,8 +77,32 @@ impl super::super::ProtocolInventory {
                     }
                 };
             let spec = node.slot.recipe.spec();
-            if node.endpoint.is_none()
-                || node.dial != Default::default()
+            if node.endpoint.is_none() {
+                // This is the canonical device selected by the same host,
+                // including while its original source is still starting.
+                // A cold source must not cause a second legacy PacketFlow.
+                if !nodes.is_empty()
+                    || ![RoleKind::Packet, RoleKind::Stream, RoleKind::Datagram]
+                        .iter()
+                        .all(|role| spec.roles.contains(role))
+                    || plan.device_component(node.slot.id).is_err()
+                {
+                    return None;
+                }
+                if !plan.has_device_carrier_provider(node.slot.role_id()) {
+                    return Some(Err(failure(
+                        std::io::Error::other(crate::component::instance::invalid(
+                            zero_platform_tokio::contract::Reason::Revoked,
+                            "Datagram prefix actual device source is not ready",
+                        ))
+                        .into(),
+                    )));
+                }
+                borrowed = Some(nodes.len());
+                nodes.push(node);
+                continue;
+            }
+            if node.dial != Default::default()
                 || !spec.roles.contains(&RoleKind::Stream)
                 || spec.resources.iter().any(|resource| {
                     !matches!(
@@ -111,10 +135,11 @@ impl super::super::ProtocolInventory {
         if final_slot.dial != Default::default() {
             return None;
         }
-        if matches!(
-            nodes[0].endpoint.as_ref()?.address,
-            zero_core::Address::Domain(_)
-        ) && zero_dns::native::validate_node_config(ctx.config().runtime.dns.as_ref()).is_err()
+        if nodes[0]
+            .endpoint
+            .as_ref()
+            .is_some_and(|endpoint| matches!(endpoint.address, zero_core::Address::Domain(_)))
+            && zero_dns::native::validate_node_config(ctx.config().runtime.dns.as_ref()).is_err()
         {
             return None;
         }
