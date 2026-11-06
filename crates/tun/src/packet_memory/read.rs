@@ -119,6 +119,22 @@ impl NativeReadGrant {
         &self,
         stopped: &std::sync::atomic::AtomicBool,
     ) -> Result<NativeReadBuffer, PacketMemoryError> {
+        self.buffer_blocking_inner(stopped, None)
+    }
+    /// A real native reader may interrupt only allocation waiting for its own
+    /// reversible pause. This observation is not that reader's pause ACK.
+    pub fn buffer_blocking_interruptible(
+        &self,
+        stopped: &std::sync::atomic::AtomicBool,
+        paused: &std::sync::atomic::AtomicBool,
+    ) -> Result<NativeReadBuffer, PacketMemoryError> {
+        self.buffer_blocking_inner(stopped, Some(paused))
+    }
+    fn buffer_blocking_inner(
+        &self,
+        stopped: &std::sync::atomic::AtomicBool,
+        paused: Option<&std::sync::atomic::AtomicBool>,
+    ) -> Result<NativeReadBuffer, PacketMemoryError> {
         let mut state = self
             .0
             .state
@@ -127,6 +143,9 @@ impl NativeReadGrant {
         loop {
             if state.revoked || stopped.load(std::sync::atomic::Ordering::Acquire) {
                 return Err(PacketMemoryError::Stopped);
+            }
+            if paused.is_some_and(|paused| paused.load(std::sync::atomic::Ordering::Acquire)) {
+                return Err(PacketMemoryError::Paused);
             }
             if let Some(credit) = state.ready.take() {
                 drop(state);
@@ -142,7 +161,24 @@ impl NativeReadGrant {
                 .unwrap_or_else(std::sync::PoisonError::into_inner);
         }
     }
+    /// The same IO workspace has returned; this is no native or task receipt.
+    pub fn workspace_returned(&self) -> bool {
+        self.0
+            .state
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .ready
+            .is_some()
+    }
     pub fn wake(&self) {
+        // External stop/pause predicates can change without holding this mutex.
+        // Serialize with Condvar::wait to avoid missing their final wakeup.
+        drop(
+            self.0
+                .state
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner),
+        );
         self.0.changed.notify_waiters();
         self.0.blocking.notify_all();
     }
