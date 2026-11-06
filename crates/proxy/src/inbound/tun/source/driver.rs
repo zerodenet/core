@@ -64,8 +64,17 @@ pub(super) async fn run(
     // individual read. A changing per-read cookie would erase real fragment
     // assembly and misrepresent subsequent native frames as another source.
     let correlation = grant.identity.instance().generation.0;
+    let checkpoint = shared
+        .checkpoint
+        .lock()
+        .unwrap()
+        .take()
+        .ok_or_else(|| error(Stage::Prepare, Reason::StalePlan))?;
+    #[cfg(windows)]
+    let sdk_control = grant.sdk_read_control;
     let read_credit = NativeReadCredit(grant.native_read);
     let (mut read, mut write) = tokio::io::split(grant.io);
+    let same_incoming = incoming.clone();
     let mut received = PollSender::new(incoming);
     let mut bytes: Option<zero_tun::packet_memory::NativeReadBuffer> = None;
     observer.peers(&[]);
@@ -77,6 +86,43 @@ pub(super) async fn run(
         let sending = shared.outgoing.lock().unwrap().is_some();
         tokio::select! {
             _ = shared.cancel.cancelled() => break,
+            request=checkpoint.requested()=>{
+                // Cancelling the pending read frees only its empty workspace.
+                // Parked frames remain in the original Shared/real channels.
+                drop(bytes.take());
+                #[cfg(windows)]
+                let sdk_pause=match &sdk_control {
+                    Some(control)=>tokio::select! {
+                        _=shared.cancel.cancelled()=>break,
+                        _=checkpoint.resumed(request)=>continue,
+                        paused=control.pause()=>match paused {
+                            Ok(paused)=>Some(paused),
+                            Err(source)=>{
+                                checkpoint.reject(request,error(Stage::Prepare,Reason::Io).with_source(source));
+                                tokio::select! {_=shared.cancel.cancelled()=>break,_=checkpoint.resumed(request)=>{}}
+                                continue;
+                            }
+                        }
+                    },
+                    None=>{
+                        checkpoint.reject(request,error(Stage::Prepare,Reason::StalePlan));
+                        tokio::select! {_=shared.cancel.cancelled()=>break,_=checkpoint.resumed(request)=>{}}
+                        continue;
+                    }
+                };
+                let idle=shared.incoming.lock().unwrap().is_none()
+                    && shared.outgoing.lock().unwrap().is_none()
+                    && shared.pending_tx.lock().unwrap().is_none()
+                    && outgoing.is_empty()
+                    && same_incoming.capacity()==same_incoming.max_capacity()
+                    && read_credit.0.workspace_returned();
+                #[cfg(windows)]
+                let idle=idle && sdk_pause.as_ref().is_some_and(|pause|pause.payload_returned());
+                checkpoint.acknowledge(request,idle);
+                tokio::select! {_=shared.cancel.cancelled()=>break,_=checkpoint.resumed(request)=>{}}
+                #[cfg(windows)]
+                drop(sdk_pause);
+            },
             allocated = read_credit.0.buffer(), if receiving && bytes.is_none() => {
                 bytes = Some(allocated.map_err(|source| error(Stage::Receive, Reason::Capacity).with_source(source))?);
             }

@@ -31,7 +31,7 @@ impl DynPacketOutbound for Carrier {
             if request.endpoint != facts.endpoint {
                 return Err(error(Stage::Prepare, Reason::InvalidConfig));
             }
-            self.origin()?;
+            let acquiring = self.origin()?.try_enter_packet_source()?;
             let carrier = self
                 .options
                 .carrier
@@ -52,7 +52,7 @@ impl DynPacketOutbound for Carrier {
                 cancel: context.cancel.child_token(),
                 state: Mutex::new(State::default()),
             });
-            Ok(PacketSession {
+            let session = PacketSession {
                 tx: Box::pin(tx::Tx {
                     shared: shared.clone(),
                     _users: users.clone(),
@@ -85,7 +85,9 @@ impl DynPacketOutbound for Carrier {
                     source_adaptation: request.limits.source_adaptation,
                     return_association: ReturnGuarantee::Endpoint,
                 },
-            })
+            };
+            drop(acquiring);
+            Ok(session)
         })
     }
 }

@@ -9,13 +9,13 @@ use std::{
 pub(super) use stream::TrackedStream;
 use tokio::{
     sync::Notify,
-    time::{Instant, timeout_at},
+    time::{timeout_at, Instant},
 };
 use zero_platform_tokio::{
     contract::{
-        CancellationToken, ChannelError, Impact, Reason, Stage,
         lifecycle::{CloseReport, Unfinished},
         scope::TaskJoinWitness,
+        CancellationToken, ChannelError, Impact, Reason, Stage,
     },
     controlled_datagram::metadata::users::{LogicalUserPermit, LogicalUsers, UserAdmission},
 };
@@ -51,7 +51,8 @@ pub(crate) struct PacketSourceClose {
 }
 impl PacketSourceClose {
     pub(crate) fn close(&self) {
-        self.closed.store(true, std::sync::atomic::Ordering::Release);
+        self.closed
+            .store(true, std::sync::atomic::Ordering::Release);
         self.owner.changed.notify_waiters();
     }
 }
@@ -66,6 +67,13 @@ impl UserAdmission for Admission {
     }
 }
 impl FlowUsers {
+    /// Reap only matching actual caller joins AND returned unique views.
+    pub(crate) fn quiescent(&self) -> bool {
+        self.reap();
+        let state = self.state.lock().unwrap_or_else(|error| error.into_inner());
+        state.records.is_empty() && !state.unaccounted && state.first.is_none()
+    }
+
     pub(crate) fn new(limit: NonZeroUsize) -> Arc<Self> {
         let cancel = CancellationToken::new();
         Arc::new(Self {
@@ -88,14 +96,22 @@ impl FlowUsers {
     /// Actual Source main is admission provenance, not an internal driver of
     /// each logical Packet view. Its original host owns whole-source shutdown.
     pub(crate) fn acquire_packet_source(
-        self: &Arc<Self>, witness: TaskJoinWitness,
+        self: &Arc<Self>,
+        witness: TaskJoinWitness,
     ) -> Result<(FlowUser, PacketSourceClose), ChannelError> {
         if witness.is_joined() || !witness.scope_identity().resource_open() {
             return Err(revoked());
         }
         let closed = Arc::new(std::sync::atomic::AtomicBool::new(false));
-        let user = self.acquire_with_completion(Some(FlowCaller { witness }), Some(closed.clone()))?;
-        Ok((user, PacketSourceClose { owner: self.clone(), closed }))
+        let user =
+            self.acquire_with_completion(Some(FlowCaller { witness }), Some(closed.clone()))?;
+        Ok((
+            user,
+            PacketSourceClose {
+                owner: self.clone(),
+                closed,
+            },
+        ))
     }
     pub(super) fn acquire(
         self: &Arc<Self>,
@@ -104,7 +120,8 @@ impl FlowUsers {
         self.acquire_with_completion(caller, None)
     }
     fn acquire_with_completion(
-        self: &Arc<Self>, caller: Option<FlowCaller>,
+        self: &Arc<Self>,
+        caller: Option<FlowCaller>,
         packet_closed: Option<Arc<std::sync::atomic::AtomicBool>>,
     ) -> Result<FlowUser, ChannelError> {
         self.reap();
@@ -180,17 +197,23 @@ impl FlowUsers {
                 record.released.load(std::sync::atomic::Ordering::Acquire)
                     && match &record.packet_closed {
                         Some(closed) => closed.load(std::sync::atomic::Ordering::Acquire),
-                        None => record.caller.as_ref().is_some_and(TaskJoinWitness::is_joined),
+                        None => record
+                            .caller
+                            .as_ref()
+                            .is_some_and(TaskJoinWitness::is_joined),
                     }
             })
             .collect();
-        let first = completed.iter().filter(|record| record.packet_closed.is_none()).find_map(|record| {
-            record
-                .caller
-                .as_ref()
-                .and_then(TaskJoinWitness::try_joined)
-                .and_then(|joined| joined.result().err())
-        });
+        let first = completed
+            .iter()
+            .filter(|record| record.packet_closed.is_none())
+            .find_map(|record| {
+                record
+                    .caller
+                    .as_ref()
+                    .and_then(TaskJoinWitness::try_joined)
+                    .and_then(|joined| joined.result().err())
+            });
         let completed: std::collections::HashSet<_> = completed
             .iter()
             .map(|record| Arc::as_ptr(record) as usize)
@@ -245,13 +268,16 @@ impl FlowUsers {
             }
             // Join observation neither consumes the ingress Scope receipt nor
             // ACKs its failure. That source remains owned by the actual host.
-            let caller = records.iter().filter(|record| record.packet_closed.is_none()).find_map(|record| {
-                record
-                    .caller
-                    .as_ref()
-                    .filter(|witness| !witness.is_joined())
-                    .cloned()
-            });
+            let caller = records
+                .iter()
+                .filter(|record| record.packet_closed.is_none())
+                .find_map(|record| {
+                    record
+                        .caller
+                        .as_ref()
+                        .filter(|witness| !witness.is_joined())
+                        .cloned()
+                });
             timeout_at(deadline, async {
                 match caller {
                     Some(caller) => {

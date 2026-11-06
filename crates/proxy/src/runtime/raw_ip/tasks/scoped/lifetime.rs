@@ -14,7 +14,7 @@ impl<T: TaskOutput> ScopedSourceTasks<T> {
         }
         self.inner.state.lock().unwrap().drained = true;
     }
-    fn consume(&self, output: Result<T, SourceJoinFailure>) {
+    pub(super) fn consume(&self, output: Result<T, SourceJoinFailure>) {
         match output {
             Err(source) => {
                 self.remember(source);

@@ -40,6 +40,10 @@ struct ControlWorker {
 }
 
 impl TcpControlPackets {
+    pub(super) fn pending_packets(&self) -> usize {
+        self.pending.load(Ordering::Acquire)
+    }
+
     pub(super) fn new_with_tasks(
         outbound: PacketSender,
         task_spawner: crate::task_owner::TcpTaskSpawner,

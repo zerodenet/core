@@ -134,6 +134,14 @@ pub(super) fn prepare_device(inbound: &InboundConfig) -> Result<InboundDevice, E
 struct WireguardInboundDevice(Arc<LiveInboundDevice>);
 
 impl RawIpInboundDevice for WireguardInboundDevice {
+    fn quiescent(&self) -> bool {
+        self.0
+            .device
+            .lock()
+            .unwrap_or_else(|error| error.into_inner())
+            .quiescent()
+    }
+
     fn is_local_address(&self, address: IpAddr) -> bool {
         self.0
             .device

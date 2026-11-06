@@ -12,6 +12,7 @@ impl Carrier {
         context: OpenContext,
     ) -> Result<BoxDatagramSession, ChannelError> {
         context.session_identity()?;
+        let acquiring = self.origin()?.try_enter_packet_source()?;
         let DatagramTargets::Fixed(target) = &request.targets else {
             return Err(error(Stage::Prepare, Reason::InvalidConfig));
         };
@@ -26,6 +27,7 @@ impl Carrier {
             context.clone(),
             borrowed,
         )?;
+        drop(acquiring);
         self.observe_peer(peer.ip(), &context)?;
         Ok(session)
     }

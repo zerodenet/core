@@ -1,5 +1,6 @@
 //! Active client-side TCP over a bounded raw-IP packet channel.
 
+mod quiescence;
 use std::{
     collections::HashMap,
     net::{IpAddr, SocketAddr},

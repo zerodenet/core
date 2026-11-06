@@ -5,6 +5,7 @@ mod driver;
 mod endpoint;
 mod health;
 mod maintenance;
+mod quiescence;
 mod returns;
 mod session_tcp;
 mod session_udp;
