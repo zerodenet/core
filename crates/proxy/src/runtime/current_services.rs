@@ -15,8 +15,9 @@ use zero_engine::Engine;
 use zero_platform_tokio::EgressInterfaceControl;
 
 pub(crate) struct CurrentServiceSource {
-    #[cfg(feature="tls-ech-runtime")]
-    pub(crate) ech_owner:Arc<std::sync::OnceLock<Arc<dyn zero_transport::tls::ech::EchConfigResolver>>>,
+    #[cfg(feature = "tls-ech-runtime")]
+    pub(crate) ech_owner:
+        Arc<std::sync::OnceLock<Arc<dyn zero_transport::tls::ech::EchConfigResolver>>>,
     engine: Engine,
     resolver: Weak<DnsSystem>,
     protocols: WeakProtocolInventory,
@@ -40,8 +41,8 @@ impl CurrentServiceSource {
         retired_datagrams: &Arc<RetiredDatagrams>,
     ) -> Self {
         Self {
-            #[cfg(feature="tls-ech-runtime")]
-            ech_owner:Arc::new(std::sync::OnceLock::new()),
+            #[cfg(feature = "tls-ech-runtime")]
+            ech_owner: Arc::new(std::sync::OnceLock::new()),
             engine,
             resolver: Arc::downgrade(resolver),
             protocols: protocols.downgrade(),

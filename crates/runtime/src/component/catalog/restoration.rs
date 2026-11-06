@@ -113,7 +113,7 @@ impl ComponentCatalog {
                 "recovery requires a new non-device resource preparation transaction",
             ));
         }
-        let mut nodes=aliases::nodes(original,&mut resources,&deferred_devices)?;
+        let mut nodes = aliases::nodes(original, &mut resources, &deferred_devices)?;
         resources.validate(nodes.iter().map(|slot| (slot.id, slot.recipe.spec())))?;
         let shared_identities = resources.identities()?;
         for resource in resources.into_resources()? {

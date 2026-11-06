@@ -1,7 +1,7 @@
 #[cfg(feature = "udp-runtime")]
 mod datagram;
-mod root;
 pub(crate) mod packet_target;
+mod root;
 use std::net::SocketAddr;
 use std::sync::Arc;
 
@@ -212,11 +212,21 @@ impl UpstreamConnectServices {
 
     #[cfg(feature = "tls-ech-runtime")]
     pub(crate) fn ech_resolver(&self) -> Arc<dyn zero_transport::tls::ech::EchConfigResolver> {
-        self.ech_resolver.get_or_init(||Arc::new(RuntimeEchResolver::new(self.resolver.clone(),self.egress_interface.clone()))).clone()
+        self.ech_resolver
+            .get_or_init(|| {
+                Arc::new(RuntimeEchResolver::new(
+                    self.resolver.clone(),
+                    self.egress_interface.clone(),
+                ))
+            })
+            .clone()
     }
     #[cfg(feature = "tls-ech-runtime")]
-    pub(crate) fn with_original_ech_owner(mut self,owner:Arc<std::sync::OnceLock<Arc<dyn zero_transport::tls::ech::EchConfigResolver>>>)->Self{
-        self.ech_resolver=owner;
+    pub(crate) fn with_original_ech_owner(
+        mut self,
+        owner: Arc<std::sync::OnceLock<Arc<dyn zero_transport::tls::ech::EchConfigResolver>>>,
+    ) -> Self {
+        self.ech_resolver = owner;
         self
     }
 

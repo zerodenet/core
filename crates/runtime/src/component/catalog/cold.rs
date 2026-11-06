@@ -1,7 +1,7 @@
 //! One cold union pass; activation requires original provider close evidence.
 use super::*;
-use std::collections::BTreeSet;
 use crate::component::{ResourcePreparation, SharedResourceIdentities};
+use std::collections::BTreeSet;
 use zero_config::OutboundProtocolConfig;
 use zero_core::component::ResourceGeneration;
 use zero_platform_tokio::contract::component::RoleKind;
@@ -36,7 +36,7 @@ impl ComponentCatalog {
             &mut ResourcePreparation<'_>,
         ) -> Result<std::collections::BTreeSet<ComponentId>, ChannelError>,
     ) -> Result<ComponentPlan, ChannelError> {
-        if let Some(probes)=self.probes.get().and_then(std::sync::Weak::upgrade){
+        if let Some(probes) = self.probes.get().and_then(std::sync::Weak::upgrade) {
             probes.validate_limit(config.runtime.effective_diagnostic_max_operations())?;
         }
         let plan = self.compile_with_floor(config, previous, issued, device_pass, prepare)?;
@@ -101,7 +101,9 @@ impl ComponentCatalog {
             .unwrap_or_default();
         let mut resources = ResourcePreparation::with_identities(&mut allocate, &identities)
             .with_candidate(config)
-            .with_same_source_as_previous(previous.is_some_and(|(source,_)|std::ptr::eq(config,source.as_ref())))
+            .with_same_source_as_previous(
+                previous.is_some_and(|(source, _)| std::ptr::eq(config, source.as_ref())),
+            )
             .with_previous_slots(
                 previous
                     .map(|(_, plan)| plan.order.as_slice())

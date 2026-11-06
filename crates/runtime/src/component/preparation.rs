@@ -1,7 +1,7 @@
 //! Typed cold preparation of canonical roleless resource owners.
-mod identities;
 mod device_aliases;
-use super::{ComponentRecipe, dependencies, instance::invalid};
+mod identities;
+use super::{dependencies, instance::invalid, ComponentRecipe};
 pub use identities::SharedResourceIdentities;
 use std::{
     cell::Cell,
@@ -10,9 +10,9 @@ use std::{
 };
 use zero_core::component::ComponentId;
 use zero_platform_tokio::contract::{
-    ChannelError, Reason,
     component::{ComponentFactory, ComponentSpec},
     lifecycle::BuildError,
+    ChannelError, Reason,
 };
 
 #[derive(Clone, PartialEq, Eq, PartialOrd, Ord)]
@@ -56,7 +56,7 @@ pub struct ResourcePreparation<'a> {
     candidate: Option<&'a zero_config::RuntimeConfig>,
     same_source: bool,
     device_alias_rebinding: bool,
-    device_alias_overrides: Option<BTreeMap<Option<String>,ComponentRecipe>>,
+    device_alias_overrides: Option<BTreeMap<Option<String>, ComponentRecipe>>,
     source_dir: Option<&'a std::path::Path>,
 }
 impl<'a> ResourcePreparation<'a> {
@@ -190,17 +190,24 @@ impl<'a> ResourcePreparation<'a> {
     }
     /// Only actual host preparation compares its simultaneously live inputs.
     /// Factories receive observation, never a source token or I/O authority.
-    pub(in crate::component) fn with_same_source_as_previous(mut self,same:bool)->Self {
-        self.same_source=same;self
+    pub(in crate::component) fn with_same_source_as_previous(mut self, same: bool) -> Self {
+        self.same_source = same;
+        self
     }
-    pub fn same_source_as_previous(&self)->bool {
+    pub fn same_source_as_previous(&self) -> bool {
         self.ensure_valid().is_ok() && self.same_source
     }
     /// Previous actual instance only. This deliberately says nothing about
     /// liveness, reusable tasks, native/user closure or available admission.
-    pub fn previous_resource_instance(&self,component:ComponentId)->Option<zero_core::component::ComponentInstanceId> {
+    pub fn previous_resource_instance(
+        &self,
+        component: ComponentId,
+    ) -> Option<zero_core::component::ComponentInstanceId> {
         self.ensure_valid().ok()?;
-        self.previous_slots.iter().find(|slot|slot.id==component).map(|slot|slot.instance_id())
+        self.previous_slots
+            .iter()
+            .find(|slot| slot.id == component)
+            .map(|slot| slot.instance_id())
     }
     /// Borrow only for this cold pass; owned protocol profiles resolve their
     /// own paths and cannot retain a previous configuration document.

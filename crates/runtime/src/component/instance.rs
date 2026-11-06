@@ -1,9 +1,9 @@
 //! Ownership of one cold recipe, installed before its first start.
 use super::{ComponentRecipe, ValidatedRecipe};
 mod business;
-mod probe;
 mod cleanup;
 mod packet_source;
+mod probe;
 mod resources;
 mod roles;
 mod start;
@@ -21,23 +21,23 @@ pub use resources::NoResources;
 #[cfg(feature = "raw-ip-runtime")]
 pub use resources::{HostIcmpProbeGrant, HostIcmpProbeOwner};
 use std::sync::{Arc, OnceLock};
+pub(crate) use tasks::wake::{MonitorWake, WaitTarget};
 pub use tasks::ComponentTaskFault;
-pub(in crate::component) use users::PausedUsers;
 use tasks::TaskMonitor;
-pub(crate) use tasks::wake::{WaitTarget,MonitorWake};
 use tokio::{
     sync::{Mutex, OnceCell},
     time::Instant,
 };
+pub(in crate::component) use users::PausedUsers;
 use zero_core::component::*;
 use zero_platform_tokio::contract::{
-    CancellationToken, ChannelError, CloseReason, DeliveryState, Impact, Reason, Stage,
     component::{BuildContext, ComponentInstance},
     datagram::DynDatagramOutbound,
     lifecycle::CloseReport,
     packet::DynPacketOutbound,
     scope::TaskScope,
     stream::DynStreamOutbound,
+    CancellationToken, ChannelError, CloseReason, DeliveryState, Impact, Reason, Stage,
 };
 
 pub type SharedError = Arc<ChannelError>;
@@ -332,8 +332,17 @@ fn started(component: ComponentId, live: &Result<Live, SharedError>) -> Result<(
 impl ComponentSlot {
     /// Exact live original Scope observation for prepared resource reuse. This
     /// grants neither I/O nor closure and never builds a candidate instance.
-    pub fn matches_live_scope(&self,actual:&zero_platform_tokio::contract::scope::TaskScopeIdentity)->bool{
-        self.has_started() && !self.cancel.is_cancelled() && actual.resource_open()
-            && self.live.get().and_then(|live|live.as_ref().ok()).is_some_and(|live|live.tasks.scope_identity().same_scope(actual))
+    pub fn matches_live_scope(
+        &self,
+        actual: &zero_platform_tokio::contract::scope::TaskScopeIdentity,
+    ) -> bool {
+        self.has_started()
+            && !self.cancel.is_cancelled()
+            && actual.resource_open()
+            && self
+                .live
+                .get()
+                .and_then(|live| live.as_ref().ok())
+                .is_some_and(|live| live.tasks.scope_identity().same_scope(actual))
     }
 }
