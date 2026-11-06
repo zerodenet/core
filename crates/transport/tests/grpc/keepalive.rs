@@ -242,17 +242,19 @@ async fn inline_original_ping_and_timeout_progress_with_only_a_real_pending_appl
                 false,
             )
             .unwrap();
-        let reading = async {
-            let data = request.body_mut().data().await.unwrap().unwrap();
-            assert!(!data.is_empty());
-            request
-                .body_mut()
-                .flow_control()
-                .release_capacity(data.len())
-                .unwrap();
-        };
-        tokio::pin!(reading);
-        tokio::select! {_=&mut reading=>{},_=connection.accept()=>panic!("no second request")}
+        {
+            let reading = async {
+                let data = request.body_mut().data().await.unwrap().unwrap();
+                assert!(!data.is_empty());
+                request
+                    .body_mut()
+                    .flow_control()
+                    .release_capacity(data.len())
+                    .unwrap();
+            };
+            tokio::pin!(reading);
+            tokio::select! {_=&mut reading=>{},_=connection.accept()=>panic!("no second request")}
+        }
         // Real HEADERS and upload DATA are now observed. Keep the socket and
         // response alive, but stop this exact peer driver so PING has no ACK.
         ready.send(()).unwrap();

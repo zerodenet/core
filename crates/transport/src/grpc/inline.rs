@@ -7,7 +7,6 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::{
     error::Error,
     fmt,
-    future::Future,
     sync::{Arc, Mutex},
 };
 

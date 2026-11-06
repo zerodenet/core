@@ -195,3 +195,7 @@ impl Drop for GrpcStream {
         }
     }
 }
+
+#[cfg(test)]
+#[path = "../../tests/grpc/inline.rs"]
+mod inline_tests;
