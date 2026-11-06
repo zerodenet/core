@@ -2,6 +2,7 @@
 use super::*;
 pub(super) struct Transfer {
     pub(super) grant: Mutex<Option<CarrierGrant>>,
+    pub(super) caller: Option<zero_platform_tokio::contract::scope::TaskJoinWitness>,
     pub(super) owner: tokio::sync::Mutex<Option<LoanOwner>>,
     pub(super) stop: CancellationToken,
     pub(super) adoption: CarrierAdoption,
@@ -67,10 +68,15 @@ impl Transfer {
                 .adoption
                 .closed()
                 .is_some_and(|closed| closed.matches(&self.adoption))
-            && self
-                .adoption
-                .users_closed()
-                .is_some_and(|closed| closed.matches(&self.adoption))
+            && self.adoption.users_closed().is_some_and(|closed| {
+                closed.matches(&self.adoption)
+                    && self.caller.as_ref().is_none_or(|caller| {
+                        closed.matches_caller(caller)
+                            && caller
+                                .try_joined()
+                                .is_some_and(|joined| joined.registration_released())
+                    })
+            })
     }
 }
 pub(super) struct Opening(pub(super) Arc<Transfer>);

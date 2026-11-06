@@ -74,10 +74,9 @@ impl<F: ComponentFactory> ComponentFactory for Factory<F> {
     fn describe(&self, options: &Self::Options) -> ComponentSpec {
         let mut spec = self.0.describe(&options.inner);
         spec.resources
-            .push(ResourceDeclaration::ControlledCarrierPool {
+            .push(ResourceDeclaration::ControlledNodeCarrier {
                 endpoint: options.endpoint.clone(),
                 dial: options.dial.clone(),
-                datagram: false,
                 max_sockets: options.limit,
             });
         if let Some(node) = options.node_dns {
@@ -152,6 +151,7 @@ impl<F: ComponentFactory> ComponentFactory for Factory<F> {
             dial,
             grants: carrier.grants(),
             transfers: transfers.clone(),
+            limit: options.limit,
         }));
         instance.lifecycle = erase_lifecycle(Owner {
             inner: instance.lifecycle,
@@ -175,3 +175,6 @@ mod opener;
 use opener::Opener;
 
 mod caller;
+
+mod admission;
+mod business;
