@@ -218,6 +218,7 @@ impl HostResources {
                 | ResourceDeclaration::ControlledOutboundDatagram { .. }
                 | ResourceDeclaration::ControlledOutboundStream { .. }
                 | ResourceDeclaration::ControlledCarrierPool { .. }
+                | ResourceDeclaration::ControlledServiceStream { .. }
                 | ResourceDeclaration::ControlledAssociationPool { .. }
                 | ResourceDeclaration::ControlledMetadataDatagram { .. }
                 | ResourceDeclaration::ControlledMetadataCarrier { .. }
