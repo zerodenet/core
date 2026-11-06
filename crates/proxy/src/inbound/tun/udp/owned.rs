@@ -15,6 +15,17 @@ pub(crate) struct OwnedTunUdpTasks {
     pub(super) dns: ScopedSourceTasks<Result<(), std::io::Error>>,
 }
 impl OwnedTunUdpTasks {
+    /// Observe this exact association group and its still-owned completion
+    /// queue. Main separately settles the same cloned NativeObligations Arc;
+    /// neither metadata delivery nor an empty channel proves a real join.
+    pub(crate) fn quiescent(&self) -> bool {
+        self.scope
+            .get()
+            .is_some_and(|scope| scope.group.preflight_quiescent())
+            && self.dns.quiescent()
+            && self.completed.capacity() == self.completed.max_capacity()
+    }
+
     pub(crate) const MAX_ASSOCIATIONS: usize = association::MAX_ACTIVE_ASSOCIATIONS;
     pub(crate) const MAX_DNS: usize = MAX_CONCURRENT_DNS_QUERIES;
     pub(crate) fn new(
