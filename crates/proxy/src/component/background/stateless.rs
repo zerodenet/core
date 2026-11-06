@@ -40,6 +40,11 @@ pub(crate) struct Options<T> {
     process: Option<(zero_core::component::ComponentId, std::time::Duration)>,
 }
 impl<T> Options<T> {
+    /// Borrow the same protocol-owned immutable recipe, never a new executor.
+    pub(crate) fn inner_options(&self) -> &T {
+        &self.inner
+    }
+
     pub(crate) fn new(
         inner: T,
         endpoint: Destination,
