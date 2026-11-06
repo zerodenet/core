@@ -19,16 +19,23 @@ impl<D> DriverIo<D> {
         }
     }
 }
+pub(super) struct NativeReadInput {
+    pub grant: NativeReadGrant,
+    pub pause: Option<super::pause::ReadCheckpoint>,
+}
 pub(super) async fn run<D: zero_tun::TunDevice + 'static>(
     device: D,
-    read_grant: NativeReadGrant,
+    input: NativeReadInput,
     mut rx: mpsc::Receiver<Write>,
     packets: Arc<PacketReturns>,
     sessions: Arc<session::Sessions>,
     mut stopped: watch::Receiver<bool>,
     mut activated: watch::Receiver<bool>,
-    pause: Option<super::pause::ReadCheckpoint>,
 ) -> DriverIo<D> {
+    let NativeReadInput {
+        grant: read_grant,
+        pause,
+    } = input;
     let _completion = SessionCompletion(sessions.clone());
     let read_credit = ReadCredit(read_grant);
     while !*activated.borrow_and_update() {

@@ -134,17 +134,19 @@ impl HostPacketDevice {
             view_ready.send_replace(true);
             let (returned, failure) = driver::run(
                 view,
-                grant.native_read,
+                driver::NativeReadInput {
+                    grant: grant.native_read,
+                    pause: Some(super::pause::ReadCheckpoint {
+                        checkpoint,
+                        #[cfg(windows)]
+                        sdk: grant.sdk_read_control,
+                    }),
+                },
                 rx,
                 packets,
                 logical,
                 stopped,
                 activated,
-                Some(super::pause::ReadCheckpoint {
-                    checkpoint,
-                    #[cfg(windows)]
-                    sdk: grant.sdk_read_control,
-                }),
             )
             .await
             .parts();

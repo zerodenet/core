@@ -108,10 +108,20 @@ impl HostPacketDevice {
             let read = root
                 .native_grant(65_536)
                 .expect("explicit independent fixture read owner");
-            let (device, failure) =
-                driver::run(device, read, rx, packets, logical, stopped, activated, None)
-                    .await
-                    .parts();
+            let (device, failure) = driver::run(
+                device,
+                driver::NativeReadInput {
+                    grant: read,
+                    pause: None,
+                },
+                rx,
+                packets,
+                logical,
+                stopped,
+                activated,
+            )
+            .await
+            .parts();
             task::DriverResult {
                 failure,
                 native: close(device).await,
