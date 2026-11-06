@@ -236,6 +236,24 @@ impl OwnedDnsQueryTasks {
     ) -> io::Result<()> {
         self.spawn_in_network(job, cancel, None)
     }
+    pub(crate) fn cleanup_provider(
+        &self,
+        query: &TaskJoinWitness,
+    ) -> Option<Arc<dyn crate::native::NativeDnsProvider>> {
+        let provider = self.0.finalizer.get()?.upgrade()?;
+        let (_, scope) = provider.host_scope()?;
+        (provider.tasks().same_owner(self) && scope.same_scope(&query.scope_identity()))
+            .then_some(provider)
+    }
+    pub(crate) fn spawn_registered_in_network(
+        &self,
+        job: impl Future<Output = ()> + Send + 'static,
+        cancel: CancellationToken,
+        network: Option<u64>,
+    ) -> io::Result<TaskJoinWitness> {
+        self.spawn_kind(job, cancel, network, TaskKind::Query)
+    }
+    #[cfg(any(test, feature = "test-support"))]
     pub(crate) fn spawn_in_network(
         &self,
         job: impl Future<Output = ()> + Send + 'static,

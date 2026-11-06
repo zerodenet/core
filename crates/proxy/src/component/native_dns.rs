@@ -301,3 +301,7 @@ impl ResourceLifecycle for Owner {
 #[cfg(test)]
 #[path = "native_dns/tests/implicit_system.rs"]
 mod tests;
+
+#[cfg(all(test, feature = "dns"))]
+#[path = "native_dns/tests/wire_call.rs"]
+mod wire_call_tests;
