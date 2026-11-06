@@ -120,7 +120,7 @@ async fn exercise(domain: bool) {
     tokio::time::timeout_at(end(), async {
         while traffic(&proxy, TrafficScope::Outbound { tag: "wg".into() }).planes[0]
             .counters
-            .bytes_down
+            .rx_bytes
             != Some(19)
         {
             tokio::task::yield_now().await;
@@ -142,8 +142,10 @@ async fn exercise(domain: bool) {
             peer_id: format!("wireguard:{}", peer::public(122)),
         },
     );
-    assert_eq!(outbound.planes[0].counters.bytes_up, Some(19));
-    assert_eq!(outbound.planes[0].counters.bytes_down, Some(19));
+    assert_eq!(outbound.planes[0].counters.tx_bytes, Some(19));
+    assert_eq!(outbound.planes[0].counters.rx_bytes, Some(19));
+    assert_eq!(endpoint.planes[0].counters.bytes_up, Some(19));
+    assert_eq!(endpoint.planes[0].counters.bytes_down, Some(19));
     assert_eq!(peer_scope.planes[0].counters.bytes_up, Some(19));
     assert_eq!(peer_scope.planes[0].counters.bytes_down, Some(19));
     assert!(outbound.planes[1].counters.tx_bytes.unwrap() > 19);
