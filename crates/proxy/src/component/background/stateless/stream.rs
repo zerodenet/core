@@ -2,6 +2,7 @@
 use super::*;
 pub(super) struct Outbound {
     pub(super) inner: Arc<dyn DynStreamOutbound>,
+    pub(super) process: Option<zero_core::component::ComponentInstanceId>,
     pub(super) endpoint: Destination,
     pub(super) dial: zero_traits::DialPolicy,
     pub(super) grants: CarrierGrants,
@@ -18,17 +19,16 @@ impl StreamOutbound for Outbound {
         if context.session_identity()?.is_some() && context.upstream.has_tracked_business_caller() {
             return self.connect_business(request, context).await;
         }
-        if context.session_identity()?.is_none()
-            && context.upstream.observed_pending_carrier().is_some()
-        {
+        if context.session_identity()?.is_none() {
             let connected = self.connect_carrier(request, context).await?;
             return Ok(Connected {
                 io: super::service::into_stream(connected.io),
                 peer_confirmation: connected.peer_confirmation,
             });
         }
-        // Fixed library users without the Host's actual invocation/cleanup
-        // projection retain their explicit original inline responsibilities.
+        // An explicit untracked Business library invocation retains its
+        // original responsibility. Every real Service uses this same owner,
+        // including callers whose custody is finalized inline by HostResources.
         self.inner.connect(request, context).await
     }
     async fn connect_carrier(
@@ -54,6 +54,7 @@ impl StreamOutbound for Outbound {
             Arc::new(Opener {
                 upstream: context.upstream.clone(),
                 endpoint: self.endpoint.clone(),
+                process: self.process,
                 transfer: transfer.clone(),
             }),
         );

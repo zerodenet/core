@@ -214,6 +214,7 @@ impl BackgroundCarrier {
                     services.upstream_observed(&self.tag),
                     self.endpoint.clone(),
                 )
+                .with_plan(services.components.as_ref().ok().map(Arc::downgrade))
                 .with_pending(binding.clone(), waiting)
                 .with_service_call(call)
                 .with_carrier_owner(self.instance);

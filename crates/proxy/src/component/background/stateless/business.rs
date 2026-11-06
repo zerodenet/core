@@ -39,6 +39,7 @@ impl Outbound {
             Arc::new(Opener {
                 upstream: context.upstream.clone(),
                 endpoint: self.endpoint.clone(),
+                process: self.process,
                 transfer: transfer.clone(),
             }),
         );

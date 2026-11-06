@@ -78,6 +78,7 @@ async fn same_taskless_record_keeps_n1_through_real_business_join_and_deferred_h
         let transfers = Arc::new(Mutex::new(Vec::new()));
         let role = Outbound {
             inner: erase_stream(RawRole(endpoint.clone())),
+            process: None,
             endpoint: endpoint.clone(),
             dial: Default::default(),
             grants: owner.grants(),
