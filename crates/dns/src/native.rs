@@ -54,6 +54,17 @@ pub enum NativeDnsUdpLoan {
 
 /// Executable native I/O, not a Service label or a declaration-only capability.
 pub trait NativeDnsProvider: Send + Sync {
+    /// Exact original host generation and Scope, for cold preservation checks.
+    /// This is observation only, never task/native acquisition or closure.
+    fn host_scope(
+        &self,
+    ) -> Option<(
+        zero_core::component::ComponentInstanceId,
+        zero_platform_tokio::contract::scope::TaskScopeIdentity,
+    )> {
+        None
+    }
+
     /// Existing actual Default/Node sources, for pool custody matching only.
     fn source_roots(&self) -> Option<(Arc<NativeDnsSource>, Arc<NativeDnsSource>)> {
         None
