@@ -9,6 +9,10 @@ pub(super) struct Client {
     source: SocketAddr,
 }
 impl Client {
+    pub(super) fn into_socket(self) -> tokio::net::UdpSocket {
+        self.socket
+    }
+
     pub(super) fn from_original(socket: tokio::net::UdpSocket, source: SocketAddr) -> Self {
         let private = STANDARD.encode([112; 32]);
         let remote = peer::public(111);
