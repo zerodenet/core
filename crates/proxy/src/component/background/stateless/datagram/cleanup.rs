@@ -43,7 +43,14 @@ impl Cleanup {
                     .set(source.clone())
                     .expect("same controller cleanup lock serializes first failure");
                 faults.first.get_or_init(|| index);
-                self.receipt.get_or_insert_with(Default::default);
+                self.receipt.get_or_insert_with(|| {
+                    let receipt = zero_platform_tokio::contract::CleanupFailureReceipt::default();
+                    assert!(
+                        receipt.bind_payload(faults.clone()),
+                        "one stable original fault record"
+                    );
+                    receipt
+                });
                 // This exact original error Arc is now durably installed in
                 // the controller's own finite row before acknowledging receipt.
                 if let Some(receipt) = source.cleanup_failure_receipt() {

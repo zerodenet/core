@@ -25,6 +25,7 @@ fn receiver_retains_the_same_fault_record_including_late_secondary_before_acknow
     });
     let receipt = CleanupFailureReceipt::new();
     let foreign = CleanupFailureReceipt::new();
+    assert!(receipt.bind_payload(sources.clone()));
     let returned = ChannelError::new(first.stage, first.reason, first.impact)
         .with_source(sources.clone())
         .with_cleanup_failure_receipt(receipt.clone());
