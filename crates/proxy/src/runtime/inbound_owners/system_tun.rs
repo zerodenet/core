@@ -87,6 +87,14 @@ impl InboundOwnerRegistry {
     }
 }
 impl SystemTunLease {
+    /// Install the real routes/helper cleanup owner before main snapshots its
+    /// resources. This delegates to this same Source; no new task or provider.
+    pub(crate) fn register_after_scope(
+        &self,
+        resource: Box<dyn zero_platform_tokio::contract::lifecycle::DynResourceLifecycle>,
+    ) -> Result<zero_core::component::ComponentInstanceId, EngineError> {
+        self.installed.register_after_scope(resource)
+    }
     pub(crate) fn owner(&self) -> Arc<InboundOwner> {
         self.owner.clone()
     }
