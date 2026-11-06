@@ -7,6 +7,10 @@ pub(in crate::runtime) struct Acquisition {
     state: Mutex<State>,
     changed: tokio::sync::Notify,
     idle: AtomicBool,
+    #[cfg(test)]
+    last_accepted_closed: Mutex<Option<(zero_platform_tokio::AcceptedTcpClaim, zero_platform_tokio::AcceptedTcpClosed)>>,
+    peer_dirty: AtomicBool,
+    peer_changed: tokio::sync::Notify,
 }
 #[derive(Default)]
 struct State {
@@ -30,6 +34,25 @@ impl Drop for AcquisitionPause {
     }
 }
 impl Acquisition {
+    #[cfg(test)]
+    pub(in crate::runtime) fn record_accepted_closed(&self, claim: zero_platform_tokio::AcceptedTcpClaim, closed: zero_platform_tokio::AcceptedTcpClosed) {
+        assert!(closed.matches(&claim));
+        let old = self.last_accepted_closed.lock().unwrap().replace((claim, closed));
+        drop(old);
+    }
+
+    pub(in crate::runtime) fn peer_cleanup_progressed(&self) {
+        self.peer_dirty.store(true, Ordering::Release);
+        self.peer_changed.notify_waiters();
+    }
+    pub(in crate::runtime) async fn peer_cleanup_changed(&self) {
+        loop {
+            let changed = self.peer_changed.notified(); tokio::pin!(changed); changed.as_mut().enable();
+            if self.peer_dirty.swap(false, Ordering::AcqRel) { return; }
+            changed.await;
+        }
+    }
+
     fn request(self: &Arc<Self>) -> io::Result<AcquisitionPause> {
         let mut state = self.state.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
         if state.requested.is_some() { return Err(io::Error::new(io::ErrorKind::WouldBlock,"same source acquisition already paused")); }
@@ -63,6 +86,11 @@ impl Acquisition {
     }
 }
 impl InboundOwner {
+    #[cfg(test)]
+    pub(crate) fn accepted_closed_for_test(&self) -> Option<(zero_platform_tokio::AcceptedTcpClaim, zero_platform_tokio::AcceptedTcpClosed)> {
+        self.acquisition.last_accepted_closed.lock().unwrap().clone()
+    }
+
     pub(in crate::runtime) async fn pause_acquisition_if_idle(&self, deadline: Instant) -> Result<Option<AcquisitionPause>, EngineError> {
         if self.terminal().is_some() { return Ok(None); }
         if !self.is_running() { return Err(io::Error::new(io::ErrorKind::WouldBlock,"original source is not quiescent").into()); }

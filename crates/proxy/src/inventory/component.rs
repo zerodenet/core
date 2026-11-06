@@ -210,7 +210,10 @@ impl super::ProtocolInventory {
             self.host
                 .components()
                 .prepare_recovered_device_resources(config.clone(), |resources| {
-                    self.devices.prepare_component_resources(&config, resources)
+                    let deferred=self.devices.prepare_component_resources(&config,resources)?;
+                    let aliases=self.devices.device_alias_overrides(&config,resources)?;
+                    resources.set_device_alias_overrides(aliases)?;
+                    Ok(deferred)
                 })
         }
         #[cfg(not(feature = "raw-ip-runtime"))]

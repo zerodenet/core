@@ -328,3 +328,12 @@ fn started(component: ComponentId, live: &Result<Live, SharedError>) -> Result<(
         error
     })
 }
+
+impl ComponentSlot {
+    /// Exact live original Scope observation for prepared resource reuse. This
+    /// grants neither I/O nor closure and never builds a candidate instance.
+    pub fn matches_live_scope(&self,actual:&zero_platform_tokio::contract::scope::TaskScopeIdentity)->bool{
+        self.has_started() && !self.cancel.is_cancelled() && actual.resource_open()
+            && self.live.get().and_then(|live|live.as_ref().ok()).is_some_and(|live|live.tasks.scope_identity().same_scope(actual))
+    }
+}

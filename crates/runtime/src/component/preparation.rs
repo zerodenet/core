@@ -1,5 +1,6 @@
 //! Typed cold preparation of canonical roleless resource owners.
 mod identities;
+mod device_aliases;
 use super::{ComponentRecipe, dependencies, instance::invalid};
 pub use identities::SharedResourceIdentities;
 use std::{
@@ -54,6 +55,8 @@ pub struct ResourcePreparation<'a> {
     )>,
     candidate: Option<&'a zero_config::RuntimeConfig>,
     same_source: bool,
+    device_alias_rebinding: bool,
+    device_alias_overrides: Option<BTreeMap<Option<String>,ComponentRecipe>>,
     source_dir: Option<&'a std::path::Path>,
 }
 impl<'a> ResourcePreparation<'a> {
@@ -68,6 +71,8 @@ impl<'a> ResourcePreparation<'a> {
             previous_loans: Vec::new(),
             candidate: None,
             same_source: false,
+            device_alias_rebinding: false,
+            device_alias_overrides: None,
             source_dir: None,
         }
     }

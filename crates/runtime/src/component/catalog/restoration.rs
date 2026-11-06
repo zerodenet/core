@@ -1,5 +1,6 @@
 //! Restore actual published recipes; never re-decode mutable external inputs.
 use super::*;
+mod aliases;
 
 impl ComponentCatalog {
     pub(super) fn restore_published_plan(
@@ -85,6 +86,7 @@ impl ComponentCatalog {
             &original.shared_identities,
         )
         .with_candidate(config)
+        .enable_device_alias_rebinding()
         .with_previous_slots(&original.order, self.admission.loan_snapshot().1);
         resources.inherit_canonical_resources(&original.order, &original.deferred_devices)?;
         let inherited: std::collections::BTreeSet<_> = resources
@@ -111,18 +113,7 @@ impl ComponentCatalog {
                 "recovery requires a new non-device resource preparation transaction",
             ));
         }
-        let mut nodes: Vec<_> = std::iter::once(&original.builtin)
-            .chain(original.outbounds.values())
-            .map(|slot| {
-                Arc::new(ComponentSlot::from_recipe(
-                    slot.id,
-                    slot.generation,
-                    slot.recipe.clone(),
-                    slot.dial.clone(),
-                    slot.legacy_connect_stage(),
-                ))
-            })
-            .collect();
+        let mut nodes=aliases::nodes(original,&mut resources,&deferred_devices)?;
         resources.validate(nodes.iter().map(|slot| (slot.id, slot.recipe.spec())))?;
         let shared_identities = resources.identities()?;
         for resource in resources.into_resources()? {

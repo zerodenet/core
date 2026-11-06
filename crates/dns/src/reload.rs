@@ -106,7 +106,7 @@ impl DnsSystem {
         // Explicit public reload invalidates query contexts and caches even
         // when its native backends are reusable. Host transactions use the
         // prepared-resource API to retain an unchanged DNS fact.
-        self.prepare_reload_resources(config, dispatch, &BTreeSet::new(), true)?;
+        self.prepare_reload_resources(config, dispatch, &BTreeSet::new(), true, None)?;
         let result = self.commit_prepared_reload();
         if result.is_err() {
             self.discard_prepared_reload();
@@ -131,7 +131,22 @@ impl DnsSystem {
         dispatch: Option<zero_router::DomainDispatcher<String>>,
         affected_detours: &BTreeSet<String>,
     ) -> io::Result<DnsReloadResources> {
-        self.prepare_reload_resources(config, dispatch, affected_detours, false)
+        self.prepare_reload_resources(config, dispatch, affected_detours, false, None)
+    }
+    /// The host supplies its actual cold candidate's exact instance/Scope
+    /// preservation decision. URI/config equality cannot preserve a physical
+    /// pool whose original canonical provider is being replaced.
+    pub fn prepare_reload_resources_with_host_scopes(
+        &self,
+        config: Option<&DnsConfig>,
+        dispatch: Option<zero_router::DomainDispatcher<String>>,
+        affected_detours: &BTreeSet<String>,
+        preserves: impl Fn(
+            zero_core::component::ComponentInstanceId,
+            &zero_platform_tokio::contract::scope::TaskScopeIdentity,
+        ) -> bool,
+    ) -> io::Result<DnsReloadResources> {
+        self.prepare_reload_resources(config, dispatch, affected_detours, false, Some(&preserves))
     }
     fn prepare_reload_resources(
         &self,
@@ -139,6 +154,12 @@ impl DnsSystem {
         dispatch: Option<zero_router::DomainDispatcher<String>>,
         affected_detours: &BTreeSet<String>,
         refresh_queries: bool,
+        preserves: Option<
+            &dyn Fn(
+                zero_core::component::ComponentInstanceId,
+                &zero_platform_tokio::contract::scope::TaskScopeIdentity,
+            ) -> bool,
+        >,
     ) -> io::Result<DnsReloadResources> {
         if self.owned_root.is_some() && config.is_none() {
             return Err(io::Error::new(
@@ -190,13 +211,18 @@ impl DnsSystem {
         #[cfg(feature = "doh")]
         let previous = {
             let mut reusable = previous;
-            if native_profile_changed {
-                reusable.retain(|_, server| !matches!(server.backend.as_ref(), ResolverBackend::Doh(resolver) if resolver.owner.host_bound()));
-            }
+            reusable.retain(|_, server| match server.backend.as_ref() {
+                ResolverBackend::Doh(resolver) => {
+                    !(native_profile_changed && resolver.owner.host_bound())
+                        && preserves
+                            .is_none_or(|preserves| resolver.owner.preserves_host_scope(preserves))
+                }
+                _ => true,
+            });
             reusable
         };
         #[cfg(not(feature = "doh"))]
-        let _ = native_profile_changed;
+        let _ = (native_profile_changed, preserves);
         let servers = config
             .map(|config| {
                 build_servers(

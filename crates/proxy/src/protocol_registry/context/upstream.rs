@@ -29,7 +29,7 @@ pub(crate) struct UpstreamConnectServices {
     pub(super) connector: DirectConnector,
     pub(super) egress_interface: zero_platform_tokio::EgressInterfaceControl,
     #[cfg(feature = "tls-ech-runtime")]
-    ech_resolver: Arc<RuntimeEchResolver>,
+    ech_resolver: Arc<std::sync::OnceLock<Arc<dyn zero_transport::tls::ech::EchConfigResolver>>>,
 }
 
 impl UpstreamConnectServices {
@@ -118,10 +118,7 @@ impl UpstreamConnectServices {
         egress_interface: zero_platform_tokio::EgressInterfaceControl,
     ) -> Self {
         #[cfg(feature = "tls-ech-runtime")]
-        let ech_resolver = Arc::new(RuntimeEchResolver::new(
-            resolver.clone(),
-            egress_interface.clone(),
-        ));
+        let ech_resolver = Arc::new(std::sync::OnceLock::new());
         Self {
             resolver,
             observer: None,
@@ -215,7 +212,12 @@ impl UpstreamConnectServices {
 
     #[cfg(feature = "tls-ech-runtime")]
     pub(crate) fn ech_resolver(&self) -> Arc<dyn zero_transport::tls::ech::EchConfigResolver> {
-        self.ech_resolver.clone()
+        self.ech_resolver.get_or_init(||Arc::new(RuntimeEchResolver::new(self.resolver.clone(),self.egress_interface.clone()))).clone()
+    }
+    #[cfg(feature = "tls-ech-runtime")]
+    pub(crate) fn with_original_ech_owner(mut self,owner:Arc<std::sync::OnceLock<Arc<dyn zero_transport::tls::ech::EchConfigResolver>>>)->Self{
+        self.ech_resolver=owner;
+        self
     }
 
     #[cfg(feature = "udp-runtime")]

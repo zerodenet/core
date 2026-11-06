@@ -91,6 +91,10 @@ impl TcpRuntimeServices {
         mut self,
         source: std::sync::Weak<crate::runtime::current_services::CurrentServiceSource>,
     ) -> Self {
+        #[cfg(feature="tls-ech-runtime")]
+        if let Some(actual)=source.upgrade(){
+            self.execution.upstream=self.execution.upstream.clone().with_original_ech_owner(actual.ech_owner.clone());
+        }
         self.execution.current_source = source;
         self
     }

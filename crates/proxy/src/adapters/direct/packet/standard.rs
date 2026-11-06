@@ -3,6 +3,8 @@ mod alias;
 mod cold;
 mod factory;
 mod owner;
+#[cfg(all(test, any(target_os = "linux", target_os = "macos")))]
+mod tests;
 use super::*;
 pub(in crate::adapters::direct) use alias::Alias;
 use std::sync::{Mutex, OnceLock, Weak};

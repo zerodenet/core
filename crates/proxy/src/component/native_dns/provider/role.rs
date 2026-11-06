@@ -1,6 +1,15 @@
 //! Native operations use this provider's original Scope and native ledger.
 use super::*;
 impl NativeDnsProvider for Provider {
+    fn host_scope(
+        &self,
+    ) -> Option<(
+        zero_core::component::ComponentInstanceId,
+        zero_platform_tokio::contract::scope::TaskScopeIdentity,
+    )> {
+        Some((self.instance, self.registrar.scope_identity()))
+    }
+
     fn source_roots(
         &self,
     ) -> Option<(
