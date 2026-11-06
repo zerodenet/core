@@ -36,6 +36,9 @@ impl ComponentCatalog {
             &mut ResourcePreparation<'_>,
         ) -> Result<std::collections::BTreeSet<ComponentId>, ChannelError>,
     ) -> Result<ComponentPlan, ChannelError> {
+        if let Some(probes)=self.probes.get().and_then(std::sync::Weak::upgrade){
+            probes.validate_limit(config.runtime.effective_diagnostic_max_operations())?;
+        }
         let plan = self.compile_with_floor(config, previous, issued, device_pass, prepare)?;
         // Keep this before returning a plan or binding any admission. A cold
         // shared graph is not stop-old confirmation, a native grant or Ready.
