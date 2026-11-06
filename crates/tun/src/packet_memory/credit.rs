@@ -43,7 +43,7 @@ impl NativePacketCredit {
         packet: zero_traits::PacketBuffer,
     ) -> Result<zero_traits::PacketBuffer, (PacketMemoryError, Self, zero_traits::PacketBuffer)>
     {
-        if packet.len() > self.capacity() {
+        if packet.allocation_bytes() > self.capacity() {
             return Err((PacketMemoryError::Capacity, self, packet));
         }
         Ok(zero_traits::PacketBuffer::from_owner(Decoded {
