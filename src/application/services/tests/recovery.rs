@@ -4,6 +4,7 @@ use zero_proxy::ConfigApplyReconciler;
 
 #[tokio::test]
 async fn normal_sampler_replacement_keeps_supervision_on_the_next_published_scope() {
+    tokio::time::timeout(Duration::from_secs(5), async {
     use std::{future::Future, task::Poll};
     let directory = tempfile::tempdir().unwrap();
     let mut config = RuntimeConfig::parse(&config_json("before.jsonl", 0)).unwrap();
@@ -53,6 +54,7 @@ async fn normal_sampler_replacement_keeps_supervision_on_the_next_published_scop
     services.shutdown_dispatcher().await.unwrap();
     assert!(current.retirement_complete());
     assert!(services.service_retirement_complete().await);
+    }).await.unwrap();
 }
 
 #[tokio::test]
