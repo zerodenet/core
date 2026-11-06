@@ -94,7 +94,7 @@ impl HostedFixture {
     }
     fn demand(&self) -> Demand {
         Demand {
-            deadline: deadline(),
+            deadline: Some(deadline()),
             cancel: CancellationToken::new(),
             binding: self.binding.clone(),
         }
