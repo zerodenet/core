@@ -145,7 +145,7 @@ impl CarrierServiceGrant {
     }
     pub(super) fn permits_direct_authority(
         &self,
-        authority: &super::binding::BoundAuthority,
+        authority: &Arc<super::binding::BoundAuthority>,
     ) -> bool {
         self.direct
             && self.binding.matches_authority(authority)
