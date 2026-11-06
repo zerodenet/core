@@ -1,7 +1,7 @@
 //! Protocol-owned roleless shared-resource factories.
 pub mod inbound;
 mod plugin;
-pub use plugin::{PluginFactory, PluginOptions};
+pub use plugin::{PluginFactory, PluginOptions, PluginRootExit};
 #[cfg(feature = "blake3")]
 mod replay;
 #[cfg(feature = "blake3")]
