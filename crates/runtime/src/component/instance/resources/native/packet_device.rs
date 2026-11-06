@@ -20,7 +20,7 @@ use zero_tun::TunAcquisitionOutcome;
 use zero_tun::{OwnedTunIdentity, TunCloseReceipt};
 
 pub(super) struct PacketDeviceOwner {
-    ordinal: usize,
+    pub(super) ordinal: usize,
     name: Arc<str>,
     binding: PacketDeviceBinding,
     identity: PacketDeviceIdentity,
