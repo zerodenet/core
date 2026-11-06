@@ -5,8 +5,8 @@ mod receiver;
 /// Retained by the real replacement transaction until commit or rollback.
 /// Dropping it only restores admission; normal StopOld still proves closure.
 pub struct ReplacementUsersPause {
-    _roots: Vec<crate::component::instance::PausedUsers>,
-    candidate: std::sync::Weak<ComponentPlan>,
+    pub(super) _roots: Vec<crate::component::instance::PausedUsers>,
+    pub(super) candidate: std::sync::Weak<ComponentPlan>,
 }
 impl ReplacementUsersPause {
     /// A Source preflight may classify only its exact stored flow loan whose

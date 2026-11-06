@@ -102,7 +102,7 @@ impl ComponentCatalog {
             }
         };
         if let Some(pause) = budget_pause {
-            replacement.retain_budget_pause(pause);
+            replacement.retain_budget_pause(Arc::new(pause));
         }
         loan_fence.retain();
         self.admission.signal().notify_waiters();

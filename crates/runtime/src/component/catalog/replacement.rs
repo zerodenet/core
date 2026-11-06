@@ -1,6 +1,7 @@
 //! One retained target and exact retirement subset, installed before any await.
 use super::*;
 pub(super) mod order;
+pub(super) mod packet_source;
 mod publication;
 use std::collections::BTreeSet;
 use zero_core::component::ComponentInstanceId;
@@ -42,7 +43,7 @@ pub(super) struct Replacement {
     dependencies: BTreeMap<ComponentInstanceId, BTreeSet<ComponentInstanceId>>,
     terminal: OnceLock<Arc<DeclaredComponentTerminal>>,
     released: Mutex<publication::Publication>,
-    budget_pause: OnceLock<ReplacementUsersPause>,
+    budget_pause: OnceLock<Arc<ReplacementUsersPause>>,
 }
 impl Replacement {
     pub(super) fn new(
@@ -257,7 +258,7 @@ impl Replacement {
     pub(super) fn retains_budget_pause(&self) -> bool {
         self.budget_pause.get().is_some()
     }
-    pub(super) fn retain_budget_pause(&self, pause: ReplacementUsersPause) {
+    pub(super) fn retain_budget_pause(&self, pause: Arc<ReplacementUsersPause>) {
         assert!(
             self.budget_pause.set(pause).is_ok(),
             "same actual replacement owns its pause once"

@@ -14,6 +14,7 @@ mod process_accounting_tests;
 mod quiescence;
 pub use quiescence::ReplacementUsersPause;
 mod replacement;
+pub use replacement::packet_source::PacketSourceRetirement;
 mod restoration;
 mod retirement;
 pub mod supervision;
@@ -142,10 +143,18 @@ impl std::fmt::Debug for ComponentCatalog {
 impl ComponentCatalog {
     /// Read the already prepared exact snapshot, including a cold/staged plan.
     /// Presence is not activation, native cleanup or runtime Ready evidence.
-    pub fn prepared_candidate(&self, config: &Arc<RuntimeConfig>) -> Option<Result<Arc<ComponentPlan>, SharedError>> {
+    pub fn prepared_candidate(
+        &self,
+        config: &Arc<RuntimeConfig>,
+    ) -> Option<Result<Arc<ComponentPlan>, SharedError>> {
         let state = self.state.lock().expect("component catalog poisoned");
-        state.current.iter().chain(state.staged.iter()).chain(state.cold.iter())
-            .find(|entry| entry.matches(config)).map(|entry| entry.plan.clone())
+        state
+            .current
+            .iter()
+            .chain(state.staged.iter())
+            .chain(state.cold.iter())
+            .find(|entry| entry.matches(config))
+            .map(|entry| entry.plan.clone())
     }
     pub fn current(&self, config: &Arc<RuntimeConfig>) -> Option<Arc<ComponentPlan>> {
         self.state

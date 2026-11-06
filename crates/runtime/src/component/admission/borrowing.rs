@@ -15,8 +15,9 @@ impl HostAdmission {
         view.loans.clear();
     }
     pub(in crate::component) fn freeze_loans(self: &Arc<Self>) -> LoanFreeze {
-        self.0.write().expect("host admission poisoned").loan_frozen = true;
-        LoanFreeze(Some(self.clone()))
+        let mut state = self.0.write().expect("host admission poisoned");
+        let previous = std::mem::replace(&mut state.loan_frozen, true);
+        LoanFreeze(Some((self.clone(), previous)))
     }
     pub(in crate::component) fn borrow_from(
         &self,
@@ -80,7 +81,7 @@ fn reaches(edges: &LoanEdges, from: ComponentInstanceId, to: ComponentInstanceId
     }
     false
 }
-pub(in crate::component) struct LoanFreeze(Option<Arc<HostAdmission>>);
+pub(in crate::component) struct LoanFreeze(Option<(Arc<HostAdmission>, bool)>);
 impl LoanFreeze {
     /// The retained replacement now owns the fence, including cancelled waits.
     pub(in crate::component) fn retain(mut self) {
@@ -89,8 +90,8 @@ impl LoanFreeze {
 }
 impl Drop for LoanFreeze {
     fn drop(&mut self) {
-        if let Some(host) = self.0.take() {
-            host.0.write().expect("host admission poisoned").loan_frozen = false;
+        if let Some((host, previous)) = self.0.take() {
+            host.0.write().expect("host admission poisoned").loan_frozen = previous;
         }
     }
 }
