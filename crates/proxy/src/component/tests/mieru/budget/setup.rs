@@ -32,9 +32,36 @@ async fn ordinary_unobserved_nested_pool_uses_its_actual_declared_pending_graph_
             current = original.parent();
         }
         assert_eq!(originals.len(), 3);
-        assert!(originals
-            .iter()
-            .all(|original| original.owner().same_owner(originals[0].owner())));
+        let pool_instance = originals[0].instance();
+        let pool_scope = originals[0].driver().unwrap().scope_identity();
+        for (index, original) in originals.iter().enumerate() {
+            // Each fixed endpoint has its own actual native provider, while
+            // all profiles share one protocol ManagedState and owning Scope.
+            assert_eq!(original.instance(), pool_instance);
+            assert!(original
+                .driver()
+                .unwrap()
+                .scope_identity()
+                .same_scope(&pool_scope));
+            for other in &originals[..index] {
+                assert!(!original.same_original(other));
+                assert!(!original.owner().same_owner(other.owner()));
+            }
+            let services = proxy.tcp_runtime_services();
+            let slot = services
+                .components
+                .as_ref()
+                .unwrap()
+                .configured(["c", "b", "a"][index])
+                .unwrap();
+            assert!(slot.dependency_instances().contains(&pool_instance));
+        }
+        let error = open(&proxy, "unused")
+            .await
+            .err()
+            .expect("three active carriers exhaust the same protocol pool across all profiles");
+        assert_eq!(error.reason, Reason::Capacity, "{error}");
+        echo(&mut held).await;
         for server in [&a, &b, &c] {
             assert_eq!(server.accepts.load(Ordering::SeqCst), 1);
         }

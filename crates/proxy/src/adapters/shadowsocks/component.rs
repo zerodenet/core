@@ -56,6 +56,14 @@ impl ShadowsocksAdapter {
                     .unwrap_or_default(),
             )
             .map_err(options_error)?;
+        let prepared = prepared
+            .with_legacy_replay_budget_limit(
+                resources
+                    .candidate()
+                    .map(|config| config.runtime.effective_ss_legacy_replay_max_bytes())
+                    .unwrap_or(64 * 1024 * 1024),
+            )
+            .map_err(options_error)?;
         let replay = prepared
             .replay_options()
             .map(|options| {

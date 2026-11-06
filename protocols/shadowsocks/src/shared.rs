@@ -18,6 +18,8 @@ pub use crate::CipherKind;
 mod extra_aead;
 mod identity;
 pub mod legacy;
+mod legacy_budget;
+pub use legacy_budget::{LegacyReplayBudget, LegacyReplayBudgetProposal};
 mod target;
 pub(crate) use identity::cache_identity;
 pub(crate) use target::complete_tcp_target;
@@ -42,10 +44,10 @@ pub(crate) use udp_wire::{
 #[cfg(feature = "blake3")]
 #[path = "shared/replay.rs"]
 mod replay;
-#[cfg(all(feature = "crypto", feature = "blake3"))]
-pub use replay::{ReplayBudget, ReplaySaltPool};
 #[cfg(feature = "blake3")]
 pub(crate) use replay::ReplaySaltPoolWeak;
+#[cfg(all(feature = "crypto", feature = "blake3"))]
+pub use replay::{ReplayBudget, ReplaySaltPool};
 
 /// Per-session UDP replay protection for Shadowsocks 2022 (SIP022 3.2.4).
 ///

@@ -95,7 +95,7 @@ impl ResourceLifecycle for Owner {
         self.options
             .prepared
             .udp_security
-            .activate_udp_budget()
+            .activate_security_budgets()
             .map_err(|source| {
                 self.admission
                     .error(

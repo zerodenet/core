@@ -3,6 +3,7 @@ use super::*;
 #[derive(Debug, Clone, Default)]
 pub struct ShadowsocksInboundProfileStore {
     profiles: Arc<Mutex<HashMap<String, ShadowsocksInboundProfile>>>,
+    bloom_budget: Arc<crate::shared::LegacyReplayBudget>,
     #[cfg(feature = "blake3")]
     budget: Arc<crate::shared::ReplayBudget>,
     #[cfg(feature = "blake3")]
@@ -54,6 +55,14 @@ impl PreparedInboundProfile {
         self.profile.replay.udp_budget_identity()
     }
 
+    pub fn with_legacy_replay_budget_limit(mut self, max_bytes: usize) -> Result<Self, Error> {
+        self.profile.replay = self.profile.replay.with_bloom_limit(max_bytes)?;
+        Ok(self)
+    }
+    pub(crate) fn legacy_replay_budget_identity(&self) -> (usize, Option<usize>) {
+        self.profile.replay.bloom_identity()
+    }
+
     /// Called by the owning component only after confirmed StopOld.
     pub fn activate(self) -> ShadowsocksInboundProfile {
         let mut profiles = self
@@ -88,10 +97,19 @@ impl ShadowsocksInboundProfileStore {
         budget: Arc<crate::shared::ReplayBudget>,
         udp_budget: Arc<crate::udp::UdpReplayBudget>,
     ) -> Self {
+        Self::with_security_budgets(budget, udp_budget, Default::default())
+    }
+    #[cfg(feature = "blake3")]
+    pub fn with_security_budgets(
+        budget: Arc<crate::shared::ReplayBudget>,
+        udp_budget: Arc<crate::udp::UdpReplayBudget>,
+        bloom_budget: Arc<crate::shared::LegacyReplayBudget>,
+    ) -> Self {
         Self {
             profiles: Default::default(),
             budget,
             udp_budget,
+            bloom_budget,
         }
     }
 
@@ -113,6 +131,9 @@ impl ShadowsocksInboundProfileStore {
                 .with_policy(profile.replay.policy())
                 .with_tcp_capacity(profile.limits.tcp_replay_capacity);
         }
+        profile.replay = profile
+            .replay
+            .with_bloom_budget(self.bloom_budget.clone())?;
         #[cfg(feature = "blake3")]
         {
             profile.replay = profile
@@ -188,6 +209,9 @@ impl ShadowsocksInboundProfileStore {
         if let Some(previous) = profiles.get(tag) {
             profile.replay = previous.replay.clone().with_policy(profile.replay.policy());
         }
+        profile.replay = profile
+            .replay
+            .with_bloom_budget(self.bloom_budget.clone())?;
         #[cfg(feature = "blake3")]
         {
             profile.replay = profile
