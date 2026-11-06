@@ -6,15 +6,19 @@ async fn ordinary_vless_grpc_dns_cancel_during_real_wire_preparation_closes_the_
     tokio::time::timeout(Duration::from_secs(15), async {
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
         let mut dns = crate::dns_fixture::Dns::new().await;
-        let (proxy, running) = start_at(listener.local_addr().unwrap(), false, &dns).await;
+        let (proxy, running) = start_with_tls(listener.local_addr().unwrap(), &dns).await;
         let mut query = query(&proxy, "preloan.pending.vless.grpc.test");
         let (mut wire, _) = tokio::select! {
             accepted = listener.accept() => accepted.unwrap(),
             result = &mut query => panic!("ordinary VLESS gRPC returned before native preparation: {result:?}"),
         };
-        let mut first = [0]; wire.read_exact(&mut first).await.unwrap();
-        assert_eq!(first, [b'P'], "actual HTTP/2 client preface");
-        assert!(!query.is_finished(), "peer withholds actual H2 SETTINGS");
+        let mut header = [0; 5];
+        wire.read_exact(&mut header).await.unwrap();
+        assert_eq!(&header[..2], &[22, 3], "actual TLS handshake record");
+        let mut handshake = vec![0; u16::from_be_bytes([header[3], header[4]]) as usize];
+        wire.read_exact(&mut handshake).await.unwrap();
+        assert_eq!(handshake[0], 1, "actual ClientHello precedes H2 driver installation");
+        assert!(!query.is_finished(), "peer withholds the actual TLS ServerHello");
         let caller = proxy.resolver.native_query_observations().into_iter().find(|record| !record.task.is_joined()).expect("actual original DNS query waiting for its physical pool");
         let plan = proxy.tcp_runtime_services().components.clone().unwrap();
         let mut pending = vec![plan.configured("grpc").unwrap()];
@@ -35,12 +39,14 @@ async fn ordinary_vless_grpc_dns_cancel_during_real_wire_preparation_closes_the_
         assert_eq!(held.retained(), 1);
         let original = held.slots()[0].original().clone();
         let auxiliary = held.slots()[0].auxiliary().cloned();
-        let driver = held.slots()[0].driver().map(|(_, witness)| witness.clone());
-        assert!(auxiliary.is_some() || driver.is_some(), "actual setup/driver witness is installed before first wire I/O");
+        assert!(held.slots()[0].driver().is_none(), "TLS preparation cannot already be a cached H2 driver");
+        let auxiliary = auxiliary.expect("same actual physical setup witness installed before ClientHello");
+        assert!(caller.original.is_none(), "no DNS child has yet received a logical stream loan");
         assert!(original.closed().is_none());
         query.abort(); assert!(query.await.unwrap_err().is_cancelled());
         tokio::time::timeout_at(deadline(), caller.task.wait()).await.unwrap().result().unwrap();
-        for task in auxiliary.into_iter().chain(driver) { assert!(task.is_joined()); task.try_joined().unwrap().result().unwrap(); }
+        assert!(auxiliary.is_joined());
+        auxiliary.try_joined().unwrap().result().unwrap();
         let closed = original.closed().expect("same actual pre-delivery native original closed without another dial");
         assert!(original.matches_closed(&closed) && closed.had_native_acquisition());
         assert_eq!(owner.observe().unwrap().retained(), 0);

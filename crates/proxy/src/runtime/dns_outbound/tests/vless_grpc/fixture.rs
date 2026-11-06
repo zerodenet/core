@@ -93,6 +93,21 @@ pub(super) async fn start_with_node(
     dns: &crate::dns_fixture::Dns,
     node: Option<&crate::dns_fixture::Dns>,
 ) -> (Proxy, crate::RunningProxy) {
+    start_config(address, multi, dns, node, false).await
+}
+pub(super) async fn start_with_tls(
+    address: std::net::SocketAddr,
+    dns: &crate::dns_fixture::Dns,
+) -> (Proxy, crate::RunningProxy) {
+    start_config(address, false, dns, None, true).await
+}
+async fn start_config(
+    address: std::net::SocketAddr,
+    multi: bool,
+    dns: &crate::dns_fixture::Dns,
+    node: Option<&crate::dns_fixture::Dns>,
+    tls: bool,
+) -> (Proxy, crate::RunningProxy) {
     let mut policy = dns.config();
     let mut backend = dns.server();
     let zero_config::DnsServerConfig::Udp { detour, .. } = &mut backend else {
@@ -105,11 +120,16 @@ pub(super) async fn start_with_node(
     if let Some(node) = node {
         policy.servers.insert("native".into(), node.server());
     }
-    let config=zero_config::RuntimeConfig::parse(&serde_json::json!({
+    let mut document = serde_json::json!({
         "runtime":{"dns":policy},
         "outbounds":[{"tag":"grpc","protocol":{"type":"vless","server":if node.is_some(){"grpc.actual.node.test"}else{"127.0.0.1"},"port":address.port(),"id":ID,"grpc":{"service_names":["actual.dns/Tun"],"multi_mode":multi}}}],
         "route":{"final":{"type":"direct"}}
-    }).to_string()).unwrap();
+    });
+    if tls {
+        document["outbounds"][0]["protocol"]["tls"] =
+            serde_json::json!({"server_name":"localhost"});
+    }
+    let config = zero_config::RuntimeConfig::parse(&document.to_string()).unwrap();
     let proxy = Proxy::new(config.clone()).unwrap();
     proxy.resolver.set_outbound_connector(Arc::new(NoLegacy));
     let running = proxy.spawn();
