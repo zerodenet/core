@@ -74,6 +74,9 @@ fn cancelled_replacement_keeps_the_loan_fence_until_the_host_stages_actual_owner
     let b = owner(12);
     host.publish(vec![a.clone(), b.clone()].into_iter());
     host.freeze_loans().retain();
+    // A rejected/nested Source preflight must not unseal the retained original
+    // replacement's fence when its own temporary guard is dropped.
+    drop(host.freeze_loans());
     assert!(host
         .borrow_from(a.clone(), vec![b.clone()], &Default::default())
         .is_err());
