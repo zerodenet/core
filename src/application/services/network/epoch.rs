@@ -97,6 +97,11 @@ impl Epoch {
             failed: AtomicBool::new(false),
         }))
     }
+    pub(super) fn needs_retirement(&self) -> bool {
+        self.closing.load(Ordering::Acquire)
+            || self.failed.load(Ordering::Acquire)
+            || !self.faults.lock().unwrap().is_empty()
+    }
     pub(super) fn closed(&self) -> bool {
         self.confirmed.load(Ordering::Acquire)
     }

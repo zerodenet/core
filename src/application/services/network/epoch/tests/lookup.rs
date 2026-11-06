@@ -84,18 +84,32 @@ async fn real_lookup_is_registered_on_the_same_epoch_scope_and_does_not_create_a
     assert!(epoch.closed());
 }
 
+#[cfg(feature = "event-dispatcher")]
 #[tokio::test]
 async fn physically_retired_epoch_fault_retains_original_task_sources_and_allows_a_new_same_endpoint_generation()
  {
     let network = super::super::super::ApplicationEventSinkTcpDialer::for_test(
         EgressInterfaceControl::default(),
     );
+    network
+        .originals
+        .install_after_retirement(NonZeroUsize::new(1).unwrap())
+        .unwrap();
     network.begin_generation().unwrap();
     let epoch = network.current().unwrap();
     let witness = epoch
         .spawn(Box::pin(async { panic!("original Epoch worker failure") }))
         .unwrap();
-    let fault = network.retire_generation(end()).await.unwrap_err();
+    let fault = tokio::time::timeout_at(end(), async {
+        loop {
+            if let Err(fault) = network.prepare_request_owned(end()).await {
+                break fault;
+            }
+            tokio::task::yield_now().await;
+        }
+    })
+    .await
+    .unwrap();
     assert!(epoch.closed());
     assert!(network.retirement_complete());
     assert!(witness.is_joined());
@@ -122,7 +136,8 @@ async fn physically_retired_epoch_fault_retains_original_task_sources_and_allows
         "returned fault archive retained the actual joined error Arc"
     );
     let old = Arc::downgrade(&epoch);
-    network.begin_generation().unwrap();
+    assert_eq!(network.originals.snapshot().charged, 0);
+    network.prepare_request_owned(end()).await.unwrap();
     let fresh = network.current().unwrap();
     assert!(!Arc::ptr_eq(&epoch, &fresh));
     drop(epoch);
@@ -130,7 +145,15 @@ async fn physically_retired_epoch_fault_retains_original_task_sources_and_allows
         old.upgrade().is_some(),
         "returned typed failure retains the actual fault receiver"
     );
-    let (mut stream, mut peer) = connected(&fresh).await;
+    use zero_connector::EventSinkTcpDialer;
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let address = listener.local_addr().unwrap();
+    let mut stream = tokio::select! {
+        stream = network.connect(address.ip().to_string(), address.port()) => stream.unwrap(),
+        _ = fresh.drive() => panic!("actual new generation stopped before connect"),
+    };
+    let mut peer = listener.accept().await.unwrap().0;
+    assert_eq!(network.originals.snapshot().charged, 1);
     fresh
         .spawn(Box::pin(async move {
             stream.write_all(b"again").await.unwrap();
@@ -144,6 +167,7 @@ async fn physically_retired_epoch_fault_retains_original_task_sources_and_allows
     assert_eq!(&bytes, b"again");
     network.retire_generation(end()).await.unwrap();
     assert!(network.retirement_complete());
+    assert_eq!(network.originals.snapshot().charged, 0);
     drop(fault);
     assert!(old.upgrade().is_none());
 }
