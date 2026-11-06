@@ -5,6 +5,12 @@ use crate::component::{
 use std::sync::Arc;
 use zero_config::RuntimeConfig;
 impl super::ProtocolInventory {
+    pub(crate) fn try_pause_replacement_users(
+        &self,
+        candidate: &Arc<ComponentPlan>,
+    ) -> Result<crate::component::catalog::ReplacementUsersPause, zero_platform_tokio::contract::ChannelError> {
+        self.host.components().try_pause_replacement_users(candidate)
+    }
     /// Inline across the whole runtime and passive nested operations. This
     /// elects a join consumer; it never spawns another owner/task registry.
     pub(crate) async fn drive_component_supervision<T>(

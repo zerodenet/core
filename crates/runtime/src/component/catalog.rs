@@ -4,6 +4,8 @@ mod devices;
 mod discard;
 mod maintenance;
 mod plan;
+mod quiescence;
+pub use quiescence::ReplacementUsersPause;
 mod replacement;
 mod restoration;
 mod retirement;

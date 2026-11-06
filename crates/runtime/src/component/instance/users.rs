@@ -12,8 +12,16 @@ pub(in crate::component) struct Users {
     component: ComponentId,
     enabled: OnceLock<bool>,
     active: AtomicUsize,
+    admission_paused: std::sync::Mutex<bool>,
     cancel: CancellationToken,
     changed: Notify,
+}
+/// A reversible admission barrier; it is never evidence of original closure.
+pub(in crate::component) struct PausedUsers(Arc<Users>);
+impl Drop for PausedUsers {
+    fn drop(&mut self) {
+        *self.0.admission_paused.lock().expect("user admission poisoned") = false;
+    }
 }
 pub(in crate::component) struct Lease {
     owners: Vec<Arc<Users>>,
@@ -35,6 +43,7 @@ impl Users {
             component,
             enabled: OnceLock::new(),
             active: AtomicUsize::new(0),
+            admission_paused: std::sync::Mutex::new(false),
             cancel: CancellationToken::new(),
             changed: Notify::new(),
         }
@@ -54,6 +63,10 @@ impl Users {
         }
     }
     fn acquire(&self) -> Result<(), ChannelError> {
+        let paused = self.admission_paused.lock().expect("user admission poisoned");
+        if *paused {
+            return Err(invalid(Reason::StalePlan, "component users paused for replacement"));
+        }
         let mut count = self.active.load(Ordering::Acquire);
         loop {
             let next = count
@@ -69,6 +82,14 @@ impl Users {
                 Err(current) => count = current,
             }
         }
+    }
+    pub(in crate::component) fn try_pause(self: &Arc<Self>) -> Result<PausedUsers, ChannelError> {
+        let mut paused = self.admission_paused.lock().expect("user admission poisoned");
+        if *paused || self.active.load(Ordering::Acquire) != 0 {
+            return Err(invalid(Reason::Capacity, "replacement retains active component users"));
+        }
+        *paused = true;
+        Ok(PausedUsers(self.clone()))
     }
     #[cfg(test)]
     fn enter(
