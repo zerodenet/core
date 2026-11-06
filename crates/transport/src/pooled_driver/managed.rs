@@ -97,10 +97,22 @@ impl ManagedPool {
         for record in records {
             record.receive_available();
         }
-        self.records
-            .lock()
-            .unwrap()
-            .retain(|record| !record.closed());
+        let removed = {
+            let mut records = self.records.lock().unwrap();
+            let mut removed = Vec::new();
+            let mut index = 0;
+            while index < records.len() {
+                if records[index].closed() {
+                    removed.push(records.remove(index));
+                } else {
+                    index += 1;
+                }
+            }
+            removed
+        };
+        // The final Arc can own protocol/native state. Never drop it while the
+        // actual pool census mutex is held.
+        drop(removed);
     }
     async fn reap(&self, deadline: Instant) -> Result<(), ChannelError> {
         let records = self.records.lock().unwrap().clone();
@@ -144,7 +156,7 @@ impl ManagedPool {
         }
         let mut grant = self.grants.reserve().map_err(std::io::Error::other)?;
         let view = grant.claim_driver_view().map_err(std::io::Error::other)?;
-        let record = Physical::new(grant.adoption(), self);
+        let record = Physical::new(grant.adoption(), grant.cancellation(), view, self);
         {
             let mut records = self.records.lock().unwrap();
             records.push(record.clone());
@@ -233,7 +245,6 @@ impl ManagedPool {
                 driver,
                 |driver| async move {
                     let _body = body;
-                    let _view = view;
                     tokio::select! { biased; _=cancel.cancelled()=>{}, _=driver=>{} }
                     Ok(())
                 },

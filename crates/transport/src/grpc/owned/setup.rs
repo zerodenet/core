@@ -1,26 +1,8 @@
 //! Private gRPC initializer handoff; this is not another transport executor.
 use super::{state::Physical, *};
-use std::{error::Error, fmt, future::Future, sync::Arc};
-
-#[derive(Debug)]
-struct Source(Arc<ChannelError>);
-impl fmt::Display for Source {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        fmt::Display::fmt(self.0.as_ref(), f)
-    }
-}
-impl Error for Source {
-    fn source(&self) -> Option<&(dyn Error + 'static)> {
-        Some(self.0.as_ref())
-    }
-}
+use std::{future::Future, sync::Arc};
 fn same_source(source: Arc<ChannelError>) -> ChannelError {
-    let mut error = ChannelError::new(source.stage, source.reason, source.impact);
-    error.component = source.component;
-    error.session = source.session;
-    error.delivery = source.delivery;
-    error.retry = source.retry;
-    error.with_source(Source(source))
+    ChannelError::retained(source)
 }
 struct CancelOnDrop(Option<CancellationToken>);
 impl Drop for CancelOnDrop {
