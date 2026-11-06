@@ -2,6 +2,7 @@ use super::*;
 use crate::application::services::{
     network::ApplicationEventSinkTcpDialer,
     startup::{ApplicationStartupSlot, StartupPause},
+    StatusMonitor,
 };
 use std::sync::Arc;
 

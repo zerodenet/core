@@ -1,5 +1,59 @@
 use super::*;
+use crate::application::services::StatusMonitor;
 use zero_proxy::ConfigApplyReconciler;
+
+#[tokio::test]
+async fn normal_sampler_replacement_keeps_supervision_on_the_next_published_scope() {
+    use std::{future::Future, task::Poll};
+    let directory = tempfile::tempdir().unwrap();
+    let mut config = RuntimeConfig::parse(&config_json("before.jsonl", 0)).unwrap();
+    config.source_dir = Some(directory.path().to_owned());
+    let services = ApplicationServices::start(Engine::new(config.clone()).unwrap(), None)
+        .await
+        .unwrap();
+    let old = services
+        .state
+        .lock()
+        .await
+        .status_monitor
+        .as_ref()
+        .unwrap()
+        .clone();
+    let mut supervision = Box::pin(services.wait_status_failure());
+    std::future::poll_fn(|cx| {
+        assert!(supervision.as_mut().poll(cx).is_pending());
+        Poll::Ready(())
+    })
+    .await;
+    config.api.event_sinks = RuntimeConfig::parse(&config_json("after.jsonl", 0))
+        .unwrap()
+        .api
+        .event_sinks;
+    tokio::select! {
+        result = &mut supervision => panic!("old sampler's normal replacement ended application supervision: {result:?}"),
+        result = services.reconcile(std::sync::Arc::new(config)) => { result.unwrap(); },
+    }
+    assert!(old.retirement_complete());
+    let current = services
+        .state
+        .lock()
+        .await
+        .status_monitor
+        .as_ref()
+        .unwrap()
+        .clone();
+    assert_ne!(old.id(), current.id());
+    std::future::poll_fn(|cx| {
+        assert!(supervision.as_mut().poll(cx).is_pending());
+        Poll::Ready(())
+    })
+    .await;
+    drop(supervision);
+    services.shutdown_status_monitor().await.unwrap();
+    services.shutdown_dispatcher().await.unwrap();
+    assert!(current.retirement_complete());
+    assert!(services.service_retirement_complete().await);
+}
 
 #[tokio::test]
 async fn dispatcher_replacement_recovers_facts_after_storage_backpressure() {
