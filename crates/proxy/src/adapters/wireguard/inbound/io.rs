@@ -83,6 +83,23 @@ impl LinkedEndpoint {
             owned_resources: OnceLock::new(),
         }
     }
+    /// A new virtual graph can retain this Source's exact native wire pipe.
+    /// This is reuse of live custody, never a task/native close receipt.
+    pub(in crate::adapters::wireguard) fn retains_active_source(
+        &self,
+        current: &Self,
+        inbound: &InboundConfig,
+    ) -> bool {
+        self.listen == inbound.listen
+            && self.listen == current.listen
+            && Arc::ptr_eq(&self.live, &current.live)
+            && Arc::ptr_eq(&self.io, &current.io)
+            && self.io.active.load(Ordering::Acquire)
+            && self.live.listener_active()
+            && inbound_protocol_identity(&inbound.protocol)
+                .is_some_and(|identity| self.live.matches_identity(identity))
+    }
+
     /// A synchronous part of the existing actual candidate publication guard.
     /// The original Source keeps its sole receiver and real driver; only its
     /// peer graph changes after the old graph's confirmed retirement.
