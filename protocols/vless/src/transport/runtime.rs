@@ -47,6 +47,9 @@ impl VlessTransportRuntime {
             .cloned()
             .collect::<Vec<_>>();
         for pool in pools {
+            // Only positive original/native/users/actual ACK evidence may
+            // release heavy retired state. Legacy exposure remains retained.
+            pool.compact_closed_owner();
             if !pool.has_host_owner() {
                 pool.retire();
             }
@@ -109,15 +112,24 @@ impl VlessTransportRuntime {
         hash.update(&(tag.len() as u64).to_be_bytes());
         hash.update(tag.as_bytes());
         hash.update(identity.as_bytes());
-        let mut pools = self.grpc_pools.lock().unwrap();
-        if pools.len() >= 4096 {
-            return Default::default();
-        }
-        pools
-            .entry(*hash.finalize().as_bytes())
-            .or_default()
-            .clone()
+        let key = *hash.finalize().as_bytes();
+        let pool = {
+            let mut pools = self.grpc_pools.lock().unwrap();
+            if let Some(pool) = pools.get(&key) {
+                pool.clone()
+            } else {
+                if pools.len() >= 4096 {
+                    return Default::default();
+                }
+                pools.entry(key).or_default().clone()
+            }
+        };
+        // No protocol destructor or proof inspection runs under the registry
+        // map lock. A retained close receipt is distinct from Arc expiration.
+        pool.compact_closed_owner();
+        pool
     }
+
     pub(super) fn xhttp_pool(
         &self,
         tag: &str,

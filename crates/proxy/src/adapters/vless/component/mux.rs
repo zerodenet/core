@@ -17,6 +17,17 @@ pub(crate) enum Options {
     Mux(Arc<::vless::component::mux::Options>),
     Grpc(Arc<::vless::component::grpc::StreamOptions>),
 }
+impl Options {
+    pub(crate) fn bind_node_dns(&mut self, dependency: zero_core::component::ComponentId) {
+        if let Self::Ordinary(options) = self {
+            *options = Arc::new((**options).clone().with_node_dns(dependency));
+        }
+    }
+}
+pub(crate) fn taskless_domain(input: &OutboundConfig) -> bool {
+    super::native_input(input)
+        && matches!(&input.protocol,OutboundProtocolConfig::Vless{server,..} if zero_core::address::parse_ip_literal(server).is_none())
+}
 pub(crate) struct Factory;
 impl ComponentFactory for Factory {
     type Options = Options;

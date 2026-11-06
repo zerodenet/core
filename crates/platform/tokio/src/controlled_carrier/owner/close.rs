@@ -104,6 +104,17 @@ async fn close_slot_until(
                     ..Default::default()
                 });
             }
+            // Native/UsersClosed are already independently observable. Only
+            // removal/refunding waits for the original caller's actual Host ACK.
+            if !crate::controlled_carrier::caller_credit::wait(slot, deadline).await {
+                return Ok(CloseReport {
+                    unfinished: vec![Unfinished::Resource(format!(
+                        "{} caller registration ACK",
+                        slot.label()
+                    ))],
+                    ..Default::default()
+                });
+            }
             let report = slot.state().pending_close.take().unwrap_or_default();
             slot.remove();
             slot.notify();
@@ -216,6 +227,7 @@ async fn close_slot_until(
                 state.closed = true;
                 state.pending_close = Some(report);
             }
+            slot.confirm_native_closed();
             slot.notify();
             continue;
         }

@@ -90,6 +90,10 @@ impl ComponentCatalog {
         loan_fence.retain();
         self.admission.signal().notify_waiters();
         Self::finish_replacement(&replacement, deadline, &mut publish).await?;
+        // Old affected originals and their real joins/ACKs have now returned.
+        // Install on the same root before any candidate native job starts.
+        self.original_budgets()
+            .install_process_limits(&config.runtime)?;
         {
             let mut state = self.state.lock().expect("component catalog poisoned");
             state.retired = None;

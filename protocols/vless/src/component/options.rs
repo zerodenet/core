@@ -171,7 +171,8 @@ impl Options {
             if matches!(
                 tls.options.ech.source().map_err(Error::Config)?,
                 Some(EchConfigSource::Dns { .. })
-            ) {
+            ) && !managed_grpc
+            {
                 return Err(Error::Unsupported(
                     "VLESS ECH DNS requires a native DNS service",
                 ));

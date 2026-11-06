@@ -8,6 +8,7 @@ use zero_platform_tokio::contract::{
     component::{BuildContext, ComponentFactory, ComponentInstance, ComponentSpec},
     lifecycle::BuildError,
 };
+#[derive(Clone)]
 pub(crate) enum Options {
     Ordinary(Arc<stateless::Options<::vmess::component::Options>>),
     Grpc(Arc<::vmess::component::grpc::Options>),
@@ -49,8 +50,11 @@ pub(crate) fn eligible(input: &OutboundConfig) -> bool {
 }
 impl Options {
     pub(crate) fn bind_node_dns(&mut self, dependency: zero_core::component::ComponentId) {
-        if let Self::Grpc(options) = self {
-            *options = Arc::new((**options).clone_with_node_dns(dependency));
+        match self {
+            Self::Grpc(options) => *options = Arc::new((**options).clone_with_node_dns(dependency)),
+            Self::Ordinary(options) => {
+                *options = Arc::new((**options).clone().with_node_dns(dependency))
+            }
         }
     }
 }
@@ -143,4 +147,9 @@ impl super::super::VmessAdapter {
             ConfigError::InvalidOutbound(format!("outbound `{}`: {source}", input.tag))
         })
     }
+}
+
+pub(crate) fn taskless_domain(input: &OutboundConfig) -> bool {
+    super::native_input(input)
+        && matches!(&input.protocol,OutboundProtocolConfig::Vmess{server,..} if zero_core::address::parse_ip_literal(server).is_none())
 }

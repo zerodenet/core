@@ -115,6 +115,13 @@ impl Execution {
     }
     pub(super) async fn query(self, name: &str) -> io::Result<EchDnsRecord> {
         let name = crate::message::normalize_domain(name)?;
+        self.check()?;
+        if crate::localhost::is_localhost(&name) {
+            return Ok(EchDnsRecord {
+                config_list: None,
+                ttl_seconds: crate::message::DEFAULT_NEGATIVE_TTL_SECONDS,
+            });
+        }
         let query = crate::message::build_query(&name, crate::message::TYPE_HTTPS)?;
         let response = self.exchange(&query).await?;
         parsed(&query, &response)
@@ -168,7 +175,7 @@ impl Execution {
                     return Err(invalid_endpoint("ECH backend is not DoH"));
                 };
                 resolver
-                    .exchange_native(self.source.provider()?, None, query, end)
+                    .exchange_native_at(self.source.provider()?, query, end, &peers)
                     .await
                     .into_parts()
                     .0

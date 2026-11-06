@@ -7,6 +7,7 @@ impl GrpcPool {
         native: bool,
         legacy: bool,
     ) -> Result<(), crate::RuntimeError> {
+        self.compact_closed_owner();
         let old = {
             let owner = self.0.ownership.lock().unwrap();
             match &*owner {
@@ -16,6 +17,13 @@ impl GrpcPool {
                         "gRPC legacy originals lack verified native/driver transfer",
                     )
                     .into())
+                }
+                Ownership::Retired(receipt) if legacy && !receipt.permits_legacy() => {
+                    return Err(std::io::Error::new(
+                        std::io::ErrorKind::PermissionDenied,
+                        "gRPC retired owner has no actual ordinary legacy handoff",
+                    )
+                    .into());
                 }
                 Ownership::Managed(old) if legacy => Some(old.clone()),
                 _ => None,
@@ -31,6 +39,7 @@ impl GrpcPool {
         Ok(())
     }
     pub(in crate::grpc) fn enter_legacy(&self) -> Result<(), crate::RuntimeError> {
+        self.compact_closed_owner();
         let old = {
             let mut owner = self.0.ownership.lock().unwrap();
             match &*owner {
@@ -39,6 +48,20 @@ impl GrpcPool {
                     return Ok(());
                 }
                 Ownership::Managed(old) => old.clone(),
+                Ownership::Retired(receipt) => {
+                    if !receipt.permits_legacy() {
+                        return Err(std::io::Error::new(
+                            std::io::ErrorKind::PermissionDenied,
+                            "fixed gRPC owner has no ordinary legacy handoff",
+                        )
+                        .into());
+                    }
+                    self.0.retired.store(false, Ordering::Release);
+                    let previous = std::mem::replace(&mut *owner, Ownership::LegacyUsed);
+                    drop(owner);
+                    drop(previous);
+                    return Ok(());
+                }
             }
         };
         if !old.options.selected_background || !old.ready_to_replace() {

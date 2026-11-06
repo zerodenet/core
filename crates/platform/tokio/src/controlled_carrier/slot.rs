@@ -68,22 +68,46 @@ impl Slot {
     pub(super) fn notify(&self) {
         self.changed.notify_waiters();
     }
+    pub(super) fn confirm_native_closed(&self) {
+        let state = self.state();
+        assert!(
+            state.closed,
+            "only actual native retirement publishes completion"
+        );
+        let native = state.control.is_some()
+            || state.packet.is_some()
+            || matches!(
+                state.packet_disposition,
+                Some(crate::controlled_datagram::AcquisitionOutcome::Closed(_))
+            );
+        let _ = self.completion.set(native);
+    }
     pub(super) fn remove(self: &Arc<Self>) {
+        self.confirm_native_closed();
+        assert!(
+            super::caller_credit::released(self),
+            "actual caller registration still owns this native credit"
+        );
         let state = self.state();
         assert!(
             state.closed,
             "only confirmed original retirement removes a slot"
         );
-        let native = state.control.is_some() || state.packet.is_some();
-        let _ = self.completion.set(native);
         drop(state);
         if let Some(owner) = self.owner.upgrade() {
-            owner.state().slots.retain(|stored| !Arc::ptr_eq(stored, self));
+            owner
+                .state()
+                .slots
+                .retain(|stored| !Arc::ptr_eq(stored, self));
         }
         // An explicit close may win while its inline continuation is waiting
         // for the original close gate. Positive settlement breaks that exact
         // continuation's custody cycle outside all metadata locks.
-        let work=self.retirement.lock().unwrap_or_else(std::sync::PoisonError::into_inner).take_closed_work();
+        let work = self
+            .retirement
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .take_closed_work();
         drop(work);
     }
     pub(super) fn unused(self: &Arc<Self>) {

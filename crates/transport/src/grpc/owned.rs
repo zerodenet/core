@@ -5,7 +5,10 @@ pub use options::{NativePoolOptions, NativePoolSettings};
 mod reception;
 mod state;
 pub(super) use state::{Managed, Ownership};
+#[cfg(feature = "tls")]
+mod ech;
 mod lifecycle;
+mod retirement;
 pub use lifecycle::NativePoolFactory;
 mod client;
 pub(super) use client::NativeClient;
@@ -15,6 +18,7 @@ mod connect;
 mod epoch;
 mod totals;
 pub use totals::{PoolBudgets, PoolTotals, TotalsFactory, TotalsOptions, TotalsProposal};
+mod candidates;
 mod logical;
 mod opening;
 mod pending;

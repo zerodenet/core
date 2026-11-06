@@ -2,6 +2,41 @@
 use super::*;
 use crate::OwnedDnsQueryTasks;
 impl DriverOwner {
+    pub(in super::super) fn native_at_capacity(&self) -> bool {
+        let mut state = self.state.lock().expect("DoH driver owner poisoned");
+        state.reap();
+        state.native.len() >= self.limit
+    }
+    pub(in super::super) fn original_changes(&self) -> &tokio::sync::Notify {
+        self.changed.as_ref()
+    }
+    pub(crate) fn preserves_host_scope(
+        &self,
+        preserves: &dyn Fn(
+            zero_core::component::ComponentInstanceId,
+            &zero_platform_tokio::contract::scope::TaskScopeIdentity,
+        ) -> bool,
+    ) -> bool {
+        let host_bound = {
+            let state = self.state.lock().expect("DoH driver owner poisoned");
+            match state.mode {
+                PoolMode::Unused => return true,
+                PoolMode::Standalone => return false,
+                PoolMode::Host(_) => true,
+            }
+        };
+        let original = self
+            .provider
+            .lock()
+            .expect("DoH original provider poisoned")
+            .as_ref()
+            .and_then(std::sync::Weak::upgrade);
+        host_bound
+            && original
+                .and_then(|provider| provider.host_scope())
+                .is_some_and(|(instance, scope)| preserves(instance, &scope))
+    }
+
     pub(in super::super) fn select_host(
         &self,
         provider: Arc<dyn crate::native::NativeDnsProvider>,

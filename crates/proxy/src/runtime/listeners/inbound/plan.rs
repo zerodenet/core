@@ -133,7 +133,12 @@ impl Plan {
                     .owner(&inbound.tag)
                     .expect("checked actual running inbound owner")
                     .wait_ready()
-                    .await?;
+                    .await
+                    .inspect_err(|source| {
+                        #[cfg(test)]
+                        eprintln!("actual reused listener {} readiness retained original failure: {source:#?}", inbound.tag);
+                        tracing::warn!(tag = %inbound.tag, ?source, "same retained listener readiness failed");
+                    })?;
                 state
                     .active_inbounds
                     .insert(inbound.tag.clone(), inbound.clone());

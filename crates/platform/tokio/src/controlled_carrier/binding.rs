@@ -91,6 +91,11 @@ impl CarrierOwnerRegistration {
                 endpoint,
                 dial,
                 max_sockets,
+            }
+            | ResourceDeclaration::ControlledNodeCarrier {
+                endpoint,
+                dial,
+                max_sockets,
             } => {
                 if endpoint.port == 0 {
                     return Err(failure(Reason::InvalidConfig));
@@ -164,6 +169,7 @@ impl BoundAuthority {
                     ..
                 }
                 | ResourceDeclaration::ControlledDirectStream { .. }
+                | ResourceDeclaration::ControlledNodeCarrier { .. }
                 | ResourceDeclaration::ControlledNodeStream { .. }
                 | ResourceDeclaration::ControlledServiceStream { .. }
         )
@@ -181,12 +187,21 @@ impl BoundAuthority {
                     | ResourceDeclaration::ControlledAssociationPool { .. }
             )
     }
+    pub(super) fn service_candidates_available(&self) -> bool {
+        self.background_custody_available()
+            || (self.available()
+                && matches!(
+                    self.declaration,
+                    ResourceDeclaration::ControlledNodeCarrier { .. }
+                ))
+    }
     pub(super) fn transferred_custody_available(&self) -> bool {
         self.background_custody_available()
             || (self.available()
                 && matches!(
                     self.declaration,
                     ResourceDeclaration::ControlledNodeStream { .. }
+                        | ResourceDeclaration::ControlledNodeCarrier { .. }
                 ))
     }
     pub(super) fn matches(
@@ -204,7 +219,8 @@ impl BoundAuthority {
                 | ResourceDeclaration::ControlledDirectStream { max_sockets, .. } => {
                     *max_sockets == limit
                 }
-                ResourceDeclaration::ControlledNodeStream { max_sockets, .. } => {
+                ResourceDeclaration::ControlledNodeStream { max_sockets, .. }
+                | ResourceDeclaration::ControlledNodeCarrier { max_sockets, .. } => {
                     *max_sockets == limit
                 }
                 _ => false,
@@ -217,6 +233,8 @@ impl BoundAuthority {
     }
     fn matches_node(&self, destination: &Destination, binding: &UpstreamBinding) -> bool {
         matches!(&self.declaration, ResourceDeclaration::ControlledNodeStream { endpoint, dial, .. }
+            | ResourceDeclaration::ControlledNodeCarrier { endpoint, dial, .. }
+            | ResourceDeclaration::ControlledAssociationPool { endpoint, dial, .. }
             if endpoint == destination && dial == &binding.dial && binding.prefix.is_empty())
     }
     pub(super) fn permits_native(
@@ -232,9 +250,16 @@ impl BoundAuthority {
                     && binding.prefix.is_empty()
                     && context.session.is_none()
             }
-            ResourceDeclaration::ControlledCarrierPool { endpoint, dial, .. }
-            | ResourceDeclaration::ControlledAssociationPool { endpoint, dial, .. } => {
+            ResourceDeclaration::ControlledCarrierPool { endpoint, dial, .. } => {
                 endpoint == destination && dial == &binding.dial && context.session.is_none()
+            }
+            ResourceDeclaration::ControlledAssociationPool { endpoint, dial, .. } => {
+                // None keeps the same original Service/BND authority. Some
+                // still requires NativeCarrierOpener's sealed Business ticket
+                // and its actual bound caller before any native preparation.
+                endpoint == destination
+                    && dial == &binding.dial
+                    && context.session.is_none_or(|session| session.0 != 0)
             }
             ResourceDeclaration::ControlledOutboundStream {
                 endpoint,
@@ -258,6 +283,13 @@ impl BoundAuthority {
                 self.matches_direct(destination, binding)
                     && context.session.is_some_and(|id| id.0 != 0)
             }
+            ResourceDeclaration::ControlledNodeCarrier { .. } => {
+                // NativeCarrierOpener independently requires the original sealed
+                // Business grant whenever session is Some; None is actual
+                // transferred taskless Service custody, never a Business ticket.
+                self.matches_node(destination, binding)
+                    && context.session.is_none_or(|id| id.0 != 0)
+            }
             ResourceDeclaration::ControlledNodeStream { .. } => {
                 self.matches_node(destination, binding)
                     && context.session.is_some_and(|id| id.0 != 0)
@@ -278,7 +310,8 @@ impl BoundAuthority {
         match self.declaration {
             ResourceDeclaration::ControlledCarrierPool { datagram, .. } => Some(datagram),
             ResourceDeclaration::ControlledAssociationPool { .. }
-            | ResourceDeclaration::ControlledServiceStream { .. } => Some(false),
+            | ResourceDeclaration::ControlledServiceStream { .. }
+            | ResourceDeclaration::ControlledNodeCarrier { .. } => Some(false),
             _ => None,
         }
     }
@@ -305,6 +338,8 @@ impl BoundAuthority {
             && !matches!(
                 self.declaration,
                 ResourceDeclaration::ControlledServiceStream { .. }
+                    | ResourceDeclaration::ControlledNodeCarrier { .. }
+                    | ResourceDeclaration::ControlledAssociationPool { .. }
             )
             && !self.host_cancel.is_cancelled()
             && self.scope.resource_open()
@@ -314,7 +349,10 @@ impl BoundAuthority {
         // This checks the original binding/scope, not available task credit.
         // The same real registrar must perform the tracked registration and
         // return its Capacity/Closing source, including a zero-task scope.
-        !self.host_cancel.is_cancelled()
+        !matches!(
+            self.declaration,
+            ResourceDeclaration::ControlledNodeCarrier { .. }
+        ) && !self.host_cancel.is_cancelled()
             && self.scope.matches(registrar)
             && self.scope.resource_open()
     }
@@ -357,11 +395,21 @@ impl CarrierOwnerBinding {
     pub fn matches_node(&self, destination: &Destination, binding: &UpstreamBinding) -> bool {
         self.authority.matches_node(destination, binding)
     }
+    /// Descriptor eligibility only. This never authorizes a Business session;
+    /// the host issuer still validates its exact original grant/caller/fence.
+    pub fn supports_business(&self) -> bool {
+        self.demand() == ControlledStreamDemandClass::Business
+            || matches!(
+                self.authority.declaration,
+                ResourceDeclaration::ControlledAssociationPool { .. }
+            )
+    }
     pub fn demand(&self) -> ControlledStreamDemandClass {
         match &self.authority.declaration {
             ResourceDeclaration::ControlledOutboundStream { demand, .. } => *demand,
             ResourceDeclaration::ControlledDirectStream { .. }
-            | ResourceDeclaration::ControlledNodeStream { .. } => {
+            | ResourceDeclaration::ControlledNodeStream { .. }
+            | ResourceDeclaration::ControlledNodeCarrier { .. } => {
                 ControlledStreamDemandClass::Business
             }
             ResourceDeclaration::ControlledDatagramCarrier { .. } => {

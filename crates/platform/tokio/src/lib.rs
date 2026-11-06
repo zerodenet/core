@@ -1,5 +1,8 @@
+pub mod owned_process;
 #[cfg(any(unix, windows))]
 pub mod parent_input;
+#[cfg(feature = "native-packet-origin")]
+pub use zero_tun::packet_memory;
 pub mod contract;
 pub mod controlled_icmp;
 pub mod rate_limit;
@@ -38,12 +41,12 @@ use zero_traits::{
 
 pub mod controlled_carrier;
 pub mod controlled_datagram;
+#[cfg(windows)]
+mod controlled_pipe;
 mod controlled_tcp;
 mod datagram;
 #[cfg(windows)]
 mod windows_socket;
-#[cfg(windows)]
-mod controlled_pipe;
 #[cfg(windows)]
 pub use controlled_pipe::{ControlledPipe, ControlledPipeOwner, PipeClosed, PipeNativeFailures};
 #[cfg(any(unix, windows))]

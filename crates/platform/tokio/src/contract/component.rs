@@ -37,6 +37,7 @@ mod metadata_datagram;
 pub use metadata_datagram::{GrantedMetadataListener, MetadataDatagramRequest};
 
 use super::{
+    BoxFuture,
     datagram::DynDatagramOutbound,
     inbound::DynInboundSource,
     lifecycle::{BuildError, DynResourceLifecycle},
@@ -44,7 +45,6 @@ use super::{
     packet::{BoxPacketSession, DynPacketOutbound},
     scope::{TaskJoinWitness, TaskRegistrar},
     stream::DynStreamOutbound,
-    BoxFuture,
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -129,6 +129,16 @@ pub enum ResourceDeclaration {
     /// grants no prefix authority; a relay requires the distinct sealed host
     /// issuer and its installed preparation over this same original control.
     ControlledNodeStream {
+        endpoint: Destination,
+        dial: zero_traits::DialPolicy,
+        max_sockets: NonZeroUsize,
+    },
+    /// One taskless per-connection owner shared by real admitted Business and
+    /// transferred Service views. Both demand classes consume the same native
+    /// limit/registration. Business still needs its sealed host ticket and
+    /// original caller witness; this descriptor grants neither. Service custody
+    /// has no cached-driver handoff and remains with the awaiting caller.
+    ControlledNodeCarrier {
         endpoint: Destination,
         dial: zero_traits::DialPolicy,
         max_sockets: NonZeroUsize,
@@ -500,6 +510,21 @@ pub trait ResourceAccess: Send + Sync {
             super::Impact::Component,
         )
         .with_source(std::io::Error::other("undeclared native process")))
+    }
+    /// Cold original installed by the actual host before native acquisition.
+    /// The existing registered actor starts/drives it; no second Scope exists.
+    #[cfg(target_os = "linux")]
+    fn prepare_owned_process(
+        &self,
+        _: ProcessRequest,
+        _: &super::scope::TaskRegistrar,
+    ) -> Result<std::sync::Arc<crate::owned_process::OwnedProcess>, BuildError> {
+        Err(super::ChannelError::new(
+            super::Stage::Prepare,
+            super::Reason::InvalidConfig,
+            super::Impact::Component,
+        )
+        .with_source(std::io::Error::other("undeclared owned process")))
     }
     fn select_bound_outbound_datagram(
         &self,

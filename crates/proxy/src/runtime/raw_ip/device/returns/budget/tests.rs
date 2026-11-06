@@ -65,3 +65,26 @@ fn actual_devices_and_retired_buffers_share_one_root_and_block_ceiling_reduction
     totals.install(1, 3).unwrap();
     assert!(second.retain(vec![8, 9, 10].into()).is_ok());
 }
+
+#[test]
+fn actual_spare_capacity_is_retained_by_the_same_return_credit() {
+    let root = Arc::new(PacketReturnTotals::default());
+    root.install(1, 64).unwrap();
+    let budget = ReturnBudget::with_totals(1, 64, root.clone());
+    let mut original = Vec::with_capacity(64);
+    original.extend_from_slice(&[1, 2, 3]);
+    let pointer = original.as_ptr();
+    let held = budget.retain(original.into()).unwrap();
+    assert_eq!(held.as_ptr(), pointer);
+    assert_eq!(held.len(), 3);
+    assert_eq!(root.returns().occupied.bytes, 64);
+    assert_eq!(
+        root.install(1, 3).unwrap_err().kind(),
+        std::io::ErrorKind::WouldBlock
+    );
+    drop(budget);
+    assert_eq!(root.returns().occupied.bytes, 64);
+    drop(held);
+    assert_eq!(root.returns().occupied.bytes, 0);
+    root.install(1, 3).unwrap();
+}

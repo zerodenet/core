@@ -21,11 +21,9 @@ impl TransportOwners {
                 }
                 _ => false,
             });
-        if let Some((_, backend)) = state
-            .endpoints
-            .iter()
-            .find(|(current, backend)| *current == key && backend.resource_admission_open())
-        {
+        if let Some((_, backend)) = state.endpoints.iter().find(|(current, backend)| {
+            current.same_endpoint(&key) && backend.resource_admission_open()
+        }) {
             return Ok(backend.clone());
         }
         // Construction is cold and synchronous under the original registry's

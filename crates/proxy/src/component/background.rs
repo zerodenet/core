@@ -15,10 +15,10 @@ use zero_platform_tokio::{
         stream::BoxStream,
         BoxFuture, ChannelError, Reason,
     },
-    controlled_carrier::ResolvingCarrierOpener,
     EgressInterfaceControl,
 };
 
+#[cfg(feature = "vless")]
 pub(crate) mod grpc;
 mod pending;
 pub(crate) mod pool;
@@ -210,21 +210,13 @@ impl BackgroundCarrier {
                 ));
             }
             if binding.prefix.is_empty() {
-                let resolver = self
-                    .network
-                    .resolver
-                    .get()
-                    .and_then(Weak::upgrade)
-                    .ok_or_else(invalid)?;
-                let observer = services.outbound_io(&self.tag, zero_api::TrafficPlane::Outer);
-                let opener = ResolvingCarrierOpener::new(
-                    self.instance,
-                    binding.clone(),
+                let opener = super::stream_bridge::network::NodeOpener::new(
+                    services.upstream_observed(&self.tag),
                     self.endpoint.clone(),
-                    resolver,
-                    Arc::new(self.network.egress.clone()),
-                    observer,
-                )?;
+                )
+                .with_pending(binding.clone(), waiting)
+                .with_service_call(call)
+                .with_carrier_owner(self.instance);
                 Ok(UpstreamTransport::new(binding, Arc::new(opener)))
             } else {
                 let nodes = services.protocols().background_nodes(&services, &binding)?;

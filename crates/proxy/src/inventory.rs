@@ -47,12 +47,21 @@ pub struct ProtocolInventory {
 impl Default for ProtocolInventory {
     fn default() -> Self {
         let (registry, factories, devices) = crate::register::compiled_registries();
+        let originals = std::sync::Arc::new(zero_runtime::HostOriginalBudgets {
+            #[cfg(target_os = "linux")]
+            process: std::sync::Arc::default(),
+            #[cfg(feature = "raw-ip-runtime")]
+            packet: devices.packet_return_totals.clone(),
+        });
+        let host = std::sync::Arc::new(crate::runtime::RuntimeHost::with_original_budgets(
+            factories, originals,
+        ));
         Self {
             registry: std::sync::Arc::new(registry),
             devices,
             #[cfg(feature = "raw-ip-runtime")]
             device_publication: Default::default(),
-            host: std::sync::Arc::new(crate::runtime::RuntimeHost::new(factories)),
+            host,
         }
     }
 }
@@ -63,12 +72,21 @@ impl ProtocolInventory {
     ) -> Self {
         let (registry, factories, devices) =
             crate::register::compiled_registries_with_background(Some(network));
+        let originals = std::sync::Arc::new(zero_runtime::HostOriginalBudgets {
+            #[cfg(target_os = "linux")]
+            process: std::sync::Arc::default(),
+            #[cfg(feature = "raw-ip-runtime")]
+            packet: devices.packet_return_totals.clone(),
+        });
+        let host = std::sync::Arc::new(crate::runtime::RuntimeHost::with_original_budgets(
+            factories, originals,
+        ));
         Self {
             registry: std::sync::Arc::new(registry),
             devices,
             #[cfg(feature = "raw-ip-runtime")]
             device_publication: Default::default(),
-            host: std::sync::Arc::new(crate::runtime::RuntimeHost::new(factories)),
+            host,
         }
     }
     pub(crate) fn with_node_network(
@@ -76,12 +94,21 @@ impl ProtocolInventory {
     ) -> Self {
         let (registry, factories, devices) =
             crate::register::compiled_registries_with_network(None, Some(network));
+        let originals = std::sync::Arc::new(zero_runtime::HostOriginalBudgets {
+            #[cfg(target_os = "linux")]
+            process: std::sync::Arc::default(),
+            #[cfg(feature = "raw-ip-runtime")]
+            packet: devices.packet_return_totals.clone(),
+        });
+        let host = std::sync::Arc::new(crate::runtime::RuntimeHost::with_original_budgets(
+            factories, originals,
+        ));
         Self {
             registry: std::sync::Arc::new(registry),
             devices,
             #[cfg(feature = "raw-ip-runtime")]
             device_publication: Default::default(),
-            host: std::sync::Arc::new(crate::runtime::RuntimeHost::new(factories)),
+            host,
         }
     }
 }

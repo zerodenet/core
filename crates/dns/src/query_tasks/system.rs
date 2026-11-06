@@ -74,6 +74,7 @@ impl OwnedDnsQueryTasks {
         let ancestors = self.ancestors_of(&parent, &caller)?;
         let record = Arc::new(Record {
             budget: self.0.budget.clone(),
+            ech: Mutex::new(None),
             capacity: Mutex::new(Some(self.0.budget.reserve(TaskKind::Blocking)?)),
             kind: TaskKind::Blocking,
             ancestors,

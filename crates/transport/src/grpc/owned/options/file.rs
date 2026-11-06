@@ -31,6 +31,25 @@ impl CaFile {
         identity.extend_from_slice(&(self.max_bytes as u64).to_le_bytes());
     }
     #[cfg(feature = "tls")]
+    pub(in crate::grpc::owned) fn prepare_material(
+        &self,
+        profile: &crate::profile::OwnedClientTlsProfile,
+        server: &str,
+    ) -> std::io::Result<crate::tls::OwnedPreparedClient> {
+        let bytes = self.snapshot.get().ok_or_else(|| {
+            std::io::Error::new(
+                std::io::ErrorKind::PermissionDenied,
+                "actual CA File material is absent",
+            )
+        })?;
+        crate::tls::OwnedPreparedClient::from_material(
+            profile,
+            self.source_dir.as_deref(),
+            server,
+            Some(bytes),
+        )
+    }
+    #[cfg(feature = "tls")]
     pub(in crate::grpc::owned) async fn prepare(
         &self,
         options: &NativePoolOptions,
@@ -57,8 +76,13 @@ impl CaFile {
             .tls
             .as_ref()
             .ok_or_else(|| error(instance, Stage::Prepare, Reason::StalePlan))?;
+        // Cold CA validation never emits TLS I/O. Dynamic ECH is resolved in
+        // the actual preparation task, using these same authorized bytes.
+        let validation = super::super::ech::validation_profile(tls).map_err(|source| {
+            error(instance, Stage::Prepare, Reason::InvalidConfig).with_source(source)
+        })?;
         let prepared = crate::tls::OwnedPreparedClient::from_material(
-            tls,
+            &validation,
             self.source_dir.as_deref(),
             &options.settings.server,
             Some(&bytes),

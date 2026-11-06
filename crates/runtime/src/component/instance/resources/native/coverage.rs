@@ -12,6 +12,7 @@ pub(in crate::component) enum DeclaredResourceKind {
     ControlledDirectStream,
     ControlledPacketDevice,
     ControlledNodeStream,
+    ControlledNodeCarrier,
     NativeIcmp,
     MetadataDatagram,
     ControlledMetadataDatagram,
@@ -39,6 +40,8 @@ pub(in crate::component) enum DeclarationProvider {
     PacketDevice(usize),
     BoundDatagram(usize),
     Icmp,
+    #[cfg(target_os = "linux")]
+    Process(usize),
     Unaccounted,
 }
 #[derive(Clone, Debug)]
@@ -82,6 +85,9 @@ impl CoverageBinding {
             }
             ResourceDeclaration::ControlledDatagramCarrier { .. } => {
                 Self::Carrier(DeclaredResourceKind::ControlledDatagramCarrier)
+            }
+            ResourceDeclaration::ControlledNodeCarrier { .. } => {
+                Self::Carrier(DeclaredResourceKind::ControlledNodeCarrier)
             }
             ResourceDeclaration::ControlledNodeStream { .. } => {
                 Self::Carrier(DeclaredResourceKind::ControlledNodeStream)
@@ -191,12 +197,28 @@ impl evidence::HostIoEvidence {
         let mut roots = vec![false; self.roots.len()];
         let mut packets = vec![false; self.packets.len()];
         let mut bounds = vec![false; self.bounds.len()];
+        #[cfg(target_os = "linux")]
+        let mut processes = vec![false; self.processes.len()];
         let mut icmp_seen = false;
         for (ordinal, declaration) in self.declarations.iter().enumerate() {
             if declaration.ordinal != ordinal {
                 return false;
             }
             let confirmed = match declaration.provider {
+                #[cfg(target_os = "linux")]
+                DeclarationProvider::Process(index)
+                    if declaration.kind == DeclaredResourceKind::Process =>
+                {
+                    match (self.processes.get(index), processes.get_mut(index)) {
+                        (Some(owner), Some(seen))
+                            if !*seen && owner.ordinal == ordinal && owner.registered =>
+                        {
+                            *seen = true;
+                            owner.confirmed
+                        }
+                        _ => false,
+                    }
+                }
                 DeclarationProvider::Icmp
                     if declaration.kind == DeclaredResourceKind::NativeIcmp && !icmp_seen =>
                 {
@@ -272,6 +294,7 @@ impl evidence::HostIoEvidence {
                             | DeclaredResourceKind::ControlledCarrierPool
                             | DeclaredResourceKind::ControlledServiceStream
                             | DeclaredResourceKind::ControlledDatagramCarrier
+                            | DeclaredResourceKind::ControlledNodeCarrier
                             | DeclaredResourceKind::ControlledNodeStream
                             | DeclaredResourceKind::ControlledDirectStream
                     ) =>
@@ -315,6 +338,10 @@ impl evidence::HostIoEvidence {
             if !confirmed {
                 return false;
             }
+        }
+        #[cfg(target_os = "linux")]
+        if !processes.into_iter().all(|seen| seen) {
+            return false;
         }
         icmp_seen == self.icmp.is_some()
             && files.into_iter().all(|seen| seen)

@@ -4,15 +4,15 @@ use std::{
     io,
     path::PathBuf,
     sync::{
-        Arc,
         atomic::{AtomicBool, AtomicU64, Ordering},
+        Arc,
     },
 };
 use tokio::{sync::oneshot, task::JoinSet};
 use tracing::{debug, info, warn};
 use zero_platform_tokio::{
+    contract::{scope::TaskScope, CancellationToken},
     ControlledPipe, ControlledPipeOwner,
-    contract::{CancellationToken, scope::TaskScope},
 };
 use zero_proxy::ProxyHandle;
 mod client;
@@ -40,6 +40,7 @@ impl IpcServerHandle {
         self.task.join().await
     }
     pub async fn shutdown(&self) -> io::Result<()> {
+        self.task.close_admission();
         if let Some(stop) = self
             .shutdown
             .lock()
@@ -97,6 +98,7 @@ impl IpcServerHandle {
         if self.started.swap(true, Ordering::AcqRel) {
             return Err(io::Error::other("IPC original owner already started"));
         }
+        let registration = self.task.reserve()?;
         let registrar = self.scope.lock().await.registrar();
         let entry = self
             .originals
@@ -127,9 +129,16 @@ impl IpcServerHandle {
         let scope = self.scope.clone();
         let budget = self.budget.clone();
         let path = self.path.clone();
-        self.task.install(tokio::spawn(async move {
+        let (begin, started) = oneshot::channel();
+        registration.install(tokio::spawn(async move {
+            started
+                .await
+                .map_err(|_| io::Error::other("IPC startup gate closed"))?;
             run_server(path, handle, stopped, budget, scope, originals, pending).await
-        }))?;
+        }));
+        begin
+            .send(())
+            .map_err(|_| io::Error::other("original IPC task stopped during startup"))?;
         info!(pipe=%self.path.display(),"ipc server ready");
         Ok(())
     }
@@ -207,7 +216,7 @@ async fn run_server(
                 }
                 joined=connections.join_next_with_id(),if !connections.is_empty()=>{
                     match joined.unwrap() {
-                        Ok((id,result))=>{originals.observe_joined(id);if let Err(error)=result {if connection::is_transient_disconnect(&error) {debug!(%error,"IPC original observed peer disconnect");} else {failures.push(error);break;}}}
+                        Ok((id,result))=>{originals.observe_joined(id);if let Err(error)=result {if connection::is_transient_disconnect(&error) || connection::is_invalid_input_frame(&error) {debug!(%error,"IPC original observed peer disconnect");} else {failures.push(error);break;}}}
                         Err(error)=>{originals.observe_joined(error.id());failures.push(io::Error::other(error));break;}
                     }
                 }
@@ -227,7 +236,9 @@ async fn run_server(
             Ok((id, result)) => {
                 originals.observe_joined(id);
                 if let Err(error) = result {
-                    if !connection::is_transient_disconnect(&error) {
+                    if !connection::is_transient_disconnect(&error)
+                        && !connection::is_invalid_input_frame(&error)
+                    {
                         failures.push(error);
                     }
                 }
@@ -259,3 +270,6 @@ async fn run_server(
     info!(pipe=%path.display(),"ipc server stopped");
     owner::finish(failures)
 }
+
+#[cfg(test)]
+mod tests;

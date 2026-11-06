@@ -1,12 +1,12 @@
 //! One native holder for the canonical listener declaration, never two budgets.
 use super::*;
 use zero_platform_tokio::{
-    ControlledTcpListener,
     contract::{
-        ChannelError,
         component::ResourceDeclaration,
-        lifecycle::{DynResourceLifecycle, erase_lifecycle},
+        lifecycle::{erase_lifecycle, DynResourceLifecycle},
+        ChannelError,
     },
+    ControlledTcpListener,
 };
 pub(in crate::runtime::inbound_owners) mod handoff;
 mod metadata;
@@ -58,6 +58,7 @@ impl NativeBindGrant {
         attempts: NonZeroUsize,
         cancel: CancellationToken,
         registrar: &zero_platform_tokio::contract::scope::TaskRegistrar,
+        originals: Arc<zero_runtime::HostOriginalBudgets>,
         owner: Weak<InboundOwner>,
     ) -> Result<Self, ChannelError> {
         let declaration = declarations.first().ok_or_else(|| {
@@ -85,7 +86,7 @@ impl NativeBindGrant {
         }
         match declaration {
             ResourceDeclaration::MetadataDatagram { .. } => {
-                let resources = crate::component::instance::HostResources::new_for_instance(
+                let resources = crate::component::instance::HostResources::new_hosted(
                     identity,
                     &declarations
                         .iter()
@@ -99,7 +100,8 @@ impl NativeBindGrant {
                         .cloned()
                         .collect::<Vec<_>>(),
                     cancel.clone(),
-                    registrar.scope_identity(),
+                    registrar.downgrade(),
+                    originals.clone(),
                 )?;
                 let tcp = tcp_group::prepare(identity, declarations, attempts, cancel, registrar)?;
                 Ok(Self::Metadata { resources, tcp })
@@ -123,6 +125,7 @@ impl NativeBindGrant {
                 cancel,
                 registrar.clone(),
             )
+            .map(|grant| grant.with_original_budgets(originals))
             .map(Arc::new)
             .map(Self::Datagram),
             _ => Err(ChannelError::new(

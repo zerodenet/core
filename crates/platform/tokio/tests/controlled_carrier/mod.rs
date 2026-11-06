@@ -147,3 +147,6 @@ mod related_custody;
 mod direct_service;
 
 mod retirement_progress;
+
+#[path = "credit.rs"]
+mod credit;

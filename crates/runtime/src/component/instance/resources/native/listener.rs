@@ -9,6 +9,10 @@ use zero_platform_tokio::contract::lifecycle::CloseReport;
 /// both this owner and a second HostResources owner for that same declaration.
 pub struct HostDatagramListenerOwner {
     component: ComponentId,
+    originals: Option<(
+        Arc<crate::HostOriginalBudgets>,
+        zero_platform_tokio::contract::scope::WeakTaskRegistrar,
+    )>,
     address: SocketAddr,
     addresses: Arc<[SocketAddr]>,
     native: sockets::DatagramGrant,
@@ -44,12 +48,51 @@ impl HostDatagramListenerOwner {
         let address = sockets::literal(component, destination)?;
         Ok(Self {
             component,
+            originals: None,
             address,
             addresses: Arc::from([address]),
             native: sockets::DatagramGrant::new(component, actual_attempts, *max_pending_sends)?,
             revoked: false,
             first_fault: None,
         })
+    }
+    /// Bind only the same actual host roots and registrar, before the first native attempt.
+    pub fn bind_original_budgets(
+        &mut self,
+        originals: Arc<crate::HostOriginalBudgets>,
+        tasks: zero_platform_tokio::contract::scope::WeakTaskRegistrar,
+    ) -> Result<(), ChannelError> {
+        if let Some((actual, registrar)) = &self.originals {
+            if Arc::ptr_eq(actual, &originals)
+                && registrar
+                    .scope_identity()
+                    .same_scope(&tasks.scope_identity())
+            {
+                return Ok(());
+            }
+            return Err(error(
+                self.component,
+                Reason::StalePlan,
+                "actual listener cannot cross host original roots",
+            ));
+        }
+        if self.revoked || !self.native.known_no_acquisition() {
+            return Err(error(
+                self.component,
+                Reason::Revoked,
+                "listener original roots must precede acquisition",
+            ));
+        }
+        self.originals = Some((originals, tasks));
+        Ok(())
+    }
+    pub fn original_budgets(&self) -> Option<&Arc<crate::HostOriginalBudgets>> {
+        self.originals.as_ref().map(|(roots, _)| roots)
+    }
+    pub fn original_tasks(
+        &self,
+    ) -> Option<&zero_platform_tokio::contract::scope::WeakTaskRegistrar> {
+        self.originals.as_ref().map(|(_, tasks)| tasks)
     }
     /// The configuration host supplies its bounded, already joined system
     /// lookup. This does not resolve names or acquire a second native owner.

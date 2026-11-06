@@ -143,6 +143,11 @@ impl ResourceLifecycle for CarrierOwner {
         }
         let mut report = std::mem::take(&mut self.0.state().confirmed);
         report.append(unfinished);
+        if report.is_complete() && !self.0.state().slots.is_empty() {
+            report.unfinished.push(Unfinished::Resource(
+                "original carrier registration credit remains retained".into(),
+            ));
+        }
         if report.is_complete() {
             // Revoke preceded the exact original-slot close loop. No new
             // reservation can race this generation's explicit confirmation.

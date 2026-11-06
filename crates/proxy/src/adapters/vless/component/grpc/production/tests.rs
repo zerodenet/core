@@ -97,3 +97,60 @@ fn cold_owner_projects_configured_per_pool_and_registry_budgets_without_starting
         .spec();
     assert!(root.roles.is_empty() && root.resources.is_empty() && root.task_limit.is_none());
 }
+
+#[test]
+fn literal_ech_uses_a_declared_node_query_without_inventing_an_ip_bootstrap_requirement() {
+    use zero_platform_tokio::contract::component::{ComponentFactory, ResourceDeclaration};
+    let mut config = config(serde_json::json!([]));
+    config.runtime.dns=Some(serde_json::from_value(serde_json::json!({"servers":{"query":{"type":"udp","host":"127.0.0.1","port":53,"detour":"node"}},"default_server":"query"})).unwrap());
+    assert!(zero_dns::native::validate_node_config(config.runtime.dns.as_ref()).is_err());
+    let zero_config::OutboundProtocolConfig::Vless { tls, .. } = &mut config.outbounds[0].protocol
+    else {
+        unreachable!()
+    };
+    *tls=Some(serde_json::from_value(serde_json::json!({"server_name":"cover.test","options":{"ech_config_list":"cover.test+udp://127.0.0.1:5354"}})).unwrap());
+    assert!(whole_selected(&config, true));
+    let adapter = VlessAdapter {
+        native_node_dns: true,
+        ..Default::default()
+    };
+    let mut next = 1;
+    let mut allocate = || {
+        let id = zero_core::component::ComponentId(next);
+        next += 1;
+        Ok(id)
+    };
+    let mut resources = ResourcePreparation::new(&mut allocate).with_candidate(&config);
+    let factory = Arc::new(pool::Factory::new(Arc::new(
+        crate::component::background::BackgroundNetwork::new(Default::default()),
+    )));
+    let options = adapter
+        .production_mux_options(&config.outbounds[0], &mut resources, factory)
+        .unwrap();
+    let role = super::super::super::mux::Factory.describe(&options);
+    let entries = resources.resources().collect::<Vec<_>>();
+    let actualpool = entries
+        .iter()
+        .find(|entry| entry.component() == role.dependencies[0])
+        .unwrap()
+        .recipe()
+        .spec();
+    assert_eq!(
+        actualpool.dependencies.len(),
+        2,
+        "same root totals and actual Node query Scope"
+    );
+    assert!(entries.iter().any(|entry|actualpool.dependencies.contains(&entry.component())&&entry.recipe().spec().resources.iter().any(|resource|matches!(resource,ResourceDeclaration::ControlledCarrierPool{endpoint,datagram:true,..} if endpoint.port==5354))));
+    drop(entries);
+    drop(resources);
+    let zero_config::OutboundProtocolConfig::Vless { tls: Some(tls), .. } =
+        &mut config.outbounds[0].protocol
+    else {
+        unreachable!()
+    };
+    tls.options.ech_config_list = "cover.test+udp://domain.ech.test:5354".into();
+    assert!(
+        !whole_selected(&config, true),
+        "real Domain ECH bootstrap must use a qualified Node IP backend"
+    );
+}

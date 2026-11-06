@@ -116,11 +116,12 @@ impl SystemTunLease {
         let identity = self.owner.identity();
         let tasks = self.owner.accepted_registrar().clone();
         let cancel = self.owner.task_access().cancellation();
-        let resources = HostResources::new_for_instance(
+        let resources = HostResources::new_hosted(
             identity,
             &self.recipe.spec().resources,
             cancel.clone(),
-            tasks.scope_identity(),
+            tasks.downgrade(),
+            self.installed.protocols.runtime_host().original_budgets(),
         )
         .map_err(std::io::Error::other)?;
         // The concrete provider stays outside the main body. Its native close

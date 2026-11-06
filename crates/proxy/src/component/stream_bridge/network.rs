@@ -7,17 +7,19 @@ use std::{
 };
 use zero_core::request::Destination;
 use zero_platform_tokio::contract::{
-    BoxFuture, ChannelError, DeliveryState, Impact, Reason, Stage,
     datagram::{BoxDatagramSession, DatagramRequest},
     network::{CarrierContext, PendingCarrierObserver, UpstreamBinding, UpstreamOpener},
     stream::BoxStream,
+    BoxFuture, ChannelError, DeliveryState, Impact, Reason, Stage,
 };
 use zero_platform_tokio::controlled_carrier::{
     CarrierEndpointObserver, CarrierEndpoints, CarrierGrant, NativeCarrierOpener, PreparedCarrier,
 };
 
+mod candidates;
 mod dns;
 mod service_dns;
+mod service_selection;
 use dns::Resolved;
 
 pub(in crate::component) struct Evidence {
@@ -39,6 +41,7 @@ pub(in crate::component) struct NodeOpener {
         )>,
     >,
     pending: Option<(UpstreamBinding, PendingCarrierObserver)>,
+    carrier_owner: Option<zero_core::component::ComponentInstanceId>,
 }
 impl NodeOpener {
     pub(in crate::component) fn new(
@@ -56,6 +59,7 @@ impl NodeOpener {
             service_call: None,
             service_candidates: tokio::sync::Mutex::new(None),
             pending: None,
+            carrier_owner: None,
         }
     }
     pub(in crate::component) fn with_service_call(mut self, call: CarrierContext) -> Self {
@@ -98,6 +102,38 @@ impl CarrierEndpointObserver for ConnectedEvidence {
     }
 }
 impl UpstreamOpener for NodeOpener {
+    fn select_background_carrier(
+        &self,
+        binding: Option<UpstreamBinding>,
+        call: CarrierContext,
+    ) -> BoxFuture<
+        '_,
+        Result<zero_platform_tokio::contract::network::UpstreamTransport, ChannelError>,
+    > {
+        self.reselect_service(binding, call, None)
+    }
+    fn select_background_carrier_observed(
+        &self,
+        binding: Option<UpstreamBinding>,
+        call: CarrierContext,
+        waiting: PendingCarrierObserver,
+    ) -> BoxFuture<
+        '_,
+        Result<zero_platform_tokio::contract::network::UpstreamTransport, ChannelError>,
+    > {
+        self.reselect_service(binding, call, Some(waiting))
+    }
+    fn resolve_controlled_carrier(
+        &self,
+        binding: &UpstreamBinding,
+        endpoint: Destination,
+        call: CarrierContext,
+    ) -> BoxFuture<
+        '_,
+        Result<zero_platform_tokio::controlled_carrier::CarrierCandidates, ChannelError>,
+    > {
+        self.resolve_background_candidates(binding.clone(), endpoint, call)
+    }
     fn packet_caller(
         &self,
         binding: &UpstreamBinding,
@@ -269,6 +305,12 @@ impl UpstreamOpener for NodeOpener {
         true
     }
     fn carrier_dns_generation(&self) -> Option<zero_platform_tokio::contract::dns::DnsGeneration> {
+        if self.carrier_owner.is_some() {
+            // The same shared background pool has a Node epoch even for a
+            // literal root; nested borrowers must not retire their own setup
+            // because prefix metadata and root metadata disagree.
+            return Some(self.services.native_node_dns().generation());
+        }
         matches!(self.endpoint.address, zero_core::Address::Domain(_))
             .then(|| self.services.dns_generation())
     }

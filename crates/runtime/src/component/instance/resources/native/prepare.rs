@@ -1,4 +1,5 @@
 //! Cold construction installs declaration bindings before lifecycle start.
+mod hosted;
 use super::*;
 use zero_core::component::ComponentInstanceId;
 use zero_platform_tokio::contract::scope::TaskScopeIdentity;
@@ -9,7 +10,15 @@ impl HostResources {
         declarations: &[ResourceDeclaration],
         cancel: CancellationToken,
     ) -> Result<Arc<Self>, ChannelError> {
-        Self::construct(component, declarations, cancel, None, None)
+        Self::construct(
+            component,
+            declarations,
+            cancel,
+            None,
+            None,
+            Arc::default(),
+            None,
+        )
     }
     pub fn new_for_instance(
         instance: ComponentInstanceId,
@@ -23,25 +32,8 @@ impl HostResources {
             cancel,
             Some((instance, scope)),
             None,
-        )
-    }
-    pub(in crate::component) fn new_for_instance_with_packet_source(
-        instance: ComponentInstanceId,
-        declarations: &[ResourceDeclaration],
-        cancel: CancellationToken,
-        scope: TaskScopeIdentity,
-        source: Arc<
-            std::sync::OnceLock<
-                zero_platform_tokio::controlled_datagram::provider::NativeDatagramOrigin,
-            >,
-        >,
-    ) -> Result<Arc<Self>, ChannelError> {
-        Self::construct(
-            instance.component,
-            declarations,
-            cancel,
-            Some((instance, scope)),
-            Some(source),
+            Arc::default(),
+            None,
         )
     }
     fn construct(
@@ -56,6 +48,8 @@ impl HostResources {
                 >,
             >,
         >,
+        originals: Arc<crate::HostOriginalBudgets>,
+        original_tasks: Option<zero_platform_tokio::contract::scope::WeakTaskRegistrar>,
     ) -> Result<Arc<Self>, ChannelError> {
         let bounds = bound_datagram::BoundDeclarations::new(
             component,
@@ -63,6 +57,12 @@ impl HostResources {
             identity.clone(),
             cancel.clone(),
         )?;
+        #[cfg(target_os = "linux")]
+        let processes = process::ProcessDeclarations::new(
+            declarations,
+            identity.clone(),
+            originals.process.clone(),
+        );
         let roots =
             root_datagram::RootDeclarations::new(component, declarations, identity.clone())?;
         let metadata =
@@ -223,6 +223,7 @@ impl HostResources {
                 | ResourceDeclaration::ControlledMetadataDatagram { .. }
                 | ResourceDeclaration::ControlledMetadataCarrier { .. }
                 | ResourceDeclaration::ControlledDatagramCarrier { .. }
+                | ResourceDeclaration::ControlledNodeCarrier { .. }
                 | ResourceDeclaration::ControlledNodeStream { .. }
                 | ResourceDeclaration::ControlledDirectStream { .. }
                 | ResourceDeclaration::MetadataDatagram { .. } => {}
@@ -247,6 +248,8 @@ impl HostResources {
             .map(|declaration| coverage::CoverageBinding::new(component, declaration))
             .collect::<Result<Vec<_>, _>>()?;
         Ok(Arc::new(Self {
+            originals,
+            original_tasks,
             packet_source: packet_source.unwrap_or_default(),
             component,
             icmp,
@@ -257,6 +260,8 @@ impl HostResources {
             roots,
             bounds,
             packets,
+            #[cfg(target_os = "linux")]
+            processes,
             cancel,
             state: Mutex::new(State {
                 closed: false,

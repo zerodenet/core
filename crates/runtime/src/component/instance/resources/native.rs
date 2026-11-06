@@ -15,6 +15,8 @@ use zero_platform_tokio::contract::{
 };
 
 pub struct HostResources {
+    originals: Arc<crate::HostOriginalBudgets>,
+    original_tasks: Option<zero_platform_tokio::contract::scope::WeakTaskRegistrar>,
     packet_source: Arc<
         std::sync::OnceLock<
             zero_platform_tokio::controlled_datagram::provider::NativeDatagramOrigin,
@@ -29,6 +31,8 @@ pub struct HostResources {
     roots: root_datagram::RootDeclarations,
     bounds: bound_datagram::BoundDeclarations,
     packets: Vec<packet_device::PacketDeviceOwner>,
+    #[cfg(target_os = "linux")]
+    processes: process::ProcessDeclarations,
     cancel: CancellationToken,
     state: Mutex<State>,
     changed: Arc<tokio::sync::Notify>,
@@ -81,8 +85,11 @@ mod files;
 mod listener;
 mod metadata;
 mod metapool;
+mod original_budgets;
 mod packet_device;
 mod prepare;
+#[cfg(target_os = "linux")]
+mod process;
 mod root_datagram;
 pub use listener::HostDatagramListenerOwner;
 mod shutdown;
@@ -334,8 +341,18 @@ impl ResourceAccess for HostResources {
         let child = request.command().spawn().map_err(|source| {
             error(self.component, Reason::Io, "native process spawn failed").with_source(source)
         })?;
+        #[cfg(target_os = "linux")]
+        self.processes.mark_legacy(&request.program);
         *remaining -= 1;
         Ok(child)
+    }
+    #[cfg(target_os = "linux")]
+    fn prepare_owned_process(
+        &self,
+        request: ProcessRequest,
+        tasks: &zero_platform_tokio::contract::scope::TaskRegistrar,
+    ) -> Result<Arc<zero_platform_tokio::owned_process::OwnedProcess>, ChannelError> {
+        self.prepare_process(request, tasks)
     }
     fn read_file(
         &self,
@@ -386,6 +403,8 @@ impl HostResources {
         &self,
         cx: &mut std::task::Context<'_>,
     ) -> bool {
+        #[cfg(target_os = "linux")]
+        self.processes.poll_budget(cx);
         self.carriers.poll_cancelled(cx)
     }
 }

@@ -106,10 +106,6 @@ impl ShadowsocksInboundProfile {
             .clone()
     }
 
-    pub(crate) fn cipher(&self) -> crate::shared::CipherKind {
-        self.cipher
-    }
-
     pub(crate) fn identity_password(&self) -> Option<&[u8]> {
         self.identity_password.as_deref()
     }

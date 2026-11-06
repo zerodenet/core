@@ -19,6 +19,8 @@ impl InboundOwner {
                 let mut report = match owner.shutdown(deadline).await {
                     Ok(report) => report,
                     Err(mut error) => {
+                        #[cfg(test)]
+                        eprintln!("actual Source {:?} original resource {:?} shutdown failure: {error:#?}", self.identity, resource.identity);
                         error.component.get_or_insert(resource.identity.component);
                         let error = Arc::new(error);
                         self.failure

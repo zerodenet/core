@@ -1,10 +1,10 @@
 //! The same reservation's logical view and actual caller exit, never a second ledger.
-use super::{CarrierAdoption, CarrierGrant, CarrierOwnerRegistration, error, slot::Slot};
+use super::{error, slot::Slot, CarrierAdoption, CarrierGrant, CarrierOwnerRegistration};
 use crate::contract::{
-    ChannelError, DeliveryState, Reason, Stage,
     scope::{TaskJoinWitness, TaskJoined},
+    ChannelError, DeliveryState, Reason, Stage,
 };
-use std::sync::{Arc, atomic::Ordering};
+use std::sync::{atomic::Ordering, Arc};
 
 #[derive(Clone, Default)]
 pub(super) struct Users {
@@ -140,6 +140,13 @@ impl Users {
     }
     pub(super) fn acquired(&self) -> bool {
         self.acquired
+    }
+    pub(super) fn credit_caller(&self) -> Option<TaskJoinWitness> {
+        if self.acquired && !self.driver_owned && !self.transferred_owned {
+            self.caller.clone()
+        } else {
+            None
+        }
     }
     pub(super) fn ready(&self) -> bool {
         !self.live

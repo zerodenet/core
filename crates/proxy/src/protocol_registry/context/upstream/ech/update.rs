@@ -26,7 +26,9 @@ impl Update {
         }
     }
     fn pending(&self) -> bool {
-        if !self.initialized.load(Ordering::Acquire){return true}
+        if !self.initialized.load(Ordering::Acquire) {
+            return true;
+        }
         self.original.get().map_or_else(
             || self.result.lock().expect("ECH result poisoned").is_none(),
             |original| !original.task.is_joined(),
@@ -44,7 +46,7 @@ impl Update {
             tokio::pin!(changed);
             changed.as_mut().enable();
             let result = self.result.lock().expect("ECH result poisoned").clone();
-            if let Some(result) = result.filter(|_|self.initialized.load(Ordering::Acquire)) {
+            if let Some(result) = result.filter(|_| self.initialized.load(Ordering::Acquire)) {
                 if let Some(original) = self.original.get() {
                     original
                         .task
@@ -115,7 +117,7 @@ impl RuntimeEchResolver {
             return update.clone();
         }
         let update = Arc::new(Update::new(background));
-        let previous=active.replace(update.clone());
+        let previous = active.replace(update.clone());
         drop(active);
         drop(previous);
         let original_entry = entry.clone();
@@ -157,7 +159,7 @@ impl RuntimeEchResolver {
                 update.publish(Err(Arc::new(source)));
             }
         }
-        update.initialized.store(true,Ordering::Release);
+        update.initialized.store(true, Ordering::Release);
         update.changed.notify_waiters();
         update
     }
