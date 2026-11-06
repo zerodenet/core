@@ -70,8 +70,18 @@ impl ManagedDatagramFlowConnection for ::shadowsocks::transport::ShadowsocksUdpS
     fn install_response_sink(
         &self,
         sink: &std::sync::Arc<dyn Fn((zero_core::Address, u16, Vec<u8>)) + Send + Sync>,
-    ) -> bool {
-        ::shadowsocks::transport::ShadowsocksUdpSocketFlow::install_response_sink(self, sink)
+    ) -> Option<Result<(), EngineError>> {
+        Some(
+            if ::shadowsocks::transport::ShadowsocksUdpSocketFlow::install_response_sink(self, sink)
+            {
+                Ok(())
+            } else {
+                Err(EngineError::Io(std::io::Error::new(
+                    std::io::ErrorKind::AlreadyExists,
+                    "the actual SS UDP receive future already has another live cache destination",
+                )))
+            },
+        )
     }
 
     fn subscribe_responses(
