@@ -5,11 +5,17 @@ type OriginalError = Arc<dyn Error + Send + Sync>;
 pub(super) enum CleanupOwner {
     Hooks,
     PreparedHooks,
+    #[cfg(feature = "event-dispatcher")]
     Monitor,
+    #[cfg(feature = "event-dispatcher")]
     DispatcherActivation,
+    #[cfg(feature = "event-dispatcher")]
     DispatcherPending,
+    #[cfg(feature = "event-dispatcher")]
     DispatcherClosed,
+    #[cfg(feature = "event-dispatcher")]
     NetworkPending,
+    #[cfg(feature = "event-dispatcher")]
     NetworkClosed,
 }
 #[derive(Clone, Default)]
