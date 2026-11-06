@@ -21,9 +21,11 @@ pub(super) async fn run<D: zero_tun::TunDevice + 'static>(
     device: D,
     mut rx: mpsc::Receiver<Write>,
     packets: Arc<PacketReturns>,
+    sessions: Arc<session::Sessions>,
     mut stopped: watch::Receiver<bool>,
     mut activated: watch::Receiver<bool>,
 ) -> DriverIo<D> {
+    let _completion = SessionCompletion(sessions.clone());
     while !*activated.borrow_and_update() {
         tokio::select! { biased; _ = stopped.changed() => return DriverIo::Stopped(device), result = activated.changed() => { if result.is_err() { return DriverIo::Stopped(device); } } }
     }
@@ -38,51 +40,110 @@ pub(super) async fn run<D: zero_tun::TunDevice + 'static>(
             result = reader.read(&mut buffer) => match result {
                 Ok(0) => break,
                 Err(error) => { failure = Some(Arc::new(error)); break; },
-                Ok(n) => match fragments.process(&buffer[..n], Instant::now()) {
-                    zero_stack::FragmentOutcome::NotFragmented(packet) => { packets.deliver(packet); },
-                    zero_stack::FragmentOutcome::Reassembled(packet) => { let _ = packets.deliver_owned(packet.into()); },
-                    zero_stack::FragmentOutcome::Pending | zero_stack::FragmentOutcome::Rejected(_) => packets.lose_receive_coverage(),
+                Ok(n) => {
+                    let mut original = std::mem::replace(&mut buffer, vec![0;65_536]);
+                    original.truncate(n);
+                    match fragments.process_buffer(original.into(), Instant::now()) {
+                        zero_stack::OwnedFragmentOutcome::Packet { packet, .. } => {
+                            if let Err(packet) = sessions.returns.deliver_owned(packet) { let _ = packets.deliver_owned(packet); }
+                        }
+                        zero_stack::OwnedFragmentOutcome::Pending | zero_stack::OwnedFragmentOutcome::Rejected(_) => packets.lose_receive_coverage(),
+                    }
                 },
             },
             write = rx.recv() => {
                 let Some(write) = write else { break; };
-                if write.return_channel.is_closed() { write.discarded(); let _ = write.ack.send((write.packet, Err(io::Error::new(io::ErrorKind::Interrupted,"packet route closed")))); continue; }
-                let (result, stopped, discarded) = tokio::select! { biased;
-                    _ = stopped.changed() => (Err(io::Error::new(io::ErrorKind::Interrupted, "host packet device stopped")), true, true),
-                    _ = write.return_channel.closed() => (Err(io::Error::new(io::ErrorKind::Interrupted, "packet route closed")), false, true),
-                    result = writer.write(&write.packet) => {
-                        let result = result.and_then(|n| if n == write.packet.len() { Ok(()) } else { Err(io::Error::new(io::ErrorKind::WriteZero, "partial host packet write")) });
-                        let failed = result.is_err(); (result, failed, false)
-                    },
+                let stopped=match write {
+                    Write::Legacy(write)=>legacy_write(write,&mut writer,&mut stopped,&mut failure).await,
+                    Write::Owned(write)=>owned_write(write,&mut writer,&mut stopped,&mut failure).await,
                 };
-                if discarded { write.discarded(); }
-                else if let Some(observer) = &write.observer { if result.is_ok() { observer.sent(write.packet.len()); } else { observer.error(); } }
-                let result = result.map_err(|error| {
-                    let error = Arc::new(error);
-                    if !discarded && failure.is_none() { failure = Some(error.clone()); }
-                    io::Error::new(error.kind(), SharedIo(error))
-                });
-                let _ = write.ack.send((write.packet, result));
-                if stopped { break; }
+                sessions.acknowledge_controls();
+                if stopped {break;}
 
             },
-            _ = timer.tick() => packets.expire(),
+            _ = sessions.changed.notified() => sessions.acknowledge_controls(),
+            _ = timer.tick() => {packets.expire();sessions.returns.expire();sessions.acknowledge_controls();},
         }
     }
     rx.close();
     while let Ok(write) = rx.try_recv() {
-        write.discarded();
-        let _ = write.ack.send((
-            write.packet,
-            Err(io::Error::new(
-                io::ErrorKind::BrokenPipe,
-                "host packet writer stopped",
-            )),
-        ));
+        match write {
+            Write::Legacy(write) => {
+                write.discarded();
+                let _ = write.ack.send((
+                    write.packet,
+                    Err(io::Error::new(
+                        io::ErrorKind::BrokenPipe,
+                        "host packet writer stopped",
+                    )),
+                ));
+            }
+            Write::Owned(write) => write.finish(Err(send_failure(
+                Reason::Revoked,
+                "original Packet driver stopped before submission",
+                DeliveryState::NotSubmitted,
+                None,
+            ))),
+        }
     }
+    sessions.finish_driver();
     packets.clear();
     DriverIo::Exited {
         device: reader.unsplit(writer),
         failure,
     }
 }
+
+struct SessionCompletion(Arc<session::Sessions>);
+impl Drop for SessionCompletion {
+    fn drop(&mut self) {
+        self.0.stop();
+    }
+}
+async fn legacy_write<W: tokio::io::AsyncWrite + Unpin>(
+    write: LegacyWrite,
+    writer: &mut W,
+    stopped: &mut watch::Receiver<bool>,
+    failure: &mut Option<Arc<io::Error>>,
+) -> bool {
+    if write.return_channel.is_closed() {
+        write.discarded();
+        let _ = write.ack.send((
+            write.packet,
+            Err(io::Error::new(
+                io::ErrorKind::Interrupted,
+                "packet route closed",
+            )),
+        ));
+        return false;
+    }
+    let (result, stopped, discarded) = tokio::select! { biased;
+        _ = stopped.changed() => (Err(io::Error::new(io::ErrorKind::Interrupted, "host packet device stopped")), true, true),
+        _ = write.return_channel.closed() => (Err(io::Error::new(io::ErrorKind::Interrupted, "packet route closed")), false, true),
+        result = writer.write(&write.packet) => {
+            let result = result.and_then(|n| if n == write.packet.len() { Ok(()) } else { Err(io::Error::new(io::ErrorKind::WriteZero, "partial host packet write")) });
+            let failed = result.is_err(); (result, failed, false)
+        },
+    };
+    if discarded {
+        write.discarded();
+    } else if let Some(observer) = &write.observer {
+        if result.is_ok() {
+            observer.sent(write.packet.len());
+        } else {
+            observer.error();
+        }
+    }
+    let result = result.map_err(|error| {
+        let error = Arc::new(error);
+        if !discarded && failure.is_none() {
+            *failure = Some(error.clone());
+        }
+        io::Error::new(error.kind(), SharedIo(error))
+    });
+    let _ = write.ack.send((write.packet, result));
+    stopped
+}
+mod owned;
+use owned::{owned_write, send_failure};
+use zero_platform_tokio::contract::{DeliveryState, Reason};

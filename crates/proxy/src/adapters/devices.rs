@@ -88,7 +88,7 @@ impl Devices {
         #[cfg(not(feature = "wireguard"))]
         let _ = (config, admission);
         let direct = if let Some(owner) = &self.direct {
-            Some(owner.prepare_devices(context).await?)
+            Some(owner.prepare_hosted_packet(config, context).await?)
         } else {
             None
         };
