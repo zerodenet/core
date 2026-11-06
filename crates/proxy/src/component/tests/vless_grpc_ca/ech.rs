@@ -40,8 +40,11 @@ async fn ordinary_grpc_dynamic_ech_uses_declared_node_query_and_keeps_its_ca_mat
                 let mut bytes = vec![0; 65536];
                 let (size, source) = dns.recv_from(&mut bytes).await.unwrap();
                 bytes.truncate(size);
-                assert_eq!(&bytes[size - 4..], &[0, 65, 0, 1]);
-                assert!(bytes.windows(b"cover".len()).any(|part| part == b"cover"));
+                // The actual question parser validates QCLASS=IN and EDNS;
+                // the packet suffix can belong to OPT rather than the question.
+                let question = zero_dns::udp::parse_dns_question(&bytes).unwrap();
+                assert_eq!(question.domain, "cover.ech.test");
+                assert_eq!(question.query_type, 65);
                 let query = proxy
                     .resolver
                     .native_query_observations()
