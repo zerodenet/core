@@ -67,6 +67,7 @@ where
             recv: None,
             pending: Bytes::new(),
             write_buffer: bytes::BytesMut::new(),
+            requested_remaining: 0,
             ended: false,
             flush,
             target: 0,
@@ -104,6 +105,8 @@ struct State {
     // Reuse the same allocation after its actual DATA frame is consumed.
     // This neither accepts uncredited bytes nor grows the H2 send window.
     write_buffer: bytes::BytesMut,
+    // Remaining request intent only; actual capacity still gates every byte.
+    requested_remaining: usize,
     ended: bool,
     flush: Arc<Flushed>,
     target: u64,
@@ -225,7 +228,10 @@ impl AsyncWrite for OwnedH2Client {
         }
         this.poll_reset(cx)?;
         let count = bytes.len().min(16 * 1024);
-        this.send.reserve_capacity(count);
+        if this.requested_remaining == 0 {
+            this.send.reserve_capacity(count);
+            this.requested_remaining = count;
+        }
         // poll_capacity reports changes, not all still-available credit. Using
         // it alone can park forever while this same stream already has credit.
         let available = loop {
@@ -235,17 +241,21 @@ impl AsyncWrite for OwnedH2Client {
             }
             // A zero-capacity notification must be consumed, then polled again
             // to register the actual next increase before returning Pending.
-            std::task::ready!(this.send.poll_capacity(cx))
+            let available = std::task::ready!(this.send.poll_capacity(cx))
                 .ok_or_else(|| io::Error::from(io::ErrorKind::BrokenPipe))?
                 .map_err(io::Error::other)?;
+            if available != 0 {
+                break available;
+            }
         };
-        let n = count.min(available);
+        let n = count.min(available).min(this.requested_remaining);
         this.write_buffer.reserve(n);
         this.write_buffer.extend_from_slice(&bytes[..n]);
         let frame = this.write_buffer.split().freeze();
         this.send
             .send_data(frame, false)
             .map_err(io::Error::other)?;
+        this.requested_remaining -= n;
         this.queued();
         Poll::Ready(Ok(n))
     }
