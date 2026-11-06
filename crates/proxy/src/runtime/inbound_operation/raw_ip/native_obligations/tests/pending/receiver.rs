@@ -147,7 +147,7 @@ impl Setup {
         caller
             .observe_pending_carrier(original.clone())
             .map_err(std::io::Error::other)?;
-        let owner = self.grant.registration();
+        let owner = original.cleanup_owner().expect("same actual reserved owner");
         let loan = io.into_stream_loan(view).map_err(std::io::Error::other)?;
         let io = self
             .grant

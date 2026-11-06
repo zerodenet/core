@@ -85,7 +85,11 @@ async fn actual(bound_receiver: bool) {
         let witness=registration.caller_witness().unwrap();assert!(witness.try_joined().is_some_and(|actual|actual.id()==joined.task()));
         assert!(adoption.closed().is_none(),"actual caller join is not native closure");
         if let Some(receiver)=&mut receiver {
-            assert!(receiver.original.matches_bound_caller(&witness));
+            {
+                let state=native.0.lock().unwrap();let record=state.records.get(&registration.id).unwrap();
+                assert!(record.carrier.as_ref().unwrap().same_slot(&receiver.original));
+            }
+            assert!(registration.caller_witness().is_some_and(|caller|caller.same_registration(&witness)));
             let held=receiver.original.retained_loan().expect("actual controller strongly installed in the bound receiver");
             assert!(held.retains(&adoption));assert!(receiver.original.retained_driver().is_none());
             assert!(registration.settle_pending(Instant::now()+Duration::from_secs(2)).await.unwrap());
