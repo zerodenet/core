@@ -72,7 +72,86 @@ impl NativeTcpStream {
         Ok(StreamLoan::new(Box::pin(self), Box::new(control), original))
     }
 }
+impl Control {
+    fn prepare_close(&mut self) {
+        if self.work.is_none() {
+            let id = self.id;
+            let status = self.status.clone();
+            let outgoing = self.outgoing.clone();
+            let dropped = self.dropped.clone();
+            let driver = self.driver.clone();
+            self.work = Some(Box::pin(async move {
+                let (done, receive) = oneshot::channel();
+                let barrier = async {
+                    if outgoing
+                        .send(Command::Barrier {
+                            id,
+                            close: true,
+                            status: status.clone(),
+                            done,
+                        })
+                        .await
+                        .is_err()
+                    {
+                        return false;
+                    }
+                    match receive.await {
+                        Ok(Ok(())) => true,
+                        // A real ordered acknowledgement of an already
+                        // closed session settles ownership, not delivery.
+                        Ok(Err(_)) => status.closed(),
+                        Err(_) => false,
+                    }
+                };
+                // Reader removal alone cannot settle queued writer state.
+                // Require the actual ordered reply, or actual driver join.
+                tokio::select! { biased;
+                    _ = driver.wait() => {},
+                    settled = barrier => if !settled { let _=driver.wait().await; },
+                }
+                let _ = dropped.send((id, status.clone()));
+                status.wait_removed().await;
+            }));
+        }
+    }
+    fn close_report(&mut self) -> CloseReport {
+        self.done = true;
+        self.work = None;
+        drop(self.user.take());
+        CloseReport {
+            released_resources: vec!["mieru original logical carrier returned".into()],
+            ..Default::default()
+        }
+    }
+}
 impl DynChannelControl for Control {
+    fn try_close(&mut self) -> Result<CloseReport, ChannelError> {
+        if self.done {
+            return Ok(Default::default());
+        }
+        self.prepare_close();
+        // This is one nonwaiting snapshot of the same retained barrier future.
+        // No future/task is spawned or dropped on Pending; ordinary close still
+        // polls it with the real waiter and consumes the same ordered ACK.
+        let mut cx = Context::from_waker(std::task::Waker::noop());
+        if self
+            .work
+            .as_mut()
+            .unwrap()
+            .as_mut()
+            .poll(&mut cx)
+            .is_pending()
+        {
+            return Ok(CloseReport {
+                unfinished: vec![Unfinished::ReliableState(
+                    "mieru original logical close".into(),
+                )],
+                ..Default::default()
+            });
+        }
+        Ok(self.close_report())
+    }
+
     fn cancel(&self, _: CloseReason) {
         // The outer LoanOwner revokes its view. Do not cancel the shared driver
         // or remove the session ahead of this controller's ordered barrier.
@@ -85,45 +164,7 @@ impl DynChannelControl for Control {
             if self.done {
                 return Ok(CloseReport::default());
             }
-            if self.work.is_none() {
-                let id = self.id;
-                let status = self.status.clone();
-                let outgoing = self.outgoing.clone();
-                let dropped = self.dropped.clone();
-                let driver = self.driver.clone();
-                self.work = Some(Box::pin(async move {
-                    let (done, receive) = oneshot::channel();
-                    let barrier = async {
-                        if outgoing
-                            .send(Command::Barrier {
-                                id,
-                                close: true,
-                                status: status.clone(),
-                                done,
-                            })
-                            .await
-                            .is_err()
-                        {
-                            return false;
-                        }
-                        match receive.await {
-                            Ok(Ok(())) => true,
-                            // A real ordered acknowledgement of an already
-                            // closed session settles ownership, not delivery.
-                            Ok(Err(_)) => status.closed(),
-                            Err(_) => false,
-                        }
-                    };
-                    // Reader removal alone cannot settle queued writer state.
-                    // Require the actual ordered reply, or actual driver join.
-                    tokio::select! { biased;
-                        _ = driver.wait() => {},
-                        settled = barrier => if !settled { let _=driver.wait().await; },
-                    }
-                    let _ = dropped.send((id, status.clone()));
-                    status.wait_removed().await;
-                }));
-            }
+            self.prepare_close();
             if tokio::time::timeout_at(deadline, self.work.as_mut().unwrap().as_mut())
                 .await
                 .is_err()
@@ -135,13 +176,7 @@ impl DynChannelControl for Control {
                     ..Default::default()
                 });
             }
-            self.done = true;
-            self.work = None;
-            drop(self.user.take());
-            Ok(CloseReport {
-                released_resources: vec!["mieru original logical carrier returned".into()],
-                ..Default::default()
-            })
+            Ok(self.close_report())
         })
     }
 }

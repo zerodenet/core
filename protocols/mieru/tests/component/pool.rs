@@ -4,6 +4,8 @@ use zero_platform_tokio::contract::lifecycle::Unfinished;
 mod controlled;
 #[path = "pool/driver.rs"]
 mod driver;
+#[path = "pool/loan_ready.rs"]
+mod loan_ready;
 #[path = "pool/retry.rs"]
 mod retry;
 use crate::component::test_support::*;
