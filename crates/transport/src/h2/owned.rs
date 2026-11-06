@@ -66,6 +66,7 @@ where
             response: Some(response),
             recv: None,
             pending: Bytes::new(),
+            write_buffer: bytes::BytesMut::new(),
             ended: false,
             flush,
             target: 0,
@@ -100,6 +101,9 @@ struct State {
     response: Option<h2::client::ResponseFuture>,
     recv: Option<h2::RecvStream>,
     pending: Bytes,
+    // Reuse the same allocation after its actual DATA frame is consumed.
+    // This neither accepts uncredited bytes nor grows the H2 send window.
+    write_buffer: bytes::BytesMut,
     ended: bool,
     flush: Arc<Flushed>,
     target: u64,
@@ -236,8 +240,11 @@ impl AsyncWrite for OwnedH2Client {
                 .map_err(io::Error::other)?;
         };
         let n = count.min(available);
+        this.write_buffer.reserve(n);
+        this.write_buffer.extend_from_slice(&bytes[..n]);
+        let frame = this.write_buffer.split().freeze();
         this.send
-            .send_data(Bytes::copy_from_slice(&bytes[..n]), false)
+            .send_data(frame, false)
             .map_err(io::Error::other)?;
         this.queued();
         Poll::Ready(Ok(n))
