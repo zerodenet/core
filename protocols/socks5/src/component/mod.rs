@@ -16,6 +16,7 @@ use zero_platform_tokio::contract::{
     },
     ChannelError, DeliveryState, Reason, Stage,
 };
+mod business;
 mod carrier;
 mod datagram;
 mod error;
@@ -123,6 +124,12 @@ impl StreamOutbound for Outbound {
                         )
                         .with_source(source)
                 })?;
+        if session.is_some()
+            && self.carriers.is_some()
+            && context.upstream.has_tracked_business_caller()
+        {
+            return self.connect_business(request, context, session).await;
+        }
         let carrier = CarrierContext {
             session,
             deadline: context.deadline,
