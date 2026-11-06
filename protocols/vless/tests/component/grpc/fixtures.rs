@@ -1,3 +1,4 @@
+#[path = "fixtures/resources.rs"]
 mod resources;
 use super::*;
 pub(super) const ID: &str = "11111111-2222-3333-4444-555555555555";
