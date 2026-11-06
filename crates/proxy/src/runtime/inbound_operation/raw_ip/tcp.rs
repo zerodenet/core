@@ -19,14 +19,39 @@ pub(super) async fn accept(
     group: Arc<InboundPeerTasks>,
     host: InboundTaskAccess,
     native: super::native_obligations::NativeObligations,
+    tun: Option<crate::inbound::tun::TunIngressOptions>,
+    dns: Option<crate::runtime::raw_ip::tasks::scoped::ScopedSourceTasks<Result<(),std::io::Error>>>,
 ) -> Result<(), EngineError> {
+    let mut dns_tasks=match &dns {Some(dns)=>Some(dns.lock().await.map_err(std::io::Error::other)?),None=>None};
     loop {
-        let Some((stream, source, destination)) = tcp.accept().await else {
+        let accepted=tokio::select! {
+            accepted=tcp.accept()=>accepted,
+            completed=async {dns_tasks.as_mut().expect("declared device DNS receiver").join_next().await},if dns_tasks.as_ref().is_some_and(|tasks|tasks.len()!=0)=>{
+                match completed {
+                    Some(Ok(Ok(())))=>{},
+                    Some(Ok(Err(source)))=>tracing::warn!(error=%source,"TUN DNS TCP connection failed"),
+                    Some(Err(source))=>return Err(std::io::Error::other(dns.as_ref().expect("same DNS receiver").remember(source)).into()),
+                    None=>{},
+                }
+                continue;
+            }
+        };
+        let Some((stream, source, destination)) = accepted else {
             return Err(EngineError::Io(io::Error::new(
                 io::ErrorKind::UnexpectedEof,
                 "raw-IP TCP stack closed",
             )));
         };
+        if let Some(policy)=tun.as_ref().filter(|policy|policy.dns_hijack && destination.port==53) {
+            policy.dns_hijacked_queries.fetch_add(1,std::sync::atomic::Ordering::Relaxed);
+            let tasks=dns_tasks.as_mut().ok_or_else(||std::io::Error::other("actual device DNS task set was not declared"))?;
+            if tasks.len()>=crate::inbound::tun::MAX_TCP_DNS_CONNECTIONS {
+                tracing::warn!(active_dns_connections=tasks.len(),"rejecting TUN DNS TCP connection at the concurrency limit");
+                continue;
+            }
+            tasks.spawn(crate::inbound::tun::serve_dns_tcp(runtime_factory.tun_dns_resolver(),stream)).map_err(std::io::Error::other)?;
+            continue;
+        }
         if group.occupied() >= MAX_CONNECTIONS {
             continue;
         }
@@ -50,12 +75,15 @@ pub(super) async fn accept(
         session.inbound_peer_identity = stream.peer_identity();
         session.transparent_target = true;
         let runtime = runtime_factory.for_connection(Some(source_addr));
+        let sniff = tun.is_some();
         group.spawn_bound(&host, move |binding| async move {
             binding.wait_bound().await.map_err(std::io::Error::other)?;
             let stop = binding.cancellation();
             native.bind_caller(binding).map_err(std::io::Error::other)?;
             let runtime = runtime.with_caller_native(native.registration());
-            let stream = ReplayStream::new(stream, Vec::new());
+            let (session,stream)=if sniff {
+                crate::inbound::tun::sniff_tcp_target(session,stream).await
+            } else {(session,ReplayStream::new(stream,Vec::new()))};
             native.enter().map_err(std::io::Error::other)?;
             let protocol = NoClientResponseStreamProtocol::new();
             let result = tokio::select! { biased;

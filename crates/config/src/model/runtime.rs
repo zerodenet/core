@@ -25,6 +25,18 @@ pub struct RuntimeOptionsConfig {
     /// On demand, 4096 by default; separate from logical UDP association limits.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub vmess_grpc_max_originals: Option<usize>,
+    /// Original Packet return allocations per device, including held/retiring buffers.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub packet_return_max_frames: Option<usize>,
+    /// Original Packet return payload bytes per device, retained until allocation release.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub packet_return_max_bytes: Option<usize>,
+    /// Original Packet return allocations across the same actual device root.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub packet_return_total_max_frames: Option<usize>,
+    /// Original Packet return payload bytes across the same actual device root.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub packet_return_total_max_bytes: Option<usize>,
     /// Total retained TCP2022 replay salts in this actual SS adapter, across
     /// all inbound/outbound histories and per-profile capacity views. On demand,
     /// 500000 by default; live security history is never evicted for admission.
@@ -105,6 +117,10 @@ impl Default for RuntimeOptionsConfig {
             native_stream_max_originals: None,
             mieru_max_carriers: None,
             vmess_grpc_max_originals: None,
+            packet_return_max_frames: None,
+            packet_return_max_bytes: None,
+            packet_return_total_max_frames: None,
+            packet_return_total_max_bytes: None,
             ss_tcp_replay_max_salts: None,
             hysteria2_max_entries: None,
             hysteria2_max_udp_sessions: None,
@@ -136,6 +152,18 @@ pub const DEFAULT_EVENT_LOG_CAPACITY: usize = 1024;
 impl RuntimeOptionsConfig {
     pub fn effective_native_stream_max_originals(&self) -> usize {
         self.native_stream_max_originals.unwrap_or(4)
+    }
+    pub fn effective_packet_return_max_frames(&self) -> usize {
+        self.packet_return_max_frames.unwrap_or(256)
+    }
+    pub fn effective_packet_return_max_bytes(&self) -> usize {
+        self.packet_return_max_bytes.unwrap_or(16777216)
+    }
+    pub fn effective_packet_return_total_max_frames(&self) -> usize {
+        self.packet_return_total_max_frames.unwrap_or(1024)
+    }
+    pub fn effective_packet_return_total_max_bytes(&self) -> usize {
+        self.packet_return_total_max_bytes.unwrap_or(67108864)
     }
     pub fn effective_ss_tcp_replay_max_salts(&self) -> usize {
         self.ss_tcp_replay_max_salts.unwrap_or(500_000)

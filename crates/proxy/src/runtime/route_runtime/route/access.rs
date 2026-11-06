@@ -77,6 +77,10 @@ impl InboundRouteRuntime {
 }
 
 impl InboundRouteRuntimeFactory {
+    #[cfg(feature="raw-ip-runtime")]
+    pub(in crate::runtime) fn tun_dns_resolver(&self)->std::sync::Arc<zero_dns::DnsSystem> {
+        self.shared.tcp_services().resolver_handle()
+    }
     #[cfg(feature = "raw-ip-runtime")]
     pub(in crate::runtime) fn bind_actual_packet_source(
         &self,

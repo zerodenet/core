@@ -36,11 +36,24 @@ struct Record {
     // original task was really joined. Stream Drop alone does not refund it.
     _slot: LogicalUserPermit<Admission>,
     caller: Option<TaskJoinWitness>,
+    packet_closed: Option<Arc<std::sync::atomic::AtomicBool>>,
     released: std::sync::atomic::AtomicBool,
 }
 pub(crate) struct FlowUser {
     owner: Arc<FlowUsers>,
     record: Arc<Record>,
+}
+/// Only the concrete taskless Packet controller can confirm its own logical
+/// closure. This never reports the shared source main joined or native closed.
+pub(crate) struct PacketSourceClose {
+    owner: Arc<FlowUsers>,
+    closed: Arc<std::sync::atomic::AtomicBool>,
+}
+impl PacketSourceClose {
+    pub(crate) fn close(&self) {
+        self.closed.store(true, std::sync::atomic::Ordering::Release);
+        self.owner.changed.notify_waiters();
+    }
 }
 struct Admission(CancellationToken);
 impl UserAdmission for Admission {
@@ -72,9 +85,27 @@ impl FlowUsers {
         }
         self.acquire(Some(FlowCaller { witness }))
     }
+    /// Actual Source main is admission provenance, not an internal driver of
+    /// each logical Packet view. Its original host owns whole-source shutdown.
+    pub(crate) fn acquire_packet_source(
+        self: &Arc<Self>, witness: TaskJoinWitness,
+    ) -> Result<(FlowUser, PacketSourceClose), ChannelError> {
+        if witness.is_joined() || !witness.scope_identity().resource_open() {
+            return Err(revoked());
+        }
+        let closed = Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let user = self.acquire_with_completion(Some(FlowCaller { witness }), Some(closed.clone()))?;
+        Ok((user, PacketSourceClose { owner: self.clone(), closed }))
+    }
     pub(super) fn acquire(
         self: &Arc<Self>,
         caller: Option<FlowCaller>,
+    ) -> Result<FlowUser, ChannelError> {
+        self.acquire_with_completion(caller, None)
+    }
+    fn acquire_with_completion(
+        self: &Arc<Self>, caller: Option<FlowCaller>,
+        packet_closed: Option<Arc<std::sync::atomic::AtomicBool>>,
     ) -> Result<FlowUser, ChannelError> {
         self.reap();
         let first = self
@@ -91,6 +122,7 @@ impl FlowUsers {
         let record = Arc::new(Record {
             _slot: slot,
             caller: caller.map(|caller| caller.witness),
+            packet_closed,
             released: std::sync::atomic::AtomicBool::new(false),
         });
         {
@@ -146,13 +178,13 @@ impl FlowUsers {
             .into_iter()
             .filter(|record| {
                 record.released.load(std::sync::atomic::Ordering::Acquire)
-                    && record
-                        .caller
-                        .as_ref()
-                        .is_some_and(TaskJoinWitness::is_joined)
+                    && match &record.packet_closed {
+                        Some(closed) => closed.load(std::sync::atomic::Ordering::Acquire),
+                        None => record.caller.as_ref().is_some_and(TaskJoinWitness::is_joined),
+                    }
             })
             .collect();
-        let first = completed.iter().find_map(|record| {
+        let first = completed.iter().filter(|record| record.packet_closed.is_none()).find_map(|record| {
             record
                 .caller
                 .as_ref()
@@ -183,13 +215,6 @@ impl FlowUsers {
     }
     /// Only logical view release and original caller joins. No native/socket,
     /// worker-scope ACK, recovery or replacement authorization is issued here.
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "explicit cold-device library path; production activation requires the owning replacement transaction"
-        )
-    )]
     pub(crate) async fn shutdown(&self, deadline: Instant) -> Result<CloseReport, ChannelError> {
         self.revoke();
         loop {
@@ -220,7 +245,7 @@ impl FlowUsers {
             }
             // Join observation neither consumes the ingress Scope receipt nor
             // ACKs its failure. That source remains owned by the actual host.
-            let caller = records.iter().find_map(|record| {
+            let caller = records.iter().filter(|record| record.packet_closed.is_none()).find_map(|record| {
                 record
                     .caller
                     .as_ref()

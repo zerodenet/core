@@ -269,6 +269,13 @@ impl ProtocolInventory {
             mtu: config.runtime.network.mtu,
             stack_options: crate::runtime::raw_ip::RawIpStackOptions::from_config(
                 &config.runtime.network.udp_receive_queue,
+            ).with_packet_return_limits(
+                config.runtime.effective_packet_return_max_frames(),
+                config.runtime.effective_packet_return_max_bytes(),
+            ).with_packet_return_totals(
+                self.devices.packet_return_totals.clone(),
+                config.runtime.effective_packet_return_total_max_frames(),
+                config.runtime.effective_packet_return_total_max_bytes(),
             ),
             endpoint_bindings: Arc::new(config.endpoint_bindings()),
             disabled_outbounds: Arc::new(

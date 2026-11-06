@@ -156,13 +156,25 @@ impl InboundRouteRuntimeFactory {
         else {
             return crate::inventory::PacketRouteTarget::Unsupported;
         };
-        services.protocols().prepare_packet_route_target_admitted(
-            snapshot.config(),
-            resolved,
-            protocol,
-            trace.route_mode,
+        let prepared = services.protocols().prepare_packet_route_target_admitted(
+            snapshot.config(), resolved, protocol, trace.route_mode,
             &zero_engine::EndpointAdmission::from_snapshot(&snapshot),
-        )
+        );
+        let Some(plan) = services.protocols().current_components(snapshot.config()) else { return prepared; };
+        fn bind(target: &mut crate::inventory::PacketRouteTarget, plan: &crate::component::catalog::ComponentPlan) {
+            use crate::inventory::PacketRouteTarget;
+            match target {
+                PacketRouteTarget::Packet { tag, role, .. } => {
+                    let slot = plan.configured(tag).or_else(|| (tag == "direct").then(|| plan.direct(None).ok()).flatten());
+                    *role = slot.filter(|slot| plan.has_packet_provider(slot.role_id())).map(|slot| slot.role_id());
+                }
+                PacketRouteTarget::Fallback(candidates) => for candidate in candidates { bind(candidate, plan); },
+                _ => {}
+            }
+        }
+        let mut prepared = prepared;
+        bind(&mut prepared, &plan);
+        prepared
     }
 
     #[cfg(feature = "raw-ip-runtime")]

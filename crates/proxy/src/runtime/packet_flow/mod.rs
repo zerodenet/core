@@ -4,7 +4,7 @@ mod contract;
 mod tcp;
 mod udp;
 mod users;
-pub(crate) use users::{FlowUser, FlowUsers};
+pub(crate) use users::{FlowUser, FlowUsers, PacketSourceClose};
 
 pub(crate) use contract::{
     PacketFlowAdapter, PacketFlowBindError, PacketFlowBinding, PacketFlowEndpoint, PacketFlowSource,

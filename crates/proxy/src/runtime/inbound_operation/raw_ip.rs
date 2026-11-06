@@ -138,7 +138,7 @@ impl PacketSourceContext {
     pub(crate) fn prepare_device_source(
         context: &crate::runtime::inbound_owners::InboundInstallContext,
     ) -> Result<PreparedDevicePacketSource, EngineError> {
-        let mut children = children::RawIpChildren::new();
+        let mut children = children::RawIpChildren::device();
         children.install(context)?;
         Ok(PreparedDevicePacketSource {
             instance: context.owner().identity(),
@@ -148,6 +148,9 @@ impl PacketSourceContext {
     }
 
     pub(crate) const MAX_ICMP_PROBES: usize = icmp::MAX_ECHO_PROBES;
+    pub(crate) fn device_task_limit() -> usize {
+        Self::internal_task_limit() + crate::inbound::tun::MAX_TCP_DNS_CONNECTIONS
+    }
     pub(crate) fn internal_task_limit() -> usize {
         tcp::MAX_CONNECTIONS
             + crate::inbound::tun::udp::OwnedTunUdpTasks::MAX_ASSOCIATIONS

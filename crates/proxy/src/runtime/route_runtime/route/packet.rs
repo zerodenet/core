@@ -5,7 +5,7 @@ use std::{net::SocketAddr, sync::Arc};
 use zero_core::{component::RoleInstanceId, packet::PacketFacts, request::Destination};
 use zero_platform_tokio::contract::{
     BoxFuture, CancellationToken, ChannelError, Reason,
-    context::{ConnectFact, ConnectObserver, OpenContext, PacketIoFact, RequestIdentity},
+    context::{ConnectObserver, OpenContext, RequestIdentity},
     datagram::{BoxDatagramSession, DatagramRequest},
     network::{CarrierContext, UpstreamBinding, UpstreamOpener, UpstreamTransport},
     packet::{BoxPacketSession, PacketRequest},
@@ -87,25 +87,6 @@ impl UpstreamOpener for SourceOpener {
         })
     }
 }
-struct SourceObserver(Option<Arc<dyn zero_traits::IoObserver>>);
-impl ConnectObserver for SourceObserver {
-    fn record(&self, _: Option<zero_core::component::SessionId>, _: ConnectFact) {}
-    fn packet_flow_io(&self) -> Option<Arc<dyn zero_traits::IoObserver>> {
-        self.0.clone()
-    }
-    fn packet_io(&self, _: &zero_core::packet::ReturnAssociation, fact: PacketIoFact) {
-        let Some(observer) = &self.0 else {
-            return;
-        };
-        match fact {
-            PacketIoFact::Sent { bytes } => observer.sent(bytes),
-            PacketIoFact::Received { bytes } => observer.received(bytes),
-            PacketIoFact::Dropped { reason, .. } => observer.dropped_reason(reason),
-            PacketIoFact::Error => observer.error(),
-            PacketIoFact::ReceiveCoverageLost => observer.receive_coverage_lost(),
-        }
-    }
-}
 impl InboundRouteRuntimeFactory {
     pub(in crate::runtime) async fn open_packet_role(
         &self,
@@ -114,7 +95,7 @@ impl InboundRouteRuntimeFactory {
         request: PacketRequest,
         source: &InboundTaskAccess,
         cancel: CancellationToken,
-        inner: Option<Arc<dyn zero_traits::IoObserver>>,
+        observer: Option<Arc<dyn ConnectObserver>>,
     ) -> Result<BoxPacketSession, ChannelError> {
         let actual = source.source_instance();
         let inbound = self
@@ -195,7 +176,7 @@ impl InboundRouteRuntimeFactory {
                 identity,
                 deadline: None,
                 cancel,
-                observer: Some(Arc::new(SourceObserver(inner))),
+                observer,
                 upstream: UpstreamTransport::new(binding, opener),
             },
         )
