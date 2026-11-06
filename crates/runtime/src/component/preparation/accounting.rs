@@ -9,7 +9,7 @@ impl ResourcePreparation<'_> {
         let limit = self.carrier_total_limit_for(recipe.spec())?;
         Ok(recipe.with_carrier_total_limit(limit))
     }
-    fn carrier_total_limit_for(&self, spec: &ComponentSpec) -> Result<Option<usize>, BuildError> {
+    pub(super) fn carrier_total_limit_for(&self, spec: &ComponentSpec) -> Result<Option<usize>, BuildError> {
         let Some(candidate) = self.candidate() else {
             return Ok(None);
         };
