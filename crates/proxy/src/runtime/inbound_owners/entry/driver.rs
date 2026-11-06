@@ -105,7 +105,10 @@ async fn close_resources(
     let deadline = Instant::now() + std::time::Duration::from_secs(5);
     let mut failure = None;
     for resource in resources.iter().rev() {
-        if resource.stopped.load(Ordering::Acquire) {
+        if resource.stopped.load(Ordering::Acquire) || resource.requires_scope_join {
+            // The exact original remains in InboundOwner.resources. Its
+            // external shutdown concurrently consumes Scope exits and closes
+            // this provider after the actual matching joins, including ours.
             continue;
         }
         // A dependency requiring this driver's actual Scope join cannot be

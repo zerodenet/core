@@ -278,6 +278,20 @@ pub struct InboundListenerEndpoints {
     pub datagram: std::net::SocketAddr,
 }
 pub trait ResourceAccess: Send + Sync {
+    /// Activate only the same cold-installed finite native provider and its
+    /// host-issued binding. The source supplies no policy, callback or issuer.
+    fn activate_bound_datagram(
+        &self,
+        _ordinal: usize,
+        _driver: &super::scope::TaskJoinWitness,
+    ) -> Result<DatagramBindingId, BuildError> {
+        Err(super::ChannelError::new(
+            super::Stage::Prepare,
+            super::Reason::Unsupported,
+            super::Impact::Component,
+        ))
+    }
+
     fn open_inbound_stream(
         &self,
         _caller: crate::AcceptedCaller,

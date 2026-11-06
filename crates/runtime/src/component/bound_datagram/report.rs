@@ -51,6 +51,33 @@ impl HostBoundDatagramResources {
         self.collect(&mut state);
         confirmed(&mut state)
     }
+    /// The actual scoped provider waits for its original wire join while the
+    /// containing host independently consumes that same Scope's real exits.
+    pub(in crate::component) async fn shutdown_scoped_io(
+        &self,
+        deadline: tokio::time::Instant,
+    ) -> Result<CloseReport, ChannelError> {
+        self.revoke();
+        let driver = self
+            .driver
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .clone();
+        if let Some(driver) = driver {
+            if tokio::time::timeout_at(deadline, driver.wait())
+                .await
+                .is_err()
+            {
+                return Ok(CloseReport {
+                    unfinished: vec![Unfinished::Resource(
+                        "actual host-bound UDP wire join remains pending".into(),
+                    )],
+                    ..Default::default()
+                });
+            }
+        }
+        self.shutdown_io()
+    }
     /// Host-only terminal cleanup, after the same actual peer's joined receipt.
     /// Original owners/source survive errors and cancelled outer waiters.
     pub fn shutdown_io(&self) -> Result<CloseReport, ChannelError> {

@@ -9,9 +9,9 @@ use tokio::sync::Mutex as AsyncMutex;
 use tokio::time::Instant;
 use zero_core::{component::ComponentId, request::Destination};
 use zero_platform_tokio::contract::{
+    BoxFuture, CancellationToken, ChannelError, Reason,
     component::{GrantedDatagramListener, ProcessRequest, ResourceAccess, ResourceDeclaration},
     packet::BoxPacketSession,
-    BoxFuture, CancellationToken, ChannelError, Reason,
 };
 
 pub struct HostResources {
@@ -22,6 +22,7 @@ pub struct HostResources {
     metadata: metadata::MetadataDeclarations,
     metapools: metapool::MetadataPools,
     roots: root_datagram::RootDeclarations,
+    bounds: bound_datagram::BoundDeclarations,
     packets: Vec<packet_device::PacketDeviceOwner>,
     cancel: CancellationToken,
     state: Mutex<State>,
@@ -29,7 +30,7 @@ pub struct HostResources {
     cleanup: AsyncMutex<()>,
 }
 impl HostResources {
-    pub(in crate::component) fn original_packet_owner(
+    pub fn original_packet_owner(
         &self,
         ordinal: usize,
     ) -> Option<zero_platform_tokio::controlled_carrier::PacketProviderRegistration> {
@@ -37,6 +38,10 @@ impl HostResources {
             .iter()
             .find(|owner| owner.ordinal == ordinal)?
             .original_registration()
+    }
+    /// The actual source borrows this same ICMP provider; no second pool.
+    pub fn icmp_probe_grant(&self) -> Option<super::icmp::HostIcmpProbeGrant> {
+        self.icmp.as_ref().map(|owner| owner.grant())
     }
     pub(in crate::component) fn original_metadata_owner(
         &self,
@@ -63,6 +68,7 @@ struct State {
 }
 // The nonconsuming proof API is staged for host slot integration; resourceful
 // production activation remains gated until that separate transaction exists.
+mod bound_datagram;
 mod carrier;
 mod coverage;
 mod evidence;
@@ -145,6 +151,43 @@ impl HostResources {
     }
 }
 impl ResourceAccess for HostResources {
+    fn activate_bound_datagram(
+        &self,
+        ordinal: usize,
+        driver: &zero_platform_tokio::contract::scope::TaskJoinWitness,
+    ) -> Result<zero_platform_tokio::contract::component::DatagramBindingId, ChannelError> {
+        self.require_start()?;
+        self.bounds.activate(ordinal, driver)
+    }
+    fn select_bound_outbound_datagram(
+        &self,
+        request: zero_platform_tokio::contract::component::BoundDatagramRequest,
+    ) -> Result<zero_platform_tokio::EgressSelection, ChannelError> {
+        self.bounds
+            .owner_for(&request.binding)?
+            .select_bound_outbound_datagram(request)
+    }
+    fn open_bound_outbound_datagram(
+        &self,
+        request: zero_platform_tokio::contract::component::BoundDatagramRequest,
+    ) -> Result<zero_platform_tokio::contract::component::GrantedBoundDatagram, ChannelError> {
+        self.bounds
+            .owner_for(&request.binding)?
+            .open_bound_outbound_datagram(request)
+    }
+    fn open_bound_datagram_attempt(
+        &self,
+        request: zero_platform_tokio::contract::component::BoundDatagramRequest,
+    ) -> Result<
+        zero_platform_tokio::contract::component::GrantedBoundDatagram,
+        zero_platform_tokio::contract::component::BoundDatagramAttemptFailure,
+    > {
+        self.bounds
+            .owner_for(&request.binding)
+            .map_err(zero_platform_tokio::contract::component::BoundDatagramAttemptFailure::denied)?
+            .open_bound_datagram_attempt(request)
+    }
+
     fn bind_inbound_icmp(
         &self,
         source: std::net::IpAddr,

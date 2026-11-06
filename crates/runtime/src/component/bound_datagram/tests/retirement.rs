@@ -35,7 +35,11 @@ impl DatagramBindingAuthorization for NativePolicy {
         expected: NetworkGeneration,
     ) -> Result<zero_platform_tokio::EgressSelection, ChannelError> {
         self.check_current(expected)?;
-        Ok(self.egress.select_for_peer(peer))
+        self.egress
+            .select_for_peer_with_policy(peer, &self.policy)
+            .map_err(|source| {
+                ChannelError::new(Stage::Prepare, Reason::Io, Impact::Component).with_source(source)
+            })
     }
 }
 
@@ -197,7 +201,15 @@ async fn scoped_wire_native_close_and_view_return_do_not_substitute_actual_join(
         Reason::Capacity
     );
     assert!(provider.shutdown_io().is_err());
+    let mut closing =
+        Box::pin(provider.shutdown_scoped_io(Instant::now() + Duration::from_secs(2)));
+    poll_fn(|cx| {
+        assert!(closing.as_mut().poll(cx).is_pending());
+        Poll::Ready(())
+    })
+    .await;
+    assert!(!witness.is_joined());
     scope.next_exit().await.unwrap().result.unwrap();
     assert!(witness.is_joined());
-    assert!(provider.shutdown_io().unwrap().is_complete());
+    assert!(closing.await.unwrap().is_complete());
 }

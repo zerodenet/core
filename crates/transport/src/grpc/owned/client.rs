@@ -1,7 +1,7 @@
 use super::{budget::Lease, state::Physical, *};
 use crate::grpc::{prepared::PreparedConnection, prepared_stream::PreparedStream};
 use bytes::Bytes;
-use futures_util::{stream::FuturesUnordered, StreamExt};
+use futures_util::{StreamExt, stream::FuturesUnordered};
 use std::{future::Future, pin::Pin, sync::Arc};
 use tokio::sync::mpsc;
 type Driver = Pin<Box<dyn Future<Output = std::io::Result<()>> + Send>>;
@@ -141,12 +141,18 @@ impl NativeClient {
         );
         let read_record = lease.record.clone();
         let write_record = lease.record.clone();
+        // Guards are installed outside the futures: dropping an unpolled worker
+        // still records actual return, never normal completion or native close.
+        let read_return = super::logical::WorkerReturn(read_record.clone(), true);
+        let write_return = super::logical::WorkerReturn(write_record.clone(), false);
         let read = Box::pin(async move {
-            read.await;
+            let _returned = read_return;
+            tokio::select! { biased; _=read_record.stop.cancelled()=>{}, _=read=>{} }
             read_record.worker_done(true);
         });
         let write = Box::pin(async move {
-            write.await;
+            let _returned = write_return;
+            tokio::select! { biased; _=write_record.stop.cancelled()=>{}, _=write=>{} }
             write_record.worker_done(false);
         });
         self.commands

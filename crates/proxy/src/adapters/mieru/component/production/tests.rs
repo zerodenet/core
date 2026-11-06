@@ -100,20 +100,20 @@ fn packet_pool(config: &mut RuntimeConfig) {
 }
 
 #[test]
-fn socks_packet_prefix_keeps_every_profile_in_the_same_existing_legacy_pool() {
+fn root_socks_packet_donor_qualifies_every_profile_in_the_same_original_pool() {
     let mut config = config(
         &["prefix", "pool"],
         serde_json::json!({"type":"socks5", "server":"127.0.0.1", "port":443}),
     );
     packet_pool(&mut config);
-    assert!(!production_selected(Some(&config)));
+    assert!(production_selected(Some(&config)));
     let proxy = crate::Proxy::new(config).unwrap();
     let plan = proxy.tcp_runtime_services().components.clone().unwrap();
     assert!(plan.configured("prefix").is_some());
     for tag in ["pool", "other-pool"] {
         assert!(
-            plan.configured(tag).is_none(),
-            "no profile of this one pool may claim native before its SOCKS UDP donor has real original custody"
+            plan.configured(tag).is_some(),
+            "all profiles share the actual native pool after the root donor acquired real dual-original custody"
         );
     }
 }
@@ -131,7 +131,7 @@ fn root_packet_pool_and_real_mieru_packet_donor_keep_existing_native_qualificati
 }
 
 #[test]
-fn unselected_socks_packet_prefix_branch_cannot_half_promote_the_shared_pool() {
+fn every_root_packet_prefix_branch_has_a_real_native_donor() {
     let mut config = config(
         &["prefix", "pool"],
         serde_json::json!({"type":"socks5", "server":"127.0.0.1", "port":443}),
@@ -151,13 +151,13 @@ fn unselected_socks_packet_prefix_branch_cannot_half_promote_the_shared_pool() {
                 selected: Some("other-pool".into()),
             },
         });
-    assert!(!production_selected(Some(&config)));
+    assert!(production_selected(Some(&config)));
     let choice = config.outbound_groups.last_mut().unwrap();
     let OutboundGroupKind::Selector { outbounds, .. } = &mut choice.group else {
         unreachable!()
     };
     outbounds.reverse();
-    assert!(!production_selected(Some(&config)));
+    assert!(production_selected(Some(&config)));
 }
 
 #[test]
@@ -203,4 +203,43 @@ fn unselected_udp_suffix_branch_cannot_make_a_native_mieru_prefix_fall_back() {
     };
     outbounds.retain(|tag| tag == "other-pool");
     assert!(production_selected(Some(&config)));
+}
+
+#[test]
+fn an_unselected_nonroot_socks_packet_branch_still_does_not_invent_a_new_udp_capability() {
+    let mut config = config(
+        &["prefix", "pool"],
+        serde_json::json!({"type":"socks5", "server":"127.0.0.1", "port":443}),
+    );
+    packet_pool(&mut config);
+    let OutboundGroupKind::Relay { proxies } = &mut config.outbound_groups[0].group else {
+        unreachable!()
+    };
+    proxies[0] = "choice".into();
+    config
+        .outbound_groups
+        .push(zero_config::OutboundGroupConfig {
+            tag: "nonroot".into(),
+            group: OutboundGroupKind::Relay {
+                proxies: vec!["other-pool".into(), "prefix".into()],
+            },
+        });
+    config
+        .outbound_groups
+        .push(zero_config::OutboundGroupConfig {
+            tag: "choice".into(),
+            group: OutboundGroupKind::Selector {
+                outbounds: vec!["other-pool".into(), "nonroot".into()],
+                default: Some("other-pool".into()),
+                selected: Some("other-pool".into()),
+            },
+        });
+    assert!(!production_selected(Some(&config)));
+    let OutboundGroupKind::Selector { outbounds, .. } =
+        &mut config.outbound_groups.last_mut().unwrap().group
+    else {
+        unreachable!()
+    };
+    outbounds.reverse();
+    assert!(!production_selected(Some(&config)));
 }

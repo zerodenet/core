@@ -149,6 +149,12 @@ impl fmt::Debug for ControlledDatagramSocket {
     }
 }
 impl ControlledDatagramOwner {
+    /// Pure census of originals not yet consumed from this actual owner. Closed
+    /// but unharvested entries remain charged; no native state/poll is queried.
+    pub fn retained_original_count(&self) -> usize {
+        self.entries.len()
+    }
+
     pub fn new(limit: NonZeroUsize) -> Self {
         Self {
             identity: Arc::new(()),

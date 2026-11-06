@@ -2,11 +2,11 @@
 use crate::runtime::route_runtime::InboundListenerRuntime;
 #[cfg(feature = "managed-datagram-runtime")]
 mod peer;
-use futures_util::{stream::FuturesUnordered, StreamExt};
+use futures_util::{StreamExt, stream::FuturesUnordered};
 use zero_engine::EngineError;
 use zero_platform_tokio::contract::{
-    context::AcceptContext, inbound::DynInboundSource, lifecycle::TaskClass, CancellationToken,
-    ChannelError, Impact, Reason, Stage,
+    CancellationToken, ChannelError, Impact, Reason, Stage, context::AcceptContext,
+    inbound::DynInboundSource, lifecycle::TaskClass,
 };
 
 pub(in crate::runtime) async fn run(
@@ -35,7 +35,7 @@ pub(in crate::runtime) async fn run(
                 pending = source.next(AcceptContext { deadline: None, cancel: cancel.clone() }), if closing.len() < limit.get() => {
                     let Some(pending) = pending.map_err(std::io::Error::other)? else { return Ok(()); };
                     #[cfg(feature = "raw-ip-runtime")]
-                    if pending.packet_listener().is_some() {
+                    if pending.packet_listener().is_some() || pending.packet_device().is_some() {
                         let context=runtime.take_packet_source().ok_or_else(||std::io::Error::other("packet source lacks actual original context"))?;
                         return super::raw_ip::run(pending,context,runtime.clone(),shutdown.clone()).await;
                     }

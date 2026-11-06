@@ -20,7 +20,6 @@ use zero_platform_tokio::{
 };
 
 pub(crate) mod pool;
-mod bound;
 pub(crate) mod stateless;
 
 pub(crate) struct BackgroundNetwork {

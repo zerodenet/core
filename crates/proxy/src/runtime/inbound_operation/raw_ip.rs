@@ -22,8 +22,8 @@ use std::{
     net::{IpAddr, SocketAddr},
     pin::Pin,
     sync::{
-        atomic::{AtomicBool, Ordering},
         Arc, Mutex,
+        atomic::{AtomicBool, Ordering},
     },
     time::Duration,
 };
@@ -87,10 +87,55 @@ pub(crate) trait RawIpInboundDevice: Send {
 }
 
 pub(crate) struct PacketSourceContext {
-    pub original: zero_platform_tokio::controlled_datagram::listener::DatagramListenerIdentity,
+    pub original: PacketSourceOriginal,
     children: children::RawIpChildren,
 }
+pub(crate) enum PacketSourceOriginal {
+    Listener(zero_platform_tokio::controlled_datagram::listener::DatagramListenerIdentity),
+    Device(zero_platform_tokio::contract::component::PacketDeviceIdentity),
+}
+pub(crate) struct PreparedDevicePacketSource {
+    instance: zero_core::component::ComponentInstanceId,
+    scope: zero_platform_tokio::contract::scope::TaskScopeIdentity,
+    children: children::RawIpChildren,
+}
+impl PreparedDevicePacketSource {
+    /// Complete only from the concrete acquired host provider; cold preparation
+    /// cannot mint a PacketDeviceIdentity, native controller or device grant.
+    pub(crate) fn complete(
+        self,
+        actual: &zero_platform_tokio::controlled_carrier::PacketProviderRegistration,
+    ) -> Result<PacketSourceContext, EngineError> {
+        if actual.instance() != self.instance
+            || !actual.device().scope().same_scope(&self.scope)
+            || !actual.driver().scope_identity().same_scope(&self.scope)
+        {
+            return Err(std::io::Error::other(
+                "device source differs from its actual cold host instance/Scope",
+            )
+            .into());
+        }
+        Ok(PacketSourceContext {
+            original: PacketSourceOriginal::Device(actual.device().clone()),
+            children: self.children,
+        })
+    }
+}
 impl PacketSourceContext {
+    /// Install every child responsibility before the main driver snapshots the
+    /// original owner. This acquires no device/native IO and starts no task.
+    pub(crate) fn prepare_device_source(
+        context: &crate::runtime::inbound_owners::InboundInstallContext,
+    ) -> Result<PreparedDevicePacketSource, EngineError> {
+        let mut children = children::RawIpChildren::new();
+        children.install(context)?;
+        Ok(PreparedDevicePacketSource {
+            instance: context.owner().identity(),
+            scope: context.tasks().peer_registrar().scope_identity(),
+            children,
+        })
+    }
+
     pub(crate) const MAX_ICMP_PROBES: usize = icmp::MAX_ECHO_PROBES;
     pub(crate) fn internal_task_limit() -> usize {
         tcp::MAX_CONNECTIONS + crate::inbound::tun::udp::OwnedTunUdpTasks::MAX_ASSOCIATIONS + 1
@@ -101,7 +146,10 @@ impl PacketSourceContext {
     ) -> Result<Self, EngineError> {
         let mut children = children::RawIpChildren::new();
         children.install(context)?;
-        Ok(Self { original, children })
+        Ok(Self {
+            original: PacketSourceOriginal::Listener(original),
+            children,
+        })
     }
 }
 pub(crate) struct RawIpInboundEndpoint {

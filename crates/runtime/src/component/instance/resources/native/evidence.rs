@@ -6,12 +6,14 @@ use super::*;
 #[derive(Clone, Debug)]
 pub(in crate::component) struct HostIoEvidence {
     pub declared_count: usize,
+    pub icmp: Option<bool>,
     pub declarations: Vec<super::coverage::DeclarationEvidence>,
     pub admission_closed: bool,
     pub files: Vec<FileIoEvidence>,
     pub native: Vec<NativeIoEvidence>,
     pub roots: Vec<super::root_datagram::RootDatagramEvidence>,
     pub packets: Vec<super::packet_device::PacketDeviceEvidence>,
+    pub bounds: Vec<crate::component::bound_datagram::evidence::BoundDatagramEvidence>,
     pub carriers: Vec<super::carrier::CarrierIoEvidence>,
     pub metadata: Vec<super::metadata::MetadataIoEvidence>,
     pub metapools: Vec<super::metapool::MetadataPoolEvidence>,
@@ -80,6 +82,10 @@ impl HostResources {
                 .iter()
                 .filter_map(|carrier| carrier.first_fault.clone()),
         );
+        let bounds = self.bounds.evidence();
+        sticky_faults.extend(bounds.iter().filter_map(|owner| owner.first_fault.clone()));
+        let icmp = self.icmp.as_ref().map(|owner| owner.physical_confirmed());
+        sticky_faults.extend(self.icmp.as_ref().and_then(|owner| owner.fault()));
         let packets: Vec<_> = self.packets.iter().map(|owner| owner.evidence()).collect();
         sticky_faults.extend(packets.iter().filter_map(|owner| owner.close_fault.clone()));
         let declarations = self
@@ -88,6 +94,9 @@ impl HostResources {
             .enumerate()
             .map(|(ordinal, binding)| {
                 let mut proof = binding.observe(ordinal, &files, &native);
+                if matches!(binding, coverage::CoverageBinding::Icmp) && icmp.is_some() {
+                    proof.provider = coverage::DeclarationProvider::Icmp;
+                }
                 if matches!(binding, coverage::CoverageBinding::Carrier(_)) {
                     proof.provider = carriers
                         .iter()
@@ -127,11 +136,19 @@ impl HostResources {
                         .map(coverage::DeclarationProvider::PacketDevice)
                         .unwrap_or(coverage::DeclarationProvider::Unaccounted);
                 }
+                if matches!(binding, coverage::CoverageBinding::BoundDatagram) {
+                    proof.provider = bounds
+                        .iter()
+                        .position(|owner| owner.ordinal == ordinal)
+                        .map(coverage::DeclarationProvider::BoundDatagram)
+                        .unwrap_or(coverage::DeclarationProvider::Unaccounted);
+                }
                 proof
             })
             .collect();
         HostIoEvidence {
             declared_count: self.coverage.len(),
+            icmp,
             declarations,
             admission_closed,
             files,
@@ -139,6 +156,7 @@ impl HostResources {
             carriers,
             roots,
             packets,
+            bounds,
             metadata,
             metapools,
             sticky_faults,
