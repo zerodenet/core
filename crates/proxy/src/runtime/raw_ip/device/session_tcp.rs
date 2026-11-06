@@ -82,13 +82,16 @@ impl Stream {
         self.stream.take();
         self.control.close().await;
     }
-    pub(crate) fn into_loan(self, original: CarrierOrigin) -> StreamLoan {
+    pub(crate) fn into_loan(self, original: CarrierOrigin) -> Result<StreamLoan, ChannelError> {
+        let receiver = self._user.receiver_binding();
         let control = Control(self.control.clone());
-        StreamLoan::new(
+        let mut loan = StreamLoan::new(
             Box::pin(self),
             zero_platform_tokio::contract::lifecycle::erase_control(control),
             original,
-        )
+        );
+        receiver.bind(loan.receiver_observation())?;
+        Ok(loan)
     }
     fn prepare(&mut self, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
         if self.control.is_stopped()

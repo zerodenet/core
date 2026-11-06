@@ -1,5 +1,7 @@
 //! Same-endpoint transferred views and original caller joins are separate facts.
 mod caller;
+mod receiver;
+pub(crate) use receiver::FlowReceiverBinding;
 mod stream;
 pub(super) use caller::FlowCaller;
 use std::{
@@ -38,6 +40,8 @@ struct Record {
     caller: Option<TaskJoinWitness>,
     packet_closed: Option<Arc<std::sync::atomic::AtomicBool>>,
     released: std::sync::atomic::AtomicBool,
+    receiver:
+        std::sync::OnceLock<zero_platform_tokio::controlled_carrier::loan::CarrierLoanReceiver>,
 }
 pub(crate) struct FlowUser {
     owner: Arc<FlowUsers>,
@@ -141,6 +145,7 @@ impl FlowUsers {
             caller: caller.map(|caller| caller.witness),
             packet_closed,
             released: std::sync::atomic::AtomicBool::new(false),
+            receiver: std::sync::OnceLock::new(),
         });
         {
             let mut state = self.state.lock().unwrap_or_else(|error| error.into_inner());

@@ -10,7 +10,14 @@ impl Carrier {
         &self,
         request: DatagramRequest,
         context: OpenContext,
-    ) -> Result<(BoxDatagramSession, CarrierOrigin), ChannelError> {
+    ) -> Result<
+        (
+            BoxDatagramSession,
+            CarrierOrigin,
+            crate::runtime::packet_flow::FlowReceiverBinding,
+        ),
+        ChannelError,
+    > {
         context.session_identity()?;
         let acquiring = self.acquisition()?;
         let DatagramTargets::Fixed(target) = &request.targets else {
@@ -20,7 +27,7 @@ impl Carrier {
         let original = self.origin_for(peer.ip())?;
         let (device, local) = self.device(peer.ip())?;
         let borrowed = self.flow_borrow(&context)?;
-        let session = device.open_standard_datagram(
+        let (session, receiver) = device.open_standard_datagram(
             &self.scope,
             local,
             peer,
@@ -30,7 +37,7 @@ impl Carrier {
         )?;
         drop(acquiring);
         self.observe_peer(peer.ip(), &context)?;
-        Ok((session, original))
+        Ok((session, original, receiver))
     }
 }
 impl DynDatagramOutbound for Carrier {
@@ -42,7 +49,7 @@ impl DynDatagramOutbound for Carrier {
         Box::pin(async move {
             self.datagram(request, context)
                 .await
-                .map(|(session, _)| session)
+                .map(|(session, _, _)| session)
         })
     }
     fn open_carrier(
@@ -56,8 +63,10 @@ impl DynDatagramOutbound for Carrier {
                 return Err(error(Stage::Prepare, Reason::InvalidConfig));
             };
             let target = target.clone();
-            let (session, original) = self.datagram(request, context).await?;
-            Ok(DatagramLoan::new(session, original, association, target))
+            let (session, original, receiver) = self.datagram(request, context).await?;
+            let mut loan = DatagramLoan::new(session, original, association, target);
+            receiver.bind(loan.receiver_observation())?;
+            Ok(loan)
         })
     }
 }
