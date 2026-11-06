@@ -10,6 +10,8 @@ use zero_traits::{ClientTlsProfile, TlsBackend, TransportBypassControl};
 
 use crate::tls::{certificates::resolve_path, record_boundary::TlsRecordBoundary};
 
+mod material;
+pub(crate) use material::PreparedMaterial;
 mod pin;
 mod roots;
 
@@ -111,72 +113,7 @@ where
             None => cached,
         }
     };
-    let mut ssl = Ssl::new(&cached.context).map_err(io::Error::other)?;
-    if let Some(session) = cached
-        .session
-        .lock()
-        .unwrap_or_else(|error| error.into_inner())
-        .clone()
-    {
-        unsafe { ssl.set_session(&session) }.map_err(io::Error::other)?;
-    }
-    if !profile.disable_sni() {
-        ssl.set_hostname(server_name).map_err(io::Error::other)?;
-    }
-    if !profile.insecure()
-        && options.pinned_peer_cert_sha256.is_empty()
-        && options.verify_peer_names.len() <= 1
-    {
-        let verify_name = options
-            .verify_peer_names
-            .first()
-            .map(String::as_str)
-            .unwrap_or(server_name);
-        if let Ok(ip) = verify_name.parse::<IpAddr>() {
-            ssl.param_mut().set_ip(ip).map_err(io::Error::other)?;
-        } else {
-            ssl.param_mut().set_hostflags(
-                X509CheckFlags::NEVER_CHECK_SUBJECT | X509CheckFlags::NO_PARTIAL_WILDCARDS,
-            );
-            ssl.param_mut()
-                .set_host(verify_name)
-                .map_err(io::Error::other)?;
-        }
-    }
-    let protocols = encode_alpn(profile.alpn())?;
-    if !protocols.is_empty() {
-        ssl.set_alpn_protos(&protocols).map_err(io::Error::other)?;
-    }
-    let control = TransportBypassControl::default();
-    let mut stream = tokio_openssl::SslStream::new(
-        ssl,
-        TlsRecordBoundary::with_control(socket, control.clone()),
-    )
-    .map_err(io::Error::other)?;
-    Pin::new(&mut stream)
-        .connect()
-        .await
-        .map_err(io::Error::other)?;
-    let pin_match = pin::verify(&stream, &options.pinned_peer_cert_sha256)?;
-    if pin_match == pin::Match::Authority {
-        let names = if options.verify_peer_names.is_empty() {
-            vec![server_name.to_owned()]
-        } else {
-            options.verify_peer_names.clone()
-        };
-        verify_any_name(&stream, &names)?;
-    } else if pin_match == pin::Match::None
-        && !options.verify_peer_names.is_empty()
-        && (profile.insecure() || options.verify_peer_names.len() > 1)
-    {
-        verify_any_name(&stream, &options.verify_peer_names)?;
-    }
-    let control = super::stream::is_tls13(&stream).then_some(control);
-    Ok(super::stream::OpenSslTlsStream {
-        stream,
-        control,
-        failed: false,
-    })
+    handshake(socket, profile, &cached, server_name).await
 }
 
 fn verify_any_name<S>(stream: &tokio_openssl::SslStream<S>, names: &[String]) -> io::Result<()> {
@@ -245,4 +182,83 @@ fn encode_alpn(protocols: &[String]) -> io::Result<Vec<u8>> {
 
 fn invalid(message: impl Into<String>) -> io::Error {
     io::Error::new(io::ErrorKind::InvalidInput, message.into())
+}
+
+async fn handshake<S, P>(
+    socket: S,
+    profile: &P,
+    cached: &crate::tls::cache::OpenSslClientConfig,
+    server_name: &str,
+) -> io::Result<super::stream::OpenSslTlsStream<S>>
+where
+    S: AsyncRead + AsyncWrite + Unpin,
+    P: ClientTlsProfile + ?Sized,
+{
+    let options = profile.tls_options();
+    let mut ssl = Ssl::new(&cached.context).map_err(io::Error::other)?;
+    if let Some(session) = cached
+        .session
+        .lock()
+        .unwrap_or_else(|error| error.into_inner())
+        .clone()
+    {
+        unsafe { ssl.set_session(&session) }.map_err(io::Error::other)?;
+    }
+    if !profile.disable_sni() {
+        ssl.set_hostname(server_name).map_err(io::Error::other)?;
+    }
+    if !profile.insecure()
+        && options.pinned_peer_cert_sha256.is_empty()
+        && options.verify_peer_names.len() <= 1
+    {
+        let verify_name = options
+            .verify_peer_names
+            .first()
+            .map(String::as_str)
+            .unwrap_or(server_name);
+        if let Ok(ip) = verify_name.parse::<IpAddr>() {
+            ssl.param_mut().set_ip(ip).map_err(io::Error::other)?;
+        } else {
+            ssl.param_mut().set_hostflags(
+                X509CheckFlags::NEVER_CHECK_SUBJECT | X509CheckFlags::NO_PARTIAL_WILDCARDS,
+            );
+            ssl.param_mut()
+                .set_host(verify_name)
+                .map_err(io::Error::other)?;
+        }
+    }
+    let protocols = encode_alpn(profile.alpn())?;
+    if !protocols.is_empty() {
+        ssl.set_alpn_protos(&protocols).map_err(io::Error::other)?;
+    }
+    let control = TransportBypassControl::default();
+    let mut stream = tokio_openssl::SslStream::new(
+        ssl,
+        TlsRecordBoundary::with_control(socket, control.clone()),
+    )
+    .map_err(io::Error::other)?;
+    Pin::new(&mut stream)
+        .connect()
+        .await
+        .map_err(io::Error::other)?;
+    let pin_match = pin::verify(&stream, &options.pinned_peer_cert_sha256)?;
+    if pin_match == pin::Match::Authority {
+        let names = if options.verify_peer_names.is_empty() {
+            vec![server_name.to_owned()]
+        } else {
+            options.verify_peer_names.clone()
+        };
+        verify_any_name(&stream, &names)?;
+    } else if pin_match == pin::Match::None
+        && !options.verify_peer_names.is_empty()
+        && (profile.insecure() || options.verify_peer_names.len() > 1)
+    {
+        verify_any_name(&stream, &options.verify_peer_names)?;
+    }
+    let control = super::stream::is_tls13(&stream).then_some(control);
+    Ok(super::stream::OpenSslTlsStream {
+        stream,
+        control,
+        failed: false,
+    })
 }
