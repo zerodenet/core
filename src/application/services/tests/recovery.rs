@@ -103,10 +103,39 @@ async fn dispatcher_replacement_recovers_facts_after_storage_backpressure() {
         .await
         .is_err());
 
+    let original_preparation = services
+        .state
+        .lock()
+        .await
+        .dispatcher
+        .as_ref()
+        .unwrap()
+        .original_preparation_failure()
+        .unwrap();
+
     services
         .retire_candidate(std::sync::Arc::new(failed))
         .await
         .unwrap();
+    {
+        let state = services.state.lock().await;
+        assert!(state.dispatcher.is_none() && !state.network_generation_started);
+        assert!(
+            state.cleanup_fault.is_none(),
+            "already reported preparation is not unfinished cleanup"
+        );
+        let archive = state
+            .cleanup_receiver(super::super::CleanupOwner::DispatcherClosed)
+            .unwrap();
+        let failure = archive
+            .as_ref()
+            .downcast_ref::<zero_connector::ConnectorError>()
+            .unwrap();
+        assert!(
+            matches!(failure, zero_connector::ConnectorError::DispatcherRetirement(failure)
+            if failure.is_only_preparation(&original_preparation))
+        );
+    }
     let config = std::sync::Arc::new(config);
     tokio::time::timeout(Duration::from_secs(2), services.reconcile(config.clone()))
         .await

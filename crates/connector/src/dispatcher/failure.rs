@@ -14,6 +14,20 @@ pub struct DispatcherRetirementFailure {
     _children: Arc<DispatcherChildren>,
     _resources: DispatcherResources,
 }
+impl DispatcherRetirementFailure {
+    /// Diagnostic equality with a readiness error already returned by this
+    /// actual handle. This is not evidence of native or task retirement.
+    pub fn is_only_preparation(&self, original: &Arc<ConnectorError>) -> bool {
+        self.parent.is_none()
+            && self.child.is_none()
+            && self.files.is_none()
+            && self._children.failure_count() == 0
+            && self
+                .preparation
+                .as_ref()
+                .is_some_and(|actual| Arc::ptr_eq(actual, original))
+    }
+}
 impl fmt::Debug for DispatcherRetirementFailure {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("DispatcherRetirementFailure")

@@ -41,6 +41,19 @@ impl Error for ApplicationCleanupFailure {
     }
 }
 impl ApplicationServiceState {
+    #[cfg(feature = "event-dispatcher")]
+    pub(super) fn remember_reported_dispatcher_failure(&mut self, source: OriginalError) {
+        // This exact readiness failure has already been returned, and its
+        // actual handle separately confirmed every original closed. Keep its
+        // complete typed archive in the existing current-owner receiver. A
+        // later closed generation replaces this diagnostic; it is no history
+        // list and does not erase an independent unresolved cleanup fence.
+        self.cleanup_receivers.0[CleanupOwner::DispatcherClosed as usize] = Some(source);
+    }
+    #[cfg(test)]
+    pub(super) fn cleanup_receiver(&self, owner: CleanupOwner) -> Option<&OriginalError> {
+        self.cleanup_receivers.0[owner as usize].as_ref()
+    }
     pub(super) fn remember_cleanup_failure(&mut self, owner: CleanupOwner, source: OriginalError) {
         self.cleanup_fault.get_or_insert_with(|| source.clone());
         // No new owner is admitted after this fence. Pending and physically

@@ -122,6 +122,8 @@ impl ConfigApplyReconciler for ApplicationServices {
             dispatcher_touched: false,
             hooks_touched: false,
             control_budget: None,
+            #[cfg(feature = "event-dispatcher")]
+            reported_dispatcher_preparation: None,
         });
         let limits =
             zero_runtime::configuration::ControlBudgetLimits::from_runtime(&target.runtime);

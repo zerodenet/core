@@ -41,6 +41,8 @@ struct ApplicationAttempt {
     dispatcher_touched: bool,
     hooks_touched: bool,
     control_budget: Option<zero_runtime::configuration::ControlBudgetCandidate>,
+    #[cfg(feature = "event-dispatcher")]
+    reported_dispatcher_preparation: Option<Arc<zero_connector::ConnectorError>>,
 }
 struct ApplicationServiceState {
     attempt: Option<ApplicationAttempt>,

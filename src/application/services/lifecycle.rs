@@ -194,16 +194,31 @@ impl ApplicationServices {
                     Err("actual dispatcher original retirement remains unconfirmed".to_owned())
                 }
                 Err(error) => {
-                    let message = error.to_string();
-                    _state.remember_cleanup_failure(
-                        if complete {
-                            CleanupOwner::DispatcherClosed
-                        } else {
-                            CleanupOwner::DispatcherPending
-                        },
-                        Arc::new(error),
-                    );
-                    Err(message)
+                    let reported_preparation = complete
+                        && _state
+                            .attempt
+                            .as_ref()
+                            .and_then(|attempt| attempt.reported_dispatcher_preparation.as_ref())
+                            .is_some_and(|original| {
+                                matches!(&error,
+                            zero_connector::ConnectorError::DispatcherRetirement(failure)
+                                if failure.is_only_preparation(original))
+                            });
+                    if reported_preparation {
+                        _state.remember_reported_dispatcher_failure(Arc::new(error));
+                        Ok(())
+                    } else {
+                        let message = error.to_string();
+                        _state.remember_cleanup_failure(
+                            if complete {
+                                CleanupOwner::DispatcherClosed
+                            } else {
+                                CleanupOwner::DispatcherPending
+                            },
+                            Arc::new(error),
+                        );
+                        Err(message)
+                    }
                 }
             };
             if complete {

@@ -100,13 +100,28 @@ impl ApplicationServices {
                     .forget();
             }
             // The actual original worker is installed before this readiness await.
-            let ready = state
+            let ready_result = state
                 .dispatcher
                 .as_mut()
                 .expect("installed dispatcher owner")
                 .wait_ready()
-                .await
-                .map_err(|error| error.to_string())?;
+                .await;
+            let ready = match ready_result {
+                Ok(ready) => ready,
+                Err(error) => {
+                    let original = state
+                        .dispatcher
+                        .as_ref()
+                        .unwrap()
+                        .original_preparation_failure();
+                    if let Some(attempt) = &mut state.attempt {
+                        attempt.reported_dispatcher_preparation = original;
+                    }
+                    // No further await separates retaining this exact source
+                    // from returning its readiness failure to the same caller.
+                    return Err(error.to_string());
+                }
+            };
             if !ready {
                 state
                     .dispatcher
