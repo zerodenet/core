@@ -16,7 +16,11 @@ fn actual_owner_budgets_are_optional_finite_and_preserve_omitted_export_shape() 
         usize,
         usize,
     );
-    let fields: [BudgetField; 13] = [
+    let fields: [BudgetField; 17] = [
+        ("packet_return_max_frames", RuntimeOptionsConfig::effective_packet_return_max_frames, 256, 65536),
+        ("packet_return_max_bytes", RuntimeOptionsConfig::effective_packet_return_max_bytes, 16777216, 1073741824),
+        ("packet_return_total_max_frames", RuntimeOptionsConfig::effective_packet_return_total_max_frames, 1024, 65536),
+        ("packet_return_total_max_bytes", RuntimeOptionsConfig::effective_packet_return_total_max_bytes, 67108864, 1073741824),
         (
             "ss_tcp_replay_max_salts",
             RuntimeOptionsConfig::effective_ss_tcp_replay_max_salts,

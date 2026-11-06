@@ -224,3 +224,5 @@ async fn scope_drop_does_not_close_a_released_view_without_actual_join() {
 }
 
 mod pending;
+
+mod taskless_packet;

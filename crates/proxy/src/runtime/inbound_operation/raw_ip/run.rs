@@ -41,6 +41,7 @@ pub(in crate::runtime) async fn run(
         );
     }
     let children = context.children;
+    let tun = context.tun;
     let route = runtime.route_factory();
     let inbound = route.for_connection(None).inbound_instance()?;
     let cancel = runtime
@@ -64,7 +65,12 @@ pub(in crate::runtime) async fn run(
     let link_mtu = accepted
         .link_mtu()
         .ok_or_else(|| std::io::Error::other("packet source omitted link MTU"))?;
-    let facts = accepted.facts().clone();
+    if let Some(policy)=&tun {
+        if policy.mtu!=link_mtu || policy.addresses.is_empty() || policy.addresses.iter().any(|(address,mask)|address.is_ipv4()!=mask.is_ipv4()) {
+            return Err(std::io::Error::other("System TUN policy differs from its original declared source").into());
+        }
+    }
+    let facts = Arc::new(accepted.facts().clone());
     if facts.inbound != inbound
         || facts.endpoint.0 != inbound.component.0
         || facts.subject.is_some()
@@ -131,16 +137,21 @@ pub(in crate::runtime) async fn run(
                 .clone()
                 .ok_or_else(|| std::io::Error::other("packet host absent"))?,
             children.native.clone(),
+            tun.clone(),
+            children.tcp_dns.clone(),
         ))
         .map_err(std::io::Error::other)?;
-    tasks
-        .spawn(crate::inbound::tun::udp::run_with_owned_tasks(
-            runtime.udp_runtime(),
-            udp.clone(),
-            route.inbound_tag().to_owned(),
-            children.udp.clone(),
-        ))
-        .map_err(std::io::Error::other)?;
+    let udp_runtime = runtime.udp_runtime();
+    let udp_stack = udp.clone();
+    let udp_tag = route.inbound_tag().to_owned();
+    let udp_owners = children.udp.clone();
+    let udp_policy = tun.clone();
+    tasks.spawn(async move {
+        match udp_policy {
+            Some(policy) => crate::inbound::tun::udp::run_with_device_tasks(udp_runtime,udp_stack,udp_tag,udp_owners,policy).await,
+            None => crate::inbound::tun::udp::run_with_owned_tasks(udp_runtime,udp_stack,udp_tag,udp_owners).await,
+        }
+    }).map_err(std::io::Error::other)?;
     let echo = IcmpEchoRelay::new_owned(
         response_tx.clone(),
         route.clone(),
@@ -148,6 +159,9 @@ pub(in crate::runtime) async fn run(
         children.echoes.clone(),
         children.icmp.clone(),
     );
+    let packet_roles = children.packet_roles.clone();
+    let mut closing_packet_roles: Option<zero_platform_tokio::contract::BoxFuture<'static,Result<(),zero_platform_tokio::contract::ChannelError>>> = None;
+    let source_host = children.host.as_ref().ok_or_else(||std::io::Error::other("Packet source main has no actual host"))?;
     let ingress_id = crate::runtime::packet_route::next_ingress_id();
     let mut pins = route.packet_statistics_pins();
     let mut fragments = FragmentReassembler::new();
@@ -167,7 +181,28 @@ pub(in crate::runtime) async fn run(
                 if device_generation!=Some(received.return_association.correlation) { fragments=FragmentReassembler::new();device_generation=Some(received.return_association.correlation); }
                 let ingress=received.ingress().ok_or_else(||std::io::Error::other("packet source omitted endpoint facts"))?;
                 let peer=received.return_association.peer.as_ref().map(|id|id.0.clone());let traffic=observer.traffic.lock().unwrap().clone();
-                super::route::feed_inner_packet(received.into_payload(),ingress.local_destination,&traffic,peer,ingress.mtu,&tcp,&udp,&response_tx,&echo,&route,ingress_id,&mut pins,&mut fragments).await;
+                super::route::feed_inner_packet(received,facts.clone(),source_host,&packet_roles,ingress.local_destination,&traffic,peer,ingress.mtu,&tcp,&udp,&response_tx,&echo,&route,ingress_id,&mut pins,&mut fragments,tun.as_ref()).await;
+            }
+            _=packet_roles.retired(), if closing_packet_roles.is_none()=>{
+                let same = packet_roles.clone();
+                closing_packet_roles=Some(Box::pin(async move { same.close_retired(tokio::time::Instant::now()+Duration::from_secs(5)).await }));
+            }
+            closed=async { closing_packet_roles.as_mut().expect("same pending Packet controllers").await }, if closing_packet_roles.is_some()=>{
+                closing_packet_roles=None;
+                closed.map_err(std::io::Error::other)?;
+            }
+            returned=packet_roles.next(), if sender.is_some()=>{
+                match returned {
+                    Some(returned) if pins.permits_standard_return(&returned.packet)=>{
+                        sending=Some(sender.take().expect("idle original Packet sender").send(returned.into_packet()));
+                    }
+                    Some(returned)=>returned.discard_policy(),
+                    None if closing_packet_roles.is_none()=>{
+                        let same = packet_roles.clone();
+                        closing_packet_roles=Some(Box::pin(async move { same.close_retired(tokio::time::Instant::now()+Duration::from_secs(5)).await }));
+                    }
+                    None=>{},
+                }
             }
             response=responses.recv(), if sender.is_some()=>{
                 let Some(response)=response else {return Err(std::io::Error::other("packet response channel ended").into());};

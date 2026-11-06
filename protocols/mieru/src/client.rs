@@ -174,12 +174,16 @@ impl ClientConnection {
             password,
             options,
         )?;
+        let first = prepared.first;
         let opens = prepared.opens;
         let task = tokio::spawn(async move {
             let _ = prepared.driver.await;
         });
         let connection = Self::from_packet(opens, DriverHandle::Legacy(task));
-        let stream = connection.next().await?;
+        let stream = match first {
+            Some(stream) => stream,
+            None => connection.next().await?,
+        };
         *connection.first.lock().unwrap() = Some(stream);
         Ok(connection)
     }

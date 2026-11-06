@@ -6,6 +6,7 @@ use crate::inbound::tun::udp::OwnedTunUdpTasks;
 use crate::runtime::inbound_owners::InboundInstallContext;
 
 pub(super) struct RawIpChildren {
+    pub(super) packet_roles: crate::runtime::packet_route::PacketRoleSessions,
     pub(super) native: super::native_obligations::NativeObligations,
     pub(super) icmp: Option<crate::component::instance::HostIcmpProbeGrant>,
     pub(super) drivers: ScopedSourceTasks<Result<(), EngineError>>,
@@ -14,6 +15,7 @@ pub(super) struct RawIpChildren {
     pub(super) udp: OwnedTunUdpTasks,
     pub(super) stack_workers: ScopedSourceTasks<()>,
     pub(super) echoes: ScopedSourceTasks<()>,
+    pub(super) tcp_dns: Option<ScopedSourceTasks<Result<(), std::io::Error>>>,
 }
 impl RawIpChildren {
     pub(super) fn new() -> Self {
@@ -23,7 +25,9 @@ impl RawIpChildren {
             OwnedTunUdpTasks::MAX_DNS,
         );
         Self {
+            packet_roles: Default::default(),
             native: native.clone(),
+            tcp_dns: None,
             icmp: None,
             drivers: ScopedSourceTasks::new("raw-IP stack drivers joined", 2, TaskClass::Critical),
             connections: None,
@@ -41,8 +45,18 @@ impl RawIpChildren {
             ),
         }
     }
+    pub(super) fn device() -> Self {
+        let mut children=Self::new();
+        children.tcp_dns=Some(ScopedSourceTasks::new("System TUN TCP DNS connections joined",crate::inbound::tun::MAX_TCP_DNS_CONNECTIONS,TaskClass::Auxiliary));
+        children
+    }
     pub(super) fn install(&mut self, context: &InboundInstallContext) -> Result<(), EngineError> {
         self.icmp = context.icmp_probe_grant();
+        context.register_after_scope(self.packet_roles.resource())?;
+        if let Some(tcp_dns)=&self.tcp_dns {
+            tcp_dns.bind(context.source_registrar()).map_err(std::io::Error::other)?;
+            context.register_after_scope(tcp_dns.resource())?;
+        }
         self.drivers.bind(context.source_registrar()).map_err(std::io::Error::other)?;
         self.stack_workers.bind(context.source_registrar()).map_err(std::io::Error::other)?;
         self.echoes.bind(context.source_registrar()).map_err(std::io::Error::other)?;

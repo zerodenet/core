@@ -29,6 +29,7 @@ pub(super) use pending_bound::pending_preparation_stopped;
 pub(crate) use readiness::InboundReady;
 pub(super) use readiness::readiness_stopped;
 mod accepted;
+mod acquisition;
 #[cfg(feature = "managed-datagram-runtime")]
 mod continuity;
 mod driver;
@@ -81,6 +82,7 @@ pub(crate) struct InboundOwner {
     report: Mutex<CloseReport>,
     failure: Mutex<Option<SharedError>>,
     accepted_receiver: Mutex<Vec<zero_platform_tokio::AcceptedTcpTaskReceiver>>,
+    acquisition: Arc<acquisition::Acquisition>,
     client_failure: OnceLock<zero_platform_tokio::contract::scope::TaskJoined>,
     driver: OnceLock<TaskId>,
     #[cfg(feature = "raw-ip-runtime")]
@@ -98,7 +100,7 @@ pub(crate) struct InboundOwner {
     pending_native_bound: Mutex<Option<Arc<PendingNativeBound>>>,
     pending_native_cause: Mutex<Option<SharedError>>,
     #[cfg(feature = "managed-datagram-runtime")]
-    peers: Mutex<Vec<Arc<super::InboundPeerTasks>>>,
+    peers: Arc<Mutex<Vec<Arc<super::InboundPeerTasks>>>>,
 }
 #[cfg(feature = "raw-ip-runtime")]
 #[derive(Default)]
@@ -108,6 +110,9 @@ struct MainRegistration {
 }
 #[derive(Clone)]
 pub(crate) struct InboundTaskAccess {
+    acquisition: Arc<acquisition::Acquisition>,
+    #[cfg(feature="managed-datagram-runtime")]
+    peer_groups: std::sync::Weak<Mutex<Vec<Arc<super::InboundPeerTasks>>>>,
     #[cfg(any(feature = "managed-datagram-runtime", feature = "raw-ip-runtime"))]
     pub(super) identity: ComponentInstanceId,
     registrar: TaskRegistrar,
@@ -258,6 +263,7 @@ impl InboundOwner {
             report: Mutex::new(CloseReport::default()),
             failure: Mutex::new(None),
             accepted_receiver: Mutex::new(Vec::new()),
+            acquisition: Arc::default(),
             client_failure: OnceLock::new(),
             driver: OnceLock::new(),
             #[cfg(feature = "raw-ip-runtime")]
@@ -279,7 +285,7 @@ impl InboundOwner {
             pending_native_bound: Mutex::new(None),
             pending_native_cause: Mutex::new(None),
             #[cfg(feature = "managed-datagram-runtime")]
-            peers: Mutex::new(Vec::new()),
+            peers: Arc::default(),
         }
     }
 
@@ -350,6 +356,9 @@ impl InboundOwner {
     }
     pub(crate) fn task_access(&self) -> InboundTaskAccess {
         InboundTaskAccess {
+            acquisition: self.acquisition.clone(),
+            #[cfg(feature="managed-datagram-runtime")]
+            peer_groups: Arc::downgrade(&self.peers),
             #[cfg(any(feature = "managed-datagram-runtime", feature = "raw-ip-runtime"))]
             identity: self.identity,
             registrar: self.registrar.clone(),

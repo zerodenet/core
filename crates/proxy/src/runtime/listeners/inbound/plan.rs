@@ -66,8 +66,12 @@ pub(super) fn prepare(
         let mode_changed = current.is_some()
             && protocols
                 .inbound_listener_requires_restart(&runtime_factory.listener_config(inbound))?;
+        let replay_budget_changed = inbound.protocol.protocol_name() == "shadowsocks"
+            && config.runtime.effective_ss_tcp_replay_max_salts()
+                != previous_config.runtime.effective_ss_tcp_replay_max_salts();
         let reuse = running
             && !mode_changed
+            && !replay_budget_changed
             && current.is_some_and(|current| {
                 !requires_listener_restart(
                     &rollback_runtime_factory.listener_config(current),
@@ -84,7 +88,8 @@ pub(super) fn prepare(
         let prepared = if reuse {
             None
         } else {
-            protocols.prepare_inbound_bind(runtime_factory.listener_config(inbound), source_dir)?
+            protocols
+                .prepare_inbound_bind_in_config(runtime_factory.listener_config(inbound), config)?
         };
         candidates.push(Candidate {
             inbound: inbound.clone(),

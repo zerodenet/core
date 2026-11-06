@@ -45,6 +45,13 @@ pub trait ConnectObserver: Send + Sync {
     fn record(&self, session: Option<SessionId>, fact: ConnectFact);
     /// Opaque actual device peer selection for the existing host accounting.
     /// This observation grants neither IO nor lifecycle authority.
+    /// The same actual owned Packet submission selected this peer. The opaque
+    /// return cookie is observation provenance, never a native/caller grant.
+    fn packet_peer_selected_for(
+        &self,
+        _association: &zero_core::packet::ReturnAssociation,
+        _peer: zero_core::component::PeerId,
+    ) {}
     fn packet_peer_selected(
         &self,
         _session: Option<SessionId>,

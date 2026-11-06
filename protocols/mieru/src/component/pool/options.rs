@@ -79,6 +79,10 @@ impl PoolOptions {
             datagram: carrier.udp,
         })
     }
+    /// Dynamic providers run initialization and the original driver in this
+    /// same Scope, sequentially under the same task limit. A library owner
+    /// must drive its actual TaskScope concurrently with role operations; body
+    /// completion alone cannot substitute for the Scope's consumed join.
     pub fn with_dynamic_profiles(
         self,
         profiles: impl IntoIterator<Item = PoolProfile>,

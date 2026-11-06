@@ -4,11 +4,24 @@ use crate::{shared::legacy_replay::LegacyReplay, validation::ReplayPolicy};
 
 #[derive(Debug, Default)]
 pub struct ShadowsocksTransportState {
+    #[cfg(feature = "blake3")]
+    modern: std::sync::Arc<crate::shared::ReplaySaltPool>,
     plugins: super::plugin::outbound::PluginPool,
-    guards:
-        std::sync::Mutex<std::collections::HashMap<(ReplayPolicy, Option<usize>), LegacyReplay>>,
+    guards: std::sync::Mutex<std::collections::HashMap<ReplayPolicy, LegacyReplay>>,
 }
 impl ShadowsocksTransportState {
+    #[cfg(feature = "blake3")]
+    pub fn with_replay_budget(budget: std::sync::Arc<crate::shared::ReplayBudget>) -> Self {
+        Self {
+            plugins: Default::default(),
+            guards: Default::default(),
+            modern: std::sync::Arc::new(crate::shared::ReplaySaltPool::configured_with_budget(
+                crate::shared::ReplaySaltPool::DEFAULT_TTL,
+                None,
+                budget,
+            )),
+        }
+    }
     /// Prepare protocol framing with this actual adapter's nonce history.
     /// No proxy Session, socket, child or maintenance task is created here.
     #[cfg(feature = "blake3")]
@@ -61,9 +74,15 @@ impl ShadowsocksTransportState {
         self.guards
             .lock()
             .unwrap()
-            .entry((policy, capacity))
-            .or_insert_with(|| LegacyReplay::new(policy, false).with_tcp_capacity(capacity))
+            .entry(policy)
+            .or_insert_with(|| {
+                let guard = LegacyReplay::new(policy, false);
+                #[cfg(feature = "blake3")]
+                let guard = guard.with_modern_history(&self.modern);
+                guard
+            })
             .clone()
+            .with_tcp_capacity(capacity)
     }
 
     #[cfg(feature = "blake3")]

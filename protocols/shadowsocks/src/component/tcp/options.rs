@@ -31,12 +31,17 @@ pub struct PreparedTcp {
     pub(super) dial: DialPolicy,
     pub(super) replay: Option<ReplayOptions>,
     identity: Arc<[u8]>,
+    replay_view: Option<Arc<crate::shared::ReplaySaltPool>>,
 }
 impl fmt::Debug for PreparedTcp {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("PreparedShadowsocksTcp")
             .field("endpoint", &self.endpoint)
             .field("dial", &self.dial)
+            .field(
+                "replay_total",
+                &self.replay_view.as_ref().map(|pool| pool.proposed_total()),
+            )
             .finish_non_exhaustive()
     }
 }
@@ -90,7 +95,7 @@ impl PreparedTcp {
             format!("{:?}{:?}", input.replay_policy, input.limits).hash(&mut hash);
             input.dial.hash(&mut hash);
             // Same policy in a different adapter state must not bind to this pool.
-            (Arc::as_ptr(&replay.modern_pool()) as usize).hash(&mut hash);
+            replay.modern_pool().history_identity().hash(&mut hash);
             identity.extend_from_slice(&hash.finish().to_le_bytes());
         }
         Ok(Self {
@@ -99,7 +104,24 @@ impl PreparedTcp {
             dial: input.dial,
             replay: shared,
             identity: identity.into(),
+            replay_view: None,
         })
+    }
+    /// Cold total-budget proposal over the same actual history. The real
+    /// ReplayFactory start installs it after the host's replacement barrier.
+    pub fn with_replay_budget_limit(mut self, total: usize) -> Result<Self, Error> {
+        if let Some(options) = &self.replay {
+            let pool = options
+                .pool()
+                .ok_or(Error::Protocol("SS replay owner was released"))?;
+            let view = Arc::new(pool.with_total(Some(total))?);
+            self.replay = Some(ReplayOptions::new(view.clone(), Default::default(), None));
+            self.replay_view = Some(view);
+            let mut identity = self.identity.to_vec();
+            identity.extend_from_slice(&total.to_le_bytes());
+            self.identity = identity.into();
+        }
+        Ok(self)
     }
     pub fn replay_options(&self) -> Option<&ReplayOptions> {
         self.replay.as_ref()

@@ -74,6 +74,12 @@ impl std::fmt::Debug for InboundPeerTasks {
     }
 }
 impl InboundPeerTasks {
+    /// Actual original peer/child tables only. Not native or Scope closure.
+    pub(super) fn acquisition_quiescent(&self) -> bool {
+        let state=self.state.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        state.active.is_empty() && state.preparing == 0 && state.children.is_empty() && state.claiming.is_empty()
+    }
+
     #[cfg(test)]
     pub(super) fn observe_primary_joined_for_test(
         &self,

@@ -21,6 +21,7 @@ pub use resources::NoResources;
 pub use resources::{HostIcmpProbeGrant, HostIcmpProbeOwner};
 use std::sync::{Arc, OnceLock};
 pub use tasks::ComponentTaskFault;
+pub(in crate::component) use users::PausedUsers;
 use tasks::TaskMonitor;
 pub(in crate::component) use tasks::wake::WaitTarget;
 use tokio::{

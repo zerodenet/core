@@ -14,6 +14,7 @@ pub(crate) enum PacketRouteTarget {
         tag: String,
         translated: bool,
         operation: std::sync::Arc<dyn PreparedPacketRouteOperation>,
+        role: Option<zero_core::component::RoleInstanceId>,
     },
     Flow,
     DirectEcho {
@@ -111,6 +112,7 @@ impl ProtocolInventory {
                 Some(operation) => PacketRouteTarget::Packet {
                     tag: runtime.tag.unwrap_or_else(|| "direct".into()),
                     translated: true,
+                    role: None,
                     operation,
                 },
                 None => PacketRouteTarget::Unsupported,
@@ -158,6 +160,7 @@ impl ProtocolInventory {
                 PacketRouteTarget::Packet {
                     tag: runtime.tag.unwrap_or_else(|| "direct".into()),
                     translated: false,
+                    role: None,
                     operation,
                 }
             }

@@ -383,6 +383,18 @@ fn validate_runtime(
             "runtime.udp_direct_max_sockets must be between 1 and 4096".into(),
         ));
     }
+    if !(1..=65536).contains(&runtime.effective_packet_return_max_frames()) {
+        return Err(ConfigError::InvalidRuntime("runtime.packet_return_max_frames must be between 1 and 65536".into()));
+    }
+    if !(1..=1073741824).contains(&runtime.effective_packet_return_max_bytes()) {
+        return Err(ConfigError::InvalidRuntime("runtime.packet_return_max_bytes must be between 1 and 1073741824".into()));
+    }
+    if !(1..=65536).contains(&runtime.effective_packet_return_total_max_frames()) {
+        return Err(ConfigError::InvalidRuntime("runtime.packet_return_total_max_frames must be between 1 and 65536".into()));
+    }
+    if !(1..=1073741824).contains(&runtime.effective_packet_return_total_max_bytes()) {
+        return Err(ConfigError::InvalidRuntime("runtime.packet_return_total_max_bytes must be between 1 and 1073741824".into()));
+    }
     if runtime.effective_ss_tcp_replay_max_salts() == 0
         || runtime
             .effective_ss_tcp_replay_max_salts()

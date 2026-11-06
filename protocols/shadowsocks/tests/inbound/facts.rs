@@ -128,3 +128,6 @@ fn profile(case: Case, capacity: Option<usize>) -> ShadowsocksInboundProfile {
         ..Default::default()
     })
 }
+
+#[path = "replay_budget.rs"]
+mod replay_budget;
