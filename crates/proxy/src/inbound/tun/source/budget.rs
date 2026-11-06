@@ -23,7 +23,7 @@ fn contains_capacity(mut source: &(dyn Error + 'static)) -> bool {
             source = original;
         } else if let Some(original) = source.downcast_ref::<std::io::Error>() {
             match original.get_ref() {
-                Some(original) => source = original.as_ref(),
+                Some(original) => source = original,
                 None => return false,
             }
         } else if let Some(original) = source.downcast_ref::<Arc<ChannelError>>() {
