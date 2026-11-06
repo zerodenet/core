@@ -181,15 +181,14 @@ impl GrpcHandle {
             .await
             .wait_closed(native::deadline())
             .await
-            .map_err(std::io::Error::other)?;
-        if !tasks.is_complete() || !native.is_complete() {
-            return Err(std::io::Error::other(
-                "gRPC actual Scope or native original remains retained",
-            ));
+            .map_err(std::io::Error::other)
+            .and_then(|report| tasks::confirmed_report("gRPC native", report));
+        let scope = tasks::confirmed_report("gRPC Scope", tasks);
+        if scope.is_ok() && native.is_ok() {
+            self.originals.connections.confirm_all_closed();
+            self.retired.store(true, Ordering::Release);
         }
-        self.originals.connections.confirm_all_closed();
-        self.retired.store(true, Ordering::Release);
-        tasks::finish([server, jobs])
+        tasks::finish([server, jobs, scope, native])
     }
 }
 impl Drop for GrpcHandle {

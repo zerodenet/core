@@ -49,20 +49,22 @@ impl IpcServerHandle {
         }
         let result = self.task.join().await;
         let accepted = self.originals.close_all().await;
-        let closed = self.listener.close(super::owner::close_deadline()).await?;
-        if !self.listener.matches_closed(&closed) {
-            return Err(io::Error::other("IPC listener closed a foreign original"));
-        }
-        self.listener.remove_bound_path(&closed)?;
-        self.originals
-            .admission
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner)
-            .take();
-        if accepted.is_ok() {
+        let native = match self.listener.close(super::owner::close_deadline()).await {
+            Ok(closed) if self.listener.matches_closed(&closed) => {
+                self.originals
+                    .admission
+                    .lock()
+                    .unwrap_or_else(std::sync::PoisonError::into_inner)
+                    .take();
+                self.listener.remove_bound_path(&closed)
+            }
+            Ok(_) => Err(io::Error::other("IPC listener closed a foreign original")),
+            Err(error) => Err(error),
+        };
+        if accepted.is_ok() && native.is_ok() {
             self.retired.store(true, Ordering::Release);
         }
-        super::owner::finish_work([result, accepted])
+        super::owner::finish_work([result, accepted, native])
     }
 }
 
