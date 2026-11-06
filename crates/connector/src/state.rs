@@ -1,11 +1,19 @@
-use std::fs::{File, OpenOptions, TryLockError};
-use std::io::BufReader;
+use std::{io, sync::Arc};
+use zero_runtime::configuration::ConfigurationSource;
+mod jsonl;
+mod outbox;
+use outbox::inspect_outbox;
+#[cfg(test)]
+pub(crate) use outbox::inspect_outbox_path;
+mod lease;
+mod owner;
+pub(crate) use lease::PersistentStateLease;
 use std::path::{Path, PathBuf};
 
 use serde::Serialize;
 use zero_config::RuntimeConfig;
 
-use crate::dispatcher::outbox;
+use crate::dispatcher::outbox as delivery_outbox;
 use crate::{ConnectorError, ConnectorResult};
 
 pub const CONNECTOR_STATE_REPORT_SCHEMA: &str = "zero.connector.state-report.v1";
@@ -41,74 +49,76 @@ pub enum ConnectorStateStatus {
     Incompatible,
 }
 
-#[derive(Debug)]
-pub(crate) struct PersistentStateLease {
-    _file: crate::resources::FileView,
-}
-
-impl PersistentStateLease {
-    pub(crate) fn acquire(
-        path: &Path,
-        resources: &crate::resources::DispatcherResources,
-    ) -> ConnectorResult<Self> {
-        let lock_path = lock_path(path);
-        if let Some(parent) = lock_path.parent() {
-            std::fs::create_dir_all(parent).map_err(|source| {
-                ConnectorError::LockPersistentState {
-                    path: path.display().to_string(),
-                    lock_path: lock_path.display().to_string(),
-                    source,
-                }
-            })?;
-        }
-        let file = resources
-            .open(|| {
-                OpenOptions::new()
-                    .create(true)
-                    .truncate(false)
-                    .read(true)
-                    .write(true)
-                    .open(&lock_path)
-            })
-            .map_err(|source| ConnectorError::LockPersistentState {
-                path: path.display().to_string(),
-                lock_path: lock_path.display().to_string(),
-                source,
-            })?;
-        match file.try_lock() {
-            Ok(()) => Ok(Self { _file: file }),
-            Err(TryLockError::WouldBlock) => Err(ConnectorError::PersistentStateInUse {
-                path: path.display().to_string(),
-                lock_path: lock_path.display().to_string(),
-            }),
-            Err(TryLockError::Error(source)) => Err(ConnectorError::LockPersistentState {
-                path: path.display().to_string(),
-                lock_path: lock_path.display().to_string(),
-                source,
-            }),
-        }
-    }
-}
-
-fn lock_path(path: &Path) -> PathBuf {
-    let mut lock_path = path.as_os_str().to_os_string();
-    lock_path.push(".zero.lock");
-    PathBuf::from(lock_path)
-}
-
 impl ConnectorStateReport {
     pub fn is_compatible(&self) -> bool {
         self.compatible
     }
 }
 
+/// The report shape stays unchanged; actual typed failures remain a separate
+/// local receiver rather than being reduced to a JSON diagnostic string.
+pub struct ConnectorStateInspection {
+    report: ConnectorStateReport,
+    failures: Vec<Arc<io::Error>>,
+}
+impl ConnectorStateInspection {
+    pub fn into_parts(self) -> (ConnectorStateReport, Vec<Arc<io::Error>>) {
+        (self.report, self.failures)
+    }
+}
+/// Explicit library inspection retains its own genuine source. The CLI passes
+/// the source which actually loaded its configuration through the next entry.
 pub fn inspect_persistent_state(config: &RuntimeConfig) -> ConnectorStateReport {
+    inspect_persistent_state_with_source(config, &Arc::new(ConfigurationSource::default())).report
+}
+pub fn inspect_persistent_state_with_source(
+    config: &RuntimeConfig,
+    source: &Arc<ConfigurationSource>,
+) -> ConnectorStateInspection {
+    let (lease, mut inherited) = match owner::begin(source.clone()) {
+        Ok(lease) => lease,
+        Err(failures) => {
+            let message = failures
+                .first()
+                .map(ToString::to_string)
+                .unwrap_or_else(|| "original inspection cleanup remains unconfirmed".into());
+            let mut files = Vec::new();
+            if let Some(path) = config.api.outbox_path.as_deref() {
+                files.push(incompatible(
+                    "event_outbox",
+                    "zero.connector.delivery-outbox.v1",
+                    &resolve_path(path, config.source_dir()),
+                    0,
+                    message.clone(),
+                ));
+            }
+            if let Some(path) = config.api.dead_letter_path.as_deref() {
+                files.push(incompatible(
+                    "dead_letter",
+                    "zero.connector.dead-letter-jsonl.v1",
+                    &resolve_path(path, config.source_dir()),
+                    0,
+                    message,
+                ));
+            }
+            return ConnectorStateInspection {
+                report: ConnectorStateReport {
+                    schema_id: CONNECTOR_STATE_REPORT_SCHEMA,
+                    compatible: false,
+                    files,
+                },
+                failures,
+            };
+        }
+    };
+    let original = lease.original.clone();
     let mut files = Vec::new();
     if let Some(path) = config.api.outbox_path.as_deref() {
-        files.push(inspect_outbox_file(
+        files.push(inspect_outbox(
             "event_outbox",
             path,
             config.source_dir(),
+            &original,
         ));
     }
     if let Some(path) = config.api.dead_letter_path.as_deref() {
@@ -117,49 +127,31 @@ pub fn inspect_persistent_state(config: &RuntimeConfig) -> ConnectorStateReport 
             "zero.connector.dead-letter-jsonl.v1",
             path,
             config.source_dir(),
+            &original,
         ));
     }
-    let compatible = files
-        .iter()
-        .all(|file| file.status != ConnectorStateStatus::Incompatible);
-    ConnectorStateReport {
-        schema_id: CONNECTOR_STATE_REPORT_SCHEMA,
-        compatible,
-        files,
+    let (complete, faults) = lease.finish();
+    if let Some(error) = original.cleanup_failure() {
+        for file in &mut files {
+            file.status = ConnectorStateStatus::Incompatible;
+            file.error = Some(match file.error.take() {
+                Some(work) => format!("{work}; original inspection cleanup failed: {error}"),
+                None => format!("original inspection cleanup failed: {error}"),
+            });
+        }
     }
-}
-
-pub(crate) fn inspect_outbox_file(
-    kind: &str,
-    configured_path: &str,
-    source_dir: Option<&Path>,
-) -> ConnectorStateFile {
-    let path = resolve_path(configured_path, source_dir);
-    if !path.exists() {
-        return missing(kind, "zero.connector.delivery-outbox.v1", &path);
-    }
-    match outbox::inspect_path(&path) {
-        Ok(inspection) => ConnectorStateFile {
-            kind: kind.to_owned(),
-            format: "zero.connector.delivery-outbox.v1".to_owned(),
-            path: path.display().to_string(),
-            status: if inspection.recoverable_partial_tail {
-                ConnectorStateStatus::RecoverablePartialTail
-            } else {
-                ConnectorStateStatus::Ready
-            },
-            bytes: inspection.bytes,
-            records: Some(inspection.records as u64),
-            pending: Some(inspection.pending as u64),
-            error: None,
+    inherited.extend(faults);
+    let compatible = complete
+        && files
+            .iter()
+            .all(|file| file.status != ConnectorStateStatus::Incompatible);
+    ConnectorStateInspection {
+        report: ConnectorStateReport {
+            schema_id: CONNECTOR_STATE_REPORT_SCHEMA,
+            compatible,
+            files,
         },
-        Err(error) => incompatible(
-            kind,
-            "zero.connector.delivery-outbox.v1",
-            &path,
-            file_len(&path),
-            error.to_string(),
-        ),
+        failures: inherited,
     }
 }
 
@@ -168,67 +160,36 @@ fn inspect_json_lines(
     format: &str,
     configured_path: &str,
     source_dir: Option<&Path>,
+    attempt: &owner::Attempt,
 ) -> ConnectorStateFile {
     let path = resolve_path(configured_path, source_dir);
-    let file = match File::open(&path) {
-        Ok(file) => file,
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
-            return missing(kind, format, &path);
+    let (bytes, decoded) = match jsonl::inspect(&path, &attempt.source) {
+        Ok(snapshot) => snapshot,
+        Err(error) if error.kind() == io::ErrorKind::NotFound => {
+            return missing(kind, format, &path)
         }
         Err(error) => {
-            return incompatible(kind, format, &path, 0, format!("read failed: {error}"));
+            let message = format!("read failed: {error}");
+            attempt.work_failed(error);
+            return incompatible(kind, format, &path, 0, message);
         }
     };
-    let bytes = match file.metadata() {
-        Ok(metadata) => metadata.len(),
-        Err(error) => return incompatible(kind, format, &path, 0, format!("read failed: {error}")),
-    };
-    let mut reader = BufReader::with_capacity(
-        crate::jsonl::BUFFER_BYTES,
-        crate::jsonl::Snapshot::new(file, bytes),
-    );
-    let mut prefix = Vec::with_capacity(crate::jsonl::BUFFER_BYTES);
-    let mut records = 0u64;
-    let mut index = 0u64;
-    loop {
-        let frame =
-            match crate::jsonl::read_record::<serde::de::IgnoredAny>(&mut reader, &mut prefix) {
-                Ok(Some(frame)) => frame,
-                Ok(None) => break,
-                Err(error) => {
-                    return incompatible(
-                        kind,
-                        format,
-                        &path,
-                        bytes,
-                        format!("read failed: {error}"),
-                    )
-                }
-            };
-        index += 1;
-        let Some(parsed) = frame.parsed else {
-            continue;
-        };
-        if let Err(error) = parsed {
-            return incompatible(
-                kind,
-                format,
-                &path,
-                bytes,
-                format!("record {index} is invalid JSON: {error}"),
-            );
+    match decoded {
+        Ok(records) => ConnectorStateFile {
+            kind: kind.into(),
+            format: format.into(),
+            path: path.display().to_string(),
+            status: ConnectorStateStatus::Ready,
+            bytes,
+            records: Some(records),
+            pending: None,
+            error: None,
+        },
+        Err(error) => {
+            let message = error.to_string();
+            attempt.work_failed(error);
+            incompatible(kind, format, &path, bytes, message)
         }
-        records += 1;
-    }
-    ConnectorStateFile {
-        kind: kind.to_owned(),
-        format: format.to_owned(),
-        path: path.display().to_string(),
-        status: ConnectorStateStatus::Ready,
-        bytes,
-        records: Some(records),
-        pending: None,
-        error: None,
     }
 }
 
@@ -273,6 +234,5 @@ fn resolve_path(path: &str, source_dir: Option<&Path>) -> PathBuf {
     }
 }
 
-fn file_len(path: &Path) -> u64 {
-    std::fs::metadata(path).map_or(0, |metadata| metadata.len())
-}
+#[cfg(test)]
+mod tests;
