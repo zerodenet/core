@@ -47,3 +47,5 @@ mod loan;
 mod setup;
 
 mod totals;
+
+mod replacement;

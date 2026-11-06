@@ -6,12 +6,9 @@ use crate::{
 };
 use std::{
     num::NonZeroUsize,
-    sync::{
-        atomic::{AtomicU64, Ordering},
-        Arc, Weak,
-    },
+    sync::{Arc, Weak},
 };
-use zero_core::{request::Destination, Address};
+use zero_core::request::Destination;
 use zero_traits::DialPolicy;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -33,8 +30,10 @@ pub struct NativePoolOptions {
     pub(super) carrier_limit: NonZeroUsize,
     pub(super) stream_limit: NonZeroUsize,
     pub(super) identity: Arc<[u8]>,
-    base_identity: Arc<[u8]>,
+    pub(super) base_identity: Arc<[u8]>,
+    _background_recipe: Option<Arc<Recipe>>,
     pub(super) totals: Option<RootUse>,
+    pub(super) node_dns: Option<zero_core::component::ComponentId>,
 }
 impl std::fmt::Debug for NativePoolOptions {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -45,6 +44,7 @@ impl std::fmt::Debug for NativePoolOptions {
             .finish_non_exhaustive()
     }
 }
+mod recipe;
 impl NativePoolOptions {
     pub fn from_pool(
         pool: &GrpcPool,
@@ -52,119 +52,18 @@ impl NativePoolOptions {
         carrier_limit: NonZeroUsize,
         stream_limit: NonZeroUsize,
     ) -> Result<Self, RuntimeError> {
-        let invalid = || {
-            std::io::Error::new(
-                std::io::ErrorKind::InvalidInput,
-                "invalid native gRPC carrier options",
-            )
-        };
-        if settings.port == 0 || stream_limit.get() > tokio::sync::Semaphore::MAX_PERMITS {
-            return Err(invalid().into());
-        }
-        settings.dial.validate().map_err(|_| invalid())?;
-        let ip = zero_core::address::parse_ip_literal(&settings.server).ok_or_else(|| {
-            std::io::Error::new(
-                std::io::ErrorKind::Unsupported,
-                "native gRPC currently requires a literal direct endpoint",
-            )
-        })?;
-        let address = match ip {
-            std::net::IpAddr::V4(ip) => Address::Ipv4(ip.octets()),
-            std::net::IpAddr::V6(ip) => Address::Ipv6(ip.octets()),
-        };
-        let endpoint = Destination::new(address, settings.port);
-        if let Some(tls) = &settings.tls {
-            if tls.ca_cert_path.is_some() {
-                return Err(std::io::Error::new(
-                    std::io::ErrorKind::Unsupported,
-                    "native gRPC CA paths require a File owner",
-                )
-                .into());
-            }
-            if matches!(
-                tls.options.ech.source().map_err(|_| invalid())?,
-                Some(zero_traits::EchConfigSource::Dns { .. })
-            ) {
-                return Err(std::io::Error::new(
-                    std::io::ErrorKind::Unsupported,
-                    "native gRPC ECH DNS requires its service owner",
-                )
-                .into());
-            }
-            #[cfg(feature = "tls")]
-            crate::tls::PreparedClient::validate_profile(tls)?;
-            #[cfg(not(feature = "tls"))]
-            return Err(std::io::Error::new(
-                std::io::ErrorKind::Unsupported,
-                "native gRPC TLS is not compiled",
-            )
-            .into());
-        }
-        let authority = settings
-            .tls
-            .as_ref()
-            .and_then(|tls| tls.server_name.as_deref())
-            .filter(|name| !name.is_empty())
-            .map(str::to_owned)
-            .unwrap_or_else(|| std::net::SocketAddr::new(ip, settings.port).to_string());
-        crate::grpc::options::request(&settings.grpc, &authority)?;
-        let identity = {
-            let mut recipe = pool.0.recipe.lock().unwrap();
-            match recipe.as_ref() {
-                Some(recipe)
-                    if recipe.settings == settings
-                        && recipe.carriers == carrier_limit
-                        && recipe.streams == stream_limit =>
-                {
-                    recipe.identity.clone()
-                }
-                Some(_) => {
-                    return Err(std::io::Error::new(
-                        std::io::ErrorKind::InvalidInput,
-                        "conflicting complete native gRPC recipe for the same actual pool",
-                    )
-                    .into());
-                }
-                None => {
-                    static NEXT: AtomicU64 = AtomicU64::new(0);
-                    let mut current = NEXT.load(Ordering::Relaxed);
-                    let identity = loop {
-                        let next = current.checked_add(1).ok_or_else(|| {
-                            std::io::Error::other("native gRPC recipe identity exhausted")
-                        })?;
-                        match NEXT.compare_exchange_weak(
-                            current,
-                            next,
-                            Ordering::Relaxed,
-                            Ordering::Relaxed,
-                        ) {
-                            Ok(_) => break Arc::<[u8]>::from(next.to_le_bytes()),
-                            Err(observed) => current = observed,
-                        }
-                    };
-                    *recipe = Some(Recipe {
-                        settings: settings.clone(),
-                        carriers: carrier_limit,
-                        streams: stream_limit,
-                        identity: identity.clone(),
-                    });
-                    identity
-                }
-            }
-        };
-        Ok(Self {
-            pool: Arc::downgrade(&pool.0),
-            scoped_preparation: false,
-            selected_background: false,
-            settings,
-            endpoint,
-            authority,
-            carrier_limit,
-            stream_limit,
-            base_identity: identity.clone(),
-            identity,
-            totals: None,
-        })
+        Self::prepare_recipe(pool, settings, carrier_limit, stream_limit, false)
+    }
+    /// Ordinary background owner: full Node/relay selection and a strongly
+    /// retained immutable cold recipe; this starts no I/O or new pool.
+    pub fn for_background_pool(
+        pool: &GrpcPool,
+        settings: NativePoolSettings,
+        carrier_limit: NonZeroUsize,
+        stream_limit: NonZeroUsize,
+    ) -> Result<Self, RuntimeError> {
+        Self::prepare_recipe(pool, settings, carrier_limit, stream_limit, true)
+            .map(Self::with_background_selection)
     }
     fn refresh_identity(&mut self) {
         let mut identity = self.base_identity.to_vec();
@@ -177,6 +76,10 @@ impl NativePoolOptions {
         if let Some(totals) = &self.totals {
             identity.extend_from_slice(&totals.dependency.0.to_le_bytes());
             identity.extend_from_slice(totals.proposal.identity());
+        }
+        if let Some(node_dns) = self.node_dns {
+            identity.extend_from_slice(b"grpc.node-dns");
+            identity.extend_from_slice(&node_dns.0.to_le_bytes());
         }
         self.identity = identity.into();
     }
@@ -213,6 +116,11 @@ impl NativePoolOptions {
         });
         self.refresh_identity();
         Ok(self)
+    }
+    pub fn with_node_dns(mut self, dependency: zero_core::component::ComponentId) -> Self {
+        self.node_dns = Some(dependency);
+        self.refresh_identity();
+        self
     }
     pub fn endpoint(&self) -> &Destination {
         &self.endpoint
