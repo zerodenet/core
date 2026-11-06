@@ -9,37 +9,7 @@ struct Inner {
     occupied: Mutex<(usize, usize)>,
     totals: Arc<PacketReturnTotals>,
 }
-/// One Devices-root counter; actual old buffers retain this same Arc across
-/// graph/role/network changes. This owns no frame queue or native resource.
-pub(crate) struct PacketReturnTotals(Mutex<Totals>);
-struct Totals {
-    limits: (usize, usize),
-    occupied: (usize, usize),
-}
-impl Default for PacketReturnTotals {
-    fn default() -> Self {
-        Self(Mutex::new(Totals {
-            limits: (1024, 64 * 1024 * 1024),
-            occupied: (0, 0),
-        }))
-    }
-}
-impl PacketReturnTotals {
-    /// Called only during actual device start, after the host replacement gate.
-    /// Cold descriptions never mutate the current total. Retained originals
-    /// block a lower ceiling; no active/retiring frame is evicted.
-    pub(crate) fn install(&self, frames: usize, bytes: usize) -> std::io::Result<()> {
-        let mut total = self.0.lock().unwrap_or_else(|e| e.into_inner());
-        if frames == 0 || bytes == 0 || total.occupied.0 > frames || total.occupied.1 > bytes {
-            return Err(std::io::Error::new(
-                std::io::ErrorKind::WouldBlock,
-                "actual retained Packet returns exceed candidate total",
-            ));
-        }
-        total.limits = (frames, bytes);
-        Ok(())
-    }
-}
+pub(crate) use zero_tun::packet_memory::PacketReturnTotals;
 impl Default for ReturnBudget {
     fn default() -> Self {
         Self::new(256, 16 * 1024 * 1024)
@@ -61,20 +31,15 @@ impl ReturnBudget {
         }))
     }
     pub(super) fn retain(&self, packet: PacketBuffer) -> Result<PacketBuffer, PacketBuffer> {
-        let bytes = packet.len();
+        let bytes = packet.allocation_bytes();
         let mut occupied = self.0.occupied.lock().unwrap_or_else(|e| e.into_inner());
         if occupied.0 >= self.0.limits.0 || bytes > self.0.limits.1.saturating_sub(occupied.1) {
             return Err(packet);
         }
-        let mut total = self.0.totals.0.lock().unwrap_or_else(|e| e.into_inner());
-        if total.occupied.0 >= total.limits.0
-            || bytes > total.limits.1.saturating_sub(total.occupied.1)
-        {
-            return Err(packet);
-        }
-        total.occupied.0 += 1;
-        total.occupied.1 += bytes;
-        drop(total);
+        let total = match self.0.totals.reserve_returns(&[bytes]) {
+            Ok(mut credits) => credits.pop().expect("same original return allocation"),
+            Err(_) => return Err(packet),
+        };
         occupied.0 += 1;
         occupied.1 += bytes;
         drop(occupied);
@@ -83,6 +48,7 @@ impl ReturnBudget {
             credit: Credit {
                 budget: self.clone(),
                 bytes,
+                _total: total,
             },
         }))
     }
@@ -90,6 +56,7 @@ impl ReturnBudget {
 struct Credit {
     budget: ReturnBudget,
     bytes: usize,
+    _total: zero_tun::packet_memory::PacketReturnCredit,
 }
 impl Drop for Credit {
     fn drop(&mut self) {
@@ -101,15 +68,7 @@ impl Drop for Credit {
             .unwrap_or_else(|e| e.into_inner());
         occupied.0 -= 1;
         occupied.1 -= self.bytes;
-        let mut total = self
-            .budget
-            .0
-            .totals
-            .0
-            .lock()
-            .unwrap_or_else(|e| e.into_inner());
-        total.occupied.0 -= 1;
-        total.occupied.1 -= self.bytes;
+        drop(occupied);
     }
 }
 struct Charged {
@@ -127,6 +86,9 @@ impl AsMut<[u8]> for Charged {
     }
 }
 impl PacketStorage for Charged {
+    fn allocation_bytes(&self) -> usize {
+        self.packet.allocation_bytes()
+    }
     fn into_vec(self: Box<Self>) -> Vec<u8> {
         let Self { packet, credit } = *self;
         // An explicit Vec-only consumer ends this owned view here. Standard
