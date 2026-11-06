@@ -16,7 +16,6 @@ use crate::{
 use component::{LinkedStackFactory, LinkedStackOptions};
 pub(super) use invocation::LinkedInvocation;
 use std::sync::Arc;
-use tokio::sync::{mpsc, watch};
 use zero_config::{InboundConfig, OutboundConfig, OutboundProtocolConfig};
 use zero_core::component::{ComponentId, ComponentInstanceId, NetworkGeneration};
 use zero_engine::EngineError;
@@ -39,8 +38,7 @@ pub(super) struct LinkedEndpointRecipe {
     binding: UpstreamBinding,
     plan: Arc<WireguardRawIpPlan>,
     stacks: Vec<EndpointStackRecipe>,
-    sender: watch::Sender<mpsc::Sender<crate::runtime::raw_ip::EndpointPacket>>,
-    packets: mpsc::Receiver<crate::runtime::raw_ip::EndpointPacket>,
+    io: inbound::EndpointIoRecipe,
     static_identity: Arc<[u8]>,
     reuse: Option<std::sync::Weak<LinkedStackOptions>>,
     dependencies: Vec<ComponentId>,
@@ -163,8 +161,17 @@ impl LinkedEndpointRecipe {
             )?),
         };
         let reuse = reused.as_ref().map(Arc::downgrade);
-        let (sender, packets) = mpsc::channel(256);
-        let (sender, endpoint) = watch::channel(sender);
+        let io = adapter
+            .linked_endpoints
+            .lock()
+            .unwrap()
+            .get(&inbound.tag)
+            .filter(|link| {
+                link.listen == inbound.listen && Arc::ptr_eq(&link.live, &pending.live())
+            })
+            .map(|link| inbound::EndpointIoRecipe::retained(link))
+            .unwrap_or_else(inbound::EndpointIoRecipe::new);
+        let endpoint = io.sender.subscribe();
         let stacks = settings
             .stacks
             .into_iter()
@@ -191,8 +198,7 @@ impl LinkedEndpointRecipe {
             },
             plan,
             stacks,
-            sender,
-            packets,
+            io,
             static_identity,
             reuse,
             dependencies: settings
