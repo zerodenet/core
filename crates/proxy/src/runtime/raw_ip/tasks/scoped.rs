@@ -4,6 +4,7 @@ mod failure;
 mod guard;
 mod lifetime;
 mod quiescence;
+mod spawn;
 use super::{Source, TaskOutput};
 pub(crate) use failure::SourceJoinFailure;
 pub(crate) use guard::SourceTasksGuard;
@@ -98,78 +99,6 @@ impl<T: TaskOutput> ScopedSourceTasks<T> {
             owner: self,
             _lease: lease,
         })
-    }
-    fn spawn(
-        &self,
-        future: impl Future<Output = T> + Send + 'static,
-    ) -> Result<TaskId, ChannelError> {
-        let scope = self
-            .inner
-            .scope
-            .get()
-            .ok_or_else(|| error(Reason::InvalidConfig))?;
-        let host_stop = scope.cancellation().ok_or_else(|| error(Reason::Revoked))?;
-        let record = Arc::new(Record {
-            witness: OnceLock::new(),
-            output: Mutex::new(None),
-        });
-        {
-            let mut state = self.inner.state.lock().unwrap();
-            if state.closing {
-                return Err(error(Reason::Revoked));
-            }
-            if state.records.len() >= self.inner.limit {
-                return Err(error(Reason::Capacity));
-            }
-            state.records.push(record.clone());
-        }
-        let output = record.clone();
-        let owner = self.inner.clone();
-        let registered = scope.spawn_tracked(self.inner.class, async move {
-            let mut result = tokio::select! {biased;
-                _=host_stop.cancelled()=>return Ok(()),
-                _=owner.stop.cancelled()=>return Ok(()),
-                output=future=>output,
-            };
-            // Expected Auxiliary outputs belong to their original receiver.
-            // Critical driver errors also reach the actual Scope supervisor.
-            let failure = if owner.class == TaskClass::Critical {
-                result.preserve_failure()
-            } else {
-                None
-            };
-            *output.output.lock().unwrap() = Some(result);
-            owner.changed.notify_waiters();
-            failure.map_or(Ok(()), |source| {
-                Err(error(Reason::Io).with_source(Reported(source)))
-            })
-        });
-        match registered {
-            Ok((id, witness)) => {
-                record
-                    .witness
-                    .set(witness)
-                    .expect("one actual Source worker registration");
-                self.inner.changed.notify_waiters();
-                Ok(id)
-            }
-            Err(source) => {
-                let reason = match source {
-                    zero_platform_tokio::contract::scope::SpawnError::Capacity => Reason::Capacity,
-                    _ => Reason::Revoked,
-                };
-                let mut state = self.inner.state.lock().unwrap();
-                state.records.retain(|entry| !Arc::ptr_eq(entry, &record));
-                // No task was accepted or polled. Capacity denial grants no
-                // replacement credit and is not a sticky cleanup fault.
-                if reason != Reason::Capacity {
-                    state.closing = true;
-                }
-                drop(state);
-                Err(ChannelError::new(Stage::Prepare, reason, Impact::Component)
-                    .with_source(source))
-            }
-        }
     }
     fn take_joined(&self) -> Option<Result<T, SourceJoinFailure>> {
         let mut state = self.inner.state.lock().unwrap();

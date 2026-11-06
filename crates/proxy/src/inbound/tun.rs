@@ -16,7 +16,7 @@ pub(crate) use policy::TunIngressOptions;
 mod routes;
 mod runtime;
 #[cfg(feature = "raw-ip-runtime")]
-pub(crate) use runtime::serve_dns_tcp;
+pub(crate) use runtime::serve_dns_tcp_owned;
 #[cfg(feature = "raw-ip-runtime")]
 pub(crate) use sniff::sniff_tcp_target;
 #[cfg(feature = "raw-ip-runtime")]
@@ -42,7 +42,7 @@ use zero_stack::UserNetworkStack;
 use zero_tun::TunDevice;
 
 use crate::runtime::{Proxy, TunControl, TunInfo};
-use config::{parse_interface_addresses, prepare_dns_routes};
+use config::parse_interface_addresses;
 
 static NEXT_TUN_ID: AtomicU64 = AtomicU64::new(1);
 const MAX_CAPTURE_ROUTE_PREFIXES: usize = 512;
@@ -709,7 +709,7 @@ impl Proxy {
     ) -> Result<(bool, Vec<IpAddr>), EngineError> {
         let config = self.engine().config();
         let result = tokio::task::spawn_blocking(move || {
-            prepare_dns_routes(
+            config::prepare_dns_routes(
                 config.as_ref(),
                 requested,
                 auto_route,
