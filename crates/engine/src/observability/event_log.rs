@@ -29,6 +29,7 @@ use super::SessionOutcome;
 #[derive(Debug)]
 pub struct EngineEventLog {
     capacity: AtomicUsize,
+    subscriber_stats_limit: AtomicUsize,
     event_epoch: u128,
     core_instance_id: String,
     config_revision: Arc<AtomicU64>,
@@ -76,6 +77,7 @@ impl EngineEventLog {
         let event_epoch = rand::random();
         Self {
             capacity: AtomicUsize::new(capacity),
+            subscriber_stats_limit: AtomicUsize::new(budget::SUBSCRIBER_STATS_BYTES),
             event_epoch,
             core_instance_id: format!("{event_epoch:032x}"),
             config_revision: Arc::new(AtomicU64::new(1)),
@@ -572,11 +574,13 @@ impl EngineEventLog {
             .unwrap_or(0)
     }
 
-    pub(crate) fn subscribe(&self, subscriber: Subscriber) {
-        self.subscribers
+    pub(crate) fn subscribe(&self, mut subscriber: Subscriber) {
+        let mut subscribers = self
+            .subscribers
             .lock()
-            .unwrap_or_else(|error| error.into_inner())
-            .push(subscriber);
+            .unwrap_or_else(|error| error.into_inner());
+        subscriber.stats_limit = self.subscriber_stats_limit.load(Ordering::Relaxed);
+        subscribers.push(subscriber);
     }
 
     pub(crate) fn push_external(&self, event: RawApiEvent) {
