@@ -15,7 +15,7 @@ impl Root {
         grant: CarrierGrant,
     ) -> BoxFuture<'_, Result<CarrierIo, ChannelError>> {
         Box::pin(async move {
-            if endpoint != self.endpoint || call.session.is_some() {
+            if self.native.is_none() || endpoint != self.endpoint || call.session.is_some() {
                 return Err(crate::component::instance::invalid(
                     zero_platform_tokio::contract::Reason::StalePlan,
                     "DNS controlled root differs from its actual declaration/caller",

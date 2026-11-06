@@ -252,6 +252,16 @@ impl NativeDnsProvider for Provider {
     ) -> BoxFuture<'_, std::io::Result<(StreamLoan, Arc<dyn zero_dns::DnsCarrierBinding>)>> {
         Box::pin(self.open_detour(outbound, peer, caller, cancel, end))
     }
+    fn detour_udp(
+        &self,
+        outbound: String,
+        peer: SocketAddr,
+        caller: TaskJoinWitness,
+        cancel: CancellationToken,
+        end: tokio::time::Instant,
+    ) -> BoxFuture<'_, std::io::Result<zero_dns::native::NativeDnsUdpLoan>> {
+        Box::pin(self.open_udp_detour(outbound, peer, caller, cancel, end))
+    }
     fn close_stream_originals(
         &self,
         caller: TaskJoinWitness,

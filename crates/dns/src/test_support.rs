@@ -139,3 +139,6 @@ pub fn install_dot_ca(
         _ => Err(invalid()),
     }
 }
+
+mod detour;
+pub use detour::{open_native_detour, NativeDetourStream};

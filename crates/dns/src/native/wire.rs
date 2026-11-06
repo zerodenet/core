@@ -28,9 +28,15 @@ pub fn validate_node_server(server: &DnsServerConfig) -> io::Result<()> {
     Ok(())
 }
 pub fn validate_node_config(config: Option<&zero_config::DnsConfig>) -> io::Result<()> {
-    let config = config
-        .filter(|config| !config.servers.is_empty())
-        .ok_or_else(|| unsupported("node DNS requires configured native servers"))?;
+    // No DNS document already means System resolution. The same host-owned
+    // Node provider executes that real blocking work; this is a cold capability
+    // check, never authorization to perform it before the provider starts.
+    let Some(config) = config else {
+        return Ok(());
+    };
+    if config.servers.is_empty() {
+        return Err(unsupported("node DNS requires configured native servers"));
+    }
     let tags = match config.policy.node_server.as_deref() {
         Some(selected) => std::iter::once(selected)
             .chain(
@@ -112,9 +118,17 @@ pub(super) async fn exchange(
     cancel: CancellationToken,
     end: Instant,
 ) -> Attempt {
-    if config
-        .detour()
-        .is_some_and(|outbound| !provider.owns_detour(outbound))
+    // Existing DoQ detours have never had a proxy-aware QUIC carrier. Do not
+    // turn host-only execution into a direct QUIC bypass of that detour.
+    if matches!(config, DnsServerConfig::Doq { .. }) && config.detour().is_some() {
+        return Attempt::blocked(unsupported(
+            "DoQ detour requires a proxy-aware UDP/QUIC carrier",
+        ));
+    }
+    if !matches!(config, DnsServerConfig::Udp { .. })
+        && config
+            .detour()
+            .is_some_and(|outbound| !provider.owns_detour(outbound))
     {
         return Attempt::blocked(unsupported(
             "DNS detour has no actual standard Stream owner",
@@ -200,58 +214,73 @@ async fn exchange_peer(
     if matches!(config, DnsServerConfig::Doq { .. }) {
         return Box::pin(quic::exchange(provider, backend, request, peer)).await;
     }
-    if matches!(config, DnsServerConfig::Udp { .. }) && config.detour().is_none() {
-        let loan = match provider
-            .datagram(peer, caller.clone(), cancel.clone(), end)
+    let mut stream = None;
+    if matches!(config, DnsServerConfig::Udp { .. }) {
+        let opening = async {
+            match config.detour() {
+                Some(outbound) => {
+                    provider
+                        .detour_udp(
+                            outbound.to_owned(),
+                            peer,
+                            caller.clone(),
+                            cancel.clone(),
+                            end,
+                        )
+                        .await
+                }
+                None => provider
+                    .datagram(peer, caller.clone(), cancel.clone(), end)
+                    .await
+                    .map(NativeDnsUdpLoan::Datagram),
+            }
+        };
+        let loan = match OwnedDnsQueryTasks::native_io(opening)
             .await
+            .and_then(std::convert::identity)
         {
             Ok(loan) => loan,
+            Err(source) if config.detour().is_some() => {
+                return attempt::failed_service(provider, caller.clone(), end, source).await;
+            }
             Err(source) => return Attempt::open_failed(source),
         };
-        let (io, mut owner) = (loan.io, loan.owner);
-        if let Err(source) = OwnedDnsQueryTasks::record_native(owner.original()) {
-            drop(io);
-            return attempt::settle(&mut owner, end, Err(source)).await;
+        match loan {
+            NativeDnsUdpLoan::Stream(loan) => stream = Some(loan),
+            NativeDnsUdpLoan::Datagram(loan) => {
+                let response = exchange_datagram(loan, request).await;
+                if !response.is_truncated(query) {
+                    return response;
+                }
+                // The original UDP controller has confirmed close before a
+                // separately selected TCP carrier can acquire any resource.
+            }
         }
-        let work = async {
-            io.send(query).await?;
-            let mut bytes = vec![0; 65536];
-            loop {
-                let size = io.receive(&mut bytes).await?;
-                if crate::message::parse_response(query, &bytes[..size]).is_ok() {
-                    return Ok(bytes[..size].to_vec());
+    }
+    let opened = match stream {
+        Some(loan) => Ok(loan),
+        None => OwnedDnsQueryTasks::native_io(async {
+            match config.detour() {
+                Some(outbound) => provider
+                    .detour_stream(
+                        outbound.to_owned(),
+                        peer,
+                        caller.clone(),
+                        cancel.clone(),
+                        end,
+                    )
+                    .await
+                    .map(|(loan, _)| loan),
+                None => {
+                    provider
+                        .stream(peer, caller.clone(), cancel.clone(), end)
+                        .await
                 }
             }
-        };
-        let response = attempt(end, async { OwnedDnsQueryTasks::native_io(work).await? }).await;
-        drop(io);
-        let response = attempt::settle(&mut owner, end, response).await;
-        if !response.is_truncated(query) {
-            return response;
-        }
-        // The original UDP controller has confirmed close before TCP exists.
-    }
-    let opened = OwnedDnsQueryTasks::native_io(async {
-        match config.detour() {
-            Some(outbound) => provider
-                .detour_stream(
-                    outbound.to_owned(),
-                    peer,
-                    caller.clone(),
-                    cancel.clone(),
-                    end,
-                )
-                .await
-                .map(|(loan, _)| loan),
-            None => {
-                provider
-                    .stream(peer, caller.clone(), cancel.clone(), end)
-                    .await
-            }
-        }
-    })
-    .await
-    .and_then(std::convert::identity);
+        })
+        .await
+        .and_then(std::convert::identity),
+    };
     let loan = match opened {
         Ok(loan) => loan,
         Err(source) if config.detour().is_some() => {
@@ -278,6 +307,27 @@ async fn exchange_peer(
     };
     let response = attempt(end, async { OwnedDnsQueryTasks::native_io(work).await? }).await;
     // The inline operation owns the stream, including TLS/H2 on every branch.
+    attempt::settle(&mut owner, end, response).await
+}
+async fn exchange_datagram(loan: DatagramLoan, request: &Query<'_>) -> Attempt {
+    let (io, mut owner) = (loan.io, loan.owner);
+    let end = request.end;
+    if let Err(source) = OwnedDnsQueryTasks::record_native(owner.original()) {
+        drop(io);
+        return attempt::settle(&mut owner, end, Err(source)).await;
+    }
+    let work = async {
+        io.send(request.bytes).await?;
+        let mut bytes = vec![0; 65536];
+        loop {
+            let size = io.receive(&mut bytes).await?;
+            if crate::message::parse_response(request.bytes, &bytes[..size]).is_ok() {
+                return Ok(bytes[..size].to_vec());
+            }
+        }
+    };
+    let response = attempt(end, async { OwnedDnsQueryTasks::native_io(work).await? }).await;
+    drop(io);
     attempt::settle(&mut owner, end, response).await
 }
 fn unsupported(message: &'static str) -> io::Error {
