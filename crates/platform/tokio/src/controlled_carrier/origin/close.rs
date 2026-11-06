@@ -4,6 +4,7 @@ pub struct CarrierOriginClosed(pub(super) ClosedOriginal);
 #[derive(Clone)]
 pub(super) enum ClosedOriginal {
     Carrier(Arc<std::sync::OnceLock<bool>>),
+    Packet(PacketProviderClosed),
     Listener(crate::controlled_datagram::listener::origin::ListenerProviderClosed),
     Metadata(crate::controlled_datagram::metadata_pool::MetadataPoolClosed),
     MetadataPool(crate::controlled_datagram::metadata_pool::MetadataPoolOwnerClosed),
@@ -24,6 +25,7 @@ impl CarrierOriginClosed {
     }
     pub fn matches(&self, origin: &CarrierOrigin) -> bool {
         match (&self.0, origin.0.as_ref()) {
+            (ClosedOriginal::Packet(closed), Original::Packet(origin)) => closed.matches(origin),
             (ClosedOriginal::Listener(closed), Original::Listener(origin)) => {
                 closed.matches(origin.owner())
             }
@@ -45,7 +47,7 @@ impl CarrierOriginClosed {
     }
     pub fn had_native_acquisition(&self) -> bool {
         match &self.0 {
-            ClosedOriginal::Listener(_) => true,
+            ClosedOriginal::Packet(_) | ClosedOriginal::Listener(_) => true,
             ClosedOriginal::Carrier(completion) => completion.get() == Some(&true),
             ClosedOriginal::Metadata(closed) => closed.had_native_acquisition(),
             ClosedOriginal::MetadataPool(closed) => closed.had_native_acquisition(),

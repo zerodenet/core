@@ -156,14 +156,16 @@ async fn known_no_native_failure_retains_the_pending_original_driver_and_cancell
         failed(original.open(witness.clone())).reason,
         Reason::Revoked
     );
-    assert!(original
-        .state
-        .lock()
-        .unwrap()
-        .driver
-        .as_ref()
-        .unwrap()
-        .same_registration(&witness));
+    assert!(
+        original
+            .state
+            .lock()
+            .unwrap()
+            .driver
+            .as_ref()
+            .unwrap()
+            .same_registration(&witness)
+    );
     let mut closing = Box::pin(original.shutdown(deadline()));
     std::future::poll_fn(|cx| {
         assert!(closing.as_mut().poll(cx).is_pending());
@@ -244,6 +246,18 @@ async fn actual_tun_pending_read_joins_original_driver_before_matching_duplicate
     let grant = original
         .open(witness.clone())
         .unwrap_or_else(|error| panic!("actual dedicated TUN: {error}"));
+    let provider = grant.original.clone();
+    assert!(
+        original
+            .original_registration()
+            .unwrap()
+            .same_owner(&provider)
+    );
+    assert!(provider.device().same_provider(&grant.identity));
+    assert!(provider.driver().same_registration(&witness));
+    let origin =
+        zero_platform_tokio::controlled_carrier::CarrierOrigin::from_packet(provider.clone());
+    assert!(origin.closed().is_none());
     assert!(send.send(grant).is_ok());
     read_pending.await.unwrap();
     assert!(original.state.lock().unwrap().view_live);
@@ -266,6 +280,20 @@ async fn actual_tun_pending_read_joins_original_driver_before_matching_duplicate
     assert!(report.is_complete());
     assert_eq!(report.closed_io.len(), 1);
     assert!(original.evidence().physical_confirmed());
+    let native = origin
+        .closed()
+        .expect("same explicit original native TUN close");
+    assert!(native.matches(&origin));
+    assert!(native.had_native_acquisition());
+    assert!(provider.closed().unwrap().matches(&provider));
+    assert!(
+        provider
+            .native()
+            .closed()
+            .unwrap()
+            .matches(provider.native())
+    );
+    assert!(provider.driver().is_joined());
     assert!(actual.next_receipt().await.is_none());
     assert!(actual.is_drained());
     let identity = borrowed.owned_identity();

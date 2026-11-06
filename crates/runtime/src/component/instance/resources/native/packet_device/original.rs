@@ -96,7 +96,7 @@ impl Original {
                         component,
                         Reason::Unsupported,
                         "Windows original unavailable on this platform",
-                    ))
+                    ));
                 }
             };
             let io = acquired.map_err(|source| {
@@ -133,7 +133,7 @@ impl Original {
                         component,
                         Reason::Unsupported,
                         "Unix descriptor unavailable on this platform",
-                    ))
+                    ));
                 }
             };
             let io = acquired.map_err(|source| {

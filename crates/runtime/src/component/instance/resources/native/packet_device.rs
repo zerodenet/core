@@ -36,6 +36,7 @@ struct State {
     view_live: bool,
     driver: Option<TaskJoinWitness>,
     close_fault: Option<Arc<ChannelError>>,
+    original: Option<zero_platform_tokio::controlled_carrier::PacketProviderRegistration>,
     #[cfg(feature = "raw-ip-runtime")]
     reported_close: bool,
     #[cfg(feature = "raw-ip-runtime")]
@@ -94,6 +95,15 @@ impl PacketDeviceOwner {
             original,
         })
     }
+    pub(super) fn original_registration(
+        &self,
+    ) -> Option<zero_platform_tokio::controlled_carrier::PacketProviderRegistration> {
+        self.state
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .original
+            .clone()
+    }
     pub(super) fn name(&self) -> &str {
         &self.name
     }
@@ -125,7 +135,7 @@ impl PacketDeviceOwner {
             ));
         }
         state.attempted = true;
-        state.driver = Some(driver);
+        state.driver = Some(driver.clone());
         #[cfg(feature = "raw-ip-runtime")]
         {
             let acquired = self
@@ -134,10 +144,18 @@ impl PacketDeviceOwner {
             state.issued = self.original.issued();
             match acquired {
                 Ok(native) => {
+                    let original = zero_platform_tokio::controlled_carrier::PacketProviderRegistration::from_acquired(
+                        self.identity.clone(),
+                        state.issued.as_ref().expect("same acquired concrete native identity").clone(),
+                        driver,
+                        self.cancel.clone(),
+                    )?;
+                    state.original = Some(original.clone());
                     state.view_live = true;
                     Ok(GrantedPacketDevice {
                         io: Box::pin(view::View::new(native.io, self.state.clone())),
                         identity: self.identity.clone(),
+                        original,
                         interface: native.interface,
                     })
                 }
