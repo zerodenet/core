@@ -90,7 +90,7 @@ impl ManagedPool {
                 .into());
             }
             self.verify_epoch(binding)?;
-            let raw = if binding.prefix.is_empty() {
+            let raw = if binding.prefix.is_empty() && self.stream_dependency.is_none() {
                 let candidates = selected
                     .resolve_controlled_carrier(
                         self.options.endpoint.clone(),
@@ -124,13 +124,64 @@ impl ManagedPool {
                     deadline: Some(deadline),
                     cancel: record.stop.clone(),
                 };
+                let issuer = if binding.prefix.is_empty() {
+                    let dependency = self.stream_dependency.ok_or_else(|| {
+                        std::io::Error::other(failure(
+                            self.instance,
+                            Stage::Prepare,
+                            Reason::StalePlan,
+                        ))
+                    })?;
+                    Some(
+                        self.resources
+                            .upgrade()
+                            .ok_or_else(|| {
+                                std::io::Error::other(failure(
+                                    self.instance,
+                                    Stage::Prepare,
+                                    Reason::Revoked,
+                                ))
+                            })?
+                            .dependency_stream_loan_issuer(
+                                dependency,
+                                &self.options.endpoint,
+                                binding,
+                                &grant,
+                            )
+                            .map_err(std::io::Error::other)?,
+                    )
+                } else {
+                    None
+                };
                 let loan = selected
                     .borrow_stream(self.options.endpoint.clone(), call.clone())
                     .await
                     .map_err(std::io::Error::other)?;
-                grant
-                    .adopt_stream_loan(binding, self.options.endpoint.clone(), &call, loan)
-                    .map_err(std::io::Error::other)?
+                let matches_dependency = self
+                    .stream_dependency
+                    .is_none_or(|expected| loan.owner.original().instance() == expected);
+                let raw = match issuer {
+                    Some(issuer) => grant.adopt_dependency_stream_loan(
+                        binding,
+                        self.options.endpoint.clone(),
+                        &call,
+                        loan,
+                        issuer,
+                    ),
+                    None => {
+                        grant.adopt_stream_loan(binding, self.options.endpoint.clone(), &call, loan)
+                    }
+                }
+                .map_err(std::io::Error::other)?;
+                if !matches_dependency {
+                    return Err(std::io::Error::other(failure(
+                        self.instance,
+                        Stage::Prepare,
+                        Reason::StalePlan,
+                    ))
+                    .into());
+                }
+                raw
             };
             let tagged = raw.prepare_driver(prepare).await?;
             self.verify_epoch(binding)?;

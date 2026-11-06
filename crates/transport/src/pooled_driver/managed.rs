@@ -22,9 +22,12 @@ use zero_platform_tokio::{
 };
 pub struct ManagedPool {
     pub(super) instance: ComponentInstanceId,
+    pub(super) stream_dependency: Option<ComponentInstanceId>,
     pub(super) options: Arc<PoolOptions>,
     pub(super) upstream: UpstreamTransport,
     pub(super) tasks: TaskRegistrar,
+    pub(super) resources:
+        std::sync::Weak<dyn zero_platform_tokio::contract::component::ResourceAccess>,
     pub(super) grants: CarrierGrants,
     pub(super) cancel: CancellationToken,
     pub(super) ready: AtomicBool,
@@ -61,6 +64,11 @@ impl ManagedPool {
             }
         }
         Ok(Operation(self.clone()))
+    }
+    /// Read-only exact actual lower-stream dependency. This is neither a loan
+    /// nor authority; acquisition still validates and adopts the strong owner.
+    pub fn stream_dependency(&self) -> Option<ComponentInstanceId> {
+        self.stream_dependency
     }
     pub fn instance(&self) -> ComponentInstanceId {
         self.instance
@@ -155,13 +163,14 @@ impl ManagedPool {
                 .map_or(deadline, |actual| actual.min(deadline)),
         );
         let deadline = call.deadline.unwrap();
-        let candidates = binding.prefix.is_empty().then(|| {
-            super::candidates::Candidates::new(CarrierContext {
-                session: None,
-                deadline: call.deadline,
-                cancel: call.cancel.clone(),
-            })
-        });
+        let candidates =
+            (binding.prefix.is_empty() && self.stream_dependency.is_none()).then(|| {
+                super::candidates::Candidates::new(CarrierContext {
+                    session: None,
+                    deadline: call.deadline,
+                    cancel: call.cancel.clone(),
+                })
+            });
         let prepare = Arc::new(Mutex::new(Some(prepare)));
         loop {
             self.reap_ready().map_err(std::io::Error::other)?;

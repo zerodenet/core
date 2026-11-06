@@ -53,6 +53,15 @@ impl ComponentFactory for PoolFactory {
         {
             return Err(failure(instance, Stage::Prepare, Reason::InvalidConfig));
         }
+        let stream_dependency = options
+            .stream_dependency
+            .map(|dependency| {
+                context
+                    .dependency(dependency)
+                    .filter(|actual| actual.component == dependency && *actual != instance)
+                    .ok_or_else(|| failure(instance, Stage::Prepare, Reason::StalePlan))
+            })
+            .transpose()?;
         let registry = options
             .registry
             .upgrade()
@@ -65,9 +74,11 @@ impl ComponentFactory for PoolFactory {
         let carriers = CarrierOwner::new(instance, options.limit, &cancel);
         let managed = Arc::new(ManagedPool {
             instance,
+            stream_dependency,
             options,
             upstream,
             tasks: context.tasks,
+            resources: Arc::downgrade(&context.resources),
             grants: carriers.grants(),
             cancel,
             ready: AtomicBool::new(false),

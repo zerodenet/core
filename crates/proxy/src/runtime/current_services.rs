@@ -80,6 +80,17 @@ impl CurrentServiceSource {
             .validate_owned_carrier_adoption(role, adoption)
             .map_err(io::Error::other)
     }
+    pub(crate) fn validate_owned_carrier_instance(
+        &self,
+        consumer: zero_core::component::ComponentInstanceId,
+        adoption: &zero_platform_tokio::controlled_carrier::CarrierAdoption,
+    ) -> io::Result<()> {
+        self.protocols()?
+            .runtime_host()
+            .components()
+            .validate_owned_carrier_instance(consumer, adoption)
+            .map_err(io::Error::other)
+    }
     pub(crate) fn runtime_services(self: &Arc<Self>) -> io::Result<TcpRuntimeServices> {
         let resolver = self
             .resolver

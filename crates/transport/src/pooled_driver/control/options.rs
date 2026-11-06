@@ -20,14 +20,36 @@ impl PoolOptions {
             identity.extend_from_slice(b"actual-node-dependency");
             identity.extend_from_slice(&dependency.0.to_le_bytes());
         }
+        if let Some(dependency) = self.stream_dependency {
+            identity.extend_from_slice(b"actual-stream-loan-dependency");
+            identity.extend_from_slice(&dependency.0.to_le_bytes());
+        }
         self.identity = identity.into();
     }
     /// Actual Node/ECH source prepared by the owning protocol adapter. Cold
     /// identity metadata never grants IO or substitutes for an actual provider.
     pub fn with_node_dependency(mut self, dependency: zero_core::component::ComponentId) -> Self {
-        self.dependencies = vec![dependency];
+        self.node_dependency = Some(dependency);
+        self.rebuild_dependencies();
         self.rebuild_identity();
         self
+    }
+    /// Receive the lower stream from this exact actual dependency, including
+    /// for an empty relay prefix. The owning adapter supplies its real lender;
+    /// this declaration neither opens IO nor substitutes for a StreamLoan.
+    pub fn with_stream_dependency(mut self, dependency: zero_core::component::ComponentId) -> Self {
+        self.stream_dependency = Some(dependency);
+        self.rebuild_dependencies();
+        self.rebuild_identity();
+        self
+    }
+    fn rebuild_dependencies(&mut self) {
+        self.dependencies = self
+            .node_dependency
+            .into_iter()
+            .chain(self.stream_dependency)
+            .collect();
+        self.dependencies.dedup();
     }
     /// Protocol-private cache reclamation runs only after actual closure. The
     /// callback grants no I/O authority and supplies no closure evidence.

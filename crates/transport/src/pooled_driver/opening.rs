@@ -81,7 +81,7 @@ impl ManagedPool {
         self.verify_epoch(&binding).map_err(|source| {
             failure(self.instance, Stage::Prepare, Reason::StalePlan).with_source(source)
         })?;
-        let raw = if binding.prefix.is_empty() {
+        let raw = if binding.prefix.is_empty() && self.stream_dependency.is_none() {
             let prepared = candidates
                 .ok_or_else(|| failure(self.instance, Stage::Prepare, Reason::Internal))?
                 .prepare(&selected, self.options.endpoint.clone(), grant)
@@ -92,15 +92,51 @@ impl ManagedPool {
                 .into_parts()
                 .0
         } else {
+            let issuer = if binding.prefix.is_empty() {
+                let dependency = self
+                    .stream_dependency
+                    .ok_or_else(|| failure(self.instance, Stage::Prepare, Reason::StalePlan))?;
+                Some(
+                    self.resources
+                        .upgrade()
+                        .ok_or_else(|| failure(self.instance, Stage::Prepare, Reason::Revoked))?
+                        .dependency_stream_loan_issuer(
+                            dependency,
+                            &self.options.endpoint,
+                            &binding,
+                            &grant,
+                        )?,
+                )
+            } else {
+                None
+            };
             let loan = selected
                 .borrow_stream(self.options.endpoint.clone(), physical_call.clone())
                 .await?;
-            grant.adopt_stream_loan(
-                &binding,
-                self.options.endpoint.clone(),
-                &physical_call,
-                loan,
-            )?
+            let matches_dependency = self
+                .stream_dependency
+                .is_none_or(|expected| loan.owner.original().instance() == expected);
+            // Install the actual controller even on a rejected foreign loan.
+            // The same persistent record then closes it, never bare Drop.
+            let raw = match issuer {
+                Some(issuer) => grant.adopt_dependency_stream_loan(
+                    &binding,
+                    self.options.endpoint.clone(),
+                    &physical_call,
+                    loan,
+                    issuer,
+                )?,
+                None => grant.adopt_stream_loan(
+                    &binding,
+                    self.options.endpoint.clone(),
+                    &physical_call,
+                    loan,
+                )?,
+            };
+            if !matches_dependency {
+                return Err(failure(self.instance, Stage::Prepare, Reason::StalePlan));
+            }
+            raw
         };
         // Only after native connect succeeded is the protocol's single owning
         // callback consumed. A refused address therefore preserves it for the
