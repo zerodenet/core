@@ -283,6 +283,12 @@ impl UpstreamOpener for NodeOpener {
         true
     }
     fn carrier_dns_generation(&self) -> Option<zero_platform_tokio::contract::dns::DnsGeneration> {
+        if self.carrier_owner.is_some() {
+            // The same shared background pool has a Node epoch even for a
+            // literal root; nested borrowers must not retire their own setup
+            // because prefix metadata and root metadata disagree.
+            return Some(self.services.native_node_dns().generation());
+        }
         matches!(self.endpoint.address, zero_core::Address::Domain(_))
             .then(|| self.services.dns_generation())
     }
