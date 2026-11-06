@@ -127,6 +127,18 @@ pub struct RuntimeOptionsConfig {
     /// releases on Tonic handoff; physical H2 buffers and replay are separate.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub control_max_queued_event_bytes: Option<usize>,
+    /// Actual event-network Scope tasks, including connecting and blocking
+    /// lookup workers until their original joins/acknowledgements. Default1024.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub event_network_max_tasks: Option<usize>,
+    /// Actual pending, failed and retiring event-network TCP originals per
+    /// generation, separate from logical requests and the shared Host total.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub event_network_max_originals: Option<usize>,
+    /// Actual blocking event-network lookups until original join/ACK.
+    /// Default256, on demand, independently constrained by the Scope task cap.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub event_network_max_lookups: Option<usize>,
     /// Original DNS custody shared by Node/bootstrap and Default query owners.
     /// An unconfirmed close still consumes one position; DoQ needs two.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -206,6 +218,9 @@ impl Default for RuntimeOptionsConfig {
             control_max_connections: None,
             control_max_subscriptions: None,
             control_max_queued_event_bytes: None,
+            event_network_max_tasks: None,
+            event_network_max_originals: None,
+            event_network_max_lookups: None,
             native_dns_max_originals: None,
             native_dns_max_queries: None,
             native_dns_max_blocking_jobs: None,
@@ -322,6 +337,15 @@ impl RuntimeOptionsConfig {
     }
     pub fn effective_control_max_queued_event_bytes(&self) -> usize {
         self.control_max_queued_event_bytes.unwrap_or(1024 * 1024)
+    }
+    pub fn effective_event_network_max_tasks(&self) -> usize {
+        self.event_network_max_tasks.unwrap_or(1024)
+    }
+    pub fn effective_event_network_max_originals(&self) -> usize {
+        self.event_network_max_originals.unwrap_or(256)
+    }
+    pub fn effective_event_network_max_lookups(&self) -> usize {
+        self.event_network_max_lookups.unwrap_or(256)
     }
     pub fn effective_native_dns_max_originals(&self) -> usize {
         self.native_dns_max_originals.unwrap_or(16)

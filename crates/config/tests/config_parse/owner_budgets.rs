@@ -16,7 +16,25 @@ fn actual_owner_budgets_are_optional_finite_and_preserve_omitted_export_shape() 
         usize,
         usize,
     );
-    let fields: [BudgetField; 31] = [
+    let fields: [BudgetField; 34] = [
+        (
+            "event_network_max_tasks",
+            RuntimeOptionsConfig::effective_event_network_max_tasks,
+            1024,
+            4096,
+        ),
+        (
+            "event_network_max_originals",
+            RuntimeOptionsConfig::effective_event_network_max_originals,
+            256,
+            4096,
+        ),
+        (
+            "event_network_max_lookups",
+            RuntimeOptionsConfig::effective_event_network_max_lookups,
+            256,
+            4096,
+        ),
         (
             "carrier_max_total_originals",
             RuntimeOptionsConfig::effective_carrier_max_total_originals,

@@ -545,6 +545,18 @@ fn validate_runtime(
             "control_max_subscriptions",
             runtime.effective_control_max_subscriptions(),
         ),
+        (
+            "event_network_max_tasks",
+            runtime.effective_event_network_max_tasks(),
+        ),
+        (
+            "event_network_max_originals",
+            runtime.effective_event_network_max_originals(),
+        ),
+        (
+            "event_network_max_lookups",
+            runtime.effective_event_network_max_lookups(),
+        ),
     ] {
         if !(1..=4096).contains(&limit) {
             return Err(ConfigError::InvalidRuntime(format!(
