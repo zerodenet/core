@@ -337,6 +337,12 @@ async fn inline_original_ping_and_timeout_progress_with_only_a_real_pending_appl
     let mut elapsed = false;
     while let Some(error) = source {
         elapsed |= error.is::<tokio::time::error::Elapsed>();
+        // std io::Error delegates source() through its boxed payload's source;
+        // inspect that original typed payload too, never a formatted message.
+        elapsed |= error
+            .downcast_ref::<io::Error>()
+            .and_then(io::Error::get_ref)
+            .is_some_and(|error| error.is::<tokio::time::error::Elapsed>());
         source = error.source();
     }
     assert!(elapsed, "same original timeout source was retained");

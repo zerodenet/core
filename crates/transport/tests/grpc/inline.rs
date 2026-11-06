@@ -5,52 +5,30 @@ use tokio::time::{timeout, Duration};
 #[tokio::test]
 async fn inline_single_and_multi_clients_drain_upload_without_application_reads_and_keep_reverse_half_close(
 ) {
-    timeout(Duration::from_secs(8), async {
-        for multi_mode in [false, true] {
-            let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
-            let address = listener.local_addr().unwrap();
-            let profile = OwnedGrpcProfile {
-                service_names: vec!["inline/Tun".into()],
-                multi_mode,
-                ..Default::default()
-            };
-            let server_profile = profile.clone();
-            let (done, finished) = tokio::sync::oneshot::channel();
-            let server = tokio::spawn(async move {
-                let (io, _) = listener.accept().await.unwrap();
-                let incoming = accept_grpc_connection(io, &server_profile).unwrap();
-                let mut io = incoming.accept().await.unwrap();
-                let mut body = Vec::new();
-                io.read_to_end(&mut body).await.unwrap();
-                assert_eq!(body, vec![0x79; 2 * 1024 * 1024 + 13]);
-                AsyncWriteExt::write_all(&mut io, &body).await.unwrap();
-                AsyncWriteExt::shutdown(&mut io).await.unwrap();
-                finished.await.unwrap();
-                incoming.close();
+    let phase = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
+    let peer_phase = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
+    timeout(Duration::from_secs(8),async {
+        for multi_mode in [false,true] {
+            let listener=tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();let address=listener.local_addr().unwrap();
+            let profile=OwnedGrpcProfile{service_names:vec!["inline/Tun".into()],multi_mode,..Default::default()};
+            let server_profile=profile.clone();let(done,finished)=tokio::sync::oneshot::channel();let peer_observation=peer_phase.clone();
+            let server=tokio::spawn(async move {
+                let(io,_)=listener.accept().await.unwrap();let incoming=accept_grpc_connection(io,&server_profile).unwrap();
+                let mut io=incoming.accept().await.unwrap();peer_observation.store(1,std::sync::atomic::Ordering::SeqCst);
+                let mut body=Vec::new();io.read_to_end(&mut body).await.unwrap();peer_observation.store(2,std::sync::atomic::Ordering::SeqCst);
+                assert_eq!(body,vec![0x79;2*1024*1024+13]);AsyncWriteExt::write_all(&mut io,&body).await.unwrap();peer_observation.store(3,std::sync::atomic::Ordering::SeqCst);
+                AsyncWriteExt::shutdown(&mut io).await.unwrap();peer_observation.store(4,std::sync::atomic::Ordering::SeqCst);finished.await.unwrap();incoming.close();
             });
-            let raw = tokio::net::TcpStream::connect(address).await.unwrap();
-            let mut io = connect_grpc_inline_with_settings(raw, &profile, "localhost", None)
-                .await
-                .unwrap();
+            let raw=tokio::net::TcpStream::connect(address).await.unwrap();let mut io=connect_grpc_inline_with_settings(raw,&profile,"localhost",None).await.unwrap();
+            phase.store(if multi_mode{11}else{1},std::sync::atomic::Ordering::SeqCst);
             assert!(io.inline.is_some() && io.driver.is_none() && io.scoped.is_none());
-            // More than both the original queue and H2 flow-control windows;
-            // no client task or application read drives this actual upload.
-            AsyncWriteExt::write_all(&mut io, &vec![0x79; 2 * 1024 * 1024 + 13])
-                .await
-                .unwrap();
-            AsyncWriteExt::shutdown(&mut io).await.unwrap();
-            let mut body = Vec::new();
-            io.read_to_end(&mut body).await.unwrap();
-            assert_eq!(body, vec![0x79; 2 * 1024 * 1024 + 13]);
-            done.send(()).unwrap();
-            drop(io);
-            server.await.unwrap();
+            AsyncWriteExt::write_all(&mut io,&vec![0x79;2*1024*1024+13]).await.unwrap();phase.store(if multi_mode{12}else{2},std::sync::atomic::Ordering::SeqCst);
+            AsyncWriteExt::shutdown(&mut io).await.unwrap();phase.store(if multi_mode{13}else{3},std::sync::atomic::Ordering::SeqCst);
+            let mut body=Vec::new();io.read_to_end(&mut body).await.unwrap();phase.store(if multi_mode{14}else{4},std::sync::atomic::Ordering::SeqCst);
+            assert_eq!(body,vec![0x79;2*1024*1024+13]);done.send(()).unwrap();drop(io);server.await.unwrap();
         }
-    })
-    .await
-    .unwrap();
-    // This transport test supplies ordinary TCP and asserts no controlled
-    // native-close or Scope receipt from body completion. Protocol owners do so.
+    }).await.unwrap_or_else(|_|panic!("actual inline phase {} peer {} (1 connected/2 uploaded/3 halfclosed/4 reverseEOF; +10 multi; peer 1 accepted/2 EOF/3 uploaded/4 halfclosed)",phase.load(std::sync::atomic::Ordering::SeqCst),peer_phase.load(std::sync::atomic::Ordering::SeqCst)));
+    // Actual per-connection wire diagnostics only, no native/Scope close claim.
 }
 
 #[derive(Default)]
