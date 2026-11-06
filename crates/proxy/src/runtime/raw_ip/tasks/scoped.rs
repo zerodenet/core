@@ -3,6 +3,7 @@
 mod failure;
 mod guard;
 mod lifetime;
+mod quiescence;
 use super::{Source, TaskOutput};
 pub(crate) use failure::SourceJoinFailure;
 pub(crate) use guard::SourceTasksGuard;

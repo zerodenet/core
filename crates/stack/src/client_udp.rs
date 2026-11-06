@@ -9,6 +9,7 @@ use std::sync::{Arc, Mutex};
 use tokio::sync::mpsc;
 
 mod construction;
+mod quiescence;
 mod sender;
 use sender::SocketState;
 pub use sender::{ClientUdpCloseReceipt, ClientUdpSendError, ClientUdpSender};

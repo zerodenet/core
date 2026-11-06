@@ -83,6 +83,10 @@ impl NativePacket<'_> {
 }
 
 impl PacketReturns {
+    pub(crate) fn quiescent(&self) -> bool {
+        self.budget.quiescent()
+    }
+
     /// Preserve forwarding when the correlated boundary cannot account for
     /// every received fragment. Never publish a partial count as complete.
     pub(crate) fn lose_receive_coverage(&self) {

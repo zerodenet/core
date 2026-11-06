@@ -112,6 +112,10 @@ impl Shared {
         let index = match state.peers.iter().position(|entry| entry.id == peer) {
             Some(index) => index,
             None => {
+                // An existing peer view retains its IO across a Source pause.
+                // Only this actual first-peer user/socket acquisition enters
+                // the same native Source admission gate.
+                let acquiring = self.carrier.origin()?.try_enter_packet_source()?;
                 let views = self
                     .users
                     .upgrade()
@@ -126,6 +130,7 @@ impl Shared {
                     rx,
                     closed,
                 });
+                drop(acquiring);
                 state.peers.len() - 1
             }
         };

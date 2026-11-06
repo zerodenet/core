@@ -13,12 +13,16 @@ impl DynStreamOutbound for Carrier {
         Box::pin(async move {
             context.session_identity()?;
             let original = self.origin()?;
+            let acquiring = original.try_enter_packet_source()?;
             let peer = self.resolve(&request.destination, &context).await?;
             let (device, local) = self.device(peer.ip())?;
             let borrowed = self.flow_borrow(&context)?;
             let caller = borrowed.caller.clone();
             let connected =
                 device.open_standard_stream(&self.scope, local, peer, context.clone(), borrowed)?;
+            // Both the real user record and this unique cold opening/control
+            // now exist. Pausing sees that custody; existing IO is not revoked.
+            drop(acquiring);
             self.observe_peer(peer.ip(), &context)?;
             let io = connected.io.establish().await?;
             let current = self.origin().and_then(|current| {
@@ -51,11 +55,15 @@ impl DynStreamOutbound for Carrier {
         Box::pin(async move {
             context.session_identity()?;
             let original = self.origin()?;
+            let acquiring = original.try_enter_packet_source()?;
             let peer = self.resolve(&request.destination, &context).await?;
             let (device, local) = self.device(peer.ip())?;
             let borrowed = self.flow_borrow(&context)?;
             let connected =
                 device.open_standard_stream(&self.scope, local, peer, context.clone(), borrowed)?;
+            // Both the real user record and this unique cold opening/control
+            // now exist. Pausing sees that custody; existing IO is not revoked.
+            drop(acquiring);
             self.observe_peer(peer.ip(), &context)?;
             Ok(Connected {
                 io: connected.io.into_loan(original),

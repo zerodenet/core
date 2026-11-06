@@ -30,6 +30,11 @@ impl ResourceLifecycle for Owner {
             .driver
             .set(witness.clone())
             .map_err(|_| error(Stage::Prepare, Reason::StalePlan))?;
+        let checkpoint = self
+            .shared
+            .pause
+            .bind(PacketPauseParticipant::Wire, &witness)?;
+        *self.shared.checkpoint.lock().unwrap() = Some(checkpoint);
         // The notification records the real pending unique-IO input poll. It
         // is never task/native-close evidence; the same witness remains owned.
         tokio::select! {
@@ -75,6 +80,7 @@ impl ResourceLifecycle for Owner {
                 failure = Some(source);
             }
         }
+        self.shared.checkpoint.lock().unwrap().take();
         let unused = { self.shared.state.lock().unwrap().io.take() };
         drop(unused);
         self.shared.incoming.lock().unwrap().take();

@@ -53,6 +53,12 @@ mod management;
 mod standard;
 
 impl PacketSessionPins {
+    /// Retained conversations remain authoritative until their existing normal
+    /// expiry/removal; a budget preflight cannot evict an admitted pin.
+    pub(crate) fn quiescent(&self) -> bool {
+        self.entries.is_empty()
+    }
+
     /// Reuse the observation handle for an admitted conversation. New paths
     /// prepare once; ordinary packets do not visit the statistics registry.
     pub(crate) fn inner_io(

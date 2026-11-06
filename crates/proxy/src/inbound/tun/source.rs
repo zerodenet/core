@@ -150,6 +150,8 @@ impl SystemTunSourceOptions {
 }
 pub(crate) struct SystemTunSourceFactory;
 struct Shared {
+    pause: Arc<PacketSourcePause>,
+    checkpoint: Mutex<Option<PacketSourceCheckpoint>>,
     state: Mutex<State>,
     incoming: Arc<Mutex<Option<IpPacket>>>,
     outgoing: Arc<Mutex<Option<IpPacket>>>,
@@ -199,7 +201,16 @@ impl ComponentFactory for SystemTunSourceFactory {
         if options.state.scope.set(scope.clone()).is_err() {
             return Err(error(Stage::Prepare, Reason::StalePlan));
         }
+        let pause = context
+            .resources
+            .packet_source_pause()
+            .ok_or_else(|| error(Stage::Prepare, Reason::InvalidConfig))?;
+        if pause.instance() != instance || !pause.scope().same_scope(&scope) {
+            return Err(error(Stage::Prepare, Reason::StalePlan));
+        }
         let shared = Arc::new(Shared {
+            pause,
+            checkpoint: Mutex::new(None),
             state: Mutex::new(State::default()),
             incoming: Arc::default(),
             outgoing: Arc::default(),

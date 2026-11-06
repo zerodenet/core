@@ -18,6 +18,15 @@ impl Default for ReturnBudget {
     }
 }
 impl ReturnBudget {
+    pub(super) fn quiescent(&self) -> bool {
+        *self
+            .0
+            .occupied
+            .lock()
+            .unwrap_or_else(|error| error.into_inner())
+            == (0, 0)
+    }
+
     pub(super) fn new(frames: usize, bytes: usize) -> Self {
         Self::with_totals(frames, bytes, Arc::new(PacketReturnTotals::default()))
     }
