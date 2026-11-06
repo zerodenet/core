@@ -10,6 +10,8 @@ mod jsonl;
 #[cfg(feature = "event-dispatcher")]
 mod network;
 #[cfg(feature = "event-dispatcher")]
+pub use network::EventNetworkLimits;
+#[cfg(feature = "event-dispatcher")]
 mod registry;
 #[cfg(feature = "event-dispatcher")]
 mod state;

@@ -319,3 +319,6 @@ impl UpstreamTransport {
         self.opener.open_datagram(&self.binding, request, context)
     }
 }
+
+mod event_limits;
+pub use event_limits::EventNetworkLimits;
