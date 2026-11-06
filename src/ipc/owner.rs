@@ -136,3 +136,63 @@ impl std::error::Error for IncompleteReport {
             .map(|failed| &failed.error as _)
     }
 }
+
+/// Preserve a caught work panic together with real child cleanup errors. With
+/// no competing failure, resume the original payload so its parent join sees it.
+pub(crate) fn finish_caught(
+    work: Result<io::Result<()>, Box<dyn std::any::Any + Send>>,
+    cleanup: impl IntoIterator<Item = io::Result<()>>,
+) -> io::Result<()> {
+    match work {
+        Ok(work) => finish_work(std::iter::once(work).chain(cleanup)),
+        Err(payload) => {
+            let cleanup = cleanup
+                .into_iter()
+                .filter_map(Result::err)
+                .collect::<Vec<_>>();
+            if cleanup.is_empty() {
+                std::panic::resume_unwind(payload);
+            }
+            Err(io::Error::other(PanicCleanup {
+                payload: std::sync::Mutex::new(payload),
+                cleanup,
+            }))
+        }
+    }
+}
+struct PanicCleanup {
+    payload: std::sync::Mutex<Box<dyn std::any::Any + Send>>,
+    cleanup: Vec<io::Error>,
+}
+impl std::fmt::Debug for PanicCleanup {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter
+            .debug_struct("ControlPanicCleanup")
+            .field("cleanup", &self.cleanup)
+            .finish_non_exhaustive()
+    }
+}
+impl std::fmt::Display for PanicCleanup {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let payload = self
+            .payload
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        if let Some(message) = payload.downcast_ref::<String>() {
+            write!(formatter, "original control work panicked: {message}")?;
+        } else if let Some(message) = payload.downcast_ref::<&str>() {
+            write!(formatter, "original control work panicked: {message}")?;
+        } else {
+            formatter.write_str("original control work panicked (actual payload retained)")?;
+        }
+        for error in &self.cleanup {
+            write!(formatter, "; {error}")?;
+        }
+        Ok(())
+    }
+}
+impl std::error::Error for PanicCleanup {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        self.cleanup.first().map(|error| error as _)
+    }
+}

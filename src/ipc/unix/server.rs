@@ -61,7 +61,7 @@ pub(super) async fn run_ipc_server(
                             debug!(?peer_addr, active = n, "ipc client disconnected cleanly");
                             Ok(())
                         }
-                        Err(ref error) if connection::is_transient_disconnect(error) => {
+                        Err(ref error) if connection::is_transient_disconnect(error) || connection::is_invalid_input_frame(error) => {
                             warn!(?peer_addr, error = %error, active = n,
                                   "ipc client disconnected");
                             Ok(())

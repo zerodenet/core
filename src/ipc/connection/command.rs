@@ -1,0 +1,61 @@
+//! Existing acknowledged command dispatch and response wire format.
+use super::*;
+pub(super) fn command_can_run_concurrently(command: &CommandRequest) -> bool {
+    matches!(command, CommandRequest::DiagnosticsProbeOutbound(_))
+}
+
+pub(super) async fn execute_ipc_command(
+    command_handle: ProxyHandle,
+    command: CommandRequest,
+) -> zero_api::ApiResult<zero_api::CommandResponse> {
+    let command = match command {
+        CommandRequest::DiagnosticsProbeOutbound(command) => {
+            return command_handle
+                .execute_diagnostics_probe_outbound_command(command)
+                .await;
+        }
+        command => command,
+    };
+    // The service owns coordination and blocking execution. In particular,
+    // endpoint controls and stats.reset must share config.apply's executor.
+    command_handle.execute_acknowledged(command).await
+}
+
+pub(super) async fn write_command_result<W>(
+    writer: Arc<TokioMutex<BufWriter<W>>>,
+    id: Option<serde_json::Value>,
+    result: zero_api::ApiResult<zero_api::CommandResponse>,
+) -> io::Result<()>
+where
+    W: tokio::io::AsyncWrite + Unpin,
+{
+    match result {
+        Ok(command_response) => {
+            let value = serde_json::to_value(command_response).map_err(io::Error::other)?;
+            let response = ipc_ok(id, value);
+            write_ipc_response(&mut *writer.lock().await, &response).await
+        }
+        Err(error) => {
+            let response = ipc_api_error(id, &error);
+            write_ipc_response(&mut *writer.lock().await, &response).await
+        }
+    }
+}
+
+/// Write a serialized IPC response frame to the transport.
+///
+/// The connection writer is wrapped in a `BufWriter`, so we MUST flush
+/// after each frame — otherwise responses sit in the 8 KB buffer and the
+/// client times out waiting. The only other flush site is the background
+/// event/heartbeat task, which doesn't run until a `Subscribe` succeeds
+/// and only fires every 30 s; relying on it leaves every pre-subscribe
+/// response (and ack/error frames) stuck in the buffer indefinitely.
+pub(crate) async fn write_ipc_response(
+    writer: &mut (impl AsyncWriteExt + Unpin),
+    response: &impl Serialize,
+) -> io::Result<()> {
+    let frame = serialize_frame(response).map_err(io::Error::other)?;
+    writer.write_all(&frame).await?;
+    writer.flush().await?;
+    Ok(())
+}

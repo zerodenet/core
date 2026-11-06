@@ -59,7 +59,6 @@ async fn concurrent_commands_overlap_and_keep_response_ids_paired() {
                 }),
             )
             .await
-            .unwrap();
         }));
     }
 
@@ -108,14 +107,14 @@ async fn concurrent_command_queue_is_bounded_and_cancellable() {
     assert!(tasks.try_spawn(async move {
         let _guard = CancellationGuard(cancellation);
         started_tx.send(()).unwrap();
-        std::future::pending::<()>().await;
+        std::future::pending::<io::Result<()>>().await
     }));
     started_rx.await.unwrap();
 
     for _ in 1..MAX_PENDING_CONCURRENT_IPC_COMMANDS {
         assert!(tasks.try_spawn(std::future::pending()));
     }
-    assert!(!tasks.try_spawn(async {}));
+    assert!(!tasks.try_spawn(async { Ok(()) }));
 
     tasks.cancel_all().await.unwrap();
     assert!(cancelled.load(Ordering::SeqCst));

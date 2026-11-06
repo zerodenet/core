@@ -216,7 +216,7 @@ async fn run_server(
                 }
                 joined=connections.join_next_with_id(),if !connections.is_empty()=>{
                     match joined.unwrap() {
-                        Ok((id,result))=>{originals.observe_joined(id);if let Err(error)=result {if connection::is_transient_disconnect(&error) {debug!(%error,"IPC original observed peer disconnect");} else {failures.push(error);break;}}}
+                        Ok((id,result))=>{originals.observe_joined(id);if let Err(error)=result {if connection::is_transient_disconnect(&error) || connection::is_invalid_input_frame(&error) {debug!(%error,"IPC original observed peer disconnect");} else {failures.push(error);break;}}}
                         Err(error)=>{originals.observe_joined(error.id());failures.push(io::Error::other(error));break;}
                     }
                 }
@@ -236,7 +236,9 @@ async fn run_server(
             Ok((id, result)) => {
                 originals.observe_joined(id);
                 if let Err(error) = result {
-                    if !connection::is_transient_disconnect(&error) {
+                    if !connection::is_transient_disconnect(&error)
+                        && !connection::is_invalid_input_frame(&error)
+                    {
                         failures.push(error);
                     }
                 }
