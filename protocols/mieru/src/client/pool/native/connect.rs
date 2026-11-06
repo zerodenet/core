@@ -204,6 +204,7 @@ impl BorrowRequest<'_> {
                         selected_binding.clone(),
                         waiting,
                         caller,
+                        provider.clone(),
                     );
                     let upstream = provider
                         .select_background_carrier_observed(

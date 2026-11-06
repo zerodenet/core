@@ -19,6 +19,7 @@ use zero_platform_tokio::{
     EgressInterfaceControl,
 };
 
+mod pending;
 pub(crate) mod pool;
 pub(crate) mod stateless;
 
@@ -68,6 +69,16 @@ impl BackgroundCarrier {
     }
 }
 impl UpstreamOpener for BackgroundCarrier {
+    fn pending_carrier_capacity(&self, binding: &UpstreamBinding) -> Option<usize> {
+        self.declared_pending_capacity(binding).ok()
+    }
+    fn validate_pending_carrier(
+        &self,
+        binding: &UpstreamBinding,
+        adoption: &zero_platform_tokio::controlled_carrier::CarrierAdoption,
+    ) -> Result<(), ChannelError> {
+        self.validate_pending_original(binding, adoption)
+    }
     fn open_datagram(
         &self,
         _: &UpstreamBinding,

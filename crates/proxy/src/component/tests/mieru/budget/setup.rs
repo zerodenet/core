@@ -2,6 +2,61 @@
 use super::*;
 
 #[tokio::test]
+async fn ordinary_unobserved_nested_pool_uses_its_actual_declared_pending_graph_and_total_three_carriers(
+) {
+    tokio::time::timeout(Duration::from_secs(25), async {
+        let a = Server::new(true).await;
+        let b = Server::new(true).await;
+        let c = Server::new(false).await;
+        let mut config = config([a.address, b.address, c.address]);
+        config.runtime.mieru_max_carriers = Some(3);
+        let proxy = Proxy::new(config.clone()).unwrap();
+        let running = proxy.spawn();
+        ProxyHandle::new(
+            zero_engine::EngineHandle::new(proxy.engine().clone()),
+            proxy.clone(),
+        )
+        .apply_runtime_config_and_wait(config, Duration::from_secs(5))
+        .await
+        .unwrap();
+        // This existing service fixture has no external observer and denies
+        // caller I/O. Each real prefix comes from this same installed pool.
+        let mut held = loan(&proxy).await;
+        echo(&mut held).await;
+        let mut originals = vec![];
+        let mut current = Some(held.owner.original());
+        while let Some(original) = current {
+            assert_eq!(original.owner().limit().get(), 3);
+            assert!(original.driver().is_some());
+            originals.push(original.clone());
+            current = original.parent();
+        }
+        assert_eq!(originals.len(), 3);
+        assert!(originals
+            .iter()
+            .all(|original| original.owner().same_owner(originals[0].owner())));
+        for server in [&a, &b, &c] {
+            assert_eq!(server.accepts.load(Ordering::SeqCst), 1);
+        }
+        assert!(proxy.engine().active_sessions().is_empty());
+        returned(held).await;
+        running.shutdown().await.unwrap();
+        for original in originals {
+            let driver = original.driver().unwrap();
+            let joined = driver.wait_registration_released().await;
+            assert!(driver.matches_joined(&joined) && joined.registration_released());
+            assert!(original.closed().unwrap().matches(&original));
+            assert!(original.owner().closed().unwrap().matches(original.owner()));
+        }
+        a.close().await;
+        b.close().await;
+        c.close().await;
+    })
+    .await
+    .unwrap();
+}
+
+#[tokio::test]
 async fn ordinary_one_carrier_preparation_and_driver_share_one_scope_credit_for_both_underlays() {
     tokio::time::timeout(Duration::from_secs(25), async {
         for udp in [false, true] {
