@@ -72,14 +72,22 @@ impl OwnedDnsQueryTasks {
             .clone();
         let network = parent.network.get().copied();
         let ancestors = self.ancestors_of(&parent, &caller)?;
+        let retirement = Retirement::new(
+            TaskKind::Blocking,
+            ancestors.clone(),
+            self.0.budget.reserve(TaskKind::Blocking)?,
+            self.0.finalizer.get().cloned(),
+        );
+        let cold = retirement.preparing();
         let record = Arc::new(Record {
             budget: self.0.budget.clone(),
             ech: Mutex::new(None),
-            capacity: Mutex::new(Some(self.0.budget.reserve(TaskKind::Blocking)?)),
+            capacity: retirement.capacity.clone(),
+            retirement: retirement.clone(),
             kind: TaskKind::Blocking,
             ancestors,
             network: network.map(OnceLock::from).unwrap_or_default(),
-            registration: OnceLock::new(),
+            registration: retirement.registration.clone(),
             bound: Notify::new(),
             cancel,
             io_pending: Default::default(),
@@ -91,7 +99,7 @@ impl OwnedDnsQueryTasks {
             .retained
             .lock()
             .expect("DNS budget poisoned")
-            .push(Arc::downgrade(&record));
+            .push(retirement);
         {
             let mut state = self.0.state.lock().expect("DNS query tasks poisoned");
             if state.closing || self.0.parent.is_cancelled() {
@@ -118,6 +126,7 @@ impl OwnedDnsQueryTasks {
         let (bound, begin) = std::sync::mpsc::sync_channel(1);
         let (completed, result) = oneshot::channel();
         let callbacks = self.0.registrar.defer_callbacks();
+        cold.submitting();
         let spawned = self
             .0
             .registrar

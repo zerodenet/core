@@ -61,6 +61,15 @@ impl Query {
             }),
         }
     }
+    pub(super) fn native_retirement_complete(&self) -> bool {
+        let closed = {
+            let Ok(state) = self.state.try_lock() else {
+                return false;
+            };
+            state.closed.clone()
+        };
+        closed.is_some_and(|closed| closed.matches(&self.origin))
+    }
     pub(super) fn stop(&self) {
         self.cancel.cancel();
         self.request_close();
