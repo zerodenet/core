@@ -10,13 +10,6 @@ use zero_config::RuntimeConfig;
 /// Not Clone: the before-bind host phase receives it once. This contains neither
 /// outbound-user/task/native completion nor permission to start a device.
 pub(in crate::runtime) struct StoppedInbounds {
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "explicit cold-device library path; production activation requires the owning replacement transaction"
-        )
-    )]
     candidate: Weak<RuntimeConfig>,
     closed: BTreeMap<String, Arc<InboundTerminal>>,
     absent: BTreeSet<String>,
