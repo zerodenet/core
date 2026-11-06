@@ -34,7 +34,7 @@ async fn real_https_validation_failure_retires_before_a_trusted_tls_exchange() {
             .unwrap();
         tls.shutdown().await.unwrap();
     });
-    let network = ApplicationEventSinkTcpDialer::new(EgressInterfaceControl::default());
+    let network = ApplicationEventSinkTcpDialer::for_test(EgressInterfaceControl::default());
     network.begin_generation().unwrap();
     let first_epoch = network.current().unwrap();
     let mut rejected = network
