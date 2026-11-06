@@ -15,6 +15,7 @@ struct Part<T> {
     inner: T,
     _returned: Arc<Returned>,
     observer: Option<Arc<dyn zero_traits::IoObserver>>,
+    send_pending: bool,
     cancelled: Pin<Box<dyn std::future::Future<Output = ()> + Send>>,
 }
 impl DatagramLoan {
@@ -29,12 +30,14 @@ impl DatagramLoan {
             inner: io.tx.get_mut().take().expect("live packet sender"),
             _returned: returned.clone(),
             observer: io.observer.clone(),
+            send_pending: false,
             cancelled: Box::pin(io.state.cancel.clone().cancelled_owned()),
         };
         let rx = Part {
             inner: io.rx.get_mut().take().expect("live packet receiver"),
             _returned: returned,
             observer: io.observer.clone(),
+            send_pending: false,
             cancelled: Box::pin(io.state.cancel.clone().cancelled_owned()),
         };
         io.returned_by_parts = true;
@@ -62,12 +65,15 @@ impl DatagramTx for Part<Tx> {
         frame: &Datagram,
     ) -> Poll<Result<SendReceipt, SendFailure>> {
         if self.cancelled.as_mut().poll(cx).is_ready() {
-            return Poll::Ready(Err(SendFailure::new(
-                revoked(),
-                crate::contract::DeliveryState::NotSubmitted,
-            )));
+            let delivery = if self.send_pending {
+                crate::contract::DeliveryState::Unknown
+            } else {
+                crate::contract::DeliveryState::NotSubmitted
+            };
+            return Poll::Ready(Err(SendFailure::new(revoked(), delivery)));
         }
         let result = self.inner.as_mut().poll_send(cx, frame);
+        self.send_pending = result.is_pending();
         if let Poll::Ready(Ok(receipt)) = &result {
             if let Some(observer) = &self.observer {
                 observer.sent(receipt.accepted_bytes);

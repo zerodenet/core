@@ -26,15 +26,31 @@ impl HostBoundDatagramResources {
     }
     /// Regular operation may consume only actual receipts already in the owner;
     /// it does not close another logical session or claim a task has joined.
-    pub(crate) fn take_closed_io(&self) -> CloseReport {
+    pub fn take_closed_io(&self) -> CloseReport {
         let mut state = self.state();
         self.collect(&mut state);
         confirmed(&mut state)
     }
     /// Host-only terminal cleanup, after the same actual peer's joined receipt.
     /// Original owners/source survive errors and cancelled outer waiters.
-    pub(crate) fn shutdown_io(&self) -> Result<CloseReport, ChannelError> {
+    pub fn shutdown_io(&self) -> Result<CloseReport, ChannelError> {
         self.revoke();
+        if self.scope.is_some() {
+            let driver = self
+                .driver
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner)
+                .clone();
+            if driver.as_ref().is_some_and(|witness| !witness.is_joined()) {
+                let mut failure = error(
+                    self.instance,
+                    Reason::Revoked,
+                    "original UDP driver has not been consumed by its Scope",
+                );
+                failure.stage = Stage::Close;
+                return Err(failure);
+            }
+        }
         let mut state = self.state();
         let native = state.owner.close_all();
         state.pending_closed += native.confirmed_closed;
