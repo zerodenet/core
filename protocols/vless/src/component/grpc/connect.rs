@@ -94,7 +94,7 @@ impl Outbound {
         );
         tokio::select! {biased;
          _=self.admission.cancelled()=>return Err(self.admission.error(session,Stage::Handshake,Reason::Revoked,DeliveryState::NotSubmitted)),
-         result=opening=>result.map_err(|failure|self.admission.attach(failure,session))?,
+         result=opening=>result.map_err(|failure|self.admission.attach(failure,session)),
         }
     }
 }
