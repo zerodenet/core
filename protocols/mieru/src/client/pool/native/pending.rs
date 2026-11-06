@@ -26,6 +26,7 @@ pub(super) fn transport(
             binding,
             waiting: Some(waiting),
             caller: None,
+            provider: None,
         }),
     )
 }
@@ -34,12 +35,14 @@ struct Pending {
     binding: UpstreamBinding,
     waiting: Option<PendingCarrierObserver>,
     caller: Option<super::setup::Caller>,
+    provider: Option<UpstreamTransport>,
 }
 pub(super) fn for_setup(
     originals: PendingCarriers,
     binding: UpstreamBinding,
     waiting: Option<PendingCarrierObserver>,
     caller: super::setup::Caller,
+    provider: UpstreamTransport,
 ) -> UpstreamTransport {
     UpstreamTransport::new(
         binding.clone(),
@@ -48,6 +51,7 @@ pub(super) fn for_setup(
             binding,
             waiting,
             caller: Some(caller),
+            provider: Some(provider),
         }),
     )
 }
@@ -87,6 +91,9 @@ impl UpstreamOpener for Pending {
     ) -> Result<(), ChannelError> {
         if binding != &self.binding {
             return Err(denied(Reason::StalePlan));
+        }
+        if let Some(provider) = &self.provider {
+            provider.validate_pending_carrier(binding, &adoption)?;
         }
         // The actual caller must accept before I/O. Holding a record alone
         // does not cause cleanup when its connect future is dropped.

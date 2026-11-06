@@ -191,6 +191,14 @@ impl ClientPool {
                         "actual Mieru pending caller has no declared original capacity",
                     )
                 })?,
+            None if state.dynamic => provider
+                .pending_carrier_capacity_for(upstream.binding())
+                .ok_or_else(|| {
+                    io::Error::new(
+                        io::ErrorKind::InvalidInput,
+                        "actual Mieru background path has no finite cleanup declaration",
+                    )
+                })?,
             None => 0,
         };
         let opening=self.open_with_connection(key, || {
