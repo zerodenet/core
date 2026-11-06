@@ -101,3 +101,5 @@ fn config(server: &str) -> zero_config::RuntimeConfig {
         "route":{"final":{"type":"direct"}}
     }).to_string()).unwrap()
 }
+
+mod doh;
