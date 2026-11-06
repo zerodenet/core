@@ -26,6 +26,11 @@ impl HostPeerBinding {
             self.cancel.clone(),
             read_limit,
         )?;
+        let root = self
+            .lookup_root
+            .upgrade()
+            .ok_or_else(|| self.error(Reason::Revoked, "actual lookup root retired"))?;
+        original.bind_original_totals(self.parent, &self.registrar, &root)?;
         let removed = {
             let mut slot = self.process.lock().unwrap();
             if !retired

@@ -37,6 +37,14 @@ async fn accepted_metadata_uses_real_same_entry_helper_and_keeps_original_until_
             &scope.registrar(),
         )
         .unwrap();
+        let roots = crate::CarrierOriginalTotals::new(NonZeroUsize::new(3).unwrap());
+        let instance = zero_core::component::ComponentInstanceId {
+            component: zero_core::component::ComponentId(913),
+            generation: zero_core::component::ResourceGeneration(1),
+        };
+        owner
+            .bind_original_totals(instance, &scope.registrar(), &roots)
+            .unwrap();
         let mut listener = owner.bind_listener("127.0.0.1:0".parse().unwrap()).unwrap();
         let endpoint = listener.local_addr().unwrap();
         let receiver = owner.accepted_task_receiver().unwrap();
@@ -83,6 +91,11 @@ async fn accepted_metadata_uses_real_same_entry_helper_and_keeps_original_until_
             .is_ok());
         assert!(!original.retired());
         assert_eq!(
+            roots.snapshot().charged,
+            3,
+            "listener, accepted original and actual metadata worker are three distinct units"
+        );
+        assert_eq!(
             users.process_lookups().len(),
             1,
             "same actual Node remains through hosted ACK"
@@ -107,6 +120,7 @@ async fn accepted_metadata_uses_real_same_entry_helper_and_keeps_original_until_
         scope.acknowledge(&receipt).unwrap();
         users.reap_process_lookups();
         assert!(original.retired());
+        assert_eq!(roots.snapshot().charged, 2);
         assert!(users.process_lookups().is_empty());
         // This is the actual same entry and registered blocking worker, with
         // a smaller explicit read budget. Failure cannot become missing PID

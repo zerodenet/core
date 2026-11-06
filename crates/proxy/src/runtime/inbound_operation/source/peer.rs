@@ -56,7 +56,7 @@ pub(super) fn spawn(
                     .claim(
                         tokio::time::Instant::now() + std::time::Duration::from_secs(5),
                         |_| {
-                            binding.install_scope(scope.clone());
+                            binding.install_scope(scope.clone())?;
                             Ok((
                                 zero_platform_tokio::contract::lifecycle::erase_lifecycle(scope),
                                 (),
@@ -130,7 +130,7 @@ pub(super) fn spawn_carrier(
             let witness=binding.join_witness().ok_or_else(||std::io::Error::other("carrier original witness absent"))?;
             let graph=zero_platform_tokio::AcceptedPeerScope::for_carrier(&registrar,task,witness,stopped.clone(),limits.max_tasks_per_peer,limits.max_resources_per_peer,local).map_err(std::io::Error::other)?;
             let tasks=graph.tasks();
-            resources.claim(tokio::time::Instant::now()+std::time::Duration::from_secs(5),|_| {binding.install_scope(graph.clone());Ok((zero_platform_tokio::contract::lifecycle::erase_lifecycle(graph),()))}).await.map_err(std::io::Error::other)?;
+            resources.claim(tokio::time::Instant::now()+std::time::Duration::from_secs(5),|_| {binding.install_scope(graph.clone())?;Ok((zero_platform_tokio::contract::lifecycle::erase_lifecycle(graph),()))}).await.map_err(std::io::Error::other)?;
             let route=route.with_accepted_tasks(tasks).map_err(std::io::Error::other)?;
             tokio::select!{biased;_=stopped.cancelled()=>Ok(()),result=route.complete_request(pending,cancel)=>{if let Err(error)=result{tracing::debug!(%error,"standard carrier ended");}Ok(())}}
         }

@@ -239,6 +239,7 @@ impl InboundPeerTasks {
                 self.identity,
                 self.cancel.clone(),
                 host.peer_registrar(),
+                Arc::downgrade(&self.protocols.runtime_host().original_budgets().carrier),
             ))
         };
         let mut registration = Registration {

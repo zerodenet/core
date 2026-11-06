@@ -18,6 +18,7 @@ impl AcceptedCaller {
             users.cancel.clone(),
             read_limit,
         )?;
+        users.bind_lookup_total(&original)?;
         users.install_process_lookup(self, original.clone())?;
         original.result(&users.cancel).await
     }
@@ -61,7 +62,84 @@ impl Drop for Installing {
         self.users.changed.notify_waiters();
     }
 }
+impl AcceptedPeerScope {
+    /// Same actual peer installation inherits the original Host's weak root;
+    /// this binds accounting only and cannot create a task or accepted caller.
+    pub fn bind_process_lookup_totals(
+        &self,
+        instance: zero_core::component::ComponentInstanceId,
+        registrar: &crate::contract::scope::WeakTaskRegistrar,
+        root: &Arc<crate::CarrierOriginalTotals>,
+    ) -> Result<(), ChannelError> {
+        if !self
+            .users
+            .authority
+            .matches_original_scope(&registrar.scope_identity())
+        {
+            return Err(failure(
+                Stage::Prepare,
+                Reason::StalePlan,
+                "metadata root belongs to another actual peer Scope",
+            ));
+        }
+        let weak = Arc::downgrade(root);
+        if let Some((actual_instance, actual_root)) = self.users.lookup_totals.get() {
+            return if *actual_instance == instance && actual_root.ptr_eq(&weak) {
+                Ok(())
+            } else {
+                Err(failure(
+                    Stage::Prepare,
+                    Reason::StalePlan,
+                    "metadata peer cannot change actual Host root",
+                ))
+            };
+        }
+        self.users.lookup_totals.set((instance, weak)).map_err(|_| {
+            failure(
+                Stage::Prepare,
+                Reason::StalePlan,
+                "metadata peer root already installed",
+            )
+        })
+    }
+}
 impl Users {
+    fn bind_lookup_total(&self, original: &LocalProcessLookup) -> Result<(), ChannelError> {
+        let pool = self.pool.upgrade();
+        let root;
+        let instance;
+        if let Some(binding) = pool.as_ref().and_then(|pool| pool.originals.get()) {
+            if !self
+                .authority
+                .matches_original_scope(&binding.scope.scope_identity())
+            {
+                return Err(failure(
+                    Stage::Prepare,
+                    Reason::StalePlan,
+                    "metadata caller differs from original accepted Scope",
+                ));
+            }
+            instance = binding.instance;
+            root = binding.root.upgrade();
+        } else if let Some((actual, binding)) = self.lookup_totals.get() {
+            instance = *actual;
+            root = binding.upgrade();
+        } else {
+            return Err(failure(
+                Stage::Prepare,
+                Reason::Internal,
+                "actual accepted metadata Host root is missing",
+            ));
+        }
+        let root = root.ok_or_else(|| {
+            failure(
+                Stage::Prepare,
+                Reason::Revoked,
+                "actual metadata Host root retired",
+            )
+        })?;
+        original.bind_original_totals(instance, &self.authority.registrar, &root)
+    }
     fn process_lookups(&self) -> Vec<Arc<LocalProcessLookup>> {
         self.state()
             .tasks

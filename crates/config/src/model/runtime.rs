@@ -19,6 +19,10 @@ pub struct RuntimeOptionsConfig {
     /// Actual pending, failed and retiring carrier custody reservations across
     /// this one Host. Default1024, on demand. Distinct from FD/socket count,
     /// per-role N, per-protocol pool N and logical user/task/byte limits.
+    /// Each actual local-process metadata lookup is one reservation through
+    /// its native cleanup, actual helper join and registration ACK. Linux
+    /// owns at most three File originals internally; Windows at most one
+    /// process HANDLE. These are not Child jobs or a native FD total.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub carrier_max_total_originals: Option<usize>,
     /// Actual native process jobs across this kernel, including pending,

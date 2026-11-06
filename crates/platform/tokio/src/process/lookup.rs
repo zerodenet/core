@@ -6,6 +6,8 @@ use crate::contract::{
 };
 use std::sync::{Arc, Condvar, Mutex, OnceLock};
 mod native;
+mod registration;
+mod totals;
 use native::Native;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -21,10 +23,11 @@ pub struct LocalProcessLookup {
     owner_cancel: CancellationToken,
     read_limit: std::num::NonZeroUsize,
     pub(in crate::process) native: Native,
-    witness: OnceLock<TaskJoinWitness>,
+    witness: Arc<OnceLock<TaskJoinWitness>>,
     state: Mutex<State>,
     start: Condvar,
-    changed: tokio::sync::Notify,
+    changed: Arc<tokio::sync::Notify>,
+    totals: totals::Custody,
 }
 struct State {
     attempted: bool,
@@ -79,7 +82,7 @@ impl LocalProcessLookup {
             owner_cancel,
             read_limit,
             native: Native::new(),
-            witness: OnceLock::new(),
+            witness: Arc::new(OnceLock::new()),
             state: Mutex::new(State {
                 attempted: false,
                 rejected: false,
@@ -90,7 +93,8 @@ impl LocalProcessLookup {
                 waiting_at_start: false,
             }),
             start: Condvar::new(),
-            changed: tokio::sync::Notify::new(),
+            changed: Arc::new(tokio::sync::Notify::new()),
+            totals: totals::Custody::default(),
         }))
     }
     pub(in crate::process) fn read_limit(&self) -> usize {
@@ -129,73 +133,6 @@ impl LocalProcessLookup {
     }
     pub fn witness(&self) -> Option<TaskJoinWitness> {
         self.witness.get().cloned()
-    }
-    /// Caller and original must already be retained by the same actual owner.
-    /// This is the original blocking worker, with no async wrapper/pump task.
-    pub fn register(
-        self: &Arc<Self>,
-        registrar: &WeakTaskRegistrar,
-    ) -> Result<LocalProcessLookupStart, ChannelError> {
-        if !self
-            .caller
-            .scope_identity()
-            .same_scope(&registrar.scope_identity())
-            || self.caller.is_joined()
-            || !self.caller.scope_identity().resource_open()
-        {
-            let mut state = self
-                .state
-                .lock()
-                .unwrap_or_else(std::sync::PoisonError::into_inner);
-            if !state.attempted {
-                state.rejected = true;
-            }
-            return Err(error(Stage::Prepare, Reason::Revoked));
-        }
-        {
-            let mut state = self
-                .state
-                .lock()
-                .unwrap_or_else(std::sync::PoisonError::into_inner);
-            if state.attempted || state.rejected || state.cancelled {
-                if !state.attempted {
-                    state.rejected = true;
-                }
-                return Err(error(Stage::Prepare, Reason::Revoked));
-            }
-            state.attempted = true;
-        }
-        let pending = LocalProcessLookupStart {
-            original: self.clone(),
-            started: false,
-        };
-        let original = self.clone();
-        let registered =
-            registrar.spawn_blocking_tracked(TaskClass::Auxiliary, move || original.run());
-        let (_, witness) = match registered {
-            Ok(registered) => registered,
-            Err(source) => {
-                // This Result proves no TaskId was registered. A registrar
-                // panic cannot pass through this known-rejection branch.
-                self.state
-                    .lock()
-                    .unwrap_or_else(std::sync::PoisonError::into_inner)
-                    .rejected = true;
-                let reason = match source {
-                    SpawnError::Capacity => Reason::Capacity,
-                    SpawnError::Closing => Reason::Revoked,
-                    SpawnError::NotStarted => Reason::InvalidConfig,
-                    SpawnError::IdentityExhausted => Reason::Internal,
-                };
-                let mut cause = error(Stage::Prepare, reason).with_source(source);
-                cause.delivery = DeliveryState::NotSubmitted;
-                return Err(cause);
-            }
-        };
-        self.witness
-            .set(witness)
-            .map_err(|_| error(Stage::Prepare, Reason::StalePlan))?;
-        Ok(pending)
     }
     pub fn cancel(&self) {
         self.state

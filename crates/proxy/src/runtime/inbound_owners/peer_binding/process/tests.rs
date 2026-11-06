@@ -50,6 +50,7 @@ async fn pre_admission_native_quota_retains_actual_primary_until_host_ack_then_s
         instance,
         cancel.clone(),
         registrar.downgrade(),
+        Arc::downgrade(&proxy.protocols.runtime_host().original_budgets().carrier),
     ));
     let actual = binding.clone();
     let (mut reader, mut writer) = tokio::io::duplex(1);

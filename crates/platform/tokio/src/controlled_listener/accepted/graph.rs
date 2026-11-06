@@ -6,8 +6,8 @@ use crate::contract::scope::{
 use std::{
     future::Future,
     sync::{
-        Weak,
         atomic::{AtomicBool, Ordering},
+        Weak,
     },
 };
 use zero_core::component::TaskId;
@@ -59,6 +59,10 @@ pub(super) struct Users {
     carrier_cleanup: AsyncMutex<()>,
     local: OnceLock<std::net::SocketAddr>,
     pending_acks: Mutex<Vec<TaskJoinWitness>>,
+    lookup_totals: OnceLock<(
+        zero_core::component::ComponentInstanceId,
+        Weak<crate::CarrierOriginalTotals>,
+    )>,
 }
 #[derive(Default)]
 struct State {
@@ -113,6 +117,7 @@ impl Users {
             carrier_cleanup: AsyncMutex::new(()),
             local: OnceLock::new(),
             pending_acks: Mutex::default(),
+            lookup_totals: OnceLock::new(),
         }
     }
     fn state(&self) -> std::sync::MutexGuard<'_, State> {

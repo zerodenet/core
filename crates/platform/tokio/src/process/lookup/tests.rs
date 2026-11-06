@@ -11,6 +11,7 @@ async fn actual_start_wait_and_cancel_keep_same_blocking_join_credit_until_host_
     let mut scope = TaskScope::suspended_hosted(Handle::current(), NonZeroUsize::new(2));
     scope.enable_registration().unwrap();
     let registrar = scope.registrar();
+    let roots = crate::CarrierOriginalTotals::new(NonZeroUsize::MIN);
     let (mut reader, mut writer) = tokio::io::duplex(1);
     let (entered, observed) = tokio::sync::oneshot::channel();
     let (caller_id, caller) = registrar
@@ -41,7 +42,12 @@ async fn actual_start_wait_and_cancel_keep_same_blocking_join_credit_until_host_
         NonZeroUsize::new(8 * 1024 * 1024).unwrap(),
     )
     .unwrap();
+    original
+        .bind_original_totals(instance(), &registrar.downgrade(), &roots)
+        .unwrap();
+    assert_eq!(roots.snapshot().charged, 0, "prepare and binding are cold");
     let start = original.register(&registrar.downgrade()).unwrap();
+    assert_eq!(roots.snapshot().charged, 1);
     // Reading this mutex requires the real blocking worker to have released
     // it inside Condvar::wait. This is its actual pre-IO handoff input, not a
     // marker task or a simulated native operation.
@@ -79,6 +85,7 @@ async fn actual_start_wait_and_cancel_keep_same_blocking_join_credit_until_host_
     ));
     scope.acknowledge(&receipt).unwrap();
     assert!(original.retired());
+    assert_eq!(roots.snapshot().charged, 0);
     assert!(
         !caller.is_joined(),
         "cancelling lookup leaves its actual source/caller live"
@@ -101,6 +108,7 @@ async fn real_local_tcp_and_udp_metadata_use_original_worker_and_matching_native
     let mut scope = TaskScope::suspended_hosted(Handle::current(), NonZeroUsize::new(2));
     scope.enable_registration().unwrap();
     let registrar = scope.registrar();
+    let roots = crate::CarrierOriginalTotals::new(NonZeroUsize::MIN);
     let (mut reader, mut writer) = tokio::io::duplex(1);
     let (id, caller) = registrar
         .spawn_tracked(TaskClass::Critical, async move {
@@ -120,6 +128,9 @@ async fn real_local_tcp_and_udp_metadata_use_original_worker_and_matching_native
         NonZeroUsize::new(8 * 1024 * 1024).unwrap(),
     )
     .unwrap();
+    assert!(rejected
+        .bind_original_totals(instance(), &foreign.registrar().downgrade(), &roots)
+        .is_err());
     assert!(rejected.register(&foreign.registrar().downgrade()).is_err());
     assert!(rejected.witness().is_none());
     assert!(!rejected.state.lock().unwrap().attempted);
@@ -135,6 +146,9 @@ async fn real_local_tcp_and_udp_metadata_use_original_worker_and_matching_native
             NonZeroUsize::new(8 * 1024 * 1024).unwrap(),
         )
         .unwrap();
+        original
+            .bind_original_totals(instance(), &registrar.downgrade(), &roots)
+            .unwrap();
         original.register(&registrar.downgrade()).unwrap().start();
         let cancel = CancellationToken::new();
         let info = tokio::time::timeout(Duration::from_secs(5), original.result(&cancel))
@@ -170,3 +184,14 @@ async fn real_local_tcp_and_udp_metadata_use_original_worker_and_matching_native
     scope.begin_shutdown();
     assert!(scope.is_drained());
 }
+
+fn instance() -> zero_core::component::ComponentInstanceId {
+    use zero_core::component::{ComponentId, ComponentInstanceId, ResourceGeneration};
+    ComponentInstanceId {
+        component: ComponentId(912),
+        generation: ResourceGeneration(1),
+    }
+}
+
+#[path = "tests/global.rs"]
+mod global;
