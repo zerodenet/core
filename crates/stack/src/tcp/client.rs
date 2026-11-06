@@ -44,6 +44,13 @@ pub enum ClientTcpStackError {
     DestinationUnreachable,
 }
 
+impl std::fmt::Display for ClientTcpStackError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "client TCP stack: {self:?}")
+    }
+}
+impl std::error::Error for ClientTcpStackError {}
+
 pub struct ClientTcpStack {
     local_addresses: Vec<IpAddr>,
     connections: Arc<Mutex<HashMap<ConnKey, Conn>>>,

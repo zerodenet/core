@@ -14,10 +14,10 @@ pub(crate) use incarnation::next as next_incarnation;
 pub(crate) use carrier::{DirectRawIpWireCarrier, ProxiedRawIpWireCarrier, RawIpWireCarrier};
 pub(crate) use contract::{RawIpAction, RawIpOutboundPlan, RawIpPeerPlan, RawIpTunnel};
 pub(crate) use datagram::RawIpDatagramOperation;
-pub(crate) use device::PacketReturns;
 pub(crate) use device::{
     EndpointPacket, EndpointStackOwner, EndpointStackRecipe, SharedRawIpDevice,
 };
+pub(crate) use device::{PacketReturns, PacketSubmission, ReturnSource};
 pub(crate) use packet::RawIpPacketOperation;
 pub(crate) use pool::{RawIpDevicePool, StagedRawIpDevices, MAX_RAW_IP_DEVICES};
 

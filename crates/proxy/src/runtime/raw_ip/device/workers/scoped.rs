@@ -32,6 +32,13 @@ enum Failure {
     Admission(Arc<ChannelError>),
 }
 impl ScopedWorkers {
+    pub(super) fn matches_scope(
+        &self,
+        scope: &zero_platform_tokio::contract::scope::TaskScopeIdentity,
+    ) -> bool {
+        self.registrar.scope_identity().same_scope(scope) && scope.resource_open()
+    }
+
     #[cfg_attr(
         not(test),
         expect(

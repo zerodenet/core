@@ -15,6 +15,7 @@ mod publication;
     )
 )]
 mod recipe;
+pub(crate) use recipe::alias::LinkedOutboundFactory;
 mod selection;
 pub(super) use pending::{PeerResources, PendingLinkedEndpoint};
 use pending_map::PendingEndpoints;
