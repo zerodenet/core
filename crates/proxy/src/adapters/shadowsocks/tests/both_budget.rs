@@ -48,6 +48,8 @@ async fn source_and_outbound_budget_change_rejects_before_revoking_any_admitted_
                 let owner = loop { if let Some(owner) = registry.owner("salt-source") { break owner; } tokio::task::yield_now().await; };
                 phase.watch(owner.clone()); owner.wait_ready().await.unwrap(); Some(owner)
             } else {None};
+            let handle = crate::ProxyHandle::new(zero_engine::EngineHandle::new(proxy.engine().clone()),proxy.clone());
+            handle.apply_runtime_config_and_wait((*proxy.engine().config()).clone(), Duration::from_secs(5)).await.unwrap();
             let target = TcpListener::bind("127.0.0.1:0").await.unwrap();
             phase.set("first actual optional Source encrypted request and target");
             let mut incoming = if with_source {
@@ -57,6 +59,7 @@ async fn source_and_outbound_budget_change_rejects_before_revoking_any_admitted_
                 direct.write_all(b"seen").await.unwrap(); client.read_exact(&mut bytes).await.unwrap(); assert_eq!(&bytes,b"seen");
                 Some((client,direct))
             } else {None};
+            let incoming_original = incoming.as_ref().map(|_| originals::Original::capture(&proxy, None));
             let acceptor = ::shadowsocks::ShadowsocksInboundTcpAcceptor::new(
                 ::shadowsocks::ShadowsocksInboundProfile::from_config(METHOD,PASSWORD).unwrap());
             phase.set("actual SOCKS entry and encrypted outbound wire handshake");
@@ -73,7 +76,7 @@ async fn source_and_outbound_budget_change_rejects_before_revoking_any_admitted_
             });
             let (mut front, mut server) = (front, server);
             let mut bytes = [0;4]; front.read_exact(&mut bytes).await.unwrap(); assert_eq!(&bytes,b"back");
-            let handle = crate::ProxyHandle::new(zero_engine::EngineHandle::new(proxy.engine().clone()),proxy.clone());
+            let outbound_original = originals::Original::capture(&proxy, Some("ss-out"));
             let mut candidate = (*proxy.engine().config()).clone();
             candidate.runtime.ss_tcp_replay_max_salts = Some(initial_total+1);
             phase.set("active original user: await cold Busy rejection");
@@ -97,6 +100,10 @@ async fn source_and_outbound_budget_change_rejects_before_revoking_any_admitted_
                 if entry.accepted_join_for_test().is_some() && entry.acquisition_idle_for_test() && local.as_ref().is_none_or(|owner| owner.accepted_join_for_test().is_some() && owner.acquisition_idle_for_test()) {break;}
                 tokio::task::yield_now().await;
             }
+            originals::accepted(&entry);
+            outbound_original.assert_native_closed();
+            if let Some(owner) = &local { originals::accepted(owner); }
+            if let Some(original) = &incoming_original { original.assert_native_closed(); }
             let mut idle_grow = (*proxy.engine().config()).clone();
             idle_grow.runtime.ss_tcp_replay_max_salts = Some(initial_total+1);
             phase.set("idle growth: await StopOld and replacement ACK");
@@ -104,17 +111,21 @@ async fn source_and_outbound_budget_change_rejects_before_revoking_any_admitted_
             phase.set("growth ACK: original native and Scope facts");
             if let Some(owner) = &local {
                 let closed = owner.terminal_for_test().expect("same old SS Source native/Scope retired before shared outbound budget ACK");
-                assert!(closed.closed_io_receipts() >= 4);
+                assert_eq!(closed.identity(), owner.identity());
+                originals::source_closed(owner, 3);
                 assert_ne!(owner.identity(), registry.owner("salt-source").unwrap().identity());
             }
+            outbound_original.assert_owner_closed();
             assert_eq!(proxy.engine().config().runtime.effective_ss_tcp_replay_max_salts(), initial_total+1);
             let replacement = registry.owner("salt-source");
             phase.set("final original graph shutdown and matching receipts");
             running.shutdown().await.unwrap();
             phase.set("all original cleanup complete");
-            assert!(entry.terminal_for_test().unwrap().closed_io_receipts() >= 3);
-            if let Some(owner) = local { assert!(owner.terminal_for_test().unwrap().closed_io_receipts() >= 4); }
-            if let Some(owner) = replacement { assert!(owner.terminal_for_test().unwrap().closed_io_receipts() >= 2); }
+            originals::source_closed(&entry, 2);
+            if let Some(owner) = local { originals::source_closed(&owner, 3); }
+            if let Some(owner) = replacement { originals::source_closed(&owner, 2); }
+            if let Some(original) = incoming_original { original.assert_owner_closed(); }
+            outbound_original.assert_owner_closed();
         }
     }).await.unwrap();
 }
