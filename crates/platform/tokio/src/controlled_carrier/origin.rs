@@ -170,6 +170,40 @@ impl CarrierOrigin {
             Original::Listener(_) | Original::Metadata(_) | Original::MetadataPool { .. } => None,
         }
     }
+    pub(super) fn related_adoption(&self) -> Option<CarrierAdoption> {
+        let Original::Carrier(origin) = self.0.as_ref() else {
+            return None;
+        };
+        let slot = origin.slot.upgrade()?;
+        let parent = slot.state().related_parent.as_ref()?.upgrade()?;
+        let binding = slot.state().binding.clone()?;
+        let parent = CarrierAdoption { slot: parent };
+        super::related::check_parent(&parent, slot.instance, &binding).ok()?;
+        Some(parent)
+    }
+    /// A physical receiver in this lineage must still store its actual loan
+    /// owner and that owner's sealed, strongly retained control cleanup token.
+    pub(super) fn retains_related_control(&self, pending: &CarrierAdoption) -> bool {
+        let Original::Carrier(origin) = self.0.as_ref() else {
+            return false;
+        };
+        let Some(slot) = origin.slot.upgrade() else {
+            return false;
+        };
+        let state = slot.state();
+        !state.closed
+            && state.loan.is_some()
+            && state
+                .loan_origin
+                .as_ref()
+                .zip(origin.parent.as_ref())
+                .is_some_and(|(current, captured)| current.same_original(captured))
+            && state
+                .loan_related
+                .as_ref()
+                .and_then(Weak::upgrade)
+                .is_some_and(|actual| actual.names(pending))
+    }
     /// Actual negotiated-control dependency, separate from physical
     /// encapsulation ancestry. This observation grants no cleanup or native I/O.
     pub fn related_control(&self) -> Option<Self> {

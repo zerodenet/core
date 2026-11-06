@@ -200,6 +200,7 @@ impl CarrierGrant {
         loan: DatagramLoan,
     ) -> Result<BorrowedDatagram, ChannelError> {
         let original = loan.owner.original().clone();
+        let related = loan.owner.related_control();
         {
             let mut state = self.slot.state();
             assert!(
@@ -208,6 +209,7 @@ impl CarrierGrant {
             );
             state.loan = Some(Arc::new(Mutex::new(loan.owner)));
             state.loan_origin = Some(original.clone());
+            state.loan_related = related;
             state.binding = Some(binding.clone());
             state.endpoint = Some(endpoint.clone());
             state.view_live = true;
