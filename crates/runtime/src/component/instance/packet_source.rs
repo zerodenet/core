@@ -62,7 +62,13 @@ impl ComponentSlot {
     }
     /// Actual successful start and concrete native dependency, never a role
     /// marker or a promise that a deferred device may eventually start.
+    pub(in crate::component) fn packet_provider_ready(&self) -> bool {
+        self.provider_ready(false)
+    }
     pub(in crate::component) fn device_carrier_ready(&self) -> bool {
+        self.provider_ready(true)
+    }
+    fn provider_ready(&self, flow_roles: bool) -> bool {
         if self.cancel.is_cancelled() {
             return false;
         }
@@ -71,8 +77,7 @@ impl ComponentSlot {
         };
         if !matches!(live.started.get(), Some(Ok(())))
             || live.packet.is_none()
-            || live.stream.is_none()
-            || live.datagram.is_none()
+            || (flow_roles && (live.stream.is_none() || live.datagram.is_none()))
         {
             return false;
         }

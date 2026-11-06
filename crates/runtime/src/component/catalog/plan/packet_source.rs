@@ -20,6 +20,36 @@ impl ComponentPlan {
             })?
             .bind_packet_source(actual)
     }
+    /// A Packet-only native owner is sufficient for L3 dispatch; Stream and
+    /// Datagram qualification remains a separate three-role source check.
+    pub fn has_packet_provider(&self, role: zero_core::component::RoleInstanceId) -> bool {
+        let Some(selected) = self.role_slot(role) else {
+            return false;
+        };
+        if !selected
+            .recipe
+            .spec()
+            .roles
+            .contains(&zero_platform_tokio::contract::component::RoleKind::Packet)
+        {
+            return false;
+        }
+        let mut pending = vec![selected.instance_id()];
+        let mut seen = std::collections::BTreeSet::new();
+        while let Some(id) = pending.pop() {
+            if !seen.insert(id) {
+                continue;
+            }
+            let Some(slot) = self.order.iter().find(|slot| slot.instance_id() == id) else {
+                return false;
+            };
+            if slot.packet_provider_ready() {
+                return true;
+            }
+            pending.extend(slot.dependency_instances());
+        }
+        false
+    }
     pub fn has_device_carrier_provider(&self, role: zero_core::component::RoleInstanceId) -> bool {
         let Some(selected) = self.role_slot(role) else {
             return false;

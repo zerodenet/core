@@ -108,7 +108,7 @@ struct MainRegistration {
 }
 #[derive(Clone)]
 pub(crate) struct InboundTaskAccess {
-    #[cfg(feature = "managed-datagram-runtime")]
+    #[cfg(any(feature = "managed-datagram-runtime", feature = "raw-ip-runtime"))]
     pub(super) identity: ComponentInstanceId,
     registrar: TaskRegistrar,
     #[cfg(feature = "raw-ip-runtime")]
@@ -121,6 +121,11 @@ pub(crate) struct InboundTaskAccess {
     shutdown: watch::Sender<bool>,
 }
 impl InboundTaskAccess {
+    #[cfg(feature = "raw-ip-runtime")]
+    pub(in crate::runtime) fn source_instance(&self) -> ComponentInstanceId {
+        self.identity
+    }
+
     /// Observe the exact registered source main, distinct from its native wire.
     /// The main may run before spawn_tracked returns on another runtime worker;
     /// wait for publication of that original witness rather than fabricate one.
@@ -345,7 +350,7 @@ impl InboundOwner {
     }
     pub(crate) fn task_access(&self) -> InboundTaskAccess {
         InboundTaskAccess {
-            #[cfg(feature = "managed-datagram-runtime")]
+            #[cfg(any(feature = "managed-datagram-runtime", feature = "raw-ip-runtime"))]
             identity: self.identity,
             registrar: self.registrar.clone(),
             #[cfg(feature = "raw-ip-runtime")]
