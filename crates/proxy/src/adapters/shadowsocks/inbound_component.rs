@@ -4,6 +4,7 @@ impl ShadowsocksAdapter {
     pub(crate) fn inbound_options(
         &self,
         inbound: &InboundConfig,
+        replay_max_salts: usize,
     ) -> Result<
         ::shadowsocks::component::inbound::listener::Options,
         crate::component::RegistrationError,
@@ -35,6 +36,7 @@ impl ShadowsocksAdapter {
                 *replay_attack,
                 *state_limits,
             )
+            .and_then(|prepared| prepared.with_replay_budget_limit(replay_max_salts))
             .map_err(|source| zero_config::ConfigError::InvalidInbound(source.to_string()))?;
         let endpoint =
             zero_core::address::socket_addr(&inbound.listen.address, inbound.listen.port);

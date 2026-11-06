@@ -37,6 +37,8 @@ impl Options {
             let mut hash = key.build_hasher();
             listen.hash(&mut hash);
             private_identity.hash(&mut hash);
+            #[cfg(feature = "blake3")]
+            profile.replay_total().hash(&mut hash);
             identity.extend_from_slice(&hash.finish().to_le_bytes());
         }
         Self {

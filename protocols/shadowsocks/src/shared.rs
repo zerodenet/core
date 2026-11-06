@@ -43,7 +43,9 @@ pub(crate) use udp_wire::{
 #[path = "shared/replay.rs"]
 mod replay;
 #[cfg(all(feature = "crypto", feature = "blake3"))]
-pub use replay::ReplaySaltPool;
+pub use replay::{ReplayBudget, ReplaySaltPool};
+#[cfg(feature = "blake3")]
+pub(crate) use replay::ReplaySaltPoolWeak;
 
 /// Per-session UDP replay protection for Shadowsocks 2022 (SIP022 3.2.4).
 ///
