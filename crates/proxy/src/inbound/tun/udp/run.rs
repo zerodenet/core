@@ -85,17 +85,25 @@ pub(super) async fn run_inner(
                         continue;
                     }
                     let query_runtime = runtime.clone();
-                    let stack = Arc::clone(&stack);
+                    let query_stack = Arc::clone(&stack);
                     let query = buffer[..size].to_vec();
                     #[cfg(feature = "raw-ip-runtime")]
                     let mut native = match &owned {
-                        Some(owner) => Some(owner.native.reserve_reclaimed(
+                        Some(owner) => match owner.native.reserve_reclaimed(
                             crate::runtime::inbound_operation::raw_ip::native_obligations::ChildKind::Dns,
                             tokio::time::Instant::now() + Duration::from_secs(5),
-                        ).await.map_err(std::io::Error::other)?),
+                        ).await {
+                            Ok(native) => Some(native),
+                            Err(error) if crate::runtime::raw_ip::tasks::capacity::before_work(&error) => {
+                                let response = runtime.resolver().busy_response(&buffer[..size]);
+                                stack.send_to(&response, destination, source).await;
+                                continue;
+                            }
+                            Err(error) => return Err(std::io::Error::other(error).into()),
+                        },
                         None => None,
                     };
-                    dns_tasks.spawn_with_witness(move |witness| async move {
+                    let registered = dns_tasks.spawn_with_witness(move |witness| async move {
                         let resolver = query_runtime.resolver();
                         let (call, work) = resolver.prepare_udp_query(&query);
                         #[cfg(feature = "raw-ip-runtime")]
@@ -113,9 +121,18 @@ pub(super) async fn run_inner(
                         // A normal failed query cannot poison all later calls
                         // after its matching originals have really closed.
                         let response = response?;
-                        stack.send_to(&response, destination, source).await;
+                        query_stack.send_to(&response, destination, source).await;
                         Ok::<(), std::io::Error>(())
-                    })?;
+                    });
+                    if let Err(error) = registered {
+                        #[cfg(feature = "raw-ip-runtime")]
+                        if crate::runtime::raw_ip::tasks::capacity::before_work(&error) {
+                            let response = runtime.resolver().busy_response(&buffer[..size]);
+                            stack.send_to(&response, destination, source).await;
+                            continue;
+                        }
+                        return Err(std::io::Error::other(error).into());
+                    }
                     continue;
                 }
                 let datagram = TunDatagram {
@@ -144,7 +161,23 @@ pub(super) async fn run_inner(
                         match associations.admit(source, now) {
                             Ok(()) => {
                                 let id = next_id;
-                                spawn_association(
+                                #[cfg(feature = "raw-ip-runtime")]
+                                let native = match &owned {
+                                    Some(owner) => match owner.native.reserve_reclaimed(
+                                        crate::runtime::inbound_operation::raw_ip::native_obligations::ChildKind::Udp,
+                                        tokio::time::Instant::now() + Duration::from_secs(5),
+                                    ).await {
+                                        Ok(native) => Some(native),
+                                        Err(error) if crate::runtime::raw_ip::tasks::capacity::before_work(&error) => {
+                                            log_pressure_drop(&mut associations, now, source, destination,
+                                                AdmissionRejection::ScopeLimit, stack.send_unreachable(&datagram.payload, source, destination));
+                                            continue;
+                                        }
+                                        Err(error) => return Err(std::io::Error::other(error).into()),
+                                    },
+                                    None => None,
+                                };
+                                let registered = spawn_association(
                                     &mut tasks,
                                     &mut associations,
                                     AssociationStart {
@@ -155,15 +188,18 @@ pub(super) async fn run_inner(
                                         id,
                                         first: datagram,
                                         #[cfg(feature = "raw-ip-runtime")]
-                                        native: match &owned {
-                                            Some(owner) => Some(owner.native.reserve_reclaimed(
-                                                crate::runtime::inbound_operation::raw_ip::native_obligations::ChildKind::Udp,
-                                                tokio::time::Instant::now() + Duration::from_secs(5),
-                                            ).await.map_err(std::io::Error::other)?),
-                                            None => None,
-                                        },
+                                        native,
                                     },
-                                )?;
+                                );
+                                if let Err(error) = registered {
+                                    #[cfg(feature = "raw-ip-runtime")]
+                                    if crate::runtime::raw_ip::tasks::capacity::source_admission(&error) {
+                                        log_pressure_drop(&mut associations, now, source, destination,
+                                            AdmissionRejection::ScopeLimit, stack.send_unreachable(&buffer[..size], source, destination));
+                                        continue;
+                                    }
+                                    return Err(error);
+                                }
                                 tracing::trace!(
                                     ?source,
                                     ?destination,

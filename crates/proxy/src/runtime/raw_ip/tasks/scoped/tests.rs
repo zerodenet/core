@@ -9,6 +9,8 @@ use std::{
 };
 use tokio::io::{AsyncRead, AsyncWriteExt, ReadBuf};
 use zero_platform_tokio::contract::scope::{HostedScope, TaskScope};
+#[path = "tests/capacity.rs"]
+mod capacity;
 fn hosted(limit: usize) -> HostedScope {
     let mut scope =
         TaskScope::suspended_hosted(tokio::runtime::Handle::current(), NonZeroUsize::new(limit));
@@ -97,7 +99,7 @@ async fn real_pending_io_and_completed_body_cannot_refund_original_scope_before_
     pending(guard.join_next()).await;
     let receipt = scope.next_receipt().await.unwrap();
     assert_eq!(receipt.id(), id);
-    guard.join_next().await.unwrap().unwrap();
+    guard.join_next().await.unwrap().unwrap().unwrap();
     assert_eq!(
         guard.len(),
         1,
@@ -132,7 +134,7 @@ async fn real_pending_io_and_completed_body_cannot_refund_original_scope_before_
     write.write_u8(43).await.unwrap();
     let receipt = scope.next_receipt().await.unwrap();
     assert_eq!(receipt.id(), second);
-    guard.join_next().await.unwrap().unwrap();
+    guard.join_next().await.unwrap().unwrap().unwrap();
     assert_eq!(guard.len(), 1);
     scope.acknowledge(&receipt).unwrap();
     assert_eq!(guard.len(), 0);
