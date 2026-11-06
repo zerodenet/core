@@ -1,4 +1,6 @@
 #[cfg(unix)]
+mod control_retirement;
+#[cfg(unix)]
 mod hooks;
 mod recovery;
 mod startup;

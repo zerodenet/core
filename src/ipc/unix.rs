@@ -26,10 +26,14 @@ pub struct IpcServerHandle {
     originals: Arc<UnixOriginals>,
     path: PathBuf,
     started: std::sync::atomic::AtomicBool,
+    retired: std::sync::atomic::AtomicBool,
     budget: Arc<zero_runtime::configuration::ControlBudget>,
 }
 
 impl IpcServerHandle {
+    pub(crate) fn retirement_complete(&self) -> bool {
+        self.retired.load(Ordering::Acquire)
+    }
     pub(crate) async fn wait_terminated(&self) -> io::Result<()> {
         self.task.join().await
     }
@@ -54,8 +58,10 @@ impl IpcServerHandle {
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner)
             .take();
-        accepted?;
-        result
+        if accepted.is_ok() {
+            self.retired.store(true, Ordering::Release);
+        }
+        super::owner::finish_work([result, accepted])
     }
 }
 
@@ -116,6 +122,7 @@ pub fn prepare_ipc_server_with_budget(
         originals: Arc::new(UnixOriginals::default()),
         path: socket_path.to_owned(),
         started: std::sync::atomic::AtomicBool::new(false),
+        retired: std::sync::atomic::AtomicBool::new(false),
         budget,
     })
 }

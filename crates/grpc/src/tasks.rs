@@ -74,3 +74,34 @@ impl ControlTask {
             .map_err(|source| io::Error::new(source.kind(), source))
     }
 }
+
+/// Preserve multiple real terminal sources after every original join ran.
+pub(super) fn finish(results: impl IntoIterator<Item = io::Result<()>>) -> io::Result<()> {
+    let mut errors = results
+        .into_iter()
+        .filter_map(Result::err)
+        .collect::<Vec<_>>();
+    match errors.len() {
+        0 => Ok(()),
+        1 => Err(errors.remove(0)),
+        _ => Err(io::Error::other(Failures(errors))),
+    }
+}
+#[derive(Debug)]
+struct Failures(Vec<io::Error>);
+impl std::fmt::Display for Failures {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        for (index, error) in self.0.iter().enumerate() {
+            if index > 0 {
+                f.write_str("; ")?;
+            }
+            write!(f, "{error}")?;
+        }
+        Ok(())
+    }
+}
+impl std::error::Error for Failures {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        self.0.first().map(|error| error as _)
+    }
+}

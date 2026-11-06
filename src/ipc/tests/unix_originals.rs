@@ -137,3 +137,70 @@ async fn actual_ipc_root_budget_waits_before_accept_and_reuses_capacity_only_aft
     .await
     .unwrap();
 }
+
+#[tokio::test]
+async fn consumed_server_fault_still_returns_its_source_after_matching_native_retirement() {
+    tokio::time::timeout(Duration::from_secs(5), async {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("fault.sock");
+        let proxy = zero_proxy::Proxy::new(
+            zero_config::RuntimeConfig::parse(r#"{"route":{"final":{"type":"direct"}}}"#).unwrap(),
+        )
+        .unwrap();
+        let handle = ProxyHandle::new(
+            zero_engine::EngineHandle::new(proxy.engine().clone()),
+            proxy,
+        );
+        let server = prepare_ipc_server(&path);
+        server.start(handle.clone()).await.unwrap();
+        server.budget.close_admission();
+        let pending_client = tokio::net::UnixStream::connect(&path).await.unwrap();
+        let fault = server.wait_terminated().await.unwrap_err();
+        assert!(!server.retirement_complete());
+        assert_eq!(fault.kind(), io::ErrorKind::BrokenPipe);
+        let closed_fault = server.shutdown().await.unwrap_err();
+        assert!(server.retirement_complete());
+        assert!(server.originals.active.lock().unwrap().is_empty());
+        assert!(server.originals.activating.lock().unwrap().is_none());
+        let closed = server
+            .listener
+            .close(super::super::owner::close_deadline())
+            .await
+            .unwrap();
+        assert!(closed.had_native_acquisition() && server.listener.matches_closed(&closed));
+        server.budget.confirm_released().unwrap();
+        let initial = fault
+            .get_ref()
+            .unwrap()
+            .downcast_ref::<Arc<io::Error>>()
+            .unwrap();
+        let retained = closed_fault
+            .get_ref()
+            .unwrap()
+            .downcast_ref::<Arc<io::Error>>()
+            .unwrap();
+        assert!(
+            Arc::ptr_eq(initial, retained),
+            "retirement never fabricates a successful server exit"
+        );
+        assert!(!path.exists());
+        drop(pending_client);
+        let replacement = spawn_ipc_server(handle, &path).await.unwrap();
+        let mut client = BufReader::new(tokio::net::UnixStream::connect(&path).await.unwrap());
+        client
+            .get_mut()
+            .write_all(b"{\"type\":\"ping\",\"id\":1}\n")
+            .await
+            .unwrap();
+        let mut line = String::new();
+        client.read_line(&mut line).await.unwrap();
+        assert_eq!(
+            serde_json::from_str::<serde_json::Value>(&line).unwrap()["ok"],
+            true
+        );
+        replacement.shutdown().await.unwrap();
+        assert!(replacement.retirement_complete());
+    })
+    .await
+    .unwrap();
+}

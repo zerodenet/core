@@ -13,6 +13,9 @@ use super::services::ApplicationServices;
 use crate::http_adapter;
 use crate::{ipc, rule_set_fetch};
 
+mod control_failure;
+use control_failure::ControlStartupFailure;
+
 #[cfg(test)]
 mod tests;
 
@@ -119,7 +122,11 @@ async fn run(
         let monitor = services.shutdown_status_monitor().await;
         let dispatcher = services.shutdown_dispatcher().await;
         let quota = engine.shutdown_principal_quota_state();
-        if controls.is_ok() && monitor.is_ok() && dispatcher.is_ok() && quota.is_ok() {
+        if services.control_retirement_complete()
+            && monitor.is_ok()
+            && dispatcher.is_ok()
+            && quota.is_ok()
+        {
             services.finish_control_startup();
         } else {
             tracing::error!(
@@ -130,7 +137,13 @@ async fn run(
                 "original control startup cleanup remains retained"
             );
         }
-        return Err(error);
+        return Err(match controls {
+            Ok(()) => error,
+            Err(cleanup) => Box::new(ControlStartupFailure {
+                startup: error,
+                cleanup,
+            }),
+        });
     }
     services.finish_control_startup();
 

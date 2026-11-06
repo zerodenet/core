@@ -68,6 +68,7 @@ pub fn prepare_with_budget(
         auth: security.auth,
         tls,
         started: AtomicBool::new(false),
+        retired: AtomicBool::new(false),
         shutdown: Mutex::new(None),
         task: ControlTask::empty(),
         originals: Arc::new(GrpcOriginals {
@@ -106,11 +107,16 @@ pub struct GrpcHandle {
     auth: Option<GrpcServerAuth>,
     tls: Option<tokio_rustls::TlsAcceptor>,
     started: AtomicBool,
+    retired: AtomicBool,
     shutdown: Mutex<Option<tokio::sync::oneshot::Sender<()>>>,
     task: ControlTask,
     originals: Arc<GrpcOriginals>,
 }
 impl GrpcHandle {
+    /// Completion only after exact server/worker joins and native/accepted close.
+    pub fn retirement_complete(&self) -> bool {
+        self.retired.load(Ordering::Acquire)
+    }
     pub fn local_addr(&self) -> SocketAddr {
         *self.local_addr.lock().unwrap()
     }
@@ -173,8 +179,8 @@ impl GrpcHandle {
             ));
         }
         self.originals.connections.confirm_all_closed();
-        server?;
-        jobs
+        self.retired.store(true, Ordering::Release);
+        tasks::finish([server, jobs])
     }
 }
 impl Drop for GrpcHandle {
@@ -217,13 +223,11 @@ impl Subscriptions {
     }
     async fn join_all(&self) -> std::io::Result<()> {
         let tasks = self.jobs.lock().unwrap().clone();
-        let mut failure = None;
+        let mut outcomes = Vec::new();
         for job in tasks {
-            if let Err(error) = job.join().await {
-                failure.get_or_insert(error);
-            }
+            outcomes.push(job.join().await);
         }
-        failure.map_or(Ok(()), Err)
+        tasks::finish(outcomes)
     }
     async fn reap_completed(&self) -> std::io::Result<()> {
         let originals = self.jobs.lock().unwrap().clone();
