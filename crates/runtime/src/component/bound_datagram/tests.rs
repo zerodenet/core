@@ -62,3 +62,5 @@ async fn cold_or_foreign_binding_is_rejected_without_native_authority() {
     assert!(report.is_complete());
     assert!(report.exited_tasks.contains(&actual_task));
 }
+
+mod retirement;

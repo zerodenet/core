@@ -14,7 +14,6 @@ struct Shared {
     retired: Mutex<bool>,
     writer: AsyncMutex<()>,
     sends: Semaphore,
-    provider: std::sync::OnceLock<origin::ListenerProviderRegistration>,
 }
 impl Shared {
     fn lock(&self) -> MutexGuard<'_, bool> {
@@ -95,7 +94,6 @@ impl ControlledDatagramOwner {
             retired: Mutex::new(false),
             writer: AsyncMutex::new(()),
             sends: Semaphore::new(max_pending_sends.get()),
-            provider: std::sync::OnceLock::new(),
         });
         Ok((
             ControlledDatagramListenerRx {

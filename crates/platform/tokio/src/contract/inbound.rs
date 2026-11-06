@@ -76,6 +76,7 @@ pub struct PendingInbound {
     peer: Option<udp::DatagramPeerAdmission>,
     carrier: Option<super::context::InboundConnectionFacts>,
     packet: Option<crate::controlled_datagram::listener::DatagramListenerIdentity>,
+    device: Option<super::component::PacketDeviceIdentity>,
 }
 impl PendingInbound {
     pub fn new(handshake: impl InboundHandshake) -> Self {
@@ -85,6 +86,7 @@ impl PendingInbound {
             peer: None,
             carrier: None,
             packet: None,
+            device: None,
         }
     }
     /// Retains only the weak original listener identity, not native authority.
@@ -95,6 +97,20 @@ impl PendingInbound {
         let mut pending = Self::new(handshake);
         pending.packet = Some(original);
         pending
+    }
+    /// This is only the identity delivered by the concrete original native
+    /// provider. The owning host must still match its installed controller and
+    /// same Scope. No listener, business identity or native-close ACK is minted.
+    pub fn from_packet_device(
+        handshake: impl InboundHandshake,
+        original: super::component::PacketDeviceIdentity,
+    ) -> Self {
+        let mut pending = Self::new(handshake);
+        pending.device = Some(original);
+        pending
+    }
+    pub fn packet_device(&self) -> Option<&super::component::PacketDeviceIdentity> {
+        self.device.as_ref()
     }
     pub fn packet_listener(
         &self,

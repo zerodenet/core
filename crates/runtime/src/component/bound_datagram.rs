@@ -1,10 +1,11 @@
 //! Finite host-issued bindings for the actual persistent peer resource.
 mod access;
+mod activation;
 mod binding;
 mod report;
 #[cfg(test)]
 mod tests;
-use super::instance::{retained, SharedError};
+use super::instance::{SharedError, retained};
 use binding::Binding;
 use std::{
     collections::BTreeMap,
@@ -15,11 +16,11 @@ use zero_core::component::{ComponentInstanceId, NetworkGeneration, TaskId};
 use zero_platform_tokio::contract::scope::{TaskJoinWitness, TaskScopeIdentity};
 use zero_platform_tokio::{
     contract::{
+        CancellationToken, ChannelError, DeliveryState, Impact, Reason, Stage,
         component::{
             BoundDatagramRequest, DatagramBindingAuthorization, DatagramBindingId,
             DatagramBindingIssuer, ResourceDeclaration,
         },
-        CancellationToken, ChannelError, DeliveryState, Impact, Reason, Stage,
     },
     controlled_datagram::{ControlledDatagramOwner, DatagramReservationId},
 };
@@ -31,6 +32,7 @@ pub struct HostBoundDatagramResources {
     issuer: DatagramBindingIssuer,
     cancel: CancellationToken,
     max_bindings: NonZeroUsize,
+    max_sockets: NonZeroUsize,
     state: Mutex<State>,
 }
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -41,18 +43,49 @@ enum Phase {
 }
 struct State {
     phase: Phase,
+    internal_driver_joined: Option<bool>,
     owner: ControlledDatagramOwner,
     next_binding: u64,
     bindings: BTreeMap<u64, Arc<Binding>>,
     // At most the native bound; removed only after the actual owner reaps its
     // confirmed-close/no-native entry. Neither handle Drop nor timeout removes.
-    originals: BTreeMap<DatagramReservationId, u64>,
+    originals: BTreeMap<DatagramReservationId, Original>,
+    retired_originals: Vec<Original>,
     pending_closed: u64,
     fault: Option<SharedError>,
     // Bounded diagnostic retention, separate from Unknown/terminal faults.
     first_acquisition_source: Option<Arc<std::io::Error>>,
     unknown: bool,
     retained_live: usize,
+}
+struct Original {
+    binding: u64,
+    // Same original Entry controller, issued once before its view escapes.
+    // Unknown failed acquisitions stay in the original owner without a view.
+    control: Option<Arc<zero_platform_tokio::controlled_datagram::ControlledDatagramControl>>,
+    view: Option<zero_platform_tokio::contract::component::BoundDatagramView>,
+}
+// Moving a confirmed original out never drops its controller under this
+// enclosing owner gate: revoke/last native waker Drop can run external code.
+struct StateGuard<'a>(Option<MutexGuard<'a, State>>);
+impl std::ops::Deref for StateGuard<'_> {
+    type Target = State;
+    fn deref(&self) -> &State {
+        self.0.as_deref().expect("live owner state guard")
+    }
+}
+impl std::ops::DerefMut for StateGuard<'_> {
+    fn deref_mut(&mut self) -> &mut State {
+        self.0.as_deref_mut().expect("live owner state guard")
+    }
+}
+impl Drop for StateGuard<'_> {
+    fn drop(&mut self) {
+        let mut state = self.0.take().expect("one owner state guard release");
+        let retired = std::mem::take(&mut state.retired_originals);
+        drop(state);
+        drop(retired);
+    }
 }
 impl HostBoundDatagramResources {
     pub fn new(
@@ -89,12 +122,15 @@ impl HostBoundDatagramResources {
             issuer: DatagramBindingIssuer::new(instance),
             cancel: cancel.child_token(),
             max_bindings: *max_bindings,
+            max_sockets: *max_sockets,
             state: Mutex::new(State {
                 phase: Phase::Cold,
+                internal_driver_joined: None,
                 owner: ControlledDatagramOwner::new(*max_sockets),
                 next_binding: 0,
                 bindings: BTreeMap::new(),
                 originals: BTreeMap::new(),
+                retired_originals: Vec::new(),
                 pending_closed: 0,
                 fault: None,
                 first_acquisition_source: None,
@@ -112,53 +148,6 @@ impl HostBoundDatagramResources {
         cancel: CancellationToken,
     ) -> Result<Arc<Self>, ChannelError> {
         Self::construct(instance, None, Some(scope), declaration, cancel)
-    }
-    /// The existing original driver is registered before it receives I/O.
-    /// Wrong Scope/completed/second-driver attempts never activate acquisition.
-    pub fn activate_driver(&self, witness: &TaskJoinWitness) -> Result<(), ChannelError> {
-        let scope = self.scope.as_ref().ok_or_else(|| {
-            error(
-                self.instance,
-                Reason::InvalidConfig,
-                "peer UDP owner requires its original peer activation",
-            )
-        })?;
-        if !scope.same_scope(&witness.scope_identity())
-            || !scope.resource_open()
-            || witness.is_joined()
-        {
-            return Err(error(
-                self.instance,
-                Reason::StalePlan,
-                "UDP driver differs from the actual original Scope",
-            ));
-        }
-        {
-            let mut driver = self
-                .driver
-                .lock()
-                .unwrap_or_else(std::sync::PoisonError::into_inner);
-            if driver
-                .as_ref()
-                .is_some_and(|actual| !actual.same_registration(witness))
-            {
-                return Err(error(
-                    self.instance,
-                    Reason::StalePlan,
-                    "UDP original already has another actual driver",
-                ));
-            }
-            *driver = Some(witness.clone());
-        }
-        let mut state = self.state();
-        self.ensure_available(&state, false)?;
-        state.phase = Phase::Live;
-        Ok(())
-    }
-    fn state(&self) -> MutexGuard<'_, State> {
-        self.state
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner)
     }
     pub fn activate(&self, task: TaskId) -> Result<(), ChannelError> {
         let mut state = self.state();

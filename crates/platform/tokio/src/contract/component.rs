@@ -12,8 +12,8 @@ mod bound_attempt;
 mod bound_datagram;
 pub use bound_attempt::{BoundDatagramAttemptFailure, BoundDatagramRetryReceipt};
 pub use bound_datagram::{
-    BoundDatagramRequest, BoundDatagramSocket, DatagramBindingAuthorization, DatagramBindingGuard,
-    DatagramBindingId, DatagramBindingIssuer, GrantedBoundDatagram,
+    BoundDatagramRequest, BoundDatagramSocket, BoundDatagramView, DatagramBindingAuthorization,
+    DatagramBindingGuard, DatagramBindingId, DatagramBindingIssuer, GrantedBoundDatagram,
 };
 use std::{num::NonZeroUsize, path::PathBuf, sync::Arc};
 use tokio_util::sync::CancellationToken;

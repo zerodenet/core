@@ -10,8 +10,7 @@ pub enum PacketDeviceBinding {
     /// Own the original created device before configuring its local address.
     Create {
         name: Option<Arc<str>>,
-        address: std::net::IpAddr,
-        mask: std::net::IpAddr,
+        addresses: Vec<(std::net::IpAddr, std::net::IpAddr)>,
         mtu: u16,
     },
     /// Borrow one actual existing Wintun adapter/session; never create on miss.
