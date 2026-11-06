@@ -2,7 +2,7 @@ use zero_config::RuntimeConfig;
 use zero_engine::EngineError;
 use zero_proxy::Proxy;
 
-use super::{drain_parent_lifetime, proxy_stop_reason, run_supervised_proxy};
+use super::{proxy_stop_reason, run_supervised_proxy};
 
 #[tokio::test]
 async fn proxy_runtime_error_reaches_application_supervisor() {
@@ -32,12 +32,6 @@ fn proxy_stop_reason_distinguishes_signal_from_runtime_failure() {
     );
 }
 
-#[test]
-fn managed_parent_lifetime_waits_until_pipe_eof() {
-    let input = std::io::Cursor::new(b"parent-is-alive".to_vec());
-
-    drain_parent_lifetime(input).expect("parent lifetime pipe should close cleanly at EOF");
-}
 
 #[cfg(any(feature = "status-api", feature = "grpc-api"))]
 #[test]

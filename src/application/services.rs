@@ -28,6 +28,7 @@ pub(super) struct ApplicationServices {
     event_network: zero_connector::EventDispatcherNetwork,
     state: Mutex<ApplicationServiceState>,
     control: std::sync::Mutex<control::ControlServers>,
+    parent_input: std::sync::OnceLock<Arc<zero_platform_tokio::parent_input::ParentInputOwner>>,
     control_budget: Arc<zero_runtime::configuration::ControlBudget>,
 }
 
@@ -115,6 +116,7 @@ impl ApplicationServices {
             #[cfg(feature = "event-dispatcher")]
             event_network,
             control: std::sync::Mutex::new(control::ControlServers::default()),
+            parent_input: std::sync::OnceLock::new(),
             control_budget: zero_runtime::configuration::ControlBudget::new(
                 zero_runtime::configuration::ControlBudgetLimits::from_runtime(&config.runtime),
             ),

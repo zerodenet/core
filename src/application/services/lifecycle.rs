@@ -1,5 +1,18 @@
 use super::*;
 impl ApplicationServices {
+    pub(in crate::application) fn install_parent_input(self: &Arc<Self>) -> std::io::Result<Arc<zero_platform_tokio::parent_input::ParentInputOwner>> {
+        APPLICATION_STARTUP.retain(self.clone())?;
+        Ok(self.parent_input.get_or_init(zero_platform_tokio::parent_input::ParentInputOwner::new).clone())
+    }
+    pub(in crate::application) async fn shutdown_parent_input(&self) -> std::io::Result<()> {
+        let Some(owner)=self.parent_input.get() else { return Ok(()); };
+        let report=owner.shutdown(tokio::time::Instant::now()+std::time::Duration::from_secs(5)).await?;
+        if report.is_complete() {Ok(())} else {Err(std::io::Error::other(format!("same parent input cleanup remains retained: {report:?}")))}
+    }
+    pub(in crate::application) fn parent_input_retirement_complete(&self) -> bool {
+        self.parent_input.get().is_none_or(|owner|owner.retirement_complete())
+    }
+
     pub(in crate::application) async fn shutdown_status_monitor(&self) -> std::io::Result<()> {
         #[cfg(feature = "event-dispatcher")]
         {

@@ -1,3 +1,5 @@
+#[cfg(any(unix, windows))]
+pub mod parent_input;
 pub mod contract;
 pub mod controlled_icmp;
 pub mod rate_limit;

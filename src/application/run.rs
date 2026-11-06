@@ -1,6 +1,5 @@
 use std::error::Error;
 use std::future::Future;
-use std::io::Read;
 
 use crate::cli::Command;
 #[cfg(any(feature = "status-api", feature = "grpc-api"))]
@@ -84,6 +83,9 @@ async fn run(
     // Install the same application before cold control preparation. A cancelled
     // initializer leaves the exact listener/scope owner in its existing slot.
     services.retain_control_startup()?;
+    let parent_input = if parent_lifetime_stdin {Some(services.install_parent_input()?)} else {None};
+
+
     let control_start = async {
         let ipc_socket_path = ipc::resolve_ipc_path(control_socket)?;
         let ipc_server =
@@ -122,10 +124,12 @@ async fn run(
         let monitor = services.shutdown_status_monitor().await;
         let dispatcher = services.shutdown_dispatcher().await;
         let quota = engine.shutdown_principal_quota_state();
+        let parent = services.shutdown_parent_input().await;
         if services.control_retirement_complete()
             && monitor.is_ok()
             && dispatcher.is_ok()
             && quota.is_ok()
+            && services.parent_input_retirement_complete()
         {
             services.finish_control_startup();
         } else {
@@ -143,9 +147,10 @@ async fn run(
         failures.result("status monitor cleanup", monitor);
         failures.result("event dispatcher cleanup", dispatcher);
         failures.result("quota cleanup", quota);
+        failures.result("parent input cleanup", parent);
         return failures.finish();
     }
-    services.finish_control_startup();
+    if parent_input.is_none() {services.finish_control_startup();}
 
     // The proxy data plane is a critical application service. Run it under the
     // root application lifecycle instead of detaching it into an unsupervised
@@ -157,7 +162,7 @@ async fn run(
         &proxy,
         async {
             tokio::select! {
-                _ = wait_for_shutdown_signal(parent_lifetime_stdin) => {},
+                _ = wait_for_shutdown_signal(parent_input.as_deref()) => {},
                 result = services.wait_control_terminated() => {
                     *control_exit.lock().unwrap_or_else(std::sync::PoisonError::into_inner) = Some(result.and_then(|_| Err(std::io::Error::other("original control server terminated unexpectedly"))));
                 }
@@ -177,6 +182,7 @@ async fn run(
 
     // Proxy shutdown emits terminal flow.completed facts. Stop only status
     // polling here; the dispatcher remains alive for the terminal events.
+    let parent_shutdown = services.shutdown_parent_input().await;
     let monitor_shutdown = services.shutdown_status_monitor().await;
 
     engine.push_engine_stopped(proxy_stop_reason(&proxy_result));
@@ -188,10 +194,16 @@ async fn run(
     let control_shutdown = services.shutdown_control().await;
     let quota_shutdown = engine.shutdown_principal_quota_state();
 
+    if services.parent_input_retirement_complete() && services.control_retirement_complete()
+        && monitor_shutdown.is_ok() && dispatcher_shutdown.is_ok() && quota_shutdown.is_ok() {
+        services.finish_control_startup();
+    }
+
     // Every original cleanup above ran, even when another service failed.
     // Keep their original typed sources instead of returning only the first.
     let mut failures = RunFailures::default();
     failures.result("proxy", proxy_result);
+    failures.result("parent input cleanup", parent_shutdown);
     failures.result("control cleanup", control_shutdown);
     failures.result("quota cleanup", quota_shutdown);
     if let Some(result) = control_exit
@@ -418,15 +430,15 @@ fn config_api_key(
     Ok(value)
 }
 
-async fn wait_for_shutdown_signal(parent_lifetime_stdin: bool) {
-    if !parent_lifetime_stdin {
+async fn wait_for_shutdown_signal(parent_input: Option<&zero_platform_tokio::parent_input::ParentInputOwner>) {
+    let Some(parent_input) = parent_input else {
         log_ctrl_c_result(tokio::signal::ctrl_c().await);
         return;
-    }
+    };
 
     tokio::select! {
         result = tokio::signal::ctrl_c() => log_ctrl_c_result(result),
-        result = wait_for_parent_lifetime_stdin() => match result {
+        result = async { parent_input.start()?; parent_input.wait().await } => match result {
             Ok(()) => tracing::info!(reason = "parent_lifetime_closed", "managed parent exited; stopping proxy"),
             Err(error) => tracing::warn!(error = %error, reason = "parent_lifetime_error", "managed parent lifetime channel failed; stopping proxy"),
         },
@@ -437,29 +449,6 @@ fn log_ctrl_c_result(result: std::io::Result<()>) {
     match result {
         Ok(()) => tracing::info!("shutdown signal received"),
         Err(error) => tracing::warn!(error = %error, "failed to listen for ctrl-c; stopping proxy"),
-    }
-}
-
-async fn wait_for_parent_lifetime_stdin() -> std::io::Result<()> {
-    let (sender, receiver) = tokio::sync::oneshot::channel();
-    std::thread::spawn(move || {
-        let result = drain_parent_lifetime(std::io::stdin().lock());
-        let _ = sender.send(result);
-    });
-    receiver.await.map_err(|_| {
-        std::io::Error::other("managed parent lifetime watcher terminated unexpectedly")
-    })?
-}
-
-fn drain_parent_lifetime(mut reader: impl Read) -> std::io::Result<()> {
-    let mut buffer = [0_u8; 64];
-    loop {
-        match reader.read(&mut buffer) {
-            Ok(0) => return Ok(()),
-            Ok(_) => {}
-            Err(error) if error.kind() == std::io::ErrorKind::Interrupted => {}
-            Err(error) => return Err(error),
-        }
     }
 }
 
