@@ -84,7 +84,7 @@ async fn source_and_outbound_budget_change_rejects_before_revoking_any_admitted_
             assert_eq!(proxy.engine().config().runtime.effective_ss_tcp_replay_max_salts(),initial_total);
             drop(incoming); drop(front); drop(server);
             loop {
-                if entry.accepted_join_for_test().is_some() && local.as_ref().is_none_or(|owner| owner.accepted_join_for_test().is_some()) {break;}
+                if entry.accepted_join_for_test().is_some() && entry.acquisition_idle_for_test() && local.as_ref().is_none_or(|owner| owner.accepted_join_for_test().is_some() && owner.acquisition_idle_for_test()) {break;}
                 tokio::task::yield_now().await;
             }
             let mut idle_grow = (*proxy.engine().config()).clone();

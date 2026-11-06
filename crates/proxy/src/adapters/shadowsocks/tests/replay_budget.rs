@@ -67,7 +67,7 @@ async fn ordinary_source_projects_total_and_replaces_originals_on_runtime_only_b
         first.write_all(b"stay").await.unwrap(); accepted.read_exact(&mut bytes).await.unwrap(); assert_eq!(&bytes,b"stay");
         accepted.write_all(b"same").await.unwrap(); first.read_exact(&mut bytes).await.unwrap(); assert_eq!(&bytes,b"same");
         drop(first); drop(accepted);
-        loop { if original.accepted_join_for_test().is_some() { break; } tokio::task::yield_now().await; }
+        loop { if original.accepted_join_for_test().is_some() && original.acquisition_idle_for_test() { break; } tokio::task::yield_now().await; }
         let mut next = (*proxy.engine().config()).clone();
         next.runtime.ss_tcp_replay_max_salts = Some(2);
         handle.apply_runtime_config_and_wait(next.clone(), Duration::from_secs(5)).await.unwrap();
