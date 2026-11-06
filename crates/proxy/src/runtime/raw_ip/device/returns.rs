@@ -137,6 +137,20 @@ impl PacketReturns {
                 failure.original
             })
     }
+    pub(crate) async fn retain_reply_buffer_wait(
+        &self,
+        packet: zero_traits::PacketBuffer,
+        return_mtu: u16,
+    ) -> Result<zero_traits::PacketBuffer, zero_traits::PacketDeriveError> {
+        self.budget
+            .retain_for_return_wait(packet, return_mtu)
+            .await
+            .map_err(|failure| {
+                failure
+                    .cause
+                    .expect("temporary occupancy is awaited by the same producing driver")
+            })
+    }
     pub(super) fn queue_reply(
         &self,
         replies: &zero_stack::packet_output::PacketSender,

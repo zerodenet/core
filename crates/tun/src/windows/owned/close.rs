@@ -5,6 +5,10 @@ impl OwnedWintunOwner {
     pub fn stop(&self) {
         if !self.closing.swap(true, Ordering::AcqRel) {
             let mut state = self.state();
+            if let Some(reader) = &state.prepared_reader {
+                reader.grant.revoke();
+            }
+            self.reader_ready.notify_all();
             if let Some(session) = &state.session {
                 if let Err(source) = session.shutdown() {
                     state.errors.push(Arc::new(io::Error::from(source)));
@@ -23,6 +27,11 @@ impl OwnedWintunOwner {
                     return Err(source.clone());
                 }
                 if state.view_live {
+                } else if state
+                    .prepared_reader
+                    .as_ref()
+                    .is_some_and(|reader| !reader.done)
+                {
                 } else if state
                     .reader
                     .as_ref()

@@ -208,7 +208,11 @@ impl Options {
                     name: NATIVE_NAME.into(),
                     binding,
                 }],
-                task_limit: std::num::NonZeroUsize::new(1),
+                task_limit: std::num::NonZeroUsize::new(if cfg!(target_os = "windows") {
+                    2
+                } else {
+                    1
+                }),
             },
             role: OnceLock::new(),
             scope: Mutex::new(None),

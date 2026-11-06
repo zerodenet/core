@@ -40,7 +40,9 @@ impl ReturnBudget {
         };
         let Some(bytes) = lengths
             .iter()
-            .try_fold(packet.len(), |sum, length| sum.checked_add(*length))
+            .try_fold(packet.allocation_bytes(), |sum, length| {
+                sum.checked_add(*length)
+            })
         else {
             return Err(ReturnAdmissionFailure {
                 original: packet,
@@ -48,12 +50,7 @@ impl ReturnBudget {
             });
         };
         let mut occupied = self.0.occupied.lock().unwrap_or_else(|e| e.into_inner());
-        let mut total = self.0.totals.0.lock().unwrap_or_else(|e| e.into_inner());
-        if frames > self.0.limits.0
-            || bytes > self.0.limits.1
-            || frames > total.limits.0
-            || bytes > total.limits.1
-        {
+        if frames > self.0.limits.0 || bytes > self.0.limits.1 {
             return Err(ReturnAdmissionFailure {
                 original: packet,
                 cause: Some(PacketDeriveError::Capacity),
@@ -61,29 +58,47 @@ impl ReturnBudget {
         }
         if frames > self.0.limits.0.saturating_sub(occupied.0)
             || bytes > self.0.limits.1.saturating_sub(occupied.1)
-            || frames > total.limits.0.saturating_sub(total.occupied.0)
-            || bytes > total.limits.1.saturating_sub(total.occupied.1)
         {
             return Err(ReturnAdmissionFailure {
                 original: packet,
                 cause: None,
             });
         }
+        let allocations = std::iter::once(packet.allocation_bytes())
+            .chain(lengths.iter().copied())
+            .collect::<Vec<_>>();
+        let mut totals = match self.0.totals.reserve_returns(&allocations) {
+            Ok(credits) => credits.into_iter(),
+            Err(source) => {
+                return Err(ReturnAdmissionFailure {
+                    original: packet,
+                    cause: match source {
+                        zero_tun::packet_memory::PacketMemoryError::Busy
+                        | zero_tun::packet_memory::PacketMemoryError::Paused => None,
+                        zero_tun::packet_memory::PacketMemoryError::Overflow => {
+                            Some(PacketDeriveError::Overflow)
+                        }
+                        _ => Some(PacketDeriveError::Capacity),
+                    },
+                });
+            }
+        };
         occupied.0 += frames;
         occupied.1 += bytes;
-        total.occupied.0 += frames;
-        total.occupied.1 += bytes;
-        drop(total);
         drop(occupied);
         let original = Credit {
             budget: self.clone(),
-            bytes: packet.len(),
+            bytes: packet.allocation_bytes(),
+            _total: totals.next().expect("same original allocation credit"),
         };
         let credits = lengths
             .iter()
             .map(|length| Credit {
                 budget: self.clone(),
                 bytes: *length,
+                _total: totals
+                    .next()
+                    .expect("same prepaid derived allocation credit"),
             })
             .collect();
         Ok(PacketBuffer::from_owner(Charged {
@@ -95,7 +110,6 @@ impl ReturnBudget {
     }
     /// The original producing driver owns this pending admission. Once this
     /// succeeds, its queue entry never waits for additional transformation credit.
-    #[cfg(test)]
     pub(in crate::runtime::raw_ip::device::returns) async fn retain_for_return_wait(
         &self,
         mut packet: PacketBuffer,
@@ -103,7 +117,7 @@ impl ReturnBudget {
     ) -> Result<PacketBuffer, ReturnAdmissionFailure> {
         loop {
             let local = self.0.changed.notified();
-            let total = self.0.totals.1.notified();
+            let total = self.0.totals.notified();
             tokio::pin!(local);
             tokio::pin!(total);
             local.as_mut().enable();
@@ -169,4 +183,8 @@ impl AsMut<[u8]> for Storage {
         &mut self.bytes
     }
 }
-impl PacketStorage for Storage {}
+impl PacketStorage for Storage {
+    fn allocation_bytes(&self) -> usize {
+        self.bytes.capacity()
+    }
+}

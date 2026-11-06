@@ -162,4 +162,8 @@ impl AsMut<[u8]> for Derived {
         &mut self.packet
     }
 }
-impl PacketStorage for Derived {}
+impl PacketStorage for Derived {
+    fn allocation_bytes(&self) -> usize {
+        self.packet.allocation_bytes()
+    }
+}

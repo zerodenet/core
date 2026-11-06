@@ -1,7 +1,8 @@
 //! The original one-task device loop, returning the original device for close.
 use super::task::SharedIo;
 use super::*;
-use zero_stack::FragmentReassembler;
+use zero_stack::OwnedFragmentReassembler;
+use zero_tun::packet_memory::{NativeReadBuffer, NativeReadGrant};
 pub(super) enum DriverIo<D> {
     Stopped(D),
     Exited {
@@ -19,6 +20,7 @@ impl<D> DriverIo<D> {
 }
 pub(super) async fn run<D: zero_tun::TunDevice + 'static>(
     device: D,
+    read_grant: NativeReadGrant,
     mut rx: mpsc::Receiver<Write>,
     packets: Arc<PacketReturns>,
     sessions: Arc<session::Sessions>,
@@ -26,26 +28,45 @@ pub(super) async fn run<D: zero_tun::TunDevice + 'static>(
     mut activated: watch::Receiver<bool>,
 ) -> DriverIo<D> {
     let _completion = SessionCompletion(sessions.clone());
+    let read_credit = ReadCredit(read_grant);
     while !*activated.borrow_and_update() {
         tokio::select! { biased; _ = stopped.changed() => return DriverIo::Stopped(device), result = activated.changed() => { if result.is_err() { return DriverIo::Stopped(device); } } }
     }
     let (mut reader, mut writer) = tokio::io::split(device);
     let mut failure = None;
-    let mut buffer = vec![0; 65_536];
-    let mut fragments = FragmentReassembler::new();
+    let mut buffer: Option<NativeReadBuffer> = None;
+    let mut fragments = OwnedFragmentReassembler::new();
+    let mut returning: Option<
+        zero_platform_tokio::contract::BoxFuture<'static, Result<(), ChannelError>>,
+    > = None;
     let mut timer = tokio::time::interval(std::time::Duration::from_secs(1));
     loop {
         tokio::select! {
             _ = stopped.changed() => break,
-            result = reader.read(&mut buffer) => match result {
+            acquired = read_credit.0.buffer(), if buffer.is_none() && returning.is_none() => {
+                match acquired {
+                    Ok(acquired) => buffer = Some(acquired),
+                    Err(source) => { failure = Some(Arc::new(io::Error::other(source))); break; }
+                }
+            },
+            delivered = async { returning.as_mut().expect("same pending native frame").await }, if returning.is_some() => {
+                returning = None;
+                if let Err(source) = delivered { failure = Some(Arc::new(io::Error::other(source))); break; }
+            },
+            result = async { reader.read(buffer.as_mut().expect("same prepaid read allocation").as_mut_bytes()).await }, if buffer.is_some() && returning.is_none() => match result {
                 Ok(0) => break,
                 Err(error) => { failure = Some(Arc::new(error)); break; },
                 Ok(n) => {
-                    let mut original = std::mem::replace(&mut buffer, vec![0;65_536]);
-                    original.truncate(n);
-                    match fragments.process_buffer(original.into(), Instant::now()) {
+                    let original = match buffer.take().expect("same polled read").into_packet(n) {
+                        Ok(original) => original,
+                        Err(_) => unreachable!("read length fits the same actual allocation"),
+                    };
+                    match fragments.process((), original, Instant::now()).await {
                         zero_stack::OwnedFragmentOutcome::Packet { packet, .. } => {
-                            if let Err(packet) = sessions.returns.deliver_owned(packet) { let _ = packets.deliver_owned(packet); }
+                            match sessions.returns.prepare_owned(packet) {
+                                Ok(pending) => returning = Some(pending),
+                                Err(packet) => { let _ = packets.deliver_owned(packet); }
+                            }
                         }
                         zero_stack::OwnedFragmentOutcome::Pending | zero_stack::OwnedFragmentOutcome::Rejected(_) => packets.lose_receive_coverage(),
                     }
@@ -62,7 +83,7 @@ pub(super) async fn run<D: zero_tun::TunDevice + 'static>(
 
             },
             _ = sessions.changed.notified() => sessions.acknowledge_controls(),
-            _ = timer.tick() => {packets.expire();sessions.returns.expire();sessions.acknowledge_controls();},
+            _ = timer.tick() => {fragments.cleanup_expired(Instant::now());packets.expire();sessions.returns.expire();sessions.acknowledge_controls();},
         }
     }
     rx.close();
@@ -146,4 +167,11 @@ async fn legacy_write<W: tokio::io::AsyncWrite + Unpin>(
 }
 mod owned;
 use owned::{owned_write, send_failure};
-use zero_platform_tokio::contract::{DeliveryState, Reason};
+use zero_platform_tokio::contract::{ChannelError, DeliveryState, Reason};
+
+struct ReadCredit(NativeReadGrant);
+impl Drop for ReadCredit {
+    fn drop(&mut self) {
+        self.0.revoke();
+    }
+}

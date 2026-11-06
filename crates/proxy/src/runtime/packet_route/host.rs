@@ -101,9 +101,14 @@ impl HostPacketDevice {
         let packets = returns.clone();
         let logical = sessions.clone();
         let worker = task::DriverTask::new(async move {
-            let (device, failure) = driver::run(device, rx, packets, logical, stopped, activated)
-                .await
-                .parts();
+            let root = Arc::new(zero_tun::packet_memory::PacketReturnTotals::default());
+            let read = root
+                .native_grant(65_536)
+                .expect("explicit independent fixture read owner");
+            let (device, failure) =
+                driver::run(device, read, rx, packets, logical, stopped, activated)
+                    .await
+                    .parts();
             task::DriverResult {
                 failure,
                 native: close(device).await,

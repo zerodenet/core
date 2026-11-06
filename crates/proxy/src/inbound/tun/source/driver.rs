@@ -64,9 +64,10 @@ pub(super) async fn run(
     // individual read. A changing per-read cookie would erase real fragment
     // assembly and misrepresent subsequent native frames as another source.
     let correlation = grant.identity.instance().generation.0;
+    let read_credit = NativeReadCredit(grant.native_read);
     let (mut read, mut write) = tokio::io::split(grant.io);
     let mut received = PollSender::new(incoming);
-    let mut bytes = vec![0; 65_536];
+    let mut bytes: Option<zero_tun::packet_memory::NativeReadBuffer> = None;
     observer.peers(&[]);
     loop {
         if shared.cancel.is_cancelled() {
@@ -76,23 +77,27 @@ pub(super) async fn run(
         let sending = shared.outgoing.lock().unwrap().is_some();
         tokio::select! {
             _ = shared.cancel.cancelled() => break,
+            allocated = read_credit.0.buffer(), if receiving && bytes.is_none() => {
+                bytes = Some(allocated.map_err(|source| error(Stage::Receive, Reason::Capacity).with_source(source))?);
+            }
             result = poll_fn(|cx| {
-                let mut buffer = ReadBuf::new(&mut bytes);
+                let mut buffer = ReadBuf::new(bytes.as_mut().expect("same prepaid native read allocation").as_mut_bytes());
                 let result = std::pin::Pin::new(&mut read).poll_read(cx, &mut buffer);
                 if result.is_pending() || matches!(&result, Poll::Ready(Ok(()))) { observer.ready(); }
                 result.map(|result| result.map(|()| buffer.filled().len()))
-            }), if receiving => {
+            }), if receiving && bytes.is_some() => {
                 let size = result.map_err(|source| {
                     observer.event(PacketPlane::Inner, None, PacketEvent::Error { identified: false });
                     error(Stage::Receive, Reason::Io).with_source(source)
                 })?;
                 if size == 0 { return Err(error(Stage::Receive, Reason::Io).with_source(io::Error::new(io::ErrorKind::UnexpectedEof, "original TUN read ended"))); }
                 let association = ReturnAssociation { endpoint: facts.endpoint, generation: facts.inbound.generation, peer: None, correlation };
-                let packet = std::mem::replace(&mut bytes, vec![0; 65_536]);
-                let mut packet = packet;
-                packet.truncate(size);
+                let packet = match bytes.take().expect("same actual native read").into_packet(size) {
+                    Ok(packet) => packet,
+                    Err(_) => unreachable!("same read cannot exceed the actual admitted allocation"),
+                };
                 observer.event(PacketPlane::Inner, None, PacketEvent::Received { identified: false, bytes: size });
-                match IpPacket::new(packet.into(), association) {
+                match IpPacket::new(packet, association) {
                     Ok(packet) => {
                         let local_destination = zero_stack::packet::ip_destination(packet.payload()).is_some_and(|destination| shared.addresses.iter().any(|(address, _)| *address == destination));
                         *shared.incoming.lock().unwrap() = Some(packet.with_ingress(PacketIngress { local_destination, mtu: shared.mtu }));
@@ -159,5 +164,12 @@ fn dropped(observer: &Arc<dyn PacketObserver>, reason: zero_traits::PacketDropRe
                 count,
             },
         );
+    }
+}
+
+struct NativeReadCredit(zero_tun::packet_memory::NativeReadGrant);
+impl Drop for NativeReadCredit {
+    fn drop(&mut self) {
+        self.0.revoke();
     }
 }
