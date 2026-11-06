@@ -18,8 +18,9 @@ impl DynStreamOutbound for Carrier {
             self.observe_peer(peer.ip(), &context)?;
             let connected = device.open_standard_stream(&self.scope, local, peer, context)?;
             Ok(Connected {
-                io: Box::pin(connected.io) as BoxStream,
-                peer_confirmation: connected.peer_confirmation,
+                io: Box::pin(connected.io.establish().await?) as BoxStream,
+                peer_confirmation:
+                    zero_platform_tokio::contract::stream::PeerConfirmation::Confirmed,
             })
         })
     }
