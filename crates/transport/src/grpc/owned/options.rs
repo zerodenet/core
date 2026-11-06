@@ -33,6 +33,7 @@ pub struct NativePoolOptions {
     pub(super) base_identity: Arc<[u8]>,
     _background_recipe: Option<Arc<Recipe>>,
     pub(super) ca: Option<Arc<CaFile>>,
+    pub(super) file_stamp: u64,
     pub(super) totals: Option<RootUse>,
     pub(super) node_dns: Option<zero_core::component::ComponentId>,
 }
@@ -86,6 +87,7 @@ impl NativePoolOptions {
         }
         if let Some(ca) = &self.ca {
             ca.append_identity(&mut identity);
+            identity.extend_from_slice(&self.file_stamp.to_le_bytes());
         }
         self.identity = identity.into();
     }
@@ -186,7 +188,9 @@ pub(in crate::grpc) struct Recipe {
     streams: NonZeroUsize,
     identity: Arc<[u8]>,
     #[cfg(feature = "tls")]
-    materials: std::sync::Mutex<Vec<(ComponentInstanceId, Weak<CaFile>)>>,
+    materials: std::sync::Mutex<Vec<(ComponentInstanceId, Weak<CaFile>, u64)>>,
+    #[cfg(feature = "tls")]
+    cold_materials: std::sync::Mutex<std::collections::HashMap<Vec<u8>, (Weak<CaFile>, u64)>>,
 }
 
 #[derive(Clone)]

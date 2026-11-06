@@ -97,6 +97,8 @@ impl NativePoolOptions {
                         identity: next_identity()?,
                         #[cfg(feature = "tls")]
                         materials: Default::default(),
+                        #[cfg(feature = "tls")]
+                        cold_materials: Default::default(),
                     });
                     recipes.try_reserve(1).map_err(std::io::Error::other)?;
                     recipes.push(Arc::downgrade(&current));
@@ -130,6 +132,8 @@ impl NativePoolOptions {
                         identity: identity.clone(),
                         #[cfg(feature = "tls")]
                         materials: Default::default(),
+                        #[cfg(feature = "tls")]
+                        cold_materials: Default::default(),
                     });
                     identity
                 }
@@ -151,6 +155,7 @@ impl NativePoolOptions {
             totals: None,
             node_dns: None,
             ca: None,
+            file_stamp: 0,
         })
     }
 }
