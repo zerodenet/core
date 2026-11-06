@@ -90,11 +90,28 @@ pub(super) async fn start(
 ) -> (Proxy, crate::RunningProxy) {
     start_at(remote.address, &remote.ca, kind, backend).await
 }
+pub(super) async fn start_with_node(
+    remote: &Remote,
+    kind: &str,
+    backend: zero_config::DnsServerConfig,
+    node: &crate::dns_fixture::Dns,
+) -> (Proxy, crate::RunningProxy) {
+    start_config(remote.address, &remote.ca, kind, backend, Some(node)).await
+}
 pub(super) async fn start_at(
     address: std::net::SocketAddr,
     ca: &std::path::Path,
     kind: &str,
+    backend: zero_config::DnsServerConfig,
+) -> (Proxy, crate::RunningProxy) {
+    start_config(address, ca, kind, backend, None).await
+}
+async fn start_config(
+    address: std::net::SocketAddr,
+    ca: &std::path::Path,
+    kind: &str,
     mut backend: zero_config::DnsServerConfig,
+    node: Option<&crate::dns_fixture::Dns>,
 ) -> (Proxy, crate::RunningProxy) {
     match &mut backend {
         zero_config::DnsServerConfig::Udp { detour, .. }
@@ -102,10 +119,14 @@ pub(super) async fn start_at(
         | zero_config::DnsServerConfig::Doh { detour, .. } => *detour = Some("node".into()),
         _ => panic!("existing framed UDP/DoT/DoH detours only"),
     }
-    let mut protocol = serde_json::json!({"type":"vless","server":"127.0.0.1","port":address.port(),"id":ID,"tls":{"server_name":"localhost","ca_cert_path":ca}});
+    let mut protocol = serde_json::json!({"type":"vless","server":if node.is_some(){"transport.actual.node.test"}else{"127.0.0.1"},"port":address.port(),"id":ID,"tls":{"server_name":"localhost","ca_cert_path":ca}});
     protocol[kind] = transport();
+    let node_server = node.map_or_else(
+        || serde_json::json!({"type":"system"}),
+        |node| serde_json::to_value(node.server()).unwrap(),
+    );
     let config=zero_config::RuntimeConfig::parse(&serde_json::json!({
-        "runtime":{"native_stream_max_originals":1,"dns":{"servers":{"node":{"type":"system"},"query":backend},"default_server":"query","policy":{"node_server":"node","address_family":"ipv4_only"}}},
+        "runtime":{"native_stream_max_originals":1,"dns":{"servers":{"node":node_server,"query":backend},"default_server":"query","policy":{"node_server":"node","address_family":"ipv4_only"}}},
         "outbounds":[{"tag":"node","protocol":protocol}],"route":{"final":{"type":"direct"}}
     }).to_string()).unwrap();
     let proxy = Proxy::new(config.clone()).unwrap();
