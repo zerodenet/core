@@ -119,7 +119,10 @@ async fn config_and_network_rebuild_real_stacks_on_same_live_source_pipe_after_o
         assert!(matches!(result, Ok(0)) || result.is_err());
         next.write_all(b"still-live").await.unwrap();
         let mut bytes = [0; 10];
-        next.read_exact(&mut bytes).await.unwrap();
+        tokio::time::timeout_at(end(), next.read_exact(&mut bytes))
+            .await
+            .unwrap()
+            .unwrap();
         assert_eq!(&bytes, b"still-live");
         client = next;
         previous = proxy

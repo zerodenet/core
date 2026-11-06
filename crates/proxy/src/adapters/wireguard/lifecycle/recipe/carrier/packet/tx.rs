@@ -86,6 +86,14 @@ impl Shared {
                 .len();
             return Ok(SendReceipt::accepted(bytes));
         }
+        if let (Some(observer), Some(identity)) =
+            (&self.observer, plan.peer_identity(peer.peer_index))
+        {
+            observer.packet_peer_selected_for(
+                &frame.return_association,
+                zero_core::component::PeerId(identity),
+            );
+        }
         let authenticated_peer = frame.return_association.peer.clone();
         let observation = self.observation(cookie);
         device.try_submit_standard_packet(

@@ -199,3 +199,5 @@ async fn ordinary_canonical_domain_stream_uses_real_target_dns_and_closes_origin
 }
 
 mod replacement;
+
+mod packet;

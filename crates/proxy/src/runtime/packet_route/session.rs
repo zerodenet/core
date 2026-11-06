@@ -33,6 +33,7 @@ struct RoutePin {
     managed: Option<zero_engine::PacketRouteLease>,
     control: Option<zero_engine::PacketRouteControl>,
     replies: Option<zero_stack::packet_output::PacketSender>,
+    standard: Option<standard::StandardRoute>,
 }
 
 #[derive(Default)]
@@ -49,6 +50,7 @@ pub(crate) struct PacketSessionPins {
 }
 
 mod management;
+mod standard;
 
 impl PacketSessionPins {
     /// Reuse the observation handle for an admitted conversation. New paths
@@ -249,6 +251,7 @@ impl PacketSessionPins {
                 managed: None,
                 control: None,
                 replies: None,
+                standard: None,
             },
         );
         let expiry = now + IDLE_TIMEOUT;
