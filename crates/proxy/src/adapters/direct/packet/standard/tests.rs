@@ -54,7 +54,7 @@ async fn ordinary_direct_invalid_original_descriptor_reports_known_no_native_aft
         original.outcome,
         zero_tun::TunAcquisitionOutcome::KnownNoNative
     ));
-    assert_eq!(original.source.raw_os_error(), Some(libc::EBADF));
+    assert_eq!(original.source.raw_os_error(), Some(9));
 }
 #[tokio::test]
 async fn ordinary_direct_failed_tun_validation_closes_only_duplicate_and_keeps_real_host_original()
