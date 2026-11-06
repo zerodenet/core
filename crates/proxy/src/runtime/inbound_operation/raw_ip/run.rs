@@ -27,10 +27,15 @@ pub(in crate::runtime) async fn run(
     runtime: InboundListenerRuntime,
     mut shutdown: watch::Receiver<bool>,
 ) -> Result<(), EngineError> {
-    if !pending
-        .packet_listener()
-        .is_some_and(|actual| actual.same_listener(&context.original))
-    {
+    let same_original = match &context.original {
+        PacketSourceOriginal::Listener(original) => pending
+            .packet_listener()
+            .is_some_and(|actual| actual.same_listener(original)),
+        PacketSourceOriginal::Device(original) => pending
+            .packet_device()
+            .is_some_and(|actual| actual.same_provider(original)),
+    };
+    if !same_original {
         return Err(
             std::io::Error::other("packet source differs from its original listener").into(),
         );

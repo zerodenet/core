@@ -43,12 +43,14 @@ async fn real_stream_loan_cancellation_returns_its_workers_and_preserves_same_po
         );
         fixture.start().await;
         let managed = fixture.managed();
+        let mut no_total_deadline = fixture.demand();
+        no_total_deadline.deadline = None;
         let StreamLoan {
             io: mut first,
             owner: mut first_control,
         } = fixture
             .options
-            .open(fixture.actual, fixture.demand())
+            .open(fixture.actual, no_total_deadline)
             .await
             .unwrap()
             .into_stream_loan()

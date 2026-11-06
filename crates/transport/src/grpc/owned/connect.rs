@@ -22,7 +22,7 @@ impl Managed {
             _=self.cancel.cancelled()=>Err(error(self.instance,Stage::Prepare,Reason::Revoked)),
             _=self.scope_cancel.cancelled()=>Err(error(self.instance,Stage::Prepare,Reason::Revoked)),
             _=demand.cancel.cancelled()=>Err(demand_error(self.instance,Reason::Cancelled)),
-            result=tokio::time::timeout_at(demand.deadline,operation)=>result.map_err(|source|demand_error(self.instance,Reason::Timeout).with_source(source))?,
+            result=zero_platform_tokio::contract::context::with_deadline(demand.deadline,operation)=>result.map_err(|source|demand_error(self.instance,Reason::Timeout).with_source(source))?,
         }
     }
     pub(super) async fn open(
@@ -40,7 +40,10 @@ impl Managed {
         if demand.cancel.is_cancelled() {
             return Err(demand_error(self.instance, Reason::Cancelled));
         }
-        if Instant::now() >= demand.deadline {
+        if demand
+            .deadline
+            .is_some_and(|deadline| Instant::now() >= deadline)
+        {
             let mut error = demand_error(self.instance, Reason::Timeout);
             error.delivery = DeliveryState::NotSubmitted;
             return Err(error);
@@ -69,7 +72,11 @@ impl Managed {
         {
             return client.open(self, &demand, lease).await;
         }
-        self.wait(&demand, self.reap(demand.deadline)).await?;
+        // No request deadline means no invented setup deadline. For an actual
+        // done+joined prior original, attempt only immediately ready cleanup;
+        // unfinished originals retain capacity and their original controller.
+        let cleanup_end = demand.deadline.unwrap_or_else(Instant::now);
+        self.wait(&demand, self.reap(cleanup_end)).await?;
         let client = self.create(&demand).await?;
         if !self.ready() || pool.retired.load(Ordering::Acquire) {
             return Err(error(self.instance, Stage::Prepare, Reason::Revoked));
@@ -84,7 +91,10 @@ impl Managed {
         if demand.cancel.is_cancelled() {
             return Err(demand_error(self.instance, Reason::Cancelled));
         }
-        if Instant::now() >= demand.deadline {
+        if demand
+            .deadline
+            .is_some_and(|deadline| Instant::now() >= deadline)
+        {
             return Err(demand_error(self.instance, Reason::Timeout));
         }
         let mut grant = self.grants.reserve()?;
@@ -109,7 +119,7 @@ impl Managed {
             self.options.endpoint.clone(),
             CarrierContext {
                 session: None,
-                deadline: Some(demand.deadline),
+                deadline: demand.deadline,
                 cancel: physical.stop.clone(),
             },
             grant,

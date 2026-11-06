@@ -1,18 +1,18 @@
 use super::*;
-use crate::component::instance::{retained, SharedError};
+use crate::component::instance::{SharedError, retained};
 use std::{
     future::Future,
     sync::{
-        atomic::{AtomicBool, Ordering},
         OnceLock,
+        atomic::{AtomicBool, Ordering},
     },
 };
 use tokio::sync::Mutex as AsyncMutex;
 use zero_core::component::TaskId;
 use zero_platform_tokio::contract::{
+    ChannelError, CloseReason, Impact, Reason, Stage,
     lifecycle::{CloseReport, TaskFailure},
     scope::{TaskClass, TaskExit, TaskRegistrar, TaskScope},
-    ChannelError, CloseReason, Impact, Reason, Stage,
 };
 #[cfg(feature = "raw-ip-runtime")]
 mod native_progress;
@@ -26,8 +26,8 @@ use pending_bound::PendingNativeBound;
 mod readiness;
 pub(crate) use observation::{consume_reported_error, preserve_io_kind};
 pub(super) use pending_bound::pending_preparation_stopped;
-pub(super) use readiness::readiness_stopped;
 pub(crate) use readiness::InboundReady;
+pub(super) use readiness::readiness_stopped;
 mod accepted;
 #[cfg(feature = "managed-datagram-runtime")]
 mod continuity;
@@ -42,6 +42,7 @@ struct Resource {
     owner: AsyncMutex<Box<dyn DynResourceLifecycle>>,
     stopped: AtomicBool,
     native_on_driver_exit: bool,
+    requires_scope_join: bool,
     exit_fault: OnceLock<SharedError>,
 }
 pub(crate) struct InboundOwner {
@@ -227,7 +228,7 @@ impl InboundOwner {
         identity: ComponentInstanceId,
         owner: Box<dyn DynResourceLifecycle>,
     ) -> Result<(), EngineError> {
-        self.install_resource_inner(identity, owner, false)
+        self.install_resource_inner(identity, owner, false, false)
     }
     pub(super) fn install_listener_native(
         &self,
@@ -239,13 +240,25 @@ impl InboundOwner {
                 std::io::Error::other("listener native identity differs from its owner").into(),
             );
         }
-        self.install_resource_inner(identity, owner, true)
+        self.install_resource_inner(identity, owner, true, false)
+    }
+    /// The original native provider requires actual joins from this Scope.
+    /// It stays installed before acquire, but this Scope's own main task cannot
+    /// consume those joins. The external retained owner drives the close.
+    #[cfg(feature = "raw-ip-runtime")]
+    pub(super) fn install_after_scope_resource(
+        &self,
+        identity: ComponentInstanceId,
+        owner: Box<dyn DynResourceLifecycle>,
+    ) -> Result<(), EngineError> {
+        self.install_resource_inner(identity, owner, false, true)
     }
     fn install_resource_inner(
         &self,
         identity: ComponentInstanceId,
         owner: Box<dyn DynResourceLifecycle>,
         native_on_driver_exit: bool,
+        requires_scope_join: bool,
     ) -> Result<(), EngineError> {
         let mut resources = self.resources.lock().expect("inbound resources poisoned");
         if self.cancel.is_cancelled() {
@@ -256,6 +269,7 @@ impl InboundOwner {
             owner: AsyncMutex::new(owner),
             stopped: AtomicBool::new(false),
             native_on_driver_exit,
+            requires_scope_join,
             exit_fault: OnceLock::new(),
         }));
         Ok(())

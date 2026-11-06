@@ -21,7 +21,7 @@ use zero_platform_tokio::contract::{CancellationToken, ChannelError, Impact, Rea
 
 /// One invocation's real deadline and cancellation; never retained by the pool.
 pub struct Demand {
-    pub deadline: Instant,
+    pub deadline: Option<Instant>,
     pub cancel: CancellationToken,
     pub binding: zero_platform_tokio::contract::network::UpstreamBinding,
 }

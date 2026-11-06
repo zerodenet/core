@@ -37,6 +37,7 @@ pub(in crate::component) enum DeclarationProvider {
     RootDatagram(usize),
     PacketDevice(usize),
     BoundDatagram(usize),
+    Icmp,
     Unaccounted,
 }
 #[derive(Clone, Debug)]
@@ -54,6 +55,7 @@ pub(super) enum CoverageBinding {
     RootDatagram,
     PacketDevice,
     BoundDatagram,
+    Icmp,
     File(PathBuf),
     Tcp(SocketAddr),
     Datagram(SocketAddr),
@@ -88,14 +90,12 @@ impl CoverageBinding {
                     component,
                     zero_platform_tokio::contract::Reason::Unsupported,
                     "listener handoff requires its actual inbound host originals",
-                ))
+                ));
             }
             ResourceDeclaration::MetadataDatagram { .. } => Self::Metadata,
             ResourceDeclaration::ControlledMetadataDatagram { .. }
             | ResourceDeclaration::ControlledMetadataCarrier { .. } => Self::MetadataPool,
-            ResourceDeclaration::NativeIcmp { .. } => {
-                Self::Unaccounted(DeclaredResourceKind::NativeIcmp)
-            }
+            ResourceDeclaration::NativeIcmp { .. } => Self::Icmp,
             ResourceDeclaration::FileTree { .. } => {
                 Self::Unaccounted(DeclaredResourceKind::FileTree)
             }
@@ -136,6 +136,7 @@ impl CoverageBinding {
     ) -> DeclarationEvidence {
         let (kind, provider) = match self {
             Self::Carrier(kind) => (*kind, None),
+            Self::Icmp => (DeclaredResourceKind::NativeIcmp, None),
             Self::Metadata => (DeclaredResourceKind::MetadataDatagram, None),
             Self::MetadataPool => (DeclaredResourceKind::ControlledMetadataDatagram, None),
             Self::RootDatagram => (DeclaredResourceKind::ControlledOutboundDatagram, None),
@@ -186,11 +187,18 @@ impl evidence::HostIoEvidence {
         let mut roots = vec![false; self.roots.len()];
         let mut packets = vec![false; self.packets.len()];
         let mut bounds = vec![false; self.bounds.len()];
+        let mut icmp_seen = false;
         for (ordinal, declaration) in self.declarations.iter().enumerate() {
             if declaration.ordinal != ordinal {
                 return false;
             }
             let confirmed = match declaration.provider {
+                DeclarationProvider::Icmp
+                    if declaration.kind == DeclaredResourceKind::NativeIcmp && !icmp_seen =>
+                {
+                    icmp_seen = true;
+                    self.icmp == Some(true)
+                }
                 DeclarationProvider::BoundDatagram(index)
                     if declaration.kind == DeclaredResourceKind::BoundOutboundDatagram =>
                 {
@@ -303,7 +311,8 @@ impl evidence::HostIoEvidence {
                 return false;
             }
         }
-        files.into_iter().all(|seen| seen)
+        icmp_seen == self.icmp.is_some()
+            && files.into_iter().all(|seen| seen)
             && metapools.into_iter().all(|seen| seen)
             && native.into_iter().all(|seen| seen)
             && carriers.into_iter().all(|seen| seen)

@@ -42,6 +42,19 @@ impl InboundListenerRuntime {
     ) -> Option<crate::runtime::inbound_operation::raw_ip::PacketSourceContext> {
         self.host.as_ref()?.packet_source()
     }
+    /// Bind the same typed source owner while preserving its real routing tag.
+    /// System TUN's registry reservation is not a configured inbound tag.
+    #[cfg(feature = "raw-ip-runtime")]
+    pub(in crate::runtime) fn with_source_owner(
+        mut self,
+        owner: &crate::runtime::inbound_owners::InboundOwner,
+    ) -> Self {
+        self.host = Some(owner.task_access());
+        self.route_factory.resources = owner.inbound_resources();
+        self.route_factory = self.route_factory.with_inbound_instance(owner.identity());
+        self.ready = Some(owner.readiness());
+        self
+    }
     pub(crate) fn with_inbound_instance(
         mut self,
         identity: zero_core::component::ComponentInstanceId,
