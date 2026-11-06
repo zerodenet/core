@@ -144,7 +144,7 @@ impl Proxy {
             let dns_hijacked_queries=start.dns_hijacked_queries.clone();
             let ingress=source.ingress_options(prepared.dns_hijack,dns_hijacked_queries.clone());
             let runtime=crate::runtime::route_runtime::InboundListenerRuntime::new(
-                crate::runtime::route_runtime::SharedIngressRuntimeServices::new(self.tcp_runtime_services().for_inbound(start.tag.clone())),
+                crate::runtime::route_runtime::SharedIngressRuntimeServices::new(self.tcp_runtime_services_for_owned_config(&config)?.for_inbound(start.tag.clone())),
                 start.tag.clone(),None,
             );
             let owner=lease.start(runtime,shutdown_rx,ingress,Some(self.system_tun_exit_projection(start.managed_config.is_some())))?;
