@@ -9,12 +9,15 @@ pub(super) async fn run(
     dns_hijacked_queries: Arc<AtomicU64>,
 ) -> Result<(), zero_engine::EngineError> {
     let services = proxy.tcp_runtime_services().for_inbound(tag.clone());
-    super::super::run_with_runtime(
+    // Explicit standalone stack fixture; production requires owned Source tasks.
+    super::super::run_inner(
         crate::runtime::udp_ingress::UdpIngressRuntime::new(services),
         stack,
         tag,
         dns_hijack,
         dns_hijacked_queries,
+        #[cfg(feature = "raw-ip-runtime")]
+        None,
     )
     .await
 }

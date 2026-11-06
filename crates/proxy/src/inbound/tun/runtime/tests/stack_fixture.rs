@@ -1,3 +1,6 @@
+//! Explicit standalone stack fixtures. These functions create no native TUN,
+//! publish no Source Ready, and issue no native/Scope-close qualification.
+//! Ordinary kernel TUN execution is exclusively the owned Packet Source.
 use std::io;
 use std::net::IpAddr;
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -12,26 +15,14 @@ use zero_stack::{UserTcpStack, UserTcpStream, UserUdpStack};
 use zero_traits::{TcpStack, UdpStack};
 
 use crate::runtime::tcp_ingress::{InboundProtocol, TcpIngressRuntime};
-use crate::runtime::Proxy;
 use crate::transport::ReplayStream;
 
 use super::super::sniff::sniff_tcp_target;
 
-const TCP_STATE_IDLE_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(300);
-const TCP_STATE_CLEANUP_INTERVAL: std::time::Duration = std::time::Duration::from_secs(30);
 use super::{serve_dns_tcp, MAX_CONCURRENT_DNS_CONNECTIONS};
 type TunTaskResult = (&'static str, Result<(), EngineError>);
 
 struct TunProtocol;
-
-pub(in crate::inbound::tun) struct TunIngressConfig {
-    pub addresses: Vec<(IpAddr, IpAddr)>,
-    pub tag: String,
-    pub dns_hijack: bool,
-    pub dns_hijacked_queries: Arc<AtomicU64>,
-    pub mtu: usize,
-    pub network_responses: mpsc::Sender<Vec<u8>>,
-}
 
 #[async_trait]
 impl InboundProtocol for TunProtocol {
@@ -52,142 +43,6 @@ impl InboundProtocol for TunProtocol {
     ) -> Result<(), EngineError> {
         use tokio::io::AsyncWriteExt;
         client.shutdown().await.map_err(EngineError::Io)
-    }
-}
-
-pub(in crate::inbound::tun) async fn run(
-    proxy: Proxy,
-    packets: mpsc::Receiver<Vec<u8>>,
-    tcp: Arc<UserTcpStack>,
-    udp: Arc<UserUdpStack>,
-    config: TunIngressConfig,
-    mut shutdown: watch::Receiver<bool>,
-) -> Result<(), EngineError> {
-    let TunIngressConfig {
-        addresses,
-        tag,
-        dns_hijack,
-        dns_hijacked_queries,
-        mtu,
-        network_responses,
-    } = config;
-    let _traffic_role = proxy.engine().register_inbound_traffic(&tag);
-    let ingress_services = proxy.tcp_runtime_services().for_inbound(tag.clone());
-    let mut tasks = JoinSet::new();
-    #[cfg(feature = "raw-ip-runtime")]
-    let packet_route = crate::runtime::route_runtime::InboundRouteRuntimeFactory::new(
-        crate::runtime::route_runtime::SharedIngressRuntimeServices::new(ingress_services.clone()),
-        tag.clone(),
-    );
-    #[cfg(feature = "raw-ip-runtime")]
-    let packet_ingress_id = crate::runtime::packet_route::next_ingress_id();
-    #[cfg(feature = "raw-ip-runtime")]
-    let packet_shutdown = shutdown.clone();
-    let packet_traffic: Option<Arc<dyn zero_traits::IoObserver>> = Some(
-        super::super::statistics::TunTraffic::prepare(proxy.engine(), &tag),
-    );
-    let packet_tcp = Arc::clone(&tcp);
-    let packet_udp = Arc::clone(&udp);
-    tasks.spawn(async move {
-        (
-            "packet",
-            feed_packets(
-                packets,
-                packet_tcp,
-                packet_udp,
-                addresses,
-                mtu,
-                network_responses,
-                dns_hijack,
-                packet_traffic,
-                #[cfg(feature = "raw-ip-runtime")]
-                packet_route,
-                #[cfg(feature = "raw-ip-runtime")]
-                packet_ingress_id,
-                #[cfg(feature = "raw-ip-runtime")]
-                packet_shutdown,
-            )
-            .await,
-        )
-    });
-    let tcp_services = ingress_services.clone();
-    #[cfg(feature = "udp-runtime")]
-    let udp_ingress_services = ingress_services;
-    let tcp_stack = Arc::clone(&tcp);
-    let tcp_tag = tag.clone();
-    let tcp_dns_hijacked_queries = Arc::clone(&dns_hijacked_queries);
-    tasks.spawn(async move {
-        (
-            "TCP",
-            accept_tcp(
-                tcp_services,
-                tcp_stack,
-                tcp_tag,
-                dns_hijack,
-                tcp_dns_hijacked_queries,
-            )
-            .await,
-        )
-    });
-    tasks.spawn(async move { ("TCP maintenance", maintain_tcp_state(tcp).await) });
-
-    #[cfg(feature = "udp-runtime")]
-    tasks.spawn(async move {
-        (
-            "UDP",
-            super::super::udp::run_with_runtime(
-                crate::runtime::udp_ingress::UdpIngressRuntime::new(udp_ingress_services),
-                udp,
-                tag,
-                dns_hijack,
-                dns_hijacked_queries,
-            )
-            .await,
-        )
-    });
-    #[cfg(not(feature = "udp-runtime"))]
-    tasks.spawn(async move {
-        (
-            "UDP",
-            std::future::pending::<Result<(), EngineError>>().await,
-        )
-    });
-
-    let result = tokio::select! {
-        changed = shutdown.changed() => {
-            tracing::debug!(?changed, requested = *shutdown.borrow(), "TUN runtime received shutdown signal");
-            Ok(())
-        }
-        completed = tasks.join_next() => flatten_task_result(completed),
-    };
-    shutdown_tun_tasks(&mut tasks).await;
-    result
-}
-
-async fn maintain_tcp_state(tcp: Arc<UserTcpStack>) -> Result<(), EngineError> {
-    let mut interval = tokio::time::interval(TCP_STATE_CLEANUP_INTERVAL);
-    interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
-    loop {
-        interval.tick().await;
-        tcp.cleanup_idle(TCP_STATE_IDLE_TIMEOUT).await;
-    }
-}
-
-fn flatten_task_result(
-    completed: Option<Result<TunTaskResult, tokio::task::JoinError>>,
-) -> Result<(), EngineError> {
-    match completed {
-        Some(Ok((task, result))) => {
-            tracing::debug!(?result, "TUN {task} loop exited");
-            result
-        }
-        Some(Err(error)) => Err(EngineError::Io(io::Error::other(format!(
-            "TUN task failed: {error}"
-        )))),
-        None => Err(EngineError::Io(io::Error::new(
-            io::ErrorKind::UnexpectedEof,
-            "all TUN runtime tasks exited",
-        ))),
     }
 }
 
@@ -437,5 +292,5 @@ fn socket_address_to_address(address: zero_traits::SocketAddress) -> Address {
 }
 
 #[cfg(test)]
-#[path = "tests.rs"]
+#[path = "../tests.rs"]
 mod tests;
