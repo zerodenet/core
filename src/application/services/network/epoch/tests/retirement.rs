@@ -12,7 +12,7 @@ async fn repeated_retirement_retains_each_actual_task_fault_once_while_the_nativ
         let native = epoch.originals.lock().unwrap()[0].clone();
         let (entered, pending) = tokio::sync::oneshot::channel();
         let witness = epoch
-            .spawn(Box::pin(async {
+            .spawn(Box::pin(async move {
                 entered.send(()).unwrap();
                 panic!("one original real worker panic");
             }))
