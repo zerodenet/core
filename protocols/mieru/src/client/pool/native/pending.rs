@@ -94,6 +94,7 @@ impl UpstreamOpener for Pending {
         }
         if let Some(provider) = &self.provider {
             provider.validate_pending_carrier(binding, &adoption)?;
+            self.originals.bind_cleanup_provider(provider, binding)?;
         }
         // The actual caller must accept before I/O. Holding a record alone
         // does not cause cleanup when its connect future is dropped.
