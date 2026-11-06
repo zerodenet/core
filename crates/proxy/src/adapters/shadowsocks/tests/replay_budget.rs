@@ -63,7 +63,7 @@ async fn ordinary_source_projects_total_and_replaces_originals_on_runtime_only_b
         let mut next = (*proxy.engine().config()).clone();
         next.runtime.ss_tcp_replay_max_salts = Some(2);
         handle.apply_runtime_config_and_wait(next.clone(), Duration::from_secs(5)).await.unwrap();
-        let closed = original.terminal().expect("old source closed before runtime-only budget ACK");
+        let closed = original.terminal_for_test().expect("old source closed before runtime-only budget ACK");
         assert!(closed.failure().is_none());
         assert!(closed.closed_io_receipts() >= 4, "both original listeners and the accepted TCP/egress originals");
         let current = registry.owner("salt-source").unwrap();
@@ -91,7 +91,7 @@ async fn ordinary_source_projects_total_and_replaces_originals_on_runtime_only_b
         std::future::poll_fn(|cx| { assert!(pending.as_mut().poll(cx).is_pending()); Poll::Ready(()) }).await;
         drop(third);
         running.shutdown().await.unwrap();
-        let closed = current.terminal().expect("same replacement Source's final original receipts");
+        let closed = current.terminal_for_test().expect("same replacement Source's final original receipts");
         assert!(closed.closed_io_receipts() >= 5, "original listeners, both accepted sockets and successful Direct original");
         assert!(closed.joined_tasks() >= 2, "source plus exact replay maintenance Scope task joined");
     }).await.unwrap();
