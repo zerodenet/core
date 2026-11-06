@@ -38,7 +38,8 @@ pub(crate) fn whole_selected(config: &RuntimeConfig, native: bool) -> bool {
     !nodes.is_empty()
         && nodes.iter().all(|node| {
             eligible(node)
-                && zero_dns::native::validate_node_config(config.runtime.dns.as_ref()).is_ok()
+                && (matches!(&node.protocol, OutboundProtocolConfig::Vless{server,..} if zero_core::address::parse_ip_literal(server).is_some())
+                || zero_dns::native::validate_node_config(config.runtime.dns.as_ref()).is_ok())
                 && config.outbound_groups.iter().all(|group| {
                     let OutboundGroupKind::Relay { proxies } = &group.group else {
                         return true;
