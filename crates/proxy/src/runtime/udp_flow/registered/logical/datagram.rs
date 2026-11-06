@@ -6,16 +6,16 @@ use crate::{
 use std::{pin::Pin, sync::Arc};
 use tokio::sync::Mutex;
 use zero_core::{
-    Address, Session,
     component::AssociationId,
     packet::Datagram,
     request::{DatagramTargets, Destination},
+    Address, Session,
 };
 use zero_engine::EngineError;
 use zero_platform_tokio::contract::{
-    ChannelError, CloseReason, Impact, Reason, Stage,
-    datagram::{DatagramLimits, DatagramRequest, DatagramRx, DatagramTx, recv, send},
+    datagram::{recv, send, DatagramLimits, DatagramRequest, DatagramRx, DatagramTx},
     lifecycle::DynChannelControl,
+    ChannelError, CloseReason, Impact, Reason, Stage,
 };
 pub(super) struct DatagramConnection {
     tx: Mutex<Pin<Box<dyn DatagramTx>>>,
@@ -50,26 +50,36 @@ impl DatagramConnection {
             )
             .map_err(legacy)?;
         let execution = execution.clone().with_pending_datagram(opening.pending());
-        let (tag, server, port) = target.endpoint();
-        let address = match zero_core::address::parse_ip_literal(server) {
-            Some(std::net::IpAddr::V4(ip)) => Address::Ipv4(ip.octets()),
-            Some(std::net::IpAddr::V6(ip)) => Address::Ipv6(ip.octets()),
-            None => Address::Domain(server.into()),
+        let request = DatagramRequest {
+            association,
+            targets: DatagramTargets::Fixed(Destination::new(session.target.clone(), session.port)),
         };
-        let opened = crate::component::stream_bridge::datagram::open_flow(
-            &execution,
-            &slot,
-            tag,
-            Destination::new(address, port),
-            DatagramRequest {
-                association,
-                targets: DatagramTargets::Fixed(Destination::new(
-                    session.target.clone(),
-                    session.port,
-                )),
-            },
-        )
-        .await
+        let opened = match target.endpoint() {
+            Some((server, port)) => {
+                let address = match zero_core::address::parse_ip_literal(server) {
+                    Some(std::net::IpAddr::V4(ip)) => Address::Ipv4(ip.octets()),
+                    Some(std::net::IpAddr::V6(ip)) => Address::Ipv6(ip.octets()),
+                    None => Address::Domain(server.into()),
+                };
+                crate::component::stream_bridge::datagram::open_flow(
+                    &execution,
+                    &slot,
+                    target.tag(),
+                    Destination::new(address, port),
+                    request,
+                )
+                .await
+            }
+            None => {
+                crate::component::stream_bridge::datagram::open_packet_flow(
+                    &execution,
+                    &slot,
+                    target.tag(),
+                    request,
+                )
+                .await
+            }
+        }
         .map_err(legacy)?;
         Ok(Self::adopt(opened, opening))
     }

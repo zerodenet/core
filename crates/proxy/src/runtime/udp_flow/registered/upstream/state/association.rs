@@ -73,19 +73,19 @@ impl UpstreamAssociationState {
     pub(in crate::runtime::udp_flow::registered) fn drop_upstream_association(
         &mut self,
     ) -> Option<(String, String, u16)> {
-        self.runtime.close_dropped().map(log_parts)
+        self.runtime.close_dropped().and_then(log_parts)
     }
     pub(in crate::runtime::udp_flow::registered) fn close_idle_upstream(
         &mut self,
     ) -> Option<(String, String, u16)> {
-        self.runtime.close_idle().map(log_parts)
+        self.runtime.close_idle().and_then(log_parts)
     }
     pub(in crate::runtime::udp_flow::registered) fn close_all_upstreams(&mut self) {
         self.runtime.close_all_upstreams();
     }
 }
 
-fn log_parts(target: DatagramAssociationTarget) -> (String, String, u16) {
-    let (tag, server, port) = target.log_parts();
-    (tag.to_owned(), server.to_owned(), port)
+fn log_parts(target: DatagramAssociationTarget) -> Option<(String, String, u16)> {
+    let (tag, endpoint) = target.log_parts();
+    endpoint.map(|(server, port)| (tag.to_owned(), server.to_owned(), port))
 }

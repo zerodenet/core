@@ -52,7 +52,14 @@ impl UpstreamAssociationTransport<DatagramAssociationTarget> for NativeAssociati
         observer: UdpAssociationObserver,
         target: DatagramAssociationTarget,
     ) -> Result<Self, EngineError> {
-        let (tag, server, port) = target.log_parts();
+        let tag = target.tag();
+        let (server, port) = target.endpoint().ok_or_else(|| {
+            legacy(ChannelError::new(
+                Stage::Prepare,
+                Reason::InvalidConfig,
+                Impact::Session,
+            ))
+        })?;
         let slot = target.current_slot(&execution)?;
         // Reserve before any role admission can open its native TCP carrier.
         let reservation = execution.reserve_datagram().map_err(legacy)?;

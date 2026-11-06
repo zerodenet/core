@@ -24,6 +24,12 @@ async fn a_datagram_reference_to_another_actual_owner_keeps_stale_plan_and_local
     let execution = proxy.tcp_runtime_services().execution();
     let mut target =
         DatagramAssociationTarget::resolve(&execution, "first", "127.0.0.1", 1080).unwrap();
+    assert_eq!(target.tag(), "first");
+    assert_eq!(target.endpoint(), Some(("127.0.0.1", 1080)));
+    assert!(
+        DatagramAssociationTarget::resolve_endpoint(&execution, "first", None).is_err(),
+        "a network role cannot manufacture a device provider by omitting its endpoint"
+    );
     let second = execution
         .components
         .as_ref()

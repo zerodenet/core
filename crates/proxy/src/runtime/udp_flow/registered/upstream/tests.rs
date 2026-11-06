@@ -71,8 +71,8 @@ impl UpstreamAssociationTarget for DummyTarget {
         &self.outbound_tag
     }
 
-    fn log_parts(&self) -> (&str, &str, u16) {
-        (&self.outbound_tag, &self.server, self.port)
+    fn log_parts(&self) -> (&str, Option<(&str, u16)>) {
+        (&self.outbound_tag, Some((&self.server, self.port)))
     }
 }
 

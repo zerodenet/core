@@ -135,7 +135,13 @@ pub(super) async fn open(
         dial: slot.dial.clone(),
         network_generation: NetworkGeneration(services.upstream().network_generation()),
     };
-    let (tag, server, port) = prepared.target.endpoint();
+    let tag = prepared.target.tag();
+    let (server, port) = prepared.target.endpoint().ok_or_else(|| {
+        invalid(
+            Reason::StalePlan,
+            "pooled network relay tail lacks its declared endpoint",
+        )
+    })?;
     let upstream = super::super::background::BackgroundPath {
         nodes: prepared.prefix,
         binding: binding.clone(),
