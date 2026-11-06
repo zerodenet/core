@@ -16,6 +16,8 @@ mod inbound_component;
 #[cfg(feature = "shadowsocks")]
 mod tcp;
 #[cfg(feature = "shadowsocks")]
+mod tcp_owned;
+#[cfg(feature = "shadowsocks")]
 pub(crate) mod udp;
 
 #[cfg(feature = "shadowsocks")]
@@ -156,6 +158,7 @@ impl NamedProtocolAdapter for ShadowsocksAdapter {
     }
     fn on_config_reloaded(&self, config: &zero_config::RuntimeConfig) {
         self.outbound_state.clear_plugins();
+        self.outbound_state.compact_udp();
         for inbound in &config.inbounds {
             let InboundProtocolConfig::Shadowsocks {
                 password,
@@ -195,7 +198,20 @@ impl ShadowsocksAdapter {
         );
         Some(OutboundLeafClaim {
             tcp_path: TcpPathCategory::Session,
-            tcp: Some(Ok(tcp.clone())),
+            tcp: Some(Ok(if component::native_input(outbound) {
+                std::sync::Arc::new(tcp_owned::Connect {
+                    tag: leaf.tag().into(),
+                    server: leaf.server().into(),
+                    port: leaf.port(),
+                })
+                    as std::sync::Arc<
+                        dyn crate::runtime::tcp_dispatch::operation::PreparedTcpConnectOperation,
+                    >
+            } else {
+                // Targets lacking a concrete whole-process provider retain the
+                // existing caller; a failed migrated role never falls back here.
+                tcp.clone()
+            })),
             tcp_relay: Some(Ok(tcp)),
             udp: Some(self.udp_flow_operation(leaf.clone())),
             udp_relay: None,
