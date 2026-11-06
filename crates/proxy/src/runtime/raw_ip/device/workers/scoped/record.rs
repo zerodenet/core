@@ -1,9 +1,12 @@
 use super::*;
+use std::sync::atomic::{AtomicBool, Ordering};
 use tokio::sync::Notify;
 
 pub(super) struct Record {
     state: Mutex<Registration>,
     changed: Notify,
+    observed: AtomicBool,
+    reported: AtomicBool,
 }
 enum Registration {
     Pending,
@@ -15,7 +18,15 @@ impl Record {
         Arc::new(Self {
             state: Mutex::new(Registration::Pending),
             changed: Notify::new(),
+            observed: AtomicBool::new(false),
+            reported: AtomicBool::new(false),
         })
+    }
+    pub(super) fn observe_once(&self) -> bool {
+        !self.observed.swap(true, Ordering::AcqRel)
+    }
+    pub(super) fn report_once(&self) -> bool {
+        !self.reported.swap(true, Ordering::AcqRel)
     }
     pub(super) fn install(&self, id: TaskId, witness: TaskJoinWitness) {
         *self.state.lock().unwrap_or_else(|error| error.into_inner()) =
