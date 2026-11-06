@@ -35,18 +35,26 @@ impl BorrowedDatagram {
         let limits = self.io.limits.clone();
         let tx = self.io.tx.get_mut().take().expect("live packet sender");
         let rx = self.io.rx.get_mut().take().expect("live packet receiver");
+        let observer = self.io.observer.clone();
+        let tx_fence = crate::controlled_carrier::related::ViewCancellation::new(&self.slot);
+        let rx_fence = crate::controlled_carrier::related::ViewCancellation::new(&self.slot);
         let custody = Arc::new(Transferred {
-            _original: self,
+            original: self,
             _view: view,
         });
         let session = crate::contract::datagram::DatagramSession {
             tx: Box::pin(TransferredTx {
                 inner: tx,
-                _custody: custody.clone(),
+                fence: tx_fence,
+                send_pending: false,
+                observer: observer.clone(),
+                custody: custody.clone(),
             }) as Tx,
             rx: Box::pin(TransferredRx {
                 inner: rx,
-                _custody: custody,
+                fence: rx_fence,
+                observer,
+                custody: custody,
             }) as Rx,
             control: Box::new(super::super::native::NativeControl(adoption))
                 as Box<dyn crate::contract::lifecycle::DynChannelControl>,
@@ -67,10 +75,32 @@ impl BorrowedDatagram {
         }
     }
     pub async fn send(&self, bytes: &[u8]) -> io::Result<()> {
-        self.io.send(bytes).await
+        let parent = self.slot.related_cancellation();
+        let related = async {
+            match parent {
+                Some(parent) => parent.cancelled().await,
+                None => std::future::pending::<()>().await,
+            }
+        };
+        tokio::select! { biased;
+            _ = self.slot.cancel.cancelled() => Err(io::ErrorKind::Interrupted.into()),
+            _ = related => Err(io::ErrorKind::Interrupted.into()),
+            result = self.io.send(bytes) => result,
+        }
     }
     pub async fn receive(&self, bytes: &mut [u8]) -> io::Result<usize> {
-        self.io.receive(bytes).await
+        let parent = self.slot.related_cancellation();
+        let related = async {
+            match parent {
+                Some(parent) => parent.cancelled().await,
+                None => std::future::pending::<()>().await,
+            }
+        };
+        tokio::select! { biased;
+            _ = self.slot.cancel.cancelled() => Err(io::ErrorKind::Interrupted.into()),
+            _ = related => Err(io::ErrorKind::Interrupted.into()),
+            result = self.io.receive(bytes) => result,
+        }
     }
     pub fn into_driver(self) -> CarrierDriver<Self> {
         CarrierDriver {
@@ -82,16 +112,21 @@ impl BorrowedDatagram {
 // The original views are dropped before either shared custody reference. Only
 // the final actual Tx/Rx return drops BorrowedDatagram and its original loan IO.
 struct Transferred {
-    _original: BorrowedDatagram,
+    original: BorrowedDatagram,
     _view: crate::controlled_carrier::CarrierUserView,
 }
 struct TransferredTx {
     inner: Tx,
-    _custody: Arc<Transferred>,
+    fence: crate::controlled_carrier::related::ViewCancellation,
+    send_pending: bool,
+    observer: Option<Arc<dyn zero_traits::IoObserver>>,
+    custody: Arc<Transferred>,
 }
 struct TransferredRx {
     inner: Rx,
-    _custody: Arc<Transferred>,
+    fence: crate::controlled_carrier::related::ViewCancellation,
+    observer: Option<Arc<dyn zero_traits::IoObserver>>,
+    custody: Arc<Transferred>,
 }
 impl DatagramTx for TransferredTx {
     fn poll_send(
@@ -99,7 +134,31 @@ impl DatagramTx for TransferredTx {
         cx: &mut std::task::Context<'_>,
         frame: &zero_core::packet::Datagram,
     ) -> std::task::Poll<Result<crate::contract::SendReceipt, crate::contract::SendFailure>> {
-        self.get_mut().inner.as_mut().poll_send(cx, frame)
+        let this = self.get_mut();
+        if this.fence.stopped(cx) {
+            let delivery = if this.send_pending {
+                DeliveryState::Unknown
+            } else {
+                DeliveryState::NotSubmitted
+            };
+            return std::task::Poll::Ready(Err(crate::contract::SendFailure::new(
+                error(
+                    this.custody.original.slot.instance,
+                    Stage::Send,
+                    Reason::Revoked,
+                    delivery,
+                ),
+                delivery,
+            )));
+        }
+        let result = this.inner.as_mut().poll_send(cx, frame);
+        this.send_pending = result.is_pending();
+        if let std::task::Poll::Ready(Ok(receipt)) = &result {
+            if let Some(observer) = &this.observer {
+                observer.sent(receipt.accepted_bytes);
+            }
+        }
+        result
     }
 }
 impl DatagramRx for TransferredRx {
@@ -107,7 +166,22 @@ impl DatagramRx for TransferredRx {
         self: Pin<&mut Self>,
         cx: &mut std::task::Context<'_>,
     ) -> std::task::Poll<Result<Option<zero_core::packet::Datagram>, ChannelError>> {
-        self.get_mut().inner.as_mut().poll_recv(cx)
+        let this = self.get_mut();
+        if this.fence.stopped(cx) {
+            return std::task::Poll::Ready(Err(error(
+                this.custody.original.slot.instance,
+                Stage::Receive,
+                Reason::Revoked,
+                DeliveryState::NotSubmitted,
+            )));
+        }
+        let result = this.inner.as_mut().poll_recv(cx);
+        if let std::task::Poll::Ready(Ok(Some(frame))) = &result {
+            if let Some(observer) = &this.observer {
+                observer.received(frame.payload.len());
+            }
+        }
+        result
     }
 }
 impl Drop for BorrowedDatagram {

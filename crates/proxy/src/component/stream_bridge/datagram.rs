@@ -138,22 +138,32 @@ async fn open_with_accounting(
         slot,
         &invocation,
     )?;
+    // The real association may serve later packets from other business
+    // sessions. Its physical preparation and returned logical control share
+    // this one lifetime, rather than the first packet's session cancellation.
+    let association_cancel = if meter_control {
+        CancellationToken::new()
+    } else {
+        invocation.cancellation()
+    };
+    let association_call = CarrierContext {
+        session: None,
+        deadline: invocation.deadline,
+        cancel: association_cancel.clone(),
+    };
     let opener = Arc::new(Opener {
         control: NodeOpener::new(
             upstream.clone().with_observer(Some(traffic.clone())),
             endpoint.clone(),
         )
-        .with_business(business),
+        .with_business(business)
+        .with_service_call(association_call),
         datagram: NodeOpener::new(upstream.with_observer(Some(wire.clone())), endpoint),
     });
     let context = OpenContext {
         identity: invocation.identity.clone(),
         deadline: invocation.deadline,
-        cancel: if meter_control {
-            CancellationToken::new()
-        } else {
-            invocation.cancellation()
-        },
+        cancel: association_cancel,
         observer: Some(wire.clone()),
         upstream: UpstreamTransport::new(
             UpstreamBinding {
