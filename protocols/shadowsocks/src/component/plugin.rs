@@ -23,11 +23,37 @@ use zero_platform_tokio::contract::{
 pub struct PluginOptions {
     resource: ShadowsocksPluginResource,
     identity: Arc<str>,
+    static_identity: Arc<[u8]>,
+    #[cfg(feature = "blake3")]
+    udp_budget: Option<crate::udp::UdpBudgetProposal>,
 }
 impl PluginOptions {
+    #[cfg(feature = "blake3")]
+    pub fn with_udp_budget_proposal(mut self, proposal: crate::udp::UdpBudgetProposal) -> Self {
+        use std::{
+            collections::hash_map::RandomState,
+            hash::{BuildHasher, Hash, Hasher},
+            sync::OnceLock,
+        };
+        static KEYS: OnceLock<[RandomState; 2]> = OnceLock::new();
+        let mut identity = self.identity.as_bytes().to_vec();
+        for key in KEYS.get_or_init(|| [RandomState::new(), RandomState::new()]) {
+            let mut hash = key.build_hasher();
+            proposal.identity().hash(&mut hash);
+            identity.extend_from_slice(&hash.finish().to_le_bytes());
+        }
+        // ResourceOwner remains the same actual plan identity. A cap change
+        // must replace that owner after StopOld, never name a parallel Child.
+        self.static_identity = identity.into();
+        self.udp_budget = Some(proposal);
+        self
+    }
     pub(crate) fn new(resource: ShadowsocksPluginResource) -> Self {
         Self {
             identity: resource.identity().into(),
+            static_identity: resource.identity().as_bytes().into(),
+            #[cfg(feature = "blake3")]
+            udp_budget: None,
             resource,
         }
     }
@@ -40,7 +66,7 @@ impl ComponentFactory for PluginFactory {
             owner: ResourceOwner::Endpoint(options.identity.clone()),
             roles: vec![],
             dependencies: vec![],
-            static_identity: options.identity.as_bytes().into(),
+            static_identity: options.static_identity.clone(),
             resources: vec![ResourceDeclaration::Process {
                 program: options.resource.program(),
                 // One plan has one actual Child; it never respawns that child.
@@ -57,6 +83,8 @@ impl ComponentFactory for PluginFactory {
         Ok(ComponentInstance {
             lifecycle: erase_lifecycle(Owner {
                 resource: options.resource.clone(),
+                #[cfg(feature = "blake3")]
+                udp_budget: options.udp_budget.clone(),
                 resources: context.resources,
                 component: context.component,
                 tasks: context.tasks,
@@ -70,6 +98,8 @@ impl ComponentFactory for PluginFactory {
     }
 }
 struct Owner {
+    #[cfg(feature = "blake3")]
+    udp_budget: Option<crate::udp::UdpBudgetProposal>,
     resource: ShadowsocksPluginResource,
     resources: Arc<dyn ResourceAccess>,
     component: ComponentId,
@@ -110,6 +140,18 @@ impl ResourceLifecycle for Owner {
             ));
         }
         self.attempted = true;
+        #[cfg(feature = "blake3")]
+        if let Some(proposal) = &self.udp_budget {
+            proposal.activate().map_err(|source| {
+                failure(
+                    self.component,
+                    Stage::Prepare,
+                    Reason::Capacity,
+                    "SS UDP budget proposal cannot start",
+                )
+                .with_source(source)
+            })?;
+        }
         timeout_at(
             deadline,
             self.resource
