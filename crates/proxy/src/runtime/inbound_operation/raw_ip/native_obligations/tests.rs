@@ -172,3 +172,6 @@ mod carrier;
 mod raw_tcp;
 
 mod pending;
+
+#[path = "tests/dns.rs"]
+mod dns;
