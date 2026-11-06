@@ -133,7 +133,8 @@ impl PluginPlan {
             .get(&self.key)
             .is_some_and(|entry| matches!(entry.mode, Mode::Library))
         {
-            return Err(conflict(
+            return Err(io::Error::new(
+                io::ErrorKind::AlreadyExists,
                 "legacy plugin tree remains unconfirmed; canonical executor cannot change",
             ));
         }
@@ -161,7 +162,8 @@ impl PluginPlan {
                 )
             });
             if matches!(&snapshot, Some((_, Mode::Library))) {
-                return Err(conflict(
+                return Err(io::Error::new(
+                    io::ErrorKind::AlreadyExists,
                     "legacy plugin tree remains unconfirmed; canonical executor cannot change",
                 ));
             }

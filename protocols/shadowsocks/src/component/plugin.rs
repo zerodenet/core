@@ -10,7 +10,9 @@ use std::{
 use tokio::time::Instant;
 mod actor;
 mod error;
+mod exit;
 use error::{failure, startup_failure};
+pub use exit::PluginRootExit;
 use zero_core::component::ComponentId;
 use zero_platform_tokio::contract::{
     component::{
@@ -149,7 +151,11 @@ impl ComponentFactory for PluginFactory {
                         failure(
                             context.component,
                             Stage::Prepare,
-                            Reason::Capacity,
+                            if source.kind() == std::io::ErrorKind::AlreadyExists {
+                                Reason::StalePlan
+                            } else {
+                                Reason::Capacity
+                            },
                             "canonical plugin executor remains retained",
                         )
                         .with_source(source)

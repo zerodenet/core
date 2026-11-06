@@ -89,7 +89,7 @@ impl Actor {
             _=self.cancel.cancelled()=>Ok(()),
             _=self.scope_cancel.cancelled()=>Ok(()),
             result=self.resource.wait_exit()=>match result {
-                Ok(status)=>Err(failure(self.component,Stage::Receive,Reason::Io,"native plugin child exited").with_source(std::io::Error::other(format!("native plugin child exited: {status}")))),
+                Ok(status)=>Err(failure(self.component,Stage::Receive,Reason::Io,"native plugin child exited").with_source(PluginRootExit::new(status))),
                 Err(source)=>Err(failure(self.component,Stage::Receive,Reason::Io,"native plugin child status failed").with_source(source)),
             },
         }
