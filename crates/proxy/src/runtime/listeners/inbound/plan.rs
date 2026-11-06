@@ -87,7 +87,7 @@ pub(super) fn prepare(
                 && runtime_factory
                     .owners()
                     .owner(&inbound.tag)
-                    .is_some_and(|owner| owner.has_packet_source_pause());
+                    .is_some_and(|owner| owner.has_packet_source_custody());
         #[cfg(not(feature = "raw-ip-runtime"))]
         let packet_source_changed = false;
         let reuse = running

@@ -255,7 +255,7 @@ impl OrchestrationState {
                 if proxy
                     .inbound_owners
                     .owner(&input.tag)
-                    .is_some_and(|owner| owner.has_packet_source_pause())
+                    .is_some_and(|owner| owner.has_packet_source_custody())
                 {
                     // A live Source owns its native-read/workspace promises
                     // even while it admits no business. Idle pause is not their

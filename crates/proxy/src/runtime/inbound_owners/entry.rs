@@ -183,11 +183,16 @@ impl InboundTaskAccess {
         &self,
     ) -> Result<Arc<zero_platform_tokio::contract::packet::PacketSourcePause>, ChannelError> {
         let main = self.source_main_witness().await?;
-        let pause = self.packet_pause.get().ok_or_else(|| {
-            ChannelError::new(Stage::Prepare, Reason::Revoked, Impact::Component)
-        })?;
+        let pause = self
+            .packet_pause
+            .get()
+            .ok_or_else(|| ChannelError::new(Stage::Prepare, Reason::Revoked, Impact::Component))?;
         if pause.instance() != self.identity || !pause.scope().same_scope(&main.scope_identity()) {
-            return Err(ChannelError::new(Stage::Prepare, Reason::Revoked, Impact::Component));
+            return Err(ChannelError::new(
+                Stage::Prepare,
+                Reason::Revoked,
+                Impact::Component,
+            ));
         }
         Ok(pause.clone())
     }
@@ -499,6 +504,12 @@ impl InboundOwner {
 impl InboundOwner {
     pub(in crate::runtime) fn has_packet_source_pause(&self) -> bool {
         self.packet_pause.get().is_some()
+    }
+    /// The original typed Packet bind grant is installed before its first
+    /// native operation. Its weak pointer expiring is not a NoNative proof.
+    /// This is conservative replacement metadata, never a readiness receipt.
+    pub(in crate::runtime) fn has_packet_source_custody(&self) -> bool {
+        self.packet_native.get().is_some() || self.has_packet_source_pause()
     }
     pub(in crate::runtime) fn prepare_packet_source_pause(
         &self,
