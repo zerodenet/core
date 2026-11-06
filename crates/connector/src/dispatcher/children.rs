@@ -92,6 +92,26 @@ impl DispatcherChildren {
         }
         self.join_source();
     }
+    /// Consumed real joins only; task.is_finished and stop notifications do not qualify.
+    pub(crate) fn retirement_complete(&self) -> bool {
+        let children = self.asynchronous.lock().unwrap().clone();
+        if children.iter().any(|child| {
+            child
+                .state
+                .try_lock()
+                .map_or(true, |state| state.exit.is_none())
+        }) {
+            return false;
+        }
+        self.source
+            .lock()
+            .unwrap()
+            .as_ref()
+            .is_none_or(|source| source.task.is_none())
+    }
+    pub(super) fn first_failure(&self) -> Option<Arc<tokio::task::JoinError>> {
+        self.failures.lock().unwrap().first().cloned()
+    }
     pub(crate) fn failure_count(&self) -> usize {
         self.failures.lock().unwrap().len()
             + usize::from(self.source_failure.lock().unwrap().is_some())

@@ -20,6 +20,9 @@ struct Resources {
     jsonl: Mutex<Vec<Arc<JsonLineEventSink<FileView>>>>,
     dead_letters: Mutex<Vec<Arc<RetainedDeadLetter>>>,
     failure: Mutex<Option<Arc<io::Error>>>,
+    // At most one completed fault per actual writer/database removed at retirement.
+    retired_faults: Mutex<Vec<Arc<io::Error>>>,
+    retired_databases: Mutex<Vec<Arc<Mutex<OriginalDatabase>>>>,
 }
 #[derive(Debug)]
 pub(crate) struct FileView {
@@ -30,22 +33,36 @@ impl DispatcherResources {
     pub(crate) fn original_file_count_for_test(&self) -> usize {
         self.0.files.lock().unwrap().len()
     }
+    /// Every row is removed only after its own actual native close and returned views.
+    pub(crate) fn retirement_complete(&self) -> bool {
+        self.0.files.lock().unwrap().is_empty()
+            && self.0.databases.lock().unwrap().is_empty()
+            && self.0.jsonl.lock().unwrap().is_empty()
+            && self.0.dead_letters.lock().unwrap().is_empty()
+    }
     fn available(&self) -> io::Result<()> {
         if let Some(error) = self.0.failure.lock().unwrap().as_ref() {
-            return Err(io::Error::other(format!(
-                "original dispatcher resource cleanup unresolved: {error}"
-            )));
+            return Err(io::Error::new(error.kind(), error.clone()));
         }
         Ok(())
     }
     fn retain_failure(&self, error: io::Error) -> io::Error {
-        let message = error.to_string();
+        let source = Arc::new(error);
         self.0
             .failure
             .lock()
             .unwrap()
-            .get_or_insert_with(|| Arc::new(error));
-        io::Error::other(message)
+            .get_or_insert_with(|| source.clone());
+        io::Error::new(source.kind(), source)
+    }
+    fn retain_retired_failure(&self, error: io::Error) {
+        let source = Arc::new(error);
+        self.0
+            .failure
+            .lock()
+            .unwrap()
+            .get_or_insert_with(|| source.clone());
+        self.0.retired_faults.lock().unwrap().push(source);
     }
     pub(crate) fn open(&self, open: impl FnOnce() -> io::Result<File>) -> io::Result<FileView> {
         self.retire_files(false)?;
@@ -120,7 +137,7 @@ impl DispatcherResources {
                     Ok(writer) => drop(writer),
                     Err((writer, error)) => {
                         drop(writer);
-                        self.retain_failure(io::Error::other(error.to_string()));
+                        self.retain_retired_failure(io::Error::other(error));
                     }
                 },
                 Err(sink) => held.push(sink),
@@ -137,7 +154,7 @@ impl DispatcherResources {
                     Ok(writer) => drop(writer),
                     Err((writer, error)) => {
                         drop(writer);
-                        self.retain_failure(io::Error::other(error.to_string()));
+                        self.retain_retired_failure(io::Error::other(error));
                     }
                 },
                 Err(sink) => held.push(sink),

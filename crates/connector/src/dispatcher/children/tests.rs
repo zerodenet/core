@@ -56,48 +56,86 @@ async fn parent_dispatcher_panic_retains_original_sink_and_source_handles_for_se
     );
     assert!(original.wait_ready().await.unwrap());
     let children = original.children.clone();
-    assert!(children
-        .source
-        .lock()
-        .unwrap()
-        .as_ref()
-        .unwrap()
-        .task
-        .is_some());
+    assert!(
+        children
+            .source
+            .lock()
+            .unwrap()
+            .as_ref()
+            .unwrap()
+            .task
+            .is_some()
+    );
     let sink = children.asynchronous.lock().unwrap()[0].clone();
     let sink_id = sink.state.lock().await.task.id();
     // Poison the actual statistics lock consumed by the real dispatcher loop.
     let stats = original.sink_stats.clone();
-    assert!(std::thread::spawn(move || {
-        let _guard = stats.lock().unwrap();
-        panic!("original dispatcher loop poison")
-    })
-    .join()
-    .is_err());
+    assert!(
+        std::thread::spawn(move || {
+            let _guard = stats.lock().unwrap();
+            panic!("original dispatcher loop poison")
+        })
+        .join()
+        .is_err()
+    );
     let failure = tokio::time::timeout(Duration::from_secs(3), original.observe_shutdown())
         .await
         .unwrap()
         .err()
         .unwrap();
     assert!(failure.is_panic());
-    assert!(children
-        .source
-        .lock()
-        .unwrap()
-        .as_ref()
-        .unwrap()
-        .task
-        .is_some());
+    assert!(
+        children
+            .source
+            .lock()
+            .unwrap()
+            .as_ref()
+            .unwrap()
+            .task
+            .is_some()
+    );
     assert!(sink.state.lock().await.exit.is_none()); // parent exit was not child join
-    assert!(original.retire_prepared_retained().await.is_err());
-    assert!(children
-        .source
+    assert!(!original.retirement_complete());
+    let extra = children.register(tokio::spawn(async {
+        panic!("second original child fault")
+    }));
+    let retired = match original.retire_prepared_retained().await {
+        Err(error) => error,
+        Ok(_) => panic!("actual parent and child panics were discarded"),
+    };
+    assert!(
+        original.retirement_complete(),
+        "parent panic does not erase actual native/join retirement"
+    );
+    let extra_error = extra
+        .state
         .lock()
-        .unwrap()
+        .await
+        .exit
         .as_ref()
         .unwrap()
-        .task
-        .is_none());
+        .as_ref()
+        .unwrap_err()
+        .clone();
+    assert!(extra_error.is_panic());
+    assert!(
+        children
+            .failures
+            .lock()
+            .unwrap()
+            .iter()
+            .any(|error| Arc::ptr_eq(error, &extra_error))
+    );
+    assert!(
+        children
+            .source
+            .lock()
+            .unwrap()
+            .as_ref()
+            .unwrap()
+            .task
+            .is_none()
+    );
     let state = sink.state.lock().await;
     assert_eq!(state.task.id(), sink_id);
     assert!(state.exit.is_some());
@@ -107,6 +145,30 @@ async fn parent_dispatcher_panic_retains_original_sink_and_source_handles_for_se
         &original.original_shutdown_failure().unwrap()
     ));
     original.resources.close().unwrap(); // all real views returned; distinct native receipts
+    let retained = Arc::downgrade(&children);
+    let actual_parent = failure.clone();
+    drop(children);
+    drop(sink);
+    drop(extra);
+    drop(original);
+    assert!(
+        retained.upgrade().is_some(),
+        "returned failure owns the actual receiver of every child/source fault"
+    );
+    let mut source = Some(&retired as &(dyn std::error::Error + 'static));
+    let mut matched = false;
+    while let Some(current) = source {
+        if let Some(error) = current.downcast_ref::<Arc<tokio::task::JoinError>>() {
+            matched |= Arc::ptr_eq(error, &actual_parent);
+        }
+        source = current.source();
+    }
+    assert!(
+        matched,
+        "same typed original parent error Arc remains a source"
+    );
+    drop(retired);
+    assert!(retained.upgrade().is_none());
 }
 
 #[tokio::test]

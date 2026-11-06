@@ -47,6 +47,15 @@ pub enum ConnectorError {
         #[source]
         source: std::io::Error,
     },
+    #[cfg(feature = "event-dispatcher")]
+    #[error(transparent)]
+    DispatcherRetirement(#[from] crate::dispatcher::DispatcherRetirementFailure),
+    #[cfg(feature = "event-dispatcher")]
+    #[error("original dispatcher preparation failed: {0}")]
+    RetainedPreparation(#[source] std::sync::Arc<ConnectorError>),
+    #[cfg(feature = "event-dispatcher")]
+    #[error("failed to build original connector dispatcher runtime: {0}")]
+    DispatcherRuntime(#[source] std::io::Error),
     #[error("event dispatcher failed to start")]
     DispatcherStart,
     #[error("api error while building connector: {0}")]
