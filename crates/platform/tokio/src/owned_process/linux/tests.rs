@@ -90,7 +90,12 @@ while True: time.sleep(60)
             assert!(
                 std::future::poll_fn(|cx| Poll::Ready(wait.as_mut().poll(cx).is_pending())).await
             );
-            wait.await.unwrap();
+            let result = wait.await;
+            if result.is_err() {
+                let state = actor_original.lock();
+                eprintln!("actual process wait failed: helper={:?} root={:?} helper_status={:?} root_status={:?} tree={} valid={} eof={} original_error={:?}", state.helper, state.root, state.helper_status, state.root_status, state.tree, state.conversation_valid, state.eof, state.first_error);
+            }
+            result.unwrap();
             let _ = returned.send(());
             Ok(())
         })
