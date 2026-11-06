@@ -1,5 +1,4 @@
 //! Ordinary assembly must keep the original native acquisition classification.
-use super::*;
 use std::{error::Error, time::Duration};
 fn configuration(fd: i32) -> zero_config::RuntimeConfig {
     zero_config::RuntimeConfig::parse(&serde_json::json!({
@@ -7,7 +6,9 @@ fn configuration(fd: i32) -> zero_config::RuntimeConfig {
         "route":{"final":{"type":"direct"},"final_mode":"packet"}
     }).to_string()).unwrap()
 }
-fn acquisition(mut source: &(dyn Error + 'static)) -> Option<&zero_tun::TunAcquisitionError> {
+fn acquisition<'a>(
+    mut source: &'a (dyn Error + 'static),
+) -> Option<&'a zero_tun::TunAcquisitionError> {
     for _ in 0..64 {
         if let Some(original) = source.downcast_ref::<zero_tun::TunAcquisitionError>() {
             return Some(original);
@@ -24,7 +25,7 @@ fn acquisition(mut source: &(dyn Error + 'static)) -> Option<&zero_tun::TunAcqui
 }
 async fn fail(fd: i32) -> zero_engine::EngineError {
     let proxy = crate::Proxy::new(configuration(fd)).unwrap();
-    assert!(!*proxy.orchestration_ready.borrow());
+    assert!(!*proxy.orchestration_readiness().borrow());
     let source = tokio::time::timeout(
         Duration::from_secs(5),
         proxy.run_until(std::future::pending()),
@@ -33,7 +34,7 @@ async fn fail(fd: i32) -> zero_engine::EngineError {
     .unwrap()
     .unwrap_err();
     assert!(
-        !*proxy.orchestration_ready.borrow(),
+        !*proxy.orchestration_readiness().borrow(),
         "failed native original cannot publish Ready"
     );
     if let Some(plan) = proxy.protocols.current_components(&proxy.engine().config()) {
