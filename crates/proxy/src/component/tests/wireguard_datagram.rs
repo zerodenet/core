@@ -67,7 +67,7 @@ async fn ordinary_device_datagrams_keep_absent_endpoint_and_actual_source_across
             client.send_to(&packet,("127.0.0.1",relay)).await.unwrap();
             let (size,_)=timeout(Duration::from_secs(5),client.recv_from(&mut buffer)).await.unwrap().unwrap();
             let (address,port,bytes)=codec.decode_response(&buffer[..size]).unwrap().into_parts();
-            assert_eq!(address,Address::Ipv4([198,51,100,10]));assert_eq!(port,80);assert_eq!(bytes.as_ref(),payload);
+            assert_eq!(address,Address::Ipv4([198,51,100,10]));assert_eq!(port,80);assert_eq!(bytes.as_slice(),payload);
         }
         assert_eq!(target.current_slot(&proxy.tcp_runtime_services().execution()).unwrap().instance_id(),slot.instance_id());
         let traffic=timeout(Duration::from_secs(5),async {
