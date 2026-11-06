@@ -138,18 +138,6 @@ impl OrchestrationState {
         } else {
             None
         };
-        let _user_pause = if budget_changed {
-            match proxy.protocols.try_pause_replacement_users(&components) {
-                Ok(pause) => Some(pause),
-                Err(error) => {
-                    self.reject_before_start(proxy, &new_snapshot, error.to_string(), true)
-                        .await;
-                    return;
-                }
-            }
-        } else {
-            None
-        };
         let affected = proxy.protocols.affected_dns_detours(
             &proxy.engine,
             &self.applied_snapshot,
@@ -163,6 +151,28 @@ impl OrchestrationState {
                 .await;
             return;
         }
+        if budget_changed {
+            if let Err(error) = self
+                .quiesce_dns_donors_for_reload(proxy, &new_snapshot, &components)
+                .await
+            {
+                self.reject_before_start(proxy, &new_snapshot, error.to_string(), true)
+                    .await;
+                return;
+            }
+        }
+        let _user_pause = if budget_changed {
+            match proxy.protocols.try_pause_replacement_users(&components) {
+                Ok(pause) => Some(pause),
+                Err(error) => {
+                    self.reject_before_start(proxy, &new_snapshot, error.to_string(), true)
+                        .await;
+                    return;
+                }
+            }
+        } else {
+            None
+        };
         let candidate_tcp_services = proxy.tcp_runtime_services_for_snapshot(new_snapshot.clone());
         let retained_for_binding = self.active_inbounds.clone();
         let mut prepared_resources = None;
