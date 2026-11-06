@@ -48,20 +48,16 @@ impl BackgroundCarrier {
         binding: &UpstreamBinding,
         adoption: &zero_platform_tokio::controlled_carrier::CarrierAdoption,
     ) -> Result<(), ChannelError> {
-        let services = self.pending_services(binding)?;
-        let plan = services.components.as_ref().map_err(|source| {
-            invalid(Reason::StalePlan, "background pending plan retired")
-                .with_source(source.clone())
+        if binding.dial != self.initial.dial {
+            return Err(invalid(Reason::StalePlan, "original pending dial changed"));
+        }
+        let source = self.network.current_services().map_err(|source| {
+            invalid(Reason::Revoked, "original host retired").with_source(source)
         })?;
-        if !binding
-            .prefix
-            .iter()
-            .any(|role| plan.validate_carrier_adoption(*role, adoption).is_ok())
-        {
-            return Err(invalid(
-                Reason::StalePlan,
-                "pending original differs from this actual background prefix",
-            ));
+        // Cleanup must inspect the actual retained catalog. Preparing services
+        // from a staged Engine candidate would erase the old pool's real graph.
+        if !binding.prefix.iter().any(|role| source.validate_owned_carrier_adoption(*role, adoption).is_ok()) {
+            return Err(invalid(Reason::StalePlan, "pending original differs from the actual retained prefix"));
         }
         Ok(())
     }
