@@ -235,3 +235,17 @@ impl ResourceLifecycle for Owner {
 fn prepare_error(source: EngineError) -> ChannelError {
     ChannelError::new(Stage::Prepare, Reason::Io, Impact::Component).with_source(source)
 }
+
+#[cfg(test)]
+impl LinkedStackOptions {
+    pub(in crate::adapters::wireguard) fn test_actual_origin(
+        &self,
+    ) -> Option<zero_platform_tokio::controlled_carrier::CarrierOrigin> {
+        self.carrier
+            .get()?
+            .upgrade()?
+            .resources
+            .packet_carrier_origin()
+            .ok()
+    }
+}
