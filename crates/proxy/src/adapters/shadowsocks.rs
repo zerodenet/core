@@ -34,14 +34,17 @@ impl Default for ShadowsocksAdapter {
             .expect("positive SS TCP2022 default budget");
         let udp = ::shadowsocks::udp::UdpReplayBudget::with_limits(Default::default())
             .expect("positive SS UDP receiver-window default budget");
+        let bloom = ::shadowsocks::shared::LegacyReplayBudget::new(Some(64 * 1024 * 1024))
+            .expect("positive legacy Bloom bitmap byte policy");
         Self {
-            inbound_profiles: ShadowsocksInboundProfileStore::with_replay_budgets(
+            inbound_profiles: ShadowsocksInboundProfileStore::with_security_budgets(
                 budget.clone(),
                 udp.clone(),
+                bloom.clone(),
             ),
             outbound_state:
-                ::shadowsocks::transport::ShadowsocksTransportState::with_replay_budgets(
-                    budget, udp,
+                ::shadowsocks::transport::ShadowsocksTransportState::with_security_budgets(
+                    budget, udp, bloom,
                 ),
         }
     }
@@ -143,6 +146,11 @@ impl NamedProtocolAdapter for ShadowsocksAdapter {
             .and_then(|()| {
                 self.outbound_state
                     .validate_udp_budget(udp_budget_limits(&config.runtime))
+            })
+            .and_then(|()| {
+                self.outbound_state.validate_legacy_replay_budget(
+                    config.runtime.effective_ss_legacy_replay_max_bytes(),
+                )
             })
             .map_err(|source| std::io::Error::other(source).into())
     }

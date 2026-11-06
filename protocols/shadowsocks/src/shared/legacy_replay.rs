@@ -41,6 +41,17 @@ impl Window {
         false
     }
 }
+#[derive(Default)]
+pub(super) struct Book {
+    // Field order matters: actual bitmap storage is returned before its charge.
+    window: Option<Window>,
+    _charge: Option<super::legacy_budget::Charge>,
+}
+impl Book {
+    pub(super) fn has_history(&self) -> bool {
+        self.window.is_some()
+    }
+}
 #[derive(Clone)]
 pub(crate) struct LegacyReplay {
     policy: ReplayPolicy,
@@ -59,8 +70,12 @@ pub(crate) struct LegacyReplay {
     udp_responses:
         Arc<Mutex<std::collections::HashMap<String, crate::udp::session::ResponseSessions>>>,
     // Allocate only when an enabled policy sees its first authenticated salt.
-    state: Arc<Mutex<Option<Window>>>,
+    state: Arc<Mutex<Book>>,
+    bloom_budget: Arc<super::LegacyReplayBudget>,
+    bloom_limit: Option<usize>,
 }
+mod budget;
+
 impl LegacyReplay {
     pub(crate) fn generate(&self, length: usize) -> Result<Vec<u8>, Error> {
         let mut nonce = vec![0; length];
@@ -79,10 +94,7 @@ impl LegacyReplay {
                 .state
                 .lock()
                 .map_err(|_| Error::Protocol("ss: legacy replay state poisoned"))?;
-            if !state
-                .get_or_insert_with(|| Window::new(self.server))
-                .duplicate(&nonce)
-            {
+            if !self.window(&mut state)?.duplicate(&nonce) {
                 return Ok(nonce);
             }
         }
@@ -221,6 +233,8 @@ impl LegacyReplay {
             #[cfg(feature = "blake3")]
             udp_responses: Default::default(),
             state: Default::default(),
+            bloom_budget: Default::default(),
+            bloom_limit: None,
         }
     }
     pub(crate) fn check(&self, salt: &[u8]) -> Result<(), Error> {
@@ -231,10 +245,7 @@ impl LegacyReplay {
             .state
             .lock()
             .map_err(|_| Error::Protocol("ss: legacy replay state poisoned"))?;
-        if state
-            .get_or_insert_with(|| Window::new(self.server))
-            .duplicate(salt)
-        {
+        if self.window(&mut state)?.duplicate(salt) {
             if self.policy == ReplayPolicy::Reject {
                 return Err(Error::Protocol("ss: legacy replay rejected"));
             }
