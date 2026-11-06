@@ -3,7 +3,7 @@ use std::future::Future;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::{
     net::TcpListener,
-    time::{Duration, timeout},
+    time::{timeout, Duration},
 };
 
 #[tokio::test]
@@ -73,12 +73,10 @@ fn an_interrupted_retirement_keeps_the_exact_current_fault_without_history() {
     assert!(resumed.take_failure().is_none());
     resumed.previous_generation_retired();
     drop(resumed);
-    assert!(
-        !registry
-            .take_listener_observers()
-            .unwrap()
-            .has_previous_generation()
-    );
+    assert!(!registry
+        .take_listener_observers()
+        .unwrap()
+        .has_previous_generation());
 }
 
 mod wake;
@@ -104,12 +102,10 @@ async fn empty_observer_set_preserves_pre_observer_native_acquisition_until_real
         resumed.has_previous_generation(),
         "native acquisition dirtied the original batch before any observer"
     );
-    assert!(
-        proxy
-            .inbound_owners
-            .confirm_observers_retired(&mut resumed)
-            .is_err()
-    );
+    assert!(proxy
+        .inbound_owners
+        .confirm_observers_retired(&mut resumed)
+        .is_err());
     assert!(TcpListener::bind(original).await.is_err());
     assert!(proxy.inbound_owners.identities().contains(&identity));
     let mut published = false;
@@ -137,13 +133,11 @@ async fn empty_observer_set_preserves_pre_observer_native_acquisition_until_real
         .unwrap();
     assert!(!resumed.has_previous_generation());
     drop(resumed);
-    assert!(
-        !proxy
-            .inbound_owners
-            .take_listener_observers()
-            .unwrap()
-            .has_previous_generation()
-    );
+    assert!(!proxy
+        .inbound_owners
+        .take_listener_observers()
+        .unwrap()
+        .has_previous_generation());
     let _replacement = TcpListener::bind(original).await.unwrap();
 }
 
@@ -211,17 +205,15 @@ async fn dynamic_source_enters_the_original_empty_observer_consumer() {
     proxy
         .inbound_owners
         .observers
-        .enqueue_system_tun(owner.clone())
+        .enqueue_system_tun(owner.clone(), None)
         .unwrap();
     remote.write_u8(1).await.unwrap();
-    assert!(
-        timeout(Duration::from_secs(2), &mut waiting)
-            .await
-            .unwrap()
-            .unwrap()
-            .unwrap()
-            .is_err()
-    );
+    assert!(timeout(Duration::from_secs(2), &mut waiting)
+        .await
+        .unwrap()
+        .unwrap()
+        .unwrap()
+        .is_err());
     assert!(
         *stopping.borrow_and_update(),
         "actual observer consumed the fault and stopped its owner"

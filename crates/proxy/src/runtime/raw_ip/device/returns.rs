@@ -110,7 +110,7 @@ impl PacketReturns {
             ..Self::default()
         }
     }
-    pub(super) fn with_limits(
+    pub(crate) fn with_limits(
         mut self,
         options: &super::super::RawIpStackOptions,
     ) -> std::io::Result<Self> {
@@ -124,6 +124,12 @@ impl PacketReturns {
             options.packet_return_totals.clone(),
         );
         Ok(self)
+    }
+    pub(crate) fn retain_reply_buffer(
+        &self,
+        packet: zero_traits::PacketBuffer,
+    ) -> Result<zero_traits::PacketBuffer, zero_traits::PacketBuffer> {
+        self.budget.retain(packet)
     }
     pub(super) fn queue_reply(
         &self,

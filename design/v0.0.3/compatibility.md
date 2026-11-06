@@ -151,3 +151,20 @@ Packet/provider、部分 transport/process、设备 Scope、Windows pipe 和剩�
 `IpPacket::payload_mut` 原位修改同 buffer，调用方保持已校验 family/长度和 ingress/return 元数据。
 这些是续作实现前置；全部生产调用者、source、TaskRegistrar 与旧链删除仍按剩余表完成，
 不以此声明架构、GUI/面板、平台或压力资格通过；V1 wire 与 FFI ABI 不变。
+
+
+## 第二轮续作的内部 Rust 原件接口
+
+新增 `RuntimeHost::run_probe` / `ProbeCall` 接续实际 diagnostic/URLTest 调用，
+在原 Direct Scope 登记真实任务，并持有原全局额度至实际任务和原件清理完成。
+`CarrierServiceGrant` 的 Direct 用法必须由同 host 的私有 fence、原注册和真实调用任务签发；
+公开 Service facts、observer、裸 Direct 描述不产生 I/O 权限。
+`CarrierOwnerRegistration::poll_cancelled_retirements` 只轮询已取消的原 slot，
+不创建任务、Scope、协议池或关闭凭据。嵌入调用者仍须驱动原 host supervision/关闭流程。
+
+System TUN 使用同 inbound registry 的 Source、实际原 Registrar 与原设备/route/monitor，
+新增可选 worker/Packet return/诊断/gRPC/SS 安全历史预算保持省略字段导出形状。
+普通 UDP 构建包含 neutral raw IP source，不因此启用 WireGuard 协议。
+TLS `OwnedPreparedClient` 接收实际授予的不可变 CA 材料，并沿用原 backend、安全策略及缓存隔离。
+这些内部接口的新增不构成 GUI/面板、特权设备或跨平台的组合资格；V1/FFI/events/CLI 验证仍以
+最终精确候选为准，未修改消费者。

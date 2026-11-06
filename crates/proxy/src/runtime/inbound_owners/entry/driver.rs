@@ -62,6 +62,12 @@ impl InboundOwner {
                 .catch_unwind()
                 .await
                 .map(|result| result.map_err(Arc::new));
+                if let Some(parent)=parent.upgrade(){
+                    // Snapshot the real stopping state before this main's
+                    // automatic dependency stop. EOF/body completion does not
+                    // become a requested shutdown merely by stopping its wire.
+                    let _=parent.driver_was_stopping.set(cancel.is_cancelled() || *stopping.borrow());
+                }
                 if let Ok(Err(source)) = &outcome {
                     retain_failure(&parent, source.clone());
                 }

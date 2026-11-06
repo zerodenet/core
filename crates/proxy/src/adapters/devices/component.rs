@@ -46,19 +46,32 @@ impl Devices {
         config: &Arc<RuntimeConfig>,
         resources: &mut crate::component::ResourcePreparation<'_>,
     ) -> Result<BTreeSet<ComponentId>, ChannelError> {
+        let mut deferred = BTreeSet::new();
+        if let Some(direct) = &self.direct {
+            if let Some(id) = direct
+                .prepare_packet_component(config, resources, self.packet_return_totals.clone())
+                .map_err(|source| {
+                    ChannelError::new(Stage::Prepare, Reason::InvalidConfig, Impact::Component)
+                        .with_source(source)
+                })?
+            {
+                deferred.insert(id);
+            }
+        }
         #[cfg(feature = "wireguard")]
         if let Some(owner) = &self.wireguard {
             let network = self.network.as_ref().and_then(std::sync::Weak::upgrade);
             let generation = network.as_ref().map(|network| network.egress.generation());
-            return owner
-                .prepare_component_resources(config, resources, generation, network)
-                .map_err(|source| {
-                    ChannelError::new(Stage::Prepare, Reason::InvalidConfig, Impact::Component)
-                        .with_source(source)
-                });
+            deferred.extend(
+                owner
+                    .prepare_component_resources(config, resources, generation, network)
+                    .map_err(|source| {
+                        ChannelError::new(Stage::Prepare, Reason::InvalidConfig, Impact::Component)
+                            .with_source(source)
+                    })?,
+            );
         }
-        let _ = (config, resources);
-        Ok(BTreeSet::new())
+        Ok(deferred)
     }
     pub(crate) async fn resolve_component_resources(
         &self,
@@ -68,11 +81,14 @@ impl Devices {
         deadline: tokio::time::Instant,
         cancel: zero_platform_tokio::contract::CancellationToken,
     ) -> Result<(), EngineError> {
+        if let Some(direct) = &self.direct {
+            direct.retire_legacy_packet_original().await?;
+        }
         #[cfg(feature = "wireguard")]
         if let Some(owner) = &self.wireguard {
-            return owner
-                .resolve_component_resources(config, upstream, traffic, deadline, cancel)
-                .await;
+            owner
+                .resolve_component_resources(config, upstream, traffic, deadline, cancel.clone())
+                .await?;
         }
         let _ = (config, upstream, traffic, deadline, cancel);
         Ok(())

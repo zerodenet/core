@@ -72,8 +72,27 @@ impl InboundOwner {
     /// The production listener observer outlives its orchestration borrower.
     /// A primary driver's exit alone cannot discard active peers' join handles.
     pub(crate) async fn observe_listener(&self) -> Result<(), EngineError> {
+        self.observe_listener_inner(
+            #[cfg(feature = "raw-ip-runtime")]
+            None,
+        )
+        .await
+    }
+    #[cfg(feature = "raw-ip-runtime")]
+    pub(in crate::runtime::inbound_owners) async fn observe_system_tun(
+        &self,
+        projection: Option<crate::inbound::tun::exit::SystemTunExitProjection>,
+    ) -> Result<(), EngineError> {
+        self.observe_listener_inner(projection).await
+    }
+    async fn observe_listener_inner(
+        &self,
+        #[cfg(feature = "raw-ip-runtime")] projection: Option<
+            crate::inbound::tun::exit::SystemTunExitProjection,
+        >,
+    ) -> Result<(), EngineError> {
         let result = self.observe_driver().await;
-        if result.is_ok() && !*self.shutdown.borrow() {
+        if result.is_ok() && !self.driver_was_stopping.get().copied().unwrap_or(false) {
             // Preserve the old unexpected-success supervision behavior while
             // this same observer continues to join remaining actual children.
             let mut source = ChannelError::new(Stage::Close, Reason::Internal, Impact::Component)
@@ -86,6 +105,14 @@ impl InboundOwner {
             // This is a listener supervision fault, not a fabricated failed
             // TaskExit. The real successful task receipt remains unchanged.
             self.ready.wake();
+        }
+        #[cfg(feature = "raw-ip-runtime")]
+        if let Some(projection) = projection {
+            let outcome = self.result();
+            projection.record(
+                self.identity(),
+                result.as_ref().err().or(outcome.as_ref().err()),
+            );
         }
         self.stop();
         {

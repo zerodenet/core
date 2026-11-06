@@ -139,7 +139,7 @@ impl Proxy {
                 crate::runtime::route_runtime::SharedIngressRuntimeServices::new(self.tcp_runtime_services().for_inbound(start.tag.clone())),
                 start.tag.clone(),None,
             );
-            let owner=lease.start(runtime,shutdown_rx,ingress)?;
+            let owner=lease.start(runtime,shutdown_rx,ingress,Some(self.system_tun_exit_projection(start.managed_config.is_some())))?;
             if !Arc::ptr_eq(&owner,&original){return Err(io::Error::other("System TUN start changed its actual owner").into());}
             timeout_at(deadline(),owner.wait_ready()).await.map_err(|source|io::Error::new(io::ErrorKind::TimedOut,source))??;
             let route_state=match &routes{
@@ -156,6 +156,16 @@ impl Proxy {
             let v4=route_state.as_ref().and_then(|state|state.v4.clone());
             let v6=route_state.as_ref().and_then(|state|state.v6.clone());
             let egress=if start.addresses[0].address.is_ipv6(){v6.clone().or_else(||v4.clone())}else{v4.clone().or_else(||v6.clone())};
+            // Serialize the compatibility publication with the exact main-exit
+            // projection. A Ready notification is not permission to republish
+            // a Source that already stopped before its command ACK.
+            owner.wait_ready().await?;
+            let mut controls=self.tun_control.lock().unwrap();
+            let control=controls.as_mut().filter(|control|control.id==id && Arc::ptr_eq(&control.completion,&completion))
+                .ok_or_else(||io::Error::other("System TUN original completion changed before publication"))?;
+            if owner.task_access().cancellation().is_cancelled() {
+                return Err(owner.ready_stopped());
+            }
             *self.tun_info.lock().unwrap()=Some(TunInfo{
                 id,name:name.to_string(),addr:start.raw_addr,addresses:start.addresses.iter().map(|address|address.cidr.clone()).collect(),
                 mtu:start.mtu,tag:start.tag.clone(),auto_route:start.options.auto_route,include_cidrs:start.options.include_cidrs,
@@ -165,10 +175,9 @@ impl Proxy {
                 egress_interface:egress,egress_interface_v4:v4,egress_interface_v6:v6,
                 route_exclusions:route_state.map_or(prepared.route_exclusions,|state|state.exclusions),managed_config:start.managed_config,
             });
-            if let Some(control)=self.tun_control.lock().unwrap().as_mut().filter(|control|control.id==id){
-                control.route_recovery=start.options.auto_route.then_some(route_recovery);
-            }
+            control.route_recovery=start.options.auto_route.then_some(route_recovery);
             self.tun_last_error.lock().unwrap().take();
+            drop(controls);
             info!(inbound_tag=%start.tag,name=%name,mtu=start.mtu,"TUN device started on its original Source Scope");
             Ok(())
         }.await;

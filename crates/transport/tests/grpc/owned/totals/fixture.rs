@@ -91,7 +91,7 @@ pub(super) async fn server() -> (
         let mut workers = tokio::task::JoinSet::new();
         loop {
             let stream = tokio::select! {biased;_=cancel.cancelled()=>break,stream=incoming.accept()=>stream};
-            let Ok(mut stream) = stream else {
+            let Some(mut stream) = stream else {
                 break;
             };
             let cancel = cancel.clone();

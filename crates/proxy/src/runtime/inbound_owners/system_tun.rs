@@ -111,6 +111,7 @@ impl SystemTunLease {
         runtime: crate::runtime::route_runtime::InboundListenerRuntime,
         shutdown: watch::Receiver<bool>,
         ingress: crate::inbound::tun::TunIngressOptions,
+        exit: Option<crate::inbound::tun::exit::SystemTunExitProjection>,
     ) -> Result<Arc<InboundOwner>, EngineError> {
         let identity = self.owner.identity();
         let tasks = self.owner.accepted_registrar().clone();
@@ -188,7 +189,8 @@ impl SystemTunLease {
             )
             .await
         })?;
-        self.observers.enqueue_system_tun(self.owner.clone())?;
+        self.observers
+            .enqueue_system_tun(self.owner.clone(), exit)?;
         self.owner.seal_listener_installation();
         self.armed = false;
         Ok(self.owner.clone())

@@ -136,9 +136,11 @@ impl InboundRouteRuntimeFactory {
                 "selected Packet has no actual native source",
             ));
         }
-        let tag = plan
-            .role_tag(selected)
-            .ok_or_else(|| invalid(Reason::StalePlan, "selected Packet owner has no tag"))?;
+        let tag = match plan.role_tag(selected) {
+            Some(tag) => tag,
+            None if plan.direct(None)?.role_id() == selected => "direct",
+            None => return Err(invalid(Reason::StalePlan, "selected Packet owner has no actual tag")),
+        };
         let network = execution.upstream_observed(tag);
         let binding = UpstreamBinding {
             prefix: vec![],

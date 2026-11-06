@@ -1,4 +1,5 @@
 //! Built-in Direct projection into the neutral host packet executor.
+pub(in crate::adapters::direct) mod standard;
 use super::DirectAdapter;
 use crate::{
     adapters::devices::OutboundDevicePreparationContext,

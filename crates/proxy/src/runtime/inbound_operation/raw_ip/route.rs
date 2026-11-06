@@ -110,6 +110,7 @@ pub(super) async fn feed_inner_packet(
                 translated,
                 operation,
                 role,
+                ..
             } => {
                 let generation = route.icmp_egress_generation();
                 let plane = if translated {
