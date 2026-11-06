@@ -1,10 +1,16 @@
 //! Candidate continuation requires the same endpoint's confirmed shutdown.
 use std::io;
-pub(super) enum Attempt {
+pub(crate) enum Attempt {
     Settled(io::Result<Vec<u8>>),
     Unsettled(io::Error),
 }
 impl Attempt {
+    pub(crate) fn into_parts(self) -> (io::Result<Vec<u8>>, bool) {
+        match self {
+            Self::Settled(result) => (result, true),
+            Self::Unsettled(error) => (Err(error), false),
+        }
+    }
     pub(super) fn finish(query: io::Result<Vec<u8>>, close: io::Result<()>) -> Self {
         match close {
             Ok(()) => Self::Settled(query),

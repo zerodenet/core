@@ -4,25 +4,21 @@ use super::*;
 async fn unsettled_actual_endpoint_keeps_query_and_cleanup_errors_and_never_dials_next_candidate() {
     timeout(Duration::from_secs(5), async {
         let (endpoint, mut resolver) = fixture();
-        let (unused, _) = fixture();
+        let unused = tokio::net::UdpSocket::bind(std::net::SocketAddr::from(([127,0,0,2],endpoint.local_addr().unwrap().port()))).await.unwrap();
         resolver.addrs.push(unused.local_addr().unwrap());
-        let registry = resolver.owners.lock().unwrap().clone();
-        let resolver = Arc::new(resolver);
-        let caller = tokio::spawn({
-            let resolver = resolver.clone();
-            async move {
-                let query = crate::message::build_query(
-                    "unsettled.actual.doq.test",
-                    crate::message::TYPE_A,
-                )
-                .unwrap();
-                crate::backends::ATTEMPT_DEADLINE
-                    .scope(
-                        Instant::now() + Duration::from_secs(1),
-                        resolver.exchange(&query),
-                    )
-                    .await
-            }
+        let config: crate::DnsConfig = serde_json::from_value(serde_json::json!({
+            "servers":{"primary":{"type":"doq","host":"127.0.0.1","port":endpoint.local_addr().unwrap().port(),"server_name":"localhost"},"fallback":{"type":"system"}},
+            "default_server":"primary","policy":{"fallback_servers":["fallback"]}
+        })).unwrap();
+        let dns = crate::DnsSystem::build(Some(&config)).unwrap();
+        resolver.attach_registry(dns.transport_owners.clone());
+        let registry = dns.transport_owners.clone();
+        let mut snapshot = dns.snapshot().unwrap();
+        snapshot.servers.get_mut("primary").unwrap().backend = Arc::new(crate::backends::ResolverBackend::Doq(resolver));
+        let caller = tokio::spawn(async move {
+            let query = crate::message::build_query("unsettled.actual.doq.test", crate::message::TYPE_A).unwrap();
+            crate::owned_root::exchange_backend_attempt("primary", &snapshot.servers["primary"], &query, &snapshot,
+                Some(snapshot.servers["fallback"].backend.as_ref()), 1000).await
         });
         let connection = endpoint.accept().await.unwrap().await.unwrap();
         let (mut send, mut recv) = connection.accept_bi().await.unwrap();
@@ -45,7 +41,9 @@ async fn unsettled_actual_endpoint_keeps_query_and_cleanup_errors_and_never_dial
         send.write_u16(1).await.unwrap();
         send.write_all(&[0]).await.unwrap();
         send.finish().unwrap();
-        let returned = caller.await.unwrap().unwrap_err();
+        let (result, permits_fallback) = caller.await.unwrap();
+        assert!(!permits_fallback, "an actual Unsettled endpoint also forbids the configured next backend");
+        let returned = result.unwrap_err();
         assert_eq!(returned.kind(), io::ErrorKind::TimedOut);
         let failed = returned
             .get_ref()
@@ -63,13 +61,8 @@ async fn unsettled_actual_endpoint_keeps_query_and_cleanup_errors_and_never_dial
             1,
             "no successor owner while this original remains unsettled"
         );
-        let accept = unused.accept();
-        tokio::pin!(accept);
-        let observed = std::future::poll_fn(|cx| {
-            std::task::Poll::Ready(std::future::Future::poll(accept.as_mut(), cx))
-        })
-        .await;
-        assert!(observed.is_pending(), "no second candidate QUIC wire");
+        let mut bytes = [0; 2048];
+        assert_eq!(unused.try_recv_from(&mut bytes).unwrap_err().kind(), io::ErrorKind::WouldBlock, "no second candidate QUIC wire");
         drop(held);
         original
             .shutdown(Instant::now() + Duration::from_secs(3))
@@ -89,8 +82,7 @@ async fn unsettled_actual_endpoint_keeps_query_and_cleanup_errors_and_never_dial
         connection.closed().await;
         endpoint.close(0u32.into(), b"test finished");
         endpoint.wait_idle().await;
-        unused.close(0u32.into(), b"unused candidate");
-        unused.wait_idle().await;
+        dns.shutdown_queries(Instant::now() + Duration::from_secs(1)).await.unwrap();
     })
     .await
     .unwrap();
