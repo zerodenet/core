@@ -1,6 +1,6 @@
 //! Execute an actual standard Datagram role, independent of protocol wire state.
 mod control;
-use super::contract::{DatagramAssociationTarget, UpstreamAssociationTarget};
+use super::contract::DatagramAssociationTarget;
 use crate::{
     protocol_registry::{TcpExecutionServices, UdpAssociationObserver},
     runtime::udp_flow::registered::{UpstreamAssociationCloseReason, UpstreamAssociationTransport},
