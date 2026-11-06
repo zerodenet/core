@@ -217,7 +217,7 @@ async fn direct_service_still_requires_original_fence_scope_literal_and_an_expli
     prefix.prefix.push(zero_core::component::RoleInstanceId {
         component: ComponentId(999),
         generation: ResourceGeneration(1),
-        role: zero_core::component::RoleId::Stream(zero_core::component::StreamOutboundId(999)),
+        role: zero_core::component::RoleId::Outbound(zero_core::component::OutboundId(999)),
     });
     assert!(
         bound
