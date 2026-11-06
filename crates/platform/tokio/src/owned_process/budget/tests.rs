@@ -34,8 +34,23 @@ async fn actual_process_credit_waits_for_native_tree_actor_join_and_actual_defer
         component: ComponentId(901),
         generation: ResourceGeneration(1),
     };
-    let mut request = ProcessRequest::new("python3");
-    request.arguments = vec!["-c".into(), "import time;time.sleep(60)".into()];
+    #[cfg(target_os = "linux")]
+    let request = {
+        let mut request = ProcessRequest::new("python3");
+        request.arguments = vec!["-c".into(), "import time;time.sleep(60)".into()];
+        request
+    };
+    #[cfg(windows)]
+    let request = {
+        let mut request = ProcessRequest::new("powershell.exe");
+        request.arguments = vec![
+            "-NoProfile".into(),
+            "-NonInteractive".into(),
+            "-Command".into(),
+            "Start-Sleep -Seconds 60".into(),
+        ];
+        request
+    };
     let original = OwnedProcess::prepare(request, &scope.registrar()).unwrap();
     budget.reserve(instance, &original).unwrap();
     let (begin, begun) = oneshot::channel();
