@@ -86,9 +86,12 @@ impl VmessManagedUdpFlowResume {
                     binding,
                     move |raw| async move {
                         leaf.transport
-                            .open_relay(TcpRelayStream::new(
-                                zero_transport::pooled_driver::ExclusiveIo::new(raw),
-                            ))
+                            .open_native_mux_carrier(
+                                TcpRelayStream::new(
+                                    zero_transport::pooled_driver::ExclusiveIo::new(raw),
+                                ),
+                                leaf.mux_pool.native_instance()?,
+                            )
                             .await
                     },
                 )

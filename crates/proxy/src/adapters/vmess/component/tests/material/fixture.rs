@@ -65,7 +65,7 @@ async fn start(document: serde_json::Value, tag: &str) -> Running {
     }
 }
 fn transport(node: &mut serde_json::Value, kind: &str) {
-    match kind {
+    match kind.strip_prefix("mux-").unwrap_or(kind) {
         "raw" => {}
         "ws" => node["protocol"]["ws"] = serde_json::json!({"path":"/original"}),
         "grpc-single" | "grpc-multi" => {
@@ -86,16 +86,29 @@ pub(super) async fn server(kind: &str, cert: &Path, key: &Path) -> Running {
 pub(super) async fn client(kind: &str, backend: &str, endpoint: SocketAddr, ca: &Path) -> Running {
     let mut node = serde_json::json!({"tag":"node","protocol":{"type":"vmess","server":"127.0.0.1","port":endpoint.port(),"id":ID,"tls":{"server_name":"localhost","ca_cert_path":ca,"client_fingerprint":null,"options":{"backend":backend}}}});
     transport(&mut node, kind);
-    start(serde_json::json!({"runtime":{"native_stream_max_originals":1,"vmess_grpc_max_originals":1},"inbounds":[{"tag":"entry","listen":{"address":"127.0.0.1","port":0},"protocol":{"type":"socks5"}}],"outbounds":[node],"route":{"final":{"type":"route","outbound":"node"}}}),"entry").await
+    if kind.starts_with("mux-") {
+        node["protocol"]["mux_concurrency"] = serde_json::json!(8);
+    }
+    start(serde_json::json!({"runtime":{"native_stream_max_originals":1,"native_mux_max_carriers":1,"vmess_grpc_max_originals":1},"inbounds":[{"tag":"entry","listen":{"address":"127.0.0.1","port":0},"protocol":{"type":"socks5"}}],"outbounds":[node],"route":{"final":{"type":"route","outbound":"node"}}}),"entry").await
 }
 pub(super) fn capture(proxy: &Proxy) -> (CarrierOwnerRegistration, CarrierOriginObservation) {
-    let slot = proxy
+    let named = proxy
         .tcp_runtime_services()
         .components
         .as_ref()
         .unwrap()
         .configured("node")
         .unwrap();
+    let cached = named.recipe.spec().resources.is_empty();
+    let slot = if cached {
+        let plan = proxy.tcp_runtime_services().components.clone().unwrap();
+        named.dependency_instances().iter().filter_map(|instance| plan.component(instance.component))
+            .find(|slot| slot.recipe.spec().resources.iter().any(|resource| matches!(resource,
+                zero_platform_tokio::contract::component::ResourceDeclaration::ControlledCarrierPool { .. })))
+            .expect("same original configured MUX pool dependency")
+    } else {
+        named
+    };
     let grpc =
         slot.recipe.spec().resources.iter().any(|resource| {
             matches!(resource,
@@ -113,10 +126,10 @@ pub(super) fn capture(proxy: &Proxy) -> (CarrierOwnerRegistration, CarrierOrigin
             .iter()
             .find(|slot| slot.native().is_some_and(|native| !native.is_closed()))
         {
-            if grpc {
+            if grpc || cached {
                 let (task, driver) = original
                     .driver()
-                    .expect("same original perconnection H2 driver");
+                    .expect("same original registered transport driver");
                 assert!(!driver.is_joined());
                 assert_eq!(owner.instance(), slot.instance_id());
                 let bound = owner
@@ -205,4 +218,53 @@ pub(super) async fn wait_returned(
     .unwrap();
     let closed = original.closed().unwrap();
     assert!(original.matches_closed(&closed) && closed.had_native_acquisition());
+}
+
+pub(super) fn cached_driver(
+    owner: &CarrierOwnerRegistration,
+    original: &CarrierOriginObservation,
+) -> zero_platform_tokio::contract::scope::TaskJoinWitness {
+    owner
+        .observe()
+        .unwrap()
+        .slots()
+        .iter()
+        .find(|slot| slot.original().same_original(original))
+        .and_then(|slot| slot.driver().map(|(_, witness)| witness.clone()))
+        .expect("same actual cached MUX driver witness")
+}
+pub(super) async fn udp_echo(client: &Running) {
+    let mut control = TcpStream::connect(client.address).await.unwrap();
+    control.write_all(&[5, 1, 0]).await.unwrap();
+    let mut auth = [0; 2];
+    control.read_exact(&mut auth).await.unwrap();
+    assert_eq!(auth, [5, 0]);
+    control
+        .write_all(&[5, 3, 0, 1, 0, 0, 0, 0, 0, 0])
+        .await
+        .unwrap();
+    let mut bound = [0; 10];
+    control.read_exact(&mut bound).await.unwrap();
+    assert_eq!(&bound[..4], &[5, 0, 0, 1]);
+    let relay = SocketAddr::from(([127, 0, 0, 1], u16::from_be_bytes([bound[8], bound[9]])));
+    let socket = tokio::net::UdpSocket::bind("127.0.0.1:0").await.unwrap();
+    let target = tokio::net::UdpSocket::bind("127.0.0.1:0").await.unwrap();
+    let port = target.local_addr().unwrap().port();
+    let codec = socks5::udp::Socks5InboundUdpCodec;
+    for payload in [&b"same actual VMess MUX"[..], &b""[..]] {
+        let wire = codec
+            .encode_response_to_client(&zero_core::Address::Ipv4([127, 0, 0, 1]), port, payload)
+            .unwrap();
+        socket.send_to(&wire, relay).await.unwrap();
+        let mut bytes = [0; 65536];
+        let (n, peer) = target.recv_from(&mut bytes).await.unwrap();
+        assert_eq!(&bytes[..n], payload);
+        target.send_to(&bytes[..n], peer).await.unwrap();
+        let (n, _) = socket.recv_from(&mut bytes).await.unwrap();
+        let (address, source, body) = codec.decode_response(&bytes[..n]).unwrap().into_parts();
+        assert_eq!(address, zero_core::Address::Ipv4([127, 0, 0, 1]));
+        assert_eq!(source, port);
+        assert_eq!(body.as_slice(), payload);
+    }
+    drop(control);
 }

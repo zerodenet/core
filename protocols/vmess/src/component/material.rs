@@ -150,7 +150,14 @@ impl Material {
     ) -> Result<(), ChannelError> {
         self.census.record(instance, self)
     }
-    pub(super) async fn prepare(
+    pub(super) fn record_bound(
+        self: &Arc<Self>,
+        instance: ComponentInstanceId,
+        resolver: Option<&Arc<dyn zero_transport::tls::ech::EchConfigResolver>>,
+    ) -> Result<(), ChannelError> {
+        self.census.record_bound(instance, self, resolver)
+    }
+    pub(crate) async fn prepare(
         &self,
         resolver: Option<&dyn zero_transport::tls::ech::EchConfigResolver>,
     ) -> std::io::Result<OwnedPreparedClient> {
