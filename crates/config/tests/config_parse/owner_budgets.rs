@@ -16,7 +16,7 @@ fn actual_owner_budgets_are_optional_finite_and_preserve_omitted_export_shape() 
         usize,
         usize,
     );
-    let fields: [BudgetField; 36] = [
+    let fields: [BudgetField; 38] = [
         (
             "event_network_max_tasks",
             RuntimeOptionsConfig::effective_event_network_max_tasks,
@@ -153,6 +153,18 @@ fn actual_owner_budgets_are_optional_finite_and_preserve_omitted_export_shape() 
             "packet_transmit_total_max_bytes",
             RuntimeOptionsConfig::effective_packet_transmit_total_max_bytes,
             67108864,
+            1073741824,
+        ),
+        (
+            "packet_native_read_total_max_frames",
+            RuntimeOptionsConfig::effective_packet_native_read_total_max_frames,
+            256,
+            65536,
+        ),
+        (
+            "packet_native_read_total_max_bytes",
+            RuntimeOptionsConfig::effective_packet_native_read_total_max_bytes,
+            16777216,
             1073741824,
         ),
         (

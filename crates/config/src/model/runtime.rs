@@ -62,6 +62,13 @@ pub struct RuntimeOptionsConfig {
     /// promises across that same root, never a separate per-device byte pool.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub packet_transmit_total_max_bytes: Option<usize>,
+    /// Original native read/decoder/workspace frame promises across the same
+    /// kernel Packet memory root, including pending and retiring allocations.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub packet_native_read_total_max_frames: Option<usize>,
+    /// Original native read/workspace allocation bytes across that same root.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub packet_native_read_total_max_bytes: Option<usize>,
     /// Authenticated UDP2022 fixed replay windows in the same SS adapter; live history is never evicted.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub ss_udp_replay_max_windows: Option<usize>,
@@ -211,6 +218,8 @@ impl Default for RuntimeOptionsConfig {
             packet_return_total_max_bytes: None,
             packet_transmit_total_max_frames: None,
             packet_transmit_total_max_bytes: None,
+            packet_native_read_total_max_frames: None,
+            packet_native_read_total_max_bytes: None,
             ss_udp_replay_max_windows: None,
             ss_udp_max_senders: None,
             ss_udp_max_associations: None,
@@ -286,6 +295,12 @@ impl RuntimeOptionsConfig {
     }
     pub fn effective_packet_transmit_total_max_bytes(&self) -> usize {
         self.packet_transmit_total_max_bytes.unwrap_or(67108864)
+    }
+    pub fn effective_packet_native_read_total_max_frames(&self) -> usize {
+        self.packet_native_read_total_max_frames.unwrap_or(256)
+    }
+    pub fn effective_packet_native_read_total_max_bytes(&self) -> usize {
+        self.packet_native_read_total_max_bytes.unwrap_or(16777216)
     }
     pub fn effective_ss_udp_replay_max_windows(&self) -> usize {
         self.ss_udp_replay_max_windows.unwrap_or(8192)
