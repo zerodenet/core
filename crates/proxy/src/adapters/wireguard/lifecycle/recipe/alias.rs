@@ -147,6 +147,10 @@ impl WireguardAdapter {
         }
         candidate
             .iter()
+            .filter(|(tag, _)| config.outbounds.iter().any(|outbound| matches!(
+                &outbound.protocol,
+                OutboundProtocolConfig::Wireguard { inbound_tag:Some(inbound),outer_udp_proxy:None,.. } if inbound.as_str()==tag.as_str()
+            )))
             .map(|(tag, pending)| {
                 let graph = pending
                     .actual_graph()
