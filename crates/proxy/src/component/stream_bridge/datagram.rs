@@ -2,18 +2,18 @@
 mod traffic;
 use super::{network::NodeOpener, traffic::EstablishmentTraffic};
 use crate::{
-    component::instance::{ComponentSlot, invalid},
+    component::instance::{invalid, ComponentSlot},
     protocol_registry::TcpExecutionServices,
 };
 use std::sync::Arc;
 pub(crate) use traffic::WireTraffic;
 use zero_core::{component::NetworkGeneration, request::Destination};
 use zero_platform_tokio::contract::{
-    BoxFuture, CancellationToken, ChannelError, Reason,
     context::OpenContext,
     datagram::{BoxDatagramSession, DatagramRequest},
     network::{CarrierContext, UpstreamBinding, UpstreamOpener, UpstreamTransport},
     stream::BoxStream,
+    BoxFuture, CancellationToken, ChannelError, Reason,
 };
 pub(crate) struct Opened {
     pub(crate) channel: BoxDatagramSession,
@@ -25,6 +25,15 @@ struct Opener {
     datagram: NodeOpener,
 }
 impl UpstreamOpener for Opener {
+    fn select_background_carrier_observed(
+        &self,
+        binding: Option<UpstreamBinding>,
+        call: CarrierContext,
+        waiting: zero_platform_tokio::contract::network::PendingCarrierObserver,
+    ) -> BoxFuture<'_, Result<UpstreamTransport, ChannelError>> {
+        self.control.reselect_service(binding, call, Some(waiting))
+    }
+
     fn packet_caller(
         &self,
         binding: &UpstreamBinding,

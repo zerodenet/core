@@ -185,7 +185,7 @@ impl<F: ComponentFactory> ComponentFactory for Factory<F> {
                 "carrier framing requires the actual Stream role",
             )
         })?;
-        instance.roles.stream = Some(erase_stream(Outbound {
+        let outbound = Outbound {
             inner,
             process,
             endpoint,
@@ -193,7 +193,25 @@ impl<F: ComponentFactory> ComponentFactory for Factory<F> {
             grants: carrier.grants(),
             transfers: transfers.clone(),
             limit: options.limit,
-        }));
+        };
+        // Existing native Datagram owners (SS, association/UDP providers) keep
+        // their own exact role. Only framing with File-only resources borrows
+        // the same actual per-connection Stream original/N.
+        if original
+            .resources
+            .iter()
+            .all(|resource| matches!(resource, ResourceDeclaration::File { .. }))
+        {
+            if let Some(inner) = instance.roles.datagram.take() {
+                instance.roles.datagram = Some(
+                    zero_platform_tokio::contract::datagram::erase_datagram(datagram::Datagram {
+                        owner: outbound.clone(),
+                        inner,
+                    }),
+                );
+            }
+        }
+        instance.roles.stream = Some(erase_stream(outbound));
         instance.lifecycle = erase_lifecycle(Owner {
             inner: instance.lifecycle,
             carrier,
@@ -224,3 +242,5 @@ mod business;
 mod tests;
 
 mod service;
+
+mod datagram;

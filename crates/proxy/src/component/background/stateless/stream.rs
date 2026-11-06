@@ -1,5 +1,6 @@
 //! Same-slot taskless stream; native and logical completion stay separate.
 use super::*;
+#[derive(Clone)]
 pub(super) struct Outbound {
     pub(super) inner: Arc<dyn DynStreamOutbound>,
     pub(super) process: Option<(
@@ -59,6 +60,7 @@ impl StreamOutbound for Outbound {
                 endpoint: self.endpoint.clone(),
                 process: self.process,
                 transfer: transfer.clone(),
+                association: None,
             }),
         );
         let caller_cancel = context.cancel.clone();

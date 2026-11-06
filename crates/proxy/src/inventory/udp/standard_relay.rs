@@ -51,20 +51,56 @@ impl super::super::ProtocolInventory {
         // An existing background pool must consume its own standard Datagram
         // role. Its persistent provider, not a legacy claim or this request,
         // retains and opens the actual physical carrier.
-        let pooled = !node_business
-            && final_slot.recipe.spec().roles.contains(&RoleKind::Stream)
-            && final_slot.recipe.spec().task_limit.is_none()
-            && !final_slot.recipe.spec().dependencies.is_empty()
-            && final_slot.recipe.spec().resources.iter().all(|resource| {
+        let node_original =
+            final_slot.recipe.spec().resources.iter().any(|resource| {
+                matches!(resource, ResourceDeclaration::ControlledNodeCarrier { .. })
+            }) && final_slot.recipe.spec().resources.iter().all(|resource| {
                 matches!(
                     resource,
-                    ResourceDeclaration::File { .. }
-                        | ResourceDeclaration::ControlledNodeCarrier { .. }
-                        | ResourceDeclaration::ControlledCarrierPool { datagram: true, .. }
+                    ResourceDeclaration::ControlledNodeCarrier { .. }
+                        | ResourceDeclaration::File { .. }
                 )
-            })
-            && plan.has_background_carrier_pool(final_slot.role_id())
-            && plan.stream_dependencies_supported(final_slot.role_id());
+            });
+        if node_original
+            && !final_slot
+                .recipe
+                .spec()
+                .resources
+                .iter()
+                .enumerate()
+                .any(|(ordinal, resource)| match resource {
+                    ResourceDeclaration::ControlledNodeCarrier { max_sockets, .. } => final_slot
+                        .original_carrier_owner(ordinal)
+                        .is_some_and(|owner| {
+                            owner.instance() == final_slot.instance_id()
+                                && owner.limit() == *max_sockets
+                        }),
+                    _ => false,
+                })
+        {
+            return Some(Err(failure(
+                std::io::Error::other(crate::component::instance::invalid(
+                    zero_platform_tokio::contract::Reason::Revoked,
+                    "canonical Datagram original provider is not ready",
+                ))
+                .into(),
+            )));
+        }
+        let pooled = node_original
+            || !node_business
+                && final_slot.recipe.spec().roles.contains(&RoleKind::Stream)
+                && final_slot.recipe.spec().task_limit.is_none()
+                && !final_slot.recipe.spec().dependencies.is_empty()
+                && final_slot.recipe.spec().resources.iter().all(|resource| {
+                    matches!(
+                        resource,
+                        ResourceDeclaration::File { .. }
+                            | ResourceDeclaration::ControlledNodeCarrier { .. }
+                            | ResourceDeclaration::ControlledCarrierPool { datagram: true, .. }
+                    )
+                })
+                && plan.has_background_carrier_pool(final_slot.role_id())
+                && plan.stream_dependencies_supported(final_slot.role_id());
         if !node_business && !pooled {
             return None;
         }

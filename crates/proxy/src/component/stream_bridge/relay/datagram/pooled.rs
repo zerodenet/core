@@ -13,6 +13,16 @@ struct Selected {
     remote: std::sync::Mutex<Option<std::net::SocketAddr>>,
 }
 impl UpstreamOpener for Selected {
+    fn select_background_carrier_observed(
+        &self,
+        binding: Option<UpstreamBinding>,
+        call: CarrierContext,
+        waiting: zero_platform_tokio::contract::network::PendingCarrierObserver,
+    ) -> BoxFuture<'_, Result<UpstreamTransport, ChannelError>> {
+        self.upstream
+            .select_background_carrier_observed(binding, call, waiting)
+    }
+
     fn has_pending_carrier_observer(&self) -> bool {
         self.upstream.observed_pending_carrier().is_some()
     }
@@ -147,6 +157,19 @@ pub(super) async fn open(
             "pooled network relay tail lacks its declared endpoint",
         )
     })?;
+    let pending = services
+        .pending_datagram
+        .as_ref()
+        .and_then(std::sync::Weak::upgrade);
+    let association_cancel = pending
+        .as_ref()
+        .map(|pending| pending.cancellation())
+        .ok_or_else(|| {
+            invalid(
+                Reason::InvalidConfig,
+                "pooled Datagram lacks its actual association lifetime",
+            )
+        })?;
     let upstream = super::super::background::BackgroundPath {
         nodes: prepared.prefix,
         binding: binding.clone(),
@@ -156,16 +179,12 @@ pub(super) async fn open(
         call: CarrierContext {
             session: None,
             deadline: invocation.deadline,
-            cancel: invocation.cancellation(),
+            cancel: association_cancel.clone(),
         },
     }
     .select_observed(
         services,
-        match services
-            .pending_datagram
-            .as_ref()
-            .and_then(std::sync::Weak::upgrade)
-        {
+        match &pending {
             Some(pending) => pending.observer(binding.clone())?,
             None => None,
         },
@@ -188,7 +207,7 @@ pub(super) async fn open(
             OpenContext {
                 identity: invocation.identity.clone(),
                 deadline: invocation.deadline,
-                cancel: invocation.cancellation(),
+                cancel: association_cancel.clone(),
                 observer: Some(wire.clone()),
                 upstream: UpstreamTransport::new(binding, selected.clone()),
             },
