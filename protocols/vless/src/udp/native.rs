@@ -17,8 +17,8 @@ impl PreparedVlessUdpFlowPlan {
     ) -> Result<VlessUdpFlowConnection, RuntimeError>
     where
         S: AsyncSocket + tokio::io::AsyncRead + tokio::io::AsyncWrite + Unpin + Send + 'static,
-        F: FnOnce(zero_platform_tokio::controlled_carrier::CarrierIo) -> Fut,
-        Fut: Future<Output = Result<S, RuntimeError>>,
+        F: FnOnce(zero_platform_tokio::controlled_carrier::CarrierIo) -> Fut + Send + 'static,
+        Fut: Future<Output = Result<S, RuntimeError>> + Send + 'static,
     {
         let resume = self.plan.resume();
         resume.ensure_udp_supported(session.port)?;
@@ -37,6 +37,7 @@ impl PreparedVlessUdpFlowPlan {
                 key,
                 concurrency,
                 binding,
+                None,
                 Some(session.id.to_be_bytes()),
                 wrap,
             )

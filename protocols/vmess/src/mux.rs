@@ -88,7 +88,9 @@ pub(crate) struct OwnedVmessMuxTransportProfile {
     grpc_service_names: Option<Vec<String>>,
 }
 
-type PoolEntries = HashMap<(Option<Arc<str>>, VmessMuxPoolKey), Arc<VmessMuxConn>>;
+type NativeBinding = zero_platform_tokio::contract::network::UpstreamBinding;
+type PoolEntries =
+    HashMap<(Option<Arc<str>>, VmessMuxPoolKey, Option<NativeBinding>), Arc<VmessMuxConn>>;
 
 #[derive(Clone)]
 pub struct VmessMuxConnectionPool {
@@ -458,7 +460,35 @@ impl VmessMuxConnectionPool {
         Fut: Future<Output = Result<VmessMuxConn, E>>,
         E: From<Error>,
     {
-        let lookup = (self.scope.clone(), key.clone());
+        self.get_or_create_conn_with_binding(key, max_concurrency, None, create_conn)
+            .await
+    }
+    async fn get_or_create_conn_with_binding<F, Fut, E>(
+        &self,
+        key: VmessMuxPoolKey,
+        max_concurrency: u32,
+        binding: Option<NativeBinding>,
+        create_conn: F,
+    ) -> Result<(Arc<VmessMuxConn>, u16), E>
+    where
+        F: FnOnce(VmessMuxPoolKey, u32) -> Fut,
+        Fut: Future<Output = Result<VmessMuxConn, E>>,
+        E: From<Error>,
+    {
+        let retired = {
+            let mut entries = self.pool.lock().expect("actual protocol MUX map");
+            entries
+                .extract_if(|_, connection| {
+                    connection
+                        .original
+                        .as_ref()
+                        .is_some_and(|original| original.confirmed_closed())
+                })
+                .map(|(_, connection)| connection)
+                .collect::<Vec<_>>()
+        };
+        drop(retired);
+        let lookup = (self.scope.clone(), key.clone(), binding);
         let cached = self
             .pool
             .lock()

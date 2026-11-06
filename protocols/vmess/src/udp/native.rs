@@ -20,8 +20,8 @@ impl PreparedVmessUdpFlowPlan {
             + Send
             + Sync
             + 'static,
-        F: FnOnce(zero_platform_tokio::controlled_carrier::CarrierIo) -> Fut,
-        Fut: Future<Output = Result<S, RuntimeError>>,
+        F: FnOnce(zero_platform_tokio::controlled_carrier::CarrierIo) -> Fut + Send + 'static,
+        Fut: Future<Output = Result<S, RuntimeError>> + Send + 'static,
     {
         let concurrency = self
             .plan

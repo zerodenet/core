@@ -1,11 +1,17 @@
 //! Native execution uses the same actual map and protocol wire driver.
 mod stream;
 use super::*;
+mod datagram;
+pub(crate) use datagram::DatagramIo;
 use zero_platform_tokio::contract::network::UpstreamBinding;
 use zero_transport::{
     pooled_driver::{PoolOptions, UserStream},
     RuntimeError,
 };
+type NativeCall = Option<(
+    zero_platform_tokio::contract::network::CarrierContext,
+    Option<zero_platform_tokio::contract::network::PendingCarrierObserver>,
+)>;
 impl MuxConnectionPool {
     pub(crate) fn native_eligible(&self) -> bool {
         self.control.native_eligible()
@@ -86,6 +92,7 @@ impl MuxConnectionPool {
         key: PoolKey,
         concurrency: u32,
         binding: UpstreamBinding,
+        call: NativeCall,
         wrap: F,
         finish: impl FnOnce(
             Arc<MuxPoolConn>,
@@ -96,8 +103,8 @@ impl MuxConnectionPool {
     ) -> Result<R, RuntimeError>
     where
         S: zero_traits::AsyncSocket + AsyncRead + AsyncWrite + Unpin + Send + 'static,
-        F: FnOnce(zero_platform_tokio::controlled_carrier::CarrierIo) -> Fut,
-        Fut: Future<Output = Result<S, RuntimeError>>,
+        F: FnOnce(zero_platform_tokio::controlled_carrier::CarrierIo) -> Fut + Send + 'static,
+        Fut: Future<Output = Result<S, RuntimeError>> + Send + 'static,
     {
         let owner = self.control.managed()?;
         let profile = format!(
@@ -110,17 +117,28 @@ impl MuxConnectionPool {
         let selected = binding.clone();
         let opening = owner.clone();
         let (connection, sid) = self
-            .get_or_create_conn(key, concurrency, |key, concurrency| async move {
-                let (mut connection, original) = opening
-                    .open(&profile, &binding, |raw| async move {
+            .get_or_create_conn_with_binding(
+                key,
+                concurrency,
+                Some(binding.clone()),
+                |key, concurrency| async move {
+                    let prepare = move |raw| async move {
                         let mut io = wrap(raw).await?;
                         key.establish_mux_connection(&mut io).await?;
                         Ok(key.prepare_pool_conn(io, concurrency))
-                    })
-                    .await?;
-                connection.original = Some(original);
-                Ok::<_, RuntimeError>(connection)
-            })
+                    };
+                    let (mut connection, original) = match call {
+                        Some((call, waiting)) => {
+                            opening
+                                .open_observed(&profile, &binding, call, waiting, prepare)
+                                .await?
+                        }
+                        None => opening.open(&profile, &binding, prepare).await?,
+                    };
+                    connection.original = Some(original);
+                    Ok::<_, RuntimeError>(connection)
+                },
+            )
             .await?;
         owner.verify_epoch(&selected)?;
         let original = connection
@@ -149,18 +167,20 @@ impl MuxConnectionPool {
         target: Address,
         port: u16,
         binding: UpstreamBinding,
+        call: NativeCall,
         wrap: F,
     ) -> Result<zero_transport::pooled_driver::PooledStream, RuntimeError>
     where
         S: zero_traits::AsyncSocket + AsyncRead + AsyncWrite + Unpin + Send + 'static,
-        F: FnOnce(zero_platform_tokio::controlled_carrier::CarrierIo) -> Fut,
-        Fut: Future<Output = Result<S, RuntimeError>>,
+        F: FnOnce(zero_platform_tokio::controlled_carrier::CarrierIo) -> Fut + Send + 'static,
+        Fut: Future<Output = Result<S, RuntimeError>> + Send + 'static,
     {
         let (reserved, usage, origin) = self
             .native_connection(
                 key,
                 concurrency,
                 binding,
+                call,
                 wrap,
                 |connection, sid, usage, origin| {
                     Ok((
@@ -185,14 +205,15 @@ impl MuxConnectionPool {
         key: PoolKey,
         concurrency: u32,
         binding: UpstreamBinding,
+        call: NativeCall,
         wrap: F,
     ) -> Result<zero_transport::pooled_driver::datagram::PooledDatagram<DatagramIo>, RuntimeError>
     where
         S: zero_traits::AsyncSocket + AsyncRead + AsyncWrite + Unpin + Send + 'static,
-        F: FnOnce(zero_platform_tokio::controlled_carrier::CarrierIo) -> Fut,
-        Fut: Future<Output = Result<S, RuntimeError>>,
+        F: FnOnce(zero_platform_tokio::controlled_carrier::CarrierIo) -> Fut + Send + 'static,
+        Fut: Future<Output = Result<S, RuntimeError>> + Send + 'static,
     {
-        self.open_native_udp_with_id(key, concurrency, binding, None, wrap)
+        self.open_native_udp_with_id(key, concurrency, binding, call, None, wrap)
             .await
     }
     pub(crate) async fn open_native_udp_with_id<S, F, Fut>(
@@ -200,18 +221,20 @@ impl MuxConnectionPool {
         key: PoolKey,
         concurrency: u32,
         binding: UpstreamBinding,
+        call: NativeCall,
         global_id: Option<[u8; 8]>,
         wrap: F,
     ) -> Result<zero_transport::pooled_driver::datagram::PooledDatagram<DatagramIo>, RuntimeError>
     where
         S: zero_traits::AsyncSocket + AsyncRead + AsyncWrite + Unpin + Send + 'static,
-        F: FnOnce(zero_platform_tokio::controlled_carrier::CarrierIo) -> Fut,
-        Fut: Future<Output = Result<S, RuntimeError>>,
+        F: FnOnce(zero_platform_tokio::controlled_carrier::CarrierIo) -> Fut + Send + 'static,
+        Fut: Future<Output = Result<S, RuntimeError>> + Send + 'static,
     {
         self.native_connection(
             key,
             concurrency,
             binding,
+            call,
             wrap,
             |connection, sid, usage, origin| {
                 let writer = match connection.native_udp_tx.writer(encode_mux_end_frame(sid)?) {
@@ -244,76 +267,5 @@ impl MuxConnectionPool {
             },
         )
         .await
-    }
-}
-
-/// Direct packet access to the existing protocol map; no stream flattening or upload task.
-pub(crate) struct DatagramIo {
-    connection: Arc<MuxPoolConn>,
-    sid: u16,
-    rx: mpsc::Receiver<MuxDownlink<zero_core::UdpFlowPacket>>,
-    writer: Option<zero_transport::pooled_driver::datagram_queue::PacketWriter>,
-    first: bool,
-    global_id: Option<[u8; 8]>,
-}
-impl zero_transport::pooled_driver::datagram::PacketIo for DatagramIo {
-    fn send(&mut self, frame: &zero_core::packet::Datagram) -> std::io::Result<()> {
-        if self.connection.closed.load(Ordering::Acquire) {
-            return Err(std::io::ErrorKind::BrokenPipe.into());
-        }
-        let wire = if self.first {
-            crate::mux::codec::encode_new_udp_data_frame_optional(
-                self.sid,
-                &frame.address.address,
-                frame.address.port,
-                self.global_id,
-                &frame.payload,
-            )
-        } else {
-            crate::mux::encode_udp_data_frame(
-                self.sid,
-                &frame.address.address,
-                frame.address.port,
-                &frame.payload,
-            )
-        }
-        .map_err(std::io::Error::other)?;
-        let mut streams = self.connection.streams.lock().unwrap();
-        if !streams.contains_key(&self.sid) {
-            return Err(std::io::ErrorKind::BrokenPipe.into());
-        }
-        self.writer
-            .as_mut()
-            .expect("live packet writer")
-            .send(wire)?;
-        self.first = false;
-        if let Some(state) = streams.get_mut(&self.sid) {
-            state.target = Some((frame.address.address.clone(), frame.address.port));
-        }
-        Ok(())
-    }
-    fn poll_recv(
-        &mut self,
-        cx: &mut Context<'_>,
-    ) -> zero_transport::pooled_driver::datagram::PacketPoll {
-        match std::task::ready!(self.rx.poll_recv(cx)) {
-            Some(MuxDownlink::Data(packet)) => {
-                let (address, port, payload) = packet.into_inner().into_parts();
-                Poll::Ready(Ok(Some((
-                    zero_core::request::Destination::new(address, port),
-                    payload,
-                ))))
-            }
-            Some(MuxDownlink::Overflow) => Poll::Ready(Err(std::io::Error::other(
-                "MUX UDP response capacity exceeded",
-            ))),
-            None => Poll::Ready(Ok(None)),
-        }
-    }
-}
-impl Drop for DatagramIo {
-    fn drop(&mut self) {
-        drop(self.writer.take());
-        self.connection.release_stream(self.sid);
     }
 }
