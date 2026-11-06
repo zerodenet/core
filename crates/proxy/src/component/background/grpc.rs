@@ -54,3 +54,11 @@ impl ComponentFactory for Factory {
 }
 
 mod ech;
+
+/// Borrow the existing current resolver/cache for this same actual owner.
+pub(crate) fn tls_resolver(
+    network: Arc<BackgroundNetwork>,
+    instance: zero_core::component::ComponentInstanceId,
+) -> Arc<dyn zero_transport::tls::ech::EchConfigResolver> {
+    Arc::new(ech::CurrentEch { network, instance })
+}

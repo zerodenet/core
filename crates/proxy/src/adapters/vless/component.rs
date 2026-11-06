@@ -1,6 +1,7 @@
 //! Cold ordinary Stream selection; every excluded style retains its actual owner.
-//! gRPC/H2 keep their legacy pool/driver until the real shared owner is migrated.
+//! H2/HTTPUpgrade retain their inline connection inside the same original loan.
 pub(crate) mod grpc;
+mod material;
 pub(crate) mod mux;
 use zero_config::{ConfigError, OutboundConfig, OutboundProtocolConfig};
 pub(crate) const LEGACY_CONNECT_STAGE: &str = "connect_upstream_vless";
@@ -8,12 +9,28 @@ pub(crate) fn native_input(input: &OutboundConfig) -> bool {
     matches!(&input.protocol,OutboundProtocolConfig::Vless {
         mux_concurrency:None,xudp_concurrency:None,flow,testpre:0,testseed,
         final_mask:None,mkcp:None,hysteria:None,reverse_tag:None,reverse_sniffing:None,
-        encryption,reality:None,quic:None,h2:None,grpc:None,http_upgrade:None,split_http:None,tls,ws,..
+        encryption,reality:None,quic:None,h2,grpc:None,http_upgrade,split_http:None,tls,ws,..
     } if (flow.as_deref().map_or(testseed.is_empty(),|flow|
-            matches!(flow,"xtls-rprx-vision"|"xtls-rprx-vision-udp443") && tls.is_some() && ws.is_none()))
+            matches!(flow,"xtls-rprx-vision"|"xtls-rprx-vision-udp443") && tls.is_some() && ws.is_none() && h2.is_none() && http_upgrade.is_none()))
         && encryption.as_deref().is_none_or(|value|value=="none")
         && ws.as_ref().is_none_or(|ws|ws.browser_dialer.is_none())
         && tls.as_ref().is_none_or(|tls|tls.ca_cert_path.is_none() && !tls.options.ech_config_list.contains("://")))
+}
+pub(crate) fn owned_input(input: &OutboundConfig) -> bool {
+    let mut plain = input.clone();
+    let OutboundProtocolConfig::Vless { tls, .. } = &mut plain.protocol else {
+        return false;
+    };
+    if let Some(tls) = tls {
+        if zero_transport::tls::OwnedPreparedClient::validate_profile(tls.as_ref()).is_err() {
+            return false;
+        }
+        tls.ca_cert_path = None;
+        if tls.options.ech_config_list.contains("://") {
+            tls.options.ech_config_list.clear();
+        }
+    }
+    native_input(&plain)
 }
 pub(crate) fn component_options(
     input: &OutboundConfig,
