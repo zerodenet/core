@@ -75,6 +75,9 @@ pub struct ComponentSlot {
     admission_owner: Arc<()>,
     live: OnceCell<Result<Live, SharedError>>,
     start_gate: Mutex<()>,
+    owned_start_gate: std::sync::Mutex<()>,
+    #[cfg(any(target_os = "linux", windows))]
+    prepaid_process: OnceLock<Arc<zero_platform_tokio::owned_process::PrepaidProcessJob>>,
     owned_start: OnceLock<owned_start::OwnedStart>,
     owned_start_host: OnceLock<std::sync::Mutex<Option<owned_start::OwnedStart>>>,
     start_wake: Arc<MonitorWake>,
@@ -207,6 +210,9 @@ impl ComponentSlot {
             admission_owner: Arc::new(()),
             live: OnceCell::new(),
             start_gate: Mutex::new(()),
+            owned_start_gate: std::sync::Mutex::new(()),
+            #[cfg(any(target_os = "linux", windows))]
+            prepaid_process: OnceLock::new(),
             owned_start: OnceLock::new(),
             owned_start_host: OnceLock::new(),
             start_wake: Arc::default(),
@@ -333,6 +339,8 @@ impl ComponentSlot {
     }
     pub fn revoke(&self) {
         self.cancel.cancel();
+        #[cfg(any(target_os = "linux", windows))]
+        if let Some(paid) = self.prepaid_process.get() { paid.request_stop(); }
         self.users.revoke();
         if let Some(Ok(live)) = self.live.get() {
             live.tasks.begin_shutdown();

@@ -73,6 +73,10 @@ impl HostResources {
         {
             return Err(self.denied());
         }
+        if let Some(paid) = self.processes.prepaid.get() {
+            paid.bind_actor(actor)
+                .map_err(|source| self.denied().with_source(source))?;
+        }
         let state = self
             .state
             .lock()

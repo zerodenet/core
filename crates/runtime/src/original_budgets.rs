@@ -64,5 +64,7 @@ impl HostOriginalBudgets {
         let waker = std::task::Waker::from(self.carrier_wake.clone());
         let mut cx = std::task::Context::from_waker(&waker);
         self.carrier.poll_cancelled_retirements(&mut cx);
+        #[cfg(any(target_os = "linux", windows))]
+        self.process.poll_released(&mut cx);
     }
 }

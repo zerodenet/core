@@ -1,5 +1,7 @@
 //! One kernel's actual pending/failed/retiring native jobs, never a task pool.
+mod admission;
 use super::OwnedProcess;
+pub use admission::PrepaidProcessJob;
 use std::sync::atomic::AtomicBool;
 use std::{
     collections::BTreeMap,
@@ -52,6 +54,7 @@ impl Default for ProcessBudget {
             state: Mutex::new(State {
                 limits: ProcessBudgetLimits::default(),
                 jobs: BTreeMap::new(),
+                pending: BTreeMap::new(),
             }),
         }
     }
@@ -59,10 +62,12 @@ impl Default for ProcessBudget {
 struct State {
     limits: ProcessBudgetLimits,
     jobs: BTreeMap<u64, Arc<Entry>>,
+    pending: BTreeMap<(ComponentInstanceId, usize), Arc<PrepaidProcessJob>>,
 }
 struct Entry {
     instance: ComponentInstanceId,
     original: Arc<OwnedProcess>,
+    actor_obligation: Option<crate::contract::scope::TaskJoinWitness>,
     acknowledged: Mutex<Option<Pin<Box<dyn Future<Output = ()> + Send>>>>,
     polling: AtomicBool,
     repoll: AtomicBool,
@@ -80,6 +85,7 @@ impl ProcessBudget {
             state: Mutex::new(State {
                 limits: limits.validate()?,
                 jobs: BTreeMap::new(),
+                pending: BTreeMap::new(),
             }),
         }))
     }
@@ -115,8 +121,9 @@ impl ProcessBudget {
         }
     }
     fn reap(&self) {
+        self.reap_pending();
         for (id, entry) in self.entries() {
-            if entry.original.budget_releasable() {
+            if entry.releasable() {
                 self.release(id, &entry);
             }
         }
@@ -129,7 +136,7 @@ impl ProcessBudget {
         let state = self.lock();
         ProcessBudgetSnapshot {
             limits: state.limits,
-            charged_jobs: state.jobs.len(),
+            charged_jobs: state.jobs.len() + state.pending.len(),
         }
     }
     /// Same root only. Candidate preflight must additionally fence actual
@@ -138,7 +145,13 @@ impl ProcessBudget {
         let limits = limits.validate()?;
         self.reap();
         let mut state = self.lock();
-        if state.jobs.len() > limits.max_jobs
+        if state.limits != limits && (!state.jobs.is_empty() || !state.pending.is_empty()) {
+            return Err(io::Error::new(
+                io::ErrorKind::WouldBlock,
+                "actual process original retirement remains owed",
+            ));
+        }
+        if state.jobs.len() + state.pending.len() > limits.max_jobs
             || state.jobs.values().any(|entry| {
                 state
                     .jobs
@@ -167,12 +180,17 @@ impl ProcessBudget {
         original.bind_budget(self.clone())?;
         let result = {
             let mut state = self.lock();
-            if state.jobs.len() >= state.limits.max_jobs
+            if state.jobs.len() + state.pending.len() >= state.limits.max_jobs
                 || state
                     .jobs
                     .values()
                     .filter(|entry| entry.instance == instance)
                     .count()
+                    + state
+                        .pending
+                        .values()
+                        .filter(|entry| entry.instance == instance)
+                        .count()
                     >= state.limits.max_jobs_per_instance
             {
                 Err(io::Error::new(
@@ -190,6 +208,7 @@ impl ProcessBudget {
                     Arc::new(Entry {
                         instance,
                         original: original.clone(),
+                        actor_obligation: None,
                         acknowledged: Mutex::new(None),
                         polling: AtomicBool::new(false),
                         repoll: AtomicBool::new(false),
@@ -206,15 +225,22 @@ impl ProcessBudget {
     /// Called by the existing host supervisor. Polls only actual Scope ACK
     /// observations; this registers no task, timer, driver or native resource.
     pub fn poll_released(&self, cx: &mut Context<'_>) {
+        for pending in self.pending() {
+            pending.poll_ack(cx);
+        }
+        self.reap_pending();
         for (id, entry) in self.entries() {
-            if entry.original.budget_releasable() {
+            if entry.releasable() {
                 self.release(id, &entry);
                 continue;
             }
             if entry.original.closed().is_none() {
                 continue;
             }
-            let actor = entry.original.actor();
+            let actor = entry
+                .original
+                .actor()
+                .or_else(|| entry.actor_obligation.clone());
             if let Some(actor) = actor {
                 let Some(_polling) = crate::original_poll::OriginalPoll::enter(
                     &entry.polling,
@@ -242,7 +268,7 @@ impl ProcessBudget {
                         .lock()
                         .unwrap_or_else(std::sync::PoisonError::into_inner) = Some(future);
                 }
-                if ready && entry.original.budget_releasable() {
+                if ready && entry.releasable() {
                     self.release(id, &entry);
                 }
             }
@@ -251,3 +277,13 @@ impl ProcessBudget {
 }
 #[cfg(test)]
 mod tests;
+
+impl Entry {
+    fn releasable(&self) -> bool {
+        self.original.budget_releasable()
+            && self
+                .actor_obligation
+                .as_ref()
+                .is_none_or(admission::acknowledged)
+    }
+}
