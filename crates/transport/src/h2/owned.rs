@@ -138,6 +138,12 @@ impl State {
         self.target = self.flush.count.load(Ordering::Acquire).saturating_add(1);
     }
     fn failure(&self) -> Option<io::Error> {
+        // Only this original driver's terminal branch writes failure. Its
+        // Release publication follows that write, so live DATA polling need
+        // not lock a diagnostics record for every credited fragment.
+        if !self.driver_ended.load(Ordering::Acquire) {
+            return None;
+        }
         self.failure.lock().unwrap().as_ref().map(retained)
     }
 }
