@@ -12,6 +12,8 @@ use zero_platform_tokio::contract::CancellationToken;
 pub(in super::super) struct ClientState {
     pub(in super::super) native: std::sync::OnceLock<super::super::native::NativeClient>,
     usable: AtomicBool,
+    #[cfg(feature = "test-support")]
+    pub(in super::super) panic_original_driver: CancellationToken,
     pub(in super::super) reusable: bool,
     pub(in super::super) leases: AtomicUsize,
     pub(in super::super) cancel: CancellationToken,
@@ -52,6 +54,8 @@ impl ClientState {
         Self {
             native: Default::default(),
             usable: AtomicBool::new(true),
+            #[cfg(feature = "test-support")]
+            panic_original_driver: CancellationToken::new(),
             reusable: direct || binding.is_some(),
             leases: AtomicUsize::new(0),
             cancel: CancellationToken::new(),

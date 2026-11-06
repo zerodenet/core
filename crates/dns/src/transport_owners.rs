@@ -201,11 +201,13 @@ impl TransportOwners {
             let owners = {
                 let mut state = self.doh.lock().expect("DNS DoH owners poisoned");
                 state.closing = true;
-                for owner in &state.owners {
-                    owner.retire();
-                }
                 state.owners.clone()
             };
+            // Original cancellation wakes may re-enter this registry. Its
+            // closing fence is installed before delivering them, lock-free.
+            for owner in &owners {
+                owner.retire();
+            }
             let mut failure = None;
             for owner in owners {
                 if let Err(source) = owner.shutdown(deadline).await {

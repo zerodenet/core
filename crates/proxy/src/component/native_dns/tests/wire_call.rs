@@ -220,3 +220,6 @@ fn has_original_io_source(
 
 #[path = "wire_call/recovery.rs"]
 mod recovery;
+
+#[path = "wire_call/doh_recovery.rs"]
+mod doh_recovery;

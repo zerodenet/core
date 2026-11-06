@@ -115,6 +115,16 @@ impl DriverOwner {
             ));
         }
         state.native.push(client.clone());
+        #[cfg(feature = "test-support")]
+        let job = {
+            let panic = client.panic_original_driver.clone();
+            async move {
+                tokio::select! { biased;
+                    _ = panic.cancelled() => panic!("actual original DoH driver failure"),
+                    _ = job => {},
+                }
+            }
+        };
         match tasks.spawn_driver(job, client.cancel.clone(), network) {
             Ok(witness) => {
                 client
@@ -199,4 +209,23 @@ fn shared_sources(
             .budget()
             .zip(second.budget())
             .is_some_and(|(first, second)| Arc::ptr_eq(&first, &second))
+}
+
+#[cfg(feature = "test-support")]
+impl DriverOwner {
+    pub(crate) fn panic_original_driver(
+        &self,
+    ) -> io::Result<zero_platform_tokio::contract::scope::TaskJoinWitness> {
+        let actual = {
+            let state = self.state.lock().expect("DoH driver owner poisoned");
+            state.native.iter().find_map(|client| {
+                let task = client.native.get()?.task.get()?;
+                (!task.is_joined() && !client.cancel.is_cancelled())
+                    .then(|| (client.clone(), task.clone()))
+            })
+        }
+        .ok_or_else(|| io::Error::other("no live original DoH driver"))?;
+        actual.0.panic_original_driver.cancel();
+        Ok(actual.1)
+    }
 }

@@ -95,7 +95,7 @@ async fn physically_closed_failed_dns_owner_reports_original_faults_then_restart
         assert!(!received.failed_tasks.is_empty());
     }).await.unwrap();
 }
-fn contains_source(
+pub(super) fn contains_source(
     error: &(dyn std::error::Error + 'static),
     expected: &Arc<zero_platform_tokio::contract::ChannelError>,
 ) -> bool {
