@@ -3,8 +3,7 @@ use super::*;
 pub(super) struct Prefix {
     pub(super) node: zero_config::OutboundConfig,
     proxy: Proxy,
-    stop: tokio::sync::watch::Sender<bool>,
-    task: tokio::task::JoinHandle<Result<(), zero_engine::EngineError>>,
+    listener: crate::runtime::test_listener::Listener,
 }
 impl Prefix {
     pub(super) async fn new() -> Self {
@@ -27,22 +26,11 @@ impl Prefix {
         Self {
             node,
             proxy,
-            stop: listener.stop,
-            task: listener.worker,
+            listener,
         }
     }
     pub(super) async fn close(self) {
-        self.stop.send_replace(true);
-        self.proxy
-            .inbound_owners
-            .shutdown("incoming", deadline())
-            .await
-            .unwrap();
-        tokio::time::timeout_at(deadline(), self.task)
-            .await
-            .unwrap()
-            .unwrap()
-            .unwrap();
+        crate::runtime::test_listener::close(&self.proxy, "incoming", self.listener).await;
         self.proxy
             .protocols
             .shutdown_components(deadline())
