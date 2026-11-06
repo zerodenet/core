@@ -25,6 +25,17 @@ struct Opener {
     datagram: NodeOpener,
 }
 impl UpstreamOpener for Opener {
+    fn resolve_packet_target(
+        &self,
+        binding: &UpstreamBinding,
+        destination: Destination,
+        identity: zero_platform_tokio::contract::context::RequestIdentity,
+        call: CarrierContext,
+    ) -> BoxFuture<'_, Result<Vec<std::net::SocketAddr>, ChannelError>> {
+        self.control
+            .resolve_packet_target(binding, destination, identity, call)
+    }
+
     fn pending_carrier_capacity(&self, binding: &UpstreamBinding) -> Option<usize> {
         self.control.pending_carrier_capacity(binding)
     }

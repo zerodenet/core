@@ -143,6 +143,33 @@ impl DynChannelControl for Control {
     }
 }
 impl UpstreamOpener for Root {
+    fn resolve_packet_target(
+        &self,
+        binding: &UpstreamBinding,
+        destination: Destination,
+        identity: zero_platform_tokio::contract::context::RequestIdentity,
+        call: CarrierContext,
+    ) -> BoxFuture<'_, Result<Vec<std::net::SocketAddr>, ChannelError>> {
+        let binding = binding.clone();
+        Box::pin(async move {
+            if binding != self.binding
+                || self.cancel.is_cancelled()
+                || self.caller.is_joined()
+                || self.egress.generation() != binding.network_generation.0
+                || !matches!(&identity, zero_platform_tokio::contract::context::RequestIdentity::Service(facts) if matches!(facts.purpose, zero_core::request::ServicePurpose::DnsQuery | zero_core::request::ServicePurpose::Bootstrap))
+            {
+                return Err(crate::component::instance::invalid(
+                    zero_platform_tokio::contract::Reason::StalePlan,
+                    "Packet DNS target differs from its actual query source",
+                ));
+            }
+            tokio::select! { biased;
+                _ = self.cancel.cancelled() => Err(crate::component::instance::invalid(zero_platform_tokio::contract::Reason::Cancelled, "actual DNS caller stopped")),
+                result = crate::protocol_registry::UpstreamConnectServices::resolve_packet_with(destination, identity, call, self.node_dns.as_ref()) => result,
+            }
+        })
+    }
+
     fn pending_carrier_capacity(&self, binding: &UpstreamBinding) -> Option<usize> {
         if binding != &self.binding || self.cancel.is_cancelled() || self.caller.is_joined() {
             return None;

@@ -98,6 +98,29 @@ impl CarrierEndpointObserver for ConnectedEvidence {
     }
 }
 impl UpstreamOpener for NodeOpener {
+    fn resolve_packet_target(
+        &self,
+        binding: &UpstreamBinding,
+        destination: Destination,
+        identity: zero_platform_tokio::contract::context::RequestIdentity,
+        call: CarrierContext,
+    ) -> BoxFuture<'_, Result<Vec<SocketAddr>, ChannelError>> {
+        let binding = binding.clone();
+        Box::pin(async move {
+            if binding.network_generation.0 != self.generation
+                || self.services.network_generation() != self.generation
+            {
+                return Err(invalid(
+                    Reason::StalePlan,
+                    "actual Packet target network changed",
+                ));
+            }
+            self.services
+                .resolve_inner_packet_target(destination, identity, call)
+                .await
+        })
+    }
+
     fn pending_carrier_capacity(&self, binding: &UpstreamBinding) -> Option<usize> {
         self.pending
             .as_ref()
