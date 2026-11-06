@@ -137,11 +137,18 @@ impl ApplicationEventSinkTcpDialer {
         Box::pin(async move {
             let _transition = self.transition.lock().await;
             let original = self.current()?;
-            if original.generation != self.egress.generation() {
-                original.retire(deadline).await?;
+            if original.closed() {
+                // The previous caller received the retained original fault.
+                // Only actual native/users/Scope confirmation permits recovery.
                 self.begin_generation()?;
             } else {
                 original.reap().await?;
+                if original.generation != self.egress.generation() || original.needs_retirement() {
+                    // Return the first actual fault to this receiver after all
+                    // cleanup. A subsequent ordinary request can use closed().
+                    original.retire(deadline).await?;
+                    self.begin_generation()?;
+                }
             }
             Ok(())
         })
