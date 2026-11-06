@@ -130,12 +130,16 @@ async fn bootstrap_http_uses_the_same_original_task_users_and_native_controller_
     let network = ApplicationEventSinkTcpDialer::for_test(EgressInterfaceControl::default());
     network.begin_generation().unwrap();
     let epoch = network.current().unwrap();
+    let (entered, headers) = tokio::sync::oneshot::channel();
+    let (release, response) = tokio::sync::oneshot::channel();
     let peer = tokio::spawn(async move {
         let (mut stream, _) = listener.accept().await.unwrap();
         let mut header = Vec::new();
         while !header.ends_with(b"\r\n\r\n") {
             header.push(stream.read_u8().await.unwrap());
         }
+        entered.send(()).unwrap();
+        response.await.unwrap();
         stream
             .write_all(b"HTTP/1.1 200 OK\r\nContent-Length: 4\r\n\r\nreal")
             .await
@@ -146,6 +150,17 @@ async fn bootstrap_http_uses_the_same_original_task_users_and_native_controller_
     let mut download = network
         .download(format!("http://{address}/rules").parse().unwrap())
         .unwrap();
+    tokio::select! {
+        result = headers => result.unwrap(),
+        event = download.next() => panic!("HTTP returned before the actual held response: {}", event.is_ok()),
+    }
+    let original = epoch.originals.lock().unwrap()[0].clone();
+    assert!(
+        original.receipt.lock().unwrap().is_none(),
+        "actual HTTP response is still pending, with its original native IO retained"
+    );
+    assert!(original.adoption.closed().is_none());
+    release.send(()).unwrap();
     let mut actual = Vec::new();
     while let Some(event) = download.next().await.unwrap() {
         match event {
@@ -155,13 +170,10 @@ async fn bootstrap_http_uses_the_same_original_task_users_and_native_controller_
     }
     assert_eq!(actual, b"real");
     drop(download);
-    let original = epoch.originals.lock().unwrap()[0].clone();
-    assert!(
-        original.receipt.lock().unwrap().is_none(),
-        "HTTP EOF is not native close"
-    );
     network.retire_generation(end()).await.unwrap();
     assert!(epoch.closed());
+    let closed = original.adoption.closed().unwrap();
+    assert!(closed.matches(&original.adoption) && closed.had_native_acquisition());
     assert!(original.custody.returned_and_joined());
     assert!(
         original
