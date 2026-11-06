@@ -152,6 +152,13 @@ pub(crate) fn failure(
     error: ChannelError,
     endpoint: &(String, u16),
 ) -> TcpOutboundFailure {
+    failure_optional(stage, error, Some(endpoint))
+}
+pub(super) fn failure_optional(
+    stage: &'static str,
+    error: ChannelError,
+    endpoint: Option<&(String, u16)>,
+) -> TcpOutboundFailure {
     let kind = match error.reason {
         Reason::Timeout => io::ErrorKind::TimedOut,
         Reason::Cancelled | Reason::Revoked | Reason::StalePlan => io::ErrorKind::Interrupted,
@@ -162,7 +169,7 @@ pub(crate) fn failure(
     TcpOutboundFailure {
         stage,
         error: zero_engine::EngineError::Io(io::Error::new(kind, LegacyError(error))),
-        upstream_endpoint: Some(Box::new(endpoint.clone())),
+        upstream_endpoint: endpoint.map(|endpoint| Box::new(endpoint.clone())),
         network: None,
     }
 }
