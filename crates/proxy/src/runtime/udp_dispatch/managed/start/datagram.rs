@@ -128,7 +128,8 @@ impl UdpDispatch {
                 )
                 .await
                 .map_err(|error| failure(T::ESTABLISH_STAGE, error))?;
-            let connection = managed_datagram_connection_from_flow(flow);
+            let connection = managed_datagram_connection_from_flow(flow)
+                .map_err(|error| failure(T::ESTABLISH_STAGE, error))?;
             self.flow_state
                 .registered
                 .datagram_connections

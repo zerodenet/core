@@ -30,7 +30,7 @@ where
 
 pub(crate) fn managed_datagram_connection_from_flow<T>(
     connection: T,
-) -> SharedManagedDatagramUdpConnection
+) -> Result<SharedManagedDatagramUdpConnection, EngineError>
 where
     T: ManagedDatagramFlowConnection,
 {
@@ -41,18 +41,19 @@ where
         Arc::new(move |(target, port, payload)| {
             destination.deliver(target, port, payload);
         });
-    if connection.install_response_sink(&sink) {
-        return Arc::new(ManagedDatagramConnection {
+    if let Some(installed) = connection.install_response_sink(&sink) {
+        installed?;
+        return Ok(Arc::new(ManagedDatagramConnection {
             sender: Arc::new(ManagedDatagramFlowSender { connection }),
             waiters,
             _response_sink: Some(sink),
             closed_message,
-        });
+        }));
     }
     let response_rx = connection.subscribe_responses();
-    managed_datagram_connection(
+    Ok(managed_datagram_connection(
         Arc::new(ManagedDatagramFlowSender { connection }),
         response_rx,
         closed_message,
-    )
+    ))
 }

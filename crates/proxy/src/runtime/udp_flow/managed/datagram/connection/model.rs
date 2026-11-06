@@ -35,8 +35,8 @@ pub(crate) trait ManagedDatagramFlowConnection: Send + Sync + 'static {
     fn install_response_sink(
         &self,
         _: &Arc<dyn Fn(ManagedDatagramResponse) + Send + Sync>,
-    ) -> bool {
-        false
+    ) -> Option<Result<(), EngineError>> {
+        None
     }
 
     fn subscribe_responses(&self) -> tokio::sync::broadcast::Receiver<ManagedDatagramResponse>;
