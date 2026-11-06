@@ -51,7 +51,7 @@ async fn check(cancel_during_registration: bool) {
                 assert_eq!(failure.stage, Stage::Prepare);
                 // Actual registration refused the retired Entry and closed its
                 // exact original; no replacement acquisition is attempted.
-                ready.send(None).unwrap();
+                assert!(ready.send(None).is_ok());
                 finished.await.unwrap();
             } else {
                 let grant = result.unwrap();
@@ -61,7 +61,7 @@ async fn check(cancel_during_registration: bool) {
                     .send_to_addr(b"original Bound socket", address)
                     .await
                     .unwrap();
-                ready.send(Some(original)).unwrap();
+                assert!(ready.send(Some(original)).is_ok());
                 let mut bytes = [0; 64];
                 let mut receive = Box::pin(grant.socket.recv_from_addr(&mut bytes));
                 poll_fn(|cx| {
