@@ -222,3 +222,26 @@ impl Options {
         })
     }
 }
+
+impl DirectAdapter {
+    pub(crate) fn packet_alias_recipe(
+        &self,
+        input: &zero_config::OutboundConfig,
+        resources: &mut crate::component::ResourcePreparation<'_>,
+    ) -> Result<Option<crate::component::ComponentRecipe>, ChannelError> {
+        let options = self.direct_options(input, resources).map_err(|source| {
+            error(
+                Reason::StalePlan,
+                "Direct recovery alias differs from this actual cold pass",
+            )
+            .with_source(source)
+        })?;
+        if options.packet.is_none() {
+            return Ok(None);
+        }
+        Ok(Some(crate::component::ComponentRecipe::from_validated(
+            Arc::new(super::super::super::factory::DirectFactory),
+            Arc::new(options),
+        )))
+    }
+}

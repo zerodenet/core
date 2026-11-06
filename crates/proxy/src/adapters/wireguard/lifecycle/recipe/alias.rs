@@ -193,3 +193,19 @@ impl WireguardAdapter {
             .collect()
     }
 }
+
+impl WireguardAdapter {
+    /// Decode only this built-in typed alias after the actual recovery root
+    /// was prepared. Never mutate a retired Options or revive its taken stacks.
+    pub(crate) fn device_alias_recipe(
+        &self,
+        input: &OutboundConfig,
+        resources: &mut crate::component::ResourcePreparation<'_>,
+    ) -> Result<crate::component::ComponentRecipe, ChannelError> {
+        let options = self.linked_outbound_options(input, resources)?;
+        Ok(crate::component::ComponentRecipe::from_validated(
+            Arc::new(LinkedOutboundFactory),
+            Arc::new(options),
+        ))
+    }
+}

@@ -1,4 +1,5 @@
 //! Same host cold union and actual BuildNew invocations, without a second pool.
+mod aliases;
 use super::*;
 use std::collections::BTreeSet;
 use zero_core::component::ComponentId;
