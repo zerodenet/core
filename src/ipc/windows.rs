@@ -4,15 +4,15 @@ use std::{
     io,
     path::PathBuf,
     sync::{
-        Arc,
         atomic::{AtomicBool, AtomicU64, Ordering},
+        Arc,
     },
 };
 use tokio::{sync::oneshot, task::JoinSet};
 use tracing::{debug, info, warn};
 use zero_platform_tokio::{
+    contract::{scope::TaskScope, CancellationToken},
     ControlledPipe, ControlledPipeOwner,
-    contract::{CancellationToken, scope::TaskScope},
 };
 use zero_proxy::ProxyHandle;
 mod client;
@@ -259,3 +259,6 @@ async fn run_server(
     info!(pipe=%path.display(),"ipc server stopped");
     owner::finish(failures)
 }
+
+#[cfg(test)]
+mod tests;

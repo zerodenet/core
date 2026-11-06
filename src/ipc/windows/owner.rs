@@ -16,6 +16,10 @@ fn lock<T>(value: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
         .unwrap_or_else(std::sync::PoisonError::into_inner)
 }
 impl Originals {
+    #[cfg(test)]
+    pub(super) fn originals_for_test(&self) -> Vec<Arc<Entry>> {
+        lock(&self.0).clone()
+    }
     pub(super) fn is_empty(&self) -> bool {
         lock(&self.0).is_empty()
     }
