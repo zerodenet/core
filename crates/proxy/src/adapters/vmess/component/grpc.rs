@@ -46,7 +46,7 @@ impl Factory {
     ) -> Result<ComponentInstance, BuildError> {
         match options.as_ref() {
             Options::Owned(options, network) => {
-                let resolver = crate::component::background::grpc::tls_resolver(
+                let resolver = crate::component::background::tls_material::resolver(
                     network.clone(),
                     context.instance(),
                 );
