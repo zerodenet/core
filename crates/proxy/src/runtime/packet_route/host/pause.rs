@@ -5,7 +5,14 @@ use zero_platform_tokio::contract::{
     scope::{TaskJoinWitness, TaskScopeIdentity},
     ChannelError, Impact, Reason, Stage,
 };
+/// Admission is fenced, but the original wire has not been armed or paused.
+pub(crate) struct NativeDeviceFenced {
+    guard: RequestGuard,
+}
 pub(crate) struct NativeDevicePaused {
+    guard: RequestGuard,
+}
+struct RequestGuard {
     original: Arc<ReadPause>,
     request: u64,
 }
@@ -35,7 +42,7 @@ pub(super) struct ReadCheckpoint {
     #[cfg(windows)]
     pub sdk: Option<zero_tun::OwnedWintunReadControl>,
 }
-impl Drop for NativeDevicePaused {
+impl Drop for RequestGuard {
     fn drop(&mut self) {
         let mut state = self.original.state.lock().unwrap();
         if state.request == Some(self.request) {
@@ -101,10 +108,10 @@ impl ReadPause {
             original: self.clone(),
         })
     }
-    pub(crate) async fn pause(
+    pub(crate) async fn fence(
         self: &Arc<Self>,
         deadline: tokio::time::Instant,
-    ) -> Result<NativeDevicePaused, ChannelError> {
+    ) -> Result<NativeDeviceFenced, ChannelError> {
         let request = {
             let mut state = self.state.lock().unwrap();
             if !self.live(&state) {
@@ -122,7 +129,7 @@ impl ReadPause {
             state.result = None;
             state.serial
         };
-        let guard = NativeDevicePaused {
+        let guard = RequestGuard {
             original: self.clone(),
             request,
         };
@@ -130,14 +137,61 @@ impl ReadPause {
             let changed = self.changed.notified();
             tokio::pin!(changed);
             changed.as_mut().enable();
-            let wake = {
-                let mut state = self.state.lock().unwrap();
+            {
+                let state = self.state.lock().unwrap();
                 if !self.live(&state) || state.request != Some(request) {
+                    return Err(error(Reason::Revoked));
+                }
+                // Existing acquisitions may finish while the original wire
+                // continues running. Only finish may request its checkpoint.
+                if state.acquiring == 0 {
+                    return Ok(NativeDeviceFenced { guard });
+                }
+            }
+            tokio::time::timeout_at(deadline, changed)
+                .await
+                .map_err(|source| error(Reason::Timeout).with_source(source))?;
+        }
+    }
+    pub(crate) async fn pause(
+        self: &Arc<Self>,
+        deadline: tokio::time::Instant,
+    ) -> Result<NativeDevicePaused, ChannelError> {
+        self.fence(deadline).await?.finish(deadline).await
+    }
+}
+impl NativeDeviceFenced {
+    pub(crate) async fn finish(
+        self,
+        deadline: tokio::time::Instant,
+    ) -> Result<NativeDevicePaused, ChannelError> {
+        let guard = self.guard;
+        let original = guard.original.clone();
+        let request = guard.request;
+        {
+            let mut state = original.state.lock().unwrap();
+            if !original.live(&state)
+                || state.request != Some(request)
+                || state.acquiring != 0
+                || state.armed
+            {
+                return Err(error(Reason::Revoked));
+            }
+            state.armed = true;
+        }
+        original.changed.notify_waiters();
+        loop {
+            let changed = original.changed.notified();
+            tokio::pin!(changed);
+            changed.as_mut().enable();
+            {
+                let state = original.state.lock().unwrap();
+                if !original.live(&state) || state.request != Some(request) {
                     return Err(error(Reason::Revoked));
                 }
                 if let Some(result) = &state.result {
                     return match result {
-                        Ok(()) => Ok(guard),
+                        Ok(()) => Ok(NativeDevicePaused { guard }),
                         Err(source) => {
                             Err(
                                 ChannelError::new(source.stage, source.reason, source.impact)
@@ -146,15 +200,6 @@ impl ReadPause {
                         }
                     };
                 }
-                let wake = state.acquiring == 0 && !state.armed;
-                if wake {
-                    state.armed = true;
-                }
-                wake
-            };
-            if wake {
-                self.changed.notify_waiters();
-                continue;
             }
             tokio::time::timeout_at(deadline, changed)
                 .await
@@ -162,6 +207,7 @@ impl ReadPause {
         }
     }
 }
+
 impl Checkpoint {
     pub(crate) fn matches_driver(&self, actual: &TaskJoinWitness) -> bool {
         self.original
@@ -187,7 +233,7 @@ impl Checkpoint {
     }
     pub(crate) fn acknowledge(&self, request: u64, result: Result<(), ChannelError>) {
         let mut state = self.original.state.lock().unwrap();
-        if state.request == Some(request) {
+        if state.armed && state.request == Some(request) {
             state.result = Some(result.map_err(Arc::new));
         }
         drop(state);
@@ -207,9 +253,10 @@ impl Checkpoint {
 }
 impl NativeDevicePaused {
     pub(crate) fn validate(&self) -> Result<(), ChannelError> {
-        let state = self.original.state.lock().unwrap();
-        if state.request != Some(self.request)
-            || !self.original.live(&state)
+        let state = self.guard.original.state.lock().unwrap();
+        if state.request != Some(self.guard.request)
+            || !self.guard.original.live(&state)
+            || !state.armed
             || !matches!(state.result, Some(Ok(())))
             || state.acquiring != 0
         {
@@ -234,6 +281,16 @@ impl std::error::Error for SharedFailure {
     }
 }
 impl HostPacketDevice {
+    pub(crate) async fn fence_if_idle(
+        &self,
+        deadline: tokio::time::Instant,
+    ) -> Result<NativeDeviceFenced, ChannelError> {
+        self.read_pause
+            .as_ref()
+            .ok_or_else(|| error(Reason::Unsupported))?
+            .fence(deadline)
+            .await
+    }
     pub(crate) async fn pause_if_idle(
         &self,
         deadline: tokio::time::Instant,

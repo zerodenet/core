@@ -158,19 +158,11 @@ impl OrchestrationState {
                 .await;
             return;
         }
-        // An idle persistent DNS loan can itself be a real Packet Source
-        // user. Its same-token gate has already rejected active queries and
-        // retired only the affected warm drivers. Now the original Source can
-        // pause without waiting on the loan it would otherwise have to carry.
-        let _source_pauses = if budget_changed {
-            match budget_barrier::pause_sources(
-                proxy,
-                self.applied_snapshot.config(),
-                new_snapshot.config(),
-            )
-            .await
-            {
-                Ok(pauses) => Some(pauses),
+        // Reject actual Business before revoking any cached borrower. This same
+        // guard also supplies the sealed actual receiver set for Source preflight.
+        let user_pause = if source_barrier {
+            match proxy.protocols.try_pause_replacement_users(&components) {
+                Ok(pause) => Some(std::sync::Arc::new(pause)),
                 Err(error) => {
                     self.reject_before_start(proxy, &new_snapshot, error.to_string(), true)
                         .await;
@@ -180,11 +172,24 @@ impl OrchestrationState {
         } else {
             None
         };
-        let _user_pause = if budget_changed {
-            match proxy.protocols.try_pause_replacement_users(&components) {
-                Ok(pause) => Some(pause),
+        let mut source_retirement = None;
+        let _source_pauses = if let Some(user_pause) = &user_pause {
+            match budget_barrier::pause_sources(
+                proxy,
+                self.applied_snapshot.config(),
+                new_snapshot.config(),
+                &source_dependency_changes,
+                &components,
+                user_pause.clone(),
+                &mut source_retirement,
+            )
+            .await
+            {
+                Ok(pauses) => Some(pauses),
                 Err(error) => {
-                    self.reject_before_start(proxy, &new_snapshot, error.to_string(), true)
+                    let cold_only = source_retirement.is_none();
+                    drop(source_retirement.take());
+                    self.reject_before_start(proxy, &new_snapshot, error.to_string(), cold_only)
                         .await;
                     return;
                 }
@@ -227,7 +232,9 @@ impl OrchestrationState {
         let prepared_services = match proxy.protocols.prepare_inbound_services(&new_config) {
             Ok(prepared) => prepared,
             Err(error) => {
-                self.reject_before_start(proxy, &new_snapshot, error.to_string(), budget_changed)
+                let cold_only = source_retirement.is_none();
+                drop(source_retirement.take());
+                self.reject_before_start(proxy, &new_snapshot, error.to_string(), cold_only)
                     .await;
                 return;
             }
@@ -281,8 +288,15 @@ impl OrchestrationState {
                     }
                     Ok(_) => {}
                     Err(error) => {
-                        self.reject_before_start(proxy, &new_snapshot, error.to_string(), true)
-                            .await;
+                        let cold_only = source_retirement.is_none();
+                        drop(source_retirement.take());
+                        self.reject_before_start(
+                            proxy,
+                            &new_snapshot,
+                            error.to_string(),
+                            cold_only,
+                        )
+                        .await;
                         return;
                     }
                 }
@@ -327,6 +341,7 @@ impl OrchestrationState {
                             )));
                         }
                     }
+                    drop(source_retirement);
                     budget_barrier::start_resources(
                         proxy,
                         start_config,

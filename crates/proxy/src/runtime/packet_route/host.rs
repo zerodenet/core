@@ -1,7 +1,7 @@
 //! Bidirectional host L3 I/O. The host supplies a dedicated configured device.
 mod driver;
 pub(crate) mod pause;
-pub(crate) use pause::NativeDevicePaused;
+pub(crate) use pause::{NativeDeviceFenced, NativeDevicePaused};
 mod legacy;
 mod policy;
 mod scoped;

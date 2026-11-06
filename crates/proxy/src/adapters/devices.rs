@@ -65,6 +65,26 @@ impl Devices {
             .all(|(device, origin)| device.replacement_users_retained(stopping, origin)))
     }
 
+    pub(crate) async fn fence_direct_packet_acquisition(
+        &self,
+        deadline: tokio::time::Instant,
+    ) -> Result<Option<crate::runtime::packet_route::host::NativeDeviceFenced>, EngineError> {
+        match &self.direct {
+            Some(direct) => direct.fence_packet_acquisition(deadline).await,
+            None => Ok(None),
+        }
+    }
+
+    #[cfg(feature = "wireguard")]
+    pub(crate) async fn fence_standalone_packet_acquisition(
+        &self,
+        deadline: tokio::time::Instant,
+    ) -> Result<Vec<crate::runtime::packet_route::host::NativeDeviceFenced>, EngineError> {
+        match &self.wireguard {
+            Some(wireguard) => wireguard.fence_standalone_acquisition(deadline).await,
+            None => Ok(Vec::new()),
+        }
+    }
     pub(crate) async fn pause_direct_packet_if_idle(
         &self,
         deadline: tokio::time::Instant,

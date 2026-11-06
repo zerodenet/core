@@ -5,6 +5,19 @@ use crate::component::{
 use std::sync::Arc;
 use zero_config::RuntimeConfig;
 impl super::ProtocolInventory {
+    pub(crate) fn begin_packet_source_retirement<'a>(
+        &'a self,
+        candidate: &Arc<ComponentPlan>,
+        pause: Arc<crate::component::catalog::ReplacementUsersPause>,
+    ) -> Result<
+        Option<crate::component::catalog::PacketSourceRetirement<'a>>,
+        zero_platform_tokio::contract::ChannelError,
+    > {
+        self.host
+            .components()
+            .begin_packet_source_retirement(candidate, pause)
+    }
+
     pub(crate) fn try_pause_replacement_users(
         &self,
         candidate: &Arc<ComponentPlan>,
@@ -67,9 +80,13 @@ impl super::ProtocolInventory {
         let plan = match self.host.components().prepared_candidate(config) {
             Some(prepared) => prepared,
             None => self.prepare_device_components(config.clone()),
-        }.map_err(|error| std::io::Error::other(retained(error)))?;
-        plan.source_dependency_instances(&input.tag, &crate::runtime::inbound_owners::source_input_identity(input)?)
-            .map_err(|error| std::io::Error::other(error).into())
+        }
+        .map_err(|error| std::io::Error::other(retained(error)))?;
+        plan.source_dependency_instances(
+            &input.tag,
+            &crate::runtime::inbound_owners::source_input_identity(input)?,
+        )
+        .map_err(|error| std::io::Error::other(error).into())
     }
 
     pub(crate) fn current_components(
@@ -209,8 +226,12 @@ impl super::ProtocolInventory {
             self.host
                 .components()
                 .prepare_with_device_resources(config.clone(), |resources| {
-                    let deferred = self.devices.prepare_component_resources(&config, resources)?;
-                    let sources = self.devices.source_component_dependencies(&config, resources)?;
+                    let deferred = self
+                        .devices
+                        .prepare_component_resources(&config, resources)?;
+                    let sources = self
+                        .devices
+                        .source_component_dependencies(&config, resources)?;
                     resources.set_source_dependencies(sources)?;
                     Ok(deferred)
                 })
@@ -229,10 +250,14 @@ impl super::ProtocolInventory {
             self.host
                 .components()
                 .prepare_recovered_device_resources(config.clone(), |resources| {
-                    let deferred=self.devices.prepare_component_resources(&config,resources)?;
-                    let sources=self.devices.source_component_dependencies(&config,resources)?;
+                    let deferred = self
+                        .devices
+                        .prepare_component_resources(&config, resources)?;
+                    let sources = self
+                        .devices
+                        .source_component_dependencies(&config, resources)?;
                     resources.set_source_dependencies(sources)?;
-                    let aliases=self.devices.device_alias_overrides(&config,resources)?;
+                    let aliases = self.devices.device_alias_overrides(&config, resources)?;
                     resources.set_device_alias_overrides(aliases)?;
                     Ok(deferred)
                 })

@@ -52,6 +52,13 @@ pub struct PacketSourceMainPaused {
     paused: PacketSourcePaused,
 }
 impl PacketSourceMainPaused {
+    pub fn scope(&self) -> &TaskScopeIdentity {
+        &self.paused.original.scope
+    }
+    pub fn matches(&self, original: &Arc<PacketSourcePause>) -> bool {
+        Arc::ptr_eq(&self.paused.original, original)
+    }
+
     pub fn instance(&self) -> ComponentInstanceId {
         self.paused.original.instance
     }

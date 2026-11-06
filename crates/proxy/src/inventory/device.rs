@@ -15,6 +15,35 @@ use crate::runtime::udp_dispatch::packet_path_operation::PreparedDatagramRelayCa
 type PacketPaths = HashMap<String, PreparedDevicePacketPath>;
 
 impl ProtocolInventory {
+    pub(crate) async fn fence_direct_packet_acquisition(
+        &self,
+        deadline: tokio::time::Instant,
+    ) -> Result<Option<crate::runtime::packet_route::host::NativeDeviceFenced>, EngineError> {
+        self.devices.fence_direct_packet_acquisition(deadline).await
+    }
+
+    #[cfg(feature = "wireguard")]
+    pub(crate) async fn fence_standalone_packet_acquisition(
+        &self,
+        deadline: tokio::time::Instant,
+    ) -> Result<Vec<crate::runtime::packet_route::host::NativeDeviceFenced>, EngineError> {
+        self.devices
+            .fence_standalone_packet_acquisition(deadline)
+            .await
+    }
+    #[cfg(feature = "wireguard")]
+    pub(crate) fn actual_packet_flow_sources(
+        &self,
+        previous: &RuntimeConfig,
+    ) -> Result<
+        Vec<(
+            Arc<crate::runtime::raw_ip::SharedRawIpDevice>,
+            zero_platform_tokio::controlled_carrier::CarrierOrigin,
+        )>,
+        EngineError,
+    > {
+        self.devices.actual_packet_flow_sources(previous)
+    }
     pub(crate) async fn pause_direct_packet_if_idle(
         &self,
         deadline: tokio::time::Instant,

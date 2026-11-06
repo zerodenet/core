@@ -28,6 +28,27 @@ impl Prepared {
     }
 }
 impl DirectAdapter {
+    pub(crate) async fn fence_packet_acquisition(
+        &self,
+        deadline: tokio::time::Instant,
+    ) -> Result<
+        Option<crate::runtime::packet_route::host::NativeDeviceFenced>,
+        zero_engine::EngineError,
+    > {
+        let original = self
+            .packet
+            .lock()
+            .unwrap_or_else(|error| error.into_inner())
+            .clone();
+        match original {
+            Some(original) => original
+                .fence_if_idle(deadline)
+                .await
+                .map(Some)
+                .map_err(|source| std::io::Error::other(source).into()),
+            None => Ok(None),
+        }
+    }
     pub(crate) async fn pause_packet_if_idle(
         &self,
         deadline: tokio::time::Instant,

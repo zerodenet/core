@@ -105,33 +105,44 @@ pub(super) struct SourceBudgetPauses {
     #[cfg(feature = "wireguard")]
     _standalone: Vec<crate::runtime::packet_route::host::NativeDevicePaused>,
 }
-pub(super) async fn pause_sources(
-    proxy: &Proxy,
+pub(super) async fn pause_sources<'a>(
+    proxy: &'a Proxy,
     previous: &RuntimeConfig,
     next: &RuntimeConfig,
+    changed_sources: &std::collections::BTreeSet<String>,
+    candidate: &Arc<crate::component::catalog::ComponentPlan>,
+    user_pause: Arc<crate::component::catalog::ReplacementUsersPause>,
+    retirement: &mut Option<crate::component::catalog::PacketSourceRetirement<'a>>,
 ) -> Result<SourceBudgetPauses, EngineError> {
+    let deadline = tokio::time::Instant::now() + std::time::Duration::from_secs(5);
     #[cfg(feature = "raw-ip-runtime")]
     let packet_changed = packet_budget_changed(previous, next);
     #[cfg(not(feature = "raw-ip-runtime"))]
     let _ = next;
     let carrier_changed = carrier_budget_changed(previous, next);
     let mut pauses = Vec::new();
+    #[cfg(feature = "raw-ip-runtime")]
+    let mut mains = Vec::new();
     for input in &previous.inbounds {
         let Some(original) = proxy.inbound_owners.owner(&input.tag) else {
             continue;
         };
-        let needed = carrier_changed || input.protocol.protocol_name() == "shadowsocks";
+        let needed = carrier_changed
+            || input.protocol.protocol_name() == "shadowsocks"
+            || changed_sources.contains(&input.tag);
         #[cfg(feature = "raw-ip-runtime")]
         let needed = needed || packet_changed && original.has_packet_source_pause();
         if !needed {
             continue;
         }
-        if let Some(pause) = original
-            .pause_acquisition_if_idle(
-                tokio::time::Instant::now() + std::time::Duration::from_secs(5),
-            )
-            .await?
-        {
+        #[cfg(feature = "raw-ip-runtime")]
+        if original.has_packet_source_pause() {
+            if let Some(main) = original.pause_packet_main_if_idle(deadline).await? {
+                mains.push((original, main));
+            }
+            continue;
+        }
+        if let Some(pause) = original.pause_acquisition_if_idle(deadline).await? {
             pauses.push(pause);
         }
     }
@@ -141,13 +152,8 @@ pub(super) async fn pause_sources(
             .inbound_owners
             .owner(crate::runtime::inbound_owners::system_tun::SYSTEM_TUN_OWNER)
         {
-            if let Some(pause) = original
-                .pause_acquisition_if_idle(
-                    tokio::time::Instant::now() + std::time::Duration::from_secs(5),
-                )
-                .await?
-            {
-                pauses.push(pause);
+            if let Some(main) = original.pause_packet_main_if_idle(deadline).await? {
+                mains.push((original, main));
             }
         }
     }
@@ -155,9 +161,7 @@ pub(super) async fn pause_sources(
     let direct = if packet_changed || carrier_changed {
         proxy
             .protocols
-            .pause_direct_packet_if_idle(
-                tokio::time::Instant::now() + std::time::Duration::from_secs(5),
-            )
+            .fence_direct_packet_acquisition(deadline)
             .await?
     } else {
         None
@@ -166,12 +170,62 @@ pub(super) async fn pause_sources(
     let standalone = if packet_changed || carrier_changed {
         proxy
             .protocols
-            .pause_standalone_packet_if_idle(
-                tokio::time::Instant::now() + std::time::Duration::from_secs(5),
-            )
+            .fence_standalone_packet_acquisition(deadline)
             .await?
     } else {
         Vec::new()
+    };
+    #[cfg(feature = "wireguard")]
+    for (device, origin) in proxy.protocols.actual_packet_flow_sources(previous)? {
+        let affected = packet_changed
+            || carrier_changed
+            || mains.iter().any(|(_, main)| {
+                main.instance() == origin.instance()
+                    && origin
+                        .driver()
+                        .is_some_and(|driver| main.scope().same_scope(&driver.scope_identity()))
+            });
+        if affected && !device.replacement_users_retained(&user_pause, &origin) {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::WouldBlock,
+                "actual Packet Source retains live business or unclassified original users",
+            )
+            .into());
+        }
+    }
+    // Every actual business Source is now fenced and proved idle; only exact
+    // cached receivers in this candidate's real StopOld set may be revoked.
+    // Persist the replacement before callbacks; cancellation retains all debt.
+    *retirement = proxy
+        .protocols
+        .begin_packet_source_retirement(candidate, user_pause)
+        .map_err(std::io::Error::other)?;
+    #[cfg(feature = "raw-ip-runtime")]
+    for (original, main) in mains {
+        pauses.push(original.finish_packet_pause(main).await?);
+    }
+    #[cfg(feature = "raw-ip-runtime")]
+    let direct = match direct {
+        Some(fenced) => Some(
+            fenced
+                .finish(deadline)
+                .await
+                .map_err(std::io::Error::other)?,
+        ),
+        None => None,
+    };
+    #[cfg(feature = "wireguard")]
+    let standalone = {
+        let mut actual = Vec::new();
+        for fenced in standalone {
+            actual.push(
+                fenced
+                    .finish(deadline)
+                    .await
+                    .map_err(std::io::Error::other)?,
+            );
+        }
+        actual
     };
     for pause in &pauses {
         pause.validate()?;
