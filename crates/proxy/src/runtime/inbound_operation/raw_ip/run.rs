@@ -89,6 +89,7 @@ pub(in crate::runtime) async fn run(
         traffic: Mutex::new(Arc::new(IngressTraffic::pending())),
         route: route.clone(),
         ready: wire_ready,
+        native_io: tun.as_ref().map(|policy| policy.native_io.clone()),
     });
     let Some(session) = accepted
         .respond_observed(ReplyOutcome::LocalChannelReady, observer.clone())
