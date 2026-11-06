@@ -74,6 +74,7 @@ pub(crate) struct LegacyReplay {
     bloom_budget: Arc<super::LegacyReplayBudget>,
     bloom_limit: Option<usize>,
 }
+#[path = "legacy_replay/budget.rs"]
 mod budget;
 
 impl LegacyReplay {

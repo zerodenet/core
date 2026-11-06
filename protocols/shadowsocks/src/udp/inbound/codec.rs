@@ -105,7 +105,6 @@ impl ShadowsocksInboundUdpCodec {
     pub(crate) fn with_replay_guard(
         mut self,
         replay: crate::shared::legacy_replay::LegacyReplay,
-        #[cfg(feature = "blake3")] authenticated: Option<crate::udp::session::Charge>,
     ) -> Self {
         self.replay = replay;
         self
