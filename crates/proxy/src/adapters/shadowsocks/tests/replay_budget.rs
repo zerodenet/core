@@ -96,3 +96,7 @@ async fn ordinary_source_projects_total_and_replaces_originals_on_runtime_only_b
         assert!(closed.joined_tasks() >= 2, "source plus exact replay maintenance Scope task joined");
     }).await.unwrap();
 }
+
+#[cfg(feature = "socks5")]
+#[path = "both_budget.rs"]
+mod both_budget;
