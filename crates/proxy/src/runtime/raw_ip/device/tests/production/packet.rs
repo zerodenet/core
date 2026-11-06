@@ -35,6 +35,7 @@ async fn ordinary_packet_roles_return_original_source_and_retire_old_graph_witho
         .unwrap();
     let input_owner = proxy.inbound_owners.owner(&input.tag).unwrap();
     input_owner.wait_ready().await.unwrap();
+    let output_owner = proxy.inbound_owners.owner("wg").unwrap();
     let main = input_owner
         .task_access()
         .source_main_witness()
@@ -80,13 +81,9 @@ async fn ordinary_packet_roles_return_original_source_and_retire_old_graph_witho
                 .await
             {
                 let actual_input = input_owner.wait_ready().await;
-                let output_owner = proxy.inbound_owners.owner("wg");
-                let actual_output = match &output_owner {
-                    Some(owner) => Some(owner.wait_ready().await),
-                    None => None,
-                };
+                let actual_output = output_owner.wait_ready().await;
                 panic!(
-                    "same actual graph replacement failed: {error:?}; original input Source readiness: {actual_input:#?}; actual output Source readiness: {actual_output:#?}; original worker fault: {:?}; matching joined receipts: {:?}",
+                    "same actual graph replacement failed: {error:?}; original input Source readiness: {actual_input:#?}; original output Source readiness: {actual_output:#?}; original worker fault: {:?}; matching joined receipts: {:?}",
                     previous[0].task.first_scoped_failure(),
                     original_joins.iter().map(|witness| witness.try_joined()).collect::<Vec<_>>(),
                 );
