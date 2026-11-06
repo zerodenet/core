@@ -149,16 +149,19 @@ impl SystemTunLease {
                 protocol: instance.lifecycle,
             }),
         )?;
-        let owner = self.owner.clone();
-        let runtime = runtime
-            .with_inbound_instance(identity)
-            .with_readiness(owner.readiness());
+        let owner = Arc::downgrade(&self.owner);
+        let runtime = runtime.with_source_owner(&self.owner);
         self.owner.spawn_driver(async move {
             let original = resources.original_packet_owner(0).ok_or_else(|| {
                 std::io::Error::other("System TUN start omitted its acquired original")
             })?;
             let context = prepared.complete(&original)?;
-            *owner.packet_source.lock().unwrap() = Some(context);
+            {
+                let owner = owner.upgrade().ok_or_else(|| {
+                    std::io::Error::other("actual System TUN owner retired before source install")
+                })?;
+                *owner.packet_source.lock().unwrap() = Some(context);
+            }
             crate::runtime::inbound_operation::source::run(
                 source,
                 runtime,
