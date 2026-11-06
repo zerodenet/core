@@ -19,6 +19,18 @@ pub trait UpstreamOpener: Send + Sync {
     fn pending_carrier_capacity(&self, _: &UpstreamBinding) -> Option<usize> {
         None
     }
+    /// Validate cleanup identity only, without retaining it or granting I/O.
+    /// An implementation must use its actual current plan and binding.
+    fn validate_pending_carrier(
+        &self,
+        _: &UpstreamBinding,
+        _: &crate::controlled_carrier::CarrierAdoption,
+    ) -> Result<(), ChannelError> {
+        let mut failure = ChannelError::new(Stage::Prepare, Reason::Unsupported, Impact::Component);
+        failure.delivery = DeliveryState::NotSubmitted;
+        Err(failure)
+    }
+
     /// Resolve a selected inner Packet/Flow destination using the actual host
     /// DNS policy. It never prepares a native socket or grants a carrier.
     fn resolve_packet_target(

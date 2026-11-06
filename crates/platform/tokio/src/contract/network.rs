@@ -8,9 +8,9 @@ use zero_core::{
 use zero_traits::DialPolicy;
 
 use super::{
-    BoxFuture, ChannelError,
     datagram::{BoxDatagramSession, DatagramRequest},
     stream::BoxStream,
+    BoxFuture, ChannelError,
 };
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -103,6 +103,21 @@ impl UpstreamTransport {
     pub fn pending_carrier_capacity(&self) -> Option<usize> {
         self.opener.pending_carrier_capacity(&self.binding)
     }
+    /// Read the original provider's finite declaration for the selected path.
+    /// This metadata projection neither selects I/O nor installs a claim.
+    pub fn pending_carrier_capacity_for(&self, binding: &UpstreamBinding) -> Option<usize> {
+        self.opener.pending_carrier_capacity(binding)
+    }
+    /// Validate an original against the provider's actual current graph.
+    /// The caller must still retain it in its own finite cleanup ledger.
+    pub fn validate_pending_carrier(
+        &self,
+        binding: &UpstreamBinding,
+        adoption: &crate::controlled_carrier::CarrierAdoption,
+    ) -> Result<(), ChannelError> {
+        self.opener.validate_pending_carrier(binding, adoption)
+    }
+
     pub fn resolve_packet_target(
         &self,
         destination: Destination,
