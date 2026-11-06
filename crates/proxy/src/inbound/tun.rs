@@ -33,7 +33,9 @@ pub(crate) mod udp;
 
 use std::io;
 use std::net::IpAddr;
+#[cfg(feature = "raw-ip-runtime")]
 use std::sync::atomic::{AtomicU64, Ordering};
+#[cfg(feature = "raw-ip-runtime")]
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -43,6 +45,7 @@ use zero_engine::EngineError;
 use crate::runtime::{Proxy, TunControl, TunInfo};
 use config::parse_interface_addresses;
 
+#[cfg(feature = "raw-ip-runtime")]
 static NEXT_TUN_ID: AtomicU64 = AtomicU64::new(1);
 const MAX_CAPTURE_ROUTE_PREFIXES: usize = 512;
 
