@@ -22,7 +22,7 @@ impl ComponentSlot {
             .get_or_init(|| {
                 let slot = self.clone();
                 let operation: BoxFuture<'static, Result<(), SharedError>> = Box::pin(async move {
-                    match std::panic::AssertUnwindSafe(slot.start(deadline))
+                    let outcome = match std::panic::AssertUnwindSafe(slot.start(deadline))
                         .catch_unwind()
                         .await
                     {
@@ -40,7 +40,9 @@ impl ComponentSlot {
                                 .with_source(StartPanic(std::sync::Mutex::new(payload))),
                             ))
                         }
-                    }
+                    };
+                    slot.wake_supervision();
+                    outcome
                 });
                 operation.shared()
             })
@@ -54,6 +56,13 @@ impl ComponentSlot {
         self.owned_start.get()?.peek()?.as_ref().err().cloned()
     }
     pub(in crate::component) fn poll_owned_start(&self, target: &Arc<WaitTarget>) -> bool {
+        if self
+            .owned_start
+            .get()
+            .is_none_or(|operation| operation.peek().is_some())
+        {
+            return false;
+        }
         let Some(host) = self.owned_start_host.get() else {
             return false;
         };
