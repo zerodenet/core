@@ -63,7 +63,7 @@ impl HostPeerBinding {
         start.start();
         original.result(&self.cancel).await
     }
-    pub(super) fn observe_process_joined(
+    pub(in crate::runtime::inbound_owners) fn observe_process_joined(
         &self,
         task: TaskId,
     ) -> Option<zero_platform_tokio::contract::scope::TaskJoined> {
@@ -98,7 +98,7 @@ impl HostPeerBinding {
         let original = self.process.lock().unwrap().clone();
         original.as_ref().is_none_or(|original| original.retired())
     }
-    pub(super) async fn close_process_lookup(&self, deadline: Instant) -> Result<(), ChannelError> {
+    pub(in crate::runtime::inbound_owners) async fn close_process_lookup(&self, deadline: Instant) -> Result<(), ChannelError> {
         let original = self.process.lock().unwrap().clone();
         if let Some(original) = original {
             original.cancel();
