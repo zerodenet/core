@@ -139,6 +139,8 @@ pub(crate) struct TunControl {
     pub id: u64,
     pub shutdown: tokio::sync::watch::Sender<bool>,
     pub completion: Arc<crate::inbound::tun::completion::TunCompletion>,
+    #[cfg(feature = "raw-ip-runtime")]
+    pub budget_recovery: Option<Arc<crate::inbound::tun::budget::TunBudgetRecovery>>,
     pub route_recovery: Option<tokio::sync::mpsc::Sender<oneshot::Sender<Result<(), String>>>>,
 }
 
