@@ -233,11 +233,7 @@ impl Managed {
             .iter()
             .all(|record| record.closed())
             && self.budget.all_returned()
-            && self
-                .grants
-                .registration()
-                .observe()
-                .is_some_and(|owner| owner.closed().is_some_and(|closed| closed.matches(&owner)))
+            && { let owner=self.grants.registration(); owner.closed().is_some_and(|closed|closed.matches(&owner)) }
     }
     pub(super) fn physical_unconfirmed(&self) -> bool {
         !self.records.lock().unwrap().is_empty()
