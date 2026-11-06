@@ -52,3 +52,28 @@ TEMP-WG-OUTER-UDP-01 仅原 outer_udp_proxy/reconnect 范围保留未关闭、�
 - concrete Packet provider 扩展 Create/ExistingWindows，先留原件/issued identity，再配置；
   失败保同控制器，唯一 view 返回、同 Scope driver join 与 matching native receipt 仍分别确认。
   不因 provider 存在就开启未完成的普通 Packet/TUN source。
+
+## 当前接续状态（五域均未结题）
+
+再次 fetch 的 `FETCH_HEAD` 仍为完整远端 integration
+`59615e69ea5a413d657a873157ea4adf8f204a90`；没有回退或强推。
+本地依赖以普通 merge/追加提交累积，尚未作为最终候选发布。
+实际验证锁现为 `3e9fea043e217bb125dcfe6040e8e2b60757ab403fa66f1d3719db8e86f33214`，
+其中只接入实际 Packet backend 的现有本地依赖；最终归档仍须携带相同锁本体。
+
+| 实际调用者 / owner | 已有具体前置 | 尚须接通、删除与回归 |
+| --- | --- | --- |
+| DNS→SOCKS→Mieru / 原 Query Scope、同 SOCKS TCP+UDP 与 Mieru 池 | `f53`/`e5d6df9c` 的实际 pending 原件容量与唯一 view 先留责任（完整 SHA 以依赖图为准）；失败原始日志保留 | 原两个真实取消/复用回归复验；其余 resourceful/mixed/device donor 全迁完后才能删旧 DNS connector/exchange |
+| 普通 TCP / canonical plain linked WG、原 FlowUsers | `b144b4c4` 实际 source wire origin；`e8be9c88` 普通 factory/endpoint-free dispatch；`9cb64a9c` 原 admitted facts/调用者 witness；`6c6ea7b2` 同用户表、Inner 计量、真实 SYN 与换代检查 | 真正普通生产装配回归、借入与直接用户关闭/Scope/native 分别确认；独立 WG provider、Direct Packet 和旧 executor 删除仍缺 |
+| 普通 Datagram / 原 DatagramOpening 与设备用户表 | `ca308dd5` 同实际 Packet opener；`5c203509` 完整 OptionalEndpoint 消费与日志，保持网络 endpoint Some | 普通 WG wire/DNS 借入的真实取消、失败/换代与退出回归；不可将 None 填成假 server/port |
+| 动态/配置 TUN / 同 inbound registry、canonical allocator、源原件 | `446d3687` 同唯一 ListenerObservers 消费动态源 Scope；`0834b21d` + `bd4d3dfb` + `b2019c70` 原 source 子任务 Scope 与实际声明 | TUN 全旧能力（DNS hijack/sniff/计数/ACK/readiness/错误码）与普通 start/stop 仍须完整切换；后删私有 executor；特权平台资格另验 |
+| 无总期限的 gRPC/Mieru / 原 protocol 账本 | `e19371f1` 原 native 单次关闭；`c0acda54` 实际 view/调用者/逻辑归还快照；`51310bc8` Mieru 真实 ordered barrier；`bcc094e9` gRPC 同原件完整结算 | 定向原 wire 回归；所有兼容/跨执行方式与其余 transport/MUX/process 不能以此局部代替 |
+| per-connection Service TCP / 原 caller 与组件 Scope | 已冻结错误移交点：仅登记 driver 不能证明长期共享池接受了责任 | B/M 接具体 noncached Service 声明与原 pending/Accepted finalizer；保同额度和 Scope，不建新清理任务/池 |
+| IPC/HTTP/gRPC 故障恢复 / 原服务器、accepted/subscription 与预算 | `30ba9212` 物理确清才释放原 slot，始终交出原 typed fault | 四项实际服务器故障再起测试待 M 排队；初启 TLS、quota/inspect、持久化全入口继续核查 |
+| Windows Named Pipe / 原 Win32 handle 与 std worker、同 Scope | `656f0d07` 真实 overlapped drain/std join/Scope join/handle close；`0fac8800` 未知关闭不重试可能复用的数字 handle；`ab7a07a5` 外部 waker 不在原锁内归还 | GNU 交叉编译及真实 Windows 回归待验；Linux 不能报告 Windows 运行资格 |
+| SS replay 与剩余生产预算 / 复用 A 的预算 worktree | `af535bbd` recipe 绑定同实际安全历史；既有 51ad/DNS/control 不重复记成果 | policy/capacity/profile 替换与有效历史、总额度、WG/TUN/returns/transport/process 实际 owner 投影；保每实例/身份/共享/总体语义，pending/failed/retiring 不退款 |
+
+A 完成控制增量后在等待 DNS donor 期间复用原 budget worktree；SS replay 文件由 B 明确唯一转交 A。
+B 保留其他协议/transport/process，C 保留设备/source，M 仍唯一串行应用公共契约与装配。
+所有上述提交只是前置与当前调用者状态，不是最终资格。开发编译失败逐次留档；修复只追加，
+没有放宽断言、deadline、生产容量或栈。统一最终检查、续作 Draft PR 与可下载原始证据仍须完成。
