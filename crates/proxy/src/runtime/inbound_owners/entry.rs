@@ -146,7 +146,7 @@ impl InboundTaskAccess {
     /// The main may run before spawn_tracked returns on another runtime worker;
     /// wait for publication of that original witness rather than fabricate one.
     #[cfg(feature = "raw-ip-runtime")]
-    pub(in crate::runtime) async fn source_main_witness(
+    pub(crate) async fn source_main_witness(
         &self,
     ) -> Result<zero_platform_tokio::contract::scope::TaskJoinWitness, ChannelError> {
         let failure = || ChannelError::new(Stage::Prepare, Reason::Revoked, Impact::Component);
