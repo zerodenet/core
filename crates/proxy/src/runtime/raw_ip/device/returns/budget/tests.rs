@@ -7,7 +7,7 @@ fn actual_queued_and_dequeued_originals_share_frame_and_byte_credits() {
     let allocation = original.as_ptr();
     let charged = budget.retain(original).unwrap();
     assert_eq!(charged.as_ptr(), allocation);
-    let (tx, mut rx) = tokio::sync::mpsc::channel(4);
+    let (tx, mut rx) = tokio::sync::mpsc::channel::<PacketBuffer>(4);
     let replies: zero_stack::packet_output::PacketSender = tx.into();
     replies.try_send_buffer(charged).unwrap();
     let held = rx.try_recv().unwrap();
