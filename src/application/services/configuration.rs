@@ -8,14 +8,26 @@ impl ConfigApplyReconciler for ApplicationServices {
         let mut state = self.state.try_lock().map_err(|_| {
             "application preparation/retirement is still owned by its current operation".to_owned()
         })?;
-        let hook_error = state
-            .hooks
-            .as_ref()
-            .into_iter()
-            .chain(state.pending_hooks.as_ref())
-            .find_map(|hooks| hooks.confirm_original_io_closed().err());
-        if let Some(error) = hook_error {
-            state.cleanup_fault.get_or_insert_with(|| Arc::new(error));
+        let hook_errors = [
+            (
+                CleanupOwner::Hooks,
+                state
+                    .hooks
+                    .as_ref()
+                    .and_then(|hooks| hooks.confirm_original_io_closed().err()),
+            ),
+            (
+                CleanupOwner::PreparedHooks,
+                state
+                    .pending_hooks
+                    .as_ref()
+                    .and_then(|hooks| hooks.confirm_original_io_closed().err()),
+            ),
+        ];
+        for (owner, error) in hook_errors {
+            if let Some(error) = error {
+                state.remember_cleanup_failure(owner, Arc::new(error));
+            }
         }
         if let Some(error) = &state.cleanup_fault {
             return Err(format!(
@@ -82,7 +94,10 @@ impl ConfigApplyReconciler for ApplicationServices {
                     if let Some(dispatcher) = state.dispatcher.as_mut() {
                         if let Err(error) = dispatcher.activate() {
                             let message = error.to_string();
-                            state.cleanup_fault.get_or_insert_with(|| Arc::new(error));
+                            state.remember_cleanup_failure(
+                                CleanupOwner::DispatcherActivation,
+                                Arc::new(error),
+                            );
                             return Err(message);
                         }
                     }
@@ -179,7 +194,7 @@ impl ConfigApplyReconciler for ApplicationServices {
         if let Some(dispatcher) = state.dispatcher.as_mut() {
             if let Err(error) = dispatcher.activate() {
                 let message = error.to_string();
-                state.cleanup_fault.get_or_insert_with(|| Arc::new(error));
+                state.remember_cleanup_failure(CleanupOwner::DispatcherActivation, Arc::new(error));
                 return Err(message);
             }
         }

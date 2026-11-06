@@ -250,7 +250,26 @@ async fn original_monitor_join_fault_is_not_replaced_by_an_earlier_cleanup_fault
     assert!(source.is_panic());
     assert_ne!(source.id(), earlier.id());
     // The separate dispatcher cleanup still executes all real native/worker
-    // cleanup and reports its independently retained earlier source.
-    assert!(services.shutdown_dispatcher().await.is_err());
+    // cleanup. Its one returned receiver must retain BOTH actual original
+    // task failures after the old application state is released.
+    let combined = services.shutdown_dispatcher().await.unwrap_err();
     assert!(!services.state.lock().await.network_generation_started);
+    assert!(services.service_retirement_complete().await);
+    services.shutdown_control().await.unwrap();
+    services.engine.shutdown_principal_quota_state().unwrap();
+    let original_monitor = std::sync::Arc::downgrade(&actual);
+    let original_earlier = std::sync::Arc::downgrade(&earlier);
+    drop(actual);
+    drop(retained);
+    drop(earlier);
+    drop(error);
+    drop(services);
+    assert!(
+        original_monitor.upgrade().is_some(),
+        "secondary original must survive in the returned cleanup receiver"
+    );
+    assert!(original_earlier.upgrade().is_some());
+    drop(combined);
+    assert!(original_monitor.upgrade().is_none());
+    assert!(original_earlier.upgrade().is_none());
 }
