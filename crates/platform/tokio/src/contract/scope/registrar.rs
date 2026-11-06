@@ -47,6 +47,12 @@ impl TaskRegistrar {
     }
 }
 impl WeakTaskRegistrar {
+    /// Read-only census from this actual issued registrar. Expiry is None,
+    /// never retirement. This cannot reconstruct task or resource authority.
+    pub fn retirement_observation(&self) -> Option<ScopeRetirementObservation> {
+        let owner = self.0.upgrade()?;
+        Some(TaskRegistrar(owner, self.1).retirement_observation())
+    }
     pub fn spawn_blocking_tracked(
         &self,
         class: TaskClass,
