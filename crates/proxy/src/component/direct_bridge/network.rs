@@ -40,7 +40,6 @@ impl DirectOpener {
     pub(in crate::component) fn with_business(
         mut self,
         business: Option<super::super::business_carrier::BusinessCarrierRequest>,
-        probe: Option<super::controlled::ProbeRequest>,
     ) -> Self {
         self.business = business;
         self
