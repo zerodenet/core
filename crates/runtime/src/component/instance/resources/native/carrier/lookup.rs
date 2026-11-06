@@ -50,7 +50,10 @@ impl HostResources {
             return Err(fail());
         };
         let declaration = self.carriers.declarations.get(ordinal).ok_or_else(fail)?;
-        if !bound.matches_declaration(declaration) || bound.demand() != demand {
+        if !bound.matches_declaration(declaration)
+            || (bound.demand() != demand
+                && !(demand == ControlledStreamDemandClass::Business && bound.supports_business()))
+        {
             return Err(fail());
         }
         match bound.fixed_endpoint_binding() {
