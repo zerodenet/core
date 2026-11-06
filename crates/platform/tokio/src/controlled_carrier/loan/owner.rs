@@ -1,7 +1,7 @@
 use super::*;
 use crate::contract::{
-    lifecycle::{CloseReport, Unfinished},
     ChannelError, CloseReason,
+    lifecycle::{CloseReport, Unfinished},
 };
 use std::sync::atomic::Ordering;
 use tokio::time::Instant;
@@ -48,6 +48,58 @@ impl LoanOwner {
             state: self.state.clone(),
             original: self.original.clone(),
         })
+    }
+    /// Cleanup only work that has really returned; retain the same control on
+    /// Pending or error. Related control custody still closes child before parent.
+    pub fn try_close(&mut self) -> Result<CloseReport, ChannelError> {
+        self.cancel(CloseReason::Shutdown);
+        if self.closed {
+            return Ok(Default::default());
+        }
+        if !self.state.returned.load(Ordering::Acquire) {
+            return Ok(CloseReport {
+                unfinished: vec![Unfinished::Resource("carrier loan view retained".into())],
+                ..Default::default()
+            });
+        }
+        if let Some(related) = &mut self.related {
+            if !related.protocol_closed {
+                let report = self.control.try_close()?;
+                if !report.is_complete() {
+                    return Ok(report);
+                }
+                related.pending.append(report);
+                related.protocol_closed = true;
+            }
+            let report = related.token.parent.try_retire()?;
+            if !report.is_complete() {
+                return Ok(report);
+            }
+            if !related
+                .token
+                .parent
+                .closed()
+                .is_some_and(|receipt| receipt.matches(&related.token.parent))
+                || !related
+                    .token
+                    .parent
+                    .users_closed()
+                    .is_some_and(|receipt| receipt.matches(&related.token.parent))
+            {
+                return Err(crate::controlled_carrier::error(
+                    related.token.parent.instance(),
+                    crate::contract::Stage::Close,
+                    crate::contract::Reason::Internal,
+                    crate::contract::DeliveryState::Unknown,
+                ));
+            }
+            related.pending.append(report);
+            self.closed = true;
+            return Ok(std::mem::take(&mut related.pending));
+        }
+        let report = self.control.try_close()?;
+        self.closed = report.is_complete();
+        Ok(report)
     }
     pub async fn close(&mut self, deadline: Instant) -> Result<CloseReport, ChannelError> {
         self.cancel(CloseReason::Shutdown);
@@ -121,6 +173,10 @@ impl LoanClosed {
     }
 }
 impl crate::contract::lifecycle::ChannelControl for LoanOwner {
+    fn try_close(&mut self) -> Result<CloseReport, ChannelError> {
+        LoanOwner::try_close(self)
+    }
+
     fn cancel(&self, reason: CloseReason) {
         LoanOwner::cancel(self, reason);
     }

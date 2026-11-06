@@ -1,13 +1,17 @@
 //! Taskless custody keeps native or borrowed controls in their actual owner.
 use super::*;
 use crate::{
-    contract::{lifecycle::CloseReport, BoxFuture, ChannelError, CloseReason},
+    contract::{BoxFuture, ChannelError, CloseReason, lifecycle::CloseReport},
     controlled_carrier::{CarrierAdoption, CarrierIo, CarrierUserView},
 };
 use tokio::time::Instant;
 
 pub(super) struct NativeControl(pub(super) CarrierAdoption);
 impl DynChannelControl for NativeControl {
+    fn try_close(&mut self) -> Result<CloseReport, ChannelError> {
+        self.0.try_retire()
+    }
+
     fn cancel(&self, _: CloseReason) {
         // LoanOwner revokes the unique view. Retirement must wait for its
         // actual return before asking the original native control to close.

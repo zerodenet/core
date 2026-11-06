@@ -4,7 +4,7 @@ mod observers;
 use super::{logging::log_started, state::OrchestrationState};
 use crate::groups::UrlTestRuntime;
 use crate::runtime::route_runtime::{InboundListenerRuntimeFactory, SharedIngressRuntimeServices};
-use crate::runtime::{listeners, Proxy};
+use crate::runtime::{Proxy, listeners};
 use std::collections::HashMap;
 use tokio::sync::watch;
 use tokio::task::JoinSet;
@@ -124,6 +124,8 @@ impl OrchestrationState {
                 self.preparing_inbounds.cancellation(),
             )
             .await?;
+        #[cfg(feature = "raw-ip-runtime")]
+        self.bind_retained_packet_sources(proxy, &config, &tcp_services)?;
         self.urltest_runtime = UrlTestRuntime::new(tcp_services.clone());
         self.inbound_runtime_factory = InboundListenerRuntimeFactory::new(
             SharedIngressRuntimeServices::new(tcp_services),

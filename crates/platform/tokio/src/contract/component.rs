@@ -37,7 +37,6 @@ mod metadata_datagram;
 pub use metadata_datagram::{GrantedMetadataListener, MetadataDatagramRequest};
 
 use super::{
-    BoxFuture,
     datagram::DynDatagramOutbound,
     inbound::DynInboundSource,
     lifecycle::{BuildError, DynResourceLifecycle},
@@ -45,6 +44,7 @@ use super::{
     packet::{BoxPacketSession, DynPacketOutbound},
     scope::{TaskJoinWitness, TaskRegistrar},
     stream::DynStreamOutbound,
+    BoxFuture,
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -84,6 +84,14 @@ pub enum ResourceDeclaration {
         endpoint: Destination,
         dial: zero_traits::DialPolicy,
         datagram: bool,
+        max_sockets: NonZeroUsize,
+    },
+    /// Per-connection Service original with dynamic current Node/prefix binding.
+    /// Its actual driver belongs to this owner/Scope but is not a shared cached
+    /// pool: an awaiting caller must retain cleanup until actual handoff/close.
+    ControlledServiceStream {
+        endpoint: Destination,
+        dial: zero_traits::DialPolicy,
         max_sockets: NonZeroUsize,
     },
     /// One physical association owner: fixed control-stream endpoint plus one

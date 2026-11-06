@@ -1,6 +1,6 @@
 //! The single temporary conversion from native proxy roles to legacy relay I/O.
 use super::{
-    instance::{ComponentSlot, invalid},
+    instance::{invalid, ComponentSlot},
     legacy_stream::LegacyStream,
 };
 use crate::{
@@ -9,12 +9,12 @@ use crate::{
     transport::{EstablishedTcpOutbound, TcpOutboundFailure},
 };
 use std::{error::Error, fmt, io, sync::Arc};
-use zero_core::{Address, Session, component::NetworkGeneration, request::Destination};
+use zero_core::{component::NetworkGeneration, request::Destination, Address, Session};
 use zero_platform_tokio::contract::{
-    ChannelError, Reason,
     context::OpenContext,
     network::{UpstreamBinding, UpstreamTransport},
     stream::ConnectRequest,
+    ChannelError, Reason,
 };
 #[cfg(any(
     feature = "upstream-association-runtime",
@@ -23,6 +23,7 @@ use zero_platform_tokio::contract::{
 pub(crate) mod datagram;
 pub(in crate::component) mod network;
 mod packet_network;
+mod pending;
 pub(crate) mod relay;
 mod traffic;
 pub(crate) use relay::connect as connect_relay;
@@ -71,12 +72,24 @@ pub(crate) async fn connect(
     let business =
         super::business_carrier::BusinessCarrierRequest::new(services.engine(), slot, &invocation)
             .map_err(failure)?;
+    let binding = UpstreamBinding {
+        prefix: vec![],
+        dial: slot.dial.clone(),
+        network_generation: NetworkGeneration(upstream.network_generation()),
+    };
+    let waiting =
+        pending::PendingCaller::new(services, &invocation, vec![slot.role_id()], binding.clone())
+            .map_err(failure)?;
     let opener = Arc::new(
         network::NodeOpener::new(
             upstream.with_observer(Some(traffic.clone())),
             Destination::new(address, endpoint.1),
         )
         .with_business(business)
+        .with_pending(
+            binding.clone(),
+            waiting.as_ref().map(pending::PendingCaller::observer),
+        )
         .with_service_call(zero_platform_tokio::contract::network::CarrierContext {
             session: invocation.identity.session(),
             deadline: invocation.deadline,
@@ -89,14 +102,7 @@ pub(crate) async fn connect(
         deadline: invocation.deadline,
         cancel,
         observer: Some(traffic.clone()),
-        upstream: UpstreamTransport::new(
-            UpstreamBinding {
-                prefix: vec![],
-                dial: slot.dial.clone(),
-                network_generation: NetworkGeneration(opener.generation()),
-            },
-            opener.clone(),
-        ),
+        upstream: UpstreamTransport::new(binding, opener.clone()),
     };
     let connected = role
         .connect(
@@ -146,6 +152,13 @@ pub(crate) fn failure(
     error: ChannelError,
     endpoint: &(String, u16),
 ) -> TcpOutboundFailure {
+    failure_optional(stage, error, Some(endpoint))
+}
+pub(super) fn failure_optional(
+    stage: &'static str,
+    error: ChannelError,
+    endpoint: Option<&(String, u16)>,
+) -> TcpOutboundFailure {
     let kind = match error.reason {
         Reason::Timeout => io::ErrorKind::TimedOut,
         Reason::Cancelled | Reason::Revoked | Reason::StalePlan => io::ErrorKind::Interrupted,
@@ -156,7 +169,7 @@ pub(crate) fn failure(
     TcpOutboundFailure {
         stage,
         error: zero_engine::EngineError::Io(io::Error::new(kind, LegacyError(error))),
-        upstream_endpoint: Some(Box::new(endpoint.clone())),
+        upstream_endpoint: endpoint.map(|endpoint| Box::new(endpoint.clone())),
         network: None,
     }
 }

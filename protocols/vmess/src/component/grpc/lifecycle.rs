@@ -45,13 +45,13 @@ impl ComponentFactory for Factory {
             None => ResourceDeclaration::BackgroundCarrier,
         });
         if options.node_streams {
-            // Service borrowing uses its own typed background authority, but
-            // shares this component's one records table, total cap and Scope.
+            // Per-connection Service authority shares this exact records/N/
+            // Scope. Its real driver is not a persistent cached-pool handoff;
+            // the awaiting caller retains cleanup through actual loan delivery.
             spec.resources
-                .push(ResourceDeclaration::ControlledCarrierPool {
+                .push(ResourceDeclaration::ControlledServiceStream {
                     endpoint: options.base.endpoint.clone(),
                     dial: options.base.dial.clone(),
-                    datagram: false,
                     max_sockets: options.cap,
                 });
         }

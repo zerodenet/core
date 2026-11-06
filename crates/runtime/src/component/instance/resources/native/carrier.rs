@@ -76,6 +76,7 @@ impl CarrierDeclarations {
                 matches!(
                     declaration,
                     ResourceDeclaration::ControlledOutboundStream { .. }
+                        | ResourceDeclaration::ControlledServiceStream { .. }
                         | ResourceDeclaration::ControlledCarrierPool { .. }
                         | ResourceDeclaration::ControlledAssociationPool { .. }
                         | ResourceDeclaration::ControlledDatagramCarrier { .. }
@@ -131,6 +132,9 @@ impl CarrierDeclarations {
                 let mut proof = CarrierIoEvidence {
                     ordinal: *ordinal,
                     kind: match declaration {
+                        ResourceDeclaration::ControlledServiceStream { .. } => {
+                            coverage::DeclaredResourceKind::ControlledServiceStream
+                        }
                         ResourceDeclaration::ControlledCarrierPool { .. }
                         | ResourceDeclaration::ControlledAssociationPool { .. } => {
                             coverage::DeclaredResourceKind::ControlledCarrierPool

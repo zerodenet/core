@@ -57,6 +57,17 @@ impl CloseReport {
 }
 
 pub trait ChannelControl: Send {
+    /// Attempt only immediately available cleanup on this same controller.
+    /// Pending work remains owned; no timer or completion evidence is invented.
+    fn try_close(&mut self) -> Result<CloseReport, ChannelError> {
+        Ok(CloseReport {
+            unfinished: vec![Unfinished::Resource(
+                "channel cleanup remains pending".into(),
+            )],
+            ..Default::default()
+        })
+    }
+
     /// Idempotent, nonblocking logical-session cancellation. Shared endpoints
     /// remain owned by ResourceLifecycle; this must not close another session.
     fn cancel(&self, reason: CloseReason);
@@ -69,6 +80,17 @@ pub trait ChannelControl: Send {
 }
 
 pub trait DynChannelControl: Send {
+    /// Attempt only immediately available cleanup on this same controller.
+    /// Pending work remains owned; no timer or completion evidence is invented.
+    fn try_close(&mut self) -> Result<CloseReport, ChannelError> {
+        Ok(CloseReport {
+            unfinished: vec![Unfinished::Resource(
+                "channel cleanup remains pending".into(),
+            )],
+            ..Default::default()
+        })
+    }
+
     fn cancel(&self, reason: CloseReason);
     fn wait_closed(
         &mut self,
@@ -78,6 +100,10 @@ pub trait DynChannelControl: Send {
 
 struct ErasedControl<T>(T);
 impl<T: ChannelControl> DynChannelControl for ErasedControl<T> {
+    fn try_close(&mut self) -> Result<CloseReport, ChannelError> {
+        self.0.try_close()
+    }
+
     fn cancel(&self, reason: CloseReason) {
         self.0.cancel(reason);
     }

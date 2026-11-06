@@ -9,6 +9,29 @@ use super::state::OrchestrationState;
 use crate::runtime::Proxy;
 
 impl OrchestrationState {
+    pub(super) fn bind_retained_packet_sources(
+        &self,
+        proxy: &Proxy,
+        config: &std::sync::Arc<zero_config::RuntimeConfig>,
+        services: &crate::protocol_registry::TcpRuntimeServices,
+    ) -> Result<(), zero_engine::EngineError> {
+        let execution = services.execution();
+        let plan = execution.components.as_deref().map_err(|error| {
+            std::io::Error::other(crate::component::instance::retained(error.clone()))
+        })?;
+        for input in &config.inbounds {
+            if self.active_inbounds.get(&input.tag) != Some(input) {
+                continue;
+            }
+            if let Some(original) = proxy.inbound_owners.packet_source_origin(input)? {
+                proxy
+                    .protocols
+                    .bind_actual_packet_source(config, plan, &input.tag, original)?;
+            }
+        }
+        Ok(())
+    }
+
     fn publish_network_recovery(
         &self,
         proxy: &Proxy,
@@ -226,6 +249,7 @@ impl OrchestrationState {
                 self.preparing_inbounds.cancellation(),
             )
             .await?;
+        self.bind_retained_packet_sources(proxy, config, &services)?;
         proxy.protocols.prepare_devices(config, services).await
     }
 }

@@ -113,15 +113,38 @@ impl UpstreamOpener for NodeOpener {
                 "Packet caller node binding changed",
             ));
         }
-        self.business
-            .as_ref()
-            .ok_or_else(|| {
-                invalid(
-                    Reason::Unsupported,
-                    "node lacks actual Packet business caller",
-                )
-            })?
-            .packet_caller(identity, call)
+        if let Some(business) = &self.business {
+            return business.packet_caller(identity, call);
+        }
+        let (actual, waiting) = self.pending.as_ref().ok_or_else(|| {
+            invalid(
+                Reason::Unsupported,
+                "node lacks its actual independent Packet caller",
+            )
+        })?;
+        let invocation = self.service_call.as_ref().ok_or_else(|| {
+            invalid(
+                Reason::Unsupported,
+                "node lacks its actual Service invocation",
+            )
+        })?;
+        if actual != binding
+            || call.session.is_some()
+            || invocation.session.is_some()
+            || call.deadline != invocation.deadline
+            || call.cancel.is_cancelled()
+            || invocation.cancel.is_cancelled()
+            || !matches!(
+                identity,
+                zero_platform_tokio::contract::context::RequestIdentity::Service(_)
+            )
+        {
+            return Err(invalid(
+                Reason::StalePlan,
+                "Service Packet caller binding changed",
+            ));
+        }
+        waiting.packet_caller(identity, call)
     }
 
     fn resolve_packet_target(

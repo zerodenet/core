@@ -56,6 +56,8 @@ pub(crate) struct InboundOwner {
     #[cfg(feature = "raw-ip-runtime")]
     pub(super) packet_source:
         Arc<Mutex<Option<crate::runtime::inbound_operation::raw_ip::PacketSourceContext>>>,
+    #[cfg(feature = "raw-ip-runtime")]
+    pub(super) source_input: OnceLock<[u8; 32]>,
     pub(super) inbound_resources: Mutex<
         Option<std::sync::Weak<dyn zero_platform_tokio::contract::component::ResourceAccess>>,
     >,
@@ -81,6 +83,8 @@ pub(crate) struct InboundOwner {
     accepted_receiver: Mutex<Vec<zero_platform_tokio::AcceptedTcpTaskReceiver>>,
     client_failure: OnceLock<zero_platform_tokio::contract::scope::TaskJoined>,
     driver: OnceLock<TaskId>,
+    #[cfg(feature = "raw-ip-runtime")]
+    main_registration: Arc<MainRegistration>,
     driver_finished: AtomicBool,
     scope_closed: AtomicBool,
     physically_closed: AtomicBool,
@@ -96,11 +100,19 @@ pub(crate) struct InboundOwner {
     #[cfg(feature = "managed-datagram-runtime")]
     peers: Mutex<Vec<Arc<super::InboundPeerTasks>>>,
 }
+#[cfg(feature = "raw-ip-runtime")]
+#[derive(Default)]
+struct MainRegistration {
+    witness: OnceLock<zero_platform_tokio::contract::scope::TaskJoinWitness>,
+    published: tokio::sync::Notify,
+}
 #[derive(Clone)]
 pub(crate) struct InboundTaskAccess {
-    #[cfg(feature = "managed-datagram-runtime")]
+    #[cfg(any(feature = "managed-datagram-runtime", feature = "raw-ip-runtime"))]
     pub(super) identity: ComponentInstanceId,
     registrar: TaskRegistrar,
+    #[cfg(feature = "raw-ip-runtime")]
+    main_registration: std::sync::Weak<MainRegistration>,
     #[cfg(feature = "raw-ip-runtime")]
     packet_source: std::sync::Weak<
         Mutex<Option<crate::runtime::inbound_operation::raw_ip::PacketSourceContext>>,
@@ -109,6 +121,45 @@ pub(crate) struct InboundTaskAccess {
     shutdown: watch::Sender<bool>,
 }
 impl InboundTaskAccess {
+    #[cfg(feature = "raw-ip-runtime")]
+    pub(in crate::runtime) fn source_instance(&self) -> ComponentInstanceId {
+        self.identity
+    }
+
+    /// Observe the exact registered source main, distinct from its native wire.
+    /// The main may run before spawn_tracked returns on another runtime worker;
+    /// wait for publication of that original witness rather than fabricate one.
+    #[cfg(feature = "raw-ip-runtime")]
+    pub(in crate::runtime) async fn source_main_witness(
+        &self,
+    ) -> Result<zero_platform_tokio::contract::scope::TaskJoinWitness, ChannelError> {
+        let failure = || ChannelError::new(Stage::Prepare, Reason::Revoked, Impact::Component);
+        let original = self.main_registration.upgrade().ok_or_else(failure)?;
+        loop {
+            let published = original.published.notified();
+            tokio::pin!(published);
+            published.as_mut().enable();
+            if self.cancel.is_cancelled() {
+                return Err(failure());
+            }
+            if let Some(witness) = original.witness.get() {
+                if witness.is_joined()
+                    || !witness.scope_identity().resource_open()
+                    || !witness
+                        .scope_identity()
+                        .same_scope(&self.registrar.scope_identity())
+                {
+                    return Err(failure());
+                }
+                return Ok(witness.clone());
+            }
+            tokio::select! { biased;
+                _ = self.cancel.cancelled() => return Err(failure()),
+                _ = published => {},
+            }
+        }
+    }
+
     #[cfg(feature = "raw-ip-runtime")]
     pub(in crate::runtime) fn has_packet_source(&self) -> bool {
         self.packet_source
@@ -185,6 +236,8 @@ impl InboundOwner {
         Self {
             #[cfg(all(feature = "raw-ip-runtime", feature = "datagram-route-runtime"))]
             packet_native: OnceLock::new(),
+            #[cfg(feature = "raw-ip-runtime")]
+            source_input: OnceLock::new(),
             inbound_resources: Mutex::new(None),
             #[cfg(feature = "raw-ip-runtime")]
             packet_source: Arc::new(Mutex::new(None)),
@@ -207,6 +260,8 @@ impl InboundOwner {
             accepted_receiver: Mutex::new(Vec::new()),
             client_failure: OnceLock::new(),
             driver: OnceLock::new(),
+            #[cfg(feature = "raw-ip-runtime")]
+            main_registration: Arc::default(),
             driver_finished: AtomicBool::new(false),
             scope_closed: AtomicBool::new(false),
             physically_closed: AtomicBool::new(false),
@@ -295,9 +350,11 @@ impl InboundOwner {
     }
     pub(crate) fn task_access(&self) -> InboundTaskAccess {
         InboundTaskAccess {
-            #[cfg(feature = "managed-datagram-runtime")]
+            #[cfg(any(feature = "managed-datagram-runtime", feature = "raw-ip-runtime"))]
             identity: self.identity,
             registrar: self.registrar.clone(),
+            #[cfg(feature = "raw-ip-runtime")]
+            main_registration: Arc::downgrade(&self.main_registration),
             #[cfg(feature = "raw-ip-runtime")]
             packet_source: Arc::downgrade(&self.packet_source),
             cancel: self.cancel.clone(),

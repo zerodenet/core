@@ -143,6 +143,7 @@ impl OrchestrationState {
                             self.preparing_inbounds.cancellation(),
                         )
                         .await?;
+                    self.bind_retained_packet_sources(proxy, &previous_config, &services)?;
                     proxy
                         .protocols
                         .prepare_devices(&previous_config, services)

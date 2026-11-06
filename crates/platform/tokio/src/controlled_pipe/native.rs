@@ -276,6 +276,11 @@ impl Native {
             if *original == 0 {
                 continue;
             }
+            if let Some(unknown) = &self.close_faults[index] {
+                // A failed CloseHandle is not a license to act on a possibly
+                // reused numeric handle. Preserve this exact unknown original.
+                return Err(retained(unknown));
+            }
             if unsafe { CloseHandle(handle(*original)) } == 0 {
                 let error = Arc::new(io::Error::last_os_error());
                 // Five fixed original handle positions bound cleanup debt.

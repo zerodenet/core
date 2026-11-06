@@ -9,17 +9,31 @@ pub(super) struct Registration {
     class: TaskClass,
     witness: Option<Weak<JoinedState>>,
 }
-struct JoinedState {
+pub(super) struct JoinedState {
     task: std::sync::OnceLock<TaskId>,
     hosted: bool,
     owner: Weak<Shared>,
     joined: Mutex<Option<TaskJoined>>,
     changed: Notify,
 }
-pub(super) struct Notification(Arc<JoinedState>);
+pub(super) enum Notification {
+    Joined(Arc<JoinedState>),
+    Released(TaskJoined),
+}
 impl Notification {
+    pub(super) fn released(joined: TaskJoined) -> Self {
+        // Only actual completed-entry removal reaches this constructor.
+        joined
+            .0
+            .registration_released
+            .store(true, Ordering::Release);
+        Self::Released(joined)
+    }
     pub(super) fn notify(&self) {
-        self.0.changed.notify_waiters();
+        match self {
+            Self::Joined(witness) => witness.changed.notify_waiters(),
+            Self::Released(joined) => joined.0.registration_changed.notify_waiters(),
+        }
     }
 }
 impl std::fmt::Debug for JoinedState {
@@ -80,6 +94,21 @@ impl TaskJoinWitness {
             .expect("task join witness poisoned")
             .clone()
     }
+    /// Observe the same registration's actual budget return. A consumed join
+    /// alone is insufficient for HostedScope: its host must really ACK and
+    /// remove this completed entry. Never ACKs, polls joins or closes native IO.
+    pub async fn wait_registration_released(&self) -> TaskJoined {
+        let joined = self.wait().await;
+        loop {
+            let changed = joined.0.registration_changed.notified();
+            tokio::pin!(changed);
+            changed.as_mut().enable();
+            if joined.registration_released() {
+                return joined.clone();
+            }
+            changed.await;
+        }
+    }
     /// Wait for the supervisor to consume this exact task's native exit.
     /// Cancelling this wait retains the observation for a later retry. If the
     /// owner is dropped without joining, this witness never declares success.
@@ -105,8 +134,14 @@ struct Joined {
     class: TaskClass,
     result: Result<(), Arc<ComponentError>>,
     failure_accepted: std::sync::atomic::AtomicBool,
+    registration_released: std::sync::atomic::AtomicBool,
+    registration_changed: Notify,
 }
 impl TaskJoined {
+    pub fn registration_released(&self) -> bool {
+        self.0.registration_released.load(Ordering::Acquire)
+    }
+
     pub fn id(&self) -> TaskId {
         self.0.id
     }
@@ -162,6 +197,7 @@ pub(super) fn complete(
                 result,
             },
             None,
+            None,
         );
     }
     let result = result.map_err(Arc::new);
@@ -170,13 +206,15 @@ pub(super) fn complete(
         class: record.class,
         result: result.clone(),
         failure_accepted: std::sync::atomic::AtomicBool::new(false),
+        registration_released: std::sync::atomic::AtomicBool::new(false),
+        registration_changed: Notify::new(),
     }));
     let notification = if let Some(witness) = witness {
         let mut joined = witness.joined.lock().expect("task join witness poisoned");
         assert!(joined.is_none(), "a native task exit is consumed once");
         *joined = Some(receipt.clone());
         drop(joined);
-        Some(Notification(witness))
+        Some(Notification::Joined(witness))
     } else {
         None
     };
@@ -190,6 +228,7 @@ pub(super) fn complete(
             result: result.map_err(forward),
         },
         notification,
+        Some(receipt),
     )
 }
 

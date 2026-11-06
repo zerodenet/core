@@ -316,6 +316,20 @@ impl UpstreamOpener for Opener {
         }
         self.upstream.pending_carrier_capacity()
     }
+    fn packet_caller(
+        &self,
+        binding: &UpstreamBinding,
+        identity: &zero_platform_tokio::contract::context::RequestIdentity,
+        call: &CarrierContext,
+    ) -> Result<zero_platform_tokio::contract::scope::TaskJoinWitness, ChannelError> {
+        if binding != self.upstream.binding() {
+            return Err(super::super::instance::invalid(
+                Reason::StalePlan,
+                "Packet caller binding changed",
+            ));
+        }
+        self.upstream.packet_caller(identity, call)
+    }
     fn resolve_packet_target(
         &self,
         binding: &UpstreamBinding,

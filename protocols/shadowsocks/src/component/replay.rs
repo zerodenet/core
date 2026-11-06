@@ -2,8 +2,10 @@
 //! Core activation waits for shared-resource planning and replacement ordering.
 use crate::{shared::ReplaySaltPool, validation::ReplayPolicy};
 use std::{
+    collections::hash_map::RandomState,
+    hash::{BuildHasher, Hash, Hasher},
     num::NonZeroUsize,
-    sync::{Arc, Weak},
+    sync::{Arc, OnceLock, Weak},
 };
 use tokio::{
     task::JoinHandle,
@@ -40,9 +42,19 @@ impl ReplayOptions {
         capacity: Option<usize>,
     ) -> Self {
         let owner: Arc<str> = format!("shadowsocks.replay.{policy:?}.{capacity:?}").into();
+        // Equal policy/capacity values are not the same actual security
+        // history. Never canonicalize an independent adapter's pool into the
+        // original worker bound to this weak recipe.
+        static KEYS: OnceLock<[RandomState; 2]> = OnceLock::new();
+        let mut identity = owner.as_bytes().to_vec();
+        for key in KEYS.get_or_init(|| [RandomState::new(), RandomState::new()]) {
+            let mut hash = key.build_hasher();
+            (Arc::as_ptr(&pool) as usize).hash(&mut hash);
+            identity.extend_from_slice(&hash.finish().to_le_bytes());
+        }
         Self {
             pool: Arc::downgrade(&pool),
-            identity: owner.as_bytes().into(),
+            identity: identity.into(),
             owner,
         }
     }

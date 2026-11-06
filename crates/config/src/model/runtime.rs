@@ -25,6 +25,12 @@ pub struct RuntimeOptionsConfig {
     /// On demand, 4096 by default; separate from logical UDP association limits.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub vmess_grpc_max_originals: Option<usize>,
+    /// Total retained TCP2022 replay salts in this actual SS adapter, across
+    /// all inbound/outbound histories and per-profile capacity views. On demand,
+    /// 500000 by default; live security history is never evicted for admission.
+    /// UDP/Bloom replay owners have separate resource accounting.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub ss_tcp_replay_max_salts: Option<usize>,
     /// Live HY2 pool entries plus retained original failure groups, across
     /// every profile. On demand, 256 by default; failures are never evicted.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -99,6 +105,7 @@ impl Default for RuntimeOptionsConfig {
             native_stream_max_originals: None,
             mieru_max_carriers: None,
             vmess_grpc_max_originals: None,
+            ss_tcp_replay_max_salts: None,
             hysteria2_max_entries: None,
             hysteria2_max_udp_sessions: None,
             hysteria2_udp_pending_bytes: None,
@@ -129,6 +136,9 @@ pub const DEFAULT_EVENT_LOG_CAPACITY: usize = 1024;
 impl RuntimeOptionsConfig {
     pub fn effective_native_stream_max_originals(&self) -> usize {
         self.native_stream_max_originals.unwrap_or(4)
+    }
+    pub fn effective_ss_tcp_replay_max_salts(&self) -> usize {
+        self.ss_tcp_replay_max_salts.unwrap_or(500_000)
     }
     pub fn effective_vmess_grpc_max_originals(&self) -> usize {
         self.vmess_grpc_max_originals.unwrap_or(4096)
