@@ -15,6 +15,20 @@ pub(crate) struct OwnedTunUdpTasks {
     pub(super) dns: ScopedSourceTasks<Result<(), std::io::Error>>,
 }
 impl OwnedTunUdpTasks {
+    pub(super) async fn source_admission(
+        &self,
+    ) -> Result<Arc<zero_platform_tokio::contract::packet::PacketSourcePause>, EngineError> {
+        self.scope
+            .get()
+            .ok_or_else(|| {
+                std::io::Error::other("actual raw-IP association Scope was not installed")
+            })?
+            .host
+            .packet_source_admission()
+            .await
+            .map_err(|source| std::io::Error::other(source).into())
+    }
+
     /// Observe this exact association group and its still-owned completion
     /// queue. Main separately settles the same cloned NativeObligations Arc;
     /// neither metadata delivery nor an empty channel proves a real join.
