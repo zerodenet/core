@@ -444,10 +444,7 @@ where
         Ok(result) => result,
         Err(payload) => std::panic::resume_unwind(payload),
     };
-    result?;
-    events?;
-    bridge?;
-    commands
+    super::owner::finish_work([result, events, bridge, commands])
 }
 
 fn command_can_run_concurrently(command: &CommandRequest) -> bool {
