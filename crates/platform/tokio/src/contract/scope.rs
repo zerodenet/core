@@ -1,11 +1,11 @@
 //! A bounded task owner using an existing runtime. No actor or runtime per scope.
 use std::{
     collections::{HashMap, VecDeque},
-    future::{poll_fn, Future},
+    future::{Future, poll_fn},
     num::NonZeroUsize,
     sync::{
-        atomic::{AtomicU64, Ordering},
         Arc, Mutex,
+        atomic::{AtomicU64, Ordering},
     },
     task::Poll,
 };
@@ -13,14 +13,14 @@ use tokio::{
     runtime::Handle,
     sync::Notify,
     task::{Id, JoinError, JoinSet},
-    time::{timeout_at, Instant},
+    time::{Instant, timeout_at},
 };
 use tokio_util::sync::CancellationToken;
 pub use zero_core::component::TaskId;
 
 use super::{
-    lifecycle::{CloseReport, ComponentError, TaskFailure, Unfinished},
     ChannelError, Impact, Reason, Stage,
+    lifecycle::{CloseReport, ComponentError, TaskFailure, Unfinished},
 };
 
 pub use super::lifecycle::TaskClass;
@@ -72,7 +72,11 @@ struct State {
 }
 
 enum CompletedExit {
-    Ordinary(TaskExit, Option<join::Notification>),
+    Ordinary(
+        TaskExit,
+        Option<join::Notification>,
+        Option<join::TaskJoined>,
+    ),
     Hosted(hosted::Completion, Option<join::Notification>),
 }
 

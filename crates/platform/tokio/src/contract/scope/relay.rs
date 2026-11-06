@@ -116,7 +116,7 @@ impl JoinRelay {
             parent,
         }
     }
-    fn queue_notifications(&self, mut notifications: Vec<join::Notification>) {
+    pub(super) fn queue_notifications(&self, mut notifications: Vec<join::Notification>) {
         if !self.is_hosted && std::thread::panicking() {
             return;
         }
@@ -126,7 +126,7 @@ impl JoinRelay {
             .notifications
             .extend(notifications.drain(..));
     }
-    fn deliver_notifications(self: &Arc<Self>) {
+    pub(super) fn deliver_notifications(self: &Arc<Self>) {
         if std::thread::panicking() {
             return;
         }
@@ -272,10 +272,18 @@ impl DerefMut for LockedState<'_> {
     }
 }
 impl LockedState<'_> {
+    pub(super) fn registration_released(&mut self, joined: join::TaskJoined) {
+        self.notifications
+            .push(join::Notification::released(joined));
+    }
+
     pub(super) fn ordinary(&mut self, entry: CompletedExit) -> TaskExit {
         match entry {
-            CompletedExit::Ordinary(exit, notification) => {
+            CompletedExit::Ordinary(exit, notification, joined) => {
                 self.notifications.extend(notification);
+                if let Some(joined) = joined {
+                    self.registration_released(joined);
+                }
                 exit
             }
             CompletedExit::Hosted(_, _) => {
@@ -289,7 +297,7 @@ impl Drop for LockedState<'_> {
         if let Some(state) = &mut self.state {
             for entry in &mut state.completed {
                 let notification = match entry {
-                    CompletedExit::Ordinary(_, notification)
+                    CompletedExit::Ordinary(_, notification, _)
                     | CompletedExit::Hosted(_, notification) => notification.take(),
                 };
                 self.notifications.extend(notification);

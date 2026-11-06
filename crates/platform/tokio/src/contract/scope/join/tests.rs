@@ -10,10 +10,11 @@ fn scope(limit: usize) -> TaskScope {
 }
 fn pending(witness: &TaskJoinWitness) {
     let mut wait = Box::pin(witness.wait());
-    assert!(wait
-        .as_mut()
-        .poll(&mut Context::from_waker(Waker::noop()))
-        .is_pending());
+    assert!(
+        wait.as_mut()
+            .poll(&mut Context::from_waker(Waker::noop()))
+            .is_pending()
+    );
 }
 struct BodyDropped(Option<oneshot::Sender<()>>);
 impl Drop for BodyDropped {
@@ -48,6 +49,13 @@ async fn a_finished_task_body_is_not_joined_until_the_scope_consumes_its_exit() 
     assert_eq!(exit.id, id);
     let receipt = witness.wait().await;
     assert_eq!(receipt.id(), id);
+    assert!(receipt.registration_released());
+    assert!(
+        witness
+            .wait_registration_released()
+            .await
+            .same_receipt(&receipt)
+    );
     assert_eq!(receipt.class(), TaskClass::Critical);
     receipt.result().unwrap();
     assert!(witness.is_joined());
@@ -156,20 +164,22 @@ async fn records_hold_only_weak_witnesses_and_consumed_exits_leave_no_scope_hist
     assert_eq!(Arc::strong_count(&witness.0), 1);
     drop(witness);
     assert!(weak.upgrade().is_none());
-    assert!(owner
-        .0
-        .state
-        .lock()
-        .unwrap()
-        .records
-        .values()
-        .next()
-        .unwrap()
-        .witness
-        .as_ref()
-        .unwrap()
-        .upgrade()
-        .is_none());
+    assert!(
+        owner
+            .0
+            .state
+            .lock()
+            .unwrap()
+            .records
+            .values()
+            .next()
+            .unwrap()
+            .witness
+            .as_ref()
+            .unwrap()
+            .upgrade()
+            .is_none()
+    );
     release.send(()).unwrap();
     owner.next_exit().await.unwrap();
     let state = owner.0.state.lock().unwrap();
@@ -195,10 +205,12 @@ async fn interrupted_shutdown_and_deadline_keep_the_actual_task_and_witness_for_
     started.await.unwrap();
     let mut shutdown =
         Box::pin(owner.shutdown(Instant::now() + std::time::Duration::from_secs(60)));
-    assert!(shutdown
-        .as_mut()
-        .poll(&mut Context::from_waker(Waker::noop()))
-        .is_pending());
+    assert!(
+        shutdown
+            .as_mut()
+            .poll(&mut Context::from_waker(Waker::noop()))
+            .is_pending()
+    );
     drop(shutdown); // Interrupt the actual pending supervisor, retaining its owner.
     assert!(!witness.is_joined());
     let report = owner.shutdown(Instant::now()).await;
@@ -216,8 +228,8 @@ async fn interrupted_shutdown_and_deadline_keep_the_actual_task_and_witness_for_
 }
 
 #[tokio::test]
-async fn tracked_registration_preserves_cold_capacity_and_closing_reasons_without_polling_rejected_tasks(
-) {
+async fn tracked_registration_preserves_cold_capacity_and_closing_reasons_without_polling_rejected_tasks()
+ {
     let mut owner = TaskScope::suspended(Handle::current(), Some(NonZeroUsize::new(1).unwrap()));
     let register = owner.registrar();
     assert_eq!(
