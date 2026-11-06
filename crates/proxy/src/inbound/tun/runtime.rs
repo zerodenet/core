@@ -59,21 +59,39 @@ async fn serve_dns_tcp_inner(
         stream.read_exact(&mut query).await?;
         let (call, work) = resolver.prepare_tcp_query(&query);
         #[cfg(feature = "raw-ip-runtime")]
+        let mut at_capacity = false;
+        #[cfg(feature = "raw-ip-runtime")]
         let _original = match &owned {
             Some((owner, caller)) => {
-                let mut original = owner.reserve_reclaimed(
+                match owner.reserve_reclaimed(
                     crate::runtime::inbound_operation::raw_ip::native_obligations::ChildKind::Dns,
                     tokio::time::Instant::now() + std::time::Duration::from_secs(5),
-                ).await.map_err(io::Error::other)?;
-                original.bind_dns_call(call,
-                    crate::runtime::inbound_operation::raw_ip::native_obligations::DnsSourceCaller::TcpConnection(caller.clone()),
-                ).map_err(io::Error::other)?;
-                Some(original)
+                ).await {
+                    Ok(mut original) => {
+                        original.bind_dns_call(call,
+                            crate::runtime::inbound_operation::raw_ip::native_obligations::DnsSourceCaller::TcpConnection(caller.clone()),
+                        ).map_err(io::Error::other)?;
+                        Some(original)
+                    }
+                    Err(source) if crate::runtime::raw_ip::tasks::capacity::before_work(&source) => {
+                        at_capacity = true;
+                        None
+                    }
+                    Err(source) => return Err(io::Error::other(source)),
+                }
             }
             None => None, // Explicit stack library/test executor only.
         };
         #[cfg(not(feature = "raw-ip-runtime"))]
         let _ = call;
+        #[cfg(feature = "raw-ip-runtime")]
+        let response = if at_capacity {
+            drop(work); // This exact answer future was never polled/submitted.
+            resolver.busy_response(&query)
+        } else {
+            work.await?
+        };
+        #[cfg(not(feature = "raw-ip-runtime"))]
         let response = work.await?;
         let response_length: u16 = response.len().try_into().map_err(|_| {
             io::Error::new(

@@ -1,4 +1,5 @@
 //! Bounded, fenced child handles retained outside the actual listener future.
+pub(crate) mod capacity;
 pub(crate) mod input;
 mod output;
 pub(crate) mod scoped;

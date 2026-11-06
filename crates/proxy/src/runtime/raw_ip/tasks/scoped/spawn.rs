@@ -30,7 +30,7 @@ impl<T: TaskOutput> ScopedSourceTasks<T> {
                 return Err(error(Reason::Revoked));
             }
             if state.records.len() >= self.inner.limit {
-                return Err(error(Reason::Capacity));
+                return Err(super::super::capacity::rejected());
             }
             state.records.push(record.clone());
         }
@@ -93,8 +93,12 @@ impl<T: TaskOutput> ScopedSourceTasks<T> {
                     state.closing = true;
                 }
                 drop(state);
-                Err(ChannelError::new(Stage::Prepare, reason, Impact::Component)
-                    .with_source(source))
+                let error = if reason == Reason::Capacity {
+                    super::super::capacity::rejected()
+                } else {
+                    ChannelError::new(Stage::Prepare, reason, Impact::Component)
+                };
+                Err(error.with_source(source))
             }
         }
     }
