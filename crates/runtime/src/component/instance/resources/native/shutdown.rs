@@ -78,11 +78,11 @@ impl HostResources {
             report
         };
         let process_reports = async {
-            #[cfg(target_os = "linux")]
+            #[cfg(any(target_os = "linux", windows))]
             {
                 self.processes.shutdown(self.component, deadline).await
             }
-            #[cfg(not(target_os = "linux"))]
+            #[cfg(not(any(target_os = "linux", windows)))]
             {
                 CloseReport::default()
             }

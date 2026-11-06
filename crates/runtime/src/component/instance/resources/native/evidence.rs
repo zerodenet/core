@@ -18,7 +18,7 @@ pub(in crate::component) struct HostIoEvidence {
     pub carriers: Vec<super::carrier::CarrierIoEvidence>,
     pub metadata: Vec<super::metadata::MetadataIoEvidence>,
     pub metapools: Vec<super::metapool::MetadataPoolEvidence>,
-    #[cfg(target_os = "linux")]
+    #[cfg(any(target_os = "linux", windows))]
     pub processes: Vec<super::process::ProcessIoEvidence>,
     pub sticky_faults: Vec<Arc<ChannelError>>,
 }
@@ -91,9 +91,9 @@ impl HostResources {
         let icmp = self.icmp.as_ref().map(|owner| owner.physical_confirmed());
         sticky_faults.extend(self.icmp.as_ref().and_then(|owner| owner.fault()));
         let packets: Vec<_> = self.packets.iter().map(|owner| owner.evidence()).collect();
-        #[cfg(target_os = "linux")]
+        #[cfg(any(target_os = "linux", windows))]
         let processes = self.processes.evidence(self.component);
-        #[cfg(target_os = "linux")]
+        #[cfg(any(target_os = "linux", windows))]
         sticky_faults.extend(
             processes
                 .iter()
@@ -162,7 +162,7 @@ impl HostResources {
                         .map(coverage::DeclarationProvider::BoundDatagram)
                         .unwrap_or(coverage::DeclarationProvider::Unaccounted);
                 }
-                #[cfg(target_os = "linux")]
+                #[cfg(any(target_os = "linux", windows))]
                 if matches!(
                     binding,
                     coverage::CoverageBinding::Unaccounted(coverage::DeclaredResourceKind::Process)
@@ -190,7 +190,7 @@ impl HostResources {
             bounds,
             metadata,
             metapools,
-            #[cfg(target_os = "linux")]
+            #[cfg(any(target_os = "linux", windows))]
             processes,
             sticky_faults,
         }
