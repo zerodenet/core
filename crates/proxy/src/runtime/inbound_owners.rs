@@ -109,6 +109,10 @@ impl InboundInstallContext {
     pub(crate) fn tasks(&self) -> InboundTaskAccess {
         self.entry.task_access()
     }
+    #[cfg(feature = "raw-ip-runtime")]
+    pub(crate) fn source_registrar(&self) -> zero_platform_tokio::contract::scope::WeakTaskRegistrar {
+        self.entry.accepted_registrar().downgrade()
+    }
 }
 impl InboundOwnerRegistry {
     pub(crate) fn identities(&self) -> std::collections::BTreeSet<ComponentInstanceId> {
