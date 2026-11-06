@@ -236,7 +236,8 @@ impl OwnedDnsQueryTasks {
     // cold prepare/commit may preserve unrelated same-Scope live resources.
     #[cfg(feature = "doh")]
     pub(crate) fn ensure_resource_open(&self) -> io::Result<()> {
-        self.reap();
+        // Pure cold observation: callers may hold resolver/cache read locks.
+        // Actual admission/cleanup reaps outside them through ensure_open.
         let state = self.0.state.lock().expect("DNS query tasks poisoned");
         self.check_resource_open(&state)
     }
