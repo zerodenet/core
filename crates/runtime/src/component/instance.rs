@@ -23,7 +23,7 @@ use std::sync::{Arc, OnceLock};
 pub use tasks::ComponentTaskFault;
 pub(in crate::component) use users::PausedUsers;
 use tasks::TaskMonitor;
-pub(in crate::component) use tasks::wake::WaitTarget;
+pub(crate) use tasks::wake::{WaitTarget,MonitorWake};
 use tokio::{
     sync::{Mutex, OnceCell},
     time::Instant,

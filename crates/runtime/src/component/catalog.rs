@@ -100,6 +100,7 @@ impl Current {
 }
 pub struct ComponentCatalog {
     factories: OnceLock<ComponentRegistry<OutboundConfig>>,
+    probes:OnceLock<std::sync::Weak<crate::probe_owner::ProbeOwner>>,
     next_id: AtomicU64,
     #[cfg(feature = "managed-datagram-runtime")]
     next_association: AtomicU64,
@@ -112,6 +113,7 @@ impl Default for ComponentCatalog {
     fn default() -> Self {
         Self {
             factories: OnceLock::new(),
+            probes:OnceLock::new(),
             next_id: AtomicU64::new(0),
             #[cfg(feature = "managed-datagram-runtime")]
             next_association: AtomicU64::new(0),

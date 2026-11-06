@@ -260,6 +260,7 @@ impl super::ProtocolInventory {
         &self,
         config: &RuntimeConfig,
     ) -> Result<(), zero_engine::EngineError> {
+        self.host.validate_probe_candidate(config).map_err(|error|zero_engine::EngineError::Io(std::io::Error::other(error)))?;
         self.registry.validate_runtime_candidate(config)
     }
     pub(crate) fn validate_components(
