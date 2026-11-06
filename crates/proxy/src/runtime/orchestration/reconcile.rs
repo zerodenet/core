@@ -120,18 +120,13 @@ impl OrchestrationState {
                 return;
             }
         };
-        let mut source_dependency_changes = std::collections::BTreeSet::new();
-        #[cfg(feature = "raw-ip-runtime")]
-        for input in &new_config.inbounds {
-            match proxy.inbound_owners.source_dependencies_changed(input, &components) {
-                Ok(true) => { source_dependency_changes.insert(input.tag.clone()); },
-                Ok(false) => {},
-                Err(error) => {
-                    self.reject_before_start(proxy, &new_snapshot, error.to_string(), true).await;
-                    return;
-                },
+        let source_dependency_changes = match proxy.inbound_owners.changed_source_dependency_tags(&new_config, &components) {
+            Ok(changed) => changed,
+            Err(error) => {
+                self.reject_before_start(proxy, &new_snapshot, error.to_string(), true).await;
+                return;
             }
-        }
+        };
         let source_barrier = budget_changed || !source_dependency_changes.is_empty();
         let _source_pauses = if budget_changed {
             match budget_barrier::pause_sources(
