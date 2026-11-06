@@ -40,6 +40,7 @@ impl IpcServerHandle {
         self.task.join().await
     }
     pub async fn shutdown(&self) -> io::Result<()> {
+        self.task.close_admission();
         if let Some(stop) = self
             .shutdown
             .lock()
@@ -97,6 +98,7 @@ impl IpcServerHandle {
         if self.started.swap(true, Ordering::AcqRel) {
             return Err(io::Error::other("IPC original owner already started"));
         }
+        let registration = self.task.reserve()?;
         let registrar = self.scope.lock().await.registrar();
         let entry = self
             .originals
@@ -127,9 +129,16 @@ impl IpcServerHandle {
         let scope = self.scope.clone();
         let budget = self.budget.clone();
         let path = self.path.clone();
-        self.task.install(tokio::spawn(async move {
+        let (begin, started) = oneshot::channel();
+        registration.install(tokio::spawn(async move {
+            started
+                .await
+                .map_err(|_| io::Error::other("IPC startup gate closed"))?;
             run_server(path, handle, stopped, budget, scope, originals, pending).await
-        }))?;
+        }));
+        begin
+            .send(())
+            .map_err(|_| io::Error::other("original IPC task stopped during startup"))?;
         info!(pipe=%self.path.display(),"ipc server ready");
         Ok(())
     }

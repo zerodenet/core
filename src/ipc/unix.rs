@@ -38,6 +38,7 @@ impl IpcServerHandle {
         self.task.join().await
     }
     pub async fn shutdown(&self) -> io::Result<()> {
+        self.task.close_admission();
         if let Some(shutdown) = self
             .shutdown
             .lock()
@@ -131,6 +132,7 @@ impl IpcServerHandle {
         if self.started.swap(true, Ordering::AcqRel) {
             return Err(io::Error::other("IPC original owner already started"));
         }
+        let registration = self.task.reserve()?;
         let socket_path = &self.path;
         if socket_path.exists() {
             std::fs::remove_file(socket_path)?;
@@ -164,10 +166,17 @@ impl IpcServerHandle {
             .unwrap_or_else(std::sync::PoisonError::into_inner) = Some(shutdown_tx);
         let originals = self.originals.clone();
         let budget = self.budget.clone();
+        let (begin, started) = oneshot::channel();
         let task = tokio::spawn(async move {
+            started
+                .await
+                .map_err(|_| io::Error::other("IPC startup gate closed"))?;
             run_ipc_server(listener, handle, shutdown_rx, originals, budget).await
         });
-        self.task.install(task)?;
+        registration.install(task);
+        begin
+            .send(())
+            .map_err(|_| io::Error::other("original IPC task stopped during startup"))?;
         info!(socket = %socket_path.display(), "ipc server ready");
         Ok(())
     }
