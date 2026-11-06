@@ -189,6 +189,14 @@ impl ComponentPlan {
         deadline: tokio::time::Instant,
     ) -> Result<(), ChannelError> {
         for slot in &self.order {
+            if let Some(source) = slot.owned_start_failure() {
+                return Err(crate::component::instance::retained(source));
+            }
+            // Unselected Process endpoints intentionally have no actor or
+            // native job. Once built, supervise their actual Scope normally.
+            if slot.is_unbuilt_demand_process() {
+                continue;
+            }
             if self.deferred_devices.contains(&slot.id)
                 && !slot.has_started()
                 && slot.task_fault().is_none()

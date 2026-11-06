@@ -253,6 +253,12 @@ impl ComponentSlot {
             _=>None,
         })
     }
+    pub(in crate::component) fn is_unbuilt_demand_process(&self) -> bool {
+        self.demand_process_endpoint_ordinal().is_some()
+            && self.live.get().is_none()
+            && !self.cancel.is_cancelled()
+            && self.task_fault().is_none()
+    }
     pub fn instance_id(&self) -> ComponentInstanceId {
         ComponentInstanceId {
             component: self.id,
