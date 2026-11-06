@@ -44,7 +44,7 @@ use zero_traits::{AddressFamily, DnsResolver, IpAddress};
 use backends::ResolverBackend;
 use cache::{DnsCache, DnsWireCacheValue};
 use coordinator::{QueryCoordinator, QueryKey, QueryScope};
-pub use ech::{EchDnsEndpoint, EchDnsRecord};
+pub use ech::{EchDnsEndpoint, EchDnsRecord, EchRefresh};
 use fake_ip::FakeIpAllocator;
 pub use fake_ip::{default_fake_ip_state_path, FakeIpClearResult, FakeIpClearTarget, FakeIpStats};
 use reverse::RealIpReverseIndex;
