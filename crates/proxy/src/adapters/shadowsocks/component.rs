@@ -17,6 +17,7 @@ impl ShadowsocksAdapter {
         input: &OutboundConfig,
         resources: &mut ResourcePreparation<'_>,
         replay_factory: Arc<ReplayFactory>,
+        node_network: Option<Arc<crate::component::background::BackgroundNetwork>>,
     ) -> Result<stateless::Options<StreamOptions>, RegistrationError> {
         let OutboundProtocolConfig::Shadowsocks {
             server,
@@ -75,7 +76,7 @@ impl ShadowsocksAdapter {
             })
             .transpose()?;
         let options = prepared.bind(replay).map_err(options_error)?;
-        Ok(stateless::Options::new(
+        let options = stateless::Options::new(
             options,
             zero_core::request::Destination::new(
                 match zero_core::address::parse_ip_literal(server) {
@@ -94,7 +95,15 @@ impl ShadowsocksAdapter {
             )
             .filter(|limit| limit.get() <= 4096)
             .ok_or_else(|| options_error("invalid taskless Stream original limit"))?,
-        ))
+        );
+        if zero_core::address::parse_ip_literal(server).is_none() && resources.candidate().is_some()
+        {
+            if let Some(network) = node_network {
+                let node = crate::component::native_dns::prepare_node(resources, network)?;
+                return Ok(options.with_node_dns(node));
+            }
+        }
+        Ok(options)
     }
 }
 fn options_error(error: impl std::fmt::Display) -> RegistrationError {

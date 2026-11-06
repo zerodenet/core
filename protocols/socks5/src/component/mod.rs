@@ -38,7 +38,7 @@ impl ComponentFactory for Factory {
         ComponentSpec {
             owner: ResourceOwner::Component,
             roles: vec![RoleKind::Stream, RoleKind::Datagram],
-            dependencies: vec![],
+            dependencies: options.node_dns.into_iter().collect(),
             static_identity: options.identity.clone(),
             resources: options.carrier_limit.into_iter().map(|max_sockets|
                 zero_platform_tokio::contract::component::ResourceDeclaration::ControlledAssociationPool {
@@ -52,6 +52,17 @@ impl ComponentFactory for Factory {
         options: Arc<Options>,
         context: BuildContext,
     ) -> Result<ComponentInstance, BuildError> {
+        if context.dependencies.len() != usize::from(options.node_dns.is_some())
+            || options
+                .node_dns
+                .is_some_and(|node| context.dependency(node).is_none())
+        {
+            return Err(ChannelError::new(
+                Stage::Prepare,
+                Reason::StalePlan,
+                zero_platform_tokio::contract::Impact::Component,
+            ));
+        }
         let (owner, admission) = SessionOwner::new(context.component, &context.cancel);
         let carrier = options.carrier_limit.map(|limit| {
             zero_platform_tokio::controlled_carrier::CarrierOwner::new(
