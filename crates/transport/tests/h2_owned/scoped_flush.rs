@@ -97,6 +97,7 @@ async fn accepted_scoped_h2_final_data_and_end_require_real_original_flush_befor
         let mut listener = original
             .bind_listener("127.0.0.1:0".parse().unwrap())
             .unwrap();
+        let receiver = original.accepted_task_receiver().unwrap();
         scope.enable_registration().unwrap();
         let address = listener.local_addr().unwrap();
         let (peer, accepted) = tokio::join!(TcpStream::connect(address), listener.accept_owned());
@@ -167,6 +168,9 @@ async fn accepted_scoped_h2_final_data_and_end_require_real_original_flush_befor
         for _ in 0..2 {
             let actual = scope.next_exit().await.unwrap();
             assert!(actual.result.is_ok());
+            let accepted = receiver.observe_joined(actual.id).unwrap();
+            assert_eq!(accepted.id(), actual.id);
+            assert!(accepted.result().is_ok() && accepted.registration_released());
         }
         let joined = caller.try_joined().unwrap();
         assert!(caller.matches_joined(&joined) && joined.registration_released());
