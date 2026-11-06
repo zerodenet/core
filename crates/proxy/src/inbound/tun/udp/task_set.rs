@@ -40,11 +40,30 @@ impl<T: TunTaskOutput> TunTasks<'_, T> {
             _ => None,
         }
     }
-    pub(super) fn spawn(
-        &mut self,
-        future: impl Future<Output = T> + Send + 'static,
-    ) -> Result<(), EngineError> {
-        self.spawn_bound(|_| future)
+    /// DNS uses the original Source child's actual registration before it can
+    /// submit a query. Explicit library tasks have no Source/Host receipt.
+    pub(super) fn spawn_with_witness<F, Fut>(&mut self, make: F) -> Result<(), EngineError>
+    where
+        F: FnOnce(Option<zero_platform_tokio::contract::scope::TaskJoinWitness>) -> Fut
+            + Send
+            + 'static,
+        Fut: Future<Output = T> + Send + 'static,
+    {
+        match self {
+            Self::Legacy(tasks) => {
+                tasks.spawn(make(None));
+                Ok(())
+            }
+            #[cfg(feature = "raw-ip-runtime")]
+            Self::Owned(tasks) => tasks
+                .spawn_with_witness(|actual| make(Some(actual)))
+                .map(|_| ())
+                .map_err(|source| std::io::Error::other(source).into()),
+            #[cfg(feature = "raw-ip-runtime")]
+            Self::Scoped(_) => {
+                Err(std::io::Error::other("DNS needs its original Source child set").into())
+            }
+        }
     }
     pub(super) fn spawn_bound<F, Fut>(&mut self, make: F) -> Result<(), EngineError>
     where

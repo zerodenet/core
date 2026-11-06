@@ -88,13 +88,30 @@ pub(super) async fn run_inner(
                     let stack = Arc::clone(&stack);
                     let query = buffer[..size].to_vec();
                     #[cfg(feature = "raw-ip-runtime")]
-                    let mut native = owned.as_ref().map(|owner| owner.native.reserve(crate::runtime::inbound_operation::raw_ip::native_obligations::ChildKind::Dns)).transpose().map_err(std::io::Error::other)?;
-                    dns_tasks.spawn(async move {
+                    let mut native = match &owned {
+                        Some(owner) => Some(owner.native.reserve_reclaimed(
+                            crate::runtime::inbound_operation::raw_ip::native_obligations::ChildKind::Dns,
+                            tokio::time::Instant::now() + Duration::from_secs(5),
+                        ).await.map_err(std::io::Error::other)?),
+                        None => None,
+                    };
+                    dns_tasks.spawn_with_witness(move |witness| async move {
+                        let resolver = query_runtime.resolver();
+                        let (call, work) = resolver.prepare_udp_query(&query);
                         #[cfg(feature = "raw-ip-runtime")]
-                        if let Some(native) = &mut native { native.enter().map_err(std::io::Error::other)?; }
-                        let response = query_runtime.resolver().answer_udp_query(&query).await;
-                        #[cfg(feature = "raw-ip-runtime")]
-                        let response = response.map_err(|error| match &native { Some(native) => native.retain_error(error), None => error });
+                        if let Some(native) = &mut native {
+                            let witness = witness.ok_or_else(|| std::io::Error::other("DNS child has no actual Source registration"))?;
+                            native.bind_dns_call(call,
+                                crate::runtime::inbound_operation::raw_ip::native_obligations::DnsSourceCaller::DatagramChild(witness),
+                            ).map_err(std::io::Error::other)?;
+                        }
+                        #[cfg(not(feature = "raw-ip-runtime"))]
+                        let _ = (call, witness);
+                        let response = work.await;
+                        // The original Auxiliary output keeps query failures;
+                        // the actual call token separately proves cleanup.
+                        // A normal failed query cannot poison all later calls
+                        // after its matching originals have really closed.
                         let response = response?;
                         stack.send_to(&response, destination, source).await;
                         Ok::<(), std::io::Error>(())
