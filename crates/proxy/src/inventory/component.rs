@@ -270,7 +270,9 @@ impl super::ProtocolInventory {
         config: Arc<RuntimeConfig>,
     ) -> Result<(), zero_engine::EngineError> {
         self.validate_runtime_candidate(&config)?;
-        self.prepare_components(config)
+        // Initial accepted assembly validates the same cold device union as
+        // startup. Ordinary service readers never create a second pass.
+        self.prepare_device_components(config)
             .map(|_| ())
             .map_err(|error| zero_engine::EngineError::Io(std::io::Error::other(retained(error))))
     }
