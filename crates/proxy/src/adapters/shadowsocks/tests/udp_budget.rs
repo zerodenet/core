@@ -66,6 +66,7 @@ async fn actual_udp_sources_share_all_security_units_and_keep_retired_history_on
         let codecs = [ShadowsocksDatagramCodec::new(::shadowsocks::CipherKind::Blake3Aes128Gcm, PASSWORD), ShadowsocksDatagramCodec::new(::shadowsocks::CipherKind::Blake3Aes128Gcm, PASSWORD)];
         phase.set("both original Sources: actual encrypted UDP exchange");
         for index in 0..2 { exchange(&clients[index], &codecs[index], endpoints[index], &target).await; }
+        for original in &originals { phase.watch_peers(original.peer_tasks_for_test()); }
         let handle = crate::ProxyHandle::new(zero_engine::EngineHandle::new(proxy.engine().clone()), proxy.clone());
         // Four different real units, across distinct Source profiles. Source
         // native/worker resources and return-target bindings are separate units.
