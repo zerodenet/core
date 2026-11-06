@@ -8,8 +8,13 @@ impl super::ProtocolInventory {
     pub(crate) fn try_pause_replacement_users(
         &self,
         candidate: &Arc<ComponentPlan>,
-    ) -> Result<crate::component::catalog::ReplacementUsersPause, zero_platform_tokio::contract::ChannelError> {
-        self.host.components().try_pause_replacement_users(candidate)
+    ) -> Result<
+        crate::component::catalog::ReplacementUsersPause,
+        zero_platform_tokio::contract::ChannelError,
+    > {
+        self.host
+            .components()
+            .try_pause_replacement_users(candidate)
     }
     /// Inline across the whole runtime and passive nested operations. This
     /// elects a join consumer; it never spawns another owner/task registry.
@@ -95,6 +100,19 @@ impl super::ProtocolInventory {
     }
     pub(crate) fn stop_component_admission(&self) {
         self.host.components().stop_business();
+    }
+    /// Exact unstarted candidate cleanup, retaining the same current slot Arcs.
+    /// Used only before this accepted phase has started or revoked resources.
+    pub(crate) async fn discard_cold_components(
+        &self,
+        config: &Arc<RuntimeConfig>,
+        deadline: tokio::time::Instant,
+    ) -> Result<(), zero_engine::EngineError> {
+        self.host
+            .components()
+            .discard_device_candidate(config, deadline)
+            .await
+            .map_err(|error| std::io::Error::other(error).into())
     }
     pub(crate) async fn start_components(
         &self,

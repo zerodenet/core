@@ -67,8 +67,7 @@ pub(super) fn prepare(
             && protocols
                 .inbound_listener_requires_restart(&runtime_factory.listener_config(inbound))?;
         let replay_budget_changed = inbound.protocol.protocol_name() == "shadowsocks"
-            && config.runtime.effective_ss_tcp_replay_max_salts()
-                != previous_config.runtime.effective_ss_tcp_replay_max_salts();
+            && crate::runtime::orchestration::ss_budget_changed(&previous_config, config);
         let reuse = running
             && !mode_changed
             && !replay_budget_changed

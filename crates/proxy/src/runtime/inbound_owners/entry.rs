@@ -30,6 +30,7 @@ pub(crate) use readiness::InboundReady;
 pub(super) use readiness::readiness_stopped;
 mod accepted;
 mod acquisition;
+pub(in crate::runtime) use acquisition::AcquisitionPause;
 #[cfg(feature = "managed-datagram-runtime")]
 mod continuity;
 mod driver;

@@ -12,6 +12,7 @@ mod lifecycle;
 mod logging;
 mod pending_dns;
 mod reconcile;
+pub(in crate::runtime) use reconcile::budget_barrier::ss_budget_changed;
 mod startup;
 mod state;
 pub(super) mod statistics;

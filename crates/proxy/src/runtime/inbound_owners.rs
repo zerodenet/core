@@ -5,6 +5,7 @@ pub(crate) use bind::tests::test_standard_datagram_listener;
 #[cfg(test)]
 pub(crate) use bind::tests::test_standard_native_listener;
 mod entry;
+pub(in crate::runtime) use entry::AcquisitionPause;
 mod observers;
 #[cfg(feature = "raw-ip-runtime")]
 mod packet_source;
