@@ -94,17 +94,12 @@ impl EventDispatcherHandle {
         if let Some(shutdown) = self.shutdown.take() {
             let _ = shutdown.send(ShutdownMode::Handoff);
         }
-        let result = self
-            .observe_shutdown()
-            .await
-            .map_err(|error| ConnectorError::Config(format!("dispatcher handoff failed: {error}")));
+        let result = self.observe_shutdown().await;
         self.children.join_all().await;
-        let children = self.confirm_child_joins();
-        let files = self.resources.close().map_err(|error| {
-            ConnectorError::Config(format!("original file cleanup failed: {error}"))
-        });
-        children.and(files)?;
-        let result = result?;
+        let files = self.resources.close();
+        self.confirm_retirement(files)?;
+        // confirm_retirement retained a failed original task in the returned archive.
+        let result = result.expect("actual parent join success confirmed");
         if matches!(self.init_result, Some(Ok(true))) && result.is_none() {
             return Err(ConnectorError::Config(
                 "Ready dispatcher stopped without continuation".into(),

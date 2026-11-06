@@ -112,6 +112,28 @@ impl ComponentCatalog {
                     .unwrap_or_default(),
                 self.admission.loan_snapshot().1,
             );
+        let supported: Vec<_> = config
+            .outbounds
+            .iter()
+            .filter(|input| {
+                self.factories().has_factory_for_candidate(
+                    input.protocol.protocol_name(),
+                    input,
+                    Some(config),
+                )
+            })
+            .collect();
+        resources.reserve_primary_components(
+            previous.map(|(_, plan)| plan.builtin.id),
+            supported.iter().map(|input| {
+                (
+                    input.tag.clone(),
+                    previous
+                        .and_then(|(_, plan)| plan.outbounds.get(&input.tag))
+                        .map(|slot| slot.id),
+                )
+            }),
+        )?;
         let mut deferred_devices = prepare(&mut resources)?;
         if deferred_devices
             .iter()
@@ -130,18 +152,14 @@ impl ComponentCatalog {
         };
         let builtin = self.primary_slot(
             &builtin_input,
+            resources
+                .builtin_component()
+                .ok_or_else(|| invalid(Reason::Internal, "actual builtin identity missing"))?,
             previous.map(|(_, plan)| (true, plan.builtin.as_ref())),
             &mut resources,
         )?;
         let mut outbounds = BTreeMap::new();
-        for input in &config.outbounds {
-            if !self.factories().has_factory_for_candidate(
-                input.protocol.protocol_name(),
-                input,
-                Some(config),
-            ) {
-                continue;
-            }
+        for input in supported {
             let old = previous.and_then(|(old, plan)| {
                 old.outbounds
                     .iter()
@@ -156,7 +174,10 @@ impl ComponentCatalog {
             });
             // Even unchanged consumers must declare their resource requests in
             // this pass. Reusing them before decode would omit shared nodes.
-            let slot = self.primary_slot(input, old, &mut resources)?;
+            let id = resources
+                .named_component(&input.tag)
+                .ok_or_else(|| invalid(Reason::Internal, "actual named identity missing"))?;
+            let slot = self.primary_slot(input, id, old, &mut resources)?;
             outbounds.insert(input.tag.clone(), slot);
         }
         let mut nodes: Vec<_> = std::iter::once(builtin.clone())
@@ -164,6 +185,7 @@ impl ComponentCatalog {
             .collect();
         resources.validate(nodes.iter().map(|slot| (slot.id, slot.recipe.spec())))?;
         let shared_identities: SharedResourceIdentities = resources.identities()?;
+        let source_dependencies = resources.take_source_dependencies();
         for resource in resources.into_resources()? {
             let id = resource.component();
             let old = previous.and_then(|(_, plan)| plan.order.iter().find(|slot| slot.id == id));
@@ -212,6 +234,7 @@ impl ComponentCatalog {
             closing: Default::default(),
             close_evidence: Default::default(),
             shared_identities,
+            source_dependencies,
         })
     }
 
@@ -229,6 +252,7 @@ impl ComponentCatalog {
     fn primary_slot(
         &self,
         input: &OutboundConfig,
+        id: ComponentId,
         previous: Option<(bool, &ComponentSlot)>,
         resources: &mut ResourcePreparation<'_>,
     ) -> Result<Arc<ComponentSlot>, ChannelError> {
@@ -238,18 +262,23 @@ impl ComponentCatalog {
             .map_err(|source| {
                 invalid(Reason::Internal, "component option validation failed").with_source(source)
             })?;
-        let (id, generation) = match previous {
-            Some((unchanged, previous)) => (
-                previous.id,
+        let generation = match previous {
+            Some((unchanged, previous)) => {
+                if id != previous.id {
+                    return Err(invalid(
+                        Reason::Internal,
+                        "primary identity differs from its actual old component",
+                    ));
+                }
                 if unchanged {
                     previous.generation
                 } else {
                     previous.generation.checked_next().ok_or_else(|| {
                         invalid(Reason::Internal, "component generation exhausted")
                     })?
-                },
-            ),
-            None => (self.allocate_id()?, ResourceGeneration(1)),
+                }
+            }
+            None => ResourceGeneration(1),
         };
         Ok(Arc::new(ComponentSlot::new(
             id,

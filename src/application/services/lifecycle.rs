@@ -51,11 +51,20 @@ impl ApplicationServices {
         #[cfg(feature = "event-dispatcher")]
         {
             if let Some(dispatcher) = state.dispatcher.as_mut() {
-                match dispatcher.shutdown_retained().await {
-                    Ok(()) => state.dispatcher = None,
-                    Err(error) => {
-                        state.cleanup_fault.get_or_insert_with(|| Arc::new(error));
-                    }
+                let outcome = dispatcher.shutdown_retained().await;
+                let complete = dispatcher.retirement_complete();
+                if let Err(error) = outcome {
+                    state.remember_cleanup_failure(
+                        if complete {
+                            CleanupOwner::DispatcherClosed
+                        } else {
+                            CleanupOwner::DispatcherPending
+                        },
+                        Arc::new(error),
+                    );
+                }
+                if complete {
+                    state.dispatcher = None;
                 }
             }
             if state.network_generation_started {
@@ -65,16 +74,24 @@ impl ApplicationServices {
                         tokio::time::Instant::now() + std::time::Duration::from_secs(5),
                     )
                     .await;
-                if self.event_network.retirement_complete() {
-                    state.network_generation_started = false;
-                }
+                let complete = self.event_network.retirement_complete();
                 if let Err(error) = outcome {
-                    state.cleanup_fault.get_or_insert_with(|| Arc::new(error));
+                    state.remember_cleanup_failure(
+                        if complete {
+                            CleanupOwner::NetworkClosed
+                        } else {
+                            CleanupOwner::NetworkPending
+                        },
+                        Arc::new(error),
+                    );
+                }
+                if complete {
+                    state.network_generation_started = false;
                 }
             }
         }
-        if let Some(error) = &state.cleanup_fault {
-            return Err(std::io::Error::other(error.clone()));
+        if let Some(error) = state.cleanup_error() {
+            return Err(std::io::Error::other(error));
         }
         hooks.map_err(std::io::Error::other)?;
         self.engine.update_sink_status(Vec::new());
@@ -96,8 +113,9 @@ impl ApplicationServices {
             state.status_monitor = None;
         }
         if let Some(Err(error)) = &state.monitor_exit {
-            state.cleanup_fault.get_or_insert_with(|| error.clone());
-            return Err(error.clone());
+            let error = error.clone();
+            state.remember_cleanup_failure(CleanupOwner::Monitor, error.clone());
+            return Err(error);
         }
         Ok(())
     }
@@ -110,14 +128,24 @@ impl ApplicationServices {
     }
 
     pub(super) fn retire_hooks(&self, state: &mut ApplicationServiceState) -> Result<(), String> {
-        for hooks in [&mut state.pending_hooks, &mut state.hooks] {
+        let mut failures = [None, None];
+        for (index, hooks) in [&mut state.pending_hooks, &mut state.hooks]
+            .into_iter()
+            .enumerate()
+        {
             if let Some(originals) = hooks.as_mut() {
                 match originals.retire() {
                     Ok(()) => *hooks = None,
-                    Err(error) => {
-                        state.cleanup_fault.get_or_insert_with(|| Arc::new(error));
-                    }
+                    Err(error) => failures[index] = Some(Arc::new(error)),
                 }
+            }
+        }
+        for (owner, error) in [CleanupOwner::PreparedHooks, CleanupOwner::Hooks]
+            .into_iter()
+            .zip(failures)
+        {
+            if let Some(error) = error {
+                state.remember_cleanup_failure(owner, error);
             }
         }
         if let Some(error) = &state.cleanup_fault {
@@ -153,20 +181,35 @@ impl ApplicationServices {
         let monitor = Self::stop_status_monitor(_state).await;
         let dispatcher = if let Some(dispatcher) = _state.dispatcher.as_mut() {
             _state.installed = false;
-            match dispatcher.retire_prepared_retained().await {
-                Ok(continuation) => {
+            let outcome = dispatcher.retire_prepared_retained().await;
+            let complete = dispatcher.retirement_complete();
+            let result = match outcome {
+                Ok(continuation) if complete => {
                     if let Some(continuation) = continuation {
                         _state.continuation = Some(continuation);
                     }
-                    _state.dispatcher = None;
                     Ok(())
+                }
+                Ok(_) => {
+                    Err("actual dispatcher original retirement remains unconfirmed".to_owned())
                 }
                 Err(error) => {
                     let message = error.to_string();
-                    _state.cleanup_fault.get_or_insert_with(|| Arc::new(error));
+                    _state.remember_cleanup_failure(
+                        if complete {
+                            CleanupOwner::DispatcherClosed
+                        } else {
+                            CleanupOwner::DispatcherPending
+                        },
+                        Arc::new(error),
+                    );
                     Err(message)
                 }
+            };
+            if complete {
+                _state.dispatcher = None;
             }
+            result
         } else {
             Ok(())
         };
@@ -175,11 +218,19 @@ impl ApplicationServices {
                 .event_network
                 .retire_generation(tokio::time::Instant::now() + std::time::Duration::from_secs(5))
                 .await;
-            if self.event_network.retirement_complete() {
-                _state.network_generation_started = false;
-            }
+            let complete = self.event_network.retirement_complete();
             if let Err(error) = outcome {
-                _state.cleanup_fault.get_or_insert_with(|| Arc::new(error));
+                _state.remember_cleanup_failure(
+                    if complete {
+                        CleanupOwner::NetworkClosed
+                    } else {
+                        CleanupOwner::NetworkPending
+                    },
+                    Arc::new(error),
+                );
+            }
+            if complete {
+                _state.network_generation_started = false;
             }
         }
         monitor.map_err(|error| format!("original status monitor failed: {error}"))?;

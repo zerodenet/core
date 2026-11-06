@@ -120,6 +120,14 @@ impl OrchestrationState {
                 return;
             }
         };
+        let source_dependency_changes = match proxy.inbound_owners.changed_source_dependency_tags(&new_config, &components) {
+            Ok(changed) => changed,
+            Err(error) => {
+                self.reject_before_start(proxy, &new_snapshot, error.to_string(), true).await;
+                return;
+            }
+        };
+        let source_barrier = budget_changed || !source_dependency_changes.is_empty();
         let _source_pauses = if budget_changed {
             match budget_barrier::pause_sources(
                 proxy,
@@ -129,18 +137,6 @@ impl OrchestrationState {
             .await
             {
                 Ok(pauses) => Some(pauses),
-                Err(error) => {
-                    self.reject_before_start(proxy, &new_snapshot, error.to_string(), true)
-                        .await;
-                    return;
-                }
-            }
-        } else {
-            None
-        };
-        let _user_pause = if budget_changed {
-            match proxy.protocols.try_pause_replacement_users(&components) {
-                Ok(pause) => Some(pause),
                 Err(error) => {
                     self.reject_before_start(proxy, &new_snapshot, error.to_string(), true)
                         .await;
@@ -163,10 +159,32 @@ impl OrchestrationState {
                 .await;
             return;
         }
+        if budget_changed {
+            if let Err(error) = self
+                .quiesce_dns_donors_for_reload(proxy, &new_snapshot, &components)
+                .await
+            {
+                self.reject_before_start(proxy, &new_snapshot, error.to_string(), true)
+                    .await;
+                return;
+            }
+        }
+        let _user_pause = if budget_changed {
+            match proxy.protocols.try_pause_replacement_users(&components) {
+                Ok(pause) => Some(pause),
+                Err(error) => {
+                    self.reject_before_start(proxy, &new_snapshot, error.to_string(), true)
+                        .await;
+                    return;
+                }
+            }
+        } else {
+            None
+        };
         let candidate_tcp_services = proxy.tcp_runtime_services_for_snapshot(new_snapshot.clone());
         let retained_for_binding = self.active_inbounds.clone();
         let mut prepared_resources = None;
-        if !budget_changed {
+        if !source_barrier {
             match budget_barrier::start_resources(
                 proxy,
                 &new_config,
@@ -205,7 +223,7 @@ impl OrchestrationState {
         };
         let rollback_runtime_factory = self.inbound_runtime_factory.clone();
         let source_dir = self.source_dir.clone();
-        if !budget_changed {
+        if !source_barrier {
             match budget_barrier::prepare_devices(proxy, &new_config, &candidate_tcp_services).await
             {
                 Ok(devices) => prepared_resources = Some(devices),
@@ -258,11 +276,17 @@ impl OrchestrationState {
                 listeners: &mut self.listeners,
             },
             move |stopped| async move {
-                if budget_changed {
+                if source_barrier {
                     if !stopped.matches_candidate(start_config) {
                         return Err(zero_engine::EngineError::Io(std::io::Error::other(
                             "original budget StopOld names another actual candidate",
                         )));
+                    }
+                    for tag in &source_dependency_changes {
+                        if stopped.terminal(tag).is_none() && !stopped.owner_was_absent(tag) {
+                            return Err(zero_engine::EngineError::Io(std::io::Error::other(
+                                "actual dependent Source has no original StopOld receipt")));
+                        }
                     }
                     for input in start_retained {
                         if (ss_source_budget_changed

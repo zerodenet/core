@@ -7,8 +7,11 @@ pub(crate) use bind::tests::test_standard_native_listener;
 mod entry;
 pub(in crate::runtime) use entry::AcquisitionPause;
 mod observers;
+mod source_dependencies;
 #[cfg(feature = "raw-ip-runtime")]
 mod packet_source;
+#[cfg(feature = "raw-ip-runtime")]
+pub(crate) use packet_source::input_identity as source_input_identity;
 #[cfg(feature = "raw-ip-runtime")]
 pub(crate) mod system_tun;
 pub(crate) use bind::LeasedInbound;

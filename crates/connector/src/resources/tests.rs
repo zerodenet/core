@@ -30,19 +30,23 @@ fn outstanding_actual_writer_view_keeps_original_and_blocks_native_replacement()
     let view = resources.open(|| File::create(&path)).unwrap();
     let identity = Arc::downgrade(&view.original);
     assert!(resources.close().is_err());
+    assert!(!resources.retirement_complete());
     assert!(identity.upgrade().is_some());
     // No native construction may occur after the unconfirmed retirement.
     let mut constructed = false;
-    assert!(resources
-        .open(|| {
-            constructed = true;
-            File::open(&path)
-        })
-        .is_err());
+    assert!(
+        resources
+            .open(|| {
+                constructed = true;
+                File::open(&path)
+            })
+            .is_err()
+    );
     assert!(!constructed);
     drop(view);
     assert!(resources.close().is_err()); // sticky failure remains evidence
     assert!(identity.upgrade().is_none()); // actual native close still driven
+    assert!(resources.retirement_complete()); // historical fault is not native debt
 }
 
 #[test]
@@ -108,15 +112,41 @@ fn sqlite_close_busy_retains_the_exact_original_connection_and_error() {
             raw_connection
         );
         assert!(
-            matches!(database.failure.as_ref(), Some(rusqlite::Error::SqliteFailure(error, _)) if error.extended_code == rusqlite::ffi::SQLITE_BUSY)
+            matches!(database.failure.as_deref(), Some(rusqlite::Error::SqliteFailure(error, _)) if error.extended_code == rusqlite::ffi::SQLITE_BUSY)
         );
     }
     assert_eq!(
         unsafe { rusqlite::ffi::sqlite3_finalize(raw_statement) },
         rusqlite::ffi::SQLITE_OK
     );
-    assert!(original.lock().unwrap().close().is_err()); // do not erase first failure
+    let first = original.lock().unwrap().failure.as_ref().unwrap().clone();
+    let repeated = original.lock().unwrap().close().unwrap_err(); // do not erase first failure
+    assert!(
+        repeated
+            .get_ref()
+            .and_then(|source| source.downcast_ref::<Arc<rusqlite::Error>>())
+            .is_some_and(|source| Arc::ptr_eq(source, &first))
+    );
+    {
+        let database = original.lock().unwrap();
+        assert!(
+            database.connection.is_none(),
+            "same original Connection.close succeeded after its real statement returned"
+        );
+        assert!(
+            database.scratch.is_none(),
+            "actual private scratch removal completed"
+        );
+        assert!(database.retirement_complete());
+    }
     drop(original);
     assert!(resources.close().is_err());
-    assert_eq!(resources.0.databases.lock().unwrap().len(), 1);
+    assert!(resources.0.databases.lock().unwrap().is_empty());
+    assert!(resources.retirement_complete());
+    assert!(
+        resources.0.retired_faults.lock().unwrap()[0]
+            .get_ref()
+            .and_then(|source| source.downcast_ref::<Arc<rusqlite::Error>>())
+            .is_some_and(|source| Arc::ptr_eq(source, &first))
+    );
 }

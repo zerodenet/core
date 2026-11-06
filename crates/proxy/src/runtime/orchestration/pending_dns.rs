@@ -51,6 +51,31 @@ impl OrchestrationState {
         });
         Ok(())
     }
+    /// The same actual DNS token survives cancellation, just like its cold
+    /// backend candidate. This is before Host user quiescence, never a bypass.
+    pub(super) fn quiesce_dns_donors_for_reload<'a>(
+        &'a mut self,
+        proxy: &'a Proxy,
+        snapshot: &'a Arc<EngineRuntimeSnapshot>,
+        components: &'a Arc<ComponentPlan>,
+    ) -> zero_platform_tokio::contract::BoxFuture<'a, io::Result<()>> {
+        Box::pin(async move {
+            let replaced = proxy
+                .protocols
+                .runtime_host()
+                .components()
+                .replacement_instances(components)
+                .map_err(io::Error::other)?;
+            let resources = self.dns_reload_resources(snapshot)?;
+            // Install in the real existing token before the first await.
+            proxy.resolver.prepare_donor_pause(&resources, &replaced)?;
+            let end = tokio::time::Instant::now() + std::time::Duration::from_secs(5);
+            proxy
+                .protocols
+                .drive_component_supervision(proxy.resolver.retire_paused_donors(&resources, end))
+                .await
+        })
+    }
     pub(super) fn dns_reload_resources(
         &self,
         snapshot: &Arc<EngineRuntimeSnapshot>,

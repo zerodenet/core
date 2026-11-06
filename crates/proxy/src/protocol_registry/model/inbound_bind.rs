@@ -6,6 +6,7 @@ use zero_platform_tokio::contract::component::ResourceDeclaration;
 
 pub(crate) struct PreparedInboundBind {
     recipe: crate::component::ComponentRecipe,
+    dependencies: Arc<[zero_core::component::ComponentInstanceId]>,
     recovery: Option<Arc<dyn super::InboundRecovery>>,
     resources: Arc<[ResourceDeclaration]>,
     address: Option<SocketAddr>,
@@ -99,6 +100,7 @@ impl PreparedInboundBind {
         };
         let resources = Arc::from(spec.resources.as_slice());
         Ok(Self {
+            dependencies: Arc::from([]),
             recipe,
             resources,
             recovery: None,
@@ -182,6 +184,20 @@ impl PreparedInboundBind {
                 sum.checked_add(n)
             })
             .unwrap_or(usize::MAX)
+    }
+    pub(crate) fn with_actual_dependencies(
+        mut self,
+        dependencies: Vec<zero_core::component::ComponentInstanceId>,
+    ) -> Result<Self, EngineError> {
+        self.recipe = self
+            .recipe
+            .with_inbound_dependencies(&dependencies)
+            .map_err(std::io::Error::other)?;
+        self.dependencies = dependencies.into();
+        Ok(self)
+    }
+    pub(crate) fn actual_dependencies(&self) -> Arc<[zero_core::component::ComponentInstanceId]> {
+        self.dependencies.clone()
     }
     pub(crate) fn into_recipe(self) -> crate::component::ComponentRecipe {
         self.recipe

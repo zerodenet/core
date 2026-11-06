@@ -8,6 +8,8 @@ use zero_proxy::{ConfigApplyReconciler, ConfigReconcileResult};
 
 use crate::hooks;
 
+mod cleanup_fault;
+use cleanup_fault::{CleanupOwner, CleanupReceivers};
 mod control;
 mod startup;
 use startup::{ApplicationStartupSlot, APPLICATION_STARTUP};
@@ -47,6 +49,7 @@ struct ApplicationServiceState {
     pending_hooks: Option<hooks::PreparedHooks>,
     hooks: Option<hooks::PreparedHooks>,
     cleanup_fault: Option<Arc<dyn Error + Send + Sync>>,
+    cleanup_receivers: CleanupReceivers,
     #[cfg(feature = "event-dispatcher")]
     monitor_exit: Option<Result<(), Arc<zero_platform_tokio::contract::ChannelError>>>,
     #[cfg(feature = "event-dispatcher")]
@@ -149,6 +152,7 @@ impl ApplicationServices {
                 pending_hooks: None,
                 hooks: None,
                 cleanup_fault: None,
+                cleanup_receivers: CleanupReceivers::default(),
                 #[cfg(feature = "event-dispatcher")]
                 monitor_exit: None,
                 #[cfg(feature = "event-dispatcher")]

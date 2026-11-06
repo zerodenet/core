@@ -1,6 +1,38 @@
 //! Actual source projection, never a declaration-only provider grant.
 use super::*;
 impl ComponentPlan {
+    /// Resolve the owning Source's actual cold edges only after this plan's
+    /// canonical dependency generations have been assigned. IDs alone are not
+    /// readiness or source-reuse evidence.
+    pub fn source_dependency_instances(
+        &self,
+        tag: &str,
+        input: &[u8; 32],
+    ) -> Result<Vec<zero_core::component::ComponentInstanceId>, ChannelError> {
+        let Some((expected, ids)) = self.source_dependencies.get(tag) else {
+            return Ok(Vec::new());
+        };
+        if expected != input {
+            return Err(invalid(
+                Reason::StalePlan,
+                "source input differs from its actual candidate",
+            ));
+        }
+        ids.iter()
+            .map(|id| {
+                self.order
+                    .iter()
+                    .find(|slot| slot.id == *id)
+                    .map(|slot| slot.instance_id())
+                    .ok_or_else(|| {
+                        invalid(
+                            Reason::StalePlan,
+                            "source callee is absent from the actual plan",
+                        )
+                    })
+            })
+            .collect()
+    }
     /// Called only by host assembly with the exact candidate component and the
     /// source's actual acquired native/wire registration. No native authority
     /// or cleanup responsibility moves out of that source's original owner.

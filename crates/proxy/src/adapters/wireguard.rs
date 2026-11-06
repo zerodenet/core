@@ -6,6 +6,7 @@ mod inbound_state;
 pub(crate) mod lifecycle;
 mod observation;
 mod packet;
+mod source_dependencies;
 mod udp;
 
 use std::{

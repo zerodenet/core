@@ -20,11 +20,11 @@ mod webhook;
 
 #[cfg(feature = "event-dispatcher")]
 pub use dispatcher::{
+    DispatcherRetirementFailure, EventDispatcherContinuation, EventDispatcherHandle,
+    EventDispatcherOptions, EventDispatcherStatusHandle,
     prepare_event_dispatcher_paused_with_network, resume_event_dispatcher_with_network,
     spawn_event_dispatcher, spawn_event_dispatcher_with_engine_started,
     spawn_event_dispatcher_with_engine_started_and_network, spawn_event_dispatcher_with_network,
-    EventDispatcherContinuation, EventDispatcherHandle, EventDispatcherOptions,
-    EventDispatcherStatusHandle,
 };
 pub use error::{ConnectorError, ConnectorResult};
 #[cfg(feature = "event-dispatcher")]
@@ -33,8 +33,8 @@ pub use network::{
 };
 #[cfg(feature = "event-dispatcher")]
 pub use state::{
-    inspect_persistent_state, ConnectorStateFile, ConnectorStateReport, ConnectorStateStatus,
-    CONNECTOR_STATE_REPORT_SCHEMA,
+    CONNECTOR_STATE_REPORT_SCHEMA, ConnectorStateFile, ConnectorStateReport, ConnectorStateStatus,
+    inspect_persistent_state,
 };
 
 #[cfg(feature = "event-dispatcher")]

@@ -1,6 +1,6 @@
 //! Reuse only a live original Source whose full installed input is unchanged.
 use super::*;
-pub(super) fn input_identity(input: &zero_config::InboundConfig) -> Result<[u8; 32], EngineError> {
+pub(crate) fn input_identity(input: &zero_config::InboundConfig) -> Result<[u8; 32], EngineError> {
     use sha2::{Digest, Sha256};
     // Opaque configuration hashing only: the host does not parse protocol
     // settings or retain another configuration/profile or resource owner.

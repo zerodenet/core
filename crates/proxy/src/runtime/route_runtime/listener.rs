@@ -122,6 +122,21 @@ impl InboundListenerRuntimeFactory {
         self.restoring
     }
 
+    pub(in crate::runtime) fn source_dependencies_changed(
+        &self,
+        input: &zero_config::InboundConfig,
+    ) -> Result<bool, zero_engine::EngineError> {
+        #[cfg(feature = "raw-ip-runtime")]
+        {
+            self.shared.source_dependencies_changed(&self.owners, input)
+        }
+        #[cfg(not(feature = "raw-ip-runtime"))]
+        {
+            let _ = input;
+            Ok(false)
+        }
+    }
+
     pub(crate) fn config_handle(&self) -> std::sync::Arc<zero_config::RuntimeConfig> {
         self.shared.config_handle()
     }

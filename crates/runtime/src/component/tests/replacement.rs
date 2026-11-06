@@ -32,6 +32,7 @@ fn plan(slots: Vec<Arc<ComponentSlot>>) -> Arc<ComponentPlan> {
         device_pass: false,
         failures: Default::default(),
         shared_identities: Default::default(),
+        source_dependencies: Default::default(),
         confirmed_declared_close: Default::default(),
         closing: Default::default(),
         close_evidence: Default::default(),

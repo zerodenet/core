@@ -57,6 +57,7 @@ impl ComponentCatalog {
             closing: Default::default(),
             close_evidence: Default::default(),
             shared_identities: original.shared_identities.clone(),
+            source_dependencies: original.source_dependencies.clone(),
         };
         self.bind_plan_ownership(&plan);
         Ok(plan)
@@ -163,6 +164,7 @@ impl ComponentCatalog {
             closing: Default::default(),
             close_evidence: Default::default(),
             shared_identities,
+            source_dependencies: original.source_dependencies.clone(),
         };
         self.bind_plan_ownership(&plan);
         Ok(plan)

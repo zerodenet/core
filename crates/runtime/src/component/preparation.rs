@@ -2,6 +2,9 @@
 mod accounting;
 mod device_aliases;
 mod identities;
+mod named;
+mod source_dependencies;
+pub use source_dependencies::SourceDependencyDeclarations;
 use super::{dependencies, instance::invalid, ComponentRecipe};
 pub use identities::SharedResourceIdentities;
 use std::{
@@ -47,6 +50,9 @@ impl PreparedSharedResource {
 /// This object never starts resources or publishes a candidate.
 pub struct ResourcePreparation<'a> {
     allocate: &'a mut dyn FnMut() -> Result<ComponentId, BuildError>,
+    builtin_component: Option<ComponentId>,
+    named_components: BTreeMap<String, ComponentId>,
+    source_dependencies: Option<SourceDependencyDeclarations>,
     resources: BTreeMap<Key, PreparedSharedResource>,
     identities: BTreeSet<ComponentId>,
     failed: Cell<bool>,
@@ -67,6 +73,9 @@ impl<'a> ResourcePreparation<'a> {
     pub fn new(allocate: &'a mut dyn FnMut() -> Result<ComponentId, BuildError>) -> Self {
         Self {
             allocate,
+            builtin_component: None,
+            named_components: BTreeMap::new(),
+            source_dependencies: None,
             resources: BTreeMap::new(),
             identities: BTreeSet::new(),
             failed: Cell::new(false),

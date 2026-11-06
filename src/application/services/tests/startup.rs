@@ -29,7 +29,7 @@ async fn cancel_after_original_worker_is_installed(
             candidate,
             None,
             zero_connector::EventDispatcherNetwork::new(Arc::new(
-                ApplicationEventSinkTcpDialer::new(
+                ApplicationEventSinkTcpDialer::for_test(
                     zero_platform_tokio::EgressInterfaceControl::default(),
                 ),
             )),
@@ -97,7 +97,7 @@ async fn startup_unknown_cleanup_retains_exact_original_and_rejects_next_startup
             engine.clone(),
             None,
             zero_connector::EventDispatcherNetwork::new(Arc::new(
-                ApplicationEventSinkTcpDialer::new(
+                ApplicationEventSinkTcpDialer::for_test(
                     zero_platform_tokio::EgressInterfaceControl::default(),
                 ),
             )),
@@ -126,7 +126,7 @@ async fn startup_unknown_cleanup_retains_exact_original_and_rejects_next_startup
             Engine::new(config).unwrap(),
             None,
             zero_connector::EventDispatcherNetwork::new(Arc::new(
-                ApplicationEventSinkTcpDialer::new(
+                ApplicationEventSinkTcpDialer::for_test(
                     zero_platform_tokio::EgressInterfaceControl::default(),
                 ),
             )),

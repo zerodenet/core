@@ -33,7 +33,7 @@ async fn ordinary_vless_h2_and_upgrade_domain_dns_consumes_each_failed_original_
             let actual=pending(&proxy).await;let child=actual.original.as_ref().unwrap();let original=donor(child);
             assert_eq!(original.selected_binding().unwrap().0.address,zero_core::Address::Domain("transport.actual.node.test".into()));
             assert_eq!(original.endpoints().unwrap().peer(),remote.address);
-            let plan=proxy.tcp_runtime_services().components.unwrap();let slot=plan.configured("node").unwrap();
+            let plan=proxy.tcp_runtime_services().components.clone().unwrap();let slot=plan.configured("node").unwrap();
             let owner=(0..slot.recipe.spec().resources.len()).filter_map(|ordinal|slot.original_carrier_owner(ordinal))
                 .find(|owner|owner.observe().is_some_and(|held|held.retained()==1)).unwrap();
             let held=owner.observe().unwrap();assert_eq!(held.retained(),1);

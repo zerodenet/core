@@ -23,7 +23,7 @@ async fn ordinary_vless_h2_and_upgrade_first_tls_await_retains_actual_taskless_n
             assert!(!query.is_finished(),"native peer has not returned its TLS ServerHello");
             let caller=proxy.resolver.native_query_observations().into_iter().find(|actual|!actual.task.is_joined()).unwrap();
             assert!(caller.original.is_none(),"TLS framing has not returned a DNS child loan");
-            let components=proxy.tcp_runtime_services().components.unwrap();
+            let components=proxy.tcp_runtime_services().components.clone().unwrap();
             let node=components.configured("node").unwrap();
             let owner=(0..node.recipe.spec().resources.len()).filter_map(|ordinal|node.original_carrier_owner(ordinal))
                 .find(|owner|owner.observe().is_some_and(|state|state.slots().iter().any(|original|original.native().is_some_and(|native|!native.is_closed())))).unwrap();

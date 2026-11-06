@@ -56,6 +56,22 @@ impl super::ProtocolInventory {
             .await
     }
     /// Read only: historical snapshots cannot prepare or publish a replacement.
+    #[cfg(feature = "raw-ip-runtime")]
+    pub(crate) fn source_dependency_instances(
+        &self,
+        config: &Arc<RuntimeConfig>,
+        input: &zero_config::InboundConfig,
+    ) -> Result<Vec<zero_core::component::ComponentInstanceId>, zero_engine::EngineError> {
+        // The same catalog cache supplies this exact cold union; no independent
+        // registry, old-plan generation or second source material decode.
+        let plan = match self.host.components().prepared_candidate(config) {
+            Some(prepared) => prepared,
+            None => self.prepare_device_components(config.clone()),
+        }.map_err(|error| std::io::Error::other(retained(error)))?;
+        plan.source_dependency_instances(&input.tag, &crate::runtime::inbound_owners::source_input_identity(input)?)
+            .map_err(|error| std::io::Error::other(error).into())
+    }
+
     pub(crate) fn current_components(
         &self,
         config: &Arc<RuntimeConfig>,
@@ -193,7 +209,10 @@ impl super::ProtocolInventory {
             self.host
                 .components()
                 .prepare_with_device_resources(config.clone(), |resources| {
-                    self.devices.prepare_component_resources(&config, resources)
+                    let deferred = self.devices.prepare_component_resources(&config, resources)?;
+                    let sources = self.devices.source_component_dependencies(&config, resources)?;
+                    resources.set_source_dependencies(sources)?;
+                    Ok(deferred)
                 })
         }
         #[cfg(not(feature = "raw-ip-runtime"))]
@@ -211,6 +230,8 @@ impl super::ProtocolInventory {
                 .components()
                 .prepare_recovered_device_resources(config.clone(), |resources| {
                     let deferred=self.devices.prepare_component_resources(&config,resources)?;
+                    let sources=self.devices.source_component_dependencies(&config,resources)?;
+                    resources.set_source_dependencies(sources)?;
                     let aliases=self.devices.device_alias_overrides(&config,resources)?;
                     resources.set_device_alias_overrides(aliases)?;
                     Ok(deferred)

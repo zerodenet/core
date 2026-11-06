@@ -8,13 +8,13 @@ use std::time::{Duration, Instant};
 use tokio::task::JoinHandle;
 use tracing::{debug, warn};
 use zero_api::{
-    event_type, EventFilter, EventSink, EventSource, EventStream, EventStreamReceive,
-    OutboxRecoveryStatus, OutboxStorageStatus, RawApiEvent, SinkDeliveryStatus, SinkStatus,
+    EventFilter, EventSink, EventSource, EventStream, EventStreamReceive, OutboxRecoveryStatus,
+    OutboxStorageStatus, RawApiEvent, SinkDeliveryStatus, SinkStatus, event_type,
 };
 use zero_config::{ApiConfig, EventDispatcherConfig};
 
 use crate::network::EventDispatcherNetwork;
-use crate::registry::{build_event_sinks, resolve_path, ConfiguredEventSink};
+use crate::registry::{ConfiguredEventSink, build_event_sinks, resolve_path};
 use crate::resources::{DispatcherResources, RetainedDeadLetter};
 use crate::{ConnectorError, ConnectorResult};
 
@@ -32,8 +32,8 @@ use admission::{dispatch_event, fill_pending_from_outbox, is_discardable_sample}
 pub(crate) mod outbox;
 mod source;
 mod worker;
-pub use continuation::{resume_event_dispatcher_with_network, EventDispatcherContinuation};
 use continuation::{ContinuationState, ShutdownMode};
+pub use continuation::{EventDispatcherContinuation, resume_event_dispatcher_with_network};
 use source::drain_event_source;
 
 use outbox::{DeliveryOutbox, OutboxDelivery};
@@ -429,9 +429,7 @@ where
         let subscriber = match source.subscribe(EventFilter::default()) {
             Ok(subscriber) => subscriber,
             Err(error) => {
-                let _ = init_tx.send(Err(ConnectorError::Config(format!(
-                    "event dispatcher failed to subscribe to source: {error}"
-                ))));
+                let _ = init_tx.send(Err(ConnectorError::Api(error)));
                 return None;
             }
         };
@@ -458,9 +456,7 @@ where
         {
             Ok(runtime) => runtime,
             Err(error) => {
-                let _ = init_tx.send(Err(ConnectorError::Config(format!(
-                    "failed to build connector dispatcher runtime: {error}"
-                ))));
+                let _ = init_tx.send(Err(ConnectorError::DispatcherRuntime(error)));
                 return None;
             }
         };
@@ -1333,3 +1329,6 @@ fn record_dispatcher_replay_gap(stats: &SharedSinkStats, message: &str) {
         stat.record_failed(Some(message.to_owned()));
     }
 }
+
+mod failure;
+pub use failure::DispatcherRetirementFailure;

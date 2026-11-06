@@ -51,6 +51,7 @@ pub struct ComponentPlan {
     failures: Mutex<BTreeMap<zero_core::component::TaskId, Arc<plan::PlanTaskFailure>>>,
     // Canonical IDs from this exact assembly; no old recipes or runtime owners.
     shared_identities: super::SharedResourceIdentities,
+    source_dependencies: super::preparation::SourceDependencyDeclarations,
     // Only actual complete slot reports establish declared owner closure.
     confirmed_declared_close:
         Mutex<std::collections::BTreeSet<zero_core::component::ComponentInstanceId>>,
@@ -139,6 +140,13 @@ impl std::fmt::Debug for ComponentCatalog {
     }
 }
 impl ComponentCatalog {
+    /// Read the already prepared exact snapshot, including a cold/staged plan.
+    /// Presence is not activation, native cleanup or runtime Ready evidence.
+    pub fn prepared_candidate(&self, config: &Arc<RuntimeConfig>) -> Option<Result<Arc<ComponentPlan>, SharedError>> {
+        let state = self.state.lock().expect("component catalog poisoned");
+        state.current.iter().chain(state.staged.iter()).chain(state.cold.iter())
+            .find(|entry| entry.matches(config)).map(|entry| entry.plan.clone())
+    }
     pub fn current(&self, config: &Arc<RuntimeConfig>) -> Option<Arc<ComponentPlan>> {
         self.state
             .lock()

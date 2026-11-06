@@ -29,6 +29,7 @@ async fn cancelled_plan_shutdown_retains_actual_join_failure_after_report_consum
         closing: Default::default(),
         close_evidence: Default::default(),
         shared_identities: Default::default(),
+        source_dependencies: Default::default(),
     });
     TestContext::new(plan.order.iter().map(AsRef::as_ref))
         .drive(plan.start(deadline()))

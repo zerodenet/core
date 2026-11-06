@@ -10,14 +10,14 @@ use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use zero_core::component::{ComponentId, ComponentInstanceId, ResourceGeneration, TaskId};
 use zero_platform_tokio::{
     contract::{
-        scope::{TaskClass, TaskJoinWitness, TaskScope},
+        scope::{HostedScope, TaskClass, TaskJoinWitness, TaskScope},
         CancellationToken, ChannelError, Impact, Reason, Stage,
     },
     controlled_carrier::CarrierOriginalTotals,
     LocalProcessInfo, LocalProcessLookup, LocalProcessTransport,
 };
 pub(super) struct LookupCaller {
-    scope: TaskScope,
+    scope: HostedScope,
     caller: TaskJoinWitness,
     id: TaskId,
     writer: tokio::io::DuplexStream,

@@ -10,7 +10,7 @@ mod preparation;
 mod recipe;
 mod registry;
 pub use admission::ServiceAdmission;
-pub use preparation::{PreparedSharedResource, ResourcePreparation, SharedResourceIdentities};
+pub use preparation::{PreparedSharedResource, ResourcePreparation, SharedResourceIdentities, SourceDependencyDeclarations};
 pub use recipe::ComponentRecipe;
 pub use registry::{ComponentRegistry, RegistrationError, ValidatedRecipe};
 #[cfg(test)]
