@@ -9,8 +9,31 @@ impl ComponentPlan {
         &self,
         roles: &[zero_core::component::RoleInstanceId],
     ) -> Result<usize, ChannelError> {
+        self.pending_carrier_capacity_union(roles, None)
+    }
+    /// Actual direct dependency, plus the selected prefix, in the same finite
+    /// census. A provider reached twice is counted once, not added twice.
+    pub fn pending_carrier_capacity_with_dependency(
+        &self,
+        consumer: zero_core::component::ComponentInstanceId,
+        dependency: zero_core::component::ComponentInstanceId,
+        roles: &[zero_core::component::RoleInstanceId],
+    ) -> Result<usize, ChannelError> {
+        let slot = self
+            .component(consumer.component)
+            .filter(|slot| slot.instance_id() == consumer)
+            .filter(|slot| slot.dependency_instances().contains(&dependency))
+            .ok_or_else(|| invalid(Reason::StalePlan, "pending direct dependency changed"))?;
+        let _ = slot;
+        self.pending_carrier_capacity_union(roles, Some(dependency))
+    }
+    fn pending_carrier_capacity_union(
+        &self,
+        roles: &[zero_core::component::RoleInstanceId],
+        dependency: Option<zero_core::component::ComponentInstanceId>,
+    ) -> Result<usize, ChannelError> {
         use zero_platform_tokio::contract::component::ResourceDeclaration as R;
-        let mut pending = Vec::new();
+        let mut pending = dependency.into_iter().collect::<Vec<_>>();
         for role in roles {
             pending.push(
                 self.role_slot(*role)
@@ -167,7 +190,26 @@ impl ComponentPlan {
             )
         };
         let selected = self.role_slot(role).ok_or_else(fail)?;
-        let mut pending = vec![selected.instance_id()];
+        self.validate_carrier_instance(selected.instance_id(), adoption)
+    }
+    pub(crate) fn validate_carrier_instance(
+        &self,
+        consumer: zero_core::component::ComponentInstanceId,
+        adoption: &zero_platform_tokio::controlled_carrier::CarrierAdoption,
+    ) -> Result<(), ChannelError> {
+        let fail = || {
+            invalid(
+                Reason::StalePlan,
+                "pending carrier differs from the actual owning graph",
+            )
+        };
+        if self
+            .component(consumer.component)
+            .is_none_or(|slot| slot.instance_id() != consumer)
+        {
+            return Err(fail());
+        }
+        let mut pending = vec![consumer];
         let mut seen = std::collections::BTreeSet::new();
         while let Some(id) = pending.pop() {
             if !seen.insert(id) {

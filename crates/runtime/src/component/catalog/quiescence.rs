@@ -43,6 +43,26 @@ impl ComponentCatalog {
         role: zero_core::component::RoleInstanceId,
         adoption: &zero_platform_tokio::controlled_carrier::CarrierAdoption,
     ) -> Result<(), ChannelError> {
+        self.validate_owned_carrier_with(adoption, |plan| {
+            plan.validate_carrier_adoption(role, adoption)
+        })
+    }
+    /// Actual owning instance rather than a configured role: roleless cached
+    /// pools still have the same retained Catalog Slot/provider/Scope.
+    pub fn validate_owned_carrier_instance(
+        &self,
+        consumer: zero_core::component::ComponentInstanceId,
+        adoption: &zero_platform_tokio::controlled_carrier::CarrierAdoption,
+    ) -> Result<(), ChannelError> {
+        self.validate_owned_carrier_with(adoption, |plan| {
+            plan.validate_carrier_instance(consumer, adoption)
+        })
+    }
+    fn validate_owned_carrier_with(
+        &self,
+        adoption: &zero_platform_tokio::controlled_carrier::CarrierAdoption,
+        validate: impl Fn(&ComponentPlan) -> Result<(), ChannelError>,
+    ) -> Result<(), ChannelError> {
         let plans = {
             let state = self.state.lock().expect("component catalog poisoned");
             state
@@ -58,7 +78,7 @@ impl ComponentCatalog {
         // Actual provider/slot/Scope inspection and final Arc destructors occur
         // outside the catalog mutex. Public IDs alone cannot match an owner.
         if plans.iter().any(|plan| {
-            if plan.validate_carrier_adoption(role, adoption).is_err() {
+            if validate(plan).is_err() {
                 return false;
             }
             let Some(slot) = plan.component(adoption.instance().component) else {
