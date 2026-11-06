@@ -58,15 +58,12 @@ fn pending_read(
         pending,
     )
 }
-#[tokio::test]
-async fn system_tun_small_total_accepts_real_pending_children_and_refunds_only_actual_joins() {
-    let proxy = Proxy::new(
-        zero_config::RuntimeConfig::parse(
-            r#"{"runtime":{"system_tun_task_limit":2},"route":{"final":{"type":"direct"}}}"#,
-        )
-        .unwrap(),
-    )
-    .unwrap();
+pub(super) fn reserve(
+    proxy: &Proxy,
+) -> (
+    crate::runtime::inbound_owners::system_tun::SystemTunLease,
+    Arc<crate::inbound::tun::source::SystemTunSourceState>,
+) {
     let limit = NonZeroUsize::new(
         proxy
             .engine()
@@ -95,14 +92,28 @@ async fn system_tun_small_total_accepts_real_pending_children_and_refunds_only_a
     .unwrap();
     let metadata = options.state();
     let (stop, _) = watch::channel(false);
-    let registry = proxy.inbound_owners.clone();
-    let lease = registry
+    let lease = proxy
+        .inbound_owners
         .reserve_system_tun(
             &proxy.protocols,
             ComponentRecipe::from_validated(Arc::new(SystemTunSourceFactory), options),
             stop,
         )
         .unwrap();
+    (lease, metadata)
+}
+
+#[tokio::test]
+async fn system_tun_small_total_accepts_real_pending_children_and_refunds_only_actual_joins() {
+    let proxy = Proxy::new(
+        zero_config::RuntimeConfig::parse(
+            r#"{"runtime":{"system_tun_task_limit":2},"route":{"final":{"type":"direct"}}}"#,
+        )
+        .unwrap(),
+    )
+    .unwrap();
+    let registry = proxy.inbound_owners.clone();
+    let (lease, metadata) = reserve(&proxy);
     let owner = lease.owner();
     let group = owner
         .install_child_group(proxy.protocols.clone(), NonZeroUsize::new(4096).unwrap())
