@@ -103,6 +103,12 @@ impl IpPacket {
     pub fn payload(&self) -> &[u8] {
         &self.payload
     }
+    /// Mutate this same original envelope in place (hop/checksum/translation).
+    /// Callers must preserve the validated family and packet length; no buffer
+    /// is replaced, copied or detached from ingress/return-association metadata.
+    pub fn payload_mut(&mut self) -> &mut [u8] {
+        &mut self.payload
+    }
     pub fn family(&self) -> IpFamily {
         self.family
     }

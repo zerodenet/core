@@ -1,6 +1,8 @@
 //! Native service requests carry a Destination and real Service identity all the way
 //! through their selected prefix. Unsupported plans are identified before I/O.
 mod binding;
+mod datagram;
+pub(crate) use datagram::connect_carrier_datagram;
 mod receipt;
 pub(crate) use binding::NativeDnsBinding;
 mod root;

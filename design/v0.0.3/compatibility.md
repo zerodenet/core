@@ -135,3 +135,19 @@ Config 的 Rust 便利文档加载 `RuntimeConfig::load_from_path` 删除；调�
 
 Packet/provider、部分 transport/process、设备 Scope、Windows pipe 和剩余预算的实现缺口
 单列在执行记录；没有因为新增上述接口而关闭整轮或 TEMP-WG-OUTER-UDP-01。
+
+## 第二轮续作的关联 Datagram 与实际设备原件
+
+`ResourceDeclaration::ControlledAssociationPool` 是同一实际 carrier owner 的 TCP 控制与
+协议协商 Datagram 原件声明；穷尽匹配调用者须处理新增变体，两个原件消费同一总额度。
+`UpstreamOpener::resolve_related_datagram` 默认拒绝，实际 host 实现使用同 Node DNS；
+`CarrierGrant::link_related_datagram` 只绑定真实已取得的同 owner 控制原件，不授予 root I/O。
+`CarrierOrigin::related_control` 是只读关联责任，物理 parent/native_origin 仍是实际 UDP 来源。
+`DatagramLoan::into_session` 与 `BorrowedDatagram::into_datagram_loan` 转交原 Tx/Rx、
+唯一 view 与同 LoanOwner，不新起协议泵，不把 view 返回当原件关闭。
+
+`PacketDeviceBinding` 增加 `Create` 与 `ExistingWindows`，原 descriptor 借入模式保留。
+具体 provider 在配置前安装原拥有者，Windows existing 不在失败时创建替代 adapter。
+`IpPacket::payload_mut` 原位修改同 buffer，调用方保持已校验 family/长度和 ingress/return 元数据。
+这些是续作实现前置；全部生产调用者、source、TaskRegistrar 与旧链删除仍按剩余表完成，
+不以此声明架构、GUI/面板、平台或压力资格通过；V1 wire 与 FFI ABI 不变。

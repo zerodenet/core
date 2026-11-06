@@ -1,6 +1,8 @@
 //! Resolve the entire selected service path before opening any carrier. Protocol
 //! support is determined by actual registered slots, never protocol-name matches.
 mod carrier;
+mod datagram;
+pub(crate) use datagram::ServiceDatagram;
 mod roots;
 pub(crate) use roots::{dns_roots, ServiceRoot};
 mod selection;
