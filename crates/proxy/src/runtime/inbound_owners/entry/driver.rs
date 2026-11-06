@@ -65,6 +65,17 @@ impl InboundOwner {
                 if let Ok(Err(source)) = &outcome {
                     retain_failure(&parent, source.clone());
                 }
+                if resources
+                    .iter()
+                    .any(|resource| resource.requires_scope_join)
+                {
+                    if let Some(parent) = parent.upgrade() {
+                        // A completed source stops its actual dependent wire
+                        // immediately. The external host still owns all joins
+                        // and original close receipts; no cleanup task starts.
+                        parent.task_access().request_stop();
+                    }
+                }
                 // Continue in the original task after real work ends. Its
                 // dependencies must finish before the native listener closes;
                 // this never consumes or waits for this task's own Scope join.

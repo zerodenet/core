@@ -142,7 +142,7 @@ impl SystemTunLease {
             instance.roles.inbound.take().ok_or_else(|| {
                 std::io::Error::other("System TUN factory omitted its actual source")
             })?;
-        self.owner.install_resource(
+        self.owner.install_after_scope_resource(
             identity,
             erase_lifecycle(SourceLifecycle {
                 native: resources.clone(),
