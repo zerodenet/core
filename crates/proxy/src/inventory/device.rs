@@ -15,6 +15,10 @@ use crate::runtime::udp_dispatch::packet_path_operation::PreparedDatagramRelayCa
 type PacketPaths = HashMap<String, PreparedDevicePacketPath>;
 
 impl ProtocolInventory {
+    #[cfg(all(test,feature="wireguard"))]
+    pub(crate) fn test_packet_source_origins(&self,config:&RuntimeConfig)->Vec<zero_platform_tokio::controlled_carrier::CarrierOrigin> {
+        self.devices.test_current_wireguard_sources(config)
+    }
     #[cfg(all(test, feature = "wireguard"))]
     pub(crate) fn test_outbound_devices(
         &self,

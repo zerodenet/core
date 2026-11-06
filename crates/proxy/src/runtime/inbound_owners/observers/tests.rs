@@ -164,8 +164,23 @@ async fn dynamic_source_enters_the_original_empty_observer_consumer() {
         .unwrap();
     let (mut io, _) = listener.accept().await.unwrap();
     let (entered, pending) = tokio::sync::oneshot::channel();
+    let access = owner.task_access();
+    let (main_sent, main_received) =
+        tokio::sync::oneshot::channel::<zero_platform_tokio::contract::scope::TaskJoinWitness>();
     owner
         .spawn_driver(async move {
+            #[cfg(feature = "raw-ip-runtime")]
+            main_sent
+                .send(
+                    access
+                        .source_main_witness()
+                        .await
+                        .map_err(std::io::Error::other)?,
+                )
+                .unwrap();
+            #[cfg(not(feature = "raw-ip-runtime"))]
+            let _ = (access, main_sent);
+
             let mut entered = Some(entered);
             let read = io.read_u8();
             tokio::pin!(read);
@@ -184,6 +199,12 @@ async fn dynamic_source_enters_the_original_empty_observer_consumer() {
         .unwrap();
     owner.seal_listener_installation();
     pending.await.unwrap();
+    #[cfg(feature = "raw-ip-runtime")]
+    let actual_main = main_received.await.unwrap();
+    #[cfg(not(feature = "raw-ip-runtime"))]
+    let _ = main_received;
+    #[cfg(feature = "raw-ip-runtime")]
+    assert_eq!(actual_main.id(), *owner.driver.get().unwrap());
     let waiting = observers.join_next_running();
     tokio::pin!(waiting);
     assert!(futures_util::poll!(&mut waiting).is_pending());
@@ -211,6 +232,11 @@ async fn dynamic_source_enters_the_original_empty_observer_consumer() {
         .await
         .unwrap()
         .unwrap();
+    #[cfg(feature = "raw-ip-runtime")]
+    assert!(
+        actual_main.is_joined(),
+        "actual source main joined through original observer"
+    );
     assert_eq!(receipt.terminal().joined_tasks(), 1);
     assert!(receipt.terminal().failure().is_some());
 }

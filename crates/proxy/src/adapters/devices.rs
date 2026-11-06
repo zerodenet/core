@@ -46,6 +46,17 @@ impl Devices {
             .unwrap_or_default()
     }
 
+    #[cfg(all(test, feature = "wireguard"))]
+    pub(crate) fn test_current_wireguard_sources(
+        &self,
+        config: &RuntimeConfig,
+    ) -> Vec<zero_platform_tokio::controlled_carrier::CarrierOrigin> {
+        self.wireguard
+            .as_ref()
+            .map(|adapter| adapter.test_standard_source_origins(config))
+            .unwrap_or_default()
+    }
+
     pub(crate) async fn prepare(
         &self,
         config: &RuntimeConfig,

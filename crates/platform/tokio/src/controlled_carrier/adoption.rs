@@ -1,8 +1,8 @@
 use super::{error, slot::Slot, view::CarrierDriver};
 use crate::contract::{
-    ChannelError, DeliveryState, Reason, Stage,
     lifecycle::{ComponentError, TaskClass},
     scope::{TaskJoinWitness, TaskJoined, TaskRegistrar},
+    ChannelError, DeliveryState, Reason, Stage,
 };
 use std::{future::Future, sync::Arc};
 use tokio::time::Instant;
@@ -34,6 +34,12 @@ impl CarrierAdoption {
         Arc::ptr_eq(&self.slot, &other.slot)
     }
 
+    pub(crate) fn cleanup_owner(&self) -> Option<super::CarrierOwnerRegistration> {
+        self.slot
+            .owner
+            .upgrade()
+            .map(|owner| super::CarrierOwnerRegistration::new(&owner))
+    }
     pub fn instance(&self) -> ComponentInstanceId {
         self.slot.instance
     }
@@ -181,6 +187,12 @@ impl CarrierClosed {
                 state.packet_disposition,
                 Some(crate::controlled_datagram::AcquisitionOutcome::Closed(_))
             )
+    }
+    pub(crate) fn cleanup_owner(&self) -> Option<super::CarrierOwnerRegistration> {
+        self.slot
+            .owner
+            .upgrade()
+            .map(|owner| super::CarrierOwnerRegistration::new(&owner))
     }
     pub fn instance(&self) -> ComponentInstanceId {
         self.slot.instance
