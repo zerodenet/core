@@ -132,3 +132,6 @@ async fn actual_process_credit_waits_for_native_tree_actor_join_and_actual_defer
 }
 
 mod panic;
+
+#[path = "tests/admission.rs"]
+mod admission;
