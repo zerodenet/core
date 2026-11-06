@@ -40,6 +40,8 @@ struct Routes {
 pub(crate) struct TunCompletion {
     #[cfg(feature = "raw-ip-runtime")]
     source: Option<source::SourceCompletion>,
+    #[cfg(feature = "raw-ip-runtime")]
+    restart: std::sync::OnceLock<Arc<super::managed::Start>>,
     main: Mutex<Main>,
     routes: Mutex<Routes>,
     #[cfg(any(target_os = "linux", target_os = "macos", target_os = "windows"))]
@@ -48,6 +50,17 @@ pub(crate) struct TunCompletion {
     acquisition: std::sync::Mutex<Option<Arc<AcquisitionOwner>>>,
 }
 impl TunCompletion {
+    #[cfg(feature = "raw-ip-runtime")]
+    pub(in crate::inbound::tun) fn install_restart(&self, start: Arc<super::managed::Start>) {
+        assert!(
+            self.restart.set(start).is_ok(),
+            "one original immutable TUN restart intent"
+        );
+    }
+    #[cfg(feature = "raw-ip-runtime")]
+    pub(in crate::inbound::tun) fn restart(&self) -> Option<Arc<super::managed::Start>> {
+        self.restart.get().cloned()
+    }
     #[cfg(any(test, not(feature = "raw-ip-runtime")))]
     pub(super) fn new(
         done: oneshot::Receiver<()>,
@@ -62,6 +75,8 @@ impl TunCompletion {
         Arc::new(Self {
             #[cfg(feature = "raw-ip-runtime")]
             source: None,
+            #[cfg(feature = "raw-ip-runtime")]
+            restart: std::sync::OnceLock::new(),
             #[cfg(any(target_os = "linux", target_os = "macos", target_os = "windows"))]
             native: std::sync::Mutex::new(None),
             #[cfg(any(target_os = "linux", target_os = "macos", target_os = "windows"))]

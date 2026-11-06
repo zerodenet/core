@@ -3,6 +3,7 @@ use super::*;
 use std::num::NonZeroUsize;
 use tokio::time::{timeout_at, Instant};
 use zero_platform_tokio::contract::component::PacketDeviceBinding;
+#[derive(Clone, Debug)]
 pub(super) struct Start {
     pub name: Option<String>,
     pub raw_addr: String,
@@ -12,6 +13,7 @@ pub(super) struct Start {
     pub tag: String,
     pub options: TunRuntimeOptions,
     pub managed_config: Option<zero_config::TunConfig>,
+    pub dns_hijacked_queries: Arc<AtomicU64>,
 }
 impl Proxy {
     pub(super) async fn prepare_live_tun_network(
@@ -42,7 +44,12 @@ impl Proxy {
             .await
             .ok_or_else(|| io::Error::other("live TUN has no original route worker"))?
     }
-    pub(super) async fn start_managed_tun(&self, start: Start) -> Result<(), EngineError> {
+    pub(super) async fn start_managed_tun(
+        &self,
+        start: Start,
+        config: Arc<zero_config::RuntimeConfig>,
+        recovery: Option<Arc<budget::TunBudgetRecovery>>,
+    ) -> Result<(), EngineError> {
         let id = NEXT_TUN_ID
             .try_update(Ordering::Relaxed, Ordering::Relaxed, |id| id.checked_add(1))
             .map_err(|_| io::Error::other("System TUN identity space is exhausted"))?;
@@ -51,7 +58,6 @@ impl Proxy {
             .iter()
             .map(|address| (address.address, address.netmask))
             .collect::<Vec<_>>();
-        let config = self.engine().config();
         let actual_tasks =
             crate::runtime::inbound_operation::raw_ip::PacketSourceContext::device_task_limit()
                 .checked_add(1 + if start.options.auto_route { 2 } else { 0 })
@@ -109,12 +115,14 @@ impl Proxy {
             routes.clone(),
             metadata.clone(),
         );
+        completion.install_restart(Arc::new(start.clone()));
         // Same exact native/Scope owner and cleanup path are durable before
         // discovery, driver registration, device acquisition or any await.
         *self.tun_control.lock().unwrap() = Some(TunControl {
             id,
             shutdown: shutdown.clone(),
             completion: completion.clone(),
+            budget_recovery: recovery,
             route_recovery: None,
         });
         let result=async {
@@ -133,7 +141,7 @@ impl Proxy {
                     Err(source)=>{tracing::warn!(%source,"TUN DNS interception disabled after preparation failure");PreparedTunNetwork{dns_hijack:false,route_exclusions:vec![]}},
                 }
             };
-            let dns_hijacked_queries=Arc::new(AtomicU64::new(0));
+            let dns_hijacked_queries=start.dns_hijacked_queries.clone();
             let ingress=source.ingress_options(prepared.dns_hijack,dns_hijacked_queries.clone());
             let runtime=crate::runtime::route_runtime::InboundListenerRuntime::new(
                 crate::runtime::route_runtime::SharedIngressRuntimeServices::new(self.tcp_runtime_services().for_inbound(start.tag.clone())),
@@ -185,12 +193,20 @@ impl Proxy {
             Ok(()) => Ok(()),
             Err(source) => {
                 shutdown.send_replace(true);
+                completion.request_source_stop();
                 let closed = completion.wait_main(deadline()).await;
                 if completion.resources_complete().await {
-                    let mut control = self.tun_control.lock().unwrap();
-                    if control.as_ref().is_some_and(|control| control.id == id) {
-                        control.take();
-                    }
+                    let retired = {
+                        let mut control = self.tun_control.lock().unwrap();
+                        if control.as_ref().is_some_and(|control| {
+                            control.id == id && control.budget_recovery.is_none()
+                        }) {
+                            control.take()
+                        } else {
+                            None
+                        }
+                    };
+                    drop(retired);
                     clear_egress_after_route_cleanup(&self.egress_interface, true);
                     clear_matching_tun_info(self, id);
                 }

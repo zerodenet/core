@@ -1,5 +1,7 @@
 //! TUN inbound lifecycle and proxy-kernel integration.
 
+#[cfg(feature = "raw-ip-runtime")]
+pub(crate) mod budget;
 pub(crate) mod completion;
 mod config;
 #[cfg(feature = "raw-ip-runtime")]
@@ -63,6 +65,14 @@ pub struct TunInterfaceOptions<'a> {
     pub addr: &'a str,
     pub mask: &'a str,
     pub secondary_addr: Option<&'a str>,
+}
+
+#[derive(Default)]
+struct TunStartPreparation {
+    #[cfg(feature = "raw-ip-runtime")]
+    config: Option<Arc<zero_config::RuntimeConfig>>,
+    #[cfg(feature = "raw-ip-runtime")]
+    recovery: Option<Arc<budget::TunBudgetRecovery>>,
 }
 
 struct TunStartSpec<'a> {
@@ -142,6 +152,18 @@ impl Proxy {
     }
 
     async fn start_tun_internal(&self, spec: TunStartSpec<'_>) -> Result<(), EngineError> {
+        let _operation = self.tun_operation_lock.lock().await;
+        self.start_tun_prepared(spec, TunStartPreparation::default())
+            .await
+    }
+
+    async fn start_tun_prepared(
+        &self,
+        spec: TunStartSpec<'_>,
+        prepared: TunStartPreparation,
+    ) -> Result<(), EngineError> {
+        #[cfg(not(feature = "raw-ip-runtime"))]
+        let _ = prepared;
         let TunStartSpec {
             name,
             addr,
@@ -197,18 +219,48 @@ impl Proxy {
                 "TUN exclude CIDRs must not contain duplicates",
             )));
         }
-        let _operation = self.tun_operation_lock.lock().await;
         if !cfg!(feature = "udp-runtime") {
             return Err(EngineError::Io(io::Error::new(
                 io::ErrorKind::Unsupported,
                 "TUN requires the zero-proxy `udp-runtime` feature",
             )));
         }
-        if self.tun_control.lock().unwrap().is_some() {
-            return Err(EngineError::Io(io::Error::new(
-                io::ErrorKind::AlreadyExists,
-                "TUN is already running",
-            )));
+        let current = self.tun_control.lock().unwrap().as_ref().map(|control| {
+            (control.completion.clone(), {
+                #[cfg(feature = "raw-ip-runtime")]
+                {
+                    control.budget_recovery.clone()
+                }
+                #[cfg(not(feature = "raw-ip-runtime"))]
+                {
+                    None::<()>
+                }
+            })
+        });
+        if let Some((completion, recovery)) = current {
+            #[cfg(feature = "raw-ip-runtime")]
+            let replacing = prepared.recovery.as_ref().is_some_and(|expected| {
+                recovery
+                    .as_ref()
+                    .is_some_and(|actual| Arc::ptr_eq(actual, expected))
+            }) && completion.resources_complete().await;
+            #[cfg(not(feature = "raw-ip-runtime"))]
+            let replacing = {
+                let _ = (completion, recovery);
+                false
+            };
+            if !replacing {
+                return Err(
+                    io::Error::new(io::ErrorKind::AlreadyExists, "TUN is already running").into(),
+                );
+            }
+        } else {
+            #[cfg(feature = "raw-ip-runtime")]
+            if prepared.recovery.is_some() {
+                return Err(
+                    io::Error::other("System TUN budget recovery lost its actual control").into(),
+                );
+            }
         }
         if mtu < 576 {
             return Err(EngineError::Io(io::Error::new(
@@ -291,23 +343,28 @@ impl Proxy {
         #[cfg(feature = "raw-ip-runtime")]
         {
             let _ = prepared_network;
-            self.start_managed_tun(managed::Start {
-                name: name.map(str::to_owned),
-                raw_addr: addr.to_owned(),
-                addresses: interface_addresses,
-                route_addresses,
-                mtu,
-                tag: tag.to_owned(),
-                options: TunRuntimeOptions {
-                    auto_route,
-                    include_cidrs,
-                    exclude_cidrs,
-                    dual_stack,
-                    strict_route,
-                    dns_hijack,
+            self.start_managed_tun(
+                managed::Start {
+                    name: name.map(str::to_owned),
+                    raw_addr: addr.to_owned(),
+                    addresses: interface_addresses,
+                    route_addresses,
+                    mtu,
+                    tag: tag.to_owned(),
+                    options: TunRuntimeOptions {
+                        auto_route,
+                        include_cidrs,
+                        exclude_cidrs,
+                        dual_stack,
+                        strict_route,
+                        dns_hijack,
+                    },
+                    managed_config,
+                    dns_hijacked_queries: Arc::new(AtomicU64::new(0)),
                 },
-                managed_config,
-            })
+                prepared.config.unwrap_or_else(|| self.engine().config()),
+                prepared.recovery,
+            )
             .await
         }
         #[cfg(not(feature = "raw-ip-runtime"))]
@@ -346,6 +403,8 @@ impl Proxy {
                 id,
                 shutdown: shutdown.clone(),
                 completion: completion.clone(),
+                #[cfg(feature = "raw-ip-runtime")]
+                budget_recovery: None,
                 route_recovery: None,
             });
             #[cfg(any(target_os = "linux", target_os = "macos"))]
@@ -528,6 +587,8 @@ impl Proxy {
                 id,
                 shutdown,
                 completion: completion.clone(),
+                #[cfg(feature = "raw-ip-runtime")]
+                budget_recovery: None,
                 route_recovery: auto_route.then_some(route_recovery),
             });
             debug!("TUN runtime state published");
@@ -574,6 +635,17 @@ impl Proxy {
         desired: Option<&zero_config::TunConfig>,
         network_mtu: u16,
     ) -> Result<(), EngineError> {
+        #[cfg(feature = "raw-ip-runtime")]
+        if self.has_tun_packet_budget_recovery() {
+            let config = self.engine().config();
+            if config.runtime.tun.as_ref() != desired || config.runtime.network.mtu != network_mtu {
+                return Err(io::Error::other(
+                    "System TUN recovery requires the exact candidate snapshot",
+                )
+                .into());
+            }
+            return self.resume_tun_after_packet_budget(config).await;
+        }
         let current = self.tun_info.lock().unwrap().clone();
         #[cfg(feature = "raw-ip-runtime")]
         let prepared_network = if let (Some(current), Some(desired)) = (&current, desired) {
@@ -735,6 +807,23 @@ impl Proxy {
 
     async fn stop_tun_internal(&self, allow_configured: bool) -> Result<(), EngineError> {
         let _operation = self.tun_operation_lock.lock().await;
+        self.stop_tun_locked(allow_configured, false).await
+    }
+    async fn stop_tun_locked(
+        &self,
+        allow_configured: bool,
+        preserve_budget: bool,
+    ) -> Result<(), EngineError> {
+        #[cfg(not(feature = "raw-ip-runtime"))]
+        let _ = preserve_budget;
+        #[cfg(feature = "raw-ip-runtime")]
+        if !allow_configured && self.has_tun_packet_budget_recovery() {
+            return Err(io::Error::new(
+                io::ErrorKind::WouldBlock,
+                "System TUN budget replacement still retains its original recovery",
+            )
+            .into());
+        }
         if !allow_configured
             && self
                 .tun_info
@@ -767,6 +856,8 @@ impl Proxy {
                 ))
             })?;
         shutdown.send_replace(true);
+        #[cfg(feature = "raw-ip-runtime")]
+        completion.request_source_stop();
         // Both notifications and the actual original JoinHandles remain in
         // this same published control if this waiter is cancelled or expires.
         let stopped = completion
@@ -785,10 +876,26 @@ impl Proxy {
         );
         let result = result.map_err(EngineError::Io);
         if completion.resources_complete().await {
-            let mut control = self.tun_control.lock().unwrap();
-            if control.as_ref().is_some_and(|control| control.id == id) {
-                control.take();
-            }
+            let retired = {
+                let mut control = self.tun_control.lock().unwrap();
+                if control.as_ref().is_some_and(|control| control.id == id) {
+                    #[cfg(feature = "raw-ip-runtime")]
+                    let keep = preserve_budget
+                        && control
+                            .as_ref()
+                            .is_some_and(|control| control.budget_recovery.is_some());
+                    #[cfg(not(feature = "raw-ip-runtime"))]
+                    let keep = false;
+                    if !keep {
+                        control.take()
+                    } else {
+                        None
+                    }
+                } else {
+                    None
+                }
+            };
+            drop(retired);
             clear_egress_after_route_cleanup(&self.egress_interface, true);
             clear_matching_tun_info(self, id);
         }

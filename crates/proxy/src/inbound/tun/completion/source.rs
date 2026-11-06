@@ -20,6 +20,20 @@ impl std::fmt::Debug for SourceCompletion {
     }
 }
 impl TunCompletion {
+    pub(in crate::inbound::tun) fn request_source_stop(&self) {
+        if let Some(source) = &self.source {
+            source.original.request_stop();
+        }
+    }
+
+    pub(in crate::inbound::tun) fn source_running(&self) -> bool {
+        self.source.as_ref().is_some_and(|source| {
+            source.original.is_running()
+                && source.original.is_ready()
+                && source.metadata.original().is_some()
+        })
+    }
+
     pub(in crate::inbound::tun) fn matches_source(
         &self,
         original: zero_core::component::ComponentInstanceId,

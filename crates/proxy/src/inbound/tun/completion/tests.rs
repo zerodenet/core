@@ -93,6 +93,8 @@ async fn exited_main_failure_is_reported_while_its_quiescent_control_is_reclaime
         id: 812,
         shutdown,
         completion: completion.clone(),
+        #[cfg(feature = "raw-ip-runtime")]
+        budget_recovery: None,
         route_recovery: None,
     });
     let error = proxy.stop_tun_if_running().await.unwrap_err();
