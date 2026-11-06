@@ -115,6 +115,12 @@ pub(super) fn catalog(controls: &Arc<Controls>) -> ComponentCatalog {
                         plugin: plugin.as_ref(),
                         dial: input.dial.to_policy(),
                     })
+                    .map_err(options_error)?
+                    // A per-consumer salt capacity no longer replaces the
+                    // shared security authority. Prepare its real total-budget
+                    // proposal too, so the conflict test exercises a changed
+                    // shared recipe while retaining that same salt history.
+                    .with_replay_budget_limit(2 + controls.capacity.load(Ordering::SeqCst))
                     .map_err(options_error)?;
                 let actual = prepared.replay_options().unwrap().clone();
                 assert!(matches!(*replay_attack, ReplayPolicy::Reject));
