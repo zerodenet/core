@@ -14,9 +14,32 @@ use zero_platform_tokio::{
 };
 
 pub(super) struct PendingCaller(UpstreamTransport);
+#[derive(Clone)]
+enum Caller {
+    Accepted(AcceptedCaller),
+    #[cfg(feature = "raw-ip-runtime")]
+    Raw(crate::runtime::inbound_operation::raw_ip::native_obligations::NativeRegistration),
+}
+impl Caller {
+    fn check_open(&self) -> Result<(), ChannelError> {
+        match self {
+            Self::Accepted(caller) => caller.check_open(),
+            #[cfg(feature = "raw-ip-runtime")]
+            Self::Raw(caller) => caller.check_open(),
+        }
+    }
+    fn retain(&self, adoption: CarrierAdoption) -> Result<(), ChannelError> {
+        match self {
+            Self::Accepted(caller) => caller.observe_pending_carrier(adoption),
+            #[cfg(feature = "raw-ip-runtime")]
+            Self::Raw(caller) => caller.observe_pending_carrier(adoption),
+        }
+    }
+}
+
 struct Observer {
     source: Weak<CurrentServiceSource>,
-    caller: AcceptedCaller,
+    caller: Caller,
     admitted: AdmittedBusinessDemand,
     roles: Arc<[RoleInstanceId]>,
     binding: UpstreamBinding,
@@ -28,9 +51,12 @@ impl PendingCaller {
         roles: Vec<RoleInstanceId>,
         binding: UpstreamBinding,
     ) -> Result<Option<Self>, ChannelError> {
-        let Some(caller) = invocation.caller_accepted.clone() else {
-            // Raw/diagnostic callers require their own real finalizer. A
-            // borrowed accepted identity cannot stand in for those owners.
+        let caller = invocation.caller_accepted.clone().map(Caller::Accepted);
+        #[cfg(feature = "raw-ip-runtime")]
+        let caller = caller.or_else(|| invocation.caller_native.clone().map(Caller::Raw));
+        let Some(caller) = caller else {
+            // Diagnostics still require their own actual invocation Scope;
+            // neither a raw nor an accepted caller may impersonate it.
             return Ok(None);
         };
         let zero_platform_tokio::contract::context::RequestIdentity::Business(facts) =
@@ -166,6 +192,6 @@ impl UpstreamOpener for Observer {
                 "pending original differs from actual selected caller graph",
             ));
         }
-        self.caller.observe_pending_carrier(adoption)
+        self.caller.retain(adoption)
     }
 }

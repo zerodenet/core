@@ -34,7 +34,9 @@ impl CarrierAdoption {
         Arc::ptr_eq(&self.slot, &other.slot)
     }
 
-    pub(crate) fn cleanup_owner(&self) -> Option<super::CarrierOwnerRegistration> {
+    /// Observe the exact weak original owner for finite cleanup bookkeeping.
+    /// This registration grants no native acquisition or driver permission.
+    pub fn cleanup_owner(&self) -> Option<super::CarrierOwnerRegistration> {
         self.slot
             .owner
             .upgrade()

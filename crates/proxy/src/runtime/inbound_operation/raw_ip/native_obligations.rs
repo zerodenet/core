@@ -44,6 +44,7 @@ struct Record {
     carrier_owner: Option<zero_platform_tokio::controlled_carrier::CarrierOwnerRegistration>,
     additional_carriers: Vec<zero_platform_tokio::controlled_carrier::CarrierAdoption>,
     carrier_conflict: bool,
+    pending_carriers: Vec<pending::Claim>,
     gateways: usize,
     uncovered_gateway: bool,
     datagram: Option<crate::runtime::inbound_owners::PeerBoundDatagramRegistration>,
@@ -99,6 +100,7 @@ impl NativeObligations {
                 carrier_owner: None,
                 additional_carriers: Vec::new(),
                 carrier_conflict: false,
+                pending_carriers: Vec::new(),
                 gateways: 0,
                 uncovered_gateway: false,
                 datagram: None,
@@ -124,6 +126,7 @@ pub(crate) struct NativeRegistration {
 mod business;
 mod carrier;
 mod completion;
+mod pending;
 mod registration;
 impl NativePermit {
     pub(crate) fn registration(&self) -> NativeRegistration {

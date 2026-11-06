@@ -56,6 +56,11 @@ impl NativeRegistration {
     }
 
     async fn settle(&self, deadline: Instant) -> Result<bool, ChannelError> {
+        // Pending preparation cleanup is local to this actual caller. It does
+        // not certify any separately uncovered raw-IP gateway.
+        if !self.settle_pending(deadline).await? {
+            return Ok(false);
+        }
         let Some(owner) = self.owner.upgrade() else {
             return Ok(false);
         };
@@ -153,10 +158,11 @@ impl NativeObligations {
             .records
             .values()
             .any(|record| {
-                record.gateways > 0
-                    && !record.uncovered_gateway
-                    && !record.carrier_conflict
-                    && record.kind != ChildKind::Dns
+                !record.pending_carriers.is_empty()
+                    || record.gateways > 0
+                        && !record.uncovered_gateway
+                        && !record.carrier_conflict
+                        && record.kind != ChildKind::Dns
             })
     }
     /// A finite quota measures outstanding originals, not lifetime traffic.
