@@ -25,6 +25,8 @@ pub struct DirectOptions {
     pub(super) policy: DialPolicy,
     control: Option<DirectBudgets>,
     retain_legacy_calls: bool,
+    #[cfg(feature = "raw-ip-runtime")]
+    pub(super) packet: Option<super::packet::standard::Alias>,
 }
 impl DirectOptions {
     pub fn validate(policy: DialPolicy) -> Result<Self, zero_traits::DialPolicyError> {
@@ -33,6 +35,8 @@ impl DirectOptions {
             policy,
             control: None,
             retain_legacy_calls: false,
+            #[cfg(feature = "raw-ip-runtime")]
+            packet: None,
         })
     }
     /// Explicit required capability for library callers. Production decoding
@@ -118,7 +122,11 @@ impl ComponentFactory for DirectFactory {
             static_identity.extend_from_slice(b"controlled");
             static_identity.extend_from_slice(&control.retirement.as_nanos().to_be_bytes());
         }
-        ComponentSpec {
+        #[cfg(feature = "raw-ip-runtime")]
+        if let Some(packet) = &options.packet {
+            static_identity.extend_from_slice(packet.identity());
+        }
+        let spec = ComponentSpec {
             owner: ResourceOwner::Component,
             roles: if options.control.is_some() && !options.retain_legacy_calls { vec![RoleKind::Stream] } else { vec![RoleKind::Stream, RoleKind::Datagram] },
             dependencies: vec![],
@@ -128,18 +136,36 @@ impl ComponentFactory for DirectFactory {
                 dial: options.policy.clone(), max_sockets: control.max_sockets,
             }]),
             task_limit: options.control.as_ref().map(|control| control.max_refresh_tasks),
-        }
+        };
+        #[cfg(feature = "raw-ip-runtime")]
+        let spec = {
+            let mut spec = spec;
+            if let Some(packet) = &options.packet {
+                spec.roles.push(RoleKind::Packet);
+                spec.dependencies.push(packet.dependency());
+            }
+            spec
+        };
+        spec
     }
     fn build(
         &self,
         options: Arc<Self::Options>,
         context: BuildContext,
     ) -> Result<ComponentInstance, BuildError> {
+        #[cfg(feature = "raw-ip-runtime")]
+        let packet = options
+            .packet
+            .as_ref()
+            .map(|packet| packet.role(&context))
+            .transpose()?;
         let (owner, state) = SessionOwner::new(context.component, &context.cancel);
         let (owner, control) = DirectOwner::new(owner, options.control.as_ref(), &context);
         Ok(ComponentInstance {
             lifecycle: erase_lifecycle(owner),
             roles: ComponentRoles {
+                #[cfg(feature = "raw-ip-runtime")]
+                packet,
                 stream: Some(erase_stream(Outbound {
                     options: options.clone(),
                     state: state.clone(),
