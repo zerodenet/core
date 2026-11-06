@@ -55,6 +55,13 @@ impl DeviceWorkers {
             registration: Mutex::new(()),
         })
     }
+    pub(super) fn matches_scope(
+        &self,
+        scope: &zero_platform_tokio::contract::scope::TaskScopeIdentity,
+    ) -> bool {
+        self.scoped()
+            .is_some_and(|owner| owner.matches_scope(scope))
+    }
     pub(super) fn flow_users(&self) -> Option<Arc<crate::runtime::packet_flow::FlowUsers>> {
         self.users.clone()
     }

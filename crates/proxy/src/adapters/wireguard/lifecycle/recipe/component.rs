@@ -16,7 +16,10 @@ use zero_platform_tokio::contract::{
 
 pub(in crate::adapters::wireguard::lifecycle) struct LinkedStackFactory;
 pub(in crate::adapters::wireguard) struct LinkedStackOptions {
-    spec: ComponentSpec,
+    pub(super) plan: Arc<WireguardRawIpPlan>,
+    pub(super) carrier: OnceLock<std::sync::Weak<super::carrier::Carrier>>,
+    pub(super) resource: OnceLock<zero_core::component::ComponentId>,
+    pub(super) spec: ComponentSpec,
     tag: String,
     map: super::super::PendingEndpointMap,
     pub(super) pending: Arc<PendingLinkedEndpoint>,
@@ -32,9 +35,16 @@ impl LinkedStackOptions {
         task_limit: Option<NonZeroUsize>,
     ) -> Result<Self, EngineError> {
         Ok(Self {
+            plan: recipe.plan.clone(),
+            carrier: OnceLock::new(),
+            resource: OnceLock::new(),
             spec: ComponentSpec {
                 owner: ResourceOwner::Component,
-                roles: Vec::new(),
+                roles: vec![
+                    zero_platform_tokio::contract::component::RoleKind::Packet,
+                    zero_platform_tokio::contract::component::RoleKind::Stream,
+                    zero_platform_tokio::contract::component::RoleKind::Datagram,
+                ],
                 dependencies: recipe.dependencies.clone(),
                 static_identity: recipe.static_identity.clone(),
                 // These are virtual client stacks. The original inbound owns
@@ -170,8 +180,21 @@ impl ComponentFactory for LinkedStackFactory {
         options
             .bind(context.tasks.downgrade())
             .map_err(prepare_error)?;
+        let carrier = Arc::new(super::carrier::Carrier {
+            options: options.clone(),
+            resources: context.resources,
+            scope: context.tasks.scope_identity(),
+        });
+        options.carrier.set(Arc::downgrade(&carrier)).map_err(|_| {
+            prepare_error(invalid("linked roles cannot bind a second actual graph"))
+        })?;
         Ok(ComponentInstance {
-            roles: ComponentRoles::default(),
+            roles: ComponentRoles {
+                stream: Some(carrier.clone()),
+                datagram: Some(carrier.clone()),
+                packet: Some(carrier),
+                ..Default::default()
+            },
             lifecycle: erase_lifecycle(Owner { options }),
         })
     }

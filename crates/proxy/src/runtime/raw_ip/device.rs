@@ -6,6 +6,12 @@ mod endpoint;
 mod health;
 mod maintenance;
 mod returns;
+mod session_tcp;
+mod session_udp;
+mod standard;
+mod standard_packet;
+pub(crate) use returns::ReturnSource;
+pub(crate) use standard_packet::PacketSubmission;
 #[cfg(test)]
 mod tests;
 mod translation;
