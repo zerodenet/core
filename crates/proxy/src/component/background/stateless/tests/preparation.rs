@@ -34,7 +34,7 @@ async fn unpublished_original_waits_for_real_auxiliary_ack_then_same_business_ca
         let binding = UpstreamBinding { prefix: vec![], dial: Default::default(),
             network_generation: zero_core::component::NetworkGeneration(egress.generation()) };
         let facts = facts(&endpoint);
-        let demand = Arc::new(Demand(CancellationToken::new()));
+        let demand = Arc::new(Demand(CancellationToken::new(), None));
         let transport = UpstreamTransport::new(binding.clone(), Arc::new(Root {
             bound, host, peer, binding, egress, caller: witness.clone(), demand: demand.clone(), facts: facts.clone(),
         }));

@@ -63,7 +63,7 @@ async fn same_taskless_record_keeps_n1_through_real_business_join_and_deferred_h
             network_generation: zero_core::component::NetworkGeneration(egress.generation()),
         };
         let facts = facts(&endpoint);
-        let demand = Arc::new(Demand(CancellationToken::new()));
+        let demand = Arc::new(Demand(CancellationToken::new(), None));
         let root = Arc::new(Root {
             bound,
             host,

@@ -16,11 +16,12 @@ use zero_platform_tokio::{
     controlled_carrier::{CarrierBusinessDemand, CarrierOwnerBinding, NativeCarrierOpener},
 };
 mod acknowledgement;
+mod deadline;
 mod preparation;
 fn deadline() -> Instant {
     Instant::now() + std::time::Duration::from_secs(3)
 }
-struct Demand(CancellationToken);
+struct Demand(CancellationToken, Option<Instant>);
 impl CarrierBusinessDemand for Demand {
     fn check(&self) -> Result<(), ChannelError> {
         if self.0.is_cancelled() {
@@ -39,7 +40,7 @@ impl CarrierBusinessDemand for Demand {
         self.0.clone()
     }
     fn deadline(&self) -> Option<Instant> {
-        None
+        self.1
     }
 }
 struct RawRole(Destination);
