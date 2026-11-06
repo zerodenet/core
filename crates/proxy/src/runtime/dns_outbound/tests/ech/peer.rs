@@ -23,7 +23,15 @@ impl Peer {
     pub(super) async fn cleartext() -> Self {
         Self::with_security(false).await
     }
+    pub(super) async fn cleartext_at(address: std::net::SocketAddr) -> Self {
+        let listener = tokio::net::TcpListener::bind(address).await.unwrap();
+        Self::with_listener(false, listener).await
+    }
     async fn with_security(secure: bool) -> Self {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        Self::with_listener(secure, listener).await
+    }
+    async fn with_listener(secure: bool, listener: tokio::net::TcpListener) -> Self {
         let certified = rcgen::generate_simple_self_signed(vec!["127.0.0.1".into()]).unwrap();
         let ca = certified.cert.der().clone();
         let key =
@@ -38,7 +46,6 @@ impl Peer {
         .unwrap();
         tls.alpn_protocols = vec![b"h2".to_vec()];
         let tls = secure.then(|| tokio_rustls::TlsAcceptor::from(Arc::new(tls)));
-        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
         let endpoint = listener.local_addr().unwrap();
         let accepted = Arc::new(AtomicUsize::new(0));
         let count = accepted.clone();

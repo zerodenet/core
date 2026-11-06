@@ -32,7 +32,11 @@ async fn ordinary_ech_refresh_at_one_query_retains_original_until_success_and_pe
             let mut wire = vec![0; 65536];
             let (size, source) = peer.recv_from(&mut wire).await.unwrap();
             wire.truncate(size);
-            assert_eq!(&wire[size - 4..], &[0, 65, 0, 1]);
+            // The parser validates QCLASS=IN and the complete EDNS record;
+            // the packet suffix belongs to OPT, not this original question.
+            let question = zero_dns::udp::parse_dns_question(&wire).unwrap();
+            assert_eq!(question.domain, "cover.ech.test");
+            assert_eq!(question.query_type, 65);
             let observed = loop {
                 if let Some(observed) =
                     proxy

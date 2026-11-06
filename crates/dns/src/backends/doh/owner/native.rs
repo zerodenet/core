@@ -2,6 +2,14 @@
 use super::*;
 use crate::OwnedDnsQueryTasks;
 impl DriverOwner {
+    pub(in super::super) fn native_at_capacity(&self) -> bool {
+        let mut state = self.state.lock().expect("DoH driver owner poisoned");
+        state.reap();
+        state.native.len() >= self.limit
+    }
+    pub(in super::super) fn original_changes(&self) -> &tokio::sync::Notify {
+        self.changed.as_ref()
+    }
     pub(crate) fn preserves_host_scope(
         &self,
         preserves: &dyn Fn(

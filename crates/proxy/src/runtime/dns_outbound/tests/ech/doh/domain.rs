@@ -8,6 +8,24 @@ async fn query(
     server: &str,
     name: &str,
 ) -> OwnedDnsQueryObservation {
+    query_with_addresses(
+        proxy,
+        node,
+        server,
+        name,
+        &[IpAddress::V4([127, 0, 0, 2]), IpAddress::V4([127, 0, 0, 1])],
+        2,
+    )
+    .await
+}
+async fn query_with_addresses(
+    proxy: &Proxy,
+    node: &mut crate::dns_fixture::Dns,
+    server: &str,
+    name: &str,
+    addresses: &[IpAddress],
+    original_ordinal: u64,
+) -> OwnedDnsQueryObservation {
     let mut query = tokio::spawn({
         let dns = proxy.resolver.clone();
         let server = server.to_owned();
@@ -23,7 +41,7 @@ async fn query(
                 assert!(!request.tcp); assert_eq!(question.query_type, 1); assert_eq!(question.domain, "endpoint.ech.test");
                 let original = proxy.resolver.native_query_observations().into_iter().find(|record| !record.task.is_joined() && record.original.as_ref().and_then(|original| original.endpoints()).is_some_and(|endpoints| endpoints.peer() == node.address)).expect("actual Node bootstrap UDP original before its reply");
                 originals.push(original);
-                request.answer_ips(false, false, &[IpAddress::V4([127,0,0,2]), IpAddress::V4([127,0,0,1])]);
+                request.answer_ips(false, false, addresses);
             }
         }
     }
@@ -67,8 +85,8 @@ async fn query(
     }).find(|owner| owner.observe().is_some_and(|held| held.retained() == 1)).expect("same actual Domain issuer only retains the successful original");
     assert_eq!(
         owner.observe().unwrap().slots()[0].ordinal(),
-        2,
-        "failed first candidate retired before the actual good candidate"
+        original_ordinal,
+        "same actual successful candidate original ordinal"
     );
     driver
 }
@@ -89,6 +107,8 @@ async fn actual_domain_ech_joins_node_bootstrap_retries_candidates_and_replaces_
         let mut second = crate::dns_fixture::Dns::new().await;
         let mut config = config(&endpoint);
         config.runtime.native_dns_max_queries = None;
+        config.runtime.native_dns_max_originals = Some(2);
+        config.runtime.native_dns_max_h2_drivers = Some(1);
         let mut dns = first.config();
         dns.policy.timeout_ms = 3000;
         config.runtime.dns = Some(dns);
@@ -106,6 +126,25 @@ async fn actual_domain_ech_joins_node_bootstrap_retries_candidates_and_replaces_
         assert_eq!(peer.requests.recv().await.unwrap(), "first.domain.ech.test");
         assert_eq!(peer.accepted.load(Ordering::Acquire), 1);
         let native = original.original.as_ref().unwrap();
+        for (index, addresses) in [
+            vec![IpAddress::V4([127, 0, 0, 1])],
+            vec![IpAddress::V4([127, 0, 0, 2]), IpAddress::V4([127, 0, 0, 1])],
+            vec![IpAddress::V4([127, 0, 0, 1])],
+        ]
+        .into_iter()
+        .enumerate()
+        {
+            let name = format!("rotate-{index}.domain.ech.test");
+            let same =
+                query_with_addresses(&proxy, &mut first, &endpoint, &name, &addresses, 2).await;
+            assert!(
+                same.task.same_registration(&original.task),
+                "rotating actual Node candidates cannot create another endpoint pool or driver"
+            );
+            assert!(same.original.as_ref().unwrap().same_original(native));
+            assert_eq!(peer.requests.recv().await.unwrap(), name);
+            assert_eq!(peer.accepted.load(Ordering::Acquire), 1);
+        }
         let mut dns = second.config();
         dns.policy.timeout_ms = 3000;
         config.runtime.dns = Some(dns);
@@ -136,3 +175,5 @@ async fn actual_domain_ech_joins_node_bootstrap_retries_candidates_and_replaces_
     .await
     .unwrap();
 }
+
+mod candidates;
