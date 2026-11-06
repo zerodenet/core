@@ -1,5 +1,6 @@
 //! One cold union pass; activation requires original provider close evidence.
 use super::*;
+use std::collections::BTreeSet;
 use crate::component::{ResourcePreparation, SharedResourceIdentities};
 use zero_config::OutboundProtocolConfig;
 use zero_core::component::ResourceGeneration;
