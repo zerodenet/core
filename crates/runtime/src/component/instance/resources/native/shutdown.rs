@@ -76,11 +76,22 @@ impl HostResources {
             }
             report
         };
-        let ((), (), packet_report, bound_failure) = tokio::join!(
+        let process_reports = async {
+            #[cfg(target_os = "linux")]
+            {
+                self.processes.shutdown(self.component, deadline).await
+            }
+            #[cfg(not(target_os = "linux"))]
+            {
+                CloseReport::default()
+            }
+        };
+        let ((), (), packet_report, bound_failure, process_report) = tokio::join!(
             self.drive_native(deadline),
             self.drive_files(deadline),
             packet_reports,
-            self.bounds.shutdown(self, deadline)
+            self.bounds.shutdown(self, deadline),
+            process_reports
         );
         let original_failure = {
             let state = self
@@ -135,6 +146,7 @@ impl HostResources {
         let mut report = std::mem::take(&mut state.io.receipts);
         report.append(std::mem::take(&mut state.files.receipts));
         report.append(packet_report);
+        report.append(process_report);
         report.unfinished.extend(
             state
                 .files

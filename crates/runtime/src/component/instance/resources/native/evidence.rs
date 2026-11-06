@@ -17,6 +17,8 @@ pub(in crate::component) struct HostIoEvidence {
     pub carriers: Vec<super::carrier::CarrierIoEvidence>,
     pub metadata: Vec<super::metadata::MetadataIoEvidence>,
     pub metapools: Vec<super::metapool::MetadataPoolEvidence>,
+    #[cfg(target_os = "linux")]
+    pub processes: Vec<super::process::ProcessIoEvidence>,
     pub sticky_faults: Vec<Arc<ChannelError>>,
 }
 #[derive(Clone, Debug)]
@@ -87,6 +89,14 @@ impl HostResources {
         let icmp = self.icmp.as_ref().map(|owner| owner.physical_confirmed());
         sticky_faults.extend(self.icmp.as_ref().and_then(|owner| owner.fault()));
         let packets: Vec<_> = self.packets.iter().map(|owner| owner.evidence()).collect();
+        #[cfg(target_os = "linux")]
+        let processes = self.processes.evidence(self.component);
+        #[cfg(target_os = "linux")]
+        sticky_faults.extend(
+            processes
+                .iter()
+                .filter_map(|owner| owner.first_fault.clone()),
+        );
         sticky_faults.extend(packets.iter().filter_map(|owner| owner.close_fault.clone()));
         let declarations = self
             .coverage
@@ -143,6 +153,17 @@ impl HostResources {
                         .map(coverage::DeclarationProvider::BoundDatagram)
                         .unwrap_or(coverage::DeclarationProvider::Unaccounted);
                 }
+                #[cfg(target_os = "linux")]
+                if matches!(
+                    binding,
+                    coverage::CoverageBinding::Unaccounted(coverage::DeclaredResourceKind::Process)
+                ) {
+                    proof.provider = processes
+                        .iter()
+                        .position(|owner| owner.ordinal == ordinal && owner.registered)
+                        .map(coverage::DeclarationProvider::Process)
+                        .unwrap_or(coverage::DeclarationProvider::Unaccounted);
+                }
                 proof
             })
             .collect();
@@ -159,6 +180,8 @@ impl HostResources {
             bounds,
             metadata,
             metapools,
+            #[cfg(target_os = "linux")]
+            processes,
             sticky_faults,
         }
     }

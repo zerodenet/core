@@ -1,5 +1,29 @@
 use super::*;
 impl OwnedProcess {
+    /// Outer host cleanup only: this waits for the caller's actual Scope
+    /// consumer. The actor itself uses wait_tree_ended and then returns.
+    pub async fn wait_closed(
+        &self,
+        deadline: tokio::time::Instant,
+    ) -> io::Result<Option<Arc<ProcessTreeClosed>>> {
+        self.request_stop();
+        if let Some(closed) = self.try_finish()? {
+            return Ok(Some(closed));
+        }
+        self.wait_tree_ended(deadline).await?;
+        let actor = self.lock().actor.clone();
+        if let Some(actor) = actor {
+            tokio::time::timeout_at(deadline, actor.wait())
+                .await
+                .map_err(|_| {
+                    io::Error::new(
+                        io::ErrorKind::TimedOut,
+                        "original process actor join is pending",
+                    )
+                })?;
+        }
+        self.try_finish()
+    }
     /// Called by the outer resource owner after the exact actual actor join.
     /// A task body return/abort/observer/EOF cannot satisfy this operation.
     pub fn try_finish(&self) -> io::Result<Option<Arc<ProcessTreeClosed>>> {

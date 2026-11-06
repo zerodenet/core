@@ -37,6 +37,7 @@ mod metadata_datagram;
 pub use metadata_datagram::{GrantedMetadataListener, MetadataDatagramRequest};
 
 use super::{
+    BoxFuture,
     datagram::DynDatagramOutbound,
     inbound::DynInboundSource,
     lifecycle::{BuildError, DynResourceLifecycle},
@@ -44,7 +45,6 @@ use super::{
     packet::{BoxPacketSession, DynPacketOutbound},
     scope::{TaskJoinWitness, TaskRegistrar},
     stream::DynStreamOutbound,
-    BoxFuture,
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -500,6 +500,21 @@ pub trait ResourceAccess: Send + Sync {
             super::Impact::Component,
         )
         .with_source(std::io::Error::other("undeclared native process")))
+    }
+    /// Cold original installed by the actual host before native acquisition.
+    /// The existing registered actor starts/drives it; no second Scope exists.
+    #[cfg(target_os = "linux")]
+    fn prepare_owned_process(
+        &self,
+        _: ProcessRequest,
+        _: &super::scope::TaskRegistrar,
+    ) -> Result<std::sync::Arc<crate::owned_process::OwnedProcess>, BuildError> {
+        Err(super::ChannelError::new(
+            super::Stage::Prepare,
+            super::Reason::InvalidConfig,
+            super::Impact::Component,
+        )
+        .with_source(std::io::Error::other("undeclared owned process")))
     }
     fn select_bound_outbound_datagram(
         &self,
