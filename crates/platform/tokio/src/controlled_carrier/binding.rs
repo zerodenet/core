@@ -292,9 +292,12 @@ impl BoundAuthority {
             && self.scope.same_scope(&witness.scope_identity())
     }
     pub(super) fn permits_driver(&self, registrar: &TaskRegistrar) -> bool {
+        // This checks the original binding/scope, not available task credit.
+        // The same real registrar must perform the tracked registration and
+        // return its Capacity/Closing source, including a zero-task scope.
         !self.host_cancel.is_cancelled()
             && self.scope.matches(registrar)
-            && self.scope.registration_open()
+            && self.scope.resource_open()
     }
 }
 impl CarrierOwnerBinding {
