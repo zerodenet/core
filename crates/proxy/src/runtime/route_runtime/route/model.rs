@@ -164,8 +164,8 @@ impl InboundRouteRuntimeFactory {
         fn bind(target: &mut crate::inventory::PacketRouteTarget, plan: &crate::component::catalog::ComponentPlan) {
             use crate::inventory::PacketRouteTarget;
             match target {
-                PacketRouteTarget::Packet { tag, role, .. } => {
-                    let slot = plan.configured(tag).or_else(|| (tag == "direct").then(|| plan.direct(None).ok()).flatten());
+                PacketRouteTarget::Packet { tag, role, builtin, .. } => {
+                    let slot = if *builtin { plan.direct(None).ok() } else { plan.configured(tag) };
                     *role = slot.filter(|slot| plan.has_packet_provider(slot.role_id())).map(|slot| slot.role_id());
                 }
                 PacketRouteTarget::Fallback(candidates) => for candidate in candidates { bind(candidate, plan); },

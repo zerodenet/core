@@ -29,6 +29,7 @@ pub(crate) fn compiled_registries_with_network(
 ) {
     let _ = &background;
     use zero_traits::ProtocolMetadata;
+    let direct_adapter = Arc::new(crate::adapters::direct::DirectAdapter::default());
     let mut components = crate::component::ComponentRegistry::default();
     components
         .register_with_resources(
@@ -36,13 +37,20 @@ pub(crate) fn compiled_registries_with_network(
             crate::component::DirectFactory,
             {
                 let network = node_network.clone();
+                let direct = direct_adapter.clone();
                 move |input, resources| {
                     if let Some(network) = &network {
                         crate::component::native_dns::prepare(resources, network.clone())?;
                         crate::component::native_dns::prepare_node(resources, network.clone())?;
                     }
-                    crate::adapters::direct::factory::decode(input)
-                        .map_err(crate::component::RegistrationError::Options)
+                    #[cfg(feature = "raw-ip-runtime")]
+                    { direct.direct_options(input, resources) }
+                    #[cfg(not(feature = "raw-ip-runtime"))]
+                    {
+                        let _ = &direct;
+                        crate::adapters::direct::factory::decode(input)
+                            .map_err(crate::component::RegistrationError::Options)
+                    }
                 }
             },
         )
@@ -499,7 +507,7 @@ pub(crate) fn compiled_registries_with_network(
     #[cfg(feature = "udp-runtime")]
     {
         use crate::adapters::direct::DirectAdapter;
-        let adapter = Arc::new(DirectAdapter::default());
+        let adapter = direct_adapter.clone();
         #[cfg(feature = "raw-ip-runtime")]
         {
             devices.direct = Some(adapter.clone());
@@ -510,7 +518,7 @@ pub(crate) fn compiled_registries_with_network(
     {
         use crate::adapters::direct::DirectAdapter;
         registry.register_standard_protocol(
-            Arc::new(DirectAdapter::default()),
+            direct_adapter,
             Some(DirectAdapter::claim_outbound_leaf_impl),
         );
     }
