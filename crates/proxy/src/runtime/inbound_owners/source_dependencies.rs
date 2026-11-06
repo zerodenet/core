@@ -10,12 +10,17 @@ impl InboundOwnerRegistry {
         {
             let mut changed = std::collections::BTreeSet::new();
             for input in &config.inbounds {
-                if self.source_dependencies_changed(input, plan)? { changed.insert(input.tag.clone()); }
+                if self.source_dependencies_changed(input, plan)? {
+                    changed.insert(input.tag.clone());
+                }
             }
             Ok(changed)
         }
         #[cfg(not(feature = "raw-ip-runtime"))]
-        { let _ = (config, plan); Ok(Default::default()) }
+        {
+            let _ = (config, plan);
+            Ok(Default::default())
+        }
     }
     #[cfg(feature = "raw-ip-runtime")]
     pub(in crate::runtime) fn source_dependencies_changed(

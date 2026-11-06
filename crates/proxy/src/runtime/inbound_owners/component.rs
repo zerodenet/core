@@ -9,17 +9,17 @@ use zero_core::{
     request::Destination,
 };
 use zero_platform_tokio::{
-    ControlledTcpListener,
     contract::{
-        BoxFuture, ChannelError, CloseReason, Impact, Reason, Stage,
         component::{
             BuildContext, DatagramPeerLimits, GrantedDatagramListener, GrantedMetadataListener,
             MetadataDatagramRequest, ResourceAccess, ResourceDeclaration,
         },
         inbound::DynInboundSource,
-        lifecycle::{BuildError, CloseReport, ResourceLifecycle, erase_lifecycle},
+        lifecycle::{erase_lifecycle, BuildError, CloseReport, ResourceLifecycle},
         packet::BoxPacketSession,
+        BoxFuture, ChannelError, CloseReason, Impact, Reason, Stage,
     },
+    ControlledTcpListener,
 };
 
 #[cfg(feature = "managed-datagram-runtime")]
@@ -63,10 +63,9 @@ impl InboundInstallContext {
         };
         let metadata_destination;
         let (destination, auxiliary) = match recipe.spec().resources.as_slice() {
-            [
-                ResourceDeclaration::MetadataDatagram { source, .. },
-                auxiliary @ ..,
-            ] if metadata.is_some() => {
+            [ResourceDeclaration::MetadataDatagram { source, .. }, auxiliary @ ..]
+                if metadata.is_some() =>
+            {
                 metadata_destination = Destination::new(
                     match source.ip() {
                         std::net::IpAddr::V4(ip) => zero_core::Address::Ipv4(ip.octets()),
@@ -76,14 +75,14 @@ impl InboundInstallContext {
                 );
                 (&metadata_destination, auxiliary)
             }
-            [
-                ResourceDeclaration::TcpListener { destination, .. },
-                auxiliary @ ..,
-            ] => (destination, auxiliary),
-            [
-                ResourceDeclaration::DatagramListener { destination, .. },
-                auxiliary @ ..,
-            ] if primary_udp.is_some() => (destination, auxiliary),
+            [ResourceDeclaration::TcpListener { destination, .. }, auxiliary @ ..] => {
+                (destination, auxiliary)
+            }
+            [ResourceDeclaration::DatagramListener { destination, .. }, auxiliary @ ..]
+                if primary_udp.is_some() =>
+            {
+                (destination, auxiliary)
+            }
             _ => return Err(std::io::Error::other(denied()).into()),
         };
         #[cfg(feature = "managed-datagram-runtime")]
@@ -213,13 +212,10 @@ impl InboundInstallContext {
         } else {
             match (auxiliary, udp.as_ref()) {
                 (
-                    [
-                        ResourceDeclaration::DatagramListener {
-                            accepted: Some(limits),
-                            ..
-                        },
-                        ..,
-                    ],
+                    [ResourceDeclaration::DatagramListener {
+                        accepted: Some(limits),
+                        ..
+                    }, ..],
                     Some(udp),
                 ) => Some(PeerSourceContext {
                     carrier: None,
@@ -323,12 +319,9 @@ impl InboundInstallContext {
                     None
                 }
                 #[cfg(feature = "managed-datagram-runtime")]
-                [
-                    ResourceDeclaration::DatagramListener {
-                        accepted: Some(_), ..
-                    },
-                    ..,
-                ] => None,
+                [ResourceDeclaration::DatagramListener {
+                    accepted: Some(_), ..
+                }, ..] => None,
                 [declaration @ ResourceDeclaration::AcceptedDatagram { .. }] => Some(
                     zero_platform_tokio::contract::component::AcceptedDatagramAuthority::new(
                         declaration,
@@ -346,7 +339,12 @@ impl InboundInstallContext {
             .build(BuildContext {
                 component: identity.component,
                 generation: identity.generation,
-                dependencies: self.entry.source_dependencies.get().cloned().unwrap_or_else(|| Arc::from([])),
+                dependencies: self
+                    .entry
+                    .source_dependencies
+                    .get()
+                    .cloned()
+                    .unwrap_or_else(|| Arc::from([])),
                 roles: ComponentRoleIds {
                     inbound: Some(InboundId(identity.component.0)),
                     ..Default::default()
