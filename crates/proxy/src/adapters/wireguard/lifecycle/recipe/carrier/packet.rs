@@ -31,13 +31,8 @@ impl DynPacketOutbound for Carrier {
             if request.endpoint != facts.endpoint {
                 return Err(error(Stage::Prepare, Reason::InvalidConfig));
             }
-            let acquiring = self.origin()?.try_enter_packet_source()?;
-            let carrier = self
-                .options
-                .carrier
-                .get()
-                .and_then(std::sync::Weak::upgrade)
-                .ok_or_else(|| error(Stage::Prepare, Reason::Revoked))?;
+            let acquiring = self.acquisition()?;
+            let carrier = self.handle()?;
             let caller = self.flow_borrow(&context)?.caller;
             let users = Arc::new(state::ViewUsers::default());
             let shared = Arc::new(Shared {
@@ -70,8 +65,7 @@ impl DynPacketOutbound for Carrier {
                     // real IPv4 fragmentation; envelope limits must admit it.
                     mtu: 65_535,
                     families: self
-                        .options
-                        .plan
+                        .plan()
                         .local_addresses()
                         .iter()
                         .map(|address| {

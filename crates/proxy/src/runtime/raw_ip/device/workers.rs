@@ -23,6 +23,7 @@ pub(super) struct DeviceWorkers {
     tasks: Option<RetainedTasks<Result<(), EngineError>>>,
     scope: Mutex<ScopeBinding>,
     registration: Mutex<()>,
+    driver: std::sync::OnceLock<zero_platform_tokio::contract::scope::TaskJoinWitness>,
 }
 #[derive(Default)]
 struct ScopeBinding {
@@ -30,10 +31,17 @@ struct ScopeBinding {
     closed: bool,
 }
 impl DeviceWorkers {
+    pub(super) fn driver_witness(
+        &self,
+    ) -> Option<zero_platform_tokio::contract::scope::TaskJoinWitness> {
+        self.driver.get().cloned()
+    }
+
     pub(super) fn new() -> Arc<Self> {
         Arc::new(Self {
             users: None,
             registration: Mutex::new(()),
+            driver: std::sync::OnceLock::new(),
             scope: Mutex::new(ScopeBinding::default()),
             // Same configured stack ceilings also bound retiring original
             // futures until their real JoinSet consumer releases capacity.
@@ -53,6 +61,7 @@ impl DeviceWorkers {
             tasks: None,
             scope: Mutex::new(ScopeBinding::default()),
             registration: Mutex::new(()),
+            driver: std::sync::OnceLock::new(),
         })
     }
     pub(super) fn matches_scope(
@@ -99,14 +108,22 @@ impl DeviceWorkers {
         driver: impl Future<Output = Result<(), EngineError>> + Send + 'static,
     ) -> Result<(), EngineError> {
         if let Some(owner) = self.scoped() {
-            return owner
-                .spawn(async move {
+            let witness = owner
+                .spawn_tracked(async move {
                     driver.await.map_err(|source| {
                         ChannelError::new(Stage::Receive, Reason::Io, Impact::Component)
                             .with_source(source)
                     })
                 })
-                .map_err(as_engine);
+                .map_err(as_engine)?;
+            self.driver.set(witness).map_err(|_| {
+                as_engine(ChannelError::new(
+                    Stage::Prepare,
+                    Reason::StalePlan,
+                    Impact::Component,
+                ))
+            })?;
+            return Ok(());
         }
         let Some(tasks_owner) = &self.tasks else {
             return Err(as_engine(ChannelError::new(

@@ -115,7 +115,7 @@ impl Shared {
                 // An existing peer view retains its IO across a Source pause.
                 // Only this actual first-peer user/socket acquisition enters
                 // the same native Source admission gate.
-                let acquiring = self.carrier.origin()?.try_enter_packet_source()?;
+                let acquiring = self.carrier.peer_acquisition(peer)?;
                 let views = self
                     .users
                     .upgrade()

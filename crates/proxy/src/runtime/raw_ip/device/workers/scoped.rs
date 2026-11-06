@@ -57,6 +57,12 @@ impl ScopedWorkers {
         &self,
         future: impl Future<Output = Result<(), ComponentError>> + Send + 'static,
     ) -> Result<(), ChannelError> {
+        self.spawn_tracked(future).map(|_| ())
+    }
+    pub(super) fn spawn_tracked(
+        &self,
+        future: impl Future<Output = Result<(), ComponentError>> + Send + 'static,
+    ) -> Result<TaskJoinWitness, ChannelError> {
         self.reap();
         let record = Record::new();
         {
@@ -91,8 +97,8 @@ impl ScopedWorkers {
         });
         match registered {
             Ok((id, witness)) => {
-                record.install(id, witness);
-                Ok(())
+                record.install(id, witness.clone());
+                Ok(witness)
             }
             Err(source) => {
                 record.reject(); // This Result guarantees no task was registered.

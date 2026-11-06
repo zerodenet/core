@@ -1,7 +1,7 @@
 //! Cold linked-client recipe. Only BuildNew may resolve or register originals.
 pub(crate) mod alias;
 mod assembly;
-mod carrier;
+pub(super) mod carrier;
 pub(super) mod component;
 mod invocation;
 pub(super) mod retained;

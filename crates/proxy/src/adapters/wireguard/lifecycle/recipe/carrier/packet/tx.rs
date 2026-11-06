@@ -29,7 +29,7 @@ impl Shared {
         if self.cancel.is_cancelled() {
             return Err(rejected(error(Stage::Send, Reason::Revoked)));
         }
-        self.carrier.origin().map_err(rejected)?;
+        self.carrier.origins_live().map_err(rejected)?;
         let frame = original
             .as_ref()
             .ok_or_else(|| rejected(error(Stage::Send, Reason::Protocol)))?;
@@ -43,7 +43,7 @@ impl Shared {
         let destination = zero_stack::packet::ip_destination(frame.payload())
             .ok_or_else(|| rejected(error(Stage::Send, Reason::Protocol)))?;
         use crate::runtime::raw_ip::RawIpOutboundPlan;
-        let plan = &self.carrier.options.plan;
+        let plan = self.carrier.plan();
         if !self.translate && plan.is_local_address(source) {
             return Err(rejected(error(Stage::Send, Reason::InvalidConfig)));
         }

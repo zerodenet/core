@@ -40,9 +40,16 @@ impl Devices {
         if let Some(wireguard) = &self.wireguard {
             let admission = EndpointAdmission::from_config(config);
             for input in config.outbounds.iter().filter(|input| {
-                admission.device_enabled(&input.tag)
+                matches!(
+                    &input.protocol,
+                    zero_config::OutboundProtocolConfig::Wireguard {
+                        inbound_tag: None,
+                        outer_udp_proxy: None,
+                        ..
+                    }
+                ) || admission.device_enabled(&input.tag)
                     && matches!(
-                        input.protocol,
+                        &input.protocol,
                         zero_config::OutboundProtocolConfig::Wireguard {
                             inbound_tag: Some(_),
                             outer_udp_proxy: None,

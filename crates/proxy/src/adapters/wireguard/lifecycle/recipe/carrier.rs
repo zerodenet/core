@@ -12,12 +12,95 @@ use zero_platform_tokio::{
     },
     controlled_carrier::CarrierOrigin,
 };
-pub(super) struct Carrier {
-    pub(super) options: Arc<LinkedStackOptions>,
-    pub(super) resources: Arc<dyn ResourceAccess>,
-    pub(super) scope: TaskScopeIdentity,
+#[derive(Clone)]
+pub(in crate::adapters::wireguard::lifecycle) enum Graph {
+    Linked(Arc<LinkedStackOptions>),
+    Standalone(Arc<super::super::standalone::StandaloneStackOptions>),
+}
+pub(in crate::adapters::wireguard::lifecycle) struct Acquisition {
+    _source: Option<zero_platform_tokio::contract::packet::PacketSourceAcquisition>,
+    _native: Option<crate::runtime::packet_route::host::pause::Acquisition>,
+}
+impl Acquisition {
+    fn source(actual: zero_platform_tokio::contract::packet::PacketSourceAcquisition) -> Self {
+        Self {
+            _source: Some(actual),
+            _native: None,
+        }
+    }
+    fn native(actual: crate::runtime::packet_route::host::pause::Acquisition) -> Self {
+        Self {
+            _source: None,
+            _native: Some(actual),
+        }
+    }
+}
+pub(in crate::adapters::wireguard::lifecycle) struct Carrier {
+    pub(in crate::adapters::wireguard::lifecycle) options: Graph,
+    pub(in crate::adapters::wireguard::lifecycle) resources: Arc<dyn ResourceAccess>,
+    pub(in crate::adapters::wireguard::lifecycle) scope: TaskScopeIdentity,
 }
 impl Carrier {
+    fn plan(&self) -> &WireguardRawIpPlan {
+        match &self.options {
+            Graph::Linked(root) => &root.plan,
+            Graph::Standalone(root) => &root.plan,
+        }
+    }
+    fn handle(&self) -> Result<Arc<Self>, ChannelError> {
+        match &self.options {
+            Graph::Linked(root) => &root.carrier,
+            Graph::Standalone(root) => &root.carrier,
+        }
+        .get()
+        .and_then(std::sync::Weak::upgrade)
+        .ok_or_else(|| error(Stage::Prepare, Reason::Revoked))
+    }
+    fn origins_live(&self) -> Result<(), ChannelError> {
+        match &self.options {
+            Graph::Linked(_) => {
+                self.origin()?;
+            }
+            Graph::Standalone(root) => {
+                for index in 0..root.peers.len() {
+                    root.original(index)?;
+                }
+            }
+        }
+        Ok(())
+    }
+    fn acquisition(&self) -> Result<Vec<Acquisition>, ChannelError> {
+        match &self.options {
+            Graph::Linked(_) => Ok(vec![Acquisition::source(
+                self.origin()?.try_enter_packet_source()?,
+            )]),
+            Graph::Standalone(root) => (0..root.peers.len())
+                .map(|index| root.acquisition(index).map(Acquisition::native))
+                .collect(),
+        }
+    }
+    fn peer_acquisition(&self, peer: usize) -> Result<Acquisition, ChannelError> {
+        match &self.options {
+            Graph::Linked(_) => Ok(Acquisition::source(
+                self.origin()?.try_enter_packet_source()?,
+            )),
+            Graph::Standalone(root) => root.acquisition(peer).map(Acquisition::native),
+        }
+    }
+    fn origin_for(&self, target: IpAddr) -> Result<CarrierOrigin, ChannelError> {
+        use crate::runtime::raw_ip::RawIpOutboundPlan;
+        match &self.options {
+            Graph::Linked(_) => self.origin(),
+            Graph::Standalone(root) => Ok(CarrierOrigin::from_listener(
+                root.original(
+                    self.plan()
+                        .peer_for_target(target)
+                        .map_err(failure)?
+                        .peer_index,
+                )?,
+            )),
+        }
+    }
     fn origin(&self) -> Result<CarrierOrigin, ChannelError> {
         self.resources.packet_carrier_origin()
     }
@@ -26,14 +109,16 @@ impl Carrier {
         target: IpAddr,
     ) -> Result<(Arc<crate::runtime::raw_ip::SharedRawIpDevice>, IpAddr), ChannelError> {
         use crate::runtime::raw_ip::RawIpOutboundPlan;
-        let peer = self.options.plan.peer_for_target(target).map_err(failure)?;
-        let device = self
-            .options
-            .pending
-            .peer_stack(peer.peer_index)
-            .and_then(|owner| owner.device())
-            .filter(|device| device.is_usable())
-            .ok_or_else(|| error(Stage::Prepare, Reason::Revoked))?;
+        let peer = self.plan().peer_for_target(target).map_err(failure)?;
+        let device = match &self.options {
+            Graph::Linked(root) => root
+                .pending
+                .peer_stack(peer.peer_index)
+                .and_then(|owner| owner.device())
+                .filter(|device| device.is_usable())
+                .ok_or_else(|| error(Stage::Prepare, Reason::Revoked))?,
+            Graph::Standalone(root) => root.device(peer.peer_index)?,
+        };
         Ok((device, peer.local_ip))
     }
     async fn resolve(
@@ -56,7 +141,7 @@ impl Carrier {
             .await?;
         peers
             .into_iter()
-            .find(|peer| self.options.plan.peer_for_target(peer.ip()).is_ok())
+            .find(|peer| self.plan().peer_for_target(peer.ip()).is_ok())
             .ok_or_else(|| error(Stage::Dial, Reason::InvalidConfig))
     }
     fn flow_borrow(
@@ -81,10 +166,10 @@ impl Carrier {
     }
     fn observe_peer(&self, target: IpAddr, context: &OpenContext) -> Result<(), ChannelError> {
         use crate::runtime::raw_ip::RawIpOutboundPlan;
-        let peer = self.options.plan.peer_for_target(target).map_err(failure)?;
+        let peer = self.plan().peer_for_target(target).map_err(failure)?;
         if let (Some(observer), Some(identity)) = (
             &context.observer,
-            self.options.plan.peer_identity(peer.peer_index),
+            self.plan().peer_identity(peer.peer_index),
         ) {
             observer.packet_peer_selected(
                 context.identity.session(),
