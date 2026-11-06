@@ -87,9 +87,20 @@ async fn source_and_outbound_budget_change_rejects_before_revoking_any_admitted_
                 if entry.accepted_join_for_test().is_some() && local.as_ref().is_none_or(|owner| owner.accepted_join_for_test().is_some()) {break;}
                 tokio::task::yield_now().await;
             }
+            let mut idle_grow = (*proxy.engine().config()).clone();
+            idle_grow.runtime.ss_tcp_replay_max_salts = Some(initial_total+1);
+            handle.apply_runtime_config_and_wait(idle_grow, Duration::from_secs(5)).await.unwrap();
+            if let Some(owner) = &local {
+                let closed = owner.terminal_for_test().expect("same old SS Source native/Scope retired before shared outbound budget ACK");
+                assert!(closed.closed_io_receipts() >= 4);
+                assert_ne!(owner.identity(), registry.owner("salt-source").unwrap().identity());
+            }
+            assert_eq!(proxy.engine().config().runtime.effective_ss_tcp_replay_max_salts(), initial_total+1);
+            let replacement = registry.owner("salt-source");
             running.shutdown().await.unwrap();
             assert!(entry.terminal_for_test().unwrap().closed_io_receipts() >= 3);
             if let Some(owner) = local { assert!(owner.terminal_for_test().unwrap().closed_io_receipts() >= 4); }
+            if let Some(owner) = replacement { assert!(owner.terminal_for_test().unwrap().closed_io_receipts() >= 2); }
         }
     }).await.unwrap();
 }
