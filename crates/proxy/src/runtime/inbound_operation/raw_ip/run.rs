@@ -221,7 +221,7 @@ pub(in crate::runtime) async fn run(
                 let idle=if pins.quiescent() && sending.is_none() && responses.is_empty() && closing_packet_roles.is_none() {
                     match children.native.quiescent(deadline).await {
                         Ok(native)=>native && source_host.peer_groups_quiescent() && children.echoes.quiescent()
-                            && children.udp.dns.quiescent() && children.tcp_dns.as_ref().is_none_or(|tasks|tasks.quiescent())
+                            && children.udp.quiescent() && children.tcp_dns.as_ref().is_none_or(|tasks|tasks.quiescent())
                             && tcp.quiescent().await && udp.quiescent().await,
                         Err(source)=>{checkpoint.reject(request,source);false}
                     }

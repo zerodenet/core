@@ -74,6 +74,20 @@ impl std::fmt::Debug for InboundPeerTasks {
     }
 }
 impl InboundPeerTasks {
+    /// Actual per-source association custody only; no task/native-close grant.
+    pub(crate) fn preflight_quiescent(&self) -> bool {
+        let state = self
+            .state
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        !state.closing
+            && state.failure.is_none()
+            && state.active.is_empty()
+            && state.preparing == 0
+            && state.children.is_empty()
+            && state.claiming.is_empty()
+    }
+
     /// Actual original peer/child tables only. Not native or Scope closure.
     pub(super) fn acquisition_quiescent(&self) -> bool {
         let state = self
