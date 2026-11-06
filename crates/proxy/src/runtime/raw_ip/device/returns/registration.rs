@@ -39,7 +39,10 @@ impl PacketReturns {
         // overlapping ingress must not replace the accepted flow's observer.
         let mut routes = self.routes.lock().unwrap_or_else(|e| e.into_inner());
         if let Some(route) = routes.get(&source) {
-            if route.ingress_id != ingress_id
+            let differs = route.ingress_id != ingress_id
+                || (matches!(ingress_id, ReturnSource::Endpoint { .. })
+                    && !route.replies.same_channel(&replies));
+            if differs
                 && now.duration_since(route.touched) < IDLE_TIMEOUT
                 && !route.replies.is_closed()
             {

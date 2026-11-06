@@ -61,6 +61,16 @@ impl From<mpsc::Sender<PacketBuffer>> for PacketSender {
     }
 }
 impl PacketSender {
+    /// Identity of this existing bounded sink; observer wrappers grant no
+    /// authority to replace another live Source session's return channel.
+    pub fn same_channel(&self, other: &Self) -> bool {
+        match (&self.channel, &other.channel) {
+            (Channel::Plain(a), Channel::Plain(b)) => a.same_channel(b),
+            (Channel::Owned(a), Channel::Owned(b)) => a.same_channel(b),
+            (Channel::Observed(a), Channel::Observed(b)) => a.same_channel(b),
+            _ => false,
+        }
+    }
     /// Keep external storage owned until the receiver consumes or drops it.
     /// Vec-only compatibility channels convert only after capacity is reserved.
     pub async fn send_buffer(
