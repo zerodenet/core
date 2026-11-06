@@ -110,12 +110,12 @@ impl LinkedEndpoint {
 impl LinkedEndpoint {
     pub(in crate::adapters::wireguard) fn owned_resources(
         &self,
-    ) -> Option<Arc<super::lifecycle::PeerResources>> {
+    ) -> Option<Arc<super::super::lifecycle::PeerResources>> {
         self.owned_resources.get().cloned()
     }
     pub(in crate::adapters::wireguard) fn install_owned_resources(
         &self,
-        resources: Arc<super::lifecycle::PeerResources>,
+        resources: Arc<super::super::lifecycle::PeerResources>,
     ) -> Result<(), EngineError> {
         if let Some(current) = self.owned_resources.get() {
             if Arc::ptr_eq(current, &resources) {

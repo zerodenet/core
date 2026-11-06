@@ -1,4 +1,5 @@
 //! Ordinary encrypted Source -> exact Packet role -> same original Source sink.
+#[path = "packet/client.rs"]
 mod client;
 use super::*;
 use std::sync::Arc;
