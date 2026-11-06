@@ -9,4 +9,5 @@ pub(crate) struct TunIngressOptions {
     pub(crate) mtu: u16,
     pub(crate) dns_hijack: bool,
     pub(crate) dns_hijacked_queries: Arc<AtomicU64>,
+    pub(crate) native_io: Arc<dyn zero_traits::IoObserver>,
 }
