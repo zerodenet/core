@@ -275,6 +275,8 @@ impl Proxy {
         self.egress_interface.clone()
     }
 
+    #[cfg(test)]
+    pub(crate) fn orchestration_readiness(&self)->tokio::sync::watch::Receiver<bool>{self.orchestration_ready.subscribe()}
     pub(crate) fn mark_orchestration_ready(&self) {
         self.orchestration_ready.send_replace(true);
     }

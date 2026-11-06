@@ -73,7 +73,9 @@ async fn ordinary_source_projects_total_and_replaces_originals_on_runtime_only_b
             "pure Source budget change cannot stop an already admitted original user");
         assert!(Arc::ptr_eq(&original, &registry.owner("salt-source").unwrap()));
         phase.set("Busy rejected: both directions still use original wire");
-        first.write_all(b"stay").await.unwrap(); accepted.read_exact(&mut bytes).await.unwrap(); assert_eq!(&bytes,b"stay");
+        first.write_all(b"stay").await.unwrap(); first.flush().await.unwrap();
+        phase.set("Busy rejected: original encrypted upload flushed, await same Direct target"); accepted.read_exact(&mut bytes).await.unwrap(); assert_eq!(&bytes,b"stay");
+        phase.set("Busy rejected: original upload received, await original encrypted response");
         accepted.write_all(b"same").await.unwrap(); first.read_exact(&mut bytes).await.unwrap(); assert_eq!(&bytes,b"same");
         drop(first); drop(accepted);
         phase.set("original user dropped: await actual Source main cleanup idle");

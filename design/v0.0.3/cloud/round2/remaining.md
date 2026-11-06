@@ -77,3 +77,29 @@ A 完成控制增量后在等待 DNS donor 期间复用原 budget worktree；SS 
 B 保留其他协议/transport/process，C 保留设备/source，M 仍唯一串行应用公共契约与装配。
 所有上述提交只是前置与当前调用者状态，不是最终资格。开发编译失败逐次留档；修复只追加，
 没有放宽断言、deadline、生产容量或栈。统一最终检查、续作 Draft PR 与可下载原始证据仍须完成。
+
+
+## 续作组合记录：原件生产责任继续推进
+
+远端再次核对仍为 `59615e69ea5a413d657a873157ea4adf8f204a90`。
+协调 Draft [#133](https://github.com/zerodenet/core/pull/133) 的 base 为 integration，
+当前远端 head `ff7a1f7a69743701be63c9772f3f1fe571494205` 仅为阶段输入，
+没有最终候选资格。本地普通 merge/追加提交仍在继续；下列事实不表示任一域结题。
+验证锁仍为 `3e9fea043e217bb125dcfe6040e8e2b60757ab403fa66f1d3719db8e86f33214`。
+
+| 原调用者与真实 owner | 已组合的必要前置 | 剩余执行及删除门 |
+| --- | --- | --- |
+| DNS query → SOCKS 双原件 → Mieru 原池 | B `0ecf82c4662824700f817e1f47cf589a88814484`；A `dbe7a6586394c8f1fae0a5f97b96cf4a87163078` 改用普通 RunningProxy 同配置/同源 | 首次请求/取消 ACK 原失败未获修复资格；其余 resourceful/device/ECH caller 全迁完再删除旧 connector/exchange |
+| 诊断、URLTest → 同 RuntimeHost 与 Direct 原 Scope/原 provider | M `0bbd922b` 真实 probe task、唯一全局额度、首 await 前 custody；`995c7ece` 候选额度与退出；配置 Direct 用其原 Scope 实际 initializer | 普通冷/热、coalescing、最后 waiter 取消及既有 V1 错误/计量必要回归；新真实用例 `a438b5bd` 待构建，不能拿票据测试当生产资格 |
+| 无 observer 的取消 carrier | M `fc65d433` 同原 Slot 持有关闭 future，同原 host supervisor 轮询；固定首次清理期限，不增加 task/Scope/池 | 平台真实 I/O + actual Scope join 才退唯一额度的回归通过 1 项；Mieru/gRPC 普通 wire 及各合法调用者仍须验证 |
+| VLESS gRPC Stream/Datagram 与原 gRPC pool | B `daac42b5`；M `a4f67381` 同 immutable recipe、`3f8e2417` 普通登记、原 root totals 配置 | CA/ECH/all backend、Relay/MUX 与其余合法 transport 仍有实现；不以局部 gate 关闭当全域完成 |
+| TLS CA、初启 control TLS、父 stdin、inspect/quota | M `e8e76efe` 同授予 CA 原件的真实 TLS backend；先前 Source bounded read、parent std worker/Scope/native 均已组合 | 新 CA/backend 回归与最终统一输入；Windows GNU 类型检查仅代表相应历史 SHA，不代表 Windows 运行；quota/inspect 原职责继续审计 |
+| System TUN ordinary source、route/monitor 与实际 Registrar | C `c141883d`；M `a132e704` 既有 UDP 构建 neutral source 闭包及原 native 计量，`ab50ab81` 实际 shared-Scope 总额 | 真实 privileged backend 资格另验；helper/Windows reader/独立 WG/Direct Packet 仍是实现职责。旧生产 runtime/route 执行链迁完后删除 |
+| System TUN main exit、TunInfo/失败恢复投影 | C `7ee6d484`；M `1df7ab88` 同 exact original observer 投影和自动停依赖前真实 stopping 事实 | EOF/主动 stop 对照、错误身份隔离、所有原 Scope/native 清理及恢复回归待验；投影不发关闭凭据 |
+| TUN 小总额度满额与恢复 | M `3c60b3c7` 保原每组 ceiling，同 Registrar Capacity 已知未登记拒绝仅归还冷 reservation | 真实 TCP Pending/main+child、actual join 后可再登记的必要回归待验；无 native TUN acquisition，不能作为原设备资格 |
+| SS TCP/UDP/legacy replay 与同 adapter 原安全历史 | A `98f240d8` legacy 实际 bitmap bytes、`404dc5d2` UDP 五额度，B `0ecf82c4` SIP 原 Options 投影 | 新模块/可见性编译错误逐项留档并追加修复；SS 两测试三 case 的整体超时保留，Phase 诊断 `a183adab`/`1ee3e16b` 待实际运行 |
+| SIP003 原进程/派生 loopback | B `02847eb0` 单一真实 actor 做 prepare→Ready→monitor | Linux/Windows/macOS 适用 process 原件、后代确认、原 actor join 与派生端点授权仍缺实现；不归环境待验或 TEMP |
+
+开发仍只排必要构建/回归，原始失败日志留在仓库外。`4db6e4d5` 正构建所影响的 root/
+proxy/runtime lib 产物；新的本地提交不得借用该产物声称被测。最终统一检查、精确候选 CI、
+可下载原始归档及各域旧执行链归零检查尚未完成。TEMP-WG-OUTER-UDP-01 保原范围单列未关闭。

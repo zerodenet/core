@@ -15,6 +15,7 @@ pub(crate) enum PacketRouteTarget {
         translated: bool,
         operation: std::sync::Arc<dyn PreparedPacketRouteOperation>,
         role: Option<zero_core::component::RoleInstanceId>,
+        builtin: bool,
     },
     Flow,
     DirectEcho {
@@ -110,6 +111,7 @@ impl ProtocolInventory {
         if mode == RouteMode::Translate && matches!(protocol, Some(IPPROTO_ICMP | IPPROTO_ICMPV6)) {
             return match claimed.prepare_translated_packet_route() {
                 Some(operation) => PacketRouteTarget::Packet {
+                    builtin: runtime.tag.is_none(),
                     tag: runtime.tag.unwrap_or_else(|| "direct".into()),
                     translated: true,
                     role: None,
@@ -158,6 +160,7 @@ impl ProtocolInventory {
                     return PacketRouteTarget::Unsupported;
                 };
                 PacketRouteTarget::Packet {
+                    builtin: runtime.tag.is_none(),
                     tag: runtime.tag.unwrap_or_else(|| "direct".into()),
                     translated: false,
                     role: None,

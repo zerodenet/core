@@ -164,7 +164,6 @@ impl ControlledCandidates {
         let mut grant = self.demand.grants.reserve()?;
         let user = grant.claim_user_view()?;
         let adoption = grant.adoption();
-        let endpoint = Self::destination(remote);
         let binding = self.binding(NetworkGeneration(selection.generation()));
         let result = async {
             let carrier = self

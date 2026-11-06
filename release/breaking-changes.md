@@ -720,3 +720,11 @@ IPC、HTTP SSE 和 gRPC 的 wire 格式保持 `zero.api.v1` / `zero.event.v1`，
 开发期间只在版本矩阵和 `## Unreleased` 下登记，不预判最终发布版本，也不写入 Cargo 的 `-dev.N` 构建号。完整测试通过后，由 `Prepare Release` 工作流或 `scripts/release.sh` 将矩阵行、章节标题和 workspace 版本一起封板；禁止手工分别修改这些位置。
 
 Startup, supervision, reload and transaction-drain futures separate their heap-owned phases to fit the native Windows main stack. A one-MiB-thread regression reaches actual Ready and confirms shutdown; no larger process stack is required by the execution path.
+
+
+第二轮云端续作新增内部 Rust `ProbeCall`/`RuntimeHost::run_probe`、Direct Service 原件票据及
+同 supervisor 的已取消原 carrier 清理轮询。嵌入使用者应驱动实际 host 生命周期，不能把
+Service facts、body 完成或 Drop 当成原件关闭。System TUN ordinary Source、可选实际 owner
+预算和不可变授予 CA 的 TLS backend 接线正在组合；省略字段导出、V1 配置/API/events、CLI、
+FFI 和客户端面板工作流保持原契约，最终资格尚未取得。TEMP-WG-OUTER-UDP-01 未关闭，
+没有扩大其 outer_udp_proxy/reconnect 边界。未发布或部署。

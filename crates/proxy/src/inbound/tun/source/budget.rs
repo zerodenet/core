@@ -31,7 +31,7 @@ async fn one_actual_main_slot_rejects_native_tun_driver_before_any_native_acquis
     .unwrap();
     let proxy = Proxy::new(config).unwrap();
     let deadline = tokio::time::Instant::now() + Duration::from_secs(5);
-    let mut ready = proxy.orchestration_ready.subscribe();
+    let mut ready = proxy.orchestration_readiness();
     let running = proxy.spawn();
     tokio::time::timeout_at(deadline, ready.wait_for(|ready| *ready))
         .await
@@ -144,7 +144,7 @@ async fn ordinary_native_system_tun_closes_its_original_device_after_source_scop
         zero_config::RuntimeConfig::parse(r#"{"route":{"final":{"type":"direct"}}}"#).unwrap(),
     )
     .unwrap();
-    let mut ready = proxy.orchestration_ready.subscribe();
+    let mut ready = proxy.orchestration_readiness();
     let running = proxy.spawn();
     tokio::time::timeout(Duration::from_secs(5), ready.wait_for(|ready| *ready))
         .await
