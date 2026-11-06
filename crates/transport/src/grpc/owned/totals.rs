@@ -118,7 +118,7 @@ impl PoolTotals {
                 Some(id) => id,
                 None => {
                     let id = NEXT
-                        .fetch_update(Ordering::AcqRel, Ordering::Acquire, |old| {
+                        .try_update(Ordering::AcqRel, Ordering::Acquire, |old| {
                             old.checked_add(1)
                         })
                         .map_err(|_| cold(Reason::Capacity))?;

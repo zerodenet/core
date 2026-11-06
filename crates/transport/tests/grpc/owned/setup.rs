@@ -40,7 +40,7 @@ async fn real_scoped_preparation_returns_same_task_credit_before_the_original_h2
         let mut byte=[0;1];first.read_exact(&mut byte).await.unwrap();assert_eq!(byte,*b"1");
         let managed=fixture.managed();let record=managed.records.lock().unwrap()[0].clone();
         let witness=record.witness.lock().unwrap().clone().unwrap();
-        assert_ne!(prepared.id,witness.task_id());
+        assert_ne!(prepared.id,witness.task_id().expect("actual H2 driver has its registered TaskId"));
         assert!(!witness.is_joined());assert!(record.adoption.closed().is_none());
         let mut second=fixture.options.open(fixture.actual,fixture.demand()).await.unwrap();
         second.write_all(b"2").await.unwrap();second.flush().await.unwrap();second.read_exact(&mut byte).await.unwrap();assert_eq!(byte,*b"2");
