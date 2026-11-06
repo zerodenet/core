@@ -37,6 +37,9 @@ pub struct HttpServerHandle {
     listen: String,
     auth: Option<HttpServerAuth>,
     started: std::sync::atomic::AtomicBool,
+    retired: std::sync::atomic::AtomicBool,
+    #[cfg(test)]
+    bound: std::sync::Mutex<Option<std::net::SocketAddr>>,
     budget: Arc<zero_runtime::configuration::ControlBudget>,
     connections: Arc<connections::Connections>,
 }
@@ -81,6 +84,9 @@ impl HttpServerAuth {
 }
 
 impl HttpServerHandle {
+    pub(crate) fn retirement_complete(&self) -> bool {
+        self.retired.load(std::sync::atomic::Ordering::Acquire)
+    }
     pub(crate) async fn wait_terminated(&self) -> io::Result<()> {
         self.task.join().await
     }
@@ -115,6 +121,8 @@ impl HttpServerHandle {
             ));
         }
         self.connections.confirm_all_closed();
+        self.retired
+            .store(true, std::sync::atomic::Ordering::Release);
         server
     }
 }
@@ -138,6 +146,9 @@ pub fn prepare_http_server_with_budget(
         listen: listen.to_owned(),
         auth,
         started: std::sync::atomic::AtomicBool::new(false),
+        retired: std::sync::atomic::AtomicBool::new(false),
+        #[cfg(test)]
+        bound: std::sync::Mutex::new(None),
         budget,
         connections: Arc::new(connections::Connections::default()),
     })
@@ -155,6 +166,10 @@ impl HttpServerHandle {
                 .await?;
         drop(scope);
         let local_addr = listener.local_addr().map_err(io::Error::other)?;
+        #[cfg(test)]
+        {
+            *self.bound.lock().unwrap() = Some(local_addr);
+        }
         let receiver = self
             .original
             .lock()
@@ -737,3 +752,7 @@ fn is_transient_disconnect(error: &io::Error) -> bool {
             | io::ErrorKind::NotConnected
     )
 }
+
+#[cfg(test)]
+#[path = "tests/retirement.rs"]
+mod retirement_tests;
