@@ -12,6 +12,31 @@ impl Drop for PacketSourceAcquisition {
     }
 }
 impl PacketSourcePause {
+    /// Wait for a reversible pause to resume before polling a new Source input.
+    /// The actual consumer drops the guard on Pending, and retains it on Ready
+    /// until the same original child/native custody has been installed.
+    pub async fn enter(self: &Arc<Self>) -> Result<PacketSourceAcquisition, ChannelError> {
+        loop {
+            let changed = self.changed.notified();
+            tokio::pin!(changed);
+            changed.as_mut().enable();
+            {
+                let mut state = self.state.lock().unwrap();
+                if !self.live(&state) {
+                    return Err(pause_error(Reason::Revoked));
+                }
+                if state.request.is_none() {
+                    state.acquiring = state.acquiring.checked_add(1)
+                        .ok_or_else(|| pause_error(Reason::Capacity))?;
+                    return Ok(PacketSourceAcquisition { original: self.clone() });
+                }
+            }
+            tokio::select! { biased;
+                _ = self.cancel.cancelled() => return Err(pause_error(Reason::Revoked)),
+                _ = changed => {},
+            }
+        }
+    }
     pub fn try_enter(self: &Arc<Self>) -> Result<PacketSourceAcquisition, ChannelError> {
         let mut state = self.state.lock().unwrap();
         if !self.live(&state) {
