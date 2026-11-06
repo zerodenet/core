@@ -1,3 +1,5 @@
+#[cfg(feature = "reality")]
+mod grpc;
 mod native;
 mod relay;
 mod reverse;
@@ -214,19 +216,6 @@ impl VlessOutboundLeaf {
     /// this leaf. This does not confirm that its old users or I/O have closed.
     pub fn check_retained_carrier_owner(&self) -> Result<(), RuntimeError> {
         self.relay_pools.check_current()
-    }
-
-    /// Library-only recipe over this leaf's original, fully keyed direct pool.
-    #[cfg(feature = "reality")]
-    pub(crate) fn native_grpc_options(
-        &self,
-        runtime: &VlessTransportRuntime,
-        dial: zero_traits::DialPolicy,
-        carriers: std::num::NonZeroUsize,
-        streams: std::num::NonZeroUsize,
-    ) -> Result<zero_transport::grpc::NativePoolOptions, RuntimeError> {
-        self.transport
-            .native_grpc_options(runtime, dial, carriers, streams)
     }
 
     pub fn tag(&self) -> &str {

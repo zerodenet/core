@@ -32,6 +32,43 @@ impl PreparedGrpc {
         THttp: HttpUpgradeTransportProfile + ?Sized,
         TSplit: SplitHttpTransportProfile + ?Sized,
     {
+        Self::prepare(input, runtime, source_dir, dial, carriers, streams, false)
+    }
+    pub fn for_background_options_refs<TTls, TWs, TGrpc, TH2, THttp, TSplit>(
+        input: VlessOutboundBuildOptionsRef<'_, TTls, TWs, TGrpc, TH2, THttp, TSplit>,
+        runtime: &VlessTransportRuntime,
+        source_dir: Option<&Path>,
+        dial: DialPolicy,
+        carriers: NonZeroUsize,
+        streams: NonZeroUsize,
+    ) -> Result<Self, RuntimeError>
+    where
+        TTls: ClientTlsProfile + ?Sized,
+        TWs: WebSocketTransportProfile + ?Sized,
+        TGrpc: GrpcTransportProfile + ?Sized,
+        TH2: H2TransportProfile + ?Sized,
+        THttp: HttpUpgradeTransportProfile + ?Sized,
+        TSplit: SplitHttpTransportProfile + ?Sized,
+    {
+        Self::prepare(input, runtime, source_dir, dial, carriers, streams, true)
+    }
+    fn prepare<TTls, TWs, TGrpc, TH2, THttp, TSplit>(
+        input: VlessOutboundBuildOptionsRef<'_, TTls, TWs, TGrpc, TH2, THttp, TSplit>,
+        runtime: &VlessTransportRuntime,
+        source_dir: Option<&Path>,
+        dial: DialPolicy,
+        carriers: NonZeroUsize,
+        streams: NonZeroUsize,
+        background: bool,
+    ) -> Result<Self, RuntimeError>
+    where
+        TTls: ClientTlsProfile + ?Sized,
+        TWs: WebSocketTransportProfile + ?Sized,
+        TGrpc: GrpcTransportProfile + ?Sized,
+        TH2: H2TransportProfile + ?Sized,
+        THttp: HttpUpgradeTransportProfile + ?Sized,
+        TSplit: SplitHttpTransportProfile + ?Sized,
+    {
         if input.grpc.is_none() || input.protocol.flow.is_some() || input.protocol.reality.is_some()
         {
             return Err(std::io::Error::new(
@@ -46,8 +83,24 @@ impl PreparedGrpc {
             .map_err(|source| std::io::Error::new(std::io::ErrorKind::InvalidInput, source))?;
         let leaf = VlessOutboundLeaf::from_options_refs(source_dir, input, runtime)
             .map_err(|source| std::io::Error::new(std::io::ErrorKind::InvalidInput, source))?;
-        let pool = leaf.native_grpc_options(runtime, dial, carriers, streams)?;
+        let pool = if background {
+            leaf.background_grpc_options(runtime, dial, carriers, streams)?
+        } else {
+            leaf.native_grpc_options(runtime, dial, carriers, streams)?
+        };
         Ok(Self { protocol, pool })
+    }
+    pub fn with_node_dns(mut self, dependency: ComponentId) -> Self {
+        self.pool = self.pool.with_node_dns(dependency);
+        self
+    }
+    pub fn with_root_budget(
+        mut self,
+        dependency: ComponentId,
+        proposal: zero_transport::grpc::TotalsProposal,
+    ) -> Result<Self, RuntimeError> {
+        self.pool = self.pool.with_root_budget(dependency, proposal)?;
+        Ok(self)
     }
     pub fn pool_options(&self) -> &NativePoolOptions {
         &self.pool

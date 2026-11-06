@@ -15,6 +15,7 @@ use zero_platform_tokio::contract::{
 pub(crate) enum Options {
     Ordinary(Arc<stateless::Options<::vless::component::Options>>),
     Mux(Arc<::vless::component::mux::Options>),
+    Grpc(Arc<::vless::component::grpc::StreamOptions>),
 }
 pub(crate) struct Factory;
 impl ComponentFactory for Factory {
@@ -25,6 +26,7 @@ impl ComponentFactory for Factory {
                 stateless::Factory(::vless::component::Factory).describe(options)
             }
             Options::Mux(options) => ::vless::component::mux::Factory.describe(options),
+            Options::Grpc(options) => ::vless::component::grpc::StreamFactory.describe(options),
         }
     }
     fn build(
@@ -39,11 +41,14 @@ impl ComponentFactory for Factory {
             Options::Mux(options) => {
                 ::vless::component::mux::Factory.build(options.clone(), context)
             }
+            Options::Grpc(options) => {
+                ::vless::component::grpc::StreamFactory.build(options.clone(), context)
+            }
         }
     }
 }
 pub(crate) fn eligible(input: &OutboundConfig) -> bool {
-    if super::native_input(input) {
+    if super::native_input(input) || super::grpc::eligible(input) {
         return true;
     }
     let mut ordinary = input.clone();
@@ -108,6 +113,9 @@ impl VlessAdapter {
         limit: NonZeroUsize,
         stream_only: bool,
     ) -> Result<Options, RegistrationError> {
+        if super::grpc::eligible(input) {
+            return self.grpc_options(input, resources, &factory);
+        }
         let OutboundProtocolConfig::Vless {
             server,
             port,

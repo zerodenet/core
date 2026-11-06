@@ -1,4 +1,5 @@
 pub(in crate::transport) mod browser_dialer;
+mod grpc_budget;
 pub(in crate::transport) mod preconnect;
 pub(in crate::transport) mod xhttp;
 use std::collections::HashMap;
@@ -14,6 +15,7 @@ pub struct VlessTransportRuntime {
     hysteria_pools: Arc<Mutex<HashMap<[u8; 32], zero_transport::hysteria::Pool>>>,
     xhttp_pools: Arc<xhttp::Pools>,
     grpc_pools: Arc<Mutex<HashMap<[u8; 32], zero_transport::grpc::GrpcPool>>>,
+    grpc_budget: grpc_budget::RegistryBudget,
     mux_pool: crate::mux_pool::MuxConnectionPool,
     portals: crate::reverse::PortalRegistry,
     encryption_pools: Arc<Mutex<HashMap<[u8; 32], crate::mux_pool::MuxConnectionPool>>>,
@@ -33,8 +35,21 @@ impl VlessTransportRuntime {
         for (_, pool) in self.hysteria_pools.lock().unwrap().drain() {
             pool.retire();
         }
-        for (_, pool) in self.grpc_pools.lock().unwrap().drain() {
-            pool.retire();
+        // Preserve each actual pool's ownership census across publications.
+        // Host-owned pools close only through their actual original lifecycle.
+        // A legacy exposure has no complete retirement proof yet; removing its
+        // key must not erase that debt and enable a parallel native executor.
+        let pools = self
+            .grpc_pools
+            .lock()
+            .unwrap()
+            .values()
+            .cloned()
+            .collect::<Vec<_>>();
+        for pool in pools {
+            if !pool.has_host_owner() {
+                pool.retire();
+            }
         }
         for (_, pool) in self
             .encryption_pools
