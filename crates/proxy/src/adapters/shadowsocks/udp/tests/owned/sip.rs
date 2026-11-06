@@ -34,7 +34,7 @@ async fn actual_sip_process_quota_keeps_other_business_alive_and_cold_node_retri
         let remote=TcpListener::bind("127.0.0.1:0").await.unwrap();let remote_port=remote.local_addr().unwrap().port();
         let config=zero_config::RuntimeConfig::parse(&serde_json::json!({
             "runtime":{"process_max_jobs":1,"process_max_jobs_per_instance":1},
-            "inbounds":[{"tag":"entry-a","listen":{"address":"127.0.0.1","port":0},"protocol":{"type":"socks5"}},{"tag":"entry-b","listen":{"address":"127.0.0.1","port":0},"protocol":{"type":"socks5"}}],
+            "inbounds":[{"tag":"entry-a","listen":{"address":"127.0.0.1","port":0},"protocol":{"type":"socks5"}},{"tag":"entry-b","listen":{"address":"127.0.0.2","port":0},"protocol":{"type":"socks5"}}],
             "outbounds":[{"tag":"a","protocol":{"type":"shadowsocks","server":"127.0.0.1","port":remote_port,"cipher":"aes-128-gcm","password":"process-wire","plugin":{"command":"python3","args":[fixture,"client","tcp_only",directory.path().join("a")],"options":"test=options;escaped=value","mode":"tcp_only"}}},{"tag":"b","protocol":{"type":"shadowsocks","server":"127.0.0.1","port":remote_port,"cipher":"aes-128-gcm","password":"process-wire","plugin":{"command":"python3","args":[fixture,"client","tcp_only",directory.path().join("b")],"options":"test=options;escaped=value","mode":"tcp_only"}}}],
             "route":{"rules":[{"condition":{"type":"inbound","values":["entry-a"]},"action":{"type":"route","outbound":"a"}},{"condition":{"type":"inbound","values":["entry-b"]},"action":{"type":"route","outbound":"b"}}],"final":{"type":"direct"}}
         }).to_string()).unwrap();
