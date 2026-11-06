@@ -17,6 +17,7 @@ mod adopt;
 mod channels;
 mod owned;
 mod owned_channels;
+pub mod packet_memory;
 pub use owned_channels::OwnedTunChannels;
 #[cfg(any(target_os = "linux", target_os = "macos"))]
 mod owned_adopt;
