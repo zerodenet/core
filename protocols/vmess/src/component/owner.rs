@@ -7,13 +7,15 @@ use zero_platform_tokio::contract::{
     CloseReason,
 };
 
-pub(super) type Prepared = Arc<Mutex<Option<zero_transport::tls::PreparedClient>>>;
+pub(super) type Prepared = Arc<Mutex<Option<zero_transport::tls::OwnedPreparedClient>>>;
 pub(super) struct CaOwner {
     owner: SessionOwner,
     admission: Arc<SessionAdmission>,
     options: Arc<Options>,
     prepared: Prepared,
     resources: Arc<dyn ResourceAccess>,
+    instance: zero_core::component::ComponentInstanceId,
+    cancel: zero_platform_tokio::contract::CancellationToken,
 }
 impl CaOwner {
     pub(super) fn new(
@@ -22,6 +24,8 @@ impl CaOwner {
         options: Arc<Options>,
         prepared: Prepared,
         resources: Arc<dyn ResourceAccess>,
+        instance: zero_core::component::ComponentInstanceId,
+        cancel: zero_platform_tokio::contract::CancellationToken,
     ) -> Self {
         Self {
             owner,
@@ -29,6 +33,8 @@ impl CaOwner {
             options,
             prepared,
             resources,
+            instance,
+            cancel,
         }
     }
 }
@@ -41,6 +47,19 @@ impl ResourceLifecycle for CaOwner {
                 Reason::Timeout,
                 DeliveryState::NotSubmitted,
             ));
+        }
+        if let Some(material) = &self.options.material {
+            material
+                .start(
+                    self.resources.as_ref(),
+                    self.instance,
+                    &self.cancel,
+                    deadline,
+                )
+                .await?;
+            self.owner.start(deadline).await?;
+            material.record(self.instance)?;
+            return Ok(());
         }
         let ready = self
             .prepared
@@ -68,10 +87,11 @@ impl ResourceLifecycle for CaOwner {
                         "CA File grant returned more than its declared bound",
                     )));
             }
-            let prepared = zero_transport::tls::PreparedClient::from_ca_pem(
+            let prepared = zero_transport::tls::OwnedPreparedClient::from_material(
                 self.options.tls.as_ref().expect("CA TLS profile"),
                 file.source_dir.as_deref(),
-                &bytes,
+                &self.options.server,
+                Some(&bytes),
             )
             .map_err(|source| {
                 self.admission

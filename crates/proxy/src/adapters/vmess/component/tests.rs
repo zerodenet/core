@@ -286,3 +286,5 @@ async fn ordinary_mux_prefix_does_not_adopt_legacy_io_after_transport_change_or_
     drop(actual);
     drop(listener);
 }
+
+mod material;

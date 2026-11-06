@@ -63,6 +63,24 @@ impl ComponentFactory for Factory {
         options: Arc<Options>,
         context: BuildContext,
     ) -> Result<ComponentInstance, BuildError> {
+        self.build_owned(options, context, None)
+    }
+}
+impl Factory {
+    pub fn build_with_ech_resolver(
+        &self,
+        options: Arc<Options>,
+        context: BuildContext,
+        resolver: Arc<dyn zero_transport::tls::ech::EchConfigResolver>,
+    ) -> Result<ComponentInstance, BuildError> {
+        self.build_owned(options, context, Some(resolver))
+    }
+    fn build_owned(
+        &self,
+        options: Arc<Options>,
+        context: BuildContext,
+        resolver: Option<Arc<dyn zero_transport::tls::ech::EchConfigResolver>>,
+    ) -> Result<ComponentInstance, BuildError> {
         let instance = context.instance();
         let valid_dependencies = match options.dns_dependency {
             Some(id) => {
@@ -101,13 +119,15 @@ impl ComponentFactory for Factory {
         let carrier_ordinal = usize::from(options.base.ca_file.is_some());
         let (owner, admission) = SessionOwner::new(context.component, &context.cancel);
         let prepared = Arc::new(Mutex::new(None));
-        let base = if options.base.ca_file.is_some() {
+        let base = if options.base.ca_file.is_some() || options.base.material.is_some() {
             erase_lifecycle(super::super::owner::CaOwner::new(
                 owner,
                 admission.clone(),
                 options.base.clone(),
                 prepared.clone(),
                 context.resources,
+                instance,
+                context.cancel.clone(),
             ))
         } else {
             erase_lifecycle(owner)
@@ -123,6 +143,7 @@ impl ComponentFactory for Factory {
             options,
             admission,
             prepared,
+            ech_resolver: resolver,
             upstream,
             tasks: context.tasks,
             cancel,
@@ -157,138 +178,6 @@ impl ComponentFactory for Factory {
         })
     }
 }
-struct Owner {
-    managed: Arc<Managed>,
-    carriers: CarrierOwner,
-    service_carriers: Option<CarrierOwner>,
-    base: Box<dyn DynResourceLifecycle>,
-    attempted: bool,
-    resources: Arc<dyn ResourceAccess>,
-    carrier_ordinal: usize,
-    stream_admission_claimed: bool,
-}
-impl Drop for Owner {
-    fn drop(&mut self) {
-        self.revoke(CloseReason::Shutdown);
-    }
-}
-impl ResourceLifecycle for Owner {
-    async fn start(&mut self, deadline: Instant) -> Result<(), BuildError> {
-        if self.managed.check().is_ok() {
-            return Ok(());
-        }
-        if self.attempted || self.managed.cancel.is_cancelled() {
-            return Err(error(
-                self.managed.instance,
-                Stage::Prepare,
-                Reason::Revoked,
-            ));
-        }
-        if Instant::now() >= deadline {
-            return Err(error(
-                self.managed.instance,
-                Stage::Prepare,
-                Reason::Timeout,
-            ));
-        }
-        self.attempted = true;
-        if let Some(admission) = &self.managed.options.stream_admission {
-            admission.claim_node_streams(self.managed.instance)?;
-            self.stream_admission_claimed = true;
-        }
-        self.managed.options.state.claim(self.managed.instance)?;
-        if self.managed.options.business.is_some() {
-            self.resources.register_controlled_carrier(
-                self.carrier_ordinal,
-                self.carriers.registration(),
-                &self.managed.tasks,
-            )?;
-        }
-        if let Some(service) = &self.service_carriers {
-            self.resources.register_controlled_carrier(
-                self.carrier_ordinal + 1,
-                service.registration(),
-                &self.managed.tasks,
-            )?;
-        }
-        self.base.start(deadline).await?;
-        self.carriers.start(deadline).await?;
-        if let Some(service) = &mut self.service_carriers {
-            service.start(deadline).await?;
-        }
-        if self.managed.cancel.is_cancelled() || self.managed.tasks.cancellation().is_cancelled() {
-            return Err(error(
-                self.managed.instance,
-                Stage::Prepare,
-                Reason::Revoked,
-            ));
-        }
-        self.managed.ready.store(true, Ordering::Release);
-        Ok(())
-    }
-    fn revoke(&self, reason: CloseReason) {
-        self.managed.stop();
-        self.carriers.revoke();
-        if let Some(service) = &self.service_carriers {
-            service.revoke();
-        }
-        self.base.revoke(reason);
-    }
-    async fn shutdown(&mut self, deadline: Instant) -> Result<CloseReport, BuildError> {
-        self.revoke(CloseReason::Shutdown);
-        let (base, physical, service) = tokio::join!(
-            self.base.shutdown(deadline),
-            self.carriers.shutdown(deadline),
-            async {
-                match &mut self.service_carriers {
-                    Some(service) => service.shutdown(deadline).await,
-                    None => Ok(CloseReport::default()),
-                }
-            },
-        );
-        let records = self.managed.records.lock().unwrap().clone();
-        for record in records {
-            record.receive_available();
-        }
-        let mut report = base?;
-        report.append(physical?);
-        report.append(service?);
-        self.managed
-            .records
-            .lock()
-            .unwrap()
-            .retain(|record| !record.closed());
-        if !self.managed.records.lock().unwrap().is_empty() {
-            report.unfinished.push(Unfinished::Io(
-                "VMess original gRPC carriers remain unconfirmed".into(),
-            ));
-        }
-        let service_closed = self.service_carriers.as_ref().is_none_or(|owner| {
-            owner
-                .registration()
-                .closed()
-                .is_some_and(|closed| closed.matches(&owner.registration()))
-        });
-        if self.managed.options.node()
-            && service_closed
-            && report.is_complete()
-            && self
-                .carriers
-                .registration()
-                .closed()
-                .is_some_and(|closed| closed.matches(&self.carriers.registration()))
-        {
-            self.managed.options.state.release(self.managed.instance);
-            if self.stream_admission_claimed {
-                self.managed
-                    .options
-                    .stream_admission
-                    .as_ref()
-                    .unwrap()
-                    .release_node_streams(self.managed.instance);
-                self.stream_admission_claimed = false;
-            }
-        }
-        Ok(report)
-    }
-}
+
+mod owner;
+use owner::Owner;

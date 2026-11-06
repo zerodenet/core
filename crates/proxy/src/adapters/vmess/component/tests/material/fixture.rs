@@ -1,0 +1,185 @@
+use crate::{Proxy, ProxyHandle};
+use std::{net::SocketAddr, path::Path, sync::Arc, time::Duration};
+use tokio::{
+    io::{AsyncReadExt, AsyncWriteExt},
+    net::{TcpListener, TcpStream},
+    time::timeout,
+};
+use zero_platform_tokio::controlled_carrier::{CarrierOriginObservation, CarrierOwnerRegistration};
+const ID: &str = "11111111-2222-3333-4444-555555555555";
+pub(super) struct Running {
+    pub(super) proxy: Proxy,
+    pub(super) address: SocketAddr,
+    running: crate::RunningProxy,
+    original: Arc<crate::runtime::inbound_owners::InboundOwner>,
+}
+impl Running {
+    pub(super) fn handle(&self) -> ProxyHandle {
+        ProxyHandle::new(
+            zero_engine::EngineHandle::new(self.proxy.engine().clone()),
+            self.proxy.clone(),
+        )
+    }
+    pub(super) async fn close(self) {
+        self.running.shutdown().await.unwrap();
+        let closed = self
+            .original
+            .terminal_for_test()
+            .expect("actual original Source native/users/Scope complete");
+        assert_eq!(closed.identity(), self.original.identity());
+        assert!(closed.failure().is_none());
+        assert!(closed.task_failures().is_empty());
+        assert!(closed.native_bound_failures().is_empty());
+    }
+}
+async fn start(document: serde_json::Value, tag: &str) -> Running {
+    let config = zero_config::RuntimeConfig::parse(&document.to_string()).unwrap();
+    let proxy = Proxy::new(config.clone()).unwrap();
+    let registry = proxy.system_tun_source_registry();
+    let running = proxy.spawn();
+    let original = timeout(Duration::from_secs(5), async {
+        loop {
+            if let Some(original) = registry.owner(tag) {
+                break original;
+            }
+            tokio::task::yield_now().await;
+        }
+    })
+    .await
+    .unwrap();
+    original.wait_ready().await.unwrap();
+    let handle = ProxyHandle::new(
+        zero_engine::EngineHandle::new(proxy.engine().clone()),
+        proxy.clone(),
+    );
+    handle
+        .apply_runtime_config_and_wait(config, Duration::from_secs(5))
+        .await
+        .unwrap();
+    let address = *original.original_listener_address.get().unwrap();
+    Running {
+        proxy,
+        address,
+        running,
+        original,
+    }
+}
+fn transport(node: &mut serde_json::Value, kind: &str) {
+    match kind {
+        "raw" => {}
+        "ws" => node["protocol"]["ws"] = serde_json::json!({"path":"/original"}),
+        "grpc-single" | "grpc-multi" => {
+            node["protocol"]["grpc"] = serde_json::json!({"service_names":["original/Tun"],"multi_mode":kind=="grpc-multi"})
+        }
+        _ => unreachable!("actual fixture transport"),
+    }
+}
+pub(super) async fn server(kind: &str, cert: &Path, key: &Path) -> Running {
+    let mut input = serde_json::json!({"tag":"remote","listen":{"address":"127.0.0.1","port":0},"protocol":{"type":"vmess","users":[{"id":ID}],"tls":{"cert_path":cert,"key_path":key}}});
+    transport(&mut input, kind);
+    start(
+        serde_json::json!({"inbounds":[input],"route":{"final":{"type":"direct"}}}),
+        "remote",
+    )
+    .await
+}
+pub(super) async fn client(kind: &str, backend: &str, endpoint: SocketAddr, ca: &Path) -> Running {
+    let mut node = serde_json::json!({"tag":"node","protocol":{"type":"vmess","server":"127.0.0.1","port":endpoint.port(),"id":ID,"tls":{"server_name":"localhost","ca_cert_path":ca,"client_fingerprint":null,"options":{"backend":backend}}}});
+    transport(&mut node, kind);
+    start(serde_json::json!({"runtime":{"native_stream_max_originals":1,"vmess_grpc_max_originals":1},"inbounds":[{"tag":"entry","listen":{"address":"127.0.0.1","port":0},"protocol":{"type":"socks5"}}],"outbounds":[node],"route":{"final":{"type":"route","outbound":"node"}}}),"entry").await
+}
+pub(super) fn capture(proxy: &Proxy) -> (CarrierOwnerRegistration, CarrierOriginObservation) {
+    let slot = proxy
+        .tcp_runtime_services()
+        .components
+        .as_ref()
+        .unwrap()
+        .configured("node")
+        .unwrap();
+    let grpc = slot.recipe.spec().task_limit.is_some();
+    for ordinal in 0..slot.recipe.spec().resources.len() {
+        let Some(owner) = slot.original_carrier_owner(ordinal) else {
+            continue;
+        };
+        let Some(observed) = owner.observe() else {
+            continue;
+        };
+        if let Some(original) = observed
+            .slots()
+            .iter()
+            .find(|slot| slot.native().is_some_and(|native| !native.is_closed()))
+        {
+            if grpc {
+                let (_, driver) = original
+                    .driver()
+                    .expect("same original perconnection H2 driver");
+                assert!(!driver.is_joined());
+                assert_eq!(original.original().instance(), slot.instance_id());
+            } else {
+                assert!(original.driver().is_none());
+            }
+            assert!(original.auxiliary().is_none());
+            assert_eq!(observed.retained(), 1);
+            return (owner, original.original().clone());
+        }
+    }
+    panic!("actual ordinary VMess wire must own its same native grant")
+}
+pub(super) async fn echo(client: &Running) -> (CarrierOwnerRegistration, CarrierOriginObservation) {
+    let target = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let port = target.local_addr().unwrap().port();
+    let payload: Vec<u8> = (0..262144).map(|index| (index % 251) as u8).collect();
+    let expected = payload.clone();
+    let peer = tokio::spawn(async move {
+        let (mut io, _) = target.accept().await.unwrap();
+        let mut body = Vec::new();
+        io.read_to_end(&mut body).await.unwrap();
+        assert_eq!(body, expected);
+        io.write_all(&body).await.unwrap();
+        io.shutdown().await.unwrap();
+    });
+    let mut io = TcpStream::connect(client.address).await.unwrap();
+    io.write_all(&[5, 1, 0]).await.unwrap();
+    let mut auth = [0; 2];
+    io.read_exact(&mut auth).await.unwrap();
+    assert_eq!(auth, [5, 0]);
+    let mut request = vec![5, 1, 0, 1, 127, 0, 0, 1];
+    request.extend_from_slice(&port.to_be_bytes());
+    io.write_all(&request).await.unwrap();
+    let mut reply = [0; 10];
+    io.read_exact(&mut reply).await.unwrap();
+    assert_eq!(reply[1], 0);
+    // No application read while outgoing SETTINGS/WINDOW_UPDATE and writes
+    // progress; then preserve a real write half-close and full response body.
+    io.write_all(&payload).await.unwrap();
+    io.flush().await.unwrap();
+    let original = capture(&client.proxy);
+    io.shutdown().await.unwrap();
+    let mut received = Vec::new();
+    io.read_to_end(&mut received).await.unwrap();
+    assert_eq!(received, payload);
+    drop(io);
+    peer.await.unwrap();
+    original
+}
+pub(super) async fn wait_returned(
+    owner: &CarrierOwnerRegistration,
+    original: &CarrierOriginObservation,
+) {
+    timeout(Duration::from_secs(3), async {
+        loop {
+            if original.closed().is_some()
+                && owner
+                    .observe()
+                    .is_some_and(|observed| observed.retained() == 0)
+            {
+                break;
+            }
+            tokio::task::yield_now().await;
+        }
+    })
+    .await
+    .unwrap();
+    let closed = original.closed().unwrap();
+    assert!(original.matches_closed(&closed) && closed.had_native_acquisition());
+}

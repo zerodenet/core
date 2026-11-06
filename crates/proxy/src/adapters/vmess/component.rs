@@ -10,6 +10,22 @@ pub(crate) fn native_input(input: &OutboundConfig) -> bool {
         if ws.as_ref().is_none_or(|ws|ws.browser_dialer.is_none())
             && tls.as_ref().is_none_or(|tls|tls.ca_cert_path.is_none() && !tls.options.ech_config_list.contains("://")))
 }
+pub(crate) fn owned_input(input: &OutboundConfig) -> bool {
+    let mut plain = input.clone();
+    let OutboundProtocolConfig::Vmess { tls, .. } = &mut plain.protocol else {
+        return false;
+    };
+    if let Some(tls) = tls {
+        if zero_transport::tls::OwnedPreparedClient::validate_profile(tls.as_ref()).is_err() {
+            return false;
+        }
+        tls.ca_cert_path = None;
+        if tls.options.ech_config_list.contains("://") {
+            tls.options.ech_config_list.clear();
+        }
+    }
+    native_input(&plain)
+}
 pub(crate) fn component_options(
     input: &OutboundConfig,
 ) -> Result<::vmess::component::Options, ConfigError> {
