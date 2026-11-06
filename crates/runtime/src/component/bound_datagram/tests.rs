@@ -66,3 +66,5 @@ async fn cold_or_foreign_binding_is_rejected_without_native_authority() {
 mod retirement;
 
 mod registering;
+
+mod late_view;
