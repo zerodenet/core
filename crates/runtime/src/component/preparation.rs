@@ -1,6 +1,6 @@
 //! Typed cold preparation of canonical roleless resource owners.
 mod identities;
-use super::{dependencies, instance::invalid, ComponentRecipe};
+use super::{ComponentRecipe, dependencies, instance::invalid};
 pub use identities::SharedResourceIdentities;
 use std::{
     cell::Cell,
@@ -9,9 +9,9 @@ use std::{
 };
 use zero_core::component::ComponentId;
 use zero_platform_tokio::contract::{
+    ChannelError, Reason,
     component::{ComponentFactory, ComponentSpec},
     lifecycle::BuildError,
-    ChannelError, Reason,
 };
 
 #[derive(Clone, PartialEq, Eq, PartialOrd, Ord)]
@@ -176,7 +176,7 @@ impl<'a> ResourcePreparation<'a> {
 
     /// Borrow the whole current candidate for assembly-owned shared profile sets.
     /// This reference cannot escape this cold pass into a resource recipe.
-    pub(super) fn with_candidate(mut self, candidate: &'a zero_config::RuntimeConfig) -> Self {
+    pub fn with_candidate(mut self, candidate: &'a zero_config::RuntimeConfig) -> Self {
         self.source_dir = candidate.source_dir();
         self.candidate = Some(candidate);
         self

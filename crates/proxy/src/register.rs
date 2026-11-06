@@ -228,7 +228,18 @@ pub(crate) fn compiled_registries_with_network(
             .register_with_resources(
                 ::shadowsocks::ShadowsocksProtocol.descriptor(),
                 ::shadowsocks::component::inbound::listener::Factory,
-                move |input, _resources| inbound_adapter.inbound_options(input),
+                move |input, resources| {
+                    inbound_adapter.inbound_options(
+                        input,
+                        resources
+                            .candidate()
+                            .map(|config| config.runtime.effective_ss_tcp_replay_max_salts())
+                            .unwrap_or_else(|| {
+                                zero_config::RuntimeOptionsConfig::default()
+                                    .effective_ss_tcp_replay_max_salts()
+                            }),
+                    )
+                },
             )
             .expect("unique native Shadowsocks inbound registration");
         let component_adapter = adapter.clone();
