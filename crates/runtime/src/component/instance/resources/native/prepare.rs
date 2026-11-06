@@ -30,6 +30,12 @@ impl HostResources {
         cancel: CancellationToken,
         identity: Option<(ComponentInstanceId, TaskScopeIdentity)>,
     ) -> Result<Arc<Self>, ChannelError> {
+        let bounds = bound_datagram::BoundDeclarations::new(
+            component,
+            declarations,
+            identity.clone(),
+            cancel.clone(),
+        )?;
         let roots =
             root_datagram::RootDeclarations::new(component, declarations, identity.clone())?;
         let metadata =
@@ -178,7 +184,8 @@ impl HostResources {
                 ResourceDeclaration::File { path, max_bytes } => {
                     files.declare(component, path, *max_bytes)?
                 }
-                ResourceDeclaration::ControlledOutboundDatagram { .. }
+                ResourceDeclaration::BoundOutboundDatagram { .. }
+                | ResourceDeclaration::ControlledOutboundDatagram { .. }
                 | ResourceDeclaration::ControlledOutboundStream { .. }
                 | ResourceDeclaration::ControlledCarrierPool { .. }
                 | ResourceDeclaration::ControlledAssociationPool { .. }
@@ -216,6 +223,7 @@ impl HostResources {
             metadata,
             metapools,
             roots,
+            bounds,
             packets,
             cancel,
             state: Mutex::new(State {

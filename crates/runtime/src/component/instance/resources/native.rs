@@ -22,6 +22,7 @@ pub struct HostResources {
     metadata: metadata::MetadataDeclarations,
     metapools: metapool::MetadataPools,
     roots: root_datagram::RootDeclarations,
+    bounds: bound_datagram::BoundDeclarations,
     packets: Vec<packet_device::PacketDeviceOwner>,
     cancel: CancellationToken,
     state: Mutex<State>,
@@ -63,6 +64,7 @@ struct State {
 }
 // The nonconsuming proof API is staged for host slot integration; resourceful
 // production activation remains gated until that separate transaction exists.
+mod bound_datagram;
 mod carrier;
 mod coverage;
 mod evidence;
@@ -145,6 +147,43 @@ impl HostResources {
     }
 }
 impl ResourceAccess for HostResources {
+    fn activate_bound_datagram(
+        &self,
+        ordinal: usize,
+        driver: &zero_platform_tokio::contract::scope::TaskJoinWitness,
+    ) -> Result<zero_platform_tokio::contract::component::DatagramBindingId, ChannelError> {
+        self.require_start()?;
+        self.bounds.activate(ordinal, driver)
+    }
+    fn select_bound_outbound_datagram(
+        &self,
+        request: zero_platform_tokio::contract::component::BoundDatagramRequest,
+    ) -> Result<zero_platform_tokio::EgressSelection, ChannelError> {
+        self.bounds
+            .owner_for(&request.binding)?
+            .select_bound_outbound_datagram(request)
+    }
+    fn open_bound_outbound_datagram(
+        &self,
+        request: zero_platform_tokio::contract::component::BoundDatagramRequest,
+    ) -> Result<zero_platform_tokio::contract::component::GrantedBoundDatagram, ChannelError> {
+        self.bounds
+            .owner_for(&request.binding)?
+            .open_bound_outbound_datagram(request)
+    }
+    fn open_bound_datagram_attempt(
+        &self,
+        request: zero_platform_tokio::contract::component::BoundDatagramRequest,
+    ) -> Result<
+        zero_platform_tokio::contract::component::GrantedBoundDatagram,
+        zero_platform_tokio::contract::component::BoundDatagramAttemptFailure,
+    > {
+        self.bounds
+            .owner_for(&request.binding)
+            .map_err(zero_platform_tokio::contract::component::BoundDatagramAttemptFailure::denied)?
+            .open_bound_datagram_attempt(request)
+    }
+
     fn bind_inbound_icmp(
         &self,
         source: std::net::IpAddr,

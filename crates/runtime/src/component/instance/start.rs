@@ -49,6 +49,14 @@ impl ComponentSlot {
                     tasks.registrar().scope_identity(),
                 )
                 .map_err(Arc::new)?;
+                self.recipe
+                    .bind_native_datagrams(
+                        self.instance_id(),
+                        &resources,
+                        &tasks.registrar(),
+                        self.cancel.clone(),
+                    )
+                    .map_err(Arc::new)?;
                 let context = BuildContext {
                     component: self.id,
                     generation: self.generation,

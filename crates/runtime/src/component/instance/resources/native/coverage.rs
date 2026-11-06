@@ -36,6 +36,7 @@ pub(in crate::component) enum DeclarationProvider {
     MetadataPool(usize),
     RootDatagram(usize),
     PacketDevice(usize),
+    BoundDatagram(usize),
     Unaccounted,
 }
 #[derive(Clone, Debug)]
@@ -52,6 +53,7 @@ pub(super) enum CoverageBinding {
     MetadataPool,
     RootDatagram,
     PacketDevice,
+    BoundDatagram,
     File(PathBuf),
     Tcp(SocketAddr),
     Datagram(SocketAddr),
@@ -123,9 +125,7 @@ impl CoverageBinding {
             ResourceDeclaration::OutboundDatagram { .. } => {
                 Self::Unaccounted(DeclaredResourceKind::OutboundDatagram)
             }
-            ResourceDeclaration::BoundOutboundDatagram { .. } => {
-                Self::Unaccounted(DeclaredResourceKind::BoundOutboundDatagram)
-            }
+            ResourceDeclaration::BoundOutboundDatagram { .. } => Self::BoundDatagram,
         })
     }
     pub(super) fn observe(
@@ -140,6 +140,7 @@ impl CoverageBinding {
             Self::MetadataPool => (DeclaredResourceKind::ControlledMetadataDatagram, None),
             Self::RootDatagram => (DeclaredResourceKind::ControlledOutboundDatagram, None),
             Self::PacketDevice => (DeclaredResourceKind::ControlledPacketDevice, None),
+            Self::BoundDatagram => (DeclaredResourceKind::BoundOutboundDatagram, None),
             Self::File(path) => (
                 DeclaredResourceKind::File,
                 files
@@ -184,11 +185,24 @@ impl evidence::HostIoEvidence {
         let mut metadata = vec![false; self.metadata.len()];
         let mut roots = vec![false; self.roots.len()];
         let mut packets = vec![false; self.packets.len()];
+        let mut bounds = vec![false; self.bounds.len()];
         for (ordinal, declaration) in self.declarations.iter().enumerate() {
             if declaration.ordinal != ordinal {
                 return false;
             }
             let confirmed = match declaration.provider {
+                DeclarationProvider::BoundDatagram(index)
+                    if declaration.kind == DeclaredResourceKind::BoundOutboundDatagram =>
+                {
+                    match (self.bounds.get(index), bounds.get_mut(index)) {
+                        (Some(owner), Some(seen)) if !*seen && owner.ordinal == ordinal => {
+                            *seen = true;
+                            owner.physical_confirmed()
+                        }
+                        _ => false,
+                    }
+                }
+
                 DeclarationProvider::PacketDevice(index)
                     if declaration.kind == DeclaredResourceKind::ControlledPacketDevice =>
                 {
@@ -296,6 +310,7 @@ impl evidence::HostIoEvidence {
             && metadata.into_iter().all(|seen| seen)
             && roots.into_iter().all(|seen| seen)
             && packets.into_iter().all(|seen| seen)
+            && bounds.into_iter().all(|seen| seen)
     }
 }
 

@@ -12,6 +12,7 @@ pub(in crate::component) struct HostIoEvidence {
     pub native: Vec<NativeIoEvidence>,
     pub roots: Vec<super::root_datagram::RootDatagramEvidence>,
     pub packets: Vec<super::packet_device::PacketDeviceEvidence>,
+    pub bounds: Vec<crate::component::bound_datagram::evidence::BoundDatagramEvidence>,
     pub carriers: Vec<super::carrier::CarrierIoEvidence>,
     pub metadata: Vec<super::metadata::MetadataIoEvidence>,
     pub metapools: Vec<super::metapool::MetadataPoolEvidence>,
@@ -80,6 +81,8 @@ impl HostResources {
                 .iter()
                 .filter_map(|carrier| carrier.first_fault.clone()),
         );
+        let bounds = self.bounds.evidence();
+        sticky_faults.extend(bounds.iter().filter_map(|owner| owner.first_fault.clone()));
         let packets: Vec<_> = self.packets.iter().map(|owner| owner.evidence()).collect();
         sticky_faults.extend(packets.iter().filter_map(|owner| owner.close_fault.clone()));
         let declarations = self
@@ -127,6 +130,13 @@ impl HostResources {
                         .map(coverage::DeclarationProvider::PacketDevice)
                         .unwrap_or(coverage::DeclarationProvider::Unaccounted);
                 }
+                if matches!(binding, coverage::CoverageBinding::BoundDatagram) {
+                    proof.provider = bounds
+                        .iter()
+                        .position(|owner| owner.ordinal == ordinal)
+                        .map(coverage::DeclarationProvider::BoundDatagram)
+                        .unwrap_or(coverage::DeclarationProvider::Unaccounted);
+                }
                 proof
             })
             .collect();
@@ -139,6 +149,7 @@ impl HostResources {
             carriers,
             roots,
             packets,
+            bounds,
             metadata,
             metapools,
             sticky_faults,

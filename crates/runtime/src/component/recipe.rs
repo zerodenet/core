@@ -4,6 +4,8 @@ use zero_platform_tokio::contract::{
     lifecycle::BuildError,
 };
 
+mod bound_datagram;
+
 trait BuildRecipe: Send + Sync {
     fn build(&self, context: BuildContext) -> Result<ComponentInstance, BuildError>;
 }
@@ -23,6 +25,7 @@ impl<F: ComponentFactory> BuildRecipe for Prepared<F> {
 pub struct ComponentRecipe {
     spec: Arc<ComponentSpec>,
     recipe: Arc<dyn BuildRecipe>,
+    bound_datagrams: Arc<[bound_datagram::NativeBinding]>,
 }
 impl ComponentRecipe {
     /// Options have already been validated by their owning factory/adapter.
@@ -32,6 +35,7 @@ impl ComponentRecipe {
         Self {
             spec,
             recipe: Arc::new(Prepared { factory, options }),
+            bound_datagrams: Arc::from([]),
         }
     }
     pub fn spec(&self) -> &ComponentSpec {

@@ -2,10 +2,11 @@
 mod access;
 mod activation;
 mod binding;
+pub(in crate::component) mod evidence;
 mod report;
 #[cfg(test)]
 mod tests;
-use super::instance::{SharedError, retained};
+use super::instance::{retained, SharedError};
 use binding::Binding;
 use std::{
     collections::BTreeMap,
@@ -16,11 +17,11 @@ use zero_core::component::{ComponentInstanceId, NetworkGeneration, TaskId};
 use zero_platform_tokio::contract::scope::{TaskJoinWitness, TaskScopeIdentity};
 use zero_platform_tokio::{
     contract::{
-        CancellationToken, ChannelError, DeliveryState, Impact, Reason, Stage,
         component::{
             BoundDatagramRequest, DatagramBindingAuthorization, DatagramBindingId,
             DatagramBindingIssuer, ResourceDeclaration,
         },
+        CancellationToken, ChannelError, DeliveryState, Impact, Reason, Stage,
     },
     controlled_datagram::{ControlledDatagramOwner, DatagramReservationId},
 };
