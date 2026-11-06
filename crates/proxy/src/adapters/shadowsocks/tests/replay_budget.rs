@@ -1,0 +1,98 @@
+//! Ordinary Source admission and acknowledged replacement over real TCP2022 IO.
+use std::{future::Future, sync::Arc, task::Poll, time::Duration};
+use tokio::{
+    io::{AsyncReadExt, AsyncWriteExt},
+    net::{TcpListener, TcpStream},
+};
+
+const METHOD: &str = "2022-blake3-aes-128-gcm";
+const PASSWORD: &str = "MDEyMzQ1Njc4OWFiY2RlZg==";
+
+async fn client(
+    endpoint: std::net::SocketAddr,
+    target: std::net::SocketAddr,
+) -> ::shadowsocks::ShadowsocksAeadStream<zero_platform_tokio::TokioSocket> {
+    let mut socket =
+        zero_platform_tokio::TokioSocket::new(TcpStream::connect(endpoint).await.unwrap());
+    let config = ::shadowsocks::ShadowsocksTcpConnectConfig::from_config(METHOD, PASSWORD).unwrap();
+    let session = config
+        .establish_tcp_to(
+            &mut socket,
+            &zero_core::request::Destination::new(
+                zero_core::Address::Ipv4([127, 0, 0, 1]),
+                target.port(),
+            ),
+        )
+        .await
+        .unwrap();
+    let mut stream = config.wrap_outbound_stream(socket, session);
+    stream.write_all(b"salt").await.unwrap();
+    stream.flush().await.unwrap();
+    stream
+}
+
+#[tokio::test]
+async fn ordinary_source_projects_total_and_replaces_originals_on_runtime_only_budget_change() {
+    tokio::time::timeout(Duration::from_secs(20), async {
+        let reserved = crate::socket_fixture::tcp_udp();
+        let endpoint = reserved.0.local_addr().unwrap();
+        let config = zero_config::RuntimeConfig::parse(&serde_json::json!({
+            "runtime":{"ss_tcp_replay_max_salts":1},
+            "inbounds":[{"tag":"salt-source", "listen":{"address":"127.0.0.1","port":endpoint.port()},
+                "protocol":{"type":"shadowsocks", "cipher":METHOD, "password":PASSWORD}}],
+            "route":{"final":{"type":"direct"}}
+        }).to_string()).unwrap();
+        let proxy = crate::Proxy::new(config).unwrap();
+        let registry = proxy.system_tun_source_registry();
+        drop(reserved);
+        let running = proxy.spawn();
+        let original = loop {
+            if let Some(owner) = registry.owner("salt-source") { break owner; }
+            tokio::task::yield_now().await;
+        };
+        original.wait_ready().await.unwrap();
+        let target = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let mut first = client(endpoint, target.local_addr().unwrap()).await;
+        let (mut accepted, _) = target.accept().await.unwrap();
+        let mut bytes = [0;4]; accepted.read_exact(&mut bytes).await.unwrap();
+        assert_eq!(&bytes, b"salt");
+        accepted.write_all(b"seen").await.unwrap();
+        first.read_exact(&mut bytes).await.unwrap(); assert_eq!(&bytes,b"seen");
+        drop(first); drop(accepted);
+        let handle = crate::ProxyHandle::new(zero_engine::EngineHandle::new(proxy.engine().clone()), proxy.clone());
+        let mut next = (*proxy.engine().config()).clone();
+        next.runtime.ss_tcp_replay_max_salts = Some(2);
+        handle.apply_runtime_config_and_wait(next.clone(), Duration::from_secs(5)).await.unwrap();
+        let closed = original.terminal().expect("old source closed before runtime-only budget ACK");
+        assert!(closed.failure().is_none());
+        assert!(closed.closed_io_receipts() >= 4, "both original listeners and the accepted TCP/egress originals");
+        let current = registry.owner("salt-source").unwrap();
+        assert_ne!(current.identity(), original.identity());
+        current.wait_ready().await.unwrap();
+        let second = client(endpoint, target.local_addr().unwrap()).await;
+        let (mut accepted, _) = target.accept().await.unwrap();
+        accepted.read_exact(&mut bytes).await.unwrap(); assert_eq!(&bytes,b"salt");
+        drop(second); drop(accepted);
+        let mut too_small = next;
+        too_small.runtime.ss_tcp_replay_max_salts = Some(1);
+        assert!(handle.apply_runtime_config_and_wait(too_small, Duration::from_secs(5)).await.is_err(),
+            "two still-valid accepted salts forbid shrink to one");
+        assert!(Arc::ptr_eq(&current, &registry.owner("salt-source").unwrap()));
+        assert!(current.is_running());
+        assert_eq!(proxy.engine().config().runtime.effective_ss_tcp_replay_max_salts(), 2);
+        // A third authenticated connection has free native admission, but no
+        // salt entry. Its real target accept must stay Pending through failure.
+        let pending = target.accept(); tokio::pin!(pending);
+        std::future::poll_fn(|cx| { assert!(pending.as_mut().poll(cx).is_pending()); Poll::Ready(()) }).await;
+        let mut third = client(endpoint, target.local_addr().unwrap()).await;
+        let result = third.read(&mut bytes).await;
+        assert!(matches!(result, Ok(0)) || matches!(result, Err(ref error) if
+            matches!(error.kind(), std::io::ErrorKind::ConnectionReset | std::io::ErrorKind::UnexpectedEof)));
+        std::future::poll_fn(|cx| { assert!(pending.as_mut().poll(cx).is_pending()); Poll::Ready(()) }).await;
+        drop(third);
+        running.shutdown().await.unwrap();
+        let closed = current.terminal().expect("same replacement Source's final original receipts");
+        assert!(closed.closed_io_receipts() >= 5, "original listeners, both accepted sockets and successful Direct original");
+        assert!(closed.joined_tasks() >= 2, "source plus exact replay maintenance Scope task joined");
+    }).await.unwrap();
+}

@@ -173,3 +173,7 @@ impl ProtocolMetadata for ShadowsocksAdapter {
         ::shadowsocks::ShadowsocksProtocol.descriptor()
     }
 }
+
+#[cfg(all(test, feature = "raw-ip-runtime"))]
+#[path = "shadowsocks/tests/replay_budget.rs"]
+mod replay_budget_tests;
