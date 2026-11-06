@@ -57,6 +57,14 @@ impl UpstreamAssociationTransport<DatagramAssociationTarget> for NativeAssociati
         // Reserve before any role admission can open its native TCP carrier.
         let reservation = execution.reserve_datagram().map_err(legacy)?;
         let association = reservation.association();
+        let opening = reservation
+            .begin_open(
+                &execution,
+                vec![slot.role_id()],
+                zero_platform_tokio::contract::CancellationToken::new(),
+            )
+            .map_err(legacy)?;
+        let execution = execution.with_pending_datagram(opening.pending());
         let opened = crate::component::stream_bridge::datagram::open(
             &execution,
             &slot,
@@ -76,7 +84,7 @@ impl UpstreamAssociationTransport<DatagramAssociationTarget> for NativeAssociati
             observer,
             reason.clone(),
         ));
-        let control = reservation.adopt(actual);
+        let control = opening.adopt(actual);
         Ok(Self {
             tx: Mutex::new(Some(channel.tx)),
             rx: Mutex::new(Some(channel.rx)),

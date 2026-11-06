@@ -26,8 +26,7 @@ impl Original {
             }
             PacketDeviceBinding::Create {
                 name,
-                address,
-                mask,
+                addresses,
                 mtu,
             } => {
                 cfg!(any(
@@ -37,7 +36,10 @@ impl Original {
                 )) && name
                     .as_ref()
                     .is_none_or(|name| !name.is_empty() && !name.contains('\0'))
-                    && address.is_ipv4() == mask.is_ipv4()
+                    && !addresses.is_empty()
+                    && addresses
+                        .iter()
+                        .all(|(address, mask)| address.is_ipv4() == mask.is_ipv4())
                     && *mtu > 0
             }
             PacketDeviceBinding::ExistingWindows {
@@ -169,13 +171,10 @@ impl Original {
         binding: &PacketDeviceBinding,
         component: ComponentId,
     ) -> Result<NativeView, ChannelError> {
-        if let PacketDeviceBinding::Create {
-            address, mask, mtu, ..
-        } = binding
-        {
+        if let PacketDeviceBinding::Create { addresses, mtu, .. } = binding {
             // The original is already retained and its issued identity recorded.
             // Failure drops only this unique view; close stays with the original.
-            io.configure(*address, *mask, *mtu).map_err(|source| {
+            io.configure_addresses(addresses, *mtu).map_err(|source| {
                 error(
                     component,
                     Reason::Io,

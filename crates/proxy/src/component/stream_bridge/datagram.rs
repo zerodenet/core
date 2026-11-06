@@ -25,6 +25,17 @@ struct Opener {
     datagram: NodeOpener,
 }
 impl UpstreamOpener for Opener {
+    fn has_pending_carrier_observer(&self) -> bool {
+        self.control.has_pending_carrier_observer()
+    }
+    fn retain_pending_carrier(
+        &self,
+        binding: &UpstreamBinding,
+        adoption: zero_platform_tokio::controlled_carrier::CarrierAdoption,
+    ) -> Result<(), ChannelError> {
+        self.control.retain_pending_carrier(binding, adoption)
+    }
+
     fn resolve_related_datagram(
         &self,
         binding: &UpstreamBinding,
@@ -138,31 +149,52 @@ async fn open_with_accounting(
         slot,
         &invocation,
     )?;
+    // The real association may serve later packets from other business
+    // sessions. Its physical preparation and returned logical control share
+    // this one lifetime, rather than the first packet's session cancellation.
+    let pending = services
+        .pending_datagram
+        .as_ref()
+        .and_then(std::sync::Weak::upgrade);
+    let binding = UpstreamBinding {
+        prefix: vec![],
+        dial: slot.dial.clone(),
+        network_generation: NetworkGeneration(upstream.network_generation()),
+    };
+    let waiting = match &pending {
+        Some(pending) => pending.observer(binding.clone())?,
+        None => None,
+    };
+    let association_cancel = pending
+        .map(|pending| pending.cancellation())
+        .unwrap_or_else(|| {
+            if meter_control {
+                CancellationToken::new()
+            } else {
+                invocation.cancellation()
+            }
+        });
+    let association_call = CarrierContext {
+        session: None,
+        deadline: invocation.deadline,
+        cancel: association_cancel.clone(),
+    };
     let opener = Arc::new(Opener {
         control: NodeOpener::new(
             upstream.clone().with_observer(Some(traffic.clone())),
             endpoint.clone(),
         )
-        .with_business(business),
+        .with_business(business)
+        .with_service_call(association_call)
+        .with_pending(binding.clone(), waiting),
         datagram: NodeOpener::new(upstream.with_observer(Some(wire.clone())), endpoint),
     });
     let context = OpenContext {
         identity: invocation.identity.clone(),
         deadline: invocation.deadline,
-        cancel: if meter_control {
-            CancellationToken::new()
-        } else {
-            invocation.cancellation()
-        },
+        cancel: association_cancel,
         observer: Some(wire.clone()),
-        upstream: UpstreamTransport::new(
-            UpstreamBinding {
-                prefix: vec![],
-                dial: slot.dial.clone(),
-                network_generation: NetworkGeneration(opener.control.generation()),
-            },
-            opener.clone(),
-        ),
+        upstream: UpstreamTransport::new(binding, opener.clone()),
     };
     let session = context.session_identity()?;
     let opened = role.open(request, context).await;

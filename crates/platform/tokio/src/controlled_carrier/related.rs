@@ -131,3 +131,30 @@ impl super::slot::Slot {
             .map(|parent| parent.cancel.clone())
     }
 }
+
+/// Poll the same two revocation facts inside the actual view; no cancellation
+/// task or driver is created to wake a pending protocol poll.
+pub(in crate::controlled_carrier) struct ViewCancellation {
+    own: std::pin::Pin<Box<dyn std::future::Future<Output = ()> + Send>>,
+    parent: Option<std::pin::Pin<Box<dyn std::future::Future<Output = ()> + Send>>>,
+}
+impl ViewCancellation {
+    pub(in crate::controlled_carrier) fn new(slot: &super::slot::Slot) -> Self {
+        Self {
+            own: Box::pin(slot.cancel.clone().cancelled_owned()),
+            parent: slot
+                .related_cancellation()
+                .map(|parent| Box::pin(parent.cancelled_owned()) as _),
+        }
+    }
+    pub(in crate::controlled_carrier) fn stopped(
+        &mut self,
+        cx: &mut std::task::Context<'_>,
+    ) -> bool {
+        self.own.as_mut().poll(cx).is_ready()
+            || self
+                .parent
+                .as_mut()
+                .is_some_and(|parent| parent.as_mut().poll(cx).is_ready())
+    }
+}

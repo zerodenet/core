@@ -11,6 +11,7 @@ use zero_core::component::ComponentInstanceId;
 pub struct CarrierOrigin(Arc<Original>);
 enum Original {
     Carrier(ActualOriginal),
+    Listener(crate::controlled_datagram::listener::origin::ListenerCarrierOrigin),
     Metadata(crate::controlled_datagram::metadata_pool::MetadataPoolOrigin),
     MetadataPool {
         owner: crate::controlled_datagram::metadata_pool::MetadataPoolRegistration,
@@ -95,6 +96,20 @@ impl CarrierAdoption {
     }
 }
 impl CarrierOrigin {
+    /// The argument is sealed by the actual listener's unique native controller.
+    pub fn from_listener(
+        original: crate::controlled_datagram::listener::origin::ListenerCarrierOrigin,
+    ) -> Self {
+        Self(Arc::new(Original::Listener(original)))
+    }
+    pub fn listener(
+        &self,
+    ) -> Option<&crate::controlled_datagram::listener::origin::ListenerCarrierOrigin> {
+        match self.0.as_ref() {
+            Original::Listener(actual) => Some(actual),
+            _ => None,
+        }
+    }
     pub(super) fn names_adoption(&self, adoption: &CarrierAdoption) -> bool {
         matches!(self.0.as_ref(), Original::Carrier(origin)
             if Weak::ptr_eq(&origin.slot, &Arc::downgrade(&adoption.slot)))
@@ -130,6 +145,9 @@ impl CarrierOrigin {
     }
     pub fn closed(&self) -> Option<CarrierOriginClosed> {
         match self.0.as_ref() {
+            Original::Listener(origin) => origin
+                .closed()
+                .map(|closed| CarrierOriginClosed(ClosedOriginal::Listener(closed))),
             Original::Carrier(origin) => origin
                 .completion
                 .get()
@@ -149,8 +167,42 @@ impl CarrierOrigin {
     pub fn parent(&self) -> Option<&Self> {
         match self.0.as_ref() {
             Original::Carrier(origin) => origin.parent.as_ref(),
-            Original::Metadata(_) | Original::MetadataPool { .. } => None,
+            Original::Listener(_) | Original::Metadata(_) | Original::MetadataPool { .. } => None,
         }
+    }
+    pub(super) fn related_adoption(&self) -> Option<CarrierAdoption> {
+        let Original::Carrier(origin) = self.0.as_ref() else {
+            return None;
+        };
+        let slot = origin.slot.upgrade()?;
+        let parent = slot.state().related_parent.as_ref()?.upgrade()?;
+        let binding = slot.state().binding.clone()?;
+        let parent = CarrierAdoption { slot: parent };
+        super::related::check_parent(&parent, slot.instance, &binding).ok()?;
+        Some(parent)
+    }
+    /// A physical receiver in this lineage must still store its actual loan
+    /// owner and that owner's sealed, strongly retained control cleanup token.
+    pub(super) fn retains_related_control(&self, pending: &CarrierAdoption) -> bool {
+        let Original::Carrier(origin) = self.0.as_ref() else {
+            return false;
+        };
+        let Some(slot) = origin.slot.upgrade() else {
+            return false;
+        };
+        let state = slot.state();
+        !state.closed
+            && state.loan.is_some()
+            && state
+                .loan_origin
+                .as_ref()
+                .zip(origin.parent.as_ref())
+                .is_some_and(|(current, captured)| current.same_original(captured))
+            && state
+                .loan_related
+                .as_ref()
+                .and_then(Weak::upgrade)
+                .is_some_and(|actual| actual.names(pending))
     }
     /// Actual negotiated-control dependency, separate from physical
     /// encapsulation ancestry. This observation grants no cleanup or native I/O.
@@ -185,6 +237,8 @@ impl CarrierOrigin {
     }
     pub fn endpoints(&self) -> Option<super::CarrierEndpoints> {
         match self.native_origin().0.as_ref() {
+            // An unconnected listener has no fixed native peer.
+            Original::Listener(_) => None,
             Original::Carrier(origin) => origin.slot.upgrade()?.state().endpoints.clone(),
             Original::MetadataPool {
                 owner,
@@ -212,6 +266,7 @@ impl CarrierOrigin {
         crate::contract::network::UpstreamBinding,
     )> {
         match self.0.as_ref() {
+            Original::Listener(_) => None,
             Original::Carrier(origin) => {
                 let slot = origin.slot.upgrade()?;
                 let state = slot.state();
@@ -230,6 +285,7 @@ impl CarrierOrigin {
     }
     pub fn owner(&self) -> CarrierOriginOwner<'_> {
         match self.0.as_ref() {
+            Original::Listener(origin) => CarrierOriginOwner::Listener(origin.owner()),
             Original::Carrier(origin) => CarrierOriginOwner::Carrier(&origin.owner),
             Original::Metadata(origin) => CarrierOriginOwner::Metadata(origin.owner()),
             Original::MetadataPool { owner, .. } => CarrierOriginOwner::Metadata(owner),
@@ -238,12 +294,14 @@ impl CarrierOrigin {
     /// None is unavailable/taskless observation, never a fabricated join.
     pub fn driver(&self) -> Option<&TaskJoinWitness> {
         match self.0.as_ref() {
+            Original::Listener(origin) => Some(origin.driver()),
             Original::Carrier(origin) => origin.driver.as_ref(),
             Original::Metadata(_) | Original::MetadataPool { .. } => None,
         }
     }
     pub fn same_original(&self, other: &Self) -> bool {
         match (self.0.as_ref(), other.0.as_ref()) {
+            (Original::Listener(a), Original::Listener(b)) => a.same_original(b),
             (Original::Carrier(a), Original::Carrier(b)) => {
                 Weak::ptr_eq(&a.slot, &b.slot)
                     && match (&a.driver, &b.driver) {
@@ -271,6 +329,7 @@ impl CarrierOrigin {
         let mut current = Some(self);
         while let Some(origin) = current {
             let retired = match origin.0.as_ref() {
+                Original::Listener(origin) => origin.is_retired(),
                 Original::Carrier(origin) => origin.slot.upgrade().is_none_or(|slot| {
                     slot.cancel.is_cancelled()
                         || slot
@@ -295,6 +354,7 @@ impl CarrierOrigin {
         let mut waits: Vec<Pin<Box<dyn Future<Output = ()> + Send + '_>>> = Vec::new();
         while let Some(original) = current {
             match original.0.as_ref() {
+                Original::Listener(origin) => waits.push(Box::pin(origin.retired())),
                 Original::Carrier(origin) => {
                     let Some(slot) = origin.slot.upgrade() else {
                         return;

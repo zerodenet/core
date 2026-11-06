@@ -6,11 +6,13 @@ mod io;
 mod native;
 mod native_packet;
 mod owner;
+mod related;
 use super::CarrierOrigin;
 use crate::contract::{lifecycle::DynChannelControl, stream::BoxStream, CancellationToken};
 pub use datagram::{BorrowedDatagram, DatagramLoan, LoanDatagramIo};
 pub use io::LoanIo;
 pub use owner::{LoanClosed, LoanOwner};
+pub(super) use related::RelatedControl;
 use std::sync::{atomic::AtomicBool, Arc};
 
 struct State {

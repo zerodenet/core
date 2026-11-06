@@ -1,11 +1,11 @@
 use super::*;
 use crate::component::datagram_retirement::DatagramReturns;
-use zero_core::{packet::Datagram, request::Destination, Address};
+use zero_core::{Address, packet::Datagram, request::Destination};
 use zero_platform_tokio::contract::datagram::{recv, send};
 
 #[tokio::test]
-async fn accepted_stop_retains_and_retires_late_original_adoption_without_stopping_global_admission(
-) {
+async fn accepted_stop_retains_and_retires_late_original_adoption_without_stopping_global_admission()
+ {
     let owner = owner(1);
     let returns = Arc::new(DatagramReturns::default());
     let reservation = owner.reserve_with_returns(Some(&returns)).unwrap();
@@ -29,11 +29,13 @@ async fn accepted_stop_retains_and_retires_late_original_adoption_without_stoppi
     );
     let original = owner.entries().into_iter().next().unwrap().1;
     channel.control = reservation.adopt(channel.control);
-    assert!(owner
-        .wait_returns(&returns, deadline())
-        .await
-        .unwrap()
-        .is_complete());
+    assert!(
+        owner
+            .wait_returns(&returns, deadline())
+            .await
+            .unwrap()
+            .is_complete()
+    );
     assert!(
         matches!(recv(channel.rx.as_mut()).await, Ok(None) | Err(_)),
         "late original controller, not Drop or a port probe, retires its view"
@@ -110,11 +112,13 @@ async fn accepted_returns_share_global_capacity_and_close_only_their_actual_orig
         Reason::Revoked
     );
     drop(owner.reserve().unwrap());
-    assert!(owner
-        .wait_returns(&second, deadline())
-        .await
-        .unwrap()
-        .is_complete());
+    assert!(
+        owner
+            .wait_returns(&second, deadline())
+            .await
+            .unwrap()
+            .is_complete()
+    );
     assert!(matches!(recv(b.rx.as_mut()).await, Ok(None) | Err(_)));
     assert!(
         owner
@@ -152,11 +156,13 @@ async fn accepted_return_failure_preserves_its_original_controller_source_and_re
     assert_eq!(owner.reserve().err().unwrap().reason, Reason::Capacity);
     eof.notified().await;
     release.notify_one();
-    assert!(owner
-        .wait_returns(&returns, deadline())
-        .await
-        .unwrap()
-        .is_complete());
+    assert!(
+        owner
+            .wait_returns(&returns, deadline())
+            .await
+            .unwrap()
+            .is_complete()
+    );
     drop(lease);
     tokio::time::timeout_at(deadline(), server)
         .await

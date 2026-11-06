@@ -24,6 +24,7 @@ pub(super) struct State {
     pub(super) transferred_origin: bool,
     pub(super) loan: Option<Arc<AsyncMutex<super::loan::LoanOwner>>>,
     pub(super) loan_origin: Option<super::CarrierOrigin>,
+    pub(super) loan_related: Option<Weak<super::loan::RelatedControl>>,
     pub(super) binding: Option<crate::contract::network::UpstreamBinding>,
     pub(super) endpoint: Option<zero_core::request::Destination>,
     pub(super) opening: bool,

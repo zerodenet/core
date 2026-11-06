@@ -13,6 +13,7 @@ pub mod listener;
 pub mod metadata;
 pub mod metadata_pool;
 mod observation;
+pub mod provider;
 mod report;
 #[cfg(test)]
 mod tests;
@@ -98,6 +99,8 @@ pub struct ControlledDatagramOwner {
 }
 struct Entry {
     id: DatagramReservationId,
+    closed_receipt: Arc<std::sync::OnceLock<DatagramCloseReceipt>>,
+    provider: std::sync::OnceLock<provider::DatagramProviderRegistration>,
     retired: tokio_util::sync::CancellationToken,
     native: Mutex<NativeHandleState>,
     // Prepared before the original fd exists; installed before consuming OS
@@ -208,6 +211,8 @@ impl ControlledDatagramOwner {
         let id = DatagramReservationId(self.next);
         let entry = Arc::new(Entry {
             id,
+            closed_receipt: Arc::new(std::sync::OnceLock::new()),
+            provider: std::sync::OnceLock::new(),
             retired: tokio_util::sync::CancellationToken::new(),
             native: Mutex::new(NativeHandleState::Reserved),
             close_running: std::sync::atomic::AtomicBool::new(false),
@@ -332,7 +337,9 @@ impl Entry {
         match result {
             Ok(()) => {
                 *native = NativeHandleState::Closed;
-                Ok(DatagramCloseReceipt { id: self.id })
+                let receipt = DatagramCloseReceipt { id: self.id };
+                let _ = self.closed_receipt.set(receipt);
+                Ok(receipt)
             }
             Err(source) => {
                 *native = NativeHandleState::Unknown(source.clone());

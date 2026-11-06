@@ -4,14 +4,14 @@ use std::{
     future::Future,
     pin::Pin,
     sync::{
-        atomic::{AtomicBool, AtomicUsize, Ordering},
         Weak,
+        atomic::{AtomicBool, AtomicUsize, Ordering},
     },
     task::{Context, Wake, Waker},
 };
 use zero_platform_tokio::contract::{
-    lifecycle::{CloseReport, DynChannelControl},
     BoxFuture, ChannelError, CloseReason,
+    lifecycle::{CloseReport, DynChannelControl},
 };
 fn bounded<T: Send + 'static>(work: impl FnOnce() -> T + Send + 'static) -> T {
     let (done, read) = std::sync::mpsc::sync_channel(1);
@@ -122,8 +122,8 @@ impl Drop for Callback {
 type Closing = Pin<Box<dyn Future<Output = Result<CloseReport, ChannelError>> + Send>>;
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn actual_pending_tcp_cancel_poll_wake_and_last_caller_waker_drop_reenter_without_parent_locks(
-) {
+async fn actual_pending_tcp_cancel_poll_wake_and_last_caller_waker_drop_reenter_without_parent_locks()
+ {
     let owner = owner(1);
     let (actual, eof, release, server) = tcp_control(false).await;
     let pending = Arc::new(AtomicBool::new(false));
@@ -161,15 +161,19 @@ async fn actual_pending_tcp_cancel_poll_wake_and_last_caller_waker_drop_reenter_
             drops: actual_drops.clone(),
         }));
         let mut closing: Closing = Box::pin(async move { waiting.wait_closed(deadline()).await });
-        assert!(closing
-            .as_mut()
-            .poll(&mut Context::from_waker(&waker))
-            .is_pending());
+        assert!(
+            closing
+                .as_mut()
+                .poll(&mut Context::from_waker(&waker))
+                .is_pending()
+        );
         // Re-register after the synchronous wake consumed the first target.
-        assert!(closing
-            .as_mut()
-            .poll(&mut Context::from_waker(&waker))
-            .is_pending());
+        assert!(
+            closing
+                .as_mut()
+                .poll(&mut Context::from_waker(&waker))
+                .is_pending()
+        );
         drop(waker);
         let replacement = Waker::from(Arc::new(Callback {
             owner: Arc::downgrade(&host),
@@ -177,10 +181,12 @@ async fn actual_pending_tcp_cancel_poll_wake_and_last_caller_waker_drop_reenter_
             wakes: Arc::new(AtomicUsize::new(0)),
             drops: actual_replacement_drops,
         }));
-        assert!(closing
-            .as_mut()
-            .poll(&mut Context::from_waker(&replacement))
-            .is_pending());
+        assert!(
+            closing
+                .as_mut()
+                .poll(&mut Context::from_waker(&replacement))
+                .is_pending()
+        );
         assert_eq!(
             actual_drops.load(Ordering::SeqCst),
             1,
@@ -212,8 +218,8 @@ async fn actual_pending_tcp_cancel_poll_wake_and_last_caller_waker_drop_reenter_
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn actual_cancel_callback_panic_propagates_same_payload_and_retains_original_controller_for_retry(
-) {
+async fn actual_cancel_callback_panic_propagates_same_payload_and_retains_original_controller_for_retry()
+ {
     let owner = owner(1);
     let (actual, eof, release, server) = tcp_control(false).await;
     let cancels = Arc::new(AtomicUsize::new(0));

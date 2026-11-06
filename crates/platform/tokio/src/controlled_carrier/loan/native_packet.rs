@@ -24,29 +24,7 @@ struct Custody {
     association: AssociationId,
     endpoint: Destination,
 }
-struct Fence {
-    stop: Pin<Box<dyn std::future::Future<Output = ()> + Send>>,
-    parent: Option<Pin<Box<dyn std::future::Future<Output = ()> + Send>>>,
-}
-impl Fence {
-    fn new(custody: &Custody) -> Self {
-        Self {
-            stop: Box::pin(custody.io.slot.cancel.clone().cancelled_owned()),
-            parent: custody
-                .io
-                .slot
-                .related_cancellation()
-                .map(|token| Box::pin(token.cancelled_owned()) as _),
-        }
-    }
-    fn stopped(&mut self, cx: &mut Context<'_>) -> bool {
-        self.stop.as_mut().poll(cx).is_ready()
-            || self
-                .parent
-                .as_mut()
-                .is_some_and(|parent| parent.as_mut().poll(cx).is_ready())
-    }
-}
+use super::super::related::ViewCancellation as Fence;
 struct Tx {
     custody: Arc<Custody>,
     fence: Fence,
@@ -91,11 +69,11 @@ impl CarrierDatagram {
         });
         let session: BoxDatagramSession = DatagramSession {
             tx: Box::pin(Tx {
-                fence: Fence::new(&custody),
+                fence: Fence::new(&custody.io.slot),
                 custody: custody.clone(),
             }),
             rx: Box::pin(Rx {
-                fence: Fence::new(&custody),
+                fence: Fence::new(&custody.io.slot),
                 custody,
                 bytes: vec![0; 65536],
             }),

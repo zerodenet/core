@@ -17,6 +17,7 @@ pub(super) struct Owner {
     pub carrier: Option<CarrierOwner>,
     pub resources: Arc<dyn ResourceAccess>,
     pub tasks: TaskRegistrar,
+    pub associations: Arc<super::datagram::association::Associations>,
 }
 impl ResourceLifecycle for Owner {
     async fn start(&mut self, deadline: Instant) -> Result<(), BuildError> {
@@ -29,6 +30,7 @@ impl ResourceLifecycle for Owner {
     }
     fn revoke(&self, reason: CloseReason) {
         self.session.revoke(reason);
+        self.associations.revoke();
         if let Some(owner) = &self.carrier {
             owner.revoke();
         }
@@ -36,6 +38,7 @@ impl ResourceLifecycle for Owner {
     async fn shutdown(&mut self, deadline: Instant) -> Result<CloseReport, BuildError> {
         self.revoke(CloseReason::Shutdown);
         let mut report = self.session.shutdown(deadline).await?;
+        report.append(self.associations.close(deadline).await?);
         if let Some(owner) = &mut self.carrier {
             report.append(owner.shutdown(deadline).await?);
         }
