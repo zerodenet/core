@@ -238,6 +238,7 @@ impl ResourceLifecycle for Owner {
     ) -> Result<CloseReport, BuildError> {
         let closed = self.options.pending.stop_peer_resources(deadline).await;
         if let Some(source) = closed.failures.first() {
+            tracing::warn!(tag = %self.options.tag, ?source, "same original linked peer cleanup failed");
             return Err(
                 ChannelError::new(Stage::Close, Reason::Io, Impact::Component)
                     .with_source(source.clone()),

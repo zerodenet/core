@@ -80,7 +80,7 @@ async fn ordinary_packet_roles_return_original_source_and_retire_old_graph_witho
                 .await
                 .unwrap_or_else(|source| {
                     panic!(
-                        "same actual graph replacement failed: {source}; original worker fault: {:?}; matching joined receipts: {:?}",
+                        "same actual graph replacement failed: {source:?}; original worker fault: {:?}; matching joined receipts: {:?}",
                         previous[0].task.first_scoped_failure(),
                         original_joins.iter().map(|witness| witness.try_joined()).collect::<Vec<_>>(),
                     )
