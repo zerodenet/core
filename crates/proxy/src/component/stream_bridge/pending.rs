@@ -17,6 +17,7 @@ pub(super) struct PendingCaller(UpstreamTransport);
 #[derive(Clone)]
 enum Caller {
     Accepted(AcceptedCaller),
+    Probe(zero_runtime::ProbeCall),
     #[cfg(feature = "raw-ip-runtime")]
     Raw(crate::runtime::inbound_operation::raw_ip::native_obligations::NativeRegistration),
 }
@@ -24,6 +25,7 @@ impl Caller {
     fn check_open(&self) -> Result<(), ChannelError> {
         match self {
             Self::Accepted(caller) => caller.check_open(),
+            Self::Probe(caller) => caller.check_open(),
             #[cfg(feature = "raw-ip-runtime")]
             Self::Raw(caller) => caller.check_open(),
         }
@@ -31,6 +33,7 @@ impl Caller {
     fn retain(&self, adoption: CarrierAdoption) -> Result<(), ChannelError> {
         match self {
             Self::Accepted(caller) => caller.observe_pending_carrier(adoption),
+            Self::Probe(caller) => caller.observe_pending_carrier(adoption),
             #[cfg(feature = "raw-ip-runtime")]
             Self::Raw(caller) => caller.observe_pending_carrier(adoption),
         }
@@ -40,7 +43,7 @@ impl Caller {
 struct Observer {
     source: Weak<CurrentServiceSource>,
     caller: Caller,
-    admitted: AdmittedBusinessDemand,
+    admitted: Option<AdmittedBusinessDemand>,
     roles: Arc<[RoleInstanceId]>,
     binding: UpstreamBinding,
 }
@@ -54,31 +57,49 @@ impl PendingCaller {
         let caller = invocation.caller_accepted.clone().map(Caller::Accepted);
         #[cfg(feature = "raw-ip-runtime")]
         let caller = caller.or_else(|| invocation.caller_native.clone().map(Caller::Raw));
+        let caller = caller.or_else(|| invocation.caller_probe.clone().map(Caller::Probe));
         let Some(caller) = caller else {
             // Diagnostics still require their own actual invocation Scope;
             // neither a raw nor an accepted caller may impersonate it.
             return Ok(None);
         };
-        let zero_platform_tokio::contract::context::RequestIdentity::Business(facts) =
-            &invocation.identity
-        else {
-            return Err(invalid(
-                Reason::StalePlan,
-                "accepted pending caller lacks its business facts",
-            ));
+        let admitted = match (&caller, &invocation.identity) {
+            (
+                Caller::Probe(call),
+                zero_platform_tokio::contract::context::RequestIdentity::Service(facts),
+            ) if Arc::ptr_eq(facts, &call.identity())
+                && invocation.deadline == Some(call.deadline()) =>
+            {
+                None
+            }
+            (Caller::Probe(_), _) => {
+                return Err(invalid(
+                    Reason::StalePlan,
+                    "probe pending caller facts changed",
+                ))
+            }
+            (_, zero_platform_tokio::contract::context::RequestIdentity::Business(facts)) => {
+                let admitted = invocation.admitted.clone().ok_or_else(|| {
+                    invalid(
+                        Reason::Revoked,
+                        "pending caller lacks actual Engine admission",
+                    )
+                })?;
+                admitted
+                    .check_live(services.engine(), facts.session)
+                    .map_err(|source| {
+                        invalid(Reason::Revoked, "pending caller admission ended")
+                            .with_source(source)
+                    })?;
+                Some(admitted)
+            }
+            _ => {
+                return Err(invalid(
+                    Reason::StalePlan,
+                    "pending caller lacks actual invocation facts",
+                ))
+            }
         };
-        let admitted = invocation.admitted.clone().ok_or_else(|| {
-            invalid(
-                Reason::Revoked,
-                "accepted pending caller lacks actual Engine admission",
-            )
-        })?;
-        admitted
-            .check_live(services.engine(), facts.session)
-            .map_err(|source| {
-                invalid(Reason::Revoked, "accepted pending caller admission ended")
-                    .with_source(source)
-            })?;
         caller.check_open()?;
         let plan = services.components.as_ref().map_err(|source| {
             invalid(
@@ -166,9 +187,12 @@ impl UpstreamOpener for Observer {
             return Err(invalid(Reason::StalePlan, "pending caller binding changed"));
         }
         self.caller.check_open()?;
-        self.admitted.check_active().map_err(|source| {
-            invalid(Reason::Revoked, "pending caller Engine admission ended").with_source(source)
-        })?;
+        if let Some(admitted) = &self.admitted {
+            admitted.check_active().map_err(|source| {
+                invalid(Reason::Revoked, "pending caller Engine admission ended")
+                    .with_source(source)
+            })?;
+        }
         let services = self
             .source
             .upgrade()
@@ -181,6 +205,13 @@ impl UpstreamOpener for Observer {
         let plan = execution.components.as_ref().map_err(|source| {
             invalid(Reason::StalePlan, "pending caller plan retired").with_source(source.clone())
         })?;
+        if let Caller::Probe(call) = &self.caller {
+            for role in self.roles.iter() {
+                plan.role_slot(*role)
+                    .ok_or_else(|| invalid(Reason::StalePlan, "probe selected role retired"))?
+                    .check_probe_caller(call)?;
+            }
+        }
         if binding.network_generation.0 != services.upstream().network_generation()
             || !self
                 .roles

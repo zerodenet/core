@@ -155,6 +155,7 @@ impl TcpRuntimeServices {
                 caller_native: None,
                 admitted: None,
                 caller_accepted: None,
+                caller_probe: None,
                 identity: zero_platform_tokio::contract::context::RequestIdentity::Business(
                     Arc::new(crate::component::request::facts(session, ingress)),
                 ),

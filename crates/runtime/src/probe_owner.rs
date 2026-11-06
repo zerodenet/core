@@ -276,6 +276,9 @@ impl ProbeOwner {
     }
     pub(crate) fn begin_shutdown(&self) {
         self.stopping.store(true, Ordering::Release);
+        self.cancel_all();
+    }
+    pub(crate) fn cancel_all(&self) {
         let entries = lock(&self.entries).clone();
         for entry in entries {
             ProbeCall(entry).cancel();

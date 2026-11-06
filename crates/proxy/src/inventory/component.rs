@@ -145,6 +145,10 @@ impl super::ProtocolInventory {
         &self,
         deadline: tokio::time::Instant,
     ) -> Result<(), zero_engine::EngineError> {
+        self.host.cancel_probes();
+        self.drive_component_supervision(self.host.drain_probes(deadline))
+            .await
+            .map_err(|source| zero_engine::EngineError::Io(std::io::Error::other(source)))?;
         #[cfg(feature = "raw-ip-runtime")]
         let publication = self.stop_device_publication(None, deadline).await?;
         let closed = self
@@ -260,7 +264,9 @@ impl super::ProtocolInventory {
         &self,
         config: &RuntimeConfig,
     ) -> Result<(), zero_engine::EngineError> {
-        self.host.validate_probe_candidate(config).map_err(|error|zero_engine::EngineError::Io(std::io::Error::other(error)))?;
+        self.host
+            .validate_probe_candidate(config)
+            .map_err(|error| zero_engine::EngineError::Io(std::io::Error::other(error)))?;
         self.registry.validate_runtime_candidate(config)
     }
     pub(crate) fn validate_components(

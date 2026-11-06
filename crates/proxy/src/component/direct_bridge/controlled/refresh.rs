@@ -26,7 +26,7 @@ impl ControlledCandidates {
         let mut grant = self.demand.grants.reserve()?;
         let view = grant.claim_user_view()?;
         let adoption = grant.adoption();
-        self.demand.request.authorize_direct(
+        self.demand.request.retain_refresh(
             source.candidate(),
             &self.binding(source.candidate().generation()),
             &grant,

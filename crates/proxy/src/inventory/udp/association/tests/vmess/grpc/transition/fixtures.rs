@@ -121,6 +121,7 @@ pub(super) async fn open(proxy: &Proxy, tag: &str) -> zero_platform_tokio::TcpRe
     );
     let services = proxy.tcp_runtime_services().with_service_invocation(
         crate::component::direct_bridge::ServiceInvocation {
+            caller: None,
             deadline: Instant::now() + Duration::from_secs(5),
             purpose: zero_core::request::ServicePurpose::DiagnosticProbe,
         },

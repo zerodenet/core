@@ -24,6 +24,7 @@ pub(in crate::component) struct DirectOpener {
     services: UpstreamConnectServices,
     session: Session,
     business: Option<super::super::business_carrier::BusinessCarrierRequest>,
+    probe: Option<super::controlled::ProbeRequest>,
     evidence: Mutex<Option<Result<Evidence, FailureEvidence>>>,
 }
 impl DirectOpener {
@@ -32,14 +33,23 @@ impl DirectOpener {
             services,
             session,
             business: None,
+            probe: None,
             evidence: Mutex::new(None),
         }
     }
     pub(in crate::component) fn with_business(
         mut self,
         business: Option<super::super::business_carrier::BusinessCarrierRequest>,
+        probe: Option<super::controlled::ProbeRequest>,
     ) -> Self {
         self.business = business;
+        self
+    }
+    pub(in crate::component) fn with_probe(
+        mut self,
+        probe: Option<super::controlled::ProbeRequest>,
+    ) -> Self {
+        self.probe = probe;
         self
     }
     pub(super) fn generation(&self) -> u64 {
@@ -59,9 +69,11 @@ impl UpstreamOpener for DirectOpener {
             .is_some_and(|request| request.has_tracked_caller())
     }
     fn supports_controlled_stream(&self) -> bool {
-        self.business
-            .as_ref()
-            .is_some_and(|request| request.has_tracked_caller())
+        self.probe.is_some()
+            || self
+                .business
+                .as_ref()
+                .is_some_and(|request| request.has_tracked_caller())
     }
 
     fn open_controlled_stream(

@@ -6,7 +6,7 @@ use zero_platform_tokio::{
     controlled_carrier::{CarrierGrant, CarrierOwnerRegistration, CarrierServiceGrant},
 };
 impl ComponentSlot {
-    fn check_probe_owner(&self, call: &crate::ProbeCall) -> Result<(), ChannelError> {
+    pub fn check_probe_caller(&self, call: &crate::ProbeCall) -> Result<(), ChannelError> {
         if !self.has_started() {
             return Err(self.failure(Reason::Revoked, "probe Direct owner is not started"));
         }
@@ -27,7 +27,7 @@ impl ComponentSlot {
         actual: &CarrierOwnerRegistration,
         tasks: &zero_platform_tokio::contract::scope::TaskScopeIdentity,
     ) -> Result<(), ChannelError> {
-        self.check_probe_owner(call)?;
+        self.check_probe_caller(call)?;
         let live = self
             .live
             .get()
@@ -58,7 +58,7 @@ impl ComponentSlot {
         binding: &UpstreamBinding,
         grant: &CarrierGrant,
     ) -> Result<CarrierServiceGrant, ChannelError> {
-        self.check_probe_owner(call)?;
+        self.check_probe_caller(call)?;
         let actual = call
             .witness()
             .ok_or_else(|| self.failure(Reason::Revoked, "probe original task missing"))?;
@@ -80,7 +80,7 @@ impl ComponentSlot {
             grant,
             caller,
         )?;
-        self.check_probe_owner(call)?;
+        self.check_probe_caller(call)?;
         issuer.authorize(call.cancellation(), Some(call.deadline()))
     }
 }

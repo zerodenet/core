@@ -1,7 +1,7 @@
 //! The single assembly owner for component lifetimes and accepted configuration work.
 //! Protocol lookup and forwarding retain handles; they never create another host.
 use crate::apply_owner::ApplyOwner;
-use crate::component::{ComponentRegistry, catalog::ComponentCatalog};
+use crate::component::{catalog::ComponentCatalog, ComponentRegistry};
 use std::sync::{Arc, Mutex};
 use zero_config::OutboundConfig;
 
@@ -96,6 +96,9 @@ impl<A> RuntimeHost<A> {
     ) -> Result<(), zero_platform_tokio::contract::ChannelError> {
         self.probes
             .validate_limit(config.runtime.effective_diagnostic_max_operations())
+    }
+    pub fn cancel_probes(&self) {
+        self.probes.cancel_all();
     }
     pub fn stop_probes(&self) {
         self.probes.begin_shutdown();

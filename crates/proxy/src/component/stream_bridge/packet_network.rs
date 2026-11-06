@@ -3,9 +3,9 @@ use super::*;
 use crate::protocol_registry::UpstreamConnectServices;
 use std::net::SocketAddr;
 use zero_platform_tokio::contract::{
-    BoxFuture,
     context::{ConnectFact, ConnectObserver, RequestIdentity},
     network::{CarrierContext, UpstreamOpener},
+    BoxFuture,
 };
 pub(super) struct PacketOpener {
     pub(super) services: UpstreamConnectServices,
@@ -33,9 +33,31 @@ impl UpstreamOpener for PacketOpener {
             || call.deadline != self.invocation.deadline
             || call.cancel.is_cancelled()
             || self.invocation.cancellation().is_cancelled()
-            || !matches!((&self.invocation.identity, identity), (RequestIdentity::Business(actual), RequestIdentity::Business(request)) if Arc::ptr_eq(actual, request))
+            || !match (&self.invocation.identity, identity) {
+                (RequestIdentity::Business(actual), RequestIdentity::Business(request)) => {
+                    Arc::ptr_eq(actual, request)
+                }
+                (RequestIdentity::Service(actual), RequestIdentity::Service(request)) => {
+                    Arc::ptr_eq(actual, request)
+                }
+                _ => false,
+            }
         {
             return Err(failure());
+        }
+        if let Some(probe) = &self.invocation.caller_probe {
+            if !matches!((&self.invocation.identity,identity),(RequestIdentity::Service(actual),RequestIdentity::Service(request)) if Arc::ptr_eq(actual,request) && Arc::ptr_eq(actual,&probe.identity()))
+            {
+                return Err(failure());
+            }
+            self.slot
+                .upgrade()
+                .ok_or_else(failure)?
+                .check_probe_caller(probe)?;
+            return probe
+                .witness()
+                .filter(|witness| !witness.is_joined() && witness.scope_identity().resource_open())
+                .ok_or_else(failure);
         }
         let RequestIdentity::Business(facts) = identity else {
             return Err(failure());

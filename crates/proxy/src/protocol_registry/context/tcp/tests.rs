@@ -10,6 +10,7 @@ async fn a_failed_actual_catalog_result_cannot_select_legacy_tcp_preparation() {
         crate::Proxy::new(zero_config::RuntimeConfig::parse(&config.to_string()).unwrap()).unwrap();
     let mut services = proxy.tcp_runtime_services().with_service_invocation(
         crate::component::direct_bridge::ServiceInvocation {
+            caller: None,
             deadline: tokio::time::Instant::now() + std::time::Duration::from_secs(2),
             purpose: zero_core::request::ServicePurpose::DiagnosticProbe,
         },

@@ -1,5 +1,6 @@
 //! A per-demand Direct provider using the same canonical carrier/Scope. It
 //! owns no socket collection, task scope, Engine or configuration snapshot.
+mod demand;
 mod io;
 mod refresh;
 use super::super::{business_carrier::BusinessCarrierRequest, instance::invalid};
@@ -10,6 +11,7 @@ use crate::{
         RefreshFuture, RefreshResult,
     },
 };
+pub(in crate::component) use demand::{DirectDemand, ProbeRequest};
 use std::{
     net::SocketAddr,
     sync::{Arc, Mutex},
@@ -35,7 +37,7 @@ use zero_traits::DialPolicy;
 /// Only the sealed original request can mint native business tickets.
 #[derive(Clone)]
 pub(in crate::component) struct ControlledDemand {
-    pub(in crate::component) request: BusinessCarrierRequest,
+    pub(in crate::component) request: DirectDemand,
     pub(in crate::component) grants: CarrierGrants,
     pub(in crate::component) tasks: WeakTaskRegistrar,
     pub(in crate::component) retirement: Duration,
@@ -55,10 +57,10 @@ impl ControlledCandidates {
         services: UpstreamConnectServices,
         binding: UpstreamBinding,
     ) -> Result<Self, ChannelError> {
-        if demand.retirement.is_zero() || context.session.is_none() {
+        if demand.retirement.is_zero() {
             return Err(invalid(
                 Reason::Unsupported,
-                "controlled Direct requires an actual business demand and finite retirement budget",
+                "controlled Direct requires an actual request and finite retirement budget",
             ));
         }
         Ok(Self {
@@ -165,24 +167,17 @@ impl ControlledCandidates {
         let endpoint = Self::destination(remote);
         let binding = self.binding(NetworkGeneration(selection.generation()));
         let result = async {
-            let ticket = self
+            let carrier = self
                 .demand
                 .request
-                .authorize_direct(&candidate, &binding, &grant)?;
-            // Direct flow traffic keeps its original relay accounting. Do not
-            // introduce proxy outer-TLS/handshake bytes or an extra observer.
-            let native = NativeCarrierOpener::business(
-                ticket,
-                Arc::new(self.services.egress_control()),
-                None,
-            )?;
-            tracing::trace!(
-                ?remote,
-                "Direct controlled candidate starting native connect"
-            );
-            let carrier = native
-                .prepare_controlled_stream(&binding, endpoint, self.context.clone(), grant)?
-                .open_with_deadline(self.context.deadline)
+                .open(
+                    candidate,
+                    binding,
+                    self.context.clone(),
+                    grant,
+                    &self.demand.tasks,
+                    self.services.egress_control(),
+                )
                 .await?;
             let local = carrier
                 .endpoints()
