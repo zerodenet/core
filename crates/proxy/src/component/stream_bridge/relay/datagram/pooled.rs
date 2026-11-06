@@ -135,6 +135,11 @@ pub(super) async fn open(
         dial: slot.dial.clone(),
         network_generation: NetworkGeneration(services.upstream().network_generation()),
     };
+    services
+        .components
+        .as_ref()
+        .map_err(|source| crate::component::instance::retained(source.clone()))?
+        .authorize_carrier_prefix(slot.instance_id(), &binding.prefix)?;
     let tag = prepared.target.tag();
     let (server, port) = prepared.target.endpoint().ok_or_else(|| {
         invalid(

@@ -1,59 +1,43 @@
-use std::sync::Arc;
-
-use super::super::super::connection::SharedManagedDatagramUdpConnection;
-use super::super::response::{ManagedDatagramResponse, ManagedDatagramResponseWaiters};
-use super::model::{
-    ManagedDatagramConnection, ManagedDatagramFlowConnection, ManagedDatagramSender,
+//! The original Source keeps each logical response in its actual JoinSet.
+use super::super::super::connection::{
+    ManagedDatagramUdpConnection, SharedManagedDatagramUdpConnection,
 };
-use super::sender::managed_datagram_connection;
+use super::model::ManagedDatagramFlowConnection;
+use crate::runtime::udp_flow::packet_path::ChainTask;
+use std::sync::Arc;
+use tokio::task::JoinSet;
 use zero_core::Address;
 use zero_engine::EngineError;
-
-struct ManagedDatagramFlowSender<T> {
+struct Connection<T> {
     connection: T,
 }
-
 #[async_trait::async_trait]
-impl<T> ManagedDatagramSender for ManagedDatagramFlowSender<T>
-where
-    T: ManagedDatagramFlowConnection,
-{
+impl<T: ManagedDatagramFlowConnection> ManagedDatagramUdpConnection for Connection<T> {
     async fn send_datagram(
         &self,
+        chain_tasks: &mut JoinSet<ChainTask>,
+        _services: Option<crate::protocol_registry::UdpRuntimeServices>,
+        session_id: u64,
         target: &Address,
         port: u16,
         payload: &[u8],
-    ) -> Result<(), EngineError> {
-        self.connection.send_datagram(target, port, payload).await
+    ) -> Result<usize, EngineError> {
+        // The same protocol receive driver owns the target FIFO. No second
+        // waiter table, broadcast subscriber or response-pump task is created.
+        let response = self
+            .connection
+            .request_datagram(target, port, payload)
+            .await?;
+        chain_tasks.spawn(async move {
+            response
+                .await
+                .map(|(target, port, payload)| (target, port, payload, Some(session_id)))
+        });
+        Ok(payload.len())
     }
 }
-
-pub(crate) fn managed_datagram_connection_from_flow<T>(
+pub(crate) fn managed_datagram_connection_from_flow<T: ManagedDatagramFlowConnection>(
     connection: T,
-) -> Result<SharedManagedDatagramUdpConnection, EngineError>
-where
-    T: ManagedDatagramFlowConnection,
-{
-    let closed_message = connection.closed_message();
-    let waiters = ManagedDatagramResponseWaiters::new();
-    let destination = waiters.clone_handle();
-    let sink: Arc<dyn Fn(ManagedDatagramResponse) + Send + Sync> =
-        Arc::new(move |(target, port, payload)| {
-            destination.deliver(target, port, payload);
-        });
-    if let Some(installed) = connection.install_response_sink(&sink) {
-        installed?;
-        return Ok(Arc::new(ManagedDatagramConnection {
-            sender: Arc::new(ManagedDatagramFlowSender { connection }),
-            waiters,
-            _response_sink: Some(sink),
-            closed_message,
-        }));
-    }
-    let response_rx = connection.subscribe_responses();
-    Ok(managed_datagram_connection(
-        Arc::new(ManagedDatagramFlowSender { connection }),
-        response_rx,
-        closed_message,
-    ))
+) -> SharedManagedDatagramUdpConnection {
+    Arc::new(Connection { connection })
 }
