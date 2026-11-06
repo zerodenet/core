@@ -28,7 +28,7 @@ impl ComponentFactory for StreamFactory {
     fn describe(&self, options: &StreamOptions) -> ComponentSpec {
         ComponentSpec {
             owner: ResourceOwner::Component,
-            roles: vec![RoleKind::Stream],
+            roles: vec![RoleKind::Stream, RoleKind::Datagram],
             dependencies: vec![options.pool_owner],
             static_identity: options.identity.clone(),
             resources: vec![],
@@ -61,10 +61,17 @@ impl ComponentFactory for StreamFactory {
             }),
             roles: ComponentRoles {
                 stream: Some(erase_stream(Outbound {
-                    options,
-                    admission,
+                    options: options.clone(),
+                    admission: admission.clone(),
                     pool,
                 })),
+                datagram: Some(zero_platform_tokio::contract::datagram::erase_datagram(
+                    Outbound {
+                        options,
+                        admission,
+                        pool,
+                    },
+                )),
                 ..Default::default()
             },
         })

@@ -59,18 +59,7 @@ impl Outbound {
                 )
                 .with_source(source)
         })?;
-        let opening = self.options.prepared.pool.open(
-            self.pool,
-            zero_transport::grpc::Demand {
-                deadline: context.deadline,
-                cancel: context.cancel.clone(),
-                binding: context.upstream.binding().clone(),
-            },
-        );
-        let io = tokio::select! {biased;
-         _=self.admission.cancelled()=>return Err(self.admission.error(session,Stage::Handshake,Reason::Revoked,DeliveryState::NotSubmitted)),
-         result=opening=>result.map_err(|failure|self.admission.attach(failure,session))?,
-        };
+        let io = self.acquire(&context).await?;
         // Extract the real logical controller before protocol submission can
         // suspend. Failed/cancelled submission stops this exact worker record;
         // the same persistent pool retains its physical original and Scope.
@@ -88,5 +77,24 @@ impl Outbound {
             io: StreamLoan::new(connected.io, control, original),
             peer_confirmation: connected.peer_confirmation,
         })
+    }
+    pub(super) async fn acquire(
+        &self,
+        context: &OpenContext,
+    ) -> Result<zero_transport::grpc::NativeGrpcStream, ChannelError> {
+        let session = self.admission.check(context)?;
+        let opening = self.options.prepared.pool.open_observed(
+            self.pool,
+            zero_transport::grpc::Demand {
+                deadline: context.deadline,
+                cancel: context.cancel.clone(),
+                binding: context.upstream.binding().clone(),
+            },
+            context.upstream.observed_pending_carrier(),
+        );
+        tokio::select! {biased;
+         _=self.admission.cancelled()=>return Err(self.admission.error(session,Stage::Handshake,Reason::Revoked,DeliveryState::NotSubmitted)),
+         result=opening=>result.map_err(|failure|self.admission.attach(failure,session))?,
+        }
     }
 }
