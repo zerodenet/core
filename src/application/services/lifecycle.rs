@@ -1,15 +1,20 @@
 use super::*;
 impl ApplicationServices {
-    pub(in crate::application) async fn shutdown_status_monitor(&self) -> Result<(), String> {
+    pub(in crate::application) async fn shutdown_status_monitor(&self) -> std::io::Result<()> {
         #[cfg(feature = "event-dispatcher")]
         {
             let mut state = self.state.lock().await;
-            Self::stop_status_monitor(&mut state).await?;
+            if let Err(error) = Self::stop_status_monitor(&mut state).await {
+                return Err(match &state.cleanup_fault {
+                    Some(original) => std::io::Error::other(original.clone()),
+                    None => std::io::Error::other(error),
+                });
+            }
         }
         Ok(())
     }
 
-    pub(in crate::application) async fn shutdown_dispatcher(&self) -> Result<(), String> {
+    pub(in crate::application) async fn shutdown_dispatcher(&self) -> std::io::Result<()> {
         let mut state = self.state.lock().await;
         let hooks = self.retire_hooks(&mut state);
         // The fenced callbacks have returned; retained concrete state still
@@ -42,11 +47,9 @@ impl ApplicationServices {
             }
         }
         if let Some(error) = &state.cleanup_fault {
-            return Err(format!(
-                "original application cleanup remains unresolved: {error}"
-            ));
+            return Err(std::io::Error::other(error.clone()));
         }
-        hooks?;
+        hooks.map_err(std::io::Error::other)?;
         self.engine.update_sink_status(Vec::new());
         Ok(())
     }
