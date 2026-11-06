@@ -65,9 +65,10 @@ impl Managed {
         original: zero_platform_tokio::controlled_carrier::CarrierOrigin,
         admission: Arc<zero_platform_tokio::contract::admission::SessionAdmission>,
         context: &zero_platform_tokio::contract::context::OpenContext,
-    ) -> Result<Arc<super::logical::Logical>, ChannelError> {
+    ) -> Result<Arc<crate::component::udp::logical::Logical>, ChannelError> {
         self.logical_returned();
-        let record = super::logical::Logical::new(self, flow, original, admission, context);
+        let record =
+            crate::component::udp::logical::Logical::new(self, flow, original, admission, context);
         let mut users = self.logical.lock().unwrap();
         if self.cancel.is_cancelled() || users.len() >= 4096 {
             return Err(error(self.instance, Stage::Prepare, Reason::Capacity));

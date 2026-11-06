@@ -36,7 +36,7 @@ pub struct ShadowsocksUdpPendingResponse {
     pub(in crate::transport::udp_socket) encoded_bytes: usize,
 }
 impl Responses {
-    pub(super) fn register(
+    pub(in crate::transport::udp_socket) fn register(
         self: &Arc<Self>,
         target: &Address,
         port: u16,
@@ -91,7 +91,7 @@ impl Responses {
         let _ = waiter.send.send(response);
         Ok(())
     }
-    pub(super) fn close_pending(&self) {
+    pub(in crate::transport::udp_socket) fn close_pending(&self) {
         let returned = {
             let mut pending = self.pending.lock().unwrap();
             self.closed

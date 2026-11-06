@@ -181,4 +181,3 @@ impl Drop for Control {
 }
 mod rx;
 mod tx;
-pub(super) use {rx::Rx, tx::Tx};

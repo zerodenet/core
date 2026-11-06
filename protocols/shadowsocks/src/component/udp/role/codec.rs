@@ -74,7 +74,14 @@ impl DatagramTx for Tx {
                 payload: payload.into(),
             };
             this.limits.validate(&wire)?;
-            this.pending = Some((frame.clone(), wire));
+            this.pending = Some((
+                Datagram {
+                    association: frame.association,
+                    address: frame.address.clone(),
+                    payload: frame.payload.to_vec().into(),
+                },
+                wire,
+            ));
         }
         let wire = &this.pending.as_ref().unwrap().1;
         let result = match this.inner.as_mut().poll_send(cx, wire) {

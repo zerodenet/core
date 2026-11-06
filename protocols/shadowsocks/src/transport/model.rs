@@ -9,7 +9,7 @@ pub type ShadowsocksUdpResponse = (Address, u16, Vec<u8>);
 pub struct ShadowsocksManagedDatagramFlowResume {
     pub(crate) root: Option<crate::component::udp::PoolSelection>,
     pub(super) plugin: Option<super::plugin::outbound::PluginPlan>,
-    pub(super) protocol: crate::udp::ShadowsocksUdpFlowResume,
+    pub(crate) protocol: crate::udp::ShadowsocksUdpFlowResume,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -93,7 +93,7 @@ impl ShadowsocksManagedDatagramFlowResume {
         crate::udp::managed_socket_flow_from_resume(&self.protocol)
     }
 
-    pub(super) fn into_shared_managed_socket_flow_codec(
+    pub(crate) fn into_shared_managed_socket_flow_codec(
         self,
     ) -> Arc<dyn DatagramCodec<Address, Error = zero_core::Error>> {
         self.protocol.into_shared_managed_socket_flow_codec()
