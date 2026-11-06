@@ -66,6 +66,7 @@ mod options;
 mod owned;
 pub use owned::{
     Demand, NativeGrpcStream, NativePoolFactory, NativePoolOptions, NativePoolSettings,
+    PoolBudgets, PoolTotals, TotalsFactory, TotalsOptions, TotalsProposal,
 };
 mod pool;
 mod prepared;

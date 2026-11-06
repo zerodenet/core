@@ -1,6 +1,6 @@
 //! One retained actual device publication, shared by the existing inventory.
 use super::super::ProtocolInventory;
-use crate::adapters::devices::PreparedDevices;
+use crate::{adapters::devices::PreparedDevices, component::catalog::ComponentPlan};
 use std::sync::{
     atomic::{AtomicBool, Ordering},
     Arc, Mutex, Weak,
@@ -10,6 +10,7 @@ use zero_engine::EngineError;
 pub(in crate::inventory) type PublicationSlot = Arc<Mutex<Option<Arc<Publication>>>>;
 pub(in crate::inventory) struct Publication {
     config: Weak<RuntimeConfig>,
+    plan: Weak<ComponentPlan>,
     prepared: tokio::sync::Mutex<Option<PreparedDevices>>,
     committed: AtomicBool,
 }
@@ -24,13 +25,73 @@ impl Publication {
     fn matches(&self, config: &Arc<RuntimeConfig>) -> bool {
         self.config.ptr_eq(&Arc::downgrade(config))
     }
+    fn is_current_commit(&self, inventory: &ProtocolInventory) -> bool {
+        if !self.committed.load(Ordering::Acquire) {
+            return false;
+        }
+        let (Some(config), Some(plan)) = (self.config.upgrade(), self.plan.upgrade()) else {
+            return false;
+        };
+        inventory
+            .host
+            .components()
+            .current(&config)
+            .is_some_and(|current| Arc::ptr_eq(&current, &plan))
+    }
 }
 impl ProtocolInventory {
+    /// Cold descriptions may coexist only with this exact already committed
+    /// plan. The guard still owns all unfinished compatibility-worker joins.
+    pub(in crate::inventory) fn may_prepare_device_publication(&self) -> bool {
+        let publication = self
+            .device_publication
+            .lock()
+            .expect("device publication poisoned")
+            .clone();
+        publication.is_none_or(|publication| publication.is_current_commit(self))
+    }
+    /// Before ordinary start can construct any replacement native original,
+    /// resume collection of the same retained guard under the caller deadline.
+    pub(in crate::inventory) async fn finish_previous_device_publication(
+        &self,
+        deadline: tokio::time::Instant,
+    ) -> Result<(), EngineError> {
+        let publication = self
+            .device_publication
+            .lock()
+            .expect("device publication poisoned")
+            .clone();
+        let Some(publication) = publication else {
+            return Ok(());
+        };
+        if !publication.is_current_commit(self) {
+            return Err(std::io::Error::other(
+                "previous actual device publication has no matching current commit",
+            )
+            .into());
+        }
+        let config = publication.config.upgrade().ok_or_else(|| {
+            std::io::Error::other("actual device publication lost its retained catalog input")
+        })?;
+        tokio::time::timeout_at(deadline, self.finish_device_publication(&config))
+            .await
+            .map_err(|_| {
+                std::io::Error::new(
+                    std::io::ErrorKind::TimedOut,
+                    "original device publication joins remain retained",
+                )
+            })?
+    }
     pub(crate) fn stage_device_publication(
         &self,
         config: &Arc<RuntimeConfig>,
         prepared: PreparedDevices,
     ) -> Result<(), EngineError> {
+        // This reads the already retained exact cold/staged catalog candidate;
+        // it does not construct a resource, start a task, or issue native grants.
+        let plan = self
+            .prepare_components(config.clone())
+            .map_err(|error| std::io::Error::other(error.to_string()))?;
         let mut current = self
             .device_publication
             .lock()
@@ -43,6 +104,7 @@ impl ProtocolInventory {
         }
         *current = Some(Arc::new(Publication {
             config: Arc::downgrade(config),
+            plan: Arc::downgrade(&plan),
             prepared: tokio::sync::Mutex::new(Some(prepared)),
             committed: AtomicBool::new(false),
         }));

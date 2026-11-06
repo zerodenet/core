@@ -119,6 +119,8 @@ impl super::ProtocolInventory {
         config: Arc<RuntimeConfig>,
         deadline: tokio::time::Instant,
     ) -> Result<(), zero_engine::EngineError> {
+        #[cfg(feature = "raw-ip-runtime")]
+        self.finish_previous_device_publication(deadline).await?;
         self.host
             .components()
             .start(config, deadline)
@@ -172,12 +174,7 @@ impl super::ProtocolInventory {
     ) -> Result<Arc<ComponentPlan>, SharedError> {
         #[cfg(feature = "raw-ip-runtime")]
         {
-            if self
-                .device_publication
-                .lock()
-                .expect("device publication poisoned")
-                .is_some()
-            {
+            if !self.may_prepare_device_publication() {
                 return Err(Arc::new(
                     zero_platform_tokio::contract::ChannelError::new(
                         zero_platform_tokio::contract::Stage::Prepare,
@@ -263,6 +260,7 @@ impl super::ProtocolInventory {
         &self,
         config: &RuntimeConfig,
     ) -> Result<(), zero_engine::EngineError> {
+        self.host.validate_probe_candidate(config).map_err(|error|zero_engine::EngineError::Io(std::io::Error::other(error)))?;
         self.registry.validate_runtime_candidate(config)
     }
     pub(crate) fn validate_components(

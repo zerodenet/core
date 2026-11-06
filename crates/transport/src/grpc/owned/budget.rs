@@ -39,10 +39,16 @@ impl Budget {
     pub(super) fn reserve(
         self: &Arc<Self>,
         instance: ComponentInstanceId,
+        totals: Option<&super::totals::Active>,
     ) -> Result<Lease, ChannelError> {
         self.harvest();
+        let total = totals.map(|totals| totals.logical(instance)).transpose()?;
         let mut records = self.records.lock().unwrap();
         if records.len() >= self.limit.get() {
+            drop(records);
+            if let Some(total) = total {
+                total.refuse_unassigned()?;
+            }
             return Err(error(instance, Stage::Prepare, Reason::Capacity));
         }
         let app = Arc::new(());
@@ -56,6 +62,9 @@ impl Budget {
             }),
         });
         records.push(record.clone());
+        if let Some(total) = total {
+            total.install(record.clone())?;
+        }
         Ok(Lease {
             record,
             budget: Arc::downgrade(self),
@@ -78,7 +87,10 @@ impl Record {
         let state = self.state.lock().unwrap();
         state.app.upgrade().is_none()
             && (!state.attempted
-                || (state.read_done && state.write_done)
+                || (state.read_done
+                    && state.write_done
+                    && state.read_returned
+                    && state.write_returned)
                 || state
                     .physical
                     .as_ref()

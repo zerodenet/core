@@ -19,8 +19,12 @@ async fn retired_http_server_fault_keeps_its_source_and_same_endpoint_recovery_w
         let old = prepare_http_server_with_budget("127.0.0.1:0", None, budget.clone());
         old.start(handle.clone()).await.unwrap();
         let address = old.bound.lock().unwrap().unwrap();
-        budget.close_admission();
         let pending = tokio::net::TcpStream::connect(address).await.unwrap();
+        // Complete the triggering client's handshake before revoking accept.
+        // Returning this view also wakes an already accepted handler, so the
+        // original server observes the closed admission in either poll order.
+        budget.close_admission();
+        drop(pending);
         let fault = old.wait_terminated().await.unwrap_err();
         assert!(!old.retirement_complete());
         let retired = old.shutdown().await.unwrap_err();
@@ -48,7 +52,6 @@ async fn retired_http_server_fault_keeps_its_source_and_same_endpoint_recovery_w
             assert!(!actual.native_unconfirmed());
         }
         budget.confirm_released().unwrap();
-        drop(pending);
         let fresh_budget = zero_runtime::configuration::ControlBudget::new(
             zero_runtime::configuration::ControlBudgetLimits::from_runtime(
                 &zero_config::RuntimeOptionsConfig::default(),

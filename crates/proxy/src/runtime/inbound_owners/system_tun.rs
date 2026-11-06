@@ -87,9 +87,25 @@ impl InboundOwnerRegistry {
     }
 }
 impl SystemTunLease {
+    /// Install the real routes/helper cleanup owner before main snapshots its
+    /// resources. This delegates to this same Source; no new task or provider.
+    pub(crate) fn register_after_scope(
+        &self,
+        resource: Box<dyn zero_platform_tokio::contract::lifecycle::DynResourceLifecycle>,
+    ) -> Result<zero_core::component::ComponentInstanceId, EngineError> {
+        self.installed.register_after_scope(resource)
+    }
     pub(crate) fn owner(&self) -> Arc<InboundOwner> {
         self.owner.clone()
     }
+    /// Start concrete TUN preparation in this same already retained Scope.
+    /// The caller installs its original resource before registering any work.
+    pub(crate) fn preparation_tasks(
+        &self,
+    ) -> Result<zero_platform_tokio::contract::scope::TaskRegistrar, EngineError> {
+        self.owner.preparation_tasks()
+    }
+
     /// All child resources enter the same retained owner before spawn_driver
     /// snapshots it. Native identity is read only after the real start acquires.
     pub(crate) fn start(

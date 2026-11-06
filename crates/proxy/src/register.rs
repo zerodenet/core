@@ -231,13 +231,7 @@ pub(crate) fn compiled_registries_with_network(
                 move |input, resources| {
                     inbound_adapter.inbound_options(
                         input,
-                        resources
-                            .candidate()
-                            .map(|config| config.runtime.effective_ss_tcp_replay_max_salts())
-                            .unwrap_or_else(|| {
-                                zero_config::RuntimeOptionsConfig::default()
-                                    .effective_ss_tcp_replay_max_salts()
-                            }),
+                        &resources.candidate().map(|config| config.runtime.clone()).unwrap_or_default(),
                     )
                 },
             )

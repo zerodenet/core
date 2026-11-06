@@ -30,7 +30,9 @@ impl Managed {
         demand: Demand,
         waiting: Option<zero_platform_tokio::contract::network::PendingCarrierObserver>,
     ) -> Result<NativeGrpcStream, ChannelError> {
-        if demand.binding != *self.upstream.binding() {
+        if (!self.options.selected_background && demand.binding != *self.upstream.binding())
+            || demand.binding.dial != self.options.settings.dial
+        {
             let mut error = error(self.instance, Stage::Prepare, Reason::StalePlan);
             error.delivery = DeliveryState::NotSubmitted;
             return Err(error);
@@ -49,17 +51,44 @@ impl Managed {
             error.delivery = DeliveryState::NotSubmitted;
             return Err(error);
         }
-        let lease = self.budget.reserve(self.instance)?;
+        let selected = if self.options.selected_background {
+            self.wait(
+                &demand,
+                self.upstream.select_background_carrier(
+                    Some(demand.binding.clone()),
+                    CarrierContext {
+                        session: None,
+                        deadline: demand.deadline,
+                        cancel: demand.cancel.clone(),
+                    },
+                ),
+            )
+            .await?
+        } else {
+            self.upstream.clone()
+        };
+        if selected.binding() != &demand.binding {
+            return Err(error(self.instance, Stage::Prepare, Reason::StalePlan));
+        }
+        if self.options.selected_background {
+            self.admit_epoch(&demand, selected.carrier_dns_generation())
+                .await?;
+        }
+        let totals = self.totals.lock().unwrap().clone();
+        let lease = self.budget.reserve(self.instance, totals.as_ref())?;
         let pool = self
             .options
             .pool
             .upgrade()
             .ok_or_else(|| error(self.instance, Stage::Prepare, Reason::Revoked))?;
         let cached = pool.cached.lock().unwrap().clone();
-        if let Some(Cached::Owned(client)) =
-            cached.filter(|client| matches!(client,Cached::Owned(client) if !client.closed()))
-        {
-            return client.open(self, &demand, lease).await;
+        if let Some(Cached::Owned(clients)) = cached {
+            if let Some(client) = clients
+                .into_iter()
+                .find(|client| client.binding == demand.binding && !client.closed())
+            {
+                return client.open(self, &demand, lease).await;
+            }
         }
         let _guard = self
             .wait(&demand, async { Ok(pool.connecting.lock().await) })
@@ -68,10 +97,13 @@ impl Managed {
             return Err(error(self.instance, Stage::Prepare, Reason::Revoked));
         }
         let cached = pool.cached.lock().unwrap().clone();
-        if let Some(Cached::Owned(client)) =
-            cached.filter(|client| matches!(client,Cached::Owned(client) if !client.closed()))
-        {
-            return client.open(self, &demand, lease).await;
+        if let Some(Cached::Owned(clients)) = cached {
+            if let Some(client) = clients
+                .into_iter()
+                .find(|client| client.binding == demand.binding && !client.closed())
+            {
+                return client.open(self, &demand, lease).await;
+            }
         }
         self.wait(&demand, self.reap_demand(demand.deadline))
             .await?;
@@ -79,7 +111,33 @@ impl Managed {
         if !self.ready() || pool.retired.load(Ordering::Acquire) {
             return Err(error(self.instance, Stage::Prepare, Reason::Revoked));
         }
-        *pool.cached.lock().unwrap() = Some(Cached::Owned(client.clone()));
+        let previous = {
+            let mut cache=pool.cached.lock().unwrap();
+            if matches!(cache.as_ref(),Some(Cached::Legacy(_))) {
+                // A conflicting actual legacy owner is retained unchanged;
+                // error/Drop cannot certify its original controller closed.
+                return Err(error(self.instance, Stage::Prepare, Reason::StalePlan));
+            }
+            cache.take()
+        };
+        let mut clients = match previous {
+            Some(Cached::Owned(clients)) => clients,
+            None => Vec::new(),
+            Some(Cached::Legacy(_)) => {
+                return Err(error(self.instance, Stage::Prepare, Reason::StalePlan))
+            }
+        };
+        // Source/view destruction and callbacks run outside the cache lock.
+        clients.retain(|client| !client.closed());
+        clients.push(client.clone());
+        let mut cache = pool.cached.lock().unwrap();
+        if !self.ready() || pool.retired.load(Ordering::Acquire) {
+            drop(cache);
+            drop(clients);
+            return Err(error(self.instance, Stage::Prepare, Reason::Revoked));
+        }
+        *cache = Some(Cached::Owned(clients));
+        drop(cache);
         client.open(self, &demand, lease).await
     }
     async fn create(
@@ -99,22 +157,40 @@ impl Managed {
         {
             return Err(demand_error(self.instance, Reason::Timeout));
         }
-        let mut grant = self.grants.reserve()?;
-        let view = grant.claim_driver_view()?;
+        let totals = self.totals.lock().unwrap().clone();
+        let total = totals
+            .as_ref()
+            .map(|totals| totals.physical(self.instance))
+            .transpose()?;
+        let mut grant = match self.grants.reserve() {
+            Ok(grant) => grant,
+            Err(source) => {
+                if let Some(total) = &total {
+                    total.refuse_unassigned()?;
+                }
+                return Err(source);
+            }
+        };
         let physical = Arc::new(Physical {
+            pending: Mutex::new(Vec::new()),
             adoption: grant.adoption(),
             stop: grant.cancellation(),
-            view: Mutex::new(Some(view)),
+            view: Mutex::new(None),
             witness: Mutex::new(None),
             received: Mutex::new(None),
             accepted: AtomicBool::new(false),
             done: AtomicBool::new(false),
         });
         self.records.lock().unwrap().push(physical.clone());
+        if let Some(total) = total {
+            total.install(physical.clone())?;
+        }
         let body = Body(physical.clone());
+        *physical.view.lock().unwrap() = Some(grant.claim_driver_view()?);
         // The receiver and exact native cancellation are installed before the
         // actual caller or Node provider can await resolution/connect/TLS/H2.
-        if let Some(waiting) = waiting.or_else(|| self.upstream.observed_pending_carrier()) {
+        let waiting = waiting.or_else(|| self.upstream.observed_pending_carrier());
+        if let Some(waiting) = &waiting {
             waiting.retain(physical.adoption.clone())?;
         }
         let owner = self.clone();
@@ -124,65 +200,15 @@ impl Managed {
             cancel: physical.stop.clone(),
             binding: demand.binding.clone(),
         };
-        let preparing = async move {
-            let physical = preparing_physical;
-            let acquiring = owner.upstream.acquire_controlled_stream(
-                owner.options.endpoint.clone(),
-                CarrierContext {
-                    session: None,
-                    deadline: operation_demand.deadline,
-                    cancel: physical.stop.clone(),
-                },
-                grant,
-            );
-            let io = tokio::select! { biased;
-                _=physical.stop.cancelled()=>return Err(demand_error(owner.instance,Reason::Cancelled)),
-                result=owner.wait(&operation_demand, acquiring)=>result?,
-            };
-            let preparing = io.prepare_driver(|io| async {
-                let io =
-                    zero_platform_tokio::TcpRelayStream::new(super::carrier::Exclusive::new(io));
-                #[cfg(feature = "tls")]
-                let io = match &owner.options.settings.tls {
-                    Some(tls) => {
-                        crate::tls::connect_tls_stream(
-                            io,
-                            tls,
-                            None,
-                            &owner.options.settings.server,
-                        )
-                        .await?
-                    }
-                    None => io,
-                };
-                let settings = io
-                    .application_settings()
-                    .filter(|settings| settings.protocol == b"h2")
-                    .map(|settings| settings.peer.clone());
-                crate::grpc::prepared::prepare_connection(
-                    io,
-                    owner.options.settings.grpc.clone(),
-                    settings.as_deref(),
-                )
-                .await
-            });
-            let preparing = owner.wait(&operation_demand, async {
-                preparing.await.map_err(|source| {
-                    error(owner.instance, Stage::Handshake, Reason::Io).with_source(source)
-                })
-            });
-            let prepared = tokio::select! { biased;
-                _=physical.stop.cancelled()=>return Err(demand_error(owner.instance,Reason::Cancelled)),
-                result=preparing=>result?,
-            };
-            Ok(prepared)
+        let operation = move |caller| {
+            owner.prepare_original(preparing_physical, operation_demand, grant, waiting, caller)
         };
         let prepared = self
             .wait(demand, async {
                 if self.options.scoped_preparation {
-                    super::setup::run(self, &physical, preparing).await
+                    super::setup::run(self, &physical, move |caller| operation(Some(caller))).await
                 } else {
-                    preparing.await
+                    operation(None).await
                 }
             })
             .await?;
@@ -192,6 +218,7 @@ impl Managed {
                 physical.clone(),
                 self.options.stream_limit.get(),
                 &physical.stop,
+                demand.binding.clone(),
             )
         });
         let stop = client.life.stop.clone();

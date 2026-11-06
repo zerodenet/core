@@ -406,6 +406,27 @@ fn validate_runtime(
             return Err(ConfigError::InvalidRuntime(format!("runtime.{name} must be positive and leave room for checked accounting")));
         }
     }
+    if !(1..=4096).contains(&runtime.effective_grpc_pool_max_carriers()) {
+        return Err(ConfigError::InvalidRuntime("runtime.grpc_pool_max_carriers must be between 1 and 4096".into()));
+    }
+    if !(1..=65536).contains(&runtime.effective_grpc_pool_max_streams()) {
+        return Err(ConfigError::InvalidRuntime("runtime.grpc_pool_max_streams must be between 1 and 65536".into()));
+    }
+    if !(1..=4096).contains(&runtime.effective_grpc_total_max_carriers()) {
+        return Err(ConfigError::InvalidRuntime("runtime.grpc_total_max_carriers must be between 1 and 4096".into()));
+    }
+    if !(1..=65536).contains(&runtime.effective_grpc_total_max_streams()) {
+        return Err(ConfigError::InvalidRuntime("runtime.grpc_total_max_streams must be between 1 and 65536".into()));
+    }
+    if !(1..=8).contains(&runtime.effective_diagnostic_max_operations()) {
+        return Err(ConfigError::InvalidRuntime("runtime.diagnostic_max_operations must be between 1 and 8".into()));
+    }
+    if runtime.system_tun_task_limit.is_some_and(|limit| !(1..=65536).contains(&limit)) {
+        return Err(ConfigError::InvalidRuntime("runtime.system_tun_task_limit must be between 1 and 65536".into()));
+    }
+    if runtime.effective_ss_legacy_replay_max_bytes()==0 || runtime.effective_ss_legacy_replay_max_bytes().checked_add(1).is_none() {
+        return Err(ConfigError::InvalidRuntime("runtime.ss_legacy_replay_max_bytes must be positive and leave room for checked accounting".into()));
+    }
     if runtime.effective_ss_tcp_replay_max_salts() == 0
         || runtime
             .effective_ss_tcp_replay_max_salts()

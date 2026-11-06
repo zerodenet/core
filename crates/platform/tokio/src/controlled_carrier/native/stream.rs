@@ -45,7 +45,11 @@ impl NativeCarrierOpener {
                 || (!bound.permits_native(binding, &destination, &context)
                     && !self.business.as_ref().is_some_and(|business| {
                         business.is_relay() && business.binding().matches_authority(bound)
-                    }))
+                    })
+                    && !self
+                        .service
+                        .as_ref()
+                        .is_some_and(|service| service.permits_direct_authority(bound)))
         }) {
             return Err(error(
                 grant.instance(),

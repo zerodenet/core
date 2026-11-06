@@ -275,7 +275,9 @@ impl InboundOwner {
         self.terminal()
     }
 
-    pub(in crate::runtime::inbound_owners) fn terminal(&self) -> Option<Arc<InboundTerminal>> {
+    /// Read only: issued solely after this original owner's actual Scope,
+    /// users and native controllers have all confirmed physical completion.
+    pub(crate) fn terminal(&self) -> Option<Arc<InboundTerminal>> {
         if !self.physically_closed.load(Ordering::Acquire) {
             return None;
         }

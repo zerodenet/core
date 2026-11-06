@@ -26,12 +26,15 @@ pub struct NativePoolSettings {
 pub struct NativePoolOptions {
     pub(super) pool: Weak<State>,
     pub(super) scoped_preparation: bool,
+    pub(super) selected_background: bool,
     pub(super) settings: NativePoolSettings,
     pub(super) endpoint: Destination,
     pub(super) authority: String,
     pub(super) carrier_limit: NonZeroUsize,
     pub(super) stream_limit: NonZeroUsize,
     pub(super) identity: Arc<[u8]>,
+    base_identity: Arc<[u8]>,
+    pub(super) totals: Option<RootUse>,
 }
 impl std::fmt::Debug for NativePoolOptions {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -152,25 +155,64 @@ impl NativePoolOptions {
         Ok(Self {
             pool: Arc::downgrade(&pool.0),
             scoped_preparation: false,
+            selected_background: false,
             settings,
             endpoint,
             authority,
             carrier_limit,
             stream_limit,
+            base_identity: identity.clone(),
             identity,
+            totals: None,
         })
     }
-    /// Ordinary hosted factories prepare in the same original Scope before its
-    /// driver. Fixed library recipes retain their original inline contract.
-    /// The owning TaskScope must actually consume initializer exits and ACKs.
-    pub fn with_scoped_preparation(mut self) -> Self {
-        if !self.scoped_preparation {
-            self.scoped_preparation = true;
-            let mut identity = self.identity.to_vec();
+    fn refresh_identity(&mut self) {
+        let mut identity = self.base_identity.to_vec();
+        if self.scoped_preparation {
             identity.extend_from_slice(b"grpc.scoped-preparation.v1");
-            self.identity = identity.into();
         }
+        if self.selected_background {
+            identity.extend_from_slice(b"grpc.selected-background.v1");
+        }
+        if let Some(totals) = &self.totals {
+            identity.extend_from_slice(&totals.dependency.0.to_le_bytes());
+            identity.extend_from_slice(totals.proposal.identity());
+        }
+        self.identity = identity.into();
+    }
+    /// The same owning Scope consumes and ACKs preparation before its driver.
+    pub fn with_scoped_preparation(mut self) -> Self {
+        self.scoped_preparation = true;
+        self.refresh_identity();
         self
+    }
+    /// Select this original pool's actual current provider for the full path.
+    pub fn with_background_selection(mut self) -> Self {
+        self.scoped_preparation = true;
+        self.selected_background = true;
+        self.refresh_identity();
+        self
+    }
+    /// Bind the actual registry budget resource. The cold proposal installs no
+    /// quotas; that resource must start after old consumers actually settle.
+    pub fn with_root_budget(
+        mut self,
+        dependency: zero_core::component::ComponentId,
+        proposal: super::TotalsProposal,
+    ) -> Result<Self, RuntimeError> {
+        if !proposal.matches_limits(self.carrier_limit, self.stream_limit) {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::InvalidInput,
+                "gRPC root and actual pool budgets differ",
+            )
+            .into());
+        }
+        self.totals = Some(RootUse {
+            dependency,
+            proposal,
+        });
+        self.refresh_identity();
+        Ok(self)
     }
     pub fn endpoint(&self) -> &Destination {
         &self.endpoint
@@ -229,4 +271,10 @@ pub(in crate::grpc) struct Recipe {
     carriers: NonZeroUsize,
     streams: NonZeroUsize,
     identity: Arc<[u8]>,
+}
+
+#[derive(Clone)]
+pub(super) struct RootUse {
+    pub(super) dependency: zero_core::component::ComponentId,
+    pub(super) proposal: super::TotalsProposal,
 }

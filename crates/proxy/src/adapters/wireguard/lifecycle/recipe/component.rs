@@ -75,11 +75,34 @@ impl LinkedStackOptions {
         self.spec.static_identity.as_ref() == identity
     }
     pub(super) fn matches_dependencies(&self, actual: &[ComponentInstanceId]) -> bool {
-        (self.spec.dependencies.is_empty() && actual.is_empty())
-            || self
-                .dependencies
-                .get()
-                .is_some_and(|installed| installed.as_ref() == actual)
+        if self.spec.dependencies.is_empty() && actual.is_empty() {
+            return true;
+        }
+        match self.dependencies.get() {
+            Some(installed) => installed.as_ref() == actual,
+            None => {
+                // Constructor validation may retain this genuinely unused cold
+                // Options before startup compiles the same union again. Its
+                // original catalog slot already records exact dependency
+                // instances; reusable_in checks those actual generations and
+                // fresh flags. Factory build still binds them before any IO.
+                self.scope
+                    .lock()
+                    .unwrap_or_else(|e| e.into_inner())
+                    .is_none()
+                    && self
+                        .stacks
+                        .lock()
+                        .unwrap_or_else(|e| e.into_inner())
+                        .is_some()
+                    && actual.len() == self.spec.dependencies.len()
+                    && self
+                        .spec
+                        .dependencies
+                        .iter()
+                        .all(|id| actual.iter().any(|instance| instance.component == *id))
+            }
+        }
     }
     fn bind_dependencies(&self, actual: &[ComponentInstanceId]) -> Result<(), EngineError> {
         if actual.len() != self.spec.dependencies.len()

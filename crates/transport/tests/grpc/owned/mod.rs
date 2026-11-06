@@ -45,3 +45,5 @@ mod hosted;
 mod loan;
 
 mod setup;
+
+mod totals;

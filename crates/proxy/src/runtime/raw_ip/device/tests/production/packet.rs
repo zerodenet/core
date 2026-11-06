@@ -7,7 +7,7 @@ use tokio::net::UdpSocket;
 fn config(remote: SocketAddr, client: SocketAddr) -> RuntimeConfig {
     RuntimeConfig::parse(&serde_json::json!({
         "endpoints":[
-            {"tag":"input","directions":{"inbound":true,"outbound":false},"listen":{"address":"127.0.0.1","port":0},"protocol":{
+            {"tag":"input","directions":{"inbound":true,"outbound":false},"listen":{"address":"127.0.0.2","port":0},"protocol":{
                 "type":"wireguard","private_key":STANDARD.encode([111;32]),"addresses":["10.42.0.1/32"],
                 "peers":[{"public_key":peer::public(112),"endpoint":client.to_string(),"allowed_ips":["10.42.0.2/32"]}]}},
             {"tag":"wg","directions":{"inbound":true,"outbound":true},"listen":{"address":"127.0.0.1","port":0},"protocol":{
@@ -78,7 +78,13 @@ async fn ordinary_packet_roles_return_original_source_and_retire_old_graph_witho
             handle
                 .apply_runtime_config_and_wait(changed, Duration::from_secs(5))
                 .await
-                .unwrap();
+                .unwrap_or_else(|source| {
+                    panic!(
+                        "same actual graph replacement failed: {source}; original worker fault: {:?}; matching joined receipts: {:?}",
+                        previous[0].task.first_scoped_failure(),
+                        original_joins.iter().map(|witness| witness.try_joined()).collect::<Vec<_>>(),
+                    )
+                });
         }
         tokio::time::timeout_at(end(), async {
             loop {

@@ -309,3 +309,15 @@ impl Drop for TaskMonitor {
         self.wake.unbind();
     }
 }
+
+impl ComponentSlot {
+    pub(crate) fn probe_registrar(&self)->Result<zero_platform_tokio::contract::scope::TaskRegistrar,ChannelError>{
+        if !self.has_started() || !self.recipe.spec().resources.iter().any(|resource|matches!(resource,zero_platform_tokio::contract::component::ResourceDeclaration::ControlledDirectStream {..})) {
+            return Err(self.failure(Reason::Revoked,"probe needs its actual started Direct task owner"));
+        }
+        let live=self.live.get().and_then(|live|live.as_ref().ok()).ok_or_else(||self.failure(Reason::StalePlan,"probe Direct has not built"))?;
+        let registrar=live.tasks.lock().scope.registrar();
+        if !registrar.scope_identity().resource_open(){return Err(self.failure(Reason::Revoked,"probe Direct Scope is stopped"));}
+        Ok(registrar)
+    }
+}
