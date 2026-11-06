@@ -8,7 +8,16 @@ use tokio::task::JoinSet;
 mod wake;
 use wake::{ObserverWake, WaitTarget};
 
+#[cfg(feature = "raw-ip-runtime")]
+type SystemTunProjection = crate::inbound::tun::exit::SystemTunExitProjection;
+#[cfg(not(feature = "raw-ip-runtime"))]
+type SystemTunProjection = ();
+
 type Observers = JoinSet<Result<(), EngineError>>;
+struct SystemTunObserver {
+    owner: Arc<InboundOwner>,
+    exit: Option<SystemTunProjection>,
+}
 
 /// The registry owns exactly one JoinSet. An orchestration may borrow its
 /// ownership, but cancellation returns it instead of aborting its actual tasks.
@@ -17,7 +26,7 @@ pub(super) struct ObserverParking {
     needs_retirement: AtomicBool,
     // The API permits one System TUN owner. This is its original observer
     // awaiting transfer into the same exclusive JoinSet, never a second set.
-    system_tun: Mutex<Option<Arc<InboundOwner>>>,
+    system_tun: Mutex<Option<SystemTunObserver>>,
     changed: tokio::sync::Notify,
 }
 impl Default for ObserverParking {
@@ -68,14 +77,18 @@ impl DerefMut for ListenerObservers {
     }
 }
 impl ObserverParking {
-    pub(super) fn enqueue_system_tun(&self, owner: Arc<InboundOwner>) -> Result<(), EngineError> {
+    pub(super) fn enqueue_system_tun(
+        &self,
+        owner: Arc<InboundOwner>,
+        exit: Option<SystemTunProjection>,
+    ) -> Result<(), EngineError> {
         let mut pending = self.system_tun.lock().unwrap();
         if pending.is_some() {
             return Err(
                 std::io::Error::other("original System TUN observer awaits transfer").into(),
             );
         }
-        *pending = Some(owner);
+        *pending = Some(SystemTunObserver { owner, exit });
         self.needs_retirement.store(true, Ordering::Release);
         drop(pending);
         self.changed.notify_one();
@@ -85,12 +98,22 @@ impl ObserverParking {
 impl ListenerObservers {
     fn transfer_system_tun(&mut self) {
         let pending = self.parking.system_tun.lock().unwrap().take();
-        if let Some(owner) = pending {
+        if let Some(SystemTunObserver { owner, exit }) = pending {
             self.owned
                 .as_mut()
                 .expect("live lease")
                 .tasks
-                .spawn(async move { owner.observe_listener().await });
+                .spawn(async move {
+                    #[cfg(feature = "raw-ip-runtime")]
+                    {
+                        owner.observe_system_tun(exit).await
+                    }
+                    #[cfg(not(feature = "raw-ip-runtime"))]
+                    {
+                        let _ = exit;
+                        owner.observe_listener().await
+                    }
+                });
         }
     }
     pub(crate) fn is_empty(&self) -> bool {

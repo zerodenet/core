@@ -91,6 +91,7 @@ pub(crate) struct InboundOwner {
     #[cfg(feature = "raw-ip-runtime")]
     main_registration: Arc<MainRegistration>,
     driver_finished: AtomicBool,
+    driver_was_stopping: OnceLock<bool>,
     scope_closed: AtomicBool,
     physically_closed: AtomicBool,
     joined_count: Mutex<usize>,
@@ -274,6 +275,7 @@ impl InboundOwner {
             #[cfg(feature = "raw-ip-runtime")]
             main_registration: Arc::default(),
             driver_finished: AtomicBool::new(false),
+            driver_was_stopping: OnceLock::new(),
             scope_closed: AtomicBool::new(false),
             physically_closed: AtomicBool::new(false),
             joined_count: Mutex::new(0),
