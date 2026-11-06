@@ -346,7 +346,7 @@ impl InboundInstallContext {
             .build(BuildContext {
                 component: identity.component,
                 generation: identity.generation,
-                dependencies: Arc::from([]),
+                dependencies: self.entry.source_dependencies.get().cloned().unwrap_or_else(|| Arc::from([])),
                 roles: ComponentRoleIds {
                     inbound: Some(InboundId(identity.component.0)),
                     ..Default::default()

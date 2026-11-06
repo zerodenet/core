@@ -33,6 +33,17 @@ impl InboundOwnerRegistry {
                 "listener reservation is outside its actual configuration",
             ));
         }
+        #[cfg(feature = "raw-ip-runtime")]
+        {
+            let input = config
+                .inbounds
+                .iter()
+                .find(|input| input.tag == tag)
+                .expect("checked actual source");
+            prepared = prepared
+                .with_actual_dependencies(protocols.source_dependency_instances(config, input)?)?;
+        }
+        let dependencies = prepared.actual_dependencies();
         let accepted_slots = prepared
             .accepted_tcp_slots()
             .ok_or_else(|| io("accepted TCP task ceiling overflow"))?;
@@ -61,6 +72,10 @@ impl InboundOwnerRegistry {
         self.mark_listener_generation();
         let identity = protocols.allocate_resource_identity()?;
         let owner = Arc::new(InboundOwner::new(identity, limit, shutdown.clone()));
+        owner
+            .source_dependencies
+            .set(dependencies)
+            .map_err(|_| io("actual Source dependencies already installed"))?;
         #[cfg(feature = "raw-ip-runtime")]
         if let Some(input) = config.inbounds.iter().find(|input| input.tag == tag) {
             owner
@@ -104,8 +119,8 @@ impl InboundOwnerRegistry {
         #[cfg(feature = "raw-ip-runtime")]
         if let [zero_platform_tokio::contract::component::ResourceDeclaration::DatagramListener {
             ..
-        }, declaration @ zero_platform_tokio::contract::component::ResourceDeclaration::NativeIcmp { .. },
-        zero_platform_tokio::contract::component::ResourceDeclaration::PacketDatagramReads { datagram: 0, .. }] = prepared.resources()
+        }, declaration @ zero_platform_tokio::contract::component::ResourceDeclaration::NativeIcmp { .. }, zero_platform_tokio::contract::component::ResourceDeclaration::PacketDatagramReads { datagram: 0, .. }] =
+            prepared.resources()
         {
             owner.install_icmp_probe(declaration, protocols.runtime_host().original_budgets())?;
         }

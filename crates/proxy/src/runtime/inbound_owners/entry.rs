@@ -63,6 +63,7 @@ pub(crate) struct InboundOwner {
         Arc<Mutex<Option<crate::runtime::inbound_operation::raw_ip::PacketSourceContext>>>,
     #[cfg(feature = "raw-ip-runtime")]
     pub(super) source_input: OnceLock<[u8; 32]>,
+    pub(super) source_dependencies: OnceLock<Arc<[ComponentInstanceId]>>,
     pub(super) inbound_resources: Mutex<
         Option<std::sync::Weak<dyn zero_platform_tokio::contract::component::ResourceAccess>>,
     >,
@@ -271,6 +272,7 @@ impl InboundOwner {
             packet_native: OnceLock::new(),
             #[cfg(feature = "raw-ip-runtime")]
             source_input: OnceLock::new(),
+            source_dependencies: OnceLock::new(),
             inbound_resources: Mutex::new(None),
             #[cfg(feature = "raw-ip-runtime")]
             packet_source: Arc::new(Mutex::new(None)),

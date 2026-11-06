@@ -6,6 +6,7 @@ use zero_platform_tokio::contract::{
 
 pub(in crate::component) mod accounting;
 mod bound_datagram;
+mod inbound_dependencies;
 
 trait BuildRecipe: Send + Sync {
     fn build(&self, context: BuildContext) -> Result<ComponentInstance, BuildError>;

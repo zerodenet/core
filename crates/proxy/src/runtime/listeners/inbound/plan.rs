@@ -80,7 +80,9 @@ pub(super) fn prepare(
         });
         let replay_budget_changed = inbound.protocol.protocol_name() == "shadowsocks"
             && crate::runtime::orchestration::ss_source_budget_changed(&previous_config, config);
+        let dependencies_changed = runtime_factory.source_dependencies_changed(inbound)?;
         let reuse = running
+            && !dependencies_changed
             && !mode_changed
             && !replay_budget_changed
             && !source_total_changed
@@ -91,6 +93,7 @@ pub(super) fn prepare(
                 )
             });
         let update = running
+            && !dependencies_changed
             && !source_total_changed
             && current.is_some_and(|current| {
                 current.listen == inbound.listen

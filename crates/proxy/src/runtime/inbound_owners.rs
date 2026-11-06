@@ -7,6 +7,7 @@ pub(crate) use bind::tests::test_standard_native_listener;
 mod entry;
 pub(in crate::runtime) use entry::AcquisitionPause;
 mod observers;
+mod source_dependencies;
 #[cfg(feature = "raw-ip-runtime")]
 mod packet_source;
 #[cfg(feature = "raw-ip-runtime")]

@@ -32,6 +32,18 @@ impl SharedIngressRuntimeServices {
     pub(super) fn configuration_publication(&self) -> zero_engine::ConfigurationPublication {
         self.tcp_services.snapshot().configuration_publication()
     }
+    #[cfg(feature = "raw-ip-runtime")]
+    pub(super) fn source_dependencies_changed(
+        &self,
+        owners: &crate::runtime::inbound_owners::InboundOwnerRegistry,
+        input: &zero_config::InboundConfig,
+    ) -> Result<bool, zero_engine::EngineError> {
+        let plan = self.tcp_services.components.as_ref().map_err(|error| {
+            std::io::Error::other(crate::component::instance::retained(error.clone()))
+        })?;
+        owners.source_dependencies_changed(input, plan)
+    }
+
     pub(super) fn config_handle(&self) -> std::sync::Arc<zero_config::RuntimeConfig> {
         self.tcp_services.snapshot().config().clone()
     }
