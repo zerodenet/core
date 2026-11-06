@@ -42,6 +42,11 @@ impl CarrierOwnerRegistration {
                 dial,
                 max_sockets,
                 ..
+            }
+            | ResourceDeclaration::ControlledAssociationPool {
+                endpoint,
+                dial,
+                max_sockets,
             } => {
                 if endpoint.port == 0 {
                     return Err(failure(Reason::InvalidConfig));
@@ -148,6 +153,7 @@ impl BoundAuthority {
         matches!(
             self.declaration,
             ResourceDeclaration::ControlledOutboundStream { .. }
+                | ResourceDeclaration::ControlledAssociationPool { .. }
                 | ResourceDeclaration::ControlledCarrierPool {
                     datagram: false,
                     ..
@@ -165,6 +171,7 @@ impl BoundAuthority {
                     ..
                 } | ResourceDeclaration::ControlledDatagramCarrier { .. }
                     | ResourceDeclaration::ControlledCarrierPool { .. }
+                    | ResourceDeclaration::ControlledAssociationPool { .. }
             )
     }
     pub(super) fn transferred_custody_available(&self) -> bool {
@@ -184,6 +191,7 @@ impl BoundAuthority {
             && match declaration {
                 ResourceDeclaration::ControlledOutboundStream { max_sockets, .. }
                 | ResourceDeclaration::ControlledCarrierPool { max_sockets, .. }
+                | ResourceDeclaration::ControlledAssociationPool { max_sockets, .. }
                 | ResourceDeclaration::ControlledDatagramCarrier { max_sockets, .. }
                 | ResourceDeclaration::ControlledDirectStream { max_sockets, .. } => {
                     *max_sockets == limit
@@ -210,7 +218,8 @@ impl BoundAuthority {
         context: &CarrierContext,
     ) -> bool {
         let descriptor = match &self.declaration {
-            ResourceDeclaration::ControlledCarrierPool { endpoint, dial, .. } => {
+            ResourceDeclaration::ControlledCarrierPool { endpoint, dial, .. }
+            | ResourceDeclaration::ControlledAssociationPool { endpoint, dial, .. } => {
                 endpoint == destination && dial == &binding.dial && context.session.is_none()
             }
             ResourceDeclaration::ControlledOutboundStream {
@@ -254,8 +263,16 @@ impl BoundAuthority {
     pub(super) fn pool_kind(&self) -> Option<bool> {
         match self.declaration {
             ResourceDeclaration::ControlledCarrierPool { datagram, .. } => Some(datagram),
+            ResourceDeclaration::ControlledAssociationPool { .. } => Some(false),
             _ => None,
         }
+    }
+    pub(super) fn permits_related(&self) -> bool {
+        self.available()
+            && matches!(
+                self.declaration,
+                ResourceDeclaration::ControlledAssociationPool { .. }
+            )
     }
     pub(super) fn host_cancelled(&self) -> bool {
         self.host_cancel.is_cancelled()
@@ -328,7 +345,8 @@ impl CarrierOwnerBinding {
             ResourceDeclaration::ControlledDatagramCarrier { .. } => {
                 ControlledStreamDemandClass::BackgroundControl
             }
-            ResourceDeclaration::ControlledCarrierPool { .. } => {
+            ResourceDeclaration::ControlledCarrierPool { .. }
+            | ResourceDeclaration::ControlledAssociationPool { .. } => {
                 ControlledStreamDemandClass::BackgroundControl
             }
             _ => unreachable!("bound carrier declaration"),

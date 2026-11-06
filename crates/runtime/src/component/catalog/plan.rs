@@ -87,7 +87,7 @@ impl ComponentPlan {
                 )
             })?;
         if !owner.recipe.spec().resources.iter().any(|resource| matches!(resource,
-            zero_platform_tokio::contract::component::ResourceDeclaration::ControlledCarrierPool { .. } | zero_platform_tokio::contract::component::ResourceDeclaration::ControlledMetadataCarrier { .. } | zero_platform_tokio::contract::component::ResourceDeclaration::ControlledNodeStream { .. })) {
+            zero_platform_tokio::contract::component::ResourceDeclaration::ControlledCarrierPool { .. } | zero_platform_tokio::contract::component::ResourceDeclaration::ControlledAssociationPool { .. } | zero_platform_tokio::contract::component::ResourceDeclaration::ControlledMetadataCarrier { .. } | zero_platform_tokio::contract::component::ResourceDeclaration::ControlledNodeStream { .. })) {
             return Err(invalid(Reason::Unsupported, "background owner has no finite controlled declaration"));
         }
         let mut donors = Vec::new();

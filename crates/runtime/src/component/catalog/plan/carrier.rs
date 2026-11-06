@@ -18,7 +18,7 @@ impl ComponentPlan {
             };
             if slot.recipe.spec().resources.iter().enumerate().any(|(ordinal, resource)| {
                 match resource {
-                    zero_platform_tokio::contract::component::ResourceDeclaration::ControlledCarrierPool { max_sockets, .. } => {
+                    zero_platform_tokio::contract::component::ResourceDeclaration::ControlledCarrierPool { max_sockets, .. } | zero_platform_tokio::contract::component::ResourceDeclaration::ControlledAssociationPool { max_sockets, .. } => {
                         slot.original_carrier_owner(ordinal).is_some_and(|owner| {
                             owner.instance() == slot.instance_id() && owner.limit() == *max_sockets
                         })
@@ -63,7 +63,7 @@ impl ComponentPlan {
                 return false;
             };
             if slot.recipe.spec().resources.iter().any(|resource|matches!(resource,
-                zero_platform_tokio::contract::component::ResourceDeclaration::ControlledCarrierPool {..} | zero_platform_tokio::contract::component::ResourceDeclaration::ControlledMetadataCarrier {..})) {return true;}
+                zero_platform_tokio::contract::component::ResourceDeclaration::ControlledCarrierPool {..} | zero_platform_tokio::contract::component::ResourceDeclaration::ControlledAssociationPool { .. } | zero_platform_tokio::contract::component::ResourceDeclaration::ControlledMetadataCarrier {..})) {return true;}
             pending.extend(slot.dependency_instances());
         }
         false
@@ -88,7 +88,7 @@ impl ComponentPlan {
             };
             if slot.recipe.spec().resources.iter().any(|resource|!matches!(resource,
                 zero_platform_tokio::contract::component::ResourceDeclaration::File {..} |
-                zero_platform_tokio::contract::component::ResourceDeclaration::ControlledCarrierPool {..} |
+                zero_platform_tokio::contract::component::ResourceDeclaration::ControlledCarrierPool {..} | zero_platform_tokio::contract::component::ResourceDeclaration::ControlledAssociationPool { .. } |
                 zero_platform_tokio::contract::component::ResourceDeclaration::ControlledMetadataCarrier {..} |
                 zero_platform_tokio::contract::component::ResourceDeclaration::ControlledMetadataDatagram {..})
                 && !(matches!(resource, zero_platform_tokio::contract::component::ResourceDeclaration::ControlledNodeStream { .. })

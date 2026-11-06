@@ -86,6 +86,15 @@ pub enum ResourceDeclaration {
         datagram: bool,
         max_sockets: NonZeroUsize,
     },
+    /// One physical association owner: fixed control-stream endpoint plus one
+    /// protocol-negotiated Datagram peer per acquired control original. Both
+    /// originals consume this same total bound. The parent is authorization
+    /// lineage, never the Datagram's physical encapsulation origin.
+    ControlledAssociationPool {
+        endpoint: Destination,
+        dial: zero_traits::DialPolicy,
+        max_sockets: NonZeroUsize,
+    },
     /// Exact service-root UDP peer on the actual host network generation.
     /// Live, retiring and Unknown originals share this caller-assigned bound.
     /// Default dial/no preferred source port only; no business authority.

@@ -19,6 +19,8 @@ pub(super) struct Slot {
 }
 #[derive(Default)]
 pub(super) struct State {
+    pub(super) related_parent: Option<Weak<Slot>>,
+    pub(super) related_child: Option<Arc<Slot>>,
     pub(super) transferred_origin: bool,
     pub(super) loan: Option<Arc<AsyncMutex<super::loan::LoanOwner>>>,
     pub(super) loan_origin: Option<super::CarrierOrigin>,

@@ -65,7 +65,8 @@ impl CoverageBinding {
         Ok(match declaration {
             ResourceDeclaration::ControlledPacketDevice { .. } => Self::PacketDevice,
             ResourceDeclaration::ControlledOutboundDatagram { .. } => Self::RootDatagram,
-            ResourceDeclaration::ControlledCarrierPool { .. } => {
+            ResourceDeclaration::ControlledCarrierPool { .. }
+            | ResourceDeclaration::ControlledAssociationPool { .. } => {
                 Self::Carrier(DeclaredResourceKind::ControlledCarrierPool)
             }
             ResourceDeclaration::ControlledOutboundStream { .. } => {
