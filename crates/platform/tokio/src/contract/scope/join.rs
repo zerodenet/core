@@ -181,6 +181,9 @@ fn forward(source: Arc<ComponentError>) -> ComponentError {
     error.session = source.session;
     error.delivery = source.delivery;
     error.retry = source.retry;
+    if let Some(receipt) = source.cleanup_failure_receipt() {
+        error = error.with_cleanup_failure_receipt(receipt.clone());
+    }
     error.with_source(SharedFailure(source))
 }
 /// The sole constructor/completion site, called only from State::exit after a

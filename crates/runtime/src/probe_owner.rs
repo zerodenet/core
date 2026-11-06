@@ -86,6 +86,9 @@ fn retained(error: &Arc<ChannelError>) -> ChannelError {
     copy.session = error.session;
     copy.delivery = error.delivery;
     copy.retry = error.retry;
+    if let Some(receipt) = error.cleanup_failure_receipt() {
+        copy = copy.with_cleanup_failure_receipt(receipt.clone());
+    }
     copy.with_source(error.clone())
 }
 impl ProbeCall {
