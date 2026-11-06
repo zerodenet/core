@@ -111,3 +111,6 @@ mod vmess_grpc;
 
 #[cfg(feature = "vless")]
 mod ech;
+
+#[cfg(feature = "vless")]
+mod vless_grpc;
