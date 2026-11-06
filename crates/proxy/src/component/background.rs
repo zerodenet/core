@@ -19,6 +19,7 @@ use zero_platform_tokio::{
     EgressInterfaceControl,
 };
 
+pub(crate) mod grpc;
 mod pending;
 pub(crate) mod pool;
 pub(crate) mod stateless;

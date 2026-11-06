@@ -8,6 +8,9 @@ impl VlessAdapter {
         candidate: Option<&RuntimeConfig>,
         native: bool,
     ) -> bool {
+        if super::super::grpc::eligible(input) {
+            return super::super::grpc::selected(input, candidate, native);
+        }
         if super::super::native_input(input) {
             return true;
         }

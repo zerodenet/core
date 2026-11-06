@@ -48,6 +48,7 @@ use crate::runtime::udp_flow::managed::{
 #[derive(Debug, Default)]
 pub(crate) struct VlessAdapter {
     runtime: VlessTransportRuntime,
+    pub(crate) native_node_dns: bool,
 }
 
 #[cfg(feature = "vless")]
@@ -394,6 +395,7 @@ impl VlessAdapter {
             return reverse::claim(&self.runtime, outbound);
         }
         let OutboundLeafInput::Proxy {
+            config,
             outbound,
             endpoint,
             source_dir,
@@ -402,6 +404,20 @@ impl VlessAdapter {
         else {
             return None;
         };
+        if component::grpc::selected(outbound, Some(config), self.native_node_dns) {
+            // All enabled ordinary callers use the same role and actual pool;
+            // no legacy leaf may allocate a second original alongside it.
+            return Some(OutboundLeafClaim {
+                tcp_path: TCP_PATH,
+                tcp: None,
+                tcp_relay: None,
+                udp: None,
+                udp_relay: None,
+                #[cfg(feature = "raw-ip-runtime")]
+                packet: None,
+                packet_path: None,
+            });
+        }
         let options = outbound_options(outbound.tag(), endpoint, &outbound.protocol)?;
         let tcp_leaf =
             VlessOutboundLeaf::from_options_refs(source_dir, options.clone(), &self.runtime);
@@ -432,6 +448,16 @@ impl NamedProtocolAdapter for VlessAdapter {
     const PROTOCOL_NAME: &'static str = "vless";
     const FEATURE_NAME: &'static str = "vless";
 
+    fn validate_runtime_candidate(
+        &self,
+        config: &zero_config::RuntimeConfig,
+    ) -> Result<(), EngineError> {
+        let nodes = component::grpc::has_nodes(config);
+        let native = component::grpc::whole_selected(config, self.native_node_dns);
+        self.runtime
+            .validate_grpc_candidate(native, nodes && !native)
+            .map_err(|error| EngineError::Io(std::io::Error::other(error)))
+    }
     fn on_config_reloaded(&self, config: &zero_config::RuntimeConfig) {
         self.runtime.on_config_reloaded();
         for inbound in &config.inbounds {
