@@ -1,6 +1,7 @@
 //! The original one-task device loop, returning the original device for close.
 use super::task::SharedIo;
 use super::*;
+use zero_platform_tokio::contract::{ChannelError, Impact, Reason, Stage};
 use zero_stack::OwnedFragmentReassembler;
 use zero_tun::packet_memory::{NativeReadBuffer, NativeReadGrant};
 pub(super) enum DriverIo<D> {
@@ -18,15 +19,23 @@ impl<D> DriverIo<D> {
         }
     }
 }
+pub(super) struct NativeReadInput {
+    pub grant: NativeReadGrant,
+    pub pause: Option<super::pause::ReadCheckpoint>,
+}
 pub(super) async fn run<D: zero_tun::TunDevice + 'static>(
     device: D,
-    read_grant: NativeReadGrant,
+    input: NativeReadInput,
     mut rx: mpsc::Receiver<Write>,
     packets: Arc<PacketReturns>,
     sessions: Arc<session::Sessions>,
     mut stopped: watch::Receiver<bool>,
     mut activated: watch::Receiver<bool>,
 ) -> DriverIo<D> {
+    let NativeReadInput {
+        grant: read_grant,
+        pause,
+    } = input;
     let _completion = SessionCompletion(sessions.clone());
     let read_credit = ReadCredit(read_grant);
     while !*activated.borrow_and_update() {
@@ -43,6 +52,38 @@ pub(super) async fn run<D: zero_tun::TunDevice + 'static>(
     loop {
         tokio::select! {
             _ = stopped.changed() => break,
+            request=async {match &pause {Some(pause)=>pause.checkpoint.requested().await,None=>std::future::pending().await}}=>{
+                drop(buffer.take());
+                let pause=pause.as_ref().expect("same original driver checkpoint");
+                #[cfg(windows)]
+                let sdk_pause=match &pause.sdk {
+                    Some(control)=>tokio::select! {
+                        _=stopped.changed()=>break,
+                        _=pause.checkpoint.resumed(request)=>continue,
+                        result=control.pause()=>match result {
+                            Ok(paused)=>Some(paused),
+                            Err(source)=>{
+                                pause.checkpoint.acknowledge(request,Err(ChannelError::new(Stage::Prepare,Reason::Io,Impact::Component).with_source(source)));
+                                tokio::select! {_=stopped.changed()=>break,_=pause.checkpoint.resumed(request)=>{}}
+                                continue;
+                            }
+                        }
+                    },
+                    None=>{
+                        pause.checkpoint.acknowledge(request,Err(ChannelError::new(Stage::Prepare,Reason::StalePlan,Impact::Component)));
+                        tokio::select! {_=stopped.changed()=>break,_=pause.checkpoint.resumed(request)=>{}}
+                        continue;
+                    }
+                };
+                let idle=returning.is_none() && rx.is_empty() && fragments.pending_datagrams()==0
+                    && packets.quiescent() && sessions.logical_closed() && read_credit.0.workspace_returned();
+                #[cfg(windows)]
+                let idle=idle && sdk_pause.as_ref().is_some_and(|pause|pause.payload_returned());
+                pause.checkpoint.acknowledge(request,if idle {Ok(())}else{Err(ChannelError::new(Stage::Prepare,Reason::Capacity,Impact::Component).with_source(io::Error::new(io::ErrorKind::WouldBlock,"same Direct original still holds users or frames")))});
+                tokio::select! {_=stopped.changed()=>break,_=pause.checkpoint.resumed(request)=>{}}
+                #[cfg(windows)]
+                drop(sdk_pause);
+            },
             acquired = read_credit.0.buffer(), if buffer.is_none() && returning.is_none() => {
                 match acquired {
                     Ok(acquired) => buffer = Some(acquired),
@@ -167,7 +208,7 @@ async fn legacy_write<W: tokio::io::AsyncWrite + Unpin>(
 }
 mod owned;
 use owned::{owned_write, send_failure};
-use zero_platform_tokio::contract::{ChannelError, DeliveryState, Reason};
+use zero_platform_tokio::contract::DeliveryState;
 
 struct ReadCredit(NativeReadGrant);
 impl Drop for ReadCredit {

@@ -103,6 +103,7 @@ impl HostPacketDevice {
         let (pending, input_pending) = oneshot::channel();
         let packets = returns.clone();
         let logical = sessions.clone();
+        let (read_pause, checkpoint) = super::pause::ReadPause::new(tasks.scope_identity());
         let worker = task::DriverTask::scoped(tasks, async move {
             let mut pending = Some(pending);
             let mut native = Box::pin(native);
@@ -133,7 +134,14 @@ impl HostPacketDevice {
             view_ready.send_replace(true);
             let (returned, failure) = driver::run(
                 view,
-                grant.native_read,
+                driver::NativeReadInput {
+                    grant: grant.native_read,
+                    pause: Some(super::pause::ReadCheckpoint {
+                        checkpoint,
+                        #[cfg(windows)]
+                        sdk: grant.sdk_read_control,
+                    }),
+                },
                 rx,
                 packets,
                 logical,
@@ -156,11 +164,13 @@ impl HostPacketDevice {
             .with_source(source)
         })?;
         let witness = worker.witness().expect("same scoped original registration");
+        read_pause.bind(&witness)?;
         sessions
             .driver
             .set(witness.clone())
             .map_err(|_| failure(Reason::StalePlan, "same Packet driver already installed"))?;
         let device = Arc::new(Self {
+            read_pause: Some(read_pause),
             config,
             writes,
             returns,
@@ -202,6 +212,11 @@ impl HostPacketDevice {
         request: zero_platform_tokio::contract::packet::PacketRequest,
         context: zero_platform_tokio::contract::context::OpenContext,
     ) -> Result<zero_platform_tokio::contract::packet::BoxPacketSession, ChannelError> {
+        let _acquiring = self
+            .read_pause
+            .as_ref()
+            .map(|pause| pause.try_enter())
+            .transpose()?;
         if !self.usable()
             || self
                 .native_provider
