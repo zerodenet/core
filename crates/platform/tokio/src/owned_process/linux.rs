@@ -7,8 +7,8 @@ use std::{
     os::fd::AsRawFd,
     process::ExitStatus,
     sync::{
-        atomic::{AtomicU64, Ordering},
         Arc, Mutex,
+        atomic::{AtomicU64, Ordering},
     },
 };
 use tokio::io::unix::AsyncFd;
@@ -70,10 +70,14 @@ impl std::fmt::Debug for OwnedProcess {
 #[derive(Debug)]
 pub struct ProcessTreeClosed {
     token: u64,
+    had_native_acquisition: bool,
 }
 impl ProcessTreeClosed {
     pub fn matches(&self, original: &OwnedProcess) -> bool {
         self.token == original.token
+    }
+    pub fn had_native_acquisition(&self) -> bool {
+        self.had_native_acquisition
     }
 }
 impl OwnedProcess {

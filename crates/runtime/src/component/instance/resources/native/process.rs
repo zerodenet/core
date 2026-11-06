@@ -88,6 +88,7 @@ impl ProcessDeclarations {
                 first_fault: entry
                     .jobs
                     .iter()
+                    .filter(|job| job.original.closed().is_none())
                     .find_map(|job| job.original.first_failure())
                     .map(|source| {
                         Arc::new(
@@ -117,13 +118,15 @@ impl ProcessDeclarations {
         let mut report = CloseReport::default();
         for entry in self.lock().values_mut() {
             for job in &mut entry.jobs {
-                if job
+                if let Some(closed) = job
                     .original
                     .closed()
-                    .is_some_and(|closed| closed.matches(&job.original))
+                    .filter(|closed| closed.matches(&job.original))
                 {
                     if !job.reported {
-                        report.closed_io.push(format!("component {} process declaration {} actual tree and original descriptors closed", component.0, entry.ordinal));
+                        if closed.had_native_acquisition() {
+                            report.closed_io.push(format!("component {} process declaration {} actual tree and original descriptors closed", component.0, entry.ordinal));
+                        }
                         job.reported = true;
                     }
                 } else {
@@ -222,3 +225,6 @@ impl std::error::Error for ProcessFailure {
         Some(self.0.as_ref())
     }
 }
+#[cfg(test)]
+#[path = "../../../tests/native_process/owned.rs"]
+mod tests;

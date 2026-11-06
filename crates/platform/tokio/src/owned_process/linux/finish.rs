@@ -59,7 +59,10 @@ impl OwnedProcess {
                 "original process descriptor closure is unconfirmed",
             ));
         }
-        let closed = Arc::new(ProcessTreeClosed { token: self.token });
+        let closed = Arc::new(ProcessTreeClosed {
+            token: self.token,
+            had_native_acquisition: !state.originals.is_empty(),
+        });
         state.closed = Some(closed.clone());
         Ok(Some(closed))
     }

@@ -84,6 +84,20 @@ impl ResourceAccess for BoundResources {
             .ok_or_else(denied)?
             .spawn_process(request)
     }
+    #[cfg(target_os = "linux")]
+    fn prepare_owned_process(
+        &self,
+        request: zero_platform_tokio::contract::component::ProcessRequest,
+        tasks: &zero_platform_tokio::contract::scope::TaskRegistrar,
+    ) -> Result<Arc<zero_platform_tokio::owned_process::OwnedProcess>, BuildError> {
+        if !self.starting.load(Ordering::Acquire) || self.cancel.is_cancelled() {
+            return Err(denied());
+        }
+        self.process
+            .as_ref()
+            .ok_or_else(denied)?
+            .prepare_owned_process(request, tasks)
+    }
     fn open_inbound_file_tree(
         &self,
         caller: zero_platform_tokio::AcceptedCaller,
