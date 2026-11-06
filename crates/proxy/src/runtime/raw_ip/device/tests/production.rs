@@ -198,6 +198,8 @@ async fn ordinary_canonical_domain_stream_uses_real_target_dns_and_closes_origin
     exercise(true).await;
 }
 
+#[path = "production/replacement.rs"]
 mod replacement;
 
+#[path = "production/packet.rs"]
 mod packet;
