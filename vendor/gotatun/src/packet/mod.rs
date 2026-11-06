@@ -304,6 +304,19 @@ impl Packet<[u8]> {
         self.inner.buf.truncate(new_len);
     }
 
+    /// Actual retained allocation bytes, including an original pool guard that
+    /// can keep its old allocation alive after the current data buffer grows.
+    /// This observes Rust storage only; it grants no IO or native-close proof.
+    pub fn retained_allocation_bytes(&self) -> usize {
+        let capacity = self.inner.buf.capacity();
+        let Some((start, retained)) = self.inner._return_to_pool.as_ref().and_then(ReturnToPool::allocation_origin) else { return capacity; };
+        let current = self.inner.buf.as_ptr() as usize;
+        if current.checked_sub(start).is_some_and(|offset| offset <= retained && capacity <= retained - offset) {
+            retained
+        } else {
+            retained.saturating_add(capacity)
+        }
+    }
     /// Get direct mutable access to the backing buffer.
     pub fn buf_mut(&mut self) -> &mut BytesMut {
         &mut self.inner.buf
