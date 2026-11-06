@@ -222,12 +222,19 @@ impl AsyncWrite for OwnedH2Client {
         this.poll_reset(cx)?;
         let count = bytes.len().min(16 * 1024);
         this.send.reserve_capacity(count);
-        let available = std::task::ready!(this.send.poll_capacity(cx))
-            .ok_or_else(|| io::Error::from(io::ErrorKind::BrokenPipe))?
-            .map_err(io::Error::other)?;
-        if available == 0 {
-            return Poll::Pending;
-        }
+        // poll_capacity reports changes, not all still-available credit. Using
+        // it alone can park forever while this same stream already has credit.
+        let available = loop {
+            let available = this.send.capacity();
+            if available != 0 {
+                break available;
+            }
+            // A zero-capacity notification must be consumed, then polled again
+            // to register the actual next increase before returning Pending.
+            std::task::ready!(this.send.poll_capacity(cx))
+                .ok_or_else(|| io::Error::from(io::ErrorKind::BrokenPipe))?
+                .map_err(io::Error::other)?;
+        };
         let n = count.min(available);
         this.send
             .send_data(Bytes::copy_from_slice(&bytes[..n]), false)
