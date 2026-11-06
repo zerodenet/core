@@ -8,6 +8,25 @@
 Rust 1.99.0，当前同锁 SHA-256：
 `9026e3253d6a42c91cd557ee3ff95c2b1e93e46ba7749c707dec592e055ca6a1`。
 
+2026-11-06 22:53 UTC 更新（优先于下方所有历史输入）：
+
+| 精确实际 checkout / 必要命令 | 实际结果与不能替代的边界 |
+| --- | --- |
+| `aa6364c0caa31e1eaeb9ea20e38f1292d07fd303`，六包 all-features lib/bin no-run | exit101/582.58s，WG witness 私有访问及 Mieru 测试 RuntimeConfig import；`1c0ae919`/A `6f843f3b` 修复。保原日志 |
+| `03c6320dde3514931c40968116e868211ab597a1`，`cargo +1.99.0 test --locked -p zero -p zero-platform-tokio -p zero-runtime -p zero-proxy -p zero-dns -p zero-connector --all-features --lib --bin zero --no-run` | exit0/814.12s；随后复用该同一批产物串行定向。实际 lock 为上列同 SHA。此输入早于后续 sealed dependency/两阶段 Source/TUN capsule，不能证明新代码 |
+| 同 `03c6320d`：DNS VLESS stream 全组 / WG 全组 | 10 PASS；WG 3 PASS/5 FAIL（linked 初始 apply、warm 重复监听夹具）。原失败保存。SIP 1 FAIL（夹具误选 UDP owner）；DoH recovery 正确 module 1 FAIL（独立缓存退出顺序）；`7b6938f9` 修正待验。曾用错 module 的 zero-selected 结果不计通过 |
+| 同 `03c6320d`：DoQ / DoH callback / stateless 全测试组 | 6 PASS / 1 PASS / 3 PASS；后者为真实绝对期限、独立原任务 Host ACK、N1 custody。初次只选 preparation 的 1 PASS 不是全部三项，原命令均保留 |
+| 同 `03c6320d`：控制 services / bootstrap rule-set | 29 PASS / 3 PASS；仅 Linux 同产物职责，不代替 quota/inspect 全入口审计、真实 Windows/GUI、特权 TUN 或跨平台 |
+| 同 `03c6320d`：cold Source / late native view / 全局 Source budget / Mieru warm | 12 PASS / 实际 late 筛选 10 PASS / 1 PASS / 1 PASS。late 组包括同 Bound late-view/JoinACK/原件回收，不把筛选名称当全部是一个 target |
+| 同 `03c6320d`：普通 Business refused Domain / encrypted Packet budget | 各 1 FAIL：前者实际完整正确前缀但尾 1025 字节未交付，B 正修 H2 server native flush；后者初始 apply 5s 未完成，下一源保真实阶段诊断。未改期限、容量或断言 |
+| `e3e846c86c56c11af74f8228c3fb29da7d9bc1b1`，同六包 all-features `check --tests` | exit101/346.25s：dns_wire 的真实 backend future Send 类型深度和 TUN original Owner.request_stop 缺方法。A `7b6938f9` / M `6f40d307` 修复，未提高递归限制/栈；下一精确输入 `3ec3b64879ccfb7078188c5ccb394d3276704575` 类型检查仍排队执行 |
+
+本轮外部证据传输和同 head 最终 CI 尚未补齐，不具最终候选资格。源清单及原始日志由
+Git 外 run-v3 同一冻结 checkout 记录；现有失败/取消 CI 或其他提交结果不复用为资格。
+22:51 UTC REALITY 原目标仍 DNS errno -3，未更换目标/解析器；忽略/未执行项继续保留。
+
+以下 21:10 及更早内容为历史证据：
+
 2026-11-06 21:10 UTC 接续，仍无统一最终候选：
 
 | 精确输入 | 实际结果与限制 |

@@ -1,34 +1,35 @@
 # 第二轮续作：剩余生产调用者冻结
 
-## 当前续作状态 2026 11 06
+## 当前续作状态 2026 11 06 22:53 UTC
 
-本节优先于下方历史检查点；五个职责域均未结题。最近完成 Proxy 定向构建的输入为
-`1350aadf00f204082d6a3d93f5aa1f1a24024e87`；之后的完整生产接线继续定向验证，
-没有统一最终候选或最终 CI。续作 Draft PR 为 M #133、B #134、A #135、C #136，
-全部 base 为 integration；远端草稿是开发检查点，不能替代实际源码/验证输入。
-实际 remote integration 再核仍为 `59615e69ea5a413d657a873157ea4adf8f204a90`；
-本地普通续作保留原历史，不回退、覆盖 dirty 或强推。#128–#132 仅历史交付。
+2026-11-06 22:53 UTC 开发检查点。远端 integration 再核仍为
+`59615e69ea5a413d657a873157ea4adf8f204a90`；本地继续普通合入，不重写历史。
+实现输入已推进至 `3ec3b64879ccfb7078188c5ccb394d3276704575`，正在必要定向
+类型检查，尚无统一最终候选或同 head 最终 CI，五域均未完成。
 
-| 当前实际调用集合 / 唯一 owner | 本次已接线及精确前置 | 尚须完成的执行、删除和必要验证 |
+| 实际调用集合 / 唯一写入人 | 当前接通与证据 | 必须继续的实际实现和删除 |
 | --- | --- | --- |
-| A DNS：System、所有直接/绕行 backend、Node、持久 DoH、失败 retry | 原 Query/Blocking/池保持；A `20035c0476578a3c4f586e0727db1ccf36412ba4` 的匹配 QueryCall 和有界同错误 Arc 接收已合；M `23996e78` 与 C `334cbae` 接 Source UDP/TCP 实际调用者 | B 完整资源型 donor、C standalone WG/设备 donor 全到位后删除 ProxyDnsOutboundConnector、占位 Session、prepare_datagram_exchange；原 Pending 取消、后备、网络/配置换代和退出组合尚需验证 |
-| B SS/SIP：普通 TCP/UDP、共享响应 FIFO、实际 Process | B `5d11287509c44b87a2c7dedc9327ef849a146144` / `dfa38499` / `d324f749` 与 M `31a40deb` 同组合，删旧 runtime waiter/独立 response pump；M `04babdd4` 先付同 job 额度再建 Scope/actor | 1350 输入真实 UDP/空包/多目标已通过；maxJobs 夹具在配置校验发现重复监听而未执行 quota，B `1f18cc8a` 修真实监听键后仍须复验；保留历史轻量 key/cross-executor 和 macOS whole-job 实现缺口，不能称 SS 整体完成 |
-| B 全 transport/MUX/Mieru/mixed/device 与无 observer 消费者 | 同真实 Carrier/Metadata/Bound 总账，原 donor/control/Scope；M `85eee212` 抽取原 CA/File immutable 材料，`8a545c16` 只读实际旧 named instance | B `64234560`/`d432467e` 与 M 同材料/登记已接 VLESS 与 VMess 现有 TLS/WS/H2/Upgrade/gRPC 适用路径；尚须实际组合回归。其余 MUX、gRPC/H2/QUIC/XHTTP、mixed 和跨执行方式实际退休、完整 pre-delivery custody 及旧 executor/投影仍未全删。不得以 noFile/TCP 子集或关闭 gate 结题 |
-| C Packet/Direct、System TUN、独立 WG/适用进程 | 实际 Source pause、输入取得屏障、原 SDK async worker/TaskRegistrar、四类 return/native-read 预算已合；M `616911dc` Bound retirement 另等实际 driver registration ACK；C Source DNS 消费者与 M shared 已组合 | C `3ba424f2a660e3665cfdc65726cfef55c7e38f6d` 与 M `398f2ad7` 已接 standalone WG 真实 Bound provider/选中 peer/生产登记和原暂停凭据，三项实际回归未执行；实际 process lookup 原件/global总额在 `6e379cd8` 平台3+1项通过；macOS helper、完整TX所有生产者、Packet/MTU/计量和旧链删除仍在实现。ScopedSourceTasks 实际 ACK 两项在1350通过，新容量拒新回归待验。保留方向撤除与回滚旧 TCP 连续性 |
-| 控制 G8：Windows pipe、服务器/订阅、TLS、quota/inspect/持久化 | 首波后已复用 A/control；原 handle/std worker/Scope/native 与实际故障交接接线保留，Linux 历史真实控制恢复结果单列 | 当前组合的登记窗口修复及独立入口退出、恢复和同故障接收仍需复验；GNU 检查不等于真实 Windows。缺实现不改列平台待验 |
-| 预算 Z003-07：同 Host 各实际 owner | M/A 原 Carrier/Metadata/Bound 总额度和配置 StopOld；M `f73f2dd0` 同账本预付、实际 actor 与 Host ACK；原 SS 安全历史、TUN/Packet/worker 配置继续复用 | A `a46cdc21` 与 M 同 Process typed facts 和精确冷声明 gate 已合；warm cap 在 `2d563e22` 已实际通过。Source77 listener/accepted/UDP/metadata/ICMP producer已纳同总账，平台部分通过，真实Runtime/Proxy关闭窗口及普通换代待验；事件网络、完整TX、transport/SS 历史 key 边界仍需实际owner投影。pending/failed/retiring 不退款，不驱逐活跃业务或安全历史 |
+| DNS 全 backend、Query/Blocking、持久 DoH / A | `03c6320dde3514931c40968116e868211ab597a1` 同产物：普通 VLESS/VMess/Trojan DNS 10 项、standalone WG 3 项、DoQ 6 项、DoH 原锁外回调 1 项通过；保原 Query/池 | linked WG 初始 apply 超时；SIP 同 owner 夹具与 DoH 独立缓存退休断言修正 `7b6938f9` 待复验；B 完整 MUX/QUIC 等 donor、C TEMP 逻辑原件后完成全消费集合，才应用已准备的旧 DNS 桥/Session/prepare_datagram_exchange 删除片 |
+| 协议出站、所有共享载体 / B；共享契约 / M | 同产物普通 Business 拒绝地址已重试到真实目标，但最后 1025 字节缺失；同真实三层 Mieru warm borrower、有限 N1/实际 Auxiliary Host ACK/调用绝对期限通过。`3a63496e` sealed direct dependency StreamLoan、`8e2028db` 同 actual graph 去重容量与退休校验已接，尚无新运行资格 | 完整既有 gRPC→MUX 同池/材料借用接入，修 server H2 最后 DATA/END 的真实 flush；继续全部合法 transport/QUIC/XHTTP/mixed/device、跨执行方式、SS 安全历史额度与旧执行器/投影删除。不得以 gate 关闭或新接口结题 |
+| Packet、Direct、设备、TUN、进程 / C；公共 runtime / M | 同产物 Bound late view 实际回收、原 Source 全局预算换代通过；Packet 原路由预算回归在初始 apply 超时。`7ddffe05` 同原 Main/fenced acquisition→精确缓存 receiver StopOld→Wire census，保实际原计数和 Scope；C `72c57256` TUN 原 Control 恢复意图与原件链已合 | 首启真实阶段诊断 `3ec3b648` 待运行；TUN capsule 尚须接真正预算事务，保真实 egress 代次后重新准备实际 binding；完整预付 TX/SDK、8 项 Packet 配置实际 Root 消费、TEMP 实际软件 Root/独立 provider、受控 macOS helper、适用原进程及旧链删除仍继续 |
+| 控制 G8 / 复用 A-control；Host/跨域 / M | 同产物 Linux 控制恢复 29 项与原 bootstrap/rule-set 3 项通过，原 prep fault 接收与 Unknown 清理栅栏独立；Windows NamedPipe 原 handle/任务代码保留 | 初启 TLS、quota/inspect/lease/后台持久化全部独立实际入口继续逐 caller 审核，缺实现继续补；真实 Windows/GUI 同产物资格另验。29 项不能替代整域关闭 |
+| 预算 Z003-07 / M，协议私有投影 B/C/A | 同产物全局 Source 停旧、活跃业务 Busy 后旧 TCP 连续性、原安全历史和新 Source 真实 wire 通过；四项新增 Packet read/TX 可选 schema None 导出保持 | 每实例/身份/共享/总额的全部实际投影，包括完整 TX、WG/TUN worker/process、SS replay；pending/failed/retiring 继续计额。未消费的配置字段或内部常量不算完成 |
 
-B→A（实际 donor）及需要的 B→C 按上述和后续精确提交继续普通合入。所有共享源码由
-M 唯一写入；agent 仅给仓库外建议补丁。全部实现 PR base 为 r2-integration。
+Darwin 任意 SIP003 whole-job 缺口与运行环境待验分开：已保留 Apple 原始源码、
+许可证和不可变 blob SHA；公开 kqueue NOTE_TRACK/NOTE_CHILD 为 ENOTSUP，公开 ptrace
+无 follow-fork，coalition 所需真实权限不能由 euid0 替代。当前缺可用原生 job provider/
+授权，不能用 PID/pgid/EOF 假关闭或长期拒绝原本合法配置结题；其他内核实现继续。
+受控 TUN helper 的精确 peer/转交 ACK/exit 职责独立推进，不套用此阻点。
 
-当前验证锁 SHA-256 为
-`9026e3253d6a42c91cd557ee3ff95c2b1e93e46ba7749c707dec592e055ca6a1`；
-`.github/round2/candidate.Cargo.lock` 保存同字节输入，CI 的 round2 路径固定 actual head/
-Rust 1.99.0，并保留每 job 输入摘要、检测锁变更，未据此取得任何运行资格。
-开发原始证据归档已生成（非最终资格）；Pages 上传返回 outcome unknown，尚无已确认
-可下载的文件引用，不以 `/workspace` 路径代替交付。最终必须补齐可取得的归档和摘要。
-REALITY 原 `www.cloudflare.com` 目标、断言和期限保持，环境 DNS 恢复后仍须原项复验。
-TEMP-WG-OUTER-UDP-01 仅原 outer_udp_proxy/reconnect 范围保留未关闭、不纠正不扩大。
+Rust 固定 1.99.0；同一 Cargo.lock SHA-256
+`9026e3253d6a42c91cd557ee3ff95c2b1e93e46ba7749c707dec592e055ca6a1`。
+原始输入/逐文件 SHA、实际工具、完整命令、结束码、日志及同产物摘要均保留在 Git 外。
+原始证据可下载交付仍有外部缺口：Pages 早先上传 outcome unknown，无已确认 FileID；
+GitHub REST/GraphQL Forbidden。已请求可写上传位置，未以云端绝对路径冒充下载。
+REALITY 原 `www.cloudflare.com` 22:51 UTC 仍 getaddrinfo errno -3；保原目标/断言/期限，
+恢复后原项复验。唯一 TEMP-WG-OUTER-UDP-01 仍只含原 outer_udp_proxy/reconnect 历史。
+续作 PR #133/#134/#135/#136 均 Draft、base integration，只有 M 串行合入；不入 develop/main、
+不发布部署。下方全部先前内容为历史记录，不能冒充最新输入资格。
 
 ## 以下为历史调用者盘点与开发检查点
 
