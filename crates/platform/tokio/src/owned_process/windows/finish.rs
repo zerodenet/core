@@ -29,6 +29,15 @@ impl OwnedProcess {
                         )
                     })?;
             }
+            // The first inline probe close may precede its actual actor's
+            // return. Once that exact join is consumed, progress the same
+            // retained originals again within the original cleanup deadline.
+            if let Some(endpoint) = self.endpoint() {
+                endpoint
+                    .shutdown(deadline)
+                    .await
+                    .map_err(io::Error::other)?;
+            }
             self.try_finish()
         }
         .await;
