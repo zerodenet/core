@@ -124,7 +124,7 @@ async fn run(secure: bool, borrowed: bool) {
             .open(
                 assembly.actual,
                 zero_transport::grpc::Demand {
-                    deadline: deadline(),
+                    deadline: Some(deadline()),
                     cancel: CancellationToken::new(),
                     binding: assembly.upstream.binding().clone(),
                 },

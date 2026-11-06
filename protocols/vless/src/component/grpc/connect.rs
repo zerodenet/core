@@ -42,14 +42,6 @@ impl Outbound {
                 DeliveryState::NotSubmitted,
             ));
         }
-        let deadline = context.deadline.ok_or_else(|| {
-            self.admission.error(
-                session,
-                Stage::Prepare,
-                Reason::Unsupported,
-                DeliveryState::NotSubmitted,
-            )
-        })?;
         let options = &self.options.prepared.protocol;
         let bytes = crate::outbound::build_tcp_request_to(
             &request.destination.address,
@@ -70,7 +62,7 @@ impl Outbound {
         let opening = self.options.prepared.pool.open(
             self.pool,
             zero_transport::grpc::Demand {
-                deadline,
+                deadline: context.deadline,
                 cancel: context.cancel.clone(),
                 binding: context.upstream.binding().clone(),
             },
