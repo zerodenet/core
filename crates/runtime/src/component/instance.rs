@@ -250,15 +250,24 @@ impl ComponentSlot {
     /// Cold activation policy only. This mints no Process/native capability.
     pub(in crate::component) fn demand_process_endpoint_ordinal(&self) -> Option<usize> {
         let spec = self.recipe.spec();
-        if !spec.roles.is_empty() || spec.task_limit.is_none() {
+        use zero_platform_tokio::contract::component::ResourceDeclaration;
+        if !spec.roles.is_empty() || spec.task_limit.map(|limit| limit.get()) != Some(1) {
             return None;
         }
-        spec.resources.iter().find_map(|resource|match resource {
-            zero_platform_tokio::contract::component::ResourceDeclaration::ProcessEndpoint{process_ordinal,..}
-                if matches!(spec.resources.get(*process_ordinal),Some(zero_platform_tokio::contract::component::ResourceDeclaration::Process{max_starts,..}) if max_starts.get()==1)=>Some(*process_ordinal),
-            _=>None,
-        })
+        // Only the existing finite Process + its matching Endpoint may defer
+        // activation. Other resourceful roleless components retain their
+        // normal start order; this is not a generic lazy-resource policy.
+        match spec.resources.as_slice() {
+            [
+                ResourceDeclaration::Process { max_starts, .. },
+                ResourceDeclaration::ProcessEndpoint {
+                    process_ordinal: 0, ..
+                },
+            ] if max_starts.get() == 1 => Some(0),
+            _ => None,
+        }
     }
+
     pub(in crate::component) fn is_unbuilt_demand_process(&self) -> bool {
         self.demand_process_endpoint_ordinal().is_some()
             && self.live.get().is_none()
@@ -340,7 +349,9 @@ impl ComponentSlot {
     pub fn revoke(&self) {
         self.cancel.cancel();
         #[cfg(any(target_os = "linux", windows))]
-        if let Some(paid) = self.prepaid_process.get() { paid.request_stop(); }
+        if let Some(paid) = self.prepaid_process.get() {
+            paid.request_stop();
+        }
         self.users.revoke();
         if let Some(Ok(live)) = self.live.get() {
             live.tasks.begin_shutdown();
