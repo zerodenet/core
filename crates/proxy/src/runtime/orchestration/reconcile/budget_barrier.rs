@@ -5,15 +5,36 @@ use zero_config::{InboundConfig, RuntimeConfig};
 use zero_engine::EngineError;
 use zero_platform_tokio::contract::BoxFuture;
 
+pub(in crate::runtime) fn carrier_budget_changed(
+    old: &RuntimeConfig,
+    next: &RuntimeConfig,
+) -> bool {
+    old.runtime.effective_carrier_max_total_originals()
+        != next.runtime.effective_carrier_max_total_originals()
+}
 pub(in crate::runtime) fn ss_budget_changed(old: &RuntimeConfig, next: &RuntimeConfig) -> bool {
-    if old.runtime.effective_process_max_jobs() != next.runtime.effective_process_max_jobs()
-        || old.runtime.effective_process_max_jobs_per_instance()
-            != next.runtime.effective_process_max_jobs_per_instance()
-    {
+    if carrier_budget_changed(old, next) {
+        return true;
+    }
+    if ss_source_budget_changed(old, next) {
         return true;
     }
     #[cfg(feature = "raw-ip-runtime")]
     if packet_budget_changed(old, next) {
+        return true;
+    }
+    false
+}
+// Physical SS Source replacement is required only for these actual source
+// proposals, not for a cap on providers to which that Source merely lends work.
+pub(in crate::runtime) fn ss_source_budget_changed(
+    old: &RuntimeConfig,
+    next: &RuntimeConfig,
+) -> bool {
+    if old.runtime.effective_process_max_jobs() != next.runtime.effective_process_max_jobs()
+        || old.runtime.effective_process_max_jobs_per_instance()
+            != next.runtime.effective_process_max_jobs_per_instance()
+    {
         return true;
     }
     let configured = old
@@ -26,14 +47,19 @@ pub(in crate::runtime) fn ss_budget_changed(old: &RuntimeConfig, next: &RuntimeC
             .iter()
             .chain(&next.outbounds)
             .any(|input| input.protocol.protocol_name() == "shadowsocks");
+    let responses_changed = old.runtime.effective_ss_udp_max_pending_responses()
+        != next.runtime.effective_ss_udp_max_pending_responses()
+        || old.runtime.effective_ss_udp_total_max_pending_responses()
+            != next.runtime.effective_ss_udp_total_max_pending_responses();
     configured
-        && match (
-            zero_runtime::configuration::SsSecurityBudgetLimits::from_runtime(&old.runtime),
-            zero_runtime::configuration::SsSecurityBudgetLimits::from_runtime(&next.runtime),
-        ) {
-            (Ok(old), Ok(next)) => old != next,
-            _ => true,
-        }
+        && (responses_changed
+            || match (
+                zero_runtime::configuration::SsSecurityBudgetLimits::from_runtime(&old.runtime),
+                zero_runtime::configuration::SsSecurityBudgetLimits::from_runtime(&next.runtime),
+            ) {
+                (Ok(old), Ok(next)) => old != next,
+                _ => true,
+            })
 }
 
 #[cfg(feature = "raw-ip-runtime")]
@@ -61,12 +87,13 @@ pub(super) async fn pause_sources(
     let packet_changed = packet_budget_changed(previous, next);
     #[cfg(not(feature = "raw-ip-runtime"))]
     let _ = next;
+    let carrier_changed = carrier_budget_changed(previous, next);
     let mut pauses = Vec::new();
     for input in &previous.inbounds {
         let Some(original) = proxy.inbound_owners.owner(&input.tag) else {
             continue;
         };
-        let needed = input.protocol.protocol_name() == "shadowsocks";
+        let needed = carrier_changed || input.protocol.protocol_name() == "shadowsocks";
         #[cfg(feature = "raw-ip-runtime")]
         let needed = needed || packet_changed && original.has_packet_source_pause();
         if !needed {
@@ -82,7 +109,7 @@ pub(super) async fn pause_sources(
         }
     }
     #[cfg(feature = "raw-ip-runtime")]
-    if packet_changed {
+    if packet_changed || carrier_changed {
         if let Some(original) = proxy
             .inbound_owners
             .owner(crate::runtime::inbound_owners::system_tun::SYSTEM_TUN_OWNER)
@@ -98,7 +125,7 @@ pub(super) async fn pause_sources(
         }
     }
     #[cfg(feature = "raw-ip-runtime")]
-    let direct = if packet_changed {
+    let direct = if packet_changed || carrier_changed {
         proxy
             .protocols
             .pause_direct_packet_if_idle(

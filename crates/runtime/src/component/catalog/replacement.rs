@@ -42,6 +42,7 @@ pub(super) struct Replacement {
     dependencies: BTreeMap<ComponentInstanceId, BTreeSet<ComponentInstanceId>>,
     terminal: OnceLock<Arc<DeclaredComponentTerminal>>,
     released: Mutex<publication::Publication>,
+    budget_pause: OnceLock<ReplacementUsersPause>,
 }
 impl Replacement {
     pub(super) fn new(
@@ -157,6 +158,7 @@ impl Replacement {
             dependencies,
             terminal: OnceLock::new(),
             released: Mutex::new(publication::Publication::Pending),
+            budget_pause: OnceLock::new(),
         })
     }
     pub(super) fn owned_plans(&self) -> impl Iterator<Item = &Arc<ComponentPlan>> {
@@ -250,3 +252,15 @@ impl Replacement {
 #[cfg(test)]
 #[path = "../tests/replacement.rs"]
 mod tests;
+
+impl Replacement {
+    pub(super) fn retains_budget_pause(&self) -> bool {
+        self.budget_pause.get().is_some()
+    }
+    pub(super) fn retain_budget_pause(&self, pause: ReplacementUsersPause) {
+        assert!(
+            self.budget_pause.set(pause).is_ok(),
+            "same actual replacement owns its pause once"
+        );
+    }
+}

@@ -50,6 +50,7 @@ pub(super) fn order_with_loans(
                 !previous.can_reuse()
                     || slot.generation != previous.generation
                     || slot.recipe.spec() != previous.recipe.spec()
+                    || slot.recipe.carrier_total_limit() != previous.recipe.carrier_total_limit()
                     || slot.dial != previous.dial
             })
         })

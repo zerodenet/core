@@ -221,6 +221,8 @@ impl OrchestrationState {
         let start_services = &candidate_tcp_services;
         let start_preparing = &preparing;
         let start_retained = &retained_for_binding;
+        let ss_source_budget_changed =
+            budget_barrier::ss_source_budget_changed(self.applied_snapshot.config(), &new_config);
         let output_resources = &mut prepared_resources;
         let inbound_result = listeners::reconcile_inbounds_with_before_bind(
             &proxy.protocols,
@@ -238,16 +240,17 @@ impl OrchestrationState {
                 if budget_changed {
                     if !stopped.matches_candidate(start_config) {
                         return Err(zero_engine::EngineError::Io(std::io::Error::other(
-                            "SS budget StopOld names another actual candidate",
+                            "original budget StopOld names another actual candidate",
                         )));
                     }
                     for input in start_retained {
-                        if input.1.protocol.protocol_name() == "shadowsocks"
+                        if ss_source_budget_changed
+                            && input.1.protocol.protocol_name() == "shadowsocks"
                             && stopped.terminal(input.0).is_none()
                             && !stopped.owner_was_absent(input.0)
                         {
                             return Err(zero_engine::EngineError::Io(std::io::Error::other(
-                                "SS budget source lacks its original StopOld receipt",
+                                "original budget source lacks its original StopOld receipt",
                             )));
                         }
                     }

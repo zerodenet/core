@@ -12,7 +12,7 @@ pub(in crate::component) struct Users {
     component: ComponentId,
     enabled: OnceLock<bool>,
     active: AtomicUsize,
-    admission_paused: std::sync::Mutex<bool>,
+    admission_paused: std::sync::Mutex<usize>,
     cancel: CancellationToken,
     changed: Notify,
 }
@@ -20,7 +20,14 @@ pub(in crate::component) struct Users {
 pub(in crate::component) struct PausedUsers(Arc<Users>);
 impl Drop for PausedUsers {
     fn drop(&mut self) {
-        *self.0.admission_paused.lock().expect("user admission poisoned") = false;
+        let mut paused = self
+            .0
+            .admission_paused
+            .lock()
+            .expect("user admission poisoned");
+        *paused = paused
+            .checked_sub(1)
+            .expect("one actual pause credit per guard");
     }
 }
 pub(in crate::component) struct Lease {
@@ -43,7 +50,7 @@ impl Users {
             component,
             enabled: OnceLock::new(),
             active: AtomicUsize::new(0),
-            admission_paused: std::sync::Mutex::new(false),
+            admission_paused: std::sync::Mutex::new(0),
             cancel: CancellationToken::new(),
             changed: Notify::new(),
         }
@@ -63,9 +70,15 @@ impl Users {
         }
     }
     fn acquire(&self) -> Result<(), ChannelError> {
-        let paused = self.admission_paused.lock().expect("user admission poisoned");
-        if *paused {
-            return Err(invalid(Reason::StalePlan, "component users paused for replacement"));
+        let paused = self
+            .admission_paused
+            .lock()
+            .expect("user admission poisoned");
+        if *paused != 0 {
+            return Err(invalid(
+                Reason::StalePlan,
+                "component users paused for replacement",
+            ));
         }
         let mut count = self.active.load(Ordering::Acquire);
         loop {
@@ -84,11 +97,19 @@ impl Users {
         }
     }
     pub(in crate::component) fn try_pause(self: &Arc<Self>) -> Result<PausedUsers, ChannelError> {
-        let mut paused = self.admission_paused.lock().expect("user admission poisoned");
-        if *paused || self.active.load(Ordering::Acquire) != 0 {
-            return Err(invalid(Reason::Capacity, "replacement retains active component users"));
+        let mut paused = self
+            .admission_paused
+            .lock()
+            .expect("user admission poisoned");
+        if self.active.load(Ordering::Acquire) != 0 {
+            return Err(invalid(
+                Reason::Capacity,
+                "replacement retains active component users",
+            ));
         }
-        *paused = true;
+        *paused = paused
+            .checked_add(1)
+            .ok_or_else(|| invalid(Reason::Capacity, "user pause count exhausted"))?;
         Ok(PausedUsers(self.clone()))
     }
     #[cfg(test)]

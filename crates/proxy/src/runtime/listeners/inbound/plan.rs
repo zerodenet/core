@@ -67,7 +67,7 @@ pub(super) fn prepare(
             && protocols
                 .inbound_listener_requires_restart(&runtime_factory.listener_config(inbound))?;
         let replay_budget_changed = inbound.protocol.protocol_name() == "shadowsocks"
-            && crate::runtime::orchestration::ss_budget_changed(&previous_config, config);
+            && crate::runtime::orchestration::ss_source_budget_changed(&previous_config, config);
         let reuse = running
             && !mode_changed
             && !replay_budget_changed

@@ -16,7 +16,13 @@ fn actual_owner_budgets_are_optional_finite_and_preserve_omitted_export_shape() 
         usize,
         usize,
     );
-    let fields: [BudgetField; 30] = [
+    let fields: [BudgetField; 31] = [
+        (
+            "carrier_max_total_originals",
+            RuntimeOptionsConfig::effective_carrier_max_total_originals,
+            1024,
+            65536,
+        ),
         (
             "ss_udp_max_pending_responses",
             RuntimeOptionsConfig::effective_ss_udp_max_pending_responses,

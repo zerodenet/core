@@ -520,6 +520,11 @@ fn validate_runtime(
             )));
         }
     }
+    if !(1..=65536).contains(&runtime.effective_carrier_max_total_originals()) {
+        return Err(ConfigError::InvalidRuntime(
+            "runtime.carrier_max_total_originals must be between 1 and 65536".into(),
+        ));
+    }
     if !(1..=4096).contains(&runtime.effective_native_stream_max_originals()) {
         return Err(ConfigError::InvalidRuntime(
             "runtime.native_stream_max_originals must be between 1 and 4096".into(),

@@ -4,6 +4,7 @@ use zero_platform_tokio::contract::{
     lifecycle::BuildError,
 };
 
+pub(in crate::component) mod accounting;
 mod bound_datagram;
 
 trait BuildRecipe: Send + Sync {
@@ -26,6 +27,7 @@ pub struct ComponentRecipe {
     spec: Arc<ComponentSpec>,
     recipe: Arc<dyn BuildRecipe>,
     bound_datagrams: Arc<[bound_datagram::NativeBinding]>,
+    carrier_total: Option<usize>,
 }
 impl ComponentRecipe {
     /// Options have already been validated by their owning factory/adapter.
@@ -36,6 +38,7 @@ impl ComponentRecipe {
             spec,
             recipe: Arc::new(Prepared { factory, options }),
             bound_datagrams: Arc::from([]),
+            carrier_total: None,
         }
     }
     pub fn spec(&self) -> &ComponentSpec {

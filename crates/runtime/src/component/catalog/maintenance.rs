@@ -75,6 +75,10 @@ impl ComponentCatalog {
         let plan = self
             .prepare(config.clone())
             .map_err(super::super::instance::retained)?;
+        // No current runtime-owned generation exists on this path. Prior
+        // maintenance was actually closed above, not inferred from cold inputs.
+        self.original_budgets()
+            .install_original_limits(&config.runtime)?;
         {
             let mut state = self.state.lock().expect("component catalog poisoned");
             state.staged = Some(Current {

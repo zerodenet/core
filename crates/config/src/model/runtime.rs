@@ -16,6 +16,11 @@ pub struct RuntimeOptionsConfig {
     /// Four by default, shared by its pending and delivered carrier uses.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub native_stream_max_originals: Option<usize>,
+    /// Actual pending, failed and retiring carrier custody reservations across
+    /// this one Host. Default1024, on demand. Distinct from FD/socket count,
+    /// per-role N, per-protocol pool N and logical user/task/byte limits.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub carrier_max_total_originals: Option<usize>,
     /// Actual native process jobs across this kernel, including pending,
     /// failed and retiring originals. Allocated on demand; 64 by default.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -171,6 +176,7 @@ impl Default for RuntimeOptionsConfig {
             file_read_max_bytes: None,
             native_mux_max_carriers: None,
             native_stream_max_originals: None,
+            carrier_max_total_originals: None,
             process_max_jobs: None,
             process_max_jobs_per_instance: None,
             mieru_max_carriers: None,
@@ -227,6 +233,9 @@ impl RuntimeOptionsConfig {
     }
     pub fn effective_process_max_jobs_per_instance(&self) -> usize {
         self.process_max_jobs_per_instance.unwrap_or(1)
+    }
+    pub fn effective_carrier_max_total_originals(&self) -> usize {
+        self.carrier_max_total_originals.unwrap_or(1024)
     }
     pub fn effective_native_stream_max_originals(&self) -> usize {
         self.native_stream_max_originals.unwrap_or(4)

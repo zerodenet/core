@@ -160,3 +160,24 @@ async fn cached_retired_role_handles_do_not_keep_actual_protocol_roles_or_recipe
     drop(cached);
     catalog.shutdown(deadline()).await.unwrap();
 }
+
+#[test]
+fn same_actual_idle_user_root_retains_nested_catalog_and_source_pauses_without_admission_gap() {
+    let users = Arc::new(Users::new(ComponentId(72)));
+    users.bind(true);
+    let admitted = users.enter(Some(SessionId(91))).unwrap().unwrap();
+    assert!(users.try_pause().is_err());
+    drop(admitted);
+    let source = users.try_pause().unwrap();
+    let catalog = users.try_pause().unwrap();
+    assert!(users.enter(Some(SessionId(92))).is_err());
+    drop(source);
+    assert!(
+        users.enter(Some(SessionId(93))).is_err(),
+        "same real catalog guard still holds admission"
+    );
+    drop(catalog);
+    let actual = users.enter(Some(SessionId(94))).unwrap().unwrap();
+    drop(actual);
+    assert_eq!(users.active.load(Ordering::Acquire), 0);
+}

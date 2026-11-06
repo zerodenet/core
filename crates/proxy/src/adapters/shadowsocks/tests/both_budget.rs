@@ -18,6 +18,14 @@ async fn socks(endpoint: std::net::SocketAddr) -> TcpStream {
 
 #[tokio::test]
 async fn source_and_outbound_budget_change_rejects_before_revoking_any_admitted_original_user() {
+    actual_budget_change(false).await;
+}
+#[tokio::test]
+async fn whole_kernel_custody_shrink_pauses_all_sources_keeps_live_business_and_original_security_history(
+) {
+    actual_budget_change(true).await;
+}
+async fn actual_budget_change(global: bool) {
     tokio::time::timeout(Duration::from_secs(25), async {
         for with_source in [false, true] {
             let source_reservation = crate::socket_fixture::tcp_udp();
@@ -48,6 +56,9 @@ async fn source_and_outbound_budget_change_rejects_before_revoking_any_admitted_
                 let owner = loop { if let Some(owner) = registry.owner("salt-source") { break owner; } tokio::task::yield_now().await; };
                 phase.watch(owner.clone()); owner.wait_ready().await.unwrap(); Some(owner)
             } else {None};
+            let entry_scope = entry.original_scope_for_test();
+            let local_scope = local.as_ref().map(|owner| owner.original_scope_for_test());
+            let entry_native_address = *entry.original_listener_address.get().expect("same bound native listener");
             let handle = crate::ProxyHandle::new(zero_engine::EngineHandle::new(proxy.engine().clone()),proxy.clone());
             handle.apply_runtime_config_and_wait((*proxy.engine().config()).clone(), Duration::from_secs(5)).await.unwrap();
             let target = TcpListener::bind("127.0.0.1:0").await.unwrap();
@@ -77,11 +88,15 @@ async fn source_and_outbound_budget_change_rejects_before_revoking_any_admitted_
             let (mut front, mut server) = (front, server);
             let mut bytes = [0;4]; front.read_exact(&mut bytes).await.unwrap(); assert_eq!(&bytes,b"back");
             let outbound_original = originals::Original::capture(&proxy, Some("ss-out"));
+            let total = proxy.protocols.runtime_host().original_budgets();
+            let replay = if global { Some(replay_slot(&proxy)) } else { None };
+            if global { assert_eq!(total.carrier.snapshot().limit.get(),1024); assert!(total.carrier.snapshot().charged >= 1); }
             let mut candidate = (*proxy.engine().config()).clone();
-            candidate.runtime.ss_tcp_replay_max_salts = Some(initial_total+1);
+            if global { candidate.runtime.carrier_max_total_originals = Some(8); }
+            else { candidate.runtime.ss_tcp_replay_max_salts = Some(initial_total+1); }
             phase.set("active original user: await cold Busy rejection");
             assert!(handle.apply_runtime_config_and_wait(candidate,Duration::from_secs(5)).await.is_err(),
-                "growing budget must not revoke already admitted Source/outbound users to obtain StopOld");
+                "changing budget must not revoke already admitted Source/outbound users to obtain StopOld");
             assert!(Arc::ptr_eq(&entry,&registry.owner("entry").unwrap()));
             if let Some(owner) = &local { assert!(Arc::ptr_eq(owner,&registry.owner("salt-source").unwrap())); }
             phase.set("Busy rejected: all existing original directions stay live");
@@ -105,18 +120,44 @@ async fn source_and_outbound_budget_change_rejects_before_revoking_any_admitted_
             if let Some(owner) = &local { originals::accepted(owner); }
             if let Some(original) = &incoming_original { original.assert_native_closed(); }
             let mut idle_grow = (*proxy.engine().config()).clone();
-            idle_grow.runtime.ss_tcp_replay_max_salts = Some(initial_total+1);
+            if global { idle_grow.runtime.carrier_max_total_originals = Some(8); }
+            else { idle_grow.runtime.ss_tcp_replay_max_salts = Some(initial_total+1); }
             phase.set("idle growth: await StopOld and replacement ACK");
             handle.apply_runtime_config_and_wait(idle_grow, Duration::from_secs(5)).await.unwrap();
             phase.set("growth ACK: original native and Scope facts");
             if let Some(owner) = &local {
+                if global {
+                    let current = registry.owner("salt-source").unwrap();
+                    assert!(Arc::ptr_eq(owner, &current),"global-only cap does not replace an uncharged SS Source");
+                    assert_eq!(owner.identity(),current.identity());
+                    let original = local_scope.as_ref().unwrap();
+                    assert!(original.same_scope(&current.original_scope_for_test()));
+                    assert!(original.resource_open());
+                    assert!(owner.is_running());
+                    assert!(owner.terminal_for_test().is_none(),"retained Source is not fabricated as closed");
+                } else {
                 let closed = owner.terminal_for_test().expect("same old SS Source native/Scope retired before shared outbound budget ACK");
                 assert_eq!(closed.identity(), owner.identity());
                 originals::source_closed(owner, 3);
                 assert_ne!(owner.identity(), registry.owner("salt-source").unwrap().identity());
+                }
             }
             outbound_original.assert_owner_closed();
-            assert_eq!(proxy.engine().config().runtime.effective_ss_tcp_replay_max_salts(), initial_total+1);
+            assert_eq!(proxy.engine().config().runtime.effective_ss_tcp_replay_max_salts(), if global {initial_total} else {initial_total+1});
+            if global {
+                assert!(Arc::ptr_eq(&total,&proxy.protocols.runtime_host().original_budgets()));
+                assert_eq!(total.carrier.snapshot().limit.get(),8);
+                assert_eq!(total.carrier.snapshot().charged,0,"real old caller/driver ACK and native/users debts settled before cap install");
+                assert!(Arc::ptr_eq(replay.as_ref().unwrap(),&replay_slot(&proxy)),"same actual security book/maintenance survives accounting-only replacement");
+                let current = registry.owner("entry").unwrap();
+                assert!(Arc::ptr_eq(&entry, &current),"same uncharged non-SS listener retains its exact original owner");
+                assert_eq!(entry.identity(),current.identity());
+                assert!(entry_scope.same_scope(&current.original_scope_for_test()));
+                assert!(entry_scope.resource_open());
+                assert_eq!(current.original_listener_address.get(),Some(&entry_native_address));
+                assert!(entry.is_running());
+                assert!(entry.terminal_for_test().is_none(),"pause is not a native or Scope close receipt");
+            }
             let replacement = registry.owner("salt-source");
             phase.set("final original graph shutdown and matching receipts");
             running.shutdown().await.unwrap();
@@ -128,4 +169,13 @@ async fn source_and_outbound_budget_change_rejects_before_revoking_any_admitted_
             outbound_original.assert_owner_closed();
         }
     }).await.unwrap();
+}
+
+fn replay_slot(proxy: &crate::Proxy) -> Arc<crate::component::instance::ComponentSlot> {
+    let plan = proxy.tcp_runtime_services().components.clone().unwrap();
+    let outbound = plan.configured("ss-out").unwrap();
+    outbound.recipe.spec().dependencies.iter().filter_map(|id| plan.component(*id)).find(|slot| {
+        matches!(&slot.recipe.spec().owner, zero_platform_tokio::contract::component::ResourceOwner::Endpoint(owner)
+            if owner.as_ref() == "shadowsocks.tcp2022.replay")
+    }).expect("actual shared TCP2022 history and one maintenance owner")
 }

@@ -1,4 +1,7 @@
 //! Cold preparation and bounded current-plan storage for migrated components.
+#[cfg(test)]
+#[path = "tests/accounting.rs"]
+mod accounting_tests;
 mod cold;
 mod devices;
 mod discard;

@@ -1,4 +1,5 @@
 //! Typed cold preparation of canonical roleless resource owners.
+mod accounting;
 mod device_aliases;
 mod identities;
 use super::{dependencies, instance::invalid, ComponentRecipe};
@@ -19,6 +20,7 @@ use zero_platform_tokio::contract::{
 struct Key {
     namespace: &'static str,
     identity: Arc<[u8]>,
+    accounting_limit: Option<usize>,
 }
 
 /// A real host-assigned identity and its state-only resource recipe.
@@ -115,7 +117,11 @@ impl<'a> ResourcePreparation<'a> {
                 .previous_slots
                 .iter()
                 .find(|node| node.id == id)?;
-            if candidate.fresh || !old.can_reuse() || candidate.recipe.spec() != old.recipe.spec() {
+            if candidate.fresh
+                || !old.can_reuse()
+                || candidate.recipe.spec() != old.recipe.spec()
+                || candidate.recipe.carrier_total_limit() != old.recipe.carrier_total_limit()
+            {
                 return None;
             }
             for dependency in old.dependency_instances().iter().chain(
@@ -148,8 +154,12 @@ impl<'a> ResourcePreparation<'a> {
         if self.ensure_valid().is_err() {
             return false;
         }
+        let Ok(accounting_limit) = self.carrier_total_limit_for(spec) else {
+            return false;
+        };
         let key = Key {
             namespace,
+            accounting_limit,
             identity: spec.static_identity.clone(),
         };
         if self
@@ -165,7 +175,11 @@ impl<'a> ResourcePreparation<'a> {
         let Some(old) = self.previous_slots.iter().find(|slot| slot.id == *id) else {
             return false;
         };
-        if !old.can_reuse() || old.recipe.spec() != spec || !old.matches_scope_identity(scope) {
+        if !old.can_reuse()
+            || old.recipe.spec() != spec
+            || old.recipe.carrier_total_limit() != accounting_limit
+            || !old.matches_scope_identity(scope)
+        {
             return false;
         }
         old.dependency_instances()
@@ -347,8 +361,10 @@ impl<'a> ResourcePreparation<'a> {
                 "component namespace is empty",
             ));
         }
+        let recipe = self.project_carrier_total(recipe)?;
         let key = Key {
             namespace,
+            accounting_limit: recipe.carrier_total_limit(),
             identity: recipe.spec().static_identity.clone(),
         };
         if let Some(existing) = self.resources.get(&key) {

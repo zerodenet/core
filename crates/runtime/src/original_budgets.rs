@@ -11,10 +11,30 @@ pub struct HostOriginalBudgets {
     pub packet: std::sync::Arc<zero_tun::packet_memory::PacketReturnTotals>,
 }
 impl HostOriginalBudgets {
-    pub(crate) fn install_process_limits(
+    pub(crate) fn install_original_limits(
         &self,
         runtime: &zero_config::RuntimeOptionsConfig,
     ) -> Result<(), zero_platform_tokio::contract::ChannelError> {
+        let limit = runtime.effective_carrier_max_total_originals();
+        if !(1..=65536).contains(&limit) {
+            return Err(zero_platform_tokio::contract::ChannelError::new(
+                zero_platform_tokio::contract::Stage::Prepare,
+                zero_platform_tokio::contract::Reason::InvalidConfig,
+                zero_platform_tokio::contract::Impact::Component,
+            ));
+        }
+        self.carrier
+            .install_after_retirement(
+                std::num::NonZeroUsize::new(limit).expect("validated positive cap"),
+            )
+            .map_err(|source| {
+                zero_platform_tokio::contract::ChannelError::new(
+                    zero_platform_tokio::contract::Stage::Prepare,
+                    zero_platform_tokio::contract::Reason::Capacity,
+                    zero_platform_tokio::contract::Impact::Component,
+                )
+                .with_source(source)
+            })?;
         #[cfg(any(target_os = "linux", windows))]
         self.process
             .install(zero_platform_tokio::owned_process::ProcessBudgetLimits {
