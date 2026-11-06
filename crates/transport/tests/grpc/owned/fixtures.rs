@@ -1,4 +1,6 @@
+#[path = "fixtures/background.rs"]
 mod background;
+#[path = "fixtures/totals.rs"]
 mod totals;
 use super::*;
 use background::BackgroundRoot;

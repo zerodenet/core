@@ -126,3 +126,47 @@ proxy/runtime lib 产物；新的本地提交不得借用该产物声称被测�
 以上为必要开发回归，不是统一候选资格；不同 SHA/feature 产物严格分开，失败/忽略均保留。
 最终五域调用者归零、普通装配、真实原件任务责任、旧链删除和必要回归完成后，
 才冻结统一输入做完整验收与精确 CI。TEMP-WG-OUTER-UDP-01 仍仅原 outer_udp_proxy 范围未关闭。
+
+## 续作核对更新（先前表中待复验项以本节的新输入为准）
+
+同一输入 `88c6bcea246f1a29c780d7be30ef7b4fc68cbdcf`、Rust 1.99.0、
+Cargo.lock `9026e3253d6a42c91cd557ee3ff95c2b1e93e46ba7749c707dec592e055ca6a1`：
+SS 三项真实业务/Source/安全历史预算、gRPC 六项实际 CA/ECH/网络/计量、VLESS gRPC
+DNS 四项候选重试/原查询取消/换代、Mieru 两项原 Node 代次/嵌套真实原件定向回归通过。
+这不包含剩余合法 transport、MUX、mixed/device 或完整 DNS detour 集合的资格。
+
+同输入的实际 Relay 回归在最终读取出现 `unexpected end of file`；真实 wire 和计量
+断言没有删除。B `b988036f` 改为实际认证流 half-close 后读取 reverse EOF，尚待复验。
+同输入的 taskless ACK 回归在实际 unused retry 后仍占额度而失败；后续 `02d6116d`、
+`4db80898` 修原件/view 在 IO 前持有与正面无原件退款，`21158565`、`a41e257d`
+另外保留已获得原件直到真实 Host ACK，`fd82139a` 区分可见的 Native/User receipt
+和总额度释放，均需在含这些提交的冻结输入验证。旧失败日志保留。
+
+root 的 `--lib` 不编译 `zero` 二进制。首次补 `--bins` 在上述输入发现三处控制类型
+错误；`38870732` 修正。仅将该修正加入原冻结源码的独立验证输入
+`3b609770`：控制原始任务登记、并发命令故障、Unix 原件/无效 UTF-8、HTTP 与 gRPC
+服务器退休、订阅任务及控制故障恢复的必要回归通过。第一次 HTTP filter 选错而
+运行零项，单独保留记录；正确 `http_adapter::retirement_tests` 已执行通过。
+随后 A `6190bb9e` 保留 status monitor 的原始 JoinError，待下一 root 输入验证。
+
+`7e9c324d` 接同一个 Process job 的实际端点预留、匹配原件关闭、inline readiness
+probe、真实 actor 及跨 Scope 直接依赖授权；`407bc7f8` 接 Windows Job 原件同一
+预算/端点职责。Windows Job 先 suspended 创建并强存原始 handles，分配 Job 后才
+resume；清理要求实际 root wait、Job 内零进程、原 actor join 和逐 handle 关闭。
+`8e490d33` 的 Windows GNU platform all-features/tests 源码检查通过；真实 Windows
+运行尚未执行。Linux 端点与 Packet 原件测试的第一次编译发现 fixture 私有字段访问，
+`ecb001a8` 修实际 accessor，继续排队验证。macOS 任意后代进程责任仍有实现缺口，
+不能用进程组、单 PID/EOF 或源码检查称完成；已在调查 XNU 实际可用机制。
+
+C `0c3ebe93` 私有整合及 M `7ba21b4a`、`bd52371f` 接真实 Packet return MTU、
+同原存储分片/重组、Direct/TUN 读取预算和 Windows 原 SDK reader 的实际 Scope。
+WG 首 bind 前的成对 workspace、独立 provider、完整 Source 暂停/预算 preflight
+与旧链删除仍在实现，未把新字段或 foundation 回归计为生产调用者已迁完。
+M `22dbd013` 将全部现有 H2 client 入口的 connection/read/write 执行合并到同一
+实际调用者，删除该入口旧三个 spawn 和无界写队列；真实 wire/backpressure/half-close/
+原 loan 取消测试已接实际 `web_carriers` suite，尚待执行。这不关闭包裹它的旧 native
+socket、其余 transport 或共享池迁移责任。
+
+上述均为开发输入；所有五域仍按首节完整调用者清单持续收尾。当前 Draft PR #133
+仍是早期进度记录，尚无统一最终候选或该候选 CI 资格。最终锁文件、源码清单和
+原始日志必须以可下载归档交付；云端路径及分散输入结果均不替代该交付。

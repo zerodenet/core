@@ -111,9 +111,11 @@ async fn weak_registration_cannot_bypass_suspended_hosted_start_or_receipt_credi
         })
         .unwrap();
     observed.await.unwrap();
-    assert!(owner
-        .poll_exit(&mut Context::from_waker(Waker::noop()))
-        .is_pending());
+    assert!(
+        owner
+            .poll_exit(&mut Context::from_waker(Waker::noop()))
+            .is_pending()
+    );
     assert!(!witness.is_joined());
     assert_eq!(
         weak.spawn(TaskClass::Critical, async { Ok(()) }),
@@ -206,3 +208,76 @@ async fn weak_authority_in_a_real_pending_task_does_not_retain_its_scope_or_fabr
 mod callbacks;
 
 mod cancellation;
+
+#[tokio::test]
+async fn capacity_observation_keeps_real_pending_and_joined_unacknowledged_source_credit() {
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let mut sender = tokio::net::TcpStream::connect(listener.local_addr().unwrap())
+        .await
+        .unwrap();
+    let (mut receiver, _) = listener.accept().await.unwrap();
+    let mut scope = TaskScope::suspended_hosted(
+        tokio::runtime::Handle::current(),
+        std::num::NonZeroUsize::new(2),
+    );
+    scope.enable_registration().unwrap();
+    let tasks = scope.registrar();
+    assert_eq!(
+        tasks
+            .without_tasks()
+            .check_capacity(std::num::NonZeroUsize::new(1).unwrap()),
+        Err(SpawnError::Capacity)
+    );
+    let (observed, pending) = tokio::sync::oneshot::channel();
+    let (_, witness) = tasks
+        .spawn_tracked(TaskClass::Critical, async move {
+            let mut bytes = [0; 1];
+            let read = receiver.read_exact(&mut bytes);
+            tokio::pin!(read);
+            let mut observed = Some(observed);
+            std::future::poll_fn(|cx| {
+                use std::future::Future;
+                let result = read.as_mut().poll(cx);
+                if result.is_pending() {
+                    if let Some(observed) = observed.take() {
+                        let _ = observed.send(());
+                    }
+                }
+                result
+            })
+            .await
+            .map_err(|source| {
+                ChannelError::new(Stage::Receive, Reason::Io, Impact::Component).with_source(source)
+            })?;
+            Ok(())
+        })
+        .unwrap();
+    pending.await.unwrap();
+    assert!(!witness.is_joined());
+    assert!(
+        tasks
+            .check_capacity(std::num::NonZeroUsize::new(1).unwrap())
+            .is_ok()
+    );
+    assert_eq!(
+        tasks.check_capacity(std::num::NonZeroUsize::new(2).unwrap()),
+        Err(SpawnError::Capacity)
+    );
+    sender.write_all(&[1]).await.unwrap();
+    let receipt = scope.next_receipt().await.unwrap();
+    assert!(witness.matches_joined(receipt.joined()));
+    assert!(receipt.result().is_ok());
+    assert_eq!(
+        tasks.check_capacity(std::num::NonZeroUsize::new(2).unwrap()),
+        Err(SpawnError::Capacity)
+    );
+    scope.acknowledge(&receipt).unwrap();
+    assert!(
+        tasks
+            .check_capacity(std::num::NonZeroUsize::new(2).unwrap())
+            .is_ok()
+    );
+    scope.begin_shutdown();
+    assert!(scope.next_receipt().await.is_none());
+}

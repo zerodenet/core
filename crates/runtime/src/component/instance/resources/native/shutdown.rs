@@ -23,6 +23,7 @@ impl HostResources {
             state.start_deadline = None;
         }
         self.bounds.revoke();
+        self.reads.revoke();
         // Persist each original receipt before the first cancellation point.
         // The same native owner retains Unknown and original failure sources.
         let icmp_result = self

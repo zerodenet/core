@@ -6,6 +6,7 @@ use super::*;
 #[derive(Clone, Debug)]
 pub(in crate::component) struct HostIoEvidence {
     pub declared_count: usize,
+    pub reads: Vec<super::read_workspaces::ReadEvidence>,
     pub icmp: Option<bool>,
     pub declarations: Vec<super::coverage::DeclarationEvidence>,
     pub admission_closed: bool,
@@ -65,6 +66,7 @@ impl HostResources {
         let admission_closed = state.closed || self.cancel.is_cancelled();
         drop(state);
         let roots = self.roots.evidence(self.component);
+        let reads = self.reads.evidence();
         sticky_faults.extend(roots.iter().filter_map(|entry| entry.first_fault.clone()));
         let carriers = self.carriers.evidence();
         let metadata = self.metadata.evidence(self.component);
@@ -104,6 +106,13 @@ impl HostResources {
             .enumerate()
             .map(|(ordinal, binding)| {
                 let mut proof = binding.observe(ordinal, &files, &native);
+                if matches!(binding, super::coverage::CoverageBinding::PacketReads) {
+                    proof.provider = reads
+                        .iter()
+                        .position(|read| read.ordinal == ordinal)
+                        .map(super::coverage::DeclarationProvider::PacketReads)
+                        .unwrap_or(super::coverage::DeclarationProvider::Unaccounted);
+                }
                 if matches!(binding, coverage::CoverageBinding::Icmp) && icmp.is_some() {
                     proof.provider = coverage::DeclarationProvider::Icmp;
                 }
@@ -168,6 +177,7 @@ impl HostResources {
             })
             .collect();
         HostIoEvidence {
+            reads,
             declared_count: self.coverage.len(),
             icmp,
             declarations,

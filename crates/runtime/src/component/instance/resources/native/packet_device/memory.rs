@@ -142,7 +142,7 @@ impl Memory {
     }
 }
 impl PacketDeviceOwner {
-    fn memory_callbacks(&self) -> Option<HostedCallbacks> {
+    pub(super) fn memory_callbacks(&self) -> Option<HostedCallbacks> {
         self.memory.callbacks()
     }
 }

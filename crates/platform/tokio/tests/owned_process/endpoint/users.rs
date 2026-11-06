@@ -75,7 +75,7 @@ async fn process_endpoint_tcp_original_has_real_peer_and_cancel_retains_user_unt
         .open(end())
         .await
         .unwrap();
-    assert_eq!(carrier.endpoints().peer, running.handoff.address().unwrap());
+    assert_eq!(carrier.endpoints().peer(), running.handoff.address().unwrap());
     let (io, actual) = carrier.into_parts();
     let mut loan = io.into_stream_loan(view).unwrap();
     assert!(

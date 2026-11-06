@@ -225,6 +225,12 @@ pub enum ResourceDeclaration {
         /// payload storage or worker task is implicitly allocated by this bound.
         max_pending_sends: NonZeroUsize,
     },
+    /// Two concrete read/decode allocations for the referenced original UDP
+    /// descriptor in this same spec; no native I/O or tasks are granted here.
+    PacketDatagramReads {
+        datagram: usize,
+        workspaces: [NonZeroUsize; 2],
+    },
     /// A literal outbound peer on the actual host network generation. The
     /// current provider supports exactly one socket and one acquisition attempt
     /// (including failures), default dial policy and no preferred source port.
@@ -305,6 +311,17 @@ pub struct InboundListenerEndpoints {
     pub datagram: std::net::SocketAddr,
 }
 pub trait ResourceAccess: Send + Sync {
+    #[cfg(feature = "native-packet-origin")]
+    fn take_packet_datagram_reads(
+        &self,
+        _datagram: usize,
+    ) -> Result<[zero_tun::packet_memory::NativeReadGrant; 2], BuildError> {
+        Err(super::ChannelError::new(
+            super::Stage::Prepare,
+            super::Reason::Unsupported,
+            super::Impact::Component,
+        ))
+    }
     /// Activate only the same cold-installed finite native provider and its
     /// host-issued binding. The source supplies no policy, callback or issuer.
     fn activate_bound_datagram(

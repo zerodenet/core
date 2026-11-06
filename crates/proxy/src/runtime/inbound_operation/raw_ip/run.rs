@@ -4,12 +4,12 @@ use super::statistics::IngressTraffic;
 use super::*;
 use std::time::Instant;
 use zero_platform_tokio::contract::{
+    ChannelError, Impact, Reason, Stage,
     context::{HandshakeContext, SessionIdentitySource},
     inbound::{AcceptedRequest, PendingInbound, ReplyOutcome},
     packet::{self},
-    ChannelError, Impact, Reason, Stage,
 };
-use zero_stack::{FragmentReassembler, UserNetworkStack};
+use zero_stack::{OwnedFragmentReassembler, UserNetworkStack};
 mod send;
 struct NoBusinessIdentity;
 impl SessionIdentitySource for NoBusinessIdentity {
@@ -202,7 +202,7 @@ pub(in crate::runtime) async fn run(
         .ok_or_else(|| std::io::Error::other("Packet source main has no actual host"))?;
     let ingress_id = crate::runtime::packet_route::next_ingress_id();
     let mut pins = route.packet_statistics_pins();
-    let mut fragments = FragmentReassembler::new();
+    let mut fragments = OwnedFragmentReassembler::new();
     let mut device_generation = None;
     let mut maintenance = tokio::time::interval(Duration::from_secs(5));
     maintenance.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
@@ -216,7 +216,7 @@ pub(in crate::runtime) async fn run(
             received=packet::recv(packet_rx.as_mut())=>{
                 let Some(received)=received.map_err(std::io::Error::other)? else { break Ok(()) };
                 if received.return_association.endpoint!=facts.endpoint || received.return_association.generation!=facts.inbound.generation {return Err(std::io::Error::other("packet belongs to another endpoint generation").into());}
-                if device_generation!=Some(received.return_association.correlation) { fragments=FragmentReassembler::new();device_generation=Some(received.return_association.correlation); }
+                if device_generation!=Some(received.return_association.correlation) { fragments=OwnedFragmentReassembler::new();device_generation=Some(received.return_association.correlation); }
                 let ingress=received.ingress().ok_or_else(||std::io::Error::other("packet source omitted endpoint facts"))?;
                 let peer=received.return_association.peer.as_ref().map(|id|id.0.clone());let traffic=observer.traffic.lock().unwrap().clone();
                 super::route::feed_inner_packet(received,facts.clone(),source_host,&packet_roles,ingress.local_destination,&traffic,peer,ingress.mtu,link_mtu,&tcp,&udp,&response_tx,&echo,&route,ingress_id,&mut pins,&mut fragments,tun.as_ref()).await;

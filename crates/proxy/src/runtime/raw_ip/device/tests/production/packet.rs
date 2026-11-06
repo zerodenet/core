@@ -25,6 +25,13 @@ async fn ordinary_packet_roles_return_original_source_and_retire_old_graph_witho
     let input = config.endpoints[0].inbound().unwrap();
     let output = config.endpoints[1].inbound().unwrap();
     let proxy = Proxy::new(config.clone()).unwrap();
+    let packet_memory = proxy
+        .protocols
+        .runtime_host()
+        .original_budgets()
+        .packet
+        .clone();
+    assert_eq!(packet_memory.native().occupied.frames, 0);
     let handle = ProxyHandle::new(
         zero_engine::EngineHandle::new(proxy.engine().clone()),
         proxy.clone(),
@@ -107,6 +114,11 @@ async fn ordinary_packet_roles_return_original_source_and_retire_old_graph_witho
         .await
         .unwrap();
         assert!(previous[0].is_closed());
+        assert_eq!(
+            packet_memory.native().occupied.frames,
+            4,
+            "new virtual graph cannot mint another shared native reader"
+        );
         assert!(original_joins.iter().all(|join| join.is_joined()));
         assert!(
             !main.is_joined(),

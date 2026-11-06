@@ -11,6 +11,7 @@ pub(in crate::component) enum DeclaredResourceKind {
     ControlledOutboundDatagram,
     ControlledDirectStream,
     ControlledPacketDevice,
+    PacketDatagramReads,
     ControlledNodeStream,
     ControlledNodeCarrier,
     NativeIcmp,
@@ -38,6 +39,7 @@ pub(in crate::component) enum DeclarationProvider {
     MetadataPool(usize),
     RootDatagram(usize),
     PacketDevice(usize),
+    PacketReads(usize),
     BoundDatagram(usize),
     Icmp,
     #[cfg(any(target_os = "linux", windows))]
@@ -58,6 +60,7 @@ pub(super) enum CoverageBinding {
     MetadataPool,
     RootDatagram,
     PacketDevice,
+    PacketReads,
     BoundDatagram,
     Icmp,
     File(PathBuf),
@@ -72,6 +75,7 @@ impl CoverageBinding {
     ) -> Result<Self, ChannelError> {
         Ok(match declaration {
             ResourceDeclaration::ControlledPacketDevice { .. } => Self::PacketDevice,
+            ResourceDeclaration::PacketDatagramReads { .. } => Self::PacketReads,
             ResourceDeclaration::ControlledOutboundDatagram { .. } => Self::RootDatagram,
             ResourceDeclaration::ControlledCarrierPool { .. }
             | ResourceDeclaration::ControlledAssociationPool { .. } => {
@@ -153,6 +157,7 @@ impl CoverageBinding {
             Self::MetadataPool => (DeclaredResourceKind::ControlledMetadataDatagram, None),
             Self::RootDatagram => (DeclaredResourceKind::ControlledOutboundDatagram, None),
             Self::PacketDevice => (DeclaredResourceKind::ControlledPacketDevice, None),
+            Self::PacketReads => (DeclaredResourceKind::PacketDatagramReads, None),
             Self::BoundDatagram => (DeclaredResourceKind::BoundOutboundDatagram, None),
             Self::File(path) => (
                 DeclaredResourceKind::File,
@@ -198,6 +203,7 @@ impl evidence::HostIoEvidence {
         let mut metadata = vec![false; self.metadata.len()];
         let mut roots = vec![false; self.roots.len()];
         let mut packets = vec![false; self.packets.len()];
+        let mut reads = vec![false; self.reads.len()];
         let mut bounds = vec![false; self.bounds.len()];
         #[cfg(any(target_os = "linux", windows))]
         let mut processes = vec![false; self.processes.len()];
@@ -313,6 +319,17 @@ impl evidence::HostIoEvidence {
                         _ => false,
                     }
                 }
+                DeclarationProvider::PacketReads(index)
+                    if declaration.kind == DeclaredResourceKind::PacketDatagramReads =>
+                {
+                    match (self.reads.get(index), reads.get_mut(index)) {
+                        (Some(owner), Some(seen)) if !*seen && owner.ordinal == ordinal => {
+                            *seen = true;
+                            owner.released
+                        }
+                        _ => false,
+                    }
+                }
                 DeclarationProvider::RootDatagram(index)
                     if declaration.kind == DeclaredResourceKind::ControlledOutboundDatagram =>
                 {
@@ -353,6 +370,7 @@ impl evidence::HostIoEvidence {
             && metadata.into_iter().all(|seen| seen)
             && roots.into_iter().all(|seen| seen)
             && packets.into_iter().all(|seen| seen)
+            && reads.into_iter().all(|seen| seen)
             && bounds.into_iter().all(|seen| seen)
     }
 }

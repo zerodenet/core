@@ -1,7 +1,9 @@
 //! Original driver and SDK joins precede matching native close.
 use super::*;
 impl PacketDeviceOwner {
-    pub(super) fn evidence(&self) -> PacketDeviceEvidence {
+    pub(in crate::component::instance::resources::native) fn evidence(
+        &self,
+    ) -> PacketDeviceEvidence {
         let state = self
             .state
             .lock()
@@ -23,7 +25,10 @@ impl PacketDeviceOwner {
             close_fault: state.close_fault.clone(),
         }
     }
-    pub(super) async fn shutdown(&self, deadline: Instant) -> CloseReport {
+    pub(in crate::component::instance::resources::native) async fn shutdown(
+        &self,
+        deadline: Instant,
+    ) -> CloseReport {
         #[cfg(feature = "raw-ip-runtime")]
         self.memory.stop(&self.original);
         let driver = {

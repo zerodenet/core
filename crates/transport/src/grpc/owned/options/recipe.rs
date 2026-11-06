@@ -156,7 +156,7 @@ impl NativePoolOptions {
 }
 fn next_identity() -> Result<Arc<[u8]>, RuntimeError> {
     static NEXT: AtomicU64 = AtomicU64::new(0);
-    NEXT.fetch_update(Ordering::AcqRel, Ordering::Acquire, |old| {
+    NEXT.try_update(Ordering::AcqRel, Ordering::Acquire, |old| {
         old.checked_add(1)
     })
     .map(|value| Arc::from(value.to_le_bytes()))

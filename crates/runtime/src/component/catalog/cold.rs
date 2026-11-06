@@ -270,6 +270,7 @@ pub(super) fn validate_executors(
     deferred: bool,
 ) -> Result<(), ChannelError> {
     use zero_platform_tokio::contract::component::ResourceDeclaration as R;
+    crate::component::instance::packet_datagram_read_spec(&spec.resources, usize::MAX)?;
     let unsupported = spec.resources.iter().any(|resource| {
         matches!(
             resource,

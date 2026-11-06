@@ -176,3 +176,24 @@ TLS `OwnedPreparedClient` 接收实际授予的不可变 CA 材料，并沿用�
 CLI/FFI 和客户端面板不变。原 `spawn_process` 暂仅未迁调用者使用，直接 child reap 仍不能
 取得 Process 声明覆盖。生产 SIP 消费、总体预算与适用跨平台实现尚未完成，不能把这些
 接口或 Linux 底层回归视为全域迁移资格。
+
+续作将该原件接口扩展到 Windows suspended root / JobObject，并增加同一个 job 的
+`ProcessEndpoint` 预留、原始 readiness probe 和真实依赖消费授权。网络用户的真实
+Carrier 原件、Process 原件和各自 Scope 保持独立；不能用逻辑远端地址冒充实际 loopback
+peer 的原生 ancestry。Windows GNU 源码检查不代表真实 Job/NamedPipe 运行资格，macOS
+进程树责任和生产 SIP 消费仍有未完成实现。
+
+可选 `runtime.process_max_jobs`（默认 64）与 `process_max_jobs_per_instance`（默认 1）
+限制同一内核中待启、失败及退休中的实际 job；每实例额度不超过总体额度。这不限制
+单个 job 内合法后代数量。退款等待真实原件关闭、实际 actor join 和 Host ACK。
+省略仍不导出这些字段；穷举构造 `RuntimeOptionsConfig` 的 Rust 调用者应添加 `None`
+或沿用 `..Default::default()`。
+
+Packet 的内核 Rust 契约补充 `PacketRequest::return_mtu`、实际
+`GrantedPacketDevice::native_read`、`PacketStorage::allocation_bytes/derive_zeroed` 和
+原声明序号绑定的 `PacketDatagramReads`。标准装配使用同一个实际预算总账；缓冲移动、
+分片和重组不产生额外池或原生关闭证据。自定义 storage 的默认 derivation 明确拒绝
+未预付分配；内核生产读取必须提供真实原件 grant，不能以库默认分配补齐缺失责任。
+H2 客户端继续使用原 `connect_h2*` API，原连接由当前调用者推进，保留半关闭和真实
+流控；未新增第二执行宿主或公开替代协议 SPI。上述接口不改变 V1 JSON/API/events、
+CLI/FFI 或消费者，但全部生产路径和最终统一候选尚未取得完整资格。

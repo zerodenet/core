@@ -49,7 +49,7 @@ async fn actual_closed_owner_keeps_material_until_driver_registration_is_release
             .lifecycle
             .revoke(zero_platform_tokio::contract::CloseReason::Shutdown);
         let receipt = fixture.scope.next_receipt().await.unwrap();
-        assert_eq!(receipt.id(), driver.task_id());
+        assert_eq!(Some(receipt.id()), driver.task_id());
         assert!(!driver.try_joined().unwrap().registration_released());
         let report = fixture.owner.lifecycle.shutdown(deadline()).await.unwrap();
         assert!(

@@ -18,6 +18,30 @@ impl TaskRegistrar {
     pub fn without_tasks(&self) -> Self {
         Self(self.0.clone(), true)
     }
+    /// Read the same actual occupied/awaiting-ACK credit before an exclusive
+    /// source lease binds. This does not reserve a TaskId, spawn, refund or join;
+    /// each later real registration must still pass its own atomic admission.
+    pub fn check_capacity(&self, additional: std::num::NonZeroUsize) -> Result<(), SpawnError> {
+        if self.1 {
+            return Err(SpawnError::Capacity);
+        }
+        let state = self.0.lock_state();
+        if state.closing {
+            return Err(SpawnError::Closing);
+        }
+        if !state.registration_open {
+            return Err(SpawnError::NotStarted);
+        }
+        if additional.get()
+            > state
+                .limit
+                .saturating_sub(state.records.len())
+                .saturating_sub(state.completed.len())
+        {
+            return Err(SpawnError::Capacity);
+        }
+        Ok(())
+    }
     pub fn downgrade(&self) -> WeakTaskRegistrar {
         WeakTaskRegistrar(Arc::downgrade(&self.0), self.1)
     }

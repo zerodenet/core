@@ -7,7 +7,9 @@ use super::*;
 use crate::runtime::raw_ip::timer::{self, PeerTimers};
 use std::time::Instant;
 use zero_api::TrafficPlane;
-use zero_stack::{FragmentReassembler, OwnedFragmentOutcome, packet};
+use zero_stack::{OwnedFragmentOutcome, OwnedFragmentReassembler, packet};
+mod receive;
+use receive::{Delivery, ReadMemory};
 
 pub(super) struct Wire {
     pub device: Box<dyn RawIpInboundDevice>,
@@ -21,6 +23,7 @@ pub(super) struct Wire {
 pub(super) async fn run(
     mut operation: Wire,
     grant: zero_platform_tokio::contract::component::GrantedDatagramListener,
+    reads: [zero_tun::packet_memory::NativeReadGrant; 2],
     egress: zero_platform_tokio::EgressInterfaceControl,
     packets: mpsc::Sender<zero_core::packet::IpPacket>,
     mut responses: mpsc::Receiver<zero_core::packet::IpPacket>,
@@ -51,9 +54,17 @@ pub(super) async fn run(
     let mut generation = operation.device.generation();
     let (proxied_tx, mut proxied_rx) = mpsc::channel::<ProxiedWirePacket>(256);
     let mut peer_uses_proxy = Vec::new();
-    let mut buffer = vec![0; 65_536];
-    let mut fragments = FragmentReassembler::new();
-    let mut endpoint_fragments = FragmentReassembler::new();
+    let read_memory = ReadMemory(reads);
+    let mut buffer = read_memory.0[0]
+        .buffer()
+        .await
+        .map_err(std::io::Error::other)?;
+    let mut decode: Option<zero_tun::packet_memory::NativePacketCredit> = None;
+    let mut receiving: Option<
+        zero_platform_tokio::contract::BoxFuture<'static, Result<(), EngineError>>,
+    > = None;
+    let mut fragments = OwnedFragmentReassembler::new();
+    let mut endpoint_fragments = OwnedFragmentReassembler::new();
     let mut maintenance = tokio::time::interval(Duration::from_secs(5));
     maintenance.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
     let mut fragment_id = 1_u32;
@@ -112,19 +123,22 @@ pub(super) async fn run(
             changed = peers_changed(&mut peer_changes) => {
                 if changed.is_err() { peer_changes = None; }
             }
+            credit=read_memory.0[1].workspace(), if decode.is_none() && receiving.is_none() => { decode=Some(credit.map_err(std::io::Error::other)?); }
+            delivered=async { receiving.as_mut().expect("same original pending native frame").await }, if receiving.is_some()=> { receiving=None; delivered?; }
             received = async {
                 tokio::select! {
-                    direct = async { let receive=socket.recv_from(&mut buffer);tokio::pin!(receive);std::future::poll_fn(|cx| { use std::future::Future;let polled=receive.as_mut().poll(cx);if polled.is_pending() || matches!(&polled,std::task::Poll::Ready(Ok(_))) { observer.ready(); }polled }).await } => direct.map(|(size, source)| (size, Some(source), None, peer_revision)),
+                    direct = async { let receive=socket.recv_from(buffer.as_mut_bytes());tokio::pin!(receive);std::future::poll_fn(|cx| { use std::future::Future;let polled=receive.as_mut().poll(cx);if polled.is_pending() || matches!(&polled,std::task::Poll::Ready(Ok(_))) { observer.ready(); }polled }).await } => direct.map(|(size, source)| (size, Some(source), None, peer_revision)),
                     proxied = proxied_rx.recv() => match proxied {
                         Some(packet) => {
                             let size = packet.bytes.len();
-                            if size <= buffer.len() { buffer[..size].copy_from_slice(&packet.bytes); }
+                            if size <= buffer.as_mut_bytes().len() { buffer.as_mut_bytes()[..size].copy_from_slice(&packet.bytes); }
                             Ok((size, packet.source, Some(packet.peer), packet.revision))
                         }
                         None => std::future::pending().await,
                     },
                 }
-            } => {
+            }, if decode.is_some() && receiving.is_none() => {
+                let mut native_credit=Some(decode.take().expect("actual decode workspace preceded native receive"));
                 refresh_endpoint_peers(operation.endpoint.as_mut(), &mut peer_revision, &mut initial_endpoints, &mut endpoints, &mut fragments, &mut endpoint_fragments, &operation.proxies, &mut proxied_tasks, &proxied_tx, &mut peer_uses_proxy).await?;
                 refresh_device_generation(operation.device.as_ref(), &mut generation, &mut endpoints, &mut fragments, &mut endpoint_fragments, &initial_endpoints);
                 traffic.refresh(operation.device.as_ref());
@@ -135,7 +149,7 @@ pub(super) async fn run(
                 // socket receive is handled by the current authenticated device;
                 // a peer-watch refresh must not discard its first live datagram.
                 if size > 65_535 || proxied_peer.is_some() && received_revision != peer_revision { traffic.aggregate.dropped_reason(TrafficPlane::Outer, false, zero_api::TrafficDropReason::InvalidPacket); continue; }
-                let dispatch = match operation.device.receive_datagram(source, &buffer[..size]) {
+                let dispatch = match operation.device.receive_datagram(source, &buffer.as_bytes()[..size]) {
                     Ok(dispatch) => dispatch,
                     Err(error) => { traffic.aggregate.dropped_reason(TrafficPlane::Outer, false, zero_api::TrafficDropReason::InvalidPacket); tracing::debug!(%error, "raw-IP inbound rejected datagram"); continue; }
                 };
@@ -164,37 +178,26 @@ pub(super) async fn run(
                 }
                 for action in dispatch.actions {
                     let RawIpInboundAction::ReceiveIp(packet) = action else { continue; };
+                    let credit=native_credit.take().ok_or_else(||std::io::Error::new(std::io::ErrorKind::InvalidData,"one native datagram produced more than its declared decoded allocation"))?;
+                    let packet=credit.retain(packet).map_err(|(cause,_credit,_original)|std::io::Error::other(cause))?;
                     traffic.peer(dispatch.peer_index).rx(TrafficPlane::Inner, packet.len(), true);
                     tracing::trace!(ip_bytes = packet.len(), "raw-IP inbound inner packet");
                     if let Some(peer) = dispatch.peer_index {
                         if let Some(device) = operation.endpoint.as_ref().and_then(|endpoint| endpoint.peers.borrow().devices.get(peer).cloned()) {
-                            let (packet, reassembled) = match endpoint_fragments.process_buffer(packet, Instant::now()) {
+                            let (packet, reassembled) = match endpoint_fragments.process((generation,peer),packet, Instant::now()).await {
                                 OwnedFragmentOutcome::Packet { packet, reassembled } => (packet, reassembled),
                                 OwnedFragmentOutcome::Pending => continue,
                                 OwnedFragmentOutcome::Rejected(_) => { traffic.peer(dispatch.peer_index).dropped_reason(TrafficPlane::Inner, true, zero_api::TrafficDropReason::FragmentRejected); continue; },
                             };
                             device.observe_authenticated_packet();
-                            let inbound_allowed = traffic.allowed();
-                            let local_echo = packet::ip_destination(&packet).is_some_and(|ip| operation.device.is_local_address(ip)) && packet::parse_icmp_echo_request(&packet).is_some();
-                            let packet = if local_echo { packet } else {
-                                match device.deliver_decrypted_owned(packet, inbound_allowed).await { Ok(()) => continue, Err(packet) => packet }
-                            };
-                            // Established outbound replies are consumed before
-                            // admitting any remote-initiated inner business.
-                            if !inbound_allowed { traffic.peer(dispatch.peer_index).dropped_reason(TrafficPlane::Inner, true, zero_api::TrafficDropReason::PolicyRejected); continue; }
-                            let mtu = if reassembled {
-                                operation.device.mtu().max(packet.len().min(u16::MAX as usize) as u16)
-                            } else {
-                                operation.device.mtu()
-                            };
-                            let local_destination = packet::ip_destination(&packet).is_some_and(|ip| operation.device.is_local_address(ip));
-                            deliver(&packets, packet, local_destination, mtu, dispatch.peer_index, &traffic, &facts).await;
+                            let mtu=if reassembled {operation.device.mtu().max(packet.len().min(u16::MAX as usize) as u16)} else {operation.device.mtu()};
+                            let local_destination=packet::ip_destination(&packet).is_some_and(|ip|operation.device.is_local_address(ip));
+                            receiving=Some(Box::pin(Delivery { packet, device:Some(device), local_destination, mtu, peer:dispatch.peer_index, traffic:traffic.clone(), facts:facts.clone(), packets:packets.clone() }.run()));
                             continue;
                         }
                     }
-                    if !traffic.allowed() { traffic.peer(dispatch.peer_index).dropped_reason(TrafficPlane::Inner, true, zero_api::TrafficDropReason::PolicyRejected); continue; }
-                    let local_destination = packet::ip_destination(&packet).is_some_and(|ip| operation.device.is_local_address(ip));
-                    deliver(&packets, packet, local_destination, operation.device.mtu(), dispatch.peer_index, &traffic, &facts).await;
+                    let local_destination=packet::ip_destination(&packet).is_some_and(|ip|operation.device.is_local_address(ip));
+                    receiving=Some(Box::pin(Delivery { packet, device:None, local_destination, mtu:operation.device.mtu(), peer:dispatch.peer_index, traffic:traffic.clone(), facts:facts.clone(), packets:packets.clone() }.run()));
                 }
             }
             outgoing = receive_endpoint_packet(&mut operation.endpoint) => {
@@ -213,22 +216,9 @@ pub(super) async fn run(
                     continue;
                 };
                 let carrier = peer_uses_proxy.get(outgoing.peer).copied().unwrap_or(false).then(|| peer_carrier(&operation.endpoint, outgoing.peer)).flatten();
-                let packets = tokio::select! { biased;
-                    _ = shutdown.changed() => break Ok(()),
-                    result = packet::fragment_ip_packet_accounted(outgoing.packet, operation.device.mtu() as usize, fragment_id) => result.map_err(|failure| {
-                        let zero_stack::packet::PacketFragmentFailure { original, cause } = failure;
-                        // The real wire caller got back its unchanged original.
-                        // Retiring this failed operation releases only memory;
-                        // native close and actual Scope joins remain host duties.
-                        drop(original);
-                        let reason = match cause {
-                            zero_traits::PacketDeriveError::Busy | zero_traits::PacketDeriveError::Capacity | zero_traits::PacketDeriveError::Overflow => zero_platform_tokio::contract::Reason::Capacity,
-                            zero_traits::PacketDeriveError::Revoked => zero_platform_tokio::contract::Reason::Revoked,
-                            zero_traits::PacketDeriveError::Unreserved => zero_platform_tokio::contract::Reason::InvalidConfig,
-                            zero_traits::PacketDeriveError::LayoutMismatch | zero_traits::PacketDeriveError::AlreadyDerived => zero_platform_tokio::contract::Reason::Protocol,
-                        };
-                        std::io::Error::other(zero_platform_tokio::contract::ChannelError::new(zero_platform_tokio::contract::Stage::Send, reason, zero_platform_tokio::contract::Impact::Packet).with_source(cause))
-                    })?,
+                let packets=tokio::select! { biased;
+                    _=shutdown.changed()=>break Ok(()),
+                    result=packet::fragment_ip_packet_accounted(outgoing.packet,operation.device.mtu() as usize,fragment_id)=>result.map_err(receive::fragment_failure)?,
                 };
                 fragment_id = fragment_id.wrapping_add(1);
                 for packet in packets {
@@ -251,22 +241,9 @@ pub(super) async fn run(
                 let Some(peer) = operation.device.peer_for_destination(destination) else { continue; };
                 let Some(endpoint) = endpoints.get(peer).and_then(|value| *value) else { continue; };
                 let carrier = peer_uses_proxy.get(peer).copied().unwrap_or(false).then(|| peer_carrier(&operation.endpoint, peer)).flatten();
-                let packets = tokio::select! { biased;
-                    _ = shutdown.changed() => break Ok(()),
-                    result = packet::fragment_ip_packet_accounted(response, operation.device.mtu() as usize, fragment_id) => result.map_err(|failure| {
-                        let zero_stack::packet::PacketFragmentFailure { original, cause } = failure;
-                        // The real wire caller got back its unchanged original.
-                        // Retiring this failed operation releases only memory;
-                        // native close and actual Scope joins remain host duties.
-                        drop(original);
-                        let reason = match cause {
-                            zero_traits::PacketDeriveError::Busy | zero_traits::PacketDeriveError::Capacity | zero_traits::PacketDeriveError::Overflow => zero_platform_tokio::contract::Reason::Capacity,
-                            zero_traits::PacketDeriveError::Revoked => zero_platform_tokio::contract::Reason::Revoked,
-                            zero_traits::PacketDeriveError::Unreserved => zero_platform_tokio::contract::Reason::InvalidConfig,
-                            zero_traits::PacketDeriveError::LayoutMismatch | zero_traits::PacketDeriveError::AlreadyDerived => zero_platform_tokio::contract::Reason::Protocol,
-                        };
-                        std::io::Error::other(zero_platform_tokio::contract::ChannelError::new(zero_platform_tokio::contract::Stage::Send, reason, zero_platform_tokio::contract::Impact::Packet).with_source(cause))
-                    })?,
+                let packets=tokio::select! { biased;
+                    _=shutdown.changed()=>break Ok(()),
+                    result=packet::fragment_ip_packet_accounted(response,operation.device.mtu() as usize,fragment_id)=>result.map_err(receive::fragment_failure)?,
                 };
                 tracing::trace!(fragments = packets.len(), "raw-IP inbound response fragments");
                 fragment_id = fragment_id.wrapping_add(1);
@@ -322,43 +299,4 @@ pub(super) async fn run(
     } }.await;
     operation.proxies.finish(&mut proxied_tasks).await;
     outcome
-}
-
-async fn deliver(
-    sender: &mpsc::Sender<zero_core::packet::IpPacket>,
-    packet: zero_traits::PacketBuffer,
-    local_destination: bool,
-    mtu: u16,
-    peer: Option<usize>,
-    traffic: &WireTraffic,
-    facts: &zero_core::packet::PacketFacts,
-) {
-    let association = zero_core::packet::ReturnAssociation {
-        endpoint: facts.endpoint,
-        generation: facts.inbound.generation,
-        peer: traffic.identity(peer).map(zero_core::component::PeerId),
-        correlation: traffic.generation(),
-    };
-    let value = zero_core::packet::IpPacket::new(packet, association).map(|packet| {
-        packet.with_ingress(zero_core::packet::PacketIngress {
-            local_destination,
-            mtu,
-        })
-    });
-    match value {
-        Ok(value) => {
-            if sender.send(value).await.is_err() {
-                traffic.peer(peer).dropped_reason(
-                    TrafficPlane::Inner,
-                    peer.is_some(),
-                    zero_api::TrafficDropReason::QueueClosed,
-                );
-            }
-        }
-        Err(_) => traffic.peer(peer).dropped_reason(
-            TrafficPlane::Inner,
-            peer.is_some(),
-            zero_api::TrafficDropReason::InvalidPacket,
-        ),
-    }
 }

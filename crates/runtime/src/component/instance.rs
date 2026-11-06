@@ -23,6 +23,7 @@ pub use resources::HostResources;
 pub use resources::NoResources;
 #[cfg(feature = "raw-ip-runtime")]
 pub use resources::{HostIcmpProbeGrant, HostIcmpProbeOwner};
+pub use resources::{HostPacketReadReservation, packet_datagram_read_spec};
 use std::sync::{Arc, OnceLock};
 pub use tasks::ComponentTaskFault;
 use tasks::TaskMonitor;

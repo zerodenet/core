@@ -50,6 +50,12 @@ VLESS 入站仅登记实际标准 ComponentFactory/InboundSource，删除 adapte
 
 Linux 进程原件续作增加内核 Rust 的 cold owned-process grant，保留实际 actor Scope 与原生进程树/描述符关闭分证据；公开 wire 与消费者无需改变。此时 SIP 生产消费、总体预算与其他平台仍有实现，接口出现和底层通过不代表完整迁移。详见上述兼容记录。
 
+后续续作增加 Windows Job 原件、同 job 的真实端点预留/消费授权与可选 process job 预算，
+以及 Packet 的实际 MTU、预付读取与原存储派生契约。H2 客户端原入口改为同调用者推进
+原连接。省略配置字段及 V1/API/events/CLI/FFI 不变；内核 Rust 构造者和自定义 storage
+的适配要求见兼容记录。真实 Windows/macOS、SIP、WG/TUN、剩余出站与全域预算仍逐项
+收尾，不能据此视作完整候选、客户端同产物或跨平台资格。
+
 ## 版本矩阵
 
 | 版本 | 影响面 | 迁移结论 |

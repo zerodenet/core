@@ -51,8 +51,10 @@ async fn actual_registry_budget_refuses_second_pool_until_first_native_users_and
             Reason::Capacity,
             "same actual root logical budget spans pools"
         );
-        let zero_platform_tokio::controlled_carrier::loan::StreamLoan { io, mut control } =
-            first.into_stream_loan().unwrap();
+        let zero_platform_tokio::controlled_carrier::loan::StreamLoan {
+            io,
+            owner: mut control,
+        } = first.into_stream_loan().unwrap();
         drop(io);
         assert!(control.close(deadline()).await.unwrap().is_complete());
         assert!(original.adoption.closed().is_none());

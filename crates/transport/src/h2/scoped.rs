@@ -1,8 +1,8 @@
 //! Raw H2 DATA over the original accepted carrier, without detached I/O pumps.
 use super::*;
 use zero_platform_tokio::{
-    contract::{scope::TaskClass, CancellationToken, ChannelError, Impact, Reason, Stage},
     AcceptedCaller,
+    contract::{CancellationToken, ChannelError, Impact, Reason, Stage, scope::TaskClass},
 };
 
 pub struct ScopedH2Stream {
@@ -77,7 +77,7 @@ where
                         return Err(
                             ChannelError::new(Stage::Receive, Reason::Io, Impact::Session)
                                 .with_source(error),
-                        )
+                        );
                     }
                     Some(Ok((_, mut respond))) => {
                         // Existing H2 carrier admits one application stream per

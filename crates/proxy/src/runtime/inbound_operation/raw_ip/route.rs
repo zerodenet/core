@@ -1,9 +1,17 @@
 //! Routing for decrypted raw IP packets.
 
 use std::time::Instant;
-use zero_stack::{packet, FragmentReassembler, OwnedFragmentOutcome, UserTcpStack, UserUdpStack};
+use zero_stack::{
+    OwnedFragmentOutcome, OwnedFragmentReassembler, UserTcpStack, UserUdpStack, packet,
+};
 
 use super::IcmpEchoRelay;
+pub(super) type FragmentNamespace = (
+    zero_core::component::EndpointId,
+    zero_core::component::ResourceGeneration,
+    Option<zero_core::component::PeerId>,
+    u64,
+);
 use crate::inventory::PacketRouteTarget;
 use crate::runtime::packet_route::{PacketPlane, PacketSessionPins};
 
@@ -25,7 +33,7 @@ pub(super) async fn feed_inner_packet(
     route: &crate::runtime::route_runtime::InboundRouteRuntimeFactory,
     ingress_id: u64,
     pins: &mut PacketSessionPins,
-    fragments: &mut FragmentReassembler,
+    fragments: &mut OwnedFragmentReassembler<FragmentNamespace>,
     tun: Option<&crate::inbound::tun::TunIngressOptions>,
 ) {
     if route.ensure_configuration_committed().is_err() {
@@ -37,22 +45,33 @@ pub(super) async fn feed_inner_packet(
     }
     let association = original.return_association.clone();
     let ingress = original.ingress();
-    let (mut packet, reassembled) =
-        match fragments.process_buffer(original.into_payload(), Instant::now()) {
-            OwnedFragmentOutcome::Packet {
-                packet,
-                reassembled,
-            } => (packet, reassembled),
-            OwnedFragmentOutcome::Pending => return,
-            OwnedFragmentOutcome::Rejected(reason) => {
-                traffic.drop_inner(
-                    peer_identity.as_deref(),
-                    zero_api::TrafficDropReason::FragmentRejected,
-                );
-                tracing::trace!(?reason, "raw-IP inbound fragment rejected");
-                return;
-            }
-        };
+    let (mut packet, reassembled) = match fragments
+        .process(
+            (
+                association.endpoint,
+                association.generation,
+                association.peer.clone(),
+                association.correlation,
+            ),
+            original.into_payload(),
+            Instant::now(),
+        )
+        .await
+    {
+        OwnedFragmentOutcome::Packet {
+            packet,
+            reassembled,
+        } => (packet, reassembled),
+        OwnedFragmentOutcome::Pending => return,
+        OwnedFragmentOutcome::Rejected(reason) => {
+            traffic.drop_inner(
+                peer_identity.as_deref(),
+                zero_api::TrafficDropReason::FragmentRejected,
+            );
+            tracing::trace!(?reason, "raw-IP inbound fragment rejected");
+            return;
+        }
+    };
     let packet_key = packet::packet_conversation_key(&packet);
     traffic.admit_packet(packet.len());
     tracing::trace!(ip_bytes = packet.len(), protocol = ?packet::ip_protocol(&packet), "raw-IP inbound fed packet");

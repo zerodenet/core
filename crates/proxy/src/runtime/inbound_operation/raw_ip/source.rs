@@ -35,6 +35,7 @@ struct State {
     wire: Option<wire::Wire>,
     grant: Option<GrantedDatagramListener>,
     taken: bool,
+    reads: Option<[zero_tun::packet_memory::NativeReadGrant; 2]>,
 }
 pub(crate) struct Owner {
     shared: Arc<Shared>,
@@ -68,6 +69,7 @@ pub(crate) fn source(
             }),
             grant: None,
             taken: false,
+            reads: None,
         }),
         stop,
         cancel: context.cancel.child_token(),
@@ -95,6 +97,8 @@ fn error(reason: Reason) -> ChannelError {
 }
 impl ResourceLifecycle for Owner {
     async fn start(&mut self, _: Instant) -> Result<(), ChannelError> {
+        let reads = self.resources.take_packet_datagram_reads(0)?;
+        self.shared.state.lock().unwrap().reads = Some(reads);
         let grant = self
             .resources
             .listen_datagram(self.destination.clone())
@@ -120,6 +124,12 @@ impl ResourceLifecycle for Owner {
         // the original listener provider, not this logical-session report.
         self.shared.state.lock().unwrap().grant.take();
         self.shared.state.lock().unwrap().wire.take();
+        let reads = self.shared.state.lock().unwrap().reads.take();
+        if let Some(reads) = reads {
+            for read in reads {
+                read.revoke();
+            }
+        }
         self.shared.proxies.clone().shutdown(deadline).await
     }
 }
@@ -210,11 +220,12 @@ impl PacketReply for Reply {
             self.shared.stop.send_replace(true);
             return Ok(None);
         }
-        let (wire, grant) = {
+        let (wire, grant, reads) = {
             let mut state = self.shared.state.lock().unwrap();
             (
                 state.wire.take().ok_or_else(|| error(Reason::Revoked))?,
                 state.grant.take().ok_or_else(|| error(Reason::Revoked))?,
+                state.reads.take().ok_or_else(|| error(Reason::Revoked))?,
             )
         };
         let original = grant.tx.identity();
@@ -244,7 +255,7 @@ impl PacketReply for Reply {
                     ready = original_registration => ready.map_err(|source| error(Reason::Revoked).with_source(source))?,
                 }
                 let result = wire::run(
-                    wire, grant, egress, packets, returned, facts, observer, shutdown,
+                    wire, grant, reads, egress, packets, returned, facts, observer, shutdown,
                 )
                 .await;
                 proxies.request_abort();
