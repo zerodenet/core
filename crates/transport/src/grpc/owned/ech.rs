@@ -19,11 +19,7 @@ pub(super) fn dynamic(options: &NativePoolOptions) -> io::Result<bool> {
 }
 /// Only for cold CA parsing. No connection can consume this temporary profile.
 pub(super) fn validation_profile(tls: &OwnedClientTlsProfile) -> io::Result<OwnedClientTlsProfile> {
-    let mut profile = tls.clone();
-    if dynamic_profile(&profile)? {
-        profile.options.ech.prepared_config_list = Some(Vec::new());
-    }
-    Ok(profile)
+    crate::tls::OwnedClientRecipe::validation_profile(tls)
 }
 impl Managed {
     pub(super) async fn prepare_tls(

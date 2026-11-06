@@ -30,8 +30,8 @@ impl ComponentFactory for NativePoolFactory {
                 .ca
                 .iter()
                 .map(|file| ResourceDeclaration::File {
-                    path: file.path.clone(),
-                    max_bytes: file.max_bytes,
+                    path: file.path().to_path_buf(),
+                    max_bytes: file.max_bytes(),
                 })
                 .chain(std::iter::once(
                     ResourceDeclaration::ControlledCarrierPool {
@@ -146,7 +146,10 @@ impl ResourceLifecycle for Owner {
             let prepared = match &self.managed.options.ca {
                 Some(file) => Some(
                     file.prepare(
-                        &self.managed.options,
+                        self.managed.options.settings.tls.as_ref().ok_or_else(|| {
+                            error(self.managed.instance, Stage::Prepare, Reason::StalePlan)
+                        })?,
+                        &self.managed.options.settings.server,
                         self.resources.as_ref(),
                         self.managed.instance,
                         &self.managed.cancel,
