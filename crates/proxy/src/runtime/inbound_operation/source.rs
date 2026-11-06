@@ -89,12 +89,18 @@ pub(in crate::runtime) async fn run(
                         }
                         result.map_err(|source| ChannelError::new(Stage::Receive, Reason::Io, Impact::Session).with_source(source))
                     }).map_err(std::io::Error::other)?;
+                    #[cfg(test)]
+                    let accepted_original = acquisition.clone();
                     closing.push(async move {
                         let _original_join = witness.wait().await;
                         let deadline = tokio::time::Instant::now() + std::time::Duration::from_secs(5);
-                        if receiver.close(&claim, deadline).await.map_err(std::io::Error::other)?.is_none() {
+                        let Some(closed) = receiver.close(&claim, deadline).await.map_err(std::io::Error::other)? else {
                             return Err(EngineError::Io(std::io::Error::other("accepted users remain unconfirmed")));
-                        }
+                        };
+                        #[cfg(test)]
+                        if let Some(original) = accepted_original { original.record_accepted_closed(claim, closed); }
+                        #[cfg(not(test))]
+                        let _ = closed;
                         Ok(())
                     });
                 }
