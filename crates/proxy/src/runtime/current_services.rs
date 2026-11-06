@@ -67,6 +67,19 @@ impl CurrentServiceSource {
         self.egress_interface.generation()
     }
 
+    /// Observe retained cleanup custody without preparing the Engine's pending
+    /// configuration or admitting a caller against a historical role.
+    pub(crate) fn validate_owned_carrier_adoption(
+        &self,
+        role: zero_core::component::RoleInstanceId,
+        adoption: &zero_platform_tokio::controlled_carrier::CarrierAdoption,
+    ) -> io::Result<()> {
+        self.protocols()?
+            .runtime_host()
+            .components()
+            .validate_owned_carrier_adoption(role, adoption)
+            .map_err(io::Error::other)
+    }
     pub(crate) fn runtime_services(self: &Arc<Self>) -> io::Result<TcpRuntimeServices> {
         let resolver = self
             .resolver
