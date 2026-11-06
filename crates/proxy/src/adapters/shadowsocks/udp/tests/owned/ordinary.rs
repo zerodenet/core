@@ -110,9 +110,10 @@ async fn ordinary_cached_datagrams_keep_one_original_for_reordered_targets_empty
             let (size,source)=timeout(Duration::from_secs(4),peer.recv_from(&mut buffer)).await.unwrap().unwrap();
             if let Some(previous)=sender {assert_eq!(previous,source);}sender=Some(source);
             let (address,port,payload)=codec.decode(&buffer[..size]).unwrap();assert_eq!(port,53);
-            requests.insert(address.to_string(),payload);
+            let Address::Ipv4([203,0,113,target])=address else {panic!("actual SS target differs: {address:?}")};
+            requests.insert(target,payload);
         }
-        assert_eq!(requests.remove("203.0.113.1").unwrap(),b"first");assert_eq!(requests.remove("203.0.113.2").unwrap(),b"");
+        assert_eq!(requests.remove(&1).unwrap(),b"first");assert_eq!(requests.remove(&2).unwrap(),b"");
         let (owner,native,driver)=original(&proxy);assert!(!driver.is_joined());
         for (target,payload) in [(2,&b""[..]),(1,&b"reply"[..])] {
             let wire=codec.encode(&Address::Ipv4([203,0,113,target]),53,payload).unwrap();peer.send_to(&wire,sender.unwrap()).await.unwrap();receive(&socket,target,payload).await;
