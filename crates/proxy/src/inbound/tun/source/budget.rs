@@ -85,6 +85,7 @@ async fn one_actual_main_slot_rejects_native_tun_driver_before_any_native_acquis
             runtime,
             receiver,
             options.ingress_options(false, Arc::default()),
+            None,
         )
         .unwrap();
     assert!(Arc::ptr_eq(&owner, &original));

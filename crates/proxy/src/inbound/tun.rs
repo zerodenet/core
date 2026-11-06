@@ -3,6 +3,8 @@
 pub(crate) mod completion;
 mod config;
 #[cfg(feature = "raw-ip-runtime")]
+pub(crate) mod exit;
+#[cfg(feature = "raw-ip-runtime")]
 mod managed;
 #[cfg(feature = "raw-ip-runtime")]
 mod packet;

@@ -139,7 +139,7 @@ impl Proxy {
                 crate::runtime::route_runtime::SharedIngressRuntimeServices::new(self.tcp_runtime_services().for_inbound(start.tag.clone())),
                 start.tag.clone(),None,
             );
-            let owner=lease.start(runtime,shutdown_rx,ingress)?;
+            let owner=lease.start(runtime,shutdown_rx,ingress,Some(self.system_tun_exit_projection(start.managed_config.is_some())))?;
             if !Arc::ptr_eq(&owner,&original){return Err(io::Error::other("System TUN start changed its actual owner").into());}
             timeout_at(deadline(),owner.wait_ready()).await.map_err(|source|io::Error::new(io::ErrorKind::TimedOut,source))??;
             let route_state=match &routes{
