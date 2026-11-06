@@ -1,4 +1,6 @@
 //! Protocol-owned SIP003/SIP003u process and endpoint plans.
+/// Existing SIP003 local startup bound. It is not a Business lifetime timeout.
+pub const STARTUP_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(10);
 pub(crate) mod process;
 mod resource;
 pub use resource::{PluginTermination, ShadowsocksPluginResource};

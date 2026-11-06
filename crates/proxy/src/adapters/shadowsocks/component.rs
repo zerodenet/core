@@ -46,6 +46,7 @@ impl ShadowsocksAdapter {
                 .with_process_endpoint(zero_core::component::NetworkGeneration(
                     network.egress.generation(),
                 ))
+                .map_err(options_error)?
                 .with_udp_budget_proposal(
                     self.outbound_state
                         .udp_budget_proposal(
@@ -139,14 +140,16 @@ impl ShadowsocksAdapter {
             .filter(|limit| limit.get() <= 4096)
             .ok_or_else(|| options_error("invalid taskless Stream original limit"))?,
         );
-        let options =
-            if plugin.as_ref().is_some_and(|plugin| plugin.mode.tcp()) {
-                options.with_process(process.ok_or_else(|| {
+        let options = if plugin.as_ref().is_some_and(|plugin| plugin.mode.tcp()) {
+            options.with_process(
+                process.ok_or_else(|| {
                     options_error("actual configured Process dependency is missing")
-                })?)
-            } else {
-                options
-            };
+                })?,
+                shadowsocks::transport::plugin::STARTUP_TIMEOUT,
+            )
+        } else {
+            options
+        };
         if !plugin.as_ref().is_some_and(|plugin| plugin.mode.tcp())
             && zero_core::address::parse_ip_literal(server).is_none()
             && resources.candidate().is_some()

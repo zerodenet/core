@@ -26,10 +26,21 @@ impl ShadowsocksPluginResource {
     pub(crate) fn new(plan: PluginPlan) -> Self {
         Self { plan }
     }
-    pub(crate) fn fresh_owner(&self) -> Self {
-        Self {
-            plan: self.plan.fresh_owner(),
-        }
+    pub(crate) fn select_native(
+        &self,
+        instance: zero_core::component::ComponentInstanceId,
+        tasks: &zero_platform_tokio::contract::scope::TaskRegistrar,
+        endpoint_ordinal: Option<usize>,
+        resources: &dyn zero_platform_tokio::contract::component::ResourceAccess,
+    ) -> io::Result<Self> {
+        Ok(Self {
+            plan: self
+                .plan
+                .select_native(instance, tasks, endpoint_ordinal, resources)?,
+        })
+    }
+    pub(crate) fn validate_native_transition(&self) -> io::Result<()> {
+        self.plan.validate_native_transition()
     }
     pub(crate) fn endpoint_spec(
         &self,
@@ -84,6 +95,7 @@ impl ShadowsocksPluginResource {
         endpoint_ordinal: Option<usize>,
         deadline: Instant,
     ) -> io::Result<SocketAddr> {
+        self.plan.bind_actual_actor(actor.clone())?;
         self.plan
             .acquire_authorized(
                 self.plan.supports_tcp(),

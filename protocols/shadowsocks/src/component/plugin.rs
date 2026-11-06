@@ -37,10 +37,13 @@ impl PluginOptions {
     pub fn with_process_endpoint(
         mut self,
         generation: zero_core::component::NetworkGeneration,
-    ) -> Self {
+    ) -> Result<Self, zero_core::Error> {
+        self.resource.validate_native_transition().map_err(|_| {
+            zero_core::Error::Unsupported("actual legacy process tree has not retired")
+        })?;
         self.endpoint = Some(self.resource.endpoint_spec(generation));
         self.rebuild_identity();
-        self
+        Ok(self)
     }
 
     #[cfg(feature = "blake3")]
@@ -133,13 +136,24 @@ impl ComponentFactory for PluginFactory {
     ) -> Result<ComponentInstance, BuildError> {
         Ok(ComponentInstance {
             lifecycle: erase_lifecycle(Owner {
-                // Build runs only after the previous actual generation stops.
-                // A canonical immutable recipe cannot restart its terminated job.
-                resource: if options.endpoint.is_some() {
-                    options.resource.fresh_owner()
-                } else {
-                    options.resource.clone()
-                },
+                // Same canonical map, not a fresh executor beside old leaves.
+                resource: options
+                    .resource
+                    .select_native(
+                        context.instance(),
+                        &context.tasks,
+                        options.endpoint.as_ref().map(|_| 1),
+                        context.resources.as_ref(),
+                    )
+                    .map_err(|source| {
+                        failure(
+                            context.component,
+                            Stage::Prepare,
+                            Reason::Capacity,
+                            "canonical plugin executor remains retained",
+                        )
+                        .with_source(source)
+                    })?,
                 legacy_budget: options.legacy_budget.clone(),
                 #[cfg(feature = "blake3")]
                 udp_budget: options.udp_budget.clone(),
@@ -175,9 +189,7 @@ struct Owner {
 impl Drop for Owner {
     fn drop(&mut self) {
         self.cancel.cancel();
-        if self.claimed.load(Ordering::Acquire) {
-            self.resource.revoke();
-        }
+        self.resource.revoke();
         // A persistent plan still holds the Child; Drop is not a close report.
     }
 }
@@ -235,9 +247,7 @@ impl ResourceLifecycle for Owner {
     }
     fn revoke(&self, _: CloseReason) {
         self.cancel.cancel();
-        if self.claimed.load(Ordering::Acquire) {
-            self.resource.revoke();
-        }
+        self.resource.revoke();
     }
     async fn shutdown(&mut self, deadline: Instant) -> Result<CloseReport, BuildError> {
         self.revoke(CloseReason::Shutdown);

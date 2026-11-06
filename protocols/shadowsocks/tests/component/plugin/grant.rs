@@ -3,6 +3,10 @@ use super::*;
 pub(super) struct Grant {
     pub(super) starts: AtomicUsize,
     #[cfg(any(target_os = "linux", windows))]
+    retirement: std::sync::OnceLock<Arc<retirement::Retirement>>,
+    #[cfg(any(target_os = "linux", windows))]
+    pub(super) generation_offset: AtomicUsize,
+    #[cfg(any(target_os = "linux", windows))]
     pub(super) actor:
         std::sync::Mutex<Option<zero_platform_tokio::contract::scope::TaskJoinWitness>>,
     #[cfg(any(target_os = "linux", windows))]
@@ -21,13 +25,74 @@ fn denied<T: Send + 'static>() -> BoxFuture<'static, Result<T, BuildError>> {
         ))
     })
 }
+#[cfg(any(target_os = "linux", windows))]
+mod retirement;
+#[cfg(any(target_os = "linux", windows))]
+impl Grant {
+    pub(super) fn for_scope(scope: &TaskScope, generation: u64) -> Self {
+        let grant = Self::default();
+        grant
+            .generation_offset
+            .store((generation - 1) as usize, Ordering::SeqCst);
+        assert!(grant
+            .retirement
+            .set(Arc::new(retirement::Retirement::new(scope, generation)))
+            .is_ok());
+        grant
+    }
+    pub(super) fn confirm_closed(&self, scope: &TaskScope) {
+        let observer = self.retirement.get().unwrap();
+        assert!(observer.scope.matches(&scope.registrar()));
+        assert!(
+            !observer.scope.resource_open(),
+            "actual provider admission must be closed"
+        );
+        assert!(self
+            .originals
+            .lock()
+            .unwrap()
+            .iter()
+            .all(|original| original
+                .closed()
+                .is_some_and(|closed| closed.matches(original))));
+        assert!(self
+            .endpoint
+            .lock()
+            .unwrap()
+            .as_ref()
+            .is_none_or(|endpoint| endpoint
+                .closed()
+                .is_some_and(|closed| closed.matches(endpoint))));
+        observer.publish();
+    }
+}
 impl ResourceAccess for Grant {
+    #[cfg(any(target_os = "linux", windows))]
+    fn process_endpoint_retirement(
+        &self,
+        ordinal: usize,
+    ) -> Option<Arc<dyn zero_platform_tokio::owned_process::ProcessEndpointRetirement>> {
+        if ordinal != 1 {
+            return None;
+        }
+        Some(self.retirement.get()?.clone())
+    }
     #[cfg(any(target_os = "linux", windows))]
     fn prepare_owned_process(
         &self,
         request: zero_platform_tokio::contract::component::ProcessRequest,
         tasks: &zero_platform_tokio::contract::scope::TaskRegistrar,
     ) -> Result<Arc<zero_platform_tokio::owned_process::OwnedProcess>, BuildError> {
+        if self.retirement.get().is_some_and(|observer| {
+            !observer.scope.matches(tasks) || !observer.scope.resource_open()
+        }) {
+            return Err(failure(
+                ComponentId(770),
+                Stage::Prepare,
+                Reason::Revoked,
+                "actual Process declaration admission is closed",
+            ));
+        }
         if request.program != std::path::Path::new("python3") {
             return Err(failure(
                 ComponentId(770),
@@ -77,7 +142,9 @@ impl ResourceAccess for Grant {
         let endpoint = zero_platform_tokio::owned_process::ProcessEndpointHandoff::new(
             zero_core::component::ComponentInstanceId {
                 component: ComponentId(770),
-                generation: zero_core::component::ResourceGeneration(1),
+                generation: zero_core::component::ResourceGeneration(
+                    1 + self.generation_offset.load(Ordering::SeqCst) as u64,
+                ),
             },
             0,
             zero_platform_tokio::owned_process::ProcessEndpointSpec {

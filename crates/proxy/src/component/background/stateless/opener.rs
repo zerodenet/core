@@ -3,7 +3,10 @@ use super::*;
 pub(super) struct Opener {
     pub(super) upstream: UpstreamTransport,
     pub(super) endpoint: Destination,
-    pub(super) process: Option<zero_core::component::ComponentInstanceId>,
+    pub(super) process: Option<(
+        zero_core::component::ComponentInstanceId,
+        std::time::Duration,
+    )>,
     pub(super) transfer: Arc<Transfer>,
 }
 impl UpstreamOpener for Opener {
@@ -96,12 +99,16 @@ impl UpstreamOpener for Opener {
                     "original unique taskless view already transferred",
                 )
             })?;
-            let io = if let Some(process) = self.process {
+            let io = if let Some((process, startup)) = self.process {
                 self.upstream
                     .acquire_process_endpoint_stream(
                         zero_platform_tokio::contract::network::ProcessEndpointStreamRequest {
                             process,
                             process_ordinal: 0,
+                            startup_deadline: call.deadline.map_or_else(
+                                || Instant::now() + startup,
+                                |end| end.min(Instant::now() + startup),
+                            ),
                             endpoint,
                             context: call,
                             grant,

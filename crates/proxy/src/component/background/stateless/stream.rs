@@ -2,7 +2,10 @@
 use super::*;
 pub(super) struct Outbound {
     pub(super) inner: Arc<dyn DynStreamOutbound>,
-    pub(super) process: Option<zero_core::component::ComponentInstanceId>,
+    pub(super) process: Option<(
+        zero_core::component::ComponentInstanceId,
+        std::time::Duration,
+    )>,
     pub(super) endpoint: Destination,
     pub(super) dial: zero_traits::DialPolicy,
     pub(super) grants: CarrierGrants,

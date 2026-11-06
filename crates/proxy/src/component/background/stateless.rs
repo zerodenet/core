@@ -36,7 +36,7 @@ pub(crate) struct Options<T> {
     dial: zero_traits::DialPolicy,
     limit: NonZeroUsize,
     node_dns: Option<zero_core::component::ComponentId>,
-    process: Option<zero_core::component::ComponentId>,
+    process: Option<(zero_core::component::ComponentId, std::time::Duration)>,
 }
 impl<T> Options<T> {
     pub(crate) fn new(
@@ -54,8 +54,12 @@ impl<T> Options<T> {
             process: None,
         }
     }
-    pub(crate) fn with_process(mut self, dependency: zero_core::component::ComponentId) -> Self {
-        self.process = Some(dependency);
+    pub(crate) fn with_process(
+        mut self,
+        dependency: zero_core::component::ComponentId,
+        startup: std::time::Duration,
+    ) -> Self {
+        self.process = Some((dependency, startup));
         self
     }
     pub(crate) fn with_node_dns(mut self, dependency: zero_core::component::ComponentId) -> Self {
@@ -91,7 +95,7 @@ impl<F: ComponentFactory> ComponentFactory for Factory<F> {
                 spec.dependencies.push(node);
             }
         }
-        if let Some(process) = options.process {
+        if let Some((process, _)) = options.process {
             if !spec.dependencies.contains(&process) {
                 spec.dependencies.push(process);
             }
@@ -104,9 +108,10 @@ impl<F: ComponentFactory> ComponentFactory for Factory<F> {
             identity.extend_from_slice(b"taskless.actual-node-dns");
             identity.extend_from_slice(&node.0.to_le_bytes());
         }
-        if let Some(process) = options.process {
+        if let Some((process, startup)) = options.process {
             identity.extend_from_slice(b"actual-process-dependency-v1");
             identity.extend_from_slice(&process.0.to_le_bytes());
+            identity.extend_from_slice(&startup.as_nanos().to_le_bytes());
         }
         spec.static_identity = identity.into();
         spec
@@ -131,20 +136,23 @@ impl<F: ComponentFactory> ComponentFactory for Factory<F> {
                 expected.push(node);
             }
         }
-        if let Some(process) = options.process {
+        if let Some((process, _)) = options.process {
             if !expected.contains(&process) {
                 expected.push(process);
             }
         }
         let process = options
             .process
-            .map(|id| {
-                context.dependency(id).ok_or_else(|| {
-                    super::super::instance::invalid(
-                        Reason::StalePlan,
-                        "actual process dependency changed",
-                    )
-                })
+            .map(|(id, startup)| {
+                context
+                    .dependency(id)
+                    .map(|instance| (instance, startup))
+                    .ok_or_else(|| {
+                        super::super::instance::invalid(
+                            Reason::StalePlan,
+                            "actual process dependency changed",
+                        )
+                    })
             })
             .transpose()?;
         if context.dependencies.len() != expected.len()
