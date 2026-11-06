@@ -56,6 +56,9 @@ impl RawIpChildren {
     }
     pub(super) fn install(&mut self, context: &InboundInstallContext) -> Result<(), EngineError> {
         context.owner().prepare_packet_source_pause();
+        self.native
+            .bind_source(context.source_registrar().scope_identity())
+            .map_err(std::io::Error::other)?;
         self.icmp = context.icmp_probe_grant();
         context.register_after_scope(self.packet_roles.resource())?;
         if let Some(tcp_dns) = &self.tcp_dns {

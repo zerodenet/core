@@ -28,6 +28,7 @@ impl ChildKind {
 #[derive(Clone)]
 pub(crate) struct NativeObligations(Arc<Mutex<State>>);
 struct State {
+    scope: Option<zero_platform_tokio::contract::scope::TaskScopeIdentity>,
     closing: bool,
     next: u64,
     limits: [usize; 3],
@@ -36,6 +37,7 @@ struct State {
 }
 struct Record {
     kind: ChildKind,
+    dns: Option<dns::DnsOriginal>,
     entered: bool,
     retiring: bool,
     caller: Option<Arc<crate::runtime::inbound_owners::HostPeerBinding>>,
@@ -63,6 +65,7 @@ impl NativeObligations {
 
     pub(crate) fn new(tcp: usize, udp: usize, dns: usize) -> Self {
         Self(Arc::new(Mutex::new(State {
+            scope: None,
             closing: false,
             next: 0,
             limits: [tcp, udp, dns],
@@ -98,6 +101,7 @@ impl NativeObligations {
             id,
             Record {
                 kind,
+                dns: None,
                 entered: false,
                 retiring: false,
                 caller: None,
@@ -118,10 +122,18 @@ impl NativeObligations {
         })
     }
     fn stop(&self) {
-        self.0
-            .lock()
-            .unwrap_or_else(|error| error.into_inner())
-            .closing = true;
+        let calls = {
+            let mut state = self.0.lock().unwrap_or_else(|error| error.into_inner());
+            state.closing = true;
+            state
+                .records
+                .values()
+                .filter_map(|record| record.dns.as_ref().map(|original| original.call.clone()))
+                .collect::<Vec<_>>()
+        };
+        for call in calls {
+            call.cancel();
+        }
     }
 }
 #[derive(Clone)]
@@ -132,6 +144,8 @@ pub(crate) struct NativeRegistration {
 mod business;
 mod carrier;
 mod completion;
+mod dns;
+pub(crate) use dns::DnsSourceCaller;
 mod pending;
 mod registration;
 impl NativePermit {
@@ -202,14 +216,22 @@ impl Drop for NativePermit {
             .0
             .lock()
             .unwrap_or_else(|error| error.into_inner());
-        if let Some(record) = state.records.get_mut(&self.id) {
+        let call = if let Some(record) = state.records.get_mut(&self.id) {
             if record.entered {
                 record.retiring = true;
+                record.dns.as_ref().map(|original| original.call.clone())
             } else {
                 // This exact reserved operation never entered its gateway.
                 // No future or error-kind inference and no native-close claim.
                 state.records.remove(&self.id);
+                None
             }
+        } else {
+            None
+        };
+        drop(state);
+        if let Some(call) = call {
+            call.cancel();
         }
     }
 }
