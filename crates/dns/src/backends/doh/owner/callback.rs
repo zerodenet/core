@@ -36,7 +36,7 @@ async fn original_driver_retirement_wakes_only_after_releasing_the_same_pool_sta
                 .unwrap();
             let (peer, _) = listener.accept().await.unwrap();
             let mut peer = Some(peer);
-            let (sender, connection) = h2::client::handshake::<_, Bytes>(socket).await.unwrap();
+            let (sender, connection) = h2::client::handshake(socket).await.unwrap();
             let egress = zero_platform_tokio::EgressInterfaceControl::default();
             let owner = Arc::new(DriverOwner::new(Arc::default(), Arc::default(), 1));
             let client = owner.client(None, true, egress.clone(), egress.generation());
