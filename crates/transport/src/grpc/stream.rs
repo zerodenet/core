@@ -1,5 +1,6 @@
 use super::*;
 pub struct GrpcStream {
+    pub(super) inline: Option<super::inline::Inline>,
     progress: std::sync::Arc<super::progress::Progress>,
     pub(super) driver: Option<std::sync::Arc<super::server::Driver>>,
     pub(super) incoming: Option<super::server::GrpcIncoming>,
@@ -19,6 +20,7 @@ impl GrpcStream {
         progress: std::sync::Arc<super::progress::Progress>,
     ) -> Self {
         Self {
+            inline: None,
             progress,
             driver: None,
             incoming: None,
@@ -31,6 +33,16 @@ impl GrpcStream {
             write_closed: false,
         }
     }
+    fn poll_inline(&mut self, cx: &mut Context<'_>, reading: bool) {
+        if let Some(driver) = &mut self.inline {
+            driver.poll(cx, reading);
+        }
+    }
+    fn inline_failure(&self) -> Option<io::Error> {
+        self.inline
+            .as_ref()
+            .and_then(super::inline::Inline::failure)
+    }
 }
 
 // Async stream interfaces.
@@ -41,6 +53,7 @@ impl AsyncRead for GrpcStream {
         cx: &mut Context<'_>,
         buf: &mut ReadBuf<'_>,
     ) -> Poll<io::Result<()>> {
+        self.poll_inline(cx, true);
         if buf.remaining() == 0 {
             return Poll::Ready(Ok(()));
         }
@@ -53,10 +66,11 @@ impl AsyncRead for GrpcStream {
                 self.read_buffer.clear();
                 self.read_offset = 0;
             }
+            self.poll_inline(cx, true);
             return Poll::Ready(Ok(()));
         }
 
-        match self.read_rx.poll_recv(cx) {
+        let result = match self.read_rx.poll_recv(cx) {
             Poll::Ready(Some(Ok(data))) => {
                 let to_copy = data.len().min(buf.remaining());
                 buf.put_slice(&data[..to_copy]);
@@ -67,9 +81,11 @@ impl AsyncRead for GrpcStream {
                 Poll::Ready(Ok(()))
             }
             Poll::Ready(Some(Err(error))) => Poll::Ready(Err(error)),
-            Poll::Ready(None) => Poll::Ready(Ok(())),
+            Poll::Ready(None) => Poll::Ready(self.inline_failure().map_or(Ok(()), Err)),
             Poll::Pending => Poll::Pending,
-        }
+        };
+        self.poll_inline(cx, true);
+        result
     }
 }
 
@@ -79,7 +95,11 @@ impl AsyncWrite for GrpcStream {
         cx: &mut Context<'_>,
         buf: &[u8],
     ) -> Poll<Result<usize, io::Error>> {
+        self.poll_inline(cx, false);
         self.progress.check()?;
+        if let Some(source) = self.inline_failure() {
+            return Poll::Ready(Err(source));
+        }
         if self.write_closed {
             return Poll::Ready(Err(io::Error::new(
                 io::ErrorKind::BrokenPipe,
@@ -90,7 +110,10 @@ impl AsyncWrite for GrpcStream {
             return Poll::Ready(Ok(0));
         }
         match self.write_tx.poll_reserve(cx) {
-            Poll::Pending => return Poll::Pending,
+            Poll::Pending => {
+                self.poll_inline(cx, false);
+                return Poll::Pending;
+            }
             Poll::Ready(Err(_)) => return Poll::Ready(Err(io::ErrorKind::BrokenPipe.into())),
             Poll::Ready(Ok(())) => {}
         }
@@ -98,6 +121,7 @@ impl AsyncWrite for GrpcStream {
         match self.write_tx.send_item(buf[..count].to_vec()) {
             Ok(()) => {
                 self.progress.accept(count);
+                self.poll_inline(cx, false);
                 Poll::Ready(Ok(count))
             }
             Err(_) => Poll::Ready(Err(io::Error::new(
@@ -107,8 +131,15 @@ impl AsyncWrite for GrpcStream {
         }
     }
 
-    fn poll_flush(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<(), io::Error>> {
-        self.progress.poll(cx, false)
+    fn poll_flush(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<(), io::Error>> {
+        self.poll_inline(cx, false);
+        self.progress.check()?;
+        if let Some(source) = self.inline_failure() {
+            return Poll::Ready(Err(source));
+        }
+        let result = self.progress.poll(cx, false);
+        self.poll_inline(cx, false);
+        result
     }
 
     fn poll_shutdown(
@@ -119,7 +150,14 @@ impl AsyncWrite for GrpcStream {
             self.write_closed = true;
             self.write_tx.close();
         }
-        self.progress.poll(cx, true)
+        self.poll_inline(cx, false);
+        self.progress.check()?;
+        if let Some(source) = self.inline_failure() {
+            return Poll::Ready(Err(source));
+        }
+        let result = self.progress.poll(cx, true);
+        self.poll_inline(cx, false);
+        result
     }
 }
 
