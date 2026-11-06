@@ -70,6 +70,12 @@ impl OwnedWintunOwner {
                 }
             };
             state.adapter = Some(adapter);
+            if self.closing.load(std::sync::atomic::Ordering::Acquire) {
+                return Err(io::Error::new(
+                    io::ErrorKind::Interrupted,
+                    "same original Wintun acquisition stopped",
+                ));
+            }
             if !configure {
                 super::super::existing::validate_host_configuration(name, addresses, mtu)?;
             }
@@ -82,24 +88,33 @@ impl OwnedWintunOwner {
                 adapter.owned_identity(),
             ));
             state.session = Some(Arc::new(session));
+            if self.closing.load(std::sync::atomic::Ordering::Acquire) {
+                return Err(io::Error::new(
+                    io::ErrorKind::Interrupted,
+                    "same original Wintun acquisition stopped",
+                ));
+            }
             // A dormant host link becomes usable only after StartSession.
             // The same parent already retains both originals during this wait.
             if !configure {
                 let luid = super::super::interface_luid(name)?;
                 for &address in addresses {
-                    super::super::wait_for_address_ready_with(
+                    super::super::wait_for_address_ready_until(
                         luid,
                         address,
                         super::super::existing::activating_dad_state_is_ready,
+                        Some(&self.closing),
                     )?;
                 }
+            }
+            if let Some(control) = self.reader_control.get() {
+                control.signal_input()?;
             }
             let hosted = state
                 .prepared_reader
                 .as_mut()
                 .and_then(|reader| reader.receiver.take());
             state.view_live = true;
-            self.reader_ready.notify_all();
             Ok(OwnedWintunIo::new(
                 self.clone(),
                 name.to_owned(),

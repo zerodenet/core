@@ -6,9 +6,9 @@ use crate::{OwnedWintunOwner, WintunAcquisitionOutcome};
 async fn waiting(owner: &OwnedWintunOwner) {
     tokio::time::timeout(std::time::Duration::from_secs(2), async {
         loop {
-            // The body sets this while owning the same mutex immediately before
-            // Condvar::wait, and clears after reacquiring it. Observing it under
-            // that mutex therefore identifies the real suspended input wait.
+            // Observe the original body reaching its real event-input wait.
+            // The pause ACK below comes from that same thread's checkpoint;
+            // this bootstrap observation is no task-join or native proof.
             if owner
                 .state()
                 .prepared_reader
@@ -87,8 +87,7 @@ async fn reversible_pause_keeps_the_same_waiting_reader_and_event_until_actual_j
 #[test]
 fn failed_original_event_close_blocks_every_later_handle_use_without_claiming_closed() {
     let root = Arc::new(PacketReturnTotals::default());
-    let control =
-        OwnedWintunReadControl::new(root.native_grant(65_536).unwrap(), std::sync::Weak::new());
+    let control = OwnedWintunReadControl::new(root.native_grant(65_536).unwrap());
     assert!(control.activate().unwrap());
     let original = control.state().event.unwrap();
     // Deliberate real OS failure injection: invalidate this actual event, so

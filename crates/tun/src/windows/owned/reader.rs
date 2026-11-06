@@ -1,9 +1,12 @@
 //! Same SDK reader body, transferred before acquisition to its actual host Scope.
 //! Completion here reports the body only; the host must consume the matching
 //! real blocking TaskJoinWitness before native Session/Adapter cleanup.
+mod acquisition;
 mod control;
 use super::*;
 use crate::packet_memory::{NativeReadGrant, PacketMemoryError};
+use acquisition::Acquisition;
+pub use acquisition::OwnedWintunRequest;
 pub use control::{OwnedWintunReadControl, OwnedWintunReadPause};
 use std::sync::atomic::Ordering;
 use tokio::sync::mpsc;
@@ -14,6 +17,8 @@ pub(super) struct PreparedReader {
     #[cfg(test)]
     pub(super) waiting_session: bool,
     pub(super) control: OwnedWintunReadControl,
+    pub(super) acquire_queued: bool,
+    pub(super) acquisition: Option<Acquisition>,
     pub(super) event_close: Option<Result<(), Arc<io::Error>>>,
 }
 pub struct OwnedWintunReadWork {
@@ -44,7 +49,13 @@ impl OwnedWintunOwner {
         // This is the original bounded read channel, not a new buffer pool.
         // The prepaid exclusive workspace bounds real outstanding payloads.
         let (sender, receiver) = mpsc::channel(256);
-        let control = OwnedWintunReadControl::new(grant.clone(), Arc::downgrade(self));
+        let control = OwnedWintunReadControl::new(grant.clone());
+        self.reader_control.set(control.clone()).map_err(|_| {
+            io::Error::new(
+                io::ErrorKind::AlreadyExists,
+                "same SDK reader control already installed",
+            )
+        })?;
         state.prepared_reader = Some(PreparedReader {
             grant: grant.clone(),
             receiver: Some(receiver),
@@ -53,6 +64,8 @@ impl OwnedWintunOwner {
             waiting_session: false,
             control: control.clone(),
             event_close: None,
+            acquire_queued: false,
+            acquisition: None,
         });
         Ok(OwnedWintunReadWork {
             owner: self.clone(),
@@ -62,10 +75,7 @@ impl OwnedWintunOwner {
         })
     }
     pub fn read_control(&self) -> Option<OwnedWintunReadControl> {
-        self.state()
-            .prepared_reader
-            .as_ref()
-            .map(|reader| reader.control.clone())
+        self.reader_control.get().cloned()
     }
     pub fn read_work_body_finished(&self) -> bool {
         self.state()
@@ -96,6 +106,27 @@ impl OwnedWintunReadWork {
                 drop(state);
                 continue;
             }
+            if let Some(acquisition) = state
+                .prepared_reader
+                .as_mut()
+                .and_then(|reader| reader.acquisition.take())
+            {
+                drop(state);
+                let result = acquisition.request.execute(&self.owner);
+                let failure = result.as_ref().err().cloned();
+                if let Err(returned) = acquisition.result.send(result) {
+                    drop(returned);
+                    return Ok(());
+                }
+                if let Some(source) = failure {
+                    return if self.owner.closing.load(Ordering::Acquire) {
+                        Ok(())
+                    } else {
+                        Err(shared(source))
+                    };
+                }
+                continue;
+            }
             if let Some(session) = &state.session {
                 break session.clone();
             }
@@ -107,20 +138,17 @@ impl OwnedWintunReadWork {
                     .expect("same original reader")
                     .waiting_session = true;
             }
-            state = self
-                .owner
-                .reader_ready
-                .wait(state)
-                .unwrap_or_else(std::sync::PoisonError::into_inner);
+            drop(state);
+            self.control.wait_input()?;
             #[cfg(test)]
             {
-                state
+                self.owner
+                    .state()
                     .prepared_reader
                     .as_mut()
                     .expect("same original reader")
                     .waiting_session = false;
             }
-            drop(state);
         };
         loop {
             if !self.control.checkpoint() {
@@ -185,6 +213,12 @@ impl Drop for OwnedWintunReadWork {
             .expect("same prepared reader")
             .done = true;
         drop(state);
-        self.owner.reader_ready.notify_all();
+        let abandoned = self
+            .owner
+            .state()
+            .prepared_reader
+            .as_mut()
+            .and_then(|reader| reader.acquisition.take());
+        drop(abandoned);
     }
 }

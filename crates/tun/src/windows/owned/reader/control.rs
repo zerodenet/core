@@ -21,7 +21,6 @@ struct Control {
     blocking: Condvar,
     paused: AtomicBool,
     grant: NativeReadGrant,
-    owner: std::sync::Weak<super::super::OwnedWintunOwner>,
 }
 struct State {
     event: Option<usize>,
@@ -38,10 +37,7 @@ pub struct OwnedWintunReadPause {
     request: u64,
 }
 impl OwnedWintunReadControl {
-    pub(super) fn new(
-        grant: NativeReadGrant,
-        owner: std::sync::Weak<super::super::OwnedWintunOwner>,
-    ) -> Self {
+    pub(super) fn new(grant: NativeReadGrant) -> Self {
         Self(Arc::new(Control {
             state: Mutex::new(State {
                 event: None,
@@ -57,7 +53,6 @@ impl OwnedWintunReadControl {
             blocking: Condvar::new(),
             paused: AtomicBool::new(false),
             grant,
-            owner,
         }))
     }
     /// Called only inside the actual admitted reader body, after its host has
@@ -97,8 +92,8 @@ impl OwnedWintunReadControl {
             return Err(super::super::shared(source.clone()));
         }
         let Some(raw) = state.event else {
-            // Before this same task activates, there is no native event wait.
-            // The session/grant Condvars below still wake its real bootstrap.
+            // Before activation this task cannot be waiting on the event; its
+            // first checkpoint and retained acquisition input are still read.
             return if state.closed {
                 Err(io::Error::new(
                     io::ErrorKind::BrokenPipe,
@@ -166,10 +161,26 @@ impl OwnedWintunReadControl {
     fn wake_original(&self) {
         self.0.grant.wake();
         self.0.blocking.notify_all();
-        if let Some(owner) = self.0.owner.upgrade() {
-            drop(owner.state());
-            owner.reader_ready.notify_all();
+    }
+    pub(in crate::windows::owned) fn signal_input(&self) -> io::Result<()> {
+        self.signal()
+    }
+    pub(super) fn wait_input(&self) -> io::Result<()> {
+        let event = self.wait_handle()?;
+        // SAFETY: the same actual reader owns this event until its body exits;
+        // it is persistently stored before this single-event bootstrap wait.
+        let result = unsafe {
+            windows_sys::Win32::System::Threading::WaitForSingleObject(event as HANDLE, INFINITE)
+        };
+        if result == WAIT_FAILED {
+            return Err(io::Error::last_os_error());
         }
+        if result != WAIT_OBJECT_0 {
+            return Err(io::Error::other(
+                "unexpected original reader bootstrap wait",
+            ));
+        }
+        Ok(())
     }
     pub(super) fn checkpoint(&self) -> bool {
         let mut state = self.state();
@@ -202,6 +213,7 @@ impl OwnedWintunReadControl {
             state.stopped = true;
         }
         let result = self.signal();
+        self.0.grant.revoke();
         self.wake_original();
         self.0.changed.notify_waiters();
         result

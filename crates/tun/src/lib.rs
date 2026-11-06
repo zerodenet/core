@@ -153,7 +153,8 @@ mod windows;
 #[cfg(target_os = "windows")]
 pub use windows::{
     ExistingWindowsTun, OwnedWintunIo, OwnedWintunOwner, OwnedWintunReadControl,
-    OwnedWintunReadPause, OwnedWintunReadWork, WindowsTun, WintunAcquisitionOutcome,
+    OwnedWintunReadPause, OwnedWintunReadWork, OwnedWintunRequest, WindowsTun,
+    WintunAcquisitionOutcome,
 };
 
 /// Create a new TUN device for the current platform.

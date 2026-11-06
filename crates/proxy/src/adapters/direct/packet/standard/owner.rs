@@ -34,9 +34,19 @@ impl ResourceLifecycle for Owner {
             )
         })?;
         input.wait_input_pending(deadline).await?;
-        let grant = self
-            .resources
-            .open_packet_device(NATIVE_NAME.into(), input.witness())?;
+        let grant = tokio::time::timeout_at(
+            deadline,
+            self.resources
+                .open_packet_device(NATIVE_NAME.into(), input.witness()),
+        )
+        .await
+        .map_err(|source| {
+            error(
+                Reason::Timeout,
+                "Direct original native acquisition remains owned",
+            )
+            .with_source(source)
+        })??;
         input.install(grant)?;
         tokio::time::timeout_at(deadline, device.wait_native_view())
             .await

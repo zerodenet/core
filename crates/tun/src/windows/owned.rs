@@ -5,7 +5,9 @@ mod io_view;
 mod reader;
 use crate::{OwnedTunIdentity, TunCloseReceipt};
 pub use io_view::OwnedWintunIo;
-pub use reader::{OwnedWintunReadControl, OwnedWintunReadPause, OwnedWintunReadWork};
+pub use reader::{
+    OwnedWintunReadControl, OwnedWintunReadPause, OwnedWintunReadWork, OwnedWintunRequest,
+};
 use std::{
     io,
     sync::{Arc, Mutex},
@@ -40,7 +42,7 @@ struct State {
 pub struct OwnedWintunOwner {
     state: Mutex<State>,
     closing: std::sync::atomic::AtomicBool,
-    reader_ready: std::sync::Condvar,
+    reader_control: std::sync::OnceLock<OwnedWintunReadControl>,
 }
 impl std::fmt::Debug for OwnedWintunOwner {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -70,7 +72,7 @@ impl OwnedWintunOwner {
                 errors: Vec::new(),
             }),
             closing: std::sync::atomic::AtomicBool::new(false),
-            reader_ready: std::sync::Condvar::new(),
+            reader_control: std::sync::OnceLock::new(),
         })
     }
     fn state(&self) -> std::sync::MutexGuard<'_, State> {
