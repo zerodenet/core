@@ -36,6 +36,7 @@ pub(crate) struct Options<T> {
     dial: zero_traits::DialPolicy,
     limit: NonZeroUsize,
     node_dns: Option<zero_core::component::ComponentId>,
+    process: Option<zero_core::component::ComponentId>,
 }
 impl<T> Options<T> {
     pub(crate) fn new(
@@ -50,7 +51,12 @@ impl<T> Options<T> {
             dial,
             limit,
             node_dns: None,
+            process: None,
         }
+    }
+    pub(crate) fn with_process(mut self, dependency: zero_core::component::ComponentId) -> Self {
+        self.process = Some(dependency);
+        self
     }
     pub(crate) fn with_node_dns(mut self, dependency: zero_core::component::ComponentId) -> Self {
         self.node_dns = Some(dependency);
@@ -65,6 +71,7 @@ impl<T> Clone for Options<T> {
             dial: self.dial.clone(),
             limit: self.limit,
             node_dns: self.node_dns,
+            process: self.process,
         }
     }
 }
@@ -84,6 +91,11 @@ impl<F: ComponentFactory> ComponentFactory for Factory<F> {
                 spec.dependencies.push(node);
             }
         }
+        if let Some(process) = options.process {
+            if !spec.dependencies.contains(&process) {
+                spec.dependencies.push(process);
+            }
+        }
         let mut identity = spec.static_identity.to_vec();
         identity.extend_from_slice(b"same-slot-taskless-carrier-v1");
         identity.extend_from_slice(&options.limit.get().to_le_bytes());
@@ -91,6 +103,10 @@ impl<F: ComponentFactory> ComponentFactory for Factory<F> {
         if let Some(node) = options.node_dns {
             identity.extend_from_slice(b"taskless.actual-node-dns");
             identity.extend_from_slice(&node.0.to_le_bytes());
+        }
+        if let Some(process) = options.process {
+            identity.extend_from_slice(b"actual-process-dependency-v1");
+            identity.extend_from_slice(&process.0.to_le_bytes());
         }
         spec.static_identity = identity.into();
         spec
@@ -115,6 +131,22 @@ impl<F: ComponentFactory> ComponentFactory for Factory<F> {
                 expected.push(node);
             }
         }
+        if let Some(process) = options.process {
+            if !expected.contains(&process) {
+                expected.push(process);
+            }
+        }
+        let process = options
+            .process
+            .map(|id| {
+                context.dependency(id).ok_or_else(|| {
+                    super::super::instance::invalid(
+                        Reason::StalePlan,
+                        "actual process dependency changed",
+                    )
+                })
+            })
+            .transpose()?;
         if context.dependencies.len() != expected.len()
             || expected.iter().any(|id| context.dependency(*id).is_none())
         {
@@ -147,6 +179,7 @@ impl<F: ComponentFactory> ComponentFactory for Factory<F> {
         })?;
         instance.roles.stream = Some(erase_stream(Outbound {
             inner,
+            process,
             endpoint,
             dial,
             grants: carrier.grants(),

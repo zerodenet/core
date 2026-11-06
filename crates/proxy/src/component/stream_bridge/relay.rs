@@ -98,6 +98,7 @@ pub(crate) async fn connect(
                     services.upstream_observed(&first.tag),
                     destination(endpoint),
                 )
+                .with_plan(services.components.as_ref().ok().map(Arc::downgrade))
                 .with_business(
                     crate::component::business_carrier::BusinessCarrierRequest::new(
                         services.engine(),

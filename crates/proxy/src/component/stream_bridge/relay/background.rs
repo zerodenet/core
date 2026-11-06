@@ -69,6 +69,7 @@ impl BackgroundPath<'_> {
                         services.upstream_observed(first.tag.as_deref().unwrap_or("")),
                         endpoint.clone(),
                     )
+                    .with_plan(services.components.as_ref().ok().map(Arc::downgrade))
                     .with_pending(root_binding, waiting)
                     .with_service_call(call.clone()),
                 ),
