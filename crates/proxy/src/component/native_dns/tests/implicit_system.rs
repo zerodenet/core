@@ -1,10 +1,11 @@
 //! Absence of explicit DNS retains the real host-owned System Node resolver.
-use super::*;
+use crate::runtime::Proxy;
 use std::time::Duration;
 use zero_platform_tokio::contract::{
     dns::{DnsQueryContext, DnsQueryRole, DnsRequest},
     CancellationToken,
 };
+use zero_traits::IpAddress;
 fn end() -> tokio::time::Instant {
     tokio::time::Instant::now() + Duration::from_secs(5)
 }
@@ -58,7 +59,8 @@ async fn ordinary_implicit_system_node_uses_owned_blocking_capacity_and_stops_wi
         "OS work/task joins do not fabricate native socket receipts"
     );
     assert!(
-        proxy.engine.active_sessions().is_empty() && proxy.engine.completed_sessions().is_empty()
+        proxy.engine().active_sessions().is_empty()
+            && proxy.engine().completed_sessions().is_empty()
     );
     running.shutdown().await.unwrap();
     assert!(node

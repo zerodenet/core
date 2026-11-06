@@ -394,3 +394,7 @@ impl ResourceLifecycle for Owner {
         Ok(report)
     }
 }
+
+#[cfg(test)]
+#[path = "native_dns/tests/implicit_system.rs"]
+mod tests;
