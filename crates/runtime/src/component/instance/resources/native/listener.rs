@@ -121,6 +121,52 @@ impl HostDatagramListenerOwner {
             Err(failure) => Err(self.remember(failure)),
         }
     }
+    /// Bind the same retained controller before its unique listener view escapes.
+    pub fn register_provider(
+        &self,
+        instance: zero_core::component::ComponentInstanceId,
+        tasks: &zero_platform_tokio::contract::scope::TaskRegistrar,
+    ) -> Result<
+        zero_platform_tokio::controlled_datagram::provider::DatagramProviderRegistration,
+        ChannelError,
+    > {
+        if self.component != instance.component {
+            return Err(error(
+                self.component,
+                Reason::StalePlan,
+                "listener host instance changed",
+            ));
+        }
+        self.native
+            .register_provider(instance, tasks)
+            .map_err(|source| {
+                error(
+                    self.component,
+                    Reason::StalePlan,
+                    "actual listener provider registration failed",
+                )
+                .with_source(source)
+            })
+    }
+    pub fn register_driver(
+        &self,
+        original: &zero_platform_tokio::controlled_datagram::listener::DatagramListenerIdentity,
+        witness: &zero_platform_tokio::contract::scope::TaskJoinWitness,
+    ) -> Result<
+        zero_platform_tokio::controlled_datagram::provider::NativeDatagramOrigin,
+        ChannelError,
+    > {
+        self.native
+            .register_driver(original, witness)
+            .map_err(|source| {
+                error(
+                    self.component,
+                    Reason::StalePlan,
+                    "actual listener driver registration failed",
+                )
+                .with_source(source)
+            })
+    }
     pub fn revoke(&mut self) {
         self.revoked = true;
         self.native.revoke();

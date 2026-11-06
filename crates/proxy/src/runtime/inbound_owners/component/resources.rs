@@ -1,6 +1,9 @@
 //! Original granted resources and protocol lifecycle over the same host provider.
 use super::*;
 pub(super) struct BoundResources {
+    #[cfg(all(feature = "raw-ip-runtime", feature = "datagram-route-runtime"))]
+    pub(super) packet_native:
+        Option<std::sync::Weak<super::super::bind::native::udp::NativeDatagramGrant>>,
     pub(super) handoff: Option<Arc<super::super::bind::native::handoff::Grant>>,
     pub(super) process: Option<Arc<crate::component::instance::HostResources>>,
     pub(super) extra_tcp: Mutex<Vec<(Destination, ControlledTcpListener)>>,
@@ -20,6 +23,20 @@ pub(super) struct BoundResources {
         Option<zero_platform_tokio::contract::component::AcceptedDatagramAuthority>,
 }
 impl ResourceAccess for BoundResources {
+    #[cfg(all(feature = "raw-ip-runtime", feature = "datagram-route-runtime"))]
+    fn register_packet_source_driver(
+        &self,
+        original: &zero_platform_tokio::controlled_datagram::listener::DatagramListenerIdentity,
+        witness: &zero_platform_tokio::contract::scope::TaskJoinWitness,
+    ) -> Result<zero_platform_tokio::controlled_datagram::provider::NativeDatagramOrigin, BuildError>
+    {
+        self.packet_native
+            .as_ref()
+            .and_then(std::sync::Weak::upgrade)
+            .ok_or_else(denied)?
+            .register_driver(original, witness)
+    }
+
     fn inbound_endpoints(
         &self,
     ) -> Result<zero_platform_tokio::contract::component::InboundListenerEndpoints, BuildError>

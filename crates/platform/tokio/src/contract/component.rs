@@ -37,14 +37,14 @@ mod metadata_datagram;
 pub use metadata_datagram::{GrantedMetadataListener, MetadataDatagramRequest};
 
 use super::{
+    BoxFuture,
     datagram::DynDatagramOutbound,
     inbound::DynInboundSource,
     lifecycle::{BuildError, DynResourceLifecycle},
     network::UpstreamTransport,
     packet::{BoxPacketSession, DynPacketOutbound},
-    scope::TaskRegistrar,
+    scope::{TaskJoinWitness, TaskRegistrar},
     stream::DynStreamOutbound,
-    BoxFuture,
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -292,6 +292,19 @@ pub trait ResourceAccess: Send + Sync {
         ))
     }
 
+    /// Match the actual acquired listener controller and this same Scope's
+    /// real wire task before its unique views are allowed to perform I/O.
+    fn register_packet_source_driver(
+        &self,
+        _original: &crate::controlled_datagram::listener::DatagramListenerIdentity,
+        _witness: &TaskJoinWitness,
+    ) -> Result<crate::controlled_datagram::provider::NativeDatagramOrigin, BuildError> {
+        Err(super::ChannelError::new(
+            super::Stage::Prepare,
+            super::Reason::Unsupported,
+            super::Impact::Component,
+        ))
+    }
     fn open_inbound_stream(
         &self,
         _caller: crate::AcceptedCaller,

@@ -1,19 +1,19 @@
 //! One native holder for the canonical listener declaration, never two budgets.
 use super::*;
 use zero_platform_tokio::{
-    contract::{
-        component::ResourceDeclaration,
-        lifecycle::{erase_lifecycle, DynResourceLifecycle},
-        ChannelError,
-    },
     ControlledTcpListener,
+    contract::{
+        ChannelError,
+        component::ResourceDeclaration,
+        lifecycle::{DynResourceLifecycle, erase_lifecycle},
+    },
 };
 pub(in crate::runtime::inbound_owners) mod handoff;
 mod metadata;
 mod tcp_group;
 pub(in crate::runtime::inbound_owners) use tcp_group::MetadataViews;
 #[cfg(feature = "datagram-route-runtime")]
-mod udp;
+pub(in crate::runtime::inbound_owners) mod udp;
 
 pub(crate) enum NativeListenerView {
     Tcp(ControlledTcpListener),
@@ -115,11 +115,16 @@ impl NativeBindGrant {
             .map(Arc::new)
             .map(Self::Tcp),
             #[cfg(feature = "datagram-route-runtime")]
-            ResourceDeclaration::DatagramListener { .. } => {
-                udp::NativeDatagramGrant::new(identity, declaration, address, attempts, cancel)
-                    .map(Arc::new)
-                    .map(Self::Datagram)
-            }
+            ResourceDeclaration::DatagramListener { .. } => udp::NativeDatagramGrant::new_scoped(
+                identity,
+                declaration,
+                address,
+                attempts,
+                cancel,
+                registrar.clone(),
+            )
+            .map(Arc::new)
+            .map(Self::Datagram),
             _ => Err(ChannelError::new(
                 zero_platform_tokio::contract::Stage::Prepare,
                 zero_platform_tokio::contract::Reason::Unsupported,

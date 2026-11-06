@@ -2,16 +2,16 @@
 use super::*;
 use crate::component::instance::HostDatagramListenerOwner;
 use std::sync::{
-    atomic::{AtomicBool, Ordering},
     Mutex,
+    atomic::{AtomicBool, Ordering},
 };
 use zero_platform_tokio::contract::{
+    CloseReason, Impact, Reason, Stage,
     component::GrantedDatagramListener,
     lifecycle::{CloseReport, ResourceLifecycle},
-    CloseReason, Impact, Reason, Stage,
 };
 
-pub(in crate::runtime::inbound_owners::bind) struct NativeDatagramGrant {
+pub(in crate::runtime::inbound_owners) struct NativeDatagramGrant {
     identity: ComponentInstanceId,
     addresses: std::sync::OnceLock<Arc<[std::net::SocketAddr]>>,
     declaration: ResourceDeclaration,
@@ -24,6 +24,7 @@ pub(in crate::runtime::inbound_owners::bind) struct NativeDatagramGrant {
     native: Mutex<Option<HostDatagramListenerOwner>>,
     cancel: CancellationToken,
     bound: AtomicBool,
+    scope: Option<zero_platform_tokio::contract::scope::TaskRegistrar>,
 }
 impl NativeDatagramGrant {
     pub(super) fn new(
@@ -79,7 +80,46 @@ impl NativeDatagramGrant {
             }),
             cancel,
             bound: AtomicBool::new(false),
+            scope: None,
         })
+    }
+    pub(super) fn new_scoped(
+        identity: ComponentInstanceId,
+        declaration: &ResourceDeclaration,
+        address: Option<std::net::SocketAddr>,
+        attempts: NonZeroUsize,
+        cancel: CancellationToken,
+        scope: zero_platform_tokio::contract::scope::TaskRegistrar,
+    ) -> Result<Self, ChannelError> {
+        let mut original = Self::new(identity, declaration, address, attempts, cancel)?;
+        original.scope = Some(scope);
+        Ok(original)
+    }
+    pub(in crate::runtime::inbound_owners) fn register_driver(
+        &self,
+        original: &zero_platform_tokio::controlled_datagram::listener::DatagramListenerIdentity,
+        witness: &zero_platform_tokio::contract::scope::TaskJoinWitness,
+    ) -> Result<
+        zero_platform_tokio::controlled_datagram::provider::NativeDatagramOrigin,
+        ChannelError,
+    > {
+        if self.cancel.is_cancelled()
+            || !self
+                .scope
+                .as_ref()
+                .is_some_and(|tasks| witness.scope_identity().matches(tasks))
+        {
+            return Err(ChannelError::new(
+                Stage::Prepare,
+                Reason::StalePlan,
+                Impact::Component,
+            ));
+        }
+        let native = self.native.lock().expect("native datagram owner poisoned");
+        native
+            .as_ref()
+            .ok_or_else(|| ChannelError::new(Stage::Prepare, Reason::StalePlan, Impact::Component))?
+            .register_driver(original, witness)
     }
     pub(super) fn bind(&self) -> Result<GrantedDatagramListener, EngineError> {
         self.bind_after(|| {})
@@ -119,6 +159,11 @@ impl NativeDatagramGrant {
         }
         let view =
             view.ok_or_else(|| std::io::Error::other(last.expect("nonempty bounded addresses")))?;
+        if let Some(tasks) = &self.scope {
+            owner
+                .register_provider(self.identity, tasks)
+                .map_err(std::io::Error::other)?;
+        }
         self.bound.store(true, Ordering::Release);
         acquired();
         Ok(view)

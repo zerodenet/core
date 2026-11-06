@@ -46,6 +46,9 @@ struct Resource {
     exit_fault: OnceLock<SharedError>,
 }
 pub(crate) struct InboundOwner {
+    #[cfg(all(feature = "raw-ip-runtime", feature = "datagram-route-runtime"))]
+    pub(super) packet_native:
+        OnceLock<std::sync::Weak<super::bind::native::udp::NativeDatagramGrant>>,
     #[cfg(test)]
     pub(crate) original_listener_address: OnceLock<std::net::SocketAddr>,
     #[cfg(test)]
@@ -180,6 +183,8 @@ impl InboundOwner {
         let scope = TaskScope::suspended(tokio::runtime::Handle::current(), Some(limit));
         let registrar = scope.registrar();
         Self {
+            #[cfg(all(feature = "raw-ip-runtime", feature = "datagram-route-runtime"))]
+            packet_native: OnceLock::new(),
             inbound_resources: Mutex::new(None),
             #[cfg(feature = "raw-ip-runtime")]
             packet_source: Arc::new(Mutex::new(None)),

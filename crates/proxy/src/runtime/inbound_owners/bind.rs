@@ -76,6 +76,13 @@ impl InboundOwnerRegistry {
             )
             .map_err(std::io::Error::other)?,
         );
+        #[cfg(all(feature = "raw-ip-runtime", feature = "datagram-route-runtime"))]
+        if let native::NativeBindGrant::Datagram(original) = grant.as_ref() {
+            owner
+                .packet_native
+                .set(Arc::downgrade(original))
+                .map_err(|_| io("actual packet listener was already installed"))?;
+        }
         // Construction above is cold. The unique actual native holder is a
         // registered resource before this owner or any bind capability escapes.
         owner.install_listener_native(identity, grant.resource())?;
@@ -86,9 +93,12 @@ impl InboundOwnerRegistry {
             owner.install_listener_native(identity, resource)?;
         }
         #[cfg(feature = "raw-ip-runtime")]
-        if let [zero_platform_tokio::contract::component::ResourceDeclaration::DatagramListener {
-            ..
-        }, declaration] = prepared.resources()
+        if let [
+            zero_platform_tokio::contract::component::ResourceDeclaration::DatagramListener {
+                ..
+            },
+            declaration,
+        ] = prepared.resources()
         {
             if matches!(
                 declaration,
