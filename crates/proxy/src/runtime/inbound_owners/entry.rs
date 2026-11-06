@@ -509,7 +509,11 @@ impl InboundOwner {
     /// native operation. Its weak pointer expiring is not a NoNative proof.
     /// This is conservative replacement metadata, never a readiness receipt.
     pub(in crate::runtime) fn has_packet_source_custody(&self) -> bool {
-        self.packet_native.get().is_some() || self.has_packet_source_pause()
+        #[cfg(feature = "datagram-route-runtime")]
+        if self.packet_native.get().is_some() {
+            return true;
+        }
+        self.has_packet_source_pause()
     }
     pub(in crate::runtime) fn prepare_packet_source_pause(
         &self,
