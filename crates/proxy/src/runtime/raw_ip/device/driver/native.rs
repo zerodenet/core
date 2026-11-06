@@ -244,16 +244,20 @@ impl Delivery {
         };
         match packet::ip_protocol(&packet) {
             Some(packet::IPPROTO_TCP) => self.tcp.feed(&packet).await,
-            Some(packet::IPPROTO_UDP) => self.udp.feed(&packet),
+            Some(packet::IPPROTO_UDP) => {
+                self.udp.feed(&packet);
+            }
             Some(packet::IPPROTO_ICMP) | Some(packet::IPPROTO_ICMPV6) => {
                 if let Some(error) = packet::parse_icmp_error(&packet) {
                     match error.quoted_protocol {
                         packet::IPPROTO_TCP => {
                             self.tcp
                                 .feed_icmp_error_observed(error, Some(packet.len()))
-                                .await
+                                .await;
                         }
-                        packet::IPPROTO_UDP => self.udp.feed(&packet),
+                        packet::IPPROTO_UDP => {
+                            self.udp.feed(&packet);
+                        }
                         _ => {}
                     }
                 }

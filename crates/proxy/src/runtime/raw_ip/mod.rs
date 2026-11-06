@@ -17,8 +17,7 @@ pub(crate) use carrier::{
 pub(crate) use contract::{RawIpAction, RawIpOutboundPlan, RawIpPeerPlan, RawIpTunnel};
 pub(crate) use datagram::RawIpDatagramOperation;
 pub(crate) use device::{
-    EndpointPacket, EndpointStackOwner, EndpointStackRecipe, PendingNativeWire, SharedRawIpDevice,
-    WireStackRecipe,
+    EndpointPacket, EndpointStackOwner, EndpointStackRecipe, SharedRawIpDevice, WireStackRecipe,
 };
 pub(crate) use device::{
     PacketFlowBorrow, PacketReturnTotals, PacketReturns, PacketSubmission, ReturnSource,

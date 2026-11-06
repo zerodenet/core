@@ -3,6 +3,7 @@ use crate::component::catalog::ComponentCatalog;
 use base64::{engine::general_purpose::STANDARD, Engine as _};
 use gotatun::x25519::{PublicKey, StaticSecret};
 use std::{future::Future, task::Poll};
+use zero_platform_tokio::contract::CancellationToken;
 
 fn configuration() -> zero_config::RuntimeConfig {
     let peer = STANDARD.encode(PublicKey::from(&StaticSecret::from([2; 32])).as_bytes());
