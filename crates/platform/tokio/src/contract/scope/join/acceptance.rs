@@ -33,12 +33,6 @@ impl TaskJoinWitness {
         if actual.0.result.is_ok() {
             return Err(HostedReceiptError::NotFailure);
         }
-        // The same original receiver retained the failed join before calling
-        // this method. Forward only local cleanup-error delivery, outside all
-        // witness/Scope locks; no native or registration credit is returned.
-        if let Err(source) = &actual.0.result {
-            crate::contract::lifecycle::accept_retained_cleanup_failures(source.as_ref());
-        }
         if !self.is_hosted() || actual.0.failure_accepted.swap(true, Ordering::AcqRel) {
             return Ok(());
         }

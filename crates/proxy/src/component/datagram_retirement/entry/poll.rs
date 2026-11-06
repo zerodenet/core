@@ -111,14 +111,6 @@ impl Entry {
                 }
             }
         };
-        if let Poll::Ready(Err(source)) = &result {
-            // The original Entry.failure above already owns this exact Arc.
-            // This is error delivery, not the separate caller ACK below, nor
-            // native/user/controller completion. Run source callbacks unlocked.
-            zero_platform_tokio::contract::lifecycle::accept_retained_cleanup_failures(
-                source.as_ref(),
-            );
-        }
         // An original error source may run arbitrary last-reference Drop code.
         drop(previous);
         if let Some(mut retry) = retry {

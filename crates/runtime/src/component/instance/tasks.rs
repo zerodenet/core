@@ -2,8 +2,8 @@
 use super::*;
 use std::{
     sync::{
-        atomic::{AtomicU64, Ordering},
         Mutex as SyncMutex,
+        atomic::{AtomicU64, Ordering},
     },
     task::{Context, Poll},
 };
@@ -133,7 +133,6 @@ impl TaskMonitor {
         let mut cx = Context::from_waker(&waker);
         let epoch = self.requested.load(Ordering::Acquire);
         let mut retired = Vec::new();
-        let mut cleanup_deliveries = Vec::new();
         let mut progress = false;
         {
             let mut tasks = self.lock();
@@ -156,7 +155,6 @@ impl TaskMonitor {
                         retired.push(receipt);
                     }
                     Err(source) if receipt.class() == TaskClass::Critical => {
-                        cleanup_deliveries.push(source.clone());
                         self.critical.get_or_init(|| {
                             Arc::new(ComponentTaskFault {
                                 instance,
@@ -204,11 +202,6 @@ impl TaskMonitor {
         }
         // A task error's original source can own arbitrary redacted state.
         // Never drop the last publication/source reference under the host lock.
-        for source in cleanup_deliveries {
-            zero_platform_tokio::contract::lifecycle::accept_retained_cleanup_failures(
-                source.as_ref(),
-            );
-        }
         drop(retired);
         if self.scanned.swap(epoch, Ordering::AcqRel) != epoch {
             progress = true;
