@@ -90,7 +90,7 @@ impl NativeObligations {
             .count()
             >= state.limits[kind.index()]
         {
-            return Err(rejected(Reason::Capacity));
+            return Err(crate::runtime::raw_ip::tasks::capacity::rejected());
         }
         let id = state
             .next

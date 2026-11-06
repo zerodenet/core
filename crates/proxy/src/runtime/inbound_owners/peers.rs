@@ -253,15 +253,16 @@ impl InboundPeerTasks {
                     SpawnError::NotStarted => Reason::InvalidConfig,
                     SpawnError::IdentityExhausted => Reason::Internal,
                 };
-                let source = Arc::new(
-                    zero_platform_tokio::contract::ChannelError::new(
-                        zero_platform_tokio::contract::Stage::Prepare,
-                        reason,
-                        zero_platform_tokio::contract::Impact::Component,
-                    )
-                    .with_source(source),
-                );
-                binding.reject(source.clone());
+                let mut failure = zero_platform_tokio::contract::ChannelError::new(
+                    zero_platform_tokio::contract::Stage::Prepare,
+                    reason,
+                    zero_platform_tokio::contract::Impact::Component,
+                )
+                .with_source(source);
+                if reason == Reason::Capacity {
+                    failure.delivery = zero_platform_tokio::contract::DeliveryState::NotSubmitted;
+                }
+                let source = Arc::new(failure);
                 if reason == Reason::Capacity {
                     // This actual registrar rejected the task before polling
                     // any native work. Release only its cold reservation;
@@ -270,6 +271,7 @@ impl InboundPeerTasks {
                     registration.accepted = true;
                 }
                 drop(state);
+                binding.reject(source.clone());
                 return Err(std::io::Error::other(retained(source)).into());
             }
         };
