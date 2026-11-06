@@ -6,11 +6,11 @@ use crate::grpc::pool::Cached;
 use std::{
     future::Future,
     sync::{
-        atomic::{AtomicBool, Ordering},
         Arc, Mutex,
+        atomic::{AtomicBool, Ordering},
     },
 };
-use zero_platform_tokio::contract::{lifecycle::TaskClass, network::CarrierContext, DeliveryState};
+use zero_platform_tokio::contract::{DeliveryState, lifecycle::TaskClass, network::CarrierContext};
 
 impl Managed {
     pub(super) async fn wait<T>(
@@ -112,8 +112,8 @@ impl Managed {
             return Err(error(self.instance, Stage::Prepare, Reason::Revoked));
         }
         let previous = {
-            let mut cache=pool.cached.lock().unwrap();
-            if matches!(cache.as_ref(),Some(Cached::Legacy(_))) {
+            let mut cache = pool.cached.lock().unwrap();
+            if matches!(cache.as_ref(), Some(Cached::Legacy(_))) {
                 // A conflicting actual legacy owner is retained unchanged;
                 // error/Drop cannot certify its original controller closed.
                 return Err(error(self.instance, Stage::Prepare, Reason::StalePlan));
@@ -124,7 +124,7 @@ impl Managed {
             Some(Cached::Owned(clients)) => clients,
             None => Vec::new(),
             Some(Cached::Legacy(_)) => {
-                return Err(error(self.instance, Stage::Prepare, Reason::StalePlan))
+                return Err(error(self.instance, Stage::Prepare, Reason::StalePlan));
             }
         };
         // Source/view destruction and callbacks run outside the cache lock.
@@ -141,10 +141,12 @@ impl Managed {
         }
         client.open(self, &demand, lease).await
     }
-    async fn create(
+    pub(super) async fn create_attempt(
         self: &Arc<Self>,
         demand: &Demand,
         waiting: Option<zero_platform_tokio::contract::network::PendingCarrierObserver>,
+        candidates: Option<Arc<super::candidates::Candidates>>,
+        attempted: &mut Option<Arc<Physical>>,
     ) -> Result<Arc<NativeClient>, ChannelError> {
         if !self.ready() {
             return Err(error(self.instance, Stage::Prepare, Reason::Revoked));
@@ -183,6 +185,7 @@ impl Managed {
             done: AtomicBool::new(false),
         });
         self.records.lock().unwrap().push(physical.clone());
+        *attempted = Some(physical.clone());
         if let Some(total) = total {
             total.install(physical.clone())?;
         }
@@ -202,7 +205,14 @@ impl Managed {
             binding: demand.binding.clone(),
         };
         let operation = move |caller| {
-            owner.prepare_original(preparing_physical, operation_demand, grant, waiting, caller)
+            owner.prepare_original(
+                preparing_physical,
+                operation_demand,
+                grant,
+                waiting,
+                caller,
+                candidates,
+            )
         };
         let prepared = self
             .wait(demand, async {

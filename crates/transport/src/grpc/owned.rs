@@ -18,6 +18,7 @@ mod connect;
 mod epoch;
 mod totals;
 pub use totals::{PoolBudgets, PoolTotals, TotalsFactory, TotalsOptions, TotalsProposal};
+mod candidates;
 mod logical;
 mod opening;
 mod pending;
