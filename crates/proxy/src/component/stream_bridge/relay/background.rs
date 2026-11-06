@@ -56,26 +56,42 @@ impl BackgroundPath<'_> {
             .deadline
             .unwrap_or_else(|| tokio::time::Instant::now() + Duration::from_secs(5));
         let first = &nodes[0];
-        let first_endpoint = first.endpoint.as_ref().ok_or_else(|| {
-            invalid(
-                Reason::Unsupported,
-                "background prefix requires an actual endpoint role",
-            )
-        })?;
         let root_binding = UpstreamBinding {
             prefix: vec![],
             dial: first.dial.clone(),
             network_generation: binding.network_generation,
         };
-        let root = Arc::new(
-            NodeOpener::new(
-                services.upstream_observed(first.tag.as_deref().unwrap_or("")),
-                first_endpoint.clone(),
-            )
-            .with_pending(root_binding.clone(), waiting)
-            .with_service_call(call.clone()),
-        );
-        let mut upstream = UpstreamTransport::new(root_binding, root);
+        let mut upstream = match &first.endpoint {
+            Some(endpoint) => UpstreamTransport::new(
+                root_binding.clone(),
+                Arc::new(
+                    NodeOpener::new(
+                        services.upstream_observed(first.tag.as_deref().unwrap_or("")),
+                        endpoint.clone(),
+                    )
+                    .with_pending(root_binding, waiting)
+                    .with_service_call(call.clone()),
+                ),
+            ),
+            None => {
+                let plan = services.components.as_ref().map_err(|source| {
+                    invalid(Reason::StalePlan, "Packet prefix host retired")
+                        .with_source(source.clone())
+                })?;
+                if !plan.has_device_carrier_provider(first.slot.role_id()) {
+                    return Err(invalid(
+                        Reason::Revoked,
+                        "Packet prefix actual source is not ready",
+                    ));
+                }
+                super::super::packet_network::service_transport(
+                    services.upstream(),
+                    root_binding,
+                    waiting,
+                    call.clone(),
+                )?
+            }
+        };
         for (index, node) in nodes.iter().enumerate() {
             if index != 0 && node.slot.recipe.spec().resources.iter().any(|resource| matches!(resource,
                 zero_platform_tokio::contract::component::ResourceDeclaration::ControlledCarrierPool { .. })) {
@@ -122,7 +138,23 @@ impl BackgroundPath<'_> {
                 deadline: call.deadline,
                 cancel: call.cancel.clone(),
                 upstream,
-                observer: None,
+                observer: if index == 0 && node.endpoint.is_none() {
+                    let tag = node.tag.as_deref().ok_or_else(|| {
+                        invalid(
+                            Reason::StalePlan,
+                            "Packet prefix has no actual configured tag",
+                        )
+                    })?;
+                    Some(Arc::new(super::super::packet_network::PacketObserver {
+                        engine: services.engine().clone(),
+                        tag: tag.into(),
+                        session: None,
+                        traffic: super::super::traffic::EstablishmentTraffic::new(None),
+                        inner: services.outbound_io(tag, zero_api::TrafficPlane::Inner),
+                    }))
+                } else {
+                    None
+                },
             };
             let role = node.slot.stream(end).await?;
             let mut opener = PrefixOpener::for_service(
