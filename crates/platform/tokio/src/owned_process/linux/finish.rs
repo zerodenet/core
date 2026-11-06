@@ -1,0 +1,42 @@
+use super::*;
+impl OwnedProcess {
+    /// Called by the outer resource owner after the exact actual actor join.
+    /// A task body return/abort/observer/EOF cannot satisfy this operation.
+    pub fn try_finish(&self) -> io::Result<Option<Arc<ProcessTreeClosed>>> {
+        let mut state = self.lock();
+        if let Some(closed) = &state.closed {
+            return Ok(Some(closed.clone()));
+        }
+        if let Some(actor) = state.actor.as_ref() {
+            let Some(joined) = actor.try_joined() else {
+                return Ok(None);
+            };
+            if !actor.matches_joined(&joined) || !progress::physical(&state) {
+                return Ok(None);
+            }
+        } else if !state.stop || state.helper.is_some() || !state.originals.is_empty() {
+            // A never-started, explicitly revoked cold grant acquired neither
+            // a native original nor an actor. It has no fictitious task join.
+            return Ok(None);
+        }
+        // Removing AsyncFd deregisters the borrowed native view. It never
+        // closes the raw original; those closes are explicit and recorded.
+        state.control.take();
+        for index in 0..state.originals.len() {
+            state.close(index);
+        }
+        state.request = None;
+        if state
+            .originals
+            .iter()
+            .any(|fd| fd.raw.is_some() || fd.failure.is_some())
+        {
+            return Err(io::Error::other(
+                "original process descriptor closure is unconfirmed",
+            ));
+        }
+        let closed = Arc::new(ProcessTreeClosed { token: self.token });
+        state.closed = Some(closed.clone());
+        Ok(Some(closed))
+    }
+}
