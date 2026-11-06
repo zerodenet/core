@@ -116,9 +116,14 @@ async fn physically_retired_epoch_fault_retains_original_task_sources_and_allows
     let joined = witness.try_joined().unwrap();
     assert!(joined.result().is_err());
     assert!(joined.registration_released());
-    assert_eq!(
-        epoch.task_reports.lock().unwrap()[0].failed_tasks[0].id,
-        witness.task_id().unwrap()
+    assert!(
+        epoch
+            .failures
+            .lock()
+            .unwrap()
+            .iter()
+            .any(|exit| { exit.id == witness.task_id().unwrap() && exit.result.is_err() }),
+        "ordinary prepare reaped and retained the same actual task exit before shutdown"
     );
     let actual = joined.result().unwrap_err();
     let mut source = Some(&fault as &(dyn std::error::Error + 'static));
