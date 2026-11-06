@@ -3,7 +3,7 @@ use std::sync::Arc;
 pub(super) struct Phase {
     case: &'static str,
     current: &'static str,
-    engine: Arc<zero_engine::Engine>,
+    engine: zero_engine::Engine,
     originals: Vec<Arc<crate::runtime::inbound_owners::InboundOwner>>,
 }
 impl Phase {
