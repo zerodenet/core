@@ -180,6 +180,14 @@ pub struct RuntimeOptionsConfig {
     /// Maximum number of runtime events retained for replay.
     #[serde(default = "default_event_log_capacity")]
     pub event_log_capacity: usize,
+    /// Serialized statistics event bytes retained by this Engine's original
+    /// history. Eight MiB by default; not a budget for every event or RSS.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub event_log_stats_max_bytes: Option<usize>,
+    /// Pending statistics bytes in each original Engine subscriber queue.
+    /// One MiB by default; independent of control serialized output custody.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub event_subscriber_stats_max_bytes: Option<usize>,
     /// Global URL used by end-to-end outbound latency probes.
     #[serde(default)]
     pub latency_test_url: Option<String>,
@@ -251,6 +259,8 @@ impl Default for RuntimeOptionsConfig {
             udp_direct_max_sockets: None,
             udp_upstream_idle_timeout_seconds: default_udp_upstream_idle_timeout_seconds(),
             event_log_capacity: default_event_log_capacity(),
+            event_log_stats_max_bytes: None,
+            event_subscriber_stats_max_bytes: None,
             latency_test_url: None,
             principal_quota_state_path: None,
             network: NetworkOptionsConfig::default(),
@@ -393,6 +403,12 @@ impl RuntimeOptionsConfig {
     }
     pub fn effective_native_dns_max_h2_drivers(&self) -> usize {
         self.native_dns_max_h2_drivers.unwrap_or(16)
+    }
+    pub fn effective_event_log_stats_max_bytes(&self) -> usize {
+        self.event_log_stats_max_bytes.unwrap_or(8 * 1024 * 1024)
+    }
+    pub fn effective_event_subscriber_stats_max_bytes(&self) -> usize {
+        self.event_subscriber_stats_max_bytes.unwrap_or(1024 * 1024)
     }
     pub fn effective_udp_direct_max_sockets(&self) -> usize {
         self.udp_direct_max_sockets.unwrap_or(64)
