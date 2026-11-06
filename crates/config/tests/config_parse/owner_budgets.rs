@@ -16,7 +16,8 @@ fn actual_owner_budgets_are_optional_finite_and_preserve_omitted_export_shape() 
         usize,
         usize,
     );
-    let fields: [BudgetField; 27] = [
+    let fields: [BudgetField; 28] = [
+        ("ss_legacy_replay_max_bytes", RuntimeOptionsConfig::effective_ss_legacy_replay_max_bytes, 64*1024*1024, usize::MAX-1),
         ("grpc_pool_max_carriers", RuntimeOptionsConfig::effective_grpc_pool_max_carriers, 4, 4096),
         ("grpc_pool_max_streams", RuntimeOptionsConfig::effective_grpc_pool_max_streams, 256, 65536),
         ("grpc_total_max_carriers", RuntimeOptionsConfig::effective_grpc_total_max_carriers, 16, 4096),

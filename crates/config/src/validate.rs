@@ -424,6 +424,9 @@ fn validate_runtime(
     if runtime.system_tun_task_limit.is_some_and(|limit| !(1..=65536).contains(&limit)) {
         return Err(ConfigError::InvalidRuntime("runtime.system_tun_task_limit must be between 1 and 65536".into()));
     }
+    if runtime.effective_ss_legacy_replay_max_bytes()==0 || runtime.effective_ss_legacy_replay_max_bytes().checked_add(1).is_none() {
+        return Err(ConfigError::InvalidRuntime("runtime.ss_legacy_replay_max_bytes must be positive and leave room for checked accounting".into()));
+    }
     if runtime.effective_ss_tcp_replay_max_salts() == 0
         || runtime
             .effective_ss_tcp_replay_max_salts()
