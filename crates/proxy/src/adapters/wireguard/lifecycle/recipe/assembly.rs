@@ -10,7 +10,7 @@ impl LinkedEndpointRecipe {
         let fresh = self.reuse.is_none();
         let (options, invocation) = self.into_parts()?;
         let id = preparation
-            .share(
+            .prepare_component(
                 SHARED_NAMESPACE,
                 Arc::new(LinkedStackFactory),
                 options.clone(),
@@ -40,7 +40,7 @@ impl LinkedEndpointRecipe {
         let fresh = self.reuse.is_none();
         let (options, invocation) = self.into_parts()?;
         let id = preparation
-            .share(
+            .prepare_component(
                 SHARED_NAMESPACE,
                 Arc::new(LinkedStackFactory),
                 options.clone(),
