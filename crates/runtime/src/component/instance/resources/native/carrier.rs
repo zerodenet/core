@@ -80,6 +80,7 @@ impl CarrierDeclarations {
                         | ResourceDeclaration::ControlledCarrierPool { .. }
                         | ResourceDeclaration::ControlledAssociationPool { .. }
                         | ResourceDeclaration::ControlledDatagramCarrier { .. }
+                        | ResourceDeclaration::ControlledNodeCarrier { .. }
                         | ResourceDeclaration::ControlledNodeStream { .. }
                         | ResourceDeclaration::ControlledDirectStream { .. }
                 )
@@ -141,6 +142,9 @@ impl CarrierDeclarations {
                         }
                         ResourceDeclaration::ControlledDatagramCarrier { .. } => {
                             coverage::DeclaredResourceKind::ControlledDatagramCarrier
+                        }
+                        ResourceDeclaration::ControlledNodeCarrier { .. } => {
+                            coverage::DeclaredResourceKind::ControlledNodeCarrier
                         }
                         ResourceDeclaration::ControlledNodeStream { .. } => {
                             coverage::DeclaredResourceKind::ControlledNodeStream

@@ -42,7 +42,7 @@ impl BusinessCarrierRequest {
         if !slot.recipe.spec().resources.iter().any(|resource| matches!(resource,
             zero_platform_tokio::contract::component::ResourceDeclaration::ControlledOutboundStream {
                 demand: zero_platform_tokio::contract::component::ControlledStreamDemandClass::Business, ..
-            } | zero_platform_tokio::contract::component::ResourceDeclaration::ControlledNodeStream { .. }
+            } | zero_platform_tokio::contract::component::ResourceDeclaration::ControlledNodeCarrier { .. } | zero_platform_tokio::contract::component::ResourceDeclaration::ControlledNodeStream { .. }
               | zero_platform_tokio::contract::component::ResourceDeclaration::ControlledDirectStream { .. })) { return Ok(None); }
         let Some(admitted) = &invocation.admitted else {
             return Ok(None);

@@ -133,6 +133,16 @@ pub enum ResourceDeclaration {
         dial: zero_traits::DialPolicy,
         max_sockets: NonZeroUsize,
     },
+    /// One taskless per-connection owner shared by real admitted Business and
+    /// transferred Service views. Both demand classes consume the same native
+    /// limit/registration. Business still needs its sealed host ticket and
+    /// original caller witness; this descriptor grants neither. Service custody
+    /// has no cached-driver handoff and remains with the awaiting caller.
+    ControlledNodeCarrier {
+        endpoint: Destination,
+        dial: zero_traits::DialPolicy,
+        max_sockets: NonZeroUsize,
+    },
     /// Sole actual physical stream owner, exact host-selected endpoint and full
     /// prefix/dial/network binding. Registration and users remain separately
     /// proved; this declaration alone never opens I/O or grants a task.
