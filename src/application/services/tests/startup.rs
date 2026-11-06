@@ -116,6 +116,9 @@ async fn startup_unknown_cleanup_retains_exact_original_and_rejects_next_startup
     slot.clear(&original);
     assert!(slot.original().is_none());
     let config = (*original.engine.config()).clone();
+    // Only the cancelled initializer was supposed to stop at this test gate.
+    // All original retirement assertions above precede a fresh real startup.
+    *slot.pause.lock().unwrap() = None;
     let fresh = ApplicationServices::start_with_network(
         Engine::new(config).unwrap(),
         None,
