@@ -62,6 +62,8 @@ impl HostResources {
             None if demand == ControlledStreamDemandClass::Business
                 && (bound.matches_direct(endpoint, binding)
                     || bound.matches_node(endpoint, binding)) => {}
+            None if demand == ControlledStreamDemandClass::BackgroundControl
+                && bound.matches_background_datagram_pool(endpoint, binding) => {}
             _ => return Err(fail()),
         }
         // Both getters may finally release original owners or flush I/O wakes.

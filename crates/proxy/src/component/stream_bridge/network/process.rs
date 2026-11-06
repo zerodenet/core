@@ -18,6 +18,7 @@ impl NodeOpener {
                 endpoint,
                 context,
                 grant,
+                startup_deadline,
             } = request;
             if !binding.prefix.is_empty()
                 || binding.network_generation.0 != self.generation
@@ -70,15 +71,24 @@ impl NodeOpener {
             } else {
                 ControlledStreamDemandClass::BackgroundControl
             };
-            let derived = plan.process_endpoint_use(ProcessEndpointDemand {
-                consumer: grant.instance(),
-                process,
-                process_ordinal,
-                endpoint: &endpoint,
-                binding: &binding,
-                class,
-                grant: &grant,
-            })?;
+            let startup_deadline = context
+                .deadline
+                .map_or(startup_deadline, |end| startup_deadline.min(end));
+            let derived = plan
+                .ensure_process_endpoint_use(
+                    ProcessEndpointDemand {
+                        consumer: grant.instance(),
+                        process,
+                        process_ordinal,
+                        endpoint: &endpoint,
+                        binding: &binding,
+                        class,
+                        grant: &grant,
+                    },
+                    startup_deadline,
+                    &context.cancel,
+                )
+                .await?;
             let native = match ticket {
                 Some(ticket) => NativeCarrierOpener::business_process_endpoint(
                     ticket,

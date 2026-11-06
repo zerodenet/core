@@ -49,6 +49,20 @@ pub struct ProcessEndpointStreamRequest {
     pub endpoint: Destination,
     pub context: CarrierContext,
     pub grant: crate::controlled_carrier::CarrierGrant,
+    /// Original protocol startup bound, capped by the actual invocation deadline.
+    pub startup_deadline: Instant,
+}
+
+/// A real background aggregate's own original UDP grant and Process dependency.
+/// Only session=None may acquire this packet original; it is not a Business ticket.
+pub struct ProcessEndpointDatagramRequest {
+    pub process: zero_core::component::ComponentInstanceId,
+    pub process_ordinal: usize,
+    pub endpoint: Destination,
+    pub context: CarrierContext,
+    pub grant: crate::controlled_carrier::CarrierGrant,
+    /// Protocol-owned local startup bound, never an invented Business lifetime.
+    pub startup_deadline: Instant,
 }
 
 mod opener;
@@ -110,6 +124,13 @@ impl PendingCarrierObserver {
 }
 
 impl UpstreamTransport {
+    pub fn acquire_process_endpoint_datagram(
+        &self,
+        request: ProcessEndpointDatagramRequest,
+    ) -> BoxFuture<'_, Result<crate::controlled_carrier::CarrierDatagram, ChannelError>> {
+        self.opener
+            .acquire_process_endpoint_datagram(&self.binding, request)
+    }
     pub fn acquire_process_endpoint_stream(
         &self,
         request: ProcessEndpointStreamRequest,

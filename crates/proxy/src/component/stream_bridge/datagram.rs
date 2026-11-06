@@ -60,6 +60,15 @@ impl UpstreamOpener for Opener {
         self.control.retain_pending_carrier(binding, adoption)
     }
 
+    fn acquire_process_endpoint_datagram(
+        &self,
+        binding: &UpstreamBinding,
+        request: zero_platform_tokio::contract::network::ProcessEndpointDatagramRequest,
+    ) -> BoxFuture<'_, Result<zero_platform_tokio::controlled_carrier::CarrierDatagram, ChannelError>>
+    {
+        self.datagram
+            .acquire_process_endpoint_datagram(binding, request)
+    }
     fn resolve_related_datagram(
         &self,
         binding: &UpstreamBinding,
@@ -284,10 +293,11 @@ async fn open_with_accounting(
         )
         .with_plan(services.components.as_ref().ok().map(Arc::downgrade))
         .with_business(business)
-        .with_service_call(association_call)
+        .with_service_call(association_call.clone())
         .with_pending(binding.clone(), waiting),
         datagram: NodeOpener::new(upstream.with_observer(Some(wire.clone())), endpoint)
-            .with_plan(services.components.as_ref().ok().map(Arc::downgrade)),
+            .with_plan(services.components.as_ref().ok().map(Arc::downgrade))
+            .with_service_call(association_call),
     });
     let context = OpenContext {
         identity: invocation.identity.clone(),

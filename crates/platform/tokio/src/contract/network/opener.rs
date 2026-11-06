@@ -4,6 +4,20 @@ use crate::contract::{DeliveryState, Impact, Reason, Stage};
 /// Host-supplied execution of an already selected prefix. Implementations must
 /// reject stale generations and preserve every hard dial constraint. No direct fallback.
 pub trait UpstreamOpener: Send + Sync {
+    /// Exact same-Host Process dependency and the aggregate's existing UDP
+    /// original. Session admission is not inferred from this metadata request.
+    fn acquire_process_endpoint_datagram(
+        &self,
+        _: &UpstreamBinding,
+        _: ProcessEndpointDatagramRequest,
+    ) -> BoxFuture<'_, Result<crate::controlled_carrier::CarrierDatagram, ChannelError>> {
+        Box::pin(async {
+            let mut error =
+                ChannelError::new(Stage::Prepare, Reason::Unsupported, Impact::Component);
+            error.delivery = DeliveryState::NotSubmitted;
+            Err(error)
+        })
+    }
     /// Existing native acquisition under an actual current Process dependency.
     /// Implementations must retain sealed Business admission and both started
     /// Slots. A dependency ID or derived SocketAddr never authorizes this call.

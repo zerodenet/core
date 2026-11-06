@@ -4,8 +4,8 @@ use super::super::super::connection::{
     ManagedDatagramUdpConnection, SharedManagedDatagramUdpConnection,
 };
 use super::super::response::{
-    spawn_datagram_response_bridge, spawn_upstream_response_pump, ManagedDatagramResponse,
-    ManagedDatagramResponseWaiters,
+    ManagedDatagramResponse, ManagedDatagramResponseWaiters, spawn_datagram_response_bridge,
+    spawn_upstream_response_pump,
 };
 use super::model::{ManagedDatagramConnection, ManagedDatagramSender};
 use crate::runtime::udp_flow::packet_path::ChainTask;
@@ -45,6 +45,7 @@ pub(crate) fn managed_datagram_connection(
     Arc::new(ManagedDatagramConnection {
         sender,
         waiters,
+        _response_sink: None,
         closed_message,
     })
 }

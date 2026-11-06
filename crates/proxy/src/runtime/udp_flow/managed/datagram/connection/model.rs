@@ -17,6 +17,7 @@ pub(crate) trait ManagedDatagramSender: Send + Sync {
 pub(super) struct ManagedDatagramConnection {
     pub(super) sender: Arc<dyn ManagedDatagramSender>,
     pub(super) waiters: ManagedDatagramResponseWaiters,
+    pub(super) _response_sink: Option<Arc<dyn Fn(ManagedDatagramResponse) + Send + Sync>>,
     pub(super) closed_message: &'static str,
 }
 
@@ -28,6 +29,15 @@ pub(crate) trait ManagedDatagramFlowConnection: Send + Sync + 'static {
         port: u16,
         payload: &[u8],
     ) -> Result<(), EngineError>;
+
+    /// Only a flow's actual receive driver may implement direct delivery.
+    /// The cache retains this callback for exactly the same response waiters.
+    fn install_response_sink(
+        &self,
+        _: &Arc<dyn Fn(ManagedDatagramResponse) + Send + Sync>,
+    ) -> bool {
+        false
+    }
 
     fn subscribe_responses(&self) -> tokio::sync::broadcast::Receiver<ManagedDatagramResponse>;
 

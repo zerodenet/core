@@ -397,6 +397,16 @@ impl CarrierOwnerBinding {
     }
     /// Descriptor eligibility only. This never authorizes a Business session;
     /// the host issuer still validates its exact original grant/caller/fence.
+    /// Read only the registered aggregate's exact UDP endpoint/dial facts.
+    /// This mints neither Process use, Service caller nor native permission.
+    pub fn matches_background_datagram_pool(
+        &self,
+        endpoint: &Destination,
+        binding: &UpstreamBinding,
+    ) -> bool {
+        binding.prefix.is_empty()
+            && matches!(&self.authority.declaration,ResourceDeclaration::ControlledCarrierPool{endpoint:actual,dial,datagram:true,..} if actual==endpoint&&dial==&binding.dial)
+    }
     pub fn supports_business(&self) -> bool {
         self.demand() == ControlledStreamDemandClass::Business
             || matches!(

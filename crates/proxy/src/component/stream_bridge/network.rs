@@ -20,6 +20,8 @@ mod candidates;
 mod dns;
 #[cfg(any(target_os = "linux", windows))]
 mod process;
+#[cfg(any(target_os = "linux", windows))]
+mod process_datagram;
 mod service_dns;
 mod service_selection;
 use dns::Resolved;
@@ -113,6 +115,15 @@ impl CarrierEndpointObserver for ConnectedEvidence {
     }
 }
 impl UpstreamOpener for NodeOpener {
+    #[cfg(any(target_os = "linux", windows))]
+    fn acquire_process_endpoint_datagram(
+        &self,
+        binding: &UpstreamBinding,
+        request: zero_platform_tokio::contract::network::ProcessEndpointDatagramRequest,
+    ) -> BoxFuture<'_, Result<zero_platform_tokio::controlled_carrier::CarrierDatagram, ChannelError>>
+    {
+        self.open_process_endpoint_datagram(binding.clone(), request)
+    }
     #[cfg(any(target_os = "linux", windows))]
     fn acquire_process_endpoint_stream(
         &self,
