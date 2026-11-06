@@ -108,15 +108,14 @@ async fn actual_host_slot_grants_one_real_plugin_child_and_joins_its_actual_moni
     // The actual owned process tree, native originals and same-Scope monitor
     // must all be complete; a protocol child status alone cannot qualify this.
     assert!(report.is_complete(), "{report:?}");
-    assert!(
-        slot.live
-            .get()
+    assert_eq!(report.closed_io.len(), 1);
+    assert_eq!(
+        slot.bound_original_budgets()
             .unwrap()
-            .as_ref()
-            .unwrap()
-            .resources
-            .io_evidence()
-            .physical_confirmed()
+            .process
+            .snapshot()
+            .charged_jobs,
+        0
     );
     assert_eq!(report.exited_tasks.len(), 1);
     assert_eq!(report.released_resources.len(), 1);

@@ -45,7 +45,8 @@ time.sleep(60)
                     mode: PluginMode::TcpOnly,
                 },
             )
-            .with_process_endpoint(NetworkGeneration(0));
+            .with_process_endpoint(NetworkGeneration(0))
+            .unwrap();
         let slot = Arc::new(ComponentSlot::from_recipe(
             ComponentCatalog::default().allocate_id().unwrap(),
             ResourceGeneration(1),

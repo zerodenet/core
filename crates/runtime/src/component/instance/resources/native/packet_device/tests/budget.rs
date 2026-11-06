@@ -7,7 +7,7 @@ async fn original_read_capacity_is_rejected_before_native_acquisition_and_retain
     let original = owner_with_budget(&actual, i32::MAX, "not-a-tun", roots.clone());
     let (send, pending, witness) = driver(&actual);
     pending.await.unwrap();
-    let failure = failed(original.open(witness.clone()));
+    let failure = failed(original.open(witness.clone()).await);
     assert_eq!(failure.reason, Reason::Capacity);
     assert!(matches!(
         original.original.outcome(),
