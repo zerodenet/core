@@ -11,14 +11,15 @@ impl ControlledPipe {
                 if let Some(error) = &state.fault {
                     return Err(retained(error));
                 }
-                if state.connected {
-                    return Ok(());
-                }
-                if self.shared.stop.load(Ordering::Acquire) {
+                if self.shared.stop.load(Ordering::Acquire) || self.shared.scope_stop.is_cancelled()
+                {
                     return Err(io::Error::new(
                         io::ErrorKind::Interrupted,
                         "pipe connect stopped",
                     ));
+                }
+                if state.connected {
+                    return Ok(());
                 }
             }
             notified.await;
@@ -36,6 +37,12 @@ impl AsyncRead for ControlledPipe {
         }
         let incoming = cx.waker().clone();
         let mut state = lock(&self.shared.state);
+        if self.shared.stop.load(Ordering::Acquire) || self.shared.scope_stop.is_cancelled() {
+            return Poll::Ready(Err(io::Error::new(
+                io::ErrorKind::Interrupted,
+                "original pipe read stopped",
+            )));
+        }
         if let Some(bytes) = state.read.front() {
             let start = state.read_offset;
             let size = out.remaining().min(bytes.len() - start);
@@ -73,7 +80,10 @@ impl AsyncWrite for ControlledPipe {
         if let Some(error) = &state.fault {
             return Poll::Ready(Err(retained(error)));
         }
-        if state.write_closed || self.shared.stop.load(Ordering::Acquire) {
+        if state.write_closed
+            || self.shared.stop.load(Ordering::Acquire)
+            || self.shared.scope_stop.is_cancelled()
+        {
             return Poll::Ready(Err(io::Error::new(
                 io::ErrorKind::BrokenPipe,
                 "pipe output stopped",
@@ -99,6 +109,12 @@ impl AsyncWrite for ControlledPipe {
         let mut state = lock(&self.shared.state);
         if let Some(error) = &state.fault {
             return Poll::Ready(Err(retained(error)));
+        }
+        if self.shared.stop.load(Ordering::Acquire) || self.shared.scope_stop.is_cancelled() {
+            return Poll::Ready(Err(io::Error::new(
+                io::ErrorKind::Interrupted,
+                "original pipe flush stopped",
+            )));
         }
         if state.write.is_empty() && !state.writing {
             return Poll::Ready(Ok(()));

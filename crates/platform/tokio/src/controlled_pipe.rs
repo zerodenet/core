@@ -125,6 +125,12 @@ impl ControlledPipeOwner {
         }))
     }
     pub async fn open(&self) -> io::Result<ControlledPipe> {
+        if self.0.stop.load(Ordering::Acquire) || self.0.scope_stop.is_cancelled() {
+            return Err(io::Error::new(
+                io::ErrorKind::Interrupted,
+                "original pipe admission stopped",
+            ));
+        }
         {
             let mut state = lock(&self.0.state);
             if state.started {
@@ -242,7 +248,9 @@ impl Shared {
     fn request_stop(&self) {
         self.stop.store(true, Ordering::Release);
         self.wake_worker();
-        self.changed.notify_waiters();
+        // Stop business immediately; native drain and both real joins retain
+        // their independent responsibilities and may complete later.
+        self.notify_io();
     }
     fn notify_io(&self) {
         let wakes = {

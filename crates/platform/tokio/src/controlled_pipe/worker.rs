@@ -91,7 +91,10 @@ pub(super) fn start(shared: &Arc<Shared>) -> io::Result<()> {
                 if exited {
                     tokio::task::yield_now().await;
                 } else {
-                    notified.await;
+                    tokio::select! { biased;
+                        _ = joining.scope_stop.cancelled(), if !joining.stop.load(Ordering::Acquire) => joining.request_stop(),
+                        _ = notified => {},
+                    }
                 }
             }
         });
