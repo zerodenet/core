@@ -90,6 +90,14 @@ impl PreparedGrpc {
         };
         Ok(Self { protocol, pool })
     }
+    pub fn with_file_owner(
+        mut self,
+        source_dir: Option<&Path>,
+        max_bytes: NonZeroUsize,
+    ) -> Result<Self, RuntimeError> {
+        self.pool = self.pool.with_file_owner(source_dir, max_bytes)?;
+        Ok(self)
+    }
     pub fn with_node_dns(mut self, dependency: ComponentId) -> Self {
         self.pool = self.pool.with_node_dns(dependency);
         self
