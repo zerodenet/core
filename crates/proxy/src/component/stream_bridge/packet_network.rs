@@ -10,8 +10,64 @@ use zero_platform_tokio::contract::{
 pub(super) struct PacketOpener {
     pub(super) services: UpstreamConnectServices,
     pub(super) binding: UpstreamBinding,
+    pub(super) invocation: crate::component::direct_bridge::Invocation,
+    pub(super) engine: zero_engine::Engine,
+    pub(super) slot: std::sync::Weak<ComponentSlot>,
 }
 impl UpstreamOpener for PacketOpener {
+    fn packet_caller(
+        &self,
+        binding: &UpstreamBinding,
+        identity: &RequestIdentity,
+        call: &CarrierContext,
+    ) -> Result<zero_platform_tokio::contract::scope::TaskJoinWitness, ChannelError> {
+        let failure = || {
+            invalid(
+                Reason::StalePlan,
+                "Packet caller differs from its actual admitted invocation",
+            )
+        };
+        if binding != &self.binding
+            || binding.network_generation.0 != self.services.network_generation()
+            || call.session != self.invocation.identity.session()
+            || call.deadline != self.invocation.deadline
+            || call.cancel.is_cancelled()
+            || self.invocation.cancellation().is_cancelled()
+            || !matches!((&self.invocation.identity, identity), (RequestIdentity::Business(actual), RequestIdentity::Business(request)) if Arc::ptr_eq(actual, request))
+        {
+            return Err(failure());
+        }
+        let RequestIdentity::Business(facts) = identity else {
+            return Err(failure());
+        };
+        self.invocation
+            .admitted
+            .as_ref()
+            .ok_or_else(failure)?
+            .check_live(&self.engine, facts.session)
+            .map_err(|source| failure().with_source(source))?;
+        self.slot
+            .upgrade()
+            .ok_or_else(failure)?
+            .check_business_carrier(identity)?;
+        #[cfg(feature = "raw-ip-runtime")]
+        if let Some(caller) = &self.invocation.caller_native {
+            caller.check_open()?;
+            return caller
+                .caller_witness()
+                .filter(|witness| !witness.is_joined() && witness.scope_identity().resource_open())
+                .ok_or_else(failure);
+        }
+        if let Some(caller) = &self.invocation.caller_accepted {
+            caller.check_open()?;
+            return caller
+                .task_join_witness()
+                .filter(|witness| !witness.is_joined() && witness.scope_identity().resource_open())
+                .ok_or_else(failure);
+        }
+        Err(failure())
+    }
+
     fn open_stream(
         &self,
         _: &UpstreamBinding,
@@ -66,8 +122,13 @@ pub(super) struct PacketObserver {
     pub(super) tag: String,
     pub(super) session: Option<zero_core::component::SessionId>,
     pub(super) traffic: Arc<traffic::EstablishmentTraffic>,
+    pub(super) inner: Option<Arc<dyn zero_traits::IoObserver>>,
 }
 impl ConnectObserver for PacketObserver {
+    fn packet_flow_io(&self) -> Option<Arc<dyn zero_traits::IoObserver>> {
+        self.inner.clone()
+    }
+
     fn record(&self, session: Option<zero_core::component::SessionId>, fact: ConnectFact) {
         self.traffic.record(session, fact);
     }
@@ -153,12 +214,16 @@ pub(super) async fn connect(
                     tag: tag.clone(),
                     session: invocation.identity.session(),
                     traffic: traffic.clone(),
+                    inner: services.outbound_io(tag, zero_api::TrafficPlane::Inner),
                 })),
                 upstream: UpstreamTransport::new(
                     binding.clone(),
                     Arc::new(PacketOpener {
                         services: network,
                         binding,
+                        invocation: invocation.clone(),
+                        engine: services.engine().clone(),
+                        slot: Arc::downgrade(slot),
                     }),
                 ),
             },

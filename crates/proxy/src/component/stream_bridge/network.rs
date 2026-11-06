@@ -98,6 +98,32 @@ impl CarrierEndpointObserver for ConnectedEvidence {
     }
 }
 impl UpstreamOpener for NodeOpener {
+    fn packet_caller(
+        &self,
+        binding: &UpstreamBinding,
+        identity: &zero_platform_tokio::contract::context::RequestIdentity,
+        call: &CarrierContext,
+    ) -> Result<zero_platform_tokio::contract::scope::TaskJoinWitness, ChannelError> {
+        if !binding.prefix.is_empty()
+            || binding.network_generation.0 != self.generation
+            || self.services.network_generation() != self.generation
+        {
+            return Err(invalid(
+                Reason::StalePlan,
+                "Packet caller node binding changed",
+            ));
+        }
+        self.business
+            .as_ref()
+            .ok_or_else(|| {
+                invalid(
+                    Reason::Unsupported,
+                    "node lacks actual Packet business caller",
+                )
+            })?
+            .packet_caller(identity, call)
+    }
+
     fn resolve_packet_target(
         &self,
         binding: &UpstreamBinding,

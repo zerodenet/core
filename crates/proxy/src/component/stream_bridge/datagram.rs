@@ -25,6 +25,15 @@ struct Opener {
     datagram: NodeOpener,
 }
 impl UpstreamOpener for Opener {
+    fn packet_caller(
+        &self,
+        binding: &UpstreamBinding,
+        identity: &zero_platform_tokio::contract::context::RequestIdentity,
+        call: &CarrierContext,
+    ) -> Result<zero_platform_tokio::contract::scope::TaskJoinWitness, ChannelError> {
+        self.control.packet_caller(binding, identity, call)
+    }
+
     fn resolve_packet_target(
         &self,
         binding: &UpstreamBinding,
