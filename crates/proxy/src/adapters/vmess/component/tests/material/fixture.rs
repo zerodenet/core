@@ -114,7 +114,10 @@ pub(super) fn capture(proxy: &Proxy) -> (CarrierOwnerRegistration, CarrierOrigin
                     .driver()
                     .expect("same original perconnection H2 driver");
                 assert!(!driver.is_joined());
-                assert_eq!(original.original().instance(), slot.instance_id());
+                assert_eq!(
+                    original.original().upstream().instance(),
+                    slot.instance_id()
+                );
             } else {
                 assert!(original.driver().is_none());
             }
