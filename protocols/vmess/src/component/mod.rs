@@ -3,6 +3,7 @@ mod carrier;
 mod datagram;
 pub mod grpc;
 pub mod inbound;
+pub(crate) mod material;
 pub mod mux;
 mod options;
 mod owner;
@@ -36,7 +37,8 @@ pub struct Factory;
 struct Outbound {
     options: Arc<Options>,
     admission: Arc<SessionAdmission>,
-    prepared_tls: Arc<Mutex<Option<zero_transport::tls::PreparedClient>>>,
+    prepared_tls: owner::Prepared,
+    ech_resolver: Option<Arc<dyn zero_transport::tls::ech::EchConfigResolver>>,
 }
 impl ComponentFactory for Factory {
     type Options = Options;
@@ -47,15 +49,22 @@ impl ComponentFactory for Factory {
             dependencies: vec![],
             static_identity: options.identity.clone(),
             resources: options
-                .ca_file
+                .material
                 .as_ref()
-                .map(|file| {
-                    vec![ResourceDeclaration::File {
-                        path: file.path.clone(),
-                        max_bytes: file.max_bytes,
-                    }]
-                })
-                .unwrap_or_default(),
+                .and_then(|material| material.resource())
+                .map(|file| vec![file])
+                .unwrap_or_else(|| {
+                    options
+                        .ca_file
+                        .as_ref()
+                        .map(|file| {
+                            vec![ResourceDeclaration::File {
+                                path: file.path.clone(),
+                                max_bytes: file.max_bytes,
+                            }]
+                        })
+                        .unwrap_or_default()
+                }),
             task_limit: None,
         }
     }
@@ -64,15 +73,36 @@ impl ComponentFactory for Factory {
         options: Arc<Options>,
         context: BuildContext,
     ) -> Result<ComponentInstance, BuildError> {
+        self.build_owned(options, context, None)
+    }
+}
+impl Factory {
+    pub fn build_with_ech_resolver(
+        &self,
+        options: Arc<Options>,
+        context: BuildContext,
+        resolver: Arc<dyn zero_transport::tls::ech::EchConfigResolver>,
+    ) -> Result<ComponentInstance, BuildError> {
+        self.build_owned(options, context, Some(resolver))
+    }
+    fn build_owned(
+        &self,
+        options: Arc<Options>,
+        context: BuildContext,
+        resolver: Option<Arc<dyn zero_transport::tls::ech::EchConfigResolver>>,
+    ) -> Result<ComponentInstance, BuildError> {
+        let instance = context.instance();
         let (owner, admission) = SessionOwner::new(context.component, &context.cancel);
         let prepared_tls = Arc::new(Mutex::new(None));
-        let lifecycle = if options.ca_file.is_some() {
+        let lifecycle = if options.ca_file.is_some() || options.material.is_some() {
             erase_lifecycle(owner::CaOwner::new(
                 owner,
                 admission.clone(),
                 options.clone(),
                 prepared_tls.clone(),
                 context.resources,
+                instance,
+                context.cancel.clone(),
             ))
         } else {
             erase_lifecycle(owner)
@@ -81,6 +111,7 @@ impl ComponentFactory for Factory {
             options,
             admission,
             prepared_tls,
+            ech_resolver: resolver,
         };
         Ok(ComponentInstance {
             lifecycle,
@@ -145,7 +176,10 @@ impl Outbound {
             .lock()
             .expect("prepared VMess TLS state")
             .clone();
-        if self.options.ca_file.is_some() && prepared_tls.is_none() {
+        if self.options.ca_file.is_some()
+            && self.options.material.is_none()
+            && prepared_tls.is_none()
+        {
             return Err(self.admission.error(
                 session,
                 Stage::Prepare,
@@ -176,8 +210,13 @@ impl Outbound {
                 http_upgrade: None::<&OwnedHttpUpgradeProfile>,
                 source_dir: None,
             };
+            let prepared_tls = if let Some(material) = &self.options.material {
+                Some(material.prepare(self.ech_resolver.as_deref()).await?)
+            } else {
+                prepared_tls
+            };
             if let Some(prepared) = prepared_tls {
-                let io = prepared.connect(io, &self.options.server).await?;
+                let io = prepared.connect(io).await?;
                 connect_layered_transport_stack(
                     io,
                     stack,

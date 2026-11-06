@@ -19,7 +19,9 @@ pub(super) struct CaFile {
     pub(super) source_dir: Option<PathBuf>,
     pub(super) max_bytes: usize,
 }
+#[derive(Clone)]
 pub struct Options {
+    pub(super) material: Option<Arc<super::material::Material>>,
     pub(super) endpoint: Destination,
     pub(super) server: String,
     pub(super) uuid: [u8; 16],
@@ -66,6 +68,33 @@ impl Options {
         TWs: WebSocketTransportProfile + ?Sized,
         TGrpc: GrpcTransportProfile + ?Sized,
     {
+        Self::from_options_refs_inner(input, dial, source_dir, ca_max_bytes, false)
+    }
+    pub fn from_owned_options_refs_at<TTls, TWs, TGrpc>(
+        input: VmessOutboundBuildOptionsRef<'_, TTls, TWs, TGrpc>,
+        dial: DialPolicy,
+        source_dir: Option<&Path>,
+        ca_max_bytes: Option<NonZeroUsize>,
+    ) -> Result<Self, Error>
+    where
+        TTls: ClientTlsProfile + ?Sized,
+        TWs: WebSocketTransportProfile + ?Sized,
+        TGrpc: GrpcTransportProfile + ?Sized,
+    {
+        Self::from_options_refs_inner(input, dial, source_dir, ca_max_bytes, true)
+    }
+    fn from_options_refs_inner<TTls, TWs, TGrpc>(
+        input: VmessOutboundBuildOptionsRef<'_, TTls, TWs, TGrpc>,
+        dial: DialPolicy,
+        source_dir: Option<&Path>,
+        ca_max_bytes: Option<NonZeroUsize>,
+        owned: bool,
+    ) -> Result<Self, Error>
+    where
+        TTls: ClientTlsProfile + ?Sized,
+        TWs: WebSocketTransportProfile + ?Sized,
+        TGrpc: GrpcTransportProfile + ?Sized,
+    {
         if input.protocol.mux_concurrency.is_some() {
             return Err(Error::Unsupported(
                 "VMess MUX requires its shared resource owner",
@@ -103,10 +132,16 @@ impl Options {
             if path.is_empty() {
                 return Err(Error::Config("VMess CA File path must not be empty"));
             }
-            zero_transport::tls::PreparedClient::validate_profile(
-                tls.as_ref().expect("CA TLS profile"),
-            )
-            .map_err(|error| {
+            let validating = if owned {
+                zero_transport::tls::OwnedPreparedClient::validate_profile(
+                    tls.as_ref().expect("CA TLS profile"),
+                )
+            } else {
+                zero_transport::tls::PreparedClient::validate_profile(
+                    tls.as_ref().expect("CA TLS profile"),
+                )
+            };
+            validating.map_err(|error| {
                 if error.kind() == std::io::ErrorKind::Unsupported {
                     Error::Unsupported("VMess prepared CA does not support OpenSSL TLS")
                 } else {
@@ -131,7 +166,8 @@ impl Options {
             if matches!(
                 tls.options.ech.source().map_err(Error::Config)?,
                 Some(EchConfigSource::Dns { .. })
-            ) {
+            ) && !owned
+            {
                 return Err(Error::Unsupported(
                     "VMess ECH DNS requires a native DNS service",
                 ));
@@ -160,6 +196,7 @@ impl Options {
             identity.extend_from_slice(&hash.finish().to_le_bytes());
         }
         Ok(Self {
+            material: None,
             endpoint,
             server: input.server.into(),
             uuid,

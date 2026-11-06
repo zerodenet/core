@@ -14,6 +14,7 @@ pub(super) struct Managed {
     pub(super) options: Arc<Options>,
     pub(super) admission: Arc<SessionAdmission>,
     pub(super) prepared: super::super::owner::Prepared,
+    pub(super) ech_resolver: Option<Arc<dyn zero_transport::tls::ech::EchConfigResolver>>,
     pub(super) upstream: Option<UpstreamTransport>,
     pub(super) tasks: TaskRegistrar,
     pub(super) cancel: CancellationToken,

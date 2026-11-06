@@ -73,7 +73,10 @@ impl Managed {
             })?,
         };
         let prepared_tls = owner.prepared.lock().unwrap().clone();
-        if owner.options.base.ca_file.is_some() && prepared_tls.is_none() {
+        if owner.options.base.ca_file.is_some()
+            && owner.options.base.material.is_none()
+            && prepared_tls.is_none()
+        {
             return Err(owner.admission.error(
                 session,
                 Stage::Prepare,
