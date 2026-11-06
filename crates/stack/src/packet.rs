@@ -3,6 +3,8 @@
 //! All functions operate on byte slices and are pure (no I/O).
 //! Used by both the TCP and UDP stack implementations.
 
+mod build;
+pub use build::{TcpPacketSpec, UdpPacketSpec};
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
 
 mod checksums;
@@ -416,15 +418,26 @@ pub fn build_tcp_with_window(
     window: u16,
     payload: &[u8],
 ) -> Vec<u8> {
-    match (src, dst) {
-        (IpAddr::V4(s), IpAddr::V4(d)) => {
-            build_tcp_v4(s, d, sport, dport, seq, ack, flags, window, payload)
-        }
-        (IpAddr::V6(s), IpAddr::V6(d)) => {
-            build_tcp_v6(s, d, sport, dport, seq, ack, flags, window, payload)
-        }
-        _ => Vec::new(),
-    }
+    let specification = TcpPacketSpec {
+        source: src,
+        destination: dst,
+        source_port: sport,
+        destination_port: dport,
+        sequence: seq,
+        acknowledgment: ack,
+        flags,
+        window,
+        mss: None,
+        payload,
+    };
+    let Ok(length) = specification.length() else {
+        return Vec::new();
+    };
+    let mut packet = vec![0; length];
+    specification
+        .write_into(&mut packet)
+        .expect("same computed TCP packet length");
+    packet
 }
 
 /// Build an IPv4/IPv6 + TCP packet with MSS option (for SYN-ACK).
@@ -458,279 +471,43 @@ pub fn build_tcp_with_mss_and_window(
     mss: u16,
     window: u16,
 ) -> Vec<u8> {
-    match (src, dst) {
-        (IpAddr::V4(s), IpAddr::V4(d)) => {
-            build_tcp_v4_with_mss(s, d, sport, dport, seq, ack, flags, mss, window)
-        }
-        (IpAddr::V6(s), IpAddr::V6(d)) => {
-            build_tcp_v6_with_mss(s, d, sport, dport, seq, ack, flags, mss, window)
-        }
-        _ => Vec::new(),
-    }
-}
-
-#[allow(clippy::too_many_arguments)]
-fn build_tcp_v4_with_mss(
-    src: Ipv4Addr,
-    dst: Ipv4Addr,
-    sport: u16,
-    dport: u16,
-    seq: u32,
-    ack: u32,
-    flags: u8,
-    mss: u16,
-    window: u16,
-) -> Vec<u8> {
-    // TCP header = 20 base + 4 MSS option = 24 bytes. No payload in SYN-ACK.
-    let tcp_hdr_len: usize = 24;
-    let total = 20 + tcp_hdr_len;
-    let mut p = vec![0u8; total];
-
-    // IP header.
-    p[0] = 0x45;
-    p[2] = (total >> 8) as u8;
-    p[3] = total as u8;
-    p[8] = 64;
-    p[9] = IPPROTO_TCP;
-    p[12..16].copy_from_slice(&src.octets());
-    p[16..20].copy_from_slice(&dst.octets());
-    let ip_cksum = checksum(&p[0..20]);
-    p[10] = (ip_cksum >> 8) as u8;
-    p[11] = ip_cksum as u8;
-
-    // TCP header.
-    let o = 20;
-    p[o..o + 2].copy_from_slice(&sport.to_be_bytes());
-    p[o + 2..o + 4].copy_from_slice(&dport.to_be_bytes());
-    p[o + 4..o + 8].copy_from_slice(&seq.to_be_bytes());
-    p[o + 8..o + 12].copy_from_slice(&ack.to_be_bytes());
-    p[o + 12] = ((tcp_hdr_len as u8) / 4) << 4; // data offset = 6 (24/4)
-    p[o + 13] = flags;
-    p[o + 14..o + 16].copy_from_slice(&window.to_be_bytes()); // window
-
-    // MSS option: kind=2, len=4, value=mss (big-endian).
-    p[o + 20] = 2; // kind
-    p[o + 21] = 4; // length
-    p[o + 22..o + 24].copy_from_slice(&mss.to_be_bytes());
-
-    let tcp_cksum = tcp_checksum_v4(&src, &dst, &p[o..]);
-    p[o + 16] = (tcp_cksum >> 8) as u8;
-    p[o + 17] = tcp_cksum as u8;
-
-    p
-}
-
-#[allow(clippy::too_many_arguments)]
-fn build_tcp_v6_with_mss(
-    src: Ipv6Addr,
-    dst: Ipv6Addr,
-    sport: u16,
-    dport: u16,
-    seq: u32,
-    ack: u32,
-    flags: u8,
-    mss: u16,
-    window: u16,
-) -> Vec<u8> {
-    let tcp_hdr_len: usize = 24;
-    let total = 40 + tcp_hdr_len;
-    let mut p = vec![0u8; total];
-
-    // IPv6 header.
-    p[0] = 0x60;
-    p[4..6].copy_from_slice(&(tcp_hdr_len as u16).to_be_bytes());
-    p[6] = IPPROTO_TCP;
-    p[7] = 64;
-    p[8..24].copy_from_slice(&src.octets());
-    p[24..40].copy_from_slice(&dst.octets());
-
-    // TCP header.
-    let o = 40;
-    p[o..o + 2].copy_from_slice(&sport.to_be_bytes());
-    p[o + 2..o + 4].copy_from_slice(&dport.to_be_bytes());
-    p[o + 4..o + 8].copy_from_slice(&seq.to_be_bytes());
-    p[o + 8..o + 12].copy_from_slice(&ack.to_be_bytes());
-    p[o + 12] = ((tcp_hdr_len as u8) / 4) << 4;
-    p[o + 13] = flags;
-    p[o + 14..o + 16].copy_from_slice(&window.to_be_bytes());
-
-    // MSS option.
-    p[o + 20] = 2;
-    p[o + 21] = 4;
-    p[o + 22..o + 24].copy_from_slice(&mss.to_be_bytes());
-
-    let tcp_cksum = tcp_checksum_v6(&src, &dst, &p[o..]);
-    p[o + 16] = (tcp_cksum >> 8) as u8;
-    p[o + 17] = tcp_cksum as u8;
-
-    p
-}
-
-#[allow(clippy::too_many_arguments)]
-fn build_tcp_v4(
-    src: Ipv4Addr,
-    dst: Ipv4Addr,
-    sport: u16,
-    dport: u16,
-    seq: u32,
-    ack: u32,
-    flags: u8,
-    window: u16,
-    payload: &[u8],
-) -> Vec<u8> {
-    let tcp_len = 20 + payload.len();
-    let total = 20 + tcp_len;
-    let mut p = vec![0u8; total];
-
-    // IP header
-    p[0] = 0x45;
-    p[2] = (total >> 8) as u8;
-    p[3] = total as u8;
-    p[8] = 64; // TTL
-    p[9] = IPPROTO_TCP;
-    p[12..16].copy_from_slice(&src.octets());
-    p[16..20].copy_from_slice(&dst.octets());
-    let ip_cksum = checksum(&p[0..20]);
-    p[10] = (ip_cksum >> 8) as u8;
-    p[11] = ip_cksum as u8;
-
-    // TCP header
-    p[20..22].copy_from_slice(&sport.to_be_bytes());
-    p[22..24].copy_from_slice(&dport.to_be_bytes());
-    p[24..28].copy_from_slice(&seq.to_be_bytes());
-    p[28..32].copy_from_slice(&ack.to_be_bytes());
-    p[32] = 0x50; // data offset = 5 (20 bytes)
-    p[33] = flags;
-    p[34..36].copy_from_slice(&window.to_be_bytes()); // window
-                                                      // checksum at [36..38] — filled below
-
-    if !payload.is_empty() {
-        p[40..].copy_from_slice(payload);
-    }
-
-    let tcp_cksum = tcp_checksum_v4(&src, &dst, &p[20..]);
-    p[36] = (tcp_cksum >> 8) as u8;
-    p[37] = tcp_cksum as u8;
-
-    p
-}
-
-#[allow(clippy::too_many_arguments)]
-fn build_tcp_v6(
-    src: Ipv6Addr,
-    dst: Ipv6Addr,
-    sport: u16,
-    dport: u16,
-    seq: u32,
-    ack: u32,
-    flags: u8,
-    window: u16,
-    payload: &[u8],
-) -> Vec<u8> {
-    let tcp_len = 20 + payload.len();
-    let total = 40 + tcp_len;
-    let mut p = vec![0u8; total];
-
-    // IPv6 header
-    p[0] = 0x60;
-    p[4..6].copy_from_slice(&(tcp_len as u16).to_be_bytes());
-    p[6] = IPPROTO_TCP;
-    p[7] = 64; // hop limit
-    p[8..24].copy_from_slice(&src.octets());
-    p[24..40].copy_from_slice(&dst.octets());
-
-    // TCP header
-    let o = 40;
-    p[o..o + 2].copy_from_slice(&sport.to_be_bytes());
-    p[o + 2..o + 4].copy_from_slice(&dport.to_be_bytes());
-    p[o + 4..o + 8].copy_from_slice(&seq.to_be_bytes());
-    p[o + 8..o + 12].copy_from_slice(&ack.to_be_bytes());
-    p[o + 12] = 0x50; // data offset = 5
-    p[o + 13] = flags;
-    p[o + 14..o + 16].copy_from_slice(&window.to_be_bytes()); // window
-                                                              // checksum at [o+16..o+18] — filled below
-
-    if !payload.is_empty() {
-        p[o + 20..].copy_from_slice(payload);
-    }
-
-    let tcp_cksum = tcp_checksum_v6(&src, &dst, &p[o..]);
-    p[o + 16] = (tcp_cksum >> 8) as u8;
-    p[o + 17] = tcp_cksum as u8;
-
-    p
+    let specification = TcpPacketSpec {
+        source: src,
+        destination: dst,
+        source_port: sport,
+        destination_port: dport,
+        sequence: seq,
+        acknowledgment: ack,
+        flags,
+        window,
+        mss: Some(mss),
+        payload: &[],
+    };
+    let Ok(length) = specification.length() else {
+        return Vec::new();
+    };
+    let mut packet = vec![0; length];
+    specification
+        .write_into(&mut packet)
+        .expect("same computed TCP MSS packet length");
+    packet
 }
 
 /// Build an IPv4/IPv6 + UDP packet with correct checksums.
 pub fn build_udp(src: IpAddr, dst: IpAddr, sport: u16, dport: u16, payload: &[u8]) -> Vec<u8> {
-    match (src, dst) {
-        (IpAddr::V4(s), IpAddr::V4(d)) => build_udp_v4(s, d, sport, dport, payload),
-        (IpAddr::V6(s), IpAddr::V6(d)) => build_udp_v6(s, d, sport, dport, payload),
-        _ => Vec::new(),
-    }
-}
-
-fn build_udp_v4(src: Ipv4Addr, dst: Ipv4Addr, sport: u16, dport: u16, payload: &[u8]) -> Vec<u8> {
-    let udp_total = 8 + payload.len();
-    let total = 20 + udp_total;
-    let mut p = vec![0u8; total];
-
-    // IP header
-    p[0] = 0x45;
-    p[2] = (total >> 8) as u8;
-    p[3] = total as u8;
-    p[8] = 64;
-    p[9] = IPPROTO_UDP;
-    p[12..16].copy_from_slice(&src.octets());
-    p[16..20].copy_from_slice(&dst.octets());
-    let ip_cksum = checksum(&p[0..20]);
-    p[10] = (ip_cksum >> 8) as u8;
-    p[11] = ip_cksum as u8;
-
-    // UDP header
-    p[20..22].copy_from_slice(&sport.to_be_bytes());
-    p[22..24].copy_from_slice(&dport.to_be_bytes());
-    p[24..26].copy_from_slice(&(udp_total as u16).to_be_bytes());
-    // checksum at [26..28] — filled below
-
-    if !payload.is_empty() {
-        p[28..].copy_from_slice(payload);
-    }
-
-    let udp_cksum = udp_checksum_v4(&src, &dst, &p[20..]);
-    p[26] = (udp_cksum >> 8) as u8;
-    p[27] = udp_cksum as u8;
-
-    p
-}
-
-fn build_udp_v6(src: Ipv6Addr, dst: Ipv6Addr, sport: u16, dport: u16, payload: &[u8]) -> Vec<u8> {
-    let udp_total = 8 + payload.len();
-    let total = 40 + udp_total;
-    let mut p = vec![0u8; total];
-
-    // IPv6 header
-    p[0] = 0x60;
-    p[4..6].copy_from_slice(&(udp_total as u16).to_be_bytes());
-    p[6] = IPPROTO_UDP;
-    p[7] = 64;
-    p[8..24].copy_from_slice(&src.octets());
-    p[24..40].copy_from_slice(&dst.octets());
-
-    // UDP header
-    let o = 40;
-    p[o..o + 2].copy_from_slice(&sport.to_be_bytes());
-    p[o + 2..o + 4].copy_from_slice(&dport.to_be_bytes());
-    p[o + 4..o + 6].copy_from_slice(&(udp_total as u16).to_be_bytes());
-    // checksum at [o+6..o+8] — filled below
-
-    if !payload.is_empty() {
-        p[o + 8..].copy_from_slice(payload);
-    }
-
-    let udp_cksum = udp_checksum_v6(&src, &dst, &p[o..]);
-    p[o + 6] = (udp_cksum >> 8) as u8;
-    p[o + 7] = udp_cksum as u8;
-
-    p
+    let specification = UdpPacketSpec {
+        source: src,
+        destination: dst,
+        source_port: sport,
+        destination_port: dport,
+        payload,
+    };
+    let Ok(length) = specification.length() else {
+        return Vec::new();
+    };
+    let mut packet = vec![0; length];
+    specification
+        .write_into(&mut packet)
+        .expect("same computed UDP packet length");
+    packet
 }
