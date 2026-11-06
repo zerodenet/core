@@ -264,11 +264,12 @@ impl InboundInstallContext {
             None
         } else {
             Some(
-                crate::component::instance::HostResources::new_for_instance(
+                crate::component::instance::HostResources::new_hosted(
                     identity,
                     &process_declarations,
                     self.entry.task_access().cancellation(),
-                    self.entry.accepted_registrar().scope_identity(),
+                    self.entry.accepted_registrar().downgrade(),
+                    self.protocols.runtime_host().original_budgets(),
                 )
                 .map_err(std::io::Error::other)?,
             )

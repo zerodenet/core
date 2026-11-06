@@ -80,6 +80,7 @@ impl InboundOwnerRegistry {
                 max_bind_attempts,
                 owner.task_access().cancellation(),
                 owner.accepted_registrar(),
+                protocols.runtime_host().original_budgets(),
                 Arc::downgrade(&owner),
             )
             .map_err(std::io::Error::other)?,
@@ -101,12 +102,9 @@ impl InboundOwnerRegistry {
             owner.install_listener_native(identity, resource)?;
         }
         #[cfg(feature = "raw-ip-runtime")]
-        if let [
-            zero_platform_tokio::contract::component::ResourceDeclaration::DatagramListener {
-                ..
-            },
-            declaration,
-        ] = prepared.resources()
+        if let [zero_platform_tokio::contract::component::ResourceDeclaration::DatagramListener {
+            ..
+        }, declaration] = prepared.resources()
         {
             if matches!(
                 declaration,

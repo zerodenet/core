@@ -11,6 +11,7 @@ use zero_platform_tokio::{
 };
 
 pub(super) struct ProcessDeclarations {
+    budget: Arc<zero_platform_tokio::owned_process::ProcessBudget>,
     identity: Option<(ComponentInstanceId, TaskScopeIdentity)>,
     entries: Mutex<BTreeMap<PathBuf, Entry>>,
 }
@@ -34,6 +35,7 @@ impl ProcessDeclarations {
     pub(super) fn new(
         declarations: &[ResourceDeclaration],
         identity: Option<(ComponentInstanceId, TaskScopeIdentity)>,
+        budget: Arc<zero_platform_tokio::owned_process::ProcessBudget>,
     ) -> Self {
         let entries = declarations
             .iter()
@@ -53,6 +55,7 @@ impl ProcessDeclarations {
             })
             .collect();
         Self {
+            budget,
             identity,
             entries: Mutex::new(entries),
         }
@@ -71,6 +74,9 @@ impl ProcessDeclarations {
         self.identity
             .as_ref()
             .is_some_and(|(_, scope)| scope.matches(tasks) && scope.resource_open())
+    }
+    pub(super) fn poll_budget(&self, cx: &mut std::task::Context<'_>) {
+        self.budget.poll_released(cx);
     }
     pub(super) fn evidence(&self, component: ComponentId) -> Vec<ProcessIoEvidence> {
         self.lock()
@@ -140,79 +146,7 @@ impl ProcessDeclarations {
         report
     }
 }
-impl HostResources {
-    pub(super) fn prepare_process(
-        &self,
-        request: ProcessRequest,
-        tasks: &TaskRegistrar,
-    ) -> Result<Arc<OwnedProcess>, ChannelError> {
-        // Original Scope observations occur outside host locks: upgrading a
-        // weak scope can deliver callbacks when its last owner is released.
-        if !self.processes.validate(tasks) {
-            return Err(self.denied());
-        }
-        let mut state = self
-            .state
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner);
-        if self.cancel.is_cancelled() || state.closed {
-            return Err(error(
-                self.component,
-                Reason::Revoked,
-                "native process owner revoked",
-            ));
-        }
-        let deadline = state.start_deadline.ok_or_else(|| {
-            error(
-                self.component,
-                Reason::InvalidConfig,
-                "owned process requires actual start phase",
-            )
-        })?;
-        if Instant::now() >= deadline {
-            return Err(error(
-                self.component,
-                Reason::Timeout,
-                "owned process start deadline elapsed",
-            ));
-        }
-        let remaining = state
-            .remaining
-            .get_mut(&request.program)
-            .ok_or_else(|| self.denied())?;
-        if *remaining == 0 {
-            return Err(error(
-                self.component,
-                Reason::Capacity,
-                "declared process original budget exhausted",
-            ));
-        }
-        let program = request.program.clone();
-        let mut entries = self.processes.lock();
-        let entry = entries.get_mut(&program).ok_or_else(|| self.denied())?;
-        if entry.legacy {
-            return Err(error(
-                self.component,
-                Reason::InvalidConfig,
-                "legacy process has no tree original",
-            ));
-        }
-        let original = OwnedProcess::prepare(request, tasks).map_err(|source| {
-            error(
-                self.component,
-                Reason::Io,
-                "cold process original preparation failed",
-            )
-            .with_source(source)
-        })?;
-        entry.jobs.push(Job {
-            original: original.clone(),
-            reported: false,
-        });
-        *remaining -= 1; // pending/failed/retiring reservations are not refunded
-        Ok(original)
-    }
-}
+mod acquire;
 #[derive(Debug)]
 struct ProcessFailure(Arc<io::Error>);
 impl std::fmt::Display for ProcessFailure {

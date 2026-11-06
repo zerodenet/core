@@ -64,6 +64,11 @@ impl OwnedProcess {
             had_native_acquisition: !state.originals.is_empty(),
         });
         state.closed = Some(closed.clone());
+        let budget = state.budget.clone();
+        drop(state);
+        if let Some(budget) = budget {
+            budget.reconcile();
+        }
         Ok(Some(closed))
     }
 }

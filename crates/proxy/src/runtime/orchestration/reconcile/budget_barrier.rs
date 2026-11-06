@@ -6,6 +6,10 @@ use zero_engine::EngineError;
 use zero_platform_tokio::contract::BoxFuture;
 
 pub(in crate::runtime) fn ss_budget_changed(old: &RuntimeConfig, next: &RuntimeConfig) -> bool {
+    if old.runtime.effective_process_max_jobs() != next.runtime.effective_process_max_jobs()
+        || old.runtime.effective_process_max_jobs_per_instance() != next.runtime.effective_process_max_jobs_per_instance() {
+        return true;
+    }
     let configured = old
         .inbounds
         .iter()

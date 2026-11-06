@@ -2,6 +2,7 @@
 use super::{ComponentRecipe, ValidatedRecipe};
 mod business;
 mod cleanup;
+mod original_budgets;
 mod packet_source;
 mod probe;
 mod resources;
@@ -70,6 +71,7 @@ pub struct ComponentSlot {
     admission_owner: Arc<()>,
     live: OnceCell<Result<Live, SharedError>>,
     start_gate: Mutex<()>,
+    originals: OnceLock<Arc<crate::HostOriginalBudgets>>,
     packet_source:
         Arc<OnceLock<zero_platform_tokio::controlled_datagram::provider::NativeDatagramOrigin>>,
 }
@@ -198,6 +200,7 @@ impl ComponentSlot {
             admission_owner: Arc::new(()),
             live: OnceCell::new(),
             start_gate: Mutex::new(()),
+            originals: OnceLock::new(),
             packet_source: Arc::new(OnceLock::new()),
         }
     }

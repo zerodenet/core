@@ -16,6 +16,14 @@ pub struct RuntimeOptionsConfig {
     /// Four by default, shared by its pending and delivered carrier uses.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub native_stream_max_originals: Option<usize>,
+    /// Actual native process jobs across this kernel, including pending,
+    /// failed and retiring originals. Allocated on demand; 64 by default.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub process_max_jobs: Option<usize>,
+    /// Concurrent original jobs per actual component generation, including
+    /// unreleased task acknowledgements. One by default; not a descendant cap.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub process_max_jobs_per_instance: Option<usize>,
     /// Total live or unconfirmed physical carriers in the one Mieru adapter
     /// pool, across every profile and both underlays. Four by default.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -153,6 +161,8 @@ impl Default for RuntimeOptionsConfig {
             file_read_max_bytes: None,
             native_mux_max_carriers: None,
             native_stream_max_originals: None,
+            process_max_jobs: None,
+            process_max_jobs_per_instance: None,
             mieru_max_carriers: None,
             vmess_grpc_max_originals: None,
             packet_return_max_frames: None,
@@ -200,6 +210,12 @@ pub const DEFAULT_LATENCY_TEST_URL: &str = "http://www.gstatic.com/generate_204"
 pub const DEFAULT_EVENT_LOG_CAPACITY: usize = 1024;
 
 impl RuntimeOptionsConfig {
+    pub fn effective_process_max_jobs(&self) -> usize {
+        self.process_max_jobs.unwrap_or(64)
+    }
+    pub fn effective_process_max_jobs_per_instance(&self) -> usize {
+        self.process_max_jobs_per_instance.unwrap_or(1)
+    }
     pub fn effective_native_stream_max_originals(&self) -> usize {
         self.native_stream_max_originals.unwrap_or(4)
     }
@@ -246,7 +262,9 @@ impl RuntimeOptionsConfig {
         self.diagnostic_max_operations.unwrap_or(8)
     }
     pub fn effective_system_tun_task_limit(&self, actual_default: usize) -> usize {
-        self.system_tun_task_limit.unwrap_or(actual_default).min(actual_default)
+        self.system_tun_task_limit
+            .unwrap_or(actual_default)
+            .min(actual_default)
     }
     pub fn effective_ss_legacy_replay_max_bytes(&self) -> usize {
         self.ss_legacy_replay_max_bytes.unwrap_or(64 * 1024 * 1024)

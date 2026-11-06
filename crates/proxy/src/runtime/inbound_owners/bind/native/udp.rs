@@ -2,17 +2,18 @@
 use super::*;
 use crate::component::instance::HostDatagramListenerOwner;
 use std::sync::{
-    Mutex,
     atomic::{AtomicBool, Ordering},
+    Mutex,
 };
 use zero_platform_tokio::contract::{
-    CloseReason, Impact, Reason, Stage,
     component::GrantedDatagramListener,
     lifecycle::{CloseReport, ResourceLifecycle},
+    CloseReason, Impact, Reason, Stage,
 };
 
 pub(in crate::runtime::inbound_owners) struct NativeDatagramGrant {
     identity: ComponentInstanceId,
+    originals: Option<Arc<zero_runtime::HostOriginalBudgets>>,
     addresses: std::sync::OnceLock<Arc<[std::net::SocketAddr]>>,
     declaration: ResourceDeclaration,
     attempts: NonZeroUsize,
@@ -67,6 +68,7 @@ impl NativeDatagramGrant {
         }
         Ok(Self {
             identity,
+            originals: None,
             addresses,
             declaration: declaration.clone(),
             attempts,
@@ -86,6 +88,13 @@ impl NativeDatagramGrant {
             original: std::sync::OnceLock::new(),
             scope: None,
         })
+    }
+    pub(super) fn with_original_budgets(
+        mut self,
+        originals: Arc<zero_runtime::HostOriginalBudgets>,
+    ) -> Self {
+        self.originals = Some(originals);
+        self
     }
     pub(super) fn new_scoped(
         identity: ComponentInstanceId,
@@ -158,6 +167,11 @@ impl NativeDatagramGrant {
         let owner = native
             .as_mut()
             .ok_or_else(|| std::io::Error::other("original UDP resolution is not installed"))?;
+        if let (Some(originals), Some(tasks)) = (&self.originals, &self.scope) {
+            owner
+                .bind_original_budgets(originals.clone(), tasks.downgrade())
+                .map_err(std::io::Error::other)?;
+        }
         let addresses = self
             .addresses
             .get()

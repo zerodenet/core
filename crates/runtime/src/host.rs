@@ -7,6 +7,7 @@ use zero_config::OutboundConfig;
 
 pub struct RuntimeHost<A = ()> {
     components: ComponentCatalog,
+    originals: Arc<crate::HostOriginalBudgets>,
     probes: Arc<crate::probe_owner::ProbeOwner>,
     apply: Arc<ApplyOwner>,
     apply_lock: Arc<tokio::sync::Mutex<()>>,
@@ -22,11 +23,20 @@ impl<A> std::fmt::Debug for RuntimeHost<A> {
 }
 impl<A> RuntimeHost<A> {
     pub fn new(factories: ComponentRegistry<OutboundConfig>) -> Self {
+        Self::with_original_budgets(factories, Arc::default())
+    }
+    /// The production kernel supplies the same concrete roots assembled beside Devices.
+    pub fn with_original_budgets(
+        factories: ComponentRegistry<OutboundConfig>,
+        originals: Arc<crate::HostOriginalBudgets>,
+    ) -> Self {
         let probes = Arc::new(crate::probe_owner::ProbeOwner::default());
         let components = ComponentCatalog::with_factories(factories);
         components.attach_probe_owner(Arc::downgrade(&probes));
+        components.bind_original_budgets(originals.clone());
         Self {
             components,
+            originals,
             probes,
             apply: Arc::default(),
             apply_lock: Arc::default(),
@@ -36,6 +46,9 @@ impl<A> RuntimeHost<A> {
 }
 
 impl<A> RuntimeHost<A> {
+    pub fn original_budgets(&self) -> Arc<crate::HostOriginalBudgets> {
+        self.originals.clone()
+    }
     pub fn components(&self) -> &ComponentCatalog {
         &self.components
     }

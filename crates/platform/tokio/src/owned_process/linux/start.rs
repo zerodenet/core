@@ -25,6 +25,7 @@ impl OwnedProcess {
             let retained = io::Error::new(error.kind(), error);
             state.fault(retained);
             state.stop = true;
+            state.request = None;
             return Err(io::Error::other(SharedFailure(
                 state.first_error.clone().expect("retained original error"),
             )));

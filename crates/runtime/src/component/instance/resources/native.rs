@@ -9,12 +9,14 @@ use tokio::sync::Mutex as AsyncMutex;
 use tokio::time::Instant;
 use zero_core::{component::ComponentId, request::Destination};
 use zero_platform_tokio::contract::{
-    BoxFuture, CancellationToken, ChannelError, Reason,
     component::{GrantedDatagramListener, ProcessRequest, ResourceAccess, ResourceDeclaration},
     packet::BoxPacketSession,
+    BoxFuture, CancellationToken, ChannelError, Reason,
 };
 
 pub struct HostResources {
+    originals: Arc<crate::HostOriginalBudgets>,
+    original_tasks: Option<zero_platform_tokio::contract::scope::WeakTaskRegistrar>,
     packet_source: Arc<
         std::sync::OnceLock<
             zero_platform_tokio::controlled_datagram::provider::NativeDatagramOrigin,
@@ -83,6 +85,7 @@ mod files;
 mod listener;
 mod metadata;
 mod metapool;
+mod original_budgets;
 mod packet_device;
 mod prepare;
 #[cfg(target_os = "linux")]
@@ -400,6 +403,8 @@ impl HostResources {
         &self,
         cx: &mut std::task::Context<'_>,
     ) -> bool {
+        #[cfg(target_os = "linux")]
+        self.processes.poll_budget(cx);
         self.carriers.poll_cancelled(cx)
     }
 }
