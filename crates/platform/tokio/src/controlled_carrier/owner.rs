@@ -153,5 +153,5 @@ impl ResourceLifecycle for CarrierOwner {
 }
 mod close;
 mod ready;
-pub(super) use ready::try_close_native_slot;
 pub(super) use close::{close_native_slot, close_slot};
+pub(super) use ready::{try_close_native_slot, try_close_slot};

@@ -65,11 +65,6 @@ pub(in crate::controlled_carrier) fn try_close_native_slot(
             return Ok(pending());
         }
     }
-    // A logical borrowed control needs its actual logical-return path. Never
-    // treat this observation-only attempt as completion of an opaque loan.
-    if loan.is_some() {
-        return Ok(pending());
-    }
     let mut report = if let Some(control) = control {
         let Ok(mut control) = control.try_lock() else {
             return Ok(pending());
@@ -79,6 +74,20 @@ pub(in crate::controlled_carrier) fn try_close_native_slot(
             source.impact = crate::contract::Impact::Component;
             source
         })?
+    } else if let Some(loan) = loan {
+        let Ok(mut loan) = loan.try_lock() else {
+            return Ok(pending());
+        };
+        let report = loan.try_close()?;
+        if report.is_complete() && !loan.closed().is_some_and(|closed| closed.matches(&loan)) {
+            return Err(error(
+                slot.instance,
+                Stage::Close,
+                Reason::Internal,
+                DeliveryState::Unknown,
+            ));
+        }
+        report
     } else if let Some(packet) = packet {
         match packet.try_close() {
             Some(Ok(closed)) if closed.matches(&packet) => CloseReport {
@@ -92,7 +101,7 @@ pub(in crate::controlled_carrier) fn try_close_native_slot(
                     Reason::Io,
                     DeliveryState::Unknown,
                 )
-                .with_source(source))
+                .with_source(source));
             }
             _ => return Ok(pending()),
         }
@@ -111,4 +120,58 @@ pub(in crate::controlled_carrier) fn try_close_native_slot(
     } else {
         Ok(report)
     }
+}
+
+/// Full nonwaiting settlement still requires the same native receipt, returned
+/// users and actual caller join. Native-only completion cannot refund this slot.
+pub(in crate::controlled_carrier) fn try_close_slot(
+    slot: &Arc<Slot>,
+) -> Result<CloseReport, BuildError> {
+    let related = { slot.state().related_child.clone() };
+    if let Some(child) = related {
+        child.cancel.cancel();
+        child.notify();
+        let report = try_close_slot(&child)?;
+        if !report.is_complete() {
+            return Ok(report);
+        }
+        if let Some(owner) = slot.owner.upgrade() {
+            owner.state().confirmed.append(report);
+        }
+    }
+    let report = try_close_native_slot(slot)?;
+    if !report.is_complete() {
+        return Ok(report);
+    }
+    let pending = || CloseReport {
+        unfinished: vec![Unfinished::Resource(format!(
+            "{} caller/view closure remains unconfirmed",
+            slot.label()
+        ))],
+        ..Default::default()
+    };
+    let Ok(_closing) = slot.closing.try_lock() else {
+        return Ok(pending());
+    };
+    let caller = {
+        let state = slot.state();
+        if !state.closed || state.users.as_ref().is_some_and(|users| !users.ready()) {
+            return Ok(pending());
+        }
+        state.users.as_ref().and_then(|users| users.caller_joined())
+    };
+    if let Some(joined) = caller.filter(|joined| joined.result().is_err()) {
+        if let Some(owner) = slot.owner.upgrade() {
+            owner
+                .completion
+                .caller_failure
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner)
+                .get_or_insert(joined);
+        }
+    }
+    let report = slot.state().pending_close.take().unwrap_or_default();
+    slot.remove();
+    slot.notify();
+    Ok(report)
 }

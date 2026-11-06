@@ -1,8 +1,8 @@
 use super::{error, slot::Slot, view::CarrierDriver};
 use crate::contract::{
+    ChannelError, DeliveryState, Reason, Stage,
     lifecycle::{ComponentError, TaskClass},
     scope::{TaskJoinWitness, TaskJoined, TaskRegistrar},
-    ChannelError, DeliveryState, Reason, Stage,
 };
 use std::{future::Future, sync::Arc};
 use tokio::time::Instant;
@@ -55,6 +55,11 @@ impl CarrierAdoption {
         self.slot.cancel.cancel();
         self.slot.notify();
         super::owner::close_slot(&self.slot, deadline).await
+    }
+    /// Settle only already returned native/users/join facts, without waiting.
+    pub fn try_retire(&self) -> Result<crate::contract::lifecycle::CloseReport, ChannelError> {
+        self.request_retirement();
+        super::owner::try_close_slot(&self.slot)
     }
     /// Registers the protocol's existing one driver, not an extra worker. The
     /// original control already lives in the persistent slot. No await separates

@@ -74,11 +74,9 @@ async fn real_stream_loan_cancellation_returns_its_workers_and_preserves_same_po
         second.flush().await.unwrap();
         second.read_exact(&mut byte).await.unwrap();
         assert_eq!(byte, *b"2");
-        assert!(
-            first_control
-                .original()
-                .same_original(second_control.original())
-        );
+        assert!(first_control
+            .original()
+            .same_original(second_control.original()));
         let physical = managed.records.lock().unwrap()[0].clone();
         let witness = physical.witness.lock().unwrap().clone().unwrap();
         assert!(physical.adoption.retained_driver().is_some());
@@ -88,8 +86,20 @@ async fn real_stream_loan_cancellation_returns_its_workers_and_preserves_same_po
             assert!(waiting.as_mut().poll(&mut cx).is_pending());
             first_control.cancel(zero_platform_tokio::contract::CloseReason::Cancelled);
         }
+        assert!(!first_control.try_close().unwrap().is_complete());
+        assert!(first_control.closed().is_none());
         drop(first);
-        let closed = first_control.close(deadline()).await.unwrap();
+        // The original request has no total deadline. Repeated snapshots let
+        // the actual same H2 driver return both workers; none invents a timer
+        // or closes the physical carrier used by the second logical stream.
+        let closed = loop {
+            let report = first_control.try_close().unwrap();
+            if report.is_complete() {
+                break report;
+            }
+            assert!(physical.adoption.closed().is_none());
+            tokio::task::yield_now().await;
+        };
         assert!(closed.is_complete(), "{closed:?}");
         assert!(first_control.closed().unwrap().matches(&first_control));
         assert!(
@@ -111,11 +121,9 @@ async fn real_stream_loan_cancellation_returns_its_workers_and_preserves_same_po
             .unwrap()
             .into_stream_loan()
             .unwrap();
-        assert!(
-            third_control
-                .original()
-                .same_original(second_control.original())
-        );
+        assert!(third_control
+            .original()
+            .same_original(second_control.original()));
         third.write_all(b"3").await.unwrap();
         third.flush().await.unwrap();
         third.read_exact(&mut byte).await.unwrap();
@@ -123,26 +131,22 @@ async fn real_stream_loan_cancellation_returns_its_workers_and_preserves_same_po
         assert_eq!(fixture.traffic.boundaries.load(Ordering::SeqCst), 1);
         drop(second);
         drop(third);
-        assert!(
-            second_control
-                .close(deadline())
-                .await
-                .unwrap()
-                .is_complete()
-        );
+        assert!(second_control
+            .close(deadline())
+            .await
+            .unwrap()
+            .is_complete());
         assert!(third_control.close(deadline()).await.unwrap().is_complete());
         let (protocol, tasks) = fixture.close().await;
         assert!(protocol.is_complete(), "{protocol:?}");
         assert!(tasks.is_complete(), "{tasks:?}");
         let closed = physical.adoption.closed().unwrap();
         assert!(closed.matches(&physical.adoption));
-        assert!(
-            physical
-                .adoption
-                .users_closed()
-                .unwrap()
-                .matches(&physical.adoption)
-        );
+        assert!(physical
+            .adoption
+            .users_closed()
+            .unwrap()
+            .matches(&physical.adoption));
         assert!(witness.is_joined());
         finish.send(()).unwrap();
         server.await.unwrap();
