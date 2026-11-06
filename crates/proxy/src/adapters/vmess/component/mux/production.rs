@@ -26,6 +26,13 @@ impl VmessAdapter {
         else {
             return false;
         };
+        if matches!(
+            &input.protocol,
+            OutboundProtocolConfig::Vmess { grpc: Some(_), .. }
+        ) && !super::super::grpc::whole_streams_selected(config, native)
+        {
+            return false;
+        }
         if needs_ip_backend(input)
             && zero_dns::native::validate_node_config(config.runtime.dns.as_ref()).is_err()
         {
@@ -54,7 +61,7 @@ impl VmessAdapter {
     }
 }
 
-fn needs_ip_backend(input: &OutboundConfig) -> bool {
+pub(crate) fn needs_ip_backend(input: &OutboundConfig) -> bool {
     let OutboundProtocolConfig::Vmess { server, tls, .. } = &input.protocol else {
         return false;
     };

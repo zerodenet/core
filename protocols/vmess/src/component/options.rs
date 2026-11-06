@@ -68,7 +68,7 @@ impl Options {
         TWs: WebSocketTransportProfile + ?Sized,
         TGrpc: GrpcTransportProfile + ?Sized,
     {
-        Self::from_options_refs_inner(input, dial, source_dir, ca_max_bytes, false)
+        Self::from_options_refs_inner(input, dial, source_dir, ca_max_bytes, false, false)
     }
     pub fn from_owned_options_refs_at<TTls, TWs, TGrpc>(
         input: VmessOutboundBuildOptionsRef<'_, TTls, TWs, TGrpc>,
@@ -81,7 +81,22 @@ impl Options {
         TWs: WebSocketTransportProfile + ?Sized,
         TGrpc: GrpcTransportProfile + ?Sized,
     {
-        Self::from_options_refs_inner(input, dial, source_dir, ca_max_bytes, true)
+        Self::from_options_refs_inner(input, dial, source_dir, ca_max_bytes, true, false)
+    }
+    // Only the real MUX owner consumes this full transport recipe. Bare
+    // per-connection Options still rejects gRPC without its actual owner.
+    pub(super) fn from_mux_transport_options_refs_at<TTls, TWs, TGrpc>(
+        input: VmessOutboundBuildOptionsRef<'_, TTls, TWs, TGrpc>,
+        dial: DialPolicy,
+        source_dir: Option<&Path>,
+        ca_max_bytes: NonZeroUsize,
+    ) -> Result<Self, Error>
+    where
+        TTls: ClientTlsProfile + ?Sized,
+        TWs: WebSocketTransportProfile + ?Sized,
+        TGrpc: GrpcTransportProfile + ?Sized,
+    {
+        Self::from_options_refs_inner(input, dial, source_dir, Some(ca_max_bytes), true, true)
     }
     fn from_options_refs_inner<TTls, TWs, TGrpc>(
         input: VmessOutboundBuildOptionsRef<'_, TTls, TWs, TGrpc>,
@@ -89,6 +104,7 @@ impl Options {
         source_dir: Option<&Path>,
         ca_max_bytes: Option<NonZeroUsize>,
         owned: bool,
+        managed_grpc: bool,
     ) -> Result<Self, Error>
     where
         TTls: ClientTlsProfile + ?Sized,
@@ -106,7 +122,7 @@ impl Options {
         if input.ws.is_some() && input.grpc.is_some() {
             return Err(Error::Config("vmess: ws and grpc are mutually exclusive"));
         }
-        if input.grpc.is_some() {
+        if input.grpc.is_some() && !managed_grpc {
             return Err(Error::Unsupported(
                 "VMess gRPC requires its carrier and registered driver owner",
             ));
@@ -183,6 +199,22 @@ impl Options {
         let endpoint = Destination::new(address, input.port);
         let ws = input.ws.map(OwnedWebSocketProfile::from_profile);
         let grpc = input.grpc.map(OwnedGrpcProfile::from_profile);
+        if let Some(grpc) = &grpc {
+            let authority = tls
+                .as_ref()
+                .and_then(|tls| tls.server_name.as_deref())
+                .filter(|name| !name.is_empty())
+                .map(str::to_owned)
+                .unwrap_or_else(
+                    || match zero_core::address::parse_ip_literal(input.server) {
+                        Some(ip) => std::net::SocketAddr::new(ip, input.port).to_string(),
+                        None => format!("{}:{}", input.server, input.port),
+                    },
+                );
+            zero_transport::grpc::validate_single_client_profile(grpc, &authority)
+                .map_err(|_| Error::Config("invalid VMess MUX gRPC profile"))?;
+        }
+
         static KEYS: OnceLock<[RandomState; 2]> = OnceLock::new();
         let mut identity = Vec::with_capacity(16);
         for key in KEYS.get_or_init(|| [RandomState::new(), RandomState::new()]) {

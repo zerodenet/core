@@ -53,10 +53,10 @@ async fn ordinary_raw_ws_and_grpc_keep_exact_material_native_users_and_ack_throu
 }
 
 #[tokio::test]
-async fn ordinary_mux_raw_and_ws_use_same_protocol_file_material_and_cached_driver_through_network_and_failed_reload(
+async fn ordinary_mux_full_tls_transports_use_same_protocol_file_material_and_cached_driver_through_network_and_failed_reload(
 ) {
     tokio::time::timeout(std::time::Duration::from_secs(45), async {
-        for kind in ["mux-raw", "mux-ws"] {
+        for kind in ["mux-raw", "mux-ws", "mux-grpc-single", "mux-grpc-multi"] {
             for backend in ["rustls", "openssl"] {
                 let directory = tempfile::tempdir().unwrap();
                 let cert = rcgen::generate_simple_self_signed(vec!["localhost".into()]).unwrap();

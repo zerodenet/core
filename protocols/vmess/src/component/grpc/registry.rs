@@ -137,7 +137,7 @@ impl State {
         }
         Ok(())
     }
-    pub(super) fn claim_node_streams(
+    pub(crate) fn claim_node_streams(
         &self,
         instance: ComponentInstanceId,
     ) -> Result<(), ChannelError> {
@@ -149,7 +149,10 @@ impl State {
         }
         Ok(())
     }
-    pub(super) fn release_node_streams(&self, instance: ComponentInstanceId) {
+    pub(crate) fn current_node_streams(&self, instance: ComponentInstanceId) -> bool {
+        self.0.lock().unwrap().node_streams.contains(&instance)
+    }
+    pub(crate) fn release_node_streams(&self, instance: ComponentInstanceId) {
         self.0.lock().unwrap().node_streams.remove(&instance);
     }
 }

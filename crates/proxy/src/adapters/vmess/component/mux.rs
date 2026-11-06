@@ -4,7 +4,7 @@ use super::super::VmessAdapter;
 use crate::component::{
     background::pool as background_pool, RegistrationError, ResourcePreparation,
 };
-pub(crate) use production::has_mux;
+pub(crate) use production::{has_mux, needs_ip_backend};
 use std::{num::NonZeroUsize, sync::Arc, time::Duration};
 use zero_config::{OutboundConfig, OutboundProtocolConfig};
 use zero_platform_tokio::contract::{
@@ -59,6 +59,11 @@ pub(crate) fn eligible(input: &OutboundConfig) -> bool {
     };
     if mux_concurrency.take().is_none() {
         return false;
+    }
+    if let OutboundProtocolConfig::Vmess { grpc, .. } = &mut ordinary.protocol {
+        // Only the ordinary-shape probe omits gRPC. Actual MUX preparation
+        // validates and stores its full profile and same global admission.
+        *grpc = None;
     }
     super::owned_input(&ordinary)
 }
