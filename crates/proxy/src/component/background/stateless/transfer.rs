@@ -2,6 +2,7 @@
 use super::*;
 pub(super) struct Transfer {
     pub(super) grant: Mutex<Option<CarrierGrant>>,
+    pub(super) view: Mutex<Option<zero_platform_tokio::controlled_carrier::CarrierUserView>>,
     pub(super) caller: Option<zero_platform_tokio::contract::scope::TaskJoinWitness>,
     pub(super) owner: tokio::sync::Mutex<Option<LoanOwner>>,
     pub(super) stop: CancellationToken,
@@ -27,7 +28,9 @@ impl Transfer {
             // A grant still here never entered native preparation; dispose its
             // actual unused reservation before requesting a close receipt.
             let unused = self.grant.lock().unwrap().take();
+            let view = self.view.lock().unwrap().take();
             drop(unused);
+            drop(view);
             return self.adoption.retire(end).await;
         };
         let report = owner.close(end).await?;
@@ -52,7 +55,9 @@ impl Transfer {
             Some(owner) => owner.try_close()?,
             None => {
                 let unused = self.grant.lock().unwrap().take();
+                let view = self.view.lock().unwrap().take();
                 drop(unused);
+                drop(view);
                 self.adoption.try_retire()?
             }
         };
@@ -95,6 +100,15 @@ impl Drop for Opening {
             .store(false, std::sync::atomic::Ordering::Release);
         if !self.0.published.load(std::sync::atomic::Ordering::Acquire) {
             self.0.stop.cancel();
+            // If no opener consumed the unique grant, return its actual view
+            // synchronously. Holding it until another dial would prevent the
+            // original Host provider from finishing this unused cancellation.
+            let unused = self.0.grant.lock().unwrap().take();
+            if unused.is_some() {
+                let view = self.0.view.lock().unwrap().take();
+                drop(unused);
+                drop(view);
+            }
             self.0.adoption.request_retirement();
         }
     }
