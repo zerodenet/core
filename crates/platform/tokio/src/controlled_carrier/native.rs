@@ -19,6 +19,7 @@ mod stream;
 /// grant this exact component generation, selected peer, binding and finite owner.
 pub struct NativeCarrierOpener {
     grantee: ComponentInstanceId,
+    pub(super) related_parent: Option<super::CarrierAdoption>,
     binding: UpstreamBinding,
     peer: SocketAddr,
     pub(super) endpoint: Destination,
@@ -26,7 +27,7 @@ pub struct NativeCarrierOpener {
     observer: Option<Arc<dyn IoObserver>>,
     business: Option<super::CarrierBusinessGrant>,
     service: Option<super::CarrierServiceGrant>,
-    dns: Option<(
+    pub(super) dns: Option<(
         Arc<dyn crate::contract::dns::DnsService>,
         crate::contract::dns::DnsGeneration,
     )>,
@@ -53,6 +54,7 @@ impl NativeCarrierOpener {
         }
         Ok(Self {
             grantee,
+            related_parent: None,
             binding,
             peer,
             endpoint: super::resolution::destination(peer),
@@ -161,6 +163,58 @@ impl NativeCarrierOpener {
     }
 }
 impl UpstreamOpener for NativeCarrierOpener {
+    fn resolve_related_datagram(
+        &self,
+        binding: &UpstreamBinding,
+        parent: super::CarrierAdoption,
+        peer: Destination,
+        context: CarrierContext,
+    ) -> BoxFuture<'_, Result<super::CarrierCandidates, ChannelError>> {
+        let result = (|| {
+            let original = super::resolution::Source {
+                grantee: self.grantee,
+                related_parent: None,
+                binding: self.binding.clone(),
+                endpoint: self.endpoint.clone(),
+                egress: self.egress.clone(),
+                observer: self.observer.clone(),
+            };
+            original.check(binding, &self.endpoint, &context)?;
+            super::related::check_parent(&parent, self.grantee, binding)?;
+            let address = match peer.address {
+                Address::Ipv4(ip) => std::net::Ipv4Addr::from(ip).into(),
+                Address::Ipv6(ip) => std::net::Ipv6Addr::from(ip).into(),
+                Address::Domain(_) => {
+                    return Err(error(
+                        self.grantee,
+                        Stage::Prepare,
+                        Reason::Unsupported,
+                        DeliveryState::NotSubmitted,
+                    ))
+                }
+            };
+            let address = SocketAddr::new(address, peer.port);
+            if address.port() == 0 || address.ip().is_unspecified() {
+                return Err(error(
+                    self.grantee,
+                    Stage::Prepare,
+                    Reason::InvalidConfig,
+                    DeliveryState::NotSubmitted,
+                ));
+            }
+            Ok(super::resolution::Source {
+                grantee: self.grantee,
+                related_parent: Some(parent),
+                binding: binding.clone(),
+                endpoint: peer,
+                egress: self.egress.clone(),
+                observer: self.observer.clone(),
+            }
+            .candidates(vec![address], context))
+        })();
+        Box::pin(async move { result })
+    }
+
     fn resolve_controlled_carrier(
         &self,
         binding: &UpstreamBinding,
@@ -169,6 +223,7 @@ impl UpstreamOpener for NativeCarrierOpener {
     ) -> BoxFuture<'_, Result<super::CarrierCandidates, ChannelError>> {
         let source = super::resolution::Source {
             grantee: self.grantee,
+            related_parent: None,
             binding: self.binding.clone(),
             endpoint: self.endpoint.clone(),
             egress: self.egress.clone(),

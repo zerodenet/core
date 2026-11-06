@@ -1,6 +1,7 @@
 use super::*;
 pub(in crate::controlled_carrier) struct Source {
     pub grantee: ComponentInstanceId,
+    pub related_parent: Option<super::super::CarrierAdoption>,
     pub binding: UpstreamBinding,
     pub endpoint: Destination,
     pub egress: Arc<EgressInterfaceControl>,
@@ -13,6 +14,9 @@ impl Source {
         endpoint: &Destination,
         context: &CarrierContext,
     ) -> Result<(), ChannelError> {
+        if let Some(parent) = &self.related_parent {
+            super::super::related::check_parent(parent, self.grantee, binding)?;
+        }
         let reason = if binding != &self.binding
             || endpoint != &self.endpoint
             || !binding.prefix.is_empty()
@@ -159,6 +163,8 @@ impl CarrierCandidates {
             self.source.observer.clone(),
         )?;
         opener.endpoint = self.source.endpoint.clone();
+        opener.related_parent = self.source.related_parent.clone();
+        opener.dns = self.resolver.clone();
         Ok(opener)
     }
     pub fn prepare_stream(

@@ -152,6 +152,30 @@ impl CarrierOrigin {
             Original::Metadata(_) | Original::MetadataPool { .. } => None,
         }
     }
+    /// Actual negotiated-control dependency, separate from physical
+    /// encapsulation ancestry. This observation grants no cleanup or native I/O.
+    pub fn related_control(&self) -> Option<Self> {
+        let Original::Carrier(origin) = self.0.as_ref() else {
+            return None;
+        };
+        let slot = origin.slot.upgrade()?;
+        let parent = slot.state().related_parent.as_ref()?.upgrade()?;
+        let owner = parent.owner.upgrade()?;
+        let state = parent.state();
+        if state.closed
+            || parent.cancel.is_cancelled()
+            || (state.control.is_none() && state.loan.is_none())
+        {
+            return None;
+        }
+        Some(Self(Arc::new(Original::Carrier(ActualOriginal {
+            slot: Arc::downgrade(&parent),
+            owner: CarrierOwnerRegistration::new(&owner),
+            driver: state.driver.as_ref().map(|(_, witness)| witness.clone()),
+            parent: state.loan_origin.clone(),
+            completion: parent.completion.clone(),
+        }))))
+    }
     pub fn native_origin(&self) -> &Self {
         let mut original = self;
         while let Some(parent) = original.parent() {
@@ -247,10 +271,12 @@ impl CarrierOrigin {
         let mut current = Some(self);
         while let Some(origin) = current {
             let retired = match origin.0.as_ref() {
-                Original::Carrier(origin) => origin
-                    .slot
-                    .upgrade()
-                    .is_none_or(|slot| slot.cancel.is_cancelled()),
+                Original::Carrier(origin) => origin.slot.upgrade().is_none_or(|slot| {
+                    slot.cancel.is_cancelled()
+                        || slot
+                            .related_cancellation()
+                            .is_some_and(|parent| parent.is_cancelled())
+                }),
                 Original::Metadata(origin) => origin.is_retired(),
                 Original::MetadataPool { owner, binding } => binding
                     .as_ref()
@@ -274,6 +300,9 @@ impl CarrierOrigin {
                         return;
                     };
                     waits.push(Box::pin(slot.cancel.clone().cancelled_owned()));
+                    if let Some(parent) = slot.related_cancellation() {
+                        waits.push(Box::pin(parent.cancelled_owned()));
+                    }
                 }
                 Original::Metadata(origin) => waits.push(Box::pin(origin.retired())),
                 Original::MetadataPool {

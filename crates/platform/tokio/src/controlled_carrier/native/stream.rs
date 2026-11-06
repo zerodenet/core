@@ -7,6 +7,14 @@ impl NativeCarrierOpener {
         context: CarrierContext,
         mut grant: CarrierGrant,
     ) -> Result<PreparedCarrier, ChannelError> {
+        if self.related_parent.is_some() {
+            return Err(error(
+                grant.instance(),
+                Stage::Prepare,
+                Reason::InvalidConfig,
+                DeliveryState::NotSubmitted,
+            ));
+        }
         if self
             .dns
             .as_ref()

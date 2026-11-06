@@ -76,6 +76,15 @@ impl PendingCarrierObserver {
 }
 
 impl UpstreamTransport {
+    pub fn resolve_related_datagram(
+        &self,
+        parent: crate::controlled_carrier::CarrierAdoption,
+        peer: Destination,
+        context: CarrierContext,
+    ) -> BoxFuture<'_, Result<crate::controlled_carrier::CarrierCandidates, ChannelError>> {
+        self.opener
+            .resolve_related_datagram(&self.binding, parent, peer, context)
+    }
     pub fn has_tracked_business_caller(&self) -> bool {
         self.opener.has_tracked_business_caller()
     }

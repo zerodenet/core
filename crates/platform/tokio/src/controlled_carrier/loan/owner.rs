@@ -81,6 +81,14 @@ impl LoanClosed {
         &self.original
     }
 }
+impl crate::contract::lifecycle::ChannelControl for LoanOwner {
+    fn cancel(&self, reason: CloseReason) {
+        LoanOwner::cancel(self, reason);
+    }
+    async fn wait_closed(&mut self, deadline: Instant) -> Result<CloseReport, ChannelError> {
+        self.close(deadline).await
+    }
+}
 impl Drop for LoanOwner {
     fn drop(&mut self) {
         self.cancel(CloseReason::Shutdown);

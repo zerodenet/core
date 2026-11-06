@@ -46,6 +46,23 @@ async fn close_slot_until(
             })
         }
     };
+    // The same original control cannot be closed underneath its negotiated
+    // Datagram. Its retained related slot owns the separate native receipt;
+    // source ancestry and logical caller settlement remain independent.
+    let related = { slot.state().related_child.clone() };
+    if let Some(child) = related {
+        child.cancel.cancel();
+        child.notify();
+        let report = Box::pin(close_slot_until(&child, deadline, wait_users)).await?;
+        if !report.is_complete() {
+            return Ok(report);
+        }
+        if wait_users {
+            if let Some(owner) = slot.owner.upgrade() {
+                owner.state().confirmed.append(report);
+            }
+        }
+    }
     loop {
         let changed = slot.changed.notified();
         tokio::pin!(changed);

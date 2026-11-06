@@ -19,7 +19,18 @@ impl CarrierDatagram {
         if self.slot.cancel.is_cancelled() {
             return Err(io::ErrorKind::Interrupted.into());
         }
-        let size = self.io.send_to_addr(bytes, self.peer).await?;
+        let parent = self.slot.related_cancellation();
+        let related = async {
+            match parent {
+                Some(parent) => parent.cancelled().await,
+                None => std::future::pending::<()>().await,
+            }
+        };
+        let size = tokio::select! { biased;
+            _ = self.slot.cancel.cancelled() => return Err(io::ErrorKind::Interrupted.into()),
+            _ = related => return Err(io::ErrorKind::Interrupted.into()),
+            size = self.io.send_to_addr(bytes, self.peer) => size?,
+        };
         if size != bytes.len() {
             return Err(io::ErrorKind::WriteZero.into());
         }
@@ -30,7 +41,18 @@ impl CarrierDatagram {
             if self.slot.cancel.is_cancelled() {
                 return Err(io::ErrorKind::Interrupted.into());
             }
-            let (size, peer) = self.io.recv_from_addr(bytes).await?;
+            let parent = self.slot.related_cancellation();
+            let related = async {
+                match parent {
+                    Some(parent) => parent.cancelled().await,
+                    None => std::future::pending::<()>().await,
+                }
+            };
+            let (size, peer) = tokio::select! { biased;
+                _ = self.slot.cancel.cancelled() => return Err(io::ErrorKind::Interrupted.into()),
+                _ = related => return Err(io::ErrorKind::Interrupted.into()),
+                value = self.io.recv_from_addr(bytes) => value?,
+            };
             if peer == self.peer {
                 return Ok(size);
             }

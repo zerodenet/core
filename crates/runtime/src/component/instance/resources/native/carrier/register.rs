@@ -43,6 +43,7 @@ impl HostResources {
         let max_sockets = match declaration {
             ResourceDeclaration::ControlledOutboundStream { max_sockets, .. }
             | ResourceDeclaration::ControlledCarrierPool { max_sockets, .. }
+            | ResourceDeclaration::ControlledAssociationPool { max_sockets, .. }
             | ResourceDeclaration::ControlledDatagramCarrier { max_sockets, .. }
             | ResourceDeclaration::ControlledNodeStream { max_sockets, .. }
             | ResourceDeclaration::ControlledDirectStream { max_sockets, .. } => max_sockets,

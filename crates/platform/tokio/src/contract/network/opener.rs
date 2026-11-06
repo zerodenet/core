@@ -4,6 +4,23 @@ use crate::contract::{DeliveryState, Impact, Reason, Stage};
 /// Host-supplied execution of an already selected prefix. Implementations must
 /// reject stale generations and preserve every hard dial constraint. No direct fallback.
 pub trait UpstreamOpener: Send + Sync {
+    /// Resolve a protocol-negotiated Datagram peer under an already acquired
+    /// control original. Only an explicitly declared association owner and
+    /// its actual host Node resolver may provide this capability.
+    fn resolve_related_datagram(
+        &self,
+        _: &UpstreamBinding,
+        _: crate::controlled_carrier::CarrierAdoption,
+        _: Destination,
+        _: CarrierContext,
+    ) -> BoxFuture<'_, Result<crate::controlled_carrier::CarrierCandidates, ChannelError>> {
+        Box::pin(async {
+            let mut error =
+                ChannelError::new(Stage::Prepare, Reason::Unsupported, Impact::Component);
+            error.delivery = DeliveryState::NotSubmitted;
+            Err(error)
+        })
+    }
     /// Observation of the original Business caller's actual tracked join.
     /// This selects user custody only; it issues no grant or close receipt.
     /// Native acquisition must still validate the same sealed caller ticket.
