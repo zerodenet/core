@@ -1,13 +1,13 @@
 //! System TUN uses the actual inbound registry and its canonical host allocator.
 //! It is not a synthetic configured listener or a second task/native owner.
 use super::*;
-use crate::component::{ComponentRecipe, instance::HostResources};
+use crate::component::{instance::HostResources, ComponentRecipe};
 use zero_core::component::{ComponentRoleIds, InboundId};
 use zero_platform_tokio::contract::{
-    ChannelError, CloseReason,
     component::{BuildContext, ResourceAccess, ResourceDeclaration, RoleKind},
     inbound::DynInboundSource,
-    lifecycle::{CloseReport, ResourceLifecycle, erase_lifecycle},
+    lifecycle::{erase_lifecycle, CloseReport, ResourceLifecycle},
+    ChannelError, CloseReason,
 };
 
 // Configuration tags cannot name this private reservation namespace. Routing
@@ -64,11 +64,9 @@ impl InboundOwnerRegistry {
             )
             .into());
         }
-        let owner = Arc::new(InboundOwner::new(
-            protocols.allocate_resource_identity()?,
-            limit,
-            shutdown,
-        ));
+        let mut owner = InboundOwner::new(protocols.allocate_resource_identity()?, limit, shutdown);
+        owner.shared_scope_children = true;
+        let owner = Arc::new(owner);
         owner.begin_listener_installation();
         active.insert(SYSTEM_TUN_OWNER.into(), owner.clone());
         drop(reserved);

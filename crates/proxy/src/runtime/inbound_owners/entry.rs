@@ -68,6 +68,8 @@ pub(crate) struct InboundOwner {
     identity: ComponentInstanceId,
     #[cfg(feature = "managed-datagram-runtime")]
     scope_task_limit: NonZeroUsize,
+    #[cfg(feature = "managed-datagram-runtime")]
+    pub(super) shared_scope_children: bool,
     #[cfg(feature = "raw-ip-runtime")]
     pub(super) icmp_probe: OnceLock<crate::component::instance::HostIcmpProbeGrant>,
     pub(super) recovery: OnceLock<Arc<dyn crate::protocol_registry::InboundRecovery>>,
@@ -252,6 +254,8 @@ impl InboundOwner {
             identity,
             #[cfg(feature = "managed-datagram-runtime")]
             scope_task_limit: limit,
+            #[cfg(feature = "managed-datagram-runtime")]
+            shared_scope_children: false,
             recovery: OnceLock::new(),
             publication: OnceLock::new(),
             #[cfg(feature = "raw-ip-runtime")]
@@ -410,7 +414,11 @@ impl InboundOwner {
             })
             .and_then(|sum| sum.checked_add(limit.get()))
             .ok_or_else(|| std::io::Error::other("actual child task declaration exhausted"))?;
-        if used > self.scope_task_limit.get() {
+        // System TUN's optional total is enforced by this same actual
+        // registrar at each spawn, before any native acquisition. Potential
+        // per-group ceilings are not occupied worker registrations. Other
+        // listeners retain their existing declaration reservation policy.
+        if !self.shared_scope_children && used > self.scope_task_limit.get() {
             return Err(std::io::Error::other(
                 "actual child groups exceed the listener's declared task scope",
             )

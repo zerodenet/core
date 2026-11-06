@@ -48,7 +48,7 @@ impl ComponentSlot {
                 "probe Direct provider has a foreign scope",
             ));
         }
-        self.check_probe_owner(call)
+        self.check_probe_caller(call)
     }
     pub fn issue_direct_probe_carrier(
         &self,
