@@ -97,11 +97,15 @@ impl ComponentCatalog {
         config: Arc<RuntimeConfig>,
         deadline: tokio::time::Instant,
     ) -> Result<PreparedComponentStart<'a>, ChannelError> {
-        self.drive_supervised(self.prepare_start_inner(config, deadline, &mut |terminal| {
-            terminal
-                .failure()
-                .map_or(Ok(()), |failure| Err(failure.retained()))
-        }))
+        self.drive_supervised(self.prepare_start_inner(
+            config,
+            deadline,
+            |terminal: &replacement::DeclaredComponentTerminal| {
+                terminal
+                    .failure()
+                    .map_or(Ok(()), |failure| Err(failure.retained()))
+            },
+        ))
         .await
     }
     async fn start_reported_inner(
