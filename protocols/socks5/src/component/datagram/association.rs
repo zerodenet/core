@@ -1,4 +1,5 @@
 //! The actual TCP control and related UDP originals survive preparation exit.
+use alloc::vec::Vec;
 use std::sync::{
     atomic::{AtomicBool, Ordering},
     Arc, Mutex,
