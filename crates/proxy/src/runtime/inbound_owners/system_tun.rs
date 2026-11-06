@@ -139,6 +139,9 @@ impl SystemTunLease {
             crate::runtime::inbound_operation::raw_ip::PacketSourceContext::prepare_device_source(
                 &self.installed,
             )?;
+        resources
+            .install_packet_source_pause(self.owner.prepare_packet_source_pause())
+            .map_err(std::io::Error::other)?;
         let access: Arc<dyn ResourceAccess> = resources.clone();
         *self.owner.inbound_resources.lock().unwrap() = Some(Arc::downgrade(&access));
         let mut instance = self

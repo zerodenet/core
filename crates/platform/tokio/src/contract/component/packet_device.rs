@@ -52,6 +52,8 @@ impl PacketDeviceIdentity {
     }
 }
 pub struct GrantedPacketDevice {
+    #[cfg(all(windows, feature = "native-packet-origin"))]
+    pub sdk_read_control: Option<zero_tun::OwnedWintunReadControl>,
     pub io: PacketDeviceIo,
     pub identity: PacketDeviceIdentity,
     pub original: crate::controlled_carrier::PacketProviderRegistration,

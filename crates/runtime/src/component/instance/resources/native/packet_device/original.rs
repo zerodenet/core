@@ -16,6 +16,11 @@ pub(super) struct Original {
     issued: Mutex<Option<OwnedTunIdentity>>,
 }
 impl Original {
+    #[cfg(windows)]
+    pub(super) fn read_control(&self) -> Option<zero_tun::OwnedWintunReadControl> {
+        self.owner.read_control()
+    }
+
     pub(super) fn new(binding: &PacketDeviceBinding) -> Result<Self, &'static str> {
         let valid = match binding {
             PacketDeviceBinding::Descriptor { fd, interface } => {

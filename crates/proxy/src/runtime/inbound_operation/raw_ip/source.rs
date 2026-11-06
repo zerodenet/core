@@ -9,16 +9,16 @@ use zero_core::{
     component::*,
     packet::{IpPacket, PacketFacts},
 };
-use zero_platform_tokio::PollSender;
 use zero_platform_tokio::contract::{
-    ChannelError, CloseReason, DeliveryState, Impact, Reason, SendFailure, SendReceipt, Stage,
     component::*,
     context::{AcceptContext, HandshakeContext},
     inbound::*,
     lifecycle::*,
     packet::*,
     scope::{TaskClass, TaskJoinWitness, TaskRegistrar},
+    ChannelError, CloseReason, DeliveryState, Impact, Reason, SendFailure, SendReceipt, Stage,
 };
+use zero_platform_tokio::PollSender;
 mod channel;
 use channel::{Control, Rx, Tx};
 struct Shared {
@@ -230,6 +230,7 @@ impl PacketReply for Reply {
         };
         let original = grant.tx.identity();
         let (registered, original_registration) = tokio::sync::oneshot::channel::<()>();
+        let (checkpoint_sender, actual_checkpoint) = tokio::sync::oneshot::channel();
         let mtu = wire.device.mtu();
         let (packets, received) = mpsc::channel(1);
         let (responses, returned) = mpsc::channel(1);
@@ -254,8 +255,13 @@ impl PacketReply for Reply {
                     _ = waiting_cancel.cancelled() => return Ok(()),
                     ready = original_registration => ready.map_err(|source| error(Reason::Revoked).with_source(source))?,
                 }
+                let checkpoint=tokio::select! {
+                    biased;
+                    _=waiting_cancel.cancelled()=>return Ok(()),
+                    checkpoint=actual_checkpoint=>checkpoint.map_err(|source|error(Reason::Revoked).with_source(source))?,
+                };
                 let result = wire::run(
-                    wire, grant, reads, egress, packets, returned, facts, observer, shutdown,
+                    wire, grant, reads, egress, packets, returned, facts, observer, shutdown, checkpoint,
                 )
                 .await;
                 proxies.request_abort();
@@ -263,9 +269,14 @@ impl PacketReply for Reply {
             })
             .map_err(|source| error(Reason::Capacity).with_source(source))?;
         *self.shared.done.lock().unwrap() = Some(witness.clone());
-        self.shared
+        let registered_driver = self
+            .shared
             .resources
             .register_packet_source_driver(&original, &witness)?;
+        let checkpoint = registered_driver.checkpoint;
+        checkpoint_sender
+            .send(checkpoint)
+            .map_err(|_| error(Reason::Revoked))?;
         registered.send(()).map_err(|_| error(Reason::Revoked))?;
         Ok(Some(PacketSession {
             tx: Tx {

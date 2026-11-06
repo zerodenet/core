@@ -9,12 +9,14 @@ use tokio::sync::Mutex as AsyncMutex;
 use tokio::time::Instant;
 use zero_core::{component::ComponentId, request::Destination};
 use zero_platform_tokio::contract::{
-    BoxFuture, CancellationToken, ChannelError, Reason,
     component::{GrantedDatagramListener, ProcessRequest, ResourceAccess, ResourceDeclaration},
     packet::BoxPacketSession,
+    BoxFuture, CancellationToken, ChannelError, Reason,
 };
 
 pub struct HostResources {
+    source_pause:
+        std::sync::OnceLock<Arc<zero_platform_tokio::contract::packet::PacketSourcePause>>,
     originals: Arc<crate::HostOriginalBudgets>,
     original_tasks: Option<zero_platform_tokio::contract::scope::WeakTaskRegistrar>,
     packet_source: Arc<
@@ -40,6 +42,25 @@ pub struct HostResources {
     cleanup: AsyncMutex<()>,
 }
 impl HostResources {
+    /// Install the same actual System TUN source metadata before factory build.
+    pub fn install_packet_source_pause(
+        &self,
+        pause: Arc<zero_platform_tokio::contract::packet::PacketSourcePause>,
+    ) -> Result<(), ChannelError> {
+        if !self
+            .original_tasks
+            .as_ref()
+            .is_some_and(|tasks| tasks.scope_identity().same_scope(pause.scope()))
+            || !self
+                .packets
+                .iter()
+                .any(|owner| owner.source_matches(pause.instance(), pause.scope()))
+        {
+            return Err(self.denied());
+        }
+        self.source_pause.set(pause).map_err(|_| self.denied())
+    }
+
     pub fn original_packet_owner(
         &self,
         ordinal: usize,
@@ -96,7 +117,7 @@ pub use listener::HostDatagramListenerOwner;
 mod read_workspaces;
 mod shutdown;
 mod sockets;
-pub use read_workspaces::{HostPacketReadReservation, packet_datagram_read_spec};
+pub use read_workspaces::{packet_datagram_read_spec, HostPacketReadReservation};
 
 /// Closing the grant phase does not claim that its children have exited.
 pub struct StartAccess(Arc<HostResources>);
@@ -166,6 +187,12 @@ impl HostResources {
     }
 }
 impl ResourceAccess for HostResources {
+    fn packet_source_pause(
+        &self,
+    ) -> Option<Arc<zero_platform_tokio::contract::packet::PacketSourcePause>> {
+        self.source_pause.get().cloned()
+    }
+
     #[cfg(feature = "raw-ip-runtime")]
     fn take_packet_datagram_reads(
         &self,

@@ -1,6 +1,6 @@
 //! Read-only lineage of the actual native carrier and its optional real driver.
-use super::{CarrierAdoption, CarrierOwnerRegistration, error, slot::Slot};
-use crate::contract::{ChannelError, DeliveryState, Reason, Stage, scope::TaskJoinWitness};
+use super::{error, slot::Slot, CarrierAdoption, CarrierOwnerRegistration};
+use crate::contract::{scope::TaskJoinWitness, ChannelError, DeliveryState, Reason, Stage};
 use std::sync::{Arc, Weak};
 use zero_core::component::ComponentInstanceId;
 
@@ -99,6 +99,21 @@ impl CarrierAdoption {
     }
 }
 impl CarrierOrigin {
+    /// New logical opens against the exact actual Source only. It does not
+    /// fence already transferred IO or mint a native/Scope/user-close fact.
+    pub fn try_enter_packet_source(
+        &self,
+    ) -> Result<crate::contract::packet::PacketSourceAcquisition, ChannelError> {
+        match self.native_origin().0.as_ref() {
+            Original::Listener(original) => original.try_enter_packet_source(),
+            _ => Err(crate::contract::ChannelError::new(
+                Stage::Prepare,
+                Reason::Unsupported,
+                crate::contract::Impact::Component,
+            )),
+        }
+    }
+
     pub fn from_packet(original: PacketProviderRegistration) -> Self {
         Self(Arc::new(Original::Packet(original)))
     }

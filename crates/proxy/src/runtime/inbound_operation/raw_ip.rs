@@ -22,8 +22,8 @@ use std::{
     net::{IpAddr, SocketAddr},
     pin::Pin,
     sync::{
-        Arc, Mutex,
         atomic::{AtomicBool, Ordering},
+        Arc, Mutex,
     },
     time::Duration,
 };
@@ -49,6 +49,12 @@ pub(crate) struct RawIpInboundDispatch {
 }
 
 pub(crate) trait RawIpInboundDevice: Send {
+    /// Actual protocol-owned pending inner payloads, not timer/key metadata.
+    /// An implementation without a complete observation cannot ACK idle.
+    fn quiescent(&self) -> bool {
+        false
+    }
+
     /// Protocol-owned assigned addresses, distinct from AllowedIPs prefixes.
     fn is_local_address(&self, _address: IpAddr) -> bool {
         false

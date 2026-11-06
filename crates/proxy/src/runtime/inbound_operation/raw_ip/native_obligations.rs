@@ -55,6 +55,12 @@ pub(crate) struct NativePermit {
 }
 
 impl NativeObligations {
+    pub(super) async fn quiescent(&self, deadline: Instant) -> Result<bool, ChannelError> {
+        self.settle_joined(deadline).await?;
+        let state = self.0.lock().unwrap_or_else(|error| error.into_inner());
+        Ok(state.records.is_empty() && state.first_source.is_none() && !state.closing)
+    }
+
     pub(crate) fn new(tcp: usize, udp: usize, dns: usize) -> Self {
         Self(Arc::new(Mutex::new(State {
             closing: false,

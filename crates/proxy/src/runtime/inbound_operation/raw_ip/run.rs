@@ -4,10 +4,10 @@ use super::statistics::IngressTraffic;
 use super::*;
 use std::time::Instant;
 use zero_platform_tokio::contract::{
-    ChannelError, Impact, Reason, Stage,
     context::{HandshakeContext, SessionIdentitySource},
     inbound::{AcceptedRequest, PendingInbound, ReplyOutcome},
     packet::{self},
+    ChannelError, Impact, Reason, Stage,
 };
 use zero_stack::{OwnedFragmentReassembler, UserNetworkStack};
 mod send;
@@ -200,6 +200,10 @@ pub(in crate::runtime) async fn run(
         .host
         .as_ref()
         .ok_or_else(|| std::io::Error::other("Packet source main has no actual host"))?;
+    let checkpoint = source_host
+        .take_packet_main_checkpoint()
+        .await
+        .map_err(std::io::Error::other)?;
     let ingress_id = crate::runtime::packet_route::next_ingress_id();
     let mut pins = route.packet_statistics_pins();
     let mut fragments = OwnedFragmentReassembler::new();
@@ -212,6 +216,19 @@ pub(in crate::runtime) async fn run(
         if cancel.is_cancelled() || *shutdown.borrow() { break Ok(()); }
         tokio::select! {
             _=cancel.cancelled()=>break Ok(()),
+            request=checkpoint.requested()=>{
+                let deadline=checkpoint.request_deadline(request).unwrap_or_else(tokio::time::Instant::now);
+                let idle=if pins.quiescent() && sending.is_none() && responses.is_empty() && closing_packet_roles.is_none() {
+                    match children.native.quiescent(deadline).await {
+                        Ok(native)=>native && source_host.peer_groups_quiescent() && children.echoes.quiescent()
+                            && children.udp.dns.quiescent() && children.tcp_dns.as_ref().is_none_or(|tasks|tasks.quiescent())
+                            && tcp.quiescent().await && udp.quiescent().await,
+                        Err(source)=>{checkpoint.reject(request,source);false}
+                    }
+                }else{false};
+                checkpoint.acknowledge(request,idle);
+                tokio::select! {_=cancel.cancelled()=>break Ok(()),_=checkpoint.resumed(request)=>{}}
+            },
             changed=shutdown.changed()=>if changed.is_err()||*shutdown.borrow() {break Ok(())},
             received=packet::recv(packet_rx.as_mut())=>{
                 let Some(received)=received.map_err(std::io::Error::other)? else { break Ok(()) };

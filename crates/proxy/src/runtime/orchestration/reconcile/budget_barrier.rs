@@ -7,7 +7,9 @@ use zero_platform_tokio::contract::BoxFuture;
 
 pub(in crate::runtime) fn ss_budget_changed(old: &RuntimeConfig, next: &RuntimeConfig) -> bool {
     if old.runtime.effective_process_max_jobs() != next.runtime.effective_process_max_jobs()
-        || old.runtime.effective_process_max_jobs_per_instance() != next.runtime.effective_process_max_jobs_per_instance() {
+        || old.runtime.effective_process_max_jobs_per_instance()
+            != next.runtime.effective_process_max_jobs_per_instance()
+    {
         return true;
     }
     let configured = old
@@ -50,6 +52,9 @@ pub(super) async fn pause_sources(
             }
         }
     }
+    for pause in &pauses {
+        pause.validate()?;
+    }
     Ok(pauses)
 }
 
@@ -75,7 +80,14 @@ pub(super) fn start_resources<'a>(
                 tokio::time::Instant::now() + std::time::Duration::from_secs(5),
             )
             .await
-            .inspect_err(|source|{tracing::warn!(?source,"same catalog StopOld/ordinary start retained original failure");#[cfg(test)]eprintln!("actual catalog StopOld original failure: {source:?}");})?;
+            .inspect_err(|source| {
+                tracing::warn!(
+                    ?source,
+                    "same catalog StopOld/ordinary start retained original failure"
+                );
+                #[cfg(test)]
+                eprintln!("actual catalog StopOld original failure: {source:?}");
+            })?;
         #[cfg(feature = "raw-ip-runtime")]
         {
             proxy
@@ -87,7 +99,14 @@ pub(super) fn start_resources<'a>(
                     preparing.cancellation(),
                 )
                 .await
-                .inspect_err(|source|{tracing::warn!(?source,"same device resolve/deferred start retained original failure");#[cfg(test)]eprintln!("actual deferred device original failure: {source:?}");})?;
+                .inspect_err(|source| {
+                    tracing::warn!(
+                        ?source,
+                        "same device resolve/deferred start retained original failure"
+                    );
+                    #[cfg(test)]
+                    eprintln!("actual deferred device original failure: {source:?}");
+                })?;
             let execution = services.execution();
             let plan = execution.components.as_deref().map_err(|error| {
                 std::io::Error::other(crate::component::instance::retained(error.clone()))

@@ -62,6 +62,14 @@ impl PacketDeviceEvidence {
     }
 }
 impl PacketDeviceOwner {
+    pub(super) fn source_matches(
+        &self,
+        instance: zero_core::component::ComponentInstanceId,
+        scope: &TaskScopeIdentity,
+    ) -> bool {
+        self.identity.instance() == instance && self.identity.scope().same_scope(scope)
+    }
+
     pub(super) fn new(
         ordinal: usize,
         instance: ComponentInstanceId,
@@ -202,6 +210,8 @@ impl PacketDeviceOwner {
                     state.original = Some(original.clone());
                     state.view_live = true;
                     Ok(GrantedPacketDevice {
+                        #[cfg(windows)]
+                        sdk_read_control: self.original.read_control(),
                         io: Box::pin(view::View::new(native.io, self.state.clone())),
                         identity: self.identity.clone(),
                         original,

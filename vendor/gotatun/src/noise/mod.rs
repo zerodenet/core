@@ -24,7 +24,7 @@ pub mod rate_limiter;
 mod session;
 mod timers;
 
-use rand::{RngCore, SeedableRng, rngs::StdRng};
+use rand::{rngs::StdRng, RngCore, SeedableRng};
 use zerocopy::IntoBytes;
 
 use crate::noise::errors::WireGuardError;
@@ -111,6 +111,11 @@ impl Tunn<StdRng> {
 }
 
 impl<R: RngCore + Send> Tunn<R> {
+    /// Existing queued inner payloads, without draining/expiring cryptographic state.
+    pub fn queued_packet_count(&self) -> usize {
+        self.packet_queue.len()
+    }
+
     /// Create a new tunnel using own private key and the peer public key.
     pub fn new_with_rng(
         static_private: x25519::StaticSecret,
@@ -542,7 +547,7 @@ mod tests {
     use std::net::{Ipv4Addr, SocketAddr};
 
     #[cfg(feature = "mock_instant")]
-    use crate::noise::timers::{MAX_JITTER, REKEY_AFTER_TIME, REKEY_TIMEOUT, TimerName};
+    use crate::noise::timers::{TimerName, MAX_JITTER, REKEY_AFTER_TIME, REKEY_TIMEOUT};
     use crate::packet::Ipv4;
 
     const HANDSHAKE_RATE_LIMIT: u64 = 100;

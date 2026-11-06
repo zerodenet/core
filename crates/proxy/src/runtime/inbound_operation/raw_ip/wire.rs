@@ -2,12 +2,12 @@
 //! Raw packets cross the standard Packet session before host routing.
 use super::lifecycle::{peers_changed, receive_endpoint_packet, refresh_device_generation};
 use super::observation::WireTraffic;
-use super::outer::{ProxiedWirePacket, peer_carrier, refresh_endpoint_peers, send_network_actions};
+use super::outer::{peer_carrier, refresh_endpoint_peers, send_network_actions, ProxiedWirePacket};
 use super::*;
 use crate::runtime::raw_ip::timer::{self, PeerTimers};
 use std::time::Instant;
 use zero_api::TrafficPlane;
-use zero_stack::{OwnedFragmentOutcome, OwnedFragmentReassembler, packet};
+use zero_stack::{packet, OwnedFragmentOutcome, OwnedFragmentReassembler};
 mod receive;
 use receive::{Delivery, ReadMemory};
 
@@ -30,6 +30,7 @@ pub(super) async fn run(
     facts: zero_core::packet::PacketFacts,
     observer: Arc<dyn zero_platform_tokio::contract::packet::PacketObserver>,
     mut shutdown: watch::Receiver<bool>,
+    checkpoint: zero_platform_tokio::contract::packet::PacketSourceCheckpoint,
 ) -> Result<(), EngineError> {
     let (mut socket, mut wire_sender) = super::socket::RawIpReceive::split(grant, egress);
     let mut traffic = WireTraffic::new(observer.clone());
@@ -55,10 +56,7 @@ pub(super) async fn run(
     let (proxied_tx, mut proxied_rx) = mpsc::channel::<ProxiedWirePacket>(256);
     let mut peer_uses_proxy = Vec::new();
     let read_memory = ReadMemory(reads);
-    let mut buffer = read_memory.0[0]
-        .buffer()
-        .await
-        .map_err(std::io::Error::other)?;
+    let mut buffer: Option<zero_tun::packet_memory::NativeReadBuffer> = None;
     let mut decode: Option<zero_tun::packet_memory::NativePacketCredit> = None;
     let mut receiving: Option<
         zero_platform_tokio::contract::BoxFuture<'static, Result<(), EngineError>>,
@@ -120,6 +118,21 @@ pub(super) async fn run(
             changed = shutdown.changed() => {
                 if changed.is_err() || *shutdown.borrow() { break Ok(()); }
             }
+            request=checkpoint.requested()=>{
+                drop(buffer.take());drop(decode.take());
+                let mut idle=receiving.is_none() && fragments.pending_datagrams()==0 && endpoint_fragments.pending_datagrams()==0
+                    && responses.is_empty() && packets.capacity()==packets.max_capacity() && proxied_rx.is_empty()
+                    && proxied_tasks.len()==0 && operation.device.quiescent()
+                    && read_memory.0.iter().all(|read|read.workspace_returned());
+                if let Some(endpoint)=&operation.endpoint {
+                    idle &= endpoint.packets.is_empty();
+                    let devices=endpoint.peers.borrow().devices.clone();
+                    for device in devices { idle &= device.quiescent().await; }
+                }
+                checkpoint.acknowledge(request,idle);
+                tokio::select! {changed=shutdown.changed()=>{if changed.is_err()||*shutdown.borrow(){break Ok(());}},_=checkpoint.resumed(request)=>{}}
+            },
+            allocated=read_memory.0[0].buffer(),if buffer.is_none()=>{buffer=Some(allocated.map_err(std::io::Error::other)?);},
             changed = peers_changed(&mut peer_changes) => {
                 if changed.is_err() { peer_changes = None; }
             }
@@ -127,17 +140,17 @@ pub(super) async fn run(
             delivered=async { receiving.as_mut().expect("same original pending native frame").await }, if receiving.is_some()=> { receiving=None; delivered?; }
             received = async {
                 tokio::select! {
-                    direct = async { let receive=socket.recv_from(buffer.as_mut_bytes());tokio::pin!(receive);std::future::poll_fn(|cx| { use std::future::Future;let polled=receive.as_mut().poll(cx);if polled.is_pending() || matches!(&polled,std::task::Poll::Ready(Ok(_))) { observer.ready(); }polled }).await } => direct.map(|(size, source)| (size, Some(source), None, peer_revision)),
+                    direct = async { let receive=socket.recv_from(buffer.as_mut().expect("same original read allocation").as_mut_bytes());tokio::pin!(receive);std::future::poll_fn(|cx| { use std::future::Future;let polled=receive.as_mut().poll(cx);if polled.is_pending() || matches!(&polled,std::task::Poll::Ready(Ok(_))) { observer.ready(); }polled }).await } => direct.map(|(size, source)| (size, Some(source), None, peer_revision)),
                     proxied = proxied_rx.recv() => match proxied {
                         Some(packet) => {
                             let size = packet.bytes.len();
-                            if size <= buffer.as_mut_bytes().len() { buffer.as_mut_bytes()[..size].copy_from_slice(&packet.bytes); }
+                            if size <= buffer.as_mut().expect("same original read allocation").as_mut_bytes().len() { buffer.as_mut().expect("same original read allocation").as_mut_bytes()[..size].copy_from_slice(&packet.bytes); }
                             Ok((size, packet.source, Some(packet.peer), packet.revision))
                         }
                         None => std::future::pending().await,
                     },
                 }
-            }, if decode.is_some() && receiving.is_none() => {
+            }, if buffer.is_some() && decode.is_some() && receiving.is_none() => {
                 let mut native_credit=Some(decode.take().expect("actual decode workspace preceded native receive"));
                 refresh_endpoint_peers(operation.endpoint.as_mut(), &mut peer_revision, &mut initial_endpoints, &mut endpoints, &mut fragments, &mut endpoint_fragments, &operation.proxies, &mut proxied_tasks, &proxied_tx, &mut peer_uses_proxy).await?;
                 refresh_device_generation(operation.device.as_ref(), &mut generation, &mut endpoints, &mut fragments, &mut endpoint_fragments, &initial_endpoints);
@@ -149,7 +162,7 @@ pub(super) async fn run(
                 // socket receive is handled by the current authenticated device;
                 // a peer-watch refresh must not discard its first live datagram.
                 if size > 65_535 || proxied_peer.is_some() && received_revision != peer_revision { traffic.aggregate.dropped_reason(TrafficPlane::Outer, false, zero_api::TrafficDropReason::InvalidPacket); continue; }
-                let dispatch = match operation.device.receive_datagram(source, &buffer.as_bytes()[..size]) {
+                let dispatch = match operation.device.receive_datagram(source, &buffer.as_ref().expect("same original read allocation").as_bytes()[..size]) {
                     Ok(dispatch) => dispatch,
                     Err(error) => { traffic.aggregate.dropped_reason(TrafficPlane::Outer, false, zero_api::TrafficDropReason::InvalidPacket); tracing::debug!(%error, "raw-IP inbound rejected datagram"); continue; }
                 };

@@ -1,9 +1,9 @@
 //! The actual listener's child sets are installed before its driver can spawn.
-use crate::runtime::raw_ip::tasks::scoped::ScopedSourceTasks;
-use zero_platform_tokio::contract::scope::TaskClass;
 use super::*;
 use crate::inbound::tun::udp::OwnedTunUdpTasks;
 use crate::runtime::inbound_owners::InboundInstallContext;
+use crate::runtime::raw_ip::tasks::scoped::ScopedSourceTasks;
+use zero_platform_tokio::contract::scope::TaskClass;
 
 pub(super) struct RawIpChildren {
     pub(super) packet_roles: crate::runtime::packet_route::PacketRoleSessions,
@@ -46,20 +46,33 @@ impl RawIpChildren {
         }
     }
     pub(super) fn device() -> Self {
-        let mut children=Self::new();
-        children.tcp_dns=Some(ScopedSourceTasks::new("System TUN TCP DNS connections joined",crate::inbound::tun::MAX_TCP_DNS_CONNECTIONS,TaskClass::Auxiliary));
+        let mut children = Self::new();
+        children.tcp_dns = Some(ScopedSourceTasks::new(
+            "System TUN TCP DNS connections joined",
+            crate::inbound::tun::MAX_TCP_DNS_CONNECTIONS,
+            TaskClass::Auxiliary,
+        ));
         children
     }
     pub(super) fn install(&mut self, context: &InboundInstallContext) -> Result<(), EngineError> {
+        context.owner().prepare_packet_source_pause();
         self.icmp = context.icmp_probe_grant();
         context.register_after_scope(self.packet_roles.resource())?;
-        if let Some(tcp_dns)=&self.tcp_dns {
-            tcp_dns.bind(context.source_registrar()).map_err(std::io::Error::other)?;
+        if let Some(tcp_dns) = &self.tcp_dns {
+            tcp_dns
+                .bind(context.source_registrar())
+                .map_err(std::io::Error::other)?;
             context.register_after_scope(tcp_dns.resource())?;
         }
-        self.drivers.bind(context.source_registrar()).map_err(std::io::Error::other)?;
-        self.stack_workers.bind(context.source_registrar()).map_err(std::io::Error::other)?;
-        self.echoes.bind(context.source_registrar()).map_err(std::io::Error::other)?;
+        self.drivers
+            .bind(context.source_registrar())
+            .map_err(std::io::Error::other)?;
+        self.stack_workers
+            .bind(context.source_registrar())
+            .map_err(std::io::Error::other)?;
+        self.echoes
+            .bind(context.source_registrar())
+            .map_err(std::io::Error::other)?;
         context.register_after_scope(self.native.resource())?;
         context.register_after_scope(self.stack_workers.resource())?;
         self.connections = Some(

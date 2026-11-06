@@ -16,6 +16,11 @@ use super::{
     BoxFuture, ChannelError, SendFailure, SendReceipt,
 };
 
+mod source_pause;
+pub use source_pause::{
+    PacketPauseParticipant, PacketSourceAcquisition, PacketSourceCheckpoint, PacketSourcePause,
+    PacketSourcePaused,
+};
 mod owned;
 pub use owned::{send_owned, OwnedSendFailure};
 

@@ -103,6 +103,15 @@ impl InboundOwner {
             .map_err(std::io::Error::other)?;
         #[cfg(feature = "raw-ip-runtime")]
         {
+            if let Some(pause) = self.packet_pause.get() {
+                let checkpoint = pause
+                    .bind(
+                        zero_platform_tokio::contract::packet::PacketPauseParticipant::Main,
+                        &witness,
+                    )
+                    .map_err(std::io::Error::other)?;
+                *self.main_registration.checkpoint.lock().unwrap() = Some(checkpoint);
+            }
             self.main_registration
                 .witness
                 .set(witness)

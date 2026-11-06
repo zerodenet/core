@@ -37,7 +37,6 @@ mod metadata_datagram;
 pub use metadata_datagram::{GrantedMetadataListener, MetadataDatagramRequest};
 
 use super::{
-    BoxFuture,
     datagram::DynDatagramOutbound,
     inbound::DynInboundSource,
     lifecycle::{BuildError, DynResourceLifecycle},
@@ -45,6 +44,7 @@ use super::{
     packet::{BoxPacketSession, DynPacketOutbound},
     scope::{TaskJoinWitness, TaskRegistrar},
     stream::DynStreamOutbound,
+    BoxFuture,
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -297,6 +297,10 @@ pub struct ComponentSpec {
 /// Unique server receiver and bounded send-only clones, with no close authority.
 /// The granting host retains the exact
 /// native owner/controller before creation and confirms cleanup independently.
+pub struct GrantedPacketSourceDriver {
+    pub origin: crate::controlled_datagram::provider::NativeDatagramOrigin,
+    pub checkpoint: super::packet::PacketSourceCheckpoint,
+}
 pub struct GrantedDatagramListener {
     pub rx: crate::controlled_datagram::listener::ControlledDatagramListenerRx,
     pub tx: crate::controlled_datagram::listener::ControlledDatagramListenerTx,
@@ -311,6 +315,11 @@ pub struct InboundListenerEndpoints {
     pub datagram: std::net::SocketAddr,
 }
 pub trait ResourceAccess: Send + Sync {
+    /// Metadata of this same original Packet source only; no grant or task API.
+    fn packet_source_pause(&self) -> Option<Arc<super::packet::PacketSourcePause>> {
+        None
+    }
+
     #[cfg(feature = "native-packet-origin")]
     fn take_packet_datagram_reads(
         &self,
@@ -353,7 +362,7 @@ pub trait ResourceAccess: Send + Sync {
         &self,
         _original: &crate::controlled_datagram::listener::DatagramListenerIdentity,
         _witness: &TaskJoinWitness,
-    ) -> Result<crate::controlled_datagram::provider::NativeDatagramOrigin, BuildError> {
+    ) -> Result<GrantedPacketSourceDriver, BuildError> {
         Err(super::ChannelError::new(
             super::Stage::Prepare,
             super::Reason::Unsupported,

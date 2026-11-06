@@ -4,7 +4,9 @@ use super::*;
 use crate::contract::scope::{TaskJoinWitness, TaskScopeIdentity};
 use std::sync::OnceLock;
 use zero_core::component::ComponentInstanceId;
+mod source_pause;
 struct Provider {
+    source_pause: OnceLock<std::sync::Weak<crate::contract::packet::PacketSourcePause>>,
     identity: ControlledDatagramIdentity,
     instance: ComponentInstanceId,
     scope: TaskScopeIdentity,
@@ -35,6 +37,7 @@ impl Entry {
         }
         let provider = self.provider.get_or_init(|| {
             DatagramProviderRegistration(Arc::new(Provider {
+                source_pause: OnceLock::new(),
                 identity: ControlledDatagramIdentity::from_entry(self),
                 instance,
                 scope: scope.clone(),

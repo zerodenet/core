@@ -1,6 +1,8 @@
 //! Original granted resources and protocol lifecycle over the same host provider.
 use super::*;
 pub(super) struct BoundResources {
+    #[cfg(feature = "raw-ip-runtime")]
+    pub(super) source_pause: Option<Arc<zero_platform_tokio::contract::packet::PacketSourcePause>>,
     #[cfg(all(feature = "raw-ip-runtime", feature = "datagram-route-runtime"))]
     pub(super) packet_native:
         Option<std::sync::Weak<super::super::bind::native::udp::NativeDatagramGrant>>,
@@ -23,6 +25,13 @@ pub(super) struct BoundResources {
         Option<zero_platform_tokio::contract::component::AcceptedDatagramAuthority>,
 }
 impl ResourceAccess for BoundResources {
+    #[cfg(feature = "raw-ip-runtime")]
+    fn packet_source_pause(
+        &self,
+    ) -> Option<Arc<zero_platform_tokio::contract::packet::PacketSourcePause>> {
+        self.source_pause.clone()
+    }
+
     #[cfg(all(feature = "raw-ip-runtime", feature = "datagram-route-runtime"))]
     fn take_packet_datagram_reads(
         &self,
@@ -39,13 +48,25 @@ impl ResourceAccess for BoundResources {
         &self,
         original: &zero_platform_tokio::controlled_datagram::listener::DatagramListenerIdentity,
         witness: &zero_platform_tokio::contract::scope::TaskJoinWitness,
-    ) -> Result<zero_platform_tokio::controlled_datagram::provider::NativeDatagramOrigin, BuildError>
+    ) -> Result<zero_platform_tokio::contract::component::GrantedPacketSourceDriver, BuildError>
     {
-        self.packet_native
+        let original = self
+            .packet_native
             .as_ref()
             .and_then(std::sync::Weak::upgrade)
             .ok_or_else(denied)?
-            .register_driver(original, witness)
+            .register_driver(original, witness)?;
+        let checkpoint = self.source_pause.as_ref().ok_or_else(denied)?.bind(
+            zero_platform_tokio::contract::packet::PacketPauseParticipant::Wire,
+            witness,
+        )?;
+        original.bind_packet_source(&checkpoint)?;
+        Ok(
+            zero_platform_tokio::contract::component::GrantedPacketSourceDriver {
+                origin: original,
+                checkpoint,
+            },
+        )
     }
 
     fn inbound_endpoints(

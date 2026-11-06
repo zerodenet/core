@@ -1,18 +1,18 @@
 use super::*;
-use crate::component::instance::{SharedError, retained};
+use crate::component::instance::{retained, SharedError};
 use std::{
     future::Future,
     sync::{
-        OnceLock,
         atomic::{AtomicBool, Ordering},
+        OnceLock,
     },
 };
 use tokio::sync::Mutex as AsyncMutex;
 use zero_core::component::TaskId;
 use zero_platform_tokio::contract::{
-    ChannelError, CloseReason, Impact, Reason, Stage,
     lifecycle::{CloseReport, TaskFailure},
     scope::{TaskClass, TaskExit, TaskRegistrar, TaskScope},
+    ChannelError, CloseReason, Impact, Reason, Stage,
 };
 #[cfg(feature = "raw-ip-runtime")]
 mod native_progress;
@@ -26,8 +26,8 @@ use pending_bound::PendingNativeBound;
 mod readiness;
 pub(crate) use observation::{consume_reported_error, preserve_io_kind};
 pub(super) use pending_bound::pending_preparation_stopped;
-pub(crate) use readiness::InboundReady;
 pub(super) use readiness::readiness_stopped;
+pub(crate) use readiness::InboundReady;
 mod accepted;
 mod acquisition;
 pub(in crate::runtime) use acquisition::AcquisitionPause;
@@ -48,6 +48,9 @@ struct Resource {
     exit_fault: OnceLock<SharedError>,
 }
 pub(crate) struct InboundOwner {
+    #[cfg(feature = "raw-ip-runtime")]
+    pub(super) packet_pause:
+        Arc<OnceLock<Arc<zero_platform_tokio::contract::packet::PacketSourcePause>>>,
     #[cfg(all(feature = "raw-ip-runtime", feature = "datagram-route-runtime"))]
     pub(super) packet_native:
         OnceLock<std::sync::Weak<super::bind::native::udp::NativeDatagramGrant>>,
@@ -109,13 +112,14 @@ pub(crate) struct InboundOwner {
 #[cfg(feature = "raw-ip-runtime")]
 #[derive(Default)]
 struct MainRegistration {
+    checkpoint: Mutex<Option<zero_platform_tokio::contract::packet::PacketSourceCheckpoint>>,
     witness: OnceLock<zero_platform_tokio::contract::scope::TaskJoinWitness>,
     published: tokio::sync::Notify,
 }
 #[derive(Clone)]
 pub(crate) struct InboundTaskAccess {
     acquisition: Arc<acquisition::Acquisition>,
-    #[cfg(feature="managed-datagram-runtime")]
+    #[cfg(feature = "managed-datagram-runtime")]
     peer_groups: std::sync::Weak<Mutex<Vec<Arc<super::InboundPeerTasks>>>>,
     #[cfg(any(feature = "managed-datagram-runtime", feature = "raw-ip-runtime"))]
     pub(super) identity: ComponentInstanceId,
@@ -243,6 +247,8 @@ impl InboundOwner {
         let scope = TaskScope::suspended(tokio::runtime::Handle::current(), Some(limit));
         let registrar = scope.registrar();
         Self {
+            #[cfg(feature = "raw-ip-runtime")]
+            packet_pause: Arc::default(),
             #[cfg(all(feature = "raw-ip-runtime", feature = "datagram-route-runtime"))]
             packet_native: OnceLock::new(),
             #[cfg(feature = "raw-ip-runtime")]
@@ -364,7 +370,7 @@ impl InboundOwner {
     pub(crate) fn task_access(&self) -> InboundTaskAccess {
         InboundTaskAccess {
             acquisition: self.acquisition.clone(),
-            #[cfg(feature="managed-datagram-runtime")]
+            #[cfg(feature = "managed-datagram-runtime")]
             peer_groups: Arc::downgrade(&self.peers),
             #[cfg(any(feature = "managed-datagram-runtime", feature = "raw-ip-runtime"))]
             identity: self.identity,
@@ -464,5 +470,45 @@ impl InboundOwner {
             Some(error) => Err(std::io::Error::other(retained(error.clone())).into()),
             None => Ok(()),
         }
+    }
+}
+
+#[cfg(feature = "raw-ip-runtime")]
+impl InboundOwner {
+    pub(in crate::runtime) fn prepare_packet_source_pause(
+        &self,
+    ) -> Arc<zero_platform_tokio::contract::packet::PacketSourcePause> {
+        self.packet_pause
+            .get_or_init(|| {
+                zero_platform_tokio::contract::packet::PacketSourcePause::new(
+                    self.identity,
+                    self.registrar.scope_identity(),
+                    self.cancel.clone(),
+                )
+            })
+            .clone()
+    }
+}
+#[cfg(feature = "raw-ip-runtime")]
+impl InboundTaskAccess {
+    pub(in crate::runtime) async fn take_packet_main_checkpoint(
+        &self,
+    ) -> Result<zero_platform_tokio::contract::packet::PacketSourceCheckpoint, ChannelError> {
+        let actual = self.source_main_witness().await?;
+        let main = self
+            .main_registration
+            .upgrade()
+            .ok_or_else(|| ChannelError::new(Stage::Prepare, Reason::Revoked, Impact::Component))?;
+        let checkpoint = main.checkpoint.lock().unwrap().take().ok_or_else(|| {
+            ChannelError::new(Stage::Prepare, Reason::StalePlan, Impact::Component)
+        })?;
+        if !checkpoint.witness().same_registration(&actual) {
+            return Err(ChannelError::new(
+                Stage::Prepare,
+                Reason::StalePlan,
+                Impact::Component,
+            ));
+        }
+        Ok(checkpoint)
     }
 }
