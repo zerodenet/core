@@ -23,6 +23,8 @@ pub(crate) mod grpc;
 mod pending;
 pub(crate) mod pool;
 pub(crate) mod stateless;
+#[cfg(any(feature = "vless", feature = "vmess"))]
+pub(crate) mod tls_material;
 
 pub(crate) struct BackgroundNetwork {
     pub(crate) egress: EgressInterfaceControl,
