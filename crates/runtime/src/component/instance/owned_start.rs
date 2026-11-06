@@ -45,6 +45,8 @@ impl ComponentSlot {
                 operation.shared()
             })
             .clone();
+        self.owned_start_host
+            .get_or_init(|| std::sync::Mutex::new(Some(original.clone())));
         self.wake_supervision();
         original
     }
@@ -52,18 +54,28 @@ impl ComponentSlot {
         self.owned_start.get()?.peek()?.as_ref().err().cloned()
     }
     pub(in crate::component) fn poll_owned_start(&self, target: &Arc<WaitTarget>) -> bool {
-        let Some(mut operation) = self
-            .owned_start
-            .get()
-            .filter(|operation| operation.peek().is_none())
-            .cloned()
-        else {
+        let Some(host) = self.owned_start_host.get() else {
             return false;
         };
+        let operation = host
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .take();
+        let Some(mut operation) = operation else {
+            return false;
+        };
+        // Keep this exact Shared observer handle across Pending. Dropping an
+        // ephemeral clone unregisters its wake and loses host-only progress.
+        let deferred = self.start_wake.enter();
         self.start_wake.bind(target);
         let waker = Waker::from(self.start_wake.clone());
         let mut cx = Context::from_waker(&waker);
-        Pin::new(&mut operation).poll(&mut cx).is_ready()
+        let ready = Pin::new(&mut operation).poll(&mut cx).is_ready();
+        *host
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner) = Some(operation);
+        drop(deferred);
+        ready
     }
     pub(super) async fn finish_owned_start(&self, deadline: Instant) -> Result<(), ChannelError> {
         if let Some(operation) = self.owned_start.get() {

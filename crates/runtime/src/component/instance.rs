@@ -76,6 +76,7 @@ pub struct ComponentSlot {
     live: OnceCell<Result<Live, SharedError>>,
     start_gate: Mutex<()>,
     owned_start: OnceLock<owned_start::OwnedStart>,
+    owned_start_host: OnceLock<std::sync::Mutex<Option<owned_start::OwnedStart>>>,
     start_wake: Arc<MonitorWake>,
     originals: OnceLock<Arc<crate::HostOriginalBudgets>>,
     packet_source:
@@ -207,6 +208,7 @@ impl ComponentSlot {
             live: OnceCell::new(),
             start_gate: Mutex::new(()),
             owned_start: OnceLock::new(),
+            owned_start_host: OnceLock::new(),
             start_wake: Arc::default(),
             originals: OnceLock::new(),
             packet_source: Arc::new(OnceLock::new()),
