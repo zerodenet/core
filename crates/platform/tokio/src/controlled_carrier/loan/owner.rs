@@ -11,6 +11,7 @@ pub struct LoanOwner {
     original: CarrierOrigin,
     state: Arc<State>,
     closed: bool,
+    pub(super) related: Option<Box<super::related::Cleanup>>,
 }
 /// Same logical loan only. No native-close or task-exit claim is made here.
 #[derive(Clone)]
@@ -29,6 +30,7 @@ impl LoanOwner {
             original,
             state,
             closed: false,
+            related: None,
         }
     }
     pub fn original(&self) -> &CarrierOrigin {
@@ -37,6 +39,9 @@ impl LoanOwner {
     pub fn cancel(&self, reason: CloseReason) {
         self.state.cancel.cancel();
         self.control.cancel(reason);
+        if let Some(related) = &self.related {
+            related.token.parent.request_retirement();
+        }
     }
     pub fn closed(&self) -> Option<LoanClosed> {
         self.closed.then(|| LoanClosed {
@@ -66,10 +71,44 @@ impl LoanOwner {
                 ..Default::default()
             });
         }
-        let report = self.control.wait_closed(deadline).await?;
-        if report.is_complete() {
+        if let Some(related) = &mut self.related {
+            if !related.protocol_closed {
+                let report = self.control.wait_closed(deadline).await?;
+                if !report.is_complete() {
+                    return Ok(report);
+                }
+                // Persist the same child receipts before the parent await.
+                related.pending.append(report);
+                related.protocol_closed = true;
+            }
+            let report = Box::pin(related.token.parent.retire(deadline)).await?;
+            if !report.is_complete() {
+                return Ok(report);
+            }
+            if !related
+                .token
+                .parent
+                .closed()
+                .is_some_and(|receipt| receipt.matches(&related.token.parent))
+                || !related
+                    .token
+                    .parent
+                    .users_closed()
+                    .is_some_and(|receipt| receipt.matches(&related.token.parent))
+            {
+                return Err(crate::controlled_carrier::error(
+                    related.token.parent.instance(),
+                    crate::contract::Stage::Close,
+                    crate::contract::Reason::Internal,
+                    crate::contract::DeliveryState::Unknown,
+                ));
+            }
+            related.pending.append(report);
             self.closed = true;
+            return Ok(std::mem::take(&mut related.pending));
         }
+        let report = self.control.wait_closed(deadline).await?;
+        self.closed = report.is_complete();
         Ok(report)
     }
 }
