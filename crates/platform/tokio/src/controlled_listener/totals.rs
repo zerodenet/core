@@ -127,7 +127,7 @@ impl ControlledTcpListenerOwner {
                 .state
                 .lock()
                 .unwrap_or_else(std::sync::PoisonError::into_inner);
-            if self.acquired
+            if self.acquired_view()
                 || state.attempt.is_some()
                 || state.retired
                 || state.closed

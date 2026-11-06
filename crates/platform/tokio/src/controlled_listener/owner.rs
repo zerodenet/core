@@ -26,6 +26,12 @@ pub struct ControlledTcpListenerOwner {
     pub(super) pending_close: CloseReport,
 }
 impl ControlledTcpListenerOwner {
+    /// Whether this owner published a unique successful listener view. This is
+    /// a cold-binding fence only, never native-close or user-return evidence.
+    pub(super) fn acquired_view(&self) -> bool {
+        self.acquired
+    }
+
     /// Pure validation/allocation. No DNS, native socket or runtime task.
     /// Caller selects the actual existing retry budget; there is no default.
     pub fn new(

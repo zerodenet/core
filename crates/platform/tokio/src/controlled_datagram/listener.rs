@@ -275,7 +275,7 @@ impl Clone for ControlledDatagramListenerTx {
         self.user
             .0
             .tx
-            .fetch_update(
+            .try_update(
                 std::sync::atomic::Ordering::AcqRel,
                 std::sync::atomic::Ordering::Acquire,
                 |count| count.checked_add(1),

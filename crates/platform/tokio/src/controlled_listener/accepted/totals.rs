@@ -2,10 +2,7 @@
 use super::*;
 use crate::contract::{BoxFuture, scope::TaskJoinWitness};
 use crate::controlled_carrier::SourceCustody;
-use std::{
-    sync::atomic::{AtomicBool, Ordering},
-    task::Context,
-};
+use std::{sync::atomic::AtomicBool, task::Context};
 impl Pool {
     pub(in crate::controlled_listener) fn matches_original_scope(
         &self,

@@ -1,6 +1,9 @@
 //! One accepted original returns global credit after its own real HostACK.
 use super::*;
-use crate::contract::scope::{TaskClass, TaskScope};
+use crate::contract::{
+    ChannelError, Impact, Stage,
+    scope::{TaskClass, TaskScope},
+};
 #[tokio::test]
 async fn same_live_source_accepts_again_only_after_original_native_users_and_host_ack() {
     timeout(Duration::from_secs(5), async {
