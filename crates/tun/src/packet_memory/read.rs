@@ -5,6 +5,7 @@ use super::*;
 #[derive(Clone)]
 pub struct NativeReadGrant(Arc<ReadSlot>);
 pub(super) struct ReadSlot {
+    root: Arc<PacketReturnTotals>,
     bytes: usize,
     state: Mutex<SlotState>,
     changed: Notify,
@@ -38,6 +39,7 @@ impl ReadSlot {
 impl NativeReadGrant {
     pub(super) fn from_credit(credit: credit::Credit) -> Self {
         Self(Arc::new(ReadSlot {
+            root: credit.root.clone(),
             bytes: credit.bytes,
             state: Mutex::new(SlotState {
                 ready: Some(credit),
@@ -49,6 +51,21 @@ impl NativeReadGrant {
     }
     pub fn bytes(&self) -> usize {
         self.0.bytes
+    }
+    /// New fragment assembly admission charges the same kernel root. The
+    /// prepaid original read slot remains separate, so existing assemblies
+    /// cannot prevent the next read needed to complete them.
+    pub fn try_assembly(&self, bytes: usize) -> Result<NativeReadBuffer, PacketMemoryError> {
+        if self
+            .0
+            .state
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .revoked
+        {
+            return Err(PacketMemoryError::Stopped);
+        }
+        self.0.root.native_assembly(bytes)
     }
     pub fn try_buffer(&self) -> Result<NativeReadBuffer, PacketMemoryError> {
         self.try_workspace().map(NativeReadBuffer::from_credit)

@@ -217,6 +217,7 @@ impl PacketReturnTotals {
         };
         current.occupied.frames += frames;
         current.occupied.bytes += bytes;
+        drop(state);
         Ok(lengths
             .iter()
             .map(|bytes| credit::Credit {
