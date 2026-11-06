@@ -221,6 +221,17 @@ impl PacketReturns {
             .map_err(NativePacket::into_owned)
     }
 
+    pub(crate) async fn deliver_owned_wait(
+        &self,
+        packet: zero_traits::PacketBuffer,
+    ) -> Result<Option<zero_traits::PacketBuffer>, zero_platform_tokio::contract::ChannelError>
+    {
+        if self.deliver_correlated(&packet) {
+            return Ok(None);
+        }
+        self.deliver_native_wait(packet).await
+    }
+
     pub(crate) fn deliver_correlated(&self, packet: &[u8]) -> bool {
         if let Some((TranslatedReturn { replies, observer }, mut restored)) = self
             .translated
