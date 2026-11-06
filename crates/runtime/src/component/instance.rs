@@ -244,20 +244,7 @@ impl ComponentSlot {
     }
     /// Cold activation policy only. This mints no Process/native capability.
     pub(in crate::component) fn demand_process_endpoint_ordinal(&self) -> Option<usize> {
-        let spec = self.recipe.spec();
-        use zero_platform_tokio::contract::component::ResourceDeclaration;
-        if !spec.roles.is_empty() || spec.task_limit.map(|limit| limit.get()) != Some(1) {
-            return None;
-        }
-        // Only the existing finite Process + its matching Endpoint may defer
-        // activation. Other resourceful roleless components retain their
-        // normal start order; this is not a generic lazy-resource policy.
-        match spec.resources.as_slice() {
-            [ResourceDeclaration::Process { max_starts, .. }, ResourceDeclaration::ProcessEndpoint {
-                process_ordinal: 0, ..
-            }] if max_starts.get() == 1 => Some(0),
-            _ => None,
-        }
+        demand_process_endpoint_ordinal(self.recipe.spec())
     }
 
     pub(in crate::component) fn is_unbuilt_demand_process(&self) -> bool {
@@ -388,5 +375,28 @@ impl ComponentSlot {
                 .get()
                 .and_then(|live| live.as_ref().ok())
                 .is_some_and(|live| live.tasks.scope_identity().same_scope(actual))
+    }
+}
+
+/// The existing concrete one-job/derived-endpoint owner, not a generic lazy
+/// Process policy or native authority. Other descriptions keep their gate.
+pub(in crate::component) fn demand_process_endpoint_ordinal(
+    spec: &zero_platform_tokio::contract::component::ComponentSpec,
+) -> Option<usize> {
+    use zero_platform_tokio::contract::component::ResourceDeclaration;
+    if !spec.dependencies.is_empty()
+        || !spec.roles.is_empty()
+        || spec.task_limit.map(|limit| limit.get()) != Some(1)
+    {
+        return None;
+    }
+    // Only the existing finite Process + its matching Endpoint may defer
+    // activation. Other resourceful roleless components retain their
+    // normal start order; this is not a generic lazy-resource policy.
+    match spec.resources.as_slice() {
+        [ResourceDeclaration::Process { max_starts, .. }, ResourceDeclaration::ProcessEndpoint {
+            process_ordinal: 0, ..
+        }] if max_starts.get() == 1 => Some(0),
+        _ => None,
     }
 }

@@ -10,7 +10,7 @@ fn receiver_retains_the_same_fault_record_including_late_secondary_before_acknow
     }
     impl fmt::Display for Sources {
         fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-            self.first.fmt(f)
+            fmt::Display::fmt(self.first.as_ref(), f)
         }
     }
     impl Error for Sources {}
