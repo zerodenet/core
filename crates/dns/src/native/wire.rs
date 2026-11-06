@@ -28,9 +28,15 @@ pub fn validate_node_server(server: &DnsServerConfig) -> io::Result<()> {
     Ok(())
 }
 pub fn validate_node_config(config: Option<&zero_config::DnsConfig>) -> io::Result<()> {
-    let config = config
-        .filter(|config| !config.servers.is_empty())
-        .ok_or_else(|| unsupported("node DNS requires configured native servers"))?;
+    // No DNS document already means System resolution. The same host-owned
+    // Node provider executes that real blocking work; this is a cold capability
+    // check, never authorization to perform it before the provider starts.
+    let Some(config) = config else {
+        return Ok(());
+    };
+    if config.servers.is_empty() {
+        return Err(unsupported("node DNS requires configured native servers"));
+    }
     let tags = match config.policy.node_server.as_deref() {
         Some(selected) => std::iter::once(selected)
             .chain(
