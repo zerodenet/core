@@ -70,6 +70,14 @@ impl UpstreamOpener for PrefixOpener {
     fn has_pending_carrier_observer(&self) -> bool {
         self.context.upstream.observed_pending_carrier().is_some()
     }
+    fn pending_carrier_capacity(&self, binding: &UpstreamBinding) -> Option<usize> {
+        if binding != &self.expected_binding
+            || binding.network_generation.0 != self.network.network_generation()
+        {
+            return None;
+        }
+        self.context.upstream.pending_carrier_capacity()
+    }
     fn retain_pending_carrier(
         &self,
         binding: &UpstreamBinding,

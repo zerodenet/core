@@ -243,3 +243,36 @@ fn an_unselected_nonroot_socks_packet_branch_still_does_not_invent_a_new_udp_cap
     outbounds.reverse();
     assert!(!production_selected(Some(&config)));
 }
+
+#[test]
+fn pending_original_metadata_uses_actual_declarations_and_deduplicates_the_one_shared_pool() {
+    let mut config = config(
+        &["prefix", "pool"],
+        serde_json::json!({"type":"socks5", "server":"127.0.0.1", "port":443}),
+    );
+    packet_pool(&mut config);
+    config.runtime.native_stream_max_originals = Some(2);
+    config.runtime.mieru_max_carriers = Some(1);
+    let proxy = crate::Proxy::new(config).unwrap();
+    let plan = proxy.tcp_runtime_services().components.clone().unwrap();
+    let socks = plan.configured("prefix").unwrap();
+    let pool = plan.configured("pool").unwrap();
+    let other = plan.configured("other-pool").unwrap();
+    let original_capacity = plan
+        .pending_carrier_capacity(&[socks.role_id(), pool.role_id()])
+        .unwrap();
+    assert!(
+        original_capacity >= 3,
+        "two actual SOCKS originals and the receiver cannot be counted as only two roles"
+    );
+    assert_eq!(
+        original_capacity,
+        plan.pending_carrier_capacity(&[socks.role_id(), pool.role_id(), other.role_id()])
+            .unwrap(),
+        "another profile of this same actual pool cannot double its declaration budget",
+    );
+    assert!(
+        socks.original_carrier_owner(0).is_none(),
+        "cold metadata projection cannot register or open a native original"
+    );
+}
