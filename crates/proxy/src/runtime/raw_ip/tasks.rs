@@ -1,5 +1,6 @@
 //! Bounded, fenced child handles retained outside the actual listener future.
 mod output;
+pub(crate) mod scoped;
 pub(crate) use output::TaskOutput;
 use std::{
     future::Future,

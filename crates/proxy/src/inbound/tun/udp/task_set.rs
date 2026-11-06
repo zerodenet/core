@@ -1,15 +1,26 @@
 //! Preserve the ordinary TUN executor while raw-IP uses fenced actual owners.
+#[cfg(feature = "raw-ip-runtime")]
+use crate::runtime::raw_ip::tasks::{
+    scoped::{SourceJoinFailure as JoinError, SourceTasksGuard},
+    TaskOutput as TunTaskOutput,
+};
 use std::future::Future;
-use tokio::task::{JoinError, JoinSet};
+#[cfg(not(feature = "raw-ip-runtime"))]
+use tokio::task::JoinError;
+use tokio::task::JoinSet;
+#[cfg(not(feature = "raw-ip-runtime"))]
+pub(super) trait TunTaskOutput: Send + 'static {}
+#[cfg(not(feature = "raw-ip-runtime"))]
+impl<T: Send + 'static> TunTaskOutput for T {}
 use zero_engine::EngineError;
-pub(super) enum TunTasks<'a, T: Send + 'static> {
+pub(super) enum TunTasks<'a, T: TunTaskOutput> {
     Legacy(&'a mut JoinSet<T>),
     #[cfg(feature = "raw-ip-runtime")]
     Scoped(super::scoped::ScopedTasks<'a, T>),
     #[cfg(feature = "raw-ip-runtime")]
-    Owned(crate::runtime::inbound_operation::raw_ip::tasks::TasksGuard<'a, T>),
+    Owned(SourceTasksGuard<'a, T>),
 }
-impl<T: Send + 'static> TunTasks<'_, T> {
+impl<T: TunTaskOutput> TunTasks<'_, T> {
     pub(super) fn len(&self) -> usize {
         match self {
             Self::Legacy(tasks) => tasks.len(),
@@ -56,7 +67,19 @@ impl<T: Send + 'static> TunTasks<'_, T> {
     }
     pub(super) async fn next_completion(&mut self) -> Option<Result<T, JoinError>> {
         match self {
-            Self::Legacy(tasks) => tasks.join_next().await,
+            Self::Legacy(tasks) => {
+                #[cfg(feature = "raw-ip-runtime")]
+                {
+                    tasks
+                        .join_next()
+                        .await
+                        .map(|joined| joined.map_err(JoinError::legacy))
+                }
+                #[cfg(not(feature = "raw-ip-runtime"))]
+                {
+                    tasks.join_next().await
+                }
+            }
             #[cfg(feature = "raw-ip-runtime")]
             Self::Scoped(tasks) => tasks.receiver.recv().await.map(Ok),
             #[cfg(feature = "raw-ip-runtime")]
