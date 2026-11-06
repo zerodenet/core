@@ -17,3 +17,6 @@ mod mieru;
     feature = "managed-stream-runtime"
 ))]
 mod wireguard_datagram;
+
+#[cfg(feature = "vless")]
+mod vless_grpc_ca;

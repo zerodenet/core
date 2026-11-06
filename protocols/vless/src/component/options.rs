@@ -163,7 +163,7 @@ impl Options {
             )
         });
         if let Some(tls) = &tls {
-            if tls.ca_cert_path.is_some() {
+            if tls.ca_cert_path.is_some() && !managed_grpc {
                 return Err(Error::Unsupported(
                     "VLESS CA file requires an explicit File grant",
                 ));

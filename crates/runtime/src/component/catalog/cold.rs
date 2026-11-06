@@ -101,6 +101,7 @@ impl ComponentCatalog {
             .unwrap_or_default();
         let mut resources = ResourcePreparation::with_identities(&mut allocate, &identities)
             .with_candidate(config)
+            .with_same_source_as_previous(previous.is_some_and(|(source,_)|std::ptr::eq(config,source.as_ref())))
             .with_previous_slots(
                 previous
                     .map(|(_, plan)| plan.order.as_slice())

@@ -26,12 +26,22 @@ impl ComponentFactory for NativePoolFactory {
                 .chain(options.node_dns)
                 .collect(),
             static_identity: options.identity.clone(),
-            resources: vec![ResourceDeclaration::ControlledCarrierPool {
-                endpoint: options.endpoint.clone(),
-                dial: options.settings.dial.clone(),
-                datagram: false,
-                max_sockets: options.carrier_limit,
-            }],
+            resources: options
+                .ca
+                .iter()
+                .map(|file| ResourceDeclaration::File {
+                    path: file.path.clone(),
+                    max_bytes: file.max_bytes,
+                })
+                .chain(std::iter::once(
+                    ResourceDeclaration::ControlledCarrierPool {
+                        endpoint: options.endpoint.clone(),
+                        dial: options.settings.dial.clone(),
+                        datagram: false,
+                        max_sockets: options.carrier_limit,
+                    },
+                ))
+                .collect(),
             task_limit: Some(options.carrier_limit),
         }
     }
@@ -57,6 +67,21 @@ impl ComponentFactory for NativePoolFactory {
                 .as_ref()
                 .is_some_and(|totals| context.dependency(totals.dependency).is_none())
             || context.roles != Default::default()
+        {
+            return Err(error(instance, Stage::Prepare, Reason::InvalidConfig));
+        }
+        if options
+            .settings
+            .tls
+            .as_ref()
+            .is_some_and(|tls| tls.ca_cert_path.is_some())
+            != options.ca.is_some()
+        {
+            return Err(error(instance, Stage::Prepare, Reason::InvalidConfig));
+        }
+        if options.selected_background
+            && matches!(options.endpoint.address, zero_core::Address::Domain(_))
+            && options.node_dns.is_none()
         {
             return Err(error(instance, Stage::Prepare, Reason::InvalidConfig));
         }
@@ -129,7 +154,7 @@ impl ResourceLifecycle for Owner {
         }
         self.attempted = true;
         self.resources.register_controlled_carrier(
-            0,
+            usize::from(self.managed.options.ca.is_some()),
             self.carriers.registration(),
             &self.managed.tasks,
         )?;
@@ -171,7 +196,46 @@ impl ResourceLifecycle for Owner {
             previous
         };
         drop(previous);
+        #[cfg(feature = "tls")]
+        if self.managed.options.selected_background {
+            let prepared = match &self.managed.options.ca {
+                Some(file) => Some(
+                    file.prepare(
+                        &self.managed.options,
+                        self.resources.as_ref(),
+                        self.managed.instance,
+                        &self.managed.cancel,
+                        deadline,
+                    )
+                    .await?,
+                ),
+                None => self
+                    .managed
+                    .options
+                    .settings
+                    .tls
+                    .as_ref()
+                    .map(|tls| {
+                        crate::tls::OwnedPreparedClient::from_material(
+                            tls,
+                            None,
+                            &self.managed.options.settings.server,
+                            None,
+                        )
+                    })
+                    .transpose()
+                    .map_err(|source| {
+                        error(self.managed.instance, Stage::Prepare, Reason::InvalidConfig)
+                            .with_source(source)
+                    })?,
+            };
+            *self.managed.prepared_tls.lock().unwrap() = prepared;
+        }
         self.carriers.start(deadline).await?;
+        #[cfg(feature = "tls")]
+        self.managed
+            .options
+            .record_file_material(self.managed.instance)?;
         self.managed.activate()
     }
     fn revoke(&self, _: CloseReason) {

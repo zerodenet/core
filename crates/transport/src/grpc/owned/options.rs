@@ -32,6 +32,7 @@ pub struct NativePoolOptions {
     pub(super) identity: Arc<[u8]>,
     pub(super) base_identity: Arc<[u8]>,
     _background_recipe: Option<Arc<Recipe>>,
+    pub(super) ca: Option<Arc<CaFile>>,
     pub(super) totals: Option<RootUse>,
     pub(super) node_dns: Option<zero_core::component::ComponentId>,
 }
@@ -44,7 +45,9 @@ impl std::fmt::Debug for NativePoolOptions {
             .finish_non_exhaustive()
     }
 }
+mod file;
 mod recipe;
+pub(super) use file::CaFile;
 impl NativePoolOptions {
     pub fn from_pool(
         pool: &GrpcPool,
@@ -80,6 +83,9 @@ impl NativePoolOptions {
         if let Some(node_dns) = self.node_dns {
             identity.extend_from_slice(b"grpc.node-dns");
             identity.extend_from_slice(&node_dns.0.to_le_bytes());
+        }
+        if let Some(ca) = &self.ca {
+            ca.append_identity(&mut identity);
         }
         self.identity = identity.into();
     }
@@ -179,6 +185,8 @@ pub(in crate::grpc) struct Recipe {
     carriers: NonZeroUsize,
     streams: NonZeroUsize,
     identity: Arc<[u8]>,
+    #[cfg(feature = "tls")]
+    materials: std::sync::Mutex<Vec<(ComponentInstanceId, Weak<CaFile>)>>,
 }
 
 #[derive(Clone)]

@@ -7,6 +7,8 @@ pub(in crate::runtime) struct Acquisition {
     state: Mutex<State>,
     changed: tokio::sync::Notify,
     idle: AtomicBool,
+    peer_dirty: AtomicBool,
+    peer_changed: tokio::sync::Notify,
 }
 #[derive(Default)]
 struct State {
@@ -30,6 +32,18 @@ impl Drop for AcquisitionPause {
     }
 }
 impl Acquisition {
+    pub(in crate::runtime) fn peer_cleanup_progressed(&self) {
+        self.peer_dirty.store(true, Ordering::Release);
+        self.peer_changed.notify_waiters();
+    }
+    pub(in crate::runtime) async fn peer_cleanup_changed(&self) {
+        loop {
+            let changed = self.peer_changed.notified(); tokio::pin!(changed); changed.as_mut().enable();
+            if self.peer_dirty.swap(false, Ordering::AcqRel) { return; }
+            changed.await;
+        }
+    }
+
     fn request(self: &Arc<Self>) -> io::Result<AcquisitionPause> {
         let mut state = self.state.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
         if state.requested.is_some() { return Err(io::Error::new(io::ErrorKind::WouldBlock,"same source acquisition already paused")); }

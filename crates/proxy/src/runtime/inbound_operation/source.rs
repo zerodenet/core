@@ -40,6 +40,10 @@ pub(in crate::runtime) async fn run(
                     // Only this next() acquisition was dropped. The original
                     // accepted scopes, IO and cleanup futures remain running.
                     let acquisition=acquisition.as_ref().unwrap();
+                    // Cleanup can finish while next() is genuinely Pending;
+                    // never ACK the value captured before entering select.
+                    let idle = closing.is_empty() && source_host.is_none_or(|host| host.peer_groups_quiescent());
+                    acquisition.observe_idle(idle);
                     acquisition.acknowledge(request,idle);
                     loop {
                         tokio::select! { biased;
@@ -49,6 +53,7 @@ pub(in crate::runtime) async fn run(
                         }
                     }
                 }
+                _ = async { match &acquisition { Some(acquisition) => acquisition.peer_cleanup_changed().await, None => std::future::pending().await } } => {},
                 pending = source.next(AcceptContext { deadline: None, cancel: cancel.clone() }), if closing.len() < limit.get() => {
                     let Some(pending) = pending.map_err(std::io::Error::other)? else { return Ok(()); };
                     #[cfg(feature = "raw-ip-runtime")]

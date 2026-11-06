@@ -31,9 +31,14 @@ pub(crate) fn eligible(input: &OutboundConfig) -> bool {
         return false;
     }
     if tls.as_ref().is_some_and(|tls| {
-        zero_transport::tls::PreparedClient::validate_profile(tls.as_ref()).is_err()
+        zero_transport::tls::OwnedPreparedClient::validate_profile(tls.as_ref()).is_err()
     }) {
         return false;
+    }
+    // Eligibility borrows the actual CA File owner; the original profile/path
+    // remains intact in the real prepared recipe and File declaration.
+    if let Some(tls) = tls.as_mut() {
+        tls.ca_cert_path = None;
     }
     super::native_input(&plain)
 }
@@ -89,6 +94,13 @@ impl VlessAdapter {
             budgets.pool_streams,
         )
         .and_then(|prepared| prepared.with_root_budget(root_id, root.proposal()))
+        .and_then(|prepared| {
+            prepared.with_file_owner(
+                resources.candidate().and_then(|config| config.source_dir()),
+                nonzero(runtime.effective_file_read_max_bytes())
+                    .map_err(|source| std::io::Error::other(source))?,
+            )
+        })
         .map_err(|source| {
             zero_config::ConfigError::InvalidOutbound(format!("outbound `{}`: {source}", input.tag))
         })?;
@@ -108,6 +120,27 @@ impl VlessAdapter {
                 tag: input.tag.clone(),
             }),
         )?;
+        if matches!(&input.protocol,OutboundProtocolConfig::Vless{tls:Some(tls),..} if tls.ca_cert_path.is_some())
+        {
+            let inherited = if resources.same_source_as_previous() {
+                resources
+                    .previous_resource_instance(pool_id)
+                    .map(|previous| prepared.reuse_file_material_from(previous))
+                    .transpose()
+                    .map_err(|source| {
+                        zero_config::ConfigError::InvalidOutbound(format!(
+                            "outbound `{}`: {source}",
+                            input.tag
+                        ))
+                    })?
+                    .unwrap_or(false)
+            } else {
+                false
+            };
+            if !inherited {
+                resources.require_fresh_resource(pool_id)?;
+            }
+        }
         Ok(super::mux::Options::Grpc(Arc::new(prepared.bind(pool_id))))
     }
 }

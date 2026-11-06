@@ -37,7 +37,7 @@ impl NativePoolOptions {
         };
         let endpoint = Destination::new(address, settings.port);
         if let Some(tls) = &settings.tls {
-            if tls.ca_cert_path.is_some() {
+            if tls.ca_cert_path.is_some() && !background {
                 return Err(std::io::Error::new(
                     std::io::ErrorKind::Unsupported,
                     "native gRPC CA paths require a File owner",
@@ -55,7 +55,11 @@ impl NativePoolOptions {
                 .into());
             }
             #[cfg(feature = "tls")]
-            crate::tls::PreparedClient::validate_profile(tls)?;
+            if background {
+                crate::tls::OwnedPreparedClient::validate_profile(tls)?;
+            } else {
+                crate::tls::PreparedClient::validate_profile(tls)?;
+            }
             #[cfg(not(feature = "tls"))]
             return Err(std::io::Error::new(
                 std::io::ErrorKind::Unsupported,
@@ -90,6 +94,8 @@ impl NativePoolOptions {
                         carriers: carrier_limit,
                         streams: stream_limit,
                         identity: next_identity()?,
+                        #[cfg(feature = "tls")]
+                        materials: Default::default(),
                     });
                     recipes.try_reserve(1).map_err(std::io::Error::other)?;
                     recipes.push(Arc::downgrade(&current));
@@ -121,6 +127,8 @@ impl NativePoolOptions {
                         carriers: carrier_limit,
                         streams: stream_limit,
                         identity: identity.clone(),
+                        #[cfg(feature = "tls")]
+                        materials: Default::default(),
                     });
                     identity
                 }
@@ -141,6 +149,7 @@ impl NativePoolOptions {
             identity,
             totals: None,
             node_dns: None,
+            ca: None,
         })
     }
 }
