@@ -198,12 +198,6 @@ impl CarrierClosed {
                 Some(crate::controlled_datagram::AcquisitionOutcome::Closed(_))
             )
     }
-    pub(crate) fn cleanup_owner(&self) -> Option<super::CarrierOwnerRegistration> {
-        self.slot
-            .owner
-            .upgrade()
-            .map(|owner| super::CarrierOwnerRegistration::new(&owner))
-    }
     pub fn instance(&self) -> ComponentInstanceId {
         self.slot.instance
     }
