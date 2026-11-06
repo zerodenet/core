@@ -30,10 +30,11 @@ impl OrchestrationState {
         }
         let config = snapshot.config();
         let dispatch = snapshot.dns_dispatch();
-        let resources = proxy.resolver.prepare_reload_resources_with_dispatch(
+        let resources = proxy.resolver.prepare_reload_resources_with_host_scopes(
             config.runtime.dns.as_ref(),
             dispatch,
             affected,
+            |instance,scope|components.component(instance.component).is_some_and(|slot|slot.instance_id()==instance && slot.matches_live_scope(scope)),
         )?;
         // No await or publication separates preparing the real backend map
         // from retaining its exact host snapshot/component association.
