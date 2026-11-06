@@ -26,6 +26,7 @@ impl Update {
         }
     }
     fn pending(&self) -> bool {
+        if !self.initialized.load(Ordering::Acquire){return true}
         self.original.get().map_or_else(
             || self.result.lock().expect("ECH result poisoned").is_none(),
             |original| !original.task.is_joined(),
