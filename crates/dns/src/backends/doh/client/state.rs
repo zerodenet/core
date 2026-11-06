@@ -3,8 +3,8 @@ use crate::DnsCarrierBinding;
 use std::{
     io,
     sync::{
-        Arc,
         atomic::{AtomicBool, AtomicUsize, Ordering},
+        Arc,
     },
 };
 use zero_platform_tokio::contract::CancellationToken;

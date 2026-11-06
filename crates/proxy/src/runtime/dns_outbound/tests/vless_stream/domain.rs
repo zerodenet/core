@@ -1,8 +1,8 @@
 //! One actual Node lookup spans failed originals in the same DNS Service call.
 use super::*;
 #[tokio::test]
-async fn ordinary_vless_h2_and_upgrade_domain_dns_consumes_each_failed_original_before_the_next_candidate()
- {
+async fn ordinary_vless_h2_and_upgrade_domain_dns_consumes_each_failed_original_before_the_next_candidate(
+) {
     tokio::time::timeout(Duration::from_secs(20),async {
         for kind in ["h2","http_upgrade"] {
             let remote=Remote::new(kind).await;

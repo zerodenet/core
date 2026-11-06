@@ -247,11 +247,9 @@ pub(super) fn donor(proxy: &Proxy, child: &CarrierOrigin) -> CarrierOrigin {
     let original = &observed.slots()[0];
     assert!(original.driver().is_none(), "protocol I/O remains inline");
     let auxiliary = original.auxiliary().expect("real same-slot preparation");
-    assert!(
-        auxiliary
-            .scope_identity()
-            .same_scope(&owner.bound().unwrap().scope_identity())
-    );
+    assert!(auxiliary
+        .scope_identity()
+        .same_scope(&owner.bound().unwrap().scope_identity()));
     let joined = auxiliary
         .try_joined()
         .expect("preparation joined before loan delivery");

@@ -1,6 +1,6 @@
 //! Historical errors have a real bounded receiver, separate from IO retirement.
 use super::*;
-use zero_platform_tokio::contract::{ChannelError, scope::TaskJoinWitness};
+use zero_platform_tokio::contract::{scope::TaskJoinWitness, ChannelError};
 #[derive(Clone, Debug)]
 pub(super) struct HostFailure {
     pub(super) task: TaskJoinWitness,

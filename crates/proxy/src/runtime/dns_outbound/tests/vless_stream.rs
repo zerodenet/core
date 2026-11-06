@@ -8,8 +8,8 @@ fn deadline() -> tokio::time::Instant {
     tokio::time::Instant::now() + Duration::from_secs(3)
 }
 #[tokio::test]
-async fn ordinary_vless_h2_and_upgrade_dns_cancellation_retires_the_exact_taskless_native_before_next_query()
- {
+async fn ordinary_vless_h2_and_upgrade_dns_cancellation_retires_the_exact_taskless_native_before_next_query(
+) {
     tokio::time::timeout(Duration::from_secs(25),async {
         for kind in ["h2","http_upgrade"] {
             let remote=Remote::new(kind).await;
@@ -40,8 +40,8 @@ async fn ordinary_vless_h2_and_upgrade_dns_cancellation_retires_the_exact_taskle
     }).await.unwrap();
 }
 #[tokio::test]
-async fn ordinary_vless_h2_and_upgrade_dot_and_doh_keep_persistent_dns_driver_separate_from_taskless_transport()
- {
+async fn ordinary_vless_h2_and_upgrade_dot_and_doh_keep_persistent_dns_driver_separate_from_taskless_transport(
+) {
     tokio::time::timeout(Duration::from_secs(25),async {
         for kind in ["h2","http_upgrade"] {
             for doh in [false,true] {

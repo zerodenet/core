@@ -3,8 +3,8 @@ use super::*;
 mod fixture;
 use fixture::*;
 #[tokio::test]
-async fn linked_and_standalone_warm_doh_budget_replacement_preserves_busy_business_then_closes_actual_old_owners()
- {
+async fn linked_and_standalone_warm_doh_budget_replacement_preserves_busy_business_then_closes_actual_old_owners(
+) {
     tokio::time::timeout(Duration::from_secs(25), async {
         for linked in [true, false] {
             exercise(linked, true).await;
@@ -227,12 +227,10 @@ async fn exercise(linked: bool, budget: bool) {
         );
     } else if linked {
         assert!(old_root.same_original(&next_root) && old_root.closed().is_none());
-        assert!(
-            old_root
-                .driver()
-                .unwrap()
-                .same_registration(next_root.driver().unwrap())
-        );
+        assert!(old_root
+            .driver()
+            .unwrap()
+            .same_registration(next_root.driver().unwrap()));
         assert!(Arc::ptr_eq(
             old_source.as_ref().unwrap(),
             &registry.owner("wg-source").unwrap()
@@ -240,14 +238,12 @@ async fn exercise(linked: bool, budget: bool) {
     } else {
         let closed = old_root.closed().unwrap();
         assert!(closed.matches(&old_root) && closed.had_native_acquisition());
-        assert!(
-            old_root
-                .driver()
-                .unwrap()
-                .try_joined()
-                .unwrap()
-                .registration_released()
-        );
+        assert!(old_root
+            .driver()
+            .unwrap()
+            .try_joined()
+            .unwrap()
+            .registration_released());
         assert!(!old_root.same_original(&next_root));
     }
     zero_dns::test_support::install_doh_ca(&proxy.resolver, "query", tls.certificate.clone())
@@ -260,12 +256,10 @@ async fn exercise(linked: bool, budget: bool) {
     let fresh = pending(&proxy).await;
     let successor = fresh.original.as_ref().unwrap();
     native_pending(successor, &next_root);
-    assert!(
-        !fresh
-            .task
-            .scope_identity()
-            .same_scope(&warm.task.scope_identity())
-    );
+    assert!(!fresh
+        .task
+        .scope_identity()
+        .same_scope(&warm.task.scope_identity()));
     answer
         .send(zero_dns::udp::build_dns_response(
             &bytes,
