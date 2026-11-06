@@ -231,3 +231,22 @@ async fn a_replacement_cannot_claim_the_pool_before_the_old_registered_task_exit
     assert_eq!(tasks.exited_tasks.len(), 1);
     assert!(pool.check_and_insert(&[4; 16]).is_err());
 }
+
+#[test]
+fn canonical_replay_recipe_matches_the_actual_history_and_not_only_its_equal_limits() {
+    let state = crate::transport::ShadowsocksTransportState::default();
+    let first = state.replay_component_options(ReplayPolicy::Reject, Some(2));
+    let same = state.replay_component_options(ReplayPolicy::Reject, Some(2));
+    let independent = crate::transport::ShadowsocksTransportState::default()
+        .replay_component_options(ReplayPolicy::Reject, Some(2));
+    assert_eq!(
+        ReplayFactory.describe(&first).static_identity,
+        ReplayFactory.describe(&same).static_identity
+    );
+    assert_ne!(
+        ReplayFactory.describe(&first).static_identity,
+        ReplayFactory.describe(&independent).static_identity
+    );
+    assert!(Weak::ptr_eq(&first.pool, &same.pool));
+    assert!(!Weak::ptr_eq(&first.pool, &independent.pool));
+}
