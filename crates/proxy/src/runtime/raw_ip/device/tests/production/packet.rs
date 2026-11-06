@@ -23,6 +23,7 @@ async fn ordinary_packet_roles_return_original_source_and_retire_old_graph_witho
     let socket = UdpSocket::bind("127.0.0.1:0").await.unwrap();
     let config = config(remote, socket.local_addr().unwrap());
     let input = config.endpoints[0].inbound().unwrap();
+    let output = config.endpoints[1].inbound().unwrap();
     let proxy = Proxy::new(config.clone()).unwrap();
     let handle = ProxyHandle::new(
         zero_engine::EngineHandle::new(proxy.engine().clone()),
@@ -35,7 +36,7 @@ async fn ordinary_packet_roles_return_original_source_and_retire_old_graph_witho
         .unwrap();
     let input_owner = proxy.inbound_owners.owner(&input.tag).unwrap();
     input_owner.wait_ready().await.unwrap();
-    let output_owner = proxy.inbound_owners.owner("wg").unwrap();
+    let output_owner = proxy.inbound_owners.owner(&output.tag).unwrap();
     let main = input_owner
         .task_access()
         .source_main_witness()
