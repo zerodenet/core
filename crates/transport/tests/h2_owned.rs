@@ -176,7 +176,7 @@ async fn actual_peer_reset_wakes_a_capacity_pending_writer_without_application_r
             let (peer, _) = listener.accept().await.unwrap();
             let mut builder = h2::server::Builder::new();
             builder.initial_window_size(1);
-            let mut connection = builder.handshake(peer).await.unwrap();
+            let mut connection: h2::server::Connection<_, Bytes> = builder.handshake(peer).await.unwrap();
             let (mut request, mut response) = connection.accept().await.unwrap().unwrap();
             let application = async move {
                 assert_eq!(request.body_mut().data().await.unwrap().unwrap().len(), 1);
