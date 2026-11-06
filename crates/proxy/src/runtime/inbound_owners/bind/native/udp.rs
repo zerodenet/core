@@ -2,13 +2,13 @@
 use super::*;
 use crate::component::instance::HostDatagramListenerOwner;
 use std::sync::{
-    Mutex,
     atomic::{AtomicBool, Ordering},
+    Mutex,
 };
 use zero_platform_tokio::contract::{
-    CloseReason, Impact, Reason, Stage,
     component::GrantedDatagramListener,
     lifecycle::{CloseReport, ResourceLifecycle},
+    CloseReason, Impact, Reason, Stage,
 };
 
 pub(in crate::runtime::inbound_owners) struct NativeDatagramGrant {

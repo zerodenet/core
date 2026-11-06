@@ -1,12 +1,12 @@
 //! One native holder for the canonical listener declaration, never two budgets.
 use super::*;
 use zero_platform_tokio::{
-    ControlledTcpListener,
     contract::{
-        ChannelError,
         component::ResourceDeclaration,
-        lifecycle::{DynResourceLifecycle, erase_lifecycle},
+        lifecycle::{erase_lifecycle, DynResourceLifecycle},
+        ChannelError,
     },
+    ControlledTcpListener,
 };
 pub(in crate::runtime::inbound_owners) mod handoff;
 mod metadata;

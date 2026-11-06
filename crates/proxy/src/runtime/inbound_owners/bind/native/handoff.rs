@@ -5,9 +5,9 @@ use std::{
     sync::{Mutex, OnceLock},
 };
 use zero_platform_tokio::contract::{
-    Impact, Reason, Stage,
     lifecycle::{CloseReport, ResourceLifecycle},
     scope::TaskRegistrar,
+    Impact, Reason, Stage,
 };
 mod probe;
 #[derive(Clone, Copy)]
@@ -50,16 +50,11 @@ impl Grant {
         tasks: TaskRegistrar,
         host: Weak<InboundOwner>,
     ) -> Result<Self, ChannelError> {
-        let [
-            tcp @ ResourceDeclaration::TcpListener { .. },
-            ResourceDeclaration::DatagramListener { .. },
-            ResourceDeclaration::ListenerHandoff {
-                stream,
-                datagram,
-                max_probe_attempts,
-            },
-            ResourceDeclaration::Process { max_starts, .. },
-        ] = declarations
+        let [tcp @ ResourceDeclaration::TcpListener { .. }, ResourceDeclaration::DatagramListener { .. }, ResourceDeclaration::ListenerHandoff {
+            stream,
+            datagram,
+            max_probe_attempts,
+        }, ResourceDeclaration::Process { max_starts, .. }] = declarations
         else {
             return Err(denied(
                 "handoff requires one paired listener and one process grant",

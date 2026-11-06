@@ -2,18 +2,18 @@ use super::*;
 use std::{
     net::SocketAddr,
     sync::{
-        OnceLock,
         atomic::{AtomicBool, Ordering},
+        OnceLock,
     },
 };
 use tokio::sync::Mutex as AsyncMutex;
 use zero_platform_tokio::{
-    ControlledTcpListener, ControlledTcpListenerOwner,
     contract::{
-        CancellationToken, ChannelError, CloseReason, Impact, Reason, Stage,
         component::ResourceDeclaration,
         lifecycle::{CloseReport, ResourceLifecycle},
+        CancellationToken, ChannelError, CloseReason, Impact, Reason, Stage,
     },
+    ControlledTcpListener, ControlledTcpListenerOwner,
 };
 
 pub(super) struct NativeTcpGrant {

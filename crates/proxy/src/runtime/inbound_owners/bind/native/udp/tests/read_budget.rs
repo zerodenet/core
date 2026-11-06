@@ -36,27 +36,23 @@ async fn actual_packet_listener_capacity_is_checked_before_first_native_bind_and
         .unwrap(),
     );
     assert!(grant.bind().is_err());
-    assert!(
-        grant
-            .native
-            .lock()
-            .unwrap()
-            .as_ref()
-            .unwrap()
-            .known_no_acquisition()
-    );
+    assert!(grant
+        .native
+        .lock()
+        .unwrap()
+        .as_ref()
+        .unwrap()
+        .known_no_acquisition());
     assert_eq!(roots.packet.native().occupied.frames, 0);
     roots.packet.install_native(2, 131_072).unwrap();
     let view = grant.bind().unwrap();
-    assert!(
-        !grant
-            .native
-            .lock()
-            .unwrap()
-            .as_ref()
-            .unwrap()
-            .known_no_acquisition()
-    );
+    assert!(!grant
+        .native
+        .lock()
+        .unwrap()
+        .as_ref()
+        .unwrap()
+        .known_no_acquisition());
     let [scratch, decode] = grant.take_packet_reads(0).unwrap();
     assert!(grant.take_packet_reads(0).is_err());
     let mut actual = scratch.try_buffer().unwrap();
@@ -77,10 +73,8 @@ async fn actual_packet_listener_capacity_is_checked_before_first_native_bind_and
     drop(actual);
     assert_eq!(roots.packet.native().occupied.frames, 0);
     assert!(decode.try_workspace().is_err());
-    assert!(
-        scope
-            .shutdown(Instant::now() + std::time::Duration::from_secs(2))
-            .await
-            .is_complete()
-    );
+    assert!(scope
+        .shutdown(Instant::now() + std::time::Duration::from_secs(2))
+        .await
+        .is_complete());
 }

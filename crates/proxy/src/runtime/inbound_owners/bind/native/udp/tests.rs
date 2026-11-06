@@ -1,6 +1,6 @@
 use super::*;
-use std::sync::{Barrier, mpsc};
-use zero_core::{Address, request::Destination};
+use std::sync::{mpsc, Barrier};
+use zero_core::{request::Destination, Address};
 
 #[tokio::test]
 async fn concurrent_revoke_after_original_bind_fences_escaped_views_without_dropping_the_fd() {
@@ -94,16 +94,14 @@ async fn resolving_udp_grants_bounded_address_candidates_without_broadening_lite
         50,
         "same bounded host DNS-candidate grant as TCP"
     );
-    assert!(
-        NativeDatagramGrant::new(
-            identity,
-            &domain,
-            None,
-            NonZeroUsize::new(51).unwrap(),
-            CancellationToken::new()
-        )
-        .is_err()
-    );
+    assert!(NativeDatagramGrant::new(
+        identity,
+        &domain,
+        None,
+        NonZeroUsize::new(51).unwrap(),
+        CancellationToken::new()
+    )
+    .is_err());
 }
 
 #[tokio::test]
@@ -162,12 +160,10 @@ async fn resolved_udp_candidates_retry_only_after_original_failed_bind_is_closed
         .shutdown(Instant::now() + std::time::Duration::from_secs(2))
         .unwrap();
     assert!(report.is_complete());
-    assert!(
-        report
-            .closed_io
-            .iter()
-            .any(|io| io.contains("2 originals explicitly closed"))
-    );
+    assert!(report
+        .closed_io
+        .iter()
+        .any(|io| io.contains("2 originals explicitly closed")));
 }
 
 #[cfg(feature = "raw-ip-runtime")]

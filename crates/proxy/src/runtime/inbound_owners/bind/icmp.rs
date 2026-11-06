@@ -2,9 +2,9 @@
 use super::*;
 use crate::component::instance::{HostIcmpProbeGrant, HostIcmpProbeOwner};
 use zero_platform_tokio::contract::{
-    ChannelError, CloseReason,
     component::ResourceDeclaration,
-    lifecycle::{CloseReport, ResourceLifecycle, erase_lifecycle},
+    lifecycle::{erase_lifecycle, CloseReport, ResourceLifecycle},
+    ChannelError, CloseReason,
 };
 struct IcmpResource {
     native: HostIcmpProbeOwner,

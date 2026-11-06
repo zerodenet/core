@@ -1,6 +1,6 @@
 //! No native ICMP permission is needed to verify cold/revoked authority gates.
 use super::*;
-use zero_platform_tokio::contract::{Reason, component::ResourceDeclaration};
+use zero_platform_tokio::contract::{component::ResourceDeclaration, Reason};
 
 #[tokio::test]
 async fn canonical_icmp_grant_is_same_instance_cold_and_revoked_before_native_io() {
