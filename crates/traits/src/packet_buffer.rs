@@ -9,6 +9,10 @@ use core::{
 /// Protocols may retain a pool return guard inside the owner. Mutation must
 /// expose the same initialized packet bytes, without aliases held by producers.
 pub trait PacketStorage: AsRef<[u8]> + AsMut<[u8]> + Send + Sync + 'static {
+    /// Bytes retained by this owned allocation, including initialized spare
+    /// capacity covered by an original IO/workspace reservation. This is memory
+    /// accounting metadata, never native or task authority.
+    fn allocation_bytes(&self) -> usize { self.as_ref().len() }
     /// Owners may transfer an exclusive allocation to a Vec. The default
     /// copies, preserving any original pool/shared-owner lifetime rules.
     fn into_vec(self: Box<Self>) -> Vec<u8> {
@@ -16,6 +20,7 @@ pub trait PacketStorage: AsRef<[u8]> + AsMut<[u8]> + Send + Sync + 'static {
     }
 }
 impl PacketStorage for Vec<u8> {
+    fn allocation_bytes(&self) -> usize { self.capacity() }
     fn into_vec(self: Box<Self>) -> Vec<u8> {
         *self
     }
@@ -33,6 +38,13 @@ enum Storage {
 impl PacketBuffer {
     pub fn from_owner(owner: impl PacketStorage) -> Self {
         Self(Storage::Owner(Box::new(owner)))
+    }
+    pub fn allocation_bytes(&self) -> usize {
+        match &self.0 {
+            Storage::Vector(bytes) => bytes.capacity(),
+            Storage::Bytes(bytes) => bytes.capacity(),
+            Storage::Owner(owner) => owner.allocation_bytes(),
+        }
     }
     /// Preserve an existing Vec, or copy at an explicitly Vec-only boundary.
     pub fn into_vec(self) -> Vec<u8> {
