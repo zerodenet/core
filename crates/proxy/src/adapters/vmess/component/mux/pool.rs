@@ -44,7 +44,7 @@ impl ComponentFactory for Factory {
         ::vmess::component::mux::OwnedPoolFactory.build_with_ech_resolver(
             options.pool.clone(),
             context,
-            background::grpc::tls_resolver(self.background.network.clone(), instance),
+            background::tls_material::resolver(self.background.network.clone(), instance),
         )
     }
 }
