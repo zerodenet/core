@@ -1,5 +1,7 @@
 //! The per-connection caller advances original H2 and both hunk futures itself.
 use super::*;
+#[path = "inline_wire.rs"]
+mod wire;
 use crate::profile::OwnedGrpcProfile;
 use tokio::time::{timeout, Duration};
 #[tokio::test]
@@ -8,20 +10,29 @@ async fn inline_single_and_multi_clients_drain_upload_without_application_reads_
     let phase = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
     let peer_phase = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
     let received = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
+    let native = std::sync::Arc::new(std::sync::Mutex::new(Vec::<
+        std::sync::Arc<wire::Observation>,
+    >::new()));
+    let clock = std::time::Instant::now();
     timeout(Duration::from_secs(8),async {
         for multi_mode in [false,true] {
             received.store(0,std::sync::atomic::Ordering::SeqCst);
             let listener=tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();let address=listener.local_addr().unwrap();
             let profile=OwnedGrpcProfile{service_names:vec!["inline/Tun".into()],multi_mode,..Default::default()};
             let server_profile=profile.clone();let(done,finished)=tokio::sync::oneshot::channel();let peer_observation=peer_phase.clone();
+            let peer_native=native.clone();
             let server=tokio::spawn(async move {
-                let(io,_)=listener.accept().await.unwrap();let incoming=accept_grpc_connection(io,&server_profile).unwrap();
+                let(io,_)=listener.accept().await.unwrap();
+                let(io,observation)=wire::Wire::new(io,multi_mode,"peer",clock);peer_native.lock().unwrap().push(observation);
+                let incoming=accept_grpc_connection(io,&server_profile).unwrap();
                 let mut io=incoming.accept().await.unwrap();peer_observation.store(1,std::sync::atomic::Ordering::SeqCst);
                 let mut body=Vec::new();io.read_to_end(&mut body).await.unwrap();peer_observation.store(2,std::sync::atomic::Ordering::SeqCst);
                 assert_eq!(body,vec![0x79;2*1024*1024+13]);AsyncWriteExt::write_all(&mut io,&body).await.unwrap();peer_observation.store(3,std::sync::atomic::Ordering::SeqCst);
                 AsyncWriteExt::shutdown(&mut io).await.unwrap();peer_observation.store(4,std::sync::atomic::Ordering::SeqCst);finished.await.unwrap();incoming.close();
             });
-            let raw=tokio::net::TcpStream::connect(address).await.unwrap();let io=connect_grpc_inline_with_settings(raw,&profile,"localhost",None).await.unwrap();
+            let raw=tokio::net::TcpStream::connect(address).await.unwrap();
+            let(raw,observation)=wire::Wire::new(raw,multi_mode,"client",clock);native.lock().unwrap().push(observation);
+            let io=connect_grpc_inline_with_settings(raw,&profile,"localhost",None).await.unwrap();
             phase.store(if multi_mode{11}else{1},std::sync::atomic::Ordering::SeqCst);
             assert!(io.inline.is_some() && io.driver.is_none() && io.scoped.is_none());
             let mut io=Counted{io,received:received.clone()};
@@ -30,7 +41,7 @@ async fn inline_single_and_multi_clients_drain_upload_without_application_reads_
             let mut body=Vec::new();io.read_to_end(&mut body).await.unwrap();phase.store(if multi_mode{14}else{4},std::sync::atomic::Ordering::SeqCst);
             assert_eq!(body,vec![0x79;2*1024*1024+13]);done.send(()).unwrap();drop(io);server.await.unwrap();
         }
-    }).await.unwrap_or_else(|_|panic!("actual inline phase {} peer {} received {} of 2097165 (1 connected/2 uploaded/3 halfclosed/4 reverseEOF; +10 multi; peer 1 accepted/2 EOF/3 uploaded/4 halfclosed)",phase.load(std::sync::atomic::Ordering::SeqCst),peer_phase.load(std::sync::atomic::Ordering::SeqCst),received.load(std::sync::atomic::Ordering::SeqCst)));
+    }).await.unwrap_or_else(|_|panic!("actual inline phase {} peer {} received {} of 2097165 (1 connected/2 uploaded/3 halfclosed/4 reverseEOF; +10 multi; peer 1 accepted/2 EOF/3 uploaded/4 halfclosed) native={:#?}",phase.load(std::sync::atomic::Ordering::SeqCst),peer_phase.load(std::sync::atomic::Ordering::SeqCst),received.load(std::sync::atomic::Ordering::SeqCst),native.lock().unwrap().iter().map(|state|state.snapshot()).collect::<Vec<_>>()));
     // Actual per-connection wire diagnostics only, no native/Scope close claim.
 }
 
