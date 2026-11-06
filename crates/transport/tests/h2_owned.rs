@@ -178,11 +178,13 @@ async fn actual_peer_reset_wakes_a_capacity_pending_writer_without_application_r
             builder.initial_window_size(1);
             let mut connection: h2::server::Connection<_, Bytes> = builder.handshake(peer).await.unwrap();
             let (mut request, mut response) = connection.accept().await.unwrap().unwrap();
+            let mut reply = response.send_response(http::Response::new(()), false).unwrap();
+            reply.send_data(Bytes::from_static(b"ready"), false).unwrap();
             let application = async move {
                 assert_eq!(request.body_mut().data().await.unwrap().unwrap().len(), 1);
                 sent.send(()).unwrap();
                 requested.await.unwrap();
-                response.send_reset(h2::Reason::CANCEL);
+                reply.send_reset(h2::Reason::CANCEL);
             };
             let driver = async {
                 while let Some(next) = connection.accept().await {
@@ -193,6 +195,11 @@ async fn actual_peer_reset_wakes_a_capacity_pending_writer_without_application_r
         });
         let raw = TcpStream::connect(address).await.unwrap();
         let mut stream = connect_h2(raw, &profile(), "127.0.0.1", address.port()).await.unwrap();
+        // The response DATA proves the peer's preceding SETTINGS has actually
+        // crossed this same connection before testing its one-byte credit.
+        let mut ready = [0; 5];
+        stream.read_exact(&mut ready).await.unwrap();
+        assert_eq!(&ready, b"ready");
         let bytes = vec![0x53; 64 * 1024];
         {
             let writing = stream.write_all(&bytes); tokio::pin!(writing);
