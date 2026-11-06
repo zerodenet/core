@@ -1,5 +1,7 @@
 //! The standard System TUN source transfers the same concrete native IO once.
 //! The installed host retains native close; this source retains actual frames.
+#[cfg(test)]
+mod budget;
 mod channel;
 mod driver;
 mod owner;
@@ -30,12 +32,14 @@ pub(crate) struct SystemTunSourceOptions {
     addresses: Vec<(IpAddr, IpAddr)>,
     mtu: u16,
     state: Arc<SystemTunSourceState>,
+    native_io: Arc<dyn zero_traits::IoObserver>,
 }
 #[derive(Default)]
 pub(crate) struct SystemTunSourceState {
     acquired: OnceLock<Acquired>,
     driver: OnceLock<TaskJoinWitness>,
     scope: OnceLock<TaskScopeIdentity>,
+    changed: Notify,
 }
 struct Acquired {
     interface: Arc<str>,
@@ -43,6 +47,26 @@ struct Acquired {
     original: PacketProviderRegistration,
 }
 impl SystemTunSourceState {
+    /// The real native acquisition stays with the same host provider. Waiting
+    /// does not manufacture readiness, a wire join, or a native-close receipt.
+    pub(crate) async fn wait_acquired(
+        &self,
+        cancel: &CancellationToken,
+    ) -> Result<Arc<str>, ChannelError> {
+        loop {
+            let changed = self.changed.notified();
+            tokio::pin!(changed);
+            changed.as_mut().enable();
+            if let Some(acquired) = self.acquired.get() {
+                return Ok(acquired.interface.clone());
+            }
+            tokio::select! {
+                biased;
+                _ = cancel.cancelled() => return Err(error(Stage::Prepare, Reason::Revoked)),
+                _ = changed => {},
+            }
+        }
+    }
     pub(crate) fn interface(&self) -> Option<Arc<str>> {
         Some(self.acquired.get()?.interface.clone())
     }
@@ -63,6 +87,8 @@ impl SystemTunSourceOptions {
         addresses: Vec<(IpAddr, IpAddr)>,
         mtu: u16,
         tag: String,
+        scope_task_limit: NonZeroUsize,
+        native_io: Arc<dyn zero_traits::IoObserver>,
     ) -> Result<Arc<Self>, ChannelError> {
         if resource_name.is_empty()
             || addresses.is_empty()
@@ -77,7 +103,7 @@ impl SystemTunSourceOptions {
         let mut identity = Sha256::new();
         identity.update(b"zero.system-tun.source.v1");
         identity.update(format!(
-            "{resource_name:?}{binding:?}{addresses:?}{mtu:?}{tag:?}"
+            "{resource_name:?}{binding:?}{addresses:?}{mtu:?}{tag:?}{scope_task_limit:?}"
         ));
         Ok(Arc::new(Self {
             spec: ComponentSpec {
@@ -85,13 +111,24 @@ impl SystemTunSourceOptions {
                 roles: vec![RoleKind::Inbound],
                 dependencies: vec![],
                 static_identity: identity.finalize().to_vec().into(),
-                task_limit: NonZeroUsize::new(crate::runtime::inbound_operation::raw_ip::PacketSourceContext::device_task_limit()),
-                resources: vec![ResourceDeclaration::ControlledPacketDevice { name: resource_name.clone(), binding }, ResourceDeclaration::NativeIcmp { max_sockets: NonZeroUsize::new(64).unwrap() }],
+                // The registry adds the same original main task. All wire,
+                // child and route workers share this exact remaining ceiling.
+                task_limit: NonZeroUsize::new(scope_task_limit.get() - 1),
+                resources: vec![
+                    ResourceDeclaration::ControlledPacketDevice {
+                        name: resource_name.clone(),
+                        binding,
+                    },
+                    ResourceDeclaration::NativeIcmp {
+                        max_sockets: NonZeroUsize::new(64).unwrap(),
+                    },
+                ],
             },
             resource_name,
             addresses,
             mtu,
             state: Arc::default(),
+            native_io,
         }))
     }
     pub(crate) fn ingress_options(
@@ -104,6 +141,7 @@ impl SystemTunSourceOptions {
             mtu: self.mtu,
             dns_hijack,
             dns_hijacked_queries,
+            native_io: self.native_io.clone(),
         }
     }
     pub(crate) fn state(&self) -> Arc<SystemTunSourceState> {

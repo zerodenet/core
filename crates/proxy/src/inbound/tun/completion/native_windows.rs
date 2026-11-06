@@ -3,6 +3,10 @@
 use super::*;
 impl TunCompletion {
     pub(in crate::inbound::tun) async fn wait_native(&self, deadline: Instant) -> io::Result<()> {
+        #[cfg(feature = "raw-ip-runtime")]
+        if let Some(source) = &self.source {
+            return source.wait_resources_closed(deadline).await;
+        }
         if self.main.lock().await.task.is_some() {
             return Err(io::Error::new(
                 io::ErrorKind::WouldBlock,
