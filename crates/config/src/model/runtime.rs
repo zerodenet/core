@@ -67,6 +67,10 @@ pub struct RuntimeOptionsConfig {
     /// Actual diagnostic and health probes per kernel, including pending and retiring originals; the process-wide ceiling remains eight.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub diagnostic_max_operations: Option<usize>,
+    /// Tightens the same System TUN Source's total task bound, including real
+    /// main/route/stack/query workers. Omission retains the actual declared sum.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub system_tun_task_limit: Option<usize>,
     /// Total retained TCP2022 replay salts in this actual SS adapter, across
     /// all inbound/outbound histories and per-profile capacity views. On demand,
     /// 500000 by default; live security history is never evicted for admission.
@@ -161,6 +165,7 @@ impl Default for RuntimeOptionsConfig {
             grpc_total_max_carriers: None,
             grpc_total_max_streams: None,
             diagnostic_max_operations: None,
+            system_tun_task_limit: None,
             ss_tcp_replay_max_salts: None,
             hysteria2_max_entries: None,
             hysteria2_max_udp_sessions: None,
@@ -234,6 +239,9 @@ impl RuntimeOptionsConfig {
     }
     pub fn effective_diagnostic_max_operations(&self) -> usize {
         self.diagnostic_max_operations.unwrap_or(8)
+    }
+    pub fn effective_system_tun_task_limit(&self, actual_default: usize) -> usize {
+        self.system_tun_task_limit.unwrap_or(actual_default).min(actual_default)
     }
     pub fn effective_ss_tcp_replay_max_salts(&self) -> usize {
         self.ss_tcp_replay_max_salts.unwrap_or(500_000)
