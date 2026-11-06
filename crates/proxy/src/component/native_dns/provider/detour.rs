@@ -208,22 +208,36 @@ impl Provider {
                 || execution.upstream(),
                 |tag| execution.upstream_observed(tag),
             );
-            let root = Arc::new(
-                root::Root::new(
-                    network,
-                    endpoint,
-                    root_binding.clone(),
-                    root_grants.clone(),
-                    self.budget.clone(),
-                    self.users.clone(),
-                    self.pending.clone(),
-                    caller.clone(),
-                    cancel.clone(),
-                    execution.current_source.clone(),
-                    binding.prefix.clone(),
-                )
-                .map_err(std::io::Error::other)?,
-            );
+            // A device Stream consumes its existing virtual socket/provider.
+            // This only removes native dial authority: actual role/provider
+            // admission remains with the current ComponentPlan and selection.
+            let device_root = nodes[0].endpoint.is_none()
+                && nodes[0].role != zero_platform_tokio::contract::dns::DnsQueryRole::Direct
+                && nodes[0]
+                    .slot
+                    .recipe
+                    .spec()
+                    .roles
+                    .contains(&zero_platform_tokio::contract::component::RoleKind::Packet);
+            let root = root::Root::new(
+                network,
+                endpoint,
+                root_binding.clone(),
+                root_grants.clone(),
+                self.budget.clone(),
+                self.users.clone(),
+                self.pending.clone(),
+                caller.clone(),
+                cancel.clone(),
+                execution.current_source.clone(),
+                binding.prefix.clone(),
+            )
+            .map_err(std::io::Error::other)?;
+            let root = Arc::new(if device_root {
+                root.observer_only()
+            } else {
+                root
+            });
             components
                 .authorize_carrier_prefix(self.instance, &binding.prefix)
                 .map_err(std::io::Error::other)?;
