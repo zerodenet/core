@@ -128,3 +128,63 @@ async fn monitor_original_join_failure_is_retained_and_blocks_replacement() {
     assert!(services.shutdown_dispatcher().await.is_err());
     assert!(!services.state.lock().await.network_generation_started);
 }
+
+#[tokio::test]
+async fn original_monitor_join_fault_is_not_replaced_by_an_earlier_cleanup_fault() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut config = RuntimeConfig::parse(&config_json("monitor-source.jsonl", 0)).unwrap();
+    config.source_dir = Some(dir.path().to_owned());
+    let services = ApplicationServices::start(Engine::new(config).unwrap(), None)
+        .await
+        .unwrap();
+    // Two actual independently consumed task failures, not constructed JoinError
+    // values or a String marker standing in for a native/Scope close outcome.
+    let earlier = std::sync::Arc::new(
+        tokio::task::spawn_blocking(|| panic!("actual earlier cleanup task"))
+            .await
+            .unwrap_err(),
+    );
+    let retained: std::sync::Arc<dyn std::error::Error + Send + Sync> = earlier.clone();
+    {
+        let mut state = services.state.lock().await;
+        ApplicationServices::stop_status_monitor(&mut state)
+            .await
+            .unwrap();
+        state.monitor_exit = None;
+        state.cleanup_fault = Some(retained.clone());
+        state.status_monitor = Some(tokio::spawn(async {
+            panic!("actual later status monitor")
+        }));
+    }
+    tokio::task::yield_now().await;
+    let error = services.shutdown_status_monitor().await.unwrap_err();
+    let actual = {
+        let state = services.state.lock().await;
+        assert!(
+            state.status_monitor.is_none(),
+            "the real original join was consumed"
+        );
+        assert!(std::sync::Arc::ptr_eq(
+            state.cleanup_fault.as_ref().unwrap(),
+            &retained
+        ));
+        state
+            .monitor_exit
+            .as_ref()
+            .unwrap()
+            .as_ref()
+            .unwrap_err()
+            .clone()
+    };
+    let reported = error
+        .get_ref()
+        .unwrap()
+        .downcast_ref::<std::sync::Arc<tokio::task::JoinError>>()
+        .expect("shutdown returns the actual original monitor source");
+    assert!(std::sync::Arc::ptr_eq(reported, &actual));
+    assert!(!std::sync::Arc::ptr_eq(reported, &earlier));
+    // The separate dispatcher cleanup still executes all real native/worker
+    // cleanup and reports its independently retained earlier source.
+    assert!(services.shutdown_dispatcher().await.is_err());
+    assert!(!services.state.lock().await.network_generation_started);
+}
