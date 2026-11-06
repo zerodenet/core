@@ -29,10 +29,16 @@ async fn ordinary_vless_h2_and_upgrade_first_tls_await_retains_actual_taskless_n
                 .find(|owner|owner.observe().is_some_and(|state|state.slots().iter().any(|original|original.native().is_some_and(|native|!native.is_closed())))).unwrap();
             let observed=owner.observe().unwrap();assert_eq!(observed.retained(),1);
             let held=&observed.slots()[0];
-            assert!(held.driver().is_none() && held.auxiliary().is_none(),"same caller drives taskless TLS/H2, without an invented auxiliary/driver");
+            assert!(held.driver().is_none(),"TLS/H2 protocol has no detached driver");
+            let auxiliary=held.auxiliary().expect("actual retained preparation Aux").clone();
+            assert!(auxiliary.scope_identity().same_scope(&owner.bound().unwrap().scope_identity()));
+            assert!(!auxiliary.is_joined(),"actual TLS ServerHello wait remains pending in the original Aux");
+            assert!(!auxiliary.same_registration(&caller.task));
             let original=held.original().clone();assert!(original.closed().is_none());
             query.abort();assert!(query.await.unwrap_err().is_cancelled());
             tokio::time::timeout_at(deadline(),caller.task.wait()).await.unwrap().result().unwrap();
+            let joined=tokio::time::timeout_at(deadline(),auxiliary.wait_registration_released()).await.unwrap();
+            assert!(auxiliary.matches_joined(&joined)&&joined.registration_released());joined.result().unwrap();
             let closed=original.closed().expect("exact undelivered native closes without a later dial");
             assert!(original.matches_closed(&closed)&&closed.had_native_acquisition());
             tokio::time::timeout_at(deadline(),async {

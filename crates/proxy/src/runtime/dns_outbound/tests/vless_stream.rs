@@ -22,7 +22,7 @@ async fn ordinary_vless_h2_and_upgrade_dns_cancellation_retires_the_exact_taskle
                 let request=tokio::select! {request=dns.request()=>request,result=&mut query=>panic!("ordinary {kind} DNS failed before actual framed request: {result:?}")};
                 assert!(request.tcp,"existing UDP backend detour retains framed TCP wire");
                 let actual=pending(&proxy).await;let child=actual.original.as_ref().unwrap();
-                let donor=donor(child);
+                let donor=donor(&proxy,child);
                 for old in &originals {native_closed(old);assert!(!old.same_original(&donor));}
                 if cancel {query.abort();assert!(query.await.unwrap_err().is_cancelled());drop(request);}
                 else {request.answer(false,false);assert_eq!(query.await.unwrap().unwrap(),vec![IpAddress::V4([127,0,0,1])]);}
@@ -59,7 +59,7 @@ async fn ordinary_vless_h2_and_upgrade_dot_and_doh_keep_persistent_dns_driver_se
                         result=&mut query=>panic!("ordinary {kind} encrypted DNS failed before TLS request: {result:?}"),
                     };
                     let actual=pending(&proxy).await;let child=actual.original.as_ref().unwrap();
-                    let original=donor(child);
+                    let original=donor(&proxy,child);
                     if let Some(old)=&prior {
                         if doh {assert!(child.same_original(old.original.as_ref().unwrap())&&actual.task.same_registration(&old.task));}
                     }
