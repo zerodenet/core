@@ -98,6 +98,14 @@ impl SystemTunLease {
     pub(crate) fn owner(&self) -> Arc<InboundOwner> {
         self.owner.clone()
     }
+    /// Start concrete TUN preparation in this same already retained Scope.
+    /// The caller installs its original resource before registering any work.
+    pub(crate) fn preparation_tasks(
+        &self,
+    ) -> Result<zero_platform_tokio::contract::scope::TaskRegistrar, EngineError> {
+        self.owner.preparation_tasks()
+    }
+
     /// All child resources enter the same retained owner before spawn_driver
     /// snapshots it. Native identity is read only after the real start acquires.
     pub(crate) fn start(
