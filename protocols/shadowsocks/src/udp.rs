@@ -25,4 +25,6 @@ pub use outbound::{
 
 pub(crate) mod client;
 #[cfg(feature = "blake3")]
-mod session;
+pub(crate) mod session;
+#[cfg(feature = "blake3")]
+pub use session::{UdpBudgetLimits, UdpReplayBudget};

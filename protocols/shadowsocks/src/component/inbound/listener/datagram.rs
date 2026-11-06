@@ -14,14 +14,36 @@ type Responder = Arc<Mutex<crate::udp::ShadowsocksInboundUdpResponder>>;
 pub(super) struct Connection {
     peer: DatagramPeer,
     responder: Responder,
+    #[cfg(feature = "blake3")]
+    pin_error: Option<zero_core::Error>,
 }
 impl Connection {
     pub fn new(peer: DatagramPeer, responder: Responder) -> Self {
-        Self { peer, responder }
+        #[cfg(feature = "blake3")]
+        let pin_error = peer
+            .authenticated_association()
+            .map(|association| {
+                responder
+                    .lock()
+                    .unwrap_or_else(std::sync::PoisonError::into_inner)
+                    .pin_original_peer(association, peer.retirement())
+            })
+            .transpose()
+            .err();
+        Self {
+            peer,
+            responder,
+            #[cfg(feature = "blake3")]
+            pin_error,
+        }
     }
 }
 impl InboundHandshake for Connection {
     async fn complete(self, context: HandshakeContext) -> Result<AcceptedRequest, ChannelError> {
+        #[cfg(feature = "blake3")]
+        if let Some(error) = self.pin_error {
+            return Err(protocol(error));
+        }
         let connection = self.peer.connection_facts().map_err(io)?;
         let facts = connection.request(&context, ProtocolType::new("shadowsocks"), None, None)?;
         Ok(AcceptedRequest::Datagram(accept_datagram(Reply {
@@ -101,7 +123,7 @@ impl<'a> DatagramTx<InboundDatagramResponse<'a>, InboundDatagramReceipt> for Tx 
             let (client, datagram) = match prepared {
                 Ok(packet) => packet,
                 Err(error) => {
-                    return Poll::Ready(Err(SendFailure::new(error, DeliveryState::NotSubmitted)))
+                    return Poll::Ready(Err(SendFailure::new(error, DeliveryState::NotSubmitted)));
                 }
             };
             let tx = this.io.take().expect("one actual native sender");

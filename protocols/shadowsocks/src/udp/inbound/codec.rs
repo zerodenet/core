@@ -12,6 +12,10 @@ pub struct ShadowsocksInboundUdpCodec {
     identity_password: Option<Vec<u8>>,
     replay: crate::shared::legacy_replay::LegacyReplay,
     #[cfg(feature = "blake3")]
+    authenticated: Option<crate::udp::session::Charge>,
+    #[cfg(feature = "blake3")]
+    accepted_at: Option<tokio::time::Instant>,
+    #[cfg(feature = "blake3")]
     replay_windows: state::ReplaySessions,
     #[cfg(feature = "blake3")]
     responses: std::sync::Mutex<crate::udp::session::ResponseSessions>,
@@ -23,11 +27,39 @@ impl ShadowsocksInboundUdpCodec {
         self.limits = limits;
         #[cfg(feature = "blake3")]
         {
-            self.replay_windows = state::ReplaySessions::with_limits(limits);
-            self.responses =
-                std::sync::Mutex::new(crate::udp::session::ResponseSessions::with_limits(limits));
+            self.replay_windows = self.replay_windows.with_limits_view(limits);
+            self.responses
+                .get_mut()
+                .unwrap_or_else(std::sync::PoisonError::into_inner)
+                .set_limits(limits);
         }
         self
+    }
+    #[cfg(feature = "blake3")]
+    pub(super) fn udp_replay_budget(&self) -> std::sync::Arc<crate::udp::UdpReplayBudget> {
+        self.replay.udp_replay_budget()
+    }
+
+    #[cfg(feature = "blake3")]
+    pub(super) fn receiver_history(&self) -> crate::udp::session::ReceiveWindows {
+        self.replay_windows.original()
+    }
+    #[cfg(feature = "blake3")]
+    fn admit_authenticated(&mut self) -> Result<(), Error> {
+        self.accepted_at = Some(tokio::time::Instant::now());
+        if !self.cipher.is_stream() && self.authenticated.is_none() {
+            self.authenticated = Some(
+                self.replay
+                    .udp_replay_budget()
+                    .claim(crate::udp::session::BudgetUnit::AuthenticatedCodec)?,
+            );
+        }
+        Ok(())
+    }
+    #[cfg(feature = "blake3")]
+    pub(super) fn cache_expired(&self) -> bool {
+        self.accepted_at
+            .is_some_and(|accepted| accepted.elapsed() >= self.limits.udp_idle())
     }
     pub(super) fn touch_association(&mut self, id: Option<u64>) {
         #[cfg(not(feature = "blake3"))]
@@ -38,14 +70,42 @@ impl ShadowsocksInboundUdpCodec {
         }
     }
 
-    pub fn with_replay_policy(self, policy: crate::validation::ReplayPolicy) -> Self {
-        self.with_replay_guard(crate::shared::legacy_replay::LegacyReplay::new(
-            policy, true,
-        ))
+    #[cfg(feature = "blake3")]
+    pub(crate) fn with_receiver_history(
+        mut self,
+        original: crate::udp::session::ReceiveWindows,
+    ) -> Self {
+        self.replay_windows = state::ReplaySessions::from_original(original);
+        self
+    }
+    #[cfg(feature = "blake3")]
+    pub(crate) fn with_response_history(
+        mut self,
+        original: crate::udp::session::ResponseSessions,
+    ) -> Self {
+        self.responses = std::sync::Mutex::new(original);
+        self
+    }
+    #[cfg(feature = "blake3")]
+    pub(super) fn pin_receiver(
+        &self,
+        session: u64,
+        peer: zero_platform_tokio::contract::inbound::udp::DatagramPeerRetirement,
+    ) -> Result<(), Error> {
+        self.replay_windows.pin(session, peer.clone())?;
+        self.responses
+            .lock()
+            .map_err(|_| Error::Protocol("SS UDP response state poisoned"))?
+            .pin(session, peer)
+    }
+    pub fn with_replay_policy(mut self, policy: crate::validation::ReplayPolicy) -> Self {
+        self.replay = self.replay.clone().with_policy(policy);
+        self
     }
     pub(crate) fn with_replay_guard(
         mut self,
         replay: crate::shared::legacy_replay::LegacyReplay,
+        #[cfg(feature = "blake3")] authenticated: Option<crate::udp::session::Charge>,
     ) -> Self {
         self.replay = replay;
         self
@@ -68,6 +128,10 @@ impl ShadowsocksInboundUdpCodec {
             identity_password: None,
             replay: crate::shared::legacy_replay::LegacyReplay::new(Default::default(), true),
             #[cfg(feature = "blake3")]
+            authenticated: None,
+            #[cfg(feature = "blake3")]
+            accepted_at: None,
+            #[cfg(feature = "blake3")]
             replay_windows: state::ReplaySessions::default(),
             #[cfg(feature = "blake3")]
             responses: Default::default(),
@@ -88,6 +152,10 @@ impl ShadowsocksInboundUdpCodec {
             #[cfg(feature = "blake3")]
             identity_password: Some(identity_password.to_vec()),
             replay: crate::shared::legacy_replay::LegacyReplay::new(Default::default(), true),
+            #[cfg(feature = "blake3")]
+            authenticated: None,
+            #[cfg(feature = "blake3")]
+            accepted_at: None,
             #[cfg(feature = "blake3")]
             replay_windows: state::ReplaySessions::default(),
             #[cfg(feature = "blake3")]
@@ -116,6 +184,7 @@ impl ShadowsocksInboundUdpCodec {
                     ),
                 }?;
                 let (target, port, payload, client_session_id, packet_id) = decoded;
+                self.admit_authenticated()?;
                 if !self.replay_windows.accept(client_session_id, packet_id)? {
                     return Err(Error::Protocol("ss: udp replay rejected"));
                 }
@@ -137,6 +206,8 @@ impl ShadowsocksInboundUdpCodec {
             .decode(datagram)
             .ok_or(Error::Protocol("ss: udp datagram decode failed"))?;
         self.replay.check(&datagram[..self.cipher.salt_len()])?;
+        #[cfg(feature = "blake3")]
+        self.admit_authenticated()?;
         Ok(ShadowsocksInboundUdpPacket {
             target,
             port,

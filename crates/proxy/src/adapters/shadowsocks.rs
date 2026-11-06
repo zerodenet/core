@@ -32,12 +32,31 @@ impl Default for ShadowsocksAdapter {
         // is neither a per-profile cap nor a cap for UDP/Bloom security state.
         let budget = ::shadowsocks::ReplayBudget::new(Some(500_000))
             .expect("positive SS TCP2022 default budget");
+        let udp = ::shadowsocks::udp::UdpReplayBudget::with_limits(Default::default())
+            .expect("positive SS UDP receiver-window default budget");
         Self {
-            inbound_profiles: ShadowsocksInboundProfileStore::with_replay_budget(budget.clone()),
-            outbound_state: ::shadowsocks::transport::ShadowsocksTransportState::with_replay_budget(
-                budget,
+            inbound_profiles: ShadowsocksInboundProfileStore::with_replay_budgets(
+                budget.clone(),
+                udp.clone(),
             ),
+            outbound_state:
+                ::shadowsocks::transport::ShadowsocksTransportState::with_replay_budgets(
+                    budget, udp,
+                ),
         }
+    }
+}
+
+#[cfg(feature = "shadowsocks")]
+pub(crate) fn udp_budget_limits(
+    runtime: &zero_config::RuntimeOptionsConfig,
+) -> ::shadowsocks::udp::UdpBudgetLimits {
+    ::shadowsocks::udp::UdpBudgetLimits {
+        receiver_windows: runtime.effective_ss_udp_replay_max_windows(),
+        senders: runtime.effective_ss_udp_max_senders(),
+        associations: runtime.effective_ss_udp_max_associations(),
+        return_bindings: runtime.effective_ss_udp_max_return_bindings(),
+        authenticated_codecs: runtime.effective_ss_udp_max_authenticated_codecs(),
     }
 }
 
@@ -115,8 +134,16 @@ impl NamedProtocolAdapter for ShadowsocksAdapter {
     const PROTOCOL_NAME: &'static str = "shadowsocks";
     const FEATURE_NAME: &'static str = "shadowsocks";
 
-    fn validate_runtime_candidate(&self, config: &zero_config::RuntimeConfig) -> Result<(), zero_engine::EngineError> {
-        self.outbound_state.validate_tcp_replay_budget(config.runtime.effective_ss_tcp_replay_max_salts())
+    fn validate_runtime_candidate(
+        &self,
+        config: &zero_config::RuntimeConfig,
+    ) -> Result<(), zero_engine::EngineError> {
+        self.outbound_state
+            .validate_tcp_replay_budget(config.runtime.effective_ss_tcp_replay_max_salts())
+            .and_then(|()| {
+                self.outbound_state
+                    .validate_udp_budget(udp_budget_limits(&config.runtime))
+            })
             .map_err(|source| std::io::Error::other(source).into())
     }
     fn on_config_reloaded(&self, config: &zero_config::RuntimeConfig) {
