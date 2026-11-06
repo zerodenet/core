@@ -2,7 +2,10 @@ use super::*;
 use std::task::{Context, Poll};
 use zero_core::packet::IpPacket;
 use zero_platform_tokio::contract::{packet::PacketTx, DeliveryState, SendFailure, SendReceipt};
-pub(super) struct Tx(pub(super) Arc<Shared>);
+pub(super) struct Tx {
+    pub(super) shared: Arc<Shared>,
+    pub(super) _users: Arc<state::ViewUsers>,
+}
 impl PacketTx for Tx {
     fn poll_send(
         self: Pin<&mut Self>,
@@ -18,7 +21,7 @@ impl PacketTx for Tx {
         _: &mut Context<'_>,
         original: &mut Option<IpPacket>,
     ) -> Poll<Result<SendReceipt, SendFailure>> {
-        Poll::Ready(self.0.submit(original))
+        Poll::Ready(self.shared.submit(original))
     }
 }
 impl Shared {
@@ -49,7 +52,9 @@ impl Shared {
             .map_err(|source| rejected(failure(source)))?;
         let (device, local) = self.carrier.device(destination).map_err(rejected)?;
         let mtu = usize::from(plan.mtu());
-        let (sink, cookie) = self.sink(peer.peer_index, frame).map_err(rejected)?;
+        let (sink, cookie) = self
+            .sink(peer.peer_index, frame, &device)
+            .map_err(rejected)?;
         let response = if frame.payload().len() > mtu
             && !zero_stack::packet::ipv4_fragmentation_allowed(frame.payload())
         {
@@ -68,9 +73,11 @@ impl Shared {
         };
         if let Some(response) = response {
             if let Some(response) = response {
-                sink.try_send_buffer(response.into()).map_err(|source| {
-                    rejected(error(Stage::Send, Reason::Capacity).with_source(source))
-                })?;
+                device
+                    .queue_standard_reply(&sink, response.into())
+                    .map_err(|source| {
+                        rejected(error(Stage::Send, Reason::Capacity).with_source(source))
+                    })?;
             }
             let bytes = original
                 .take()

@@ -13,6 +13,25 @@ pub(crate) struct PacketFlowBorrow {
     pub(crate) observer: Option<Arc<dyn zero_traits::IoObserver>>,
 }
 impl SharedRawIpDevice {
+    pub(crate) fn open_standard_packet_user(
+        &self,
+        scope: &TaskScopeIdentity,
+        caller: TaskJoinWitness,
+    ) -> Result<
+        (
+            crate::runtime::packet_flow::FlowUser,
+            crate::runtime::packet_flow::PacketSourceClose,
+        ),
+        ChannelError,
+    > {
+        self.check_standard_scope(scope)?;
+        let users = self
+            .task
+            .flow_users()
+            .ok_or_else(|| ChannelError::new(Stage::Prepare, Reason::Revoked, Impact::Packet))?;
+        users.acquire_packet_source(caller)
+    }
+
     pub(crate) fn open_standard_datagram(
         &self,
         scope: &TaskScopeIdentity,

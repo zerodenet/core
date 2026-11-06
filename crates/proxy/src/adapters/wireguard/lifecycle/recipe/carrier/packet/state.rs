@@ -10,12 +10,16 @@ use zero_platform_tokio::contract::context::{ConnectObserver, PacketIoFact};
 use zero_stack::packet::PacketConversationKey;
 pub(super) struct Shared {
     pub(super) carrier: Arc<Carrier>,
+    pub(super) caller: zero_platform_tokio::contract::scope::TaskJoinWitness,
+    pub(super) users: std::sync::Weak<ViewUsers>,
     pub(super) facts: PacketFacts,
     pub(super) observer: Option<Arc<dyn ConnectObserver>>,
     pub(super) translate: bool,
     pub(super) cancel: CancellationToken,
     pub(super) state: Mutex<State>,
 }
+#[derive(Default)]
+pub(super) struct ViewUsers(Mutex<Vec<crate::runtime::packet_flow::FlowUser>>);
 #[derive(Default)]
 pub(super) struct State {
     pub(super) peers: Vec<Peer>,
@@ -27,6 +31,7 @@ pub(super) struct State {
 }
 pub(super) struct Peer {
     pub(super) id: usize,
+    closed: crate::runtime::packet_flow::PacketSourceClose,
     pub(super) tx: mpsc::Sender<zero_traits::PacketBuffer>,
     pub(super) rx: mpsc::Receiver<zero_traits::PacketBuffer>,
 }
@@ -41,6 +46,9 @@ impl Shared {
         for peer in &mut state.peers {
             peer.rx.close();
             while peer.rx.try_recv().is_ok() {}
+            // This session has no internal worker. Actual queues and mapping
+            // closure is distinct from its original shared Source main join.
+            peer.closed.close();
         }
         state.conversations.clear();
         state.sources.clear();
@@ -49,6 +57,7 @@ impl Shared {
         &self,
         peer: usize,
         frame: &IpPacket,
+        device: &crate::runtime::raw_ip::SharedRawIpDevice,
     ) -> Result<(zero_stack::packet_output::PacketSender, ReturnAssociation), ChannelError> {
         let source = zero_stack::packet::ip_source(frame.payload())
             .ok_or_else(|| error(Stage::Send, Reason::Protocol))?;
@@ -100,8 +109,20 @@ impl Shared {
         let index = match state.peers.iter().position(|entry| entry.id == peer) {
             Some(index) => index,
             None => {
+                let views = self
+                    .users
+                    .upgrade()
+                    .ok_or_else(|| error(Stage::Send, Reason::Revoked))?;
+                let (user, closed) =
+                    device.open_standard_packet_user(&self.carrier.scope, self.caller.clone())?;
                 let (tx, rx) = mpsc::channel(256);
-                state.peers.push(Peer { id: peer, tx, rx });
+                views.0.lock().unwrap().push(user);
+                state.peers.push(Peer {
+                    id: peer,
+                    tx,
+                    rx,
+                    closed,
+                });
                 state.peers.len() - 1
             }
         };

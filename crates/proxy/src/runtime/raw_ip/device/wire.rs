@@ -115,6 +115,10 @@ impl SharedRawIpDevice {
         options: super::super::RawIpStackOptions,
         task: Arc<workers::DeviceWorkers>,
     ) -> Result<Arc<Self>, EngineError> {
+        let returns = Arc::new(
+            PacketReturns::with_drop_observer(Some(Arc::new(options.traffic.clone())))
+                .with_limits(&options)?,
+        );
         let traffic = options.traffic;
         let (outbound, raw_packets) =
             mpsc::channel::<zero_stack::packet_output::ObservedPacket>(128);
@@ -136,9 +140,6 @@ impl SharedRawIpDevice {
             )
             .map_err(stack_tcp_error)?,
         );
-        let returns = Arc::new(PacketReturns::with_drop_observer(Some(Arc::new(
-            traffic.clone(),
-        ))));
         let closed = Arc::new(AtomicBool::new(false));
         let health = Arc::new(Mutex::new(DeviceHealth::default()));
         let (ready_tx, ready) = watch::channel(None);

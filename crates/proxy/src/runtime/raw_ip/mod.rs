@@ -17,7 +17,9 @@ pub(crate) use datagram::RawIpDatagramOperation;
 pub(crate) use device::{
     EndpointPacket, EndpointStackOwner, EndpointStackRecipe, SharedRawIpDevice,
 };
-pub(crate) use device::{PacketFlowBorrow, PacketReturns, PacketSubmission, ReturnSource};
+pub(crate) use device::{
+    PacketFlowBorrow, PacketReturnTotals, PacketReturns, PacketSubmission, ReturnSource,
+};
 pub(crate) use packet::RawIpPacketOperation;
 pub(crate) use pool::{RawIpDevicePool, StagedRawIpDevices, MAX_RAW_IP_DEVICES};
 
