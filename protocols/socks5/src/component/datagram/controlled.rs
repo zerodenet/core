@@ -48,12 +48,12 @@ impl Outbound {
             )
             .map_err(|error| self.admission.attach(error, session))?;
         let _preparing = Preparing(original.clone());
+        let view = parent.claim_transferred_view()?;
         if let Some(waiting) = context.upstream.observed_pending_carrier() {
             waiting
                 .retain(adoption.clone())
                 .map_err(|error| self.admission.attach(error, session))?;
         }
-        let view = parent.claim_transferred_view()?;
         // The physical control belongs to this association, including when it
         // serves packets from later business Sessions. Logical role facts above
         // still retain the real caller's business identity and accounting.
@@ -83,14 +83,14 @@ impl Outbound {
             .reserve()
             .map_err(|error| self.admission.attach(error, session))?;
         let child_adoption = child.adoption();
+        child.link_related_datagram(&adoption)?;
+        let view = child.claim_transferred_view()?;
         original.install_child(child_adoption.clone());
         if let Some(waiting) = context.upstream.observed_pending_carrier() {
             waiting
                 .retain(child_adoption)
                 .map_err(|error| self.admission.attach(error, session))?;
         }
-        child.link_related_datagram(&adoption)?;
-        let view = child.claim_transferred_view()?;
         let opening = async {
             let candidates = context
                 .upstream

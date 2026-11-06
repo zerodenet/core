@@ -177,8 +177,23 @@ impl ClientPool {
         let username = key.username.clone();
         let password = key.password.clone();
         let udp = key.udp;
+        // The real selected owner graph bounds pending cleanup metadata.
+        // A prefix role can own multiple actual originals (SOCKS control+UDP),
+        // so counting role IDs is not an original-resource budget.
+        let pending_limit = match &waiting {
+            Some(waiting) => waiting
+                .capacity()
+                .filter(|limit| *limit != 0)
+                .ok_or_else(|| {
+                    io::Error::new(
+                        io::ErrorKind::InvalidInput,
+                        "actual Mieru pending caller has no declared original capacity",
+                    )
+                })?,
+            None => 0,
+        };
         let opening=self.open_with_connection(key, || {
-            let lease = state.reserve_with_pending_limit(upstream.binding().prefix.len());
+            let lease = state.reserve_with_pending_limit(pending_limit);
             let state = state.clone();
             let upstream=upstream.clone();
             let grants=grants.clone();

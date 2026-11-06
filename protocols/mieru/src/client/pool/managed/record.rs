@@ -220,6 +220,10 @@ pub(crate) struct PendingCarriers {
     record: Arc<CarrierRecord>,
 }
 impl PendingCarriers {
+    pub(crate) fn capacity(&self) -> Option<usize> {
+        let record = self.record.0.lock().unwrap();
+        (!record.finished && record.attempted && record.adoption.is_some()).then_some(self.record.2)
+    }
     /// Actual foreign cleanup authority is bounded by this selected prefix's
     /// role count. It never substitutes for this pool record's root original.
     pub(crate) fn retain_pending(

@@ -310,6 +310,12 @@ impl UpstreamOpener for Opener {
     fn has_pending_carrier_observer(&self) -> bool {
         self.upstream.observed_pending_carrier().is_some()
     }
+    fn pending_carrier_capacity(&self, binding: &UpstreamBinding) -> Option<usize> {
+        if binding != self.upstream.binding() {
+            return None;
+        }
+        self.upstream.pending_carrier_capacity()
+    }
     fn retain_pending_carrier(
         &self,
         binding: &UpstreamBinding,
