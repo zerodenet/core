@@ -9,6 +9,7 @@ mod returns;
 mod session_tcp;
 mod session_udp;
 mod standard;
+pub(crate) use standard::PacketFlowBorrow;
 mod standard_packet;
 pub(crate) use returns::ReturnSource;
 pub(crate) use standard_packet::PacketSubmission;

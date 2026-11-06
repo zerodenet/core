@@ -12,13 +12,32 @@ impl DynStreamOutbound for Carrier {
     ) -> BoxFuture<'_, Result<Connected<BoxStream>, ChannelError>> {
         Box::pin(async move {
             context.session_identity()?;
-            self.origin()?;
+            let original = self.origin()?;
             let peer = self.resolve(&request.destination, &context).await?;
             let (device, local) = self.device(peer.ip())?;
+            let borrowed = self.flow_borrow(&context)?;
+            let caller = borrowed.caller.clone();
+            let connected =
+                device.open_standard_stream(&self.scope, local, peer, context.clone(), borrowed)?;
             self.observe_peer(peer.ip(), &context)?;
-            let connected = device.open_standard_stream(&self.scope, local, peer, context)?;
+            let io = connected.io.establish().await?;
+            let current = self.origin().and_then(|current| {
+                if !current.same_original(&original)
+                    || !self
+                        .flow_borrow(&context)?
+                        .caller
+                        .same_registration(&caller)
+                {
+                    return Err(error(Stage::Dial, Reason::StalePlan));
+                }
+                Ok(())
+            });
+            if let Err(source) = current {
+                io.close_failed().await;
+                return Err(source);
+            }
             Ok(Connected {
-                io: Box::pin(connected.io.establish().await?) as BoxStream,
+                io: Box::pin(io) as BoxStream,
                 peer_confirmation:
                     zero_platform_tokio::contract::stream::PeerConfirmation::Confirmed,
             })
@@ -34,8 +53,10 @@ impl DynStreamOutbound for Carrier {
             let original = self.origin()?;
             let peer = self.resolve(&request.destination, &context).await?;
             let (device, local) = self.device(peer.ip())?;
+            let borrowed = self.flow_borrow(&context)?;
+            let connected =
+                device.open_standard_stream(&self.scope, local, peer, context.clone(), borrowed)?;
             self.observe_peer(peer.ip(), &context)?;
-            let connected = device.open_standard_stream(&self.scope, local, peer, context)?;
             Ok(Connected {
                 io: connected.io.into_loan(original),
                 peer_confirmation: connected.peer_confirmation,
