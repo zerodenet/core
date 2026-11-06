@@ -1,11 +1,18 @@
 use tokio::net::{TcpListener, TcpStream};
+#[path = "process_lookup/owned.rs"]
+mod owned;
+use owned::LookupCaller;
 
 async fn wait_for_tcp_process(
+    caller: &mut LookupCaller,
     source: std::net::SocketAddr,
 ) -> Option<zero_platform_tokio::LocalProcessInfo> {
     let deadline = tokio::time::Instant::now() + std::time::Duration::from_secs(1);
     loop {
-        if let Some(process) = zero_platform_tokio::lookup_local_tcp_process(source).await {
+        if let Some(process) = caller
+            .lookup(source, zero_platform_tokio::LocalProcessTransport::Tcp)
+            .await
+        {
             return Some(process);
         }
         if tokio::time::Instant::now() >= deadline {
@@ -31,12 +38,14 @@ async fn resolves_the_process_that_owns_a_live_tcp_source() {
     // Kernel socket-owner tables can lag immediately behind connect/accept.
     // Keep the live sockets open and wait briefly for the platform snapshot
     // instead of making the integration test depend on instant publication.
-    let process = wait_for_tcp_process(source)
+    let mut caller = LookupCaller::new().await;
+    let process = wait_for_tcp_process(&mut caller, source)
         .await
         .expect("live TCP source must resolve to its owning process");
     assert_eq!(process.pid, std::process::id());
     assert!(process.name.as_deref().is_some_and(|name| !name.is_empty()));
     assert!(process.path.as_deref().is_some_and(|path| !path.is_empty()));
+    caller.finish().await;
 }
 
 #[tokio::test]
@@ -47,12 +56,15 @@ async fn resolves_the_process_that_owns_a_bound_udp_source() {
         .expect("bind UDP source");
     let source = socket.local_addr().expect("UDP source");
 
-    let process = zero_platform_tokio::lookup_local_udp_process(source)
+    let mut caller = LookupCaller::new().await;
+    let process = caller
+        .lookup(source, zero_platform_tokio::LocalProcessTransport::Udp)
         .await
         .expect("bound UDP source must resolve to its owning process");
     assert_eq!(process.pid, std::process::id());
     assert!(process.name.as_deref().is_some_and(|name| !name.is_empty()));
     assert!(process.path.as_deref().is_some_and(|path| !path.is_empty()));
+    caller.finish().await;
 }
 
 #[tokio::test]
@@ -65,8 +77,11 @@ async fn resolves_ipv6_tcp_and_udp_sources() {
         .expect("connect IPv6 client");
     let tcp_source = client.local_addr().expect("IPv6 TCP source");
     let (_accepted, _) = listener.accept().await.expect("accept IPv6 client");
+    let mut caller = LookupCaller::new().await;
     assert_eq!(
-        wait_for_tcp_process(tcp_source).await.map(|info| info.pid),
+        wait_for_tcp_process(&mut caller, tcp_source)
+            .await
+            .map(|info| info.pid),
         Some(std::process::id())
     );
 
@@ -78,9 +93,11 @@ async fn resolves_ipv6_tcp_and_udp_sources() {
         udp.local_addr().expect("IPv6 UDP source").port(),
     );
     assert_eq!(
-        zero_platform_tokio::lookup_local_udp_process(udp_source)
+        caller
+            .lookup(udp_source, zero_platform_tokio::LocalProcessTransport::Udp)
             .await
             .map(|info| info.pid),
         Some(std::process::id())
     );
+    caller.finish().await;
 }
