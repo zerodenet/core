@@ -1,3 +1,4 @@
+mod native;
 //! The original SDK reader's own reversible wake event, not a watcher/thread.
 use crate::packet_memory::NativeReadGrant;
 use std::{
@@ -29,6 +30,8 @@ struct State {
     request: Option<u64>,
     acknowledged: Option<u64>,
     closed: bool,
+    close_unknown: Option<Arc<io::Error>>,
+    signal_fault: Option<Arc<io::Error>>,
 }
 pub struct OwnedWintunReadPause {
     control: OwnedWintunReadControl,
@@ -47,6 +50,8 @@ impl OwnedWintunReadControl {
                 request: None,
                 acknowledged: None,
                 closed: false,
+                close_unknown: None,
+                signal_fault: None,
             }),
             changed: Notify::new(),
             blocking: Condvar::new(),
@@ -59,6 +64,9 @@ impl OwnedWintunReadControl {
     /// registered that original blocking task. Preparation remains non-native.
     pub(super) fn activate(&self) -> io::Result<bool> {
         let mut state = self.state();
+        if let Some(source) = &state.close_unknown {
+            return Err(super::super::shared(source.clone()));
+        }
         if state.stopped || state.closed {
             return Ok(false);
         }
@@ -84,7 +92,10 @@ impl OwnedWintunReadControl {
             .unwrap_or_else(std::sync::PoisonError::into_inner)
     }
     fn signal(&self) -> io::Result<()> {
-        let state = self.state();
+        let mut state = self.state();
+        if let Some(source) = &state.close_unknown {
+            return Err(super::super::shared(source.clone()));
+        }
         let Some(raw) = state.event else {
             // Before this same task activates, there is no native event wait.
             // The session/grant Condvars below still wake its real bootstrap.
@@ -101,7 +112,9 @@ impl OwnedWintunReadControl {
         // SetEvent only wakes its real wait, never asserts a payload or receipt.
         let result = unsafe { SetEvent(raw as HANDLE) };
         if result == 0 {
-            Err(io::Error::last_os_error())
+            let source = Arc::new(io::Error::last_os_error());
+            state.signal_fault.get_or_insert_with(|| source.clone());
+            Err(super::super::shared(source))
         } else {
             Ok(())
         }
@@ -201,13 +214,8 @@ impl OwnedWintunReadControl {
     /// Wait on the borrowed SDK data event and this original control event.
     /// The SDK event is never closed/reset by this owner.
     pub(super) fn wait(&self, session: &wintun::Session) -> io::Result<()> {
+        let event = self.wait_handle()?;
         let read = session.get_read_wait_event().map_err(io::Error::from)?;
-        let event = self.state().event.ok_or_else(|| {
-            io::Error::new(
-                io::ErrorKind::BrokenPipe,
-                "original reader wake event closed",
-            )
-        })?;
         let handles = [read.0 as HANDLE, event as HANDLE];
         // SAFETY: both originals outlive this actual reader; the host consumes
         // its real Scope join before it can close this control or the SDK session.
@@ -223,30 +231,22 @@ impl OwnedWintunReadControl {
         }
         Ok(())
     }
-    pub(in crate::windows::owned) fn close(&self) -> io::Result<()> {
-        let mut state = self.state();
-        if !state.stopped {
-            return Err(io::Error::new(
-                io::ErrorKind::WouldBlock,
-                "same original reader has not stopped",
-            ));
+    fn wait_handle(&self) -> io::Result<usize> {
+        let state = self.state();
+        if let Some(source) = &state.close_unknown {
+            return Err(super::super::shared(source.clone()));
         }
-        let Some(event) = state.event else {
-            state.closed = true;
-            return Ok(());
-        };
-        // SAFETY: the owner calls only after the original reader body returned;
-        // runtime additionally requires its actual blocking TaskJoinWitness.
-        if unsafe { CloseHandle(event as HANDLE) } == 0 {
-            return Err(io::Error::last_os_error());
-        }
-        state.event = None;
-        state.closed = true;
-        Ok(())
+        state.event.ok_or_else(|| {
+            io::Error::new(
+                io::ErrorKind::BrokenPipe,
+                "original reader wake event closed",
+            )
+        })
     }
-    pub(in crate::windows::owned) fn is_open(&self) -> bool {
-        self.state().event.is_some()
+    pub fn signal_failure(&self) -> Option<Arc<io::Error>> {
+        self.state().signal_fault.clone()
     }
+
 }
 impl Drop for OwnedWintunReadPause {
     fn drop(&mut self) {

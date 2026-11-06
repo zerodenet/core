@@ -60,7 +60,7 @@ impl OwnedWintunOwner {
                 } else {
                     if let Some(reader) = &mut state.prepared_reader {
                         if reader.event_close.is_none() {
-                            reader.event_close = Some(reader.control.close().map_err(Arc::new));
+                            reader.event_close = Some(reader.control.close());
                         }
                     }
                     if let Some(reader) = state.reader.take() {
