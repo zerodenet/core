@@ -90,6 +90,8 @@ pub(crate) trait RawIpWireCarrier: Send + Sync {
     async fn send(&self, packet: &[u8], endpoint: SocketAddr) -> io::Result<()>;
 }
 
+mod hosted;
+pub(crate) use hosted::HostedRawIpWireCarrier;
 mod direct;
 pub(crate) use direct::DirectRawIpWireCarrier;
 

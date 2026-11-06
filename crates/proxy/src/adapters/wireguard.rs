@@ -46,6 +46,7 @@ pub(crate) struct WireguardAdapter {
 }
 
 struct CachedProfile {
+    graph: Option<std::sync::Weak<lifecycle::StandaloneStackOptions>>,
     packet: crate::runtime::packet_route::PacketRouteOperations,
     identity: [u8; 32],
     device_identity: [u8; 32],

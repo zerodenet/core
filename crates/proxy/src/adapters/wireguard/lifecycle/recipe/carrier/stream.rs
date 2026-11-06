@@ -12,9 +12,9 @@ impl DynStreamOutbound for Carrier {
     ) -> BoxFuture<'_, Result<Connected<BoxStream>, ChannelError>> {
         Box::pin(async move {
             context.session_identity()?;
-            let original = self.origin()?;
-            let acquiring = original.try_enter_packet_source()?;
+            let acquiring = self.acquisition()?;
             let peer = self.resolve(&request.destination, &context).await?;
+            let original = self.origin_for(peer.ip())?;
             let (device, local) = self.device(peer.ip())?;
             let borrowed = self.flow_borrow(&context)?;
             let caller = borrowed.caller.clone();
@@ -25,7 +25,7 @@ impl DynStreamOutbound for Carrier {
             drop(acquiring);
             self.observe_peer(peer.ip(), &context)?;
             let io = connected.io.establish().await?;
-            let current = self.origin().and_then(|current| {
+            let current = self.origin_for(peer.ip()).and_then(|current| {
                 if !current.same_original(&original)
                     || !self
                         .flow_borrow(&context)?
@@ -54,9 +54,9 @@ impl DynStreamOutbound for Carrier {
     ) -> BoxFuture<'_, Result<Connected<StreamLoan>, ChannelError>> {
         Box::pin(async move {
             context.session_identity()?;
-            let original = self.origin()?;
-            let acquiring = original.try_enter_packet_source()?;
+            let acquiring = self.acquisition()?;
             let peer = self.resolve(&request.destination, &context).await?;
+            let original = self.origin_for(peer.ip())?;
             let (device, local) = self.device(peer.ip())?;
             let borrowed = self.flow_borrow(&context)?;
             let connected =

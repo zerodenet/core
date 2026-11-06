@@ -10,9 +10,31 @@ use zero_platform_tokio::contract::{
 };
 pub(crate) struct LinkedOutboundFactory;
 pub(crate) struct LinkedOutboundOptions {
-    graph: Arc<component::LinkedStackOptions>,
+    graph: super::carrier::Graph,
     spec: ComponentSpec,
     dependency: ComponentId,
+}
+impl LinkedOutboundOptions {
+    pub(in crate::adapters::wireguard::lifecycle) fn standalone(
+        graph: Arc<super::super::standalone::StandaloneStackOptions>,
+    ) -> Result<Self, ChannelError> {
+        let dependency = *graph
+            .resource
+            .get()
+            .ok_or_else(|| error(Reason::StalePlan))?;
+        Ok(Self {
+            spec: ComponentSpec {
+                owner: ResourceOwner::Component,
+                roles: vec![RoleKind::Packet, RoleKind::Stream, RoleKind::Datagram],
+                dependencies: vec![dependency],
+                static_identity: graph.spec.static_identity.clone(),
+                resources: vec![],
+                task_limit: None,
+            },
+            graph: super::carrier::Graph::Standalone(graph),
+            dependency,
+        })
+    }
 }
 impl WireguardAdapter {
     pub(crate) fn linked_outbound_options(
@@ -20,6 +42,16 @@ impl WireguardAdapter {
         outbound: &OutboundConfig,
         resources: &mut crate::component::ResourcePreparation<'_>,
     ) -> Result<LinkedOutboundOptions, ChannelError> {
+        if matches!(
+            outbound.protocol,
+            OutboundProtocolConfig::Wireguard {
+                inbound_tag: None,
+                outer_udp_proxy: None,
+                ..
+            }
+        ) {
+            return self.standalone_outbound_options(outbound, resources);
+        }
         let OutboundProtocolConfig::Wireguard {
             inbound_tag: Some(tag),
             outer_udp_proxy: None,
@@ -71,7 +103,7 @@ impl WireguardAdapter {
             identity.update(encoded);
         }
         Ok(LinkedOutboundOptions {
-            graph,
+            graph: super::carrier::Graph::Linked(graph),
             dependency,
             spec: ComponentSpec {
                 owner: ResourceOwner::Component,
@@ -97,12 +129,13 @@ impl ComponentFactory for LinkedOutboundFactory {
         if context.dependencies.len() != 1 || context.dependency(options.dependency).is_none() {
             return Err(error(Reason::StalePlan));
         }
-        let carrier = options
-            .graph
-            .carrier
-            .get()
-            .and_then(std::sync::Weak::upgrade)
-            .ok_or_else(|| error(Reason::Revoked))?;
+        let carrier = match &options.graph {
+            super::carrier::Graph::Linked(graph) => &graph.carrier,
+            super::carrier::Graph::Standalone(graph) => &graph.carrier,
+        }
+        .get()
+        .and_then(std::sync::Weak::upgrade)
+        .ok_or_else(|| error(Reason::Revoked))?;
         Ok(ComponentInstance {
             roles: ComponentRoles {
                 stream: Some(carrier.clone()),
@@ -171,26 +204,54 @@ impl WireguardAdapter {
         &self,
         config: &zero_config::RuntimeConfig,
     ) -> Vec<zero_platform_tokio::controlled_carrier::CarrierOrigin> {
-        let links = self.linked_endpoints.lock().unwrap();
-        config
-            .outbounds
+        let links = self.linked_endpoints.lock().unwrap().clone();
+        let roots = self
+            .profiles
+            .lock()
+            .unwrap()
             .iter()
-            .filter_map(|outbound| {
-                let OutboundProtocolConfig::Wireguard {
+            .filter_map(|(tag, profile)| {
+                profile
+                    .graph
+                    .as_ref()
+                    .and_then(std::sync::Weak::upgrade)
+                    .map(|root| (tag.clone(), root))
+            })
+            .collect::<std::collections::HashMap<_, _>>();
+        let mut originals = Vec::new();
+        for outbound in &config.outbounds {
+            match &outbound.protocol {
+                OutboundProtocolConfig::Wireguard {
                     inbound_tag: Some(tag),
                     outer_udp_proxy: None,
                     ..
-                } = &outbound.protocol
-                else {
-                    return None;
-                };
-                links
-                    .get(tag)?
-                    .owned_resources()?
-                    .test_actual_graph()?
-                    .test_actual_origin()
-            })
-            .collect()
+                } => {
+                    if let Some(origin) = links
+                        .get(tag)
+                        .and_then(|link| link.owned_resources())
+                        .and_then(|resources| resources.test_actual_graph())
+                        .and_then(|root| root.test_actual_origin())
+                    {
+                        originals.push(origin);
+                    }
+                }
+                OutboundProtocolConfig::Wireguard {
+                    inbound_tag: None,
+                    outer_udp_proxy: None,
+                    ..
+                } => {
+                    if let Some(root) = roots.get(&outbound.tag) {
+                        for peer in 0..root.peers.len() {
+                            if let Ok(origin) = root.original(peer) {
+                                originals.push(zero_platform_tokio::controlled_carrier::CarrierOrigin::from_listener(origin));
+                            }
+                        }
+                    }
+                }
+                _ => {}
+            }
+        }
+        originals
     }
 }
 
