@@ -2,6 +2,7 @@
 //! No new backend I/O starts here. Host supplies actual changed detour dependencies.
 use super::*;
 use std::{collections::BTreeSet, sync::atomic::AtomicBool};
+mod donor_pause;
 mod prepare;
 
 pub(super) struct PreparedDnsReload {
@@ -12,6 +13,7 @@ pub(super) struct PreparedDnsReload {
     retired: AtomicBool,
     generation: u64,
     unchanged: bool,
+    donor_pause: std::sync::Mutex<Option<Arc<crate::DnsDonorPause>>>,
 }
 /// A token for one actual prepared DNS candidate. It contains no synthetic
 /// resource identity and is valid only for the DNS system that prepared it.
@@ -282,7 +284,9 @@ impl DnsSystem {
                 ));
             }
             drop(inner);
-            prepared.take();
+            let retired = prepared.take();
+            drop(prepared);
+            drop(retired);
             return Ok(());
         }
         let state_lease = if token
@@ -315,7 +319,9 @@ impl DnsSystem {
             *inner = new_inner;
             self.config_generation.fetch_add(1, Ordering::AcqRel);
         }
-        prepared.take();
+        let retired = prepared.take();
+        drop(prepared);
+        drop(retired);
         Ok(())
     }
     pub fn commit_prepared_reload(&self) -> io::Result<()> {
@@ -324,10 +330,13 @@ impl DnsSystem {
     /// Discarding a retired candidate does not revive closed pools. Recovery
     /// prepares the previous config again and builds its retired backends anew.
     pub fn discard_prepared_reload(&self) {
-        self.prepared_reload
+        let retired = self
+            .prepared_reload
             .lock()
             .expect("DNS prepared reload lock poisoned")
             .take();
+        // Query pause/provider destructors never run under the token mutex.
+        drop(retired);
     }
 }
 

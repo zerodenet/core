@@ -36,6 +36,15 @@ struct DoqOwners {
     owners: Vec<Arc<DoqEndpointOwner>>,
 }
 impl TransportOwners {
+    #[cfg(feature = "doh")]
+    pub(crate) fn actual_doh_owners(&self) -> Vec<Arc<DohDriverOwner>> {
+        self.doh
+            .lock()
+            .expect("DNS DoH owners poisoned")
+            .owners
+            .clone()
+    }
+
     pub(crate) async fn shutdown_host_pools(
         &self,
         tasks: &crate::OwnedDnsQueryTasks,

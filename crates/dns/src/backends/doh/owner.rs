@@ -2,6 +2,7 @@
 //! slot count; an obsolete connection and its users drain before replacement.
 mod lifecycle;
 mod native;
+mod quiescence;
 use super::{
     client::{ClientState, DohClient},
     *,
@@ -92,7 +93,7 @@ impl State {
             }
         }
         self.native.retain(|client| {
-            !client.native.get().is_some_and(|native| native.closed())
+            !client.native.get().is_some_and(|native| native.retired())
                 || client.leases.load(std::sync::atomic::Ordering::Acquire) != 0
         });
         self.users
@@ -153,7 +154,7 @@ impl DriverOwner {
         let state = self.state.lock().expect("DoH driver owner poisoned");
         !state.closing
             && match &state.mode {
-                PoolMode::Host(tasks) => tasks.ensure_open().is_ok(),
+                PoolMode::Host(tasks) => tasks.ensure_resource_open().is_ok(),
                 _ => true,
             }
     }

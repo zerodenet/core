@@ -2,8 +2,8 @@
 use super::*;
 use crate::native::{Attempt, NativeDnsProvider};
 use std::sync::{
-    atomic::{AtomicBool, Ordering},
     Mutex, OnceLock,
+    atomic::{AtomicBool, Ordering},
 };
 use tokio::time::Instant;
 use zero_platform_tokio::{contract::scope::TaskJoinWitness, controlled_carrier::loan::LoanOwner};
@@ -13,10 +13,46 @@ pub(super) struct NativeClient {
     pub(super) original: tokio::sync::Mutex<Option<LoanOwner>>,
     provider: Mutex<Option<Arc<dyn NativeDnsProvider>>>,
     closed: AtomicBool,
+    // Read-only facts copied only from this actual canonical provider/loan.
+    host_instance: Option<zero_core::component::ComponentInstanceId>,
+    origin: OnceLock<zero_platform_tokio::controlled_carrier::CarrierOrigin>,
 }
 impl NativeClient {
+    pub(in super::super) fn retained_instances(
+        &self,
+    ) -> io::Result<Vec<zero_core::component::ComponentInstanceId>> {
+        if self.retired() {
+            return Ok(Vec::new());
+        }
+        let instance = self
+            .host_instance
+            .ok_or_else(|| io::Error::other("actual DoH host Scope unavailable"))?;
+        let mut result = std::collections::BTreeSet::from([instance]);
+        let mut parent = self.origin.get();
+        while let Some(origin) = parent {
+            result.insert(origin.instance());
+            parent = origin.parent();
+        }
+        Ok(result.into_iter().collect())
+    }
+    pub(super) fn retired(&self) -> bool {
+        self.closed()
+            && self.task.get().is_some_and(|task| {
+                task.try_joined().is_some_and(|joined| {
+                    task.matches_joined(&joined) && joined.registration_released()
+                })
+            })
+    }
+    pub(in super::super) fn record_original(&self, owner: &LoanOwner) -> io::Result<()> {
+        self.origin
+            .set(owner.original().clone())
+            .map_err(|_| io::Error::other("actual DoH loan origin already installed"))
+    }
     pub(super) fn new(provider: Arc<dyn NativeDnsProvider>) -> Self {
+        let host_instance = provider.host_scope().map(|(instance, _)| instance);
         Self {
+            host_instance,
+            origin: OnceLock::new(),
             task: OnceLock::new(),
             original: Default::default(),
             provider: Mutex::new(Some(provider)),

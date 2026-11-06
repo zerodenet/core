@@ -5,10 +5,10 @@ use std::{
     num::NonZeroUsize,
     sync::{Arc, Mutex, OnceLock},
 };
-use tokio::sync::{oneshot, Notify, OwnedSemaphorePermit, Semaphore};
+use tokio::sync::{Notify, OwnedSemaphorePermit, Semaphore, oneshot};
 use zero_platform_tokio::contract::{
-    scope::{TaskClass, TaskId, TaskJoinWitness, TaskRegistrar, WeakTaskRegistrar},
     CancellationToken, ChannelError,
+    scope::{TaskClass, TaskId, TaskJoinWitness, TaskRegistrar, WeakTaskRegistrar},
 };
 
 tokio::task_local! {
@@ -26,6 +26,8 @@ mod lifecycle;
 pub use faults::{OwnedDnsQueryFault, OwnedDnsQueryFaults};
 mod network;
 mod observation;
+mod quiescence;
+pub(crate) use quiescence::QueryPause;
 mod retirement;
 pub(crate) use retirement::Retirement;
 mod spawn;
@@ -51,6 +53,7 @@ struct Shared {
 #[derive(Debug, Default)]
 struct State {
     closing: bool,
+    pauses: usize,
     identity_fault: bool,
     records: Vec<Arc<Record>>,
     first_failure: Option<Arc<ChannelError>>,
@@ -217,9 +220,7 @@ impl OwnedDnsQueryTasks {
             )
         })
     }
-    pub(crate) fn ensure_open(&self) -> io::Result<()> {
-        self.reap();
-        let state = self.0.state.lock().expect("DNS query tasks poisoned");
+    fn check_resource_open(&self, state: &State) -> io::Result<()> {
         if let Some(source) = &state.first_failure {
             return Err(io::Error::other(source.clone()));
         }
@@ -227,6 +228,26 @@ impl OwnedDnsQueryTasks {
             return Err(io::Error::new(
                 io::ErrorKind::NotConnected,
                 "DNS query tasks are closing",
+            ));
+        }
+        Ok(())
+    }
+    // A temporary query admission pause does not retire the actual backend;
+    // cold prepare/commit may preserve unrelated same-Scope live resources.
+    #[cfg(feature = "doh")]
+    pub(crate) fn ensure_resource_open(&self) -> io::Result<()> {
+        self.reap();
+        let state = self.0.state.lock().expect("DNS query tasks poisoned");
+        self.check_resource_open(&state)
+    }
+    pub(crate) fn ensure_open(&self) -> io::Result<()> {
+        self.reap();
+        let state = self.0.state.lock().expect("DNS query tasks poisoned");
+        self.check_resource_open(&state)?;
+        if state.pauses != 0 {
+            return Err(io::Error::new(
+                io::ErrorKind::WouldBlock,
+                "actual DNS query admission paused",
             ));
         }
         Ok(())
