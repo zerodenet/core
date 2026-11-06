@@ -1,5 +1,6 @@
 //! Fixed-target VLESS UDP framing over the same actual pooled gRPC controller.
 mod control;
+mod response;
 mod rx;
 mod tx;
 use super::factory::Outbound;
@@ -114,11 +115,7 @@ impl DatagramOutbound for Outbound {
         }
         // The existing UDP tunnel waits for the actual VLESS response header;
         // gRPC establishment is not destination acceptance.
-        let response=tokio::select! {biased;
-            _=self.admission.cancelled()=>return Err(self.admission.error(session,Stage::Handshake,Reason::Revoked,DeliveryState::Unknown)),
-            _=context.cancel.cancelled()=>return Err(self.admission.error(session,Stage::Handshake,Reason::Cancelled,DeliveryState::Unknown)),
-            result=with_deadline(context.deadline,crate::shared::read_response_len(&mut io))=>result.map_err(|source|self.admission.error(session,Stage::Handshake,Reason::Timeout,DeliveryState::Unknown).with_source(source))?,
-        }.map_err(|source|self.admission.error(session,Stage::Handshake,Reason::Protocol,DeliveryState::Unknown).with_source(source))?;
+        let response = response::read(&mut io, &context, &self.admission, session).await?;
         if let Some(observer) = &context.observer {
             observer.record(session, ConnectFact::PeerConfirmed);
             observer.protocol_traffic(session, response as u64, 0);
