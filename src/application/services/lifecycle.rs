@@ -112,8 +112,11 @@ impl ApplicationServices {
     pub(super) fn retire_hooks(&self, state: &mut ApplicationServiceState) -> Result<(), String> {
         for hooks in [&mut state.pending_hooks, &mut state.hooks] {
             if let Some(originals) = hooks.as_mut() {
-                if let Err(error) = originals.retire() {
-                    state.cleanup_fault.get_or_insert_with(|| Arc::new(error));
+                match originals.retire() {
+                    Ok(()) => *hooks = None,
+                    Err(error) => {
+                        state.cleanup_fault.get_or_insert_with(|| Arc::new(error));
+                    }
                 }
             }
         }
@@ -122,9 +125,24 @@ impl ApplicationServices {
                 "original application cleanup remains unresolved: {error}"
             ));
         }
-        state.pending_hooks = None;
-        state.hooks = None;
         Ok(())
+    }
+
+    /// Read actual retirement separately from the retained failure returned to
+    /// the supervisor. An observed panic must not become permanent join debt.
+    pub(in crate::application) async fn service_retirement_complete(&self) -> bool {
+        let state = self.state.lock().await;
+        if state.hooks.is_some() || state.pending_hooks.is_some() {
+            return false;
+        }
+        #[cfg(feature = "event-dispatcher")]
+        if state.status_monitor.is_some()
+            || state.dispatcher.is_some()
+            || state.network_generation_started
+        {
+            return false;
+        }
+        true
     }
 
     #[cfg(feature = "event-dispatcher")]

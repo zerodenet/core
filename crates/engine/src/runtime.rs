@@ -304,6 +304,12 @@ impl Engine {
         self.principal_quotas.shutdown()
     }
 
+    /// Actual registration return, persistence worker join and original-file
+    /// closure, independent of a retained terminal persistence failure.
+    pub fn principal_quota_retirement_complete(&self) -> bool {
+        self.principal_quotas.retirement_complete()
+    }
+
     /// UNIX epoch milliseconds when this engine was created.
     pub fn started_at_unix_ms(&self) -> u64 {
         self.started_at_unix_ms

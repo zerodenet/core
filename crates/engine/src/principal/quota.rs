@@ -206,6 +206,31 @@ impl PrincipalQuotaRegistry {
             .map_or(Ok(()), |owner| owner.shutdown())
     }
 
+    pub(crate) fn retirement_complete(&self) -> bool {
+        if !self.stopping.load(Ordering::Acquire)
+            || self
+                .inner
+                .lock()
+                .unwrap_or_else(|error| error.into_inner())
+                .states
+                .values()
+                .any(|state| state.references != 0)
+        {
+            return false;
+        }
+        self.persistence.as_ref().is_none_or(|owner| {
+            let worker = owner
+                .worker
+                .lock()
+                .unwrap_or_else(|error| error.into_inner());
+            let joined = worker.original.is_none() && worker.joined.is_some();
+            drop(worker);
+            joined
+                && owner.source.confirm_quota_storage_closed().is_ok()
+                && owner.source.confirm_original_io_closed().is_ok()
+        })
+    }
+
     pub(crate) fn acquire(
         &self,
         auth: Option<&SessionAuth>,
