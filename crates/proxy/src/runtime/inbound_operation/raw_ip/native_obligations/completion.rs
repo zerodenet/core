@@ -106,10 +106,11 @@ impl NativeRegistration {
         let Some(witness) = caller.join_witness() else {
             return Ok(false);
         };
-        if witness
-            .try_joined()
-            .is_none_or(|actual| actual.id() != joined.task() || actual.class() != joined.class())
-        {
+        if witness.try_joined().is_none_or(|actual| {
+            actual.id() != joined.task()
+                || actual.class() != joined.class()
+                || !actual.registration_released()
+        }) {
             return Ok(false);
         }
         match kind {

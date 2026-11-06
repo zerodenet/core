@@ -91,7 +91,9 @@ impl NativeRegistration {
         // never says the shared Source/main/native original has closed.
         Ok(Some(
             actual.is_some_and(|actual| {
-                actual.id() == joined.task() && actual.class() == joined.class()
+                actual.id() == joined.task()
+                    && actual.class() == joined.class()
+                    && actual.registration_released()
             }) && caller.process_retired(),
         ))
     }

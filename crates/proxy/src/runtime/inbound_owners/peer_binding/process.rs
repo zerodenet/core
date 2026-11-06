@@ -102,3 +102,6 @@ impl HostPeerBinding {
         Ok(())
     }
 }
+
+#[cfg(all(test, feature = "raw-ip-runtime"))]
+mod tests;
