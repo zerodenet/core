@@ -69,11 +69,16 @@ async fn owning_network_restart_describes_all_old_users_before_any_actual_owner_
     drop(business);
     assert_eq!(peer.read(&mut [0; 1]).await.unwrap(), 0);
     let pause = catalog.try_pause_replacement_users(&candidate).unwrap();
-    let prepared = catalog.prepare_resource_start(config.clone(), deadline()).await.unwrap();
+    let mut prepared = catalog.prepare_resource_start(config.clone(), deadline()).await.unwrap();
     drop(pause);
+    let refreshed = prepared.refresh_device_resources(deadline(), |_| Ok(BTreeSet::new())).await.unwrap();
+    assert!(refreshed.order.iter().all(|slot| candidate.order.iter().find(|old| old.id == slot.id)
+        .is_none_or(|old| !Arc::ptr_eq(old, slot) && slot.generation > old.generation)));
+    assert!(Arc::ptr_eq(&refreshed, &catalog.prepared_candidate(&config).unwrap().unwrap()));
+    assert!(refreshed.order.iter().all(|slot| slot.original_carrier_owner(0).is_none()));
     prepared.start(deadline()).await.unwrap();
     catalog.commit(&config, || Ok(())).unwrap();
-    assert!(Arc::ptr_eq(&candidate, &catalog.current(&config).unwrap()));
+    assert!(Arc::ptr_eq(&refreshed, &catalog.current(&config).unwrap()));
     catalog.shutdown(deadline()).await.unwrap();
 }
 #[tokio::test]

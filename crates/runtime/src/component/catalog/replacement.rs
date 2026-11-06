@@ -255,6 +255,9 @@ impl Replacement {
 mod tests;
 
 impl Replacement {
+    pub(super) fn budget_pause(&self) -> Option<Arc<ReplacementUsersPause>> {
+        self.budget_pause.get().cloned()
+    }
     pub(super) fn retains_budget_pause(&self) -> bool {
         self.budget_pause.get().is_some()
     }
