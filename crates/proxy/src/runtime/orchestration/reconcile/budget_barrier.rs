@@ -89,6 +89,10 @@ fn packet_budget_changed(old: &RuntimeConfig, next: &RuntimeConfig) -> bool {
             != next.runtime.effective_packet_return_total_max_frames()
         || old.runtime.effective_packet_return_total_max_bytes()
             != next.runtime.effective_packet_return_total_max_bytes()
+        || old.runtime.effective_packet_transmit_total_max_frames()
+            != next.runtime.effective_packet_transmit_total_max_frames()
+        || old.runtime.effective_packet_transmit_total_max_bytes()
+            != next.runtime.effective_packet_transmit_total_max_bytes()
 }
 pub(super) struct SourceBudgetPauses {
     _sources: Vec<crate::runtime::inbound_owners::AcquisitionPause>,
