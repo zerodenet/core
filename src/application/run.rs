@@ -14,7 +14,7 @@ use crate::http_adapter;
 use crate::{ipc, rule_set_fetch};
 
 mod control_failure;
-use control_failure::ControlStartupFailure;
+use control_failure::RunFailures;
 
 #[cfg(test)]
 mod tests;
@@ -137,13 +137,13 @@ async fn run(
                 "original control startup cleanup remains retained"
             );
         }
-        return Err(match controls {
-            Ok(()) => error,
-            Err(cleanup) => Box::new(ControlStartupFailure {
-                startup: error,
-                cleanup,
-            }),
-        });
+        let mut failures = RunFailures::default();
+        failures.error("control startup", error);
+        failures.result("control cleanup", controls);
+        failures.result("status monitor cleanup", monitor);
+        failures.result("event dispatcher cleanup", dispatcher);
+        failures.result("quota cleanup", quota);
+        return failures.finish();
     }
     services.finish_control_startup();
 
@@ -188,18 +188,21 @@ async fn run(
     let control_shutdown = services.shutdown_control().await;
     let quota_shutdown = engine.shutdown_principal_quota_state();
 
-    proxy_result?;
-    control_shutdown?;
-    quota_shutdown?;
+    // Every original cleanup above ran, even when another service failed.
+    // Keep their original typed sources instead of returning only the first.
+    let mut failures = RunFailures::default();
+    failures.result("proxy", proxy_result);
+    failures.result("control cleanup", control_shutdown);
+    failures.result("quota cleanup", quota_shutdown);
     if let Some(result) = control_exit
         .into_inner()
         .unwrap_or_else(std::sync::PoisonError::into_inner)
     {
-        result?;
+        failures.result("control server", result);
     }
-    monitor_shutdown.map_err(std::io::Error::other)?;
-    dispatcher_shutdown.map_err(std::io::Error::other)?;
-    Ok(())
+    failures.result("status monitor cleanup", monitor_shutdown);
+    failures.result("event dispatcher cleanup", dispatcher_shutdown);
+    failures.finish()
 }
 
 async fn run_supervised_proxy<F>(proxy: &Proxy, shutdown: F) -> Result<(), zero_engine::EngineError>
