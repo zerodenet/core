@@ -31,10 +31,23 @@ Rust 1.99.0，当前同锁 SHA-256：
 | `70da5dfb`（完整 SHA 在 input） | gRPC inline 6 项4 PASS/2 FAIL：实际 split/取消 Pending reader 后 writer 唤醒及旧 prepared 三项通过；2MiB 反向/半关闭超时、真实 timeout payload 诊断失败待归因。H2 同输入3 PASS/2 FAIL，其中新 reset fixture 在实际收到 SETTINGS 前误断言首帧1字节，fixture修后未复验；原小窗口仍未过 |
 | `61b07202`（完整 SHA 在 input） | `cargo +1.99.0 check --locked -p zero --all-features --bin zero --tests` exit0/347.71s；包含控制 sampler Scope、quota 同Source与真实退休判断，只是类型检查，未执行运行回归 |
 
-新控制 sampler 和 quota 原件接线、C standalone WG、A WG DNS/故障恢复、B VLESS/VMess/
-Trojan 及同错误 payload 回归均继续按相同冻结输入排队，不继承先前产物的通过结果。
-C process lookup 首提案因 Linux proc File/DIR 原件仍靠 Drop，M 未接入；C 正补完整原件版。
-A Source 总额度的完整 producer/原 acquisition guard 仍在实现；不能提前开放子集并称预算完成。
+2026-11-06 19:24 UTC 开发接续（以下仍不是最终同一候选）：
+
+| 实际输入 | 新的原始结果及边界 |
+| --- | --- |
+| `469bad98` | 控制 JSONL/HTTP 定向 15 PASS/6 FAIL；5 项配置实际需要 Direct UDP 而本次 feature 图未提供，另1项新 fixture 未关闭真实控制 admission；不算 G8 通过 |
+| `0718f93ffc71201603636bf928843ac635f44d8a` | 改用 mixed 真实功能图完成 build；控制最后一项复用未释放的测试启动暂停而中断 SIGINT，exit -2，137.74s，没有 target 完成记录；前20项逐名日志保留，不计整组通过 |
+| `81c514c2`（完整 SHA 在 input） | 只移除新 fixture 在旧原件均退休后的启动暂停，保留真实 native/Scope/hook/network/control/quota 断言与外层5s；重新构建后实际旧故障保留且原件全部关闭后 fresh startup 1 PASS/0.52s |
+| `551cb6b2`、`6f5527a9`（完整 SHA 在 input） | Source/lookup 首次组合 build 均 exit101；分别为 owner 可见性/旧 fixture 字段，和 lookup 真实类型路径/内部 sibling 可见性，修正追加提交，原日志保留 |
+| `6e379cd8`（完整 SHA 在 input） | 平台/transport lib build exit0/30.94s；真实 process lookup 原OS和同Host global/helper ACK 3 PASS，accepted lookup 1 PASS，listener owner 原件13 PASS，UDP Source2 PASS，metadata Source及回调锁边界2 PASS。gRPC41项40 PASS/1 FAIL，多模式回程原8s收到1376256/2097165；coop修正未解决，不冒称根因 |
+| `6e379cd8` | Proxy/Runtime组合 build exit101/365.90s：lookup跨crate路径/owner可见性及VMess fixture误取只读Observation；独立Runtime build exit101/87.78s：新registering fixture发送断言额外要求原件Debug。均已追加窄修，未生成这些新组的运行资格 |
+| `add32bbd`、`84ea6151d567e782012a01033d7d5d820772445a` | MUX实际Scope辅助准备切片首build因遗漏同源错误helper exit101/17.45s；修为原ChannelError完整retained后build exit0/25.43s，pooled recipe/authority7 PASS；不等于普通MUX实际生产矩阵通过。gRPC原8s透明native诊断仍1 FAIL，固定约44ms读写节律、两端原nodelay=false，日志保留；生产既有native provider固定nodelay=true，尚不以此冒称修复 |
+
+C process lookup v1 未接入；补齐 Linux 原File/DIR匹配关闭、Windows原HANDLE和
+实际 blocking helper join/ACK 的 v2 及同Host global原件计额已接入，以上3+1项只证明该边界。
+A Source77 全producer与真实acquisition窗口已接入，平台组通过，Runtime/Proxy普通
+StopOld、linked换代、ICMP真实资格仍待验证。控制初启同Host额度/真实Epoch limits、
+C完整TX与helper、B全合法transport/MUX及旧执行链删除继续，不继承先前产物的通过结果。
 
 所有命令、逐 target 结果、工具/环境、真实结束码、源码逐文件输入和产物摘要均由 M
 外部 harness 保留。每组仅对应自己的输入；不同 feature 图和产物不得合并为统一候选。
