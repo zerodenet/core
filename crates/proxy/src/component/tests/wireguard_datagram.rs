@@ -63,7 +63,13 @@ async fn ordinary_device_datagrams_keep_absent_endpoint_and_actual_source_across
             assert_eq!(address,Address::Ipv4([198,51,100,10]));assert_eq!(port,80);assert_eq!(bytes.as_ref(),payload);
         }
         assert_eq!(target.current_slot(&proxy.tcp_runtime_services().execution()).unwrap().instance_id(),slot.instance_id());
-        let traffic=proxy.engine().traffic_snapshot(&zero_api::TrafficGetQuery {scope:zero_api::TrafficScope::Outbound {tag:"wg".into()}}).unwrap();
+        let traffic=timeout(Duration::from_secs(5),async {
+            loop {
+                let traffic=proxy.engine().traffic_snapshot(&zero_api::TrafficGetQuery {scope:zero_api::TrafficScope::Outbound {tag:"wg".into()}}).unwrap();
+                if traffic.planes[0].counters.rx_bytes==Some(9) {break traffic;}
+                tokio::task::yield_now().await;
+            }
+        }).await.unwrap();
         assert_eq!(traffic.planes[0].counters.tx_bytes,Some(9));assert_eq!(traffic.planes[0].counters.rx_bytes,Some(9));
         drop(control);drop(client);
         running.shutdown().await.unwrap();
