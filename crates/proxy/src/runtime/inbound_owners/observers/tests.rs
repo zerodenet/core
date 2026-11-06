@@ -204,7 +204,7 @@ async fn dynamic_source_enters_the_original_empty_observer_consumer() {
     #[cfg(not(feature = "raw-ip-runtime"))]
     let _ = main_received;
     #[cfg(feature = "raw-ip-runtime")]
-    assert_eq!(actual_main.id(), *owner.driver.get().unwrap());
+    let original_main_task = actual_main.task_id().expect("actual registered main task");
     let waiting = observers.join_next_running();
     tokio::pin!(waiting);
     assert!(futures_util::poll!(&mut waiting).is_pending());
@@ -233,9 +233,12 @@ async fn dynamic_source_enters_the_original_empty_observer_consumer() {
         .unwrap()
         .unwrap();
     #[cfg(feature = "raw-ip-runtime")]
-    assert!(
-        actual_main.is_joined(),
-        "actual source main joined through original observer"
+    assert_eq!(
+        actual_main
+            .try_joined()
+            .expect("actual source main joined through original observer")
+            .id(),
+        original_main_task
     );
     assert_eq!(receipt.terminal().joined_tasks(), 1);
     assert!(receipt.terminal().failure().is_some());
