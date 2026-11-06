@@ -23,7 +23,12 @@ impl Default for WakeBoth {
 }
 impl ArcWake for WakeBoth {
     fn wake_by_ref(this: &Arc<Self>) {
-        this.ready.store(true, Ordering::Release);
+        // One pending original-driver turn already has its application wake.
+        // Coalesce duplicate stream/socket notifications until that same turn
+        // consumes readiness; clearing before poll preserves concurrent wakes.
+        if this.ready.swap(true, Ordering::AcqRel) {
+            return;
+        }
         this.reader.wake();
         this.writer.wake();
     }
