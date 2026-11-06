@@ -49,3 +49,6 @@ mod setup;
 mod totals;
 
 mod replacement;
+
+#[cfg(feature = "tls")]
+mod file;
