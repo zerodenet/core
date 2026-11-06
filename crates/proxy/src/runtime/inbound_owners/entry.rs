@@ -263,6 +263,12 @@ impl InboundTaskAccess {
     }
 }
 impl InboundOwner {
+    /// Stop this same Source synchronously while its existing registry retains
+    /// all native/Scope cleanup. This request issues no retirement receipt.
+    pub(crate) fn request_stop(&self) {
+        self.stop();
+    }
+
     pub(super) fn new(
         identity: ComponentInstanceId,
         limit: NonZeroUsize,
