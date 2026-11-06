@@ -28,6 +28,7 @@ impl Managed {
     pub(super) async fn open(
         self: &Arc<Self>,
         demand: Demand,
+        waiting: Option<zero_platform_tokio::contract::network::PendingCarrierObserver>,
     ) -> Result<NativeGrpcStream, ChannelError> {
         if demand.binding != *self.upstream.binding() {
             let mut error = error(self.instance, Stage::Prepare, Reason::StalePlan);
@@ -77,14 +78,18 @@ impl Managed {
         // unfinished originals retain capacity and their original controller.
         let cleanup_end = demand.deadline.unwrap_or_else(Instant::now);
         self.wait(&demand, self.reap(cleanup_end)).await?;
-        let client = self.create(&demand).await?;
+        let client = self.create(&demand, waiting).await?;
         if !self.ready() || pool.retired.load(Ordering::Acquire) {
             return Err(error(self.instance, Stage::Prepare, Reason::Revoked));
         }
         *pool.cached.lock().unwrap() = Some(Cached::Owned(client.clone()));
         client.open(self, &demand, lease).await
     }
-    async fn create(self: &Arc<Self>, demand: &Demand) -> Result<Arc<NativeClient>, ChannelError> {
+    async fn create(
+        self: &Arc<Self>,
+        demand: &Demand,
+        waiting: Option<zero_platform_tokio::contract::network::PendingCarrierObserver>,
+    ) -> Result<Arc<NativeClient>, ChannelError> {
         if !self.ready() {
             return Err(error(self.instance, Stage::Prepare, Reason::Revoked));
         }
@@ -112,7 +117,7 @@ impl Managed {
         let body = Body(physical.clone());
         // The receiver and exact native cancellation are installed before the
         // actual caller or Node provider can await resolution/connect/TLS/H2.
-        if let Some(waiting) = self.upstream.observed_pending_carrier() {
+        if let Some(waiting) = waiting.or_else(|| self.upstream.observed_pending_carrier()) {
             waiting.retain(physical.adoption.clone())?;
         }
         let acquiring = self.upstream.acquire_controlled_stream(

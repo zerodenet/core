@@ -158,6 +158,12 @@ impl NativePoolOptions {
             identity,
         })
     }
+    pub fn endpoint(&self) -> &Destination {
+        &self.endpoint
+    }
+    pub fn dial_policy(&self) -> &DialPolicy {
+        &self.settings.dial
+    }
     pub fn matches(&self, instance: ComponentInstanceId) -> Result<(), ChannelError> {
         let state = self
             .pool
@@ -183,12 +189,22 @@ impl NativePoolOptions {
         instance: ComponentInstanceId,
         demand: Demand,
     ) -> Result<super::NativeGrpcStream, ChannelError> {
+        self.open_observed(instance, demand, None).await
+    }
+    /// Observe this invocation's pending original through its actual caller.
+    /// The callback is weak and is never cached with the shared H2 client.
+    pub async fn open_observed(
+        &self,
+        instance: ComponentInstanceId,
+        demand: Demand,
+        waiting: Option<zero_platform_tokio::contract::network::PendingCarrierObserver>,
+    ) -> Result<super::NativeGrpcStream, ChannelError> {
         self.matches(instance)?;
         let state = self
             .pool
             .upgrade()
             .ok_or_else(|| error(instance, Stage::Prepare, Reason::Revoked))?;
-        state.managed(instance)?.open(demand).await
+        state.managed(instance)?.open(demand, waiting).await
     }
 }
 
