@@ -2,12 +2,11 @@
 use std::{io, sync::Arc};
 use zero_stack::UserTcpStream;
 pub(super) const MAX_CONCURRENT_DNS_CONNECTIONS: usize = 256;
-#[cfg(any(test, not(feature = "raw-ip-runtime")))]
-mod legacy;
-#[cfg(not(feature = "raw-ip-runtime"))]
-pub(super) use legacy::{run, TunIngressConfig};
+#[cfg(test)]
+#[path = "runtime/tests/stack_fixture.rs"]
+mod stack_fixture;
 
-#[cfg(any(test, not(feature = "raw-ip-runtime")))]
+#[cfg(test)]
 pub(crate) async fn serve_dns_tcp(
     resolver: Arc<zero_dns::DnsSystem>,
     stream: UserTcpStream,
