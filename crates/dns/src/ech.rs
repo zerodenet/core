@@ -4,6 +4,14 @@ use std::net::IpAddr;
 use std::net::SocketAddr;
 
 use crate::DnsSystem;
+mod endpoint;
+pub use endpoint::EchDnsEndpoint;
+mod owned;
+#[cfg(feature = "doh")]
+pub(crate) mod pool;
+mod refresh;
+mod standalone;
+pub use refresh::EchRefresh;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct EchDnsRecord {
@@ -20,11 +28,11 @@ impl DnsSystem {
         query_name: &str,
         server: &str,
     ) -> io::Result<EchDnsRecord> {
+        if self.node_queries.is_some() {
+            return self.query_owned_ech(query_name, server).await;
+        }
         if self.owned_root.is_some() {
-            return Err(io::Error::new(
-                io::ErrorKind::Unsupported,
-                "dynamic ECH endpoints require a separately authorized owned DNS root",
-            ));
+            return self.query_root_ech(query_name, server).await;
         }
         let query_name = crate::message::normalize_domain(query_name)?;
         if crate::localhost::is_localhost(&query_name) {
@@ -109,10 +117,7 @@ impl DnsSystem {
                 // the only JoinSet owner when the resolver is dropped.
                 self.transport_owners.register_doh(resolver.owner.clone())?;
                 let result = resolver.exchange(_query, None, None).await;
-                let closed = resolver
-                    .owner
-                    .shutdown(self.ech_pool_close_deadline())
-                    .await;
+                let closed = resolver.owner.shutdown(self.ech_deadline()).await;
                 match (result, closed) {
                     (Ok(response), Ok(())) => Ok(response),
                     (Err(source), _) => Err(source),
@@ -125,8 +130,8 @@ impl DnsSystem {
         }
     }
 
-    #[cfg(feature = "doh")]
-    fn ech_pool_close_deadline(&self) -> tokio::time::Instant {
+    #[cfg(any(feature = "doh", feature = "udp"))]
+    fn ech_deadline(&self) -> tokio::time::Instant {
         crate::backends::ATTEMPT_DEADLINE
             .try_with(|deadline| *deadline)
             .unwrap_or_else(|_| {

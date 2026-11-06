@@ -33,6 +33,8 @@ pub(in crate::grpc) struct Managed {
     ready: AtomicBool,
     pub(super) epoch: Mutex<Option<super::epoch::Epoch>>,
     pub(super) totals: Mutex<Option<super::totals::Active>>,
+    #[cfg(feature = "tls")]
+    pub(super) prepared_tls: Mutex<Option<crate::tls::OwnedPreparedClient>>,
 }
 pub(super) struct Physical {
     pub(super) pending: Mutex<Vec<CarrierAdoption>>,
@@ -136,6 +138,8 @@ impl Managed {
             ready: AtomicBool::new(false),
             epoch: Mutex::new(None),
             totals: Mutex::new(None),
+            #[cfg(feature = "tls")]
+            prepared_tls: Mutex::new(None),
         })
     }
     pub(super) fn activate(&self) -> Result<(), ChannelError> {
@@ -233,7 +237,10 @@ impl Managed {
             .iter()
             .all(|record| record.closed())
             && self.budget.all_returned()
-            && { let owner=self.grants.registration(); owner.closed().is_some_and(|closed|closed.matches(&owner)) }
+            && {
+                let owner = self.grants.registration();
+                owner.closed().is_some_and(|closed| closed.matches(&owner))
+            }
     }
     pub(super) fn physical_unconfirmed(&self) -> bool {
         !self.records.lock().unwrap().is_empty()

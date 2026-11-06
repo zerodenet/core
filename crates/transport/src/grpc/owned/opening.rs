@@ -79,8 +79,18 @@ impl Managed {
             #[cfg(feature = "tls")]
             let io = match &self.options.settings.tls {
                 Some(tls) => {
-                    crate::tls::connect_tls_stream(io, tls, None, &self.options.settings.server)
-                        .await?
+                    if self.options.selected_background {
+                        let prepared =
+                            self.prepared_tls.lock().unwrap().clone().ok_or_else(|| {
+                                std::io::Error::other(
+                                    "actual gRPC TLS owner has no prepared material",
+                                )
+                            })?;
+                        prepared.connect(io).await?
+                    } else {
+                        crate::tls::connect_tls_stream(io, tls, None, &self.options.settings.server)
+                            .await?
+                    }
                 }
                 None => io,
             };

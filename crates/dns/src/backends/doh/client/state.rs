@@ -59,6 +59,17 @@ impl ClientState {
                 "DoH connection was retired",
             ));
         }
+        if self
+            .native
+            .get()
+            .is_some_and(|native| !native.retains_live_original())
+        {
+            self.retire();
+            return Err(io::Error::new(
+                io::ErrorKind::ConnectionAborted,
+                "DoH actual driver/native custody is no longer retained",
+            ));
+        }
         if let Some(binding) = self.binding.get() {
             if let Err(source) = binding.check_current() {
                 self.retire();

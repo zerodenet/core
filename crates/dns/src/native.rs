@@ -54,6 +54,24 @@ pub enum NativeDnsUdpLoan {
 
 /// Executable native I/O, not a Service label or a declaration-only capability.
 pub trait NativeDnsProvider: Send + Sync {
+    /// Existing actual Default/Node sources, for pool custody matching only.
+    fn source_roots(&self) -> Option<(Arc<NativeDnsSource>, Arc<NativeDnsSource>)> {
+        None
+    }
+    fn prepare_ech_endpoint(
+        &self,
+        _endpoint: crate::EchDnsEndpoint,
+        _caller: TaskJoinWitness,
+        _cancel: CancellationToken,
+        _end: Instant,
+    ) -> BoxFuture<'_, io::Result<Vec<SocketAddr>>> {
+        Box::pin(async {
+            Err(io::Error::new(
+                io::ErrorKind::PermissionDenied,
+                "ECH endpoint has no declared host original",
+            ))
+        })
+    }
     fn budget(&self) -> Option<Arc<NativeDnsBudget>> {
         None
     }
@@ -263,6 +281,11 @@ impl NativeDnsSource {
                 )
             })
     }
+    /// Installed original Scope identity only; supplies no acquisition grant.
+    pub fn owns_tasks(&self, tasks: &OwnedDnsQueryTasks) -> bool {
+        self.provider()
+            .is_ok_and(|provider| provider.tasks().same_owner(tasks))
+    }
     pub(crate) fn tasks(&self) -> io::Result<OwnedDnsQueryTasks> {
         Ok(self.provider()?.tasks())
     }
@@ -279,6 +302,26 @@ impl NativeDnsSource {
                 end,
             )
             .await
+    }
+    #[cfg(feature = "udp")]
+    pub(crate) async fn exchange_ech_udp(
+        &self,
+        peer: SocketAddr,
+        query: &[u8],
+        end: Instant,
+    ) -> wire::Attempt {
+        let context = self.provider().and_then(|provider| {
+            Ok((
+                provider,
+                OwnedDnsQueryTasks::current_witness()?,
+                OwnedDnsQueryTasks::current_cancellation()?,
+            ))
+        });
+        let (provider, caller, cancel) = match context {
+            Ok(value) => value,
+            Err(source) => return wire::Attempt::blocked(source),
+        };
+        wire::exchange_ech_udp(provider.as_ref(), peer, query, caller, cancel, end).await
     }
     pub(crate) fn exchange<'a>(
         &'a self,
