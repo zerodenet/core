@@ -30,16 +30,34 @@ struct Owner {
     admission: Arc<SessionAdmission>,
     options: Arc<StreamOptions>,
     replay: Option<ComponentInstanceId>,
+    udp: Option<crate::component::udp::role::RoleOwner>,
 }
 impl ComponentFactory for StreamFactory {
     type Options = StreamOptions;
     fn describe(&self, options: &StreamOptions) -> ComponentSpec {
         ComponentSpec {
             owner: ResourceOwner::Component,
-            roles: vec![RoleKind::Stream],
-            dependencies: options.replay_owner.into_iter().collect(),
+            roles: std::iter::once(RoleKind::Stream)
+                .chain(options.udp.as_ref().map(|_| RoleKind::Datagram))
+                .collect(),
+            dependencies: options
+                .replay_owner
+                .into_iter()
+                .chain(options.udp.as_ref().map(|udp| udp.pool))
+                .chain(
+                    options
+                        .udp
+                        .as_ref()
+                        .and_then(|udp| udp.process.map(|(id, _)| id)),
+                )
+                .collect(),
             static_identity: options.identity.clone(),
-            resources: vec![],
+            resources: options
+                .udp
+                .as_ref()
+                .map(|udp| udp.declaration())
+                .into_iter()
+                .collect(),
             task_limit: None,
         }
     }
@@ -50,9 +68,21 @@ impl ComponentFactory for StreamFactory {
     ) -> Result<ComponentInstance, BuildError> {
         let (owner, admission) = SessionOwner::new(context.component, &context.cancel);
         let replay = options.replay_owner.and_then(|id| context.dependency(id));
-        if context.dependencies.len() != usize::from(options.replay_owner.is_some())
+        if context.dependencies.len()
+            != usize::from(options.replay_owner.is_some())
+                + usize::from(options.udp.is_some())
+                + usize::from(
+                    options
+                        .udp
+                        .as_ref()
+                        .is_some_and(|udp| udp.process.is_some()),
+                )
             || replay.map(|instance| instance.component) != options.replay_owner
             || replay.is_some_and(|instance| instance.component == context.component)
+            || options
+                .udp
+                .as_ref()
+                .is_some_and(|udp| context.dependency(udp.pool).is_none())
         {
             return Err(admission.error(
                 None,
@@ -61,14 +91,30 @@ impl ComponentFactory for StreamFactory {
                 DeliveryState::NotSubmitted,
             ));
         }
+        let udp = options
+            .udp
+            .clone()
+            .map(|udp| crate::component::udp::role::RoleOwner::build(udp, &context, 0))
+            .transpose()?;
+        let (udp_owner, udp_role) = match udp {
+            Some((owner, role)) => (
+                Some(owner),
+                Some(zero_platform_tokio::contract::datagram::erase_datagram(
+                    role,
+                )),
+            ),
+            None => (None, None),
+        };
         Ok(ComponentInstance {
             lifecycle: erase_lifecycle(Owner {
                 inner: owner,
                 admission: admission.clone(),
                 options: options.clone(),
                 replay,
+                udp: udp_owner,
             }),
             roles: ComponentRoles {
+                datagram: udp_role,
                 stream: Some(erase_stream(Outbound {
                     options,
                     admission,
@@ -114,13 +160,23 @@ impl ResourceLifecycle for Owner {
                 DeliveryState::NotSubmitted,
             ));
         }
+        if let Some(udp) = &mut self.udp {
+            udp.start(deadline).await?;
+        }
         self.inner.start(deadline).await
     }
     fn revoke(&self, reason: CloseReason) {
         self.inner.revoke(reason);
+        if let Some(udp) = &self.udp {
+            udp.revoke(reason);
+        }
     }
     async fn shutdown(&mut self, deadline: Instant) -> Result<CloseReport, BuildError> {
-        self.inner.shutdown(deadline).await
+        let mut report = self.inner.shutdown(deadline).await?;
+        if let Some(udp) = &mut self.udp {
+            report.append(udp.shutdown(deadline).await?);
+        }
+        Ok(report)
     }
 }
 impl StreamOutbound for Outbound {

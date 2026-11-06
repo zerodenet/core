@@ -54,44 +54,21 @@ impl ManagedDatagramSocketResumeConnector
 
 #[async_trait::async_trait]
 impl ManagedDatagramFlowConnection for ::shadowsocks::transport::ShadowsocksUdpSocketFlow {
-    async fn send_datagram(
+    async fn request_datagram(
         &self,
         target: &zero_core::Address,
         port: u16,
         payload: &[u8],
-    ) -> Result<(), EngineError> {
-        ::shadowsocks::transport::ShadowsocksUdpSocketFlow::send_datagram(
+    ) -> Result<crate::runtime::udp_flow::managed::ManagedDatagramPendingResponse, EngineError>
+    {
+        let response = ::shadowsocks::transport::ShadowsocksUdpSocketFlow::request_datagram(
             self, target, port, payload,
         )
         .await
-        .map_err(EngineError::from)
-    }
-
-    fn install_response_sink(
-        &self,
-        sink: &std::sync::Arc<dyn Fn((zero_core::Address, u16, Vec<u8>)) + Send + Sync>,
-    ) -> Option<Result<(), EngineError>> {
-        Some(
-            if ::shadowsocks::transport::ShadowsocksUdpSocketFlow::install_response_sink(self, sink)
-            {
-                Ok(())
-            } else {
-                Err(EngineError::Io(std::io::Error::new(
-                    std::io::ErrorKind::AlreadyExists,
-                    "the actual SS UDP receive future already has another live cache destination",
-                )))
-            },
-        )
-    }
-
-    fn subscribe_responses(
-        &self,
-    ) -> tokio::sync::broadcast::Receiver<(zero_core::Address, u16, Vec<u8>)> {
-        ::shadowsocks::transport::ShadowsocksUdpSocketFlow::subscribe(self)
-    }
-
-    fn closed_message(&self) -> &'static str {
-        "ss upstream closed"
+        .map_err(EngineError::from)?;
+        Ok(Box::pin(async move {
+            response.await.map_err(EngineError::from)
+        }))
     }
 }
 

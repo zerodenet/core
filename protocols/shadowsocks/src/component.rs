@@ -11,3 +11,5 @@ pub use replay::{ReplayFactory, ReplayOptions};
 mod tcp;
 #[cfg(feature = "blake3")]
 pub use tcp::{PreparedTcp, StreamFactory, StreamOptions, TcpPreparation};
+
+pub mod udp;
