@@ -9,7 +9,7 @@ pub(super) struct Client {
     source: SocketAddr,
 }
 impl Client {
-    pub(super) async fn from_original(socket: tokio::net::UdpSocket) -> Self {
+    pub(super) fn from_original(socket: tokio::net::UdpSocket, source: SocketAddr) -> Self {
         let private = STANDARD.encode([112; 32]);
         let remote = peer::public(111);
         let peers = [PeerInput {
@@ -27,22 +27,9 @@ impl Client {
             peers: &peers,
         })
         .unwrap();
-        let mut tunnel = PeerTunnel::from_validated(&profile, 0).unwrap();
-        let mut buffer = [0; 65535];
-        // Source listen:0 is discovered from its real keepalive/handshake I/O,
-        // never a freed-port reservation, guessed endpoint or readiness marker.
-        let (size, source) = tokio::time::timeout_at(end(), socket.recv_from(&mut buffer))
-            .await
-            .unwrap()
-            .unwrap();
-        for action in tunnel
-            .receive_datagram(Some(source), &buffer[..size])
-            .unwrap()
-        {
-            if let TunnelAction::SendNetwork(bytes) = action {
-                socket.send_to(&bytes, source).await.unwrap();
-            }
-        }
+        let tunnel = PeerTunnel::from_validated(&profile, 0).unwrap();
+        // Read from the same actual native owner's existing observation, never
+        // a freed-port reservation, guessed endpoint or readiness marker.
         Self {
             socket,
             tunnel,

@@ -8,7 +8,7 @@ fn config(remote: SocketAddr, client: SocketAddr) -> RuntimeConfig {
         "endpoints":[
             {"tag":"input","directions":{"inbound":true,"outbound":false},"listen":{"address":"127.0.0.1","port":0},"protocol":{
                 "type":"wireguard","private_key":STANDARD.encode([111;32]),"addresses":["10.42.0.1/32"],
-                "peers":[{"public_key":peer::public(112),"endpoint":client.to_string(),"allowed_ips":["10.42.0.2/32"],"keepalive_secs":1}]}},
+                "peers":[{"public_key":peer::public(112),"endpoint":client.to_string(),"allowed_ips":["10.42.0.2/32"]}]}},
             {"tag":"wg","directions":{"inbound":true,"outbound":true},"listen":{"address":"127.0.0.1","port":0},"protocol":{
                 "type":"wireguard","private_key":STANDARD.encode([121;32]),"addresses":["10.0.0.1/32"],
                 "peers":[{"public_key":peer::public(122),"endpoint":remote.to_string(),"allowed_ips":["0.0.0.0/0"]}]}}
@@ -48,7 +48,13 @@ async fn ordinary_packet_roles_return_original_source_and_retire_old_graph_witho
         .protocols
         .test_packet_source_origins(proxy.engine().config().as_ref())
         .remove(0);
-    let mut client = client::Client::from_original(socket).await;
+    let mut client = client::Client::from_original(
+        socket,
+        *input_owner
+            .original_listener_address
+            .get()
+            .expect("same original bound listener address"),
+    );
     let reply = client.echo(b"opaque-return-cookie").await;
     assert_eq!(zero_stack::packet::ip_hop_limit(&reply), Some(63));
     let mut previous = proxy
