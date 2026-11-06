@@ -54,5 +54,6 @@ impl PacketDeviceIdentity {
 pub struct GrantedPacketDevice {
     pub io: PacketDeviceIo,
     pub identity: PacketDeviceIdentity,
+    pub original: crate::controlled_carrier::PacketProviderRegistration,
     pub interface: Arc<str>,
 }

@@ -1,6 +1,6 @@
 //! Read-only lineage of the actual native carrier and its optional real driver.
-use super::{error, slot::Slot, CarrierAdoption, CarrierOwnerRegistration};
-use crate::contract::{scope::TaskJoinWitness, ChannelError, DeliveryState, Reason, Stage};
+use super::{CarrierAdoption, CarrierOwnerRegistration, error, slot::Slot};
+use crate::contract::{ChannelError, DeliveryState, Reason, Stage, scope::TaskJoinWitness};
 use std::sync::{Arc, Weak};
 use zero_core::component::ComponentInstanceId;
 
@@ -11,6 +11,7 @@ use zero_core::component::ComponentInstanceId;
 pub struct CarrierOrigin(Arc<Original>);
 enum Original {
     Carrier(ActualOriginal),
+    Packet(PacketProviderRegistration),
     Listener(crate::controlled_datagram::listener::origin::ListenerCarrierOrigin),
     Metadata(crate::controlled_datagram::metadata_pool::MetadataPoolOrigin),
     MetadataPool {
@@ -18,6 +19,8 @@ enum Original {
         binding: Option<crate::controlled_datagram::metadata_pool::MetadataPoolBinding>,
     },
 }
+mod packet;
+pub use packet::{PacketProviderClosed, PacketProviderRegistration};
 mod close;
 pub use close::CarrierOriginClosed;
 use close::ClosedOriginal;
@@ -96,6 +99,16 @@ impl CarrierAdoption {
     }
 }
 impl CarrierOrigin {
+    pub fn from_packet(original: PacketProviderRegistration) -> Self {
+        Self(Arc::new(Original::Packet(original)))
+    }
+    pub fn packet(&self) -> Option<&PacketProviderRegistration> {
+        match self.0.as_ref() {
+            Original::Packet(actual) => Some(actual),
+            _ => None,
+        }
+    }
+
     /// The argument is sealed by the actual listener's unique native controller.
     pub fn from_listener(
         original: crate::controlled_datagram::listener::origin::ListenerCarrierOrigin,
@@ -145,6 +158,9 @@ impl CarrierOrigin {
     }
     pub fn closed(&self) -> Option<CarrierOriginClosed> {
         match self.0.as_ref() {
+            Original::Packet(origin) => origin
+                .closed()
+                .map(|closed| CarrierOriginClosed(ClosedOriginal::Packet(closed))),
             Original::Listener(origin) => origin
                 .closed()
                 .map(|closed| CarrierOriginClosed(ClosedOriginal::Listener(closed))),
@@ -167,7 +183,10 @@ impl CarrierOrigin {
     pub fn parent(&self) -> Option<&Self> {
         match self.0.as_ref() {
             Original::Carrier(origin) => origin.parent.as_ref(),
-            Original::Listener(_) | Original::Metadata(_) | Original::MetadataPool { .. } => None,
+            Original::Packet(_)
+            | Original::Listener(_)
+            | Original::Metadata(_)
+            | Original::MetadataPool { .. } => None,
         }
     }
     pub(super) fn related_adoption(&self) -> Option<CarrierAdoption> {
@@ -238,7 +257,7 @@ impl CarrierOrigin {
     pub fn endpoints(&self) -> Option<super::CarrierEndpoints> {
         match self.native_origin().0.as_ref() {
             // An unconnected listener has no fixed native peer.
-            Original::Listener(_) => None,
+            Original::Packet(_) | Original::Listener(_) => None,
             Original::Carrier(origin) => origin.slot.upgrade()?.state().endpoints.clone(),
             Original::MetadataPool {
                 owner,
@@ -266,7 +285,7 @@ impl CarrierOrigin {
         crate::contract::network::UpstreamBinding,
     )> {
         match self.0.as_ref() {
-            Original::Listener(_) => None,
+            Original::Packet(_) | Original::Listener(_) => None,
             Original::Carrier(origin) => {
                 let slot = origin.slot.upgrade()?;
                 let state = slot.state();
@@ -285,6 +304,7 @@ impl CarrierOrigin {
     }
     pub fn owner(&self) -> CarrierOriginOwner<'_> {
         match self.0.as_ref() {
+            Original::Packet(origin) => CarrierOriginOwner::Packet(origin),
             Original::Listener(origin) => CarrierOriginOwner::Listener(origin.owner()),
             Original::Carrier(origin) => CarrierOriginOwner::Carrier(&origin.owner),
             Original::Metadata(origin) => CarrierOriginOwner::Metadata(origin.owner()),
@@ -294,6 +314,7 @@ impl CarrierOrigin {
     /// None is unavailable/taskless observation, never a fabricated join.
     pub fn driver(&self) -> Option<&TaskJoinWitness> {
         match self.0.as_ref() {
+            Original::Packet(origin) => Some(origin.driver()),
             Original::Listener(origin) => Some(origin.driver()),
             Original::Carrier(origin) => origin.driver.as_ref(),
             Original::Metadata(_) | Original::MetadataPool { .. } => None,
@@ -301,6 +322,7 @@ impl CarrierOrigin {
     }
     pub fn same_original(&self, other: &Self) -> bool {
         match (self.0.as_ref(), other.0.as_ref()) {
+            (Original::Packet(a), Original::Packet(b)) => a.same_owner(b),
             (Original::Listener(a), Original::Listener(b)) => a.same_original(b),
             (Original::Carrier(a), Original::Carrier(b)) => {
                 Weak::ptr_eq(&a.slot, &b.slot)
@@ -329,6 +351,7 @@ impl CarrierOrigin {
         let mut current = Some(self);
         while let Some(origin) = current {
             let retired = match origin.0.as_ref() {
+                Original::Packet(origin) => origin.is_retired(),
                 Original::Listener(origin) => origin.is_retired(),
                 Original::Carrier(origin) => origin.slot.upgrade().is_none_or(|slot| {
                     slot.cancel.is_cancelled()
@@ -354,6 +377,7 @@ impl CarrierOrigin {
         let mut waits: Vec<Pin<Box<dyn Future<Output = ()> + Send + '_>>> = Vec::new();
         while let Some(original) = current {
             match original.0.as_ref() {
+                Original::Packet(origin) => waits.push(Box::pin(origin.retired())),
                 Original::Listener(origin) => waits.push(Box::pin(origin.retired())),
                 Original::Carrier(origin) => {
                     let Some(slot) = origin.slot.upgrade() else {

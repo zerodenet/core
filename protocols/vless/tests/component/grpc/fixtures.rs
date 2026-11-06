@@ -1,3 +1,4 @@
+mod resources;
 use super::*;
 pub(super) const ID: &str = "11111111-2222-3333-4444-555555555555";
 pub(super) fn deadline() -> Instant {
@@ -153,17 +154,21 @@ impl Assembly {
                 background_carrier,
             };
         let pool_options = prepared.pool_options().clone();
+        let mut pool_context = context(
+            actual.component,
+            actual.generation,
+            Arc::from([]),
+            scope.registrar(),
+            Some(upstream.clone()),
+        );
+        pool_context.resources = resources::granted(
+            &pool_options,
+            actual,
+            &pool_context.tasks,
+            &pool_context.cancel,
+        );
         let pool = PoolFactory
-            .build(
-                Arc::new(pool_options.clone()),
-                context(
-                    actual.component,
-                    actual.generation,
-                    Arc::from([]),
-                    scope.registrar(),
-                    Some(upstream.clone()),
-                ),
-            )
+            .build(Arc::new(pool_options.clone()), pool_context)
             .unwrap();
         let role = StreamFactory
             .build(

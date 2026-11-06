@@ -118,6 +118,17 @@ impl ComponentSlot {
             .resources
             .original_carrier_owner(ordinal)
     }
+    pub fn original_packet_owner(
+        &self,
+        ordinal: usize,
+    ) -> Option<zero_platform_tokio::controlled_carrier::PacketProviderRegistration> {
+        self.live
+            .get()?
+            .as_ref()
+            .ok()?
+            .resources
+            .original_packet_owner(ordinal)
+    }
     pub fn original_metadata_owner(
         &self,
         ordinal: usize,

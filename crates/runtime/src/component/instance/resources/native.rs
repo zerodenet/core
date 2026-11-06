@@ -29,6 +29,15 @@ pub struct HostResources {
     cleanup: AsyncMutex<()>,
 }
 impl HostResources {
+    pub(in crate::component) fn original_packet_owner(
+        &self,
+        ordinal: usize,
+    ) -> Option<zero_platform_tokio::controlled_carrier::PacketProviderRegistration> {
+        self.packets
+            .iter()
+            .find(|owner| owner.ordinal == ordinal)?
+            .original_registration()
+    }
     pub(in crate::component) fn original_metadata_owner(
         &self,
         ordinal: usize,
