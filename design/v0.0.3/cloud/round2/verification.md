@@ -20,6 +20,22 @@ Rust 1.99.0，当前同锁 SHA-256：
 | `a12c00afa01c04630ff12f7d91c8fbb154db1b35` | Error/Platform build exit0；显式同 payload cleanup receipt 1 PASS、taskless 原件/unique view 2 PASS、related 双原件/总额度 3 PASS。不以错误交接回执充当 native/Scope/用户关闭证明 |
 | `398f2ad7`（完整 SHA 在原始 input） | Runtime 组合构建 exit101/31.44s，VLESS 私有方法与次生握手类型错误；B `4765e55f5010070bd1de047c37103ae1040cb8da` 修后普通合入 `2d563e22042257ee8b99e2239a2a32e934812ab1` 排队复验，未提前给资格 |
 
+最新定向接续（不构成统一最终候选）：
+
+| 精确输入 | 实际资格与未通过项 |
+| --- | --- |
+| `2d563e22042257ee8b99e2239a2a32e934812ab1` | Runtime build exit0/88.51s；真实暖 Process cap 1→2 在活跃业务时 Busy，原 worker/native/ACK 退休后才安装新 cap，同安全历史保留，1 PASS |
+| `f99877cc`（完整 SHA 在 input） | Proxy lib build exit101/395.58s，22 项模块/fixture/可见性/类型错误；原错误和各责任域修正提交保留 |
+| `70556176`（完整 SHA 在 input） | Proxy/root 组合 build exit101/616.44s，剩 VMess material fixture 一项错误；没有生成新的 Proxy 单测资格。B `0c609b35dfdc23402d255fc5a860020d747ec74a` 修正后普通合入 |
+| `953ec49a354e857b87b0bff17b3f9775cc9583c5` | H2 原 8s/1-byte window/256KiB：3 PASS/1 FAIL，实际215225字节 phase1。误写不存在的 web target 的单独命令未执行测试，不计通过 |
+| `70da5dfb`（完整 SHA 在 input） | gRPC inline 6 项4 PASS/2 FAIL：实际 split/取消 Pending reader 后 writer 唤醒及旧 prepared 三项通过；2MiB 反向/半关闭超时、真实 timeout payload 诊断失败待归因。H2 同输入3 PASS/2 FAIL，其中新 reset fixture 在实际收到 SETTINGS 前误断言首帧1字节，fixture修后未复验；原小窗口仍未过 |
+| `61b07202`（完整 SHA 在 input） | `cargo +1.99.0 check --locked -p zero --all-features --bin zero --tests` exit0/347.71s；包含控制 sampler Scope、quota 同Source与真实退休判断，只是类型检查，未执行运行回归 |
+
+新控制 sampler 和 quota 原件接线、C standalone WG、A WG DNS/故障恢复、B VLESS/VMess/
+Trojan 及同错误 payload 回归均继续按相同冻结输入排队，不继承先前产物的通过结果。
+C process lookup 首提案因 Linux proc File/DIR 原件仍靠 Drop，M 未接入；C 正补完整原件版。
+A Source 总额度的完整 producer/原 acquisition guard 仍在实现；不能提前开放子集并称预算完成。
+
 所有命令、逐 target 结果、工具/环境、真实结束码、源码逐文件输入和产物摘要均由 M
 外部 harness 保留。每组仅对应自己的输入；不同 feature 图和产物不得合并为统一候选。
 CI `e525f688` 仅准备 round2 的 exact head/Rust1.99/同锁/输入 artifact，最终 CI 尚未运行。
