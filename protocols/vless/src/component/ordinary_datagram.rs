@@ -55,7 +55,8 @@ impl DatagramOutbound for Outbound {
         let mut io = self.open_transport(&context, session).await?;
         let handshake = async {
             io.write_all(&bytes).await?;
-            io.flush().await
+            io.flush().await?;
+            Ok::<(), std::io::Error>(())
         };
         tokio::select! {biased;
             _=self.admission.cancelled()=>return Err(self.admission.error(session,Stage::Handshake,Reason::Revoked,DeliveryState::Unknown)),

@@ -1,7 +1,7 @@
 //! The original transport plan over the exact already-owned carrier.
 use super::*;
 impl Outbound {
-    async fn open_transport(
+    pub(in crate::component) async fn open_transport(
         &self,
         context: &OpenContext,
         session: Option<zero_core::component::SessionId>,
