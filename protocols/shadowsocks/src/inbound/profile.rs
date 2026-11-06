@@ -2,6 +2,7 @@ use super::*;
 #[cfg(feature = "crypto")]
 impl ShadowsocksInboundProfile {
     pub fn with_state_limits(mut self, limits: crate::validation::StateLimits) -> Self {
+        self.replay = self.replay.with_tcp_capacity(limits.tcp_replay_capacity);
         self.limits = limits;
         self
     }
@@ -10,7 +11,7 @@ impl ShadowsocksInboundProfile {
     }
 
     pub fn with_replay_policy(mut self, policy: crate::validation::ReplayPolicy) -> Self {
-        self.replay = crate::shared::legacy_replay::LegacyReplay::new(policy, true);
+        self.replay = self.replay.with_policy(policy);
         self
     }
     pub(crate) fn legacy_replay(&self) -> crate::shared::legacy_replay::LegacyReplay {
@@ -135,7 +136,12 @@ impl ShadowsocksInboundProfile {
     }
 
     pub fn tcp_state(&self) -> ShadowsocksInboundTcpState {
-        ShadowsocksInboundTcpState::new(self.cipher, self.limits)
+        ShadowsocksInboundTcpState::new(
+            self.cipher,
+            self.limits,
+            #[cfg(feature = "blake3")]
+            self.replay.modern_pool(),
+        )
     }
 
     pub fn udp_codec(&self) -> ShadowsocksInboundUdpCodec {

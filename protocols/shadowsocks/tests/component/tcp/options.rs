@@ -21,10 +21,15 @@ fn prepared_tcp_reuses_the_adapter_resource_history_without_a_fresh_pool_or_impl
         .prepare_tcp(input("2022-blake3-aes-128-gcm", "AAAAAAAAAAAAAAAAAAAAAA=="))
         .unwrap();
     let existing = state.replay_component_options(ReplayPolicy::Reject, Some(3));
-    assert!(Arc::ptr_eq(
-        &prepared.replay_options().unwrap().pool().unwrap(),
-        &existing.pool().unwrap()
-    ));
+    assert_eq!(
+        prepared
+            .replay_options()
+            .unwrap()
+            .pool()
+            .unwrap()
+            .history_identity(),
+        existing.pool().unwrap().history_identity()
+    );
     assert!(
         prepared.bind(None).is_err(),
         "2022 cannot silently omit the actual shared owner"

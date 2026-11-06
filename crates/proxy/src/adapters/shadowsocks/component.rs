@@ -41,6 +41,13 @@ impl ShadowsocksAdapter {
                 plugin: plugin.as_ref(),
                 dial: input.dial.to_policy(),
             })
+            .map_err(options_error)?
+            .with_replay_budget_limit(
+                resources
+                    .candidate()
+                    .map(|config| config.runtime.effective_ss_tcp_replay_max_salts())
+                    .unwrap_or(500_000),
+            )
             .map_err(options_error)?;
         let replay = prepared
             .replay_options()

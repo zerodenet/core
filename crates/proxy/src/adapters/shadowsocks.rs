@@ -19,10 +19,26 @@ mod tcp;
 pub(crate) mod udp;
 
 #[cfg(feature = "shadowsocks")]
-#[derive(Debug, Default)]
+#[derive(Debug)]
 pub(crate) struct ShadowsocksAdapter {
     inbound_profiles: ShadowsocksInboundProfileStore,
     outbound_state: ::shadowsocks::transport::ShadowsocksTransportState,
+}
+
+#[cfg(feature = "shadowsocks")]
+impl Default for ShadowsocksAdapter {
+    fn default() -> Self {
+        // One actual adapter's TCP2022 salt entries, allocated on demand. This
+        // is neither a per-profile cap nor a cap for UDP/Bloom security state.
+        let budget = ::shadowsocks::ReplayBudget::new(Some(500_000))
+            .expect("positive SS TCP2022 default budget");
+        Self {
+            inbound_profiles: ShadowsocksInboundProfileStore::with_replay_budget(budget.clone()),
+            outbound_state: ::shadowsocks::transport::ShadowsocksTransportState::with_replay_budget(
+                budget,
+            ),
+        }
+    }
 }
 
 #[cfg(feature = "shadowsocks")]
@@ -157,3 +173,7 @@ impl ProtocolMetadata for ShadowsocksAdapter {
         ::shadowsocks::ShadowsocksProtocol.descriptor()
     }
 }
+
+#[cfg(all(test, feature = "raw-ip-runtime"))]
+#[path = "shadowsocks/tests/replay_budget.rs"]
+mod replay_budget_tests;

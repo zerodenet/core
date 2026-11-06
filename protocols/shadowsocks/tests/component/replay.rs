@@ -77,7 +77,7 @@ async fn replay_factory_transfers_the_actual_shared_history_to_one_registered_dr
     let state = crate::transport::ShadowsocksTransportState::default();
     let options = Arc::new(state.replay_component_options(ReplayPolicy::Reject, Some(2)));
     let same = state.replay_component_options(ReplayPolicy::Reject, Some(2));
-    assert!(Weak::ptr_eq(&options.pool, &same.pool));
+    assert!(options.pool.same_history(&same.pool));
     let pool = options.pool.upgrade().unwrap();
     pool.check_and_insert(&[1; 16]).unwrap();
     pool.check_and_insert(&[2; 16]).unwrap();
@@ -247,6 +247,69 @@ fn canonical_replay_recipe_matches_the_actual_history_and_not_only_its_equal_lim
         ReplayFactory.describe(&first).static_identity,
         ReplayFactory.describe(&independent).static_identity
     );
-    assert!(Weak::ptr_eq(&first.pool, &same.pool));
-    assert!(!Weak::ptr_eq(&first.pool, &independent.pool));
+    assert!(first.pool.same_history(&same.pool));
+    assert!(!first.pool.same_history(&independent.pool));
+}
+
+#[tokio::test]
+async fn total_limit_installs_only_after_the_actual_replay_scope_is_ready() {
+    let budget = crate::shared::ReplayBudget::new(Some(3)).unwrap();
+    let state = crate::transport::ShadowsocksTransportState::with_replay_budget(budget.clone());
+    let existing = state.replay_component_options(ReplayPolicy::Reject, Some(2));
+    let original = existing.pool().unwrap();
+    original.check_and_insert(&[1; 16]).unwrap();
+    let candidate = Arc::new(original.with_total(Some(1)).unwrap());
+    assert_eq!(
+        budget.limit(),
+        Some(3),
+        "cold recipe cannot shrink live admission"
+    );
+    let options = Arc::new(ReplayOptions::new(candidate, ReplayPolicy::Reject, Some(2)));
+    let (mut failed_scope, ctx) = context(0);
+    let mut failed = ReplayFactory.build(options.clone(), ctx).unwrap();
+    assert_eq!(
+        failed.lifecycle.start(deadline()).await.unwrap_err().reason,
+        Reason::Capacity
+    );
+    assert_eq!(
+        budget.limit(),
+        Some(3),
+        "failed task registration cannot commit a limit"
+    );
+    let end = deadline();
+    let (protocol, tasks) =
+        tokio::join!(failed.lifecycle.shutdown(end), failed_scope.shutdown(end));
+    assert!(protocol.unwrap().is_complete());
+    assert!(tasks.is_complete());
+    let (mut scope, ctx) = context(1);
+    let mut live = ReplayFactory.build(options, ctx).unwrap();
+    live.lifecycle.start(deadline()).await.unwrap();
+    assert_eq!(budget.limit(), Some(1));
+    assert!(original.check_and_insert(&[2; 16]).is_err());
+    let end = deadline();
+    let (protocol, tasks) = tokio::join!(live.lifecycle.shutdown(end), scope.shutdown(end));
+    assert!(protocol.unwrap().is_complete());
+    assert!(tasks.is_complete());
+    assert_eq!(tasks.exited_tasks.len(), 1);
+    assert_eq!(
+        budget.retained(),
+        1,
+        "joined worker does not erase security history"
+    );
+    assert!(original.check_and_insert(&[1; 16]).is_err());
+}
+
+#[test]
+fn mixed_capacity_and_policy_consumers_request_one_actual_maintenance_owner() {
+    let state = crate::transport::ShadowsocksTransportState::default();
+    let first = state.replay_component_options(ReplayPolicy::Reject, Some(1));
+    let second = state.replay_component_options(ReplayPolicy::Ignore, Some(2));
+    assert!(first.pool.same_history(&second.pool));
+    assert_eq!(
+        ReplayFactory.describe(&first),
+        ReplayFactory.describe(&second)
+    );
+    first.pool().unwrap().check_and_insert(&[61; 16]).unwrap();
+    assert!(second.pool().unwrap().check_and_insert(&[61; 16]).is_err());
+    second.pool().unwrap().check_and_insert(&[62; 16]).unwrap();
 }

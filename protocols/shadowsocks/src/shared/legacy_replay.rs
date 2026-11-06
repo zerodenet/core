@@ -78,15 +78,21 @@ impl LegacyReplay {
         }
     }
 
+    pub(crate) fn with_policy(mut self, policy: ReplayPolicy) -> Self {
+        self.policy = policy;
+        self
+    }
+    #[cfg(feature = "blake3")]
+    pub(crate) fn with_modern_history(mut self, pool: &crate::shared::ReplaySaltPool) -> Self {
+        self.modern = Arc::new(pool.alias(self.modern_capacity));
+        self
+    }
     pub(crate) fn with_tcp_capacity(mut self, capacity: Option<usize>) -> Self {
         if self.modern_capacity != capacity {
             self.modern_capacity = capacity;
             #[cfg(feature = "blake3")]
             {
-                self.modern = Arc::new(crate::shared::ReplaySaltPool::configured(
-                    crate::shared::ReplaySaltPool::DEFAULT_TTL,
-                    capacity,
-                ));
+                self.modern = Arc::new(self.modern.alias(capacity));
             }
         }
         self
