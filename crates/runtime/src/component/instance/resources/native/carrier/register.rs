@@ -113,7 +113,12 @@ impl HostResources {
             .host_cancel
             .as_ref()
             .expect("declared carrier host fence");
-        let result = actual.bind_declared(declaration, tasks, host_cancel);
+        let result = actual.bind_declared_with_totals(
+            declaration,
+            tasks,
+            host_cancel,
+            &self.originals.carrier,
+        );
         let binding_created = result.is_ok();
         let state = self
             .state

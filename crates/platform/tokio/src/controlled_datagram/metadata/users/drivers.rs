@@ -231,16 +231,46 @@ impl<O: DriverKind, B: Send + Sync + 'static> DriverOwner<O, B> {
     /// Reclaim only actual joined and explicitly received records. Hosted
     /// publication credit remains held until the real host acknowledges it.
     pub fn reclaim_received(&self) {
+        let candidates: Vec<_> = self
+            .shared
+            .state
+            .lock()
+            .unwrap()
+            .records
+            .iter()
+            .map(|(id, record)| (*id, record.clone()))
+            .collect();
+        let ready: Vec<_> = candidates
+            .into_iter()
+            .filter(|(_, record)| {
+                if !record.delivered.load(Ordering::Acquire) {
+                    return false;
+                }
+                let witness = record
+                    .registration
+                    .lock()
+                    .unwrap()
+                    .as_ref()
+                    .map(|(_, witness)| witness.clone());
+                witness.is_some_and(|witness| {
+                    witness.try_joined().is_some_and(|joined| {
+                        witness.matches_joined(&joined) && joined.registration_released()
+                    })
+                })
+            })
+            .collect();
         let retired = {
             let mut state = self.shared.state.lock().unwrap();
-            let ids: Vec<_> = state
-                .records
-                .iter()
-                .filter_map(|(id, record)| record.delivered.load(Ordering::Acquire).then_some(*id))
-                .collect();
-            let mut retired = Vec::with_capacity(ids.len());
-            for id in ids {
-                retired.push(state.records.remove(&id).unwrap());
+            let mut retired = Vec::with_capacity(ready.len());
+            for (id, original) in ready.iter() {
+                if !state
+                    .records
+                    .get(id)
+                    .is_some_and(|actual| Arc::ptr_eq(actual, original))
+                {
+                    continue;
+                }
+                retired.push(state.records.remove(id).unwrap());
                 match state.reclaimed.checked_add(1) {
                     Some(count) => state.reclaimed = count,
                     None => state.count_overflowed = true,
@@ -301,5 +331,39 @@ impl<O: DriverKind, B: Send + Sync + 'static> DriverOwner<O, B> {
                     _ => false,
                 }
             })
+    }
+}
+
+impl<O: DriverKind, B: Send + Sync + 'static> DriverOwner<O, B> {
+    pub(super) fn completion_registrations(
+        &self,
+        scope: &crate::contract::scope::TaskScopeIdentity,
+    ) -> Option<Arc<[TaskJoinWitness]>> {
+        if !self.completion_matches(scope) {
+            return None;
+        }
+        let records: Vec<_> = self
+            .shared
+            .state
+            .lock()
+            .unwrap()
+            .records
+            .values()
+            .cloned()
+            .collect();
+        Some(
+            records
+                .iter()
+                .filter_map(|record| {
+                    record
+                        .registration
+                        .lock()
+                        .unwrap()
+                        .as_ref()
+                        .map(|(_, witness)| witness.clone())
+                })
+                .collect::<Vec<_>>()
+                .into(),
+        )
     }
 }

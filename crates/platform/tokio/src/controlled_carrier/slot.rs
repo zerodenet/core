@@ -1,13 +1,14 @@
 use super::owner::Shared;
 use crate::{
+    contract::{scope::TaskJoinWitness, ChannelError},
     ControlledTcpControl,
-    contract::{ChannelError, scope::TaskJoinWitness},
 };
 use std::sync::{Arc, Mutex, Weak};
 use tokio::sync::{Mutex as AsyncMutex, Notify};
 use tokio_util::sync::CancellationToken;
 use zero_core::component::{ComponentInstanceId, TaskId};
 pub(super) struct Slot {
+    pub(super) removed: std::sync::atomic::AtomicBool,
     pub(super) completion: Arc<std::sync::OnceLock<bool>>,
     pub(super) instance: ComponentInstanceId,
     pub(super) ordinal: u64,
@@ -113,6 +114,8 @@ impl Slot {
                 .slots
                 .retain(|stored| !Arc::ptr_eq(stored, self));
         }
+        self.removed
+            .store(true, std::sync::atomic::Ordering::Release);
         // An explicit close may win while its inline continuation is waiting
         // for the original close gate. Positive settlement breaks that exact
         // continuation's custody cycle outside all metadata locks.

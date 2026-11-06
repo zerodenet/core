@@ -21,6 +21,26 @@ impl HostBoundDatagramResources {
                 "UDP driver differs from the actual original Scope",
             ));
         }
+        let totals = self
+            .totals
+            .as_ref()
+            .map(|root| {
+                zero_platform_tokio::controlled_datagram::BoundDatagramTotalsBinding::prepare(
+                    root,
+                    self.instance,
+                    witness,
+                    &self.cancel,
+                )
+                .map_err(|source| {
+                    error(
+                        self.instance,
+                        Reason::StalePlan,
+                        "wire original Scope was stopped",
+                    )
+                    .with_source(source)
+                })
+            })
+            .transpose()?;
         {
             let mut driver = self
                 .driver
@@ -40,6 +60,16 @@ impl HostBoundDatagramResources {
         }
         let mut state = self.state();
         self.ensure_available(&state, false)?;
+        if let Some(totals) = totals {
+            state.owner.bind_bound_totals(totals).map_err(|source| {
+                error(
+                    self.instance,
+                    Reason::StalePlan,
+                    "wire original root differs",
+                )
+                .with_source(source)
+            })?;
+        }
         state.phase = Phase::Live;
         Ok(())
     }

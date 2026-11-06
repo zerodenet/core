@@ -62,6 +62,7 @@ impl HostResources {
             declarations,
             identity.clone(),
             cancel.clone(),
+            originals.carrier.clone(),
         )?;
         #[cfg(any(target_os = "linux", windows))]
         let processes = process::ProcessDeclarations::new(

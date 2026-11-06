@@ -45,6 +45,7 @@ pub mod controlled_datagram;
 mod controlled_pipe;
 mod controlled_tcp;
 mod datagram;
+mod original_poll;
 #[cfg(windows)]
 mod windows_socket;
 #[cfg(windows)]

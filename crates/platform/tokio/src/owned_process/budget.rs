@@ -1,6 +1,6 @@
 //! One kernel's actual pending/failed/retiring native jobs, never a task pool.
 use super::OwnedProcess;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::AtomicBool;
 use std::{
     collections::BTreeMap,
     future::Future,
@@ -216,10 +216,13 @@ impl ProcessBudget {
             }
             let actor = entry.original.actor();
             if let Some(actor) = actor {
-                if entry.polling.swap(true, Ordering::AcqRel) {
-                    entry.repoll.store(true, Ordering::Release);
+                let Some(_polling) = crate::original_poll::OriginalPoll::enter(
+                    &entry.polling,
+                    &entry.repoll,
+                    cx.waker(),
+                ) else {
                     continue;
-                }
+                };
                 let mut future = entry
                     .acknowledged
                     .lock()
@@ -241,10 +244,6 @@ impl ProcessBudget {
                 }
                 if ready && entry.original.budget_releasable() {
                     self.release(id, &entry);
-                }
-                entry.polling.store(false, Ordering::Release);
-                if entry.repoll.swap(false, Ordering::AcqRel) {
-                    cx.waker().wake_by_ref();
                 }
             }
         }

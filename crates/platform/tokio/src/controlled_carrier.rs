@@ -3,6 +3,8 @@
 //! the admitted protocol driver is joined before native close releases capacity.
 mod adoption;
 mod caller_credit;
+mod totals;
+pub use totals::{CarrierOriginalTotals, CarrierOriginalTotalsSnapshot};
 mod auxiliary;
 mod binding;
 mod business;

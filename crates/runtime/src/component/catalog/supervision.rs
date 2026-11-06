@@ -71,6 +71,9 @@ impl ComponentCatalog {
                     if let Some(probes) = self.probes.get().and_then(std::sync::Weak::upgrade) {
                         probes.poll(target);
                     }
+                    // One scan per actual Host, including retained orphaned
+                    // Carrier originals outside the current protocol census.
+                    self.original_budgets().poll_carrier_originals(target);
                 },
                 work,
             )

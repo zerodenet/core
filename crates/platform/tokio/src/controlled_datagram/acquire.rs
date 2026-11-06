@@ -1,5 +1,5 @@
 use super::*;
-use crate::{EgressSelection, dial};
+use crate::{dial, EgressSelection};
 use std::net::SocketAddr;
 use zero_traits::{AddressFamily, DialPolicy};
 
@@ -144,6 +144,9 @@ impl ControlledDatagramOwner {
             self.reap_confirmed(); // Persist actual confirmation before return.
             return Err(self.acquisition_error(Some(entry.id), outcome, source));
         }
+        entry
+            .view_live
+            .store(true, std::sync::atomic::Ordering::Release);
         Ok(ControlledDatagramSocket { entry, interface })
     }
     /// Typed internal registration. The original stays in its entry before

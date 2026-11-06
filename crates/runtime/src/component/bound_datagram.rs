@@ -6,6 +6,7 @@ pub(in crate::component) mod evidence;
 mod report;
 #[cfg(test)]
 mod tests;
+mod totals;
 use super::instance::{retained, SharedError};
 use binding::Binding;
 use std::{
@@ -34,6 +35,7 @@ pub struct HostBoundDatagramResources {
     cancel: CancellationToken,
     max_bindings: NonZeroUsize,
     max_sockets: NonZeroUsize,
+    totals: Option<Arc<zero_platform_tokio::controlled_carrier::CarrierOriginalTotals>>,
     state: Mutex<State>,
 }
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -95,7 +97,7 @@ impl HostBoundDatagramResources {
         declaration: &ResourceDeclaration,
         cancel: CancellationToken,
     ) -> Result<Arc<Self>, ChannelError> {
-        Self::construct(instance, Some(task), None, declaration, cancel)
+        Self::construct(instance, Some(task), None, declaration, cancel, None)
     }
     fn construct(
         instance: ComponentInstanceId,
@@ -103,6 +105,7 @@ impl HostBoundDatagramResources {
         scope: Option<TaskScopeIdentity>,
         declaration: &ResourceDeclaration,
         cancel: CancellationToken,
+        totals: Option<Arc<zero_platform_tokio::controlled_carrier::CarrierOriginalTotals>>,
     ) -> Result<Arc<Self>, ChannelError> {
         let ResourceDeclaration::BoundOutboundDatagram {
             max_sockets,
@@ -124,6 +127,7 @@ impl HostBoundDatagramResources {
             cancel: cancel.child_token(),
             max_bindings: *max_bindings,
             max_sockets: *max_sockets,
+            totals,
             state: Mutex::new(State {
                 phase: Phase::Cold,
                 internal_driver_joined: None,
@@ -148,7 +152,7 @@ impl HostBoundDatagramResources {
         declaration: &ResourceDeclaration,
         cancel: CancellationToken,
     ) -> Result<Arc<Self>, ChannelError> {
-        Self::construct(instance, None, Some(scope), declaration, cancel)
+        Self::construct(instance, None, Some(scope), declaration, cancel, None)
     }
     pub fn activate(&self, task: TaskId) -> Result<(), ChannelError> {
         let mut state = self.state();

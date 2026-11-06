@@ -1,6 +1,9 @@
 //! Bounded original UDP ownership, including acquisition failure and rotation.
 //! Dropping an I/O handle never releases its owner's native reservation.
 mod acquire;
+mod totals;
+pub use totals::BoundDatagramTotalsBinding;
+pub(crate) use totals::BoundTotalsOriginal;
 mod control;
 pub use control::{
     ControlledDatagramClosed, ControlledDatagramControl, ControlledDatagramIdentity,
@@ -96,9 +99,11 @@ pub struct ControlledDatagramOwner {
     entries: BTreeMap<DatagramReservationId, Arc<Entry>>,
     confirmed_closed: u64,
     known_no_native: u64,
+    totals: Option<totals::BoundDatagramTotalsBinding>,
 }
 struct Entry {
     id: DatagramReservationId,
+    view_live: std::sync::atomic::AtomicBool,
     closed_receipt: Arc<std::sync::OnceLock<DatagramCloseReceipt>>,
     provider: std::sync::OnceLock<provider::DatagramProviderRegistration>,
     retired: tokio_util::sync::CancellationToken,
@@ -163,6 +168,7 @@ impl ControlledDatagramOwner {
             entries: BTreeMap::new(),
             confirmed_closed: 0,
             known_no_native: 0,
+            totals: None,
         }
     }
     fn reap_confirmed(&mut self) {
@@ -217,6 +223,7 @@ impl ControlledDatagramOwner {
         let id = DatagramReservationId(self.next);
         let entry = Arc::new(Entry {
             id,
+            view_live: std::sync::atomic::AtomicBool::new(false),
             closed_receipt: Arc::new(std::sync::OnceLock::new()),
             provider: std::sync::OnceLock::new(),
             retired: tokio_util::sync::CancellationToken::new(),
@@ -230,6 +237,21 @@ impl ControlledDatagramOwner {
             packet_failure: Mutex::new(None),
             wake_relay: wake_relay::WakeRelay::new(),
         });
+        if let Some(totals) = &self.totals {
+            totals
+                .root
+                .reserve_bound(Arc::new(BoundTotalsOriginal::new(
+                    entry.clone(),
+                    totals.clone(),
+                )))
+                .map_err(|source| {
+                    self.acquisition_error(
+                        None,
+                        AcquisitionOutcome::KnownNoNative,
+                        Arc::new(std_io::Error::new(std_io::ErrorKind::WouldBlock, source)),
+                    )
+                })?;
+        }
         self.entries.insert(id, entry.clone());
         self.next = next;
         Ok(entry)

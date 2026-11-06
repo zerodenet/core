@@ -116,6 +116,7 @@ mod opening;
 #[path = "origin.rs"]
 mod origin;
 mod taskless;
+mod totals;
 
 mod registration;
 

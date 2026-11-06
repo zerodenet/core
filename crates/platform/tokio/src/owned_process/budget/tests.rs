@@ -87,6 +87,24 @@ async fn actual_process_credit_waits_for_native_tree_actor_join_and_actual_defer
         budget.reserve(instance, &successor).unwrap_err().kind(),
         io::ErrorKind::WouldBlock
     );
+    let (poison, payload) = panic::watch(&budget);
+    let thrown = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        budget.poll_released(&mut Context::from_waker(&poison));
+    }))
+    .expect_err("actual original ACK Waker clone panicked");
+    assert!(Arc::ptr_eq(
+        thrown.downcast_ref::<Arc<usize>>().unwrap(),
+        &payload
+    ));
+    let original_entry = budget.entries().into_iter().next().unwrap().1;
+    assert!(!original_entry.polling.load(Ordering::Acquire));
+    assert!(
+        original_entry.acknowledged.lock().unwrap().is_none(),
+        "never repoll the panicked future"
+    );
+    assert_eq!(budget.snapshot().charged_jobs, 1);
+    assert!(original.closed().unwrap().matches(&original));
+    assert!(!receipt.joined().registration_released());
     let wakes = Arc::new(Wakes::default());
     let waker = Waker::from(wakes.clone());
     let mut cx = Context::from_waker(&waker);
@@ -112,3 +130,5 @@ async fn actual_process_credit_waits_for_native_tree_actor_join_and_actual_defer
     assert!(std::future::poll_fn(|cx| Poll::Ready(scope.poll_exit(cx).is_ready())).await);
     assert!(scope.is_drained());
 }
+
+mod panic;

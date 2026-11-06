@@ -1,13 +1,13 @@
 //! Bind the actual cold owner once; host registration remains separate authority.
-use super::{CarrierOwnerRegistration, error};
+use super::{error, CarrierOwnerRegistration};
 use crate::contract::{
-    CancellationToken, ChannelError, DeliveryState, Reason, Stage,
     component::{ControlledStreamDemandClass, ResourceDeclaration},
     network::{CarrierContext, UpstreamBinding},
     scope::{TaskRegistrar, TaskScopeIdentity, WeakTaskRegistrar},
+    CancellationToken, ChannelError, DeliveryState, Reason, Stage,
 };
 use std::sync::Arc;
-use zero_core::{Address, request::Destination};
+use zero_core::{request::Destination, Address};
 
 pub(super) struct BoundAuthority {
     declaration: ResourceDeclaration,
@@ -27,6 +27,26 @@ impl CarrierOwnerRegistration {
         declaration: &ResourceDeclaration,
         registrar: &TaskRegistrar,
         host_cancel: &Arc<CancellationToken>,
+    ) -> Result<CarrierOwnerBinding, ChannelError> {
+        self.bind_declared_inner(declaration, registrar, host_cancel, None)
+    }
+    /// The real host installs its one accounting root before admission can start.
+    /// A root grants no native capability or lifecycle readiness.
+    pub fn bind_declared_with_totals(
+        &self,
+        declaration: &ResourceDeclaration,
+        registrar: &TaskRegistrar,
+        host_cancel: &Arc<CancellationToken>,
+        totals: &Arc<super::CarrierOriginalTotals>,
+    ) -> Result<CarrierOwnerBinding, ChannelError> {
+        self.bind_declared_inner(declaration, registrar, host_cancel, Some(totals))
+    }
+    fn bind_declared_inner(
+        &self,
+        declaration: &ResourceDeclaration,
+        registrar: &TaskRegistrar,
+        host_cancel: &Arc<CancellationToken>,
+        totals: Option<&Arc<super::CarrierOriginalTotals>>,
     ) -> Result<CarrierOwnerBinding, ChannelError> {
         let failure = |reason| {
             error(
@@ -127,6 +147,14 @@ impl CarrierOwnerRegistration {
         if state.live || state.stopped || state.next != 0 || owner.cancel.is_cancelled() {
             return Err(failure(Reason::Revoked));
         }
+        if totals.is_some_and(|totals| {
+            owner
+                .totals
+                .get()
+                .is_some_and(|actual| !Arc::ptr_eq(actual, totals))
+        }) {
+            return Err(failure(Reason::StalePlan));
+        }
         let authority = if let Some(bound) = &state.binding {
             if !bound.matches(declaration, self.limit())
                 || !bound.scope.matches(registrar)
@@ -144,6 +172,10 @@ impl CarrierOwnerRegistration {
             state.binding = Some(bound.clone());
             bound
         };
+        if let Some(totals) = totals {
+            // Owner state serializes bind/start/reserve, including repeated binds.
+            let _ = owner.totals.set(totals.clone());
+        }
         Ok(CarrierOwnerBinding {
             registration: self.clone(),
             authority,

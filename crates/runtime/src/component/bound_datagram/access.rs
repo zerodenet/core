@@ -2,13 +2,13 @@ use super::*;
 use std::path::PathBuf;
 use zero_core::request::Destination;
 use zero_platform_tokio::{
-    EgressSelection,
     contract::{
-        BoxFuture,
         component::{BoundDatagramAttemptFailure, GrantedBoundDatagram, ResourceAccess},
         packet::BoxPacketSession,
+        BoxFuture,
     },
     controlled_datagram::AcquisitionOutcome,
+    EgressSelection,
 };
 impl ResourceAccess for HostBoundDatagramResources {
     fn select_bound_outbound_datagram(
@@ -35,6 +35,9 @@ impl ResourceAccess for HostBoundDatagramResources {
         let selected = binding
             .select(request.peer, request.expected_network_generation)
             .map_err(BoundDatagramAttemptFailure::denied)?;
+        if let Some(totals) = &self.totals {
+            let _ = totals.snapshot(); // actual positive ACK/native/user harvest, before owner lock.
+        }
         let mut state = self.state();
         self.ensure_available(&state, true)
             .map_err(BoundDatagramAttemptFailure::denied)?;

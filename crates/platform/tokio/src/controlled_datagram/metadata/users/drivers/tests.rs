@@ -102,11 +102,14 @@ async fn actual_ledger_precedes_host_wake_panic_and_retains_original_join_until_
     ));
     assert!(receipt.local_failure_accepted());
     owner.reclaim_received();
-    assert_eq!(owner.task_status().retained, 0);
-    assert_eq!(owner.task_status().reclaimed, 1);
+    assert_eq!(owner.task_status().retained, 1);
+    assert_eq!(owner.task_status().reclaimed, 0);
     assert!(scope.is_joined());
     assert!(!scope.is_drained(), "local receiver is not host ACK");
     scope.acknowledge(&receipt).unwrap();
+    owner.reclaim_received();
+    assert_eq!(owner.task_status().retained, 0);
+    assert_eq!(owner.task_status().reclaimed, 1);
     scope.begin_shutdown();
     assert!(scope.is_drained());
 }

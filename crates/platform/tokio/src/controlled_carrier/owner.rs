@@ -14,6 +14,7 @@ pub(super) struct Shared {
     pub(super) limit: NonZeroUsize,
     pub(super) cancel: CancellationToken,
     pub(super) state: Mutex<State>,
+    pub(super) totals: std::sync::OnceLock<Arc<super::CarrierOriginalTotals>>,
     pub(super) completion: Arc<super::registration::Completion>,
 }
 #[derive(Default)]
@@ -46,6 +47,7 @@ impl CarrierOwner {
             limit,
             cancel: parent.child_token(),
             state: Mutex::new(State::default()),
+            totals: Default::default(),
             completion: Arc::new(super::registration::Completion::default()),
         }))
     }

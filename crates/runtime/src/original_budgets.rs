@@ -2,6 +2,9 @@
 //! No allocator, native controller, task registry or generic resource map.
 #[derive(Default)]
 pub struct HostOriginalBudgets {
+    pub(crate) carrier_wake: std::sync::Arc<crate::component::instance::MonitorWake>,
+    /// Exact original reservation/custody records, distinct from OS FD count.
+    pub carrier: std::sync::Arc<zero_platform_tokio::controlled_carrier::CarrierOriginalTotals>,
     #[cfg(any(target_os = "linux", windows))]
     pub process: std::sync::Arc<zero_platform_tokio::owned_process::ProcessBudget>,
     #[cfg(feature = "raw-ip-runtime")]
@@ -29,5 +32,17 @@ impl HostOriginalBudgets {
         #[cfg(not(any(target_os = "linux", windows)))]
         let _ = runtime;
         Ok(())
+    }
+}
+
+impl HostOriginalBudgets {
+    pub(crate) fn poll_carrier_originals(
+        &self,
+        target: &std::sync::Arc<crate::component::instance::WaitTarget>,
+    ) {
+        self.carrier_wake.bind(target);
+        let waker = std::task::Waker::from(self.carrier_wake.clone());
+        let mut cx = std::task::Context::from_waker(&waker);
+        self.carrier.poll_cancelled_retirements(&mut cx);
     }
 }

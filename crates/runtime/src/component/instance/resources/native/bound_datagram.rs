@@ -1,7 +1,7 @@
 //! Every Bound declaration holds its one actual provider before any factory IO.
 use super::*;
 use crate::component::bound_datagram::{
-    HostBoundDatagramResources, evidence::BoundDatagramEvidence,
+    evidence::BoundDatagramEvidence, HostBoundDatagramResources,
 };
 use zero_core::component::{ComponentInstanceId, NetworkGeneration};
 use zero_platform_tokio::contract::{
@@ -24,6 +24,7 @@ impl BoundDeclarations {
         declarations: &[ResourceDeclaration],
         identity: Option<(ComponentInstanceId, TaskScopeIdentity)>,
         cancel: CancellationToken,
+        totals: Arc<zero_platform_tokio::controlled_carrier::CarrierOriginalTotals>,
     ) -> Result<Self, ChannelError> {
         let mut entries = BTreeMap::new();
         for (ordinal, declaration) in declarations.iter().enumerate() {
@@ -43,11 +44,12 @@ impl BoundDeclarations {
             entries.insert(
                 ordinal,
                 Entry {
-                    provider: HostBoundDatagramResources::new_scoped(
+                    provider: HostBoundDatagramResources::new_scoped_with_totals(
                         *instance,
                         scope.clone(),
                         declaration,
                         cancel.clone(),
+                        totals.clone(),
                     )?,
                     scope: scope.clone(),
                     binding: std::sync::OnceLock::new(),
