@@ -46,12 +46,14 @@ impl Shared {
         for peer in &mut state.peers {
             peer.rx.close();
             while peer.rx.try_recv().is_ok() {}
-            // This session has no internal worker. Actual queues and mapping
-            // closure is distinct from its original shared Source main join.
-            peer.closed.close();
         }
         state.conversations.clear();
         state.sources.clear();
+        for peer in &state.peers {
+            // Confirm only after all actual queues and return mappings closed.
+            // This never reports the shared Source main joined or native closed.
+            peer.closed.close();
+        }
     }
     pub(super) fn sink(
         &self,
