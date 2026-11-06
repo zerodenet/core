@@ -175,7 +175,7 @@ impl Execution {
                     return Err(invalid_endpoint("ECH backend is not DoH"));
                 };
                 resolver
-                    .exchange_native(self.source.provider()?, None, query, end)
+                    .exchange_native_at(self.source.provider()?, query, end, &peers)
                     .await
                     .into_parts()
                     .0

@@ -16,6 +16,13 @@ pub(crate) struct DohKey {
     peers: Vec<SocketAddr>,
 }
 impl DohKey {
+    pub(crate) fn same_endpoint(&self, other: &Self) -> bool {
+        self.secure == other.secure
+            && self.host == other.host
+            && self.port == other.port
+            && self.path == other.path
+            && self.server_name == other.server_name
+    }
     fn configured(server: &zero_config::DnsServerConfig) -> io::Result<Option<Self>> {
         let zero_config::DnsServerConfig::Doh {
             host,
