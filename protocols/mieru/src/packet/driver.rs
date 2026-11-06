@@ -183,6 +183,28 @@ impl Driver {
         );
         Ok(())
     }
+    /// Reserve the actual first/requested logical session before publishing the
+    /// native connection. Queueing OPEN does not send a packet or mark it open.
+    pub(crate) fn open_client(
+        &mut self,
+    ) -> io::Result<crate::inbound::multiplex::stream::MieruLogicalStream> {
+        if !self.client {
+            return Err(io::Error::other(
+                "packet server cannot open a client session",
+            ));
+        }
+        if self.states.len() >= 64 {
+            return Err(io::ErrorKind::WouldBlock.into());
+        }
+        self.id = self
+            .id
+            .checked_add(1)
+            .ok_or_else(|| io::Error::other("mieru session IDs exhausted"))?;
+        let id = self.id;
+        self.start(id)?;
+        self.states.get_mut(&id).unwrap().reliable.queue_open()?;
+        self.book.create(id, Vec::new())
+    }
     fn retire(&mut self, id: u32, retirement: Retirement) {
         if let Some(entry) = self.book.sessions.remove(&id) {
             entry.status.close(retirement.status_error());
@@ -218,12 +240,12 @@ pub(crate) async fn run(
             }
             request=opens.recv(), if driver.client=> {
                 let Some(request)=request else {return Ok(());};
-                if driver.states.len()>=64 {let _=request.send(Err(io::ErrorKind::WouldBlock.into()));continue;}
-                driver.id=driver.id.checked_add(1).ok_or_else(||io::Error::other("mieru session IDs exhausted"))?;
-                let id=driver.id;driver.start(id)?;
-                driver.states.get_mut(&id).unwrap().reliable.queue_open()?;
-                let stream=driver.book.create(id,Vec::new())?;
-                let _=request.send(Ok(stream));
+                let result=driver.open_client();
+                match result {
+                    Ok(stream)=>{let _=request.send(Ok(stream));},
+                    Err(error) if error.kind()==io::ErrorKind::WouldBlock=>{let _=request.send(Err(error));},
+                    Err(error)=>return Err(error),
+                }
             }
             command=commands.recv(), if driver.states.values().map(|s|s.reliable.queued_len()).sum::<usize>()<960=> {
                 let Some(command)=command else {return Ok(());};driver.command(command)?;

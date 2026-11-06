@@ -24,14 +24,32 @@ pub(super) fn transport(
         Arc::new(Pending {
             originals: lease.pending_carriers(),
             binding,
-            waiting,
+            waiting: Some(waiting),
+            caller: None,
         }),
     )
 }
 struct Pending {
     originals: PendingCarriers,
     binding: UpstreamBinding,
-    waiting: PendingCarrierObserver,
+    waiting: Option<PendingCarrierObserver>,
+    caller: Option<super::setup::Caller>,
+}
+pub(super) fn for_setup(
+    originals: PendingCarriers,
+    binding: UpstreamBinding,
+    waiting: Option<PendingCarrierObserver>,
+    caller: super::setup::Caller,
+) -> UpstreamTransport {
+    UpstreamTransport::new(
+        binding.clone(),
+        Arc::new(Pending {
+            originals,
+            binding,
+            waiting,
+            caller: Some(caller),
+        }),
+    )
 }
 fn denied(reason: Reason) -> ChannelError {
     let mut error = ChannelError::new(Stage::Prepare, reason, Impact::Component);
@@ -39,6 +57,21 @@ fn denied(reason: Reason) -> ChannelError {
     error
 }
 impl UpstreamOpener for Pending {
+    fn packet_caller(
+        &self,
+        binding: &UpstreamBinding,
+        identity: &zero_platform_tokio::contract::context::RequestIdentity,
+        call: &CarrierContext,
+    ) -> Result<zero_platform_tokio::contract::scope::TaskJoinWitness, ChannelError> {
+        if binding != &self.binding {
+            return Err(denied(Reason::StalePlan));
+        }
+        self.caller
+            .as_ref()
+            .filter(|caller| &caller.binding == binding)
+            .ok_or_else(|| denied(Reason::StalePlan))?
+            .check(identity, call)
+    }
     fn has_pending_carrier_observer(&self) -> bool {
         true
     }
@@ -57,7 +90,9 @@ impl UpstreamOpener for Pending {
         }
         // The actual caller must accept before I/O. Holding a record alone
         // does not cause cleanup when its connect future is dropped.
-        self.waiting.retain(adoption.clone())?;
+        if let Some(waiting) = &self.waiting {
+            waiting.retain(adoption.clone())?;
+        }
         self.originals.retain_pending(adoption)
     }
     fn open_stream(

@@ -6,6 +6,7 @@ use zero_core::{component::ComponentInstanceId, request::Destination, Address};
 use zero_platform_tokio::contract::network::CarrierContext;
 mod connect;
 mod pending;
+mod setup;
 
 impl ClientPool {
     /// Library-only entry. No replacement pool, caller opener or business session
