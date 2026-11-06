@@ -342,6 +342,21 @@ impl BoundAuthority {
         };
         !self.host_cancel.is_cancelled() && self.scope.resource_open() && descriptor
     }
+    // Borrowed custody is not native acquisition. A per-connection Service
+    // may adopt its actual strictly shorter prefix without granting root I/O
+    // or cached-driver handoff to this declaration.
+    pub(super) fn permits_service_stream_loan(
+        &self,
+        binding: &UpstreamBinding,
+        destination: &Destination,
+        context: &CarrierContext,
+    ) -> bool {
+        self.available()
+            && context.session.is_none()
+            && !binding.prefix.is_empty()
+            && matches!(&self.declaration, ResourceDeclaration::ControlledServiceStream { endpoint, dial, .. }
+                if endpoint == destination && dial == &binding.dial)
+    }
     pub(super) fn available(&self) -> bool {
         !self.host_cancel.is_cancelled() && self.scope.resource_open()
     }

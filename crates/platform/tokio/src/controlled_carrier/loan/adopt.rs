@@ -17,7 +17,7 @@ impl CarrierGrant {
         context: &CarrierContext,
         loan: StreamLoan,
     ) -> Result<CarrierIo, ChannelError> {
-        self.adopt_stream_loan_inner(binding, endpoint, context, loan, None)
+        self.adopt_stream_loan_inner(binding, endpoint, context, loan, None, false)
     }
     pub fn adopt_dependency_stream_loan(
         self,
@@ -27,7 +27,18 @@ impl CarrierGrant {
         loan: StreamLoan,
         issuer: super::dependency::CarrierDependencyLoanIssuer,
     ) -> Result<CarrierIo, ChannelError> {
-        self.adopt_stream_loan_inner(binding, endpoint, context, loan, Some(issuer))
+        self.adopt_stream_loan_inner(binding, endpoint, context, loan, Some(issuer), false)
+    }
+    /// A real per-connection Service retains its donor's logical controller.
+    /// This grants neither empty-prefix native I/O nor cached-driver custody.
+    pub fn adopt_service_stream_loan(
+        self,
+        binding: &UpstreamBinding,
+        endpoint: Destination,
+        context: &CarrierContext,
+        loan: StreamLoan,
+    ) -> Result<CarrierIo, ChannelError> {
+        self.adopt_stream_loan_inner(binding, endpoint, context, loan, None, true)
     }
     fn adopt_stream_loan_inner(
         mut self,
@@ -36,6 +47,7 @@ impl CarrierGrant {
         context: &CarrierContext,
         loan: StreamLoan,
         dependency: Option<super::dependency::CarrierDependencyLoanIssuer>,
+        service: bool,
     ) -> Result<CarrierIo, ChannelError> {
         let original = loan.owner.original().clone();
         // The reservation is unique. Persist the acquired controller first;
@@ -78,8 +90,12 @@ impl CarrierGrant {
             || self.slot.cancel.is_cancelled()
             || original.is_retired()
             || bound.is_none_or(|bound| {
-                bound.pool_kind() != Some(false)
-                    || !bound.permits_native(binding, &endpoint, context)
+                if service {
+                    !bound.permits_service_stream_loan(binding, &endpoint, context)
+                } else {
+                    bound.pool_kind() != Some(false)
+                        || !bound.permits_native(binding, &endpoint, context)
+                }
             })
         {
             return Err(error(
