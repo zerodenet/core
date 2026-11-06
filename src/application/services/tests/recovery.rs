@@ -86,10 +86,15 @@ async fn monitor_original_join_failure_is_retained_and_blocks_replacement() {
     let services = ApplicationServices::start(engine, None).await.unwrap();
     {
         let mut state = services.state.lock().await;
+        let original = state.status_monitor.as_ref().unwrap().clone();
         ApplicationServices::stop_status_monitor(&mut state)
             .await
             .unwrap();
-        assert!(matches!(state.monitor_exit, Some(Err(ref error)) if error.is_cancelled()));
+        assert!(matches!(state.monitor_exit, Some(Ok(()))));
+        assert!(
+            original.retirement_complete(),
+            "same cooperative worker and scope really joined"
+        );
         state.monitor_exit = None;
         state.status_monitor = Some(StatusMonitor::test_work(async {
             panic!("actual original monitor failure")
