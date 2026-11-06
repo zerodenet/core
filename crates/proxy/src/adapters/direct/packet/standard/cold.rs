@@ -111,25 +111,18 @@ impl DirectAdapter {
         });
         Ok(options)
     }
-    pub(crate) async fn retire_legacy_packet_original(&self) -> Result<(), EngineError> {
-        let legacy = self
-            .packet
-            .lock()
-            .unwrap()
-            .as_ref()
-            .is_some_and(|device| !device.is_hosted());
-        if legacy || self.packet.lock().unwrap().is_none() {
-            self.close_devices().await?;
-        }
-        Ok(())
-    }
     pub(crate) async fn prepare_hosted_packet(
         &self,
         config: &RuntimeConfig,
         context: OutboundDevicePreparationContext,
     ) -> Result<Prepared, EngineError> {
         if context.direct_packet_device.is_none() {
-            return self.prepare_devices(context).await;
+            self.close_devices().await?;
+            return Ok(Prepared {
+                next: None,
+                fresh: false,
+                published: false,
+            });
         }
         let next = {
             let candidate = self.packet_candidate.lock().unwrap();

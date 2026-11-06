@@ -39,6 +39,15 @@ impl zero_tun::TunDevice for View {
         panic!("borrowed view must not configure host")
     }
 }
+fn config(fd: i32) -> zero_config::DirectPacketDeviceConfig {
+    zero_config::DirectPacketDeviceConfig {
+        backend: zero_config::DirectPacketDeviceBackend::Descriptor,
+        write_queue: std::num::NonZeroUsize::new(128).unwrap(),
+        fd: Some(fd),
+        interface: "not-a-tun".into(),
+        router_addresses: vec![],
+    }
+}
 #[tokio::test]
 async fn failed_sync_publication_stops_activated_fresh_but_keeps_borrowed_current() {
     for fresh in [true, false] {
