@@ -44,6 +44,7 @@ impl NodeOpener {
                 ));
             }
             let mut selected = NodeOpener::new(self.services.clone(), self.endpoint.clone())
+                .with_plan(self.plan.clone())
                 .with_pending(binding.clone(), waiting)
                 .with_service_call(call);
             selected.carrier_owner = self.carrier_owner;

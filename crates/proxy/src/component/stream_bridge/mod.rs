@@ -1,6 +1,6 @@
 //! The single temporary conversion from native proxy roles to legacy relay I/O.
 use super::{
-    instance::{invalid, ComponentSlot},
+    instance::{ComponentSlot, invalid},
     legacy_stream::LegacyStream,
 };
 use crate::{
@@ -9,12 +9,12 @@ use crate::{
     transport::{EstablishedTcpOutbound, TcpOutboundFailure},
 };
 use std::{error::Error, fmt, io, sync::Arc};
-use zero_core::{component::NetworkGeneration, request::Destination, Address, Session};
+use zero_core::{Address, Session, component::NetworkGeneration, request::Destination};
 use zero_platform_tokio::contract::{
+    ChannelError, Reason,
     context::OpenContext,
     network::{UpstreamBinding, UpstreamTransport},
     stream::ConnectRequest,
-    ChannelError, Reason,
 };
 #[cfg(any(
     feature = "upstream-association-runtime",
@@ -85,6 +85,7 @@ pub(crate) async fn connect(
             upstream.with_observer(Some(traffic.clone())),
             Destination::new(address, endpoint.1),
         )
+        .with_plan(services.components.as_ref().ok().map(Arc::downgrade))
         .with_business(business)
         .with_pending(
             binding.clone(),
