@@ -44,7 +44,9 @@ impl PacketSourceCheckpoint {
                     if state.request != Some(request) {
                         break;
                     }
-                    if state.acknowledged[PacketPauseParticipant::Main.index()] == Some(true) {
+                    if state.wire_requested
+                        && state.acknowledged[PacketPauseParticipant::Main.index()] == Some(true)
+                    {
                         return request;
                     }
                 }

@@ -36,6 +36,7 @@ struct PauseState {
     fault: Option<Arc<ChannelError>>,
     acquiring: usize,
     checkpoints_requested: bool,
+    wire_requested: bool,
 }
 mod admission;
 pub use admission::PacketSourceAcquisition;
@@ -45,6 +46,36 @@ pub struct PacketSourcePaused {
     original: Arc<PacketSourcePause>,
     request: u64,
 }
+/// Same original request after only its actual Main has reached an idle
+/// checkpoint. Native Wire and Source closure remain entirely unconfirmed.
+pub struct PacketSourceMainPaused {
+    paused: PacketSourcePaused,
+}
+impl PacketSourceMainPaused {
+    pub fn instance(&self) -> ComponentInstanceId {
+        self.paused.original.instance
+    }
+    pub async fn finish(self) -> Result<PacketSourcePaused, ChannelError> {
+        let original = &self.paused.original;
+        let deadline = {
+            let mut state = original.state.lock().unwrap();
+            if state.request != Some(self.paused.request)
+                || !original.live(&state)
+                || state.acknowledged[0] != Some(true)
+                || state.acquiring != 0
+            {
+                return Err(pause_error(Reason::Revoked));
+            }
+            state.wire_requested = true;
+            state.deadline.ok_or_else(|| pause_error(Reason::Revoked))?
+        };
+        original.changed.notify_waiters();
+        original
+            .wait_checkpoint(self.paused.request, true, deadline)
+            .await?;
+        Ok(self.paused)
+    }
+}
 impl PacketSourcePaused {
     pub fn validate(&self) -> Result<(), ChannelError> {
         let state = self.original.state.lock().unwrap();
@@ -53,6 +84,7 @@ impl PacketSourcePaused {
             || state.acknowledged != [Some(true), Some(true)]
             || state.acquiring != 0
             || !state.checkpoints_requested
+            || !state.wire_requested
         {
             return Err(pause_error(Reason::Revoked));
         }
@@ -68,6 +100,7 @@ impl Drop for PacketSourcePaused {
             state.acknowledged = [None, None];
             state.fault = None;
             state.checkpoints_requested = false;
+            state.wire_requested = false;
         }
         drop(state);
         self.original.changed.notify_waiters();
@@ -145,6 +178,14 @@ impl PacketSourcePause {
         self: &Arc<Self>,
         deadline: tokio::time::Instant,
     ) -> Result<PacketSourcePaused, ChannelError> {
+        self.pause_main(deadline).await?.finish().await
+    }
+    /// Fence actual opens, settle in-flight acquisitions and request only Main.
+    /// The coordinator must reject live users before revoking cached receivers.
+    pub async fn pause_main(
+        self: &Arc<Self>,
+        deadline: tokio::time::Instant,
+    ) -> Result<PacketSourceMainPaused, ChannelError> {
         let request = {
             let mut state = self.state.lock().unwrap();
             if !self.live(&state) {
@@ -162,6 +203,7 @@ impl PacketSourcePause {
             state.acknowledged = [None, None];
             state.fault = None;
             state.checkpoints_requested = false;
+            state.wire_requested = false;
             state.serial
         };
         let guard = PacketSourcePaused {
@@ -169,6 +211,15 @@ impl PacketSourcePause {
             request,
         };
         self.changed.notify_waiters();
+        self.wait_checkpoint(request, false, deadline).await?;
+        Ok(PacketSourceMainPaused { paused: guard })
+    }
+    async fn wait_checkpoint(
+        &self,
+        request: u64,
+        wire: bool,
+        deadline: tokio::time::Instant,
+    ) -> Result<(), ChannelError> {
         loop {
             let changed = self.changed.notified();
             tokio::pin!(changed);
@@ -200,8 +251,10 @@ impl PacketSourcePause {
                         )),
                     );
                 }
-                if state.acknowledged == [Some(true), Some(true)] {
-                    return Ok(guard);
+                if state.acknowledged[0] == Some(true)
+                    && (!wire || state.acknowledged[1] == Some(true))
+                {
+                    return Ok(());
                 }
             }
             if wake_checkpoints {

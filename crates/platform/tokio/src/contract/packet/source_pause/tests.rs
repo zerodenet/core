@@ -107,10 +107,15 @@ async fn original_reads_pause_twice_only_after_inflight_acquisition_then_resume_
     assert!(!wire.is_joined());
     assert!(pause.try_enter().is_err());
     drop(paused);
-    let paused = pause
-        .pause(tokio::time::Instant::now() + std::time::Duration::from_secs(2))
+    let main_paused = pause
+        .pause_main(tokio::time::Instant::now() + std::time::Duration::from_secs(2))
         .await
         .unwrap();
+    assert_eq!(pause.state.lock().unwrap().acknowledged, [Some(true), None]);
+    assert!(!pause.state.lock().unwrap().wire_requested);
+    assert!(pause.try_enter().is_err());
+    assert!(!main.is_joined() && !wire.is_joined());
+    let paused = main_paused.finish().await.unwrap();
     paused.validate().unwrap();
     assert!(!main.is_joined());
     assert!(!wire.is_joined());

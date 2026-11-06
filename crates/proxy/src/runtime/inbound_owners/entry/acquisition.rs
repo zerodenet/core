@@ -166,6 +166,17 @@ impl InboundOwner {
             .clone()
     }
 
+    #[cfg(feature = "raw-ip-runtime")]
+    pub(in crate::runtime) async fn pause_packet_main_if_idle(
+        &self,
+        deadline: Instant,
+    ) -> Result<Option<zero_platform_tokio::contract::packet::PacketSourceMainPaused>, EngineError> {
+        if self.terminal().is_some() { return Ok(None); }
+        match self.packet_pause.get() {
+            Some(packet) => packet.pause_main(deadline).await.map(Some).map_err(|source| std::io::Error::other(source).into()),
+            None => Ok(None),
+        }
+    }
     pub(in crate::runtime) async fn pause_acquisition_if_idle(
         &self,
         deadline: Instant,

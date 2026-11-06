@@ -19,7 +19,7 @@ use super::{
 mod source_pause;
 pub use source_pause::{
     PacketPauseParticipant, PacketSourceAcquisition, PacketSourceCheckpoint, PacketSourcePause,
-    PacketSourcePaused,
+    PacketSourceMainPaused, PacketSourcePaused,
 };
 mod owned;
 pub use owned::{send_owned, OwnedSendFailure};
