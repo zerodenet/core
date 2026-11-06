@@ -2,10 +2,12 @@
 use super::*;
 use zero_core::request::Destination;
 use zero_platform_tokio::{
-    contract::{ChannelError, CloseReason, lifecycle::DynChannelControl, stream::BoxStream},
+    contract::{lifecycle::DynChannelControl, stream::BoxStream, ChannelError, CloseReason},
     controlled_carrier::{CarrierGrants, ResolvingCarrierOpener},
 };
 mod controlled;
+#[cfg(any(target_os = "linux", windows))]
+mod process;
 pub(super) struct Root {
     native: Option<ResolvingCarrierOpener>,
     binding: UpstreamBinding,
@@ -23,6 +25,9 @@ pub(super) struct Root {
     current: std::sync::Weak<crate::runtime::current_services::CurrentServiceSource>,
     roles: Vec<zero_core::component::RoleInstanceId>,
     candidates: tokio::sync::Mutex<Option<controlled::Candidates>>,
+    #[cfg(any(target_os = "linux", windows))]
+    invocation: CarrierContext,
+    waiting: std::sync::OnceLock<zero_platform_tokio::contract::network::PendingCarrierObserver>,
 }
 impl Root {
     #[allow(clippy::too_many_arguments)]
@@ -36,9 +41,12 @@ impl Root {
         pending: Arc<Mutex<Vec<Arc<custody::NativeUse>>>>,
         caller: TaskJoinWitness,
         cancel: CancellationToken,
+        invocation: CarrierContext,
         current: std::sync::Weak<crate::runtime::current_services::CurrentServiceSource>,
         roles: Vec<zero_core::component::RoleInstanceId>,
     ) -> Result<Self, ChannelError> {
+        #[cfg(not(any(target_os = "linux", windows)))]
+        let _ = &invocation;
         Ok(Self {
             native: Some(ResolvingCarrierOpener::new(
                 grants.registration().instance(),
@@ -63,7 +71,20 @@ impl Root {
             current,
             roles,
             candidates: Default::default(),
+            #[cfg(any(target_os = "linux", windows))]
+            invocation,
+            waiting: Default::default(),
         })
+    }
+    /// Publish only a weak observer of this same query ledger. The temporary
+    /// transport neither opens I/O nor registers another owner or task.
+    pub(super) fn track(self: &Arc<Self>) {
+        let waiting =
+            UpstreamTransport::new(self.binding.clone(), self.clone()).pending_carrier_observer();
+        assert!(
+            self.waiting.set(waiting).is_ok(),
+            "one observer per actual DNS root"
+        );
     }
     /// A device donor needs the same actual pending ledger, but no
     /// authorization to dial a second native Stream behind that device.
@@ -143,6 +164,25 @@ impl DynChannelControl for Control {
     }
 }
 impl UpstreamOpener for Root {
+    #[cfg(any(target_os = "linux", windows))]
+    fn acquire_process_endpoint_stream(
+        &self,
+        binding: &UpstreamBinding,
+        request: zero_platform_tokio::contract::network::ProcessEndpointStreamRequest,
+    ) -> BoxFuture<'_, Result<zero_platform_tokio::controlled_carrier::CarrierIo, ChannelError>>
+    {
+        self.process_stream(binding.clone(), request)
+    }
+    #[cfg(any(target_os = "linux", windows))]
+    fn acquire_process_endpoint_datagram(
+        &self,
+        binding: &UpstreamBinding,
+        request: zero_platform_tokio::contract::network::ProcessEndpointDatagramRequest,
+    ) -> BoxFuture<'_, Result<zero_platform_tokio::controlled_carrier::CarrierDatagram, ChannelError>>
+    {
+        self.process_datagram(binding.clone(), request)
+    }
+
     fn packet_caller(
         &self,
         binding: &UpstreamBinding,
