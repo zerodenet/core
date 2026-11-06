@@ -5,7 +5,7 @@ mod io_view;
 mod reader;
 use crate::{OwnedTunIdentity, TunCloseReceipt};
 pub use io_view::OwnedWintunIo;
-pub use reader::OwnedWintunReadWork;
+pub use reader::{OwnedWintunReadControl, OwnedWintunReadPause, OwnedWintunReadWork};
 use std::{
     io,
     sync::{Arc, Mutex},
@@ -85,6 +85,10 @@ impl OwnedWintunOwner {
             || state.reader.is_some()
             || state.session.is_some()
             || state.adapter.is_some()
+            || state
+                .prepared_reader
+                .as_ref()
+                .is_some_and(|reader| reader.control.is_open())
         {
             WintunAcquisitionOutcome::Unknown
         } else if state.receipt.is_some() || state.adapter_closed.is_some() {
