@@ -245,3 +245,28 @@ impl HostResources {
         Ok(bound.clone())
     }
 }
+
+impl HostResources {
+    pub(in crate::component) fn registered_direct_service_issuer(
+        &self,
+        instance: ComponentInstanceId,
+        endpoint: &Destination,
+        binding: &UpstreamBinding,
+        grant: &zero_platform_tokio::controlled_carrier::CarrierGrant,
+        caller: zero_platform_tokio::contract::scope::TaskJoinWitness,
+    ) -> Result<zero_platform_tokio::controlled_carrier::CarrierServiceIssuer, ChannelError> {
+        let bound = self.registered_carrier(
+            instance,
+            endpoint,
+            binding,
+            ControlledStreamDemandClass::Business,
+            grant,
+        )?;
+        let fence = self
+            .carriers
+            .host_cancel
+            .as_ref()
+            .ok_or_else(|| self.denied())?;
+        bound.direct_service_issuer(fence, grant, caller, endpoint, binding)
+    }
+}

@@ -42,6 +42,14 @@ impl CarrierAdoption {
             .upgrade()
             .map(|owner| super::CarrierOwnerRegistration::new(&owner))
     }
+    /// Read-only registration provenance of this same original initializer.
+    pub fn matches_auxiliary(&self, caller: &TaskJoinWitness) -> bool {
+        self.slot
+            .state()
+            .auxiliary
+            .as_ref()
+            .is_some_and(|actual| actual.same_registration(caller))
+    }
     pub fn instance(&self) -> ComponentInstanceId {
         self.slot.instance
     }
