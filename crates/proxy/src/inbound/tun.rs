@@ -8,6 +8,8 @@ mod recovery;
 mod routes;
 mod runtime;
 mod sniff;
+#[cfg(feature = "raw-ip-runtime")]
+pub(crate) mod source;
 mod statistics;
 #[cfg(feature = "udp-runtime")]
 pub(crate) mod udp;
