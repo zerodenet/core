@@ -2,6 +2,7 @@
 //! slot count; an obsolete connection and its users drain before replacement.
 mod lifecycle;
 mod native;
+mod quiescence;
 use super::{
     client::{ClientState, DohClient},
     *,

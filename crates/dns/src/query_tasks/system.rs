@@ -107,6 +107,12 @@ impl OwnedDnsQueryTasks {
                     "DNS lookup admission retired",
                 ));
             }
+            if state.pauses != 0 {
+                return Err(io::Error::new(
+                    io::ErrorKind::WouldBlock,
+                    "actual DNS query admission paused",
+                ));
+            }
             if state
                 .records
                 .iter()

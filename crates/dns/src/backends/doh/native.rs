@@ -2,8 +2,8 @@
 use super::*;
 use crate::native::{Attempt, NativeDnsProvider};
 use std::sync::{
-    atomic::{AtomicBool, Ordering},
     Mutex, OnceLock,
+    atomic::{AtomicBool, Ordering},
 };
 use tokio::time::Instant;
 use zero_platform_tokio::{contract::scope::TaskJoinWitness, controlled_carrier::loan::LoanOwner};
@@ -15,6 +15,36 @@ pub(super) struct NativeClient {
     closed: AtomicBool,
 }
 impl NativeClient {
+    pub(in super::super) fn retained_instances(
+        &self,
+    ) -> io::Result<Vec<zero_core::component::ComponentInstanceId>> {
+        if self.closed() {
+            return Ok(Vec::new());
+        }
+        let provider = self
+            .provider
+            .lock()
+            .expect("DoH provider owner poisoned")
+            .clone()
+            .ok_or_else(|| io::Error::other("actual retained DoH provider unavailable"))?;
+        let (instance, _scope) = provider
+            .host_scope()
+            .ok_or_else(|| io::Error::other("actual DoH host Scope unavailable"))?;
+        let mut result = std::collections::BTreeSet::from([instance]);
+        let original = self.original.try_lock().map_err(|_| {
+            io::Error::new(
+                io::ErrorKind::WouldBlock,
+                "actual DoH original is being settled",
+            )
+        })?;
+        let mut parent = original.as_ref().map(|owner| owner.original());
+        while let Some(origin) = parent {
+            result.insert(origin.instance());
+            parent = origin.parent();
+        }
+        Ok(result.into_iter().collect())
+    }
+
     pub(super) fn new(provider: Arc<dyn NativeDnsProvider>) -> Self {
         Self {
             task: OnceLock::new(),

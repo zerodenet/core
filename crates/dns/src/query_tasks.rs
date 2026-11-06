@@ -5,10 +5,10 @@ use std::{
     num::NonZeroUsize,
     sync::{Arc, Mutex, OnceLock},
 };
-use tokio::sync::{oneshot, Notify, OwnedSemaphorePermit, Semaphore};
+use tokio::sync::{Notify, OwnedSemaphorePermit, Semaphore, oneshot};
 use zero_platform_tokio::contract::{
-    scope::{TaskClass, TaskId, TaskJoinWitness, TaskRegistrar, WeakTaskRegistrar},
     CancellationToken, ChannelError,
+    scope::{TaskClass, TaskId, TaskJoinWitness, TaskRegistrar, WeakTaskRegistrar},
 };
 
 tokio::task_local! {
@@ -26,6 +26,8 @@ mod lifecycle;
 pub use faults::{OwnedDnsQueryFault, OwnedDnsQueryFaults};
 mod network;
 mod observation;
+mod quiescence;
+pub(crate) use quiescence::QueryPause;
 mod retirement;
 pub(crate) use retirement::Retirement;
 mod spawn;
@@ -51,6 +53,7 @@ struct Shared {
 #[derive(Debug, Default)]
 struct State {
     closing: bool,
+    pauses: usize,
     identity_fault: bool,
     records: Vec<Arc<Record>>,
     first_failure: Option<Arc<ChannelError>>,
@@ -227,6 +230,12 @@ impl OwnedDnsQueryTasks {
             return Err(io::Error::new(
                 io::ErrorKind::NotConnected,
                 "DNS query tasks are closing",
+            ));
+        }
+        if state.pauses != 0 {
+            return Err(io::Error::new(
+                io::ErrorKind::WouldBlock,
+                "actual DNS query admission paused",
             ));
         }
         Ok(())

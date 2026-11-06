@@ -3,6 +3,7 @@
 use super::*;
 use std::sync::atomic::{AtomicBool, Ordering};
 pub(crate) struct Retirement {
+    pub(super) kind: TaskKind,
     pub(super) registration: Arc<OnceLock<Option<QueryRegistration>>>,
     pub(super) capacity: Arc<Mutex<Option<OwnedSemaphorePermit>>>,
     ancestors: Vec<TaskJoinWitness>,
@@ -11,6 +12,13 @@ pub(crate) struct Retirement {
     cleanup_failure: OnceLock<Arc<io::Error>>,
 }
 impl Retirement {
+    pub(super) fn finalizer_matches(&self, tasks: &OwnedDnsQueryTasks) -> bool {
+        self.finalizer
+            .as_ref()
+            .and_then(std::sync::Weak::upgrade)
+            .is_some_and(|provider| provider.tasks().same_owner(tasks))
+    }
+
     pub(super) fn new(
         kind: TaskKind,
         ancestors: Vec<TaskJoinWitness>,
@@ -18,6 +26,7 @@ impl Retirement {
         finalizer: Option<std::sync::Weak<dyn crate::native::NativeDnsProvider>>,
     ) -> Arc<Self> {
         Arc::new(Self {
+            kind,
             registration: Arc::new(OnceLock::new()),
             capacity: Arc::new(Mutex::new(Some(capacity))),
             ancestors,
@@ -37,7 +46,7 @@ impl Retirement {
     pub(super) fn returned_native(&self) {
         self.native_returned.store(true, Ordering::Release);
     }
-    fn native_complete(&self) -> bool {
+    pub(super) fn native_complete(&self) -> bool {
         if self.native_returned.load(Ordering::Acquire) {
             return true;
         }

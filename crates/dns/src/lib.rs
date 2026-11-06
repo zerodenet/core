@@ -40,8 +40,8 @@ use std::collections::{BTreeMap, VecDeque};
 use std::fmt;
 use std::io;
 use std::path::PathBuf;
-use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicU64, Ordering};
 
 use zero_config::{DnsAddressFamilyPolicy, DnsConfig, DnsPolicyConfig};
 use zero_traits::{AddressFamily, DnsResolver, IpAddress};
@@ -51,7 +51,7 @@ use cache::{DnsCache, DnsWireCacheValue};
 use coordinator::{QueryCoordinator, QueryKey, QueryScope};
 pub use ech::{EchDnsEndpoint, EchDnsRecord, EchRefresh};
 use fake_ip::FakeIpAllocator;
-pub use fake_ip::{default_fake_ip_state_path, FakeIpClearResult, FakeIpClearTarget, FakeIpStats};
+pub use fake_ip::{FakeIpClearResult, FakeIpClearTarget, FakeIpStats, default_fake_ip_state_path};
 use reverse::RealIpReverseIndex;
 pub use reverse::RealIpReverseLookup;
 use router::DnsDispatcher;
@@ -77,6 +77,9 @@ pub use outbound::{
     DnsOutboundCarrierFuture, DnsOutboundConnectFuture, DnsOutboundConnector,
     DnsOutboundDatagramFuture, DnsQuicBidiConnector, DnsQuicBidiRequest,
 };
+
+mod donor_pause;
+pub use donor_pause::DnsDonorPause;
 
 /// The configured DNS subsystem.
 ///
@@ -1001,7 +1004,7 @@ impl DnsResolver for DnsSystem {
             None => {
                 return self
                     .resolve_system_coordinated(domain, DnsQueryRole::Default, config_generation)
-                    .await
+                    .await;
             }
         };
 
