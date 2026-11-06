@@ -66,6 +66,13 @@ pub(crate) struct SharedRawIpDevice {
 }
 
 impl SharedRawIpDevice {
+    #[cfg(test)]
+    pub(crate) fn test_original_worker_witnesses(
+        &self,
+    ) -> Vec<zero_platform_tokio::contract::scope::TaskJoinWitness> {
+        self.task.test_original_witnesses()
+    }
+
     pub(crate) fn is_closed(&self) -> bool {
         self.closed.load(Ordering::Acquire)
     }

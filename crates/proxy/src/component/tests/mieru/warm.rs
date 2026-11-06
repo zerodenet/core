@@ -2,6 +2,7 @@
 use super::*;
 use std::sync::Arc;
 use tokio::net::TcpStream;
+use zero_config::RuntimeConfig;
 async fn address(proxy: &Proxy) -> std::net::SocketAddr {
     let owner = tokio::time::timeout(Duration::from_secs(5), async {
         loop {
