@@ -7,9 +7,8 @@ fn end() -> Instant {
 }
 pub(crate) struct MuxPrefix {
     pub node: zero_config::OutboundConfig,
-    proxy: Proxy,
-    stop: tokio::sync::watch::Sender<bool>,
-    task: tokio::task::JoinHandle<Result<(), zero_engine::EngineError>>,
+    running: crate::RunningProxy,
+    original: std::sync::Arc<crate::runtime::inbound_owners::InboundOwner>,
     _material: tempfile::TempDir,
 }
 impl MuxPrefix {
@@ -41,24 +40,26 @@ impl MuxPrefix {
             serde_json::json!({"users":[user.clone()],"tls":{"cert_path":"ca.pem","key_path":"key.pem"},"ws":{"path":"/mux"}})
         };
         inbound["type"] = protocol.into();
-        let config=zero_config::RuntimeConfig::parse_with_source_dir(&serde_json::json!({"inbounds":[{"tag":"incoming","listen":{"address":"127.0.0.1","port":1},"protocol":inbound}],"route":{"final":{"type":"direct"}}}).to_string(),Some(material.path().to_owned())).unwrap();
-        let proxy = Proxy::new(config.clone()).unwrap();
-        let startup = proxy.engine().runtime_snapshot().config().clone();
-        proxy
-            .protocols
-            .start_components(startup.clone(), end())
-            .await
-            .unwrap();
-        proxy
-            .protocols
-            .commit_components(&startup, || Ok(()))
-            .unwrap();
-        let mut inbound = config.inbounds[0].clone();
-        inbound.listen.port = 0;
-        let listener = crate::runtime::test_listener::start(&proxy, inbound).await;
-        let address = listener.address;
-        let stop = listener.stop;
-        let task = listener.worker;
+        let config=zero_config::RuntimeConfig::parse_with_source_dir(&serde_json::json!({"inbounds":[{"tag":"incoming","listen":{"address":"127.0.0.1","port":0},"protocol":inbound}],"route":{"final":{"type":"direct"}}}).to_string(),Some(material.path().to_owned())).unwrap();
+        let proxy = Proxy::new(config).unwrap();
+        let registry = proxy.inbound_owners.clone();
+        let running = proxy.spawn();
+        let original = tokio::time::timeout_at(end(), async {
+            let owner = loop {
+                if let Some(owner) = registry.owner("incoming") {
+                    break owner;
+                }
+                tokio::task::yield_now().await;
+            };
+            owner.wait_ready().await.unwrap();
+            owner
+        })
+        .await
+        .unwrap();
+        let address = *original
+            .original_listener_address
+            .get()
+            .expect("same actual Source bound its listener");
 
         let mut outbound = user;
         outbound["type"] = protocol.into();
@@ -78,24 +79,19 @@ impl MuxPrefix {
             serde_json::from_value(serde_json::json!({"tag":tag,"protocol":outbound})).unwrap();
         Self {
             node,
-            proxy,
-            stop,
-            task,
+            running,
+            original,
             _material: material,
         }
     }
     pub async fn close(self) {
-        self.stop.send_replace(true);
-        self.task.await.unwrap().unwrap();
-        self.proxy
-            .inbound_owners
-            .shutdown("incoming", end())
-            .await
-            .unwrap();
-        self.proxy
-            .protocols
-            .shutdown_components(end())
-            .await
-            .unwrap();
+        self.running.shutdown().await.unwrap();
+        let terminal = self
+            .original
+            .terminal_for_test()
+            .expect("same Source reached its actual terminal cleanup");
+        assert!(terminal.failure().is_none(), "{:?}", terminal.failure());
+        assert!(terminal.joined_tasks() > 0);
+        assert!(terminal.closed_io_receipts() > 0);
     }
 }
