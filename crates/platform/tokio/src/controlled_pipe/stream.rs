@@ -34,6 +34,7 @@ impl AsyncRead for ControlledPipe {
         if out.remaining() == 0 {
             return Poll::Ready(Ok(()));
         }
+        let incoming = cx.waker().clone();
         let mut state = lock(&self.shared.state);
         if let Some(bytes) = state.read.front() {
             let start = state.read_offset;
@@ -55,7 +56,9 @@ impl AsyncRead for ControlledPipe {
         if state.eof || self.shared.stop.load(Ordering::Acquire) {
             return Poll::Ready(Ok(()));
         }
-        state.read_waker = Some(cx.waker().clone());
+        let previous = state.read_waker.replace(incoming);
+        drop(state);
+        drop(previous); // External Waker drop can re-enter this same owner.
         Poll::Pending
     }
 }
@@ -65,6 +68,7 @@ impl AsyncWrite for ControlledPipe {
         cx: &mut Context<'_>,
         bytes: &[u8],
     ) -> Poll<io::Result<usize>> {
+        let incoming = cx.waker().clone();
         let mut state = lock(&self.shared.state);
         if let Some(error) = &state.fault {
             return Poll::Ready(Err(retained(error)));
@@ -79,7 +83,9 @@ impl AsyncWrite for ControlledPipe {
             return Poll::Ready(Ok(0));
         }
         if state.write.len() == WRITE_SLOTS {
-            state.write_waker = Some(cx.waker().clone());
+            let previous = state.write_waker.replace(incoming);
+            drop(state);
+            drop(previous); // External Waker drop can re-enter this same owner.
             return Poll::Pending;
         }
         let size = bytes.len().min(CHUNK);
@@ -89,6 +95,7 @@ impl AsyncWrite for ControlledPipe {
         Poll::Ready(Ok(size))
     }
     fn poll_flush(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
+        let incoming = cx.waker().clone();
         let mut state = lock(&self.shared.state);
         if let Some(error) = &state.fault {
             return Poll::Ready(Err(retained(error)));
@@ -96,7 +103,9 @@ impl AsyncWrite for ControlledPipe {
         if state.write.is_empty() && !state.writing {
             return Poll::Ready(Ok(()));
         }
-        state.flush_waker = Some(cx.waker().clone());
+        let previous = state.flush_waker.replace(incoming);
+        drop(state);
+        drop(previous); // External Waker drop can re-enter this same owner.
         Poll::Pending
     }
     fn poll_shutdown(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
