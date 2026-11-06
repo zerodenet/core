@@ -9,6 +9,14 @@ pub(in crate::transport::plugin) struct PendingEndpoint {
     pub(in crate::transport::plugin) endpoint: Arc<ProcessEndpointHandoff>,
     pub(in crate::transport::plugin) process: Option<Arc<OwnedProcess>>,
 }
+impl std::fmt::Debug for PendingEndpoint {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("PendingPluginEndpoint")
+            .field("instance", &self.endpoint.instance())
+            .field("process_installed", &self.process.is_some())
+            .finish_non_exhaustive()
+    }
+}
 struct Attempt(Arc<PluginLease>, bool);
 impl Drop for Attempt {
     fn drop(&mut self) {
