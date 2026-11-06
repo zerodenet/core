@@ -90,6 +90,12 @@ impl PreparedGrpc {
         };
         Ok(Self { protocol, pool })
     }
+    pub fn reuse_file_material_from(
+        &self,
+        previous: zero_core::component::ComponentInstanceId,
+    ) -> Result<bool, RuntimeError> {
+        self.pool.reuse_file_material_from(previous)
+    }
     pub fn with_file_owner(
         mut self,
         source_dir: Option<&Path>,

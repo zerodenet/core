@@ -25,6 +25,10 @@ async fn ordinary_same_config_network_replacement_uses_original_ca_after_its_pat
             let prior = first.owner.original().clone();
             returned(first).await;
             std::fs::remove_file(&path).unwrap();
+            let prior_slot=proxy.tcp_runtime_services().components.as_ref().unwrap().component(prior.instance().component).unwrap();
+            let same_source=proxy.protocols.prepare_device_components(snapshot.clone()).unwrap();
+            let projected=same_source.component(prior.instance().component).unwrap();
+            assert!(Arc::ptr_eq(&projected,&prior_slot),"same actual configuration cold pass must keep the original material/healthy owner, independently of device recipe rebuilding");
             proxy.egress_interface_control().invalidate_network();
             let mut fresh = loan(&proxy).await;
             echo(&mut fresh).await;

@@ -122,7 +122,24 @@ impl VlessAdapter {
         )?;
         if matches!(&input.protocol,OutboundProtocolConfig::Vless{tls:Some(tls),..} if tls.ca_cert_path.is_some())
         {
-            resources.require_fresh_resource(pool_id)?;
+            let inherited = if resources.same_source_as_previous() {
+                resources
+                    .previous_resource_instance(pool_id)
+                    .map(|previous| prepared.reuse_file_material_from(previous))
+                    .transpose()
+                    .map_err(|source| {
+                        zero_config::ConfigError::InvalidOutbound(format!(
+                            "outbound `{}`: {source}",
+                            input.tag
+                        ))
+                    })?
+                    .unwrap_or(false)
+            } else {
+                false
+            };
+            if !inherited {
+                resources.require_fresh_resource(pool_id)?;
+            }
         }
         Ok(super::mux::Options::Grpc(Arc::new(prepared.bind(pool_id))))
     }
