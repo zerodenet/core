@@ -215,7 +215,8 @@ impl BackgroundCarrier {
                     self.endpoint.clone(),
                 )
                 .with_pending(binding.clone(), waiting)
-                .with_service_call(call);
+                .with_service_call(call)
+                .with_carrier_owner(self.instance);
                 Ok(UpstreamTransport::new(binding, Arc::new(opener)))
             } else {
                 let nodes = services.protocols().background_nodes(&services, &binding)?;
