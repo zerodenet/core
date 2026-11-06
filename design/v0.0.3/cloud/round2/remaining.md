@@ -1,5 +1,36 @@
 # 第二轮续作：剩余生产调用者冻结
 
+## 当前续作状态 2026 11 06
+
+本节优先于下方历史检查点；五个职责域均未结题。当前必要定向构建输入为
+`8a545c16`（完整 SHA 由对应原始 input/result 记录），没有统一最终候选或最终 CI。
+实际 remote integration 再核仍为 `59615e69ea5a413d657a873157ea4adf8f204a90`；
+本地普通续作保留原历史，不回退、覆盖 dirty 或强推。#128–#132 仅历史交付。
+
+| 当前实际调用集合 / 唯一 owner | 本次已接线及精确前置 | 尚须完成的执行、删除和必要验证 |
+| --- | --- | --- |
+| A DNS：System、所有直接/绕行 backend、Node、持久 DoH、失败 retry | 原 Query/Blocking/池保持；A `20035c0476578a3c4f586e0727db1ccf36412ba4` 的匹配 QueryCall 和有界同错误 Arc 接收已合；M `23996e78` 与 C `334cbae` 接 Source UDP/TCP 实际调用者 | B 完整资源型 donor、C standalone WG/设备 donor 全到位后删除 ProxyDnsOutboundConnector、占位 Session、prepare_datagram_exchange；原 Pending 取消、后备、网络/配置换代和退出组合尚需验证 |
+| B SS/SIP：普通 TCP/UDP、共享响应 FIFO、实际 Process | B `5d11287509c44b87a2c7dedc9327ef849a146144` / `dfa38499` / `d324f749` 与 M `31a40deb` 同组合，删旧 runtime waiter/独立 response pump；M `04babdd4` 先付同 job 额度再建 Scope/actor | 普通真实 UDP/空包/多目标和 maxJobs=1 活跃 A、冷拒 B、实际退休后 B 首启尚待 Proxy 回归；保留历史轻量 key/cross-executor 和 macOS whole-job 实现缺口，不能称 SS 整体完成 |
+| B 全 transport/MUX/Mieru/mixed/device 与无 observer 消费者 | 同真实 Carrier/Metadata/Bound 总账，原 donor/control/Scope；M `85eee212` 抽取原 CA/File immutable 材料，`8a545c16` 只读实际旧 named instance | VLESS 全合法 TLS/H2/UDP 等正在同实际 factory 接通；其余 MUX、gRPC/H2/QUIC/XHTTP、mixed 和跨执行方式实际退休、完整 pre-delivery custody 及旧 executor/投影仍未全删。不得以 noFile/TCP 子集或关闭 gate 结题 |
+| C Packet/Direct、System TUN、独立 WG/适用进程 | 实际 Source pause、输入取得屏障、原 SDK async worker/TaskRegistrar、四类 return/native-read 预算已合；M `616911dc` Bound retirement 另等实际 driver registration ACK；C Source DNS 消费者与 M shared 已组合 | standalone WG 真实 Bound provider/选中 peer 原件、process lookup/helper/转交、完整普通 Packet/MTU/计量及旧链删除仍在实现；本地 ScopedSourceTasks 额度还需保到实际 ACK。保留方向撤除与回滚旧 TCP 连续性 |
+| 控制 G8：Windows pipe、服务器/订阅、TLS、quota/inspect/持久化 | 首波后已复用 A/control；原 handle/std worker/Scope/native 与实际故障交接接线保留，Linux 历史真实控制恢复结果单列 | 当前组合的登记窗口修复及独立入口退出、恢复和同故障接收仍需复验；GNU 检查不等于真实 Windows。缺实现不改列平台待验 |
+| 预算 Z003-07：同 Host 各实际 owner | M/A 原 Carrier/Metadata/Bound 总额度和配置 StopOld；M `f73f2dd0` 同账本预付、实际 actor 与 Host ACK；原 SS 安全历史、TUN/Packet/worker 配置继续复用 | Process cap typed facts 正补；Source listener/accepted、ICMP 等未纳入总体路径，以及 transport/SS 历史 key 边界仍需真实 owner 投影。pending/failed/retiring 不退款，不驱逐活跃业务或安全历史 |
+
+B→A（实际 donor）及需要的 B→C 按上述和后续精确提交继续普通合入。所有共享源码由
+M 唯一写入；agent 仅给仓库外建议补丁。全部实现 PR base 为 r2-integration。
+
+当前验证锁 SHA-256 为
+`9026e3253d6a42c91cd557ee3ff95c2b1e93e46ba7749c707dec592e055ca6a1`；
+`.github/round2/candidate.Cargo.lock` 保存同字节输入，CI 的 round2 路径固定 actual head/
+Rust 1.99.0，并保留每 job 输入摘要、检测锁变更，未据此取得任何运行资格。
+开发原始证据归档已生成（非最终资格）；Pages 上传返回 outcome unknown，尚无已确认
+可下载的文件引用，不以 `/workspace` 路径代替交付。最终必须补齐可取得的归档和摘要。
+REALITY 原 `www.cloudflare.com` 目标、断言和期限保持，环境 DNS 恢复后仍须原项复验。
+TEMP-WG-OUTER-UDP-01 仅原 outer_udp_proxy/reconnect 范围保留未关闭、不纠正不扩大。
+
+## 以下为历史调用者盘点与开发检查点
+
+
 续作起点 `59615e69ea5a413d657a873157ea4adf8f204a90`；remote fetch/push 均为
 `https://github.com/zerodenet/core.git`，与核对的远端 integration 相同，工作树干净。
 固定包基线仍为 `c940b727193f69752c66a9f49a7d64693ad74c1c`。

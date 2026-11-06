@@ -1,5 +1,29 @@
 # 第二轮候选统一资格索引
 
+
+## 当前续作输入与未获资格
+
+下方 `70907f0a`、旧锁、workspace/互通数量和“最终交接”字样均是先前阶段历史，
+不得冒充本次最终资格。五域实现仍继续，当前剩余集合见 [remaining.md](remaining.md)。
+Rust 1.99.0，当前同锁 SHA-256：
+`9026e3253d6a42c91cd557ee3ff95c2b1e93e46ba7749c707dec592e055ca6a1`。
+
+| 精确被测实现 | 必要定向及实际结果 |
+| --- | --- |
+| `04babdd4d35763f679981e31290b6952534046bb` | Runtime/Platform lib build exit0；OwnedStart 实际冷拒/取消/退休后首启 4 PASS，未选进程 Plan 1 PASS，真实 Process/Endpoint 4 PASS，原 Process tree/actor/延迟 Host ACK 1 PASS，真实 Carrier 总额度替换 1 PASS。误筛选零项的单独记录不算通过 |
+| `f73f2dd0`（原始记录含完整 SHA） | Platform lib build exit0；同预付声明、foreign Scope 拒绝、冷原件转交、实际 actor join 与延迟 Host ACK 共 3 PASS |
+| `f73f2dd0` / `f280ef3277e098ea967755985cfa47f6251f9562` | SS/Proxy 组合构建分别 exit101；首组 11 个 SS 模块/可见性/所有权类型错误，次组仅 fixture Address/Display 错误。B 已追加修正，原日志保留；没有冒称生成了新 Proxy 测试产物 |
+| `23996e788e1fa2132a2c81e96a2c001f5ab8b574` | DNS/Platform/Transport lib+web build exit0；query_tasks 12 PASS、wire_call 2 PASS。H2 3 PASS/1 FAIL（原 8s/1-byte window/256KiB，收到210386字节 phase1）；未提高窗口、容量、栈或期限 |
+| `8a545c16`（完整 SHA 在原始 input） | 普通 Proxy lib --no-run 排队中，未给本行测试资格；该输入含 Source DNS/SS/材料 recipe/生产总额度接线 |
+
+所有命令、逐 target 结果、工具/环境、真实结束码、源码逐文件输入和产物摘要均由 M
+外部 harness 保留。每组仅对应自己的输入；不同 feature 图和产物不得合并为统一候选。
+CI `e525f688` 仅准备 round2 的 exact head/Rust1.99/同锁/输入 artifact，最终 CI 尚未运行。
+开发证据压缩包已生成；Pages 上传返回 outcome unknown，未收到可确认文件引用，
+仍须补齐最终可下载归档，不能只交云端路径。
+
+## 以下为先前阶段的原始资格历史
+
 本轮架构实现仍未全部完成；完整旧调用者/owner/删除边界及缺口见 [execution.md](execution.md)。
 此文件记录精确实现输入与实际运行结果。最终交接提交若只更新此索引、工程规则和兼容记录，
 其源码差异另列；不会把不同实现输入或历史失败改写为同一候选通过。
