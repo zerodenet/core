@@ -1,6 +1,6 @@
 //! Normal Proxy DNS consumes the same canonical WG device's actual loans.
 use super::*;
-use base64::{engine::general_purpose::STANDARD, Engine as _};
+use base64::{Engine as _, engine::general_purpose::STANDARD};
 use std::{sync::Arc, time::Duration};
 use zero_platform_tokio::controlled_carrier::CarrierOrigin;
 mod peer;
@@ -27,7 +27,14 @@ async fn start(peer: &peer::Peer, dns: &crate::dns_fixture::Dns) -> (Proxy, crat
 }
 async fn start_server(
     peer: &peer::Peer,
+    backend: zero_config::DnsServerConfig,
+) -> (Proxy, crate::RunningProxy) {
+    start_server_mode(peer, backend, true).await
+}
+async fn start_server_mode(
+    peer: &peer::Peer,
     mut backend: zero_config::DnsServerConfig,
+    linked: bool,
 ) -> (Proxy, crate::RunningProxy) {
     match &mut backend {
         zero_config::DnsServerConfig::Udp { host, detour, .. }
@@ -38,12 +45,20 @@ async fn start_server(
         }
         _ => panic!("fixture requires an existing UDP/DoT/DoH WG detour"),
     }
-    let config=zero_config::RuntimeConfig::parse(&serde_json::json!({
+    let mut document = serde_json::json!({
         "runtime":{"dns":{"servers":{"node":{"type":"system"},"query":backend},"default_server":"query","policy":{"node_server":"node","address_family":"ipv4_only"}}},
         "inbounds":[{"tag":"wg-source","listen":{"address":"127.0.0.1","port":0},"protocol":{"type":"wireguard","private_key":STANDARD.encode([121;32]),"addresses":["10.0.0.1/32"],"peers":[{"public_key":peer::public(122),"allowed_ips":["0.0.0.0/0"]}]}}],
         "outbounds":[{"tag":"wg","protocol":{"type":"wireguard","private_key":STANDARD.encode([121;32]),"addresses":["10.0.0.1/32"],"inbound_tag":"wg-source","peers":[{"public_key":peer::public(122),"endpoint":peer.address.to_string(),"allowed_ips":["0.0.0.0/0"]}]}}],
         "route":{"final":{"type":"direct"}}
-    }).to_string()).unwrap();
+    });
+    if !linked {
+        document.as_object_mut().unwrap().remove("inbounds");
+        document["outbounds"][0]["protocol"]
+            .as_object_mut()
+            .unwrap()
+            .remove("inbound_tag");
+    }
+    let config = zero_config::RuntimeConfig::parse(&document.to_string()).unwrap();
     let proxy = Proxy::new(config.clone()).unwrap();
     proxy.resolver.set_outbound_connector(Arc::new(NoLegacy));
     let running = proxy.spawn();
@@ -173,3 +188,5 @@ async fn ordinary_linked_wireguard_truncated_dns_retires_udp_before_actual_frame
 }
 
 mod encrypted;
+
+mod standalone;
