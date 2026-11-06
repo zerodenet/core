@@ -310,6 +310,7 @@ impl HostResources {
             .map(|declaration| coverage::CoverageBinding::new(component, declaration))
             .collect::<Result<Vec<_>, _>>()?;
         Ok(Arc::new(Self {
+            dependency_slots: std::sync::OnceLock::new(),
             source_pause: std::sync::OnceLock::new(),
             originals,
             original_tasks,

@@ -315,6 +315,18 @@ pub struct InboundListenerEndpoints {
     pub datagram: std::net::SocketAddr,
 }
 pub trait ResourceAccess: Send + Sync {
+    /// Seal one actual direct resource dependency before borrowing its existing
+    /// stream. Default-deny; metadata IDs alone do not authorize a loan.
+    fn dependency_stream_loan_issuer(
+        &self,
+        _dependency: zero_core::component::ComponentInstanceId,
+        _endpoint: &zero_core::request::Destination,
+        _binding: &super::network::UpstreamBinding,
+        _grant: &crate::controlled_carrier::CarrierGrant,
+    ) -> Result<crate::controlled_carrier::loan::CarrierDependencyLoanIssuer, BuildError> {
+        Err(super::ChannelError::new(super::Stage::Prepare, super::Reason::Unsupported, super::Impact::Component))
+    }
+
     /// Metadata of this same original Packet source only; no grant or task API.
     fn packet_source_pause(&self) -> Option<Arc<super::packet::PacketSourcePause>> {
         None

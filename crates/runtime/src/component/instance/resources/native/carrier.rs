@@ -306,3 +306,17 @@ impl CarrierDeclarations {
         progress
     }
 }
+
+impl CarrierDeclarations {
+    pub(super) fn host_fence(&self) -> Result<&Arc<CancellationToken>, ChannelError> {
+        self.host_cancel.as_ref().ok_or_else(|| error(self.identity.as_ref().map_or(ComponentId(0), |(id,_)| id.component), Reason::StalePlan, "no actual host carrier fence"))
+    }
+    pub(super) fn registered_dependency_receiver(&self, grant: &zero_platform_tokio::controlled_carrier::CarrierGrant) -> Result<CarrierOwnerBinding, ChannelError> {
+        let records = self.records.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        let mut matching = records.values().filter(|entry| entry.actual.matches_grant(grant));
+        let bound = matching.next().and_then(|entry| entry.bound.clone());
+        if matching.next().is_some() { return Err(error(grant.instance().component, Reason::StalePlan, "ambiguous actual dependency receiver")); }
+        drop(records);
+        bound.ok_or_else(|| error(grant.instance().component, Reason::StalePlan, "no actual registered dependency receiver"))
+    }
+}

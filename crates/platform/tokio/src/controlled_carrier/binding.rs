@@ -19,7 +19,7 @@ pub(super) struct BoundAuthority {
 #[derive(Clone)]
 pub struct CarrierOwnerBinding {
     registration: CarrierOwnerRegistration,
-    authority: Arc<BoundAuthority>,
+    pub(super) authority: Arc<BoundAuthority>,
 }
 impl CarrierOwnerRegistration {
     pub fn bind_declared(

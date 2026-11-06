@@ -2,6 +2,7 @@
 mod adopt;
 mod business;
 mod datagram;
+mod dependency;
 mod io;
 mod native;
 mod native_packet;
@@ -10,6 +11,7 @@ mod receiver;
 mod related;
 use super::CarrierOrigin;
 use crate::contract::{lifecycle::DynChannelControl, stream::BoxStream, CancellationToken};
+pub use dependency::CarrierDependencyLoanIssuer;
 pub use datagram::{BorrowedDatagram, DatagramLoan, LoanDatagramIo};
 pub use io::LoanIo;
 pub use owner::{LoanClosed, LoanOwner};

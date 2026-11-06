@@ -60,6 +60,7 @@ impl ComponentSlot {
                     self.packet_source.clone(),
                 )
                 .map_err(Arc::new)?;
+                resources.bind_dependency_slots(self.dependency_slots.get().cloned().unwrap_or_default());
                 #[cfg(any(target_os = "linux", windows))]
                 if let Some(paid) = self.prepaid_process.get() {
                     resources
@@ -220,6 +221,14 @@ impl ComponentSlot {
                 host.check_installed(self.instance_id(), &self.admission_owner)?;
             }
         }
+        Ok(())
+    }
+}
+
+impl ComponentSlot {
+    pub(in crate::component) fn check_dependency_loan_start(&self) -> Result<(), ChannelError> {
+        self.check_host_installation()?;
+        if !self.has_started() { return Err(self.failure(Reason::StalePlan, "actual dependency has not successfully started")); }
         Ok(())
     }
 }

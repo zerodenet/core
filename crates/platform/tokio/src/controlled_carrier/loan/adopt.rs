@@ -11,11 +11,31 @@ use zero_core::request::Destination;
 
 impl CarrierGrant {
     pub fn adopt_stream_loan(
+        self,
+        binding: &UpstreamBinding,
+        endpoint: Destination,
+        context: &CarrierContext,
+        loan: StreamLoan,
+    ) -> Result<CarrierIo, ChannelError> {
+        self.adopt_stream_loan_inner(binding, endpoint, context, loan, None)
+    }
+    pub fn adopt_dependency_stream_loan(
+        self,
+        binding: &UpstreamBinding,
+        endpoint: Destination,
+        context: &CarrierContext,
+        loan: StreamLoan,
+        issuer: super::dependency::CarrierDependencyLoanIssuer,
+    ) -> Result<CarrierIo, ChannelError> {
+        self.adopt_stream_loan_inner(binding, endpoint, context, loan, Some(issuer))
+    }
+    fn adopt_stream_loan_inner(
         mut self,
         binding: &UpstreamBinding,
         endpoint: Destination,
         context: &CarrierContext,
         loan: StreamLoan,
+        dependency: Option<super::dependency::CarrierDependencyLoanIssuer>,
     ) -> Result<CarrierIo, ChannelError> {
         let original = loan.owner.original().clone();
         // The reservation is unique. Persist the acquired controller first;
@@ -43,7 +63,13 @@ impl CarrierGrant {
             .owner
             .upgrade()
             .and_then(|owner| owner.state().binding.clone());
-        if binding.prefix.is_empty()
+        let path_permitted = match dependency {
+            Some(issuer) => {
+                binding.prefix.is_empty() && issuer.permits(&self, binding, &endpoint, &original)
+            }
+            None => !binding.prefix.is_empty(),
+        };
+        if !path_permitted
             || context.session.is_some()
             || context.cancel.is_cancelled()
             || context

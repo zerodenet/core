@@ -15,6 +15,7 @@ use zero_platform_tokio::contract::{
 };
 
 pub struct HostResources {
+    dependency_slots: std::sync::OnceLock<Arc<[std::sync::Weak<crate::component::instance::ComponentSlot>]>>,
     source_pause:
         std::sync::OnceLock<Arc<zero_platform_tokio::contract::packet::PacketSourcePause>>,
     originals: Arc<crate::HostOriginalBudgets>,
@@ -102,6 +103,7 @@ struct State {
 // production activation remains gated until that separate transaction exists.
 mod bound_datagram;
 mod carrier;
+mod dependency;
 mod coverage;
 mod evidence;
 mod files;
@@ -188,6 +190,16 @@ impl HostResources {
     }
 }
 impl ResourceAccess for HostResources {
+    fn dependency_stream_loan_issuer(
+        &self,
+        dependency: zero_core::component::ComponentInstanceId,
+        endpoint: &Destination,
+        binding: &zero_platform_tokio::contract::network::UpstreamBinding,
+        grant: &zero_platform_tokio::controlled_carrier::CarrierGrant,
+    ) -> Result<zero_platform_tokio::controlled_carrier::loan::CarrierDependencyLoanIssuer, ChannelError> {
+        self.registered_dependency_stream_issuer(dependency, endpoint, binding, grant)
+    }
+
     fn prepare_logical_packet_source(
         &self,
         source: &zero_platform_tokio::controlled_carrier::LogicalPacketProviderRegistration,

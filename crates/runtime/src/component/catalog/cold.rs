@@ -59,6 +59,11 @@ impl ComponentCatalog {
         > = BTreeMap::new();
         for slot in &plan.order {
             slot.bind_original_budgets(self.original_budgets());
+            let actual_dependencies: Arc<[_]> = slot.dependency_instances().iter().map(|id| {
+                Arc::downgrade(plan.order.iter().find(|actual| actual.instance_id() == *id)
+                    .expect("direct dependency has an actual topological slot"))
+            }).collect::<Vec<_>>().into();
+            slot.bind_dependency_slots(actual_dependencies);
             let spec = slot.recipe.spec();
             let own =
                 spec.roles.is_empty() || !spec.resources.is_empty() || spec.task_limit.is_some();
