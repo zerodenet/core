@@ -68,6 +68,7 @@ pub struct ResourcePreparation<'a> {
     )>,
     candidate: Option<&'a zero_config::RuntimeConfig>,
     same_source: bool,
+    restarting: bool,
     device_alias_rebinding: bool,
     device_alias_overrides: Option<BTreeMap<Option<String>, ComponentRecipe>>,
     source_dir: Option<&'a std::path::Path>,
@@ -91,6 +92,7 @@ impl<'a> ResourcePreparation<'a> {
             previous_loans: Vec::new(),
             candidate: None,
             same_source: false,
+            restarting: false,
             device_alias_rebinding: false,
             device_alias_overrides: None,
             source_dir: None,
@@ -109,6 +111,10 @@ impl<'a> ResourcePreparation<'a> {
     ) -> Self {
         self.previous_slots = previous;
         self.previous_loans = loans.into_iter().collect();
+        self
+    }
+    pub(in crate::component) fn with_restart_resources(mut self, restarting: bool) -> Self {
+        self.restarting = restarting;
         self
     }
     /// Read-only evidence from this host's actual previous slot. A dependency
@@ -163,6 +169,7 @@ impl<'a> ResourcePreparation<'a> {
             Some(old.instance_id())
         }
         self.ensure_valid().ok()?;
+        if self.restarting { return None; }
         check(self, component, &mut BTreeSet::new())
     }
 
@@ -175,7 +182,7 @@ impl<'a> ResourcePreparation<'a> {
         spec: &ComponentSpec,
         scope: Option<&zero_platform_tokio::contract::scope::TaskScopeIdentity>,
     ) -> bool {
-        if self.ensure_valid().is_err() {
+        if self.restarting || self.ensure_valid().is_err() {
             return false;
         }
         let Ok(accounting_limit) = self.carrier_total_limit_for(spec) else {

@@ -80,7 +80,7 @@ impl ComponentCatalog {
             &mut ResourcePreparation<'_>,
         ) -> Result<BTreeSet<ComponentId>, ChannelError>,
     ) -> Result<Arc<ComponentPlan>, SharedError> {
-        self.prepare_devices(config, false, prepare)
+        self.prepare_devices(config, false, false, prepare)
     }
     /// Explicit rollback of the exact published input retains its already
     /// prepared protocol crypto/material and rebuilds only consumed device recipes.
@@ -91,12 +91,26 @@ impl ComponentCatalog {
             &mut ResourcePreparation<'_>,
         ) -> Result<BTreeSet<ComponentId>, ChannelError>,
     ) -> Result<Arc<ComponentPlan>, SharedError> {
-        self.prepare_devices(config, true, prepare)
+        self.prepare_devices(config, true, false, prepare)
+    }
+    /// An owning Source must change real network facts between StopOld and
+    /// BuildNew. Describe the full affected set now, so active Business can be
+    /// rejected before that Source is stopped. This remains a cold operation.
+    pub fn prepare_restarting_device_resources(
+        &self,
+        config: Arc<RuntimeConfig>,
+        recovering: bool,
+        prepare: impl FnOnce(
+            &mut ResourcePreparation<'_>,
+        ) -> Result<BTreeSet<ComponentId>, ChannelError>,
+    ) -> Result<Arc<ComponentPlan>, SharedError> {
+        self.prepare_devices(config, recovering, true, prepare)
     }
     fn prepare_devices(
         &self,
         config: Arc<RuntimeConfig>,
         recovering: bool,
+        restarting: bool,
         prepare: impl FnOnce(
             &mut ResourcePreparation<'_>,
         ) -> Result<BTreeSet<ComponentId>, ChannelError>,
@@ -135,9 +149,12 @@ impl ComponentCatalog {
                         &config,
                         entry.ready(),
                         &state.issued,
+                        restarting,
                         prepare,
                     )
                 })
+        } else if restarting {
+            self.prepare_restart_plan_with_devices(&config, previous, &state.issued, prepare)
         } else {
             self.prepare_plan_with_devices(&config, previous, &state.issued, prepare)
         }
