@@ -9,7 +9,7 @@ async fn application(engine: Engine) -> Arc<ApplicationServices> {
     ApplicationServices::start_with_network(
         engine,
         None,
-        zero_connector::EventDispatcherNetwork::new(Arc::new(ApplicationEventSinkTcpDialer::new(
+        zero_connector::EventDispatcherNetwork::new(Arc::new(ApplicationEventSinkTcpDialer::for_test(
             zero_platform_tokio::EgressInterfaceControl::default(),
         ))),
         &slot,
