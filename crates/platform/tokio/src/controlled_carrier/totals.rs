@@ -1,5 +1,5 @@
 //! One Host's finite custody of exact Carrier originals, not another carrier pool.
-use super::{error, owner::Shared, slot::Slot, CarrierOwnerRegistration};
+use super::{error, owner::Shared, slot::Slot};
 use crate::contract::{BoxFuture, ChannelError, DeliveryState, Reason, Stage};
 use std::{
     collections::BTreeMap,
@@ -9,7 +9,6 @@ use std::{
         Arc, Mutex,
     },
     task::Context,
-    time::Duration,
 };
 
 /// Counts original reservation/custody records. An adopted logical LoanOwner
@@ -24,9 +23,9 @@ pub struct CarrierOriginalTotals {
 }
 struct State {
     limit: NonZeroUsize,
-    originals: BTreeMap<usize, Arc<Original>>,
-    metadata: Vec<Arc<crate::controlled_datagram::metadata_pool::MetadataTotalsOriginal>>,
-    bound: Vec<Arc<crate::controlled_datagram::BoundTotalsOriginal>>,
+    originals: BTreeMap<usize, Arc<dyn custody::CarrierCustody>>,
+    metadata: Vec<Arc<dyn MetadataCustody>>,
+    bound: Vec<Arc<dyn BoundCustody>>,
 }
 struct Original {
     // Strong custody is deliberate until actual native/users/registration
@@ -73,7 +72,7 @@ impl CarrierOriginalTotals {
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner)
     }
-    fn originals(&self) -> Vec<(usize, Arc<Original>)> {
+    fn originals(&self) -> Vec<(usize, Arc<dyn custody::CarrierCustody>)> {
         self.lock()
             .originals
             .iter()
@@ -140,7 +139,7 @@ impl CarrierOriginalTotals {
         );
         Ok(())
     }
-    fn release(&self, id: usize, original: &Arc<Original>) {
+    fn release(&self, id: usize, original: &Arc<dyn custody::CarrierCustody>) {
         let released = {
             let mut state = self.lock();
             if state
@@ -198,62 +197,17 @@ impl CarrierOriginalTotals {
             }
         }
         let originals = self.originals();
-        let mut owners = Vec::new();
+        let mut owners = std::collections::BTreeSet::new();
         for (_, original) in &originals {
-            if !owners
-                .iter()
-                .any(|known| Arc::ptr_eq(known, &original.owner))
-            {
-                owners.push(original.owner.clone());
-                let (progress, fault) = CarrierOwnerRegistration::new(&original.owner)
-                    .poll_cancelled_retirements(cx, Duration::from_secs(5));
-                changed |= progress;
-                if let Some(fault) = fault {
-                    original
-                        .first_fault
-                        .lock()
-                        .unwrap_or_else(std::sync::PoisonError::into_inner)
-                        .get_or_insert(fault);
-                }
+            if owners.insert(original.owner_identity()) {
+                changed |= original.poll_cancelled_owner(cx);
             }
         }
         for (id, original) in originals {
+            if !original.released() {
+                changed |= original.poll_ack(cx);
+            }
             if original.released() {
-                self.release(id, &original);
-                changed = true;
-                continue;
-            }
-            if !original.slot.removed.load(Ordering::Acquire) {
-                continue;
-            }
-            let Some(_polling) = crate::original_poll::OriginalPoll::enter(
-                &original.polling,
-                &original.repoll,
-                cx.waker(),
-            ) else {
-                continue;
-            };
-            let mut waiting = original
-                .waiting
-                .lock()
-                .unwrap_or_else(std::sync::PoisonError::into_inner)
-                .take()
-                .unwrap_or_else(|| {
-                    let witnesses = original.witnesses();
-                    Box::pin(async move {
-                        for witness in witnesses {
-                            witness.wait_registration_released().await;
-                        }
-                    })
-                });
-            let ready = waiting.as_mut().poll(cx).is_ready();
-            if !ready {
-                *original
-                    .waiting
-                    .lock()
-                    .unwrap_or_else(std::sync::PoisonError::into_inner) = Some(waiting);
-            }
-            if ready && original.released() {
                 self.release(id, &original);
                 changed = true;
             }
@@ -267,13 +221,7 @@ impl CarrierOriginalTotals {
         let bound = self.lock().bound.clone();
         self.originals()
             .into_iter()
-            .filter_map(|(_, original)| {
-                original
-                    .first_fault
-                    .lock()
-                    .unwrap_or_else(std::sync::PoisonError::into_inner)
-                    .clone()
-            })
+            .filter_map(|(_, original)| original.failure())
             .chain(
                 metadata
                     .into_iter()
@@ -314,3 +262,6 @@ impl Original {
 }
 
 mod datagram;
+
+mod custody;
+pub(crate) use custody::{BoundCustody, MetadataCustody};

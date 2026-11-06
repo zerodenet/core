@@ -186,3 +186,15 @@ impl std::error::Error for OriginalSource {
         Some(self.0.as_ref())
     }
 }
+
+impl crate::controlled_carrier::BoundCustody for BoundTotalsOriginal {
+    fn released(&self) -> bool {
+        BoundTotalsOriginal::released(self)
+    }
+    fn poll_retirement(&self, cx: &mut Context<'_>) -> bool {
+        BoundTotalsOriginal::poll_retirement(self, cx)
+    }
+    fn failure(&self) -> Option<Arc<ChannelError>> {
+        BoundTotalsOriginal::failure(self)
+    }
+}

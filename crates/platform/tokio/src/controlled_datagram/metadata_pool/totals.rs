@@ -109,3 +109,15 @@ impl MetadataTotalsOriginal {
             .clone()
     }
 }
+
+impl crate::controlled_carrier::MetadataCustody for MetadataTotalsOriginal {
+    fn released(&self) -> bool {
+        MetadataTotalsOriginal::released(self)
+    }
+    fn poll_retirement(&self, cx: &mut Context<'_>) -> bool {
+        MetadataTotalsOriginal::poll_retirement(self, cx)
+    }
+    fn failure(&self) -> Option<Arc<ChannelError>> {
+        MetadataTotalsOriginal::failure(self)
+    }
+}
