@@ -48,7 +48,7 @@ impl PendingOpen {
                 })
             })
     }
-    fn retain(&self, adoption: CarrierAdoption) -> Result<(), ChannelError> {
+    pub(super) fn retain(&self, adoption: CarrierAdoption) -> Result<(), ChannelError> {
         if !self.valid(&adoption) {
             return Err(admission_error(Reason::StalePlan));
         }
@@ -122,7 +122,7 @@ impl PendingOpen {
         };
         drop(removed);
     }
-    fn cancel(&self, reason: CloseReason) {
+    pub(super) fn cancel(&self, reason: CloseReason) {
         self.state.lock().unwrap().retired = true;
         self.transfer_installed();
         self.stop.cancel();
