@@ -254,3 +254,26 @@ impl WireguardAdapter {
         Ok(pauses)
     }
 }
+
+impl StandaloneStackOptions {
+    pub(super) fn actual_flow_sources(
+        &self,
+    ) -> Result<
+        Vec<(
+            Arc<SharedRawIpDevice>,
+            zero_platform_tokio::controlled_carrier::CarrierOrigin,
+        )>,
+        EngineError,
+    > {
+        (0..self.peers.len())
+            .map(|index| {
+                let device = self.device(index).map_err(std::io::Error::other)?;
+                let original = self.original(index).map_err(std::io::Error::other)?;
+                Ok((
+                    device,
+                    zero_platform_tokio::controlled_carrier::CarrierOrigin::from_listener(original),
+                ))
+            })
+            .collect()
+    }
+}

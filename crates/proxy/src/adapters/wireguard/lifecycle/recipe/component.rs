@@ -5,13 +5,13 @@ use std::{
     sync::{Mutex, OnceLock},
 };
 use zero_platform_tokio::contract::{
-    ChannelError, CloseReason, Impact, Reason, Stage,
     component::{
         BuildContext, ComponentFactory, ComponentInstance, ComponentRoles, ComponentSpec,
         ResourceOwner,
     },
-    lifecycle::{BuildError, CloseReport, ResourceLifecycle, Unfinished, erase_lifecycle},
+    lifecycle::{erase_lifecycle, BuildError, CloseReport, ResourceLifecycle, Unfinished},
     scope::WeakTaskRegistrar,
+    ChannelError, CloseReason, Impact, Reason, Stage,
 };
 
 pub(in crate::adapters::wireguard::lifecycle) struct LinkedStackFactory;
@@ -271,6 +271,19 @@ impl ResourceLifecycle for Owner {
 }
 fn prepare_error(source: EngineError) -> ChannelError {
     ChannelError::new(Stage::Prepare, Reason::Io, Impact::Component).with_source(source)
+}
+
+impl LinkedStackOptions {
+    pub(in crate::adapters::wireguard) fn actual_source_origin(
+        &self,
+    ) -> Result<zero_platform_tokio::controlled_carrier::CarrierOrigin, ChannelError> {
+        self.carrier
+            .get()
+            .and_then(std::sync::Weak::upgrade)
+            .ok_or_else(|| ChannelError::new(Stage::Prepare, Reason::Revoked, Impact::Component))?
+            .resources
+            .packet_carrier_origin()
+    }
 }
 
 #[cfg(test)]

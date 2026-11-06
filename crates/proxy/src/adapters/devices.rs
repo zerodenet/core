@@ -37,6 +37,34 @@ impl std::fmt::Debug for Devices {
 }
 #[cfg(feature = "raw-ip-runtime")]
 impl Devices {
+    #[cfg(feature = "wireguard")]
+    pub(crate) fn actual_packet_flow_sources(
+        &self,
+        previous: &RuntimeConfig,
+    ) -> Result<
+        Vec<(
+            Arc<crate::runtime::raw_ip::SharedRawIpDevice>,
+            zero_platform_tokio::controlled_carrier::CarrierOrigin,
+        )>,
+        EngineError,
+    > {
+        match &self.wireguard {
+            Some(owner) => owner.actual_packet_flow_sources(previous),
+            None => Ok(Vec::new()),
+        }
+    }
+    #[cfg(feature = "wireguard")]
+    pub(crate) fn replacement_sources_retained(
+        &self,
+        previous: &RuntimeConfig,
+        stopping: &crate::component::catalog::ReplacementUsersPause,
+    ) -> Result<bool, EngineError> {
+        Ok(self
+            .actual_packet_flow_sources(previous)?
+            .iter()
+            .all(|(device, origin)| device.replacement_users_retained(stopping, origin)))
+    }
+
     pub(crate) async fn pause_direct_packet_if_idle(
         &self,
         deadline: tokio::time::Instant,

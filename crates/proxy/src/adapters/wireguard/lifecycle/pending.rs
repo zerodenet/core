@@ -239,3 +239,37 @@ impl PeerResources {
         self.graph.lock().unwrap().upgrade()
     }
 }
+
+impl PeerResources {
+    pub(super) fn actual_flow_sources(
+        &self,
+    ) -> Result<
+        Vec<(
+            Arc<crate::runtime::raw_ip::SharedRawIpDevice>,
+            zero_platform_tokio::controlled_carrier::CarrierOrigin,
+        )>,
+        EngineError,
+    > {
+        let graph = self
+            .graph
+            .lock()
+            .unwrap_or_else(|error| error.into_inner())
+            .upgrade()
+            .ok_or_else(|| super::invalid("current linked original graph is unavailable"))?;
+        let origin = graph
+            .actual_source_origin()
+            .map_err(std::io::Error::other)?;
+        self.peer_stacks
+            .iter()
+            .map(|owner| {
+                let device = owner
+                    .device()
+                    .filter(|device| device.is_usable())
+                    .ok_or_else(|| {
+                        super::invalid("current linked original stack is unavailable")
+                    })?;
+                Ok((device, origin.clone()))
+            })
+            .collect()
+    }
+}
