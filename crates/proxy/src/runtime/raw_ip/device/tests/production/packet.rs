@@ -7,7 +7,7 @@ use tokio::net::UdpSocket;
 fn config(remote: SocketAddr, client: SocketAddr) -> RuntimeConfig {
     RuntimeConfig::parse(&serde_json::json!({
         "endpoints":[
-            {"tag":"input","directions":{"inbound":true,"outbound":false},"listen":{"address":"127.0.0.1","port":0},"protocol":{
+            {"tag":"input","directions":{"inbound":true,"outbound":false},"listen":{"address":"127.0.0.2","port":0},"protocol":{
                 "type":"wireguard","private_key":STANDARD.encode([111;32]),"addresses":["10.42.0.1/32"],
                 "peers":[{"public_key":peer::public(112),"endpoint":client.to_string(),"allowed_ips":["10.42.0.2/32"]}]}},
             {"tag":"wg","directions":{"inbound":true,"outbound":true},"listen":{"address":"127.0.0.1","port":0},"protocol":{
