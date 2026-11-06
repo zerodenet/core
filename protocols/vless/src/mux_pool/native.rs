@@ -133,7 +133,7 @@ impl MuxConnectionPool {
                                 .open_observed(&profile, &binding, call, waiting, prepare)
                                 .await?
                         }
-                        None => opening.open(&profile, &binding, prepare).await?,
+                        None => opening.open_owned(&profile, &binding, prepare).await?,
                     };
                     connection.original = Some(original);
                     Ok::<_, RuntimeError>(connection)

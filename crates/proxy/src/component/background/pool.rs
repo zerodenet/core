@@ -1,4 +1,4 @@
-//! Literal shared-stream declarations assembled with the actual host provider.
+//! Shared-stream declarations assembled with the actual owning Host Scope.
 use super::{BackgroundCarrier, BackgroundNetwork};
 use std::sync::Arc;
 use zero_core::component::NetworkGeneration;
@@ -29,7 +29,8 @@ impl Factory {
 impl ComponentFactory for Factory {
     type Options = Options;
     fn describe(&self, options: &Options) -> ComponentSpec {
-        let mut spec = PoolFactory.describe(&options.pool);
+        let pool = (*options.pool).clone().with_scoped_preparation();
+        let mut spec = PoolFactory.describe(&pool);
         // Normalized socket identity and the original relay wire name are
         // separate facts; the complete cold description must retain both.
         let mut identity = spec.static_identity.to_vec();
@@ -55,6 +56,14 @@ impl ComponentFactory for Factory {
             }
             .transport(),
         );
-        PoolFactory.build(options.pool.clone(), context)
+        // Every production pool uses this one actual Host-owned initializer.
+        // The standalone PoolFactory keeps its existing inline preparation
+        // responsibility; an actual library Scope is never replaced or faked.
+        let pool = Arc::new((*options.pool).clone().with_scoped_preparation());
+        PoolFactory.build(pool, context)
     }
 }
+
+#[cfg(test)]
+#[path = "pool/tests.rs"]
+mod tests;
