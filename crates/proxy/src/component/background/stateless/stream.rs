@@ -6,6 +6,7 @@ pub(super) struct Outbound {
     pub(super) dial: zero_traits::DialPolicy,
     pub(super) grants: CarrierGrants,
     pub(super) transfers: Transfers,
+    pub(super) limit: NonZeroUsize,
 }
 impl StreamOutbound for Outbound {
     type Stream = BoxStream;
@@ -14,6 +15,15 @@ impl StreamOutbound for Outbound {
         request: ConnectRequest,
         context: OpenContext,
     ) -> Result<Connected<BoxStream>, ChannelError> {
+        if context.session_identity()?.is_some()
+            && context.upstream.has_tracked_business_caller()
+            && context.upstream.binding().prefix.is_empty()
+        {
+            return self.connect_business(request, context).await;
+        }
+        // Fixed library users retain their own original inline responsibilities.
+        // Relay's actual next-slot Business loan adoption is separate from the
+        // root native permission and cannot be inferred from a nonempty prefix.
         self.inner.connect(request, context).await
     }
     async fn connect_carrier(
@@ -27,54 +37,13 @@ impl StreamOutbound for Outbound {
                 "taskless carrier requires its actual Service binding",
             ));
         }
-        let pending = self.transfers.lock().unwrap().clone();
-        for transfer in pending {
-            let published = transfer
-                .published
-                .load(std::sync::atomic::Ordering::Acquire);
-            if !transfer.opening.load(std::sync::atomic::Ordering::Acquire)
-                && (!published || transfer.stop.is_cancelled())
-            {
-                let report = match context.deadline {
-                    Some(end) => transfer.close(end).await?,
-                    None => transfer.try_close()?,
-                };
-                if !report.is_complete() && !published {
-                    return Err(crate::component::instance::invalid(
-                        Reason::Capacity,
-                        "previous actual taskless carrier cleanup is unfinished",
-                    ));
-                }
-            }
-        }
-        self.transfers
-            .lock()
-            .unwrap()
-            .retain(|transfer| !transfer.finished());
-        if let Some(end) = context.deadline {
-            self.grants.reap_returned(end).await?;
-        }
-        let grant = self.grants.reserve()?;
-        // Opted-in callers retain cleanup authority before first I/O. Other
-        // existing callers retain the same slot; canonical cancellation is
-        // driven by its actual host provider, never a detached cleanup task.
-        if let Some(waiting) = context.upstream.observed_pending_carrier() {
-            waiting.retain(grant.adoption())?;
-        }
-        let stop = grant.cancellation();
-        let adoption = grant.adoption();
-        let transfer = Arc::new(Transfer {
-            grant: Mutex::new(Some(grant)),
-            adoption,
-            owner: tokio::sync::Mutex::new(None),
-            stop,
-            published: false.into(),
-            opening: true.into(),
-        });
-        // The persistent owning slot retains this original attempt before the
-        // protocol's first await, including handshake error or future cancellation.
-        self.transfers.lock().unwrap().push(transfer.clone());
+        self.reap(&context).await?;
+        let transfer = self.reserve_transfer(None)?;
         let _opening = Opening(transfer.clone());
+        // Persist the original before the waiting caller can reject/retire it.
+        if let Some(waiting) = context.upstream.observed_pending_carrier() {
+            waiting.retain(transfer.adoption.clone())?;
+        }
         context.upstream = UpstreamTransport::new(
             context.upstream.binding().clone(),
             Arc::new(Opener {

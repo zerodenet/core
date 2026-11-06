@@ -71,7 +71,7 @@ impl UpstreamOpener for Opener {
             let mut original = self.transfer.owner.lock().await;
             if &binding != self.upstream.binding()
                 || endpoint != self.endpoint
-                || call.session.is_some()
+                || call.session.is_some() != self.transfer.caller.is_some()
                 || original.is_some()
             {
                 return Err(crate::component::instance::invalid(
@@ -79,14 +79,21 @@ impl UpstreamOpener for Opener {
                     "protocol requested a foreign or duplicate carrier",
                 ));
             }
-            call.cancel = self.transfer.stop.clone();
+            if self.transfer.caller.is_none() {
+                call.cancel = self.transfer.stop.clone();
+            }
             let mut grant = self.transfer.grant.lock().unwrap().take().ok_or_else(|| {
                 crate::component::instance::invalid(
                     Reason::StalePlan,
                     "protocol already consumed its actual carrier grant",
                 )
             })?;
-            let view = grant.claim_transferred_view()?;
+            let business = self.transfer.caller.is_some();
+            let view = if business {
+                grant.claim_user_view()?
+            } else {
+                grant.claim_transferred_view()?
+            };
             let io = if binding.prefix.is_empty() {
                 self.upstream
                     .acquire_controlled_stream(endpoint, call, grant)
@@ -98,6 +105,12 @@ impl UpstreamOpener for Opener {
                     .await?;
                 grant.adopt_stream_loan(&binding, endpoint, &call, loan)?
             };
+            if business {
+                // Native permission has bound this exact admitted caller to the
+                // slot. Keep its real IO and unique view; no transferred-origin
+                // or Service loan is manufactured for a Business connection.
+                return Ok(Box::pin(super::business::BusinessIo::new(io, view)) as BoxStream);
+            }
             let loan = io.into_stream_loan(view)?;
             let StreamLoan { io, owner } = loan;
             // Keep the original control in the persistent actual owner before
