@@ -239,32 +239,32 @@ impl AsyncWrite for OwnedH2Client {
             this.send.reserve_capacity(count);
             this.requested_remaining = count;
         }
-        // poll_capacity reports changes, not all still-available credit. Using
-        // it alone can park forever while this same stream already has credit.
+        // A newly delivered grant is the common path for a narrow real peer
+        // window. Consume that notification directly, avoiding an extra
+        // stream-store lock before every one-byte DATA frame. Pending still
+        // needs the actual remaining-credit check: notifications report changes
+        // and a previous successful write may have left credit available.
         let available = loop {
-            let available = this.send.capacity();
-            if available != 0 {
-                break available;
-            }
-            // A zero-capacity notification must be consumed, then polled again
-            // to register the actual next increase before returning Pending.
-            let available = match this.send.poll_capacity(cx) {
+            match this.send.poll_capacity(cx) {
+                Poll::Ready(Some(result)) => {
+                    let available = result.map_err(io::Error::other)?;
+                    if available != 0 {
+                        break available;
+                    }
+                }
                 Poll::Pending => {
-                    // h2 checks send-stream state and installs the very same
-                    // wait_send waker here. A reset makes poll_capacity return
-                    // None; that branch below still retains its typed reason.
-                    // Re-registering poll_reset while capacity is Pending adds
-                    // a second stream-store lock without another notification.
+                    let available = this.send.capacity();
+                    if available != 0 {
+                        break available;
+                    }
+                    // The preceding poll installed the real next-credit/reset
+                    // waker; no uncredited application byte is accepted.
                     return Poll::Pending;
                 }
                 Poll::Ready(None) => {
                     this.poll_reset(cx)?;
                     return Poll::Ready(Err(io::ErrorKind::BrokenPipe.into()));
                 }
-                Poll::Ready(Some(result)) => result.map_err(io::Error::other)?,
-            };
-            if available != 0 {
-                break available;
             }
         };
         let n = count.min(available).min(this.requested_remaining);
