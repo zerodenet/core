@@ -24,7 +24,7 @@ impl CarrierOriginClosed {
         }
     }
     pub fn matches(&self, origin: &CarrierOrigin) -> bool {
-        match (&self.0, origin.0.as_ref()) {
+        match (&self.0, origin.observation()) {
             (ClosedOriginal::Packet(closed), Original::Packet(origin)) => closed.matches(origin),
             (ClosedOriginal::Listener(closed), Original::Listener(origin)) => {
                 closed.matches(origin.owner())
