@@ -82,7 +82,6 @@ impl OwnedDnsQueryTasks {
         let record = Arc::new(Record {
             budget: self.0.budget.clone(),
             ech: Mutex::new(None),
-            capacity: retirement.capacity.clone(),
             retirement: retirement.clone(),
             kind: TaskKind::Blocking,
             ancestors,

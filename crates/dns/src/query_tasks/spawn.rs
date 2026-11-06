@@ -47,7 +47,6 @@ impl OwnedDnsQueryTasks {
                     .ok()
                     .flatten()
             }),
-            capacity: retirement.capacity.clone(),
             retirement: retirement.clone(),
             kind,
             ancestors,

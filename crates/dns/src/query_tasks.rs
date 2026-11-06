@@ -66,7 +66,6 @@ enum TaskKind {
 struct Record {
     budget: OwnedDnsQueryBudget,
     ech: Mutex<Option<crate::EchDnsEndpoint>>,
-    capacity: Arc<Mutex<Option<OwnedSemaphorePermit>>>,
     retirement: Arc<Retirement>,
     kind: TaskKind,
     ancestors: Vec<TaskJoinWitness>,
