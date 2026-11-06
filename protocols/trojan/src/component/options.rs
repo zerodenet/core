@@ -58,11 +58,6 @@ impl Options {
         if input.ws.is_some() && input.grpc.is_some() {
             return Err(Error::Config("trojan: ws and grpc are mutually exclusive"));
         }
-        if input.grpc.is_some() {
-            return Err(Error::Unsupported(
-                "Trojan gRPC requires its carrier and registered driver owner",
-            ));
-        }
         dial.validate()
             .map_err(|_| Error::Config("invalid Trojan dial policy"))?;
         let address = match zero_core::address::parse_ip_literal(input.server) {
@@ -83,6 +78,23 @@ impl Options {
         }
         let ws = input.ws.map(OwnedWebSocketProfile::from_profile);
         let grpc = input.grpc.map(OwnedGrpcProfile::from_profile);
+        if let Some(grpc) = &grpc {
+            let authority = tls
+                .server_name
+                .as_deref()
+                .filter(|name| !name.is_empty())
+                .map(str::to_owned)
+                .unwrap_or_else(|| {
+                    input
+                        .server
+                        .parse::<std::net::IpAddr>()
+                        .map(|ip| std::net::SocketAddr::new(ip, input.port).to_string())
+                        .unwrap_or_else(|_| input.server.to_owned())
+                });
+            zero_transport::grpc::validate_single_client_profile(grpc, &authority)
+                .map_err(|_| Error::Config("invalid complete Trojan gRPC profile"))?;
+        }
+
         // Keyed process-local equality hints do not expose a password dictionary
         // hash. The host still compares complete source configuration on reuse.
         static KEYS: OnceLock<[RandomState; 2]> = OnceLock::new();
