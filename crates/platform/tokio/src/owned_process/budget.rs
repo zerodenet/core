@@ -250,3 +250,5 @@ impl ProcessBudget {
         }
     }
 }
+#[cfg(test)]
+mod tests;
