@@ -69,7 +69,7 @@ pub struct ComponentSlot {
     live: OnceCell<Result<Live, SharedError>>,
     start_gate: Mutex<()>,
     packet_source:
-        OnceLock<zero_platform_tokio::controlled_datagram::provider::NativeDatagramOrigin>,
+        Arc<OnceLock<zero_platform_tokio::controlled_datagram::provider::NativeDatagramOrigin>>,
 }
 struct Live {
     packet: Option<Arc<dyn DynPacketOutbound>>,
