@@ -23,7 +23,15 @@ async fn pending_once<F: Future>(mut future: Pin<&mut F>) {
 #[tokio::test]
 async fn caller_without_application_reads_drives_real_h2_capacity_and_end_then_reads_reverse_after_halfclose()
  {
-    tokio::time::timeout(Duration::from_secs(8),async{
+    use std::sync::{
+        Arc,
+        atomic::{AtomicUsize, Ordering},
+    };
+    let received_progress = Arc::new(AtomicUsize::new(0));
+    let phase = Arc::new(AtomicUsize::new(0));
+    let actual = received_progress.clone();
+    let server_phase = phase.clone();
+    let outcome = tokio::time::timeout(Duration::from_secs(8),async{
         let listener=TcpListener::bind("127.0.0.1:0").await.unwrap();let address=listener.local_addr().unwrap();
         let (first_tx,first_rx)=oneshot::channel();let (release_tx,release_rx)=oneshot::channel();
         let server=tokio::spawn(async move{
@@ -34,10 +42,10 @@ async fn caller_without_application_reads_drives_real_h2_capacity_and_end_then_r
             assert_eq!(request.uri().path(),"/original");assert_eq!(request.headers()["host"],"original.test");
             let application=async move{
                 let first=request.body_mut().data().await.unwrap().unwrap();assert!(!first.is_empty());
-                first_tx.send(first.len()).unwrap();release_rx.await.unwrap();
+                actual.store(first.len(),Ordering::SeqCst);server_phase.store(1,Ordering::SeqCst);first_tx.send(first.len()).unwrap();release_rx.await.unwrap();
                 request.body_mut().flow_control().release_capacity(first.len()).unwrap();
                 let mut received=first.len();
-                while let Some(data)=request.body_mut().data().await{let data=data.unwrap();assert!(data.iter().all(|byte|*byte==0x53));received+=data.len();request.body_mut().flow_control().release_capacity(data.len()).unwrap();}
+                while let Some(data)=request.body_mut().data().await{let data=data.unwrap();assert!(data.iter().all(|byte|*byte==0x53));received+=data.len();actual.store(received,Ordering::SeqCst);request.body_mut().flow_control().release_capacity(data.len()).unwrap();}
                 assert_eq!(received,256*1024);
                 let mut send=response.send_response(http::Response::new(()),false).unwrap();
                 send.send_data(Bytes::from_static(b"reverse after exact END"),true).unwrap();
@@ -50,13 +58,19 @@ async fn caller_without_application_reads_drives_real_h2_capacity_and_end_then_r
         {
             let writing=stream.write_all(&payload);tokio::pin!(writing);
             tokio::select!{actual=first_rx=>assert!(actual.unwrap()>0),result=&mut writing=>panic!("upload completed before peer released real receive credit: {result:?}")};
-            pending_once(writing.as_mut()).await;release_tx.send(()).unwrap();writing.await.unwrap();
+            pending_once(writing.as_mut()).await;release_tx.send(()).unwrap();writing.await.unwrap();phase.store(2,Ordering::SeqCst);
         }
-        stream.shutdown().await.unwrap();
+        stream.shutdown().await.unwrap();phase.store(3,Ordering::SeqCst);
         assert_eq!(stream.write(b"late").await.unwrap_err().kind(),std::io::ErrorKind::BrokenPipe);
         let mut reply=vec![];stream.read_to_end(&mut reply).await.unwrap();assert_eq!(reply,b"reverse after exact END");
-        drop(stream);server.await.unwrap();
-    }).await.unwrap();
+        phase.store(4,Ordering::SeqCst);drop(stream);server.await.unwrap();phase.store(5,Ordering::SeqCst);
+    }).await;
+    assert!(
+        outcome.is_ok(),
+        "original H2 deadline: phase={}, actual received bytes={}",
+        phase.load(Ordering::SeqCst),
+        received_progress.load(Ordering::SeqCst)
+    );
 }
 #[tokio::test]
 async fn split_reader_and_writer_keep_both_original_wakers_under_flow_control() {
