@@ -38,6 +38,35 @@ impl NativePacketCredit {
     pub fn capacity(&self) -> usize {
         self.credit.as_ref().expect("owned native credit").bytes
     }
+    pub(super) fn derive_zeroed<'a>(
+        &'a self,
+        lengths: &'a [usize],
+    ) -> zero_traits::PacketDerivation<'a> {
+        Box::pin(async move {
+            let root = &self.credit.as_ref().expect("owned native credit").root;
+            let credits = root
+                .reserve(Lane::Native, lengths)
+                .map_err(|source| match source {
+                    PacketMemoryError::Overflow => zero_traits::PacketDeriveError::Overflow,
+                    PacketMemoryError::Busy => zero_traits::PacketDeriveError::Busy,
+                    PacketMemoryError::Paused | PacketMemoryError::Stopped => {
+                        zero_traits::PacketDeriveError::Revoked
+                    }
+                    PacketMemoryError::Capacity => zero_traits::PacketDeriveError::Capacity,
+                })?;
+            Ok(credits
+                .into_iter()
+                .map(|credit| {
+                    let length = credit.bytes;
+                    let buffer = read::NativeReadBuffer::from_credit(Self::new(credit, None));
+                    match buffer.into_packet(length) {
+                        Ok(packet) => packet,
+                        Err(_) => unreachable!("same admitted assembly length"),
+                    }
+                })
+                .collect())
+        })
+    }
     pub fn retain(
         self,
         packet: zero_traits::PacketBuffer,
@@ -79,6 +108,9 @@ impl AsMut<[u8]> for Decoded {
     }
 }
 impl zero_traits::PacketStorage for Decoded {
+    fn derive_zeroed<'a>(&'a self, lengths: &'a [usize]) -> zero_traits::PacketDerivation<'a> {
+        self._credit.derive_zeroed(lengths)
+    }
     fn allocation_bytes(&self) -> usize {
         self._credit.capacity()
     }

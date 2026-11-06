@@ -192,6 +192,9 @@ impl AsMut<[u8]> for ReadPacket {
     }
 }
 impl zero_traits::PacketStorage for ReadPacket {
+    fn derive_zeroed<'a>(&'a self, lengths: &'a [usize]) -> zero_traits::PacketDerivation<'a> {
+        self._credit.derive_zeroed(lengths)
+    }
     fn allocation_bytes(&self) -> usize {
         self._credit.capacity()
     }
