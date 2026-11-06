@@ -15,41 +15,28 @@ struct Key {
     port: u16,
     config: PluginConfig,
 }
-#[derive(Default, Debug)]
-pub(crate) struct PluginPool {
-    plans: Mutex<HashMap<Key, PluginPlan>>,
-}
-impl PluginPool {
-    pub(crate) fn plan(&self, host: &str, port: u16, config: PluginConfig) -> PluginPlan {
-        let key = Key {
-            host: host.into(),
-            port,
-            config,
-        };
-        self.plans
-            .lock()
-            .unwrap()
-            .entry(key.clone())
-            .or_insert_with(|| PluginPlan {
-                key,
-                running: Default::default(),
-                cancel: Default::default(),
-                #[cfg(any(target_os = "linux", windows))]
-                pending_endpoint: Default::default(),
-            })
-            .clone()
-    }
-    pub(crate) fn clear(&self) {
-        self.plans.lock().unwrap().clear();
-    }
-}
+mod pool;
+pub(crate) use pool::PluginPool;
 #[derive(Clone, Debug)]
 pub(crate) struct PluginPlan {
     key: Key,
+    root: Arc<pool::Registry>,
+    data: Arc<PlanData>,
+}
+#[derive(Debug, Default)]
+pub(crate) struct PlanData {
     pub(super) running: Arc<tokio::sync::Mutex<Option<Arc<PluginLease>>>>,
     pub(super) cancel: zero_platform_tokio::contract::CancellationToken,
+    pub(super) actor: Arc<Mutex<Option<zero_platform_tokio::contract::scope::TaskJoinWitness>>>,
+    retirement: Mutex<pool::retirement::Retirement>,
     #[cfg(any(target_os = "linux", windows))]
     pub(super) pending_endpoint: Arc<Mutex<Option<authorized::endpoint::PendingEndpoint>>>,
+}
+impl std::ops::Deref for PluginPlan {
+    type Target = PlanData;
+    fn deref(&self) -> &PlanData {
+        &self.data
+    }
 }
 pub(crate) struct PluginLease {
     pub(super) child: Mutex<PluginChild>,
@@ -133,15 +120,6 @@ impl PluginLease {
     }
 }
 impl PluginPlan {
-    pub(super) fn fresh_owner(&self) -> Self {
-        Self {
-            key: self.key.clone(),
-            running: Default::default(),
-            cancel: Default::default(),
-            #[cfg(any(target_os = "linux", windows))]
-            pending_endpoint: Default::default(),
-        }
-    }
     pub(crate) fn endpoint_spec(
         &self,
         generation: zero_core::component::NetworkGeneration,
@@ -160,7 +138,8 @@ impl PluginPlan {
         self.key.config.mode.udp()
     }
     pub(crate) async fn acquire(&self, tcp: bool) -> io::Result<Option<Arc<PluginLease>>> {
-        self.acquire_with_probe(tcp, tokio::net::TcpStream::connect)
+        self.current()?
+            .acquire_with_probe(tcp, tokio::net::TcpStream::connect)
             .await
     }
     pub(super) async fn acquire_with_probe<Probe, Pending>(
@@ -220,6 +199,9 @@ impl PluginPlan {
             running.ready()?;
             running.check()?;
             return Ok(Some(running.clone()));
+        }
+        if !require_fresh {
+            self.claim_library()?;
         }
         let local = SocketAddr::new(process::loopback(&self.key.host), 0);
         let reservation = tokio::net::TcpListener::bind(local).await?;

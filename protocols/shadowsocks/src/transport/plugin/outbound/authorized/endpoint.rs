@@ -120,7 +120,7 @@ impl PluginPlan {
         end: Instant,
     ) -> io::Result<()> {
         // Preserve the original local startup bound and the caller's tighter end.
-        let end = end.min(Instant::now() + Duration::from_secs(10));
+        let end = end.min(Instant::now() + crate::transport::plugin::STARTUP_TIMEOUT);
         loop {
             running.check()?;
             if !self.supports_tcp() {
