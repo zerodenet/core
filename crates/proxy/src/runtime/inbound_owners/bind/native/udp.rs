@@ -24,6 +24,9 @@ pub(in crate::runtime::inbound_owners) struct NativeDatagramGrant {
     native: Mutex<Option<HostDatagramListenerOwner>>,
     cancel: CancellationToken,
     bound: AtomicBool,
+    original: std::sync::OnceLock<
+        zero_platform_tokio::controlled_datagram::provider::NativeDatagramOrigin,
+    >,
     scope: Option<zero_platform_tokio::contract::scope::TaskRegistrar>,
 }
 impl NativeDatagramGrant {
@@ -80,6 +83,7 @@ impl NativeDatagramGrant {
             }),
             cancel,
             bound: AtomicBool::new(false),
+            original: std::sync::OnceLock::new(),
             scope: None,
         })
     }
@@ -116,10 +120,27 @@ impl NativeDatagramGrant {
             ));
         }
         let native = self.native.lock().expect("native datagram owner poisoned");
-        native
+        let actual = native
             .as_ref()
             .ok_or_else(|| ChannelError::new(Stage::Prepare, Reason::StalePlan, Impact::Component))?
-            .register_driver(original, witness)
+            .register_driver(original, witness)?;
+        let retained = self.original.get_or_init(|| actual.clone());
+        if !retained.same_original(&actual) {
+            return Err(ChannelError::new(
+                Stage::Prepare,
+                Reason::StalePlan,
+                Impact::Component,
+            ));
+        }
+        Ok(actual)
+    }
+    pub(in crate::runtime::inbound_owners) fn original_origin(
+        &self,
+    ) -> Option<zero_platform_tokio::controlled_datagram::provider::NativeDatagramOrigin> {
+        self.original
+            .get()
+            .filter(|original| !original.is_retired())
+            .cloned()
     }
     pub(super) fn bind(&self) -> Result<GrantedDatagramListener, EngineError> {
         self.bind_after(|| {})

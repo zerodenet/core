@@ -3,7 +3,7 @@ mod recovery;
 use super::{logging::log_reload_reconciled, state::OrchestrationState};
 use crate::groups::UrlTestRuntime;
 use crate::runtime::route_runtime::{InboundListenerRuntimeFactory, SharedIngressRuntimeServices};
-use crate::runtime::{listeners, Proxy};
+use crate::runtime::{Proxy, listeners};
 use tracing::warn;
 
 impl OrchestrationState {
@@ -149,6 +149,9 @@ impl OrchestrationState {
                 preparing.cancellation(),
             )
             .await
+            .and_then(|()| {
+                self.bind_retained_packet_sources(proxy, &new_config, &candidate_tcp_services)
+            })
         {
             self.reject_reload(proxy, &new_snapshot, error.to_string())
                 .await;

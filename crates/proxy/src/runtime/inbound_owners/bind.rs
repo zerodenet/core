@@ -61,6 +61,14 @@ impl InboundOwnerRegistry {
         self.mark_listener_generation();
         let identity = protocols.allocate_resource_identity()?;
         let owner = Arc::new(InboundOwner::new(identity, limit, shutdown.clone()));
+        #[cfg(feature = "raw-ip-runtime")]
+        if let Some(input) = config.inbounds.iter().find(|input| input.tag == tag) {
+            owner
+                .source_input
+                .set(super::packet_source::input_identity(input)?)
+                .expect("one original Source input");
+        }
+
         if let Some(recovery) = prepared.take_recovery() {
             owner.install_recovery(recovery)?;
         }
