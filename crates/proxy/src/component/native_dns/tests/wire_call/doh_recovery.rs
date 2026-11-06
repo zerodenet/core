@@ -45,9 +45,9 @@ async fn physically_closed_doh_panic_keeps_original_faults_and_recovers_the_actu
         assert!(native.owner().closed().unwrap().matches(native.owner()));
         assert!(native.owner().users_closed().unwrap().matches(native.owner()));
         assert!(!original.task.scope_identity().resource_open());
-        let retired = zero_dns::test_support::doh_pool_witness(&proxy.resolver, "wire").unwrap();
-        assert_eq!(retired.registered_driver_tasks, 0);
-        assert_eq!(retired.active_leases, 0);
+        // Closing the canonical native/Scope does not consume its independent
+        // cached DoH record. The original reload token must retire that pool.
+        assert_eq!(zero_dns::test_support::doh_pool_witness(&proxy.resolver, "wire").unwrap().active_leases, 0);
 
         // The same original Host constructs the actual fresh query generation.
         // Its exact changed Scope excludes the failed backend from reuse.
@@ -61,6 +61,9 @@ async fn physically_closed_doh_panic_keeps_original_faults_and_recovers_the_actu
             |instance, scope| fresh_plan.component(instance.component).is_some_and(|slot| slot.instance_id() == instance && slot.matches_live_scope(scope)),
         ).unwrap();
         proxy.protocols.drive_component_supervision(proxy.resolver.retire_reload_resources(&token, end())).await.unwrap();
+        let retired = zero_dns::test_support::doh_pool_witness(&proxy.resolver, "wire").unwrap();
+        assert_eq!(retired.registered_driver_tasks, 0);
+        assert_eq!(retired.active_leases, 0);
         proxy.protocols.commit_components(&config, || proxy.resolver.commit_reload_resources(&token).map_err(|source| source.to_string())).unwrap();
         zero_dns::test_support::install_doh_ca(&proxy.resolver, "wire", tls.certificate.clone()).unwrap();
         let next = proxy.resolver.resolve_real_type("recovered.actual.doh.test", 1); tokio::pin!(next);
