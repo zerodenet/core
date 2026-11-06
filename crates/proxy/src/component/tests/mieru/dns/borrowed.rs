@@ -2,6 +2,8 @@
 use super::*;
 mod concurrent;
 mod doh;
+#[cfg(feature = "socks5")]
+mod socks_udp;
 #[cfg(all(feature = "vless", feature = "vmess", feature = "trojan"))]
 mod taskless;
 
