@@ -142,3 +142,23 @@ pub fn install_dot_ca(
 
 mod detour;
 pub use detour::{open_native_detour, NativeDetourStream};
+
+/// Fail the existing actual DoH driver, never register a substitute query/task.
+#[cfg(feature = "doh")]
+pub fn panic_original_doh_driver(
+    dns: &DnsSystem,
+    tag: &str,
+) -> io::Result<zero_platform_tokio::contract::scope::TaskJoinWitness> {
+    let owner = {
+        let inner = dns.inner.read().expect("DNS system lock poisoned");
+        let DnsSystemInner::Configured { servers, .. } = &*inner else {
+            return Err(invalid());
+        };
+        let server = servers.get(tag).ok_or_else(invalid)?;
+        let ResolverBackend::Doh(resolver) = server.backend.as_ref() else {
+            return Err(invalid());
+        };
+        resolver.owner.clone()
+    };
+    owner.panic_original_driver()
+}

@@ -20,13 +20,14 @@ impl DriverOwner {
         }
         self.changed.notify_waiters();
     }
+    /// Passive positive inventory/receiver observation. Registry/cold-cache
+    /// callers may hold their own locks, so this never consumes exits or wakes.
     pub(crate) fn drained(&self) -> bool {
-        self.reap();
-        let state = self.state.lock().expect("DoH driver owner poisoned");
-        state.tasks.is_empty()
-            && state.users.is_empty()
-            && state.native.is_empty()
-            && state.failure.is_none()
+        let physically_retired = {
+            let state = self.state.lock().expect("DoH driver owner poisoned");
+            state.tasks.is_empty() && state.users.is_empty() && state.native.is_empty()
+        };
+        physically_retired && self.retained_failures_received()
     }
     /// Reaps actual exits during ordinary replacement, before a new socket is
     /// opened. Unchanged, usable endpoint slots are left running.
@@ -73,9 +74,16 @@ impl DriverOwner {
                     .iter()
                     .any(|client| client.cancel.is_cancelled())
             {
-                return match &state.failure {
-                    Some(source) => Err(io::Error::other(Retained(source.clone()))),
-                    None => Ok(()),
+                let failure = state.failure.as_ref().map(|source| faults::Retained {
+                    first: source.clone(),
+                    hosts: state.host_failures.clone(),
+                });
+                drop(state);
+                return match failure {
+                    Some(source) if !self.retained_failures_received() => {
+                        Err(io::Error::other(source))
+                    }
+                    _ => Ok(()),
                 };
             }
         }

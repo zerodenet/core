@@ -1,5 +1,6 @@
 //! Actual HTTP/2 driver ownership. The task budget is the configured endpoint
 //! slot count; an obsolete connection and its users drain before replacement.
+mod faults;
 mod lifecycle;
 mod native;
 mod quiescence;
@@ -30,24 +31,14 @@ struct State {
     records: HashMap<Id, Arc<ClientState>>,
     users: Vec<Arc<ClientState>>,
     failure: Option<Arc<io::Error>>,
+    standalone_failure: bool,
+    host_failures: Vec<faults::HostFailure>,
     transport_error: Option<Arc<io::Error>>,
 }
 enum PoolMode {
     Unused,
     Standalone,
     Host(crate::OwnedDnsQueryTasks),
-}
-#[derive(Debug)]
-struct Retained(Arc<io::Error>);
-impl std::fmt::Display for Retained {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        std::fmt::Display::fmt(self.0.as_ref(), f)
-    }
-}
-impl std::error::Error for Retained {
-    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
-        Some(self.0.as_ref())
-    }
 }
 impl State {
     fn exit(
@@ -71,6 +62,7 @@ impl State {
                 self.transport_error = Some(Arc::new(source));
             }
             Err(source) => {
+                self.standalone_failure = true;
                 self.failure
                     .get_or_insert_with(|| Arc::new(io::Error::other(source)));
             }
@@ -91,6 +83,17 @@ impl State {
             {
                 retired.push(client.clone());
                 if let Err(source) = joined.result() {
+                    let task = client.native.get().unwrap().task.get().unwrap();
+                    if !self
+                        .host_failures
+                        .iter()
+                        .any(|fault| fault.task.same_registration(task))
+                    {
+                        self.host_failures.push(faults::HostFailure {
+                            task: task.clone(),
+                            error: source.clone(),
+                        });
+                    }
                     self.failure
                         .get_or_insert_with(|| Arc::new(io::Error::other(source)));
                 }
@@ -141,6 +144,8 @@ impl DriverOwner {
                 records: HashMap::new(),
                 users: vec![],
                 failure: None,
+                standalone_failure: false,
+                host_failures: Vec::new(),
                 transport_error: None,
             }),
         }
@@ -172,6 +177,7 @@ impl DriverOwner {
     pub(crate) fn resource_admission_open(&self) -> bool {
         let state = self.state.lock().expect("DoH driver owner poisoned");
         !state.closing
+            && state.failure.is_none()
             && match &state.mode {
                 PoolMode::Host(tasks) => tasks.ensure_resource_open().is_ok(),
                 _ => true,
@@ -205,7 +211,10 @@ impl DriverOwner {
             ));
         }
         match &state.failure {
-            Some(source) => Err(io::Error::other(Retained(source.clone()))),
+            Some(source) => Err(io::Error::other(faults::Retained {
+                first: source.clone(),
+                hosts: state.host_failures.clone(),
+            })),
             None => Ok(()),
         }
     }
@@ -223,7 +232,10 @@ impl DriverOwner {
             ));
         }
         if let Some(source) = &state.failure {
-            return Err(io::Error::other(Retained(source.clone())));
+            return Err(io::Error::other(faults::Retained {
+                first: source.clone(),
+                hosts: state.host_failures.clone(),
+            }));
         }
         if matches!(state.mode, PoolMode::Host(_)) {
             return Err(io::Error::new(
