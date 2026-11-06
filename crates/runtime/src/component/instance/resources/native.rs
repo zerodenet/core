@@ -188,6 +188,16 @@ impl HostResources {
     }
 }
 impl ResourceAccess for HostResources {
+    fn prepare_logical_packet_source(
+        &self,
+        source: &zero_platform_tokio::controlled_carrier::LogicalPacketProviderRegistration,
+    ) -> Result<(), ChannelError> {
+        self.require_start()?;
+        if self.instance != Some(source.instance()) || source.is_retired() {
+            return Err(self.denied());
+        }
+        source.reserve_original_totals(self.original_tasks.as_ref().ok_or_else(|| self.denied())?, &self.originals.carrier)
+    }
     fn install_logical_packet_source(
         &self,
         source: zero_platform_tokio::controlled_carrier::LogicalPacketProviderRegistration,
@@ -195,6 +205,7 @@ impl ResourceAccess for HostResources {
         self.require_start()?;
         if self.instance != Some(source.instance())
             || source.is_retired()
+            || !source.has_original_total(&self.originals.carrier)
             || !self.original_tasks.as_ref().is_some_and(|tasks|
                 tasks.scope_identity().same_scope(source.device().scope()))
         {

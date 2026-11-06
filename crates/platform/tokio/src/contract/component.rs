@@ -351,6 +351,15 @@ pub trait ResourceAccess: Send + Sync {
         ))
     }
 
+    /// Reserve the same Host total before the actual software source can
+    /// construct/acquire its physical ancestor. No provider is published here.
+    fn prepare_logical_packet_source(
+        &self,
+        _source: &crate::controlled_carrier::LogicalPacketProviderRegistration,
+    ) -> Result<(), BuildError> {
+        Err(super::ChannelError::new(super::Stage::Prepare, super::Reason::Unsupported, super::Impact::Component))
+    }
+
     /// Install only this actual Host Scope's registered software Packet driver.
     /// Its separately owned physical ancestor receives no native-close proof.
     fn install_logical_packet_source(

@@ -1,6 +1,7 @@
 //! Sealed internal custody for exact original Source provider records.
 use super::*;
-/// Implemented only inside concrete OS original providers. No public factory,
+/// Implemented only inside concrete original providers, including native-less
+/// software-driver custody. No public factory,
 /// resource bag, executor, protocol extension or identity reconstruction.
 pub(crate) trait SourceCustody: Send + Sync {
     fn released(&self) -> bool;

@@ -1,8 +1,10 @@
 //! Actual software Packet driver lineage; deliberately no native-close authority.
 use super::*;
-use crate::contract::{component::PacketDeviceIdentity, CancellationToken};
+use crate::contract::{CancellationToken, component::PacketDeviceIdentity};
 
+mod custody;
 struct ActualLogicalPacket {
+    custody: custody::Custody,
     device: PacketDeviceIdentity,
     driver: TaskJoinWitness,
     cancel: CancellationToken,
@@ -32,6 +34,7 @@ impl LogicalPacketProviderRegistration {
             ));
         }
         Ok(Self(Arc::new(ActualLogicalPacket {
+            custody: custody::Custody::default(),
             device,
             driver,
             cancel,
