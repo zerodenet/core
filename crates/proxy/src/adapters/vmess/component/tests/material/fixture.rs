@@ -110,14 +110,16 @@ pub(super) fn capture(proxy: &Proxy) -> (CarrierOwnerRegistration, CarrierOrigin
             .find(|slot| slot.native().is_some_and(|native| !native.is_closed()))
         {
             if grpc {
-                let (_, driver) = original
+                let (task, driver) = original
                     .driver()
                     .expect("same original perconnection H2 driver");
                 assert!(!driver.is_joined());
-                assert_eq!(
-                    original.original().upstream().instance(),
-                    slot.instance_id()
-                );
+                assert_eq!(owner.instance(), slot.instance_id());
+                let bound = owner
+                    .bound()
+                    .expect("same actual provider registration is bound");
+                assert!(driver.scope_identity().same_scope(&bound.scope_identity()));
+                assert_eq!(driver.task_id(), Some(*task));
             } else {
                 assert!(original.driver().is_none());
             }
