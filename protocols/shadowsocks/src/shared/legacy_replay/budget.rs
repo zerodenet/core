@@ -2,7 +2,7 @@ use super::*;
 impl LegacyReplay {
     pub(crate) fn with_bloom_budget(
         mut self,
-        budget: Arc<super::LegacyReplayBudget>,
+        budget: Arc<crate::shared::LegacyReplayBudget>,
     ) -> Result<Self, Error> {
         if !Arc::ptr_eq(&self.bloom_budget, &budget)
             && (Arc::strong_count(&self.state) != 1
@@ -31,7 +31,7 @@ impl LegacyReplay {
         }
         Ok(())
     }
-    fn window<'a>(&self, book: &'a mut Book) -> Result<&'a mut Window, Error> {
+    pub(super) fn window<'a>(&self, book: &'a mut Book) -> Result<&'a mut Window, Error> {
         if book.window.is_none() {
             let charge = self.bloom_budget.claim(&self.state, self.server)?;
             book.window = Some(Window::new(self.server));
