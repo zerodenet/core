@@ -67,7 +67,7 @@ async fn exercise(linked: bool, budget: bool) {
         .protocols
         .test_outbound_devices(proxy.engine().config().as_ref());
     assert_eq!(old_devices.len(), 1);
-    let workers = old_devices[0].task.test_original_witnesses();
+    let workers = old_devices[0].test_original_worker_witnesses();
     assert!(workers.len() >= 3 && workers.iter().all(|task| !task.is_joined()));
     let queries = proxy
         .resolver
