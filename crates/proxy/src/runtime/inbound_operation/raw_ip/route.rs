@@ -17,6 +17,7 @@ pub(super) async fn feed_inner_packet(
     traffic: &super::statistics::IngressTraffic,
     peer_identity: Option<std::sync::Arc<str>>,
     mtu: u16,
+    return_mtu: u16,
     tcp: &UserTcpStack,
     udp: &UserUdpStack,
     responses: &zero_stack::packet_output::PacketSender,
@@ -36,21 +37,22 @@ pub(super) async fn feed_inner_packet(
     }
     let association = original.return_association.clone();
     let ingress = original.ingress();
-    let (mut packet, reassembled) = match fragments.process_buffer(original.into_payload(), Instant::now()) {
-        OwnedFragmentOutcome::Packet {
-            packet,
-            reassembled,
-        } => (packet, reassembled),
-        OwnedFragmentOutcome::Pending => return,
-        OwnedFragmentOutcome::Rejected(reason) => {
-            traffic.drop_inner(
-                peer_identity.as_deref(),
-                zero_api::TrafficDropReason::FragmentRejected,
-            );
-            tracing::trace!(?reason, "raw-IP inbound fragment rejected");
-            return;
-        }
-    };
+    let (mut packet, reassembled) =
+        match fragments.process_buffer(original.into_payload(), Instant::now()) {
+            OwnedFragmentOutcome::Packet {
+                packet,
+                reassembled,
+            } => (packet, reassembled),
+            OwnedFragmentOutcome::Pending => return,
+            OwnedFragmentOutcome::Rejected(reason) => {
+                traffic.drop_inner(
+                    peer_identity.as_deref(),
+                    zero_api::TrafficDropReason::FragmentRejected,
+                );
+                tracing::trace!(?reason, "raw-IP inbound fragment rejected");
+                return;
+            }
+        };
     let packet_key = packet::packet_conversation_key(&packet);
     traffic.admit_packet(packet.len());
     tracing::trace!(ip_bytes = packet.len(), protocol = ?packet::ip_protocol(&packet), "raw-IP inbound fed packet");
@@ -91,12 +93,13 @@ pub(super) async fn feed_inner_packet(
     // TUN intercepts DNS before ordinary Packet routing. Assigned addresses
     // and MTU were supplied by the same actual Source original.
     if tun.is_some_and(|policy| policy.dns_hijack)
-        && (packet::parse_tcp(&packet).is_some_and(|tcp| tcp.dst.port==53)
-            || packet::parse_udp(&packet).is_some_and(|udp|udp.dst.port==53)) {
+        && (packet::parse_tcp(&packet).is_some_and(|tcp| tcp.dst.port == 53)
+            || packet::parse_udp(&packet).is_some_and(|udp| udp.dst.port == 53))
+    {
         match protocol {
-            Some(packet::IPPROTO_TCP)=>tcp.feed_with_peer(&packet,peer_identity).await,
-            Some(packet::IPPROTO_UDP)=>udp.feed_with_peer(&packet,peer_identity).await,
-            _=>{},
+            Some(packet::IPPROTO_TCP) => tcp.feed_with_peer(&packet, peer_identity).await,
+            Some(packet::IPPROTO_UDP) => udp.feed_with_peer(&packet, peer_identity).await,
+            _ => {}
         }
         return;
     }
@@ -125,23 +128,53 @@ pub(super) async fn feed_inner_packet(
                     route.outbound_inner_io(&tag)
                 });
                 if let Some(role) = role {
-                    let frame = zero_core::packet::IpPacket::new(std::mem::take(&mut packet), association.clone()).expect("validated original or actual reassembly");
-                    let frame = match ingress { Some(ingress) => frame.with_ingress(ingress), None => frame };
+                    let frame = zero_core::packet::IpPacket::new(
+                        std::mem::take(&mut packet),
+                        association.clone(),
+                    )
+                    .expect("validated original or actual reassembly");
+                    let frame = match ingress {
+                        Some(ingress) => frame.with_ingress(ingress),
+                        None => frame,
+                    };
                     if !pins.admit_standard(&frame, &plane, peer_identity.clone()) {
                         packet = frame.into_payload();
                         continue;
                     }
-                    match packet_roles.send(role, translated, facts.clone(), frame, route, source, observer.clone()).await {
+                    match packet_roles
+                        .send(
+                            role,
+                            translated,
+                            facts.clone(),
+                            return_mtu,
+                            frame,
+                            route,
+                            source,
+                            observer.clone(),
+                        )
+                        .await
+                    {
                         Ok(selected_peer) => {
-                            pins.record_observed_key(packet_key, plane, peer_identity.clone(), selected_peer, observer);
+                            pins.record_observed_key(
+                                packet_key,
+                                plane,
+                                peer_identity.clone(),
+                                selected_peer,
+                                observer,
+                            );
                             return;
                         }
                         Err(failure) => {
                             pins.reject_unaccepted_key(packet_key, peer_identity.clone());
-                            let retry = failure.failure.delivery == zero_platform_tokio::contract::DeliveryState::NotSubmitted;
-                            if let Some(original) = failure.packet { packet = original.into_payload(); }
+                            let retry = failure.failure.delivery
+                                == zero_platform_tokio::contract::DeliveryState::NotSubmitted;
+                            if let Some(original) = failure.packet {
+                                packet = original.into_payload();
+                            }
                             tracing::debug!(error=%failure.failure, "actual Packet role candidate unavailable");
-                            if !retry || packet.is_empty() { break; }
+                            if !retry || packet.is_empty() {
+                                break;
+                            }
                             continue;
                         }
                     }
