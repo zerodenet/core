@@ -7,10 +7,10 @@ use std::{
 };
 use zero_core::request::Destination;
 use zero_platform_tokio::contract::{
+    BoxFuture, ChannelError, DeliveryState, Impact, Reason, Stage,
     datagram::{BoxDatagramSession, DatagramRequest},
     network::{CarrierContext, PendingCarrierObserver, UpstreamBinding, UpstreamOpener},
     stream::BoxStream,
-    BoxFuture, ChannelError, DeliveryState, Impact, Reason, Stage,
 };
 use zero_platform_tokio::controlled_carrier::{
     CarrierEndpointObserver, CarrierEndpoints, CarrierGrant, NativeCarrierOpener, PreparedCarrier,
@@ -98,6 +98,14 @@ impl CarrierEndpointObserver for ConnectedEvidence {
     }
 }
 impl UpstreamOpener for NodeOpener {
+    fn pending_carrier_capacity(&self, binding: &UpstreamBinding) -> Option<usize> {
+        self.pending
+            .as_ref()
+            .filter(|(actual, _)| actual == binding)?
+            .1
+            .capacity()
+    }
+
     fn resolve_related_datagram(
         &self,
         binding: &UpstreamBinding,
@@ -247,7 +255,7 @@ impl UpstreamOpener for NodeOpener {
                     return Err(invalid(
                         Reason::Unsupported,
                         "background roots require an actual host-owned DNS provider",
-                    ))
+                    ));
                 }
             };
             NativeCarrierOpener::new(

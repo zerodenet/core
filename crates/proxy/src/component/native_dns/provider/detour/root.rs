@@ -2,7 +2,7 @@
 use super::*;
 use zero_core::request::Destination;
 use zero_platform_tokio::{
-    contract::{lifecycle::DynChannelControl, stream::BoxStream, ChannelError, CloseReason},
+    contract::{ChannelError, CloseReason, lifecycle::DynChannelControl, stream::BoxStream},
     controlled_carrier::{CarrierGrants, ResolvingCarrierOpener},
 };
 mod controlled;
@@ -143,6 +143,21 @@ impl DynChannelControl for Control {
     }
 }
 impl UpstreamOpener for Root {
+    fn pending_carrier_capacity(&self, binding: &UpstreamBinding) -> Option<usize> {
+        if binding != &self.binding || self.cancel.is_cancelled() || self.caller.is_joined() {
+            return None;
+        }
+        let source = self.current.upgrade()?;
+        let services = source.runtime_services().ok()?;
+        services
+            .execution()
+            .components
+            .as_ref()
+            .ok()?
+            .pending_carrier_capacity(&self.roles)
+            .ok()
+    }
+
     fn has_pending_carrier_observer(&self) -> bool {
         true
     }
@@ -152,6 +167,12 @@ impl UpstreamOpener for Root {
         adoption: zero_platform_tokio::controlled_carrier::CarrierAdoption,
     ) -> Result<(), ChannelError> {
         self.check_pending(binding, &adoption)?;
+        let ceiling = self.pending_carrier_capacity(binding).ok_or_else(|| {
+            crate::component::instance::invalid(
+                zero_platform_tokio::contract::Reason::StalePlan,
+                "DNS pending graph capacity is no longer available",
+            )
+        })?;
         let mut pending = self.pending.lock().expect("DNS pending originals poisoned");
         // Candidate retries share one actual caller. Completed earlier native
         // attempts are not concurrent occupancy or a retained query history.
@@ -172,15 +193,8 @@ impl UpstreamOpener for Root {
         }) {
             return Ok(());
         }
-        // A selected path has finitely many roles and at most one in-progress
-        // donor plus its actual receiver per hop. Actual query/driver scopes
-        // independently bound the number of callers; completed history is absent.
-        let ceiling = self.roles.len().checked_mul(2).ok_or_else(|| {
-            crate::component::instance::invalid(
-                zero_platform_tokio::contract::Reason::Capacity,
-                "DNS pending path capacity overflow",
-            )
-        })?;
+        // Metadata follows actual declared original owners, including a
+        // negotiated TCP/UDP pair. It grants no additional native capacity.
         if pending
             .iter()
             .filter(|entry| entry.task.same_registration(&self.caller))
@@ -241,7 +255,7 @@ impl UpstreamOpener for Root {
                 return Err(crate::component::instance::invalid(
                     zero_platform_tokio::contract::Reason::Unsupported,
                     "DNS domain root requires its actual asynchronous Node resolver",
-                ))
+                ));
             }
         };
         self.retain_pending_carrier(binding, grant.adoption())?;

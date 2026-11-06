@@ -4,6 +4,28 @@ use crate::contract::{DeliveryState, Impact, Reason, Stage};
 /// Host-supplied execution of an already selected prefix. Implementations must
 /// reject stale generations and preserve every hard dial constraint. No direct fallback.
 pub trait UpstreamOpener: Send + Sync {
+    /// Finite cleanup metadata of this actual selected graph. This neither
+    /// raises native capacity nor grants IO, task credit or a close receipt.
+    fn pending_carrier_capacity(&self, _: &UpstreamBinding) -> Option<usize> {
+        None
+    }
+    /// Resolve a selected inner Packet/Flow destination using the actual host
+    /// DNS policy. It never prepares a native socket or grants a carrier.
+    fn resolve_packet_target(
+        &self,
+        _: &UpstreamBinding,
+        _: Destination,
+        _: crate::contract::context::RequestIdentity,
+        _: CarrierContext,
+    ) -> BoxFuture<'_, Result<Vec<std::net::SocketAddr>, ChannelError>> {
+        Box::pin(async {
+            Err(ChannelError::new(
+                Stage::Prepare,
+                Reason::Unsupported,
+                Impact::Session,
+            ))
+        })
+    }
     /// Resolve a protocol-negotiated Datagram peer under an already acquired
     /// control original. Only an explicitly declared association owner and
     /// its actual host Node resolver may provide this capability.

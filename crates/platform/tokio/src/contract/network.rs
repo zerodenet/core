@@ -8,9 +8,9 @@ use zero_core::{
 use zero_traits::DialPolicy;
 
 use super::{
+    BoxFuture, ChannelError,
     datagram::{BoxDatagramSession, DatagramRequest},
     stream::BoxStream,
-    BoxFuture, ChannelError,
 };
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -58,6 +58,12 @@ pub struct PendingCarrierObserver {
     opener: std::sync::Weak<dyn UpstreamOpener>,
 }
 impl PendingCarrierObserver {
+    pub fn capacity(&self) -> Option<usize> {
+        self.opener
+            .upgrade()?
+            .pending_carrier_capacity(&self.binding)
+    }
+
     pub fn retain(
         &self,
         adoption: crate::controlled_carrier::CarrierAdoption,
@@ -76,6 +82,19 @@ impl PendingCarrierObserver {
 }
 
 impl UpstreamTransport {
+    pub fn pending_carrier_capacity(&self) -> Option<usize> {
+        self.opener.pending_carrier_capacity(&self.binding)
+    }
+    pub fn resolve_packet_target(
+        &self,
+        destination: Destination,
+        identity: crate::contract::context::RequestIdentity,
+        call: CarrierContext,
+    ) -> BoxFuture<'_, Result<Vec<std::net::SocketAddr>, ChannelError>> {
+        self.opener
+            .resolve_packet_target(&self.binding, destination, identity, call)
+    }
+
     pub fn resolve_related_datagram(
         &self,
         parent: crate::controlled_carrier::CarrierAdoption,

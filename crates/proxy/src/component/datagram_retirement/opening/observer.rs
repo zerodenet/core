@@ -5,6 +5,13 @@ use zero_platform_tokio::contract::{
     stream::BoxStream,
 };
 impl UpstreamOpener for Observer {
+    fn pending_carrier_capacity(&self, binding: &UpstreamBinding) -> Option<usize> {
+        if binding != &self.binding {
+            return None;
+        }
+        Some(self.pending.upgrade()?.limit)
+    }
+
     fn has_pending_carrier_observer(&self) -> bool {
         self.pending
             .upgrade()
