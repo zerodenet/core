@@ -1,5 +1,6 @@
 //! Transactional device preparation; protocol config stays inside this adapter.
 
+mod borrowers;
 mod components;
 mod directions;
 mod linked;
