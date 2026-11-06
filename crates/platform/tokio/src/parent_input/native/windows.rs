@@ -14,12 +14,15 @@ pub(crate) struct Input {
     unknown: Option<Arc<io::Error>>,
 }
 pub(crate) fn duplicate_stdin() -> io::Result<Input> {
+    duplicate(std::io::stdin().as_raw_handle() as usize)
+}
+pub(crate) fn duplicate(original: usize) -> io::Result<Input> {
     let process = unsafe { GetCurrentProcess() };
     let mut handle = std::ptr::null_mut();
     if unsafe {
         DuplicateHandle(
             process,
-            std::io::stdin().as_raw_handle(),
+            original as HANDLE,
             process,
             &mut handle,
             0,
