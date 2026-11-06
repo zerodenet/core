@@ -1,6 +1,7 @@
 //! Only actual LoanOwner installation names a receiver; a token grants nothing.
 use super::*;
 use crate::contract::component::ResourceDeclaration;
+use crate::contract::network::UpstreamOpener;
 use zero_core::component::{OutboundId, RoleId, RoleInstanceId};
 #[tokio::test]
 async fn exact_returned_stream_loan_observes_only_its_strong_receiver_and_native_retirement() {

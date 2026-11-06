@@ -102,6 +102,7 @@ impl Users {
             }
         }
     }
+    #[cfg(test)]
     pub(in crate::component) fn try_pause(self: &Arc<Self>) -> Result<PausedUsers, ChannelError> {
         self.try_pause_receivers(|_| None)
     }
