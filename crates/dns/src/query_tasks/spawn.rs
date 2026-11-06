@@ -48,6 +48,7 @@ impl OwnedDnsQueryTasks {
                     .flatten()
             }),
             capacity: retirement.capacity.clone(),
+            retirement: retirement.clone(),
             kind,
             ancestors,
             network: network.map(OnceLock::from).unwrap_or_default(),
@@ -134,6 +135,7 @@ impl OwnedDnsQueryTasks {
                     original_retirement.returned_native();
                 }
                 cleanup.map_err(|source| {
+                    let source = original_retirement.retain_cleanup_failure(source);
                     ChannelError::new(
                         zero_platform_tokio::contract::Stage::Close,
                         zero_platform_tokio::contract::Reason::Io,

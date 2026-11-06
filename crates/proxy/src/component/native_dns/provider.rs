@@ -5,7 +5,7 @@ mod detour;
 mod ech;
 #[cfg(feature = "dns")]
 pub(super) mod quic;
-mod retirement;
+pub(super) mod retirement;
 mod role;
 use std::{net::SocketAddr, sync::Mutex};
 use zero_dns::{native::NativeDnsProvider, OwnedDnsQueryTasks};

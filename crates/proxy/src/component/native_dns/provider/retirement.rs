@@ -69,3 +69,30 @@ impl Provider {
         true
     }
 }
+
+/// The actual lifecycle receiver retains every original worker/cleanup Arc
+/// after all physical cleanup has run, including secondary ownership faults.
+#[derive(Debug)]
+struct FaultHandoff {
+    original: Option<BuildError>,
+    faults: Arc<zero_dns::OwnedDnsQueryFaults>,
+}
+impl std::fmt::Display for FaultHandoff {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        std::fmt::Display::fmt(self.faults.as_ref(), f)
+    }
+}
+impl std::error::Error for FaultHandoff {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        match &self.original {
+            Some(original) => Some(original),
+            None => Some(self.faults.as_ref()),
+        }
+    }
+}
+pub(in crate::component::native_dns) fn handoff_faults(
+    original: Option<BuildError>,
+    faults: Arc<zero_dns::OwnedDnsQueryFaults>,
+) -> BuildError {
+    error(std::io::Error::other(FaultHandoff { original, faults }))
+}

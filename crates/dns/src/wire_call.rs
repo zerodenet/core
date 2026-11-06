@@ -1,6 +1,7 @@
 //! One real wire caller observes its existing coalesced Query owner.
 //! This contains no resolver, scheduler, native grant or additional worker.
 use crate::DnsSystem;
+mod prepared;
 mod registration;
 use registration::Admission;
 pub(crate) use registration::Registration;
@@ -51,6 +52,8 @@ pub struct DnsQueryCallClosed {
     joined: Option<TaskJoined>,
     failure: Option<Arc<ChannelError>>,
     cleanup_failure: Option<Arc<io::Error>>,
+    cleanup_failure_registration: Option<TaskJoinWitness>,
+    failure_receiver: Option<crate::OwnedDnsQueryTasks>,
 }
 impl DnsQueryCallClosed {
     pub fn matches(&self, call: &DnsQueryCall) -> bool {
@@ -70,6 +73,38 @@ impl DnsQueryCallClosed {
     pub fn cleanup_failure(&self) -> Option<&Arc<io::Error>> {
         self.cleanup_failure.as_ref()
     }
+    /// Present only when this exact cleanup source was returned by the original
+    /// Query task, before its real Scope failure publication. A late cleanup
+    /// fault needs a separate explicit receiver; this never invents a task ID.
+    pub fn cleanup_failure_registration(&self) -> Option<&TaskJoinWitness> {
+        self.cleanup_failure_registration.as_ref()
+    }
+    /// Canonical local delivery only. The original Host task credit and
+    /// native/provider closure are separate and are never inferred here.
+    pub fn cleanup_failure_accepted(&self) -> bool {
+        self.cleanup_failure.is_none()
+            || self
+                .cleanup_failure_registration
+                .as_ref()
+                .is_some_and(|query| {
+                    self.failure_receiver.as_ref().is_some_and(|receiver| {
+                        receiver.retains_query_failure(query, self.cleanup_failure.as_ref())
+                    }) && query
+                        .try_joined()
+                        .is_some_and(|joined| joined.failure_accepted())
+                })
+    }
+    pub fn failure_accepted(&self) -> bool {
+        self.failure.is_none()
+            || self.query.as_ref().is_some_and(|query| {
+                self.failure_receiver
+                    .as_ref()
+                    .is_some_and(|receiver| receiver.retains_query_failure(query, None))
+                    && query
+                        .try_joined()
+                        .is_some_and(|joined| joined.failure_accepted())
+            })
+    }
 }
 struct Returned(Arc<State>);
 impl Drop for Returned {
@@ -77,51 +112,6 @@ impl Drop for Returned {
         // Return of this one caller future, never a task/native close receipt.
         self.0.returned.store(true, Ordering::Release);
         self.0.changed.notify_waiters();
-    }
-}
-impl DnsSystem {
-    /// Persist the control before polling the returned single-use answer future.
-    /// Its Drop returns only this waiter; a shared query keeps its other callers.
-    pub fn prepare_udp_query<'a>(
-        &'a self,
-        query: &'a [u8],
-    ) -> (DnsQueryCall, BoxFuture<'a, io::Result<Vec<u8>>>) {
-        self.prepare_wire_query(query, false)
-    }
-    /// The same actual caller/worker ownership for DNS-over-TCP framing.
-    pub fn prepare_tcp_query<'a>(
-        &'a self,
-        query: &'a [u8],
-    ) -> (DnsQueryCall, BoxFuture<'a, io::Result<Vec<u8>>>) {
-        self.prepare_wire_query(query, true)
-    }
-    fn prepare_wire_query<'a>(
-        &'a self,
-        query: &'a [u8],
-        tcp: bool,
-    ) -> (DnsQueryCall, BoxFuture<'a, io::Result<Vec<u8>>>) {
-        let state = Arc::new(State {
-            cancel: CancellationToken::new(),
-            returned: AtomicBool::new(false),
-            registration: Mutex::new(None),
-            conflict: AtomicBool::new(false),
-            changed: Notify::new(),
-            closed: OnceLock::new(),
-            cleanup_failure: OnceLock::new(),
-        });
-        let returned = Returned(state.clone());
-        let original = DnsQueryCall(state.clone());
-        let work = Box::pin(async move {
-            let _returned = returned;
-            let cancel = state.cancel.clone();
-            CALL.scope(state, async move {
-                tokio::select! { biased;
-                    _ = cancel.cancelled() => Err(io::Error::new(io::ErrorKind::Interrupted,"DNS wire caller cancelled")),
-                    result = async { if tcp {self.answer_tcp_query(query).await} else {self.answer_udp_query(query).await} } => result,
-                }
-            }).await
-        });
-        (original, work)
     }
 }
 /// Only the original wire answer can attach a flight, before its real admission.
@@ -184,53 +174,83 @@ impl DnsQueryCall {
                 .lock()
                 .expect("DNS caller poisoned")
                 .clone();
-            let (query, joined, failure) = match registration {
-                None => (None, None, None),
-                Some(registration) => {
-                    let admission = loop {
-                        let changed = registration.changed.notified();
-                        tokio::pin!(changed);
-                        changed.as_mut().enable();
-                        if let Some(admission) = registration.admission.get() {
-                            break admission;
-                        }
-                        changed.await;
-                    };
-                    match admission {
-                        Admission::NoWorker => (None, None, None),
-                        Admission::Unowned => {
-                            return Err(io::Error::other(
-                                "DNS wire worker has no matching installed Host provider",
-                            ))
-                        }
-                        Admission::Hosted {
-                            query,
-                            provider,
-                            tasks,
-                            retirement,
-                        } => {
-                            query.wait().await;
-                            let joined = query.try_joined().ok_or_else(|| {
-                                io::Error::other("DNS original query join remains unknown")
-                            })?;
-                            // Retry this original provider's actual ledger even after a
-                            // worker panic/finalizer error. No observer substitutes for
-                            // same-Scope logical/native/descendant cleanup authority.
-                            if let Err(source) = provider.finish_query(query.clone()).await {
-                                let _ = self.0.cleanup_failure.set(Arc::new(source));
+            let (query, joined, failure, cleanup_failure_registration, failure_receiver) =
+                match registration {
+                    None => (None, None, None, None, None),
+                    Some(registration) => {
+                        let admission = loop {
+                            let changed = registration.changed.notified();
+                            tokio::pin!(changed);
+                            changed.as_mut().enable();
+                            if let Some(admission) = registration.admission.get() {
+                                break admission;
                             }
-                            if !tasks.native_retirement_complete(retirement, query) {
-                                return Err(match self.0.cleanup_failure.get() {
+                            changed.await;
+                        };
+                        match admission {
+                            Admission::NoWorker => (None, None, None, None, None),
+                            Admission::Unowned => {
+                                return Err(io::Error::other(
+                                    "DNS wire worker has no matching installed Host provider",
+                                ))
+                            }
+                            Admission::Hosted {
+                                query,
+                                provider,
+                                tasks,
+                                retirement,
+                            } => {
+                                query.wait().await;
+                                let joined = query.try_joined().ok_or_else(|| {
+                                    io::Error::other("DNS original query join remains unknown")
+                                })?;
+                                // Retry this original provider's actual ledger even after a
+                                // worker panic/finalizer error. No observer substitutes for
+                                // same-Scope logical/native/descendant cleanup authority.
+                                if joined.result().is_err() {
+                                    tasks.retain_query_failure(retirement, query)?;
+                                }
+                                // A healthy completed query does not sweep unrelated
+                                // provider entries or turn their later errors into its own.
+                                if !tasks.native_retirement_complete(retirement, query) {
+                                    if let Err(source) = provider.finish_query(query.clone()).await
+                                    {
+                                        let source = tasks
+                                            .retain_cleanup_failure(retirement, query, source)?;
+                                        let _ = self.0.cleanup_failure.set(source);
+                                    }
+                                }
+                                let canonical_cleanup = retirement.cleanup_failure();
+                                if let Some(source) = canonical_cleanup.as_ref() {
+                                    let _ = self.0.cleanup_failure.set(source.clone());
+                                }
+                                if !tasks.native_retirement_complete(retirement, query) {
+                                    return Err(match self.0.cleanup_failure.get() {
                                     Some(source)=>io::Error::new(source.kind(),source.clone()),
                                     None=>io::Error::other("DNS original query/descendant native retirement is unconfirmed"),
                                 });
+                                }
+                                let failure = joined.result().err();
+                                let cleanup_failure_registration = canonical_cleanup
+                                    .as_ref()
+                                    .filter(|source| {
+                                        self.0
+                                            .cleanup_failure
+                                            .get()
+                                            .is_some_and(|stored| Arc::ptr_eq(source, stored))
+                                    })
+                                    .map(|_| query.clone());
+                                (
+                                    Some(query.clone()),
+                                    Some(joined),
+                                    failure,
+                                    cleanup_failure_registration,
+                                    Some(tasks.clone()),
+                                )
                             }
-                            let failure = joined.result().err();
-                            (Some(query.clone()), Some(joined), failure)
                         }
                     }
-                }
-            };
+                };
             Ok(self
                 .0
                 .closed
@@ -241,6 +261,8 @@ impl DnsQueryCall {
                         joined,
                         failure,
                         cleanup_failure: self.0.cleanup_failure.get().cloned(),
+                        cleanup_failure_registration,
+                        failure_receiver,
                     })
                 })
                 .clone())

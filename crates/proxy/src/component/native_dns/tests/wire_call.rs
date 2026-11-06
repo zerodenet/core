@@ -71,6 +71,11 @@ async fn actual_call(tcp: bool, fault: bool) {
         tokio::task::yield_now().await;
     };
     let native = original.original.as_ref().unwrap();
+    let plan = proxy.tcp_runtime_services().components.clone().unwrap();
+    let canonical = plan
+        .component(native.owner().instance().component)
+        .expect("actual canonical DNS owner in the current Host");
+    assert_eq!(canonical.instance_id(), native.owner().instance());
     assert!(native.closed().is_none());
     assert!(!original.task.is_joined());
     let (second, mut sibling) = if tcp {
@@ -148,6 +153,16 @@ async fn actual_call(tcp: bool, fault: bool) {
             let cleanup = closed
                 .cleanup_failure()
                 .expect("retained typed finalizer fault");
+            let cleanup_registration = closed.cleanup_failure_registration().expect(
+                "same actual Query returned the typed cleanup source before its Scope exit",
+            );
+            assert!(cleanup_registration.same_registration(&original.task));
+            assert!(closed.cleanup_failure_accepted(),"actual Scope ACK follows persistent publication to the host's original CloseReport receiver");
+            assert!(cleanup_registration
+                .try_joined()
+                .unwrap()
+                .registration_released());
+            assert!(has_original_io_source(original_failure.as_ref(),cleanup),"actual task exit carries this exact original ioError Arc, not a fresh observer wrapper");
             assert!(std::sync::Arc::ptr_eq(
                 cleanup,
                 call.closed().unwrap().cleanup_failure().unwrap()
@@ -169,6 +184,13 @@ async fn actual_call(tcp: bool, fault: bool) {
         running.shutdown().await.unwrap();
     }
     assert_eq!(actual_fault.is_some(), fault);
+    if let Some(source) = actual_fault {
+        let accepted = canonical
+            .task_fault()
+            .expect("same canonical Host TaskMonitor retained its actual critical failure");
+        assert_eq!(accepted.instance, canonical.instance_id());
+        assert!(std::sync::Arc::ptr_eq(&accepted.source, &source));
+    }
     assert!(!original.task.scope_identity().resource_open());
     let owner = native.owner();
     assert!(owner.closed().unwrap().matches(native.owner()));
@@ -177,4 +199,21 @@ async fn actual_call(tcp: bool, fault: bool) {
         .users_closed()
         .unwrap()
         .matches(native.owner()));
+}
+
+fn has_original_io_source(
+    error: &(dyn std::error::Error + 'static),
+    expected: &std::sync::Arc<std::io::Error>,
+) -> bool {
+    let mut current = Some(error);
+    while let Some(error) = current {
+        if error
+            .downcast_ref::<std::sync::Arc<std::io::Error>>()
+            .is_some_and(|actual| std::sync::Arc::ptr_eq(actual, expected))
+        {
+            return true;
+        }
+        current = error.source();
+    }
+    false
 }

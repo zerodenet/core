@@ -290,6 +290,9 @@ impl ResourceLifecycle for Owner {
             }
         }
         self.provider.tasks.observe_native_retirements();
+        if let Some(faults) = self.provider.tasks.retained_faults() {
+            return Err(provider::retirement::handoff_faults(failure, faults));
+        }
         if let Some(failure) = failure {
             return Err(failure);
         }

@@ -21,7 +21,10 @@ mod wire_call;
 pub use wire_call::{DnsQueryCall, DnsQueryCallClosed};
 mod query_tasks;
 pub use query_tasks::NativeSystemLookup;
-pub use query_tasks::{OwnedDnsQueryBudget, OwnedDnsQueryObservation, OwnedDnsQueryTasks};
+pub use query_tasks::{
+    OwnedDnsQueryBudget, OwnedDnsQueryFault, OwnedDnsQueryFaults, OwnedDnsQueryObservation,
+    OwnedDnsQueryTasks,
+};
 mod native_node;
 mod reverse;
 mod router;

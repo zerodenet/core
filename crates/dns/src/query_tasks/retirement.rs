@@ -8,6 +8,7 @@ pub(crate) struct Retirement {
     ancestors: Vec<TaskJoinWitness>,
     finalizer: Option<std::sync::Weak<dyn crate::native::NativeDnsProvider>>,
     native_returned: AtomicBool,
+    cleanup_failure: OnceLock<Arc<io::Error>>,
 }
 impl Retirement {
     pub(super) fn new(
@@ -22,7 +23,16 @@ impl Retirement {
             ancestors,
             finalizer,
             native_returned: AtomicBool::new(kind == TaskKind::Blocking),
+            cleanup_failure: OnceLock::new(),
         })
+    }
+    pub(super) fn retain_cleanup_failure(&self, source: io::Error) -> Arc<io::Error> {
+        self.cleanup_failure
+            .get_or_init(|| Arc::new(source))
+            .clone()
+    }
+    pub(crate) fn cleanup_failure(&self) -> Option<Arc<io::Error>> {
+        self.cleanup_failure.get().cloned()
     }
     pub(super) fn returned_native(&self) {
         self.native_returned.store(true, Ordering::Release);
@@ -81,6 +91,15 @@ impl OwnedDnsQueryTasks {
         root: &Arc<Retirement>,
         query: &TaskJoinWitness,
     ) -> bool {
+        if self
+            .0
+            .state
+            .lock()
+            .expect("DNS query tasks poisoned")
+            .identity_fault
+        {
+            return false;
+        }
         if !root
             .registration
             .get()

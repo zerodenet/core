@@ -21,7 +21,9 @@ mod descendants;
 #[cfg(feature = "doh")]
 mod driver;
 mod ech;
+mod faults;
 mod lifecycle;
+pub use faults::{OwnedDnsQueryFault, OwnedDnsQueryFaults};
 mod network;
 mod observation;
 mod retirement;
@@ -52,6 +54,7 @@ struct State {
     identity_fault: bool,
     records: Vec<Arc<Record>>,
     first_failure: Option<Arc<ChannelError>>,
+    faults: std::collections::BTreeMap<TaskId, Arc<Retirement>>,
 }
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum TaskKind {
@@ -64,6 +67,7 @@ struct Record {
     budget: OwnedDnsQueryBudget,
     ech: Mutex<Option<crate::EchDnsEndpoint>>,
     capacity: Arc<Mutex<Option<OwnedSemaphorePermit>>>,
+    retirement: Arc<Retirement>,
     kind: TaskKind,
     ancestors: Vec<TaskJoinWitness>,
     network: OnceLock<u64>,
