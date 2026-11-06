@@ -14,7 +14,11 @@ Rust 1.99.0，当前同锁 SHA-256：
 | `f73f2dd0`（原始记录含完整 SHA） | Platform lib build exit0；同预付声明、foreign Scope 拒绝、冷原件转交、实际 actor join 与延迟 Host ACK 共 3 PASS |
 | `f73f2dd0` / `f280ef3277e098ea967755985cfa47f6251f9562` | SS/Proxy 组合构建分别 exit101；首组 11 个 SS 模块/可见性/所有权类型错误，次组仅 fixture Address/Display 错误。B 已追加修正，原日志保留；没有冒称生成了新 Proxy 测试产物 |
 | `23996e788e1fa2132a2c81e96a2c001f5ab8b574` | DNS/Platform/Transport lib+web build exit0；query_tasks 12 PASS、wire_call 2 PASS。H2 3 PASS/1 FAIL（原 8s/1-byte window/256KiB，收到210386字节 phase1）；未提高窗口、容量、栈或期限 |
-| `8a545c16`（完整 SHA 在原始 input） | 普通 Proxy lib --no-run 排队中，未给本行测试资格；该输入含 Source DNS/SS/材料 recipe/生产总额度接线 |
+| `8a545c16`（完整 SHA 在原始 input） | Proxy 构建 exit101，DNS `.tasks` 私有访问两项错误；A `8df43dbf` 修正后才获得下行产物 |
+| `1350aadf00f204082d6a3d93f5aa1f1a24024e87` | Proxy lib build exit0/634.01s；SS 真 UDP/原件 2 PASS、Process quota 夹具因重复监听 1 FAIL（尚未执行 quota）；Source scoped join/ACK 2 PASS、输入暂停 1 PASS、Source DNS 2 PASS、原 Host DNS 2 PASS、安全历史/总额度 4 PASS；Windows GNU platform/tests check exit0，只代表该输入类型检查 |
+| `2c55f763ab14735dbcb2cbce0358e8900678e6ff` | Runtime/Platform build exit0；实际 Scope census/join/延迟 ACK 2 PASS、OwnedStart 4 PASS；warm Process cap 1 FAIL 于旧 blanket gate，M `4f8a32df` 修后仍须复验 |
+| `a12c00afa01c04630ff12f7d91c8fbb154db1b35` | Error/Platform build exit0；显式同 payload cleanup receipt 1 PASS、taskless 原件/unique view 2 PASS、related 双原件/总额度 3 PASS。不以错误交接回执充当 native/Scope/用户关闭证明 |
+| `398f2ad7`（完整 SHA 在原始 input） | Runtime 组合构建 exit101/31.44s，VLESS 私有方法与次生握手类型错误；B `4765e55f5010070bd1de047c37103ae1040cb8da` 修后普通合入 `2d563e22042257ee8b99e2239a2a32e934812ab1` 排队复验，未提前给资格 |
 
 所有命令、逐 target 结果、工具/环境、真实结束码、源码逐文件输入和产物摘要均由 M
 外部 harness 保留。每组仅对应自己的输入；不同 feature 图和产物不得合并为统一候选。
