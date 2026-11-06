@@ -341,3 +341,38 @@ async fn attempt<T>(
         .await
         .map_err(|source| io::Error::new(io::ErrorKind::TimedOut, source))?
 }
+
+#[cfg(feature = "udp")]
+pub(super) async fn exchange_ech_udp(
+    provider: &dyn NativeDnsProvider,
+    peer: SocketAddr,
+    bytes: &[u8],
+    caller: TaskJoinWitness,
+    cancel: CancellationToken,
+    end: Instant,
+) -> Attempt {
+    let loan = match OwnedDnsQueryTasks::native_io(provider.datagram(
+        peer,
+        caller.clone(),
+        cancel.clone(),
+        end,
+    ))
+    .await
+    .and_then(std::convert::identity)
+    {
+        Ok(loan) => loan,
+        Err(source) => return Attempt::open_failed(source),
+    };
+    // Explicit ECH UDP has always been UDP-only. No DNS TC TCP fallback is
+    // invented by sharing the owned datagram attempt implementation.
+    exchange_datagram(
+        loan,
+        &Query {
+            bytes,
+            caller,
+            cancel,
+            end,
+        },
+    )
+    .await
+}

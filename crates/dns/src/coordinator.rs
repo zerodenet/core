@@ -40,6 +40,7 @@ pub(super) struct QueryKey {
     query_type: u16,
     scope: QueryScope,
     wire_query: Option<Vec<u8>>,
+    endpoint: Option<String>,
 }
 
 impl QueryKey {
@@ -49,7 +50,13 @@ impl QueryKey {
             query_type,
             scope,
             wire_query: None,
+            endpoint: None,
         }
+    }
+
+    pub(super) fn with_endpoint(mut self, endpoint: &str) -> Self {
+        self.endpoint = Some(endpoint.to_owned());
+        self
     }
 
     /// Preserve all wire-query semantics except the transaction ID, which is

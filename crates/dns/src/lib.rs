@@ -44,7 +44,7 @@ use zero_traits::{AddressFamily, DnsResolver, IpAddress};
 use backends::ResolverBackend;
 use cache::{DnsCache, DnsWireCacheValue};
 use coordinator::{QueryCoordinator, QueryKey, QueryScope};
-pub use ech::EchDnsRecord;
+pub use ech::{EchDnsEndpoint, EchDnsRecord};
 use fake_ip::FakeIpAllocator;
 pub use fake_ip::{default_fake_ip_state_path, FakeIpClearResult, FakeIpClearTarget, FakeIpStats};
 use reverse::RealIpReverseIndex;
@@ -213,6 +213,7 @@ impl DnsSystem {
     pub fn retire_native_queries(&self) {
         if let Some(node) = &self.node_queries {
             node.coordinator.cancel_pending();
+            node.wire.cancel_pending();
         }
         self.query_coordinator.cancel_pending();
         self.wire_query_coordinator.cancel_pending();
