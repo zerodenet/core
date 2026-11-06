@@ -11,12 +11,7 @@ impl DriverOwner {
             .clone();
         let mut instances = std::collections::BTreeSet::new();
         for client in clients {
-            for instance in client
-                .native
-                .get()
-                .expect("native client installed")
-                .retained_instances()?
-            {
+            for instance in client.retained_instances()? {
                 instances.insert(instance);
             }
         }
@@ -69,11 +64,7 @@ impl DriverOwner {
             .clone();
         let mut selected = Vec::new();
         for client in candidates {
-            let instances = client
-                .native
-                .get()
-                .expect("native client installed")
-                .retained_instances()?;
+            let instances = client.retained_instances()?;
             if instances.iter().any(|actual| replaced.contains(actual)) {
                 if client.leases.load(std::sync::atomic::Ordering::Acquire) != 0 {
                     return Err(io::Error::new(
