@@ -2,21 +2,57 @@
 use super::*;
 use crate::OwnedDnsQueryTasks;
 impl DriverOwner {
-    pub(in super::super) fn select_host(&self, tasks: OwnedDnsQueryTasks) -> io::Result<()> {
+    pub(in super::super) fn select_host(
+        &self,
+        provider: Arc<dyn crate::native::NativeDnsProvider>,
+    ) -> io::Result<Arc<dyn crate::native::NativeDnsProvider>> {
+        let tasks = provider.tasks();
         tasks.ensure_open()?;
         self.ensure_open()?;
-        let mut state = self.state.lock().expect("DoH driver owner poisoned");
-        match &state.mode {
-            PoolMode::Unused => state.mode = PoolMode::Host(tasks),
-            PoolMode::Host(current) if current.same_owner(&tasks) => {}
-            _ => {
-                return Err(io::Error::new(
-                    io::ErrorKind::PermissionDenied,
-                    "DoH pool has another original owner",
-                ))
+        let canonical = {
+            let mut original = self
+                .provider
+                .lock()
+                .expect("DoH original provider poisoned");
+            let mut state = self.state.lock().expect("DoH driver owner poisoned");
+            match &state.mode {
+                PoolMode::Unused => {
+                    *original = Some(Arc::downgrade(&provider));
+                    state.mode = PoolMode::Host(tasks);
+                    return Ok(provider);
+                }
+                PoolMode::Host(current) if current.same_owner(&tasks) => return Ok(provider),
+                PoolMode::Host(_) => original
+                    .as_ref()
+                    .and_then(std::sync::Weak::upgrade)
+                    .ok_or_else(|| {
+                        io::Error::new(
+                            io::ErrorKind::NotConnected,
+                            "DoH canonical provider retired",
+                        )
+                    })?,
+                _ => {
+                    return Err(io::Error::new(
+                        io::ErrorKind::PermissionDenied,
+                        "DoH pool has another original owner",
+                    ))
+                }
             }
+        };
+        // Source/Scope observations can reap or release their own owners;
+        // never perform them under this pool's state/connection locks.
+        canonical.tasks().ensure_open()?;
+        if !shared_sources(canonical.as_ref(), provider.as_ref()) {
+            return Err(io::Error::new(
+                io::ErrorKind::PermissionDenied,
+                "DoH pool has another actual host/source owner",
+            ));
         }
-        Ok(())
+        self.ensure_open()?;
+        // Cached clients retain their canonical provider, original LoanOwner
+        // and exact driver. Pending setup is serialized by the original
+        // connect_lock. No borrower signs a new Scope onto that driver.
+        Ok(canonical)
     }
     pub(in super::super) fn spawn_native(
         &self,
@@ -105,4 +141,26 @@ impl DriverOwner {
         self.state.lock().expect("DoH driver owner poisoned").reap();
         failure.map_or(Ok(()), Err)
     }
+}
+
+fn shared_sources(
+    first: &dyn crate::native::NativeDnsProvider,
+    second: &dyn crate::native::NativeDnsProvider,
+) -> bool {
+    let Some((first_node, first_query)) = first.source_roots() else {
+        return false;
+    };
+    let Some((second_node, second_query)) = second.source_roots() else {
+        return false;
+    };
+    let first_tasks = first.tasks();
+    let second_tasks = second.tasks();
+    Arc::ptr_eq(&first_node, &second_node)
+        && Arc::ptr_eq(&first_query, &second_query)
+        && (first_node.owns_tasks(&first_tasks) || first_query.owns_tasks(&first_tasks))
+        && (first_node.owns_tasks(&second_tasks) || first_query.owns_tasks(&second_tasks))
+        && first
+            .budget()
+            .zip(second.budget())
+            .is_some_and(|(first, second)| Arc::ptr_eq(&first, &second))
 }

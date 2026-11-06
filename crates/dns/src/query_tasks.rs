@@ -20,6 +20,7 @@ tokio::task_local! {
 mod descendants;
 #[cfg(feature = "doh")]
 mod driver;
+mod ech;
 mod network;
 mod observation;
 mod system;
@@ -57,6 +58,7 @@ enum TaskKind {
 }
 struct Record {
     budget: OwnedDnsQueryBudget,
+    ech: Mutex<Option<crate::EchDnsEndpoint>>,
     capacity: Mutex<Option<OwnedSemaphorePermit>>,
     kind: TaskKind,
     ancestors: Vec<TaskJoinWitness>,
@@ -259,6 +261,16 @@ impl OwnedDnsQueryTasks {
         let ancestors = self.inherited_tasks()?;
         let record = Arc::new(Record {
             budget: self.0.budget.clone(),
+            // Only persistent physical drivers inherit an explicit endpoint;
+            // nested bootstrap queries retain their own configured targets.
+            ech: Mutex::new(if matches!(kind, TaskKind::Query | TaskKind::Blocking) {
+                None
+            } else {
+                QUERY_RECORD
+                    .try_with(|record| record.ech.lock().expect("DNS ECH target poisoned").clone())
+                    .ok()
+                    .flatten()
+            }),
             capacity: Mutex::new(Some(self.0.budget.reserve(kind)?)),
             kind,
             ancestors,
