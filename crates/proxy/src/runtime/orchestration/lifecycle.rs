@@ -57,6 +57,10 @@ where
             result = &mut startup => (result, false),
         }
     };
+    #[cfg(test)]
+    if let Err(error) = &startup {
+        eprintln!("actual orchestration startup failure before original cleanup: {error:?}");
+    }
     if stopped || startup.is_err() {
         let result = match startup {
             Err(error)
