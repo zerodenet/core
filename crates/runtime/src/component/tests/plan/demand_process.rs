@@ -61,6 +61,7 @@ async fn actual_plan_ready_scans_unselected_process_cold_then_supervises_its_sam
         closing: Default::default(),
         close_evidence: Default::default(),
         shared_identities: Default::default(),
+        source_dependencies: Default::default(),
     };
     let host = TestContext::new(plan.order.iter().map(AsRef::as_ref));
     let roots = process.bound_original_budgets().unwrap();

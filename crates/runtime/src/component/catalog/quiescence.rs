@@ -8,19 +8,68 @@ pub struct ReplacementUsersPause {
 }
 
 impl ComponentCatalog {
+    /// Exact old instances in this catalog which this owned candidate will
+    /// replace. This is a read-only graph fact, never permission to close IO.
+    pub fn replacement_instances(
+        &self,
+        candidate: &Arc<ComponentPlan>,
+    ) -> Result<Vec<zero_core::component::ComponentInstanceId>, ChannelError> {
+        let old = {
+            let state = self.state.lock().expect("component catalog poisoned");
+            let owned = state
+                .current
+                .iter()
+                .chain(state.cold.iter())
+                .chain(state.staged.iter())
+                .filter_map(|entry| entry.plan.as_ref().ok())
+                .any(|plan| Arc::ptr_eq(plan, candidate));
+            if !owned {
+                return Err(invalid(
+                    Reason::StalePlan,
+                    "replacement candidate is not owned by this catalog",
+                ));
+            }
+            state
+                .current
+                .as_ref()
+                .and_then(|entry| entry.plan.as_ref().ok())
+                .cloned()
+        };
+        Ok(old
+            .into_iter()
+            .flat_map(|plan| {
+                plan.order
+                    .iter()
+                    .filter(|slot| !candidate.order.iter().any(|next| Arc::ptr_eq(slot, next)))
+                    .map(|slot| slot.instance_id())
+                    .collect::<Vec<_>>()
+            })
+            .collect())
+    }
     pub fn try_pause_replacement_users(
         &self,
         candidate: &Arc<ComponentPlan>,
     ) -> Result<ReplacementUsersPause, ChannelError> {
         let old = {
             let state = self.state.lock().expect("component catalog poisoned");
-            let owned = state.current.iter().chain(state.cold.iter()).chain(state.staged.iter())
+            let owned = state
+                .current
+                .iter()
+                .chain(state.cold.iter())
+                .chain(state.staged.iter())
                 .filter_map(|entry| entry.plan.as_ref().ok())
                 .any(|plan| Arc::ptr_eq(plan, candidate));
             if !owned {
-                return Err(invalid(Reason::StalePlan, "replacement candidate is not owned by this catalog"));
+                return Err(invalid(
+                    Reason::StalePlan,
+                    "replacement candidate is not owned by this catalog",
+                ));
             }
-            state.current.as_ref().and_then(|entry| entry.plan.as_ref().ok()).cloned()
+            state
+                .current
+                .as_ref()
+                .and_then(|entry| entry.plan.as_ref().ok())
+                .cloned()
         };
         let mut roots = Vec::new();
         if let Some(old) = old {

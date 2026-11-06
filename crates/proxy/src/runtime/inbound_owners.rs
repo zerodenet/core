@@ -10,6 +10,8 @@ mod observers;
 #[cfg(feature = "raw-ip-runtime")]
 mod packet_source;
 #[cfg(feature = "raw-ip-runtime")]
+pub(crate) use packet_source::input_identity as source_input_identity;
+#[cfg(feature = "raw-ip-runtime")]
 pub(crate) mod system_tun;
 pub(crate) use bind::LeasedInbound;
 pub(crate) use bind::NativeListenerView;

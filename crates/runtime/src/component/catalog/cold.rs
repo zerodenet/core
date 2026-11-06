@@ -185,6 +185,7 @@ impl ComponentCatalog {
             .collect();
         resources.validate(nodes.iter().map(|slot| (slot.id, slot.recipe.spec())))?;
         let shared_identities: SharedResourceIdentities = resources.identities()?;
+        let source_dependencies = resources.take_source_dependencies();
         for resource in resources.into_resources()? {
             let id = resource.component();
             let old = previous.and_then(|(_, plan)| plan.order.iter().find(|slot| slot.id == id));
@@ -233,6 +234,7 @@ impl ComponentCatalog {
             closing: Default::default(),
             close_evidence: Default::default(),
             shared_identities,
+            source_dependencies,
         })
     }
 

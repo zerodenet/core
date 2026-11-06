@@ -51,6 +51,7 @@ pub struct ComponentPlan {
     failures: Mutex<BTreeMap<zero_core::component::TaskId, Arc<plan::PlanTaskFailure>>>,
     // Canonical IDs from this exact assembly; no old recipes or runtime owners.
     shared_identities: super::SharedResourceIdentities,
+    source_dependencies: super::preparation::SourceDependencyDeclarations,
     // Only actual complete slot reports establish declared owner closure.
     confirmed_declared_close:
         Mutex<std::collections::BTreeSet<zero_core::component::ComponentInstanceId>>,

@@ -193,7 +193,10 @@ impl super::ProtocolInventory {
             self.host
                 .components()
                 .prepare_with_device_resources(config.clone(), |resources| {
-                    self.devices.prepare_component_resources(&config, resources)
+                    let deferred = self.devices.prepare_component_resources(&config, resources)?;
+                    let sources = self.devices.source_component_dependencies(&config, resources)?;
+                    resources.set_source_dependencies(sources)?;
+                    Ok(deferred)
                 })
         }
         #[cfg(not(feature = "raw-ip-runtime"))]
@@ -211,6 +214,8 @@ impl super::ProtocolInventory {
                 .components()
                 .prepare_recovered_device_resources(config.clone(), |resources| {
                     let deferred=self.devices.prepare_component_resources(&config,resources)?;
+                    let sources=self.devices.source_component_dependencies(&config,resources)?;
+                    resources.set_source_dependencies(sources)?;
                     let aliases=self.devices.device_alias_overrides(&config,resources)?;
                     resources.set_device_alias_overrides(aliases)?;
                     Ok(deferred)
