@@ -1,4 +1,5 @@
 //! Ordinary cold recipes use the leaf's actual shared pool and runtime totals.
+mod ech;
 mod production;
 use super::super::VlessAdapter;
 use crate::component::{
@@ -39,6 +40,14 @@ pub(crate) fn eligible(input: &OutboundConfig) -> bool {
     // remains intact in the real prepared recipe and File declaration.
     if let Some(tls) = tls.as_mut() {
         tls.ca_cert_path = None;
+        let Ok(endpoint) = ech::endpoint(input) else {
+            return false;
+        };
+        if endpoint.is_some() {
+            // Only the plain-shape probe omits dynamic material. The real
+            // recipe retains its full ECH URI, Node dependency and profile.
+            tls.options.ech_config_list.clear();
+        }
     }
     super::native_input(&plain)
 }
@@ -104,7 +113,8 @@ impl VlessAdapter {
         .map_err(|source| {
             zero_config::ConfigError::InvalidOutbound(format!("outbound `{}`: {source}", input.tag))
         })?;
-        if zero_core::address::parse_ip_literal(server).is_none() {
+        if zero_core::address::parse_ip_literal(server).is_none() || ech::endpoint(input)?.is_some()
+        {
             let node_dns =
                 crate::component::native_dns::prepare_node(resources, factory.network.clone())?;
             prepared = prepared.with_node_dns(node_dns);

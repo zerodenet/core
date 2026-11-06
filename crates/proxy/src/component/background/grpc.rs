@@ -41,6 +41,16 @@ impl ComponentFactory for Factory {
             }
             .transport(),
         );
-        NativePoolFactory.build(options.pool.clone(), context)
+        let instance = context.instance();
+        NativePoolFactory.build_with_ech_resolver(
+            options.pool.clone(),
+            context,
+            Arc::new(ech::CurrentEch {
+                network: self.network.clone(),
+                instance,
+            }),
+        )
     }
 }
+
+mod ech;
