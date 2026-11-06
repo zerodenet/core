@@ -14,7 +14,10 @@ mod forward;
 mod translation;
 pub use error::{parse_icmp_error, IcmpErrorKind, ParsedIcmpError};
 pub use forward::{build_icmp_mtu_error_response, build_icmp_time_exceeded_response};
-pub use translation::{echo_response_key, restore_echo_response, translate_echo_request};
+pub use translation::{
+    echo_response_key, restore_echo_response, restore_echo_response_into, translate_echo_request,
+    translate_echo_request_into,
+};
 
 pub struct IcmpEchoRequest<'a> {
     pub source: IpAddr,
