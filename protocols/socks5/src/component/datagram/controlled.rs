@@ -1,5 +1,6 @@
 //! UDP ASSOCIATE keeps its original TCP control beside its related packet slot.
 use super::*;
+use alloc::boxed::Box;
 use association::Preparing;
 use tokio::time::Instant;
 use zero_platform_tokio::{contract::stream::BoxStream, controlled_carrier::loan::StreamLoan};
