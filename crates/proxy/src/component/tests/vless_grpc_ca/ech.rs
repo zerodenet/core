@@ -29,6 +29,12 @@ async fn ordinary_grpc_dynamic_ech_uses_declared_node_query_and_keeps_its_ca_mat
                 .apply_runtime_config_and_wait(candidate, Duration::from_secs(5))
                 .await
                 .unwrap();
+            let first_resolver = proxy.tcp_runtime_services().upstream().ech_resolver();
+            let later_resolver = proxy.tcp_runtime_services().upstream().ech_resolver();
+            assert!(
+                Arc::ptr_eq(&first_resolver, &later_resolver),
+                "short current-service borrows preserve the same original ECH cache"
+            );
             std::fs::remove_file(&path).unwrap();
             let wire = async {
                 let mut bytes = vec![0; 65536];

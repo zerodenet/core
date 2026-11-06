@@ -64,6 +64,10 @@ impl Outbound {
         // suspend. Failed/cancelled submission stops this exact worker record;
         // the same persistent pool retains its physical original and Scope.
         let (io, control, original) = io.into_controlled_parts()?;
+        // Cached physical acquisition happened in its owning pool's Service
+        // task. The actual calling root still needs that original's endpoint
+        // facts for this Business/Service invocation; observation grants no IO.
+        context.upstream.observe_carrier_origin(&original);
         let connected = super::super::connect::submit(
             options,
             &self.admission,

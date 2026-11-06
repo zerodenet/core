@@ -97,6 +97,10 @@ impl DatagramOutbound for Outbound {
         })?;
         let raw = self.acquire(&context).await?;
         let (io, control, original) = raw.into_controlled_parts()?;
+        // Cached physical acquisition happened in its owning pool's Service
+        // task. The actual calling root still needs that original's endpoint
+        // facts for this Business/Service invocation; observation grants no IO.
+        context.upstream.observe_carrier_origin(&original);
         let mut io =
             zero_platform_tokio::TcpRelayStream::new(crate::component::carrier::Carrier::new(io));
         let handshake = async {
