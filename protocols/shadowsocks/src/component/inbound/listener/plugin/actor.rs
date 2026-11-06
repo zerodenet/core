@@ -83,7 +83,7 @@ impl Actor {
                 "plugin startup cancelled",
             ));
         }
-        #[cfg(target_os = "linux")]
+        #[cfg(any(target_os = "linux", windows))]
         {
             let original = {
                 let mut state = self.shared.state.lock().unwrap();
@@ -101,7 +101,7 @@ impl Actor {
                 .await
                 .map_err(|source| io(Stage::Prepare, source))
         }
-        #[cfg(not(target_os = "linux"))]
+        #[cfg(not(any(target_os = "linux", windows)))]
         {
             let _ = (witness, deadline, &self.tasks);
             let mut state = self.shared.state.lock().unwrap();

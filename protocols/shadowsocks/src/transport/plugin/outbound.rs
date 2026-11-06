@@ -34,6 +34,8 @@ impl PluginPool {
                 key,
                 running: Default::default(),
                 cancel: Default::default(),
+                #[cfg(any(target_os = "linux", windows))]
+                pending_endpoint: Default::default(),
             })
             .clone()
     }
@@ -46,11 +48,16 @@ pub(crate) struct PluginPlan {
     key: Key,
     pub(super) running: Arc<tokio::sync::Mutex<Option<Arc<PluginLease>>>>,
     pub(super) cancel: zero_platform_tokio::contract::CancellationToken,
+    #[cfg(any(target_os = "linux", windows))]
+    pub(super) pending_endpoint: Arc<Mutex<Option<authorized::endpoint::PendingEndpoint>>>,
 }
 pub(crate) struct PluginLease {
     pub(super) child: Mutex<PluginChild>,
     endpoint: SocketAddr,
     readiness: OnceLock<Result<(), Arc<io::Error>>>,
+    #[cfg(any(target_os = "linux", windows))]
+    pub(super) process_endpoint:
+        Option<Arc<zero_platform_tokio::owned_process::ProcessEndpointHandoff>>,
 }
 #[derive(Debug)]
 struct StartupFailure(Arc<io::Error>);
@@ -86,7 +93,7 @@ impl core::fmt::Debug for PluginLease {
 }
 impl PluginLease {
     pub(super) async fn wait_native_exit(&self) -> io::Result<ExitStatus> {
-        #[cfg(target_os = "linux")]
+        #[cfg(any(target_os = "linux", windows))]
         {
             let original = self.child.lock().unwrap().owned();
             if let Some(original) = original {
@@ -126,6 +133,26 @@ impl PluginLease {
     }
 }
 impl PluginPlan {
+    pub(super) fn fresh_owner(&self) -> Self {
+        Self {
+            key: self.key.clone(),
+            running: Default::default(),
+            cancel: Default::default(),
+            #[cfg(any(target_os = "linux", windows))]
+            pending_endpoint: Default::default(),
+        }
+    }
+    pub(crate) fn endpoint_spec(
+        &self,
+        generation: zero_core::component::NetworkGeneration,
+    ) -> zero_platform_tokio::owned_process::ProcessEndpointSpec {
+        zero_platform_tokio::owned_process::ProcessEndpointSpec {
+            stream: self.supports_tcp(),
+            datagram: self.supports_udp(),
+            ipv6: process::loopback(&self.key.host).is_ipv6(),
+            network_generation: generation,
+        }
+    }
     pub(crate) fn supports_tcp(&self) -> bool {
         self.key.config.mode.tcp()
     }
@@ -217,6 +244,8 @@ impl PluginPlan {
             child: Mutex::new(child),
             endpoint: local,
             readiness: OnceLock::new(),
+            #[cfg(any(target_os = "linux", windows))]
+            process_endpoint: None,
         });
         // Install the child before readiness can suspend. Aborting this caller
         // leaves the unique owner in the plan; an incomplete attempt is terminal.
@@ -225,16 +254,16 @@ impl PluginPlan {
             lease: running.clone(),
             armed: true,
         };
-        #[cfg(target_os = "linux")]
+        #[cfg(any(target_os = "linux", windows))]
         let original = running.child.lock().unwrap().owned();
-        #[cfg(target_os = "linux")]
+        #[cfg(any(target_os = "linux", windows))]
         if let Some(original) = &original {
             let end = deadline.ok_or_else(|| {
                 io::Error::other("owned plugin lacks its actual startup deadline")
             })?;
             original.wait_started(end).await?;
         }
-        #[cfg(not(target_os = "linux"))]
+        #[cfg(not(any(target_os = "linux", windows)))]
         let _ = deadline;
         let readiness = process::ready_with_probe(
             || running.child.lock().unwrap().try_wait(),
