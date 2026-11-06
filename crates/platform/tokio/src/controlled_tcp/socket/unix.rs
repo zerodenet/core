@@ -162,6 +162,17 @@ impl NativeSocket {
             }
         }
     }
+    pub(in crate::controlled_tcp) fn nodelay(&self) -> io::Result<bool> {
+        self.original
+            .0
+            .lock()
+            .expect("TCP descriptor owner poisoned")
+            .as_ref()
+            .ok_or_else(|| {
+                io::Error::new(io::ErrorKind::NotConnected, "native TCP original is closed")
+            })?
+            .nodelay()
+    }
     pub(in crate::controlled_tcp) fn set_nodelay(&self) -> io::Result<()> {
         self.original
             .0

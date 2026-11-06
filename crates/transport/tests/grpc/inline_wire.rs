@@ -7,10 +7,7 @@ use std::{
     task::{Context, Poll},
     time::Instant,
 };
-use tokio::{
-    io::{AsyncRead, AsyncWrite, ReadBuf},
-    net::TcpStream,
-};
+use tokio::io::{AsyncRead, AsyncWrite, ReadBuf};
 #[derive(Clone)]
 pub(super) struct Event {
     pub us: u128,
@@ -97,13 +94,14 @@ impl Observation {
         }
     }
 }
-pub(super) struct Wire {
-    io: TcpStream,
+pub(super) struct Wire<S> {
+    io: S,
     observation: Arc<Observation>,
 }
-impl Wire {
+impl<S> Wire<S> {
     pub(super) fn new(
-        io: TcpStream,
+        io: S,
+        nodelay: bool,
         mode: bool,
         side: &'static str,
         start: Instant,
@@ -112,7 +110,7 @@ impl Wire {
             start,
             side,
             mode,
-            nodelay: io.nodelay().unwrap(),
+            nodelay,
             counts: Mutex::new(Counts {
                 read_calls: 0,
                 read_bytes: 0,
@@ -130,7 +128,7 @@ impl Wire {
         )
     }
 }
-impl AsyncRead for Wire {
+impl<S: AsyncRead + Unpin> AsyncRead for Wire<S> {
     fn poll_read(
         mut self: Pin<&mut Self>,
         cx: &mut Context<'_>,
@@ -144,7 +142,7 @@ impl AsyncRead for Wire {
         outcome
     }
 }
-impl AsyncWrite for Wire {
+impl<S: AsyncWrite + Unpin> AsyncWrite for Wire<S> {
     fn poll_write(
         mut self: Pin<&mut Self>,
         cx: &mut Context<'_>,

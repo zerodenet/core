@@ -7,6 +7,11 @@ pub struct AcceptedTcpStream {
     pub(super) _usage: Option<graph::ViewUse>,
 }
 impl AcceptedTcpStream {
+    /// Actual same-original socket option; no policy mutation or native handle.
+    pub fn nodelay(&self) -> io::Result<bool> {
+        self.io.nodelay()
+    }
+
     pub(crate) async fn peek(&self, bytes: &mut [u8]) -> io::Result<usize> {
         self.io.peek_accepted(bytes).await
     }
