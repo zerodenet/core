@@ -94,11 +94,11 @@ impl OrchestrationState {
         let snapshot = self.applied_snapshot.clone();
         let config = snapshot.config().clone();
         proxy.protocols.validate_dial_environment(&config)?;
-        proxy
+        let components = proxy
             .protocols
             .prepare_device_components(config.clone())
             .map_err(|error| EngineError::Io(std::io::Error::other(error)))?;
-        dns::prepare(proxy, &snapshot).await?;
+        dns::prepare(proxy, &snapshot, &components).await?;
         self.preparing_inbounds.ensure_open()?;
         // Reuse the existing orchestration grace period. The migrated Direct
         // component starts no I/O or tasks; this is not a new admission budget.
@@ -124,6 +124,8 @@ impl OrchestrationState {
                 self.preparing_inbounds.cancellation(),
             )
             .await?;
+        #[cfg(feature = "raw-ip-runtime")]
+        self.bind_retained_packet_sources(proxy, &config, &tcp_services)?;
         self.urltest_runtime = UrlTestRuntime::new(tcp_services.clone());
         self.inbound_runtime_factory = InboundListenerRuntimeFactory::new(
             SharedIngressRuntimeServices::new(tcp_services),

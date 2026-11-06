@@ -3,10 +3,30 @@ use zero_engine::EngineError;
 use super::ProtocolInventory;
 
 impl ProtocolInventory {
+    // Explicit primitive test/library fixture helper. Ordinary production
+    // listener transactions below always supply their full actual candidate.
+    #[cfg(test)]
     pub(crate) fn prepare_inbound_bind(
         &self,
         inbound: zero_config::InboundConfig,
         source_dir: Option<&std::path::Path>,
+    ) -> Result<Option<crate::protocol_registry::PreparedInboundBind>, EngineError> {
+        self.prepare_inbound_bind_with_candidate(inbound, source_dir, None)
+    }
+    /// The real listener transaction supplies this exact candidate, including
+    /// its budget projection. Never read a different current Engine snapshot.
+    pub(crate) fn prepare_inbound_bind_in_config(
+        &self,
+        inbound: zero_config::InboundConfig,
+        config: &zero_config::RuntimeConfig,
+    ) -> Result<Option<crate::protocol_registry::PreparedInboundBind>, EngineError> {
+        self.prepare_inbound_bind_with_candidate(inbound, config.source_dir(), Some(config))
+    }
+    fn prepare_inbound_bind_with_candidate(
+        &self,
+        inbound: zero_config::InboundConfig,
+        source_dir: Option<&std::path::Path>,
+        candidate: Option<&zero_config::RuntimeConfig>,
     ) -> Result<Option<crate::protocol_registry::PreparedInboundBind>, EngineError> {
         if let Some(prepared) = self.devices.prepare_inbound(inbound.clone(), source_dir)? {
             return Ok(Some(prepared));
@@ -25,6 +45,9 @@ impl ProtocolInventory {
             };
             let mut preparation = crate::component::ResourcePreparation::new(&mut unavailable)
                 .with_source_dir(source_dir);
+            if let Some(candidate) = candidate {
+                preparation = preparation.with_candidate(candidate);
+            }
             let recipe = self
                 .registry
                 .inbounds

@@ -47,7 +47,10 @@ use crate::TunDevice;
 mod existing;
 pub use existing::ExistingWindowsTun;
 mod owned;
-pub use owned::{OwnedWintunIo, OwnedWintunOwner, WintunAcquisitionOutcome};
+pub use owned::{
+    OwnedWintunIo, OwnedWintunOwner, OwnedWintunReadControl, OwnedWintunReadPause,
+    OwnedWintunReadWork, OwnedWintunRequest, WintunAcquisitionOutcome,
+};
 
 const ADDRESS_READY_TIMEOUT: Duration = Duration::from_secs(10);
 const ADDRESS_READY_POLL_INTERVAL: Duration = Duration::from_millis(50);
@@ -340,15 +343,35 @@ impl TunDevice for WindowsTun {
 }
 
 fn configure_adapter(name: &str, addresses: &[(IpAddr, IpAddr)], mtu: u16) -> io::Result<()> {
+    configure_adapter_until(name, addresses, mtu, None)
+}
+fn configure_adapter_until(
+    name: &str,
+    addresses: &[(IpAddr, IpAddr)],
+    mtu: u16,
+    stopped: Option<&std::sync::atomic::AtomicBool>,
+) -> io::Result<()> {
     if addresses.is_empty() {
         return Err(io::Error::new(
             io::ErrorKind::InvalidInput,
             "TUN requires at least one interface address",
         ));
     }
+    if stopped.is_some_and(|stop| stop.load(std::sync::atomic::Ordering::Acquire)) {
+        return Err(io::Error::new(
+            io::ErrorKind::Interrupted,
+            "original Wintun configuration stopped",
+        ));
+    }
     let luid = interface_luid(name)?;
     clear_manual_addresses(luid)?;
     for &(address, mask) in addresses {
+        if stopped.is_some_and(|stop| stop.load(std::sync::atomic::Ordering::Acquire)) {
+            return Err(io::Error::new(
+                io::ErrorKind::Interrupted,
+                "original Wintun configuration stopped",
+            ));
+        }
         if address.is_ipv4() != mask.is_ipv4() {
             return Err(io::Error::new(
                 io::ErrorKind::InvalidInput,
@@ -359,7 +382,7 @@ fn configure_adapter(name: &str, addresses: &[(IpAddr, IpAddr)], mtu: u16) -> io
         set_family_mtu(luid, address.is_ipv6(), mtu)?;
     }
     for &(address, _) in addresses {
-        wait_for_address_ready(luid, address)?;
+        wait_for_address_ready_until(luid, address, dad_state_is_ready, stopped)?;
     }
     Ok(())
 }
@@ -421,22 +444,38 @@ fn add_address(luid: NET_LUID_LH, address: IpAddr, prefix: u8) -> io::Result<()>
     }
 }
 
-fn wait_for_address_ready(luid: NET_LUID_LH, address: IpAddr) -> io::Result<()> {
-    wait_for_address_ready_with(luid, address, dad_state_is_ready)
-}
-
 fn wait_for_address_ready_with(
     luid: NET_LUID_LH,
     address: IpAddr,
     ready: fn(IpAddr, NL_DAD_STATE) -> io::Result<bool>,
 ) -> io::Result<()> {
+    wait_for_address_ready_until(luid, address, ready, None)
+}
+fn wait_for_address_ready_until(
+    luid: NET_LUID_LH,
+    address: IpAddr,
+    ready: fn(IpAddr, NL_DAD_STATE) -> io::Result<bool>,
+    stopped: Option<&std::sync::atomic::AtomicBool>,
+) -> io::Result<()> {
     let deadline = Instant::now() + ADDRESS_READY_TIMEOUT;
     loop {
+        if stopped.is_some_and(|stop| stop.load(std::sync::atomic::Ordering::Acquire)) {
+            return Err(io::Error::new(
+                io::ErrorKind::Interrupted,
+                "original Wintun address activation stopped",
+            ));
+        }
         let mut row = MIB_UNICASTIPADDRESS_ROW::default();
         unsafe { InitializeUnicastIpAddressEntry(&mut row) };
         row.InterfaceLuid = luid;
         row.Address = socket_address(address);
         let status = unsafe { GetUnicastIpAddressEntry(&mut row) };
+        if stopped.is_some_and(|stop| stop.load(std::sync::atomic::Ordering::Acquire)) {
+            return Err(io::Error::new(
+                io::ErrorKind::Interrupted,
+                "original Wintun address activation stopped",
+            ));
+        }
         if status == 0 {
             if ready(address, row.DadState)? {
                 return Ok(());

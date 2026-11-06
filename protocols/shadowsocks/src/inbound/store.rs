@@ -3,6 +3,11 @@ use super::*;
 #[derive(Debug, Clone, Default)]
 pub struct ShadowsocksInboundProfileStore {
     profiles: Arc<Mutex<HashMap<String, ShadowsocksInboundProfile>>>,
+    bloom_budget: Arc<crate::shared::LegacyReplayBudget>,
+    #[cfg(feature = "blake3")]
+    budget: Arc<crate::shared::ReplayBudget>,
+    #[cfg(feature = "blake3")]
+    udp_budget: Arc<crate::udp::UdpReplayBudget>,
 }
 
 #[cfg(feature = "crypto")]
@@ -22,6 +27,40 @@ impl PreparedInboundProfile {
         {
             false
         }
+    }
+
+    #[cfg(feature = "blake3")]
+    pub(crate) fn replay_total(&self) -> Option<usize> {
+        self.profile.replay.modern_pool().proposed_total()
+    }
+
+    /// A cold proposal only; activation of the real replay owner installs it.
+    #[cfg(feature = "blake3")]
+    pub fn with_replay_budget_limit(mut self, total: usize) -> Result<Self, Error> {
+        let view = self.profile.replay.modern_pool().with_total(Some(total))?;
+        self.profile.replay = self.profile.replay.with_modern_history(&view);
+        Ok(self)
+    }
+
+    #[cfg(feature = "blake3")]
+    pub fn with_udp_budget_limits(
+        mut self,
+        limits: crate::udp::UdpBudgetLimits,
+    ) -> Result<Self, Error> {
+        self.profile.replay = self.profile.replay.with_udp_budget_limits(limits)?;
+        Ok(self)
+    }
+    #[cfg(feature = "blake3")]
+    pub(crate) fn udp_budget_identity(&self) -> (usize, Option<crate::udp::UdpBudgetLimits>) {
+        self.profile.replay.udp_budget_identity()
+    }
+
+    pub fn with_legacy_replay_budget_limit(mut self, max_bytes: usize) -> Result<Self, Error> {
+        self.profile.replay = self.profile.replay.with_bloom_limit(max_bytes)?;
+        Ok(self)
+    }
+    pub(crate) fn legacy_replay_budget_identity(&self) -> (usize, Option<usize>) {
+        self.profile.replay.bloom_identity()
     }
 
     /// Called by the owning component only after confirmed StopOld.
@@ -49,6 +88,65 @@ impl PreparedInboundProfile {
 }
 #[cfg(feature = "crypto")]
 impl ShadowsocksInboundProfileStore {
+    #[cfg(feature = "blake3")]
+    pub fn with_replay_budget(budget: Arc<crate::shared::ReplayBudget>) -> Self {
+        Self::with_replay_budgets(budget, Default::default())
+    }
+    #[cfg(feature = "blake3")]
+    pub fn with_replay_budgets(
+        budget: Arc<crate::shared::ReplayBudget>,
+        udp_budget: Arc<crate::udp::UdpReplayBudget>,
+    ) -> Self {
+        Self::with_security_budgets(budget, udp_budget, Default::default())
+    }
+    #[cfg(feature = "blake3")]
+    pub fn with_security_budgets(
+        budget: Arc<crate::shared::ReplayBudget>,
+        udp_budget: Arc<crate::udp::UdpReplayBudget>,
+        bloom_budget: Arc<crate::shared::LegacyReplayBudget>,
+    ) -> Self {
+        Self {
+            profiles: Default::default(),
+            budget,
+            udp_budget,
+            bloom_budget,
+        }
+    }
+
+    fn retain_replay(
+        &self,
+        tag: &str,
+        mut profile: ShadowsocksInboundProfile,
+    ) -> Result<ShadowsocksInboundProfile, Error> {
+        let profiles = self
+            .profiles
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        if let Some(previous) = profiles.get(tag) {
+            // Keep the actual security book across credentials/policy/limit
+            // replacement. No cold proposal changes live user authority.
+            profile.replay = previous
+                .replay
+                .clone()
+                .with_policy(profile.replay.policy())
+                .with_tcp_capacity(profile.limits.tcp_replay_capacity);
+        }
+        profile.replay = profile
+            .replay
+            .with_bloom_budget(self.bloom_budget.clone())?;
+        #[cfg(feature = "blake3")]
+        {
+            profile.replay = profile
+                .replay
+                .with_udp_replay_budget(self.udp_budget.clone())?;
+            profile
+                .replay
+                .modern_pool()
+                .bind_budget(self.budget.clone())?;
+        }
+        Ok(profile)
+    }
+
     pub fn prepare_with_identity(
         &self,
         tag: &str,
@@ -65,6 +163,7 @@ impl ShadowsocksInboundProfileStore {
         )?
         .with_replay_policy(replay)
         .with_state_limits(limits);
+        let profile = self.retain_replay(tag, profile)?;
         Ok(PreparedInboundProfile {
             store: self.clone(),
             tag: tag.into(),
@@ -106,6 +205,23 @@ impl ShadowsocksInboundProfileStore {
             identity_password,
             users.iter().copied(),
         )?;
+        let mut profile = profile;
+        if let Some(previous) = profiles.get(tag) {
+            profile.replay = previous.replay.clone().with_policy(profile.replay.policy());
+        }
+        profile.replay = profile
+            .replay
+            .with_bloom_budget(self.bloom_budget.clone())?;
+        #[cfg(feature = "blake3")]
+        {
+            profile.replay = profile
+                .replay
+                .with_udp_replay_budget(self.udp_budget.clone())?;
+            profile
+                .replay
+                .modern_pool()
+                .bind_budget(self.budget.clone())?;
+        }
         profiles.insert(tag.to_owned(), profile.clone());
         Ok(profile)
     }

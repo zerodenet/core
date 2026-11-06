@@ -1,9 +1,18 @@
 //! Cold preparation and bounded current-plan storage for migrated components.
+#[cfg(test)]
+#[path = "catalog/tests/accounting.rs"]
+mod accounting_tests;
 mod cold;
 mod devices;
 mod discard;
 mod maintenance;
+mod original_budgets;
 mod plan;
+#[cfg(all(test, target_os = "linux"))]
+#[path = "catalog/tests/process_accounting.rs"]
+mod process_accounting_tests;
+mod quiescence;
+pub use quiescence::ReplacementUsersPause;
 mod replacement;
 mod restoration;
 mod retirement;
@@ -98,6 +107,8 @@ impl Current {
 }
 pub struct ComponentCatalog {
     factories: OnceLock<ComponentRegistry<OutboundConfig>>,
+    originals: OnceLock<Arc<crate::HostOriginalBudgets>>,
+    probes: OnceLock<std::sync::Weak<crate::probe_owner::ProbeOwner>>,
     next_id: AtomicU64,
     #[cfg(feature = "managed-datagram-runtime")]
     next_association: AtomicU64,
@@ -110,6 +121,8 @@ impl Default for ComponentCatalog {
     fn default() -> Self {
         Self {
             factories: OnceLock::new(),
+            originals: OnceLock::new(),
+            probes: OnceLock::new(),
             next_id: AtomicU64::new(0),
             #[cfg(feature = "managed-datagram-runtime")]
             next_association: AtomicU64::new(0),

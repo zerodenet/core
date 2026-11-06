@@ -23,6 +23,35 @@ impl NativeClient {
             closed: AtomicBool::new(false),
         }
     }
+    pub(super) fn retains_live_original(&self) -> bool {
+        let Some(task) = self.task.get() else {
+            return false;
+        };
+        if task.is_joined() || self.closed() {
+            return false;
+        }
+        let provider = self
+            .provider
+            .lock()
+            .expect("DoH provider owner poisoned")
+            .clone();
+        let Some(provider) = provider else {
+            return false;
+        };
+        if !provider
+            .tasks()
+            .observe()
+            .iter()
+            .any(|registered| registered.task.same_registration(task))
+        {
+            return false;
+        }
+        self.original.try_lock().is_ok_and(|original| {
+            original
+                .as_ref()
+                .is_some_and(|original| original.original().closed().is_none())
+        })
+    }
     pub(super) fn closed(&self) -> bool {
         self.closed.load(Ordering::Acquire)
     }
@@ -86,14 +115,39 @@ impl DohDnsResolver {
         query: &[u8],
         end: Instant,
     ) -> Attempt {
-        if let Err(source) = self.owner.select_host(provider.tasks()) {
-            return Attempt::blocked(source);
-        }
+        self.exchange_native_with_peers(provider, detour, query, end, None)
+            .await
+    }
+    pub(crate) async fn exchange_native_at(
+        &self,
+        provider: Arc<dyn NativeDnsProvider>,
+        query: &[u8],
+        end: Instant,
+        peers: &[SocketAddr],
+    ) -> Attempt {
+        self.exchange_native_with_peers(provider, None, query, end, Some(peers))
+            .await
+    }
+    async fn exchange_native_with_peers(
+        &self,
+        provider: Arc<dyn NativeDnsProvider>,
+        detour: Option<&str>,
+        query: &[u8],
+        end: Instant,
+        peers: Option<&[SocketAddr]>,
+    ) -> Attempt {
+        let provider = match self.owner.select_host(provider) {
+            Ok(provider) => provider,
+            Err(source) => return Attempt::blocked(source),
+        };
         let mut last = None;
-        for addr in self.endpoint_addresses() {
+        let addresses = peers
+            .map(<[SocketAddr]>::to_vec)
+            .unwrap_or_else(|| self.endpoint_addresses());
+        for addr in addresses {
             let result = tokio::time::timeout_at(end, async {
                 let mut client = self
-                    .ready_native_client(addr, detour, provider.clone(), end)
+                    .ready_native_client(addr, detour, provider.clone(), end, peers)
                     .await?;
                 let request = self.request(query.len())?;
                 let (response, body) = client

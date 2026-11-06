@@ -22,6 +22,8 @@ impl HostResources {
             state.closed = true;
             state.start_deadline = None;
         }
+        self.bounds.revoke();
+        self.reads.revoke();
         // Persist each original receipt before the first cancellation point.
         // The same native owner retains Unknown and original failure sources.
         let icmp_result = self
@@ -75,10 +77,22 @@ impl HostResources {
             }
             report
         };
-        let ((), (), packet_report) = tokio::join!(
+        let process_reports = async {
+            #[cfg(any(target_os = "linux", windows))]
+            {
+                self.processes.shutdown(self.component, deadline).await
+            }
+            #[cfg(not(any(target_os = "linux", windows)))]
+            {
+                CloseReport::default()
+            }
+        };
+        let ((), (), packet_report, bound_failure, process_report) = tokio::join!(
             self.drive_native(deadline),
             self.drive_files(deadline),
-            packet_reports
+            packet_reports,
+            self.bounds.shutdown(self, deadline),
+            process_reports
         );
         let original_failure = {
             let state = self
@@ -91,6 +105,9 @@ impl HostResources {
                 .clone()
                 .or_else(|| state.io.failures.values().next().cloned())
         };
+        if let Some(error) = bound_failure {
+            return Err(error);
+        }
         if let Some(error) = icmp_failure {
             return Err(error);
         }
@@ -130,6 +147,7 @@ impl HostResources {
         let mut report = std::mem::take(&mut state.io.receipts);
         report.append(std::mem::take(&mut state.files.receipts));
         report.append(packet_report);
+        report.append(process_report);
         report.unfinished.extend(
             state
                 .files
@@ -149,6 +167,18 @@ impl HostResources {
             self.component.0, carrier.ordinal, carrier.native_generation_closed
         ))));
         drop(state);
+        report.unfinished.extend(
+            self.bounds
+                .evidence()
+                .iter()
+                .filter(|owner| !owner.physical_confirmed())
+                .map(|owner| {
+                    Unfinished::Resource(format!(
+                        "component {} Bound UDP declaration {} cleanup remains unconfirmed",
+                        self.component.0, owner.ordinal
+                    ))
+                }),
+        );
         self.metadata.append_receipts(self.component, &mut report);
         report.unfinished.extend(
             metapools

@@ -174,6 +174,25 @@ pub(crate) async fn run_with_owned_tasks(
     .await
 }
 
+#[cfg(feature = "raw-ip-runtime")]
+pub(crate) async fn run_with_device_tasks(
+    runtime: UdpIngressRuntime,
+    stack: Arc<UserUdpStack>,
+    inbound_tag: String,
+    owners: OwnedTunUdpTasks,
+    ingress: super::TunIngressOptions,
+) -> Result<(), EngineError> {
+    run_inner(
+        runtime,
+        stack,
+        inbound_tag,
+        ingress.dns_hijack,
+        ingress.dns_hijacked_queries,
+        Some(owners),
+    )
+    .await
+}
+
 fn pressure_log_due(last: &mut Option<Instant>, now: Instant) -> bool {
     if last.is_some_and(|last| now.saturating_duration_since(last) < Duration::from_secs(1)) {
         return false;

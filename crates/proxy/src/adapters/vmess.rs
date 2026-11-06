@@ -1,4 +1,6 @@
 #[cfg(feature = "vmess")]
+mod tcp_owned;
+#[cfg(feature = "vmess")]
 use ::vmess::transport::VmessOutboundLeaf;
 #[cfg(feature = "vmess")]
 pub(crate) mod component;
@@ -239,50 +241,6 @@ impl ManagedTupleUdpFlowConnection for ::vmess::udp::VmessUdpFlowConnection {
 }
 
 #[cfg(feature = "vmess")]
-impl VmessAdapter {
-    pub(crate) fn claim_outbound_leaf_impl<'a>(
-        &self,
-        input: OutboundLeafInput<'a>,
-    ) -> Option<OutboundLeafClaim<'a>> {
-        let OutboundLeafInput::Proxy {
-            config,
-            outbound,
-            endpoint,
-            source_dir,
-        } = input
-        else {
-            return None;
-        };
-        let options = outbound_options(outbound.tag(), endpoint, &outbound.protocol)?;
-        let leaf = VmessOutboundLeaf::from_options_refs(source_dir, options, &self.runtime);
-        let (udp, udp_relay) = super::udp::transport_operations(
-            Some(endpoint),
-            !component::grpc::selected(outbound, Some(config), self.native_node_dns),
-            leaf.as_ref(),
-        );
-        let (tcp, tcp_relay) =
-            if component::grpc::streams_selected(outbound, Some(config), self.native_node_dns) {
-                // Every configured caller now selects the same Node Managed owner.
-                // No compatibility TCP executor may create a second original.
-                (None, None)
-            } else {
-                let (tcp, tcp_relay) = super::tcp::transport_operations(leaf);
-                (Some(tcp), Some(tcp_relay))
-            };
-        Some(OutboundLeafClaim {
-            tcp_path: TCP_PATH,
-            tcp,
-            tcp_relay,
-            udp: Some(udp),
-            udp_relay: Some(udp_relay),
-            #[cfg(feature = "raw-ip-runtime")]
-            packet: None,
-            packet_path: None,
-        })
-    }
-}
-
-#[cfg(feature = "vmess")]
 impl NamedProtocolAdapter for VmessAdapter {
     const PROTOCOL_NAME: &'static str = "vmess";
     const FEATURE_NAME: &'static str = "vmess";
@@ -321,3 +279,6 @@ impl ProtocolMetadata for VmessAdapter {
         ::vmess::metadata::VmessProtocol.descriptor()
     }
 }
+
+#[cfg(feature = "vmess")]
+mod claim;

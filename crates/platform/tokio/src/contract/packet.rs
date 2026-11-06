@@ -16,6 +16,11 @@ use super::{
     BoxFuture, ChannelError, SendFailure, SendReceipt,
 };
 
+mod source_pause;
+pub use source_pause::{
+    PacketPauseParticipant, PacketSourceAcquisition, PacketSourceCheckpoint, PacketSourcePause,
+    PacketSourcePaused,
+};
 mod owned;
 pub use owned::{send_owned, OwnedSendFailure};
 
@@ -111,6 +116,9 @@ impl PacketLimits {
 #[derive(Debug, Clone)]
 pub struct PacketRequest {
     pub endpoint: EndpointId,
+    /// Actual original Source link MTU for reverse transmission. Independent
+    /// of envelope limits and any larger reassembled ingress datagram.
+    pub return_mtu: Option<u16>,
     pub limits: PacketLimits,
 }
 

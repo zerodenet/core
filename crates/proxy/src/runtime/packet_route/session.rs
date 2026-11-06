@@ -33,6 +33,7 @@ struct RoutePin {
     managed: Option<zero_engine::PacketRouteLease>,
     control: Option<zero_engine::PacketRouteControl>,
     replies: Option<zero_stack::packet_output::PacketSender>,
+    standard: Option<standard::StandardRoute>,
 }
 
 #[derive(Default)]
@@ -49,8 +50,15 @@ pub(crate) struct PacketSessionPins {
 }
 
 mod management;
+mod standard;
 
 impl PacketSessionPins {
+    /// Retained conversations remain authoritative until their existing normal
+    /// expiry/removal; a budget preflight cannot evict an admitted pin.
+    pub(crate) fn quiescent(&self) -> bool {
+        self.entries.is_empty()
+    }
+
     /// Reuse the observation handle for an admitted conversation. New paths
     /// prepare once; ordinary packets do not visit the statistics registry.
     pub(crate) fn inner_io(
@@ -249,6 +257,7 @@ impl PacketSessionPins {
                 managed: None,
                 control: None,
                 replies: None,
+                standard: None,
             },
         );
         let expiry = now + IDLE_TIMEOUT;

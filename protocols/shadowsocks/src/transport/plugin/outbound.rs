@@ -1,12 +1,13 @@
+use super::child::PluginChild;
 use super::process;
 use crate::validation::PluginConfig;
 use std::{
     collections::HashMap,
     io,
     net::SocketAddr,
+    process::ExitStatus,
     sync::{Arc, Mutex, OnceLock},
 };
-use tokio::process::Child;
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 struct Key {
@@ -14,42 +15,36 @@ struct Key {
     port: u16,
     config: PluginConfig,
 }
-#[derive(Default, Debug)]
-pub(crate) struct PluginPool {
-    plans: Mutex<HashMap<Key, PluginPlan>>,
-}
-impl PluginPool {
-    pub(crate) fn plan(&self, host: &str, port: u16, config: PluginConfig) -> PluginPlan {
-        let key = Key {
-            host: host.into(),
-            port,
-            config,
-        };
-        self.plans
-            .lock()
-            .unwrap()
-            .entry(key.clone())
-            .or_insert_with(|| PluginPlan {
-                key,
-                running: Default::default(),
-                cancel: Default::default(),
-            })
-            .clone()
-    }
-    pub(crate) fn clear(&self) {
-        self.plans.lock().unwrap().clear();
-    }
-}
+mod pool;
+pub(crate) use pool::PluginPool;
 #[derive(Clone, Debug)]
 pub(crate) struct PluginPlan {
     key: Key,
+    root: Arc<pool::Registry>,
+    data: Arc<PlanData>,
+}
+#[derive(Debug, Default)]
+pub(crate) struct PlanData {
     pub(super) running: Arc<tokio::sync::Mutex<Option<Arc<PluginLease>>>>,
     pub(super) cancel: zero_platform_tokio::contract::CancellationToken,
+    pub(super) actor: Arc<Mutex<Option<zero_platform_tokio::contract::scope::TaskJoinWitness>>>,
+    retirement: Mutex<pool::retirement::Retirement>,
+    #[cfg(any(target_os = "linux", windows))]
+    pub(super) pending_endpoint: Arc<Mutex<Option<authorized::endpoint::PendingEndpoint>>>,
+}
+impl std::ops::Deref for PluginPlan {
+    type Target = PlanData;
+    fn deref(&self) -> &PlanData {
+        &self.data
+    }
 }
 pub(crate) struct PluginLease {
-    pub(super) child: Mutex<Child>,
+    pub(super) child: Mutex<PluginChild>,
     endpoint: SocketAddr,
     readiness: OnceLock<Result<(), Arc<io::Error>>>,
+    #[cfg(any(target_os = "linux", windows))]
+    pub(super) process_endpoint:
+        Option<Arc<zero_platform_tokio::owned_process::ProcessEndpointHandoff>>,
 }
 #[derive(Debug)]
 struct StartupFailure(Arc<io::Error>);
@@ -84,6 +79,16 @@ impl core::fmt::Debug for PluginLease {
     }
 }
 impl PluginLease {
+    pub(super) async fn wait_native_exit(&self) -> io::Result<ExitStatus> {
+        #[cfg(any(target_os = "linux", windows))]
+        {
+            let original = self.child.lock().unwrap().owned();
+            if let Some(original) = original {
+                return original.wait_root_exit().await;
+            }
+        }
+        std::future::pending().await
+    }
     fn ready(&self) -> io::Result<()> {
         match self.readiness.get() {
             Some(Ok(())) => Ok(()),
@@ -115,6 +120,17 @@ impl PluginLease {
     }
 }
 impl PluginPlan {
+    pub(crate) fn endpoint_spec(
+        &self,
+        generation: zero_core::component::NetworkGeneration,
+    ) -> zero_platform_tokio::owned_process::ProcessEndpointSpec {
+        zero_platform_tokio::owned_process::ProcessEndpointSpec {
+            stream: self.supports_tcp(),
+            datagram: self.supports_udp(),
+            ipv6: process::loopback(&self.key.host).is_ipv6(),
+            network_generation: generation,
+        }
+    }
     pub(crate) fn supports_tcp(&self) -> bool {
         self.key.config.mode.tcp()
     }
@@ -122,7 +138,8 @@ impl PluginPlan {
         self.key.config.mode.udp()
     }
     pub(crate) async fn acquire(&self, tcp: bool) -> io::Result<Option<Arc<PluginLease>>> {
-        self.acquire_with_probe(tcp, tokio::net::TcpStream::connect)
+        self.current()?
+            .acquire_with_probe(tcp, tokio::net::TcpStream::connect)
             .await
     }
     pub(super) async fn acquire_with_probe<Probe, Pending>(
@@ -134,32 +151,17 @@ impl PluginPlan {
         Probe: FnMut(SocketAddr) -> Pending + Send,
         Pending: std::future::Future<Output = io::Result<tokio::net::TcpStream>> + Send,
     {
-        self.acquire_with(tcp, probe, process::spawn_request, false)
-            .await
+        self.acquire_with(
+            tcp,
+            probe,
+            |request| process::spawn_request(request).map(PluginChild::Library),
+            false,
+            None,
+        )
+        .await
     }
     pub(crate) fn program(&self) -> std::path::PathBuf {
         self.key.config.command.clone().into()
-    }
-    pub(super) async fn acquire_authorized(
-        &self,
-        tcp: bool,
-        resources: Arc<dyn zero_platform_tokio::contract::component::ResourceAccess>,
-        claimed: Arc<std::sync::atomic::AtomicBool>,
-    ) -> io::Result<Option<Arc<PluginLease>>> {
-        self.acquire_with(
-            tcp,
-            tokio::net::TcpStream::connect,
-            move |request| {
-                resources
-                    .spawn_process(request)
-                    .inspect(|_| {
-                        claimed.store(true, std::sync::atomic::Ordering::Release);
-                    })
-                    .map_err(io::Error::other)
-            },
-            true,
-        )
-        .await
     }
     async fn acquire_with<Probe, Pending, Spawn>(
         &self,
@@ -167,11 +169,14 @@ impl PluginPlan {
         mut probe: Probe,
         spawn: Spawn,
         require_fresh: bool,
+        deadline: Option<tokio::time::Instant>,
     ) -> io::Result<Option<Arc<PluginLease>>>
     where
         Probe: FnMut(SocketAddr) -> Pending + Send,
         Pending: std::future::Future<Output = io::Result<tokio::net::TcpStream>> + Send,
-        Spawn: FnOnce(zero_platform_tokio::contract::component::ProcessRequest) -> io::Result<Child>
+        Spawn: FnOnce(
+                zero_platform_tokio::contract::component::ProcessRequest,
+            ) -> io::Result<PluginChild>
             + Send,
     {
         if (tcp && !self.key.config.mode.tcp()) || (!tcp && !self.key.config.mode.udp()) {
@@ -194,6 +199,9 @@ impl PluginPlan {
             running.ready()?;
             running.check()?;
             return Ok(Some(running.clone()));
+        }
+        if !require_fresh {
+            self.claim_library()?;
         }
         let local = SocketAddr::new(process::loopback(&self.key.host), 0);
         let reservation = tokio::net::TcpListener::bind(local).await?;
@@ -218,6 +226,8 @@ impl PluginPlan {
             child: Mutex::new(child),
             endpoint: local,
             readiness: OnceLock::new(),
+            #[cfg(any(target_os = "linux", windows))]
+            process_endpoint: None,
         });
         // Install the child before readiness can suspend. Aborting this caller
         // leaves the unique owner in the plan; an incomplete attempt is terminal.
@@ -226,6 +236,17 @@ impl PluginPlan {
             lease: running.clone(),
             armed: true,
         };
+        #[cfg(any(target_os = "linux", windows))]
+        let original = running.child.lock().unwrap().owned();
+        #[cfg(any(target_os = "linux", windows))]
+        if let Some(original) = &original {
+            let end = deadline.ok_or_else(|| {
+                io::Error::other("owned plugin lacks its actual startup deadline")
+            })?;
+            original.wait_started(end).await?;
+        }
+        #[cfg(not(any(target_os = "linux", windows)))]
+        let _ = deadline;
         let readiness = process::ready_with_probe(
             || running.child.lock().unwrap().try_wait(),
             local,
@@ -234,6 +255,7 @@ impl PluginPlan {
         );
         let result = tokio::select! { biased;
             _ = self.cancel.cancelled() => Err(revoked()),
+            result = running.wait_native_exit() => result.and_then(|_| Err(io::Error::other("plugin exited during readiness"))),
             result = readiness => result,
         };
         let succeeded = result.is_ok();
@@ -269,3 +291,5 @@ fn revoked() -> io::Error {
 #[cfg(all(test, unix))]
 #[path = "../../../tests/plugin/lifecycle.rs"]
 mod tests;
+
+mod authorized;

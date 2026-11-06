@@ -20,8 +20,10 @@ pub(super) async fn bind_inbound_with_retry(
             .prepare_recovery_bind(inbound.clone(), source_dir, true)?
         {
             Some(prepared) => Some(prepared),
-            None => protocols
-                .prepare_inbound_bind(runtime_factory.listener_config(inbound), source_dir)?,
+            None => protocols.prepare_inbound_bind_in_config(
+                runtime_factory.listener_config(inbound),
+                &runtime_factory.config_handle(),
+            )?,
         };
     super::bind::bind_prepared_listener(
         protocols,

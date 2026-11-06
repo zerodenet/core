@@ -3,9 +3,9 @@ use std::sync::{Arc, Mutex, Weak};
 use std::task::{Context, Wake, Waker};
 
 #[derive(Default)]
-pub(in crate::component) struct WaitTarget(Mutex<Option<Waker>>);
+pub(crate) struct WaitTarget(Mutex<Option<Waker>>);
 impl WaitTarget {
-    pub(in crate::component) fn register(&self, cx: &Context<'_>) {
+    pub(crate) fn register(&self, cx: &Context<'_>) {
         // Clone, replacement and last-Waker Drop all occur before any parent
         // catalog/monitor lock. The target belongs to the actual drive future.
         let incoming = cx.waker().clone();
@@ -38,19 +38,19 @@ struct State {
     pending: bool,
 }
 #[derive(Default)]
-pub(super) struct MonitorWake(Mutex<State>);
+pub(crate) struct MonitorWake(Mutex<State>);
 impl MonitorWake {
-    pub(super) fn bind(self: &Arc<Self>, target: &Arc<WaitTarget>) {
+    pub(crate) fn bind(self: &Arc<Self>, target: &Arc<WaitTarget>) {
         self.0.lock().expect("component wake relay poisoned").target = Arc::downgrade(target);
         self.flush();
     }
-    pub(super) fn unbind(&self) {
+    pub(crate) fn unbind(&self) {
         self.0
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner)
             .target = Weak::new();
     }
-    pub(super) fn enter(self: &Arc<Self>) -> Deferred {
+    pub(crate) fn enter(self: &Arc<Self>) -> Deferred {
         let mut state = self.0.lock().expect("component wake relay poisoned");
         state.active = state
             .active
@@ -58,7 +58,7 @@ impl MonitorWake {
             .expect("component wake depth exhausted");
         Deferred(self.clone())
     }
-    fn signal(self: &Arc<Self>) {
+    pub(crate) fn signal(self: &Arc<Self>) {
         self.0
             .lock()
             .expect("component wake relay poisoned")
@@ -94,7 +94,7 @@ impl Wake for MonitorWake {
         self.signal();
     }
 }
-pub(super) struct Deferred(Arc<MonitorWake>);
+pub(crate) struct Deferred(Arc<MonitorWake>);
 impl Drop for Deferred {
     fn drop(&mut self) {
         self.0

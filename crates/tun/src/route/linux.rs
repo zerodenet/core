@@ -1,4 +1,5 @@
 mod audit;
+mod owned;
 
 use std::io;
 use std::net::IpAddr;
@@ -6,7 +7,7 @@ use std::process::Command;
 
 use ipnet::IpNet;
 
-use super::reconcile::{reconcile_route_state, with_rollback_error, RouteReconcileState};
+use super::reconcile::{reconcile_route_state, RouteReconcileState};
 use super::{
     command_error, family_exclusions_for_egress, host_prefix, EgressUnavailableReason,
     FamilyEgressState, RouteInterface, RouteJournal, RouteLease,
@@ -23,6 +24,8 @@ pub struct SystemRouteGuard {
     gateway: Option<String>,
     excluded: Vec<IpAddr>,
     journal: RouteJournal,
+    stale: Option<RouteJournal>,
+    recovered: bool,
 }
 
 #[derive(Debug)]
@@ -62,40 +65,25 @@ impl SystemRouteGuard {
         tun_name: &str,
         recovery_key: &str,
         address: IpAddr,
-        _netmask: IpAddr,
+        netmask: IpAddr,
         captured: &[IpNet],
         excluded: &[IpAddr],
         publish_egress: impl FnOnce(&FamilyEgressState) -> io::Result<()>,
     ) -> io::Result<Self> {
-        let ipv6 = address.is_ipv6();
-        let lease = RouteLease::acquire(recovery_key, ipv6)?;
-        recover_stale_routes(&lease, ipv6)?;
-        let selected = select_physical_egress(ipv6, tun_name)?;
-        let egress = selected.carrier;
-        let gateway = selected.gateway;
-        let journal = RouteJournal::new(lease, tun_name, ipv6, 0, egress.clone(), gateway.clone())?;
-        let desired_exclusions = family_exclusions_for_egress(excluded, ipv6, &selected.family);
-        let mut guard = Self {
-            egress,
-            family_egress: selected.family,
-            tun_name: tun_name.to_owned(),
-            ipv6,
-            gateway,
-            excluded: desired_exclusions.clone(),
-            journal,
-        };
-        publish_egress(&guard.family_egress)?;
-        for peer in desired_exclusions {
-            guard.install_exclusion(peer)?;
-        }
-        for prefix in captured {
-            let prefix = prefix.to_string();
-            let _ = guard.remove(&prefix);
-            guard.add(&prefix)?;
-            guard.journal.record_route(&prefix)?;
-        }
-        guard.audit_routes()?;
-        Ok(guard)
+        let mut original = None;
+        Self::install_retained_with_egress(
+            &mut original,
+            super::RouteInstallRequest {
+                tun_name,
+                recovery_key,
+                address,
+                netmask,
+                captured,
+                excluded,
+            },
+            publish_egress,
+        )?;
+        Ok(original.take().expect("same installed route original"))
     }
 
     pub fn egress(&self) -> &RouteInterface {
@@ -124,6 +112,12 @@ impl SystemRouteGuard {
     }
 
     pub fn close(mut self) -> io::Result<()> {
+        self.close_retained()
+    }
+
+    /// A failed cleanup leaves the exact original and unclosed entries usable
+    /// by the same owner; callers remove their slot only after this succeeds.
+    pub fn close_retained(&mut self) -> io::Result<()> {
         self.cleanup()
     }
 
@@ -147,11 +141,7 @@ impl SystemRouteGuard {
 
     fn install_exclusion(&mut self, peer: IpAddr) -> io::Result<()> {
         self.journal.record_exclusion(peer)?;
-        if let Err(error) = add_exclusion(self.ipv6, &self.egress, self.gateway.as_deref(), peer) {
-            let rollback = self.journal.forget_exclusion(peer);
-            return Err(with_rollback_error(error, rollback));
-        }
-        Ok(())
+        add_exclusion(self.ipv6, &self.egress, self.gateway.as_deref(), peer)
     }
 
     fn reconcile_exclusions(&mut self, desired: &[IpAddr]) -> io::Result<()> {
@@ -192,6 +182,7 @@ impl SystemRouteGuard {
     }
 
     fn cleanup(&mut self) -> io::Result<()> {
+        self.recover_stale()?;
         let ipv6 = self.ipv6;
         let tun_name = self.tun_name.clone();
         let egress_name = self.egress.name().to_owned();
@@ -291,10 +282,8 @@ fn add_exclusion(
     run_ip(&arguments).map(|_| ())
 }
 
-fn recover_stale_routes(lease: &RouteLease, ipv6: bool) -> io::Result<()> {
-    let Some(mut journal) = RouteJournal::load(lease, ipv6)? else {
-        return Ok(());
-    };
+fn cleanup_stale_routes(journal: &mut RouteJournal) -> io::Result<()> {
+    let ipv6 = journal.ipv6;
     let stale_tun = journal.tun_name.clone();
     let stale_egress = journal.egress.name().to_owned();
     let stale_gateway = journal.gateway.clone();

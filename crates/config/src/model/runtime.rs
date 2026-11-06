@@ -16,6 +16,19 @@ pub struct RuntimeOptionsConfig {
     /// Four by default, shared by its pending and delivered carrier uses.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub native_stream_max_originals: Option<usize>,
+    /// Actual pending, failed and retiring carrier custody reservations across
+    /// this one Host. Default1024, on demand. Distinct from FD/socket count,
+    /// per-role N, per-protocol pool N and logical user/task/byte limits.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub carrier_max_total_originals: Option<usize>,
+    /// Actual native process jobs across this kernel, including pending,
+    /// failed and retiring originals. Allocated on demand; 64 by default.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub process_max_jobs: Option<usize>,
+    /// Concurrent original jobs per actual component generation, including
+    /// unreleased task acknowledgements. One by default; not a descendant cap.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub process_max_jobs_per_instance: Option<usize>,
     /// Total live or unconfirmed physical carriers in the one Mieru adapter
     /// pool, across every profile and both underlays. Four by default.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -25,6 +38,72 @@ pub struct RuntimeOptionsConfig {
     /// On demand, 4096 by default; separate from logical UDP association limits.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub vmess_grpc_max_originals: Option<usize>,
+    /// Original Packet return allocations per device, including held/retiring buffers.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub packet_return_max_frames: Option<usize>,
+    /// Original Packet return payload bytes per device, retained until allocation release.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub packet_return_max_bytes: Option<usize>,
+    /// Original Packet return allocations across the same actual device root.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub packet_return_total_max_frames: Option<usize>,
+    /// Original Packet return payload bytes across the same actual device root.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub packet_return_total_max_bytes: Option<usize>,
+    /// Authenticated UDP2022 fixed replay windows in the same SS adapter; live history is never evicted.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub ss_udp_replay_max_windows: Option<usize>,
+    /// Actual retained UDP sender session IDs and counters across the same SS adapter.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub ss_udp_max_senders: Option<usize>,
+    /// Authenticated UDP associations across the same SS adapter, including retiring originals.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub ss_udp_max_associations: Option<usize>,
+    /// Actual UDP return bindings across the same SS adapter; one association can have several targets.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub ss_udp_max_return_bindings: Option<usize>,
+    /// Successfully authenticated UDP user codecs retained by the same SS adapter.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub ss_udp_max_authenticated_codecs: Option<usize>,
+    /// Response registrations in each actual SS cached Flow, including send
+    /// Pending, failed/retiring and received-but-not-consumed responses.
+    /// On demand,4096 by default; distinct from native originals and replay.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub ss_udp_max_pending_responses: Option<usize>,
+    /// Same response registrations across the actual SS adapter's one pending
+    /// book, shared by every cached Flow/consumer.4096 by default, on demand.
+    /// Local and adapter bounds both apply; this is a count, not RSS/FD/bytes.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub ss_udp_total_max_pending_responses: Option<usize>,
+    /// Actual physical carriers in one cached gRPC pool across every binding and retirement.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub grpc_pool_max_carriers: Option<usize>,
+    /// Actual logical streams in one cached gRPC pool including pending and retiring streams.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub grpc_pool_max_streams: Option<usize>,
+    /// Actual physical carriers across the same gRPC registry, including pending, failed and retiring originals.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub grpc_total_max_carriers: Option<usize>,
+    /// Actual logical streams across the same gRPC registry until worker and view return.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub grpc_total_max_streams: Option<usize>,
+    /// Actual diagnostic and health probes per kernel, including pending and retiring originals; the process-wide ceiling remains eight.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub diagnostic_max_operations: Option<usize>,
+    /// Tightens the same System TUN Source's total task bound, including real
+    /// main/route/stack/query workers. Omission retains the actual declared sum.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub system_tun_task_limit: Option<usize>,
+    /// Actual allocated legacy SS Bloom bitmap bytes across this adapter's
+    /// original books. On demand, 64 MiB by default; valid history is retained.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub ss_legacy_replay_max_bytes: Option<usize>,
+    /// Total retained TCP2022 replay salts in this actual SS adapter, across
+    /// all inbound/outbound histories and per-profile capacity views. On demand,
+    /// 500000 by default; live security history is never evicted for admission.
+    /// UDP/Bloom replay owners have separate resource accounting.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub ss_tcp_replay_max_salts: Option<usize>,
     /// Live HY2 pool entries plus retained original failure groups, across
     /// every profile. On demand, 256 by default; failures are never evicted.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -97,8 +176,30 @@ impl Default for RuntimeOptionsConfig {
             file_read_max_bytes: None,
             native_mux_max_carriers: None,
             native_stream_max_originals: None,
+            carrier_max_total_originals: None,
+            process_max_jobs: None,
+            process_max_jobs_per_instance: None,
             mieru_max_carriers: None,
             vmess_grpc_max_originals: None,
+            packet_return_max_frames: None,
+            packet_return_max_bytes: None,
+            packet_return_total_max_frames: None,
+            packet_return_total_max_bytes: None,
+            ss_udp_replay_max_windows: None,
+            ss_udp_max_senders: None,
+            ss_udp_max_associations: None,
+            ss_udp_max_return_bindings: None,
+            ss_udp_max_authenticated_codecs: None,
+            ss_udp_max_pending_responses: None,
+            ss_udp_total_max_pending_responses: None,
+            grpc_pool_max_carriers: None,
+            grpc_pool_max_streams: None,
+            grpc_total_max_carriers: None,
+            grpc_total_max_streams: None,
+            diagnostic_max_operations: None,
+            system_tun_task_limit: None,
+            ss_legacy_replay_max_bytes: None,
+            ss_tcp_replay_max_salts: None,
             hysteria2_max_entries: None,
             hysteria2_max_udp_sessions: None,
             hysteria2_udp_pending_bytes: None,
@@ -127,8 +228,76 @@ pub const DEFAULT_LATENCY_TEST_URL: &str = "http://www.gstatic.com/generate_204"
 pub const DEFAULT_EVENT_LOG_CAPACITY: usize = 1024;
 
 impl RuntimeOptionsConfig {
+    pub fn effective_process_max_jobs(&self) -> usize {
+        self.process_max_jobs.unwrap_or(64)
+    }
+    pub fn effective_process_max_jobs_per_instance(&self) -> usize {
+        self.process_max_jobs_per_instance.unwrap_or(1)
+    }
+    pub fn effective_carrier_max_total_originals(&self) -> usize {
+        self.carrier_max_total_originals.unwrap_or(1024)
+    }
     pub fn effective_native_stream_max_originals(&self) -> usize {
         self.native_stream_max_originals.unwrap_or(4)
+    }
+    pub fn effective_packet_return_max_frames(&self) -> usize {
+        self.packet_return_max_frames.unwrap_or(256)
+    }
+    pub fn effective_packet_return_max_bytes(&self) -> usize {
+        self.packet_return_max_bytes.unwrap_or(16777216)
+    }
+    pub fn effective_packet_return_total_max_frames(&self) -> usize {
+        self.packet_return_total_max_frames.unwrap_or(1024)
+    }
+    pub fn effective_packet_return_total_max_bytes(&self) -> usize {
+        self.packet_return_total_max_bytes.unwrap_or(67108864)
+    }
+    pub fn effective_ss_udp_replay_max_windows(&self) -> usize {
+        self.ss_udp_replay_max_windows.unwrap_or(8192)
+    }
+    pub fn effective_ss_udp_max_senders(&self) -> usize {
+        self.ss_udp_max_senders.unwrap_or(8192)
+    }
+    pub fn effective_ss_udp_max_associations(&self) -> usize {
+        self.ss_udp_max_associations.unwrap_or(8192)
+    }
+    pub fn effective_ss_udp_max_return_bindings(&self) -> usize {
+        self.ss_udp_max_return_bindings.unwrap_or(65536)
+    }
+    pub fn effective_ss_udp_max_pending_responses(&self) -> usize {
+        self.ss_udp_max_pending_responses.unwrap_or(4096)
+    }
+    pub fn effective_ss_udp_total_max_pending_responses(&self) -> usize {
+        self.ss_udp_total_max_pending_responses.unwrap_or(4096)
+    }
+    pub fn effective_ss_udp_max_authenticated_codecs(&self) -> usize {
+        self.ss_udp_max_authenticated_codecs.unwrap_or(4096)
+    }
+    pub fn effective_grpc_pool_max_carriers(&self) -> usize {
+        self.grpc_pool_max_carriers.unwrap_or(4)
+    }
+    pub fn effective_grpc_pool_max_streams(&self) -> usize {
+        self.grpc_pool_max_streams.unwrap_or(256)
+    }
+    pub fn effective_grpc_total_max_carriers(&self) -> usize {
+        self.grpc_total_max_carriers.unwrap_or(16)
+    }
+    pub fn effective_grpc_total_max_streams(&self) -> usize {
+        self.grpc_total_max_streams.unwrap_or(1024)
+    }
+    pub fn effective_diagnostic_max_operations(&self) -> usize {
+        self.diagnostic_max_operations.unwrap_or(8)
+    }
+    pub fn effective_system_tun_task_limit(&self, actual_default: usize) -> usize {
+        self.system_tun_task_limit
+            .unwrap_or(actual_default)
+            .min(actual_default)
+    }
+    pub fn effective_ss_legacy_replay_max_bytes(&self) -> usize {
+        self.ss_legacy_replay_max_bytes.unwrap_or(64 * 1024 * 1024)
+    }
+    pub fn effective_ss_tcp_replay_max_salts(&self) -> usize {
+        self.ss_tcp_replay_max_salts.unwrap_or(500_000)
     }
     pub fn effective_vmess_grpc_max_originals(&self) -> usize {
         self.vmess_grpc_max_originals.unwrap_or(4096)

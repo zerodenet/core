@@ -24,6 +24,10 @@ impl CarrierGrants {
         self.0.instance
     }
     pub fn reserve(&self) -> Result<CarrierGrant, ChannelError> {
+        // Real ACK observation can wake external code, before the owner lock.
+        if let Some(totals) = self.0.totals.get() {
+            totals.reconcile();
+        }
         let mut state = self.0.state();
         if !state.live
             || state.stopped
@@ -59,6 +63,7 @@ impl CarrierGrants {
         state.next = next;
         let slot = Arc::new(Slot {
             completion: Default::default(),
+            removed: Default::default(),
             instance: self.0.instance,
             ordinal: next,
             owner: Arc::downgrade(&self.0),
@@ -66,7 +71,12 @@ impl CarrierGrants {
             state: Mutex::new(State::default()),
             changed: Notify::new(),
             closing: tokio::sync::Mutex::new(()),
+            retirement: Mutex::default(),
         });
+        // Both finite books own the exact same original before any IO/await.
+        if let Some(totals) = self.0.totals.get() {
+            totals.reserve(&self.0, &slot)?;
+        }
         state.slots.push(slot.clone());
         Ok(CarrierGrant {
             slot,

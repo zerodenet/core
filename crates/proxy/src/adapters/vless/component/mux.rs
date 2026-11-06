@@ -13,18 +13,34 @@ use zero_platform_tokio::contract::{
 };
 
 pub(crate) enum Options {
-    Ordinary(Arc<stateless::Options<::vless::component::Options>>),
+    Ordinary(
+        Arc<stateless::Options<::vless::component::Options>>,
+        Arc<crate::component::background::BackgroundNetwork>,
+    ),
     Mux(Arc<::vless::component::mux::Options>),
+    Grpc(Arc<::vless::component::grpc::StreamOptions>),
+}
+impl Options {
+    pub(crate) fn bind_node_dns(&mut self, dependency: zero_core::component::ComponentId) {
+        if let Self::Ordinary(options, _) = self {
+            *options = Arc::new((**options).clone().with_node_dns(dependency));
+        }
+    }
+}
+pub(crate) fn taskless_domain(input: &OutboundConfig) -> bool {
+    super::native_input(input)
+        && matches!(&input.protocol,OutboundProtocolConfig::Vless{server,..} if zero_core::address::parse_ip_literal(server).is_none())
 }
 pub(crate) struct Factory;
 impl ComponentFactory for Factory {
     type Options = Options;
     fn describe(&self, options: &Options) -> ComponentSpec {
         match options {
-            Options::Ordinary(options) => {
+            Options::Ordinary(options, _) => {
                 stateless::Factory(::vless::component::Factory).describe(options)
             }
             Options::Mux(options) => ::vless::component::mux::Factory.describe(options),
+            Options::Grpc(options) => ::vless::component::grpc::StreamFactory.describe(options),
         }
     }
     fn build(
@@ -33,17 +49,21 @@ impl ComponentFactory for Factory {
         context: BuildContext,
     ) -> Result<ComponentInstance, BuildError> {
         match options.as_ref() {
-            Options::Ordinary(options) => {
-                stateless::Factory(::vless::component::Factory).build(options.clone(), context)
-            }
+            Options::Ordinary(options, network) => stateless::Factory(super::material::Factory {
+                network: network.clone(),
+            })
+            .build(options.clone(), context),
             Options::Mux(options) => {
                 ::vless::component::mux::Factory.build(options.clone(), context)
+            }
+            Options::Grpc(options) => {
+                ::vless::component::grpc::StreamFactory.build(options.clone(), context)
             }
         }
     }
 }
 pub(crate) fn eligible(input: &OutboundConfig) -> bool {
-    if super::native_input(input) {
+    if super::owned_input(input) || super::grpc::eligible(input) {
         return true;
     }
     let mut ordinary = input.clone();
@@ -108,6 +128,9 @@ impl VlessAdapter {
         limit: NonZeroUsize,
         stream_only: bool,
     ) -> Result<Options, RegistrationError> {
+        if super::grpc::eligible(input) {
+            return self.grpc_options(input, resources, &factory);
+        }
         let OutboundProtocolConfig::Vless {
             server,
             port,
@@ -136,19 +159,12 @@ impl VlessAdapter {
             } else {
                 limit
             };
-            return Ok(Options::Ordinary(Arc::new(stateless::Options::new(
-                super::component_options(input)?,
-                zero_core::request::Destination::new(
-                    match zero_core::address::parse_ip_literal(server) {
-                        Some(std::net::IpAddr::V4(ip)) => zero_core::Address::Ipv4(ip.octets()),
-                        Some(std::net::IpAddr::V6(ip)) => zero_core::Address::Ipv6(ip.octets()),
-                        None => zero_core::Address::Domain(server.clone()),
-                    },
-                    *port,
-                ),
-                input.dial.to_policy(),
-                limit,
-            ))));
+            let options =
+                self.ordinary_options(input, resources, factory.network.clone(), limit)?;
+            return Ok(Options::Ordinary(
+                Arc::new(options),
+                factory.network.clone(),
+            ));
         }
         let input_refs =
             super::super::outbound_options(&input.tag, (server, *port), &input.protocol)

@@ -65,7 +65,7 @@ impl TrojanOutboundLeaf {
                         zero_transport::pooled_driver::ExclusiveIo::new(raw),
                     );
                     self.transport
-                        .open_relay_with_profile(io, self.protocol.owned_tls_profile())
+                        .open_owned_relay_with_profile(io, self.protocol.owned_tls_profile())
                         .await
                 },
             )
@@ -85,7 +85,7 @@ impl TrojanOutboundLeaf {
                     zero_transport::pooled_driver::ExclusiveIo::new(raw),
                 );
                 self.transport
-                    .open_relay_with_profile(io, self.protocol.owned_tls_profile())
+                    .open_owned_relay_with_profile(io, self.protocol.owned_tls_profile())
                     .await
             })
             .await

@@ -26,7 +26,7 @@ pub(crate) struct IcmpEchoRelay {
     route: InboundRouteRuntimeFactory,
     slots: Arc<Semaphore>,
     shutdown: watch::Receiver<bool>,
-    tasks: Option<super::tasks::RetainedTasks<()>>,
+    tasks: Option<crate::runtime::raw_ip::tasks::scoped::ScopedSourceTasks<()>>,
     native: Option<crate::component::instance::HostIcmpProbeGrant>,
 }
 
@@ -54,7 +54,7 @@ impl IcmpEchoRelay {
         responses: zero_stack::packet_output::PacketSender,
         route: InboundRouteRuntimeFactory,
         shutdown: watch::Receiver<bool>,
-        tasks: super::tasks::RetainedTasks<()>,
+        tasks: crate::runtime::raw_ip::tasks::scoped::ScopedSourceTasks<()>,
         native: Option<crate::component::instance::HostIcmpProbeGrant>,
     ) -> Self {
         let mut relay = Self::new(responses, route, shutdown);

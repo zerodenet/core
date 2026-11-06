@@ -17,19 +17,20 @@ mod adopt;
 mod channels;
 mod owned;
 mod owned_channels;
+pub mod packet_memory;
 pub use owned_channels::OwnedTunChannels;
 #[cfg(any(target_os = "linux", target_os = "macos"))]
 mod owned_adopt;
 #[cfg(any(target_os = "linux", target_os = "macos"))]
 pub use adopt::adopt;
-pub use owned::{OwnedTunDevice, OwnedTunIdentity, TunCloseReceipt};
+pub use owned::{OwnedTunClosed, OwnedTunDevice, OwnedTunIdentity, TunCloseReceipt};
 #[cfg(any(target_os = "linux", target_os = "macos"))]
 pub use owned_adopt::{AdoptedTunIo, AdoptedTunOwner, TunAcquisitionError, TunAcquisitionOutcome};
 mod route;
 pub use route::{
     capture_route_prefixes, capture_route_prefixes_with_exclusions, split_default_route_prefixes,
     strict_route_socket_mark, EgressUnavailableReason, FamilyEgressState, RouteChangeMonitor,
-    RouteInterface, SystemLeakGuard, SystemRouteGuard,
+    RouteInstallRequest, RouteInterface, SystemLeakGuard, SystemRouteGuard,
 };
 
 // ── Address helpers ───────────────────────────────────────────────────
@@ -151,7 +152,9 @@ pub use macos_privilege::run_utun_create_helper;
 mod windows;
 #[cfg(target_os = "windows")]
 pub use windows::{
-    ExistingWindowsTun, OwnedWintunIo, OwnedWintunOwner, WindowsTun, WintunAcquisitionOutcome,
+    ExistingWindowsTun, OwnedWintunIo, OwnedWintunOwner, OwnedWintunReadControl,
+    OwnedWintunReadPause, OwnedWintunReadWork, OwnedWintunRequest, WindowsTun,
+    WintunAcquisitionOutcome,
 };
 
 /// Create a new TUN device for the current platform.

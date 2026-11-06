@@ -69,3 +69,11 @@ fn implicit_node_resolution_checks_default_fallback_and_every_dispatch_destinati
         io::ErrorKind::InvalidInput
     );
 }
+
+#[test]
+fn implicit_system_node_is_supported_without_admitting_an_empty_dns_document() {
+    assert!(validate_node_config(None).is_ok());
+    let mut empty = configured();
+    empty.servers.clear();
+    assert!(validate_node_config(Some(&empty)).is_err());
+}

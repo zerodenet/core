@@ -33,6 +33,24 @@ impl MetadataPoolRegistration {
         tasks: &TaskRegistrar,
         host_cancel: &Arc<CancellationToken>,
     ) -> Result<(), ChannelError> {
+        self.bind_declared_inner(declaration, tasks, host_cancel, None)
+    }
+    pub fn bind_declared_with_totals(
+        &self,
+        declaration: &ResourceDeclaration,
+        tasks: &TaskRegistrar,
+        host_cancel: &Arc<CancellationToken>,
+        totals: &Arc<crate::controlled_carrier::CarrierOriginalTotals>,
+    ) -> Result<(), ChannelError> {
+        self.bind_declared_inner(declaration, tasks, host_cancel, Some(totals))
+    }
+    fn bind_declared_inner(
+        &self,
+        declaration: &ResourceDeclaration,
+        tasks: &TaskRegistrar,
+        host_cancel: &Arc<CancellationToken>,
+        totals: Option<&Arc<crate::controlled_carrier::CarrierOriginalTotals>>,
+    ) -> Result<(), ChannelError> {
         let owner = self
             .owner
             .upgrade()
@@ -80,6 +98,17 @@ impl MetadataPoolRegistration {
                 "metadata registration already started",
             ));
         }
+        if totals.is_some_and(|totals| {
+            owner
+                .totals
+                .get()
+                .is_some_and(|actual| !Arc::ptr_eq(actual, totals))
+        }) {
+            return Err(error(
+                Reason::StalePlan,
+                "metadata owner cannot change kernel total roots",
+            ));
+        }
         if let Some(bound) = &state.bound {
             if &bound.declaration != declaration
                 || !bound.scope.matches(tasks)
@@ -93,6 +122,9 @@ impl MetadataPoolRegistration {
                 scope,
                 host_cancel: host_cancel.clone(),
             }));
+        }
+        if let Some(totals) = totals {
+            let _ = owner.totals.set(totals.clone());
         }
         Ok(())
     }

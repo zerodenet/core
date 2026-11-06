@@ -11,6 +11,11 @@ fn protocol_packet_keeps_its_pool_owner_until_runtime_drop() {
     let mut buffer = owned_packet(original);
     assert_eq!(buffer.as_ptr(), pointer);
     assert_eq!(buffer.as_ref(), b"live");
+    assert_eq!(
+        buffer.allocation_bytes(),
+        64,
+        "the retained pool allocation survives a four-byte view"
+    );
     buffer[0] = b'L';
     let other = pool.get();
     assert_ne!(other.as_ptr(), pointer, "retained storage cannot be reused");

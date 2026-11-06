@@ -197,3 +197,73 @@ fn repeated_packet_path_builds_allocate_independent_associations() {
     assert_eq!(decoded.packet_id, 2);
     assert!(ids.contains(&decoded.session_id));
 }
+
+#[test]
+fn configured_clone_keeps_original_sender_nonce_authority_and_authenticated_receiver_history() {
+    let cipher = CipherKind::Blake3Aes128Gcm;
+    let password = password(cipher);
+    let target = Address::Ipv4([127, 0, 0, 1]);
+    let client = ShadowsocksDatagramCodec::new(cipher, &password);
+    let mut server = ShadowsocksInboundUdpCodec::new(cipher, password.as_bytes());
+    let first = client.encode(&target, 53, b"first").unwrap();
+    let original =
+        crate::shared::decode_udp_wire_2022(cipher, password.as_bytes(), &first).unwrap();
+    let incoming = server.decode_request(&first).unwrap();
+    let response = server
+        .encode_response(incoming.client_session_id(), &target, 53, b"reply")
+        .unwrap();
+    assert!(client.decode(&response).is_some());
+    let changed = client
+        .clone()
+        .with_state_limits(crate::validation::StateLimits {
+            udp_capacity: Some(2),
+            udp_timeout_secs: 1,
+            ..Default::default()
+        });
+    assert!(
+        changed.decode(&response).is_none(),
+        "capacity view must share the original accepted bitmap"
+    );
+    let second = changed.encode(&target, 53, b"second").unwrap();
+    let decoded =
+        crate::shared::decode_udp_wire_2022(cipher, password.as_bytes(), &second).unwrap();
+    assert_eq!(decoded.session_id, original.session_id);
+    assert_eq!(
+        decoded.packet_id,
+        original.packet_id + 1,
+        "same actual sender cannot reset its nonce counter"
+    );
+}
+
+#[test]
+fn inbound_budget_view_keeps_the_same_original_response_sender_and_nonce_counter() {
+    let cipher = CipherKind::Blake3Aes128Gcm;
+    let password = password(cipher);
+    let target = Address::Ipv4([127, 0, 0, 1]);
+    let client = ShadowsocksDatagramCodec::new(cipher, &password);
+    let mut server = ShadowsocksInboundUdpCodec::new(cipher, password.as_bytes());
+    let request = client.encode(&target, 53, b"first").unwrap();
+    let incoming = server.decode_request(&request).unwrap();
+    let first = server
+        .encode_response(incoming.client_session_id(), &target, 53, b"reply")
+        .unwrap();
+    let first = crate::shared::decode_udp_wire_2022(cipher, password.as_bytes(), &first).unwrap();
+    let server = server.with_state_limits(crate::validation::StateLimits {
+        udp_capacity: Some(1),
+        udp_timeout_secs: 1,
+        ..Default::default()
+    });
+    let next = server
+        .encode_response(incoming.client_session_id(), &target, 53, b"next")
+        .unwrap();
+    let next = crate::shared::decode_udp_wire_2022(cipher, password.as_bytes(), &next).unwrap();
+    assert_eq!(
+        first.session_id, next.session_id,
+        "a capacity view must keep its original sender authority"
+    );
+    assert_eq!(
+        next.packet_id,
+        first.packet_id + 1,
+        "a capacity view cannot restart the original nonce counter"
+    );
+}

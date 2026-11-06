@@ -180,6 +180,9 @@ fn retained(source: Arc<ChannelError>) -> ChannelError {
     result.component = source.component;
     result.session = source.session;
     result.retry = source.retry;
+    if let Some(receipt) = source.cleanup_failure_receipt() {
+        result = result.with_cleanup_failure_receipt(receipt.clone());
+    }
     result
 }
 

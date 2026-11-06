@@ -76,8 +76,11 @@ impl CarrierDeclarations {
                 matches!(
                     declaration,
                     ResourceDeclaration::ControlledOutboundStream { .. }
+                        | ResourceDeclaration::ControlledServiceStream { .. }
                         | ResourceDeclaration::ControlledCarrierPool { .. }
+                        | ResourceDeclaration::ControlledAssociationPool { .. }
                         | ResourceDeclaration::ControlledDatagramCarrier { .. }
+                        | ResourceDeclaration::ControlledNodeCarrier { .. }
                         | ResourceDeclaration::ControlledNodeStream { .. }
                         | ResourceDeclaration::ControlledDirectStream { .. }
                 )
@@ -130,11 +133,18 @@ impl CarrierDeclarations {
                 let mut proof = CarrierIoEvidence {
                     ordinal: *ordinal,
                     kind: match declaration {
-                        ResourceDeclaration::ControlledCarrierPool { .. } => {
+                        ResourceDeclaration::ControlledServiceStream { .. } => {
+                            coverage::DeclaredResourceKind::ControlledServiceStream
+                        }
+                        ResourceDeclaration::ControlledCarrierPool { .. }
+                        | ResourceDeclaration::ControlledAssociationPool { .. } => {
                             coverage::DeclaredResourceKind::ControlledCarrierPool
                         }
                         ResourceDeclaration::ControlledDatagramCarrier { .. } => {
                             coverage::DeclaredResourceKind::ControlledDatagramCarrier
+                        }
+                        ResourceDeclaration::ControlledNodeCarrier { .. } => {
+                            coverage::DeclaredResourceKind::ControlledNodeCarrier
                         }
                         ResourceDeclaration::ControlledNodeStream { .. } => {
                             coverage::DeclaredResourceKind::ControlledNodeStream
@@ -264,3 +274,35 @@ impl std::error::Error for NativeSource {
 #[cfg(test)]
 #[path = "../../../tests/resource_carrier.rs"]
 mod tests;
+
+impl CarrierDeclarations {
+    pub(super) fn poll_cancelled(&self, cx: &mut std::task::Context<'_>) -> bool {
+        let originals: Vec<_> = self
+            .records
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .iter()
+            .filter(|(_, record)| record.bound.is_some())
+            .map(|(ordinal, record)| (*ordinal, record.actual.clone()))
+            .collect();
+        let mut progress = false;
+        for (ordinal, original) in originals {
+            let (changed, fault) =
+                original.poll_cancelled_retirements(cx, std::time::Duration::from_secs(5));
+            progress |= changed;
+            if let Some(fault) = fault {
+                if let Some(record) = self
+                    .records
+                    .lock()
+                    .unwrap_or_else(std::sync::PoisonError::into_inner)
+                    .get_mut(&ordinal)
+                {
+                    if record.actual.same_owner(&original) {
+                        record.first_fault.get_or_insert(fault);
+                    }
+                }
+            }
+        }
+        progress
+    }
+}

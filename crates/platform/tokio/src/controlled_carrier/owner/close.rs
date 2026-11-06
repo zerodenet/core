@@ -46,6 +46,23 @@ async fn close_slot_until(
             })
         }
     };
+    // The same original control cannot be closed underneath its negotiated
+    // Datagram. Its retained related slot owns the separate native receipt;
+    // source ancestry and logical caller settlement remain independent.
+    let related = { slot.state().related_child.clone() };
+    if let Some(child) = related {
+        child.cancel.cancel();
+        child.notify();
+        let report = Box::pin(close_slot_until(&child, deadline, wait_users)).await?;
+        if !report.is_complete() {
+            return Ok(report);
+        }
+        if wait_users {
+            if let Some(owner) = slot.owner.upgrade() {
+                owner.state().confirmed.append(report);
+            }
+        }
+    }
     loop {
         let changed = slot.changed.notified();
         tokio::pin!(changed);
@@ -82,6 +99,17 @@ async fn close_slot_until(
                 return Ok(CloseReport {
                     unfinished: vec![Unfinished::Resource(format!(
                         "{} caller/view closure remains unconfirmed",
+                        slot.label()
+                    ))],
+                    ..Default::default()
+                });
+            }
+            // Native/UsersClosed are already independently observable. Only
+            // removal/refunding waits for the original caller's actual Host ACK.
+            if !crate::controlled_carrier::caller_credit::wait(slot, deadline).await {
+                return Ok(CloseReport {
+                    unfinished: vec![Unfinished::Resource(format!(
+                        "{} caller registration ACK",
                         slot.label()
                     ))],
                     ..Default::default()
@@ -199,6 +227,7 @@ async fn close_slot_until(
                 state.closed = true;
                 state.pending_close = Some(report);
             }
+            slot.confirm_native_closed();
             slot.notify();
             continue;
         }

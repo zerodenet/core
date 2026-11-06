@@ -43,7 +43,10 @@ impl HostResources {
         let max_sockets = match declaration {
             ResourceDeclaration::ControlledOutboundStream { max_sockets, .. }
             | ResourceDeclaration::ControlledCarrierPool { max_sockets, .. }
+            | ResourceDeclaration::ControlledServiceStream { max_sockets, .. }
+            | ResourceDeclaration::ControlledAssociationPool { max_sockets, .. }
             | ResourceDeclaration::ControlledDatagramCarrier { max_sockets, .. }
+            | ResourceDeclaration::ControlledNodeCarrier { max_sockets, .. }
             | ResourceDeclaration::ControlledNodeStream { max_sockets, .. }
             | ResourceDeclaration::ControlledDirectStream { max_sockets, .. } => max_sockets,
             _ => return Err(self.denied()),
@@ -110,7 +113,12 @@ impl HostResources {
             .host_cancel
             .as_ref()
             .expect("declared carrier host fence");
-        let result = actual.bind_declared(declaration, tasks, host_cancel);
+        let result = actual.bind_declared_with_totals(
+            declaration,
+            tasks,
+            host_cancel,
+            &self.originals.carrier,
+        );
         let binding_created = result.is_ok();
         let state = self
             .state

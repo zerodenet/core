@@ -16,6 +16,7 @@
 //! [`feed`]: TcpStack::feed
 //! [`accept`]: TcpStack::accept
 
+mod quiescence;
 use std::collections::HashMap;
 use std::future::Future;
 use std::io;

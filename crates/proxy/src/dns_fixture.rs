@@ -139,3 +139,6 @@ impl Dns {
         self.task.await.unwrap();
     }
 }
+
+mod tls;
+pub(crate) use tls::TlsDns;

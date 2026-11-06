@@ -20,6 +20,8 @@ use tokio::{
 use zero_traits::AsyncSocket;
 #[cfg(feature = "runtime")]
 mod native;
+#[cfg(feature = "runtime")]
+pub(super) use native::NativeTcpPreparation;
 
 impl ClientConnection {
     pub async fn tcp<S>(socket: S, username: &str, password: &str) -> io::Result<Arc<Self>>

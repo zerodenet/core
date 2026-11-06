@@ -229,3 +229,77 @@ async fn shutdown_wakes_original_established_stream_read_and_write_as_transport_
         }
     }
 }
+
+#[tokio::test]
+async fn cold_original_tcp_opening_can_close_before_any_syn_or_worker() {
+    let owner = Owner::new(2);
+    let (client, mut packets) = client(owner.clone());
+    let client = Arc::new(client);
+    let opening = client.prepare_connect(
+        "10.0.0.2".parse().unwrap(),
+        "10.0.0.1:443".parse().unwrap(),
+        None,
+    );
+    let control = opening.control();
+    let closed = control.close().await;
+    assert!(closed.matches(&control));
+    assert!(matches!(
+        opening.connect().await,
+        Err(ClientTcpStackError::OutboundClosed)
+    ));
+    assert!(client.connections.lock().await.is_empty());
+    assert_eq!(owner.calls.load(Ordering::SeqCst), 0);
+    assert!(packets.try_recv().is_err());
+    assert!(owner.tasks.lock().unwrap().is_empty());
+}
+
+#[tokio::test]
+async fn original_tcp_pending_syn_keeps_control_across_cancelled_close_wait() {
+    let owner = Owner::new(2);
+    let (client, mut packets) = client(owner.clone());
+    let client = Arc::new(client);
+    let opening = client.prepare_connect(
+        "10.0.0.2".parse().unwrap(),
+        "10.0.0.1:443".parse().unwrap(),
+        None,
+    );
+    let control = opening.control();
+    let mut connecting = Box::pin(opening.connect());
+    let syn = tokio::select! {
+        packet = packets.recv() => packet.unwrap(),
+        result = &mut connecting => panic!("opening completed before real peer replied: {}", result.is_ok()),
+    };
+    assert!(packet::parse_tcp(&syn.packet).unwrap().syn);
+    assert_eq!(client.connections.lock().await.len(), 1);
+    // This wait is really Pending on the still-polled original opening. Drop
+    // only the wait, retaining the same control and actual connection original.
+    let mut closing = Box::pin(control.close());
+    std::future::poll_fn(|cx| {
+        assert!(closing.as_mut().poll(cx).is_pending());
+        Poll::Ready(())
+    })
+    .await;
+    drop(closing);
+    assert!(matches!(
+        connecting.await,
+        Err(ClientTcpStackError::OutboundClosed)
+    ));
+    let closed = control.close().await;
+    assert!(closed.matches(&control));
+    assert!(client.connections.lock().await.is_empty());
+    assert_eq!(owner.calls.load(Ordering::SeqCst), 2);
+    // The logical receipt did not consume either original native task exit.
+    let mut tasks = std::mem::take(&mut *owner.tasks.lock().unwrap());
+    assert_eq!(tasks.len(), 2);
+    drop(client);
+    timeout(Duration::from_secs(2), async {
+        let mut joined = 0;
+        while let Some(result) = tasks.join_next().await {
+            result.unwrap();
+            joined += 1;
+        }
+        assert_eq!(joined, 2);
+    })
+    .await
+    .unwrap();
+}

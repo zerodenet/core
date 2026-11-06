@@ -15,13 +15,36 @@ pub(crate) const CAPACITY: usize = 1024;
 pub(crate) struct SenderSession {
     id: Option<u64>,
     packet: u64,
+    budget: Option<std::sync::Weak<UdpReplayBudget>>,
+    _charge: Option<window_budget::Charge>,
 }
 impl SenderSession {
+    pub(crate) fn use_budget(
+        &mut self,
+        budget: &std::sync::Arc<UdpReplayBudget>,
+    ) -> Result<(), Error> {
+        if self
+            .budget
+            .as_ref()
+            .is_some_and(|existing| !existing.ptr_eq(&std::sync::Arc::downgrade(budget)))
+        {
+            return Err(Error::Config("cannot fork an original SS UDP sender"));
+        }
+        self.budget = Some(std::sync::Arc::downgrade(budget));
+        Ok(())
+    }
     pub(crate) fn next(&mut self) -> Result<(u64, u64), Error> {
         let id = match self.id {
             Some(id) => id,
             None => {
+                let charge = self
+                    .budget
+                    .as_ref()
+                    .and_then(std::sync::Weak::upgrade)
+                    .map(|budget| budget.claim(window_budget::Unit::Sender))
+                    .transpose()?;
                 let id = random_u64()?;
+                self._charge = charge;
                 self.id = Some(id);
                 id
             }
@@ -39,85 +62,22 @@ impl SenderSession {
     }
 }
 
-#[derive(Default)]
-pub(crate) struct ReceiveWindows(
-    HashMap<u64, (ReplayWindow, Instant)>,
-    crate::validation::StateLimits,
-);
-impl ReceiveWindows {
-    pub(crate) fn with_limits(limits: crate::validation::StateLimits) -> Self {
-        Self(Default::default(), limits)
-    }
-    pub(crate) fn accept(&mut self, session: u64, packet: u64) -> Result<bool, Error> {
-        if packet == u64::MAX {
-            return Ok(false);
-        }
-        self.prune();
-        if !self.0.contains_key(&session)
-            && self
-                .1
-                .udp_capacity
-                .is_some_and(|capacity| self.0.len() >= capacity)
-        {
-            return Err(Error::Protocol("ss: UDP replay session capacity exhausted"));
-        }
-        let (window, touched) = self
-            .0
-            .entry(session)
-            .or_insert_with(|| (ReplayWindow::new(), Instant::now()));
-        let accepted = window.check_and_update(packet);
-        if accepted {
-            *touched = Instant::now();
-        }
-        Ok(accepted)
-    }
-    pub(crate) fn prune(&mut self) {
-        self.0
-            .retain(|_, (_, seen)| seen.elapsed() < self.1.udp_replay_retention());
-    }
-}
-impl std::fmt::Debug for ReceiveWindows {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("ReceiveWindows")
-            .field("sessions", &self.0.len())
-            .finish()
-    }
-}
+mod receive;
+pub(crate) use receive::ReceiveWindows;
+mod window_budget;
+pub(crate) use window_budget::{Charge, Unit as BudgetUnit};
+pub use window_budget::{UdpBudgetLimits, UdpReplayBudget};
 
-#[derive(Default)]
-pub(crate) struct ResponseSessions(
-    HashMap<u64, (SenderSession, Instant)>,
-    crate::validation::StateLimits,
-);
-impl ResponseSessions {
-    pub(crate) fn with_limits(limits: crate::validation::StateLimits) -> Self {
-        Self(Default::default(), limits)
-    }
-    pub(crate) fn next(&mut self, client: u64) -> Result<(u64, u64), Error> {
-        self.prune();
-        if !self.0.contains_key(&client)
-            && self
-                .1
-                .udp_capacity
-                .is_some_and(|capacity| self.0.len() >= capacity)
-        {
-            return Err(Error::Protocol(
-                "ss: UDP response session capacity exhausted",
-            ));
-        }
-        let (session, touched) = self
-            .0
-            .entry(client)
-            .or_insert_with(|| (SenderSession::default(), Instant::now()));
-        *touched = Instant::now();
-        session.next()
-    }
-    pub(crate) fn prune(&mut self) {
-        self.0
-            .retain(|_, (_, seen)| seen.elapsed() < self.1.udp_idle());
-    }
-}
+mod proposal;
+pub use proposal::UdpBudgetProposal;
+
+mod responses;
+pub(crate) use responses::ResponseSessions;
 
 #[cfg(test)]
 #[path = "../../tests/udp_session/state.rs"]
 mod tests;
+
+#[cfg(test)]
+#[path = "../../tests/udp_session/window_budget.rs"]
+mod window_budget_tests;

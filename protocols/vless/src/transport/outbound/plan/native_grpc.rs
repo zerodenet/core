@@ -7,6 +7,25 @@ impl OwnedVlessOutboundTransportPlan {
         carriers: std::num::NonZeroUsize,
         streams: std::num::NonZeroUsize,
     ) -> Result<zero_transport::grpc::NativePoolOptions, RuntimeError> {
+        self.grpc_options(runtime, dial, carriers, streams, false)
+    }
+    pub(in crate::transport) fn background_grpc_options(
+        &self,
+        runtime: &super::super::super::runtime::VlessTransportRuntime,
+        dial: zero_traits::DialPolicy,
+        carriers: std::num::NonZeroUsize,
+        streams: std::num::NonZeroUsize,
+    ) -> Result<zero_transport::grpc::NativePoolOptions, RuntimeError> {
+        self.grpc_options(runtime, dial, carriers, streams, true)
+    }
+    fn grpc_options(
+        &self,
+        runtime: &super::super::super::runtime::VlessTransportRuntime,
+        dial: zero_traits::DialPolicy,
+        carriers: std::num::NonZeroUsize,
+        streams: std::num::NonZeroUsize,
+        background: bool,
+    ) -> Result<zero_transport::grpc::NativePoolOptions, RuntimeError> {
         if self.browser_dialer_settings.is_some()
             || self.hysteria.is_some()
             || self.mkcp.is_some()
@@ -43,7 +62,12 @@ impl OwnedVlessOutboundTransportPlan {
         }
         // share_xhttp_pool already selected this exact pool using the complete
         // original key. Never format a second key or allocate a parallel pool.
-        zero_transport::grpc::NativePoolOptions::from_pool(
+        let prepare = if background {
+            zero_transport::grpc::NativePoolOptions::for_background_pool
+        } else {
+            zero_transport::grpc::NativePoolOptions::from_pool
+        };
+        prepare(
             pool,
             zero_transport::grpc::NativePoolSettings {
                 server: self.server.clone(),

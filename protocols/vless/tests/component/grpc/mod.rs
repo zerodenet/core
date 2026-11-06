@@ -38,3 +38,5 @@ use fixtures::*;
 mod bindings;
 mod generations;
 mod wire;
+
+mod datagram;

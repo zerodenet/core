@@ -13,5 +13,6 @@ pub(crate) use quota::{PrincipalQuotaRegistration, PrincipalQuotaRegistry};
 pub use cancellation::PrincipalCancellationRegistration;
 pub use device::PrincipalDeviceRegistration;
 pub use quota::{
-    inspect_principal_quota_state, PrincipalQuotaStateReport, PrincipalQuotaStateStatus,
+    inspect_principal_quota_state, inspect_principal_quota_state_with_source,
+    PrincipalQuotaStateReport, PrincipalQuotaStateStatus,
 };

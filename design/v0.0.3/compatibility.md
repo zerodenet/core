@@ -135,3 +135,107 @@ Config 的 Rust 便利文档加载 `RuntimeConfig::load_from_path` 删除；调�
 
 Packet/provider、部分 transport/process、设备 Scope、Windows pipe 和剩余预算的实现缺口
 单列在执行记录；没有因为新增上述接口而关闭整轮或 TEMP-WG-OUTER-UDP-01。
+
+## 第二轮续作的关联 Datagram 与实际设备原件
+
+`ResourceDeclaration::ControlledAssociationPool` 是同一实际 carrier owner 的 TCP 控制与
+协议协商 Datagram 原件声明；穷尽匹配调用者须处理新增变体，两个原件消费同一总额度。
+`UpstreamOpener::resolve_related_datagram` 默认拒绝，实际 host 实现使用同 Node DNS；
+`CarrierGrant::link_related_datagram` 只绑定真实已取得的同 owner 控制原件，不授予 root I/O。
+`CarrierOrigin::related_control` 是只读关联责任，物理 parent/native_origin 仍是实际 UDP 来源。
+`DatagramLoan::into_session` 与 `BorrowedDatagram::into_datagram_loan` 转交原 Tx/Rx、
+唯一 view 与同 LoanOwner，不新起协议泵，不把 view 返回当原件关闭。
+
+`PacketDeviceBinding` 增加 `Create` 与 `ExistingWindows`，原 descriptor 借入模式保留。
+具体 provider 在配置前安装原拥有者，Windows existing 不在失败时创建替代 adapter。
+`IpPacket::payload_mut` 原位修改同 buffer，调用方保持已校验 family/长度和 ingress/return 元数据。
+这些是续作实现前置；全部生产调用者、source、TaskRegistrar 与旧链删除仍按剩余表完成，
+不以此声明架构、GUI/面板、平台或压力资格通过；V1 wire 与 FFI ABI 不变。
+
+
+## 第二轮续作的内部 Rust 原件接口
+
+新增 `RuntimeHost::run_probe` / `ProbeCall` 接续实际 diagnostic/URLTest 调用，
+在原 Direct Scope 登记真实任务，并持有原全局额度至实际任务和原件清理完成。
+`CarrierServiceGrant` 的 Direct 用法必须由同 host 的私有 fence、原注册和真实调用任务签发；
+公开 Service facts、observer、裸 Direct 描述不产生 I/O 权限。
+`CarrierOwnerRegistration::poll_cancelled_retirements` 只轮询已取消的原 slot，
+不创建任务、Scope、协议池或关闭凭据。嵌入调用者仍须驱动原 host supervision/关闭流程。
+
+System TUN 使用同 inbound registry 的 Source、实际原 Registrar 与原设备/route/monitor，
+新增可选 worker/Packet return/诊断/gRPC/SS 安全历史预算保持省略字段导出形状。
+普通 UDP 构建包含 neutral raw IP source，不因此启用 WireGuard 协议。
+TLS `OwnedPreparedClient` 接收实际授予的不可变 CA 材料，并沿用原 backend、安全策略及缓存隔离。
+这些内部接口的新增不构成 GUI/面板、特权设备或跨平台的组合资格；V1/FFI/events/CLI 验证仍以
+最终精确候选为准，未修改消费者。
+
+
+第二轮续作的 Linux `ResourceAccess::prepare_owned_process` 返回由原 Host 保留的 cold
+`OwnedProcess`；实际已登记 actor 执行启动/原生树清理，外层在该真实 actor join 后显式关闭
+原始 fd 并取得 matching `ProcessTreeClosed`。这属于内核 Rust 资源接口；V1 配置/API/events、
+CLI/FFI 和客户端面板不变。原 `spawn_process` 暂仅未迁调用者使用，直接 child reap 仍不能
+取得 Process 声明覆盖。生产 SIP 消费、总体预算与适用跨平台实现尚未完成，不能把这些
+接口或 Linux 底层回归视为全域迁移资格。
+
+续作将该原件接口扩展到 Windows suspended root / JobObject，并增加同一个 job 的
+`ProcessEndpoint` 预留、原始 readiness probe 和真实依赖消费授权。网络用户的真实
+Carrier 原件、Process 原件和各自 Scope 保持独立；不能用逻辑远端地址冒充实际 loopback
+peer 的原生 ancestry。Windows GNU 源码检查不代表真实 Job/NamedPipe 运行资格，macOS
+进程树责任和生产 SIP 消费仍有未完成实现。
+
+可选 `runtime.process_max_jobs`（默认 64）与 `process_max_jobs_per_instance`（默认 1）
+限制同一内核中待启、失败及退休中的实际 job；每实例额度不超过总体额度。这不限制
+单个 job 内合法后代数量。退款等待真实原件关闭、实际 actor join 和 Host ACK。
+省略仍不导出这些字段；穷举构造 `RuntimeOptionsConfig` 的 Rust 调用者应添加 `None`
+或沿用 `..Default::default()`。
+
+Packet 的内核 Rust 契约补充 `PacketRequest::return_mtu`、实际
+`GrantedPacketDevice::native_read`、`PacketStorage::allocation_bytes/derive_zeroed` 和
+原声明序号绑定的 `PacketDatagramReads`。标准装配使用同一个实际预算总账；缓冲移动、
+分片和重组不产生额外池或原生关闭证据。自定义 storage 的默认 derivation 明确拒绝
+未预付分配；内核生产读取必须提供真实原件 grant，不能以库默认分配补齐缺失责任。
+H2 客户端继续使用原 `connect_h2*` API，原连接由当前调用者推进，保留半关闭和真实
+流控；未新增第二执行宿主或公开替代协议 SPI。上述接口不改变 V1 JSON/API/events、
+CLI/FFI 或消费者，但全部生产路径和最终统一候选尚未取得完整资格。
+
+
+## 原 Packet source 与按需进程的 Rust 接线续作
+
+`ResourceAccess::open_packet_device` 返回原异步获取 future，调用者须在同实际
+Scope/driver 与原启动期限内 await；`GrantedPacketSourceDriver` 同时转交原 origin
+和唯一 checkpoint。暂停只限制新借用，并由实际 main/wire（Direct 为原单 driver）
+确认，不撤销已转交 I/O，也不提供 native close、任务 join 或预算退款凭据。
+`ResourcePreparation::prepare_component_recipe` 将既有完整 typed recipe 及其原 native
+binding 交给同一个冷分配器，保留失败后整次准备失效的规则。
+
+`ProcessEndpointStreamRequest` / `ProcessEndpointDatagramRequest` 的 `startup_deadline`
+由原协议启动责任给出，再受实际调用期限约束；同 Slot 保留唯一 initializer，首借用者
+取消后由现有 supervisor 推进。它不另建进程、池或清理任务。只读
+`shadowsocks::component::PluginRootExit::status()` 保留原退出状态的类型信息。
+
+新增可选 `runtime.ss_udp_max_pending_responses` 和
+`runtime.ss_udp_total_max_pending_responses` 均默认 4096、范围 1..65536、省略不导出；
+分别限制同实际 Flow 与同 adapter 账本的响应票据，pending、失败退休及收到未取走均计额。
+该 schema 的普通生产消费仍在同一轮实现，字段存在不代表该职责域取得资格。
+V1 信封、控制 ACK/revision、事件与计量、CLI/FFI 及客户端/面板工作流沿用现契约。
+
+## 同原件故障交接与控制 Scope 续作
+
+`ChannelError` 的可选 `CleanupFailureReceipt` 是同一控制器有限错误记录的交接元数据。
+生产者先一次绑定同一稳定 payload，接收方先强留实际返回的错误 Arc，再显式 ACK；
+晚到次错误继续进入同一 payload。未绑定或 foreign receipt 不能 ACK。转发错误须保留
+该结构化字段，诊断 `Error::source()` 不授予交接权限。回执不证明 native close、view
+归还、业务用户结束、TaskScope join 或 Host registration ACK，也不授予预算退款。
+
+`TaskRegistrar::retirement_observation()` 与实际 issued `WeakTaskRegistrar` 的同名观察
+方法只读同一个 Scope 的封闭、实际 join 与 registration 归还状态；不重建任务权限，
+不创建/取消任务，不消费退出或清理原件。Scope identity 仍只有身份匹配职责。
+
+CLI connector-state 使用 `inspect_principal_quota_state_with_source`，接续加载文档的真实
+ConfigurationSource；独立库检查仍有显式 standalone 入口，均经过同原件关闭屏障。
+状态采样器在 ApplicationServices 中先安装冷 owner，再注册唯一 Critical TaskScope
+任务；正常配置替换转移监督到下一实际 owner，取消关闭等待不丢失原 Scope。
+终止故障继续保留类型和来源，原任务、文件和用户的实际退休单独判断。
+
+上述接线仍在整域迁移与必要回归中，不代表五域结题、统一候选 CI、跨平台或同产物
+GUI/面板资格已通过。配置/API/events 与 ACK/revision/计量标识继续保持，未改消费者。

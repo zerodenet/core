@@ -44,6 +44,7 @@ pub(super) struct Flight<T> {
     pub(super) cancel: zero_platform_tokio::contract::CancellationToken,
     pub(super) waiters: Arc<AtomicUsize>,
     pub(super) native_tasks: std::sync::OnceLock<crate::OwnedDnsQueryTasks>,
+    pub(super) caller_registration: Arc<crate::wire_call::Registration>,
 }
 impl<T> Flight<T> {
     pub(super) fn new() -> Self {
@@ -54,6 +55,7 @@ impl<T> Flight<T> {
             cancel: zero_platform_tokio::contract::CancellationToken::new(),
             waiters: Arc::new(AtomicUsize::new(0)),
             native_tasks: Default::default(),
+            caller_registration: Arc::default(),
         }
     }
     pub(super) fn complete(&self, result: SharedResult<T>) -> bool {

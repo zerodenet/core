@@ -226,6 +226,7 @@ where
                     packets,
                     self.cancel.child_token(),
                     self.idle,
+                    match key { PeerKey::AuthenticatedAssociation(id) => Some(id), PeerKey::Endpoint(_) => None },
                 );
                 let admission = DatagramPeerAdmission::new(
                     socket.control(),

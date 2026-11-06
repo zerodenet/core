@@ -16,13 +16,53 @@ mod inbound_component;
 #[cfg(feature = "shadowsocks")]
 mod tcp;
 #[cfg(feature = "shadowsocks")]
+mod tcp_owned;
+#[cfg(feature = "shadowsocks")]
 pub(crate) mod udp;
 
 #[cfg(feature = "shadowsocks")]
-#[derive(Debug, Default)]
+#[derive(Debug)]
 pub(crate) struct ShadowsocksAdapter {
     inbound_profiles: ShadowsocksInboundProfileStore,
     outbound_state: ::shadowsocks::transport::ShadowsocksTransportState,
+}
+
+#[cfg(feature = "shadowsocks")]
+impl Default for ShadowsocksAdapter {
+    fn default() -> Self {
+        // One actual adapter's TCP2022 salt entries, allocated on demand. This
+        // is neither a per-profile cap nor a cap for UDP/Bloom security state.
+        let budget = ::shadowsocks::ReplayBudget::new(Some(500_000))
+            .expect("positive SS TCP2022 default budget");
+        let udp = ::shadowsocks::udp::UdpReplayBudget::with_limits(Default::default())
+            .expect("positive SS UDP receiver-window default budget");
+        let bloom = ::shadowsocks::shared::LegacyReplayBudget::new(Some(64 * 1024 * 1024))
+            .expect("positive legacy Bloom bitmap byte policy");
+        Self {
+            inbound_profiles: ShadowsocksInboundProfileStore::with_security_budgets(
+                budget.clone(),
+                udp.clone(),
+                bloom.clone(),
+            ),
+            outbound_state:
+                ::shadowsocks::transport::ShadowsocksTransportState::with_security_budgets(
+                    budget, udp, bloom,
+                ),
+        }
+    }
+}
+
+#[cfg(feature = "shadowsocks")]
+pub(crate) fn udp_budget_limits(
+    runtime: &zero_config::RuntimeOptionsConfig,
+) -> ::shadowsocks::udp::UdpBudgetLimits {
+    ::shadowsocks::udp::UdpBudgetLimits {
+        receiver_windows: runtime.effective_ss_udp_replay_max_windows(),
+        senders: runtime.effective_ss_udp_max_senders(),
+        associations: runtime.effective_ss_udp_max_associations(),
+        return_bindings: runtime.effective_ss_udp_max_return_bindings(),
+        authenticated_codecs: runtime.effective_ss_udp_max_authenticated_codecs(),
+    }
 }
 
 #[cfg(feature = "shadowsocks")]
@@ -99,8 +139,26 @@ impl NamedProtocolAdapter for ShadowsocksAdapter {
     const PROTOCOL_NAME: &'static str = "shadowsocks";
     const FEATURE_NAME: &'static str = "shadowsocks";
 
+    fn validate_runtime_candidate(
+        &self,
+        config: &zero_config::RuntimeConfig,
+    ) -> Result<(), zero_engine::EngineError> {
+        self.outbound_state
+            .validate_tcp_replay_budget(config.runtime.effective_ss_tcp_replay_max_salts())
+            .and_then(|()| {
+                self.outbound_state
+                    .validate_udp_budget(udp_budget_limits(&config.runtime))
+            })
+            .and_then(|()| {
+                self.outbound_state.validate_legacy_replay_budget(
+                    config.runtime.effective_ss_legacy_replay_max_bytes(),
+                )
+            })
+            .map_err(|source| std::io::Error::other(source).into())
+    }
     fn on_config_reloaded(&self, config: &zero_config::RuntimeConfig) {
         self.outbound_state.clear_plugins();
+        self.outbound_state.compact_udp();
         for inbound in &config.inbounds {
             let InboundProtocolConfig::Shadowsocks {
                 password,
@@ -140,7 +198,20 @@ impl ShadowsocksAdapter {
         );
         Some(OutboundLeafClaim {
             tcp_path: TcpPathCategory::Session,
-            tcp: Some(Ok(tcp.clone())),
+            tcp: Some(Ok(if component::native_input(outbound) {
+                std::sync::Arc::new(tcp_owned::Connect {
+                    tag: leaf.tag().into(),
+                    server: leaf.server().into(),
+                    port: leaf.port(),
+                })
+                    as std::sync::Arc<
+                        dyn crate::runtime::tcp_dispatch::operation::PreparedTcpConnectOperation,
+                    >
+            } else {
+                // Targets lacking a concrete whole-process provider retain the
+                // existing caller; a failed migrated role never falls back here.
+                tcp.clone()
+            })),
             tcp_relay: Some(Ok(tcp)),
             udp: Some(self.udp_flow_operation(leaf.clone())),
             udp_relay: None,
@@ -157,3 +228,7 @@ impl ProtocolMetadata for ShadowsocksAdapter {
         ::shadowsocks::ShadowsocksProtocol.descriptor()
     }
 }
+
+#[cfg(all(test, feature = "raw-ip-runtime"))]
+#[path = "shadowsocks/tests/replay_budget.rs"]
+mod replay_budget_tests;

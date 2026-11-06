@@ -16,6 +16,7 @@ use zero_platform_tokio::contract::{
     },
     ChannelError, DeliveryState, Reason, Stage,
 };
+mod business;
 mod carrier;
 mod datagram;
 mod error;
@@ -38,11 +39,11 @@ impl ComponentFactory for Factory {
         ComponentSpec {
             owner: ResourceOwner::Component,
             roles: vec![RoleKind::Stream, RoleKind::Datagram],
-            dependencies: vec![],
+            dependencies: options.node_dns.into_iter().collect(),
             static_identity: options.identity.clone(),
             resources: options.carrier_limit.into_iter().map(|max_sockets|
-                zero_platform_tokio::contract::component::ResourceDeclaration::ControlledCarrierPool {
-                    endpoint: options.endpoint.clone(), dial: options.dial.clone(), datagram: false, max_sockets,
+                zero_platform_tokio::contract::component::ResourceDeclaration::ControlledAssociationPool {
+                    endpoint: options.endpoint.clone(), dial: options.dial.clone(), max_sockets,
                 }).collect(),
             task_limit: None,
         }
@@ -52,6 +53,17 @@ impl ComponentFactory for Factory {
         options: Arc<Options>,
         context: BuildContext,
     ) -> Result<ComponentInstance, BuildError> {
+        if context.dependencies.len() != usize::from(options.node_dns.is_some())
+            || options
+                .node_dns
+                .is_some_and(|node| context.dependency(node).is_none())
+        {
+            return Err(ChannelError::new(
+                Stage::Prepare,
+                Reason::StalePlan,
+                zero_platform_tokio::contract::Impact::Component,
+            ));
+        }
         let (owner, admission) = SessionOwner::new(context.component, &context.cancel);
         let carrier = options.carrier_limit.map(|limit| {
             zero_platform_tokio::controlled_carrier::CarrierOwner::new(
@@ -61,21 +73,23 @@ impl ComponentFactory for Factory {
             )
         });
         let carriers = carrier.as_ref().map(|owner| owner.grants());
+        let associations = Arc::new(datagram::association::Associations::default());
         Ok(ComponentInstance {
             lifecycle: erase_lifecycle(owner::Owner {
                 session: owner,
                 carrier,
                 resources: context.resources,
                 tasks: context.tasks,
+                associations: associations.clone(),
             }),
             roles: ComponentRoles {
                 stream: Some(erase_stream(Outbound {
                     options: options.clone(),
                     admission: admission.clone(),
-                    carriers,
+                    carriers: carriers.clone(),
                 })),
                 datagram: Some(zero_platform_tokio::contract::datagram::erase_datagram(
-                    datagram::Outbound::new(options, admission),
+                    datagram::Outbound::new(options, admission, carriers, associations),
                 )),
                 ..Default::default()
             },
@@ -110,6 +124,12 @@ impl StreamOutbound for Outbound {
                         )
                         .with_source(source)
                 })?;
+        if session.is_some()
+            && self.carriers.is_some()
+            && context.upstream.has_tracked_business_caller()
+        {
+            return self.connect_business(request, context, session).await;
+        }
         let carrier = CarrierContext {
             session,
             deadline: context.deadline,

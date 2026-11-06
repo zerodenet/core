@@ -2,8 +2,12 @@
 mod acquire;
 mod close;
 mod io_view;
+mod reader;
 use crate::{OwnedTunIdentity, TunCloseReceipt};
 pub use io_view::OwnedWintunIo;
+pub use reader::{
+    OwnedWintunReadControl, OwnedWintunReadPause, OwnedWintunReadWork, OwnedWintunRequest,
+};
 use std::{
     io,
     sync::{Arc, Mutex},
@@ -25,6 +29,7 @@ struct State {
     view_live: bool,
     reader: Option<JoinHandle<io::Result<()>>>,
     reader_joined: Option<Result<(), Arc<io::Error>>>,
+    prepared_reader: Option<reader::PreparedReader>,
     ended: Option<Arc<wintun::EndSessionReceipt>>,
     adapter_closed: Option<wintun::CloseAdapterReceipt>,
     receipt: Option<Arc<TunCloseReceipt>>,
@@ -37,6 +42,7 @@ struct State {
 pub struct OwnedWintunOwner {
     state: Mutex<State>,
     closing: std::sync::atomic::AtomicBool,
+    reader_control: std::sync::OnceLock<OwnedWintunReadControl>,
 }
 impl std::fmt::Debug for OwnedWintunOwner {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -57,6 +63,7 @@ impl OwnedWintunOwner {
                 view_live: false,
                 reader: None,
                 reader_joined: None,
+                prepared_reader: None,
                 ended: None,
                 adapter_closed: None,
                 receipt: None,
@@ -65,6 +72,7 @@ impl OwnedWintunOwner {
                 errors: Vec::new(),
             }),
             closing: std::sync::atomic::AtomicBool::new(false),
+            reader_control: std::sync::OnceLock::new(),
         })
     }
     fn state(&self) -> std::sync::MutexGuard<'_, State> {
@@ -79,6 +87,10 @@ impl OwnedWintunOwner {
             || state.reader.is_some()
             || state.session.is_some()
             || state.adapter.is_some()
+            || state
+                .prepared_reader
+                .as_ref()
+                .is_some_and(|reader| reader.control.is_open())
         {
             WintunAcquisitionOutcome::Unknown
         } else if state.receipt.is_some() || state.adapter_closed.is_some() {

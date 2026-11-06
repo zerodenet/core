@@ -73,9 +73,10 @@ fn connector_state(config_path: &str, json: bool) -> Result<(), Box<dyn Error>> 
         principal_quota: Option<&'a zero_engine::PrincipalQuotaStateReport>,
     }
 
-    let config = zero_runtime::configuration::ConfigurationSource::load_document(config_path)?;
+    let source = std::sync::Arc::new(zero_runtime::configuration::ConfigurationSource::default());
+    let config = source.load_initial_configuration(config_path)?;
     let connector = zero_connector::inspect_persistent_state(&config);
-    let principal_quota = zero_engine::inspect_principal_quota_state(&config);
+    let principal_quota = zero_engine::inspect_principal_quota_state_with_source(&config, &source);
     let compatible = connector.compatible
         && principal_quota
             .as_ref()

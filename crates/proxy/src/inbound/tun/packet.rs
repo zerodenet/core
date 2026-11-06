@@ -49,6 +49,7 @@ pub(super) async fn try_forward(
                 tag,
                 translated,
                 operation,
+                ..
             } => {
                 let generation = route.icmp_egress_generation();
                 let plane = if translated {

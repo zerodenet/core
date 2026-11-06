@@ -155,7 +155,7 @@ impl ResolvedLinkedInvocation {
                     .ok_or_else(|| invalid("canonical linked peer has not confirmed start"))
             })
             .collect::<Result<Vec<_>, _>>()?;
-        let link = Arc::new(inbound::LinkedEndpoint::new(
+        let link = Arc::new(inbound::LinkedEndpoint::with_endpoint_io(
             self.recipe.identity,
             self.recipe.binding.network_generation.0,
             self.recipe.pending.listen().clone(),
@@ -163,8 +163,7 @@ impl ResolvedLinkedInvocation {
             devices,
             self.endpoints,
             vec![None; self.recipe.plan.peer_count()],
-            self.recipe.sender,
-            self.recipe.packets,
+            self.recipe.io,
         ));
         self.recipe.pending.install(link.clone())?;
         self.demand.validate()?;

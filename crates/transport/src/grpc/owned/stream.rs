@@ -39,6 +39,9 @@ impl NativeGrpcStream {
             failure: Mutex::new(None),
         }
     }
+    pub(super) fn record(&self) -> Arc<super::budget::Record> {
+        self._lease.record.clone()
+    }
     fn driver_failure(
         &mut self,
         cx: &mut Context<'_>,
@@ -64,11 +67,13 @@ impl NativeGrpcStream {
                 }
             }));
         }
-        let result = std::task::ready!(failure
-            .as_mut()
-            .expect("native gRPC driver failure")
-            .as_mut()
-            .poll(cx));
+        let result = std::task::ready!(
+            failure
+                .as_mut()
+                .expect("native gRPC driver failure")
+                .as_mut()
+                .poll(cx)
+        );
         *failure = None;
         Poll::Ready(result)
     }

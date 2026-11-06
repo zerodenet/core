@@ -9,6 +9,10 @@ use std::sync::{Arc, Mutex};
 use tokio::sync::mpsc;
 
 mod construction;
+mod quiescence;
+mod sender;
+use sender::SocketState;
+pub use sender::{ClientUdpCloseReceipt, ClientUdpSendError, ClientUdpSender};
 mod maintenance;
 mod observation;
 mod queue;
@@ -49,6 +53,7 @@ pub enum ClientUdpEvent {
 }
 
 struct SocketEntry {
+    state: Arc<SocketState>,
     sender: mpsc::Sender<QueuedEvent>,
     budget: QueueBudget,
     last_destination: Option<Endpoint>,
@@ -78,6 +83,7 @@ pub struct ClientUdpStack {
 
 /// A local UDP association. Dropping it immediately releases its port.
 pub struct ClientUdpSocket {
+    state: Arc<SocketState>,
     inner: Arc<Inner>,
     endpoint: Endpoint,
     receiver: mpsc::Receiver<QueuedEvent>,
@@ -89,83 +95,72 @@ impl ClientUdpSocket {
         self.endpoint
     }
 
+    /// Send-only view of this exact logical socket registration. It cannot
+    /// receive, remove the original entry, or manufacture a native close.
+    pub fn sender(&self) -> ClientUdpSender {
+        ClientUdpSender::new(
+            self.inner.clone(),
+            self.endpoint,
+            self.observer.clone(),
+            self.state.clone(),
+        )
+    }
     pub async fn send_to(
         &self,
         payload: &[u8],
         destination: Endpoint,
     ) -> Result<(), ClientUdpStackError> {
-        if self.endpoint.ip.is_ipv4() != destination.ip.is_ipv4() {
-            return Err(ClientUdpStackError::AddressFamilyMismatch);
-        }
-        let maximum_payload = if destination.ip.is_ipv4() {
-            65_507
-        } else {
-            65_527
-        };
-        if payload.len() > maximum_payload {
-            return Err(ClientUdpStackError::PayloadTooLarge);
-        }
-        let mtu = if let Some(socket) = self
-            .inner
-            .sockets
-            .lock()
-            .unwrap_or_else(|e| e.into_inner())
-            .get_mut(&self.endpoint)
-        {
-            if socket.last_destination != Some(destination) {
-                socket.path_mtu = None;
-                socket.last_destination = Some(destination);
-            }
-            socket.path_mtu.unwrap_or(self.inner.mtu)
-        } else {
-            return Err(ClientUdpStackError::OutboundClosed);
-        };
-        let packet = packet::build_udp(
-            self.endpoint.ip,
-            destination.ip,
-            self.endpoint.port,
-            destination.port,
-            payload,
-        );
-        let identification = self.inner.next_fragment_id.fetch_add(1, Ordering::Relaxed);
-        let fragments = packet::fragment_ip_packet_owned(packet, mtu, identification);
-        if fragments.is_empty() {
-            return Err(ClientUdpStackError::InvalidMtu);
-        }
-        for fragment in fragments {
-            self.inner
-                .outbound
-                .clone()
-                .with_observer(self.observer.clone())
-                .send(fragment)
-                .await
-                .map_err(|_| {
-                    observe_discard(
-                        self.observer.as_ref(),
-                        self.inner.drop_observer.as_ref(),
-                        zero_traits::PacketDropReason::QueueClosed,
-                    );
-                    ClientUdpStackError::OutboundClosed
-                })?;
-        }
-        Ok(())
+        self.sender()
+            .send_to(payload, destination)
+            .await
+            .map_err(|failure| failure.kind)
     }
-
+    /// Retire this same logical registration and drain its unique receive view.
+    /// Pending output futures are fenced and must still be driven/returned;
+    /// neither this logical receipt nor Drop proves a native or Scope close.
+    pub fn close(&mut self) -> ClientUdpCloseReceipt {
+        self.state.stop();
+        let mut entries = self.inner.sockets.lock().unwrap_or_else(|e| e.into_inner());
+        let retired = if entries
+            .get(&self.endpoint)
+            .is_some_and(|entry| Arc::ptr_eq(&entry.state, &self.state))
+        {
+            entries.remove(&self.endpoint)
+        } else {
+            None
+        };
+        drop(entries);
+        drop(retired);
+        self.discard_queued();
+        ClientUdpCloseReceipt::new(self.state.clone(), self.endpoint)
+    }
     pub async fn recv_event(&mut self) -> Option<ClientUdpEvent> {
-        if self.inner.closed.load(Ordering::Acquire) {
+        std::future::poll_fn(|cx| self.poll_recv_event(cx)).await
+    }
+    pub fn poll_recv_event(
+        &mut self,
+        cx: &mut std::task::Context<'_>,
+    ) -> std::task::Poll<Option<ClientUdpEvent>> {
+        use std::task::Poll;
+        if self.inner.closed.load(Ordering::Acquire) || self.state.closed() {
             self.discard_queued();
-            return None;
+            return Poll::Ready(None);
         }
-        let event = self.receiver.recv().await;
-        if self.inner.closed.load(Ordering::Acquire) {
-            if event.is_some() {
-                self.observe_closed_discard();
+        match self.receiver.poll_recv(cx) {
+            Poll::Pending => Poll::Pending,
+            Poll::Ready(event) => {
+                if self.inner.closed.load(Ordering::Acquire) || self.state.closed() {
+                    if event.is_some() {
+                        self.observe_closed_discard();
+                    }
+                    drop(event);
+                    self.discard_queued();
+                    Poll::Ready(None)
+                } else {
+                    Poll::Ready(event.map(QueuedEvent::into_event))
+                }
             }
-            drop(event);
-            self.discard_queued();
-            return None;
         }
-        event.map(QueuedEvent::into_event)
     }
     fn observe_closed_discard(&self) {
         observe_discard(
@@ -195,18 +190,8 @@ impl ClientUdpSocket {
 
 impl Drop for ClientUdpSocket {
     fn drop(&mut self) {
-        self.inner
-            .sockets
-            .lock()
-            .unwrap_or_else(|e| e.into_inner())
-            .remove(&self.endpoint);
-        self.receiver.close();
-        while self.receiver.try_recv().is_ok() {
-            observe_discard(
-                self.observer.as_ref(),
-                self.inner.drop_observer.as_ref(),
-                zero_traits::PacketDropReason::QueueClosed,
-            );
-        }
+        // Compatibility callers request the same logical retirement. Only an
+        // explicit controller retaining the receipt can confirm quiescence.
+        let _ = self.close();
     }
 }

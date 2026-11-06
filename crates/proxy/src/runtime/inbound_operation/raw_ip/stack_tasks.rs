@@ -1,8 +1,8 @@
 //! Same original stack worker futures, admitted to the listener's retained set.
-use super::tasks::RetainedTasks;
+use crate::runtime::raw_ip::tasks::scoped::ScopedSourceTasks;
 use std::{future::Future, pin::Pin};
 
-pub(super) struct StackTasks(pub(super) RetainedTasks<()>);
+pub(super) struct StackTasks(pub(super) ScopedSourceTasks<()>);
 impl zero_stack::TcpTaskOwner for StackTasks {
     fn spawn(&self, worker: Pin<Box<dyn Future<Output = ()> + Send + 'static>>) -> bool {
         let Some(mut tasks) = self.0.try_lock() else {

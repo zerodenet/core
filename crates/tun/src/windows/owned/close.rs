@@ -4,10 +4,16 @@ use std::sync::atomic::Ordering;
 impl OwnedWintunOwner {
     pub fn stop(&self) {
         if !self.closing.swap(true, Ordering::AcqRel) {
-            let mut state = self.state();
-            if let Some(session) = &state.session {
+            if let Some(control) = self.reader_control.get() {
+                // This same control persists any signal failure. Do not block
+                // a cancelling async caller behind a native acquisition mutex.
+                let _ = control.stop();
+                return;
+            }
+            let session = self.state().session.clone();
+            if let Some(session) = session {
                 if let Err(source) = session.shutdown() {
-                    state.errors.push(Arc::new(io::Error::from(source)));
+                    self.state().errors.push(Arc::new(io::Error::from(source)));
                 }
             }
         }
@@ -24,11 +30,21 @@ impl OwnedWintunOwner {
                 }
                 if state.view_live {
                 } else if state
+                    .prepared_reader
+                    .as_ref()
+                    .is_some_and(|reader| !reader.done)
+                {
+                } else if state
                     .reader
                     .as_ref()
                     .is_some_and(|reader| !reader.is_finished())
                 {
                 } else {
+                    if let Some(reader) = &mut state.prepared_reader {
+                        if reader.event_close.is_none() {
+                            reader.event_close = Some(reader.control.close());
+                        }
+                    }
                     if let Some(reader) = state.reader.take() {
                         let joined = reader
                             .join()
@@ -63,6 +79,13 @@ impl OwnedWintunOwner {
                         }
                         if state.adapter.is_none() {
                             if let Some(source) = &state.native_failure {
+                                return Err(source.clone());
+                            }
+                            if let Some(Err(source)) = state
+                                .prepared_reader
+                                .as_ref()
+                                .and_then(|reader| reader.event_close.as_ref())
+                            {
                                 return Err(source.clone());
                             }
                             if state.receipt.is_none() {

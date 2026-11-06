@@ -42,19 +42,44 @@ impl ComponentCatalog {
             .await
             .map_err(|_| invalid(Reason::Timeout, "component transition remains owned"))?;
         self.finish_maintenance(deadline).await?;
-        let pending = self
+        let previous_replacement = self
             .state
             .lock()
             .expect("component catalog poisoned")
             .replacement
             .clone();
-        if let Some(pending) = pending {
-            Self::finish_replacement(&pending, deadline, &mut publish).await?;
+        if let Some(pending) = &previous_replacement {
+            Self::finish_replacement(pending, deadline, &mut publish).await?;
         }
         let loan_fence = self.admission.freeze_loans();
         let plan = self
             .prepare(config.clone())
             .map_err(crate::component::instance::retained)?;
+        let changes_limits = {
+            let state = self.state.lock().expect("component catalog poisoned");
+            state.current.as_ref().is_some_and(|current| {
+                current
+                    .config
+                    .runtime
+                    .effective_carrier_max_total_originals()
+                    != config.runtime.effective_carrier_max_total_originals()
+                    || current.config.runtime.effective_process_max_jobs()
+                        != config.runtime.effective_process_max_jobs()
+                    || current
+                        .config
+                        .runtime
+                        .effective_process_max_jobs_per_instance()
+                        != config.runtime.effective_process_max_jobs_per_instance()
+            })
+        };
+        let already_paused = previous_replacement.as_ref().is_some_and(|original| {
+            Arc::ptr_eq(&original.candidate, &plan) && original.retains_budget_pause()
+        });
+        let budget_pause = if changes_limits && !already_paused {
+            Some(self.try_pause_replacement_users(&plan)?)
+        } else {
+            None
+        };
         let replacement = {
             let mut state = self.state.lock().expect("component catalog poisoned");
             match state
@@ -87,9 +112,16 @@ impl ComponentCatalog {
                 }
             }
         };
+        if let Some(pause) = budget_pause {
+            replacement.retain_budget_pause(pause);
+        }
         loan_fence.retain();
         self.admission.signal().notify_waiters();
         Self::finish_replacement(&replacement, deadline, &mut publish).await?;
+        // Old affected originals and their real joins/ACKs have now returned.
+        // Install on the same root before any candidate native job starts.
+        self.original_budgets()
+            .install_original_limits(&config.runtime)?;
         {
             let mut state = self.state.lock().expect("component catalog poisoned");
             state.retired = None;
@@ -198,8 +230,10 @@ impl ComponentCatalog {
         });
         state.staged = None;
         state.cold = None;
-        state.replacement = None;
+        let retired_replacement = state.replacement.take();
         state.prune_issued();
+        drop(state);
+        drop(retired_replacement); // actual pause/last owner drops outside catalog lock.
         Ok(result)
     }
     pub async fn shutdown(&self, deadline: tokio::time::Instant) -> Result<(), ChannelError> {
@@ -235,7 +269,11 @@ impl ComponentCatalog {
         if let Some(error) = failure {
             return Err(error);
         }
-        *self.state.lock().expect("component catalog poisoned") = State::default();
+        let retired = {
+            let mut state = self.state.lock().expect("component catalog poisoned");
+            std::mem::take(&mut *state)
+        };
+        drop(retired); // all actual guards/recipes outside the enclosing catalog lock.
         self.admission.finish_shutdown();
         Ok(())
     }

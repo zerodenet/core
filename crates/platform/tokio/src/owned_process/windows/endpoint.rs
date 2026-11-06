@@ -1,0 +1,95 @@
+//! Same cold process original's endpoint and actor association.
+use super::*;
+impl OwnedProcess {
+    /// The witness supplies join custody, never executable/native permission.
+    pub fn bind_actor(&self, actor: TaskJoinWitness) -> io::Result<()> {
+        if !self.scope.same_scope(&actor.scope_identity()) {
+            return Err(io::Error::new(
+                io::ErrorKind::PermissionDenied,
+                "actor is not in the original process Scope",
+            ));
+        }
+        let mut state = self.lock();
+        if state.actor.is_some()
+            || state.attempted
+            || state.stop
+            || state
+                .originals
+                .iter()
+                .any(|original| original.raw.is_some())
+        {
+            return Err(io::Error::new(
+                io::ErrorKind::PermissionDenied,
+                "actual process actor is already bound or stopped",
+            ));
+        }
+        state.actor = Some(actor);
+        Ok(())
+    }
+    pub(in crate::owned_process) fn endpoint_is_running(&self) -> bool {
+        let state = self.lock();
+        state.started && !state.stop && state.root_status.is_none() && state.first_error.is_none()
+    }
+    pub fn attach_endpoint(
+        self: &Arc<Self>,
+        endpoint: &Arc<crate::owned_process::endpoint::ProcessEndpointHandoff>,
+    ) -> io::Result<()> {
+        let mut state = self.lock();
+        if state.attempted
+            || state.stop
+            || state.endpoint.is_some()
+            || state
+                .originals
+                .iter()
+                .any(|original| original.raw.is_some())
+        {
+            return Err(io::Error::new(
+                io::ErrorKind::PermissionDenied,
+                "process is not cold",
+            ));
+        }
+        // Persistent before the association can escape, including failed bind.
+        state.endpoint = Some(super::super::endpoint::RetainedEndpoint::new(
+            endpoint.clone(),
+        ));
+        drop(state);
+        endpoint.attach(self, &self.scope)
+    }
+    /// Host completes the same already-budgeted cold endpoint job. The program
+    /// must remain the originally declared executable; no native work occurs.
+    pub fn install_endpoint_request(
+        &self,
+        request: ProcessRequest,
+        endpoint: &Arc<crate::owned_process::endpoint::ProcessEndpointHandoff>,
+    ) -> io::Result<()> {
+        let mut state = self.lock();
+        if state.attempted
+            || state.stop
+            || state.endpoint_request_ready
+            || !state
+                .endpoint
+                .as_ref()
+                .is_some_and(|actual| actual.matches(endpoint))
+            || !state
+                .request
+                .as_ref()
+                .is_some_and(|cold| cold.program == request.program)
+        {
+            return Err(io::Error::new(
+                io::ErrorKind::PermissionDenied,
+                "endpoint job request is not the same cold declaration",
+            ));
+        }
+        state.request = Some(request);
+        state.endpoint_request_ready = true;
+        Ok(())
+    }
+    pub(in crate::owned_process) fn endpoint(
+        &self,
+    ) -> Option<Arc<crate::owned_process::endpoint::ProcessEndpointHandoff>> {
+        self.lock()
+            .endpoint
+            .as_ref()
+            .map(|endpoint| endpoint.original())
+    }
+}

@@ -1,4 +1,5 @@
 pub(in crate::transport) mod browser_dialer;
+mod grpc_budget;
 pub(in crate::transport) mod preconnect;
 pub(in crate::transport) mod xhttp;
 use std::collections::HashMap;
@@ -10,10 +11,12 @@ use super::VlessInboundUserRef;
 
 #[derive(Debug, Clone, Default)]
 pub struct VlessTransportRuntime {
+    pub(crate) client_material: crate::component::material::Registry,
     browser_dialers: browser_dialer::Registry,
     hysteria_pools: Arc<Mutex<HashMap<[u8; 32], zero_transport::hysteria::Pool>>>,
     xhttp_pools: Arc<xhttp::Pools>,
     grpc_pools: Arc<Mutex<HashMap<[u8; 32], zero_transport::grpc::GrpcPool>>>,
+    grpc_budget: grpc_budget::RegistryBudget,
     mux_pool: crate::mux_pool::MuxConnectionPool,
     portals: crate::reverse::PortalRegistry,
     encryption_pools: Arc<Mutex<HashMap<[u8; 32], crate::mux_pool::MuxConnectionPool>>>,
@@ -33,8 +36,24 @@ impl VlessTransportRuntime {
         for (_, pool) in self.hysteria_pools.lock().unwrap().drain() {
             pool.retire();
         }
-        for (_, pool) in self.grpc_pools.lock().unwrap().drain() {
-            pool.retire();
+        // Preserve each actual pool's ownership census across publications.
+        // Host-owned pools close only through their actual original lifecycle.
+        // A legacy exposure has no complete retirement proof yet; removing its
+        // key must not erase that debt and enable a parallel native executor.
+        let pools = self
+            .grpc_pools
+            .lock()
+            .unwrap()
+            .values()
+            .cloned()
+            .collect::<Vec<_>>();
+        for pool in pools {
+            // Only positive original/native/users/actual ACK evidence may
+            // release heavy retired state. Legacy exposure remains retained.
+            pool.compact_closed_owner();
+            if !pool.has_host_owner() {
+                pool.retire();
+            }
         }
         for (_, pool) in self
             .encryption_pools
@@ -94,15 +113,24 @@ impl VlessTransportRuntime {
         hash.update(&(tag.len() as u64).to_be_bytes());
         hash.update(tag.as_bytes());
         hash.update(identity.as_bytes());
-        let mut pools = self.grpc_pools.lock().unwrap();
-        if pools.len() >= 4096 {
-            return Default::default();
-        }
-        pools
-            .entry(*hash.finalize().as_bytes())
-            .or_default()
-            .clone()
+        let key = *hash.finalize().as_bytes();
+        let pool = {
+            let mut pools = self.grpc_pools.lock().unwrap();
+            if let Some(pool) = pools.get(&key) {
+                pool.clone()
+            } else {
+                if pools.len() >= 4096 {
+                    return Default::default();
+                }
+                pools.entry(key).or_default().clone()
+            }
+        };
+        // No protocol destructor or proof inspection runs under the registry
+        // map lock. A retained close receipt is distinct from Arc expiration.
+        pool.compact_closed_owner();
+        pool
     }
+
     pub(super) fn xhttp_pool(
         &self,
         tag: &str,

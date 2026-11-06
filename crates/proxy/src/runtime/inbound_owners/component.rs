@@ -260,16 +260,21 @@ impl InboundInstallContext {
             None
         } else {
             Some(
-                crate::component::instance::HostResources::new_for_instance(
+                crate::component::instance::HostResources::new_hosted(
                     identity,
                     &process_declarations,
                     self.entry.task_access().cancellation(),
-                    self.entry.accepted_registrar().scope_identity(),
+                    self.entry.accepted_registrar().downgrade(),
+                    self.protocols.runtime_host().original_budgets(),
                 )
                 .map_err(std::io::Error::other)?,
             )
         };
         let resources = Arc::new(BoundResources {
+            #[cfg(feature = "raw-ip-runtime")]
+            source_pause: self.entry.packet_pause.get().cloned(),
+            #[cfg(all(feature = "raw-ip-runtime", feature = "datagram-route-runtime"))]
+            packet_native: self.entry.packet_native.get().cloned(),
             handoff,
             process,
             extra_tcp: Mutex::new(extra_tcp),

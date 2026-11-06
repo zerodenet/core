@@ -103,6 +103,8 @@ fn fixture() -> (PrefixOpener, Arc<Capture>) {
     });
     let endpoint = Destination::new(zero_core::Address::Ipv4([127, 0, 0, 1]), 8080);
     let opener = PrefixOpener {
+        business: None,
+        plan: None,
         datagram_slot: None,
         role: erase_stream(RecordingRole(capture.clone())),
         context: OpenContext {

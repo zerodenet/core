@@ -1,6 +1,11 @@
 //! Original granted resources and protocol lifecycle over the same host provider.
 use super::*;
 pub(super) struct BoundResources {
+    #[cfg(feature = "raw-ip-runtime")]
+    pub(super) source_pause: Option<Arc<zero_platform_tokio::contract::packet::PacketSourcePause>>,
+    #[cfg(all(feature = "raw-ip-runtime", feature = "datagram-route-runtime"))]
+    pub(super) packet_native:
+        Option<std::sync::Weak<super::super::bind::native::udp::NativeDatagramGrant>>,
     pub(super) handoff: Option<Arc<super::super::bind::native::handoff::Grant>>,
     pub(super) process: Option<Arc<crate::component::instance::HostResources>>,
     pub(super) extra_tcp: Mutex<Vec<(Destination, ControlledTcpListener)>>,
@@ -20,6 +25,50 @@ pub(super) struct BoundResources {
         Option<zero_platform_tokio::contract::component::AcceptedDatagramAuthority>,
 }
 impl ResourceAccess for BoundResources {
+    #[cfg(feature = "raw-ip-runtime")]
+    fn packet_source_pause(
+        &self,
+    ) -> Option<Arc<zero_platform_tokio::contract::packet::PacketSourcePause>> {
+        self.source_pause.clone()
+    }
+
+    #[cfg(all(feature = "raw-ip-runtime", feature = "datagram-route-runtime"))]
+    fn take_packet_datagram_reads(
+        &self,
+        datagram: usize,
+    ) -> Result<[zero_tun::packet_memory::NativeReadGrant; 2], BuildError> {
+        self.packet_native
+            .as_ref()
+            .and_then(std::sync::Weak::upgrade)
+            .ok_or_else(denied)?
+            .take_packet_reads(datagram)
+    }
+    #[cfg(all(feature = "raw-ip-runtime", feature = "datagram-route-runtime"))]
+    fn register_packet_source_driver(
+        &self,
+        original: &zero_platform_tokio::controlled_datagram::listener::DatagramListenerIdentity,
+        witness: &zero_platform_tokio::contract::scope::TaskJoinWitness,
+    ) -> Result<zero_platform_tokio::contract::component::GrantedPacketSourceDriver, BuildError>
+    {
+        let original = self
+            .packet_native
+            .as_ref()
+            .and_then(std::sync::Weak::upgrade)
+            .ok_or_else(denied)?
+            .register_driver(original, witness)?;
+        let checkpoint = self.source_pause.as_ref().ok_or_else(denied)?.bind(
+            zero_platform_tokio::contract::packet::PacketPauseParticipant::Wire,
+            witness,
+        )?;
+        original.bind_packet_source(&checkpoint)?;
+        Ok(
+            zero_platform_tokio::contract::component::GrantedPacketSourceDriver {
+                origin: original,
+                checkpoint,
+            },
+        )
+    }
+
     fn inbound_endpoints(
         &self,
     ) -> Result<zero_platform_tokio::contract::component::InboundListenerEndpoints, BuildError>
@@ -66,6 +115,27 @@ impl ResourceAccess for BoundResources {
             .as_ref()
             .ok_or_else(denied)?
             .spawn_process(request)
+    }
+    #[cfg(any(target_os = "linux", windows))]
+    fn process_endpoint_retirement(
+        &self,
+        ordinal: usize,
+    ) -> Option<Arc<dyn zero_platform_tokio::owned_process::ProcessEndpointRetirement>> {
+        self.process.as_ref()?.process_endpoint_retirement(ordinal)
+    }
+    #[cfg(any(target_os = "linux", windows))]
+    fn prepare_owned_process(
+        &self,
+        request: zero_platform_tokio::contract::component::ProcessRequest,
+        tasks: &zero_platform_tokio::contract::scope::TaskRegistrar,
+    ) -> Result<Arc<zero_platform_tokio::owned_process::OwnedProcess>, BuildError> {
+        if !self.starting.load(Ordering::Acquire) || self.cancel.is_cancelled() {
+            return Err(denied());
+        }
+        self.process
+            .as_ref()
+            .ok_or_else(denied)?
+            .prepare_owned_process(request, tasks)
     }
     fn open_inbound_file_tree(
         &self,

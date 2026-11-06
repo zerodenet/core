@@ -5,6 +5,17 @@ use crate::component::{
 use std::sync::Arc;
 use zero_config::RuntimeConfig;
 impl super::ProtocolInventory {
+    pub(crate) fn try_pause_replacement_users(
+        &self,
+        candidate: &Arc<ComponentPlan>,
+    ) -> Result<
+        crate::component::catalog::ReplacementUsersPause,
+        zero_platform_tokio::contract::ChannelError,
+    > {
+        self.host
+            .components()
+            .try_pause_replacement_users(candidate)
+    }
     /// Inline across the whole runtime and passive nested operations. This
     /// elects a join consumer; it never spawns another owner/task registry.
     pub(crate) async fn drive_component_supervision<T>(
@@ -90,11 +101,26 @@ impl super::ProtocolInventory {
     pub(crate) fn stop_component_admission(&self) {
         self.host.components().stop_business();
     }
+    /// Exact unstarted candidate cleanup, retaining the same current slot Arcs.
+    /// Used only before this accepted phase has started or revoked resources.
+    pub(crate) async fn discard_cold_components(
+        &self,
+        config: &Arc<RuntimeConfig>,
+        deadline: tokio::time::Instant,
+    ) -> Result<(), zero_engine::EngineError> {
+        self.host
+            .components()
+            .discard_device_candidate(config, deadline)
+            .await
+            .map_err(|error| std::io::Error::other(error).into())
+    }
     pub(crate) async fn start_components(
         &self,
         config: Arc<RuntimeConfig>,
         deadline: tokio::time::Instant,
     ) -> Result<(), zero_engine::EngineError> {
+        #[cfg(feature = "raw-ip-runtime")]
+        self.finish_previous_device_publication(deadline).await?;
         self.host
             .components()
             .start(config, deadline)
@@ -119,6 +145,10 @@ impl super::ProtocolInventory {
         &self,
         deadline: tokio::time::Instant,
     ) -> Result<(), zero_engine::EngineError> {
+        self.host.cancel_probes();
+        self.drive_component_supervision(self.host.drain_probes(deadline))
+            .await
+            .map_err(|source| zero_engine::EngineError::Io(std::io::Error::other(source)))?;
         #[cfg(feature = "raw-ip-runtime")]
         let publication = self.stop_device_publication(None, deadline).await?;
         let closed = self
@@ -148,12 +178,7 @@ impl super::ProtocolInventory {
     ) -> Result<Arc<ComponentPlan>, SharedError> {
         #[cfg(feature = "raw-ip-runtime")]
         {
-            if self
-                .device_publication
-                .lock()
-                .expect("device publication poisoned")
-                .is_some()
-            {
+            if !self.may_prepare_device_publication() {
                 return Err(Arc::new(
                     zero_platform_tokio::contract::ChannelError::new(
                         zero_platform_tokio::contract::Stage::Prepare,
@@ -185,7 +210,10 @@ impl super::ProtocolInventory {
             self.host
                 .components()
                 .prepare_recovered_device_resources(config.clone(), |resources| {
-                    self.devices.prepare_component_resources(&config, resources)
+                    let deferred=self.devices.prepare_component_resources(&config,resources)?;
+                    let aliases=self.devices.device_alias_overrides(&config,resources)?;
+                    resources.set_device_alias_overrides(aliases)?;
+                    Ok(deferred)
                 })
         }
         #[cfg(not(feature = "raw-ip-runtime"))]
@@ -239,6 +267,9 @@ impl super::ProtocolInventory {
         &self,
         config: &RuntimeConfig,
     ) -> Result<(), zero_engine::EngineError> {
+        self.host
+            .validate_probe_candidate(config)
+            .map_err(|error| zero_engine::EngineError::Io(std::io::Error::other(error)))?;
         self.registry.validate_runtime_candidate(config)
     }
     pub(crate) fn validate_components(
@@ -246,7 +277,9 @@ impl super::ProtocolInventory {
         config: Arc<RuntimeConfig>,
     ) -> Result<(), zero_engine::EngineError> {
         self.validate_runtime_candidate(&config)?;
-        self.prepare_components(config)
+        // Initial accepted assembly validates the same cold device union as
+        // startup. Ordinary service readers never create a second pass.
+        self.prepare_device_components(config)
             .map(|_| ())
             .map_err(|error| zero_engine::EngineError::Io(std::io::Error::other(retained(error))))
     }

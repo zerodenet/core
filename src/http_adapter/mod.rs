@@ -37,6 +37,9 @@ pub struct HttpServerHandle {
     listen: String,
     auth: Option<HttpServerAuth>,
     started: std::sync::atomic::AtomicBool,
+    retired: std::sync::atomic::AtomicBool,
+    #[cfg(test)]
+    bound: std::sync::Mutex<Option<std::net::SocketAddr>>,
     budget: Arc<zero_runtime::configuration::ControlBudget>,
     connections: Arc<connections::Connections>,
 }
@@ -81,10 +84,14 @@ impl HttpServerAuth {
 }
 
 impl HttpServerHandle {
+    pub(crate) fn retirement_complete(&self) -> bool {
+        self.retired.load(std::sync::atomic::Ordering::Acquire)
+    }
     pub(crate) async fn wait_terminated(&self) -> io::Result<()> {
         self.task.join().await
     }
     pub async fn shutdown(&self) -> io::Result<()> {
+        self.task.close_admission();
         if let Some(shutdown) = self
             .shutdown
             .lock()
@@ -101,21 +108,21 @@ impl HttpServerHandle {
             .shutdown(crate::ipc::owner::close_deadline())
             .await;
         let mut original = self.original.lock().await;
-        let native_complete = match original.as_mut() {
+        let native = match original.as_mut() {
             Some(original) => original
                 .wait_closed(crate::ipc::owner::close_deadline())
                 .await
-                .map_err(io::Error::other)?
-                .is_complete(),
-            None => true,
+                .map_err(io::Error::other)
+                .and_then(|report| crate::ipc::owner::confirmed_report("HTTP native", report)),
+            None => Ok(()),
         };
-        if !tasks.is_complete() || !native_complete {
-            return Err(io::Error::other(
-                "HTTP original tasks or native IO remain retained",
-            ));
+        let scope = crate::ipc::owner::confirmed_report("HTTP Scope", tasks);
+        if scope.is_ok() && native.is_ok() {
+            self.connections.confirm_all_closed();
+            self.retired
+                .store(true, std::sync::atomic::Ordering::Release);
         }
-        self.connections.confirm_all_closed();
-        server
+        crate::ipc::owner::finish_work([server, scope, native])
     }
 }
 
@@ -138,6 +145,9 @@ pub fn prepare_http_server_with_budget(
         listen: listen.to_owned(),
         auth,
         started: std::sync::atomic::AtomicBool::new(false),
+        retired: std::sync::atomic::AtomicBool::new(false),
+        #[cfg(test)]
+        bound: std::sync::Mutex::new(None),
         budget,
         connections: Arc::new(connections::Connections::default()),
     })
@@ -147,6 +157,7 @@ impl HttpServerHandle {
         if self.started.swap(true, std::sync::atomic::Ordering::AcqRel) {
             return Err(io::Error::other("HTTP original owner already started"));
         }
+        let registration = self.task.reserve()?;
         let sockets = NonZeroUsize::new(4096).unwrap();
         let per_entry = NonZeroUsize::new(3).unwrap();
         let mut scope = self.scope.lock().await;
@@ -155,6 +166,10 @@ impl HttpServerHandle {
                 .await?;
         drop(scope);
         let local_addr = listener.local_addr().map_err(io::Error::other)?;
+        #[cfg(test)]
+        {
+            *self.bound.lock().unwrap() = Some(local_addr);
+        }
         let receiver = self
             .original
             .lock()
@@ -173,7 +188,11 @@ impl HttpServerHandle {
         let auth = self.auth.clone();
         let budget = self.budget.clone();
         let connections = self.connections.clone();
-        self.task.install(tokio::spawn(async move {
+        let (begin, started) = oneshot::channel();
+        registration.install(tokio::spawn(async move {
+            started
+                .await
+                .map_err(|_| io::Error::other("HTTP startup gate closed"))?;
             run_server(
                 listener,
                 proxy_handle,
@@ -188,7 +207,10 @@ impl HttpServerHandle {
                 },
             )
             .await
-        }))?;
+        }));
+        begin
+            .send(())
+            .map_err(|_| io::Error::other("original HTTP task stopped during startup"))?;
         info!(listen = %local_addr, "http api server ready");
         Ok(())
     }
@@ -737,3 +759,7 @@ fn is_transient_disconnect(error: &io::Error) -> bool {
             | io::ErrorKind::NotConnected
     )
 }
+
+#[cfg(test)]
+#[path = "tests/retirement.rs"]
+mod retirement_tests;

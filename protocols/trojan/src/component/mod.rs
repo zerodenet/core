@@ -1,8 +1,10 @@
 //! Protocol-owned ordinary Trojan Stream roles over a constrained real carrier.
 mod carrier;
+mod datagram;
 pub mod inbound;
 pub mod mux;
 mod options;
+mod transport;
 pub use options::Options;
 use std::sync::Arc;
 use tokio::io::AsyncWriteExt;
@@ -35,7 +37,7 @@ impl ComponentFactory for Factory {
     fn describe(&self, options: &Options) -> ComponentSpec {
         ComponentSpec {
             owner: ResourceOwner::Component,
-            roles: vec![RoleKind::Stream],
+            roles: vec![RoleKind::Stream, RoleKind::Datagram],
             dependencies: vec![],
             static_identity: options.identity.clone(),
             resources: vec![],
@@ -51,6 +53,12 @@ impl ComponentFactory for Factory {
         Ok(ComponentInstance {
             lifecycle: erase_lifecycle(owner),
             roles: ComponentRoles {
+                datagram: Some(zero_platform_tokio::contract::datagram::erase_datagram(
+                    Outbound {
+                        options: options.clone(),
+                        admission: admission.clone(),
+                    },
+                )),
                 stream: Some(erase_stream(Outbound { options, admission })),
                 ..Default::default()
             },
@@ -89,47 +97,7 @@ impl StreamOutbound for Outbound {
                 )
                 .with_source(source)
         })?;
-        let carrier = CarrierContext {
-            session,
-            deadline: context.deadline,
-            cancel: context.cancel.clone(),
-        };
-        let opened = context
-            .upstream
-            .open_stream(self.options.endpoint.clone(), carrier);
-        let io = tokio::select! { biased;
-            _ = self.admission.cancelled() => return Err(self.admission.error(session,Stage::Dial,Reason::Revoked,DeliveryState::Unknown)),
-            _ = context.cancel.cancelled() => return Err(self.admission.error(session,Stage::Dial,Reason::Cancelled,DeliveryState::Unknown)),
-            result = with_deadline(context.deadline,opened) => result.map_err(|source| self.admission.error(session,Stage::Dial,Reason::Timeout,DeliveryState::Unknown).with_source(source))?,
-        }.map_err(|error| self.admission.attach(error,session))?;
-        let transport = connect_relay_transport_stack(
-            zero_transport::TcpRelayStream::new(carrier::Carrier::new(io)),
-            StreamTransportStack {
-                tls: Some(&self.options.tls),
-                ws: self.options.ws.as_ref(),
-                grpc: self.options.grpc.as_ref(),
-                h2: None::<&OwnedH2Profile>,
-                http_upgrade: None::<&OwnedHttpUpgradeProfile>,
-                source_dir: None,
-            },
-            &self.options.server,
-            self.options.endpoint.port,
-            "trojan: ws and grpc are mutually exclusive",
-        );
-        let mut io = tokio::select! { biased;
-            _ = self.admission.cancelled() => return Err(self.admission.error(session,Stage::Handshake,Reason::Revoked,DeliveryState::Unknown)),
-            _ = context.cancel.cancelled() => return Err(self.admission.error(session,Stage::Handshake,Reason::Cancelled,DeliveryState::Unknown)),
-            result = with_deadline(context.deadline,transport) => result.map_err(|source| self.admission.error(session,Stage::Handshake,Reason::Timeout,DeliveryState::Unknown).with_source(source))?,
-        }.map_err(|source| {
-            let mut error = self.admission.error(session, Stage::Handshake, Reason::Io, DeliveryState::Unknown);
-            // No Trojan request was written. Only an empty prefix proves that
-            // another proxy has not already submitted its own CONNECT.
-            if context.upstream.binding().prefix.is_empty() {
-                error.delivery = DeliveryState::NotSubmitted;
-                error.retry = zero_platform_tokio::contract::RetryClass::BeforeSubmission;
-            }
-            error.with_source(source)
-        })?;
+        let mut io = self.open_transport(&context, session).await?;
         let submit = async {
             io.write_all(&bytes).await?;
             io.flush().await

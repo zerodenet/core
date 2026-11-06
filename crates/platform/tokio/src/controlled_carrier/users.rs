@@ -112,6 +112,10 @@ impl Drop for CarrierUserView {
     }
 }
 impl Users {
+    pub(super) fn caller_joined(&self) -> Option<TaskJoined> {
+        self.caller.as_ref().and_then(TaskJoinWitness::try_joined)
+    }
+
     pub(super) fn driver_custody_live(&self) -> bool {
         self.driver_owned && self.live
     }
@@ -136,6 +140,13 @@ impl Users {
     }
     pub(super) fn acquired(&self) -> bool {
         self.acquired
+    }
+    pub(super) fn credit_caller(&self) -> Option<TaskJoinWitness> {
+        if self.acquired && !self.driver_owned && !self.transferred_owned {
+            self.caller.clone()
+        } else {
+            None
+        }
     }
     pub(super) fn ready(&self) -> bool {
         !self.live

@@ -48,6 +48,9 @@ impl ComponentTaskFault {
         error.session = self.source.session;
         error.delivery = self.source.delivery;
         error.retry = self.source.retry;
+        if let Some(receipt) = self.source.cleanup_failure_receipt() {
+            error = error.with_cleanup_failure_receipt(receipt.clone());
+        }
         error.with_source(self.clone())
     }
 }
@@ -269,16 +272,23 @@ impl ComponentSlot {
         }
     }
     pub(in crate::component) fn poll_tasks(&self, target: &Arc<WaitTarget>) -> bool {
+        let initialized = self.poll_owned_start(target);
         let budget = self.recipe.spec().task_limit.map_or(1, |limit| limit.get());
         let progress = self
             .live
             .get()
             .and_then(|live| live.as_ref().ok())
-            .is_some_and(|live| live.tasks.poll(target, self.instance_id(), budget));
+            .is_some_and(|live| {
+                let joined = live.tasks.poll(target, self.instance_id(), budget);
+                live.tasks.wake.bind(target);
+                let waker = std::task::Waker::from(live.tasks.wake.clone());
+                let mut cx = Context::from_waker(&waker);
+                live.resources.poll_cancelled_carriers(&mut cx) || joined
+            });
         if self.task_fault().is_some() {
             self.revoke();
         }
-        progress
+        progress || initialized
     }
     pub(in crate::component) async fn scan_tasks(
         &self,
@@ -307,5 +317,25 @@ impl ComponentSlot {
 impl Drop for TaskMonitor {
     fn drop(&mut self) {
         self.wake.unbind();
+    }
+}
+
+impl ComponentSlot {
+    pub(crate) fn probe_registrar(
+        &self,
+    ) -> Result<zero_platform_tokio::contract::scope::TaskRegistrar, ChannelError> {
+        if !self.has_started() || !self.recipe.spec().resources.iter().any(|resource|matches!(resource,zero_platform_tokio::contract::component::ResourceDeclaration::ControlledDirectStream {..})) {
+            return Err(self.failure(Reason::Revoked,"probe needs its actual started Direct task owner"));
+        }
+        let live = self
+            .live
+            .get()
+            .and_then(|live| live.as_ref().ok())
+            .ok_or_else(|| self.failure(Reason::StalePlan, "probe Direct has not built"))?;
+        let registrar = live.tasks.lock().scope.registrar();
+        if !registrar.scope_identity().resource_open() {
+            return Err(self.failure(Reason::Revoked, "probe Direct Scope is stopped"));
+        }
+        Ok(registrar)
     }
 }

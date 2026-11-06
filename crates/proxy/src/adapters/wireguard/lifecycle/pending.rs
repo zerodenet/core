@@ -230,3 +230,12 @@ impl PeerResources {
                 || self.peer_carriers.iter().any(|owner| owner.needs_cleanup()))
     }
 }
+
+#[cfg(test)]
+impl PeerResources {
+    pub(in crate::adapters::wireguard) fn test_actual_graph(
+        &self,
+    ) -> Option<Arc<super::recipe::component::LinkedStackOptions>> {
+        self.graph.lock().unwrap().upgrade()
+    }
+}

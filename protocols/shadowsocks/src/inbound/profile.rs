@@ -2,6 +2,7 @@ use super::*;
 #[cfg(feature = "crypto")]
 impl ShadowsocksInboundProfile {
     pub fn with_state_limits(mut self, limits: crate::validation::StateLimits) -> Self {
+        self.replay = self.replay.with_tcp_capacity(limits.tcp_replay_capacity);
         self.limits = limits;
         self
     }
@@ -10,7 +11,7 @@ impl ShadowsocksInboundProfile {
     }
 
     pub fn with_replay_policy(mut self, policy: crate::validation::ReplayPolicy) -> Self {
-        self.replay = crate::shared::legacy_replay::LegacyReplay::new(policy, true);
+        self.replay = self.replay.with_policy(policy);
         self
     }
     pub(crate) fn legacy_replay(&self) -> crate::shared::legacy_replay::LegacyReplay {
@@ -105,10 +106,6 @@ impl ShadowsocksInboundProfile {
             .clone()
     }
 
-    pub(crate) fn cipher(&self) -> crate::shared::CipherKind {
-        self.cipher
-    }
-
     pub(crate) fn identity_password(&self) -> Option<&[u8]> {
         self.identity_password.as_deref()
     }
@@ -135,11 +132,46 @@ impl ShadowsocksInboundProfile {
     }
 
     pub fn tcp_state(&self) -> ShadowsocksInboundTcpState {
-        ShadowsocksInboundTcpState::new(self.cipher, self.limits)
+        ShadowsocksInboundTcpState::new(
+            self.cipher,
+            self.limits,
+            #[cfg(feature = "blake3")]
+            self.replay.modern_pool(),
+        )
+    }
+
+    pub(crate) fn udp_codec_for_user(&self, user: &ShadowsocksUser) -> ShadowsocksInboundUdpCodec {
+        let codec = match self.identity_password() {
+            Some(identity) => {
+                ShadowsocksInboundUdpCodec::new_eih(self.cipher, identity, user.password())
+            }
+            None => ShadowsocksInboundUdpCodec::new(self.cipher, user.password()),
+        }
+        .with_replay_guard(self.replay.clone())
+        .with_state_limits(self.limits);
+        #[cfg(feature = "blake3")]
+        let codec = codec
+            .with_receiver_history(self.replay.received_for_user(
+                format!("{:?}:{}", self.cipher, user.cache_key()),
+                self.limits,
+            ))
+            .with_response_history(self.replay.responses_for_user(
+                format!("{:?}:{}", self.cipher, user.cache_key()),
+                self.limits,
+            ));
+        codec
+    }
+
+    #[cfg(feature = "blake3")]
+    pub(crate) fn udp_replay_budget(&self) -> Arc<crate::udp::UdpReplayBudget> {
+        self.replay.udp_replay_budget()
     }
 
     pub fn udp_codec(&self) -> ShadowsocksInboundUdpCodec {
         let users = self.users_snapshot();
+        if let Some(user) = users.first() {
+            return self.udp_codec_for_user(user);
+        }
         let password = users
             .first()
             .map(ShadowsocksUser::password)

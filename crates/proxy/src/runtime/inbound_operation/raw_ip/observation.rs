@@ -40,19 +40,7 @@ impl ObservedTraffic {
         reason: TrafficDropReason,
         count: u64,
     ) {
-        use zero_traits::PacketDropReason as D;
-        let reason = match reason {
-            TrafficDropReason::QueueFull => D::QueueFull,
-            TrafficDropReason::QueueClosed => D::QueueClosed,
-            TrafficDropReason::InvalidPacket => D::InvalidPacket,
-            TrafficDropReason::SourceRejected => D::SourceRejected,
-            TrafficDropReason::FragmentRejected => D::FragmentRejected,
-            TrafficDropReason::PolicyRejected => D::PolicyRejected,
-            TrafficDropReason::IoFailure => D::IoFailure,
-            TrafficDropReason::NoRoute => D::NoRoute,
-            TrafficDropReason::HopLimit => D::HopLimit,
-            _ => D::Unspecified,
-        };
+        let reason = packet_drop_reason(reason);
         self.event(
             plane,
             PacketEvent::Dropped {
@@ -63,6 +51,7 @@ impl ObservedTraffic {
         );
     }
 }
+#[derive(Clone)]
 pub(super) struct WireTraffic {
     pub aggregate: ObservedTraffic,
     identities: Vec<Option<Arc<str>>>,
@@ -118,6 +107,7 @@ pub(super) struct HostObserver {
     pub route: crate::runtime::route_runtime::InboundRouteRuntimeFactory,
     pub traffic: Mutex<Arc<super::statistics::IngressTraffic>>,
     pub ready: Option<crate::runtime::inbound_owners::InboundReady>,
+    pub native_io: Option<Arc<dyn zero_traits::IoObserver>>,
 }
 impl PacketObserver for HostObserver {
     fn egress(&self) -> zero_platform_tokio::EgressInterfaceControl {
@@ -129,9 +119,12 @@ impl PacketObserver for HostObserver {
         }
     }
     fn peers(&self, identities: &[Option<String>]) {
-        *self.traffic.lock().unwrap() = Arc::new(
-            super::statistics::IngressTraffic::from_identities(identities.to_vec(), &self.route),
-        );
+        *self.traffic.lock().unwrap() =
+            Arc::new(super::statistics::IngressTraffic::from_identities(
+                identities.to_vec(),
+                &self.route,
+                self.native_io.clone(),
+            ));
     }
     fn ingress_allowed(&self) -> bool {
         self.route.endpoint_inbound_allowed()
@@ -141,6 +134,24 @@ impl PacketObserver for HostObserver {
             PacketPlane::Inner => TrafficPlane::Inner,
             PacketPlane::Outer => TrafficPlane::Outer,
         };
+        if plane == TrafficPlane::Inner {
+            if let Some(io) = &self.native_io {
+                match event {
+                    PacketEvent::Received { bytes, .. } => io.received(bytes),
+                    PacketEvent::Sent { bytes } => io.sent(bytes),
+                    PacketEvent::Error { .. } => io.error(),
+                    PacketEvent::Dropped { reason, count, .. } => {
+                        for _ in 0..count {
+                            io.dropped_reason(reason);
+                        }
+                    }
+                    // TUN has no authenticated wire peer; accepted native
+                    // writes already provide the real sent-byte observation.
+                    PacketEvent::Responded { .. } | PacketEvent::PeerReceived { .. } => {}
+                }
+                return;
+            }
+        }
         let guard = self.traffic.lock().unwrap();
         let meter = guard.peer(peer);
         match event {
@@ -160,5 +171,21 @@ impl PacketObserver for HostObserver {
                 count,
             ),
         }
+    }
+}
+
+pub(super) fn packet_drop_reason(reason: TrafficDropReason) -> zero_traits::PacketDropReason {
+    use zero_traits::PacketDropReason as D;
+    match reason {
+        TrafficDropReason::QueueFull => D::QueueFull,
+        TrafficDropReason::QueueClosed => D::QueueClosed,
+        TrafficDropReason::InvalidPacket => D::InvalidPacket,
+        TrafficDropReason::SourceRejected => D::SourceRejected,
+        TrafficDropReason::FragmentRejected => D::FragmentRejected,
+        TrafficDropReason::PolicyRejected => D::PolicyRejected,
+        TrafficDropReason::IoFailure => D::IoFailure,
+        TrafficDropReason::NoRoute => D::NoRoute,
+        TrafficDropReason::HopLimit => D::HopLimit,
+        _ => D::Unspecified,
     }
 }

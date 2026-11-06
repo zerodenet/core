@@ -1,4 +1,5 @@
 //! Cold construction installs declaration bindings before lifecycle start.
+mod hosted;
 use super::*;
 use zero_core::component::ComponentInstanceId;
 use zero_platform_tokio::contract::scope::TaskScopeIdentity;
@@ -9,7 +10,15 @@ impl HostResources {
         declarations: &[ResourceDeclaration],
         cancel: CancellationToken,
     ) -> Result<Arc<Self>, ChannelError> {
-        Self::construct(component, declarations, cancel, None)
+        Self::construct(
+            component,
+            declarations,
+            cancel,
+            None,
+            None,
+            Arc::default(),
+            None,
+        )
     }
     pub fn new_for_instance(
         instance: ComponentInstanceId,
@@ -22,6 +31,9 @@ impl HostResources {
             declarations,
             cancel,
             Some((instance, scope)),
+            None,
+            Arc::default(),
+            None,
         )
     }
     fn construct(
@@ -29,7 +41,35 @@ impl HostResources {
         declarations: &[ResourceDeclaration],
         cancel: CancellationToken,
         identity: Option<(ComponentInstanceId, TaskScopeIdentity)>,
+        packet_source: Option<
+            Arc<
+                std::sync::OnceLock<
+                    zero_platform_tokio::controlled_datagram::provider::NativeDatagramOrigin,
+                >,
+            >,
+        >,
+        originals: Arc<crate::HostOriginalBudgets>,
+        original_tasks: Option<zero_platform_tokio::contract::scope::WeakTaskRegistrar>,
     ) -> Result<Arc<Self>, ChannelError> {
+        let reads = read_workspaces::ReadDeclarations::new(
+            component,
+            declarations,
+            identity.clone(),
+            originals.clone(),
+        )?;
+        let bounds = bound_datagram::BoundDeclarations::new(
+            component,
+            declarations,
+            identity.clone(),
+            cancel.clone(),
+            originals.carrier.clone(),
+        )?;
+        #[cfg(any(target_os = "linux", windows))]
+        let processes = process::ProcessDeclarations::new(
+            declarations,
+            identity.clone(),
+            originals.process.clone(),
+        )?;
         let roots =
             root_datagram::RootDeclarations::new(component, declarations, identity.clone())?;
         let metadata =
@@ -81,6 +121,8 @@ impl HostResources {
                         name.clone(),
                         binding.clone(),
                         cancel.clone(),
+                        originals.clone(),
+                        original_tasks.clone(),
                     )?);
                 }
 
@@ -106,6 +148,14 @@ impl HostResources {
                     )?);
                 }
 
+                ResourceDeclaration::ProcessEndpoint { .. } => {
+                    #[cfg(not(any(target_os = "linux", windows)))]
+                    return Err(error(
+                        component,
+                        Reason::Unsupported,
+                        "process endpoint native provider is unavailable",
+                    ));
+                }
                 ResourceDeclaration::Process {
                     program,
                     max_starts,
@@ -128,8 +178,11 @@ impl HostResources {
                     accepted,
                 } => {
                     if accepted.is_some() {
-                        return Err(error(component, Reason::Unsupported,
-                            "accepted TCP authority requires the actual host handler Scope provider"));
+                        return Err(error(
+                            component,
+                            Reason::Unsupported,
+                            "accepted TCP authority requires the actual host handler Scope provider",
+                        ));
                     }
                     let address = sockets::literal(component, destination)?;
                     let owner = sockets::TcpGrant {
@@ -178,12 +231,17 @@ impl HostResources {
                 ResourceDeclaration::File { path, max_bytes } => {
                     files.declare(component, path, *max_bytes)?
                 }
-                ResourceDeclaration::ControlledOutboundDatagram { .. }
+                ResourceDeclaration::PacketDatagramReads { .. }
+                | ResourceDeclaration::BoundOutboundDatagram { .. }
+                | ResourceDeclaration::ControlledOutboundDatagram { .. }
                 | ResourceDeclaration::ControlledOutboundStream { .. }
                 | ResourceDeclaration::ControlledCarrierPool { .. }
+                | ResourceDeclaration::ControlledServiceStream { .. }
+                | ResourceDeclaration::ControlledAssociationPool { .. }
                 | ResourceDeclaration::ControlledMetadataDatagram { .. }
                 | ResourceDeclaration::ControlledMetadataCarrier { .. }
                 | ResourceDeclaration::ControlledDatagramCarrier { .. }
+                | ResourceDeclaration::ControlledNodeCarrier { .. }
                 | ResourceDeclaration::ControlledNodeStream { .. }
                 | ResourceDeclaration::ControlledDirectStream { .. }
                 | ResourceDeclaration::MetadataDatagram { .. } => {}
@@ -199,7 +257,7 @@ impl HostResources {
                         component,
                         Reason::InvalidConfig,
                         "resource grant is not implemented",
-                    ))
+                    ));
                 }
             }
         }
@@ -208,6 +266,10 @@ impl HostResources {
             .map(|declaration| coverage::CoverageBinding::new(component, declaration))
             .collect::<Result<Vec<_>, _>>()?;
         Ok(Arc::new(Self {
+            source_pause: std::sync::OnceLock::new(),
+            originals,
+            original_tasks,
+            packet_source: packet_source.unwrap_or_default(),
             component,
             icmp,
             coverage,
@@ -215,7 +277,11 @@ impl HostResources {
             metadata,
             metapools,
             roots,
+            bounds,
+            reads,
             packets,
+            #[cfg(any(target_os = "linux", windows))]
+            processes,
             cancel,
             state: Mutex::new(State {
                 closed: false,

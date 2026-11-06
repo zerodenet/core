@@ -2,6 +2,8 @@
 mod budget;
 #[cfg(feature = "socks5")]
 mod cross_owner;
+#[cfg(all(feature = "wireguard", feature = "socks5"))]
+mod device;
 #[cfg(feature = "dns")]
 mod dns;
 mod fixtures;
