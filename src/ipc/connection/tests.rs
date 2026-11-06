@@ -1,11 +1,11 @@
 use super::{
-    command_can_run_concurrently, write_command_result, ConcurrentCommandTasks,
-    MAX_PENDING_CONCURRENT_IPC_COMMANDS,
+    ConcurrentCommandTasks, MAX_PENDING_CONCURRENT_IPC_COMMANDS, command_can_run_concurrently,
+    write_command_result,
 };
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::Arc;
+use std::{io, sync::Arc};
 use tokio::io::{AsyncBufReadExt, BufReader, BufWriter};
-use tokio::sync::{oneshot, Mutex};
+use tokio::sync::{Mutex, oneshot};
 use zero_api::{
     CommandRequest, CommandResponse, ConfigApplyCommand, DiagnosticsProbeOutboundCommand,
     ModeSetCommand, RawResponse,

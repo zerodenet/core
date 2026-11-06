@@ -99,7 +99,7 @@ pub(super) async fn run_ipc_server(
         std::panic::resume_unwind(payload);
     }
     info!("ipc server stopped");
-    super::super::owner::finish_work(failures)
+    super::super::owner::finish_work(failures.into_iter().map(Err))
 }
 
 async fn settle_connection(

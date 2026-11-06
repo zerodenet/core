@@ -78,7 +78,7 @@ impl UnixOriginals {
                 }
             }
         }
-        super::super::owner::finish_work(failures)
+        super::super::owner::finish_work(failures.into_iter().map(Err))
     }
 }
 impl UnixOriginals {
