@@ -51,6 +51,61 @@ pub fn fragment_packet_lengths(packet: &[u8], mtu: usize) -> Result<Vec<usize>, 
         .map(|offset| plan.header + (length - offset).min(plan.chunk))
         .collect())
 }
+/// Fill only the exact already admitted derived buffers. No byte allocation
+/// or credit changes occur here; the caller retains the original until every
+/// actual asynchronous send using these fragments ends.
+pub fn write_packet_fragments(
+    packet: &[u8],
+    mtu: usize,
+    identification: u32,
+    outputs: &mut [PacketBuffer],
+) -> Result<(), PacketDeriveError> {
+    if packet.len() <= mtu {
+        return if outputs.is_empty() {
+            Ok(())
+        } else {
+            Err(PacketDeriveError::LayoutMismatch)
+        };
+    }
+    let plan = layout(packet, mtu).ok_or(PacketDeriveError::LayoutMismatch)?;
+    let length = plan.end - plan.payload;
+    if outputs.len() != length.div_ceil(plan.chunk)
+        || !outputs.iter().enumerate().all(|(index, output)| {
+            output.len() == plan.header + (length - index * plan.chunk).min(plan.chunk)
+        })
+    {
+        return Err(PacketDeriveError::LayoutMismatch);
+    }
+    for (index, output) in outputs.iter_mut().enumerate() {
+        let offset = index * plan.chunk;
+        let payload =
+            &packet[plan.payload + offset..plan.end.min(plan.payload + offset + plan.chunk)];
+        let more = plan.payload + offset + payload.len() < plan.end;
+        if plan.v6 {
+            output[..40].copy_from_slice(&packet[..40]);
+            output[6] = 44;
+            output[40..48].fill(0);
+            output[40] = packet[6];
+            output[42..44].copy_from_slice(&((offset as u16) | u16::from(more)).to_be_bytes());
+            output[44..48].copy_from_slice(&identification.to_be_bytes());
+            output[48..].copy_from_slice(payload);
+            output[4..6].copy_from_slice(&((8 + payload.len()) as u16).to_be_bytes());
+        } else {
+            output[..plan.header].copy_from_slice(&packet[..plan.header]);
+            output[plan.header..].copy_from_slice(payload);
+            let length = output.len() as u16;
+            output[2..4].copy_from_slice(&length.to_be_bytes());
+            output[4..6].copy_from_slice(&(identification as u16).to_be_bytes());
+            output[6..8].copy_from_slice(
+                &(((offset / 8) as u16) | if more { 0x2000 } else { 0 }).to_be_bytes(),
+            );
+            output[10..12].fill(0);
+            let sum = checksum(&output[..plan.header]);
+            output[10..12].copy_from_slice(&sum.to_be_bytes());
+        }
+    }
+    Ok(())
+}
 #[derive(Debug)]
 pub struct PacketFragmentFailure {
     pub cause: PacketDeriveError,
@@ -108,34 +163,11 @@ pub async fn fragment_ip_packet_accounted(
             })
         }
     };
-    let plan = layout(&packet, mtu).expect("same validated original layout");
-    for (index, output) in outputs.iter_mut().enumerate() {
-        let offset = index * plan.chunk;
-        let payload =
-            &packet[plan.payload + offset..plan.end.min(plan.payload + offset + plan.chunk)];
-        let more = plan.payload + offset + payload.len() < plan.end;
-        if plan.v6 {
-            output[..40].copy_from_slice(&packet[..40]);
-            output[6] = 44;
-            output[40..48].fill(0);
-            output[40] = packet[6];
-            output[42..44].copy_from_slice(&((offset as u16) | u16::from(more)).to_be_bytes());
-            output[44..48].copy_from_slice(&identification.to_be_bytes());
-            output[48..].copy_from_slice(payload);
-            output[4..6].copy_from_slice(&((8 + payload.len()) as u16).to_be_bytes());
-        } else {
-            output[..plan.header].copy_from_slice(&packet[..plan.header]);
-            output[plan.header..].copy_from_slice(payload);
-            let length = output.len() as u16;
-            output[2..4].copy_from_slice(&length.to_be_bytes());
-            output[4..6].copy_from_slice(&(identification as u16).to_be_bytes());
-            output[6..8].copy_from_slice(
-                &(((offset / 8) as u16) | if more { 0x2000 } else { 0 }).to_be_bytes(),
-            );
-            output[10..12].fill(0);
-            let sum = checksum(&output[..plan.header]);
-            output[10..12].copy_from_slice(&sum.to_be_bytes());
-        }
+    if let Err(cause) = write_packet_fragments(&packet, mtu, identification, &mut outputs) {
+        return Err(PacketFragmentFailure {
+            cause,
+            original: packet,
+        });
     }
     let original = Arc::new(packet);
     Ok(outputs
