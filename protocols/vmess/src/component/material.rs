@@ -59,7 +59,7 @@ impl Options {
         static STAMP: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
         let stamp = if file.is_some() {
             STAMP
-                .fetch_update(
+                .try_update(
                     std::sync::atomic::Ordering::AcqRel,
                     std::sync::atomic::Ordering::Acquire,
                     |current| current.checked_add(1),
