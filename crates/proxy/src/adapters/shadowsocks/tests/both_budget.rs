@@ -83,9 +83,11 @@ async fn source_and_outbound_budget_change_rejects_before_revoking_any_admitted_
             if let Some(owner) = &local { assert!(Arc::ptr_eq(owner,&registry.owner("salt-source").unwrap())); }
             phase.set("Busy rejected: all existing original directions stay live");
             front.write_all(b"live").await.unwrap(); server.read_exact(&mut bytes).await.unwrap(); assert_eq!(&bytes,b"live");
-            server.write_all(b"same").await.unwrap(); front.read_exact(&mut bytes).await.unwrap(); assert_eq!(&bytes,b"same");
+            phase.set("Busy rejected: original outbound upload received, flush original encrypted response");
+            server.write_all(b"same").await.unwrap(); server.flush().await.unwrap(); front.read_exact(&mut bytes).await.unwrap(); assert_eq!(&bytes,b"same");
             if let Some((client,direct)) = &mut incoming {
-                client.write_all(b"keep").await.unwrap(); direct.read_exact(&mut bytes).await.unwrap(); assert_eq!(&bytes,b"keep");
+                phase.set("Busy rejected: flush original SS Source encrypted upload");
+                client.write_all(b"keep").await.unwrap(); client.flush().await.unwrap(); direct.read_exact(&mut bytes).await.unwrap(); assert_eq!(&bytes,b"keep");
                 direct.write_all(b"same").await.unwrap(); client.read_exact(&mut bytes).await.unwrap(); assert_eq!(&bytes,b"same");
             }
             assert_eq!(proxy.engine().config().runtime.effective_ss_tcp_replay_max_salts(),initial_total);
