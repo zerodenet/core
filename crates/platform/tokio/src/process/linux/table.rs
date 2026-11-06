@@ -111,7 +111,7 @@ pub(super) fn inode(
     {
         return Ok(None);
     }
-    let result = (|| {
+    let result: Result<Option<u64>, Arc<ChannelError>> = (|| {
         let mut lines = Lines::new(limit);
         let mut header = true;
         let port = format!("{:04X}", source.port());
@@ -155,7 +155,7 @@ pub(super) fn name(
     {
         return Ok(None);
     }
-    let result = (|| {
+    let result: Result<Option<String>, Arc<ChannelError>> = (|| {
         let mut lines = Lines::new(limit);
         let mut name = String::new();
         while let Some(line) = lines.next(originals)? {

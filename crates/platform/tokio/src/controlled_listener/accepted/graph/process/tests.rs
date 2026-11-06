@@ -2,7 +2,7 @@ use super::*;
 use crate::{
     contract::{
         component::{AcceptedTcpLimits, ResourceDeclaration},
-        lifecycle::{ChannelControl, TaskClass},
+        lifecycle::TaskClass,
         scope::TaskScope,
     },
     ControlledTcpListenerOwner,
