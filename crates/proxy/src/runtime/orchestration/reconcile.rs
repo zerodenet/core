@@ -132,24 +132,6 @@ impl OrchestrationState {
             }
         };
         let source_barrier = budget_changed || !source_dependency_changes.is_empty();
-        let _source_pauses = if budget_changed {
-            match budget_barrier::pause_sources(
-                proxy,
-                self.applied_snapshot.config(),
-                new_snapshot.config(),
-            )
-            .await
-            {
-                Ok(pauses) => Some(pauses),
-                Err(error) => {
-                    self.reject_before_start(proxy, &new_snapshot, error.to_string(), true)
-                        .await;
-                    return;
-                }
-            }
-        } else {
-            None
-        };
         let affected = proxy.protocols.affected_dns_detours(
             &proxy.engine,
             &self.applied_snapshot,
@@ -176,6 +158,28 @@ impl OrchestrationState {
                 .await;
             return;
         }
+        // An idle persistent DNS loan can itself be a real Packet Source
+        // user. Its same-token gate has already rejected active queries and
+        // retired only the affected warm drivers. Now the original Source can
+        // pause without waiting on the loan it would otherwise have to carry.
+        let _source_pauses = if budget_changed {
+            match budget_barrier::pause_sources(
+                proxy,
+                self.applied_snapshot.config(),
+                new_snapshot.config(),
+            )
+            .await
+            {
+                Ok(pauses) => Some(pauses),
+                Err(error) => {
+                    self.reject_before_start(proxy, &new_snapshot, error.to_string(), true)
+                        .await;
+                    return;
+                }
+            }
+        } else {
+            None
+        };
         let _user_pause = if budget_changed {
             match proxy.protocols.try_pause_replacement_users(&components) {
                 Ok(pause) => Some(pause),
