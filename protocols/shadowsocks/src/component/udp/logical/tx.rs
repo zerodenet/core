@@ -1,5 +1,4 @@
 use super::*;
-use std::future::Future;
 pub struct Tx {
     shared: Arc<Logical>,
     association: AssociationId,
@@ -60,17 +59,18 @@ impl DatagramTx for Tx {
         }
         if this.pending.is_none() {
             let flow = this.shared.flow.clone();
-            let copy = frame.clone();
-            let request = copy.clone();
+            let copy = Datagram {
+                association: frame.association,
+                address: frame.address.clone(),
+                payload: frame.payload.to_vec().into(),
+            };
+            let destination = copy.address.clone();
+            let payload = copy.payload.to_vec();
             this.pending = Some((
                 copy,
                 Box::pin(async move {
-                    flow.request_datagram(
-                        &request.address.address,
-                        request.address.port,
-                        &request.payload,
-                    )
-                    .await
+                    flow.request_datagram(&destination.address, destination.port, &payload)
+                        .await
                 }),
             ));
         }
