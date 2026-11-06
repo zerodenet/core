@@ -12,6 +12,8 @@ use zero_engine::{Engine, EngineError};
 
 use crate::inventory::ProtocolInventory;
 use crate::protocol_registry::TcpRuntimeServices;
+mod preparation;
+pub use preparation::ProxyPreparation;
 
 pub(crate) mod current_services;
 #[cfg(feature = "udp-runtime")]
@@ -170,26 +172,18 @@ impl Proxy {
         engine: Engine,
         native_background: bool,
     ) -> Result<Self, EngineError> {
-        let egress_interface = zero_platform_tokio::EgressInterfaceControl::default();
-        let node_network = Arc::new(crate::component::background::BackgroundNetwork::new(
-            egress_interface.clone(),
-        ));
-        let background = native_background.then(|| node_network.clone());
-        let protocols = match &background {
-            Some(network) => ProtocolInventory::with_background(network.clone()),
-            None => ProtocolInventory::with_node_network(node_network.clone()),
-        };
+        Self::from_preparation(engine, ProxyPreparation::with_background(native_background))
+    }
+
+    /// Complete the very same cold Host used for initial rule downloads.
+    /// The preparation is consumed once; no second inventory or pool is built.
+    pub fn from_preparation(
+        engine: Engine,
+        preparation: ProxyPreparation,
+    ) -> Result<Self, EngineError> {
+        let ProxyPreparation { egress_interface, node_network, background, protocols } = preparation;
         let config = engine.config();
-        // Application event delivery can start before Proxy::spawn. Install
-        // the configured limit on this same cold Host root before any of its
-        // consumers can acquire an original; later changes use StopOld.
-        let original_limit = std::num::NonZeroUsize::new(
-            config.runtime.effective_carrier_max_total_originals(),
-        )
-        .filter(|limit| limit.get() <= 65536)
-        .ok_or_else(|| std::io::Error::new(std::io::ErrorKind::InvalidInput, "invalid carrier original limit"))?;
-        protocols.runtime_host().original_budgets().carrier
-            .install_after_retirement(original_limit)?;
+        preparation::install_original_limit(&protocols, &config.runtime)?;
         protocols.validate_config(&config)?;
         protocols.validate_dial_environment(&config)?;
         protocols.validate_components(config.clone())?;
