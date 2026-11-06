@@ -461,3 +461,6 @@ mod ownership;
 
 #[path = "tests/expiry.rs"]
 mod expiry;
+
+#[path = "tests/standard.rs"]
+mod standard;

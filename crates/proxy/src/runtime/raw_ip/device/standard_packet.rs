@@ -14,6 +14,13 @@ pub(crate) struct PacketSubmission {
     pub(crate) mtu: usize,
 }
 impl SharedRawIpDevice {
+    pub(crate) fn queue_standard_reply(
+        &self,
+        replies: &zero_stack::packet_output::PacketSender,
+        packet: zero_traits::PacketBuffer,
+    ) -> Result<(), tokio::sync::mpsc::error::TrySendError<zero_traits::PacketBuffer>> {
+        self.returns.queue_reply(replies, packet)
+    }
     pub(crate) fn try_submit_standard_packet(
         &self,
         scope: &TaskScopeIdentity,

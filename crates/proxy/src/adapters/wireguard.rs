@@ -37,6 +37,7 @@ type PendingEndpointMap = Arc<PendingEndpointMapState>;
 
 #[derive(Default)]
 pub(crate) struct WireguardAdapter {
+    packet_return_totals: std::sync::OnceLock<Arc<crate::runtime::raw_ip::PacketReturnTotals>>,
     pool: Arc<RawIpDevicePool>,
     profiles: Arc<Mutex<HashMap<String, CachedProfile>>>,
     inbound_devices: Mutex<InboundDeviceMap>,
@@ -61,6 +62,17 @@ impl NamedProtocolAdapter for WireguardAdapter {
 }
 
 impl WireguardAdapter {
+    pub(super) fn set_packet_return_totals(
+        &self,
+        totals: Arc<crate::runtime::raw_ip::PacketReturnTotals>,
+    ) {
+        let actual = self.packet_return_totals.get_or_init(|| totals.clone());
+        assert!(
+            Arc::ptr_eq(actual, &totals),
+            "device assembly cannot replace its original Packet return totals"
+        );
+    }
+
     pub(crate) fn inbound_options(
         &self,
         inbound: &InboundConfig,

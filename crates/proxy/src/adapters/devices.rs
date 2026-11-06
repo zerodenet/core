@@ -15,6 +15,8 @@ use zero_engine::{EndpointAdmission, EngineError};
 
 #[derive(Default)]
 pub(crate) struct Devices {
+    #[cfg(feature = "raw-ip-runtime")]
+    pub(crate) packet_return_totals: Arc<crate::runtime::raw_ip::PacketReturnTotals>,
     pub(super) network: Option<std::sync::Weak<crate::component::background::BackgroundNetwork>>,
     #[cfg(feature = "raw-ip-runtime")]
     pub(crate) direct: Option<Arc<super::direct::DirectAdapter>>,
@@ -179,6 +181,10 @@ impl Devices {
         network: Option<&std::sync::Arc<crate::component::background::BackgroundNetwork>>,
     ) {
         self.network = network.map(std::sync::Arc::downgrade);
+        #[cfg(feature = "wireguard")]
+        if let Some(adapter) = &self.wireguard {
+            adapter.set_packet_return_totals(self.packet_return_totals.clone());
+        }
     }
     pub(crate) fn prepare_inbound(
         &self,

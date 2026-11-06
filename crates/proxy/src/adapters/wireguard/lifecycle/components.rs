@@ -77,6 +77,17 @@ impl WireguardAdapter {
             .ok_or_else(|| invalid("plain linked device graph requires its actual host network"))?;
         let options = crate::runtime::raw_ip::RawIpStackOptions::from_config(
             &config.runtime.network.udp_receive_queue,
+        )
+        .with_packet_return_limits(
+            config.runtime.effective_packet_return_max_frames(),
+            config.runtime.effective_packet_return_max_bytes(),
+        )
+        .with_packet_return_totals(
+            self.packet_return_totals
+                .get_or_init(Default::default)
+                .clone(),
+            config.runtime.effective_packet_return_total_max_frames(),
+            config.runtime.effective_packet_return_total_max_bytes(),
         );
         let mut recipes = Vec::new();
         let mut entries = HashMap::new();

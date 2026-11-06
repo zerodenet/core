@@ -85,7 +85,7 @@ impl SystemTunSourceOptions {
                 roles: vec![RoleKind::Inbound],
                 dependencies: vec![],
                 static_identity: identity.finalize().to_vec().into(),
-                task_limit: NonZeroUsize::new(crate::runtime::inbound_operation::raw_ip::PacketSourceContext::internal_task_limit()),
+                task_limit: NonZeroUsize::new(crate::runtime::inbound_operation::raw_ip::PacketSourceContext::device_task_limit()),
                 resources: vec![ResourceDeclaration::ControlledPacketDevice { name: resource_name.clone(), binding }, ResourceDeclaration::NativeIcmp { max_sockets: NonZeroUsize::new(64).unwrap() }],
             },
             resource_name,

@@ -15,7 +15,7 @@ const MAX_TLS_RECORD_LENGTH: usize = 18_432;
 const MAX_CLIENT_HELLO_LENGTH: usize = 65_535;
 const MAX_HTTP_HEADER_LENGTH: usize = 32 * 1024;
 
-pub(super) async fn sniff_tcp_target<S>(
+pub(crate) async fn sniff_tcp_target<S>(
     mut session: Session,
     stream: S,
 ) -> (Session, ReplayStream<S>)

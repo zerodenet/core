@@ -41,7 +41,7 @@ use super::{RawIpTunnel, RawIpWireCarrier};
 use driver::{run_device, Device};
 pub(crate) use endpoint::{EndpointPacket, EndpointStackOwner, EndpointStackRecipe};
 use health::DeviceHealth;
-pub(crate) use returns::PacketReturns;
+pub(crate) use returns::{PacketReturnTotals, PacketReturns};
 
 pub(super) struct ForwardedPackets {
     return_channel: zero_stack::packet_output::PacketSender,

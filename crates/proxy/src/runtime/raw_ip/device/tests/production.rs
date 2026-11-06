@@ -197,3 +197,7 @@ async fn ordinary_canonical_stream_preserves_inner_peer_traffic_and_same_origina
 async fn ordinary_canonical_domain_stream_uses_real_target_dns_and_closes_original_callers() {
     exercise(true).await;
 }
+
+mod replacement;
+
+mod packet;

@@ -19,7 +19,7 @@ use super::sniff::sniff_tcp_target;
 
 const TCP_STATE_IDLE_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(300);
 const TCP_STATE_CLEANUP_INTERVAL: std::time::Duration = std::time::Duration::from_secs(30);
-const MAX_CONCURRENT_DNS_CONNECTIONS: usize = 256;
+pub(super) const MAX_CONCURRENT_DNS_CONNECTIONS: usize = 256;
 type TunTaskResult = (&'static str, Result<(), EngineError>);
 
 struct TunProtocol;
@@ -428,7 +428,7 @@ async fn accept_tcp(
     }
 }
 
-async fn serve_dns_tcp(
+pub(crate) async fn serve_dns_tcp(
     resolver: Arc<zero_dns::DnsSystem>,
     mut stream: UserTcpStream,
 ) -> io::Result<()> {

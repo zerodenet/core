@@ -11,6 +11,12 @@ mod recovery;
 pub(crate) use policy::TunIngressOptions;
 mod routes;
 mod runtime;
+#[cfg(feature = "raw-ip-runtime")]
+pub(crate) use runtime::serve_dns_tcp;
+#[cfg(feature = "raw-ip-runtime")]
+pub(crate) use sniff::sniff_tcp_target;
+#[cfg(feature = "raw-ip-runtime")]
+pub(crate) const MAX_TCP_DNS_CONNECTIONS: usize = runtime::MAX_CONCURRENT_DNS_CONNECTIONS;
 mod sniff;
 #[cfg(feature = "raw-ip-runtime")]
 pub(crate) mod source;

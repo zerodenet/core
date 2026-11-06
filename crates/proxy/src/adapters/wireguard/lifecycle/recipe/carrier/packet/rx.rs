@@ -4,6 +4,7 @@ use zero_core::packet::IpPacket;
 use zero_platform_tokio::contract::packet::PacketRx;
 pub(super) struct Rx {
     pub(super) shared: Arc<Shared>,
+    pub(super) _users: Arc<state::ViewUsers>,
     pub(super) cancelled: Pin<Box<dyn std::future::Future<Output = ()> + Send>>,
 }
 impl PacketRx for Rx {

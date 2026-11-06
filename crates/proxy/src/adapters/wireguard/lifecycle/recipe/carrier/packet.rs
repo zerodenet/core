@@ -34,7 +34,11 @@ impl DynPacketOutbound for Carrier {
                 .get()
                 .and_then(std::sync::Weak::upgrade)
                 .ok_or_else(|| error(Stage::Prepare, Reason::Revoked))?;
+            let caller = self.flow_borrow(&context)?.caller;
+            let users = Arc::new(state::ViewUsers::default());
             let shared = Arc::new(Shared {
+                caller,
+                users: Arc::downgrade(&users),
                 carrier,
                 facts,
                 observer: context.observer,
@@ -44,10 +48,14 @@ impl DynPacketOutbound for Carrier {
                 state: Mutex::new(State::default()),
             });
             Ok(PacketSession {
-                tx: Box::pin(tx::Tx(shared.clone()))
+                tx: Box::pin(tx::Tx {
+                    shared: shared.clone(),
+                    _users: users.clone(),
+                })
                     as Pin<Box<dyn zero_platform_tokio::contract::packet::PacketTx>>,
                 rx: Box::pin(rx::Rx {
                     shared: shared.clone(),
+                    _users: users,
                     cancelled: Box::pin(shared.cancel.clone().cancelled_owned()),
                 })
                     as Pin<Box<dyn zero_platform_tokio::contract::packet::PacketRx>>,

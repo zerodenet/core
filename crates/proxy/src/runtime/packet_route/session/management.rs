@@ -4,8 +4,12 @@ impl PacketSessionPins {
         self.management = Some((engine, inbound));
         self
     }
-    pub(crate) async fn management_changed(&self) {
-        self.management_changed.notified().await;
+    pub(crate) async fn management_changed(&mut self) {
+        let changed = self.management_changed.clone();
+        tokio::select! {
+            _ = changed.notified() => {},
+            _ = self.standard_management_changed() => {},
+        }
     }
     pub(crate) fn replies_for(
         &mut self,

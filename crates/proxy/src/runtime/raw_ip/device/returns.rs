@@ -8,6 +8,8 @@ use std::{
     time::{Duration, Instant},
 };
 
+mod budget;
+pub(crate) use budget::PacketReturnTotals;
 mod delivery;
 mod maintenance;
 mod registration;
@@ -21,6 +23,7 @@ const IDLE_TIMEOUT: Duration = Duration::from_secs(300);
 
 #[derive(Default)]
 pub(crate) struct PacketReturns {
+    budget: budget::ReturnBudget,
     receive_incomplete: std::sync::atomic::AtomicBool,
     routes: Mutex<HashMap<IpAddr, ReturnRoute>>,
     drop_observer: Option<Arc<dyn zero_traits::IoObserver>>,
@@ -107,6 +110,32 @@ impl PacketReturns {
             ..Self::default()
         }
     }
+    pub(super) fn with_limits(
+        mut self,
+        options: &super::super::RawIpStackOptions,
+    ) -> std::io::Result<Self> {
+        options.packet_return_totals.install(
+            options.packet_return_total_max_frames,
+            options.packet_return_total_max_bytes,
+        )?;
+        self.budget = budget::ReturnBudget::with_totals(
+            options.packet_return_max_frames,
+            options.packet_return_max_bytes,
+            options.packet_return_totals.clone(),
+        );
+        Ok(self)
+    }
+    pub(super) fn queue_reply(
+        &self,
+        replies: &zero_stack::packet_output::PacketSender,
+        packet: zero_traits::PacketBuffer,
+    ) -> Result<(), mpsc::error::TrySendError<zero_traits::PacketBuffer>> {
+        let packet = self
+            .budget
+            .retain(packet)
+            .map_err(mpsc::error::TrySendError::Full)?;
+        replies.try_send_buffer(packet)
+    }
     fn discard(
         &self,
         observer: Option<&dyn zero_traits::IoObserver>,
@@ -125,7 +154,7 @@ impl PacketReturns {
         packet: zero_traits::PacketBuffer,
         observer: Option<&dyn zero_traits::IoObserver>,
     ) {
-        if let Err(error) = replies.try_send_buffer(packet) {
+        if let Err(error) = self.queue_reply(replies, packet) {
             self.discard(
                 observer,
                 match error {

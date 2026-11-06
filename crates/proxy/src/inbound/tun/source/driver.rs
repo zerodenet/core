@@ -60,10 +60,13 @@ pub(super) async fn run(
     {
         return Err(error(Stage::Receive, Reason::StalePlan));
     }
+    // The cookie binds the acquired native Source session, not a request or
+    // individual read. A changing per-read cookie would erase real fragment
+    // assembly and misrepresent subsequent native frames as another source.
+    let correlation = grant.identity.instance().generation.0;
     let (mut read, mut write) = tokio::io::split(grant.io);
     let mut received = PollSender::new(incoming);
     let mut bytes = vec![0; 65_536];
-    let mut correlation = 0_u64;
     observer.peers(&[]);
     loop {
         if shared.cancel.is_cancelled() {
@@ -81,7 +84,6 @@ pub(super) async fn run(
             }), if receiving => {
                 let size = result.map_err(|source| error(Stage::Receive, Reason::Io).with_source(source))?;
                 if size == 0 { return Err(error(Stage::Receive, Reason::Io).with_source(io::Error::new(io::ErrorKind::UnexpectedEof, "original TUN read ended"))); }
-                correlation = correlation.checked_add(1).ok_or_else(|| error(Stage::Receive, Reason::Capacity))?;
                 let association = ReturnAssociation { endpoint: facts.endpoint, generation: facts.inbound.generation, peer: None, correlation };
                 let packet = std::mem::replace(&mut bytes, vec![0; 65_536]);
                 let mut packet = packet;
