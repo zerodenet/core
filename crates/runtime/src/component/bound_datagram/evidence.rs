@@ -12,6 +12,23 @@ impl BoundDatagramEvidence {
     }
 }
 impl HostBoundDatagramResources {
+    pub(in crate::component) fn retired(&self, ordinal: usize) -> bool {
+        if !self.evidence(ordinal).physical_confirmed() {
+            return false;
+        }
+        let driver = match self.driver.try_lock() {
+            Ok(driver) => driver.clone(),
+            Err(_) => return false,
+        };
+        // A real pre-acquisition path may never have bound a driver. The same
+        // provider's phase/full original census above still must be confirmed;
+        // absence does not manufacture a task receipt or native close.
+        driver.is_none_or(|actual| {
+            actual
+                .try_joined()
+                .is_some_and(|joined| joined.registration_released())
+        })
+    }
     pub(in crate::component) fn owns_binding(&self, binding: &DatagramBindingId) -> bool {
         self.issuer.owns(binding)
     }

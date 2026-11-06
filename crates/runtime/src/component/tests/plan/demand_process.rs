@@ -70,7 +70,9 @@ async fn actual_plan_ready_scans_unselected_process_cold_then_supervises_its_sam
     assert!(process.is_unbuilt_demand_process() && !process.has_started());
     assert!(!marker.exists());
     assert_eq!(roots.process.snapshot().charged_jobs, 0);
-    host.drive(process.start_owned(deadline())).await.unwrap();
+    host.drive(process.start_owned(deadline()).unwrap())
+        .await
+        .unwrap();
     assert!(process.has_started() && !process.is_unbuilt_demand_process());
     assert!(marker.exists());
     assert_eq!(roots.process.snapshot().charged_jobs, 1);

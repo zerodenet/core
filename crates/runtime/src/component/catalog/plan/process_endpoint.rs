@@ -57,7 +57,7 @@ impl ComponentPlan {
             ));
         }
         let dependency = self.preflight_process_endpoint(&demand)?;
-        let operation = dependency.start_owned(deadline);
+        let operation = dependency.start_owned(deadline)?;
         tokio::select! { biased;
             _ = cancel.cancelled() => return Err(invalid(Reason::Cancelled, "Process endpoint caller stopped")),
             outcome = tokio::time::timeout_at(deadline, operation) => {

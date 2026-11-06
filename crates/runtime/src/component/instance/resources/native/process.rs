@@ -12,6 +12,7 @@ use zero_platform_tokio::{
 
 pub(super) struct ProcessDeclarations {
     budget: Arc<zero_platform_tokio::owned_process::ProcessBudget>,
+    prepaid: std::sync::OnceLock<Arc<zero_platform_tokio::owned_process::PrepaidProcessJob>>,
     identity: Option<(ComponentInstanceId, TaskScopeIdentity)>,
     entries: Mutex<BTreeMap<PathBuf, Entry>>,
 }
@@ -59,6 +60,7 @@ impl ProcessDeclarations {
         endpoint::prepare(declarations, &mut entries, identity.as_ref())?;
         Ok(Self {
             budget,
+            prepaid: std::sync::OnceLock::new(),
             identity,
             entries: Mutex::new(entries),
         })
@@ -188,3 +190,29 @@ impl std::error::Error for ProcessFailure {
 #[cfg(test)]
 #[path = "../../../tests/native_process/owned.rs"]
 mod tests;
+
+impl HostResources {
+    pub(in crate::component) fn install_prepaid_process(
+        &self,
+        paid: Arc<zero_platform_tokio::owned_process::PrepaidProcessJob>,
+    ) -> Result<(), ChannelError> {
+        let (instance, scope) = self
+            .processes
+            .identity
+            .as_ref()
+            .ok_or_else(|| self.denied())?;
+        if paid.instance() != *instance
+            || !paid.matches_root(&self.originals.process)
+            || !self
+                .processes
+                .lock()
+                .values()
+                .any(|entry| entry.ordinal == paid.ordinal() && entry.endpoint.is_some())
+        {
+            return Err(self.denied());
+        }
+        paid.bind_scope(scope.clone())
+            .map_err(|source| self.denied().with_source(source))?;
+        self.processes.prepaid.set(paid).map_err(|_| self.denied())
+    }
+}

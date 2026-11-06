@@ -155,7 +155,9 @@ impl TaskJoined {
     pub(super) fn same_receipt(&self, other: &Self) -> bool {
         Arc::ptr_eq(&self.0, &other.0)
     }
-    pub(super) fn failure_accepted(&self) -> bool {
+    /// The original local receiver accepted this exact failure. This is not
+    /// Host registration ACK, original IO closure, or whole-Scope retirement.
+    pub fn failure_accepted(&self) -> bool {
         self.0.failure_accepted.load(Ordering::Acquire)
     }
 }
