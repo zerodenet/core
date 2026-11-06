@@ -44,11 +44,13 @@ impl DynPacketOutbound for Carrier {
                 state: Mutex::new(State::default()),
             });
             Ok(PacketSession {
-                tx: Box::pin(tx::Tx(shared.clone())),
+                tx: Box::pin(tx::Tx(shared.clone()))
+                    as Pin<Box<dyn zero_platform_tokio::contract::packet::PacketTx>>,
                 rx: Box::pin(rx::Rx {
                     shared: shared.clone(),
                     cancelled: Box::pin(shared.cancel.clone().cancelled_owned()),
-                }),
+                })
+                    as Pin<Box<dyn zero_platform_tokio::contract::packet::PacketRx>>,
                 control: erase_control(Control(shared)),
                 limits: PacketLimits {
                     // The concrete forwarding stack performs MTU errors and

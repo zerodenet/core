@@ -28,7 +28,7 @@ impl LinkedEndpointRecipe {
         }
         Ok((id, invocation))
     }
-    pub(super) fn into_retained_component(
+    pub(in crate::adapters::wireguard::lifecycle) fn into_retained_component(
         self,
         preparation: &mut crate::component::ResourcePreparation<'_>,
         candidate: &super::super::pending_map::PendingEntries,
