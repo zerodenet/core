@@ -22,7 +22,7 @@ Usage: scripts/test-workspace.sh [--jobs N] [--test TARGET ...]
 
 No --test: full workspace suite, including unit tests and doctests.
 --test: edit-time integration regression only; never full qualification.
-Both modes use --workspace --all-features and the same test profile.
+Both modes use --locked --workspace --all-features and the same test profile.
 --jobs limits Cargo compilation workers; it does not limit test threads.
 Ignored external/privileged tests remain separate qualification.
 HELP
@@ -39,7 +39,7 @@ if [[ ${#tests[@]} -gt 0 ]]; then
 else
     echo "TEST_SCOPE full (workspace, unit, integration and doctests)"
 fi
-args=(cargo test --workspace --all-features --no-fail-fast)
+args=(cargo test --locked --workspace --all-features --no-fail-fast)
 # Bash 3.2 requires guarding expansion of empty arrays under nounset.
 if [[ ${#jobs[@]} -gt 0 ]]; then args+=("${jobs[@]}"); fi
 if [[ ${#tests[@]} -gt 0 ]]; then args+=("${tests[@]}"); fi
