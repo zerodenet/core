@@ -54,3 +54,36 @@ fn a_single_original_failure_keeps_its_existing_classification_and_identity() {
         .unwrap();
     assert!(Arc::ptr_eq(&actual.0, &identity));
 }
+
+#[tokio::test]
+async fn original_work_panic_and_actual_child_join_fault_are_both_retained_after_cleanup() {
+    let identity = Arc::new(());
+    let payload = identity.clone();
+    async fn original_work(payload: Arc<()>) -> io::Result<()> {
+        std::panic::panic_any(payload)
+    }
+    fn worker_panic() {
+        std::panic::panic_any("actual bridge worker panic")
+    }
+    let work = catch_work(original_work(payload)).await;
+    let original = tokio::task::spawn_blocking(worker_panic);
+    let joined = original.await.map(|_| ()).map_err(io::Error::other);
+    let returned = finish_caught(work, [joined]).unwrap_err();
+    let actual = returned
+        .get_ref()
+        .unwrap()
+        .downcast_ref::<PanicCleanup>()
+        .unwrap();
+    let retained = actual.payload.lock().unwrap();
+    assert!(Arc::ptr_eq(
+        retained.downcast_ref::<Arc<()>>().unwrap(),
+        &identity
+    ));
+    assert_eq!(actual.cleanup.len(), 1);
+    assert!(actual.cleanup[0]
+        .get_ref()
+        .unwrap()
+        .downcast_ref::<tokio::task::JoinError>()
+        .unwrap()
+        .is_panic());
+}
