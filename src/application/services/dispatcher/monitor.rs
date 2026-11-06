@@ -100,6 +100,9 @@ impl StatusMonitor {
                     .is_some_and(|joined| joined.registration_released())
             })
     }
+    pub(super) fn is_stopping(&self) -> bool {
+        self.stop.is_cancelled()
+    }
     #[cfg(test)]
     pub(in crate::application::services) fn test_work(
         work: impl std::future::Future<Output = ()> + Send + 'static,

@@ -56,3 +56,32 @@ pub(super) fn start_status_monitor(
         }
     })
 }
+
+#[cfg(feature = "event-dispatcher")]
+impl ApplicationServices {
+    pub(super) async fn wait_status_failure(&self) -> std::io::Result<()> {
+        loop {
+            let changed = self.monitor_changed.notified();
+            tokio::pin!(changed);
+            changed.as_mut().enable();
+            let monitor = self.state.lock().await.status_monitor.clone();
+            if let Some(monitor) = monitor {
+                tokio::select! {
+                    result = monitor.wait_terminated() => {
+                        result?;
+                        if !monitor.is_stopping() {
+                            return Err(std::io::Error::other("actual status sampler terminated unexpectedly"));
+                        }
+                        // Ordinary config replacement stops this original. Its
+                        // successful join is not an application runtime fault;
+                        // observe the next actually published owner instead.
+                        changed.await;
+                    },
+                    _ = &mut changed => {},
+                }
+            } else {
+                changed.await;
+            }
+        }
+    }
+}

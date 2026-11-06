@@ -134,6 +134,7 @@ impl ApplicationServices {
             } else {
                 self.engine.update_sink_status(Vec::new());
             }
+            self.monitor_changed.notify_waiters();
         }
 
         state.installed = true;

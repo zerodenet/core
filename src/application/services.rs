@@ -27,6 +27,8 @@ pub(super) struct ApplicationServices {
     #[cfg(feature = "event-dispatcher")]
     event_network: zero_connector::EventDispatcherNetwork,
     state: Mutex<ApplicationServiceState>,
+    #[cfg(feature = "event-dispatcher")]
+    monitor_changed: tokio::sync::Notify,
     control: std::sync::Mutex<control::ControlServers>,
     parent_input: std::sync::OnceLock<Arc<zero_platform_tokio::parent_input::ParentInputOwner>>,
     control_budget: Arc<zero_runtime::configuration::ControlBudget>,
@@ -112,6 +114,8 @@ impl ApplicationServices {
         let config = engine.config();
         let services = Arc::new(Self {
             engine,
+            #[cfg(feature = "event-dispatcher")]
+            monitor_changed: tokio::sync::Notify::new(),
             ipc_hook_socket: ipc_hook_socket.map(str::to_owned),
             #[cfg(feature = "event-dispatcher")]
             event_network,
