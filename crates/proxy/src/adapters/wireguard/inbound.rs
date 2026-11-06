@@ -84,6 +84,7 @@ impl LinkedEndpointUpdate {
     }
 }
 
+#[cfg(test)]
 pub(super) fn prepare_linked(
     linked: &Arc<LinkedEndpoint>,
 ) -> Result<(RawIpInboundEndpoint, Arc<LiveInboundDevice>), EngineError> {

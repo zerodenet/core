@@ -108,7 +108,9 @@ impl LinkedEndpoint {
 }
 
 impl LinkedEndpoint {
-    pub(in crate::adapters::wireguard) fn owned_resources(&self) -> Option<Arc<super::lifecycle::PeerResources>> {
+    pub(in crate::adapters::wireguard) fn owned_resources(
+        &self,
+    ) -> Option<Arc<super::lifecycle::PeerResources>> {
         self.owned_resources.get().cloned()
     }
     pub(in crate::adapters::wireguard) fn install_owned_resources(
@@ -142,7 +144,9 @@ impl LinkedEndpoint {
             .cloned()
             .collect()
     }
-    pub(in crate::adapters::wireguard) fn reused_carriers(&self) -> Vec<Option<Arc<dyn RawIpWireCarrier>>> {
+    pub(in crate::adapters::wireguard) fn reused_carriers(
+        &self,
+    ) -> Vec<Option<Arc<dyn RawIpWireCarrier>>> {
         self.declared_peers().carriers.clone()
     }
     pub(in crate::adapters::wireguard) fn carrier_owners_match(
@@ -183,7 +187,9 @@ impl LinkedEndpoint {
         )
     }
 
-    pub(in crate::adapters::wireguard) fn take_endpoint(&self) -> Result<RawIpInboundEndpoint, EngineError> {
+    pub(in crate::adapters::wireguard) fn take_endpoint(
+        &self,
+    ) -> Result<RawIpInboundEndpoint, EngineError> {
         if self.io.active.swap(true, Ordering::AcqRel) {
             return Err(invalid(
                 "linked WireGuard endpoint listener already running",
@@ -207,5 +213,3 @@ impl LinkedEndpoint {
         })
     }
 }
-
-#[cfg(test)]
