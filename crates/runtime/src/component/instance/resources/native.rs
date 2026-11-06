@@ -368,6 +368,13 @@ impl ResourceAccess for HostResources {
         self.prepare_process(request, tasks)
     }
     #[cfg(any(target_os = "linux", windows))]
+    fn process_endpoint_retirement(
+        &self,
+        ordinal: usize,
+    ) -> Option<Arc<dyn zero_platform_tokio::owned_process::ProcessEndpointRetirement>> {
+        self.processes.endpoint_retirement(ordinal)
+    }
+    #[cfg(any(target_os = "linux", windows))]
     fn reserve_process_endpoint(
         &self,
         ordinal: usize,

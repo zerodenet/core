@@ -95,7 +95,14 @@ impl ResourceAccess for BoundResources {
             .ok_or_else(denied)?
             .spawn_process(request)
     }
-    #[cfg(target_os = "linux")]
+    #[cfg(any(target_os = "linux", windows))]
+    fn process_endpoint_retirement(
+        &self,
+        ordinal: usize,
+    ) -> Option<Arc<dyn zero_platform_tokio::owned_process::ProcessEndpointRetirement>> {
+        self.process.as_ref()?.process_endpoint_retirement(ordinal)
+    }
+    #[cfg(any(target_os = "linux", windows))]
     fn prepare_owned_process(
         &self,
         request: zero_platform_tokio::contract::component::ProcessRequest,

@@ -550,6 +550,15 @@ pub trait ResourceAccess: Send + Sync {
         )
         .with_source(std::io::Error::other("undeclared owned process")))
     }
+    /// The same declared provider's durable read-only retirement observation.
+    /// Obtain this before an attempt: absence is not a no-native disposition.
+    #[cfg(any(target_os = "linux", windows))]
+    fn process_endpoint_retirement(
+        &self,
+        _: usize,
+    ) -> Option<std::sync::Arc<dyn crate::owned_process::ProcessEndpointRetirement>> {
+        None
+    }
     /// Start-only, same actual Process entry. The host stores this cold owner
     /// before it creates either native reservation. No protocol environment is read.
     #[cfg(any(target_os = "linux", windows))]

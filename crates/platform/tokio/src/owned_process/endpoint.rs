@@ -3,7 +3,9 @@
 mod demand;
 mod probe;
 mod reservations;
+mod retirement;
 pub use demand::ProcessEndpointDemand;
+pub use retirement::ProcessEndpointRetirement;
 mod shutdown;
 use shutdown::CleanupFailures;
 mod users;

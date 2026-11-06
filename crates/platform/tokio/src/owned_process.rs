@@ -19,8 +19,9 @@ pub use endpoint_spec::ProcessEndpointSpec;
 mod endpoint;
 #[cfg(any(target_os = "linux", windows))]
 pub use endpoint::{
-    ProcessEndpointClosed, ProcessEndpointDemand, ProcessEndpointHandoff, ProcessEndpointUse,
-    ProcessProbe, ProcessProbeClosed, ProcessReservationsClosed,
+    ProcessEndpointClosed, ProcessEndpointDemand, ProcessEndpointHandoff,
+    ProcessEndpointRetirement, ProcessEndpointUse, ProcessProbe, ProcessProbeClosed,
+    ProcessReservationsClosed,
 };
 
 #[cfg(any(target_os = "linux", windows))]

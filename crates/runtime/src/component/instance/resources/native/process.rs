@@ -56,7 +56,7 @@ impl ProcessDeclarations {
                 ))
             })
             .collect();
-        endpoint::prepare(declarations, &mut entries)?;
+        endpoint::prepare(declarations, &mut entries, identity.as_ref())?;
         Ok(Self {
             budget,
             identity,
@@ -167,6 +167,7 @@ impl ProcessDeclarations {
             }
         }
         self.report_endpoints(component, &mut report);
+        self.publish_endpoint_retirements();
         report
     }
 }

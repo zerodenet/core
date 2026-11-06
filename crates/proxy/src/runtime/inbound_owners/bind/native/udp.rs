@@ -165,9 +165,14 @@ impl NativeDatagramGrant {
         #[cfg(feature = "raw-ip-runtime")]
         if let Some(reads) = &self.packet_reads {
             reads
-                .prepare_before_listener_bind(self.scope.as_ref().ok_or_else(|| {
-                    ChannelError::new(Stage::Prepare, Reason::Revoked, Impact::Component)
-                })?)
+                .prepare_before_listener_bind(
+                    self.scope
+                        .as_ref()
+                        .ok_or_else(|| {
+                            ChannelError::new(Stage::Prepare, Reason::Revoked, Impact::Component)
+                        })
+                        .map_err(std::io::Error::other)?,
+                )
                 .map_err(std::io::Error::other)?;
         }
         let mut native = self.native.lock().expect("native datagram owner poisoned");

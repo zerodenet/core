@@ -1,15 +1,19 @@
 //! Same actual Process entry; no secondary registry or process/network owner.
 use super::*;
+mod retirement;
+use retirement::Retirement;
 use zero_platform_tokio::owned_process::{ProcessEndpointHandoff, ProcessEndpointSpec};
 pub(super) struct Endpoint {
     pub(super) ordinal: usize,
     pub(super) spec: ProcessEndpointSpec,
     pub(super) original: Option<Arc<ProcessEndpointHandoff>>,
     pub(super) reported: bool,
+    retirement: Option<Arc<Retirement>>,
 }
 pub(super) fn prepare(
     declarations: &[ResourceDeclaration],
     entries: &mut BTreeMap<PathBuf, Entry>,
+    identity: Option<&(ComponentInstanceId, TaskScopeIdentity)>,
 ) -> Result<(), ChannelError> {
     for (ordinal, declaration) in declarations.iter().enumerate() {
         let ResourceDeclaration::ProcessEndpoint {
@@ -49,6 +53,9 @@ pub(super) fn prepare(
             spec: spec.clone(),
             original: None,
             reported: false,
+            retirement: identity.map(|(instance, scope)| {
+                Retirement::new(*instance, *process_ordinal, scope.clone())
+            }),
         });
     }
     Ok(())
