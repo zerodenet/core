@@ -13,12 +13,14 @@ impl TaskMonitor {
             tokio::pin!(changed);
             changed.as_mut().enable();
             let mut retired = Vec::new();
+            let mut cleanup_deliveries = Vec::new();
             let drained = {
                 let mut tasks = self.lock();
                 let mut report = std::mem::take(&mut tasks.report);
                 for receipt in &tasks.pending {
                     report.exited_tasks.push(receipt.id());
                     if let Err(source) = receipt.result() {
+                        cleanup_deliveries.push(source.clone());
                         report.failed_tasks.push(TaskFailure {
                             id: receipt.id(),
                             class: receipt.class(),
@@ -41,6 +43,11 @@ impl TaskMonitor {
                 }
                 tasks.scope.is_drained()
             };
+            for source in cleanup_deliveries {
+                zero_platform_tokio::contract::lifecycle::accept_retained_cleanup_failures(
+                    source.as_ref(),
+                );
+            }
             drop(retired);
             if drained {
                 return;
