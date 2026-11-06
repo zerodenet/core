@@ -27,4 +27,4 @@ pub(crate) mod client;
 #[cfg(feature = "blake3")]
 pub(crate) mod session;
 #[cfg(feature = "blake3")]
-pub use session::{UdpBudgetLimits, UdpReplayBudget};
+pub use session::{UdpBudgetLimits, UdpBudgetProposal, UdpReplayBudget};
