@@ -8,18 +8,24 @@ use zero_traits::DatagramCodec;
 use zero_transport::RuntimeError;
 
 use super::{ShadowsocksManagedDatagramFlowResume, ShadowsocksUdpResponse};
-mod responses;
+pub(crate) mod responses;
 use responses::Responses;
-pub use responses::ShadowsocksUdpResponseSink;
+mod socket;
+use socket::{ReceiverGuard, Socket};
+pub(crate) mod native;
+pub use responses::{
+    ShadowsocksUdpPendingLimits, ShadowsocksUdpPendingResponse, ShadowsocksUdpResponseSink,
+};
 
+#[derive(Clone)]
 pub struct ShadowsocksUdpSocketFlow {
     plugin: Option<Arc<super::plugin::outbound::PluginLease>>,
-    socket: Arc<zero_platform_tokio::TokioDatagramSocket>,
+    socket: Socket,
     endpoint: SocketAddr,
     codec: Arc<dyn DatagramCodec<Address, Error = zero_core::Error>>,
     recv_tx: broadcast::WeakSender<ShadowsocksUdpResponse>,
     responses: Arc<Responses>,
-    receiver: tokio::task::AbortHandle,
+    _receiver: Option<Arc<ReceiverGuard>>,
 }
 
 pub fn managed_socket_flow_from_resume(
@@ -42,7 +48,7 @@ pub(super) async fn establish_with_plugin(
     sockets: &zero_transport::OutboundDatagramSocketFactory,
     plugin: Option<Arc<super::plugin::outbound::PluginLease>>,
 ) -> Result<ShadowsocksUdpSocketFlow, RuntimeError> {
-    let socket = Arc::new(sockets.bind_tokio(endpoint).await?);
+    let socket = Socket::Library(Arc::new(sockets.bind_tokio(endpoint).await?));
     let (recv_tx, _) = broadcast::channel::<ShadowsocksUdpResponse>(32);
     let responses = Arc::new(Responses::default());
     let receiver = tokio::spawn(recv_loop(
@@ -60,8 +66,8 @@ pub(super) async fn establish_with_plugin(
         endpoint,
         codec,
         recv_tx: recv_tx.downgrade(),
-        responses,
-        receiver,
+        responses: responses.clone(),
+        _receiver: Some(Arc::new(ReceiverGuard(receiver, responses))),
     })
 }
 
@@ -70,6 +76,14 @@ pub async fn establish_shadowsocks_udp_socket_flow_with_resume(
     resume: ShadowsocksManagedDatagramFlowResume,
     sockets: &zero_transport::OutboundDatagramSocketFactory,
 ) -> Result<ShadowsocksUdpSocketFlow, RuntimeError> {
+    if let Some(root) = &resume.root {
+        if let Some(managed) = root.current()? {
+            return managed
+                .open(None)
+                .await
+                .map_err(|source| RuntimeError::Io(std::io::Error::other(source)));
+        }
+    }
     let plugin = match &resume.plugin {
         Some(plugin) => plugin.acquire(false).await?,
         None => None,
@@ -100,6 +114,21 @@ impl ShadowsocksUdpSocketFlow {
         }
     }
 
+    /// Submit through the same aggregate codec/socket and retain the original
+    /// per-target FIFO response registration, without a forwarding worker.
+    pub async fn request_datagram(
+        &self,
+        target: &Address,
+        port: u16,
+        payload: &[u8],
+    ) -> Result<ShadowsocksUdpPendingResponse, RuntimeError> {
+        let mut response = self
+            .responses
+            .register(target, port)
+            .map_err(responses::admission::tag)?;
+        response.encoded_bytes = self.send_wire(target, port, payload).await?;
+        Ok(response)
+    }
     pub async fn send_packet(&self, packet: UdpFlowPacket) -> Result<(), RuntimeError> {
         self.send_datagram(&packet.target, packet.port, &packet.payload)
             .await
@@ -111,29 +140,46 @@ impl ShadowsocksUdpSocketFlow {
         port: u16,
         payload: &[u8],
     ) -> Result<(), RuntimeError> {
+        self.send_wire(target, port, payload).await.map(|_| ())
+    }
+    async fn send_wire(
+        &self,
+        target: &Address,
+        port: u16,
+        payload: &[u8],
+    ) -> Result<usize, RuntimeError> {
         if let Some(plugin) = &self.plugin {
             plugin.check()?;
         }
+        if payload.len() > 65507 {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::InvalidInput,
+                "SS UDP payload exceeds the original datagram wire bound",
+            )
+            .into());
+        }
         let datagram = self.codec.encode(target, port, payload)?;
-        self.socket.send_to_addr(&datagram, self.endpoint).await?;
-        Ok(())
-    }
-}
-
-impl Drop for ShadowsocksUdpSocketFlow {
-    fn drop(&mut self) {
-        self.receiver.abort();
+        if datagram.len() > 65507 {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::InvalidInput,
+                "SS UDP encoded frame exceeds the original datagram wire bound",
+            )
+            .into());
+        }
+        self.socket.send(&datagram, self.endpoint).await?;
+        Ok(datagram.len())
     }
 }
 
 async fn recv_loop(
-    socket: Arc<zero_platform_tokio::TokioDatagramSocket>,
+    socket: Socket,
     endpoint: SocketAddr,
     codec: Arc<dyn DatagramCodec<Address, Error = zero_core::Error>>,
     recv_tx: broadcast::Sender<ShadowsocksUdpResponse>,
     plugin: Option<Arc<super::plugin::outbound::PluginLease>>,
     responses: Arc<Responses>,
 ) {
+    let _lifetime = socket::ReceiveLifetime(responses.clone());
     let mut buf = vec![0u8; 65535];
     let exited = async {
         match &plugin {
@@ -144,7 +190,7 @@ async fn recv_loop(
     tokio::pin!(exited);
     loop {
         let received = tokio::select! {
-            received = socket.recv_from_addr(&mut buf) => received,
+            received = socket.receive(&mut buf) => received,
             _ = &mut exited => { warn!("shadowsocks UDP plugin exited"); break; }
         };
         let (n, sender) = match received {

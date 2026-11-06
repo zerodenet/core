@@ -170,6 +170,7 @@ impl PreparedTcp {
             prepared: self,
             replay_owner,
             identity: identity.into(),
+            udp: None,
         })
     }
 }
@@ -177,6 +178,26 @@ pub struct StreamOptions {
     pub(super) prepared: PreparedTcp,
     pub(super) replay_owner: Option<ComponentId>,
     pub(super) identity: Arc<[u8]>,
+    pub(super) udp: Option<crate::component::udp::role::RoleOptions>,
+}
+impl StreamOptions {
+    pub fn with_udp_pool(
+        mut self,
+        pool: &crate::component::udp::UdpPoolOptions,
+        owner: ComponentId,
+    ) -> Result<Self, Error> {
+        if self.prepared.endpoint != *pool.endpoint() || self.prepared.dial != pool.binding().dial {
+            return Err(Error::Config(
+                "SS TCP and UDP role endpoints or dial policy differ",
+            ));
+        }
+        self.udp = Some(pool.role(owner));
+        let mut identity = self.identity.to_vec();
+        identity.extend_from_slice(b"same-ss-udp-cache");
+        identity.extend_from_slice(&owner.0.to_le_bytes());
+        self.identity = identity.into();
+        Ok(self)
+    }
 }
 impl fmt::Debug for StreamOptions {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {

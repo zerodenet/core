@@ -55,7 +55,14 @@ impl super::super::ProtocolInventory {
             && final_slot.recipe.spec().roles.contains(&RoleKind::Stream)
             && final_slot.recipe.spec().task_limit.is_none()
             && !final_slot.recipe.spec().dependencies.is_empty()
-            && final_slot.recipe.spec().resources.is_empty()
+            && final_slot.recipe.spec().resources.iter().all(|resource| {
+                matches!(
+                    resource,
+                    ResourceDeclaration::File { .. }
+                        | ResourceDeclaration::ControlledNodeCarrier { .. }
+                        | ResourceDeclaration::ControlledCarrierPool { datagram: true, .. }
+                )
+            })
             && plan.has_background_carrier_pool(final_slot.role_id())
             && plan.stream_dependencies_supported(final_slot.role_id());
         if !node_business && !pooled {
@@ -108,10 +115,9 @@ impl super::super::ProtocolInventory {
                     !matches!(
                         resource,
                         ResourceDeclaration::File { .. }
-                            | ResourceDeclaration::ControlledCarrierPool {
-                                datagram: false,
-                                ..
-                            }
+                            | ResourceDeclaration::ControlledCarrierPool { .. }
+                            | ResourceDeclaration::ControlledNodeCarrier { .. }
+                            | ResourceDeclaration::ControlledAssociationPool { .. }
                     )
                 })
             {

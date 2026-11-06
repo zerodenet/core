@@ -43,6 +43,9 @@ impl NativeDnsProvider for Provider {
             self.reap(end).await
         })
     }
+    fn query_native_retirement_complete(&self, caller: &TaskJoinWitness) -> bool {
+        self.caller_native_retirement_complete(caller)
+    }
     fn finish_query(&self, caller: TaskJoinWitness) -> BoxFuture<'_, std::io::Result<()>> {
         Box::pin(async move {
             let end = tokio::time::Instant::now() + std::time::Duration::from_secs(5);

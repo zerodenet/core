@@ -8,6 +8,17 @@ impl OwnedDnsQueryTasks {
         network: Option<u64>,
         kind: TaskKind,
     ) -> io::Result<TaskJoinWitness> {
+        self.spawn_kind_original(job, cancel, network, kind, None)
+            .map(|(witness, _)| witness)
+    }
+    pub(super) fn spawn_kind_original(
+        &self,
+        job: impl Future<Output = ()> + Send + 'static,
+        cancel: CancellationToken,
+        network: Option<u64>,
+        kind: TaskKind,
+        published: Option<&crate::wire_call::Registration>,
+    ) -> io::Result<(TaskJoinWitness, Arc<Retirement>)> {
         self.ensure_open()?;
         #[cfg(feature = "doh")]
         let ancestors = if kind == TaskKind::Driver {
@@ -17,6 +28,13 @@ impl OwnedDnsQueryTasks {
         };
         #[cfg(not(feature = "doh"))]
         let ancestors = self.inherited_tasks()?;
+        let retirement = Retirement::new(
+            kind,
+            ancestors.clone(),
+            self.0.budget.reserve(kind)?,
+            self.0.finalizer.get().cloned(),
+        );
+        let cold = retirement.preparing();
         let record = Arc::new(Record {
             budget: self.0.budget.clone(),
             // Only persistent physical drivers inherit an explicit endpoint;
@@ -29,11 +47,12 @@ impl OwnedDnsQueryTasks {
                     .ok()
                     .flatten()
             }),
-            capacity: Mutex::new(Some(self.0.budget.reserve(kind)?)),
+            capacity: retirement.capacity.clone(),
+            retirement: retirement.clone(),
             kind,
             ancestors,
             network: network.map(OnceLock::from).unwrap_or_default(),
-            registration: OnceLock::new(),
+            registration: retirement.registration.clone(),
             bound: Notify::new(),
             cancel,
             io_pending: Default::default(),
@@ -45,7 +64,7 @@ impl OwnedDnsQueryTasks {
             .retained
             .lock()
             .expect("DNS budget poisoned")
-            .push(Arc::downgrade(&record));
+            .push(retirement.clone());
         {
             let mut state = self.0.state.lock().expect("DNS query tasks poisoned");
             if state.closing || self.0.parent.is_cancelled() {
@@ -77,6 +96,8 @@ impl OwnedDnsQueryTasks {
         let query_record = record.clone();
         let callbacks = self.0.registrar.defer_callbacks();
         let finalizer = self.0.finalizer.get().cloned();
+        let original_retirement = retirement.clone();
+        cold.submitting();
         let spawned = self.0.registrar.spawn_tracked(self.0.class, async move {
             let Ok(witness) = receiver.await else {
                 return Ok(());
@@ -109,7 +130,12 @@ impl OwnedDnsQueryTasks {
                         zero_platform_tokio::contract::Impact::Component,
                     )
                 })?;
-                provider.finish_query(caller).await.map_err(|source| {
+                let cleanup = provider.finish_query(caller.clone()).await;
+                if cleanup.is_ok() || provider.query_native_retirement_complete(&caller) {
+                    original_retirement.returned_native();
+                }
+                cleanup.map_err(|source| {
+                    let source = original_retirement.retain_cleanup_failure(source);
                     ChannelError::new(
                         zero_platform_tokio::contract::Stage::Close,
                         zero_platform_tokio::contract::Reason::Io,
@@ -129,10 +155,13 @@ impl OwnedDnsQueryTasks {
                         witness: witness.clone(),
                     }))
                     .expect("query bound once");
+                if let Some(published) = published {
+                    published.hosted(witness.clone(), retirement.clone(), self);
+                }
                 record.bound.notify_waiters();
                 let _ = sender.send(witness.clone());
                 drop(callbacks);
-                Ok(witness)
+                Ok((witness, retirement))
             }
             Err(source) => {
                 // Failed synchronous registration never started a task/native.
@@ -140,6 +169,9 @@ impl OwnedDnsQueryTasks {
                     .registration
                     .set(None)
                     .expect("failed query registration settled once");
+                if let Some(published) = published {
+                    published.no_worker();
+                }
                 record.bound.notify_waiters();
                 let retired = {
                     let mut state = self.0.state.lock().expect("DNS query tasks poisoned");

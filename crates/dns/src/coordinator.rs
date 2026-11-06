@@ -241,9 +241,12 @@ where
             key: key.clone(),
             flight: flight.clone(),
         };
+        crate::wire_call::register(&flight.caller_registration)?;
         if leader {
+            let original_admission = flight.caller_registration.preparing();
             #[cfg(test)]
             tests::before_spawn(self).await;
+            original_admission.submitting();
             let admission_key = key.clone();
             chain.last_mut().expect("current DNS dependency").observers =
                 Some(flight.waiters.clone());
@@ -295,19 +298,23 @@ where
                             .native_tasks
                             .set(tasks.clone())
                             .expect("one native query admission");
-                        tasks.spawn_in_network(
+                        tasks.spawn_registered_in_network(
                             job,
                             flight.cancel.clone(),
                             Some(admission_key.scope.egress_generation),
+                            &flight.caller_registration,
                         )
                     }) {
+                        flight.caller_registration.no_worker();
                         flight.cancel(error);
                     }
                 } else {
+                    flight.caller_registration.unowned();
                     let task = state.tasks.spawn(job);
                     flight.set_abort_handle(task);
                 }
             } else {
+                flight.caller_registration.no_worker();
                 flight.cancel(io::Error::new(
                     io::ErrorKind::NotConnected,
                     "DNS query retired before worker admission",

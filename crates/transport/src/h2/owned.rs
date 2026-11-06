@@ -8,8 +8,8 @@ use std::{
     fmt,
     future::Future,
     sync::{
-        Arc, Mutex,
         atomic::{AtomicBool, AtomicU64, Ordering},
+        Arc, Mutex,
     },
 };
 pub(super) type H2ClientDriver = Pin<Box<dyn Future<Output = io::Result<()>> + Send>>;
@@ -226,7 +226,6 @@ impl AsyncWrite for OwnedH2Client {
         if bytes.is_empty() {
             return Poll::Ready(Ok(0));
         }
-        this.poll_reset(cx)?;
         let count = bytes.len().min(16 * 1024);
         if this.requested_remaining == 0 {
             this.send.reserve_capacity(count);
@@ -241,20 +240,49 @@ impl AsyncWrite for OwnedH2Client {
             }
             // A zero-capacity notification must be consumed, then polled again
             // to register the actual next increase before returning Pending.
-            let available = std::task::ready!(this.send.poll_capacity(cx))
-                .ok_or_else(|| io::Error::from(io::ErrorKind::BrokenPipe))?
-                .map_err(io::Error::other)?;
+            let available = match this.send.poll_capacity(cx) {
+                Poll::Pending => {
+                    this.poll_reset(cx)?;
+                    return Poll::Pending;
+                }
+                Poll::Ready(None) => {
+                    this.poll_reset(cx)?;
+                    return Poll::Ready(Err(io::ErrorKind::BrokenPipe.into()));
+                }
+                Poll::Ready(Some(result)) => result.map_err(io::Error::other)?,
+            };
             if available != 0 {
                 break available;
             }
         };
         let n = count.min(available).min(this.requested_remaining);
-        this.write_buffer.reserve(n);
-        this.write_buffer.extend_from_slice(&bytes[..n]);
-        let frame = this.write_buffer.split().freeze();
-        this.send
-            .send_data(frame, false)
-            .map_err(io::Error::other)?;
+        let frame = if n == 1 {
+            // A narrow peer window can fragment DATA into individual bytes.
+            // Those immutable values need neither a heap allocation nor a
+            // shared allocation header. Actual H2 credit still gates n above.
+            static VALUES: [u8; 256] = {
+                let mut values = [0; 256];
+                let mut index = 0;
+                while index < 256 {
+                    values[index] = index as u8;
+                    index += 1;
+                }
+                values
+            };
+            let value = usize::from(bytes[0]);
+            Bytes::from_static(&VALUES[value..value + 1])
+        } else {
+            this.write_buffer.reserve(n);
+            this.write_buffer.extend_from_slice(&bytes[..n]);
+            this.write_buffer.split().freeze()
+        };
+        if let Err(source) = this.send.send_data(frame, false) {
+            // Sending already checks the same stream state. Preserve the
+            // typed reset when present, without registering a redundant reset
+            // waiter for each successful credited DATA frame.
+            this.poll_reset(cx)?;
+            return Poll::Ready(Err(io::Error::other(source)));
+        }
         this.requested_remaining -= n;
         this.queued();
         Poll::Ready(Ok(n))

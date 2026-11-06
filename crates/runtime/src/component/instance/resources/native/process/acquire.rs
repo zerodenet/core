@@ -150,10 +150,16 @@ impl HostResources {
                 removed
             };
             drop(removed);
+            let reason = match source.kind() {
+                std::io::ErrorKind::WouldBlock => Reason::Capacity,
+                std::io::ErrorKind::PermissionDenied => Reason::Revoked,
+                std::io::ErrorKind::AlreadyExists => Reason::StalePlan,
+                _ => Reason::Io,
+            };
             let mut failure = error(
                 self.component,
-                Reason::Capacity,
-                "actual kernel process job budget is occupied",
+                reason,
+                "actual kernel process job reservation refused",
             )
             .with_source(source);
             failure.delivery = zero_platform_tokio::contract::DeliveryState::NotSubmitted;
