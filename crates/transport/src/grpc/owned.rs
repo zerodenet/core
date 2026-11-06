@@ -8,6 +8,7 @@ pub(super) use state::{Managed, Ownership};
 #[cfg(feature = "tls")]
 mod ech;
 mod lifecycle;
+mod retirement;
 pub use lifecycle::NativePoolFactory;
 mod client;
 pub(super) use client::NativeClient;

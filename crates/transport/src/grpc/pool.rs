@@ -37,7 +37,7 @@ impl GrpcPool {
     pub fn has_host_owner(&self) -> bool {
         matches!(
             &*self.0.ownership.lock().unwrap(),
-            super::owned::Ownership::Managed(_)
+            super::owned::Ownership::Managed(_) | super::owned::Ownership::Retired(_)
         )
     }
 

@@ -233,3 +233,5 @@ async fn hosted_real_grpc_user_receives_same_failure_before_publication_credit_a
 async fn hosted_real_grpc_no_user_cleanup_accepts_original_failure_without_a_history_queue() {
     actual_failure(false).await;
 }
+
+mod retirement;

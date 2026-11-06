@@ -19,6 +19,7 @@ pub(in crate::grpc) enum Ownership {
     Pristine,
     LegacyUsed,
     Managed(Arc<Managed>),
+    Retired(super::retirement::Retired),
 }
 pub(in crate::grpc) struct Managed {
     pub(super) instance: ComponentInstanceId,

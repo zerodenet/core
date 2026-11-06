@@ -114,6 +114,9 @@ impl ResourceLifecycle for Owner {
             let mut ownership = self.pool.ownership.lock().unwrap();
             let allowed = match &*ownership {
                 Ownership::Pristine => !retired || self.managed.options.selected_background,
+                Ownership::Retired(receipt) => {
+                    self.managed.options.selected_background && receipt.permits_background()
+                }
                 Ownership::Managed(old) => {
                     replaceable
                         && previous
@@ -213,6 +216,9 @@ impl ResourceLifecycle for Owner {
             report.unfinished.push(Unfinished::Resource(
                 "gRPC pending/live/retiring logical streams".into(),
             ));
+        }
+        if report.is_complete() {
+            self.pool.compact_closed_owner();
         }
         Ok(report)
     }
