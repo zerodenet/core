@@ -15,6 +15,11 @@ pub(super) async fn run_inner(
     let mut legacy_tasks = JoinSet::new();
     let mut legacy_dns = JoinSet::new();
     #[cfg(feature = "raw-ip-runtime")]
+    let admission = match &owned {
+        Some(owner) => Some(owner.source_admission().await?),
+        None => None, // Explicit library/test executor, outside a hosted Source.
+    };
+    #[cfg(feature = "raw-ip-runtime")]
     let mut tasks = match &owned {
         Some(owner) => task_set::TunTasks::Scoped(super::scoped::ScopedTasks {
             scope: owner.scope.get().cloned().ok_or_else(|| {
@@ -41,7 +46,25 @@ pub(super) async fn run_inner(
 
     loop {
         tokio::select! {
-            received = stack.recv_from_with_peer(&mut buffer) => {
+            received = async {
+                #[cfg(feature = "raw-ip-runtime")]
+                if let Some(admission) = &admission {
+                    let (received, acquisition) = crate::runtime::raw_ip::tasks::input::admitted(
+                        stack.recv_from_with_peer(&mut buffer), admission,
+                    ).await.map_err(std::io::Error::other)?;
+                    return Ok::<_, EngineError>((received, Some(acquisition)));
+                }
+                let received = stack.recv_from_with_peer(&mut buffer).await;
+                #[cfg(feature = "raw-ip-runtime")]
+                let acquisition = None;
+                #[cfg(not(feature = "raw-ip-runtime"))]
+                let acquisition = ();
+                Ok::<_, EngineError>((received, acquisition))
+            } => {
+                // Retain the actual dequeue acquisition across reserve and
+                // synchronous spawn_bound/spawn. The same child records own
+                // every admitted datagram before this branch releases it.
+                let (received, _acquisition) = received?;
                 let Some((size, source, destination, peer_identity)) = received else {
                     return Ok(());
                 };
