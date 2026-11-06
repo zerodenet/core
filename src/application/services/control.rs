@@ -160,6 +160,16 @@ impl ApplicationServices {
             }
             std::future::pending::<io::Result<()>>().await
         };
-        tokio::select! { result = ipc => result, result = http => result, result = grpc => result }
+        let monitor = async {
+            #[cfg(feature = "event-dispatcher")]
+            {
+                let monitor = self.state.lock().await.status_monitor.clone();
+                if let Some(monitor) = monitor {
+                    return monitor.wait_terminated().await;
+                }
+            }
+            std::future::pending::<io::Result<()>>().await
+        };
+        tokio::select! { result = ipc => result, result = http => result, result = grpc => result, result = monitor => result }
     }
 }

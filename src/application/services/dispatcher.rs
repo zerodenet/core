@@ -1,5 +1,9 @@
 //! Application wiring and projection for the optional event dispatcher.
 use super::*;
+#[cfg(feature = "event-dispatcher")]
+mod monitor;
+#[cfg(feature = "event-dispatcher")]
+pub(super) use monitor::StatusMonitor;
 
 pub(super) fn dispatcher_enabled(config: &RuntimeConfig) -> bool {
     !config.api.event_sinks.is_empty()
@@ -33,13 +37,14 @@ pub(super) fn dispatcher_changed(previous: &RuntimeConfig, target: &RuntimeConfi
 }
 
 #[cfg(feature = "event-dispatcher")]
-pub(super) fn spawn_status_monitor(
+pub(super) fn start_status_monitor(
+    owner: &StatusMonitor,
     engine: Engine,
     dispatcher: Option<&zero_connector::EventDispatcherHandle>,
-) -> tokio::task::JoinHandle<()> {
+) -> std::io::Result<()> {
     let dispatcher = dispatcher.map(zero_connector::EventDispatcherHandle::status_handle);
 
-    tokio::spawn(async move {
+    owner.start(async move {
         let mut interval = tokio::time::interval(std::time::Duration::from_secs(5));
         loop {
             interval.tick().await;

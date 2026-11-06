@@ -3,10 +3,7 @@ use zero_core::{Address, Network, ProtocolType, Session, SessionAuth};
 #[path = "quota/streaming.rs"]
 mod streaming;
 
-use zero_engine::{
-    Engine, EngineError, PrincipalQuotaStateStatus, SessionHandle,
-    SessionOutcome,
-};
+use zero_engine::{Engine, EngineError, PrincipalQuotaStateStatus, SessionHandle, SessionOutcome};
 
 fn engine() -> Engine {
     let config = RuntimeConfig::parse(

@@ -80,7 +80,7 @@ async fn startup_unknown_cleanup_retains_exact_original_and_rejects_next_startup
         cancel_after_original_worker_is_installed(directory.path()).await;
     {
         let mut state = original.state.lock().await;
-        state.status_monitor = Some(tokio::spawn(async {
+        state.status_monitor = Some(StatusMonitor::test_work(async {
             panic!("original startup monitor failed")
         }));
     }

@@ -84,19 +84,20 @@ impl ApplicationServices {
     #[cfg(feature = "event-dispatcher")]
     pub(super) async fn stop_status_monitor(
         state: &mut ApplicationServiceState,
-    ) -> Result<(), Arc<tokio::task::JoinError>> {
-        if state.monitor_exit.is_none() {
-            if let Some(monitor) = state.status_monitor.as_mut() {
-                monitor.abort(); // request only; the actual original join follows
-                state.monitor_exit = Some((&mut *monitor).await.map_err(Arc::new));
-                state.status_monitor = None;
+    ) -> Result<(), Arc<zero_platform_tokio::contract::ChannelError>> {
+        if let Some(monitor) = state.status_monitor.as_ref() {
+            let outcome = monitor.shutdown().await;
+            if !monitor.retirement_complete() {
+                // Retain the exact scope and retry its unfinished joins. A
+                // timeout is not the worker's terminal fault or close receipt.
+                return outcome;
             }
+            state.monitor_exit = Some(outcome);
+            state.status_monitor = None;
         }
         if let Some(Err(error)) = &state.monitor_exit {
-            if !error.is_cancelled() {
-                state.cleanup_fault.get_or_insert_with(|| error.clone());
-                return Err(error.clone());
-            }
+            state.cleanup_fault.get_or_insert_with(|| error.clone());
+            return Err(error.clone());
         }
         Ok(())
     }

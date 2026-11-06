@@ -14,7 +14,7 @@ use startup::{ApplicationStartupSlot, APPLICATION_STARTUP};
 mod dispatcher;
 use dispatcher::{changed_components, dispatcher_enabled};
 #[cfg(feature = "event-dispatcher")]
-use dispatcher::{dispatcher_changed, spawn_status_monitor};
+use dispatcher::{dispatcher_changed, start_status_monitor, StatusMonitor};
 
 pub(crate) mod network;
 
@@ -46,7 +46,7 @@ struct ApplicationServiceState {
     hooks: Option<hooks::PreparedHooks>,
     cleanup_fault: Option<Arc<dyn Error + Send + Sync>>,
     #[cfg(feature = "event-dispatcher")]
-    monitor_exit: Option<Result<(), Arc<tokio::task::JoinError>>>,
+    monitor_exit: Option<Result<(), Arc<zero_platform_tokio::contract::ChannelError>>>,
     #[cfg(feature = "event-dispatcher")]
     network_generation_started: bool,
     config: Arc<RuntimeConfig>,
@@ -56,7 +56,7 @@ struct ApplicationServiceState {
     #[cfg(feature = "event-dispatcher")]
     continuation: Option<zero_connector::EventDispatcherContinuation>,
     #[cfg(feature = "event-dispatcher")]
-    status_monitor: Option<tokio::task::JoinHandle<()>>,
+    status_monitor: Option<Arc<StatusMonitor>>,
     #[cfg(feature = "event-dispatcher")]
     engine_started_bootstrapped: bool,
 }

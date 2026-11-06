@@ -91,7 +91,7 @@ async fn monitor_original_join_failure_is_retained_and_blocks_replacement() {
             .unwrap();
         assert!(matches!(state.monitor_exit, Some(Err(ref error)) if error.is_cancelled()));
         state.monitor_exit = None;
-        state.status_monitor = Some(tokio::spawn(async {
+        state.status_monitor = Some(StatusMonitor::test_work(async {
             panic!("actual original monitor failure")
         }));
     }
@@ -152,7 +152,7 @@ async fn original_monitor_join_fault_is_not_replaced_by_an_earlier_cleanup_fault
             .unwrap();
         state.monitor_exit = None;
         state.cleanup_fault = Some(retained.clone());
-        state.status_monitor = Some(tokio::spawn(async {
+        state.status_monitor = Some(StatusMonitor::test_work(async {
             panic!("actual later status monitor")
         }));
     }
@@ -179,10 +179,15 @@ async fn original_monitor_join_fault_is_not_replaced_by_an_earlier_cleanup_fault
     let reported = error
         .get_ref()
         .unwrap()
-        .downcast_ref::<std::sync::Arc<tokio::task::JoinError>>()
+        .downcast_ref::<std::sync::Arc<zero_platform_tokio::contract::ChannelError>>()
         .expect("shutdown returns the actual original monitor source");
     assert!(std::sync::Arc::ptr_eq(reported, &actual));
-    assert!(!std::sync::Arc::ptr_eq(reported, &earlier));
+    let source = std::error::Error::source(actual.as_ref())
+        .unwrap()
+        .downcast_ref::<tokio::task::JoinError>()
+        .expect("same original sampler's actual panic join remains diagnostic");
+    assert!(source.is_panic());
+    assert_ne!(source.id(), earlier.id());
     // The separate dispatcher cleanup still executes all real native/worker
     // cleanup and reports its independently retained earlier source.
     assert!(services.shutdown_dispatcher().await.is_err());
