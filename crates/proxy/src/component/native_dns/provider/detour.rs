@@ -251,7 +251,12 @@ impl Provider {
             let mut retry = false;
             let operation = async {
                 let last = nodes.last().expect("selected DNS Stream path");
-                if components.has_carrier_provider(last.slot.role_id()) {
+                if components.has_carrier_provider(last.slot.role_id())
+                    || components.has_device_carrier_provider(last.slot.role_id())
+                {
+                    // Device Stream roles lend their existing virtual socket.
+                    // Their actual Bound/Listener original is not a native TCP
+                    // pool; the observer-only DNS root must never invent one.
                     let loan = self
                         .borrow_detour(
                             &execution,

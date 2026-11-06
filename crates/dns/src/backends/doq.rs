@@ -109,20 +109,23 @@ impl DoqDnsResolver {
     }
 
     pub(crate) async fn exchange(&self, query: &[u8]) -> io::Result<Vec<u8>> {
+        self.exchange_attempt(query).await.into_parts().0
+    }
+    pub(crate) async fn exchange_attempt(&self, query: &[u8]) -> Attempt {
         #[cfg(feature = "test-support")]
         self.native_io_started
             .store(true, std::sync::atomic::Ordering::Release);
         let mut last_error = None;
         for addr in &self.addrs {
             match self.exchange_with(*addr, query).await {
-                Attempt::Settled(Ok(response)) => return Ok(response),
+                Attempt::Settled(Ok(response)) => return Attempt::Settled(Ok(response)),
                 Attempt::Settled(Err(error)) => last_error = Some(error),
-                Attempt::Unsettled(error) => return Err(error),
+                Attempt::Unsettled(error) => return Attempt::Unsettled(error),
             }
         }
-        Err(last_error.unwrap_or_else(|| {
+        Attempt::Settled(Err(last_error.unwrap_or_else(|| {
             io::Error::new(io::ErrorKind::InvalidInput, "DoQ backend has no endpoint")
-        }))
+        })))
     }
 
     pub(crate) fn endpoint_labels(&self) -> Vec<String> {

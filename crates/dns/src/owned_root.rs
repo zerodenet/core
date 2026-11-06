@@ -107,6 +107,24 @@ pub(crate) async fn exchange_backend_attempt(
         });
         return (result, permits_fallback);
     }
+    #[cfg(feature = "doq")]
+    if let ResolverBackend::Doq(resolver) = server.backend.as_ref()
+        && server.detour.is_none()
+        && snapshot
+            .outbound_connector
+            .as_deref()
+            .and_then(|connector| connector.quic_bidi())
+            .is_none()
+    {
+        // This actual standalone endpoint owns its deadline and retirement.
+        // Neither another IP nor a different fallback backend may overtake
+        // its retained native/user/driver cleanup. Host-bound attempts already
+        // returned above; an explicit external QUIC provider keeps its contract.
+        return backends::ATTEMPT_DEADLINE
+            .scope(deadline, resolver.exchange_attempt(query))
+            .await
+            .into_parts();
+    }
     #[cfg(not(feature = "udp"))]
     let _ = next;
     let result = tokio::time::timeout(
