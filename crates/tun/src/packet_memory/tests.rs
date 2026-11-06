@@ -123,7 +123,7 @@ fn full_fragment_cache_cannot_take_the_original_io_next_read_credit() {
     assert_eq!(root.native().occupied.frames, 2);
     assert!(matches!(
         root.native_grant(1),
-        Err(PacketMemoryError::Capacity) | Err(PacketMemoryError::Busy)
+        Err(PacketMemoryError::Busy)
     ));
     drop(input); // Its actual data has entered the separately charged assembly.
     let mut next = grant
