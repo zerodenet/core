@@ -105,6 +105,7 @@ impl ComponentFactory for Factory {
                 network: self.0.clone(),
                 purpose: options.purpose,
                 pending: CloseReport::default(),
+                reported_faults: Default::default(),
                 #[cfg(feature = "dns")]
                 metadata,
             }),
