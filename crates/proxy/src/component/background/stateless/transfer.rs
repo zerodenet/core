@@ -22,6 +22,10 @@ impl Transfer {
                 .with_source(source)
             })?;
         let Some(owner) = guard.as_mut() else {
+            // The Opener takes this grant while holding the same owner lock.
+            // A grant still here never entered native preparation; dispose its
+            // actual unused reservation before requesting a close receipt.
+            self.grant.lock().unwrap().take();
             return self.adoption.retire(end).await;
         };
         let report = owner.close(end).await?;
@@ -44,7 +48,10 @@ impl Transfer {
         };
         let report = match guard.as_mut() {
             Some(owner) => owner.try_close()?,
-            None => self.adoption.try_retire()?,
+            None => {
+                self.grant.lock().unwrap().take();
+                self.adoption.try_retire()?
+            }
         };
         if report.is_complete() {
             *guard = None;
