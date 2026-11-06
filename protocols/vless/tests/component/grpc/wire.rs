@@ -90,10 +90,9 @@ async fn run(secure: bool, borrowed: bool) {
             destination: destination(),
         };
         let connected = if borrowed {
-            let connected = role
-                .connect_carrier(request, assembly.context())
-                .await
-                .unwrap();
+            let mut context = assembly.context();
+            context.deadline = None;
+            let connected = role.connect_carrier(request, context).await.unwrap();
             let zero_platform_tokio::controlled_carrier::loan::StreamLoan { io, owner } =
                 connected.io;
             assert_eq!(owner.original().instance(), assembly.actual);
