@@ -1,10 +1,11 @@
 //! Absence of explicit DNS retains the real host-owned System Node resolver.
-use super::*;
+use crate::runtime::Proxy;
 use std::time::Duration;
 use zero_platform_tokio::contract::{
     dns::{DnsQueryContext, DnsQueryRole, DnsRequest},
     CancellationToken,
 };
+use zero_traits::IpAddress;
 fn end() -> tokio::time::Instant {
     tokio::time::Instant::now() + Duration::from_secs(5)
 }
