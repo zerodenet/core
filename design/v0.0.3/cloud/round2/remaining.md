@@ -38,3 +38,17 @@ B→A、需要的 B→C 和公共依赖随精确前置提交更新；未给出�
 REALITY 保原目标/断言/期限，DNS 环境恢复后定向复验；不改网络或目标绕过。
 TEMP-WG-OUTER-UDP-01 仅原 outer_udp_proxy/reconnect 范围保留未关闭、不纠正不扩大。
 最终 artifact 必须可下载并含同一验证锁及原始证据，不只提供云端绝对路径。
+
+## 续作共享前置（不是职责域完成）
+
+- `1f47c32353d539df8d54ae95e558f9225a3dbc1f`：实际 TCP 控制与协商 UDP 原件使用同
+  ControlledAssociationPool 总额度；关联责任不改物理 CarrierOrigin；原 Tx/Rx 转交保同 LoanOwner。
+  平台 carrier 受影响组 53 PASS，额外关联/保留 view 三项 PASS；首次测试编译缺 Future import
+  的失败留在外部证据，不将前置资格算整域完成。
+- M 暂时唯一写 `component/stream_bridge/{network.rs,datagram.rs}`，按 B 的具体需求补
+  同 actual Node resolver 的相关 peer 候选、真实 UDP 观察与 TCP establishment 分离，之后归还 B。
+- DNS 的 Single Packet+Datagram 冷选择/实际 open_carrier 只准备现有 wire 形态，仍需 C 真 donor；
+  A 只解析一次 selected target，未选 Datagram 时才使用同一次 resolved 的 Stream 路径。
+- concrete Packet provider 扩展 Create/ExistingWindows，先留原件/issued identity，再配置；
+  失败保同控制器，唯一 view 返回、同 Scope driver join 与 matching native receipt 仍分别确认。
+  不因 provider 存在就开启未完成的普通 Packet/TUN source。

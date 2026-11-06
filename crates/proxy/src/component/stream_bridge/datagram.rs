@@ -25,6 +25,21 @@ struct Opener {
     datagram: NodeOpener,
 }
 impl UpstreamOpener for Opener {
+    fn resolve_related_datagram(
+        &self,
+        binding: &UpstreamBinding,
+        parent: zero_platform_tokio::controlled_carrier::CarrierAdoption,
+        peer: Destination,
+        call: CarrierContext,
+    ) -> BoxFuture<
+        '_,
+        Result<zero_platform_tokio::controlled_carrier::CarrierCandidates, ChannelError>,
+    > {
+        // UDP retains the actual wire observer, separate from TCP establishment.
+        self.datagram
+            .resolve_related_datagram(binding, parent, peer, call)
+    }
+
     fn observe_carrier_origin(
         &self,
         origin: &zero_platform_tokio::controlled_carrier::CarrierOrigin,

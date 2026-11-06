@@ -41,6 +41,21 @@ pub(super) fn check_parent(
     Ok(())
 }
 
+pub(super) fn check_endpoint(
+    parent: &CarrierAdoption,
+    endpoint: &zero_core::request::Destination,
+) -> Result<(), ChannelError> {
+    if parent.slot.state().endpoint.as_ref() != Some(endpoint) {
+        return Err(error(
+            parent.instance(),
+            Stage::Prepare,
+            Reason::StalePlan,
+            DeliveryState::NotSubmitted,
+        ));
+    }
+    Ok(())
+}
+
 impl CarrierGrant {
     /// Bind a reserved Datagram original to its already acquired control
     /// original. This grants no native/root I/O and never changes either
