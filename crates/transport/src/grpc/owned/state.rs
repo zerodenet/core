@@ -1,8 +1,8 @@
 use super::*;
-use crate::grpc::{GrpcPool, pool::State};
+use crate::grpc::{pool::State, GrpcPool};
 use std::sync::{
-    Arc, Mutex,
     atomic::{AtomicBool, Ordering},
+    Arc, Mutex,
 };
 use zero_platform_tokio::{
     contract::{
@@ -155,6 +155,27 @@ impl Managed {
     pub(in crate::grpc) fn stop(&self) {
         self.ready.store(false, Ordering::Release);
         self.cancel.cancel();
+    }
+    pub(super) async fn reap_demand(&self, deadline: Option<Instant>) -> Result<(), ChannelError> {
+        if let Some(end) = deadline {
+            return self.reap(end).await;
+        }
+        let records = self.records.lock().unwrap().clone();
+        for record in records {
+            if record.can_retire() {
+                let native = record.adoption.try_retire_native()?;
+                if native
+                    .closed()
+                    .is_some_and(|closed| closed.matches(&record.adoption))
+                {
+                    // The original native stage already completed. This call
+                    // settles only immediately returned logical users/receipts.
+                    let _ = record.adoption.retire(Instant::now()).await?;
+                }
+            }
+        }
+        self.harvest();
+        Ok(())
     }
     pub(super) async fn reap(&self, deadline: Instant) -> Result<(), ChannelError> {
         let records = self.records.lock().unwrap().clone();
