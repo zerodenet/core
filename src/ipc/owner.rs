@@ -122,3 +122,39 @@ pub(crate) fn reserve_event_bytes_blocking(
         }
     }
 }
+
+/// All originals have already been joined. Keep every typed failure when a
+/// foreground I/O failure and a worker/command failure occur together.
+pub(crate) fn finish_work(results: impl IntoIterator<Item = io::Result<()>>) -> io::Result<()> {
+    let mut errors = results
+        .into_iter()
+        .filter_map(Result::err)
+        .collect::<Vec<_>>();
+    match errors.len() {
+        0 => Ok(()),
+        1 => Err(errors.remove(0)),
+        _ => Err(io::Error::other(ControlFailures(errors))),
+    }
+}
+#[derive(Debug)]
+struct ControlFailures(Vec<io::Error>);
+impl std::fmt::Display for ControlFailures {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        for (index, error) in self.0.iter().enumerate() {
+            if index != 0 {
+                formatter.write_str("; ")?;
+            }
+            write!(formatter, "{error}")?;
+        }
+        Ok(())
+    }
+}
+impl std::error::Error for ControlFailures {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        self.0.first().map(|error| error as _)
+    }
+}
+
+#[cfg(test)]
+#[path = "tests/completion.rs"]
+mod completion_tests;
