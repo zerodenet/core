@@ -1,5 +1,9 @@
 //! Application wiring and projection for the optional event dispatcher.
 use super::*;
+#[cfg(feature = "event-dispatcher")]
+mod monitor;
+#[cfg(feature = "event-dispatcher")]
+pub(super) use monitor::StatusMonitor;
 
 pub(super) fn dispatcher_enabled(config: &RuntimeConfig) -> bool {
     !config.api.event_sinks.is_empty()
@@ -33,13 +37,14 @@ pub(super) fn dispatcher_changed(previous: &RuntimeConfig, target: &RuntimeConfi
 }
 
 #[cfg(feature = "event-dispatcher")]
-pub(super) fn spawn_status_monitor(
+pub(super) fn start_status_monitor(
+    owner: &StatusMonitor,
     engine: Engine,
     dispatcher: Option<&zero_connector::EventDispatcherHandle>,
-) -> tokio::task::JoinHandle<()> {
+) -> std::io::Result<()> {
     let dispatcher = dispatcher.map(zero_connector::EventDispatcherHandle::status_handle);
 
-    tokio::spawn(async move {
+    owner.start(async move {
         let mut interval = tokio::time::interval(std::time::Duration::from_secs(5));
         loop {
             interval.tick().await;
@@ -50,4 +55,33 @@ pub(super) fn spawn_status_monitor(
             engine.update_sink_status(status);
         }
     })
+}
+
+#[cfg(feature = "event-dispatcher")]
+impl ApplicationServices {
+    pub(super) async fn wait_status_failure(&self) -> std::io::Result<()> {
+        loop {
+            let changed = self.monitor_changed.notified();
+            tokio::pin!(changed);
+            changed.as_mut().enable();
+            let monitor = self.state.lock().await.status_monitor.clone();
+            if let Some(monitor) = monitor {
+                tokio::select! {
+                    result = monitor.wait_terminated() => {
+                        result?;
+                        if !monitor.is_stopping() {
+                            return Err(std::io::Error::other("actual status sampler terminated unexpectedly"));
+                        }
+                        // Ordinary config replacement stops this original. Its
+                        // successful join is not an application runtime fault;
+                        // observe the next actually published owner instead.
+                        changed.await;
+                    },
+                    _ = &mut changed => {},
+                }
+            } else {
+                changed.await;
+            }
+        }
+    }
 }

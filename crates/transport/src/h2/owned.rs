@@ -138,6 +138,12 @@ impl State {
         self.target = self.flush.count.load(Ordering::Acquire).saturating_add(1);
     }
     fn failure(&self) -> Option<io::Error> {
+        // Only this original driver's terminal branch writes failure. Its
+        // Release publication follows that write, so live DATA polling need
+        // not lock a diagnostics record for every credited fragment.
+        if !self.driver_ended.load(Ordering::Acquire) {
+            return None;
+        }
         self.failure.lock().unwrap().as_ref().map(retained)
     }
 }
@@ -217,10 +223,12 @@ impl AsyncWrite for OwnedH2Client {
         bytes: &[u8],
     ) -> Poll<io::Result<usize>> {
         let this = self.get_mut().0.get_mut().expect("exclusive H2 stream");
-        if let Some(error) = this.failure() {
-            return Poll::Ready(Err(error));
+        if this.driver_ended.load(Ordering::Acquire) {
+            return Poll::Ready(Err(this
+                .failure()
+                .unwrap_or_else(|| io::ErrorKind::BrokenPipe.into())));
         }
-        if this.ended || this.driver_ended.load(Ordering::Acquire) {
+        if this.ended {
             return Poll::Ready(Err(io::ErrorKind::BrokenPipe.into()));
         }
         if bytes.is_empty() {
@@ -242,7 +250,11 @@ impl AsyncWrite for OwnedH2Client {
             // to register the actual next increase before returning Pending.
             let available = match this.send.poll_capacity(cx) {
                 Poll::Pending => {
-                    this.poll_reset(cx)?;
+                    // h2 checks send-stream state and installs the very same
+                    // wait_send waker here. A reset makes poll_capacity return
+                    // None; that branch below still retains its typed reason.
+                    // Re-registering poll_reset while capacity is Pending adds
+                    // a second stream-store lock without another notification.
                     return Poll::Pending;
                 }
                 Poll::Ready(None) => {

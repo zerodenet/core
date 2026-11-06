@@ -83,6 +83,9 @@ impl Entry {
             .is_some_and(|failure| Arc::ptr_eq(failure, source))
         {
             self.failure_pending = false;
+            if let Some(receipt) = source.cleanup_failure_receipt() {
+                receipt.acknowledge_retained(source);
+            }
         }
     }
     pub(super) fn has_receipts(&self) -> bool {

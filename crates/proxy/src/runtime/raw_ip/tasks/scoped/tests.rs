@@ -9,6 +9,8 @@ use std::{
 };
 use tokio::io::{AsyncRead, AsyncWriteExt, ReadBuf};
 use zero_platform_tokio::contract::scope::{HostedScope, TaskScope};
+#[path = "tests/capacity.rs"]
+mod capacity;
 fn hosted(limit: usize) -> HostedScope {
     let mut scope =
         TaskScope::suspended_hosted(tokio::runtime::Handle::current(), NonZeroUsize::new(limit));
@@ -48,7 +50,7 @@ impl Future for ReadOnce {
 }
 #[tokio::test]
 async fn real_pending_io_and_completed_body_cannot_refund_original_scope_before_join() {
-    let mut scope = hosted(1);
+    let mut scope = hosted(2);
     let owner = ScopedSourceTasks::new("actual Source IO", 1, TaskClass::Critical);
     owner.bind(scope.registrar().downgrade()).unwrap();
     let mut guard = owner.lock().await.unwrap();
@@ -97,14 +99,45 @@ async fn real_pending_io_and_completed_body_cannot_refund_original_scope_before_
     pending(guard.join_next()).await;
     let receipt = scope.next_receipt().await.unwrap();
     assert_eq!(receipt.id(), id);
-    guard.join_next().await.unwrap().unwrap();
+    guard.join_next().await.unwrap().unwrap().unwrap();
+    assert_eq!(
+        guard.len(),
+        1,
+        "delivered output still owes actual Host ACK"
+    );
+    assert!(!receipt.joined().registration_released());
+    scope.registrar().check_capacity(NonZeroUsize::MIN).unwrap();
+    assert_eq!(
+        guard.spawn(async { Ok(()) }).unwrap_err().reason,
+        Reason::Capacity,
+        "the same local group remains full despite spare total Scope capacity"
+    );
+    assert!(!owner.quiescent());
+    pending(guard.join_next()).await;
+    assert!(!scope.is_drained());
+    scope.acknowledge(&receipt).unwrap();
     assert_eq!(guard.len(), 0);
     assert!(
         owner.quiescent(),
-        "same consumer consumed the real joined output"
+        "same consumer delivered the result and the real Host ACK refunded it"
     );
-    assert!(!scope.is_drained());
+    let (read, mut write) = tokio::io::duplex(1);
+    let observed = Arc::new(Notify::new());
+    let second = guard
+        .spawn(ReadOnce {
+            read,
+            observed: observed.clone(),
+        })
+        .unwrap();
+    observed.notified().await;
+    assert_eq!(guard.len(), 1);
+    write.write_u8(43).await.unwrap();
+    let receipt = scope.next_receipt().await.unwrap();
+    assert_eq!(receipt.id(), second);
+    guard.join_next().await.unwrap().unwrap().unwrap();
+    assert_eq!(guard.len(), 1);
     scope.acknowledge(&receipt).unwrap();
+    assert_eq!(guard.len(), 0);
     drop(guard);
     owner
         .close(tokio::time::Instant::now() + Duration::from_secs(2))
@@ -156,13 +189,17 @@ async fn cancelled_cleanup_retains_same_actual_io_witness_and_critical_typed_err
     pending(owner.close(tokio::time::Instant::now() + Duration::from_secs(2))).await; // consumer guard retained
     assert!(!owner.is_drained());
     drop(guard);
-    let report = owner
-        .close(tokio::time::Instant::now() + Duration::from_secs(2))
-        .await
-        .unwrap();
+    let mut closing = Box::pin(owner.close(tokio::time::Instant::now() + Duration::from_secs(2)));
+    pending(&mut closing).await;
+    assert!(!receipt.joined().registration_released());
+    assert!(
+        !owner.is_drained(),
+        "local fault reception cannot fabricate Host ACK"
+    );
+    scope.acknowledge(&receipt).unwrap();
+    let report = closing.await.unwrap();
     assert!(report.is_complete());
     assert_eq!(report.failed_tasks.len(), 1);
     assert_eq!(report.failed_tasks[0].id, receipt.id());
     assert!(owner.is_drained());
-    scope.acknowledge(&receipt).unwrap();
 }

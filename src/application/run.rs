@@ -12,9 +12,9 @@ use super::services::ApplicationServices;
 use crate::http_adapter;
 use crate::{ipc, rule_set_fetch};
 
-#[cfg(feature="grpc-api")]
-mod control_material;
 mod control_failure;
+#[cfg(feature = "grpc-api")]
+mod control_material;
 use control_failure::RunFailures;
 
 #[cfg(test)]
@@ -79,8 +79,11 @@ async fn run(
     // Install the same application before cold control preparation. A cancelled
     // initializer leaves the exact listener/scope owner in its existing slot.
     services.retain_control_startup()?;
-    let parent_input = if parent_lifetime_stdin {Some(services.install_parent_input()?)} else {None};
-
+    let parent_input = if parent_lifetime_stdin {
+        Some(services.install_parent_input()?)
+    } else {
+        None
+    };
 
     let control_start = async {
         #[cfg(not(any(feature = "status-api", feature = "grpc-api")))]
@@ -126,9 +129,8 @@ async fn run(
         let quota = engine.shutdown_principal_quota_state();
         let parent = services.shutdown_parent_input().await;
         if services.control_retirement_complete()
-            && monitor.is_ok()
-            && dispatcher.is_ok()
-            && quota.is_ok()
+            && services.service_retirement_complete().await
+            && engine.principal_quota_retirement_complete()
             && services.parent_input_retirement_complete()
         {
             services.finish_control_startup();
@@ -150,7 +152,9 @@ async fn run(
         failures.result("parent input cleanup", parent);
         return failures.finish();
     }
-    if parent_input.is_none() {services.finish_control_startup();}
+    if parent_input.is_none() {
+        services.finish_control_startup();
+    }
 
     // The proxy data plane is a critical application service. Run it under the
     // root application lifecycle instead of detaching it into an unsupervised
@@ -194,8 +198,11 @@ async fn run(
     let control_shutdown = services.shutdown_control().await;
     let quota_shutdown = engine.shutdown_principal_quota_state();
 
-    if services.parent_input_retirement_complete() && services.control_retirement_complete()
-        && monitor_shutdown.is_ok() && dispatcher_shutdown.is_ok() && quota_shutdown.is_ok() {
+    if services.parent_input_retirement_complete()
+        && services.control_retirement_complete()
+        && services.service_retirement_complete().await
+        && engine.principal_quota_retirement_complete()
+    {
         services.finish_control_startup();
     }
 
@@ -341,12 +348,12 @@ fn load_grpc_tls(
 ) -> Result<zero_grpc::GrpcServerTls, Box<dyn Error>> {
     let cert_path = resolve_config_path(&config.cert_path, source_dir);
     let key_path = resolve_config_path(&config.key_path, source_dir);
-    let cert_pem = control_material::read(source,&cert_path,"TLS certificate",max_bytes)?;
-    let key_pem = control_material::read(source,&key_path,"TLS private key",max_bytes)?;
+    let cert_pem = control_material::read(source, &cert_path, "TLS certificate", max_bytes)?;
+    let key_pem = control_material::read(source, &key_path, "TLS private key", max_bytes)?;
     let mut tls = zero_grpc::GrpcServerTls::new(cert_pem, key_pem);
     if let Some(path) = &config.client_ca_cert_path {
         let path = resolve_config_path(path, source_dir);
-        let client_ca = control_material::read(source,&path,"mTLS client CA",max_bytes)?;
+        let client_ca = control_material::read(source, &path, "mTLS client CA", max_bytes)?;
         tls = tls.with_client_ca(client_ca);
     }
     Ok(tls)
@@ -418,7 +425,9 @@ fn config_api_key(
     Ok(value)
 }
 
-async fn wait_for_shutdown_signal(parent_input: Option<&zero_platform_tokio::parent_input::ParentInputOwner>) {
+async fn wait_for_shutdown_signal(
+    parent_input: Option<&zero_platform_tokio::parent_input::ParentInputOwner>,
+) {
     let Some(parent_input) = parent_input else {
         log_ctrl_c_result(tokio::signal::ctrl_c().await);
         return;

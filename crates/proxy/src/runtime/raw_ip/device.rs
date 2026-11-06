@@ -18,6 +18,7 @@ pub(crate) use standard_packet::PacketSubmission;
 mod tests;
 mod translation;
 mod wire;
+pub(crate) use wire::WireStackRecipe;
 mod workers;
 
 use std::{

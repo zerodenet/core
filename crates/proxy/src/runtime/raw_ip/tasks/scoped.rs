@@ -4,6 +4,7 @@ mod failure;
 mod guard;
 mod lifetime;
 mod quiescence;
+mod retirement;
 mod spawn;
 use super::{Source, TaskOutput};
 pub(crate) use failure::SourceJoinFailure;
@@ -42,6 +43,7 @@ struct State<T: TaskOutput> {
 struct Record<T: TaskOutput> {
     witness: OnceLock<TaskJoinWitness>,
     output: Mutex<Option<T>>,
+    delivered: std::sync::atomic::AtomicBool,
 }
 impl<T: TaskOutput> Clone for ScopedSourceTasks<T> {
     fn clone(&self) -> Self {
@@ -101,12 +103,16 @@ impl<T: TaskOutput> ScopedSourceTasks<T> {
         })
     }
     fn take_joined(&self) -> Option<Result<T, SourceJoinFailure>> {
-        let mut state = self.inner.state.lock().unwrap();
-        let position = state
-            .records
-            .iter()
-            .position(|record| record.witness.get().is_some_and(TaskJoinWitness::is_joined))?;
-        let record = state.records.swap_remove(position);
+        self.reap_released();
+        let state = self.inner.state.lock().unwrap();
+        let position = state.records.iter().position(|record| {
+            !record.delivered.load(std::sync::atomic::Ordering::Acquire)
+                && record.witness.get().is_some_and(TaskJoinWitness::is_joined)
+        })?;
+        let record = state.records[position].clone();
+        record
+            .delivered
+            .store(true, std::sync::atomic::Ordering::Release);
         drop(state);
         let witness = record
             .witness
@@ -135,9 +141,19 @@ impl<T: TaskOutput> ScopedSourceTasks<T> {
             }
             let mut waits = records
                 .iter()
-                .filter_map(|record| record.witness.get())
-                .cloned()
-                .map(|witness| Box::pin(async move { witness.wait().await }))
+                .filter_map(|record| {
+                    record.witness.get().map(|witness| {
+                        let witness = witness.clone();
+                        let delivered = record.delivered.load(std::sync::atomic::Ordering::Acquire);
+                        Box::pin(async move {
+                            if delivered {
+                                witness.wait_registration_released().await
+                            } else {
+                                witness.wait().await
+                            }
+                        })
+                    })
+                })
                 .collect::<Vec<_>>();
             if waits.is_empty() {
                 changed.await;

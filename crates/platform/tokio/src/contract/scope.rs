@@ -1,11 +1,11 @@
 //! A bounded task owner using an existing runtime. No actor or runtime per scope.
 use std::{
     collections::{HashMap, VecDeque},
-    future::{Future, poll_fn},
+    future::{poll_fn, Future},
     num::NonZeroUsize,
     sync::{
-        Arc, Mutex,
         atomic::{AtomicU64, Ordering},
+        Arc, Mutex,
     },
     task::Poll,
 };
@@ -13,14 +13,14 @@ use tokio::{
     runtime::Handle,
     sync::Notify,
     task::{Id, JoinError, JoinSet},
-    time::{Instant, timeout_at},
+    time::{timeout_at, Instant},
 };
 use tokio_util::sync::CancellationToken;
 pub use zero_core::component::TaskId;
 
 use super::{
-    ChannelError, Impact, Reason, Stage,
     lifecycle::{CloseReport, ComponentError, TaskFailure, Unfinished},
+    ChannelError, Impact, Reason, Stage,
 };
 
 pub use super::lifecycle::TaskClass;
@@ -31,9 +31,11 @@ mod hosted;
 mod identity;
 mod registrar;
 mod relay;
+mod retirement;
 pub use hosted::{HostedCallbacks, HostedExitReceipt, HostedReceiptError, HostedScope};
 pub use identity::TaskScopeIdentity;
 pub use registrar::WeakTaskRegistrar;
+pub use retirement::ScopeRetirementObservation;
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SpawnError {
     NotStarted,

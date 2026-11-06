@@ -429,9 +429,15 @@ pub(crate) fn compiled_registries_with_network(
                 .register_with_resources_where(
                     ::vmess::metadata::VmessProtocol.descriptor(),
                     crate::adapters::vmess::component::mux::Factory,
-                    |input| {
-                        crate::adapters::vmess::component::grpc::eligible(input)
-                            || crate::adapters::vmess::component::mux::eligible(input)
+                    {
+                        let native = node_network.is_some();
+                        move |input| {
+                            (if native {
+                                crate::adapters::vmess::component::grpc::owned_eligible(input)
+                            } else {
+                                crate::adapters::vmess::component::grpc::eligible(input)
+                            }) || crate::adapters::vmess::component::mux::eligible(input)
+                        }
                     },
                     {
                         let adapter = adapter.clone();
@@ -447,30 +453,13 @@ pub(crate) fn compiled_registries_with_network(
                                     pool.clone().expect("selected production MUX provider"),
                                 );
                             }
-                            let mut options = adapter
-                                .standard_options_for(input, resources.candidate())
-                                .map_err(crate::component::RegistrationError::Options)?;
-                            let taskless_domain =
-                                crate::adapters::vmess::component::grpc::taskless_domain(input);
-                            if network.is_some()
-                                && resources.candidate().is_some()
-                                && (taskless_domain
-                                    || matches!(
-                                        &options,
-                                        crate::adapters::vmess::component::grpc::Options::Grpc(_)
-                                    ) && resources.candidate().is_some_and(|candidate| {
-                                        zero_dns::native::validate_node_config(
-                                            candidate.runtime.dns.as_ref(),
-                                        )
-                                        .is_ok()
-                                    }))
-                            {
-                                let dns = crate::component::native_dns::prepare_node(
-                                    resources,
-                                    network.clone().expect("selected native node DNS"),
-                                )?;
-                                options.bind_node_dns(dns);
-                            }
+                            let options = if let Some(network) = network.clone() {
+                                adapter.owned_standard_options(input, resources, network)?
+                            } else {
+                                adapter
+                                    .standard_options_for(input, resources.candidate())
+                                    .map_err(crate::component::RegistrationError::Options)?
+                            };
                             Ok(crate::adapters::vmess::component::mux::Options::Ordinary(
                                 Arc::new(options),
                             ))
@@ -562,7 +551,6 @@ pub(crate) fn compiled_registries_with_network(
             matches!(
                 &outbound.protocol,
                 zero_config::OutboundProtocolConfig::Wireguard {
-                    inbound_tag: Some(_),
                     outer_udp_proxy: None,
                     ..
                 }

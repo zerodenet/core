@@ -11,6 +11,7 @@ impl<T: TaskOutput> SourceTasksGuard<'_, T> {
         self.owner.spawn(future)
     }
     pub(crate) fn len(&self) -> usize {
+        self.owner.reap_released();
         self.owner.inner.state.lock().unwrap().records.len()
     }
     pub(crate) fn spawn_with_witness<F, Fut>(&mut self, make: F) -> Result<TaskId, ChannelError>

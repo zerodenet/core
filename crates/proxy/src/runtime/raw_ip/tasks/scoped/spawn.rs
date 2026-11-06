@@ -12,6 +12,7 @@ impl<T: TaskOutput> ScopedSourceTasks<T> {
         F: FnOnce(TaskJoinWitness) -> Fut + Send + 'static,
         Fut: Future<Output = T> + Send + 'static,
     {
+        self.reap_released();
         let scope = self
             .inner
             .scope
@@ -21,6 +22,7 @@ impl<T: TaskOutput> ScopedSourceTasks<T> {
         let record = Arc::new(Record {
             witness: OnceLock::new(),
             output: Mutex::new(None),
+            delivered: std::sync::atomic::AtomicBool::new(false),
         });
         {
             let mut state = self.inner.state.lock().unwrap();
@@ -28,7 +30,7 @@ impl<T: TaskOutput> ScopedSourceTasks<T> {
                 return Err(error(Reason::Revoked));
             }
             if state.records.len() >= self.inner.limit {
-                return Err(error(Reason::Capacity));
+                return Err(super::super::capacity::rejected());
             }
             state.records.push(record.clone());
         }
@@ -91,8 +93,12 @@ impl<T: TaskOutput> ScopedSourceTasks<T> {
                     state.closing = true;
                 }
                 drop(state);
-                Err(ChannelError::new(Stage::Prepare, reason, Impact::Component)
-                    .with_source(source))
+                let error = if reason == Reason::Capacity {
+                    super::super::capacity::rejected()
+                } else {
+                    ChannelError::new(Stage::Prepare, reason, Impact::Component)
+                };
+                Err(error.with_source(source))
             }
         }
     }

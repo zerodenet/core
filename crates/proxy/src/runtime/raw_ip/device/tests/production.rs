@@ -228,3 +228,6 @@ mod replacement;
 
 #[path = "production/packet.rs"]
 mod packet;
+
+#[path = "production/standalone.rs"]
+mod standalone;

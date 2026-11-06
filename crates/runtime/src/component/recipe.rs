@@ -28,6 +28,7 @@ pub struct ComponentRecipe {
     recipe: Arc<dyn BuildRecipe>,
     bound_datagrams: Arc<[bound_datagram::NativeBinding]>,
     carrier_total: Option<usize>,
+    process_limits: Option<accounting::ProcessLimits>,
 }
 impl ComponentRecipe {
     /// Options have already been validated by their owning factory/adapter.
@@ -39,6 +40,7 @@ impl ComponentRecipe {
             recipe: Arc::new(Prepared { factory, options }),
             bound_datagrams: Arc::from([]),
             carrier_total: None,
+            process_limits: None,
         }
     }
     pub fn spec(&self) -> &ComponentSpec {

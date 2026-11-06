@@ -48,6 +48,9 @@ impl PlanTaskFailure {
         error.session = original.session;
         error.delivery = original.delivery;
         error.retry = original.retry;
+        if let Some(receipt) = original.cleanup_failure_receipt() {
+            error = error.with_cleanup_failure_receipt(receipt.clone());
+        }
         error.with_source(self.clone())
     }
 }

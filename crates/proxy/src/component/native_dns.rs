@@ -20,6 +20,7 @@ use zero_platform_tokio::{
 };
 mod ech;
 mod factory;
+mod owner;
 mod provider;
 use provider::Provider;
 use zero_dns::native::NativeDnsProvider;
@@ -195,111 +196,9 @@ struct Owner {
     network: Arc<BackgroundNetwork>,
     purpose: Purpose,
     pending: CloseReport,
+    reported_faults: std::collections::BTreeSet<zero_platform_tokio::contract::scope::TaskId>,
     #[cfg(feature = "dns")]
     metadata: Vec<zero_platform_tokio::controlled_datagram::metadata_pool::MetadataPoolOwner>,
-}
-impl ResourceLifecycle for Owner {
-    async fn start(&mut self, end: tokio::time::Instant) -> Result<(), BuildError> {
-        for (ordinal, owner) in self.owners.iter_mut().enumerate() {
-            self.resources.register_controlled_carrier(
-                ordinal,
-                owner.registration(),
-                &self.tasks,
-            )?;
-            owner.start(end).await?;
-        }
-        #[cfg(feature = "dns")]
-        for (index, owner) in self.metadata.iter().enumerate() {
-            self.resources.register_metadata_pool(
-                self.owners.len() + index,
-                owner.registration(),
-                &self.tasks,
-            )?;
-            owner.start()?;
-        }
-        let provider: Arc<dyn zero_dns::native::NativeDnsProvider> = self.provider.clone();
-        self.purpose
-            .source(&self.network)
-            .install(&provider)
-            .map_err(provider::error)?;
-        Ok(())
-    }
-    fn revoke(&self, _: CloseReason) {
-        let provider: Arc<dyn zero_dns::native::NativeDnsProvider> = self.provider.clone();
-        let current = self.purpose.source(&self.network).withdraw(&provider);
-        self.provider.stop();
-        if current {
-            if let Some(dns) = self
-                .network
-                .resolver
-                .get()
-                .and_then(std::sync::Weak::upgrade)
-            {
-                dns.retire_native_query_source(self.purpose.source(&self.network));
-            }
-        }
-        for owner in &self.owners {
-            owner.revoke();
-        }
-        #[cfg(feature = "dns")]
-        for owner in &self.metadata {
-            owner.revoke();
-        }
-    }
-    async fn shutdown(&mut self, end: tokio::time::Instant) -> Result<CloseReport, BuildError> {
-        self.revoke(CloseReason::Shutdown);
-        let mut failure = None;
-        if let Some(dns) = self
-            .network
-            .resolver
-            .get()
-            .and_then(std::sync::Weak::upgrade)
-        {
-            if let Err(source) = dns.shutdown_native_pools(&self.provider.tasks(), end).await {
-                failure.get_or_insert_with(|| provider::error(source));
-            }
-        }
-        if let Err(source) = self.provider.close_queries(end).await {
-            failure.get_or_insert_with(|| provider::error(source));
-        }
-        let mut unfinished = Vec::new();
-        for owner in &mut self.owners {
-            match owner.shutdown(end).await {
-                Ok(mut report) => {
-                    unfinished.append(&mut report.unfinished);
-                    self.pending.append(report);
-                }
-                Err(source) => {
-                    failure.get_or_insert(source);
-                }
-            }
-        }
-        if let Err(source) = self.provider.reap(end).await {
-            failure.get_or_insert_with(|| provider::error(source));
-        }
-        #[cfg(feature = "dns")]
-        for owner in &self.metadata {
-            match owner.shutdown() {
-                Ok(mut report) => {
-                    unfinished.append(&mut report.unfinished);
-                    self.pending.append(report);
-                }
-                Err(source) => {
-                    failure.get_or_insert(source);
-                }
-            }
-        }
-        self.provider.tasks.observe_native_retirements();
-        if let Some(faults) = self.provider.tasks.retained_faults() {
-            return Err(provider::retirement::handoff_faults(failure, faults));
-        }
-        if let Some(failure) = failure {
-            return Err(failure);
-        }
-        let mut report = std::mem::take(&mut self.pending);
-        report.unfinished = unfinished;
-        Ok(report)
-    }
 }
 
 #[cfg(test)]

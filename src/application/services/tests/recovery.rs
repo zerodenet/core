@@ -1,5 +1,61 @@
 use super::*;
+use crate::application::services::StatusMonitor;
 use zero_proxy::ConfigApplyReconciler;
+
+#[tokio::test]
+async fn normal_sampler_replacement_keeps_supervision_on_the_next_published_scope() {
+    tokio::time::timeout(Duration::from_secs(5), async {
+    use std::{future::Future, task::Poll};
+    let directory = tempfile::tempdir().unwrap();
+    let mut config = RuntimeConfig::parse(&config_json("before.jsonl", 0)).unwrap();
+    config.source_dir = Some(directory.path().to_owned());
+    let services = ApplicationServices::start(Engine::new(config.clone()).unwrap(), None)
+        .await
+        .unwrap();
+    let old = services
+        .state
+        .lock()
+        .await
+        .status_monitor
+        .as_ref()
+        .unwrap()
+        .clone();
+    let mut supervision = Box::pin(services.wait_status_failure());
+    std::future::poll_fn(|cx| {
+        assert!(supervision.as_mut().poll(cx).is_pending());
+        Poll::Ready(())
+    })
+    .await;
+    config.api.event_sinks = RuntimeConfig::parse(&config_json("after.jsonl", 0))
+        .unwrap()
+        .api
+        .event_sinks;
+    tokio::select! {
+        result = &mut supervision => panic!("old sampler's normal replacement ended application supervision: {result:?}"),
+        result = services.reconcile(std::sync::Arc::new(config)) => { result.unwrap(); },
+    }
+    assert!(old.retirement_complete());
+    let current = services
+        .state
+        .lock()
+        .await
+        .status_monitor
+        .as_ref()
+        .unwrap()
+        .clone();
+    assert_ne!(old.id(), current.id());
+    std::future::poll_fn(|cx| {
+        assert!(supervision.as_mut().poll(cx).is_pending());
+        Poll::Ready(())
+    })
+    .await;
+    drop(supervision);
+    services.shutdown_status_monitor().await.unwrap();
+    services.shutdown_dispatcher().await.unwrap();
+    assert!(current.retirement_complete());
+    assert!(services.service_retirement_complete().await);
+    }).await.unwrap();
+}
 
 #[tokio::test]
 async fn dispatcher_replacement_recovers_facts_after_storage_backpressure() {
@@ -86,12 +142,17 @@ async fn monitor_original_join_failure_is_retained_and_blocks_replacement() {
     let services = ApplicationServices::start(engine, None).await.unwrap();
     {
         let mut state = services.state.lock().await;
+        let original = state.status_monitor.as_ref().unwrap().clone();
         ApplicationServices::stop_status_monitor(&mut state)
             .await
             .unwrap();
-        assert!(matches!(state.monitor_exit, Some(Err(ref error)) if error.is_cancelled()));
+        assert!(matches!(state.monitor_exit, Some(Ok(()))));
+        assert!(
+            original.retirement_complete(),
+            "same cooperative worker and scope really joined"
+        );
         state.monitor_exit = None;
-        state.status_monitor = Some(tokio::spawn(async {
+        state.status_monitor = Some(StatusMonitor::test_work(async {
             panic!("actual original monitor failure")
         }));
     }
@@ -152,7 +213,7 @@ async fn original_monitor_join_fault_is_not_replaced_by_an_earlier_cleanup_fault
             .unwrap();
         state.monitor_exit = None;
         state.cleanup_fault = Some(retained.clone());
-        state.status_monitor = Some(tokio::spawn(async {
+        state.status_monitor = Some(StatusMonitor::test_work(async {
             panic!("actual later status monitor")
         }));
     }
@@ -179,10 +240,15 @@ async fn original_monitor_join_fault_is_not_replaced_by_an_earlier_cleanup_fault
     let reported = error
         .get_ref()
         .unwrap()
-        .downcast_ref::<std::sync::Arc<tokio::task::JoinError>>()
+        .downcast_ref::<std::sync::Arc<zero_platform_tokio::contract::ChannelError>>()
         .expect("shutdown returns the actual original monitor source");
     assert!(std::sync::Arc::ptr_eq(reported, &actual));
-    assert!(!std::sync::Arc::ptr_eq(reported, &earlier));
+    let source = std::error::Error::source(actual.as_ref())
+        .unwrap()
+        .downcast_ref::<tokio::task::JoinError>()
+        .expect("same original sampler's actual panic join remains diagnostic");
+    assert!(source.is_panic());
+    assert_ne!(source.id(), earlier.id());
     // The separate dispatcher cleanup still executes all real native/worker
     // cleanup and reports its independently retained earlier source.
     assert!(services.shutdown_dispatcher().await.is_err());

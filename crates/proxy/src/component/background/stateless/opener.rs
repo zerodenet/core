@@ -8,6 +8,7 @@ pub(super) struct Opener {
         std::time::Duration,
     )>,
     pub(super) transfer: Arc<Transfer>,
+    pub(super) association: Option<super::datagram::Association>,
 }
 impl UpstreamOpener for Opener {
     fn has_pending_carrier_observer(&self) -> bool {
@@ -72,6 +73,23 @@ impl UpstreamOpener for Opener {
     ) -> BoxFuture<'_, Result<BoxStream, ChannelError>> {
         let binding = binding.clone();
         Box::pin(async move {
+            if let Some(association) = &self.association {
+                if call.session != association.session
+                    || call.deadline != association.call.deadline
+                    || call.cancel.is_cancelled()
+                    || association.call.cancel.is_cancelled()
+                    || binding != *self.upstream.binding()
+                    || endpoint != self.endpoint
+                {
+                    return Err(crate::component::instance::invalid(
+                        Reason::StalePlan,
+                        "actual Datagram association call changed",
+                    ));
+                }
+                // Preserve the actual association stop/deadline selected and
+                // validated above. Protocol Business facts stay in OpenContext.
+                call = association.call.clone();
+            }
             let mut original = self.transfer.owner.lock().await;
             if &binding != self.upstream.binding()
                 || endpoint != self.endpoint
@@ -83,7 +101,7 @@ impl UpstreamOpener for Opener {
                     "protocol requested a foreign or duplicate carrier",
                 ));
             }
-            if self.transfer.caller.is_none() {
+            if self.transfer.caller.is_none() && self.association.is_none() {
                 call.cancel = self.transfer.stop.clone();
             }
             let grant = self.transfer.grant.lock().unwrap().take().ok_or_else(|| {

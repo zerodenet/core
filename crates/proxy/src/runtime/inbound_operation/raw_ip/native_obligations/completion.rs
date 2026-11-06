@@ -179,7 +179,12 @@ impl NativeObligations {
     ) -> Result<NativePermit, ChannelError> {
         match self.reserve(kind) {
             Err(error) if error.reason == Reason::Capacity => {
-                self.settle_joined(deadline).await?;
+                // This is an old original's cleanup result, not proof about
+                // the new reservation. Never swallow its nested Capacity as
+                // a fresh not-submitted admission failure.
+                self.settle_joined(deadline)
+                    .await
+                    .map_err(|source| rejected(Reason::Io).with_source(source))?;
                 self.reserve(kind)
             }
             result => result,

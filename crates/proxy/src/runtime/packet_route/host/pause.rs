@@ -1,4 +1,4 @@
-//! The original Direct driver is one participant; no invented Source main.
+//! The original native device/wire driver is one participant, never a fake Source main.
 use super::*;
 use std::sync::{Mutex, OnceLock};
 use zero_platform_tokio::contract::{
@@ -9,7 +9,7 @@ pub(crate) struct NativeDevicePaused {
     original: Arc<ReadPause>,
     request: u64,
 }
-pub(super) struct ReadPause {
+pub(crate) struct ReadPause {
     scope: TaskScopeIdentity,
     actual: OnceLock<TaskJoinWitness>,
     state: Mutex<State>,
@@ -24,10 +24,10 @@ struct State {
     acquiring: usize,
     result: Option<Result<(), Arc<ChannelError>>>,
 }
-pub(super) struct Checkpoint {
+pub(crate) struct Checkpoint {
     original: Arc<ReadPause>,
 }
-pub(super) struct Acquisition {
+pub(crate) struct Acquisition {
     original: Arc<ReadPause>,
 }
 pub(super) struct ReadCheckpoint {
@@ -60,7 +60,7 @@ impl Drop for Checkpoint {
     }
 }
 impl ReadPause {
-    pub(super) fn new(scope: TaskScopeIdentity) -> (Arc<Self>, Checkpoint) {
+    pub(crate) fn new(scope: TaskScopeIdentity) -> (Arc<Self>, Checkpoint) {
         let original = Arc::new(Self {
             scope,
             actual: OnceLock::new(),
@@ -72,7 +72,7 @@ impl ReadPause {
         });
         (original.clone(), Checkpoint { original })
     }
-    pub(super) fn bind(&self, actual: &TaskJoinWitness) -> Result<(), ChannelError> {
+    pub(crate) fn bind(&self, actual: &TaskJoinWitness) -> Result<(), ChannelError> {
         if !actual.scope_identity().same_scope(&self.scope) {
             return Err(error(Reason::StalePlan));
         }
@@ -85,7 +85,7 @@ impl ReadPause {
             && self.scope.resource_open()
             && self.actual.get().is_some_and(|actual| !actual.is_joined())
     }
-    pub(super) fn try_enter(self: &Arc<Self>) -> Result<Acquisition, ChannelError> {
+    pub(crate) fn try_enter(self: &Arc<Self>) -> Result<Acquisition, ChannelError> {
         let mut state = self.state.lock().unwrap();
         if !self.live(&state) {
             return Err(error(Reason::Revoked));
@@ -101,7 +101,7 @@ impl ReadPause {
             original: self.clone(),
         })
     }
-    pub(super) async fn pause(
+    pub(crate) async fn pause(
         self: &Arc<Self>,
         deadline: tokio::time::Instant,
     ) -> Result<NativeDevicePaused, ChannelError> {
@@ -163,7 +163,13 @@ impl ReadPause {
     }
 }
 impl Checkpoint {
-    pub(super) async fn requested(&self) -> u64 {
+    pub(crate) fn matches_driver(&self, actual: &TaskJoinWitness) -> bool {
+        self.original
+            .actual
+            .get()
+            .is_some_and(|bound| bound.same_registration(actual))
+    }
+    pub(crate) async fn requested(&self) -> u64 {
         loop {
             let changed = self.original.changed.notified();
             tokio::pin!(changed);
@@ -179,7 +185,7 @@ impl Checkpoint {
             changed.await;
         }
     }
-    pub(super) fn acknowledge(&self, request: u64, result: Result<(), ChannelError>) {
+    pub(crate) fn acknowledge(&self, request: u64, result: Result<(), ChannelError>) {
         let mut state = self.original.state.lock().unwrap();
         if state.request == Some(request) {
             state.result = Some(result.map_err(Arc::new));
@@ -187,7 +193,7 @@ impl Checkpoint {
         drop(state);
         self.original.changed.notify_waiters();
     }
-    pub(super) async fn resumed(&self, request: u64) {
+    pub(crate) async fn resumed(&self, request: u64) {
         loop {
             let changed = self.original.changed.notified();
             tokio::pin!(changed);

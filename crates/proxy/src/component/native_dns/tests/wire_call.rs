@@ -217,3 +217,6 @@ fn has_original_io_source(
     }
     false
 }
+
+#[path = "wire_call/recovery.rs"]
+mod recovery;

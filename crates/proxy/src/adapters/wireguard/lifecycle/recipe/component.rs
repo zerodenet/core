@@ -204,7 +204,7 @@ impl ComponentFactory for LinkedStackFactory {
             .bind(context.tasks.downgrade())
             .map_err(prepare_error)?;
         let carrier = Arc::new(super::carrier::Carrier {
-            options: options.clone(),
+            options: super::carrier::Graph::Linked(options.clone()),
             resources: context.resources,
             scope: context.tasks.scope_identity(),
         });

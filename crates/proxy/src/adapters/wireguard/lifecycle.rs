@@ -17,8 +17,10 @@ mod publication;
 mod recipe;
 pub(crate) use recipe::alias::LinkedOutboundFactory;
 mod selection;
+mod standalone;
 pub(super) use pending::{PeerResources, PendingLinkedEndpoint};
 use pending_map::PendingEndpoints;
+pub(super) use standalone::StandaloneStackOptions;
 
 use std::{
     collections::HashMap,
@@ -88,10 +90,26 @@ impl WireguardAdapter {
         context: OutboundDevicePreparationContext,
     ) -> Result<PreparedWireguardDevices, EngineError> {
         let cold = PendingEndpoints::staged(&self.pending_endpoints, config);
-        if outbounds.iter().any(|outbound| {
-            matches!(&outbound.protocol,
-            OutboundProtocolConfig::Wireguard {inbound_tag:Some(tag),outer_udp_proxy:None,..}
-            if !cold.as_ref().is_some_and(|candidate|candidate.contains_key(tag)))
+        if outbounds.iter().any(|outbound| match &outbound.protocol {
+            OutboundProtocolConfig::Wireguard {
+                inbound_tag: Some(tag),
+                outer_udp_proxy: None,
+                ..
+            } => !cold
+                .as_ref()
+                .is_some_and(|candidate| candidate.contains_key(tag)),
+            OutboundProtocolConfig::Wireguard {
+                inbound_tag: None,
+                outer_udp_proxy: None,
+                ..
+            } => !cold.as_ref().is_some_and(|candidate| {
+                candidate
+                    .standalone
+                    .lock()
+                    .unwrap_or_else(|error| error.into_inner())
+                    .contains_key(&outbound.tag)
+            }),
+            _ => false,
         }) {
             return Err(invalid(
                 "plain linked WireGuard requires its actual cold component candidate",

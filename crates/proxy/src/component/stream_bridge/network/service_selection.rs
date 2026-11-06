@@ -3,7 +3,7 @@
 use super::*;
 use zero_platform_tokio::contract::network::UpstreamTransport;
 impl NodeOpener {
-    pub(super) fn reselect_service(
+    pub(in crate::component::stream_bridge) fn reselect_service(
         &self,
         binding: Option<UpstreamBinding>,
         call: CarrierContext,

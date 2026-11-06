@@ -41,6 +41,7 @@ impl Outbound {
                 endpoint: self.endpoint.clone(),
                 process: self.process,
                 transfer: transfer.clone(),
+                association: None,
             }),
         );
         let caller_cancel = context.cancel.clone();

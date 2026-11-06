@@ -47,6 +47,17 @@ impl Devices {
         }
     }
 
+    #[cfg(feature = "wireguard")]
+    pub(crate) async fn pause_standalone_packet_if_idle(
+        &self,
+        deadline: tokio::time::Instant,
+    ) -> Result<Vec<crate::runtime::packet_route::host::NativeDevicePaused>, EngineError> {
+        match &self.wireguard {
+            Some(wireguard) => wireguard.pause_standalone_if_idle(deadline).await,
+            None => Ok(Vec::new()),
+        }
+    }
+
     #[cfg(all(test, feature = "wireguard"))]
     pub(crate) fn test_current_wireguard_devices(
         &self,

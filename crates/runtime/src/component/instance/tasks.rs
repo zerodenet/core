@@ -2,8 +2,8 @@
 use super::*;
 use std::{
     sync::{
-        Mutex as SyncMutex,
         atomic::{AtomicU64, Ordering},
+        Mutex as SyncMutex,
     },
     task::{Context, Poll},
 };
@@ -48,6 +48,9 @@ impl ComponentTaskFault {
         error.session = self.source.session;
         error.delivery = self.source.delivery;
         error.retry = self.source.retry;
+        if let Some(receipt) = self.source.cleanup_failure_receipt() {
+            error = error.with_cleanup_failure_receipt(receipt.clone());
+        }
         error.with_source(self.clone())
     }
 }

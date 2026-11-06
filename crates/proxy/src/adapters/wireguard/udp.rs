@@ -143,6 +143,9 @@ struct WireguardRawIpTunnel {
 }
 
 impl RawIpTunnel for WireguardRawIpTunnel {
+    fn quiescent(&self) -> bool {
+        !self.tunnel.has_pending_packets()
+    }
     fn initiate_handshake(&mut self) -> Result<Vec<RawIpAction>, EngineError> {
         self.tunnel
             .initiate_handshake()

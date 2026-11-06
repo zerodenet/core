@@ -111,23 +111,32 @@ pub(super) async fn accept(
             }
             let resolver = runtime_factory.tun_dns_resolver();
             let native = native.clone();
-            tasks
-                .spawn_with_witness(move |caller| {
-                    crate::inbound::tun::serve_dns_tcp_owned(resolver, stream, native, caller)
-                })
-                .map_err(std::io::Error::other)?;
+            if let Err(source) = tasks.spawn_with_witness(move |caller| {
+                crate::inbound::tun::serve_dns_tcp_owned(resolver, stream, native, caller)
+            }) {
+                if crate::runtime::raw_ip::tasks::capacity::before_work(&source) {
+                    continue;
+                }
+                return Err(std::io::Error::other(source).into());
+            }
             continue;
         }
         if group.occupied() >= MAX_CONNECTIONS {
             continue;
         }
-        let mut native = native
+        let mut native = match native
             .reserve_reclaimed(
                 super::native_obligations::ChildKind::Tcp,
                 tokio::time::Instant::now() + std::time::Duration::from_secs(5),
             )
             .await
-            .map_err(std::io::Error::other)?;
+        {
+            Ok(native) => native,
+            Err(source) if crate::runtime::raw_ip::tasks::capacity::before_work(&source) => {
+                continue
+            }
+            Err(source) => return Err(std::io::Error::other(source).into()),
+        };
         let source_addr = zero_platform_tokio::socket_address_to_socket_addr(source);
         // The existing Engine.prepare_session in serve mints the real identity
         // before dispatch; this preserves its full original admission/auth chain.
@@ -142,7 +151,7 @@ pub(super) async fn accept(
         session.transparent_target = true;
         let runtime = runtime_factory.for_connection(Some(source_addr));
         let sniff = tun.is_some();
-        group.spawn_bound(&host, move |binding| async move {
+        let registered = group.spawn_bound(&host, move |binding| async move {
             binding.wait_bound().await.map_err(std::io::Error::other)?;
             let stop = binding.cancellation();
             native.bind_caller(binding).map_err(std::io::Error::other)?;
@@ -159,7 +168,13 @@ pub(super) async fn accept(
                 _ = stop.cancelled() => Ok(()),
             };
             native.consume_business_result(result)
-        })?;
+        });
+        if let Err(source) = registered {
+            if crate::runtime::raw_ip::tasks::capacity::source_admission(&source) {
+                continue;
+            }
+            return Err(source);
+        }
     }
 }
 

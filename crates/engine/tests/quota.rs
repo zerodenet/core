@@ -3,10 +3,7 @@ use zero_core::{Address, Network, ProtocolType, Session, SessionAuth};
 #[path = "quota/streaming.rs"]
 mod streaming;
 
-use zero_engine::{
-    inspect_principal_quota_state, Engine, EngineError, PrincipalQuotaStateStatus, SessionHandle,
-    SessionOutcome,
-};
+use zero_engine::{Engine, EngineError, PrincipalQuotaStateStatus, SessionHandle, SessionOutcome};
 
 fn engine() -> Engine {
     let config = RuntimeConfig::parse(
@@ -260,7 +257,14 @@ fn quota_state_inspection_is_read_only_and_rejects_duplicate_principals() {
     .unwrap();
     config.runtime.principal_quota_state_path = Some(state_path.display().to_string());
 
-    let missing = inspect_principal_quota_state(&config).expect("quota report");
+    let source = std::sync::Arc::new(zero_runtime::configuration::ConfigurationSource::default());
+    let document = directory.path().join("config.json");
+    std::fs::write(&document, serde_json::to_vec(&config).unwrap()).unwrap();
+    let config = source.load_initial_configuration(&document).unwrap();
+    source.confirm_original_io_closed().unwrap();
+    let missing = zero_engine::inspect_principal_quota_state_with_source(&config, &source)
+        .expect("quota report");
+    source.confirm_original_io_closed().unwrap();
     assert_eq!(missing.status, PrincipalQuotaStateStatus::Missing);
     assert!(missing.is_compatible());
 
@@ -286,7 +290,9 @@ fn quota_state_inspection_is_read_only_and_rejects_duplicate_principals() {
         ]
     }"#;
     std::fs::write(&state_path, duplicate).unwrap();
-    let report = inspect_principal_quota_state(&config).expect("quota report");
+    let report = zero_engine::inspect_principal_quota_state_with_source(&config, &source)
+        .expect("quota report");
+    source.confirm_original_io_closed().unwrap();
     assert_eq!(report.status, PrincipalQuotaStateStatus::Incompatible);
     assert!(report
         .error

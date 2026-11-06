@@ -7,9 +7,15 @@ impl ResourcePreparation<'_> {
         recipe: ComponentRecipe,
     ) -> Result<ComponentRecipe, BuildError> {
         let limit = self.carrier_total_limit_for(recipe.spec())?;
-        Ok(recipe.with_carrier_total_limit(limit))
+        let process = self.process_limits_for(recipe.spec())?;
+        Ok(recipe
+            .with_carrier_total_limit(limit)
+            .with_process_limits(process))
     }
-    pub(super) fn carrier_total_limit_for(&self, spec: &ComponentSpec) -> Result<Option<usize>, BuildError> {
+    pub(super) fn carrier_total_limit_for(
+        &self,
+        spec: &ComponentSpec,
+    ) -> Result<Option<usize>, BuildError> {
         let Some(candidate) = self.candidate() else {
             return Ok(None);
         };
@@ -21,5 +27,22 @@ impl ResourcePreparation<'_> {
             ));
         }
         Ok(crate::component::recipe::accounting::owns_carrier_custody(spec).then_some(limit))
+    }
+}
+
+impl ResourcePreparation<'_> {
+    pub(super) fn process_limits_for(
+        &self,
+        spec: &ComponentSpec,
+    ) -> Result<Option<crate::component::recipe::accounting::ProcessLimits>, BuildError> {
+        let Some(candidate) = self.candidate() else {
+            return Ok(None);
+        };
+        if !crate::component::recipe::accounting::owns_process_custody(spec) {
+            return Ok(None);
+        }
+        Ok(Some(
+            crate::component::recipe::accounting::ProcessLimits::from_runtime(&candidate.runtime)?,
+        ))
     }
 }
