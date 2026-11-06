@@ -96,12 +96,21 @@ impl VmessMuxConnectionPool {
         let entries = Arc::downgrade(&self.pool);
         Ok(options.on_confirmed_close(move |instance| {
             if let Some(entries) = entries.upgrade() {
-                entries.lock().unwrap().retain(|_, connection| {
-                    connection
-                        .original
-                        .as_ref()
-                        .is_none_or(|original| original.instance() != instance)
-                });
+                let retired = {
+                    let mut entries = entries.lock().unwrap();
+                    entries
+                        .extract_if(|_, connection| {
+                            connection
+                                .original
+                                .as_ref()
+                                .is_some_and(|original| original.instance() == instance)
+                        })
+                        .map(|(_, connection)| connection)
+                        .collect::<Vec<_>>()
+                };
+                // Matching whole-owner closure authorizes only reclamation.
+                // Final protocol/channel drops must run outside the pool lock.
+                drop(retired);
             }
         }))
     }
