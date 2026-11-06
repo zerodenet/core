@@ -65,6 +65,8 @@ async fn unexpected_runtime_exit_waits_for_route_cleanup_before_clearing_egress(
         id: 41,
         shutdown,
         completion: completion.clone(),
+        #[cfg(feature = "raw-ip-runtime")]
+        budget_recovery: None,
         route_recovery: None,
     });
 
@@ -105,6 +107,8 @@ async fn unexpected_runtime_cleanup_failure_retains_egress_and_error() {
         id: 42,
         shutdown,
         completion: completion.clone(),
+        #[cfg(feature = "raw-ip-runtime")]
+        budget_recovery: None,
         route_recovery: None,
     });
 

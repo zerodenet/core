@@ -32,6 +32,8 @@ async fn manual_recovery_waits_for_the_audit_and_returns_its_failure() {
             id: 7,
             shutdown,
             completion: super::super::completion::TunCompletion::new(done, None),
+            #[cfg(feature = "raw-ip-runtime")]
+            budget_recovery: None,
             route_recovery: Some(requests),
         });
         let recovery = proxy.recover_tun();
@@ -87,6 +89,8 @@ async fn explicit_stop_interrupts_recovery_without_waiting_for_its_timeout() {
         id: 7,
         shutdown,
         completion,
+        #[cfg(feature = "raw-ip-runtime")]
+        budget_recovery: None,
         route_recovery: Some(requests),
     });
     let recovering = proxy.clone();

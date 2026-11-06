@@ -72,6 +72,8 @@ async fn projection(failed: bool) {
         id: 17,
         shutdown: shutdown.clone(),
         completion: completion.clone(),
+        #[cfg(feature = "raw-ip-runtime")]
+        budget_recovery: None,
         route_recovery: None,
     });
     *proxy.tun_info.lock().unwrap() = Some(snapshot(17));
