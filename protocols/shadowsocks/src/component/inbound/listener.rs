@@ -38,7 +38,10 @@ impl Options {
             listen.hash(&mut hash);
             private_identity.hash(&mut hash);
             #[cfg(feature = "blake3")]
-            profile.replay_total().hash(&mut hash);
+            {
+                profile.replay_total().hash(&mut hash);
+                profile.udp_budget_identity().hash(&mut hash);
+            }
             identity.extend_from_slice(&hash.finish().to_le_bytes());
         }
         Self {
@@ -123,6 +126,8 @@ impl ComponentFactory for Factory {
                 context.cancel.clone(),
             )
         });
+        #[cfg(feature = "blake3")]
+        let security = profile.legacy_replay();
         let responder = Arc::new(Mutex::new(
             crate::udp::ShadowsocksInboundUdpResponder::from_profile(profile),
         ));
@@ -170,6 +175,8 @@ impl ComponentFactory for Factory {
                 plugin,
                 #[cfg(feature = "blake3")]
                 replay,
+                #[cfg(feature = "blake3")]
+                security,
             }),
             roles: ComponentRoles {
                 inbound: Some(erase_inbound(PairSource { tcp, udp })),
@@ -237,6 +244,8 @@ where
 }
 struct PairOwner {
     #[cfg(feature = "blake3")]
+    security: crate::shared::legacy_replay::LegacyReplay,
+    #[cfg(feature = "blake3")]
     replay: Option<crate::component::replay::Owner>,
     plugin: Option<plugin::Owner>,
     tcp: zero_platform_tokio::contract::inbound::tcp::TcpSourceLifecycle,
@@ -244,6 +253,11 @@ struct PairOwner {
 }
 impl zero_platform_tokio::contract::lifecycle::ResourceLifecycle for PairOwner {
     async fn start(&mut self, deadline: tokio::time::Instant) -> Result<(), BuildError> {
+        #[cfg(feature = "blake3")]
+        self.security.activate_udp_budget().map_err(|source| {
+            ChannelError::new(Stage::Prepare, Reason::Capacity, Impact::Component)
+                .with_source(source)
+        })?;
         #[cfg(feature = "blake3")]
         if let Some(replay) = &mut self.replay {
             replay.start(deadline).await?;

@@ -92,6 +92,20 @@ impl StreamOptions {
 }
 impl ResourceLifecycle for Owner {
     async fn start(&mut self, deadline: Instant) -> Result<(), BuildError> {
+        self.options
+            .prepared
+            .udp_security
+            .activate_udp_budget()
+            .map_err(|source| {
+                self.admission
+                    .error(
+                        None,
+                        Stage::Prepare,
+                        Reason::Capacity,
+                        DeliveryState::NotSubmitted,
+                    )
+                    .with_source(source)
+            })?;
         if !self.options.replay_is_ready(self.replay) {
             return Err(self.admission.error(
                 None,

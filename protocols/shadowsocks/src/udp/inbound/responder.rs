@@ -2,7 +2,13 @@ use super::*;
 #[cfg(feature = "crypto")]
 impl ShadowsocksInboundUdpResponder {
     pub fn new(session: ShadowsocksInboundUdpSession) -> Self {
+        #[cfg(not(feature = "blake3"))]
         let associations = association::Associations::with_limits(session.codec.limits);
+        #[cfg(feature = "blake3")]
+        let associations = association::Associations::with_budget(
+            session.codec.limits,
+            session.codec.udp_replay_budget(),
+        );
         Self {
             mode: ShadowsocksInboundUdpResponderMode::Single(session),
             pending_client: None,
@@ -14,7 +20,13 @@ impl ShadowsocksInboundUdpResponder {
     }
 
     pub fn from_profile(profile: crate::inbound::ShadowsocksInboundProfile) -> Self {
+        #[cfg(not(feature = "blake3"))]
         let associations = association::Associations::with_limits(profile.state_limits());
+        #[cfg(feature = "blake3")]
+        let associations = association::Associations::with_budget(
+            profile.state_limits(),
+            profile.udp_replay_budget(),
+        );
         Self {
             mode: ShadowsocksInboundUdpResponderMode::Profile {
                 profile,
@@ -58,20 +70,16 @@ impl ShadowsocksInboundUdpResponder {
                     {
                         let user = profile.identify_udp_user(datagram)?;
                         let key = user.cache_key();
-                        let identity_password = profile
-                            .identity_password()
-                            .ok_or(Error::Protocol("ss: SIP023 identity key is not configured"))?;
-                        let session = sessions.entry(key.clone()).or_insert_with(|| {
-                            ShadowsocksInboundUdpSession::new(
-                                ShadowsocksInboundUdpCodec::new_eih(
-                                    profile.cipher(),
-                                    identity_password,
-                                    user.password(),
-                                )
-                                .with_state_limits(profile.state_limits()),
-                            )
-                        });
-                        let dispatch = session.decode_inbound_dispatch(datagram)?;
+                        let dispatch = if let Some(session) = sessions.get_mut(&key) {
+                            session.decode_inbound_dispatch(datagram)?
+                        } else {
+                            let mut session = ShadowsocksInboundUdpSession::new(
+                                profile.udp_codec_for_user(&user),
+                            );
+                            let dispatch = session.decode_inbound_dispatch(datagram)?;
+                            sessions.insert(key.clone(), session);
+                            dispatch
+                        };
                         *current_user = Some(key);
                         *current_auth = Some(user.auth());
                         return Ok(dispatch);
@@ -83,14 +91,20 @@ impl ShadowsocksInboundUdpResponder {
                 }
                 for user in users.iter() {
                     let key = user.cache_key();
-                    let session = sessions.entry(key.clone()).or_insert_with(|| {
-                        ShadowsocksInboundUdpSession::new(
-                            ShadowsocksInboundUdpCodec::new(profile.cipher(), user.password())
-                                .with_replay_guard(profile.legacy_replay())
-                                .with_state_limits(profile.state_limits()),
-                        )
-                    });
-                    if let Ok(dispatch) = session.decode_inbound_dispatch(datagram) {
+                    let decoded = if let Some(session) = sessions.get_mut(&key) {
+                        session.decode_inbound_dispatch(datagram)
+                    } else {
+                        let mut session =
+                            ShadowsocksInboundUdpSession::new(profile.udp_codec_for_user(user));
+                        match session.decode_inbound_dispatch(datagram) {
+                            Ok(dispatch) => {
+                                sessions.insert(key.clone(), session);
+                                Ok(dispatch)
+                            }
+                            Err(source) => Err(source),
+                        }
+                    };
+                    if let Ok(dispatch) = decoded {
                         *current_user = Some(key);
                         *current_auth = Some(user.auth());
                         return Ok(dispatch);

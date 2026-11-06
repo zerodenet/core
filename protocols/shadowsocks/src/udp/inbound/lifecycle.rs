@@ -30,6 +30,13 @@ impl ShadowsocksInboundUdpResponder {
                     .collect();
                 sessions.retain(|key, session| {
                     session.maintain();
+                    #[cfg(feature = "blake3")]
+                    if session.codec.cache_expired()
+                        && session.bindings.is_empty()
+                        && !self.associations.live_user(key)
+                    {
+                        return false;
+                    }
                     active.contains(key)
                 });
                 proxy_users.retain(|id, user| {

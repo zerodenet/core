@@ -48,6 +48,13 @@ impl ShadowsocksAdapter {
                     .map(|config| config.runtime.effective_ss_tcp_replay_max_salts())
                     .unwrap_or(500_000),
             )
+            .map_err(options_error)?
+            .with_udp_budget_limits(
+                resources
+                    .candidate()
+                    .map(|config| super::udp_budget_limits(&config.runtime))
+                    .unwrap_or_default(),
+            )
             .map_err(options_error)?;
         let replay = prepared
             .replay_options()
