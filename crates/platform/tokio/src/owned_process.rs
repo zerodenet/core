@@ -4,3 +4,7 @@
 mod linux;
 #[cfg(target_os = "linux")]
 pub use linux::{OwnedProcess, ProcessTreeClosed};
+#[cfg(target_os = "linux")]
+mod budget;
+#[cfg(target_os = "linux")]
+pub use budget::{ProcessBudget, ProcessBudgetLimits, ProcessBudgetSnapshot};
