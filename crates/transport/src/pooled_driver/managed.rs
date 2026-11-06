@@ -174,7 +174,13 @@ impl ManagedPool {
             }
             let mut grant = self.grants.reserve().map_err(std::io::Error::other)?;
             let view = grant.claim_driver_view().map_err(std::io::Error::other)?;
-            let record = Physical::new(grant.adoption(), grant.cancellation(), view, self);
+            let record = Physical::new(
+                grant.adoption(),
+                grant.cancellation(),
+                view,
+                self,
+                binding.clone(),
+            );
             self.records.lock().unwrap().push(record.clone());
             let opening = Opening(record.clone());
             let waiting = waiting

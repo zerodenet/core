@@ -9,6 +9,7 @@ use zero_platform_tokio::{
 };
 
 pub struct Physical {
+    pub(super) binding: zero_platform_tokio::contract::network::UpstreamBinding,
     pub(super) pending: Mutex<Vec<CarrierAdoption>>,
     pub(super) original: CarrierAdoption,
     pub(super) owner: Weak<ManagedPool>,
@@ -28,8 +29,10 @@ impl Physical {
         stop: zero_platform_tokio::contract::CancellationToken,
         view: CarrierUserView,
         owner: &Arc<ManagedPool>,
+        binding: zero_platform_tokio::contract::network::UpstreamBinding,
     ) -> Arc<Self> {
         Arc::new(Self {
+            binding,
             pending: Mutex::new(Vec::new()),
             original,
             owner: Arc::downgrade(owner),

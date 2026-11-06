@@ -6,11 +6,11 @@ use crate::grpc::pool::Cached;
 use std::{
     future::Future,
     sync::{
-        Arc, Mutex,
         atomic::{AtomicBool, Ordering},
+        Arc, Mutex,
     },
 };
-use zero_platform_tokio::contract::{DeliveryState, lifecycle::TaskClass, network::CarrierContext};
+use zero_platform_tokio::contract::{lifecycle::TaskClass, network::CarrierContext, DeliveryState};
 
 impl Managed {
     pub(super) async fn wait<T>(
@@ -175,6 +175,8 @@ impl Managed {
             }
         };
         let physical = Arc::new(Physical {
+            owner: Arc::downgrade(self),
+            binding: demand.binding.clone(),
             pending: Mutex::new(Vec::new()),
             adoption: grant.adoption(),
             stop: grant.cancellation(),

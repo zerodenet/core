@@ -164,6 +164,7 @@ impl Physical {
     pub(super) fn release_installed_pending(&self) {
         let observed = self.pending.lock().unwrap().clone();
         let installed = self.original.retained_loan();
+        let owner = self.owner.upgrade();
         let removed = observed
             .iter()
             .filter(|slot| {
@@ -172,9 +173,15 @@ impl Physical {
                         .users_closed()
                         .is_some_and(|closed| closed.matches(slot))
                     || installed.as_ref().is_some_and(|proof| proof.retains(slot))
-                    || slot
-                        .retained_driver()
-                        .is_some_and(|proof| proof.retains(slot))
+                    || slot.retained_driver().is_some_and(|proof| {
+                        proof.retains(slot)
+                            && owner.as_ref().is_some_and(|owner| {
+                                owner
+                                    .upstream
+                                    .validate_pending_carrier(&self.binding, slot)
+                                    .is_ok()
+                            })
+                    })
                     || observed.iter().any(|receiver| {
                         !receiver.same_slot(slot)
                             && receiver

@@ -40,6 +40,8 @@ pub(in crate::grpc) struct Managed {
     pub(super) prepared_tls: Mutex<Option<crate::tls::OwnedPreparedClient>>,
 }
 pub(super) struct Physical {
+    pub(super) owner: std::sync::Weak<Managed>,
+    pub(super) binding: zero_platform_tokio::contract::network::UpstreamBinding,
     pub(super) pending: Mutex<Vec<CarrierAdoption>>,
     pub(super) adoption: CarrierAdoption,
     pub(super) stop: CancellationToken,
