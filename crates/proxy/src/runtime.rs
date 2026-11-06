@@ -180,6 +180,16 @@ impl Proxy {
             None => ProtocolInventory::with_node_network(node_network.clone()),
         };
         let config = engine.config();
+        // Application event delivery can start before Proxy::spawn. Install
+        // the configured limit on this same cold Host root before any of its
+        // consumers can acquire an original; later changes use StopOld.
+        let original_limit = std::num::NonZeroUsize::new(
+            config.runtime.effective_carrier_max_total_originals(),
+        )
+        .filter(|limit| limit.get() <= 65536)
+        .ok_or_else(|| std::io::Error::new(std::io::ErrorKind::InvalidInput, "invalid carrier original limit"))?;
+        protocols.runtime_host().original_budgets().carrier
+            .install_after_retirement(original_limit)?;
         protocols.validate_config(&config)?;
         protocols.validate_dial_environment(&config)?;
         protocols.validate_components(config.clone())?;
@@ -273,6 +283,21 @@ impl Proxy {
     /// underlay selection and generation changes as proxy and DNS sockets.
     pub fn egress_interface_control(&self) -> zero_platform_tokio::EgressInterfaceControl {
         self.egress_interface.clone()
+    }
+
+    /// Transfer the existing Host's concrete custody root to application-owned
+    /// event network resources, together with one identity issued by its catalog.
+    /// This does not create a host, pool, task authority or native resource.
+    pub fn application_network_originals(
+        &self,
+    ) -> Result<(
+        zero_core::component::ComponentInstanceId,
+        Arc<zero_platform_tokio::controlled_carrier::CarrierOriginalTotals>,
+    ), EngineError> {
+        Ok((
+            self.protocols.allocate_resource_identity()?,
+            self.host.original_budgets().carrier.clone(),
+        ))
     }
 
     #[cfg(test)]
