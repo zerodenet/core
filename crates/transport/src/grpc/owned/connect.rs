@@ -130,14 +130,15 @@ impl Managed {
         // Source/view destruction and callbacks run outside the cache lock.
         clients.retain(|client| !client.closed());
         clients.push(client.clone());
-        let mut cache = pool.cached.lock().unwrap();
-        if !self.ready() || pool.retired.load(Ordering::Acquire) {
-            drop(cache);
-            drop(clients);
-            return Err(error(self.instance, Stage::Prepare, Reason::Revoked));
+        {
+            let mut cache = pool.cached.lock().unwrap();
+            if !self.ready() || pool.retired.load(Ordering::Acquire) {
+                drop(cache);
+                drop(clients);
+                return Err(error(self.instance, Stage::Prepare, Reason::Revoked));
+            }
+            *cache = Some(Cached::Owned(clients));
         }
-        *cache = Some(Cached::Owned(clients));
-        drop(cache);
         client.open(self, &demand, lease).await
     }
     async fn create(
