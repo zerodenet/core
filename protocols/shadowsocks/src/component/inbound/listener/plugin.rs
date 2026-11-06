@@ -5,10 +5,7 @@ use std::{
     sync::{Arc, Mutex},
     time::Duration,
 };
-use tokio::{
-    process::Child,
-    time::{sleep_until, Instant},
-};
+use tokio::time::{sleep_until, Instant};
 use zero_platform_tokio::contract::{
     component::ResourceAccess,
     lifecycle::{CloseReport, ResourceLifecycle},
@@ -16,10 +13,12 @@ use zero_platform_tokio::contract::{
     CancellationToken, ChannelError, CloseReason, Impact, Reason, Stage,
 };
 mod actor;
+#[cfg(all(test, unix))]
+use tokio::process::Child;
 #[derive(Default)]
 struct State {
     attempted: bool,
-    child: Option<Child>,
+    child: Option<crate::transport::plugin::child::PluginChild>,
     pid: Option<u32>,
     exited: Option<ExitStatus>,
 }
@@ -41,6 +40,22 @@ impl Shared {
             .map_err(|source| io(Stage::Receive, source))?;
         state.exited = status;
         Ok(status)
+    }
+    async fn wait_native_exit(&self) -> std::io::Result<ExitStatus> {
+        #[cfg(target_os = "linux")]
+        {
+            let original = self
+                .state
+                .lock()
+                .unwrap()
+                .child
+                .as_ref()
+                .and_then(|child| child.owned());
+            if let Some(original) = original {
+                return original.wait_root_exit().await;
+            }
+        }
+        std::future::pending().await
     }
     fn stop(&self) {
         self.cancel.cancel();
@@ -119,6 +134,39 @@ impl ResourceLifecycle for Owner {
                     Reason::StalePlan,
                     "plugin actor returned a foreign join",
                 ));
+            }
+        }
+        #[cfg(target_os = "linux")]
+        {
+            let original = self
+                .shared
+                .state
+                .lock()
+                .unwrap()
+                .child
+                .as_ref()
+                .and_then(|child| child.owned());
+            if let Some(original) = original {
+                let receipt = original
+                    .wait_closed(deadline)
+                    .await
+                    .map_err(|source| io(Stage::Close, source))?
+                    .filter(|receipt| receipt.matches(&original))
+                    .ok_or_else(|| {
+                        error(
+                            Stage::Close,
+                            Reason::Timeout,
+                            "original process tree closure remains pending",
+                        )
+                    })?;
+                self.shared.state.lock().unwrap().exited = original.root_status();
+                return Ok(CloseReport {
+                    released_resources: vec![format!(
+                        "SIP003 original tree and parent descriptors closed: native={}",
+                        receipt.had_native_acquisition()
+                    )],
+                    ..Default::default()
+                });
             }
         }
         if self.shared.state.lock().unwrap().child.is_none() {

@@ -43,6 +43,7 @@ impl Drop for CancelAttempt {
 struct Actor {
     component: ComponentId,
     scope: TaskScopeIdentity,
+    tasks: TaskRegistrar,
     cancel: CancellationToken,
     scope_cancel: CancellationToken,
     resource: ShadowsocksPluginResource,
@@ -64,7 +65,7 @@ impl Actor {
             tokio::select!{biased;
                 _=self.cancel.cancelled()=>Err(failure(self.component,Stage::Prepare,Reason::Cancelled,"plugin startup cancelled")),
                 _=self.scope_cancel.cancelled()=>Err(failure(self.component,Stage::Prepare,Reason::Revoked,"plugin Scope cancelled")),
-                result=tokio::time::timeout_at(deadline,self.resource.start_authorized(self.resources.clone(),self.claimed.clone()))=>result.map_err(|source|failure(self.component,Stage::Prepare,Reason::Timeout,"plugin readiness deadline elapsed").with_source(source))?.map(|_|()).map_err(|source|startup_failure(self.component,source)),
+                result=tokio::time::timeout_at(deadline,self.resource.start_authorized(self.resources.clone(),self.claimed.clone(),self.tasks.clone(),witness,deadline))=>result.map_err(|source|failure(self.component,Stage::Prepare,Reason::Timeout,"plugin readiness deadline elapsed").with_source(source))?.map(|_|()).map_err(|source|startup_failure(self.component,source)),
             }
         }.await;
         if let Err(source) = outcome {
@@ -100,6 +101,7 @@ impl Owner {
         let actor = Actor {
             component: self.component,
             scope: self.tasks.scope_identity(),
+            tasks: self.tasks.clone(),
             cancel: self.cancel.clone(),
             scope_cancel: self.tasks.cancellation(),
             resource: self.resource.clone(),
