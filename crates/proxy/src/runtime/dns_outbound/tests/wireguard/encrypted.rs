@@ -3,11 +3,19 @@ use super::*;
 use std::sync::atomic::Ordering;
 #[tokio::test]
 async fn ordinary_linked_wireguard_dot_and_doh_keep_native_and_query_retirement_separate() {
+    exercise(true).await;
+}
+#[tokio::test]
+async fn ordinary_standalone_wireguard_dot_and_doh_share_the_actual_bound_wire_and_persistent_dns_pool()
+ {
+    exercise(false).await;
+}
+async fn exercise(linked: bool) {
     tokio::time::timeout(Duration::from_secs(25),async {
         for doh in [false,true] {
             let mut tls=crate::dns_fixture::TlsDns::new(doh).await;
             let peer=peer::Peer::new(tls.address).await;
-            let (proxy,running)=start_server(&peer,tls.server(doh)).await;
+            let (proxy,running)=start_server_mode(&peer,tls.server(doh),linked).await;
             if doh {zero_dns::test_support::install_doh_ca(&proxy.resolver,"query",tls.certificate.clone()).unwrap();}
             else {zero_dns::test_support::install_dot_ca(&proxy.resolver,"query",tls.certificate.clone()).unwrap();}
             let root=proxy.protocols.test_packet_source_origins(proxy.engine().config().as_ref()).remove(0);
@@ -51,7 +59,8 @@ async fn ordinary_linked_wireguard_dot_and_doh_keep_native_and_query_retirement_
                 native_pending(child,&root);children.push(child.clone());physical=Some(actual);
             }
             let driver=physical.unwrap().task;
-            close(&proxy,running,&root,&children).await;
+            if linked {close(&proxy,running,&root,&children).await;}
+            else {standalone::close(&proxy,running,&root,&children).await;}
             assert!(driver.is_joined());driver.try_joined().unwrap().result().unwrap();
             peer.close().await;tls.close().await;
         }
