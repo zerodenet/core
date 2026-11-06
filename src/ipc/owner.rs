@@ -1,63 +1,7 @@
-//! Retention of one actual control-server join across cancelled waiters.
+//! Retained original control tasks and their existing cleanup helpers.
 use std::{io, sync::Arc};
-
-pub(crate) struct ControlTask(tokio::sync::Mutex<State>);
-struct State {
-    task: Option<tokio::task::JoinHandle<io::Result<()>>>,
-    result: Option<Result<(), Arc<io::Error>>>,
-}
-impl ControlTask {
-    pub(crate) fn empty() -> Self {
-        Self(tokio::sync::Mutex::new(State {
-            task: None,
-            result: None,
-        }))
-    }
-    pub(crate) fn install(&self, task: tokio::task::JoinHandle<io::Result<()>>) -> io::Result<()> {
-        let mut state = self
-            .0
-            .try_lock()
-            .map_err(|_| io::Error::other("control original task is being observed"))?;
-        if state.task.is_some() || state.result.is_some() {
-            return Err(io::Error::other(
-                "control original task was already installed",
-            ));
-        }
-        state.task = Some(task);
-        Ok(())
-    }
-    #[cfg(test)]
-    pub(crate) fn new(task: tokio::task::JoinHandle<io::Result<()>>) -> Self {
-        Self(tokio::sync::Mutex::new(State {
-            task: Some(task),
-            result: None,
-        }))
-    }
-    pub(crate) async fn join(&self) -> io::Result<()> {
-        let mut state = self.0.lock().await;
-        if state.result.is_none() && state.task.is_none() {
-            return Ok(());
-        }
-        if state.result.is_none() {
-            // Await through a borrow. Cancellation releases only this lock;
-            // the same original JoinHandle stays in this persistent owner.
-            let joined = state.task.as_mut().expect("retained original task").await;
-            state.result = Some(
-                joined
-                    .map_err(io::Error::other)
-                    .and_then(|result| result)
-                    .map_err(Arc::new),
-            );
-            state.task = None;
-        }
-        state
-            .result
-            .as_ref()
-            .unwrap()
-            .clone()
-            .map_err(|source| io::Error::new(source.kind(), source))
-    }
-}
+mod task;
+pub(crate) use task::ControlTask;
 
 /// Catch only the work future's polling boundary. Its parent still owns each
 /// actual child join and original IO while it drains cleanup, then resumes the
@@ -79,10 +23,6 @@ pub(crate) async fn catch_work<F: std::future::Future>(
 pub(crate) fn close_deadline() -> tokio::time::Instant {
     tokio::time::Instant::now() + std::time::Duration::from_secs(5)
 }
-
-#[cfg(test)]
-#[path = "tests/owner.rs"]
-mod tests;
 
 pub(crate) fn serialized_len(value: &impl serde::Serialize) -> io::Result<usize> {
     struct Count(usize);
@@ -158,3 +98,7 @@ impl std::error::Error for ControlFailures {
 #[cfg(test)]
 #[path = "tests/completion.rs"]
 mod completion_tests;
+
+#[cfg(test)]
+#[path = "tests/owner.rs"]
+mod tests;
