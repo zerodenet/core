@@ -95,15 +95,21 @@ impl State {
             driver,
             wake,
         } = self;
-        if reading {
-            wake.reader.register(cx.waker());
-        } else {
-            wake.writer.register(cx.waker());
-        }
         wake.polling.store(true, Ordering::Release);
         let _polling = Polling(wake);
         Self::drive(driver, wake);
         let result = operation(Pin::new(stream), cx);
+        // Only a pending application operation is owed a future wake. Install
+        // it before the post-drive turn; synchronous driver notifications stay
+        // retained by Polling until after this registration. A successful
+        // one-byte DATA write needs no redundant AtomicWaker registration.
+        if result.is_pending() {
+            if reading {
+                wake.reader.register(cx.waker());
+            } else {
+                wake.writer.register(cx.waker());
+            }
+        }
         // The same original is also driven after application enqueue/credit
         // return. Pending capacity alone cannot manufacture readiness.
         Self::drive(driver, wake);
