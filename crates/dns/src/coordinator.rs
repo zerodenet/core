@@ -298,13 +298,12 @@ where
                             .native_tasks
                             .set(tasks.clone())
                             .expect("one native query admission");
-                        let query = tasks.spawn_registered_in_network(
+                        tasks.spawn_registered_in_network(
                             job,
                             flight.cancel.clone(),
                             Some(admission_key.scope.egress_generation),
-                        )?;
-                        flight.caller_registration.hosted(query, &tasks);
-                        Ok(())
+                            &flight.caller_registration,
+                        )
                     }) {
                         flight.caller_registration.no_worker();
                         flight.cancel(error);

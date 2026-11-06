@@ -20,13 +20,25 @@ pub(super) enum Admission {
     Hosted {
         query: TaskJoinWitness,
         provider: Arc<dyn NativeDnsProvider>,
+        tasks: crate::OwnedDnsQueryTasks,
+        retirement: Arc<crate::query_tasks::Retirement>,
     },
     Unowned,
 }
 impl Registration {
-    pub(crate) fn hosted(&self, query: TaskJoinWitness, tasks: &crate::OwnedDnsQueryTasks) {
+    pub(crate) fn hosted(
+        &self,
+        query: TaskJoinWitness,
+        retirement: Arc<crate::query_tasks::Retirement>,
+        tasks: &crate::OwnedDnsQueryTasks,
+    ) {
         let admission = match tasks.cleanup_provider(&query) {
-            Some(provider) => Admission::Hosted { query, provider },
+            Some(provider) => Admission::Hosted {
+                query,
+                provider,
+                tasks: tasks.clone(),
+                retirement,
+            },
             None => Admission::Unowned,
         };
         assert!(
@@ -36,10 +48,12 @@ impl Registration {
         self.changed.notify_waiters();
     }
     pub(crate) fn no_worker(&self) {
-        assert!(
-            self.admission.set(Admission::NoWorker).is_ok(),
-            "one failed Query admission"
-        );
+        if self.admission.set(Admission::NoWorker).is_err() {
+            assert!(
+                matches!(self.admission.get(), Some(Admission::NoWorker)),
+                "only the same failed admission may repeat"
+            );
+        }
         self.changed.notify_waiters();
     }
     pub(crate) fn unowned(&self) {

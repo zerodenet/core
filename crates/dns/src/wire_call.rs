@@ -25,6 +25,7 @@ struct State {
     conflict: AtomicBool,
     changed: Notify,
     closed: OnceLock<Arc<DnsQueryCallClosed>>,
+    cleanup_failure: OnceLock<Arc<io::Error>>,
 }
 impl std::fmt::Debug for DnsQueryCall {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -49,6 +50,7 @@ pub struct DnsQueryCallClosed {
     query: Option<TaskJoinWitness>,
     joined: Option<TaskJoined>,
     failure: Option<Arc<ChannelError>>,
+    cleanup_failure: Option<Arc<io::Error>>,
 }
 impl DnsQueryCallClosed {
     pub fn matches(&self, call: &DnsQueryCall) -> bool {
@@ -63,6 +65,10 @@ impl DnsQueryCallClosed {
     }
     pub fn failure(&self) -> Option<&Arc<ChannelError>> {
         self.failure.as_ref()
+    }
+    /// Retained typed cleanup fault, independent of positive physical retirement.
+    pub fn cleanup_failure(&self) -> Option<&Arc<io::Error>> {
+        self.cleanup_failure.as_ref()
     }
 }
 struct Returned(Arc<State>);
@@ -101,6 +107,7 @@ impl DnsSystem {
             conflict: AtomicBool::new(false),
             changed: Notify::new(),
             closed: OnceLock::new(),
+            cleanup_failure: OnceLock::new(),
         });
         let returned = Returned(state.clone());
         let original = DnsQueryCall(state.clone());
@@ -196,7 +203,12 @@ impl DnsQueryCall {
                                 "DNS wire worker has no matching installed Host provider",
                             ))
                         }
-                        Admission::Hosted { query, provider } => {
+                        Admission::Hosted {
+                            query,
+                            provider,
+                            tasks,
+                            retirement,
+                        } => {
                             query.wait().await;
                             let joined = query.try_joined().ok_or_else(|| {
                                 io::Error::other("DNS original query join remains unknown")
@@ -204,7 +216,15 @@ impl DnsQueryCall {
                             // Retry this original provider's actual ledger even after a
                             // worker panic/finalizer error. No observer substitutes for
                             // same-Scope logical/native/descendant cleanup authority.
-                            provider.finish_query(query.clone()).await?;
+                            if let Err(source) = provider.finish_query(query.clone()).await {
+                                let _ = self.0.cleanup_failure.set(Arc::new(source));
+                            }
+                            if !tasks.native_retirement_complete(retirement, query) {
+                                return Err(match self.0.cleanup_failure.get() {
+                                    Some(source)=>io::Error::new(source.kind(),source.clone()),
+                                    None=>io::Error::other("DNS original query/descendant native retirement is unconfirmed"),
+                                });
+                            }
                             let failure = joined.result().err();
                             (Some(query.clone()), Some(joined), failure)
                         }
@@ -220,6 +240,7 @@ impl DnsQueryCall {
                         query,
                         joined,
                         failure,
+                        cleanup_failure: self.0.cleanup_failure.get().cloned(),
                     })
                 })
                 .clone())

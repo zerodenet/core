@@ -92,6 +92,12 @@ pub trait NativeDnsProvider: Send + Sync {
     /// Invoked by the same real query/driver task after its I/O future drops.
     /// Stand-alone providers retain their explicit lifecycle; the actual kernel
     /// provider consumes its registered originals here, without another task.
+    /// Positive read-only evidence from this exact provider's actual caller
+    /// native/logical ledger, independent of a retained typed worker fault.
+    /// Descendant joins/native obligations are checked separately by the budget.
+    fn query_native_retirement_complete(&self, _caller: &TaskJoinWitness) -> bool {
+        false
+    }
     fn finish_query(&self, _caller: TaskJoinWitness) -> BoxFuture<'_, io::Result<()>> {
         Box::pin(async { Ok(()) })
     }

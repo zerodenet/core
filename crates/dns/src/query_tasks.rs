@@ -24,6 +24,8 @@ mod ech;
 mod lifecycle;
 mod network;
 mod observation;
+mod retirement;
+pub(crate) use retirement::Retirement;
 mod spawn;
 mod system;
 pub use observation::OwnedDnsQueryObservation;
@@ -61,11 +63,11 @@ enum TaskKind {
 struct Record {
     budget: OwnedDnsQueryBudget,
     ech: Mutex<Option<crate::EchDnsEndpoint>>,
-    capacity: Mutex<Option<OwnedSemaphorePermit>>,
+    capacity: Arc<Mutex<Option<OwnedSemaphorePermit>>>,
     kind: TaskKind,
     ancestors: Vec<TaskJoinWitness>,
     network: OnceLock<u64>,
-    registration: OnceLock<Option<QueryRegistration>>,
+    registration: Arc<OnceLock<Option<QueryRegistration>>>,
     bound: Notify,
     cancel: CancellationToken,
     io_pending: std::sync::atomic::AtomicBool,
@@ -93,7 +95,7 @@ pub struct OwnedDnsQueryBudget {
     blocking: Arc<Semaphore>,
     #[cfg(feature = "doh")]
     driver: Arc<Semaphore>,
-    retained: Arc<Mutex<Vec<std::sync::Weak<Record>>>>,
+    retained: Arc<Mutex<Vec<Arc<Retirement>>>>,
 }
 impl OwnedDnsQueryBudget {
     pub fn new(limit: NonZeroUsize) -> Self {
@@ -114,28 +116,26 @@ impl OwnedDnsQueryBudget {
     fn reserve(&self, kind: TaskKind) -> io::Result<OwnedSemaphorePermit> {
         // Budget bookkeeping observes only the actual original join. It
         // cannot cancel, join or retire a task or its native resources.
-        self.retained
-            .lock()
-            .expect("DNS budget poisoned")
-            .retain(|weak| {
-                let Some(record) = weak.upgrade() else {
-                    return false;
-                };
-                if record.registration.get().is_some_and(|registered| {
-                    registered
-                        .as_ref()
-                        .is_none_or(|registered| registered.witness.is_joined())
-                }) {
-                    record
-                        .capacity
-                        .lock()
-                        .expect("DNS task capacity poisoned")
-                        .take();
-                    false
-                } else {
-                    true
-                }
-            });
+        let originals = self.retained.lock().expect("DNS budget poisoned").clone();
+        let retired = originals
+            .into_iter()
+            .filter(|original| original.release_joined())
+            .collect::<Vec<_>>();
+        let mut retained = self.retained.lock().expect("DNS budget poisoned");
+        let mut removed = Vec::new();
+        let mut index = 0;
+        while index < retained.len() {
+            if retired
+                .iter()
+                .any(|original| Arc::ptr_eq(original, &retained[index]))
+            {
+                removed.push(retained.swap_remove(index));
+            } else {
+                index += 1;
+            }
+        }
+        drop(retained);
+        drop(removed);
         let capacity = match kind {
             TaskKind::Query => &self.query,
             TaskKind::Blocking => &self.blocking,
@@ -250,8 +250,10 @@ impl OwnedDnsQueryTasks {
         job: impl Future<Output = ()> + Send + 'static,
         cancel: CancellationToken,
         network: Option<u64>,
-    ) -> io::Result<TaskJoinWitness> {
-        self.spawn_kind(job, cancel, network, TaskKind::Query)
+        published: &crate::wire_call::Registration,
+    ) -> io::Result<()> {
+        self.spawn_kind_original(job, cancel, network, TaskKind::Query, Some(published))
+            .map(|_| ())
     }
     #[cfg(any(test, feature = "test-support"))]
     pub(crate) fn spawn_in_network(

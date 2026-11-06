@@ -289,6 +289,7 @@ impl ResourceLifecycle for Owner {
                 }
             }
         }
+        self.provider.tasks.observe_native_retirements();
         if let Some(failure) = failure {
             return Err(failure);
         }
