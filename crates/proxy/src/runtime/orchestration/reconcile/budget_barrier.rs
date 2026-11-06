@@ -70,7 +70,8 @@ pub(super) fn start_resources<'a>(
                 config.clone(),
                 tokio::time::Instant::now() + std::time::Duration::from_secs(5),
             )
-            .await?;
+            .await
+            .inspect_err(|source|{tracing::warn!(?source,"same catalog StopOld/ordinary start retained original failure");#[cfg(test)]eprintln!("actual catalog StopOld original failure: {source:?}");})?;
         #[cfg(feature = "raw-ip-runtime")]
         {
             proxy
@@ -81,7 +82,8 @@ pub(super) fn start_resources<'a>(
                     tokio::time::Instant::now() + std::time::Duration::from_secs(5),
                     preparing.cancellation(),
                 )
-                .await?;
+                .await
+                .inspect_err(|source|{tracing::warn!(?source,"same device resolve/deferred start retained original failure");#[cfg(test)]eprintln!("actual deferred device original failure: {source:?}");})?;
             let execution = services.execution();
             let plan = execution.components.as_deref().map_err(|error| {
                 std::io::Error::other(crate::component::instance::retained(error.clone()))
