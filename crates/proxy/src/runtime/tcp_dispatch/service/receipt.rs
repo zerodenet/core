@@ -79,6 +79,16 @@ impl ServiceBinding {
             updates,
         })
     }
+    /// Exact already-selected role instances; no graph lookup or new admission.
+    pub(crate) fn component_instances(&self) -> Vec<zero_core::component::ComponentInstanceId> {
+        self.hops
+            .iter()
+            .map(|hop| zero_core::component::ComponentInstanceId {
+                component: hop.role.component,
+                generation: hop.role.generation,
+            })
+            .collect()
+    }
     pub(crate) fn tags(&self) -> Vec<Option<&str>> {
         self.hops.iter().map(|hop| hop.tag.as_deref()).collect()
     }
@@ -92,7 +102,7 @@ impl ServiceBinding {
         Ok(())
     }
     pub(crate) async fn revoked(&self) -> ChannelError {
-        use futures_util::{stream::FuturesUnordered, StreamExt};
+        use futures_util::{StreamExt, stream::FuturesUnordered};
         let mut revoked: FuturesUnordered<_> = self
             .hops
             .iter()
