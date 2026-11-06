@@ -26,6 +26,7 @@ struct Hosted {
     result: Arc<std::sync::Mutex<Option<Arc<DriverResult>>>>,
 }
 impl DriverTask {
+    #[cfg(test)]
     pub(super) fn new(future: impl Future<Output = DriverResult> + Send + 'static) -> Self {
         // This is the original single driver, not an additional cleanup task.
         Self {

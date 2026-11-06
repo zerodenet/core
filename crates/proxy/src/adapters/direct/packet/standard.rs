@@ -6,6 +6,7 @@ mod owner;
 #[cfg(all(test, any(target_os = "linux", target_os = "macos")))]
 mod tests;
 use super::*;
+use crate::adapters::devices::OutboundDevicePreparationContext;
 pub(in crate::adapters::direct) use alias::Alias;
 use std::sync::{Mutex, OnceLock, Weak};
 use zero_core::component::{ComponentId, ComponentInstanceId};
