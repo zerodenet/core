@@ -38,6 +38,11 @@ impl GrpcStream {
             driver.poll(cx, reading);
         }
     }
+    fn inline_local_ready(&mut self) {
+        if let Some(driver) = &mut self.inline {
+            driver.local_ready();
+        }
+    }
     fn inline_failure(&self) -> Option<io::Error> {
         self.inline
             .as_ref()
@@ -72,6 +77,7 @@ impl AsyncRead for GrpcStream {
 
         let result = match self.read_rx.poll_recv(cx) {
             Poll::Ready(Some(Ok(data))) => {
+                self.inline_local_ready();
                 let to_copy = data.len().min(buf.remaining());
                 buf.put_slice(&data[..to_copy]);
                 if to_copy < data.len() {
@@ -80,7 +86,10 @@ impl AsyncRead for GrpcStream {
                 }
                 Poll::Ready(Ok(()))
             }
-            Poll::Ready(Some(Err(error))) => Poll::Ready(Err(error)),
+            Poll::Ready(Some(Err(error))) => {
+                self.inline_local_ready();
+                Poll::Ready(Err(error))
+            }
             Poll::Ready(None) => Poll::Ready(self.inline_failure().map_or(Ok(()), Err)),
             Poll::Pending => Poll::Pending,
         };
@@ -121,6 +130,7 @@ impl AsyncWrite for GrpcStream {
         match self.write_tx.send_item(buf[..count].to_vec()) {
             Ok(()) => {
                 self.progress.accept(count);
+                self.inline_local_ready();
                 self.poll_inline(cx, false);
                 Poll::Ready(Ok(count))
             }
@@ -149,6 +159,7 @@ impl AsyncWrite for GrpcStream {
         if !self.write_closed {
             self.write_closed = true;
             self.write_tx.close();
+            self.inline_local_ready();
         }
         self.poll_inline(cx, false);
         self.progress.check()?;

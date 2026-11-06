@@ -74,6 +74,17 @@ impl Inline {
             state.wake.writer.wake();
         }
     }
+    /// A real queued frame was accepted/delivered, or the original write
+    /// channel reached EOF. This schedules that local work in the same caller;
+    /// an arbitrary capacity-Pending poll never manufactures readiness.
+    pub(super) fn local_ready(&mut self) {
+        self.0
+            .get_mut()
+            .expect("exclusive inline gRPC original")
+            .wake
+            .ready
+            .store(true, Ordering::Release);
+    }
     pub(super) fn failure(&self) -> Option<io::Error> {
         self.0
             .lock()
