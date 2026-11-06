@@ -1,4 +1,4 @@
-//! One concrete borrowed descriptor original. Native I/O never escapes twice.
+//! One concrete acquired device original. Native I/O never escapes twice.
 use super::*;
 use zero_core::component::ComponentInstanceId;
 use zero_platform_tokio::contract::{
@@ -6,16 +6,18 @@ use zero_platform_tokio::contract::{
     lifecycle::{CloseReport, Unfinished},
     scope::{TaskJoinWitness, TaskScopeIdentity},
 };
-#[cfg(all(
-    feature = "raw-ip-runtime",
-    any(target_os = "linux", target_os = "macos")
-))]
+#[cfg(feature = "raw-ip-runtime")]
+mod original;
+#[cfg(feature = "raw-ip-runtime")]
 mod view;
 #[cfg(all(
+    test,
     feature = "raw-ip-runtime",
     any(target_os = "linux", target_os = "macos")
 ))]
-use zero_tun::{AdoptedTunOwner, OwnedTunIdentity, TunAcquisitionOutcome, TunCloseReceipt};
+use zero_tun::TunAcquisitionOutcome;
+#[cfg(feature = "raw-ip-runtime")]
+use zero_tun::{OwnedTunIdentity, TunCloseReceipt};
 
 pub(super) struct PacketDeviceOwner {
     ordinal: usize,
@@ -24,11 +26,8 @@ pub(super) struct PacketDeviceOwner {
     identity: PacketDeviceIdentity,
     cancel: CancellationToken,
     state: Arc<Mutex<State>>,
-    #[cfg(all(
-        feature = "raw-ip-runtime",
-        any(target_os = "linux", target_os = "macos")
-    ))]
-    original: Arc<AdoptedTunOwner>,
+    #[cfg(feature = "raw-ip-runtime")]
+    original: Arc<original::Original>,
 }
 #[derive(Default)]
 struct State {
@@ -37,20 +36,11 @@ struct State {
     view_live: bool,
     driver: Option<TaskJoinWitness>,
     close_fault: Option<Arc<ChannelError>>,
-    #[cfg(all(
-        feature = "raw-ip-runtime",
-        any(target_os = "linux", target_os = "macos")
-    ))]
+    #[cfg(feature = "raw-ip-runtime")]
     reported_close: bool,
-    #[cfg(all(
-        feature = "raw-ip-runtime",
-        any(target_os = "linux", target_os = "macos")
-    ))]
+    #[cfg(feature = "raw-ip-runtime")]
     issued: Option<OwnedTunIdentity>,
-    #[cfg(all(
-        feature = "raw-ip-runtime",
-        any(target_os = "linux", target_os = "macos")
-    ))]
+    #[cfg(feature = "raw-ip-runtime")]
     receipt: Option<Arc<TunCloseReceipt>>,
 }
 #[derive(Clone, Debug)]
@@ -74,24 +64,25 @@ impl PacketDeviceOwner {
         binding: PacketDeviceBinding,
         cancel: CancellationToken,
     ) -> Result<Self, ChannelError> {
-        if !cfg!(all(
-            feature = "raw-ip-runtime",
-            any(target_os = "linux", target_os = "macos")
-        )) {
-            return Err(error(
-                instance.component,
-                Reason::Unsupported,
-                "concrete descriptor provider is unavailable",
-            ));
-        }
-        let PacketDeviceBinding::Descriptor { fd, interface } = &binding;
-        if name.is_empty() || *fd < 0 || interface.is_empty() {
+        if name.is_empty() {
             return Err(error(
                 instance.component,
                 Reason::InvalidConfig,
-                "invalid borrowed Packet descriptor binding",
+                "empty Packet resource name",
             ));
         }
+        if !cfg!(feature = "raw-ip-runtime") {
+            return Err(error(
+                instance.component,
+                Reason::Unsupported,
+                "concrete Packet provider unavailable",
+            ));
+        }
+        #[cfg(feature = "raw-ip-runtime")]
+        let original = Arc::new(
+            original::Original::new(&binding)
+                .map_err(|message| error(instance.component, Reason::InvalidConfig, message))?,
+        );
         Ok(Self {
             ordinal,
             name,
@@ -99,11 +90,8 @@ impl PacketDeviceOwner {
             identity: PacketDeviceIdentity::new(instance, scope),
             cancel,
             state: Arc::new(Mutex::new(State::default())),
-            #[cfg(all(
-                feature = "raw-ip-runtime",
-                any(target_os = "linux", target_os = "macos")
-            ))]
-            original: AdoptedTunOwner::new(),
+            #[cfg(feature = "raw-ip-runtime")]
+            original,
         })
     }
     pub(super) fn name(&self) -> &str {
@@ -138,52 +126,30 @@ impl PacketDeviceOwner {
         }
         state.attempted = true;
         state.driver = Some(driver);
-        #[cfg(all(
-            feature = "raw-ip-runtime",
-            any(target_os = "linux", target_os = "macos")
-        ))]
+        #[cfg(feature = "raw-ip-runtime")]
         {
-            let PacketDeviceBinding::Descriptor { fd, interface } = &self.binding;
-            match self.original.acquire(*fd, interface) {
-                Ok(io) => {
-                    state.issued = Some(io.owned_identity().clone());
+            let acquired = self
+                .original
+                .acquire(&self.binding, self.identity.instance().component);
+            state.issued = self.original.issued();
+            match acquired {
+                Ok(native) => {
                     state.view_live = true;
-                    let granted = GrantedPacketDevice {
-                        io: Box::pin(view::View::new(Box::pin(io), self.state.clone())),
+                    Ok(GrantedPacketDevice {
+                        io: Box::pin(view::View::new(native.io, self.state.clone())),
                         identity: self.identity.clone(),
-                        interface: interface.clone(),
-                    };
-                    Ok(granted)
+                        interface: native.interface,
+                    })
                 }
-                Err(source) => {
-                    let unknown = matches!(source.outcome, TunAcquisitionOutcome::Unknown(_));
-                    let mut failure = error(
-                        self.identity.instance().component,
-                        Reason::Io,
-                        "original Packet descriptor acquisition failed",
-                    )
-                    .with_source(source);
-                    if unknown {
-                        failure.delivery = zero_platform_tokio::contract::DeliveryState::Unknown;
-                    }
-                    // Same controller retains its acquisition source. KnownNoNative
-                    // must not become an unrelated sticky cleanup failure.
-                    Err(failure)
-                }
+                Err(source) => Err(source),
             }
         }
-        #[cfg(not(all(
-            feature = "raw-ip-runtime",
-            any(target_os = "linux", target_os = "macos")
-        )))]
-        {
-            let _ = &self.binding;
-            Err(error(
-                self.identity.instance().component,
-                Reason::Unsupported,
-                "concrete descriptor provider is unavailable",
-            ))
-        }
+        #[cfg(not(feature = "raw-ip-runtime"))]
+        Err(error(
+            self.identity.instance().component,
+            Reason::Unsupported,
+            "concrete Packet provider unavailable",
+        ))
     }
     pub(super) fn evidence(&self) -> PacketDeviceEvidence {
         let state = self
@@ -192,24 +158,11 @@ impl PacketDeviceOwner {
             .unwrap_or_else(std::sync::PoisonError::into_inner);
         let joined = state.driver.as_ref().is_none_or(TaskJoinWitness::is_joined);
         let mut confirmed = state.closing && !state.view_live && joined;
-        #[cfg(all(
-            feature = "raw-ip-runtime",
-            any(target_os = "linux", target_os = "macos")
-        ))]
+        #[cfg(feature = "raw-ip-runtime")]
         {
-            confirmed &= match self.original.outcome() {
-                TunAcquisitionOutcome::KnownNoNative => true,
-                TunAcquisitionOutcome::Closed(receipt) => state
-                    .issued
-                    .as_ref()
-                    .is_none_or(|issued| receipt.identity().same_owner(issued)),
-                TunAcquisitionOutcome::Unknown(_) => false,
-            };
+            confirmed &= self.original.physical_confirmed(state.issued.as_ref());
         }
-        #[cfg(not(all(
-            feature = "raw-ip-runtime",
-            any(target_os = "linux", target_os = "macos")
-        )))]
+        #[cfg(not(feature = "raw-ip-runtime"))]
         {
             confirmed = false;
         }
@@ -246,63 +199,47 @@ impl PacketDeviceOwner {
             return self
                 .unfinished("unique Packet I/O view has not returned after its driver join");
         }
-        #[cfg(all(
-            feature = "raw-ip-runtime",
-            any(target_os = "linux", target_os = "macos")
-        ))]
+        #[cfg(feature = "raw-ip-runtime")]
         {
+            let closed = tokio::time::timeout_at(deadline, self.original.close()).await;
             let mut state = self
                 .state
                 .lock()
                 .unwrap_or_else(std::sync::PoisonError::into_inner);
-            let receipt = match self.original.outcome() {
-                TunAcquisitionOutcome::KnownNoNative => None,
-                TunAcquisitionOutcome::Closed(receipt) => Some(receipt),
-                TunAcquisitionOutcome::Unknown(_) => match self.original.close() {
-                    Ok(receipt) => Some(receipt),
-                    Err(source) => {
-                        state.close_fault.get_or_insert_with(|| {
-                            Arc::new(
-                                error(
-                                    self.identity.instance().component,
-                                    Reason::Io,
-                                    "original Packet native close remains unconfirmed",
-                                )
-                                .with_source(NativeSource(source)),
+            match closed {
+                Err(_) => return self.unfinished_locked("original native Packet close is pending"),
+                Ok(Err(source)) => {
+                    state.close_fault.get_or_insert_with(|| {
+                        Arc::new(
+                            error(
+                                self.identity.instance().component,
+                                Reason::Io,
+                                "original Packet close retained its actual source",
                             )
-                        });
-                        return self
-                            .unfinished_locked("original Packet native close remains unconfirmed");
-                    }
-                },
-            };
-            if let Some(receipt) = receipt {
-                if state
-                    .issued
-                    .as_ref()
-                    .is_some_and(|issued| !receipt.identity().same_owner(issued))
-                {
-                    return self.unfinished_locked(
-                        "native Packet close receipt differs from the issued original",
-                    );
+                            .with_source(NativeSource(source)),
+                        )
+                    });
                 }
-                state.receipt = Some(receipt);
+                Ok(Ok(receipt)) => state.receipt = receipt,
+            }
+            if state.receipt.is_none() {
+                state.receipt = self.original.receipt();
+            }
+            if !self.original.physical_confirmed(state.issued.as_ref()) {
+                return self.unfinished_locked("original Packet native close remains unconfirmed");
             }
             let mut report = CloseReport::default();
             if state.receipt.is_some() && !state.reported_close {
                 report.closed_io.push(format!(
-                    "component {} original Packet descriptor explicitly closed",
+                    "component {} original Packet device explicitly closed",
                     self.identity.instance().component.0
                 ));
                 state.reported_close = true;
             }
             report
         }
-        #[cfg(not(all(
-            feature = "raw-ip-runtime",
-            any(target_os = "linux", target_os = "macos")
-        )))]
-        self.unfinished("concrete descriptor provider is unavailable")
+        #[cfg(not(feature = "raw-ip-runtime"))]
+        self.unfinished("concrete Packet provider unavailable")
     }
     fn unfinished(&self, message: &str) -> CloseReport {
         self.unfinished_locked(message)
@@ -318,25 +255,16 @@ impl PacketDeviceOwner {
         }
     }
 }
-#[cfg(all(
-    feature = "raw-ip-runtime",
-    any(target_os = "linux", target_os = "macos")
-))]
+#[cfg(feature = "raw-ip-runtime")]
 #[derive(Debug)]
 struct NativeSource(Arc<std::io::Error>);
-#[cfg(all(
-    feature = "raw-ip-runtime",
-    any(target_os = "linux", target_os = "macos")
-))]
+#[cfg(feature = "raw-ip-runtime")]
 impl std::fmt::Display for NativeSource {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         self.0.fmt(f)
     }
 }
-#[cfg(all(
-    feature = "raw-ip-runtime",
-    any(target_os = "linux", target_os = "macos")
-))]
+#[cfg(feature = "raw-ip-runtime")]
 impl std::error::Error for NativeSource {
     fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
         Some(self.0.as_ref())

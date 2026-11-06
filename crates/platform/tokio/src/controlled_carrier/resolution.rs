@@ -77,6 +77,7 @@ impl UpstreamOpener for ResolvingCarrierOpener {
             self.source
                 .check(&binding, &self.source.endpoint, &context)?;
             super::related::check_parent(&parent, self.source.grantee, &binding)?;
+            super::related::check_endpoint(&parent, &self.source.endpoint)?;
             let selected = Self {
                 source: Source {
                     grantee: self.source.grantee,

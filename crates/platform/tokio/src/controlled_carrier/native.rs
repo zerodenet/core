@@ -181,6 +181,7 @@ impl UpstreamOpener for NativeCarrierOpener {
             };
             original.check(binding, &self.endpoint, &context)?;
             super::related::check_parent(&parent, self.grantee, binding)?;
+            super::related::check_endpoint(&parent, &self.endpoint)?;
             let address = match peer.address {
                 Address::Ipv4(ip) => std::net::Ipv4Addr::from(ip).into(),
                 Address::Ipv6(ip) => std::net::Ipv6Addr::from(ip).into(),

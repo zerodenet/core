@@ -98,6 +98,42 @@ impl CarrierEndpointObserver for ConnectedEvidence {
     }
 }
 impl UpstreamOpener for NodeOpener {
+    fn resolve_related_datagram(
+        &self,
+        binding: &UpstreamBinding,
+        parent: zero_platform_tokio::controlled_carrier::CarrierAdoption,
+        peer: Destination,
+        call: CarrierContext,
+    ) -> BoxFuture<
+        '_,
+        Result<zero_platform_tokio::controlled_carrier::CarrierCandidates, ChannelError>,
+    > {
+        let binding = binding.clone();
+        Box::pin(async move {
+            if !binding.prefix.is_empty()
+                || binding.network_generation.0 != self.generation
+                || self.services.network_generation() != self.generation
+                || call.session.is_some()
+            {
+                return Err(invalid(
+                    Reason::StalePlan,
+                    "related Datagram cannot change the actual control binding",
+                ));
+            }
+            let resolver = zero_platform_tokio::controlled_carrier::ResolvingCarrierOpener::new(
+                parent.instance(),
+                binding.clone(),
+                self.endpoint.clone(),
+                self.services.native_node_dns(),
+                Arc::new(self.services.egress_control()),
+                self.services.observer(),
+            )?;
+            resolver
+                .resolve_related_datagram(&binding, parent, peer, call)
+                .await
+        })
+    }
+
     fn has_tracked_business_caller(&self) -> bool {
         self.business
             .as_ref()
@@ -127,7 +163,15 @@ impl UpstreamOpener for NodeOpener {
         origin: &zero_platform_tokio::controlled_carrier::CarrierOrigin,
     ) -> bool {
         let root = origin.native_origin();
-        let Some((endpoint, binding)) = root.selected_binding() else {
+        let control = root.related_control();
+        if control
+            .as_ref()
+            .is_some_and(|control| !control.owner().same_owner(root.owner()))
+        {
+            return false;
+        }
+        let authority = control.as_ref().unwrap_or(root);
+        let Some((endpoint, binding)) = authority.selected_binding() else {
             return false;
         };
         if endpoint != self.endpoint
