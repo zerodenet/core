@@ -194,13 +194,15 @@ async fn retired_carrier_limit_is_reusable_only_after_real_join_and_same_slot_na
             managed.grants.reserve().err().unwrap().reason,
             Reason::Capacity
         );
-        managed.reap(deadline()).await.unwrap();
+        managed.reap_demand(None).await.unwrap();
         assert!(record.closed());
         assert!(managed.records.lock().unwrap().is_empty());
         assert_eq!(managed.budget.retained(), 0);
+        let mut no_total_deadline = fixture.demand();
+        no_total_deadline.deadline = None;
         let mut second = fixture
             .options
-            .open(fixture.actual, fixture.demand())
+            .open(fixture.actual, no_total_deadline)
             .await
             .unwrap();
         second.write_all(b"next").await.unwrap();

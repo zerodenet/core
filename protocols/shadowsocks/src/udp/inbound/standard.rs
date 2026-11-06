@@ -1,6 +1,38 @@
 //! Typed packet/return facts over the listener's actual shared codecs.
 use super::*;
 impl ShadowsocksInboundUdpResponder {
+    #[cfg(feature = "blake3")]
+    pub(crate) fn pin_original_peer(
+        &mut self,
+        association: u64,
+        peer: zero_platform_tokio::contract::inbound::udp::DatagramPeerRetirement,
+    ) -> Result<(), Error> {
+        self.associations.pin(association, peer.clone())?;
+        let (user, wire) = self
+            .associations
+            .original(association)
+            .ok_or(Error::Protocol(
+                "SS UDP original authenticated association is absent",
+            ))?;
+        let Some(wire) = wire else {
+            return Ok(());
+        };
+        let codec = match &self.mode {
+            ShadowsocksInboundUdpResponderMode::Single(session) => &session.codec,
+            ShadowsocksInboundUdpResponderMode::Profile { sessions, .. } => {
+                &sessions
+                    .get(
+                        user.as_deref()
+                            .ok_or(Error::Protocol("SS UDP authenticated credential is absent"))?,
+                    )
+                    .ok_or(Error::Protocol(
+                        "SS UDP original authenticated codec is absent",
+                    ))?
+                    .codec
+            }
+        };
+        codec.pin_receiver(wire, peer)
+    }
     pub fn decode_authenticated_packet(
         &mut self,
         packet: &[u8],

@@ -53,6 +53,7 @@ impl Pump {
     }
 }
 pub(in crate::grpc) struct NativeClient {
+    pub(super) binding: zero_platform_tokio::contract::network::UpstreamBinding,
     sender: h2::client::SendRequest<Bytes>,
     commands: mpsc::Sender<Work>,
     active: Arc<std::sync::atomic::AtomicUsize>,
@@ -73,6 +74,7 @@ impl NativeClient {
         physical: Arc<Physical>,
         limit: usize,
         parent: &CancellationToken,
+        binding: zero_platform_tokio::contract::network::UpstreamBinding,
     ) -> (Arc<Self>, Driver) {
         let (commands, receiver) = mpsc::channel::<Work>(limit);
         let PreparedConnection {
@@ -95,6 +97,7 @@ impl NativeClient {
         );
         (
             Arc::new(Self {
+                binding,
                 sender,
                 commands,
                 active,
@@ -141,12 +144,18 @@ impl NativeClient {
         );
         let read_record = lease.record.clone();
         let write_record = lease.record.clone();
+        // Guards are installed outside the futures: dropping an unpolled worker
+        // still records actual return, never normal completion or native close.
+        let read_return = super::logical::WorkerReturn(read_record.clone(), true);
+        let write_return = super::logical::WorkerReturn(write_record.clone(), false);
         let read = Box::pin(async move {
-            read.await;
+            let _returned = read_return;
+            tokio::select! { biased; _=read_record.stop.cancelled()=>{}, _=read=>{} }
             read_record.worker_done(true);
         });
         let write = Box::pin(async move {
-            write.await;
+            let _returned = write_return;
+            tokio::select! { biased; _=write_record.stop.cancelled()=>{}, _=write=>{} }
             write_record.worker_done(false);
         });
         self.commands

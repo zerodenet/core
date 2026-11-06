@@ -145,9 +145,7 @@ pub async fn run_sse_stream_with_budget(
         Ok(result) => result,
         Err(payload) => std::panic::resume_unwind(payload),
     };
-    result?;
-    joined?;
-    Ok(())
+    crate::ipc::owner::finish_work([result, joined])
 }
 struct QueuedFrame {
     bytes: Vec<u8>,

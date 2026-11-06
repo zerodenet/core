@@ -19,6 +19,12 @@ struct State {
     failure: Option<Arc<EngineError>>,
 }
 impl EndpointStackOwner {
+    pub(crate) fn driver_witness(
+        &self,
+    ) -> Option<zero_platform_tokio::contract::scope::TaskJoinWitness> {
+        self.workers.driver_witness()
+    }
+
     pub(crate) const TASK_LIMIT: usize = super::super::workers::WORKER_LIMIT;
     /// Pure finite declaration. JoinSet construction requires no runtime and
     /// creates none of the actual driver, TCP control or retransmission tasks.

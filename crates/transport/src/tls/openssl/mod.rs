@@ -9,7 +9,7 @@ pub(crate) mod quic;
 mod server;
 mod stream;
 
-pub(crate) use client::{connect, use_openssl_client};
+pub(crate) use client::{connect, use_openssl_client, PreparedMaterial};
 pub(crate) use context::use_openssl_server;
 pub(crate) use context::OpenSslServerContext;
 pub use context::TlsAcceptor;

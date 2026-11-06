@@ -6,15 +6,20 @@ use super::*;
 #[derive(Clone, Debug)]
 pub(in crate::component) struct HostIoEvidence {
     pub declared_count: usize,
+    pub reads: Vec<super::read_workspaces::ReadEvidence>,
+    pub icmp: Option<bool>,
     pub declarations: Vec<super::coverage::DeclarationEvidence>,
     pub admission_closed: bool,
     pub files: Vec<FileIoEvidence>,
     pub native: Vec<NativeIoEvidence>,
     pub roots: Vec<super::root_datagram::RootDatagramEvidence>,
     pub packets: Vec<super::packet_device::PacketDeviceEvidence>,
+    pub bounds: Vec<crate::component::bound_datagram::evidence::BoundDatagramEvidence>,
     pub carriers: Vec<super::carrier::CarrierIoEvidence>,
     pub metadata: Vec<super::metadata::MetadataIoEvidence>,
     pub metapools: Vec<super::metapool::MetadataPoolEvidence>,
+    #[cfg(any(target_os = "linux", windows))]
+    pub processes: Vec<super::process::ProcessIoEvidence>,
     pub sticky_faults: Vec<Arc<ChannelError>>,
 }
 #[derive(Clone, Debug)]
@@ -61,6 +66,7 @@ impl HostResources {
         let admission_closed = state.closed || self.cancel.is_cancelled();
         drop(state);
         let roots = self.roots.evidence(self.component);
+        let reads = self.reads.evidence();
         sticky_faults.extend(roots.iter().filter_map(|entry| entry.first_fault.clone()));
         let carriers = self.carriers.evidence();
         let metadata = self.metadata.evidence(self.component);
@@ -80,7 +86,19 @@ impl HostResources {
                 .iter()
                 .filter_map(|carrier| carrier.first_fault.clone()),
         );
+        let bounds = self.bounds.evidence();
+        sticky_faults.extend(bounds.iter().filter_map(|owner| owner.first_fault.clone()));
+        let icmp = self.icmp.as_ref().map(|owner| owner.physical_confirmed());
+        sticky_faults.extend(self.icmp.as_ref().and_then(|owner| owner.fault()));
         let packets: Vec<_> = self.packets.iter().map(|owner| owner.evidence()).collect();
+        #[cfg(any(target_os = "linux", windows))]
+        let processes = self.processes.evidence(self.component);
+        #[cfg(any(target_os = "linux", windows))]
+        sticky_faults.extend(
+            processes
+                .iter()
+                .filter_map(|owner| owner.first_fault.clone()),
+        );
         sticky_faults.extend(packets.iter().filter_map(|owner| owner.close_fault.clone()));
         let declarations = self
             .coverage
@@ -88,6 +106,16 @@ impl HostResources {
             .enumerate()
             .map(|(ordinal, binding)| {
                 let mut proof = binding.observe(ordinal, &files, &native);
+                if matches!(binding, super::coverage::CoverageBinding::PacketReads) {
+                    proof.provider = reads
+                        .iter()
+                        .position(|read| read.ordinal == ordinal)
+                        .map(super::coverage::DeclarationProvider::PacketReads)
+                        .unwrap_or(super::coverage::DeclarationProvider::Unaccounted);
+                }
+                if matches!(binding, coverage::CoverageBinding::Icmp) && icmp.is_some() {
+                    proof.provider = coverage::DeclarationProvider::Icmp;
+                }
                 if matches!(binding, coverage::CoverageBinding::Carrier(_)) {
                     proof.provider = carriers
                         .iter()
@@ -127,11 +155,31 @@ impl HostResources {
                         .map(coverage::DeclarationProvider::PacketDevice)
                         .unwrap_or(coverage::DeclarationProvider::Unaccounted);
                 }
+                if matches!(binding, coverage::CoverageBinding::BoundDatagram) {
+                    proof.provider = bounds
+                        .iter()
+                        .position(|owner| owner.ordinal == ordinal)
+                        .map(coverage::DeclarationProvider::BoundDatagram)
+                        .unwrap_or(coverage::DeclarationProvider::Unaccounted);
+                }
+                #[cfg(any(target_os = "linux", windows))]
+                if matches!(
+                    binding,
+                    coverage::CoverageBinding::Unaccounted(coverage::DeclaredResourceKind::Process)
+                ) {
+                    proof.provider = processes
+                        .iter()
+                        .position(|owner| owner.ordinal == ordinal && owner.registered)
+                        .map(coverage::DeclarationProvider::Process)
+                        .unwrap_or(coverage::DeclarationProvider::Unaccounted);
+                }
                 proof
             })
             .collect();
         HostIoEvidence {
+            reads,
             declared_count: self.coverage.len(),
+            icmp,
             declarations,
             admission_closed,
             files,
@@ -139,8 +187,11 @@ impl HostResources {
             carriers,
             roots,
             packets,
+            bounds,
             metadata,
             metapools,
+            #[cfg(any(target_os = "linux", windows))]
+            processes,
             sticky_faults,
         }
     }

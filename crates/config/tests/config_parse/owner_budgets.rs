@@ -16,7 +16,121 @@ fn actual_owner_budgets_are_optional_finite_and_preserve_omitted_export_shape() 
         usize,
         usize,
     );
-    let fields: [BudgetField; 12] = [
+    let fields: [BudgetField; 31] = [
+        (
+            "carrier_max_total_originals",
+            RuntimeOptionsConfig::effective_carrier_max_total_originals,
+            1024,
+            65536,
+        ),
+        (
+            "ss_udp_max_pending_responses",
+            RuntimeOptionsConfig::effective_ss_udp_max_pending_responses,
+            4096,
+            65536,
+        ),
+        (
+            "ss_udp_total_max_pending_responses",
+            RuntimeOptionsConfig::effective_ss_udp_total_max_pending_responses,
+            4096,
+            65536,
+        ),
+        (
+            "ss_legacy_replay_max_bytes",
+            RuntimeOptionsConfig::effective_ss_legacy_replay_max_bytes,
+            64 * 1024 * 1024,
+            usize::MAX - 1,
+        ),
+        (
+            "grpc_pool_max_carriers",
+            RuntimeOptionsConfig::effective_grpc_pool_max_carriers,
+            4,
+            4096,
+        ),
+        (
+            "grpc_pool_max_streams",
+            RuntimeOptionsConfig::effective_grpc_pool_max_streams,
+            256,
+            65536,
+        ),
+        (
+            "grpc_total_max_carriers",
+            RuntimeOptionsConfig::effective_grpc_total_max_carriers,
+            16,
+            4096,
+        ),
+        (
+            "grpc_total_max_streams",
+            RuntimeOptionsConfig::effective_grpc_total_max_streams,
+            1024,
+            65536,
+        ),
+        (
+            "diagnostic_max_operations",
+            RuntimeOptionsConfig::effective_diagnostic_max_operations,
+            8,
+            8,
+        ),
+        (
+            "ss_udp_replay_max_windows",
+            RuntimeOptionsConfig::effective_ss_udp_replay_max_windows,
+            8192,
+            usize::MAX - 1,
+        ),
+        (
+            "ss_udp_max_senders",
+            RuntimeOptionsConfig::effective_ss_udp_max_senders,
+            8192,
+            usize::MAX - 1,
+        ),
+        (
+            "ss_udp_max_associations",
+            RuntimeOptionsConfig::effective_ss_udp_max_associations,
+            8192,
+            usize::MAX - 1,
+        ),
+        (
+            "ss_udp_max_return_bindings",
+            RuntimeOptionsConfig::effective_ss_udp_max_return_bindings,
+            65536,
+            usize::MAX - 1,
+        ),
+        (
+            "ss_udp_max_authenticated_codecs",
+            RuntimeOptionsConfig::effective_ss_udp_max_authenticated_codecs,
+            4096,
+            usize::MAX - 1,
+        ),
+        (
+            "packet_return_max_frames",
+            RuntimeOptionsConfig::effective_packet_return_max_frames,
+            256,
+            65536,
+        ),
+        (
+            "packet_return_max_bytes",
+            RuntimeOptionsConfig::effective_packet_return_max_bytes,
+            16777216,
+            1073741824,
+        ),
+        (
+            "packet_return_total_max_frames",
+            RuntimeOptionsConfig::effective_packet_return_total_max_frames,
+            1024,
+            65536,
+        ),
+        (
+            "packet_return_total_max_bytes",
+            RuntimeOptionsConfig::effective_packet_return_total_max_bytes,
+            67108864,
+            1073741824,
+        ),
+        (
+            "ss_tcp_replay_max_salts",
+            RuntimeOptionsConfig::effective_ss_tcp_replay_max_salts,
+            500_000,
+            usize::MAX - 1,
+        ),
         (
             "vmess_grpc_max_originals",
             RuntimeOptionsConfig::effective_vmess_grpc_max_originals,

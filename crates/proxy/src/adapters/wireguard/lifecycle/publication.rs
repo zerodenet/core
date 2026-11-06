@@ -14,6 +14,9 @@ impl PreparedWireguardDevices {
         for update in self.linked_updates.drain(..) {
             update.publish();
         }
+        for link in self.next_linked.values() {
+            link.publish_endpoint_io();
+        }
         self.stopped = self.pool.publish_pending(&mut self.staged);
         *active = std::mem::take(&mut self.next_profiles);
         *self

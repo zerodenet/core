@@ -100,7 +100,13 @@ async fn original_views_and_real_joins_cannot_substitute_held_logical_guards_or_
     drop(logical);
     let receipt = completion.try_closed().unwrap();
     assert!(issuer.validates_users(&receipt, &registrar));
-    assert_eq!(graph.drivers().task_status().reclaimed, 1);
+    assert_eq!(graph.drivers().task_status().reclaimed, 0);
+    assert_eq!(graph.drivers().task_status().retained, 1);
+    let [actual_driver] = receipt.registrations() else {
+        panic!("one actual original driver");
+    };
+    assert!(actual_driver.matches_joined(&received.joined));
+    assert!(!received.joined.registration_released());
     assert!(graph.users().acquire().is_err());
     assert_eq!(
         native.occupied_main(),
@@ -108,11 +114,23 @@ async fn original_views_and_real_joins_cannot_substitute_held_logical_guards_or_
         "users receipt does not close native I/O"
     );
     assert!(!scope.is_drained(), "users receipt is not host ACK");
-    scope.acknowledge(&host_receipt).unwrap();
-    scope.begin_shutdown();
-    assert!(scope.is_drained());
     grant.control.close().unwrap();
     assert_eq!(native.take_report().main.confirmed_closed, 1);
+    assert!(
+        !scope.is_drained(),
+        "real native close is still not Host ACK"
+    );
+    assert_eq!(graph.drivers().task_status().retained, 1);
+    scope.acknowledge(&host_receipt).unwrap();
+    let released = actual_driver.wait_registration_released().await;
+    assert!(actual_driver.matches_joined(&released) && released.registration_released());
+    graph.drivers().reclaim_received();
+    assert_eq!(graph.drivers().task_status().reclaimed, 1);
+    assert_eq!(graph.drivers().task_status().retained, 0);
+    assert!(completion.try_closed().unwrap().registrations().is_empty());
+    scope.begin_shutdown();
+    assert!(scope.is_drained());
+    assert_eq!(native.occupied_main(), 0);
 }
 
 #[tokio::test]

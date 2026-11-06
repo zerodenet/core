@@ -3,26 +3,24 @@ fn input(extra: &str) -> OutboundConfig {
     zero_config::RuntimeConfig::parse(&format!(r#"{{"outbounds":[{{"tag":"native","protocol":{{"type":"trojan","server":"127.0.0.1","port":443,"password":"test"{extra}}}}}],"route":{{"final":{{"type":"direct"}}}}}}"#)).unwrap().outbounds.remove(0)
 }
 #[test]
-fn grpc_retains_its_existing_driver_owner_while_ordinary_tls_and_websocket_remain_native() {
+fn ordinary_tls_ws_and_inline_grpc_keep_the_complete_original_profile_without_hidden_tasks() {
+    use zero_platform_tokio::contract::component::{ComponentFactory, RoleKind};
     let registry = crate::register::component_registry();
     assert!(registry.has_factory("trojan"));
     for extra in [
+        "",
+        r#", "ws":{"path":"/native"}"#,
         r#", "grpc":{"service_names":["native/Tun"],"multi_mode":false}"#,
         r#", "grpc":{"service_names":["native/Tun"],"multi_mode":true}"#,
     ] {
         let input = input(extra);
-        assert!(!native_input(&input), "{extra}");
-        assert!(
-            !registry.has_factory_for("trojan", &input),
-            "unmigrated configuration retains its legacy owner: {extra}"
-        );
-        assert!(component_options(&input).is_err(), "{extra}");
-    }
-    for extra in ["", r#", "ws":{"path":"/native"}"#] {
-        let input = input(extra);
         assert!(native_input(&input), "{extra}");
         assert!(registry.has_factory_for("trojan", &input), "{extra}");
-        assert!(component_options(&input).is_ok(), "{extra}");
+        let options = component_options(&input).unwrap();
+        let spec = ::trojan::component::Factory.describe(&options);
+        assert_eq!(spec.roles, vec![RoleKind::Stream, RoleKind::Datagram]);
+        assert!(spec.task_limit.is_none());
+        assert!(spec.resources.is_empty());
     }
 }
 
@@ -103,3 +101,6 @@ fn native_mux_complete_identity_includes_actual_websocket_profile_with_stable_no
         "one logical ownership fence cannot alias different real carrier descriptions"
     );
 }
+
+#[path = "tests/ordinary.rs"]
+mod ordinary;

@@ -15,6 +15,11 @@ pub(super) async fn run_inner(
     let mut legacy_tasks = JoinSet::new();
     let mut legacy_dns = JoinSet::new();
     #[cfg(feature = "raw-ip-runtime")]
+    let admission = match &owned {
+        Some(owner) => Some(owner.source_admission().await?),
+        None => None, // Explicit library/test executor, outside a hosted Source.
+    };
+    #[cfg(feature = "raw-ip-runtime")]
     let mut tasks = match &owned {
         Some(owner) => task_set::TunTasks::Scoped(super::scoped::ScopedTasks {
             scope: owner.scope.get().cloned().ok_or_else(|| {
@@ -41,7 +46,25 @@ pub(super) async fn run_inner(
 
     loop {
         tokio::select! {
-            received = stack.recv_from_with_peer(&mut buffer) => {
+            received = async {
+                #[cfg(feature = "raw-ip-runtime")]
+                if let Some(admission) = &admission {
+                    let (received, acquisition) = crate::runtime::raw_ip::tasks::input::admitted(
+                        stack.recv_from_with_peer(&mut buffer), admission,
+                    ).await.map_err(std::io::Error::other)?;
+                    return Ok::<_, EngineError>((received, Some(acquisition)));
+                }
+                let received = stack.recv_from_with_peer(&mut buffer).await;
+                #[cfg(feature = "raw-ip-runtime")]
+                let acquisition = None;
+                #[cfg(not(feature = "raw-ip-runtime"))]
+                let acquisition = ();
+                Ok::<_, EngineError>((received, acquisition))
+            } => {
+                // Retain the actual dequeue acquisition across reserve and
+                // synchronous spawn_bound/spawn. The same child records own
+                // every admitted datagram before this branch releases it.
+                let (received, _acquisition) = received?;
                 let Some((size, source, destination, peer_identity)) = received else {
                     return Ok(());
                 };
@@ -62,20 +85,54 @@ pub(super) async fn run_inner(
                         continue;
                     }
                     let query_runtime = runtime.clone();
-                    let stack = Arc::clone(&stack);
+                    let query_stack = Arc::clone(&stack);
                     let query = buffer[..size].to_vec();
                     #[cfg(feature = "raw-ip-runtime")]
-                    let mut native = owned.as_ref().map(|owner| owner.native.reserve(crate::runtime::inbound_operation::raw_ip::native_obligations::ChildKind::Dns)).transpose().map_err(std::io::Error::other)?;
-                    dns_tasks.spawn(async move {
+                    let mut native = match &owned {
+                        Some(owner) => match owner.native.reserve_reclaimed(
+                            crate::runtime::inbound_operation::raw_ip::native_obligations::ChildKind::Dns,
+                            tokio::time::Instant::now() + Duration::from_secs(5),
+                        ).await {
+                            Ok(native) => Some(native),
+                            Err(error) if crate::runtime::raw_ip::tasks::capacity::before_work(&error) => {
+                                let response = runtime.resolver().busy_response(&buffer[..size]);
+                                stack.send_to(&response, destination, source).await;
+                                continue;
+                            }
+                            Err(error) => return Err(std::io::Error::other(error).into()),
+                        },
+                        None => None,
+                    };
+                    let registered = dns_tasks.spawn_with_witness(move |witness| async move {
+                        let resolver = query_runtime.resolver();
+                        let (call, work) = resolver.prepare_udp_query(&query);
                         #[cfg(feature = "raw-ip-runtime")]
-                        if let Some(native) = &mut native { native.enter().map_err(std::io::Error::other)?; }
-                        let response = query_runtime.resolver().answer_udp_query(&query).await;
-                        #[cfg(feature = "raw-ip-runtime")]
-                        let response = response.map_err(|error| match &native { Some(native) => native.retain_error(error), None => error });
+                        if let Some(native) = &mut native {
+                            let witness = witness.ok_or_else(|| std::io::Error::other("DNS child has no actual Source registration"))?;
+                            native.bind_dns_call(call,
+                                crate::runtime::inbound_operation::raw_ip::native_obligations::DnsSourceCaller::DatagramChild(witness),
+                            ).map_err(std::io::Error::other)?;
+                        }
+                        #[cfg(not(feature = "raw-ip-runtime"))]
+                        let _ = (call, witness);
+                        let response = work.await;
+                        // The original Auxiliary output keeps query failures;
+                        // the actual call token separately proves cleanup.
+                        // A normal failed query cannot poison all later calls
+                        // after its matching originals have really closed.
                         let response = response?;
-                        stack.send_to(&response, destination, source).await;
+                        query_stack.send_to(&response, destination, source).await;
                         Ok::<(), std::io::Error>(())
-                    })?;
+                    });
+                    if let Err(error) = registered {
+                        #[cfg(feature = "raw-ip-runtime")]
+                        if crate::runtime::raw_ip::tasks::capacity::before_work(&error) {
+                            let response = runtime.resolver().busy_response(&buffer[..size]);
+                            stack.send_to(&response, destination, source).await;
+                            continue;
+                        }
+                        return Err(std::io::Error::other(error).into());
+                    }
                     continue;
                 }
                 let datagram = TunDatagram {
@@ -104,7 +161,23 @@ pub(super) async fn run_inner(
                         match associations.admit(source, now) {
                             Ok(()) => {
                                 let id = next_id;
-                                spawn_association(
+                                #[cfg(feature = "raw-ip-runtime")]
+                                let native = match &owned {
+                                    Some(owner) => match owner.native.reserve_reclaimed(
+                                        crate::runtime::inbound_operation::raw_ip::native_obligations::ChildKind::Udp,
+                                        tokio::time::Instant::now() + Duration::from_secs(5),
+                                    ).await {
+                                        Ok(native) => Some(native),
+                                        Err(error) if crate::runtime::raw_ip::tasks::capacity::before_work(&error) => {
+                                            log_pressure_drop(&mut associations, now, source, destination,
+                                                AdmissionRejection::ScopeLimit, stack.send_unreachable(&datagram.payload, source, destination));
+                                            continue;
+                                        }
+                                        Err(error) => return Err(std::io::Error::other(error).into()),
+                                    },
+                                    None => None,
+                                };
+                                let registered = spawn_association(
                                     &mut tasks,
                                     &mut associations,
                                     AssociationStart {
@@ -115,15 +188,18 @@ pub(super) async fn run_inner(
                                         id,
                                         first: datagram,
                                         #[cfg(feature = "raw-ip-runtime")]
-                                        native: match &owned {
-                                            Some(owner) => Some(owner.native.reserve_reclaimed(
-                                                crate::runtime::inbound_operation::raw_ip::native_obligations::ChildKind::Udp,
-                                                tokio::time::Instant::now() + Duration::from_secs(5),
-                                            ).await.map_err(std::io::Error::other)?),
-                                            None => None,
-                                        },
+                                        native,
                                     },
-                                )?;
+                                );
+                                if let Err(error) = registered {
+                                    #[cfg(feature = "raw-ip-runtime")]
+                                    if crate::runtime::raw_ip::tasks::capacity::source_admission(&error) {
+                                        log_pressure_drop(&mut associations, now, source, destination,
+                                            AdmissionRejection::ScopeLimit, stack.send_unreachable(&buffer[..size], source, destination));
+                                        continue;
+                                    }
+                                    return Err(error);
+                                }
                                 tracing::trace!(
                                     ?source,
                                     ?destination,

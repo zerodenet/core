@@ -10,3 +10,22 @@ mod direct_stream;
 
 #[cfg(feature = "mieru")]
 mod mieru;
+
+#[cfg(all(
+    feature = "wireguard",
+    feature = "socks5",
+    feature = "managed-stream-runtime"
+))]
+mod wireguard_datagram;
+
+#[cfg(feature = "vless")]
+mod vless_grpc_ca;
+
+#[cfg(all(
+    feature = "vless",
+    feature = "vmess",
+    feature = "trojan",
+    feature = "shadowsocks",
+    feature = "socks5"
+))]
+mod taskless_node_dns;

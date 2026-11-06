@@ -1,6 +1,8 @@
 //! Configuration resource preparation belongs to runtime ownership, never validation.
 mod compile;
 mod control_budget;
+mod ss_security_budget;
+pub use ss_security_budget::SsSecurityBudgetLimits;
 pub use control_budget::{
     ControlBudget, ControlBudgetCandidate, ControlBudgetLimits, ControlBudgetPermit,
     ControlBudgetUsage, ControlCharge,

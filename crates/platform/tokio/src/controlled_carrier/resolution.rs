@@ -54,6 +54,7 @@ impl ResolvingCarrierOpener {
         Ok(Self {
             source: Source {
                 grantee,
+                related_parent: None,
                 binding,
                 endpoint,
                 egress,
@@ -64,6 +65,36 @@ impl ResolvingCarrierOpener {
     }
 }
 impl UpstreamOpener for ResolvingCarrierOpener {
+    fn resolve_related_datagram(
+        &self,
+        binding: &UpstreamBinding,
+        parent: super::CarrierAdoption,
+        peer: Destination,
+        context: CarrierContext,
+    ) -> BoxFuture<'_, Result<CarrierCandidates, ChannelError>> {
+        let binding = binding.clone();
+        Box::pin(async move {
+            self.source
+                .check(&binding, &self.source.endpoint, &context)?;
+            super::related::check_parent(&parent, self.source.grantee, &binding)?;
+            super::related::check_endpoint(&parent, &self.source.endpoint)?;
+            let selected = Self {
+                source: Source {
+                    grantee: self.source.grantee,
+                    related_parent: Some(parent),
+                    binding: binding.clone(),
+                    endpoint: peer.clone(),
+                    egress: self.source.egress.clone(),
+                    observer: self.source.observer.clone(),
+                },
+                resolver: self.resolver.clone(),
+            };
+            selected
+                .resolve_controlled_carrier(&binding, peer, context)
+                .await
+        })
+    }
+
     fn carrier_dns_generation(&self) -> Option<DnsGeneration> {
         Some(self.resolver.generation())
     }
@@ -152,6 +183,7 @@ impl UpstreamOpener for ResolvingCarrierOpener {
             }
             let mut candidates = Source {
                 grantee: self.source.grantee,
+                related_parent: self.source.related_parent.clone(),
                 binding,
                 endpoint,
                 egress: self.source.egress.clone(),

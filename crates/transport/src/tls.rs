@@ -34,6 +34,9 @@ mod prepared;
 pub use inbound_stream::InboundTlsStream;
 pub use peek::peek_client_hello;
 pub use prepared::PreparedClient;
+mod owned_material;
+pub use crate::client_recipe::OwnedClientRecipe;
+pub use owned_material::OwnedPreparedClient;
 mod switchable;
 
 #[derive(Debug, Default, Clone, PartialEq, Eq)]

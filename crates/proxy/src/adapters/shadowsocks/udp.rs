@@ -54,27 +54,21 @@ impl ManagedDatagramSocketResumeConnector
 
 #[async_trait::async_trait]
 impl ManagedDatagramFlowConnection for ::shadowsocks::transport::ShadowsocksUdpSocketFlow {
-    async fn send_datagram(
+    async fn request_datagram(
         &self,
         target: &zero_core::Address,
         port: u16,
         payload: &[u8],
-    ) -> Result<(), EngineError> {
-        ::shadowsocks::transport::ShadowsocksUdpSocketFlow::send_datagram(
+    ) -> Result<crate::runtime::udp_flow::managed::ManagedDatagramPendingResponse, EngineError>
+    {
+        let response = ::shadowsocks::transport::ShadowsocksUdpSocketFlow::request_datagram(
             self, target, port, payload,
         )
         .await
-        .map_err(EngineError::from)
-    }
-
-    fn subscribe_responses(
-        &self,
-    ) -> tokio::sync::broadcast::Receiver<(zero_core::Address, u16, Vec<u8>)> {
-        ::shadowsocks::transport::ShadowsocksUdpSocketFlow::subscribe(self)
-    }
-
-    fn closed_message(&self) -> &'static str {
-        "ss upstream closed"
+        .map_err(EngineError::from)?;
+        Ok(Box::pin(async move {
+            response.await.map_err(EngineError::from)
+        }))
     }
 }
 

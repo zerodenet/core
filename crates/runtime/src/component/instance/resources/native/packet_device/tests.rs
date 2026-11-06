@@ -17,6 +17,14 @@ fn scope() -> HostedScope {
     scope
 }
 fn owner(scope: &HostedScope, fd: i32, interface: &str) -> PacketDeviceOwner {
+    owner_with_budget(scope, fd, interface, Arc::default())
+}
+fn owner_with_budget(
+    scope: &HostedScope,
+    fd: i32,
+    interface: &str,
+    roots: Arc<crate::HostOriginalBudgets>,
+) -> PacketDeviceOwner {
     PacketDeviceOwner::new(
         0,
         ComponentInstanceId {
@@ -30,6 +38,8 @@ fn owner(scope: &HostedScope, fd: i32, interface: &str) -> PacketDeviceOwner {
             interface: interface.into(),
         },
         CancellationToken::new(),
+        roots,
+        Some(scope.registrar().downgrade()),
     )
     .unwrap()
 }
@@ -114,7 +124,10 @@ async fn foreign_scope_and_already_joined_registration_never_attempt_native_acqu
     let original = owner(&actual, i32::MAX, "not-a-tun");
     let (send, pending, wrong) = driver(&foreign);
     pending.await.unwrap();
-    assert_eq!(failed(original.open(wrong.clone())).reason, Reason::Revoked);
+    assert_eq!(
+        failed(original.open(wrong.clone()).await).reason,
+        Reason::Revoked
+    );
     assert!(!original.state.lock().unwrap().attempted);
     assert!(matches!(
         original.original.outcome(),
@@ -128,7 +141,7 @@ async fn foreign_scope_and_already_joined_registration_never_attempt_native_acqu
     pending.await.unwrap();
     drop(send);
     joined(&mut actual, &done).await;
-    assert_eq!(failed(original.open(done)).reason, Reason::Revoked);
+    assert_eq!(failed(original.open(done).await).reason, Reason::Revoked);
     assert!(!original.state.lock().unwrap().attempted);
     assert!(original.shutdown(deadline()).await.is_complete());
     actual.begin_shutdown();
@@ -142,7 +155,7 @@ async fn known_no_native_failure_retains_the_pending_original_driver_and_cancell
     let retained = original.original.clone();
     let (send, pending, witness) = driver(&actual);
     pending.await.unwrap();
-    let failure = failed(original.open(witness.clone()));
+    let failure = failed(original.open(witness.clone()).await);
     assert!(matches!(
         acquisition(&failure).outcome,
         TunAcquisitionOutcome::KnownNoNative
@@ -153,17 +166,19 @@ async fn known_no_native_failure_retains_the_pending_original_driver_and_cancell
         &retained.acquisition_failure().unwrap()
     ));
     assert_eq!(
-        failed(original.open(witness.clone())).reason,
+        failed(original.open(witness.clone()).await).reason,
         Reason::Revoked
     );
-    assert!(original
-        .state
-        .lock()
-        .unwrap()
-        .driver
-        .as_ref()
-        .unwrap()
-        .same_registration(&witness));
+    assert!(
+        original
+            .state
+            .lock()
+            .unwrap()
+            .driver
+            .as_ref()
+            .unwrap()
+            .same_registration(&witness)
+    );
     let mut closing = Box::pin(original.shutdown(deadline()));
     std::future::poll_fn(|cx| {
         assert!(closing.as_mut().poll(cx).is_pending());
@@ -197,7 +212,7 @@ async fn invalid_device_validation_preserves_the_actual_duplicate_close_and_borr
     let original = owner(&actual, borrowed.as_raw_fd(), "not-a-tun");
     let (send, pending, witness) = driver(&actual);
     pending.await.unwrap();
-    let failure = failed(original.open(witness.clone()));
+    let failure = failed(original.open(witness.clone()).await);
     let TunAcquisitionOutcome::Closed(receipt) = &acquisition(&failure).outcome else {
         panic!("actual invalid-device duplicate was explicitly closed");
     };
@@ -243,7 +258,20 @@ async fn actual_tun_pending_read_joins_original_driver_before_matching_duplicate
     boot_pending.await.unwrap();
     let grant = original
         .open(witness.clone())
+        .await
         .unwrap_or_else(|error| panic!("actual dedicated TUN: {error}"));
+    let provider = grant.original.clone();
+    assert!(
+        original
+            .original_registration()
+            .unwrap()
+            .same_owner(&provider)
+    );
+    assert!(provider.device().same_provider(&grant.identity));
+    assert!(provider.driver().same_registration(&witness));
+    let origin =
+        zero_platform_tokio::controlled_carrier::CarrierOrigin::from_packet(provider.clone());
+    assert!(origin.closed().is_none());
     assert!(send.send(grant).is_ok());
     read_pending.await.unwrap();
     assert!(original.state.lock().unwrap().view_live);
@@ -266,9 +294,26 @@ async fn actual_tun_pending_read_joins_original_driver_before_matching_duplicate
     assert!(report.is_complete());
     assert_eq!(report.closed_io.len(), 1);
     assert!(original.evidence().physical_confirmed());
+    let native = origin
+        .closed()
+        .expect("same explicit original native TUN close");
+    assert!(native.matches(&origin));
+    assert!(native.had_native_acquisition());
+    assert!(provider.closed().unwrap().matches(&provider));
+    assert!(
+        provider
+            .native()
+            .closed()
+            .unwrap()
+            .matches(provider.native())
+    );
+    assert!(provider.driver().is_joined());
     assert!(actual.next_receipt().await.is_none());
     assert!(actual.is_drained());
     let identity = borrowed.owned_identity();
     let receipt = borrowed.close_owned().unwrap();
     assert!(receipt.identity().same_owner(&identity));
 }
+
+#[path = "tests/budget.rs"]
+mod budget;

@@ -22,6 +22,14 @@ impl Proxy {
                 .await;
         }
         let proxy = self.clone();
+        let cancel = zero_platform_tokio::contract::CancellationToken::new();
+        struct CancelOnDrop(zero_platform_tokio::contract::CancellationToken);
+        impl Drop for CancelOnDrop {
+            fn drop(&mut self) {
+                self.0.cancel();
+            }
+        }
+        let _waiter = CancelOnDrop(cancel.clone());
         // The result is nested so a native lifecycle error retains its source;
         // it is not flattened into the task owner's acknowledgement string.
         self.host
@@ -33,10 +41,15 @@ impl Proxy {
                     .maintain_service_components(
                         config,
                         tokio::time::Instant::now() + std::time::Duration::from_secs(5),
-                        || work,
+                        || async {
+                            let result=tokio::select!{biased;_=cancel.cancelled()=>Err(EngineError::Io(std::io::Error::new(std::io::ErrorKind::Interrupted,"diagnostic caller cancelled"))),result=work=>Ok(result)};
+                            proxy.host.cancel_probes();
+                            proxy.host.drain_probes(tokio::time::Instant::now()+std::time::Duration::from_secs(5)).await.map_err(|source|EngineError::Io(std::io::Error::other(source)))?;
+                            result
+                        },
                     )
                     .await
-                    .map_err(|source| EngineError::Io(std::io::Error::other(source)));
+                    .map_err(|source| EngineError::Io(std::io::Error::other(source))).and_then(|result|result);
                 Ok(result)
             })
             .await

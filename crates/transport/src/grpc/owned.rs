@@ -5,13 +5,24 @@ pub use options::{NativePoolOptions, NativePoolSettings};
 mod reception;
 mod state;
 pub(super) use state::{Managed, Ownership};
+#[cfg(feature = "tls")]
+mod ech;
 mod lifecycle;
+mod retirement;
 pub use lifecycle::NativePoolFactory;
 mod client;
 pub(super) use client::NativeClient;
 mod budget;
 mod carrier;
 mod connect;
+mod epoch;
+mod totals;
+pub use totals::{PoolBudgets, PoolTotals, TotalsFactory, TotalsOptions, TotalsProposal};
+mod candidates;
+mod logical;
+mod opening;
+mod pending;
+mod setup;
 mod stream;
 pub use stream::NativeGrpcStream;
 use tokio::time::Instant;
@@ -20,7 +31,7 @@ use zero_platform_tokio::contract::{CancellationToken, ChannelError, Impact, Rea
 
 /// One invocation's real deadline and cancellation; never retained by the pool.
 pub struct Demand {
-    pub deadline: Instant,
+    pub deadline: Option<Instant>,
     pub cancel: CancellationToken,
     pub binding: zero_platform_tokio::contract::network::UpstreamBinding,
 }

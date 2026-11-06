@@ -1,5 +1,6 @@
 //! Restore actual published recipes; never re-decode mutable external inputs.
 use super::*;
+mod aliases;
 
 impl ComponentCatalog {
     pub(super) fn restore_published_plan(
@@ -85,13 +86,15 @@ impl ComponentCatalog {
             &original.shared_identities,
         )
         .with_candidate(config)
+        .with_previous_named(Some(&original.outbounds))
+        .enable_device_alias_rebinding()
         .with_previous_slots(&original.order, self.admission.loan_snapshot().1);
         resources.inherit_canonical_resources(&original.order, &original.deferred_devices)?;
         let inherited: std::collections::BTreeSet<_> = resources
             .resources()
             .map(|resource| resource.component())
             .collect();
-        let deferred_devices = prepare(&mut resources)?;
+        let mut deferred_devices = prepare(&mut resources)?;
         let requested: std::collections::BTreeSet<_> = resources
             .resources()
             .map(|resource| resource.component())
@@ -100,21 +103,6 @@ impl ComponentCatalog {
             return Err(invalid(
                 Reason::InvalidConfig,
                 "deferred recovery identity was not issued by this actual resource pass",
-            ));
-        }
-        if std::iter::once(&original.builtin)
-            .chain(original.outbounds.values())
-            .any(|slot| {
-                slot.recipe
-                    .spec()
-                    .dependencies
-                    .iter()
-                    .any(|dependency| deferred_devices.contains(dependency))
-            })
-        {
-            return Err(invalid(
-                Reason::InvalidConfig,
-                "ordinary recovery role cannot depend on deferred device activation",
             ));
         }
         if resources.resources().any(|resource| {
@@ -126,31 +114,15 @@ impl ComponentCatalog {
                 "recovery requires a new non-device resource preparation transaction",
             ));
         }
-        let mut nodes: Vec<_> = std::iter::once(&original.builtin)
-            .chain(original.outbounds.values())
-            .map(|slot| {
-                Arc::new(ComponentSlot::from_recipe(
-                    slot.id,
-                    slot.generation,
-                    slot.recipe.clone(),
-                    slot.dial.clone(),
-                    slot.legacy_connect_stage(),
-                ))
-            })
-            .collect();
+        let mut nodes = aliases::nodes(original, &mut resources, &deferred_devices)?;
         resources.validate(nodes.iter().map(|slot| (slot.id, slot.recipe.spec())))?;
         let shared_identities = resources.identities()?;
         for resource in resources.into_resources()? {
             let id = resource.component();
-            if deferred_devices.contains(&id)
-                && (!resource.recipe().spec().roles.is_empty()
-                    || !resource.recipe().spec().resources.is_empty())
-            {
-                return Err(invalid(
-                    Reason::InvalidConfig,
-                    "deferred recovery node grants native resources or callable roles",
-                ));
-            }
+            super::cold::validate_executors(
+                resource.recipe().spec(),
+                deferred_devices.contains(&id),
+            )?;
             let old = original.order.iter().find(|slot| slot.id == id);
             let generation = match old {
                 Some(old) if resource.requires_fresh_instance() => old
@@ -171,6 +143,7 @@ impl ComponentCatalog {
         let (borrowing_revision, loans) = self.admission.loan_snapshot();
         let order =
             super::super::generations::order_with_loans(nodes, &original.order, issued, &loans)?;
+        super::cold::extend_deferred(&order, &mut deferred_devices);
         let nodes: BTreeMap<_, _> = order.iter().map(|slot| (slot.id, slot.clone())).collect();
         let plan = ComponentPlan {
             builtin: nodes[&original.builtin.id].clone(),

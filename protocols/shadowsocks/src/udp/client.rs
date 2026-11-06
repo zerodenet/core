@@ -9,7 +9,7 @@ use zero_traits::{DatagramCodec, UdpDatagramFraming};
 #[derive(Debug, Default)]
 struct Session {
     sender: SenderSession,
-    received: ReceiveWindows,
+    received: Option<ReceiveWindows>,
 }
 
 #[derive(Clone)]
@@ -24,20 +24,12 @@ pub struct ShadowsocksDatagramCodec {
 impl ShadowsocksDatagramCodec {
     pub fn with_state_limits(mut self, limits: crate::validation::StateLimits) -> Self {
         self.limits = limits;
-        #[cfg(feature = "blake3")]
-        {
-            self.state = std::sync::Arc::new(std::sync::Mutex::new(Session {
-                sender: Default::default(),
-                received: ReceiveWindows::with_limits(limits),
-            }));
-        }
         self
     }
 
-    pub fn with_replay_policy(self, policy: crate::validation::ReplayPolicy) -> Self {
-        self.with_replay_guard(crate::shared::legacy_replay::LegacyReplay::new(
-            policy, false,
-        ))
+    pub fn with_replay_policy(mut self, policy: crate::validation::ReplayPolicy) -> Self {
+        self.replay = self.replay.clone().with_policy(policy);
+        self
     }
     pub(crate) fn with_replay_guard(
         mut self,
@@ -72,7 +64,10 @@ impl DatagramCodec<Address> for ShadowsocksDatagramCodec {
                 .state
                 .lock()
                 .map_err(|_| Error::Protocol("ss: UDP session poisoned"))?;
-            state.received.prune();
+            if let Some(received) = &mut state.received {
+                received.prune();
+            }
+            state.sender.use_budget(&self.replay.udp_replay_budget())?;
             let session = state.sender.next()?;
             return crate::shared::encode_udp_request_with_session(
                 self.cipher,
@@ -108,7 +103,10 @@ impl DatagramCodec<Address> for ShadowsocksDatagramCodec {
             }
             if !state
                 .received
-                .accept(packet.session_id, packet.packet_id)
+                .get_or_insert_with(|| {
+                    ReceiveWindows::with_budget(self.limits, self.replay.udp_replay_budget())
+                })
+                .accept_with_limits(packet.session_id, packet.packet_id, self.limits)
                 .ok()?
             {
                 return None;

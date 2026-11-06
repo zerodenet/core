@@ -2,6 +2,7 @@
 //! No new backend I/O starts here. Host supplies actual changed detour dependencies.
 use super::*;
 use std::{collections::BTreeSet, sync::atomic::AtomicBool};
+mod prepare;
 
 pub(super) struct PreparedDnsReload {
     config: Option<DnsConfig>,
@@ -106,7 +107,7 @@ impl DnsSystem {
         // Explicit public reload invalidates query contexts and caches even
         // when its native backends are reusable. Host transactions use the
         // prepared-resource API to retain an unchanged DNS fact.
-        self.prepare_reload_resources(config, dispatch, &BTreeSet::new(), true)?;
+        self.prepare_reload_resources(config, dispatch, &BTreeSet::new(), true, None)?;
         let result = self.commit_prepared_reload();
         if result.is_err() {
             self.discard_prepared_reload();
@@ -131,140 +132,22 @@ impl DnsSystem {
         dispatch: Option<zero_router::DomainDispatcher<String>>,
         affected_detours: &BTreeSet<String>,
     ) -> io::Result<DnsReloadResources> {
-        self.prepare_reload_resources(config, dispatch, affected_detours, false)
+        self.prepare_reload_resources(config, dispatch, affected_detours, false, None)
     }
-    fn prepare_reload_resources(
+    /// The host supplies its actual cold candidate's exact instance/Scope
+    /// preservation decision. URI/config equality cannot preserve a physical
+    /// pool whose original canonical provider is being replaced.
+    pub fn prepare_reload_resources_with_host_scopes(
         &self,
         config: Option<&DnsConfig>,
         dispatch: Option<zero_router::DomainDispatcher<String>>,
         affected_detours: &BTreeSet<String>,
-        refresh_queries: bool,
+        preserves: impl Fn(
+            zero_core::component::ComponentInstanceId,
+            &zero_platform_tokio::contract::scope::TaskScopeIdentity,
+        ) -> bool,
     ) -> io::Result<DnsReloadResources> {
-        if self.owned_root.is_some() && config.is_none() {
-            return Err(io::Error::new(
-                io::ErrorKind::Unsupported,
-                "owned DNS UDP reload requires its explicit configured root",
-            ));
-        }
-        let mut prepared = self
-            .prepared_reload
-            .lock()
-            .expect("DNS prepared reload lock poisoned");
-        if prepared.is_some() {
-            return Err(io::Error::new(
-                io::ErrorKind::AlreadyExists,
-                "another DNS reload is already prepared",
-            ));
-        }
-        let (previous, previous_system, generation, native_profile_changed) = {
-            let inner = self.inner.read().expect("DNS system lock poisoned");
-            let servers = match &*inner {
-                DnsSystemInner::Configured { servers, .. } => servers.clone(),
-                _ => BTreeMap::new(),
-            };
-            let system = match &*inner {
-                DnsSystemInner::System(backend) => Some(backend.clone()),
-                _ => None,
-            };
-            (
-                servers,
-                system,
-                self.config_generation.load(Ordering::Acquire),
-                (self.native_source.is_some() || self.node_queries.is_some())
-                    && match &*inner {
-                        DnsSystemInner::Configured {
-                            source_config,
-                            dispatcher,
-                            ..
-                        } => {
-                            config != Some(source_config.as_ref())
-                                || !dispatch
-                                    .as_ref()
-                                    .is_some_and(|next| dispatcher.matches(next))
-                        }
-                        DnsSystemInner::System(_) => config.is_some(),
-                    },
-            )
-        };
-        let original_servers = previous.clone();
-        #[cfg(feature = "doh")]
-        let previous = {
-            let mut reusable = previous;
-            if native_profile_changed {
-                reusable.retain(|_, server| !matches!(server.backend.as_ref(), ResolverBackend::Doh(resolver) if resolver.owner.host_bound()));
-            }
-            reusable
-        };
-        #[cfg(not(feature = "doh"))]
-        let _ = native_profile_changed;
-        let servers = config
-            .map(|config| {
-                build_servers(
-                    config,
-                    &previous,
-                    affected_detours,
-                    &self.egress_interface,
-                    &self.transport_owners,
-                    self.owned_root.as_deref(),
-                )
-            })
-            .transpose()?
-            .unwrap_or_default();
-        let unchanged = !refresh_queries
-            && self
-                .inner
-                .read()
-                .expect("DNS system lock poisoned")
-                .matches_reload(config, dispatch.as_ref(), &servers);
-        if !unchanged && config.and_then(DnsConfig::fake_ip).is_some() {
-            let mut guard = self
-                .fake_ip_state_lease
-                .lock()
-                .expect("Fake-IP state lease lock poisoned");
-            if guard.is_none() {
-                *guard = self
-                    .fake_ip_state_path
-                    .as_ref()
-                    .map(|path| fake_ip::StateLease::acquire(path.clone()))
-                    .transpose()?;
-            }
-        }
-        // Validate allocator fields in memory; a rejected candidate must not
-        // replace a durable Fake-IP journal. Keep these exact backend objects.
-        if !unchanged {
-            Self::build_inner(
-                config,
-                dispatch.clone(),
-                self.snapshot_fake_ip(),
-                self.snapshot_reverse_mapping(),
-                None,
-                servers.clone(),
-            )?;
-        }
-        let mut retiring = original_servers
-            .values()
-            .filter(|old| {
-                old.backend.has_persistent_resources()
-                    && !servers
-                        .values()
-                        .any(|new| Arc::ptr_eq(&old.backend, &new.backend))
-            })
-            .map(|old| old.backend.clone())
-            .collect::<Vec<_>>();
-        if !unchanged {
-            retiring.extend(previous_system);
-        }
-        let candidate = Arc::new(PreparedDnsReload {
-            config: config.cloned(),
-            dispatch,
-            servers,
-            retired: AtomicBool::new(retiring.is_empty()),
-            retiring,
-            generation,
-            unchanged,
-        });
-        *prepared = Some(candidate.clone());
-        Ok(DnsReloadResources(candidate))
+        self.prepare_reload_resources(config, dispatch, affected_detours, false, Some(&preserves))
     }
     pub fn prepared_reload_resources(&self) -> io::Result<DnsReloadResources> {
         self.prepared_reload

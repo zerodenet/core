@@ -14,7 +14,7 @@ use startup::{ApplicationStartupSlot, APPLICATION_STARTUP};
 mod dispatcher;
 use dispatcher::{changed_components, dispatcher_enabled};
 #[cfg(feature = "event-dispatcher")]
-use dispatcher::{dispatcher_changed, spawn_status_monitor};
+use dispatcher::{dispatcher_changed, start_status_monitor, StatusMonitor};
 
 pub(crate) mod network;
 
@@ -27,7 +27,10 @@ pub(super) struct ApplicationServices {
     #[cfg(feature = "event-dispatcher")]
     event_network: zero_connector::EventDispatcherNetwork,
     state: Mutex<ApplicationServiceState>,
+    #[cfg(feature = "event-dispatcher")]
+    monitor_changed: tokio::sync::Notify,
     control: std::sync::Mutex<control::ControlServers>,
+    parent_input: std::sync::OnceLock<Arc<zero_platform_tokio::parent_input::ParentInputOwner>>,
     control_budget: Arc<zero_runtime::configuration::ControlBudget>,
 }
 
@@ -45,7 +48,7 @@ struct ApplicationServiceState {
     hooks: Option<hooks::PreparedHooks>,
     cleanup_fault: Option<Arc<dyn Error + Send + Sync>>,
     #[cfg(feature = "event-dispatcher")]
-    monitor_exit: Option<Result<(), Arc<tokio::task::JoinError>>>,
+    monitor_exit: Option<Result<(), Arc<zero_platform_tokio::contract::ChannelError>>>,
     #[cfg(feature = "event-dispatcher")]
     network_generation_started: bool,
     config: Arc<RuntimeConfig>,
@@ -55,7 +58,7 @@ struct ApplicationServiceState {
     #[cfg(feature = "event-dispatcher")]
     continuation: Option<zero_connector::EventDispatcherContinuation>,
     #[cfg(feature = "event-dispatcher")]
-    status_monitor: Option<tokio::task::JoinHandle<()>>,
+    status_monitor: Option<Arc<StatusMonitor>>,
     #[cfg(feature = "event-dispatcher")]
     engine_started_bootstrapped: bool,
 }
@@ -111,10 +114,13 @@ impl ApplicationServices {
         let config = engine.config();
         let services = Arc::new(Self {
             engine,
+            #[cfg(feature = "event-dispatcher")]
+            monitor_changed: tokio::sync::Notify::new(),
             ipc_hook_socket: ipc_hook_socket.map(str::to_owned),
             #[cfg(feature = "event-dispatcher")]
             event_network,
             control: std::sync::Mutex::new(control::ControlServers::default()),
+            parent_input: std::sync::OnceLock::new(),
             control_budget: zero_runtime::configuration::ControlBudget::new(
                 zero_runtime::configuration::ControlBudgetLimits::from_runtime(&config.runtime),
             ),

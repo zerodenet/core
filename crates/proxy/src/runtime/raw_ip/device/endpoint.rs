@@ -93,6 +93,7 @@ impl SharedRawIpDevice {
         options: super::super::RawIpStackOptions,
         task: Arc<super::workers::DeviceWorkers>,
     ) -> Result<Arc<Self>, EngineError> {
+        let returns = Arc::new(PacketReturns::default().with_limits(&options)?);
         let (outbound, raw_packets) =
             mpsc::channel::<zero_stack::packet_output::ObservedPacket>(128);
         let (forwarded_packets, forwarded_rx) = mpsc::channel(128);
@@ -113,7 +114,6 @@ impl SharedRawIpDevice {
             )
             .map_err(stack_tcp_error)?,
         );
-        let returns = Arc::new(PacketReturns::default());
         let closed = Arc::new(AtomicBool::new(false));
         let health = Arc::new(Mutex::new(DeviceHealth::default()));
         let (_ready_tx, ready) = watch::channel(Some(Ok(())));
@@ -144,6 +144,32 @@ impl SharedRawIpDevice {
             task,
             carrier: None,
         }))
+    }
+
+    /// Same existing stack, with native-return backpressure retained in the
+    /// caller's actual wire loop instead of discarding a full standard queue.
+    pub(crate) async fn deliver_decrypted_owned_wait(
+        &self,
+        packet: zero_traits::PacketBuffer,
+        allow_native: bool,
+    ) -> Result<Option<zero_traits::PacketBuffer>, EngineError> {
+        let packet = if allow_native {
+            match self
+                .returns
+                .deliver_owned_wait(packet)
+                .await
+                .map_err(std::io::Error::other)?
+            {
+                None => return Ok(None),
+                Some(packet) => packet,
+            }
+        } else {
+            packet
+        };
+        match self.deliver_decrypted_owned(packet, false).await {
+            Ok(()) => Ok(None),
+            Err(packet) => Ok(Some(packet)),
+        }
     }
 
     /// Consume decrypted packets belonging to an active outbound flow or

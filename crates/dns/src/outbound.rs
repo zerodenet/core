@@ -1,4 +1,5 @@
-//! Host detour contract. Control traffic has no fabricated business session.
+//! Explicit standalone detour wiring. Host-bound resolvers use their actual
+//! NativeDnsProvider and never fall back to this library connector.
 use std::{fmt, future::Future, io, net::SocketAddr, pin::Pin, sync::Arc};
 use tokio::time::Instant;
 use zero_platform_tokio::contract::{context::with_deadline, CancellationToken};
@@ -53,6 +54,8 @@ pub trait DnsQuicBidiConnector: fmt::Debug + Send + Sync {
     ) -> DnsOutboundCarrierFuture;
 }
 
+/// Library caller-supplied detour execution. Installing this connector does
+/// not grant host I/O; a resolver bound to NativeDnsSource never invokes it.
 pub trait DnsOutboundConnector: fmt::Debug + Send + Sync {
     /// Absence preserves the staged legacy path. Once a real capability is
     /// selected its errors must not fall back to a naked UDP/QUIC acquisition.

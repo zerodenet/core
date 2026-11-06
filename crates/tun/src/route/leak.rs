@@ -64,6 +64,23 @@ impl SystemLeakGuard {
         ))
     }
 
+    pub fn install_retained(
+        _original: &mut Option<Self>,
+        _tun_name: &str,
+        _recovery_key: &str,
+        _protected: &[IpNet],
+        _excluded: &[IpAddr],
+    ) -> io::Result<()> {
+        Err(io::Error::new(
+            io::ErrorKind::Unsupported,
+            "strict-route leak protection is unsupported on this platform",
+        ))
+    }
+
+    pub fn close_retained(&mut self) -> io::Result<()> {
+        Ok(())
+    }
+
     pub fn reconcile(&mut self, _protected: &[IpNet], _excluded: &[IpAddr]) -> io::Result<bool> {
         Ok(false)
     }

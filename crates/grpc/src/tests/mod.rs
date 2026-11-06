@@ -108,3 +108,5 @@ async fn idle_grpc_subscription_disconnect_joins_the_original_without_a_followup
 }
 
 mod queued_events;
+
+mod retirement;

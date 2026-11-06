@@ -5,6 +5,7 @@
 //! datagrams are wrapped in IP + UDP headers and emitted through
 //! the outbound packet channel.
 
+mod quiescence;
 use std::collections::VecDeque;
 use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::Arc;

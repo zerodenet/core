@@ -2,10 +2,15 @@ use super::*;
 #[cfg(feature = "crypto")]
 impl ShadowsocksInboundUdpSession {
     pub fn new(codec: ShadowsocksInboundUdpCodec) -> Self {
-        Self {
-            bindings: state::Bindings::with_limits(codec.limits),
-            codec,
-        }
+        #[cfg(not(feature = "blake3"))]
+        let bindings = state::Bindings::with_limits(codec.limits);
+        #[cfg(feature = "blake3")]
+        let bindings = state::Bindings::with_budget(
+            codec.limits,
+            codec.udp_replay_budget(),
+            codec.receiver_history(),
+        );
+        Self { bindings, codec }
     }
 
     pub fn decode_request(

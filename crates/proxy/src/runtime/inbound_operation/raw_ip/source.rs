@@ -29,11 +29,13 @@ struct Shared {
     proxies: tasks::RetainedTasks<()>,
     done: Mutex<Option<TaskJoinWitness>>,
     pending_tx: Arc<Mutex<Option<IpPacket>>>,
+    resources: Arc<dyn ResourceAccess>,
 }
 struct State {
     wire: Option<wire::Wire>,
     grant: Option<GrantedDatagramListener>,
     taken: bool,
+    reads: Option<[zero_tun::packet_memory::NativeReadGrant; 2]>,
 }
 pub(crate) struct Owner {
     shared: Arc<Shared>,
@@ -67,6 +69,7 @@ pub(crate) fn source(
             }),
             grant: None,
             taken: false,
+            reads: None,
         }),
         stop,
         cancel: context.cancel.child_token(),
@@ -74,6 +77,7 @@ pub(crate) fn source(
         proxies,
         done: Mutex::new(None),
         pending_tx: Arc::new(Mutex::new(None)),
+        resources: context.resources.clone(),
     });
     (
         Owner {
@@ -93,6 +97,8 @@ fn error(reason: Reason) -> ChannelError {
 }
 impl ResourceLifecycle for Owner {
     async fn start(&mut self, _: Instant) -> Result<(), ChannelError> {
+        let reads = self.resources.take_packet_datagram_reads(0)?;
+        self.shared.state.lock().unwrap().reads = Some(reads);
         let grant = self
             .resources
             .listen_datagram(self.destination.clone())
@@ -118,6 +124,12 @@ impl ResourceLifecycle for Owner {
         // the original listener provider, not this logical-session report.
         self.shared.state.lock().unwrap().grant.take();
         self.shared.state.lock().unwrap().wire.take();
+        let reads = self.shared.state.lock().unwrap().reads.take();
+        if let Some(reads) = reads {
+            for read in reads {
+                read.revoke();
+            }
+        }
         self.shared.proxies.clone().shutdown(deadline).await
     }
 }
@@ -208,13 +220,17 @@ impl PacketReply for Reply {
             self.shared.stop.send_replace(true);
             return Ok(None);
         }
-        let (wire, grant) = {
+        let (wire, grant, reads) = {
             let mut state = self.shared.state.lock().unwrap();
             (
                 state.wire.take().ok_or_else(|| error(Reason::Revoked))?,
                 state.grant.take().ok_or_else(|| error(Reason::Revoked))?,
+                state.reads.take().ok_or_else(|| error(Reason::Revoked))?,
             )
         };
+        let original = grant.tx.identity();
+        let (registered, original_registration) = tokio::sync::oneshot::channel::<()>();
+        let (checkpoint_sender, actual_checkpoint) = tokio::sync::oneshot::channel();
         let mtu = wire.device.mtu();
         let (packets, received) = mpsc::channel(1);
         let (responses, returned) = mpsc::channel(1);
@@ -223,6 +239,7 @@ impl PacketReply for Reply {
         let egress = observer.egress();
         let proxies = self.shared.proxies.clone();
         let guard = cancel.clone().drop_guard();
+        let waiting_cancel = cancel.clone();
         let source_facts = self.facts.clone();
         let facts = self.facts;
         let (_id, witness) = self
@@ -230,8 +247,21 @@ impl PacketReply for Reply {
             .tasks
             .spawn_tracked(TaskClass::Critical, async move {
                 let _guard = guard;
+                // This is the same real wire registration. It owns the unique
+                // views while waiting; no IO begins before its retained native
+                // controller has validated and saved this exact witness.
+                tokio::select! {
+                    biased;
+                    _ = waiting_cancel.cancelled() => return Ok(()),
+                    ready = original_registration => ready.map_err(|source| error(Reason::Revoked).with_source(source))?,
+                }
+                let checkpoint=tokio::select! {
+                    biased;
+                    _=waiting_cancel.cancelled()=>return Ok(()),
+                    checkpoint=actual_checkpoint=>checkpoint.map_err(|source|error(Reason::Revoked).with_source(source))?,
+                };
                 let result = wire::run(
-                    wire, grant, egress, packets, returned, facts, observer, shutdown,
+                    wire, grant, reads, egress, packets, returned, facts, observer, shutdown, checkpoint,
                 )
                 .await;
                 proxies.request_abort();
@@ -239,6 +269,15 @@ impl PacketReply for Reply {
             })
             .map_err(|source| error(Reason::Capacity).with_source(source))?;
         *self.shared.done.lock().unwrap() = Some(witness.clone());
+        let registered_driver = self
+            .shared
+            .resources
+            .register_packet_source_driver(&original, &witness)?;
+        let checkpoint = registered_driver.checkpoint;
+        checkpoint_sender
+            .send(checkpoint)
+            .map_err(|_| error(Reason::Revoked))?;
+        registered.send(()).map_err(|_| error(Reason::Revoked))?;
         Ok(Some(PacketSession {
             tx: Tx {
                 sender: PollSender::new(responses),

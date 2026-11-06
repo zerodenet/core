@@ -4,6 +4,8 @@
 mod browser_dialer;
 #[path = "../h2_alps.rs"]
 mod h2_alps;
+#[path = "../h2_owned.rs"]
+mod h2_owned;
 #[path = "../http_upgrade.rs"]
 mod http_upgrade;
 #[path = "../ws_early_data.rs"]

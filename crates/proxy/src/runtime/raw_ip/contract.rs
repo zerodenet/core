@@ -12,6 +12,10 @@ pub(crate) enum RawIpAction {
 }
 
 pub(crate) trait RawIpTunnel: Send {
+    /// The actual protocol queue only; unknown legacy tunnels cannot ACK idle.
+    fn quiescent(&self) -> bool {
+        false
+    }
     fn initiate_handshake(&mut self) -> Result<Vec<RawIpAction>, EngineError>;
     fn send_ip_packet(&mut self, packet: &[u8]) -> Result<Vec<RawIpAction>, EngineError>;
     fn receive_datagram(

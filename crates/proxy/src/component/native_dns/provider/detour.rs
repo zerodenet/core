@@ -6,6 +6,11 @@ use crate::{
 };
 use zero_platform_tokio::contract::network::UpstreamTransport;
 mod borrowed;
+mod datagram;
+enum Detour {
+    Stream(StreamLoan, Arc<dyn zero_dns::DnsCarrierBinding>),
+    Datagram(DatagramLoan),
+}
 mod root;
 
 impl Provider {
@@ -36,6 +41,39 @@ impl Provider {
         cancel: CancellationToken,
         end: tokio::time::Instant,
     ) -> std::io::Result<(StreamLoan, Arc<dyn zero_dns::DnsCarrierBinding>)> {
+        match self
+            .open_selected_detour(outbound, peer, caller, cancel, end, false)
+            .await?
+        {
+            Detour::Stream(loan, binding) => Ok((loan, binding)),
+            Detour::Datagram(_) => unreachable!("a Stream request does not select a datagram"),
+        }
+    }
+    pub(super) async fn open_udp_detour(
+        &self,
+        outbound: String,
+        peer: SocketAddr,
+        caller: TaskJoinWitness,
+        cancel: CancellationToken,
+        end: tokio::time::Instant,
+    ) -> std::io::Result<zero_dns::native::NativeDnsUdpLoan> {
+        match self
+            .open_selected_detour(outbound, peer, caller, cancel, end, true)
+            .await?
+        {
+            Detour::Stream(loan, _) => Ok(zero_dns::native::NativeDnsUdpLoan::Stream(loan)),
+            Detour::Datagram(loan) => Ok(zero_dns::native::NativeDnsUdpLoan::Datagram(loan)),
+        }
+    }
+    async fn open_selected_detour(
+        &self,
+        outbound: String,
+        peer: SocketAddr,
+        caller: TaskJoinWitness,
+        cancel: CancellationToken,
+        end: tokio::time::Instant,
+        udp: bool,
+    ) -> std::io::Result<Detour> {
         let source = self.network.current_services()?;
         let services = source.runtime_services()?;
         let execution = services.execution();
@@ -48,6 +86,39 @@ impl Provider {
             .plan()
             .target_id(&outbound)
             .ok_or_else(|| std::io::Error::other("DNS detour target retired"))?;
+        let selections = ServiceSelections::capture(services.snapshot(), target)
+            .ok_or_else(|| std::io::Error::other("DNS detour selection cannot be captured"))?;
+        let (resolved, _) = services
+            .engine()
+            .resolve_target_id_in_snapshot(services.snapshot(), target)
+            .ok_or_else(|| std::io::Error::other("DNS detour cannot be resolved"))?;
+        if udp {
+            let datagram = services
+                .protocols()
+                .prepare_service_datagram(
+                    crate::protocol_registry::OutboundAdapterContext::new(services.config()),
+                    &resolved,
+                    components,
+                )
+                .map_err(|failure| std::io::Error::other(failure.error))?;
+            if let Some(node) = datagram {
+                return self
+                    .open_datagram_detour(
+                        &execution,
+                        node,
+                        selections,
+                        peer,
+                        caller,
+                        CarrierContext {
+                            session: None,
+                            deadline: Some(end),
+                            cancel,
+                        },
+                    )
+                    .await
+                    .map(Detour::Datagram);
+            }
+        }
         if !services
             .protocols()
             .carrier_service_target(services.snapshot(), target, components)
@@ -57,12 +128,6 @@ impl Provider {
                 "DNS detour has no complete original carrier path",
             ));
         }
-        let selections = ServiceSelections::capture(services.snapshot(), target)
-            .ok_or_else(|| std::io::Error::other("DNS detour selection cannot be captured"))?;
-        let (resolved, _) = services
-            .engine()
-            .resolve_target_id_in_snapshot(services.snapshot(), target)
-            .ok_or_else(|| std::io::Error::other("DNS detour cannot be resolved"))?;
         let prepared = crate::runtime::tcp_dispatch::service::prepare(
             services.protocols(),
             &services,
@@ -143,22 +208,38 @@ impl Provider {
                 || execution.upstream(),
                 |tag| execution.upstream_observed(tag),
             );
-            let root = Arc::new(
-                root::Root::new(
-                    network,
-                    endpoint,
-                    root_binding.clone(),
-                    root_grants.clone(),
-                    self.budget.clone(),
-                    self.users.clone(),
-                    self.pending.clone(),
-                    caller.clone(),
-                    cancel.clone(),
-                    execution.current_source.clone(),
-                    binding.prefix.clone(),
-                )
-                .map_err(std::io::Error::other)?,
-            );
+            // A device Stream consumes its existing virtual socket/provider.
+            // This only removes native dial authority: actual role/provider
+            // admission remains with the current ComponentPlan and selection.
+            let device_root = nodes[0].endpoint.is_none()
+                && nodes[0].role != zero_platform_tokio::contract::dns::DnsQueryRole::Direct
+                && nodes[0]
+                    .slot
+                    .recipe
+                    .spec()
+                    .roles
+                    .contains(&zero_platform_tokio::contract::component::RoleKind::Packet);
+            let root = root::Root::new(
+                network,
+                endpoint,
+                root_binding.clone(),
+                root_grants.clone(),
+                self.budget.clone(),
+                self.users.clone(),
+                self.pending.clone(),
+                caller.clone(),
+                cancel.clone(),
+                call.clone(),
+                execution.current_source.clone(),
+                binding.prefix.clone(),
+            )
+            .map_err(std::io::Error::other)?;
+            let root = Arc::new(if device_root {
+                root.observer_only()
+            } else {
+                root
+            });
+            root.track();
             components
                 .authorize_carrier_prefix(self.instance, &binding.prefix)
                 .map_err(std::io::Error::other)?;
@@ -189,7 +270,7 @@ impl Provider {
                                 .is_some_and(|source| source.retry_permitted());
                         })?;
                     receipt.check_current()?;
-                    return Ok((loan, receipt));
+                    return Ok(Detour::Stream(loan, receipt));
                 }
                 let io = crate::runtime::tcp_dispatch::service::connect_stream(
                     &execution,
@@ -206,7 +287,7 @@ impl Provider {
                 })?;
                 let loan = root.loan(io).await?;
                 receipt.check_current()?;
-                Ok((loan, receipt))
+                Ok(Detour::Stream(loan, receipt))
             }
             .await;
             match operation {

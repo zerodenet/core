@@ -12,8 +12,8 @@ mod bound_attempt;
 mod bound_datagram;
 pub use bound_attempt::{BoundDatagramAttemptFailure, BoundDatagramRetryReceipt};
 pub use bound_datagram::{
-    BoundDatagramRequest, BoundDatagramSocket, DatagramBindingAuthorization, DatagramBindingGuard,
-    DatagramBindingId, DatagramBindingIssuer, GrantedBoundDatagram,
+    BoundDatagramRequest, BoundDatagramSocket, BoundDatagramView, DatagramBindingAuthorization,
+    DatagramBindingGuard, DatagramBindingId, DatagramBindingIssuer, GrantedBoundDatagram,
 };
 use std::{num::NonZeroUsize, path::PathBuf, sync::Arc};
 use tokio_util::sync::CancellationToken;
@@ -37,14 +37,14 @@ mod metadata_datagram;
 pub use metadata_datagram::{GrantedMetadataListener, MetadataDatagramRequest};
 
 use super::{
+    BoxFuture,
     datagram::DynDatagramOutbound,
     inbound::DynInboundSource,
     lifecycle::{BuildError, DynResourceLifecycle},
     network::UpstreamTransport,
     packet::{BoxPacketSession, DynPacketOutbound},
-    scope::TaskRegistrar,
+    scope::{TaskJoinWitness, TaskRegistrar},
     stream::DynStreamOutbound,
-    BoxFuture,
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -86,6 +86,23 @@ pub enum ResourceDeclaration {
         datagram: bool,
         max_sockets: NonZeroUsize,
     },
+    /// Per-connection Service original with dynamic current Node/prefix binding.
+    /// Its actual driver belongs to this owner/Scope but is not a shared cached
+    /// pool: an awaiting caller must retain cleanup until actual handoff/close.
+    ControlledServiceStream {
+        endpoint: Destination,
+        dial: zero_traits::DialPolicy,
+        max_sockets: NonZeroUsize,
+    },
+    /// One physical association owner: fixed control-stream endpoint plus one
+    /// protocol-negotiated Datagram peer per acquired control original. Both
+    /// originals consume this same total bound. The parent is authorization
+    /// lineage, never the Datagram's physical encapsulation origin.
+    ControlledAssociationPool {
+        endpoint: Destination,
+        dial: zero_traits::DialPolicy,
+        max_sockets: NonZeroUsize,
+    },
     /// Exact service-root UDP peer on the actual host network generation.
     /// Live, retiring and Unknown originals share this caller-assigned bound.
     /// Default dial/no preferred source port only; no business authority.
@@ -97,7 +114,9 @@ pub enum ResourceDeclaration {
     /// One actual bounded Direct business carrier owner. Its endpoint and full
     /// generation binding are supplied only by a sealed admitted demand and
     /// the original Direct resolver/candidate path, never a wildcard endpoint.
-    /// This permits no service/background demand or relay prefix by itself.
+    /// This permits no service/background demand or relay prefix by itself. A
+    /// distinct original host-fence Service ticket can bind a real same-Scope
+    /// caller and exact literal Direct candidate without a business SessionId.
     ControlledDirectStream {
         dial: zero_traits::DialPolicy,
         max_sockets: NonZeroUsize,
@@ -110,6 +129,16 @@ pub enum ResourceDeclaration {
     /// grants no prefix authority; a relay requires the distinct sealed host
     /// issuer and its installed preparation over this same original control.
     ControlledNodeStream {
+        endpoint: Destination,
+        dial: zero_traits::DialPolicy,
+        max_sockets: NonZeroUsize,
+    },
+    /// One taskless per-connection owner shared by real admitted Business and
+    /// transferred Service views. Both demand classes consume the same native
+    /// limit/registration. Business still needs its sealed host ticket and
+    /// original caller witness; this descriptor grants neither. Service custody
+    /// has no cached-driver handoff and remains with the awaiting caller.
+    ControlledNodeCarrier {
         endpoint: Destination,
         dial: zero_traits::DialPolicy,
         max_sockets: NonZeroUsize,
@@ -196,6 +225,12 @@ pub enum ResourceDeclaration {
         /// payload storage or worker task is implicitly allocated by this bound.
         max_pending_sends: NonZeroUsize,
     },
+    /// Two concrete read/decode allocations for the referenced original UDP
+    /// descriptor in this same spec; no native I/O or tasks are granted here.
+    PacketDatagramReads {
+        datagram: usize,
+        workspaces: [NonZeroUsize; 2],
+    },
     /// A literal outbound peer on the actual host network generation. The
     /// current provider supports exactly one socket and one acquisition attempt
     /// (including failures), default dial policy and no preferred source port.
@@ -224,8 +259,15 @@ pub enum ResourceDeclaration {
         max_bytes: usize,
     },
     BackgroundCarrier,
+    /// One same-job loopback handoff. It owns its actual TCP and optional
+    /// same-port UDP reservations, plus at most one inline readiness probe.
+    /// No task, user network grant or process start is implicit in this record.
+    ProcessEndpoint {
+        process_ordinal: usize,
+        spec: crate::owned_process::ProcessEndpointSpec,
+    },
     /// Native child starts for this component generation. Arguments and
-    /// environment remain protocol-owned; this is not descendant containment.
+    /// environment remain protocol-owned; containment belongs to its provider.
     Process {
         program: PathBuf,
         max_starts: NonZeroUsize,
@@ -255,6 +297,10 @@ pub struct ComponentSpec {
 /// Unique server receiver and bounded send-only clones, with no close authority.
 /// The granting host retains the exact
 /// native owner/controller before creation and confirms cleanup independently.
+pub struct GrantedPacketSourceDriver {
+    pub origin: crate::controlled_datagram::provider::NativeDatagramOrigin,
+    pub checkpoint: super::packet::PacketSourceCheckpoint,
+}
 pub struct GrantedDatagramListener {
     pub rx: crate::controlled_datagram::listener::ControlledDatagramListenerRx,
     pub tx: crate::controlled_datagram::listener::ControlledDatagramListenerTx,
@@ -269,6 +315,66 @@ pub struct InboundListenerEndpoints {
     pub datagram: std::net::SocketAddr,
 }
 pub trait ResourceAccess: Send + Sync {
+    /// Metadata of this same original Packet source only; no grant or task API.
+    fn packet_source_pause(&self) -> Option<Arc<super::packet::PacketSourcePause>> {
+        None
+    }
+
+    #[cfg(feature = "native-packet-origin")]
+    fn take_packet_datagram_reads(
+        &self,
+        _datagram: usize,
+    ) -> Result<[zero_tun::packet_memory::NativeReadGrant; 2], BuildError> {
+        Err(super::ChannelError::new(
+            super::Stage::Prepare,
+            super::Reason::Unsupported,
+            super::Impact::Component,
+        ))
+    }
+    /// Same exact declared original IO/view and, when present, its actual
+    /// wire registration ACK. This read grants no IO and is not whole-component
+    /// Scope or publication completion. Unknown/custom providers return false.
+    fn bound_datagram_retired(&self, _ordinal: usize) -> bool {
+        false
+    }
+    /// Activate only the same cold-installed finite native provider and its
+    /// host-issued binding. The source supplies no policy, callback or issuer.
+    fn activate_bound_datagram(
+        &self,
+        _ordinal: usize,
+        _driver: &super::scope::TaskJoinWitness,
+    ) -> Result<DatagramBindingId, BuildError> {
+        Err(super::ChannelError::new(
+            super::Stage::Prepare,
+            super::Reason::Unsupported,
+            super::Impact::Component,
+        ))
+    }
+
+    /// Read the same actual linked Packet source dependency installed by the
+    /// host. This grants no IO and cannot create a source or close receipt.
+    fn packet_carrier_origin(
+        &self,
+    ) -> Result<crate::controlled_carrier::CarrierOrigin, BuildError> {
+        Err(super::ChannelError::new(
+            super::Stage::Prepare,
+            super::Reason::Unsupported,
+            super::Impact::Component,
+        ))
+    }
+    /// Match the actual acquired listener controller and this same Scope's
+    /// real wire task before its unique views are allowed to perform I/O.
+    fn register_packet_source_driver(
+        &self,
+        _original: &crate::controlled_datagram::listener::DatagramListenerIdentity,
+        _witness: &TaskJoinWitness,
+    ) -> Result<GrantedPacketSourceDriver, BuildError> {
+        Err(super::ChannelError::new(
+            super::Stage::Prepare,
+            super::Reason::Unsupported,
+            super::Impact::Component,
+        ))
+    }
     fn open_inbound_stream(
         &self,
         _caller: crate::AcceptedCaller,
@@ -444,6 +550,59 @@ pub trait ResourceAccess: Send + Sync {
         )
         .with_source(std::io::Error::other("undeclared native process")))
     }
+    /// Cold original installed by the actual host before native acquisition.
+    /// The existing registered actor starts/drives it; no second Scope exists.
+    #[cfg(any(target_os = "linux", windows))]
+    fn prepare_owned_process(
+        &self,
+        _: ProcessRequest,
+        _: &super::scope::TaskRegistrar,
+    ) -> Result<std::sync::Arc<crate::owned_process::OwnedProcess>, BuildError> {
+        Err(super::ChannelError::new(
+            super::Stage::Prepare,
+            super::Reason::InvalidConfig,
+            super::Impact::Component,
+        )
+        .with_source(std::io::Error::other("undeclared owned process")))
+    }
+    /// The same declared provider's durable read-only retirement observation.
+    /// Obtain this before an attempt: absence is not a no-native disposition.
+    #[cfg(any(target_os = "linux", windows))]
+    fn process_endpoint_retirement(
+        &self,
+        _: usize,
+    ) -> Option<std::sync::Arc<dyn crate::owned_process::ProcessEndpointRetirement>> {
+        None
+    }
+    /// Start-only, same actual Process entry. The host stores this cold owner
+    /// before it creates either native reservation. No protocol environment is read.
+    #[cfg(any(target_os = "linux", windows))]
+    fn reserve_process_endpoint(
+        &self,
+        _: usize,
+        _: &super::scope::TaskRegistrar,
+        _: &super::scope::TaskJoinWitness,
+    ) -> Result<std::sync::Arc<crate::owned_process::ProcessEndpointHandoff>, BuildError> {
+        Err(super::ChannelError::new(
+            super::Stage::Prepare,
+            super::Reason::Unsupported,
+            super::Impact::Component,
+        ))
+    }
+    /// Explicitly associates the exact prepared job with its actual handoff.
+    #[cfg(any(target_os = "linux", windows))]
+    fn prepare_owned_process_with_endpoint(
+        &self,
+        _: ProcessRequest,
+        _: &super::scope::TaskRegistrar,
+        _: &std::sync::Arc<crate::owned_process::ProcessEndpointHandoff>,
+    ) -> Result<std::sync::Arc<crate::owned_process::OwnedProcess>, BuildError> {
+        Err(super::ChannelError::new(
+            super::Stage::Prepare,
+            super::Reason::Unsupported,
+            super::Impact::Component,
+        ))
+    }
     fn select_bound_outbound_datagram(
         &self,
         _request: BoundDatagramRequest,
@@ -502,14 +661,16 @@ pub trait ResourceAccess: Send + Sync {
         &self,
         _name: Arc<str>,
         _driver: super::scope::TaskJoinWitness,
-    ) -> Result<GrantedPacketDevice, BuildError> {
-        let mut error = super::ChannelError::new(
-            super::Stage::Prepare,
-            super::Reason::Unsupported,
-            super::Impact::Component,
-        );
-        error.delivery = super::DeliveryState::NotSubmitted;
-        Err(error)
+    ) -> BoxFuture<'_, Result<GrantedPacketDevice, BuildError>> {
+        Box::pin(async {
+            let mut error = super::ChannelError::new(
+                super::Stage::Prepare,
+                super::Reason::Unsupported,
+                super::Impact::Component,
+            );
+            error.delivery = super::DeliveryState::NotSubmitted;
+            Err(error)
+        })
     }
     fn open_device(&self, name: Arc<str>) -> BoxFuture<'_, Result<BoxPacketSession, BuildError>>;
 }

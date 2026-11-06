@@ -66,6 +66,25 @@ impl ApplicationServices {
         control.grpc = Some(original);
         Ok(())
     }
+    pub(in crate::application) fn control_retirement_complete(&self) -> bool {
+        let originals = self
+            .control
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        if originals.ipc.is_some() {
+            return false;
+        }
+        #[cfg(feature = "status-api")]
+        if originals.http.is_some() {
+            return false;
+        }
+        #[cfg(feature = "grpc-api")]
+        if originals.grpc.is_some() {
+            return false;
+        }
+        drop(originals);
+        self.control_budget.confirm_released().is_ok()
+    }
     pub(in crate::application) async fn shutdown_control(self: &Arc<Self>) -> io::Result<()> {
         self.control_budget.close_admission();
         let originals = self
@@ -73,59 +92,44 @@ impl ApplicationServices {
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner)
             .clone();
-        let mut failure = None;
+        let mut outcomes = Vec::new();
         if let Some(original) = originals.ipc {
-            match original.shutdown().await {
-                Ok(()) => {
-                    self.control
-                        .lock()
-                        .unwrap_or_else(std::sync::PoisonError::into_inner)
-                        .ipc = None
-                }
-                Err(error) => {
-                    failure.get_or_insert(error);
-                }
+            outcomes.push(original.shutdown().await);
+            if original.retirement_complete() {
+                self.control
+                    .lock()
+                    .unwrap_or_else(std::sync::PoisonError::into_inner)
+                    .ipc = None;
             }
         }
         #[cfg(feature = "status-api")]
         if let Some(original) = originals.http {
-            match original.shutdown().await {
-                Ok(()) => {
-                    self.control
-                        .lock()
-                        .unwrap_or_else(std::sync::PoisonError::into_inner)
-                        .http = None
-                }
-                Err(error) => {
-                    failure.get_or_insert(error);
-                }
+            outcomes.push(original.shutdown().await);
+            if original.retirement_complete() {
+                self.control
+                    .lock()
+                    .unwrap_or_else(std::sync::PoisonError::into_inner)
+                    .http = None;
             }
         }
         #[cfg(feature = "grpc-api")]
         if let Some(original) = originals.grpc {
-            match original.shutdown().await {
-                Ok(()) => {
-                    self.control
-                        .lock()
-                        .unwrap_or_else(std::sync::PoisonError::into_inner)
-                        .grpc = None
-                }
-                Err(error) => {
-                    failure.get_or_insert(error);
-                }
+            outcomes.push(original.shutdown().await);
+            if original.retirement_complete() {
+                self.control
+                    .lock()
+                    .unwrap_or_else(std::sync::PoisonError::into_inner)
+                    .grpc = None;
             }
         }
-        if failure.is_none() {
-            if let Err(error) = self.control_budget.confirm_released() {
-                failure = Some(error);
-            }
+        if !self.control_retirement_complete() {
+            // Unknown native/users/worker or budget debt retains the exact
+            // application. A consumed, fully retired fault is still returned,
+            // and does not become an unclosable permanent startup barrier.
+            outcomes.push(APPLICATION_STARTUP.retain(self.clone()));
         }
-        if failure.is_some() {
-            // Preserve actual failed original/join receipts in the same finite
-            // startup slot used by this application; never open a replacement.
-            APPLICATION_STARTUP.retain(self.clone())?;
-        }
-        failure.map_or(Ok(()), Err)
+        outcomes.push(self.control_budget.confirm_released());
+        crate::ipc::owner::finish_work(outcomes)
     }
 }
 
@@ -156,6 +160,14 @@ impl ApplicationServices {
             }
             std::future::pending::<io::Result<()>>().await
         };
-        tokio::select! { result = ipc => result, result = http => result, result = grpc => result }
+        let monitor = async {
+            #[cfg(feature = "event-dispatcher")]
+            {
+                return self.wait_status_failure().await;
+            }
+            #[cfg(not(feature = "event-dispatcher"))]
+            std::future::pending::<io::Result<()>>().await
+        };
+        tokio::select! { result = ipc => result, result = http => result, result = grpc => result, result = monitor => result }
     }
 }

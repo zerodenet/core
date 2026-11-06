@@ -1,4 +1,5 @@
 //! Configuration replacement and rollback; no protocol-private lifecycle.
+pub(super) mod budget_barrier;
 mod recovery;
 use super::{logging::log_reload_reconciled, state::OrchestrationState};
 use crate::groups::UrlTestRuntime;
@@ -32,6 +33,11 @@ impl OrchestrationState {
             return;
         }
         let compensating = proxy.pending_reload_compensates(&new_snapshot);
+        let budget_changed = !compensating
+            && budget_barrier::ss_budget_changed(
+                self.applied_snapshot.config(),
+                new_snapshot.config(),
+            );
         // Only an accepted transaction's exact restore acknowledgement may
         // reconstruct its last-good listeners after shutdown. It is not a new
         // candidate and must not inherit the stopped candidate phase. Ordinary
@@ -40,10 +46,11 @@ impl OrchestrationState {
             std::sync::Arc::new(crate::runtime::inbound_owners::PreparingInbounds::default())
         } else {
             if proxy.host.apply().is_closing() {
-                self.reject_reload(
+                self.reject_before_start(
                     proxy,
                     &new_snapshot,
                     "proxy stopped before configuration commit".to_owned(),
+                    budget_changed,
                 )
                 .await;
                 return;
@@ -51,12 +58,12 @@ impl OrchestrationState {
             self.preparing_inbounds.clone()
         };
         if let Err(error) = preparing.ensure_open() {
-            self.reject_reload(proxy, &new_snapshot, error.to_string())
+            self.reject_before_start(proxy, &new_snapshot, error.to_string(), budget_changed)
                 .await;
             return;
         }
         if let Err(error) = self.validate_endpoint_directions(proxy, &new_snapshot) {
-            self.reject_reload(proxy, &new_snapshot, error.to_string())
+            self.reject_before_start(proxy, &new_snapshot, error.to_string(), budget_changed)
                 .await;
             return;
         }
@@ -64,7 +71,7 @@ impl OrchestrationState {
             .protocols
             .validate_dial_environment(new_snapshot.config())
         {
-            self.reject_reload(proxy, &new_snapshot, error.to_string())
+            self.reject_before_start(proxy, &new_snapshot, error.to_string(), budget_changed)
                 .await;
             return;
         }
@@ -77,7 +84,7 @@ impl OrchestrationState {
                 )
                 .await
             {
-                self.reject_reload(proxy, &new_snapshot, error.to_string())
+                self.reject_before_start(proxy, &new_snapshot, error.to_string(), budget_changed)
                     .await;
                 return;
             }
@@ -89,7 +96,7 @@ impl OrchestrationState {
                 .protocols
                 .validate_runtime_candidate(new_snapshot.config())
             {
-                self.reject_reload(proxy, &new_snapshot, error.to_string())
+                self.reject_before_start(proxy, &new_snapshot, error.to_string(), budget_changed)
                     .await;
                 return;
             }
@@ -108,10 +115,40 @@ impl OrchestrationState {
         let components = match prepared {
             Ok(plan) => plan,
             Err(error) => {
-                self.reject_reload(proxy, &new_snapshot, error.to_string())
+                self.reject_before_start(proxy, &new_snapshot, error.to_string(), budget_changed)
                     .await;
                 return;
             }
+        };
+        let _source_pauses = if budget_changed {
+            match budget_barrier::pause_sources(
+                proxy,
+                self.applied_snapshot.config(),
+                new_snapshot.config(),
+            )
+            .await
+            {
+                Ok(pauses) => Some(pauses),
+                Err(error) => {
+                    self.reject_before_start(proxy, &new_snapshot, error.to_string(), true)
+                        .await;
+                    return;
+                }
+            }
+        } else {
+            None
+        };
+        let _user_pause = if budget_changed {
+            match proxy.protocols.try_pause_replacement_users(&components) {
+                Ok(pause) => Some(pause),
+                Err(error) => {
+                    self.reject_before_start(proxy, &new_snapshot, error.to_string(), true)
+                        .await;
+                    return;
+                }
+            }
+        } else {
+            None
         };
         let affected = proxy.protocols.affected_dns_detours(
             &proxy.engine,
@@ -122,37 +159,30 @@ impl OrchestrationState {
         let dns_reload = self.prepare_dns_for_reload(proxy, &new_snapshot, &components, &affected);
         if let Err(error) = dns_reload {
             warn!(%error, reason = "dns_reload_error", "failed to prepare dns config");
-            self.reject_reload(proxy, &new_snapshot, error.to_string())
-                .await;
-            return;
-        }
-        if let Err(error) = proxy
-            .protocols
-            .start_components(
-                new_config.clone(),
-                tokio::time::Instant::now() + std::time::Duration::from_secs(5),
-            )
-            .await
-        {
-            self.reject_reload(proxy, &new_snapshot, error.to_string())
+            self.reject_before_start(proxy, &new_snapshot, error.to_string(), budget_changed)
                 .await;
             return;
         }
         let candidate_tcp_services = proxy.tcp_runtime_services_for_snapshot(new_snapshot.clone());
-        #[cfg(feature = "raw-ip-runtime")]
-        if let Err(error) = proxy
-            .protocols
-            .start_device_resources(
+        let retained_for_binding = self.active_inbounds.clone();
+        let mut prepared_resources = None;
+        if !budget_changed {
+            match budget_barrier::start_resources(
+                proxy,
                 &new_config,
                 &candidate_tcp_services,
-                tokio::time::Instant::now() + std::time::Duration::from_secs(5),
-                preparing.cancellation(),
+                &preparing,
+                &retained_for_binding,
             )
             .await
-        {
-            self.reject_reload(proxy, &new_snapshot, error.to_string())
-                .await;
-            return;
+            {
+                Ok(()) => {}
+                Err(error) => {
+                    self.reject_reload(proxy, &new_snapshot, error.to_string())
+                        .await;
+                    return;
+                }
+            }
         }
         let candidate_runtime_factory = InboundListenerRuntimeFactory::new(
             SharedIngressRuntimeServices::new(candidate_tcp_services.clone()),
@@ -168,47 +198,33 @@ impl OrchestrationState {
         let prepared_services = match proxy.protocols.prepare_inbound_services(&new_config) {
             Ok(prepared) => prepared,
             Err(error) => {
-                self.reject_reload(proxy, &new_snapshot, error.to_string())
+                self.reject_before_start(proxy, &new_snapshot, error.to_string(), budget_changed)
                     .await;
                 return;
             }
         };
         let rollback_runtime_factory = self.inbound_runtime_factory.clone();
         let source_dir = self.source_dir.clone();
-        if let Err(error) = proxy
-            .reconcile_configured_tun(
-                new_config.runtime.tun.as_ref(),
-                new_config.runtime.network.mtu,
-            )
-            .await
-        {
-            warn!(
-                core_instance_id = proxy.core_instance_id(),
-                config_revision = proxy.config_revision(),
-                reason = "tun_reconcile_error",
-                %error,
-                "config reload TUN reconciliation failed; restoring last known-good config"
-            );
-            self.reject_reload(proxy, &new_snapshot, error.to_string())
-                .await;
-            return;
-        }
-        #[cfg(feature = "raw-ip-runtime")]
-        let prepared_outbound_devices = match proxy
-            .protocols
-            .prepare_devices(&new_config, candidate_tcp_services.clone())
-            .await
-        {
-            Ok(prepared) => prepared,
-            Err(error) => {
-                warn!(%error, reason = "outbound_device_prepare_error", "failed to prepare outbound devices");
-                self.reject_reload(proxy, &new_snapshot, error.to_string())
-                    .await;
-                return;
+        if !budget_changed {
+            match budget_barrier::prepare_devices(proxy, &new_config, &candidate_tcp_services).await
+            {
+                Ok(devices) => prepared_resources = Some(devices),
+                Err(error) => {
+                    self.reject_reload(proxy, &new_snapshot, error.to_string())
+                        .await;
+                    return;
+                }
             }
-        };
+        }
         let revoked_directions = new_snapshot.revoked_endpoint_directions(&self.applied_snapshot);
-        let inbound_result = listeners::reconcile_inbounds(
+        let start_config = &new_config;
+        let start_services = &candidate_tcp_services;
+        let start_preparing = &preparing;
+        let start_retained = &retained_for_binding;
+        let ss_source_budget_changed =
+            budget_barrier::ss_source_budget_changed(self.applied_snapshot.config(), &new_config);
+        let output_resources = &mut prepared_resources;
+        let inbound_result = listeners::reconcile_inbounds_with_before_bind(
             &proxy.protocols,
             source_dir.as_deref(),
             &candidate_runtime_factory,
@@ -219,6 +235,39 @@ impl OrchestrationState {
                 active_inbounds: &mut self.active_inbounds,
                 expected_listener_exits: &mut self.expected_listener_exits,
                 listeners: &mut self.listeners,
+            },
+            move |stopped| async move {
+                if budget_changed {
+                    if !stopped.matches_candidate(start_config) {
+                        return Err(zero_engine::EngineError::Io(std::io::Error::other(
+                            "original budget StopOld names another actual candidate",
+                        )));
+                    }
+                    for input in start_retained {
+                        if ss_source_budget_changed
+                            && input.1.protocol.protocol_name() == "shadowsocks"
+                            && stopped.terminal(input.0).is_none()
+                            && !stopped.owner_was_absent(input.0)
+                        {
+                            return Err(zero_engine::EngineError::Io(std::io::Error::other(
+                                "original budget source lacks its original StopOld receipt",
+                            )));
+                        }
+                    }
+                    budget_barrier::start_resources(
+                        proxy,
+                        start_config,
+                        start_services,
+                        start_preparing,
+                        start_retained,
+                    )
+                    .await?;
+                    *output_resources = Some(
+                        budget_barrier::prepare_devices(proxy, start_config, start_services)
+                            .await?,
+                    );
+                }
+                Ok(())
             },
         )
         .await;
@@ -232,26 +281,30 @@ impl OrchestrationState {
                 "config reload listener reconciliation failed; restoring last known-good config"
             );
             #[cfg(feature = "raw-ip-runtime")]
-            drop(prepared_outbound_devices);
+            drop(prepared_resources.take());
             self.reject_reload(proxy, &new_snapshot, message).await;
             return;
         }
         if let Err(error) = preparing.ensure_open() {
             #[cfg(feature = "raw-ip-runtime")]
-            drop(prepared_outbound_devices);
+            drop(prepared_resources.take());
             self.reject_reload(proxy, &new_snapshot, error.to_string())
                 .await;
             return;
         }
         #[cfg(feature = "raw-ip-runtime")]
-        if let Err(error) = proxy
-            .protocols
-            .stage_device_publication(&new_config, prepared_outbound_devices)
-        {
+        if let Err(error) = proxy.protocols.stage_device_publication(
+            &new_config,
+            prepared_resources
+                .take()
+                .expect("successful actual resource start"),
+        ) {
             self.reject_reload(proxy, &new_snapshot, error.to_string())
                 .await;
             return;
         }
+        #[cfg(not(feature = "raw-ip-runtime"))]
+        let _ = prepared_resources.take();
         let deferred_commit = proxy.pending_reload_matches(&new_snapshot);
         if !deferred_commit {
             let commit = async {

@@ -41,6 +41,8 @@ pub(super) enum Delivery {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(super) enum AdmissionRejection {
     ActiveLimit,
+    #[cfg(feature = "raw-ip-runtime")]
+    ScopeLimit,
     RateLimited,
     Backoff(Duration),
 }

@@ -1,5 +1,8 @@
 //! Explicit closure of the exact handle owned by this TUN instance.
-use std::{io, sync::Arc};
+use std::{
+    io,
+    sync::{Arc, OnceLock},
+};
 
 /// Sealed identity of one actually owned backend handle, independent of the
 /// interface name and of descriptor integers that an OS may later reuse.
@@ -9,6 +12,7 @@ pub struct OwnedTunIdentity {
 }
 #[derive(Debug)]
 struct HandleIdentity {
+    closed: OnceLock<Arc<NativeClosed>>,
     #[cfg(any(target_os = "linux", target_os = "macos"))]
     descriptor: std::os::fd::RawFd,
     #[cfg(target_os = "windows")]
@@ -23,17 +27,71 @@ impl OwnedTunIdentity {
         adapter: wintun::AdapterIdentity,
     ) -> Self {
         Self {
-            inner: Arc::new(HandleIdentity { session, adapter }),
+            inner: Arc::new(HandleIdentity {
+                closed: OnceLock::new(),
+                session,
+                adapter,
+            }),
         }
     }
     #[cfg(any(target_os = "linux", target_os = "macos"))]
     pub(crate) fn from_fd(descriptor: std::os::fd::RawFd) -> Self {
         Self {
-            inner: Arc::new(HandleIdentity { descriptor }),
+            inner: Arc::new(HandleIdentity {
+                closed: OnceLock::new(),
+                descriptor,
+            }),
         }
+    }
+    /// A read-only matching observation, written only by successful explicit
+    /// native close. This retains no native handle, controller or task owner.
+    pub fn closed(&self) -> Option<OwnedTunClosed> {
+        Some(OwnedTunClosed {
+            identity: self.clone(),
+            native: self.inner.closed.get()?.clone(),
+        })
     }
     pub fn same_owner(&self, other: &Self) -> bool {
         Arc::ptr_eq(&self.inner, &other.inner)
+    }
+}
+
+// The stored fact deliberately contains no OwnedTunIdentity/receipt: a receipt
+// owns its identity, so storing that receipt in the identity would form a cycle.
+#[derive(Debug)]
+struct NativeClosed {
+    interface: String,
+    #[cfg(target_os = "windows")]
+    session: Arc<wintun::EndSessionReceipt>,
+    #[cfg(target_os = "windows")]
+    adapter: wintun::CloseAdapterReceipt,
+}
+/// Sealed evidence for this original native handle only. Unique view return,
+/// native worker/Scope joins and route recovery are independent obligations.
+#[derive(Clone, Debug)]
+pub struct OwnedTunClosed {
+    identity: OwnedTunIdentity,
+    native: Arc<NativeClosed>,
+}
+impl OwnedTunClosed {
+    pub fn matches(&self, identity: &OwnedTunIdentity) -> bool {
+        self.identity.same_owner(identity)
+            && identity
+                .inner
+                .closed
+                .get()
+                .is_some_and(|native| Arc::ptr_eq(native, &self.native))
+    }
+    pub fn interface(&self) -> &str {
+        &self.native.interface
+    }
+    #[cfg(target_os = "windows")]
+    pub fn ended_session(&self) -> &wintun::EndSessionReceipt {
+        &self.native.session
+    }
+    #[cfg(target_os = "windows")]
+    pub fn closed_adapter(&self) -> &wintun::CloseAdapterReceipt {
+        &self.native.adapter
     }
 }
 
@@ -72,6 +130,11 @@ impl TunCloseReceipt {
                 "Wintun original close identities differ",
             ));
         }
+        let _ = identity.inner.closed.set(Arc::new(NativeClosed {
+            interface: interface.clone(),
+            session: session.clone(),
+            adapter: adapter.clone(),
+        }));
         Ok(Self {
             interface,
             identity,
@@ -118,6 +181,9 @@ pub(crate) fn close_fd(
         // with the original OS error; it never produces a successful receipt.
         return Err(io::Error::last_os_error());
     }
+    let _ = identity.inner.closed.set(Arc::new(NativeClosed {
+        interface: interface.clone(),
+    }));
     Ok(TunCloseReceipt {
         interface,
         identity,

@@ -43,6 +43,7 @@ async fn tun_task_shutdown_waits_until_owned_resources_are_dropped() {
     assert!(tasks.is_empty());
 }
 
+#[path = "tests/secure_dns_boundary.rs"]
 mod secure_dns_boundary;
 
 const CLIENT_IP: IpAddr = IpAddr::V4(Ipv4Addr::new(10, 99, 0, 2));

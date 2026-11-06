@@ -24,14 +24,16 @@ use zero_platform_tokio::contract::{
     CancellationToken, ChannelError, Reason,
 };
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone)]
 pub(crate) struct ServiceInvocation {
+    pub(crate) caller: Option<zero_runtime::ProbeCall>,
     pub(crate) deadline: Instant,
     pub(crate) purpose: ServicePurpose,
 }
 
 #[derive(Clone)]
 pub(crate) struct Invocation {
+    pub(crate) caller_probe: Option<zero_runtime::ProbeCall>,
     #[cfg(feature = "raw-ip-runtime")]
     pub(crate) caller_native:
         Option<crate::runtime::inbound_operation::raw_ip::native_obligations::NativeRegistration>,
@@ -42,10 +44,21 @@ pub(crate) struct Invocation {
 }
 impl Invocation {
     pub(crate) fn cancellation(&self) -> CancellationToken {
-        let cancel = self
-            .admitted
+        let cancel = self.caller_probe.as_ref().map_or_else(
+            || {
+                self.admitted
+                    .as_ref()
+                    .map_or_else(CancellationToken::new, |demand| demand.cancellation())
+            },
+            |call| call.cancellation(),
+        );
+        if self
+            .caller_probe
             .as_ref()
-            .map_or_else(CancellationToken::new, |demand| demand.cancellation());
+            .is_some_and(|call| call.check_open().is_err())
+        {
+            cancel.cancel();
+        }
         if self
             .caller_accepted
             .as_ref()
@@ -73,10 +86,16 @@ impl From<ServiceInvocation> for Invocation {
             caller_native: None,
             admitted: None,
             caller_accepted: None,
-            identity: RequestIdentity::Service(Arc::new(ServiceRequestFacts {
-                origin: ServiceOrigin::Runtime,
-                purpose: invocation.purpose,
-            })),
+            identity: RequestIdentity::Service(invocation.caller.as_ref().map_or_else(
+                || {
+                    Arc::new(ServiceRequestFacts {
+                        origin: ServiceOrigin::Runtime,
+                        purpose: invocation.purpose,
+                    })
+                },
+                |call| call.identity(),
+            )),
+            caller_probe: invocation.caller,
             deadline: Some(invocation.deadline),
         }
     }
@@ -118,14 +137,23 @@ pub(crate) async fn connect(
         "Direct business acquired component role"
     );
     let opener = Arc::new(
-        network::DirectOpener::new(services.upstream(), session.clone()).with_business(
-            super::business_carrier::BusinessCarrierRequest::new(
-                services.engine(),
-                &slot,
-                &invocation,
+        network::DirectOpener::new(services.upstream(), session.clone())
+            .with_business(
+                super::business_carrier::BusinessCarrierRequest::new(
+                    services.engine(),
+                    &slot,
+                    &invocation,
+                )
+                .map_err(|error| failure("prepare_component", error))?,
             )
-            .map_err(|error| failure("prepare_component", error))?,
-        ),
+            .with_probe(
+                controlled::ProbeRequest::new(
+                    &slot,
+                    &invocation,
+                    Destination::new(session.target.clone(), session.port),
+                )
+                .map_err(|error| failure("prepare_component", error))?,
+            ),
     );
     let binding = UpstreamBinding {
         prefix: vec![],

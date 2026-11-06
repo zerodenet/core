@@ -102,6 +102,7 @@ impl NativeRegistration {
             record.carrier_conflict = true;
             return Err(pre_io_rejection(Reason::Capacity));
         }
+        let bound_original = adoption.clone();
         if record.carrier.is_none() {
             record.carrier = Some(adoption);
         } else {
@@ -111,6 +112,11 @@ impl NativeRegistration {
             }
             record.additional_carriers.push(adoption);
         }
+        // The private issuer has now installed this same original in the
+        // bound-Business ledger. Its stricter caller proof remains unchanged.
+        record
+            .pending_carriers
+            .retain(|claim| !claim.adoption.same_slot(&bound_original));
         Ok(())
     }
 }

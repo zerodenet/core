@@ -29,6 +29,7 @@ pub(crate) fn compiled_registries_with_network(
 ) {
     let _ = &background;
     use zero_traits::ProtocolMetadata;
+    let direct_adapter = Arc::new(crate::adapters::direct::DirectAdapter::default());
     let mut components = crate::component::ComponentRegistry::default();
     components
         .register_with_resources(
@@ -36,13 +37,22 @@ pub(crate) fn compiled_registries_with_network(
             crate::component::DirectFactory,
             {
                 let network = node_network.clone();
+                let direct = direct_adapter.clone();
                 move |input, resources| {
                     if let Some(network) = &network {
                         crate::component::native_dns::prepare(resources, network.clone())?;
                         crate::component::native_dns::prepare_node(resources, network.clone())?;
                     }
-                    crate::adapters::direct::factory::decode(input)
-                        .map_err(crate::component::RegistrationError::Options)
+                    #[cfg(feature = "raw-ip-runtime")]
+                    {
+                        direct.direct_options(input, resources)
+                    }
+                    #[cfg(not(feature = "raw-ip-runtime"))]
+                    {
+                        let _ = &direct;
+                        crate::adapters::direct::factory::decode(input)
+                            .map_err(crate::component::RegistrationError::Options)
+                    }
                 }
             },
         )
@@ -78,25 +88,29 @@ pub(crate) fn compiled_registries_with_network(
                 ::socks5::Socks5Protocol.descriptor(),
                 ::socks5::component::Factory,
                 {
-                    let native = node_network.is_some();
+                    let network = node_network.clone();
+                    let native = network.is_some();
                     move |input, resources| {
-                        crate::adapters::socks5::component_options(input)
-                            .map(|options| {
-                                if native {
-                                    let limit = resources
-                                        .candidate()
-                                        .map(|config| {
-                                            config.runtime.effective_native_stream_max_originals()
-                                        })
-                                        .unwrap_or(4);
-                                    options.with_carrier_limit(
-                                        std::num::NonZeroUsize::new(limit).unwrap(),
-                                    )
-                                } else {
-                                    options
-                                }
-                            })
-                            .map_err(crate::component::RegistrationError::Options)
+                        let mut options = crate::adapters::socks5::component_options(input)
+                            .map_err(crate::component::RegistrationError::Options)?;
+                        if native {
+                            let limit = resources
+                                .candidate()
+                                .map(|config| {
+                                    config.runtime.effective_native_stream_max_originals()
+                                })
+                                .unwrap_or(4);
+                            options = options
+                                .with_carrier_limit(std::num::NonZeroUsize::new(limit).unwrap());
+                            if resources.candidate().is_some() {
+                                let dns = crate::component::native_dns::prepare_node(
+                                    resources,
+                                    network.clone().expect("actual Node provider"),
+                                )?;
+                                options = options.with_node_dns(dns);
+                            }
+                        }
+                        Ok(options)
                     }
                 },
             )
@@ -133,20 +147,45 @@ pub(crate) fn compiled_registries_with_network(
     #[cfg(feature = "vless")]
     {
         use crate::adapters::vless::VlessAdapter;
-        let adapter = Arc::new(VlessAdapter::default());
+        let mut adapter = VlessAdapter::default();
+        adapter.native_node_dns = node_network.is_some() || background.is_some();
+        let adapter = Arc::new(adapter);
         if let Some(network) = background.clone() {
             let factory = Arc::new(crate::component::background::pool::Factory::new(network));
             let projected = adapter.clone();
+            let selected = adapter.clone();
             components
                 .register_with_resources_where(
                     ::vless::metadata::VlessProtocol.descriptor(),
                     crate::adapters::vless::component::mux::Factory,
                     crate::adapters::vless::component::mux::eligible,
                     move |input, resources| {
-                        projected.owned_mux_options(input, resources, factory.clone())
+                        let mut options =
+                            projected.owned_mux_options(input, resources, factory.clone())?;
+                        if crate::adapters::vless::component::mux::taskless_domain(input)
+                            && resources.candidate().is_some()
+                        {
+                            let dns = crate::component::native_dns::prepare_node(
+                                resources,
+                                factory.network.clone(),
+                            )?;
+                            options.bind_node_dns(dns);
+                        }
+                        Ok(options)
                     },
                 )
                 .expect("unique owned vless component registration");
+            components.set_candidate_acceptance("vless", move |input, config| {
+                if crate::adapters::vless::component::grpc::eligible(input) {
+                    crate::adapters::vless::component::grpc::selected(
+                        input,
+                        config,
+                        selected.native_node_dns,
+                    )
+                } else {
+                    true
+                }
+            });
         } else if let Some(network) = node_network.clone() {
             let factory = Arc::new(crate::component::background::pool::Factory::new(network));
             let projected = adapter.clone();
@@ -157,7 +196,18 @@ pub(crate) fn compiled_registries_with_network(
                     crate::adapters::vless::component::mux::Factory,
                     crate::adapters::vless::component::mux::eligible,
                     move |input, resources| {
-                        projected.production_mux_options(input, resources, factory.clone())
+                        let mut options =
+                            projected.production_mux_options(input, resources, factory.clone())?;
+                        if crate::adapters::vless::component::mux::taskless_domain(input)
+                            && resources.candidate().is_some()
+                        {
+                            let dns = crate::component::native_dns::prepare_node(
+                                resources,
+                                factory.network.clone(),
+                            )?;
+                            options.bind_node_dns(dns);
+                        }
+                        Ok(options)
                     },
                 )
                 .expect("unique ordinary vless prefix registration");
@@ -228,11 +278,20 @@ pub(crate) fn compiled_registries_with_network(
             .register_with_resources(
                 ::shadowsocks::ShadowsocksProtocol.descriptor(),
                 ::shadowsocks::component::inbound::listener::Factory,
-                move |input, _resources| inbound_adapter.inbound_options(input),
+                move |input, resources| {
+                    inbound_adapter.inbound_options(
+                        input,
+                        &resources
+                            .candidate()
+                            .map(|config| config.runtime.clone())
+                            .unwrap_or_default(),
+                    )
+                },
             )
             .expect("unique native Shadowsocks inbound registration");
         let component_adapter = adapter.clone();
         let replay_factory = Arc::new(::shadowsocks::component::ReplayFactory);
+        let stream_network = node_network.clone().or_else(|| background.clone());
         components
             .register_with_resources_where(
                 ::shadowsocks::ShadowsocksProtocol.descriptor(),
@@ -241,7 +300,12 @@ pub(crate) fn compiled_registries_with_network(
                 ),
                 crate::adapters::shadowsocks::component::native_input,
                 move |input, resources| {
-                    component_adapter.component_options(input, resources, replay_factory.clone())
+                    component_adapter.component_options(
+                        input,
+                        resources,
+                        replay_factory.clone(),
+                        stream_network.clone(),
+                    )
                 },
             )
             .expect("unique Shadowsocks component registration");
@@ -254,7 +318,9 @@ pub(crate) fn compiled_registries_with_network(
     #[cfg(feature = "trojan")]
     {
         use crate::adapters::trojan::TrojanAdapter;
-        let adapter = Arc::new(TrojanAdapter::default());
+        let mut adapter = TrojanAdapter::default();
+        adapter.native_node_dns = node_network.is_some() || background.is_some();
+        let adapter = Arc::new(adapter);
         if let Some(network) = background.clone() {
             let factory = Arc::new(crate::component::background::pool::Factory::new(network));
             let projected = adapter.clone();
@@ -264,7 +330,18 @@ pub(crate) fn compiled_registries_with_network(
                     crate::adapters::trojan::component::mux::Factory,
                     crate::adapters::trojan::component::mux::eligible,
                     move |input, resources| {
-                        projected.owned_mux_options(input, resources, factory.clone())
+                        let mut options =
+                            projected.owned_mux_options(input, resources, factory.clone())?;
+                        if crate::adapters::trojan::component::mux::taskless_domain(input)
+                            && resources.candidate().is_some()
+                        {
+                            let dns = crate::component::native_dns::prepare_node(
+                                resources,
+                                factory.network.clone(),
+                            )?;
+                            options.bind_node_dns(dns);
+                        }
+                        Ok(options)
                     },
                 )
                 .expect("unique owned trojan component registration");
@@ -278,7 +355,18 @@ pub(crate) fn compiled_registries_with_network(
                     crate::adapters::trojan::component::mux::Factory,
                     crate::adapters::trojan::component::mux::eligible,
                     move |input, resources| {
-                        projected.production_mux_options(input, resources, factory.clone())
+                        let mut options =
+                            projected.production_mux_options(input, resources, factory.clone())?;
+                        if crate::adapters::trojan::component::mux::taskless_domain(input)
+                            && resources.candidate().is_some()
+                        {
+                            let dns = crate::component::native_dns::prepare_node(
+                                resources,
+                                factory.network.clone(),
+                            )?;
+                            options.bind_node_dns(dns);
+                        }
+                        Ok(options)
                     },
                 )
                 .expect("unique ordinary trojan prefix registration");
@@ -323,7 +411,18 @@ pub(crate) fn compiled_registries_with_network(
                     crate::adapters::vmess::component::mux::Factory,
                     crate::adapters::vmess::component::mux::eligible,
                     move |input, resources| {
-                        projected.owned_mux_options(input, resources, factory.clone())
+                        let mut options =
+                            projected.owned_mux_options(input, resources, factory.clone())?;
+                        if crate::adapters::vmess::component::grpc::taskless_domain(input)
+                            && resources.candidate().is_some()
+                        {
+                            let dns = crate::component::native_dns::prepare_node(
+                                resources,
+                                factory.network.clone(),
+                            )?;
+                            options.bind_node_dns(dns);
+                        }
+                        Ok(options)
                     },
                 )
                 .expect("unique owned vmess component registration");
@@ -332,9 +431,15 @@ pub(crate) fn compiled_registries_with_network(
                 .register_with_resources_where(
                     ::vmess::metadata::VmessProtocol.descriptor(),
                     crate::adapters::vmess::component::mux::Factory,
-                    |input| {
-                        crate::adapters::vmess::component::grpc::eligible(input)
-                            || crate::adapters::vmess::component::mux::eligible(input)
+                    {
+                        let native = node_network.is_some();
+                        move |input| {
+                            (if native {
+                                crate::adapters::vmess::component::grpc::owned_eligible(input)
+                            } else {
+                                crate::adapters::vmess::component::grpc::eligible(input)
+                            }) || crate::adapters::vmess::component::mux::eligible(input)
+                        }
                     },
                     {
                         let adapter = adapter.clone();
@@ -350,26 +455,13 @@ pub(crate) fn compiled_registries_with_network(
                                     pool.clone().expect("selected production MUX provider"),
                                 );
                             }
-                            let mut options = adapter
-                                .standard_options_for(input, resources.candidate())
-                                .map_err(crate::component::RegistrationError::Options)?;
-                            if matches!(
-                                &options,
-                                crate::adapters::vmess::component::grpc::Options::Grpc(_)
-                            ) && network.is_some()
-                                && resources.candidate().is_some_and(|candidate| {
-                                    zero_dns::native::validate_node_config(
-                                        candidate.runtime.dns.as_ref(),
-                                    )
-                                    .is_ok()
-                                })
-                            {
-                                let dns = crate::component::native_dns::prepare_node(
-                                    resources,
-                                    network.clone().expect("selected native node DNS"),
-                                )?;
-                                options.bind_node_dns(dns);
-                            }
+                            let options = if let Some(network) = network.clone() {
+                                adapter.owned_standard_options(input, resources, network)?
+                            } else {
+                                adapter
+                                    .standard_options_for(input, resources.candidate())
+                                    .map_err(crate::component::RegistrationError::Options)?
+                            };
                             Ok(crate::adapters::vmess::component::mux::Options::Ordinary(
                                 Arc::new(options),
                             ))
@@ -445,6 +537,27 @@ pub(crate) fn compiled_registries_with_network(
                 move |input, _| Ok(inbound_adapter.inbound_options(input)?),
             )
             .expect("unique standard WireGuard inbound registration");
+        let outbound_adapter = adapter.clone();
+        components
+            .register_with_resources(
+                adapter.descriptor(),
+                crate::adapters::wireguard::lifecycle::LinkedOutboundFactory,
+                move |input, resources| {
+                    outbound_adapter
+                        .linked_outbound_options(input, resources)
+                        .map_err(crate::component::RegistrationError::from)
+                },
+            )
+            .expect("unique canonical WireGuard outbound registration");
+        components.set_candidate_acceptance("wireguard", |outbound, _| {
+            matches!(
+                &outbound.protocol,
+                zero_config::OutboundProtocolConfig::Wireguard {
+                    outer_udp_proxy: None,
+                    ..
+                }
+            )
+        });
         registry
             .register_standard_protocol(adapter, Some(WireguardAdapter::claim_outbound_leaf_impl));
     }
@@ -464,7 +577,7 @@ pub(crate) fn compiled_registries_with_network(
     #[cfg(feature = "udp-runtime")]
     {
         use crate::adapters::direct::DirectAdapter;
-        let adapter = Arc::new(DirectAdapter::default());
+        let adapter = direct_adapter.clone();
         #[cfg(feature = "raw-ip-runtime")]
         {
             devices.direct = Some(adapter.clone());
@@ -475,7 +588,7 @@ pub(crate) fn compiled_registries_with_network(
     {
         use crate::adapters::direct::DirectAdapter;
         registry.register_standard_protocol(
-            Arc::new(DirectAdapter::default()),
+            direct_adapter,
             Some(DirectAdapter::claim_outbound_leaf_impl),
         );
     }

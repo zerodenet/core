@@ -20,6 +20,15 @@ impl CarrierNativeSettlement {
     }
 }
 impl CarrierAdoption {
+    /// Try only already returned native/driver work, without inventing a timer.
+    /// A borrowed logical control or any unfinished work remains owned; this
+    /// does not remove the slot, refund capacity or issue a UsersClosed receipt.
+    pub fn try_retire_native(&self) -> Result<CarrierNativeSettlement, ChannelError> {
+        self.request_retirement();
+        let report = owner::try_close_native_slot(&self.slot)?;
+        let closed = report.is_complete().then(|| self.closed()).flatten();
+        Ok(CarrierNativeSettlement { report, closed })
+    }
     /// Retire only this original native carrier. Physical I/O must have returned;
     /// actual transport/auxiliary tasks must be joined and their local failures
     /// accepted before the original control can confirm native closure.

@@ -18,6 +18,7 @@ pub(crate) struct DriverOwner {
     changed: Arc<tokio::sync::Notify>,
     limit: usize,
     connect_lock: Arc<tokio::sync::Mutex<()>>,
+    provider: Mutex<Option<std::sync::Weak<dyn crate::native::NativeDnsProvider>>>,
     cancel: zero_platform_tokio::contract::CancellationToken,
 }
 struct State {
@@ -107,6 +108,7 @@ impl DriverOwner {
         assert!(limit > 0, "validated DoH endpoint slot budget");
         Self {
             clients,
+            provider: Mutex::default(),
             limit,
             connect_lock,
             cancel: zero_platform_tokio::contract::CancellationToken::new(),

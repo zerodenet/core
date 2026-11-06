@@ -63,6 +63,14 @@ async fn ordinary_socks_datagram_dispatch_needs_no_claim_and_preserves_wire_tx_a
     let udp = UdpSocket::bind("127.0.0.1:0").await.unwrap();
     let udp_port = udp.local_addr().unwrap().port();
     let proxy = proxy(listener.local_addr().unwrap().port(), true).await;
+    let execution = proxy.tcp_runtime_services().execution();
+    let plan = execution.components.as_ref().unwrap();
+    let slot = plan.configured("node").unwrap();
+    let owner = plan.original_carrier_owner(slot.instance_id(), 0).unwrap();
+    assert!(
+        owner.observe().unwrap().slots().is_empty(),
+        "cold preparation must allocate neither association socket"
+    );
     let config = proxy.engine().runtime_snapshot().config().clone();
     let (resolved, _plan) = proxy
         .engine()
@@ -165,6 +173,27 @@ async fn ordinary_socks_datagram_dispatch_needs_no_claim_and_preserves_wire_tx_a
     }
     assert_eq!(ids[0], ids[2]);
     assert_ne!(ids[0], ids[1]);
+    let acquired = owner.observe().unwrap();
+    assert_eq!(
+        acquired.slots().len(),
+        2,
+        "both business targets reuse the same actual TCP control and negotiated UDP original"
+    );
+    let originals: Vec<_> = acquired
+        .slots()
+        .iter()
+        .map(|slot| {
+            assert!(
+                slot.driver().is_none(),
+                "the poll-based codec invents no driver"
+            );
+            assert!(
+                slot.native().is_some(),
+                "each slot owns its actual native controller"
+            );
+            slot.original().clone()
+        })
+        .collect();
     let sessions = proxy.engine().active_sessions();
     assert_eq!(
         sessions
@@ -190,6 +219,12 @@ async fn ordinary_socks_datagram_dispatch_needs_no_claim_and_preserves_wire_tx_a
         .await
         .unwrap();
     assert!(report.is_complete());
+    for original in &originals {
+        let closed = original
+            .closed()
+            .expect("that exact TCP/UDP original is closed");
+        assert!(original.matches_closed(&closed));
+    }
     assert!(
         !report.closed_io.is_empty(),
         "consume the retained original close report"
@@ -200,6 +235,7 @@ async fn ordinary_socks_datagram_dispatch_needs_no_claim_and_preserves_wire_tx_a
         .shutdown_components(Instant::now() + Duration::from_secs(3))
         .await
         .unwrap();
+    assert!(owner.closed().unwrap().matches(&owner));
 }
 
 #[tokio::test]

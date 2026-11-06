@@ -55,3 +55,26 @@ async fn panic_after_taking_original_close_retains_same_unknown_source_without_f
         "actual OS drop is not explicit close proof"
     );
 }
+
+#[tokio::test]
+async fn ready_native_close_uses_the_same_original_without_inventing_a_request_deadline() {
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let (socket, peer) = tokio::join!(
+        TokioSocket::connect_addr(listener.local_addr().unwrap()),
+        listener.accept()
+    );
+    let (view, mut control) =
+        ControlledTcpStream::new(socket.unwrap(), tokio_util::sync::CancellationToken::new())
+            .unwrap();
+    let _peer = peer.unwrap().0;
+    let observer = control.close_observer();
+    let expired = control.wait_closed(Instant::now()).await.unwrap();
+    assert!(!expired.is_complete());
+    assert!(!observer.observe().unwrap().closed);
+    let report = control.try_close_once().unwrap();
+    assert!(report.is_complete());
+    assert_eq!(report.closed_io.len(), 1);
+    assert!(observer.observe().unwrap().closed);
+    assert!(control.try_close_once().unwrap().closed_io.is_empty());
+    drop(view);
+}

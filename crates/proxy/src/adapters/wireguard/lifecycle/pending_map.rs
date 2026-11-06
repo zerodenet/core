@@ -5,6 +5,7 @@ use zero_engine::EngineError;
 
 pub(in crate::adapters::wireguard) struct PendingEntries {
     entries: HashMap<String, Arc<PendingLinkedEndpoint>>,
+    pub(super) standalone: std::sync::Mutex<HashMap<String, super::standalone::Candidate>>,
     candidate: Option<std::sync::Weak<zero_config::RuntimeConfig>>,
     pub(super) traffic: std::sync::Mutex<HashMap<String, zero_engine::PreparedEndpointTraffic>>,
     pub(super) invocations:
@@ -16,6 +17,7 @@ impl PendingEntries {
     ) -> Self {
         Self {
             entries,
+            standalone: std::sync::Mutex::new(HashMap::new()),
             candidate: None,
             traffic: std::sync::Mutex::new(HashMap::new()),
             invocations: tokio::sync::Mutex::new(HashMap::new()),
@@ -131,8 +133,9 @@ impl PendingEndpoints {
         owner: &PendingEndpointMap,
         expected: &Arc<Entries>,
     ) -> Result<(), EngineError> {
-        let mut current = owner.lock().unwrap_or_else(|error| error.into_inner());
-        if !current
+        if !owner
+            .lock()
+            .unwrap_or_else(|error| error.into_inner())
             .as_ref()
             .is_some_and(|current| Arc::ptr_eq(current, expected))
         {
@@ -140,12 +143,33 @@ impl PendingEndpoints {
                 "WireGuard cleanup belongs to another actual candidate",
             ));
         }
+        let standalone = expected
+            .standalone
+            .lock()
+            .unwrap_or_else(|error| error.into_inner())
+            .values()
+            .cloned()
+            .collect::<Vec<_>>();
         for pending in expected.values() {
             pending.revoke();
         }
-        if expected.values().any(|pending| pending.needs_cleanup()) {
+        for candidate in &standalone {
+            candidate.revoke();
+        }
+        if standalone.iter().any(|candidate| candidate.needs_cleanup())
+            || expected.values().any(|pending| pending.needs_cleanup())
+        {
             return Err(invalid(
                 "WireGuard candidate still retains original resources",
+            ));
+        }
+        let mut current = owner.lock().unwrap_or_else(|error| error.into_inner());
+        if !current
+            .as_ref()
+            .is_some_and(|current| Arc::ptr_eq(current, expected))
+        {
+            return Err(invalid(
+                "WireGuard cleanup candidate changed during original retirement",
             ));
         }
         *current = None;
@@ -159,25 +183,44 @@ impl PendingEndpoints {
 }
 impl Drop for PendingEndpoints {
     fn drop(&mut self) {
-        let mut current = self.owner.lock().unwrap_or_else(|error| error.into_inner());
-        if !current
+        if !self
+            .owner
+            .lock()
+            .unwrap_or_else(|error| error.into_inner())
             .as_ref()
             .is_some_and(|current| Arc::ptr_eq(current, &self.expected))
         {
             return;
         }
+        let standalone = self
+            .expected
+            .standalone
+            .lock()
+            .unwrap_or_else(|error| error.into_inner())
+            .values()
+            .cloned()
+            .collect::<Vec<_>>();
         if !self.published {
             for pending in self.expected.values() {
                 pending.revoke();
             }
+            for candidate in &standalone {
+                candidate.revoke();
+            }
         }
-        if self.published
-            || !self
+        let clean = !standalone.iter().any(|candidate| candidate.needs_cleanup())
+            && !self
                 .expected
                 .values()
-                .any(|pending| pending.needs_cleanup())
-        {
-            *current = None;
+                .any(|pending| pending.needs_cleanup());
+        if self.published || clean {
+            let mut current = self.owner.lock().unwrap_or_else(|error| error.into_inner());
+            if current
+                .as_ref()
+                .is_some_and(|current| Arc::ptr_eq(current, &self.expected))
+            {
+                *current = None;
+            }
         }
     }
 }

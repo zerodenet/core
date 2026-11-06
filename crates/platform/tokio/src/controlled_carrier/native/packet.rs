@@ -38,8 +38,16 @@ impl NativeCarrierOpener {
             binding: binding.clone(),
             max_sockets: registration.limit,
         };
-        if !bound.permits_native(binding, &destination, &context)
-            || !(bound.matches(&declaration, registration.limit) || bound.pool_kind() == Some(true))
+        let related = self.related_parent.as_ref();
+        let permitted = if let Some(parent) = related {
+            super::super::related::check_parent(parent, instance, binding)?;
+            bound.permits_related()
+        } else {
+            bound.permits_native(binding, &destination, &context)
+                && (bound.matches(&declaration, registration.limit)
+                    || bound.pool_kind() == Some(true))
+        };
+        if !permitted
             || self.grantee != grant.instance()
             || binding != &self.binding
             || self.egress.generation() != binding.network_generation.0
@@ -53,6 +61,29 @@ impl NativeCarrierOpener {
         }
         if context.deadline.is_some_and(|end| Instant::now() >= end) {
             return Err(denied(Reason::Timeout));
+        }
+        if self
+            .dns
+            .as_ref()
+            .is_some_and(|(resolver, generation)| resolver.generation() != *generation)
+        {
+            return Err(denied(Reason::StalePlan));
+        }
+        if let Some(parent) = related {
+            grant.link_related_datagram(parent)?;
+        }
+        #[cfg(any(target_os = "linux", windows))]
+        if let Some(derived) = &self.derived {
+            derived.claim(&grant, binding, true).map_err(|source| {
+                error(
+                    grant.instance(),
+                    Stage::Prepare,
+                    Reason::StalePlan,
+                    DeliveryState::NotSubmitted,
+                )
+                .with_source(source)
+            })?;
+            grant.slot.state().process_endpoint = Some(derived.fence());
         }
         let selection = self
             .egress
@@ -164,7 +195,14 @@ impl NativeCarrierOpener {
         view.io
             .set_observer(self.observer.clone())
             .map_err(|source| denied(Reason::Io).with_source(source))?;
-        if self.egress.generation() != binding.network_generation.0 || !bound.available() {
+        if self.egress.generation() != binding.network_generation.0
+            || !bound.available()
+            || self
+                .dns
+                .as_ref()
+                .is_some_and(|(resolver, generation)| resolver.generation() != *generation)
+            || related.is_some_and(|parent| parent.slot.cancel.is_cancelled())
+        {
             return Err(denied(Reason::StalePlan));
         }
         if context.cancel.is_cancelled() {

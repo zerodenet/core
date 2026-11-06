@@ -20,9 +20,15 @@ pub(super) async fn run(
             mut stream,
         } => {
             if forward {
+                eprintln!(
+                    "Mieru fixture connecting actual TCP target {}:{}",
+                    host(&session.target),
+                    session.port
+                );
                 let mut peer = TcpStream::connect((host(&session.target).as_str(), session.port))
                     .await
                     .unwrap();
+                eprintln!("Mieru fixture connected actual TCP target; forwarding logical bytes");
                 let _ = tokio::io::copy_bidirectional(&mut stream, &mut peer).await;
             } else {
                 assert_eq!(session.target, destination().address);

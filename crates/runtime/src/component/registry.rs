@@ -64,7 +64,10 @@ where
         resources: &mut ResourcePreparation<'_>,
     ) -> Result<ValidatedRecipe, RegistrationError> {
         let options = Arc::new((self.decode_validate)(input, resources)?);
-        let recipe = ComponentRecipe::from_validated(self.factory.clone(), options);
+        let recipe = resources.project_carrier_total(ComponentRecipe::from_validated(
+            self.factory.clone(),
+            options,
+        ))?;
         Ok(ValidatedRecipe {
             legacy_connect_stage: "connect_component",
             descriptor: self.descriptor,

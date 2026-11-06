@@ -31,9 +31,11 @@ mod hosted;
 mod identity;
 mod registrar;
 mod relay;
+mod retirement;
 pub use hosted::{HostedCallbacks, HostedExitReceipt, HostedReceiptError, HostedScope};
 pub use identity::TaskScopeIdentity;
 pub use registrar::WeakTaskRegistrar;
+pub use retirement::ScopeRetirementObservation;
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SpawnError {
     NotStarted,
@@ -72,7 +74,11 @@ struct State {
 }
 
 enum CompletedExit {
-    Ordinary(TaskExit, Option<join::Notification>),
+    Ordinary(
+        TaskExit,
+        Option<join::Notification>,
+        Option<join::TaskJoined>,
+    ),
     Hosted(hosted::Completion, Option<join::Notification>),
 }
 

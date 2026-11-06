@@ -10,6 +10,7 @@ type GrpcDatagramStates =
 
 #[derive(Debug, Clone, Default)]
 pub struct VmessTransportRuntime {
+    pub(crate) client_material: crate::component::material::Registry,
     grpc_carriers: Arc<crate::component::grpc::registry::State>,
     grpc_datagrams: Arc<Mutex<GrpcDatagramStates>>,
     mux_pool: crate::mux::VmessMuxConnectionPool,

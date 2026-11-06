@@ -216,3 +216,6 @@ async fn no_acquisition_user_proof_still_requires_explicit_original_owner_shutdo
     drop(dropped);
     assert!(unconfirmed.users_closed().is_none());
 }
+
+#[path = "users/accepted_pending.rs"]
+mod accepted_pending;

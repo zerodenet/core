@@ -66,6 +66,7 @@ impl Server {
                     connections.spawn(async move {
                         let profile=profile();
                         let connection=tokio::select! {biased;_=cancel.cancelled()=>return,result=profile.accept_packet_peer(socket,peer,receiver)=>result.unwrap()};
+                        eprintln!("Mieru packet fixture authenticated actual UDP peer {peer}");
                         serve(connection,cancel,forward).await;
                     });sender
                 });
@@ -94,8 +95,20 @@ async fn serve(
 ) {
     let mut streams = tokio::task::JoinSet::new();
     loop {
-        let stream = tokio::select! {biased;_=cancel.cancelled()=>break,result=connection.accept_next()=>match result {Ok(Some(stream))=>stream,_=>break}};
+        let stream = tokio::select! {biased;_=cancel.cancelled()=>break,result=connection.accept_next()=>match result {
+            Ok(Some(stream))=>stream,
+            Ok(None)=>break,
+            Err(source)=>{eprintln!("Mieru fixture actual logical receive ended: {source}");break;}
+        }};
+        if forward {
+            eprintln!(
+                "Mieru fixture received actual logical stream; reading CONNECT and writing its ACK"
+            );
+        }
         let route = connection.accept_route(stream).await.unwrap();
+        if forward {
+            eprintln!("Mieru fixture actual CONNECT parsed and ACK flushed");
+        }
         let cancel = cancel.clone();
         streams.spawn(async move {
             tokio::select! {biased;_=cancel.cancelled()=>{},_=session::run(route,forward)=>{}}

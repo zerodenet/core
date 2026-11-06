@@ -9,7 +9,6 @@ pub(crate) fn native_input(input: &OutboundConfig) -> bool {
         &input.protocol,
         OutboundProtocolConfig::Trojan {
             mux_concurrency: None,
-            grpc: None,
             ws,
             ..
         } if ws.as_ref().is_none_or(|ws| ws.browser_dialer.is_none())

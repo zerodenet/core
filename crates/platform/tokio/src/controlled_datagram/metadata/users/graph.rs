@@ -26,6 +26,7 @@ pub struct MetadataUsersCompletion<O: DriverKind, B: Send + Sync + 'static>(Arc<
 #[derive(Clone)]
 pub struct MetadataUsersClosedReceipt {
     pub(in crate::controlled_datagram::metadata) views: MetadataViewsClosedReceipt,
+    registrations: Arc<[crate::contract::scope::TaskJoinWitness]>,
 }
 impl fmt::Debug for MetadataUsersClosedReceipt {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -84,11 +85,13 @@ impl<O: DriverKind, B: Send + Sync + 'static> MetadataUsersCompletion<O, B> {
         if !self.0.users.cancellation().is_cancelled() || self.0.users.active() != 0 {
             return None;
         }
-        if !self.0.drivers.completion_matches(&self.0.views.0.scope) {
-            return None;
-        }
+        let registrations = self
+            .0
+            .drivers
+            .completion_registrations(&self.0.views.0.scope)?;
         Some(MetadataUsersClosedReceipt {
             views: self.0.views.try_closed()?,
+            registrations,
         })
     }
 }
@@ -101,6 +104,7 @@ impl UnstartedMetadataCompletion {
     pub fn try_closed(&self) -> Option<MetadataUsersClosedReceipt> {
         Some(MetadataUsersClosedReceipt {
             views: self.0.try_closed()?,
+            registrations: Arc::from([]),
         })
     }
 }
@@ -123,3 +127,12 @@ impl crate::contract::component::GrantedMetadataListener {
 
 #[cfg(test)]
 mod tests;
+
+impl MetadataUsersClosedReceipt {
+    /// Actual original registrations behind this users receipt. Native close,
+    /// logical return and local failure reception precede Host publication ACK.
+    /// Already reclaimed registrations were removed only after their real ACK.
+    pub fn registrations(&self) -> &[crate::contract::scope::TaskJoinWitness] {
+        &self.registrations
+    }
+}

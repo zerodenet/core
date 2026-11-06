@@ -2,6 +2,8 @@
 mod entry;
 mod lease;
 mod operations;
+mod opening;
+pub(crate) use opening::{DatagramOpening, PendingOpen};
 mod poll;
 mod progress;
 mod returns;

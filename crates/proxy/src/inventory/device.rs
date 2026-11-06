@@ -15,6 +15,28 @@ use crate::runtime::udp_dispatch::packet_path_operation::PreparedDatagramRelayCa
 type PacketPaths = HashMap<String, PreparedDevicePacketPath>;
 
 impl ProtocolInventory {
+    pub(crate) async fn pause_direct_packet_if_idle(
+        &self,
+        deadline: tokio::time::Instant,
+    ) -> Result<Option<crate::runtime::packet_route::host::NativeDevicePaused>, EngineError> {
+        self.devices.pause_direct_packet_if_idle(deadline).await
+    }
+
+    #[cfg(feature = "wireguard")]
+    pub(crate) async fn pause_standalone_packet_if_idle(
+        &self,
+        deadline: tokio::time::Instant,
+    ) -> Result<Vec<crate::runtime::packet_route::host::NativeDevicePaused>, EngineError> {
+        self.devices.pause_standalone_packet_if_idle(deadline).await
+    }
+
+    #[cfg(all(test, feature = "wireguard"))]
+    pub(crate) fn test_packet_source_origins(
+        &self,
+        config: &RuntimeConfig,
+    ) -> Vec<zero_platform_tokio::controlled_carrier::CarrierOrigin> {
+        self.devices.test_current_wireguard_sources(config)
+    }
     #[cfg(all(test, feature = "wireguard"))]
     pub(crate) fn test_outbound_devices(
         &self,
@@ -172,3 +194,28 @@ fn root_binding(
 }
 #[cfg(test)]
 mod tests;
+
+impl ProtocolInventory {
+    /// The source still owns its native controller and Scope. Project only its
+    /// real wire origin into this same candidate's canonical consumer graph.
+    pub(crate) fn bind_actual_packet_source(
+        &self,
+        config: &RuntimeConfig,
+        plan: &crate::component::catalog::ComponentPlan,
+        inbound_tag: &str,
+        original: zero_platform_tokio::controlled_datagram::provider::NativeDatagramOrigin,
+    ) -> Result<(), EngineError> {
+        #[cfg(feature = "wireguard")]
+        if let Some(adapter) = &self.devices.wireguard {
+            for (tag, id) in adapter.packet_source_resources(config)? {
+                if tag == inbound_tag {
+                    let consumer = plan.device_component(id).map_err(std::io::Error::other)?;
+                    plan.bind_packet_source_provider(consumer.instance_id(), original.clone())
+                        .map_err(std::io::Error::other)?;
+                }
+            }
+        }
+        let _ = (config, plan, inbound_tag, original);
+        Ok(())
+    }
+}

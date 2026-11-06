@@ -26,9 +26,9 @@ impl InboundOwner {
             .expect("inbound resources poisoned")
             .clone();
         let parent = Arc::downgrade(self);
-        let task = self
+        let (task, witness) = self
             .registrar
-            .spawn(TaskClass::Critical, async move {
+            .spawn_tracked(TaskClass::Critical, async move {
                 let outcome = AssertUnwindSafe(async {
                     for resource in &resources {
                         if cancel.is_cancelled() || *stopping.borrow() {
@@ -52,6 +52,8 @@ impl InboundOwner {
                         return Ok(());
                     }
                     work.await.map_err(|source| {
+                        #[cfg(test)]
+                        eprintln!("actual retained Source main {identity:?} returned original failure: {source:#?}");
                         let mut error =
                             ChannelError::new(Stage::Close, Reason::Io, Impact::Component)
                                 .with_source(source);
@@ -62,8 +64,25 @@ impl InboundOwner {
                 .catch_unwind()
                 .await
                 .map(|result| result.map_err(Arc::new));
+                if let Some(parent)=parent.upgrade(){
+                    // Snapshot the real stopping state before this main's
+                    // automatic dependency stop. EOF/body completion does not
+                    // become a requested shutdown merely by stopping its wire.
+                    let _=parent.driver_was_stopping.set(cancel.is_cancelled() || *stopping.borrow());
+                }
                 if let Ok(Err(source)) = &outcome {
                     retain_failure(&parent, source.clone());
+                }
+                if resources
+                    .iter()
+                    .any(|resource| resource.requires_scope_join)
+                {
+                    if let Some(parent) = parent.upgrade() {
+                        // A completed source stops its actual dependent wire
+                        // immediately. The external host still owns all joins
+                        // and original close receipts; no cleanup task starts.
+                        parent.task_access().request_stop();
+                    }
                 }
                 // Continue in the original task after real work ends. Its
                 // dependencies must finish before the native listener closes;
@@ -82,6 +101,25 @@ impl InboundOwner {
                 }
             })
             .map_err(std::io::Error::other)?;
+        #[cfg(feature = "raw-ip-runtime")]
+        {
+            if let Some(pause) = self.packet_pause.get() {
+                let checkpoint = pause
+                    .bind(
+                        zero_platform_tokio::contract::packet::PacketPauseParticipant::Main,
+                        &witness,
+                    )
+                    .map_err(std::io::Error::other)?;
+                *self.main_registration.checkpoint.lock().unwrap() = Some(checkpoint);
+            }
+            self.main_registration
+                .witness
+                .set(witness)
+                .expect("one original source main witness");
+            self.main_registration.published.notify_waiters();
+        }
+        #[cfg(not(feature = "raw-ip-runtime"))]
+        let _ = witness;
         self.publish_driver(task);
         Ok(())
     }
@@ -105,7 +143,10 @@ async fn close_resources(
     let deadline = Instant::now() + std::time::Duration::from_secs(5);
     let mut failure = None;
     for resource in resources.iter().rev() {
-        if resource.stopped.load(Ordering::Acquire) {
+        if resource.stopped.load(Ordering::Acquire) || resource.requires_scope_join {
+            // The exact original remains in InboundOwner.resources. Its
+            // external shutdown concurrently consumes Scope exits and closes
+            // this provider after the actual matching joins, including ours.
             continue;
         }
         // A dependency requiring this driver's actual Scope join cannot be

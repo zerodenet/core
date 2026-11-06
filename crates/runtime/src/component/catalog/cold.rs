@@ -1,6 +1,7 @@
 //! One cold union pass; activation requires original provider close evidence.
 use super::*;
 use crate::component::{ResourcePreparation, SharedResourceIdentities};
+use std::collections::BTreeSet;
 use zero_config::OutboundProtocolConfig;
 use zero_core::component::ResourceGeneration;
 use zero_platform_tokio::contract::component::RoleKind;
@@ -35,36 +36,15 @@ impl ComponentCatalog {
             &mut ResourcePreparation<'_>,
         ) -> Result<std::collections::BTreeSet<ComponentId>, ChannelError>,
     ) -> Result<ComponentPlan, ChannelError> {
+        if let Some(probes) = self.probes.get().and_then(std::sync::Weak::upgrade) {
+            probes.validate_limit(config.runtime.effective_diagnostic_max_operations())?;
+        }
         let plan = self.compile_with_floor(config, previous, issued, device_pass, prepare)?;
         // Keep this before returning a plan or binding any admission. A cold
         // shared graph is not stop-old confirmation, a native grant or Ready.
         for slot in &plan.order {
             let spec = slot.recipe.spec();
-            if plan.deferred_devices.contains(&slot.id) {
-                if !spec.roles.is_empty() || !spec.resources.is_empty() {
-                    return Err(invalid(
-                        Reason::InvalidConfig,
-                        "deferred virtual-device node must be roleless without native declarations",
-                    ));
-                }
-                continue;
-            }
-            let unsupported = spec.resources.iter().any(|resource| matches!(resource,
-                zero_platform_tokio::contract::component::ResourceDeclaration::NativeIcmp { .. }
-                | zero_platform_tokio::contract::component::ResourceDeclaration::Process { .. }
-                | zero_platform_tokio::contract::component::ResourceDeclaration::Device { .. }
-                | zero_platform_tokio::contract::component::ResourceDeclaration::BackgroundCarrier
-                | zero_platform_tokio::contract::component::ResourceDeclaration::OutboundDatagram { .. }
-                | zero_platform_tokio::contract::component::ResourceDeclaration::BoundOutboundDatagram { .. }
-            ));
-            if unsupported
-                || spec
-                    .roles
-                    .iter()
-                    .any(|role| !matches!(role, RoleKind::Stream | RoleKind::Datagram))
-            {
-                return Err(invalid(Reason::Unsupported, "component resource lacks an integrated original-close provider or role executor"));
-            }
+            validate_executors(spec, plan.deferred_devices.contains(&slot.id))?;
         }
         self.bind_plan_ownership(&plan);
         Ok(plan)
@@ -78,6 +58,7 @@ impl ComponentCatalog {
             Arc<[Arc<crate::component::instance::users::Users>]>,
         > = BTreeMap::new();
         for slot in &plan.order {
+            slot.bind_original_budgets(self.original_budgets());
             let spec = slot.recipe.spec();
             let own =
                 spec.roles.is_empty() || !spec.resources.is_empty() || spec.task_limit.is_some();
@@ -121,12 +102,26 @@ impl ComponentCatalog {
             .unwrap_or_default();
         let mut resources = ResourcePreparation::with_identities(&mut allocate, &identities)
             .with_candidate(config)
+            .with_previous_named(previous.map(|(_, plan)| &plan.outbounds))
+            .with_same_source_as_previous(
+                previous.is_some_and(|(source, _)| std::ptr::eq(config, source.as_ref())),
+            )
             .with_previous_slots(
                 previous
                     .map(|(_, plan)| plan.order.as_slice())
                     .unwrap_or_default(),
                 self.admission.loan_snapshot().1,
             );
+        let mut deferred_devices = prepare(&mut resources)?;
+        if deferred_devices
+            .iter()
+            .any(|id| !resources.resources().any(|node| node.component() == *id))
+        {
+            return Err(invalid(
+                Reason::InvalidConfig,
+                "deferred device identity was not issued by the actual resource pass",
+            ));
+        }
         let builtin_input = OutboundConfig {
             tag: "direct".into(),
             protocol: OutboundProtocolConfig::Direct,
@@ -164,35 +159,6 @@ impl ComponentCatalog {
             let slot = self.primary_slot(input, old, &mut resources)?;
             outbounds.insert(input.tag.clone(), slot);
         }
-        let deferred_devices = prepare(&mut resources)?;
-        if deferred_devices
-            .iter()
-            .any(|id| !resources.resources().any(|node| node.component() == *id))
-        {
-            return Err(invalid(
-                Reason::InvalidConfig,
-                "deferred device identity was not issued by the actual resource pass",
-            ));
-        }
-        // A normal callable role cannot start ahead of an unstarted device it
-        // consumes. Packet adapters currently remain outside this role subset;
-        // a future dependent role must join the real deferred phase explicitly.
-        if outbounds
-            .values()
-            .chain(std::iter::once(&builtin))
-            .any(|slot| {
-                slot.recipe
-                    .spec()
-                    .dependencies
-                    .iter()
-                    .any(|id| deferred_devices.contains(id))
-            })
-        {
-            return Err(invalid(
-                Reason::InvalidConfig,
-                "ordinary role depends on a deferred device start",
-            ));
-        }
         let mut nodes: Vec<_> = std::iter::once(builtin.clone())
             .chain(outbounds.values().cloned())
             .collect();
@@ -226,6 +192,7 @@ impl ComponentCatalog {
         } else {
             super::super::generations::order_with_loans(nodes, old, issued, &loans)?
         };
+        extend_deferred(&order, &mut deferred_devices);
         let nodes: BTreeMap<_, _> = order.iter().map(|slot| (slot.id, slot.clone())).collect();
         let builtin = nodes[&builtin.id].clone();
         for slot in outbounds.values_mut() {
@@ -296,3 +263,55 @@ impl ComponentCatalog {
 #[cfg(test)]
 #[path = "../tests/cold_union.rs"]
 mod tests;
+
+/// Every concrete native declaration below has its actual HostResources owner.
+/// Packet executors remain tied to a real device or the deferred source phase.
+pub(super) fn validate_executors(
+    spec: &zero_platform_tokio::contract::component::ComponentSpec,
+    deferred: bool,
+) -> Result<(), ChannelError> {
+    use zero_platform_tokio::contract::component::ResourceDeclaration as R;
+    crate::component::instance::packet_datagram_read_spec(&spec.resources, usize::MAX)?;
+    let process_provider = cfg!(any(target_os = "linux", windows))
+        && crate::component::instance::demand_process_endpoint_ordinal(spec).is_some();
+    let unsupported = spec.resources.iter().any(|resource| {
+        if matches!(resource, R::Process { .. } | R::ProcessEndpoint { .. }) {
+            return !process_provider;
+        }
+        matches!(
+            resource,
+            R::Device { .. } | R::BackgroundCarrier | R::OutboundDatagram { .. }
+        )
+    });
+    let native_packet = spec.resources.iter().any(|resource| {
+        matches!(
+            resource,
+            R::ControlledPacketDevice { .. } | R::BoundOutboundDatagram { .. }
+        )
+    });
+    if unsupported
+        || spec.roles.iter().any(|role| {
+            !matches!(role, RoleKind::Stream | RoleKind::Datagram)
+                && !(matches!(role, RoleKind::Packet) && (deferred || native_packet))
+        })
+    {
+        return Err(invalid(
+            Reason::Unsupported,
+            "component resource lacks an integrated original-close provider or role executor",
+        ));
+    }
+    Ok(())
+}
+/// Dependency order is already validated. All aliases of an actual deferred
+/// source join its same StopOld/BuildNew phase, including transitive aliases.
+pub(super) fn extend_deferred(order: &[Arc<ComponentSlot>], deferred: &mut BTreeSet<ComponentId>) {
+    for slot in order {
+        if slot
+            .dependency_instances()
+            .iter()
+            .any(|dependency| deferred.contains(&dependency.component))
+        {
+            deferred.insert(slot.id);
+        }
+    }
+}

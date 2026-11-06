@@ -45,15 +45,18 @@ async fn execute_prepared_udp_outbound(
                         upstream: None,
                     })?;
             }
-            let (tag, server, port) = prepared.target.endpoint();
-            let (tag, upstream) = (tag.to_owned(), (server.to_owned(), port));
+            let tag = prepared.target.tag().to_owned();
+            let upstream = prepared
+                .target
+                .endpoint()
+                .map(|(server, port)| (server.to_owned(), port));
             let services = ctx.runtime_services().with_outbound_io(&tag);
             let execution = services
                 .datagram_execution(&dispatch.inbound_tag, session)
                 .map_err(|error| FlowFailure {
                     stage: "udp_datagram_relay",
                     error,
-                    upstream: Some(upstream.clone()),
+                    upstream: upstream.clone(),
                 })?;
             let connection = crate::runtime::udp_flow::registered::LogicalConnection::open_relay(
                 &execution, *prepared, session,
@@ -62,11 +65,11 @@ async fn execute_prepared_udp_outbound(
             .map_err(|error| FlowFailure {
                 stage: "udp_datagram_relay",
                 error,
-                upstream: Some(upstream.clone()),
+                upstream: upstream.clone(),
             })?;
             dispatch
                 .flow_start_context()
-                .start_logical(tag, Some(upstream), session, payload, connection)
+                .start_logical(tag, upstream, session, payload, connection)
                 .await
         }
         PreparedUdpOutbound::Relay(prepared) => {
@@ -140,14 +143,17 @@ pub(crate) async fn execute_prepared_udp_candidate(
         PreparedUdpLeafCandidate::Block { tag } => Ok(FlowStartResult::Blocked { tag }),
         #[cfg(feature = "managed-stream-runtime")]
         PreparedUdpLeafCandidate::DatagramFlow(target) => {
-            let (tag, server, port) = target.endpoint();
+            let tag = target.tag();
+            let endpoint = target
+                .endpoint()
+                .map(|(server, port)| (server.to_owned(), port));
             let services = ctx.runtime_services().with_outbound_io(tag);
             let execution = services
                 .datagram_execution(&dispatch.inbound_tag, session)
                 .map_err(|error| FlowFailure {
                     stage: "udp_datagram_open",
                     error,
-                    upstream: Some((server.into(), port)),
+                    upstream: endpoint.clone(),
                 })?;
             let connection =
                 crate::runtime::udp_flow::registered::LogicalConnection::open_datagram(
@@ -157,17 +163,11 @@ pub(crate) async fn execute_prepared_udp_candidate(
                 .map_err(|error| FlowFailure {
                     stage: "udp_datagram_open",
                     error,
-                    upstream: Some((server.into(), port)),
+                    upstream: endpoint.clone(),
                 })?;
             dispatch
                 .flow_start_context()
-                .start_logical(
-                    tag.into(),
-                    Some((server.into(), port)),
-                    session,
-                    payload,
-                    connection,
-                )
+                .start_logical(tag.into(), endpoint, session, payload, connection)
                 .await
         }
         PreparedUdpLeafCandidate::Flow(operation) => {

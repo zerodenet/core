@@ -1,13 +1,28 @@
 use super::*;
-use crate::runtime::dns_outbound::ProxyDnsOutboundConnector;
-use zero_dns::{DnsConnectContext, DnsOutboundConnector};
-fn callback(proxy: &Proxy) -> ProxyDnsOutboundConnector {
-    ProxyDnsOutboundConnector::new(proxy.current_service_source())
+async fn open_carrier(
+    proxy: &Proxy,
+    outbound: &str,
+    endpoint: SocketAddr,
+) -> zero_dns::test_support::NativeDetourStream {
+    proxy
+        .protocols
+        .drive_component_supervision(Box::pin(zero_dns::test_support::open_native_detour(
+            &proxy.resolver,
+            outbound.into(),
+            endpoint,
+            deadline(),
+        )))
+        .await
+        .unwrap()
 }
-fn direct() -> zero_config::RuntimeConfig {
+fn direct(endpoint: SocketAddr) -> zero_config::RuntimeConfig {
     zero_config::RuntimeConfig::parse(&serde_json::json!({
         "outbounds":[{"tag":"a","protocol":{"type":"direct"}},{"tag":"b","protocol":{"type":"direct"}}],
         "outbound_groups":[{"tag":"choose","type":"selector","outbounds":["a","b"],"selected":"a"}],
+        "runtime":{"dns":{"servers":{
+            "node":{"type":"system"},
+            "query":{"type":"udp","host":endpoint.ip().to_string(),"port":endpoint.port(),"detour":"choose"}
+        },"default_server":"query","policy":{"node_server":"node"}}},
         "route":{"final":{"type":"direct"}}
     }).to_string()).unwrap()
 }
@@ -15,21 +30,11 @@ fn direct() -> zero_config::RuntimeConfig {
 #[tokio::test]
 async fn actual_native_carrier_binding_observes_selector_aba_without_closing_transferred_io() {
     let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
-    let proxy = Proxy::new(direct()).unwrap();
+    let proxy = Proxy::new(direct(listener.local_addr().unwrap())).unwrap();
     start(&proxy).await;
-    let mut carrier = callback(&proxy)
-        .connect_carrier_with_context(
-            "choose".into(),
-            listener.local_addr().unwrap(),
-            DnsConnectContext::default(),
-        )
-        .await
-        .unwrap();
+    let mut carrier = open_carrier(&proxy, "choose", listener.local_addr().unwrap()).await;
     let (mut remote, _) = listener.accept().await.unwrap();
-    let binding = carrier
-        .binding
-        .as_ref()
-        .expect("actual native carrier receipt");
+    let binding = carrier.binding.as_ref();
     binding.check_current().unwrap();
     let mut revoked = binding.revoked();
     std::future::poll_fn(|cx| {
@@ -65,23 +70,17 @@ async fn actual_native_carrier_binding_observes_selector_aba_without_closing_tra
 #[tokio::test]
 async fn actual_native_carrier_binding_observes_host_generation_and_physical_network_changes() {
     let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
-    let proxy = Proxy::new(direct()).unwrap();
+    let proxy = Proxy::new(direct(listener.local_addr().unwrap())).unwrap();
     start(&proxy).await;
     let original = proxy.engine.runtime_snapshot();
     proxy
         .protocols
         .commit_components(original.config(), || Ok(()))
         .unwrap();
-    let carrier = callback(&proxy)
-        .connect_carrier_with_context(
-            "a".into(),
-            listener.local_addr().unwrap(),
-            DnsConnectContext::default(),
-        )
-        .await
-        .unwrap();
+    let carrier = open_carrier(&proxy, "a", listener.local_addr().unwrap()).await;
+    assert!(!carrier.task.is_joined());
     let (remote, _) = listener.accept().await.unwrap();
-    let binding = carrier.binding.as_ref().unwrap();
+    let binding = carrier.binding.as_ref();
     binding.check_current().unwrap();
     proxy.egress_interface.invalidate_network();
     assert!(binding.check_current().is_err());
@@ -90,16 +89,9 @@ async fn actual_native_carrier_binding_observes_host_generation_and_physical_net
         .unwrap();
     drop(carrier);
     drop(remote);
-    let carrier = callback(&proxy)
-        .connect_carrier_with_context(
-            "a".into(),
-            listener.local_addr().unwrap(),
-            DnsConnectContext::default(),
-        )
-        .await
-        .unwrap();
+    let carrier = open_carrier(&proxy, "a", listener.local_addr().unwrap()).await;
     let (mut remote, _) = listener.accept().await.unwrap();
-    let binding = carrier.binding.as_ref().unwrap().clone();
+    let binding = carrier.binding.clone();
     binding.check_current().unwrap();
     let mut candidate = (**original.config()).clone();
     candidate.outbounds[0].dial.address_family = zero_config::OutboundAddressFamily::OnlyIpv4;
@@ -170,15 +162,9 @@ async fn fallback_receipt_tracks_only_the_branch_that_actually_connected() {
         let (io, _) = second.accept().await.unwrap();
         socks(io, endpoint, false).await;
     });
-    let carrier = callback(&proxy)
-        .connect_carrier_with_context("dns-chain".into(), endpoint, DnsConnectContext::default())
-        .await
-        .unwrap();
+    let carrier = open_carrier(&proxy, "dns-chain", endpoint).await;
     let (remote, _) = dns.accept().await.unwrap();
-    let binding = carrier
-        .binding
-        .as_ref()
-        .expect("unambiguous actually successful fallback branch");
+    let binding = carrier.binding.as_ref();
     proxy
         .engine
         .set_selector_target("first", "socks-1")
@@ -206,7 +192,7 @@ async fn fallback_receipt_tracks_only_the_branch_that_actually_connected() {
 #[tokio::test]
 async fn native_load_balance_capture_and_reuse_do_not_consume_a_second_scheduling_pick() {
     let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
-    let mut config = direct();
+    let mut config = direct(listener.local_addr().unwrap());
     config.outbound_groups[0].group = zero_config::OutboundGroupKind::LoadBalance {
         outbounds: vec!["a".into(), "b".into()],
         default: None,
@@ -214,19 +200,10 @@ async fn native_load_balance_capture_and_reuse_do_not_consume_a_second_schedulin
     };
     let proxy = Proxy::new(config).unwrap();
     start(&proxy).await;
-    let carrier = callback(&proxy)
-        .connect_carrier_with_context(
-            "choose".into(),
-            listener.local_addr().unwrap(),
-            DnsConnectContext::default(),
-        )
-        .await
-        .unwrap();
+    let carrier = open_carrier(&proxy, "choose", listener.local_addr().unwrap()).await;
+    assert!(!carrier.task.is_joined());
     let (remote, _) = listener.accept().await.unwrap();
-    let binding = carrier
-        .binding
-        .as_ref()
-        .expect("actual selected load-balance branch");
+    let binding = carrier.binding.as_ref();
     for _ in 0..8 {
         binding.check_current().unwrap();
     }

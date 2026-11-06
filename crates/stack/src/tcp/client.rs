@@ -1,5 +1,6 @@
 //! Active client-side TCP over a bounded raw-IP packet channel.
 
+mod quiescence;
 use std::{
     collections::HashMap,
     net::{IpAddr, SocketAddr},
@@ -24,7 +25,9 @@ const FIRST_EPHEMERAL_PORT: u16 = 49_152;
 const EPHEMERAL_PORT_COUNT: usize = 16_384;
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(10);
 
+mod opening;
 mod receive;
+pub use opening::{ClientTcpClosed, ClientTcpOpening, ClientTcpSocketControl};
 
 #[cfg(test)]
 mod tests;
@@ -41,6 +44,13 @@ pub enum ClientTcpStackError {
     ConnectionReset,
     DestinationUnreachable,
 }
+
+impl std::fmt::Display for ClientTcpStackError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "client TCP stack: {self:?}")
+    }
+}
+impl std::error::Error for ClientTcpStackError {}
 
 pub struct ClientTcpStack {
     local_addresses: Vec<IpAddr>,
@@ -148,6 +158,19 @@ impl ClientTcpStack {
         remote: SocketAddr,
         observer: Option<Arc<dyn zero_traits::IoObserver>>,
     ) -> Result<UserTcpStream, ClientTcpStackError> {
+        self.connect_original(local_ip, remote, observer, None)
+            .await
+    }
+    async fn connect_original(
+        &self,
+        local_ip: IpAddr,
+        remote: SocketAddr,
+        observer: Option<Arc<dyn zero_traits::IoObserver>>,
+        original: Option<&ClientTcpSocketControl>,
+    ) -> Result<UserTcpStream, ClientTcpStackError> {
+        if original.is_some_and(ClientTcpSocketControl::is_stopped) {
+            return Err(ClientTcpStackError::OutboundClosed);
+        }
         if !self.local_addresses.contains(&local_ip) {
             return Err(ClientTcpStackError::UnknownLocalAddress);
         }
@@ -192,6 +215,9 @@ impl ClientTcpStack {
             self.mss,
             receive_buffer.window(),
         );
+        if let Some(original) = original {
+            original.install(key, connection_id, send_control.clone())?;
+        }
         connections.insert(
             key,
             Conn {
@@ -211,6 +237,10 @@ impl ClientTcpStack {
             },
         );
         drop(connections);
+        if original.is_some_and(ClientTcpSocketControl::is_stopped) {
+            self.connections.lock().await.remove(&key);
+            return Err(ClientTcpStackError::OutboundClosed);
+        }
         send_control.track_segment(iss.wrapping_add(1), syn.clone());
         if !self.task_spawner.spawn(run_retransmission_worker(
             Arc::downgrade(&self.connections),
@@ -235,9 +265,19 @@ impl ClientTcpStack {
             self.connections.lock().await.remove(&key);
             return Err(ClientTcpStackError::OutboundClosed);
         }
+        let ready = async {
+            match original {
+                Some(original) => tokio::select! {
+                    biased;
+                    _ = original.cancelled() => None,
+                    result = ready => result.ok(),
+                },
+                None => ready.await.ok(),
+            }
+        };
         match tokio::time::timeout(CONNECT_TIMEOUT, ready).await {
-            Ok(Ok(stream)) => Ok(stream),
-            Ok(Err(_)) => match send_control.io_error().map(|error| error.kind()) {
+            Ok(Some(stream)) => Ok(stream),
+            Ok(None) => match send_control.io_error().map(|error| error.kind()) {
                 Some(std::io::ErrorKind::TimedOut) => Err(ClientTcpStackError::ConnectTimeout),
                 Some(std::io::ErrorKind::BrokenPipe) => Err(ClientTcpStackError::OutboundClosed),
                 Some(std::io::ErrorKind::NetworkUnreachable) => {

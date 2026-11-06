@@ -173,7 +173,7 @@ impl TaskRegistrar {
 
 impl HostedScope {
     pub fn defer_callbacks(&self) -> HostedCallbacks {
-        HostedCallbacks::defer(&self.0 .0)
+        HostedCallbacks::defer(&self.0.0)
     }
     pub fn registrar(&self) -> TaskRegistrar {
         self.0.registrar()
@@ -185,7 +185,7 @@ impl HostedScope {
     /// does not block another task's exit. No event leaves the queue until ack.
     /// None means closing, all tasks joined, and all receipts acknowledged.
     pub fn poll_exit(&mut self, cx: &mut Context<'_>) -> Poll<Option<HostedExitReceipt>> {
-        let shared = &self.0 .0;
+        let shared = &self.0.0;
         shared.register_hosted_waker(cx);
         let waker = std::task::Waker::from(shared.relay.clone());
         let mut internal_cx = Context::from_waker(&waker);
@@ -205,7 +205,7 @@ impl HostedScope {
                 let mut entry = state.exit(result);
                 let receipt = match &mut entry {
                     CompletedExit::Hosted(entry, _) => entry.offer(shared),
-                    CompletedExit::Ordinary(_, _) => unreachable!("hosted scope mode"),
+                    CompletedExit::Ordinary(_, _, _) => unreachable!("hosted scope mode"),
                 };
                 state.completed.push_back(entry);
                 Poll::Ready(receipt)
@@ -223,7 +223,7 @@ impl HostedScope {
     /// Under a host callback deferral, the same entry remains charged until
     /// its actual pending notifications have been delivered after parent unlock.
     pub fn acknowledge(&mut self, receipt: &HostedExitReceipt) -> Result<(), HostedReceiptError> {
-        let shared = &self.0 .0;
+        let shared = &self.0.0;
         if !receipt.owner.ptr_eq(&Arc::downgrade(shared)) {
             return Err(HostedReceiptError::ForeignScope);
         }
@@ -237,7 +237,11 @@ impl HostedScope {
                 )
                 .ok_or(HostedReceiptError::StaleReceipt)?;
             if shared.relay.delivery_ready() {
-                state.completed.remove(index)
+                let original = state.completed.remove(index);
+                if let Some(CompletedExit::Hosted(entry, _)) = &original {
+                    state.registration_released(entry.joined.clone());
+                }
+                original
             } else {
                 if let Some(CompletedExit::Hosted(entry, _)) = state.completed.get_mut(index) {
                     entry.accepted = true;
@@ -251,23 +255,23 @@ impl HostedScope {
         Ok(())
     }
     pub fn begin_shutdown(&mut self) {
-        self.0 .0.lock_state().closing = true;
+        self.0.0.lock_state().closing = true;
         // Cancellation also wakes arbitrary protocol waiters synchronously.
         // A parent lock must be released before signalling the original token.
-        self.0 .0.relay.cancel();
-        self.0 .0.notify_hosted();
+        self.0.0.relay.cancel();
+        self.0.0.notify_hosted();
     }
     /// Only actual consumed native joins. Registration may still be open and
     /// unacknowledged events may remain; this is not a scope/I/O close proof.
     pub fn is_joined(&self) -> bool {
-        let state = self.0 .0.lock_state();
+        let state = self.0.0.lock_state();
         state.records.is_empty() && state.tasks.is_empty()
     }
     /// Exact outstanding native joins, not publication-pending joined exits.
     /// This is a bounded snapshot of the original registration table.
     pub fn unjoined_tasks(&self) -> Vec<TaskId> {
         self.0
-             .0
+            .0
             .lock_state()
             .records
             .values()
@@ -277,7 +281,7 @@ impl HostedScope {
     /// Registration closed, all tasks actually joined, all deliveries acked.
     /// This still makes no claim about native I/O or protocol resource closure.
     pub fn is_drained(&self) -> bool {
-        let state = self.0 .0.lock_state();
+        let state = self.0.0.lock_state();
         state.closing
             && state.records.is_empty()
             && state.tasks.is_empty()
@@ -289,7 +293,7 @@ impl Drop for HostedScope {
         self.0.begin_shutdown();
         let waker = self
             .0
-             .0
+            .0
             .hosted_waker
             .lock()
             .expect("scope waker poisoned")
@@ -325,9 +329,20 @@ impl Shared {
             retired
         };
         let released = !retired.is_empty();
+        let notifications = retired
+            .iter()
+            .filter_map(|entry| match entry {
+                CompletedExit::Hosted(entry, _) => {
+                    Some(join::Notification::released(entry.joined.clone()))
+                }
+                _ => None,
+            })
+            .collect();
+        self.relay.queue_notifications(notifications);
         drop(retired);
         if released {
             self.notify_hosted();
+            self.relay.deliver_notifications();
         }
     }
 }

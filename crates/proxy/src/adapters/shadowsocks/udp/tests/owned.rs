@@ -117,3 +117,11 @@ async fn original_protocol_owned_root_survives_neutral_wrappers_and_closes_same_
     assert_eq!(report.native.confirmed_closed, 1);
     assert!(path.send_to(&target, 53, b"after-close").await.is_err());
 }
+
+#[cfg(feature = "socks5")]
+#[path = "owned/ordinary.rs"]
+mod ordinary;
+
+#[cfg(all(feature = "socks5", target_os = "linux"))]
+#[path = "owned/sip.rs"]
+mod sip;

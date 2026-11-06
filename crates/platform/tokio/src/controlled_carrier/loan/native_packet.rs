@@ -24,9 +24,14 @@ struct Custody {
     association: AssociationId,
     endpoint: Destination,
 }
-struct Tx(Arc<Custody>);
+use super::super::related::ViewCancellation as Fence;
+struct Tx {
+    custody: Arc<Custody>,
+    fence: Fence,
+}
 struct Rx {
     custody: Arc<Custody>,
+    fence: Fence,
     bytes: Vec<u8>,
 }
 
@@ -63,8 +68,12 @@ impl CarrierDatagram {
             endpoint: endpoint.clone(),
         });
         let session: BoxDatagramSession = DatagramSession {
-            tx: Box::pin(Tx(custody.clone())),
+            tx: Box::pin(Tx {
+                fence: Fence::new(&custody.io.slot),
+                custody: custody.clone(),
+            }),
             rx: Box::pin(Rx {
+                fence: Fence::new(&custody.io.slot),
                 custody,
                 bytes: vec![0; 65536],
             }),
@@ -93,7 +102,19 @@ impl DatagramTx for Tx {
         cx: &mut Context<'_>,
         frame: &Datagram,
     ) -> Poll<Result<SendReceipt, SendFailure>> {
-        let custody = &self.0;
+        let this = self.get_mut();
+        if this.fence.stopped(cx) {
+            return Poll::Ready(Err(SendFailure::new(
+                super::super::error(
+                    this.custody.io.slot.instance,
+                    Stage::Send,
+                    Reason::Revoked,
+                    DeliveryState::NotSubmitted,
+                ),
+                DeliveryState::NotSubmitted,
+            )));
+        }
+        let custody = &this.custody;
         if frame.association != custody.association
             || frame.address != custody.endpoint
             || frame.payload.len() > 65507
@@ -131,6 +152,14 @@ impl DatagramRx for Rx {
         cx: &mut Context<'_>,
     ) -> Poll<Result<Option<Datagram>, ChannelError>> {
         let this = self.get_mut();
+        if this.fence.stopped(cx) {
+            return Poll::Ready(Err(super::super::error(
+                this.custody.io.slot.instance,
+                Stage::Receive,
+                Reason::Revoked,
+                DeliveryState::NotSubmitted,
+            )));
+        }
         for _ in 0..32 {
             match this.custody.io.io.poll_recv_from_addr(cx, &mut this.bytes) {
                 Poll::Pending => return Poll::Pending,

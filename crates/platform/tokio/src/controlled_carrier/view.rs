@@ -17,6 +17,9 @@ impl AsyncRead for CarrierIo {
         cx: &mut Context<'_>,
         buf: &mut ReadBuf<'_>,
     ) -> Poll<io::Result<()>> {
+        if let Err(error) = self.slot.check_process_endpoint() {
+            return Poll::Ready(Err(error));
+        }
         self.io
             .as_mut()
             .expect("carrier body installed")
@@ -30,6 +33,9 @@ impl AsyncWrite for CarrierIo {
         cx: &mut Context<'_>,
         bytes: &[u8],
     ) -> Poll<io::Result<usize>> {
+        if let Err(error) = self.slot.check_process_endpoint() {
+            return Poll::Ready(Err(error));
+        }
         self.io
             .as_mut()
             .expect("carrier body installed")
@@ -37,6 +43,9 @@ impl AsyncWrite for CarrierIo {
             .poll_write(cx, bytes)
     }
     fn poll_flush(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
+        if let Err(error) = self.slot.check_process_endpoint() {
+            return Poll::Ready(Err(error));
+        }
         self.io
             .as_mut()
             .expect("carrier body installed")
@@ -44,6 +53,9 @@ impl AsyncWrite for CarrierIo {
             .poll_flush(cx)
     }
     fn poll_shutdown(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
+        if let Err(error) = self.slot.check_process_endpoint() {
+            return Poll::Ready(Err(error));
+        }
         self.io
             .as_mut()
             .expect("carrier body installed")

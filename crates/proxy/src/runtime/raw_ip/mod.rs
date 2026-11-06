@@ -11,12 +11,16 @@ mod packet;
 mod pool;
 pub(crate) use incarnation::next as next_incarnation;
 
-pub(crate) use carrier::{DirectRawIpWireCarrier, ProxiedRawIpWireCarrier, RawIpWireCarrier};
+#[cfg(test)]
+pub(crate) use carrier::DirectRawIpWireCarrier;
+pub(crate) use carrier::{HostedRawIpWireCarrier, ProxiedRawIpWireCarrier, RawIpWireCarrier};
 pub(crate) use contract::{RawIpAction, RawIpOutboundPlan, RawIpPeerPlan, RawIpTunnel};
 pub(crate) use datagram::RawIpDatagramOperation;
-pub(crate) use device::PacketReturns;
 pub(crate) use device::{
-    EndpointPacket, EndpointStackOwner, EndpointStackRecipe, SharedRawIpDevice,
+    EndpointPacket, EndpointStackOwner, EndpointStackRecipe, SharedRawIpDevice, WireStackRecipe,
+};
+pub(crate) use device::{
+    PacketFlowBorrow, PacketReturnTotals, PacketReturns, PacketSubmission, ReturnSource,
 };
 pub(crate) use packet::RawIpPacketOperation;
 pub(crate) use pool::{RawIpDevicePool, StagedRawIpDevices, MAX_RAW_IP_DEVICES};

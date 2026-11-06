@@ -52,14 +52,12 @@ fn question_end(message: &[u8]) -> usize {
     offset + 5
 }
 
+#[cfg(feature = "vless")]
 #[tokio::test]
 async fn reuses_dns_material_from_the_bounded_runtime_cache() {
     let material = vec![0, 4, 0xfe, 0x0d, 0, 0];
     let (server, calls, task) = answer_once(Some(material.clone())).await;
-    let resolver = RuntimeEchResolver::new(
-        Arc::new(zero_dns::DnsSystem::build(None).unwrap()),
-        zero_platform_tokio::EgressInterfaceControl::default(),
-    );
+    let (resolver, running) = owned(&server).await;
 
     for _ in 0..2 {
         let answer = resolver
@@ -74,15 +72,14 @@ async fn reuses_dns_material_from_the_bounded_runtime_cache() {
     }
     task.await.unwrap();
     assert_eq!(calls.load(Ordering::SeqCst), 1);
+    running.shutdown().await.unwrap();
 }
 
+#[cfg(feature = "vless")]
 #[tokio::test]
 async fn full_rejects_cached_empty_answer_while_half_uses_plain_tls() {
     let (server, calls, task) = answer_once(None).await;
-    let resolver = RuntimeEchResolver::new(
-        Arc::new(zero_dns::DnsSystem::build(None).unwrap()),
-        zero_platform_tokio::EgressInterfaceControl::default(),
-    );
+    let (resolver, running) = owned(&server).await;
 
     let error = resolver
         .resolve(
@@ -102,6 +99,7 @@ async fn full_rejects_cached_empty_answer_while_half_uses_plain_tls() {
     );
     task.await.unwrap();
     assert_eq!(calls.load(Ordering::SeqCst), 1);
+    running.shutdown().await.unwrap();
 }
 
 #[test]
@@ -115,6 +113,7 @@ fn evicts_oldest_entries_at_the_cache_bound() {
             server: format!("udp://127.0.0.1:{}", index + 1),
             query_name: "secret.example".to_owned(),
             egress_generation: 0,
+            resolver_generation: 0,
         });
     }
     assert_eq!(
@@ -153,6 +152,7 @@ async fn caches_half_query_failure_without_downgrading_a_none_query() {
         server: server.clone(),
         query_name: query_name.clone(),
         egress_generation: 0,
+        resolver_generation: 0,
     };
     assert!(resolver
         .entry(key)
@@ -167,4 +167,26 @@ async fn caches_half_query_failure_without_downgrading_a_none_query() {
         .await
         .unwrap_err();
     assert!(cached.to_string().contains("ECH DNS query failed"));
+}
+
+#[cfg(feature = "vless")]
+async fn owned(server: &str) -> (RuntimeEchResolver, crate::RunningProxy) {
+    let config = zero_config::RuntimeConfig::parse(&serde_json::json!({
+        "runtime":{"native_dns_max_queries":1},
+        "outbounds":[{"tag":"ech", "protocol":{"type":"vless", "server":"127.0.0.1", "port":443, "id":"00112233-4455-6677-8899-aabbccddeeff", "tls":{"server_name":"secret.example", "options":{"ech_config_list":server}}}}],
+        "route":{"final":{"type":"direct"}}
+    }).to_string()).unwrap();
+    let proxy = crate::Proxy::new(config.clone()).unwrap();
+    let resolver =
+        RuntimeEchResolver::new(proxy.resolver.clone(), proxy.egress_interface_control());
+    let running = proxy.spawn();
+    let handle = crate::ProxyHandle::new(
+        zero_engine::EngineHandle::new(proxy.engine().clone()),
+        proxy.clone(),
+    );
+    handle
+        .apply_runtime_config_and_wait(config, std::time::Duration::from_secs(3))
+        .await
+        .unwrap();
+    (resolver, running)
 }

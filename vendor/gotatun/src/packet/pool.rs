@@ -77,6 +77,7 @@ impl<const N: usize> PacketBufPool<N> {
                 let return_to_pool = ReturnToPool {
                     pointer_to_start_of_allocation: Some(pointer_to_start_of_allocation),
                     queue: self.queue.clone(),
+                    allocation_bytes: buf.capacity(),
                 };
 
                 return Some(Packet::new_from_pool(return_to_pool, buf));
@@ -106,6 +107,7 @@ impl<const N: usize> PacketBufPool<N> {
         let return_to_pool = ReturnToPool {
             pointer_to_start_of_allocation: Some(pointer_to_start_of_allocation),
             queue: self.queue.clone(),
+            allocation_bytes: buf.capacity(),
         };
 
         Packet::new_from_pool(return_to_pool, buf)
@@ -123,6 +125,12 @@ pub struct ReturnToPool {
     // Note: Option is faster than mem::take
     pointer_to_start_of_allocation: Option<BytesMut>,
     queue: Arc<Mutex<VecDeque<BytesMut>>>,
+    allocation_bytes: usize,
+}
+impl ReturnToPool {
+    pub(super) fn allocation_origin(&self) -> Option<(usize, usize)> {
+        self.pointer_to_start_of_allocation.as_ref().map(|allocation| (allocation.as_ptr() as usize, self.allocation_bytes))
+    }
 }
 
 impl Drop for ReturnToPool {

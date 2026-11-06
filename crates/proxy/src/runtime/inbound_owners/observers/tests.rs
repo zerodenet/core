@@ -140,3 +140,98 @@ async fn empty_observer_set_preserves_pre_observer_native_acquisition_until_real
         .has_previous_generation());
     let _replacement = TcpListener::bind(original).await.unwrap();
 }
+
+#[tokio::test]
+async fn dynamic_source_enters_the_original_empty_observer_consumer() {
+    let proxy = super::super::bind::tests::proxy();
+    let mut observers = proxy.inbound_owners.take_listener_observers().unwrap();
+    assert!(observers.is_empty());
+    let (stop, mut stopping) = watch::channel(false);
+    let installed = proxy
+        .inbound_owners
+        .install_listener("dynamic-source", &proxy.protocols, 1, stop)
+        .unwrap();
+    let owner = installed.owner();
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let mut remote = tokio::net::TcpStream::connect(listener.local_addr().unwrap())
+        .await
+        .unwrap();
+    let (mut io, _) = listener.accept().await.unwrap();
+    let (entered, pending) = tokio::sync::oneshot::channel();
+    let access = owner.task_access();
+    let (main_sent, main_received) =
+        tokio::sync::oneshot::channel::<zero_platform_tokio::contract::scope::TaskJoinWitness>();
+    owner
+        .spawn_driver(async move {
+            #[cfg(feature = "raw-ip-runtime")]
+            main_sent
+                .send(
+                    access
+                        .source_main_witness()
+                        .await
+                        .map_err(std::io::Error::other)?,
+                )
+                .unwrap();
+            #[cfg(not(feature = "raw-ip-runtime"))]
+            let _ = (access, main_sent);
+
+            let mut entered = Some(entered);
+            let read = io.read_u8();
+            tokio::pin!(read);
+            std::future::poll_fn(|cx| {
+                let result = read.as_mut().poll(cx);
+                if result.is_pending() {
+                    if let Some(entered) = entered.take() {
+                        let _ = entered.send(());
+                    }
+                }
+                result
+            })
+            .await?;
+            Err(EngineError::NoInbounds)
+        })
+        .unwrap();
+    owner.seal_listener_installation();
+    pending.await.unwrap();
+    #[cfg(feature = "raw-ip-runtime")]
+    let actual_main = main_received.await.unwrap();
+    #[cfg(not(feature = "raw-ip-runtime"))]
+    let _ = main_received;
+    #[cfg(feature = "raw-ip-runtime")]
+    let original_main_task = actual_main.task_id().expect("actual registered main task");
+    let waiting = observers.join_next_running();
+    tokio::pin!(waiting);
+    assert!(futures_util::poll!(&mut waiting).is_pending());
+    proxy
+        .inbound_owners
+        .observers
+        .enqueue_system_tun(owner.clone(), None)
+        .unwrap();
+    remote.write_u8(1).await.unwrap();
+    assert!(timeout(Duration::from_secs(2), &mut waiting)
+        .await
+        .unwrap()
+        .unwrap()
+        .unwrap()
+        .is_err());
+    assert!(
+        *stopping.borrow_and_update(),
+        "actual observer consumed the fault and stopped its owner"
+    );
+    let receipt = proxy
+        .inbound_owners
+        .confirm_shutdown("dynamic-source", Instant::now() + Duration::from_secs(2))
+        .await
+        .unwrap()
+        .unwrap();
+    #[cfg(feature = "raw-ip-runtime")]
+    assert_eq!(
+        actual_main
+            .try_joined()
+            .expect("actual source main joined through original observer")
+            .id(),
+        original_main_task
+    );
+    assert_eq!(receipt.terminal().joined_tasks(), 1);
+    assert!(receipt.terminal().failure().is_some());
+}

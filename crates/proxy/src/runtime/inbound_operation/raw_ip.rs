@@ -49,6 +49,12 @@ pub(crate) struct RawIpInboundDispatch {
 }
 
 pub(crate) trait RawIpInboundDevice: Send {
+    /// Actual protocol-owned pending inner payloads, not timer/key metadata.
+    /// An implementation without a complete observation cannot ACK idle.
+    fn quiescent(&self) -> bool {
+        false
+    }
+
     /// Protocol-owned assigned addresses, distinct from AllowedIPs prefixes.
     fn is_local_address(&self, _address: IpAddr) -> bool {
         false
@@ -87,13 +93,80 @@ pub(crate) trait RawIpInboundDevice: Send {
 }
 
 pub(crate) struct PacketSourceContext {
-    pub original: zero_platform_tokio::controlled_datagram::listener::DatagramListenerIdentity,
+    pub original: PacketSourceOriginal,
+    children: children::RawIpChildren,
+    pub(super) tun: Option<crate::inbound::tun::TunIngressOptions>,
+}
+pub(crate) enum PacketSourceOriginal {
+    Listener(zero_platform_tokio::controlled_datagram::listener::DatagramListenerIdentity),
+    Device(zero_platform_tokio::contract::component::PacketDeviceIdentity),
+}
+pub(crate) struct PreparedDevicePacketSource {
+    instance: zero_core::component::ComponentInstanceId,
+    scope: zero_platform_tokio::contract::scope::TaskScopeIdentity,
     children: children::RawIpChildren,
 }
+impl PreparedDevicePacketSource {
+    pub(crate) fn complete_tun(
+        self,
+        actual: &zero_platform_tokio::controlled_carrier::PacketProviderRegistration,
+        options: crate::inbound::tun::TunIngressOptions,
+    ) -> Result<PacketSourceContext, EngineError> {
+        let mut source = self.complete(actual)?;
+        source.tun = Some(options);
+        Ok(source)
+    }
+    /// Complete only from the concrete acquired host provider; cold preparation
+    /// cannot mint a PacketDeviceIdentity, native controller or device grant.
+    pub(crate) fn complete(
+        self,
+        actual: &zero_platform_tokio::controlled_carrier::PacketProviderRegistration,
+    ) -> Result<PacketSourceContext, EngineError> {
+        if actual.instance() != self.instance
+            || !actual.device().scope().same_scope(&self.scope)
+            || !actual.driver().scope_identity().same_scope(&self.scope)
+        {
+            return Err(std::io::Error::other(
+                "device source differs from its actual cold host instance/Scope",
+            )
+            .into());
+        }
+        Ok(PacketSourceContext {
+            original: PacketSourceOriginal::Device(actual.device().clone()),
+            children: self.children,
+            tun: None,
+        })
+    }
+}
 impl PacketSourceContext {
+    /// Install every child responsibility before the main driver snapshots the
+    /// original owner. This acquires no device/native IO and starts no task.
+    pub(crate) fn prepare_device_source(
+        context: &crate::runtime::inbound_owners::InboundInstallContext,
+    ) -> Result<PreparedDevicePacketSource, EngineError> {
+        let mut children = children::RawIpChildren::device();
+        children.install(context)?;
+        Ok(PreparedDevicePacketSource {
+            instance: context.owner().identity(),
+            scope: context.tasks().peer_registrar().scope_identity(),
+            children,
+        })
+    }
+
     pub(crate) const MAX_ICMP_PROBES: usize = icmp::MAX_ECHO_PROBES;
+    pub(crate) fn device_task_limit() -> usize {
+        Self::internal_task_limit()
+            + crate::inbound::tun::MAX_TCP_DNS_CONNECTIONS
+            + usize::from(cfg!(target_os = "windows")) // actual same-Scope SDK reader
+    }
     pub(crate) fn internal_task_limit() -> usize {
-        tcp::MAX_CONNECTIONS + crate::inbound::tun::udp::OwnedTunUdpTasks::MAX_ASSOCIATIONS + 1
+        tcp::MAX_CONNECTIONS
+            + crate::inbound::tun::udp::OwnedTunUdpTasks::MAX_ASSOCIATIONS
+            + crate::inbound::tun::udp::OwnedTunUdpTasks::MAX_DNS
+            + zero_stack::UserTcpStack::BACKGROUND_TASK_LIMIT
+            + Self::MAX_ICMP_PROBES
+            + 2 // actual TCP accept and UDP dispatch loops
+            + 1 // original native wire driver
     }
     pub(in crate::runtime) fn install(
         context: &crate::runtime::inbound_owners::InboundInstallContext,
@@ -101,7 +174,11 @@ impl PacketSourceContext {
     ) -> Result<Self, EngineError> {
         let mut children = children::RawIpChildren::new();
         children.install(context)?;
-        Ok(Self { original, children })
+        Ok(Self {
+            original: PacketSourceOriginal::Listener(original),
+            children,
+            tun: None,
+        })
     }
 }
 pub(crate) struct RawIpInboundEndpoint {

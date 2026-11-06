@@ -66,11 +66,30 @@ pub(super) fn prepare_flow(
     {
         return None;
     }
-    let (server, port) = input.protocol.endpoint()?;
+    let endpoint = input.protocol.endpoint();
+    if endpoint.is_none()
+        && (![
+            zero_platform_tokio::contract::component::RoleKind::Packet,
+            zero_platform_tokio::contract::component::RoleKind::Stream,
+            zero_platform_tokio::contract::component::RoleKind::Datagram,
+        ]
+        .iter()
+        .all(|role| slot.recipe.spec().roles.contains(role))
+            || plan.device_component(slot.id).is_err())
+    {
+        return Some(Err(crate::runtime::udp_dispatch::FlowFailure {
+            stage: "udp_datagram_open",
+            error: invalid(
+                Reason::StalePlan,
+                "registered Datagram has no canonical device dependency",
+            ),
+            upstream: None,
+        }));
+    }
     let failure = |stage, error| crate::runtime::udp_dispatch::FlowFailure {
         stage,
         error,
-        upstream: Some((server.into(), port)),
+        upstream: endpoint.map(|(server, port)| (server.into(), port)),
     };
     if !ctx.udp_enabled_for_outbound(Some(&input.tag)) {
         return Some(Err(failure(
@@ -79,13 +98,8 @@ pub(super) fn prepare_flow(
         )));
     }
     Some(
-        DatagramAssociationTarget::resolve(
-            &ctx.packet_path_execution_services().tcp(),
-            &input.tag,
-            server,
-            port,
-        )
-        .map_err(|error| failure("udp_datagram_open", error)),
+        DatagramAssociationTarget::resolve_endpoint(&execution, &input.tag, endpoint)
+            .map_err(|error| failure("udp_datagram_open", error)),
     )
 }
 
@@ -94,19 +108,30 @@ pub(super) fn prepare_flow(
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct DatagramAssociationTarget {
     tag: String,
-    server: String,
-    port: u16,
+    endpoint: Option<(String, u16)>,
     instance: zero_core::component::ComponentInstanceId,
 }
 impl DatagramAssociationTarget {
-    pub(crate) fn endpoint(&self) -> (&str, &str, u16) {
-        (&self.tag, &self.server, self.port)
+    pub(crate) fn tag(&self) -> &str {
+        &self.tag
+    }
+    pub(crate) fn endpoint(&self) -> Option<(&str, u16)> {
+        self.endpoint
+            .as_ref()
+            .map(|(server, port)| (server.as_str(), *port))
     }
     pub(crate) fn resolve(
         execution: &crate::protocol_registry::TcpExecutionServices,
         tag: &str,
         server: &str,
         port: u16,
+    ) -> Result<Self, zero_engine::EngineError> {
+        Self::resolve_endpoint(execution, tag, Some((server, port)))
+    }
+    pub(crate) fn resolve_endpoint(
+        execution: &crate::protocol_registry::TcpExecutionServices,
+        tag: &str,
+        endpoint: Option<(&str, u16)>,
     ) -> Result<Self, zero_engine::EngineError> {
         let plan = execution.components.as_ref().map_err(|error| {
             zero_engine::EngineError::Io(std::io::Error::other(
@@ -118,8 +143,7 @@ impl DatagramAssociationTarget {
             .ok_or_else(|| invalid(Reason::Unsupported, "upstream Datagram role is unavailable"))?;
         let target = Self {
             tag: tag.into(),
-            server: server.into(),
-            port,
+            endpoint: endpoint.map(|(server, port)| (server.into(), port)),
             instance: slot.instance_id(),
         };
         target.current_slot(execution)?;
@@ -149,7 +173,7 @@ impl DatagramAssociationTarget {
                     "upstream Datagram configuration was retired",
                 )
             })?;
-        if input.protocol.endpoint() != Some((&self.server, self.port)) {
+        if input.protocol.endpoint() != self.endpoint() {
             return Err(invalid(
                 Reason::StalePlan,
                 "upstream Datagram endpoint was retired",
@@ -169,6 +193,12 @@ impl DatagramAssociationTarget {
                 "upstream Datagram generation was retired",
             ));
         }
+        if self.endpoint.is_none() && !plan.has_device_carrier_provider(slot.role_id()) {
+            return Err(invalid(
+                Reason::StalePlan,
+                "Datagram device original provider is unavailable",
+            ));
+        }
         Ok(slot)
     }
 }
@@ -177,8 +207,8 @@ impl UpstreamAssociationTarget for DatagramAssociationTarget {
     fn outbound_tag(&self) -> &str {
         &self.tag
     }
-    fn log_parts(&self) -> (&str, &str, u16) {
-        (&self.tag, &self.server, self.port)
+    fn log_parts(&self) -> (&str, Option<(&str, u16)>) {
+        (&self.tag, self.endpoint())
     }
 }
 fn invalid(reason: Reason, message: &'static str) -> zero_engine::EngineError {

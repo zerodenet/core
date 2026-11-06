@@ -2,7 +2,7 @@
 use super::*;
 use crate::component::instance::{ComponentTaskFault, WaitTarget};
 use std::{
-    future::{poll_fn, Future},
+    future::{Future, poll_fn},
     task::Poll,
 };
 
@@ -68,6 +68,12 @@ impl ComponentCatalog {
                     for slot in self.supervised_slots() {
                         slot.poll_tasks(target);
                     }
+                    if let Some(probes) = self.probes.get().and_then(std::sync::Weak::upgrade) {
+                        probes.poll(target);
+                    }
+                    // One scan per actual Host, including retained orphaned
+                    // Carrier originals outside the current protocol census.
+                    self.original_budgets().poll_carrier_originals(target);
                 },
                 work,
             )
@@ -114,6 +120,13 @@ impl ComponentCatalog {
             if let Some(fault) = self.first_task_fault() {
                 return fault.error();
             }
+            if let Some(fault) = self
+                .supervised_slots()
+                .iter()
+                .find_map(|slot| slot.owned_start_failure())
+            {
+                return crate::component::instance::retained(fault);
+            }
             changed.await;
         }
     }
@@ -148,3 +161,36 @@ pub mod testing;
 #[cfg(test)]
 #[path = "../tests/supervision_wake.rs"]
 mod wake_tests;
+
+impl ComponentCatalog {
+    pub(crate) fn attach_probe_owner(
+        &self,
+        owner: std::sync::Weak<crate::probe_owner::ProbeOwner>,
+    ) {
+        self.admission.bind_probe_owner(owner.clone());
+        assert!(
+            self.probes.set(owner).is_ok(),
+            "one diagnostic owner per actual host"
+        );
+    }
+    pub(crate) fn probe_registrar(
+        &self,
+        config: &Arc<RuntimeConfig>,
+        tag: Option<&str>,
+    ) -> Result<zero_platform_tokio::contract::scope::TaskRegistrar, ChannelError> {
+        let plan = {
+            let state = self.state.lock().expect("component catalog poisoned");
+            state
+                .current
+                .iter()
+                .chain(state.staged.iter())
+                .find(|entry| entry.matches(config))
+                .and_then(|entry| entry.plan.as_ref().ok())
+                .cloned()
+                .ok_or_else(|| {
+                    invalid(Reason::StalePlan, "probe lacks its accepted started plan")
+                })?
+        };
+        plan.direct(tag)?.probe_registrar()
+    }
+}

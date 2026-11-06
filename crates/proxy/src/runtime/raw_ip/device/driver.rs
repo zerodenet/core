@@ -14,8 +14,11 @@ use zero_engine::EngineError;
 use zero_stack::{
     client_udp::ClientUdpStack, packet, ClientTcpStack, FragmentReassembler, OwnedFragmentOutcome,
 };
+mod native;
 
 pub(super) struct Device {
+    pub(super) users: Option<Arc<crate::runtime::packet_flow::FlowUsers>>,
+    pub(super) input: Option<super::wire::NativeWireInput>,
     pub(super) traffic: super::super::RawIpTraffic,
     pub(super) endpoint: SocketAddr,
     pub(super) carrier: Arc<dyn RawIpWireCarrier>,
@@ -55,6 +58,12 @@ async fn run_device_inner(
     device: &mut Device,
     ready: &watch::Sender<Option<Result<(), String>>>,
 ) -> Result<(), EngineError> {
+    if let Some(input) = device.input.take() {
+        return match input.receive().await? {
+            Some((reads, checkpoint)) => native::run(device, ready, reads, checkpoint).await,
+            None => Ok(()),
+        };
+    }
     let actions = device
         .tunnel
         .initiate_handshake()

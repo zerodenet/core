@@ -41,6 +41,17 @@ impl Window {
         false
     }
 }
+#[derive(Default)]
+pub(super) struct Book {
+    // Field order matters: actual bitmap storage is returned before its charge.
+    window: Option<Window>,
+    _charge: Option<super::legacy_budget::Charge>,
+}
+impl Book {
+    pub(super) fn has_history(&self) -> bool {
+        self.window.is_some()
+    }
+}
 #[derive(Clone)]
 pub(crate) struct LegacyReplay {
     policy: ReplayPolicy,
@@ -48,9 +59,24 @@ pub(crate) struct LegacyReplay {
     modern_capacity: Option<usize>,
     #[cfg(feature = "blake3")]
     modern: Arc<crate::shared::ReplaySaltPool>,
+    #[cfg(feature = "blake3")]
+    udp_budget: Arc<crate::udp::UdpReplayBudget>,
+    #[cfg(feature = "blake3")]
+    udp_limits: Option<crate::udp::UdpBudgetLimits>,
+    #[cfg(feature = "blake3")]
+    udp_received:
+        Arc<Mutex<std::collections::HashMap<String, crate::udp::session::ReceiveWindows>>>,
+    #[cfg(feature = "blake3")]
+    udp_responses:
+        Arc<Mutex<std::collections::HashMap<String, crate::udp::session::ResponseSessions>>>,
     // Allocate only when an enabled policy sees its first authenticated salt.
-    state: Arc<Mutex<Option<Window>>>,
+    state: Arc<Mutex<Book>>,
+    bloom_budget: Arc<super::LegacyReplayBudget>,
+    bloom_limit: Option<usize>,
 }
+#[path = "legacy_replay/budget.rs"]
+mod budget;
+
 impl LegacyReplay {
     pub(crate) fn generate(&self, length: usize) -> Result<Vec<u8>, Error> {
         let mut nonce = vec![0; length];
@@ -69,24 +95,112 @@ impl LegacyReplay {
                 .state
                 .lock()
                 .map_err(|_| Error::Protocol("ss: legacy replay state poisoned"))?;
-            if !state
-                .get_or_insert_with(|| Window::new(self.server))
-                .duplicate(&nonce)
-            {
+            if !self.window(&mut state)?.duplicate(&nonce) {
                 return Ok(nonce);
             }
         }
     }
 
+    pub(crate) fn with_policy(mut self, policy: ReplayPolicy) -> Self {
+        self.policy = policy;
+        self
+    }
+    #[cfg(feature = "blake3")]
+    pub(crate) fn with_modern_history(mut self, pool: &crate::shared::ReplaySaltPool) -> Self {
+        self.modern = Arc::new(pool.alias(self.modern_capacity));
+        self
+    }
+    #[cfg(feature = "blake3")]
+    pub(crate) fn with_udp_replay_budget(
+        mut self,
+        budget: Arc<crate::udp::UdpReplayBudget>,
+    ) -> Result<Self, Error> {
+        if !Arc::ptr_eq(&self.udp_budget, &budget)
+            && (!self
+                .udp_received
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner)
+                .is_empty()
+                || !self
+                    .udp_responses
+                    .lock()
+                    .unwrap_or_else(std::sync::PoisonError::into_inner)
+                    .is_empty())
+        {
+            return Err(Error::Config("cannot fork retained SS UDP security books"));
+        }
+        self.udp_budget = budget;
+        Ok(self)
+    }
+    #[cfg(feature = "blake3")]
+    pub(crate) fn with_udp_budget_limits(
+        mut self,
+        limits: crate::udp::UdpBudgetLimits,
+    ) -> Result<Self, Error> {
+        self.udp_budget.validate(limits)?;
+        self.udp_limits = Some(limits);
+        Ok(self)
+    }
+    #[cfg(feature = "blake3")]
+    pub(crate) fn udp_budget_identity(&self) -> (usize, Option<crate::udp::UdpBudgetLimits>) {
+        (Arc::as_ptr(&self.udp_budget) as usize, self.udp_limits)
+    }
+    #[cfg(feature = "blake3")]
+    pub(crate) fn activate_udp_budget(&self) -> Result<(), Error> {
+        if let Some(limits) = self.udp_limits {
+            self.udp_budget.install(limits)?;
+        }
+        Ok(())
+    }
+    #[cfg(feature = "blake3")]
+    pub(crate) fn udp_replay_budget(&self) -> Arc<crate::udp::UdpReplayBudget> {
+        self.udp_budget.clone()
+    }
+    #[cfg(feature = "blake3")]
+    pub(crate) fn received_for_user(
+        &self,
+        key: String,
+        limits: crate::validation::StateLimits,
+    ) -> crate::udp::session::ReceiveWindows {
+        let mut books = self
+            .udp_received
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        books.retain(|_, original| !original.unused());
+        books
+            .entry(key)
+            .or_insert_with(|| {
+                crate::udp::session::ReceiveWindows::with_budget(limits, self.udp_budget.clone())
+            })
+            .clone()
+            .with_limits_view(limits)
+    }
+    #[cfg(feature = "blake3")]
+    pub(crate) fn responses_for_user(
+        &self,
+        key: String,
+        limits: crate::validation::StateLimits,
+    ) -> crate::udp::session::ResponseSessions {
+        let mut books = self
+            .udp_responses
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        books.retain(|_, original| !original.unused());
+        let mut original = books
+            .entry(key)
+            .or_insert_with(|| {
+                crate::udp::session::ResponseSessions::with_budget(limits, self.udp_budget.clone())
+            })
+            .clone();
+        original.set_limits(limits);
+        original
+    }
     pub(crate) fn with_tcp_capacity(mut self, capacity: Option<usize>) -> Self {
         if self.modern_capacity != capacity {
             self.modern_capacity = capacity;
             #[cfg(feature = "blake3")]
             {
-                self.modern = Arc::new(crate::shared::ReplaySaltPool::configured(
-                    crate::shared::ReplaySaltPool::DEFAULT_TTL,
-                    capacity,
-                ));
+                self.modern = Arc::new(self.modern.alias(capacity));
             }
         }
         self
@@ -111,7 +225,17 @@ impl LegacyReplay {
             modern_capacity: None,
             #[cfg(feature = "blake3")]
             modern: Arc::new(crate::shared::ReplaySaltPool::new()),
+            #[cfg(feature = "blake3")]
+            udp_budget: Default::default(),
+            #[cfg(feature = "blake3")]
+            udp_limits: None,
+            #[cfg(feature = "blake3")]
+            udp_received: Default::default(),
+            #[cfg(feature = "blake3")]
+            udp_responses: Default::default(),
             state: Default::default(),
+            bloom_budget: Default::default(),
+            bloom_limit: None,
         }
     }
     pub(crate) fn check(&self, salt: &[u8]) -> Result<(), Error> {
@@ -122,10 +246,7 @@ impl LegacyReplay {
             .state
             .lock()
             .map_err(|_| Error::Protocol("ss: legacy replay state poisoned"))?;
-        if state
-            .get_or_insert_with(|| Window::new(self.server))
-            .duplicate(salt)
-        {
+        if self.window(&mut state)?.duplicate(salt) {
             if self.policy == ReplayPolicy::Reject {
                 return Err(Error::Protocol("ss: legacy replay rejected"));
             }

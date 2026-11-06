@@ -1,19 +1,19 @@
 //! One native holder for the canonical listener declaration, never two budgets.
 use super::*;
 use zero_platform_tokio::{
-    contract::{
-        component::ResourceDeclaration,
-        lifecycle::{erase_lifecycle, DynResourceLifecycle},
-        ChannelError,
-    },
     ControlledTcpListener,
+    contract::{
+        ChannelError,
+        component::ResourceDeclaration,
+        lifecycle::{DynResourceLifecycle, erase_lifecycle},
+    },
 };
 pub(in crate::runtime::inbound_owners) mod handoff;
 mod metadata;
 mod tcp_group;
 pub(in crate::runtime::inbound_owners) use tcp_group::MetadataViews;
 #[cfg(feature = "datagram-route-runtime")]
-mod udp;
+pub(in crate::runtime::inbound_owners) mod udp;
 
 pub(crate) enum NativeListenerView {
     Tcp(ControlledTcpListener),
@@ -58,6 +58,7 @@ impl NativeBindGrant {
         attempts: NonZeroUsize,
         cancel: CancellationToken,
         registrar: &zero_platform_tokio::contract::scope::TaskRegistrar,
+        originals: Arc<zero_runtime::HostOriginalBudgets>,
         owner: Weak<InboundOwner>,
     ) -> Result<Self, ChannelError> {
         let declaration = declarations.first().ok_or_else(|| {
@@ -85,7 +86,7 @@ impl NativeBindGrant {
         }
         match declaration {
             ResourceDeclaration::MetadataDatagram { .. } => {
-                let resources = crate::component::instance::HostResources::new_for_instance(
+                let resources = crate::component::instance::HostResources::new_hosted(
                     identity,
                     &declarations
                         .iter()
@@ -99,7 +100,8 @@ impl NativeBindGrant {
                         .cloned()
                         .collect::<Vec<_>>(),
                     cancel.clone(),
-                    registrar.scope_identity(),
+                    registrar.downgrade(),
+                    originals.clone(),
                 )?;
                 let tcp = tcp_group::prepare(identity, declarations, attempts, cancel, registrar)?;
                 Ok(Self::Metadata { resources, tcp })
@@ -115,11 +117,21 @@ impl NativeBindGrant {
             .map(Arc::new)
             .map(Self::Tcp),
             #[cfg(feature = "datagram-route-runtime")]
-            ResourceDeclaration::DatagramListener { .. } => {
-                udp::NativeDatagramGrant::new(identity, declaration, address, attempts, cancel)
-                    .map(Arc::new)
-                    .map(Self::Datagram)
-            }
+            ResourceDeclaration::DatagramListener { .. } => udp::NativeDatagramGrant::new_scoped(
+                identity,
+                declaration,
+                address,
+                attempts,
+                cancel,
+                registrar.clone(),
+            )
+            .and_then(|grant| {
+                grant
+                    .with_original_budgets(originals)
+                    .with_packet_reads(declarations)
+            })
+            .map(Arc::new)
+            .map(Self::Datagram),
             _ => Err(ChannelError::new(
                 zero_platform_tokio::contract::Stage::Prepare,
                 zero_platform_tokio::contract::Reason::Unsupported,
@@ -171,6 +183,13 @@ impl NativeBindGrant {
             #[cfg(feature = "datagram-route-runtime")]
             Self::Datagram(grant) => erase_lifecycle(udp::DatagramResource(grant.clone())),
         }
+    }
+    pub(super) fn needs_packet_reads(&self) -> bool {
+        #[cfg(feature = "datagram-route-runtime")]
+        if let Self::Datagram(grant) = self {
+            return grant.needs_packet_reads();
+        }
+        false
     }
     pub(super) fn bind(&self) -> Result<NativeListenerView, EngineError> {
         match self {

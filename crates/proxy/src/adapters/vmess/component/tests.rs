@@ -128,7 +128,7 @@ fn grpc_ca_production_projection_keeps_candidate_directory_and_file_budget() {
         .unwrap();
     let spec = grpc::Factory.describe(&options);
     assert!(
-        matches!(&spec.resources[..],[ResourceDeclaration::File{path,max_bytes:12345},ResourceDeclaration::ControlledNodeStream{..},ResourceDeclaration::ControlledCarrierPool{datagram:false,..}] if path==std::path::Path::new("/not-opened/config/../ca.pem"))
+        matches!(&spec.resources[..],[ResourceDeclaration::File{path,max_bytes:12345},ResourceDeclaration::ControlledNodeStream{..},ResourceDeclaration::ControlledServiceStream{..}] if path==std::path::Path::new("/not-opened/config/../ca.pem"))
     );
 }
 
@@ -286,3 +286,6 @@ async fn ordinary_mux_prefix_does_not_adopt_legacy_io_after_transport_change_or_
     drop(actual);
     drop(listener);
 }
+
+#[path = "tests/material.rs"]
+mod material;

@@ -10,7 +10,7 @@ impl Managed {
         &self,
         io: CarrierIo,
         record: Arc<Record>,
-        prepared_tls: Option<zero_transport::tls::PreparedClient>,
+        prepared_tls: Option<zero_transport::tls::OwnedPreparedClient>,
         context: &OpenContext,
         user_view: Option<CarrierUserView>,
         epoch: (
@@ -24,8 +24,13 @@ impl Managed {
             let io = zero_transport::TcpRelayStream::new(crate::component::carrier::Carrier::new(
                 Box::pin(io),
             ));
+            let prepared_tls = if let Some(material) = &owner.options.base.material {
+                Some(material.prepare(owner.ech_resolver.as_deref()).await?)
+            } else {
+                prepared_tls
+            };
             let io = if let Some(prepared) = prepared_tls {
-                prepared.connect(io, &owner.options.base.server).await?
+                prepared.connect(io).await?
             } else if let Some(tls) = &owner.options.base.tls {
                 zero_transport::tls::connect_tls_stream(io, tls, None, &owner.options.base.server)
                     .await?
