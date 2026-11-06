@@ -2,15 +2,16 @@
 //! read, write, flush and half-close. No detached task or application queue.
 use super::owned::{H2ClientDriver, OwnedH2Client, PreparedH2Client};
 use super::*;
-use futures_util::task::{ArcWake, AtomicWaker, waker_ref};
+use futures_util::task::{waker_ref, ArcWake, AtomicWaker};
 use std::sync::{
-    Arc, Mutex,
     atomic::{AtomicBool, Ordering},
+    Arc, Mutex,
 };
 struct WakeBoth {
     reader: AtomicWaker,
     writer: AtomicWaker,
     ready: AtomicBool,
+    polling: AtomicBool,
 }
 impl Default for WakeBoth {
     fn default() -> Self {
@@ -18,6 +19,7 @@ impl Default for WakeBoth {
             reader: AtomicWaker::new(),
             writer: AtomicWaker::new(),
             ready: AtomicBool::new(true),
+            polling: AtomicBool::new(false),
         }
     }
 }
@@ -29,8 +31,23 @@ impl ArcWake for WakeBoth {
         if this.ready.swap(true, Ordering::AcqRel) {
             return;
         }
-        this.reader.wake();
-        this.writer.wake();
+        if !this.polling.load(Ordering::Acquire) {
+            this.reader.wake();
+            this.writer.wake();
+        }
+    }
+}
+/// A synchronous turn may consume its own DATA/WINDOW_UPDATE notification
+/// before returning. Defer that notification until the turn exits, including
+/// unwinding; only still-unconsumed readiness needs another application poll.
+struct Polling<'a>(&'a WakeBoth);
+impl Drop for Polling<'_> {
+    fn drop(&mut self) {
+        self.0.polling.store(false, Ordering::Release);
+        if self.0.ready.load(Ordering::Acquire) {
+            self.0.reader.wake();
+            self.0.writer.wake();
+        }
     }
 }
 pub(super) struct Inline(Mutex<State>);
@@ -49,23 +66,48 @@ impl Inline {
     }
 }
 impl State {
-    fn drive(&mut self) {
-        let Some(driver) = &mut self.driver else {
+    fn drive(driver: &mut Option<H2ClientDriver>, wake: &Arc<WakeBoth>) {
+        let Some(future) = driver.as_mut() else {
             return;
         };
         // Poll only the original driver's initial turn or actual wake. An
         // application capacity-Pending poll supplies no new native readiness.
         // Clear before polling so an inline wake preserves the next turn.
-        if !self.wake.ready.swap(false, Ordering::AcqRel) {
+        if !wake.ready.swap(false, Ordering::AcqRel) {
             return;
         }
-        let wake = waker_ref(&self.wake);
-        let mut cx = Context::from_waker(&wake);
-        if driver.as_mut().poll(&mut cx).is_ready() {
-            self.driver = None;
-            self.wake.reader.wake();
-            self.wake.writer.wake();
+        let driver_waker = waker_ref(wake);
+        let mut cx = Context::from_waker(&driver_waker);
+        if future.as_mut().poll(&mut cx).is_ready() {
+            *driver = None;
+            wake.reader.wake();
+            wake.writer.wake();
         }
+    }
+    fn poll<T>(
+        &mut self,
+        cx: &mut Context<'_>,
+        reading: bool,
+        operation: impl FnOnce(Pin<&mut OwnedH2Client>, &mut Context<'_>) -> Poll<io::Result<T>>,
+    ) -> Poll<io::Result<T>> {
+        let Self {
+            stream,
+            driver,
+            wake,
+        } = self;
+        if reading {
+            wake.reader.register(cx.waker());
+        } else {
+            wake.writer.register(cx.waker());
+        }
+        wake.polling.store(true, Ordering::Release);
+        let _polling = Polling(wake);
+        Self::drive(driver, wake);
+        let result = operation(Pin::new(stream), cx);
+        // The same original is also driven after application enqueue/credit
+        // return. Pending capacity alone cannot manufacture readiness.
+        Self::drive(driver, wake);
+        result
     }
 }
 impl AsyncRead for Inline {
@@ -79,12 +121,7 @@ impl AsyncRead for Inline {
             .0
             .get_mut()
             .expect("exclusive inline H2 carrier");
-        this.wake.reader.register(cx.waker());
-        this.drive();
-        let result = Pin::new(&mut this.stream).poll_read(cx, out);
-        // Read releases real H2 credit; progress its outbound WINDOW_UPDATE too.
-        this.drive();
-        result
+        this.poll(cx, true, |stream, cx| stream.poll_read(cx, out))
     }
 }
 impl AsyncWrite for Inline {
@@ -98,13 +135,7 @@ impl AsyncWrite for Inline {
             .0
             .get_mut()
             .expect("exclusive inline H2 carrier");
-        this.wake.writer.register(cx.waker());
-        this.drive();
-        let result = Pin::new(&mut this.stream).poll_write(cx, bytes);
-        // This includes capacity-Pending writes: SETTINGS/WINDOW_UPDATE and the
-        // original socket remain driven even when no application read exists.
-        this.drive();
-        result
+        this.poll(cx, false, |stream, cx| stream.poll_write(cx, bytes))
     }
     fn poll_flush(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
         let this = self
@@ -112,11 +143,7 @@ impl AsyncWrite for Inline {
             .0
             .get_mut()
             .expect("exclusive inline H2 carrier");
-        this.wake.writer.register(cx.waker());
-        this.drive();
-        let result = Pin::new(&mut this.stream).poll_flush(cx);
-        this.drive();
-        result
+        this.poll(cx, false, |stream, cx| stream.poll_flush(cx))
     }
     fn poll_shutdown(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
         let this = self
@@ -124,10 +151,6 @@ impl AsyncWrite for Inline {
             .0
             .get_mut()
             .expect("exclusive inline H2 carrier");
-        this.wake.writer.register(cx.waker());
-        this.drive();
-        let result = Pin::new(&mut this.stream).poll_shutdown(cx);
-        this.drive();
-        result
+        this.poll(cx, false, |stream, cx| stream.poll_shutdown(cx))
     }
 }
