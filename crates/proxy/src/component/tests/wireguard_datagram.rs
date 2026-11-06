@@ -33,6 +33,13 @@ async fn ordinary_device_datagrams_keep_absent_endpoint_and_actual_source_across
         }).to_string()).unwrap();
         let proxy=Proxy::new(config.clone()).unwrap();
         assert!(DatagramAssociationTarget::resolve_endpoint(&proxy.tcp_runtime_services().execution(),"wg",None).is_err(),"cold role metadata cannot supply the native source grant");
+        {
+            let (resolved,_plan)=proxy.engine().resolve_route_decision(RouteDecision::Route("wg".into())).unwrap();
+            let session=Session::new(7,Address::Ipv4([198,51,100,10]),80,Network::Udp,ProtocolType::new("test"));
+            let snapshot=proxy.engine().runtime_snapshot();
+            let prepared=proxy.protocols.prepare_udp_outbound(UdpAdapterContext::new(snapshot.config(),proxy.udp_runtime_services()),&session,&resolved,b"probe",RouteMode::Flow);
+            assert!(prepared.is_err(),"the canonical role whose source is still cold cannot fall back to its legacy PacketFlow executor");
+        }
         let running=proxy.spawn();
         let handle=ProxyHandle::new(zero_engine::EngineHandle::new(proxy.engine().clone()),proxy.clone());
         handle.apply_runtime_config_and_wait(config,Duration::from_secs(5)).await.unwrap();
