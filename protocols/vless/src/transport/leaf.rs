@@ -103,6 +103,8 @@ impl VlessOutboundLeaf {
         leaf.transport.share_xhttp_pool(runtime, tag);
         leaf.transport.share_browser_dialer(runtime);
         leaf.transport.set_download(download, runtime, tag);
+        leaf.transport
+            .bind_material_registry(runtime.client_material.clone());
         leaf.transport.set_encryption(protocol.encryption)?;
         leaf.transport.mkcp = mkcp;
         leaf.transport.hysteria = hysteria

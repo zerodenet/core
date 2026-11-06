@@ -123,7 +123,9 @@ impl VlessManagedUdpFlowResume {
                         if leaf.mux_pool.native_stream_dependency()?.is_some() {
                             leaf.transport.encrypt(io).await
                         } else {
-                            leaf.transport.open_relay(io).await
+                            leaf.transport
+                                .open_owned_mux_carrier(io, leaf.mux_pool.native_instance()?)
+                                .await
                         }
                     },
                 )

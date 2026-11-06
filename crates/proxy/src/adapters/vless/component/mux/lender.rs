@@ -1,5 +1,5 @@
 //! The existing cached gRPC pool lends its real body to the one MUX driver.
-use crate::component::background::{pool, BackgroundCarrier};
+use crate::component::background::{pool as background_pool, BackgroundCarrier};
 use std::sync::Arc;
 use zero_core::{
     component::{ComponentId, ComponentInstanceId},
@@ -21,14 +21,17 @@ use zero_platform_tokio::{
 use zero_transport::grpc::{Demand, NativePoolOptions};
 
 pub(super) struct Factory {
-    pub(super) background: Arc<pool::Factory>,
+    pub(super) background: Arc<background_pool::Factory>,
     pub(super) dependency: ComponentId,
     pub(super) grpc: Arc<NativePoolOptions>,
 }
 impl ComponentFactory for Factory {
-    type Options = pool::Options;
+    type Options = super::pool::Options;
     fn describe(&self, options: &Self::Options) -> ComponentSpec {
-        self.background.describe(options)
+        super::pool::Factory {
+            background: self.background.clone(),
+        }
+        .describe(options)
     }
     fn build(
         &self,
@@ -43,12 +46,15 @@ impl ComponentFactory for Factory {
         let provider = Arc::new(BackgroundCarrier {
             network: self.background.network.clone(),
             instance,
-            initial: options.pool.binding().clone(),
-            endpoint: options.pool.endpoint().clone(),
+            initial: options.pool.pool_options().binding().clone(),
+            endpoint: options.pool.pool_options().endpoint().clone(),
             wire_endpoint: options.wire_endpoint.clone(),
             tag: options.tag.clone(),
         });
-        let base = UpstreamTransport::new(options.pool.binding().clone(), provider.clone());
+        let base = UpstreamTransport::new(
+            options.pool.pool_options().binding().clone(),
+            provider.clone(),
+        );
         context.background_carrier = Some(UpstreamTransport::new(
             base.binding().clone(),
             Arc::new(Root {
@@ -58,9 +64,13 @@ impl ComponentFactory for Factory {
                 grpc: self.grpc.clone(),
             }),
         ));
-        zero_transport::pooled_driver::PoolFactory.build(
-            Arc::new((*options.pool).clone().with_scoped_preparation()),
+        ::vless::component::mux::OwnedPoolFactory.build_with_ech_resolver(
+            options.pool.clone(),
             context,
+            crate::component::background::grpc::tls_resolver(
+                self.background.network.clone(),
+                instance,
+            ),
         )
     }
 }
