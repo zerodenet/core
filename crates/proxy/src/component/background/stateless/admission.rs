@@ -67,6 +67,8 @@ impl Outbound {
             pending: Mutex::new(Vec::new()),
             preparing: Mutex::new(None),
             cleanup: Default::default(),
+            cleanup_network: self.cleanup_network.clone(),
+            retained_prefix: Default::default(),
             published: false.into(),
             opening: true.into(),
         });

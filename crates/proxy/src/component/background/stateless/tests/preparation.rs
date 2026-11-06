@@ -40,7 +40,8 @@ async fn unpublished_original_waits_for_real_auxiliary_ack_then_same_business_ca
         }));
         let transfers = Arc::new(Mutex::new(Vec::new()));
         let role = Outbound { inner: erase_stream(RawRole(endpoint.clone())),
-            tasks: Some(scope.registrar()), process: None, endpoint: endpoint.clone(), dial: Default::default(),
+            tasks: Some(scope.registrar()),
+            cleanup_network: None, process: None, endpoint: endpoint.clone(), dial: Default::default(),
             grants: owner.grants(), transfers: transfers.clone(), limit: one };
         let context = || OpenContext { identity: RequestIdentity::Business(facts.clone()),
             deadline: None, cancel: demand.0.clone(), upstream: transport.clone(), observer: None };

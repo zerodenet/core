@@ -146,6 +146,11 @@ impl ShadowsocksAdapter {
             .filter(|limit| limit.get() <= 4096)
             .ok_or_else(|| options_error("invalid taskless Stream original limit"))?,
         );
+        let options = if let Some(network) = node_network.clone() {
+            options.with_cleanup_network(network)
+        } else {
+            options
+        };
         let options = if plugin.as_ref().is_some_and(|plugin| plugin.mode.tcp()) {
             options.with_process(
                 process.ok_or_else(|| {

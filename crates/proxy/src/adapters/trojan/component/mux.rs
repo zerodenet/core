@@ -141,19 +141,22 @@ impl TrojanAdapter {
             } else {
                 limit
             };
-            return Ok(Options::Ordinary(Arc::new(stateless::Options::new(
-                super::component_options(input)?,
-                zero_core::request::Destination::new(
-                    match zero_core::address::parse_ip_literal(server) {
-                        Some(std::net::IpAddr::V4(ip)) => zero_core::Address::Ipv4(ip.octets()),
-                        Some(std::net::IpAddr::V6(ip)) => zero_core::Address::Ipv6(ip.octets()),
-                        None => zero_core::Address::Domain(server.clone()),
-                    },
-                    *port,
-                ),
-                input.dial.to_policy(),
-                limit,
-            ))));
+            return Ok(Options::Ordinary(Arc::new(
+                stateless::Options::new(
+                    super::component_options(input)?,
+                    zero_core::request::Destination::new(
+                        match zero_core::address::parse_ip_literal(server) {
+                            Some(std::net::IpAddr::V4(ip)) => zero_core::Address::Ipv4(ip.octets()),
+                            Some(std::net::IpAddr::V6(ip)) => zero_core::Address::Ipv6(ip.octets()),
+                            None => zero_core::Address::Domain(server.clone()),
+                        },
+                        *port,
+                    ),
+                    input.dial.to_policy(),
+                    limit,
+                )
+                .with_cleanup_network(factory.network.clone()),
+            )));
         }
         let input_refs =
             super::super::outbound_options(&input.tag, (server, *port), &input.protocol)

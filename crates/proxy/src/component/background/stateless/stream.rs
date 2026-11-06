@@ -6,6 +6,7 @@ pub(super) struct Outbound {
     // None is the original explicit library contract, which prepares inline.
     // Every ordinary owning Factory installs its real Scope registrar above.
     pub(super) tasks: Option<TaskRegistrar>,
+    pub(super) cleanup_network: Option<Arc<super::super::BackgroundNetwork>>,
     pub(super) process: Option<(
         zero_core::component::ComponentInstanceId,
         std::time::Duration,
@@ -101,7 +102,7 @@ impl StreamOutbound for Outbound {
                     Box::pin(super::caller::CallerIo::new(
                         connected.io,
                         context.cancel.clone(),
-                        transfer.adoption.clone(),
+                        transfer.clone(),
                     )),
                     Box::new(Control(transfer)),
                     original,

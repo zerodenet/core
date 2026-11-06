@@ -32,6 +32,7 @@ use zero_platform_tokio::{
 
 pub(crate) struct Options<T> {
     inner: Arc<T>,
+    cleanup_network: Option<Arc<super::BackgroundNetwork>>,
     endpoint: Destination,
     dial: zero_traits::DialPolicy,
     limit: NonZeroUsize,
@@ -47,12 +48,17 @@ impl<T> Options<T> {
     ) -> Self {
         Self {
             inner: Arc::new(inner),
+            cleanup_network: None,
             endpoint,
             dial,
             limit,
             node_dns: None,
             process: None,
         }
+    }
+    pub(crate) fn with_cleanup_network(mut self, network: Arc<super::BackgroundNetwork>) -> Self {
+        self.cleanup_network = Some(network);
+        self
     }
     pub(crate) fn with_process(
         mut self,
@@ -71,6 +77,7 @@ impl<T> Clone for Options<T> {
     fn clone(&self) -> Self {
         Self {
             inner: self.inner.clone(),
+            cleanup_network: self.cleanup_network.clone(),
             endpoint: self.endpoint.clone(),
             dial: self.dial.clone(),
             limit: self.limit,
@@ -107,6 +114,9 @@ impl<F: ComponentFactory> ComponentFactory for Factory<F> {
         }
         let mut identity = spec.static_identity.to_vec();
         identity.extend_from_slice(b"same-slot-prepared-carrier-v2");
+        if options.cleanup_network.is_some() {
+            identity.extend_from_slice(b"same-retained-catalog-source-v1");
+        }
         identity.extend_from_slice(&options.limit.get().to_le_bytes());
         identity.extend_from_slice(format!("{:?}{:?}", options.endpoint, options.dial).as_bytes());
         if let Some(node) = options.node_dns {
@@ -193,6 +203,7 @@ impl<F: ComponentFactory> ComponentFactory for Factory<F> {
         let outbound = Outbound {
             inner,
             tasks: Some(tasks.clone()),
+            cleanup_network: options.cleanup_network.clone(),
             process,
             endpoint,
             dial,

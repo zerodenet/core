@@ -72,7 +72,7 @@ impl Outbound {
                 io: Box::pin(super::caller::CallerIo::new(
                     connected.io,
                     context.cancel.clone(),
-                    transfer.adoption.clone(),
+                    transfer.clone(),
                 )),
                 peer_confirmation: connected.peer_confirmation,
             });

@@ -10,10 +10,10 @@ use tokio::io::{AsyncRead, AsyncWrite, ReadBuf};
 pub(super) struct CallerIo {
     io: BoxStream,
     cancelled: Pin<Box<dyn Future<Output = ()> + Send>>,
-    original: CarrierAdoption,
+    original: Arc<Transfer>,
 }
 impl CallerIo {
-    pub(super) fn new(io: BoxStream, cancel: CancellationToken, original: CarrierAdoption) -> Self {
+    pub(super) fn new(io: BoxStream, cancel: CancellationToken, original: Arc<Transfer>) -> Self {
         Self {
             io,
             cancelled: Box::pin(cancel.cancelled_owned()),
@@ -22,7 +22,9 @@ impl CallerIo {
     }
     fn check(&mut self, cx: &mut Context<'_>) -> io::Result<()> {
         if self.cancelled.as_mut().poll(cx).is_ready() {
-            self.original.request_retirement();
+            self.original.stop.cancel();
+            self.original.request_pending_retirement();
+            self.original.adoption.request_retirement();
             return Err(io::ErrorKind::Interrupted.into());
         }
         Ok(())
@@ -54,5 +56,13 @@ impl AsyncWrite for CallerIo {
     fn poll_shutdown(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
         self.check(cx)?;
         self.io.as_mut().poll_shutdown(cx)
+    }
+}
+
+impl Drop for CallerIo {
+    fn drop(&mut self) {
+        self.original.stop.cancel();
+        self.original.request_pending_retirement();
+        self.original.adoption.request_retirement();
     }
 }

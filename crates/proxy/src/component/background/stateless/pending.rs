@@ -19,6 +19,17 @@ pub(super) fn transport(
     caller: TaskJoinWitness,
 ) -> Result<UpstreamTransport, ChannelError> {
     let binding = context.upstream.binding().clone();
+    let roles: Arc<[zero_core::component::RoleInstanceId]> = binding.prefix.clone().into();
+    if let Some(previous) = transfer.retained_prefix.get() {
+        if previous.as_ref() != roles.as_ref() {
+            return Err(crate::component::instance::invalid(
+                Reason::StalePlan,
+                "actual retained prefix changed on one original",
+            ));
+        }
+    } else {
+        let _ = transfer.retained_prefix.set(roles);
+    }
     let limit = match context.upstream.pending_carrier_capacity() {
         Some(limit) => limit,
         None if binding.prefix.is_empty() => 0,
@@ -170,6 +181,27 @@ impl UpstreamOpener for Pending {
     }
 }
 impl Transfer {
+    fn retains_cached_driver(&self, original: &CarrierAdoption) -> bool {
+        let Some(network) = &self.cleanup_network else {
+            return false;
+        };
+        let Ok(source) = network.current_services() else {
+            return false;
+        };
+        let Some(roles) = self.retained_prefix.get() else {
+            return false;
+        };
+        if !roles.iter().any(|role| {
+            source
+                .validate_owned_carrier_adoption(*role, original)
+                .is_ok()
+        }) {
+            return false;
+        }
+        original
+            .retained_driver()
+            .is_some_and(|proof| proof.retains(original))
+    }
     pub(super) fn release_pending(&self) {
         let observed = self.pending.lock().unwrap().clone();
         let installed = self.adoption.retained_loan();
@@ -181,9 +213,7 @@ impl Transfer {
                         .users_closed()
                         .is_some_and(|closed| closed.matches(slot))
                     || installed.as_ref().is_some_and(|proof| proof.retains(slot))
-                    || slot
-                        .retained_driver()
-                        .is_some_and(|proof| proof.retains(slot))
+                    || self.retains_cached_driver(slot)
                     || observed.iter().any(|receiver| {
                         !receiver.same_slot(slot)
                             && receiver

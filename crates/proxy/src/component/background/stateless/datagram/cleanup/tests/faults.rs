@@ -183,6 +183,8 @@ async fn actual_socket_faults_share_one_durable_received_row_and_late_secondary_
             pending: Mutex::new(Vec::new()),
             preparing: Mutex::new(None),
             cleanup: Default::default(),
+            cleanup_network: None,
+            retained_prefix: Default::default(),
             owner: tokio::sync::Mutex::new(Some(second.owner)),
             stop: stops.pop().unwrap(),
             adoption: originals[1].clone(),

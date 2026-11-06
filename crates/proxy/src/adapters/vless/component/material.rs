@@ -79,7 +79,8 @@ impl super::super::VlessAdapter {
             crate::inventory::service::endpoint(server, *port),
             input.dial.to_policy(),
             limit,
-        );
+        )
+        .with_cleanup_network(network.clone());
         if zero_core::address::parse_ip_literal(server).is_none()
             || tls
                 .as_ref()

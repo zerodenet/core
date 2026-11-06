@@ -8,6 +8,8 @@ pub(super) struct Transfer {
     pub(super) pending: Mutex<Vec<CarrierAdoption>>,
     pub(super) preparing: Mutex<Option<UpstreamTransport>>,
     pub(super) cleanup: Mutex<super::datagram::cleanup::Cleanup>,
+    pub(super) cleanup_network: Option<Arc<super::super::BackgroundNetwork>>,
+    pub(super) retained_prefix: std::sync::OnceLock<Arc<[zero_core::component::RoleInstanceId]>>,
     pub(super) owner: tokio::sync::Mutex<Option<LoanOwner>>,
     pub(super) stop: CancellationToken,
     pub(super) adoption: CarrierAdoption,
@@ -143,6 +145,7 @@ impl DynChannelControl for Control {
     }
     fn cancel(&self, _: CloseReason) {
         self.0.stop.cancel();
+        self.0.request_pending_retirement();
         self.0.adoption.request_retirement();
     }
     fn wait_closed(&mut self, end: Instant) -> BoxFuture<'_, Result<CloseReport, ChannelError>> {

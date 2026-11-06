@@ -73,12 +73,15 @@ impl super::super::super::VmessAdapter {
                 base.reuse_file_material_from(previous)
                     .map_err(|error| ConfigError::InvalidOutbound(error.to_string()))?;
             }
-            Options::Ordinary(Arc::new(stateless::Options::new(
-                base,
-                crate::inventory::service::endpoint(server, *port),
-                input.dial.to_policy(),
-                limit,
-            )))
+            Options::Ordinary(Arc::new(
+                stateless::Options::new(
+                    base,
+                    crate::inventory::service::endpoint(server, *port),
+                    input.dial.to_policy(),
+                    limit,
+                )
+                .with_cleanup_network(network.clone()),
+            ))
         } else {
             let cap = NonZeroUsize::new(runtime.effective_vmess_grpc_max_originals())
                 .filter(|n| n.get() <= 4096)

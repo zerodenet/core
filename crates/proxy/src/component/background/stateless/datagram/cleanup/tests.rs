@@ -109,6 +109,8 @@ async fn ready_original_report_survives_cancelled_close_while_second_real_tcp_vi
             pending: Mutex::new(Vec::new()),
             preparing: Mutex::new(None),
             cleanup: Default::default(),
+            cleanup_network: None,
+            retained_prefix: Default::default(),
             owner: tokio::sync::Mutex::new(Some(second.owner)),
             stop: stops.pop().unwrap(),
             adoption: originals[1].clone(),
