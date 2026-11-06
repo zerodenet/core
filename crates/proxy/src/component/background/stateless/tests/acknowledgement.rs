@@ -114,7 +114,11 @@ async fn same_taskless_record_keeps_n1_through_real_business_join_and_deferred_h
         let joined = witness.try_joined().unwrap();
         assert!(!joined.registration_released());
         let original = transfers.lock().unwrap()[0].adoption.clone();
-        assert!(original.retire(deadline()).await.unwrap().is_complete());
+        let physical = original.retire_native(deadline()).await.unwrap();
+        assert!(physical.report().is_complete());
+        assert!(physical.closed().unwrap().matches(&original));
+        assert!(!original.try_retire().unwrap().is_complete());
+        assert_eq!(owner.retained(), 1, "native/users closed is distinct from caller ACK and N refund");
         assert!(original.closed().unwrap().had_native_acquisition());
         assert!(original.users_closed().unwrap().matches_caller(&witness));
         let service = || OpenContext {
@@ -159,6 +163,8 @@ async fn same_taskless_record_keeps_n1_through_real_business_join_and_deferred_h
         drop(deferred);
         let released = witness.wait_registration_released().await;
         assert!(witness.matches_joined(&released) && released.registration_released());
+        assert!(original.retire(deadline()).await.unwrap().is_complete());
+        assert_eq!(owner.retained(), 0);
         let mut loan = role
             .connect_carrier(
                 ConnectRequest {
