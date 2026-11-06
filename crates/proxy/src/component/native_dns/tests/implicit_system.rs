@@ -59,7 +59,8 @@ async fn ordinary_implicit_system_node_uses_owned_blocking_capacity_and_stops_wi
         "OS work/task joins do not fabricate native socket receipts"
     );
     assert!(
-        proxy.engine.active_sessions().is_empty() && proxy.engine.completed_sessions().is_empty()
+        proxy.engine().active_sessions().is_empty()
+            && proxy.engine().completed_sessions().is_empty()
     );
     running.shutdown().await.unwrap();
     assert!(node
