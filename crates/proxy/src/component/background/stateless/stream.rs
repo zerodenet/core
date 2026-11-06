@@ -18,7 +18,17 @@ impl StreamOutbound for Outbound {
         if context.session_identity()?.is_some() && context.upstream.has_tracked_business_caller() {
             return self.connect_business(request, context).await;
         }
-        // Fixed library users retain their own original inline responsibilities.
+        if context.session_identity()?.is_none()
+            && context.upstream.observed_pending_carrier().is_some()
+        {
+            let connected = self.connect_carrier(request, context).await?;
+            return Ok(Connected {
+                io: super::service::into_stream(connected.io),
+                peer_confirmation: connected.peer_confirmation,
+            });
+        }
+        // Fixed library users without the Host's actual invocation/cleanup
+        // projection retain their explicit original inline responsibilities.
         self.inner.connect(request, context).await
     }
     async fn connect_carrier(

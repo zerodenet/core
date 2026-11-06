@@ -34,9 +34,16 @@ async fn ordinary_business_relays_keep_each_actual_original_until_views_caller_j
                 if index==0 {assert!(original.borrowed_origin().is_none());assert!(original.native().is_some());} else {let donor=original.borrowed_origin().expect("authentic shorter protocol donor");let prior=plan.configured(&tags[index-1]).unwrap();assert_eq!(donor.instance(),prior.instance_id());assert_eq!(donor.native_origin().instance(),plan.configured(&tags[0]).unwrap().instance_id());}
                 originals.push(original.original().clone());registrations.push(registration);
             }
-            assert_eq!(proxy.engine().active_sessions().len(),1);drop(client);worker.await.unwrap();
+            assert_eq!(proxy.engine().active_sessions().len(),1);
+            // Finish the actual application write half and consume reverse EOF.
+            // Dropping the socket here cuts authenticated protocol framing short.
+            client.shutdown().await.unwrap();
+            let mut reverse_tail=Vec::new();
+            tokio::time::timeout_at(deadline(),client.read_to_end(&mut reverse_tail)).await.unwrap().unwrap();
+            assert!(reverse_tail.is_empty(),"unexpected reverse payload for {protocols:?}");
+            drop(client);worker.await.unwrap();
             tokio::time::timeout_at(deadline(),async {loop {if originals.iter().all(|original|original.closed().is_some_and(|closed|original.matches_closed(&closed))) && registrations.iter().all(|registration|registration.observe().is_some_and(|observation|observation.slots().is_empty())) {break;}tokio::task::yield_now().await;}}).await.expect("no next dial/shutdown is needed to settle the actual cancelled originals and caller");
-            let completed=proxy.engine().completed_sessions();assert_eq!(completed.len(),1);let record=&completed[0];assert!(record.failure.is_none(),"{:?}",record.failure);assert_eq!(record.inbound_tag.as_deref(),Some("caller"));assert_eq!(record.outbound_tag.as_deref(),tags.last().map(String::as_str));assert_eq!(record.outbound_tx_bytes,4);assert_eq!(record.outbound_rx_bytes,4);assert_eq!(record.path.remote.as_ref().unwrap().port,prefixes[0].node.protocol.endpoint().unwrap().1);
+            let completed=proxy.engine().completed_sessions();assert_eq!(completed.len(),1);let record=&completed[0];assert!(record.failure.is_none(),"{protocols:?}: {:?}",record.failure);assert_eq!(record.inbound_tag.as_deref(),Some("caller"));assert_eq!(record.outbound_tag.as_deref(),tags.last().map(String::as_str));assert_eq!(record.outbound_tx_bytes,4);assert_eq!(record.outbound_rx_bytes,4);assert_eq!(record.path.remote.as_ref().unwrap().port,prefixes[0].node.protocol.endpoint().unwrap().1);
             running.shutdown().await.unwrap();for registration in registrations {assert!(registration.closed().unwrap().matches(&registration));assert!(registration.users_closed().unwrap().matches(&registration));}
             let terminal=source.terminal_for_test().unwrap();assert!(terminal.failure().is_none());assert!(terminal.joined_tasks()>0);assert!(terminal.closed_io_receipts()>=2);
             for prefix in prefixes {prefix.close().await;}
