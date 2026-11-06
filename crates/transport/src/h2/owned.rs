@@ -68,6 +68,7 @@ where
             pending: Bytes::new(),
             write_buffer: bytes::BytesMut::new(),
             requested_remaining: 0,
+            capacity_exhausted: false,
             ended: false,
             flush,
             target: 0,
@@ -107,6 +108,8 @@ struct State {
     write_buffer: bytes::BytesMut,
     // Remaining request intent only; actual capacity still gates every byte.
     requested_remaining: usize,
+    // Negative observation only: never reuse a cached positive H2 grant.
+    capacity_exhausted: bool,
     ended: bool,
     flush: Arc<Flushed>,
     target: u64,
@@ -251,12 +254,24 @@ impl AsyncWrite for OwnedH2Client {
                     if available != 0 {
                         break available;
                     }
+                    this.capacity_exhausted = true;
                 }
                 Poll::Pending => {
+                    // poll_capacity already registered this original stream's
+                    // next credit/reset wake. If the previous real grant was
+                    // consumed completely, Pending means it has not increased:
+                    // do not lock the same h2 store again to rediscover zero.
+                    if this.capacity_exhausted {
+                        return Poll::Pending;
+                    }
+                    // A preceding write can leave assigned capacity without a
+                    // new increase notification. Read that actual capacity;
+                    // never treat a cached positive value as permission to IO.
                     let available = this.send.capacity();
                     if available != 0 {
                         break available;
                     }
+                    this.capacity_exhausted = true;
                     // The preceding poll installed the real next-credit/reset
                     // waker; no uncredited application byte is accepted.
                     return Poll::Pending;
@@ -295,6 +310,7 @@ impl AsyncWrite for OwnedH2Client {
             this.poll_reset(cx)?;
             return Poll::Ready(Err(io::Error::other(source)));
         }
+        this.capacity_exhausted = n == available;
         this.requested_remaining -= n;
         this.queued();
         Poll::Ready(Ok(n))
