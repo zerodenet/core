@@ -98,6 +98,14 @@ pub(crate) async fn connect(
                     services.upstream_observed(&first.tag),
                     destination(endpoint),
                 )
+                .with_business(
+                    crate::component::business_carrier::BusinessCarrierRequest::new(
+                        services.engine(),
+                        &first.slot,
+                        &invocation,
+                    )
+                    .map_err(normalize)?,
+                )
                 .with_pending(
                     binding.clone(),
                     waiting
@@ -199,10 +207,27 @@ pub(crate) async fn connect(
             dial: next.dial.clone(),
             network_generation: generation,
         };
+        let plan = services
+            .components
+            .as_ref()
+            .map_err(|source| normalize(crate::component::instance::retained(source.clone())))?;
+        let business = crate::component::business_carrier::BusinessCarrierRequest::new(
+            services.engine(),
+            &next.slot,
+            &invocation,
+        )
+        .map_err(normalize)?
+        .map(|request| request.with_prefix(&binding.prefix));
+        if business.is_some() {
+            plan.authorize_carrier_prefix(next.slot.instance_id(), &binding.prefix)
+                .map_err(normalize)?;
+        }
         upstream = UpstreamTransport::new(
             binding.clone(),
             Arc::new(PrefixOpener {
                 role,
+                business,
+                plan: Some(Arc::downgrade(plan)),
                 datagram_slot: Some(node.slot.clone()),
                 context,
                 expected_binding: binding,

@@ -4,6 +4,7 @@ use std::sync::Arc;
 use zero_engine::{Engine, EngineRuntimeSnapshot, OutboundHealthObservation, PassiveRelayOutcome};
 use zero_platform_tokio::contract::ChannelError;
 
+#[derive(Clone)]
 pub(super) struct FirstHopHealth {
     observation: OutboundHealthObservation,
 }
