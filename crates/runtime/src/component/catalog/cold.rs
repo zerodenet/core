@@ -102,6 +102,7 @@ impl ComponentCatalog {
             .unwrap_or_default();
         let mut resources = ResourcePreparation::with_identities(&mut allocate, &identities)
             .with_candidate(config)
+            .with_previous_named(previous.map(|(_, plan)| &plan.outbounds))
             .with_same_source_as_previous(
                 previous.is_some_and(|(source, _)| std::ptr::eq(config, source.as_ref())),
             )

@@ -86,6 +86,7 @@ impl ComponentCatalog {
             &original.shared_identities,
         )
         .with_candidate(config)
+        .with_previous_named(Some(&original.outbounds))
         .enable_device_alias_rebinding()
         .with_previous_slots(&original.order, self.admission.loan_snapshot().1);
         resources.inherit_canonical_resources(&original.order, &original.deferred_devices)?;

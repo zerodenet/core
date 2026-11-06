@@ -51,6 +51,7 @@ pub struct ResourcePreparation<'a> {
     failed: Cell<bool>,
     previous: SharedResourceIdentities,
     previous_slots: &'a [Arc<super::instance::ComponentSlot>],
+    previous_named: Option<&'a BTreeMap<String, Arc<super::instance::ComponentSlot>>>,
     previous_loans: Vec<(
         zero_core::component::ComponentInstanceId,
         zero_core::component::ComponentInstanceId,
@@ -70,6 +71,7 @@ impl<'a> ResourcePreparation<'a> {
             failed: Cell::new(false),
             previous: SharedResourceIdentities::default(),
             previous_slots: &[],
+            previous_named: None,
             previous_loans: Vec::new(),
             candidate: None,
             same_source: false,
@@ -222,6 +224,24 @@ impl<'a> ResourcePreparation<'a> {
             .iter()
             .find(|slot| slot.id == component)
             .map(|slot| slot.instance_id())
+    }
+    pub(super) fn with_previous_named(
+        mut self,
+        previous: Option<&'a BTreeMap<String, Arc<super::instance::ComponentSlot>>>,
+    ) -> Self {
+        self.previous_named = previous;
+        self
+    }
+    /// Metadata from the host's actual previous named Slot. This never
+    /// selects by profile/path, grants IO, or confirms Source/Scope reuse.
+    /// Factories must separately prove the full recipe and same Source before
+    /// copying that actual instance's already authorized immutable material.
+    pub fn previous_named_instance(
+        &self,
+        tag: &str,
+    ) -> Option<zero_core::component::ComponentInstanceId> {
+        self.ensure_valid().ok()?;
+        self.previous_named?.get(tag).map(|slot| slot.instance_id())
     }
     /// Borrow only for this cold pass; owned protocol profiles resolve their
     /// own paths and cannot retain a previous configuration document.
