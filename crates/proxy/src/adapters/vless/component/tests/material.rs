@@ -1,5 +1,7 @@
 //! Ordinary full TLS/H2/upgrade callers retain their exact native originals.
+#[path = "material/fixture.rs"]
 mod fixture;
+#[path = "material/udp.rs"]
 mod udp;
 use fixture::*;
 #[tokio::test]

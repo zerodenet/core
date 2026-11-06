@@ -161,4 +161,5 @@ fn ordinary_mux_prefix_registration_requires_qualified_root_and_complete_protoco
 }
 
 #[cfg(feature = "socks5")]
+#[path = "tests/material.rs"]
 mod material;

@@ -41,9 +41,11 @@ impl VlessAdapter {
             .as_ref()
             .ok()
             .and_then(|leaf| packet_path::operation(&packet_identity, source_dir, leaf));
-        let (udp, udp_relay) =
-            super::udp::two_stream_transport_operations(Some(endpoint), tcp_leaf.as_ref());
-        let (tcp, tcp_relay) = super::tcp::transport_operations(tcp_leaf);
+        let (udp, udp_relay) = crate::adapters::udp::two_stream_transport_operations(
+            Some(endpoint),
+            tcp_leaf.as_ref(),
+        );
+        let (tcp, tcp_relay) = crate::adapters::tcp::transport_operations(tcp_leaf);
         let tcp = if self.native_node_dns && component::owned_input(outbound) {
             Ok(std::sync::Arc::new(tcp_owned::Connect {
                 tag: outbound.tag().into(),

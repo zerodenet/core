@@ -16,7 +16,7 @@ impl VmessAdapter {
         };
         let options = outbound_options(outbound.tag(), endpoint, &outbound.protocol)?;
         let leaf = VmessOutboundLeaf::from_options_refs(source_dir, options, &self.runtime);
-        let (udp, udp_relay) = super::udp::transport_operations(
+        let (udp, udp_relay) = crate::adapters::udp::transport_operations(
             Some(endpoint),
             !component::grpc::selected(outbound, Some(config), self.native_node_dns),
             leaf.as_ref(),
@@ -27,7 +27,7 @@ impl VmessAdapter {
                 // No compatibility TCP executor may create a second original.
                 (None, None)
             } else {
-                let (tcp, tcp_relay) = super::tcp::transport_operations(leaf);
+                let (tcp, tcp_relay) = crate::adapters::tcp::transport_operations(leaf);
                 (Some(tcp), Some(tcp_relay))
             };
         let tcp = if self.native_node_dns && component::owned_input(outbound) {
