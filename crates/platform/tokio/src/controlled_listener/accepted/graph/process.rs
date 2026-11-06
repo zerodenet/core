@@ -198,7 +198,7 @@ impl Users {
             original.cancel();
         }
     }
-    async fn retire_process_lookups(&self, deadline: Instant) -> bool {
+    pub(super) async fn retire_process_lookups(&self, deadline: Instant) -> bool {
         for original in self.process_lookups() {
             if let Err(source) = original.wait_retired(deadline).await {
                 self.remember(Arc::new(source));

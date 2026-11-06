@@ -2,8 +2,11 @@
 use super::{LocalProcessInfo, LocalProcessLookup, LocalProcessTransport, SocketAddr};
 use crate::contract::{ChannelError, Impact, Reason, Stage};
 use std::{path::PathBuf, sync::Arc};
+#[path = "linux/directory.rs"]
 mod directory;
+#[path = "linux/slots.rs"]
 mod slots;
+#[path = "linux/table.rs"]
 mod table;
 pub(in crate::process) use slots::Originals;
 use slots::{DESCRIPTORS, FILE, ROOT};

@@ -1,5 +1,5 @@
 use super::*;
-use crate::process::linux::Originals;
+use crate::process::platform::Originals;
 pub(in crate::process) struct Native {
     originals: Mutex<Originals>,
 }
