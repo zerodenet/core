@@ -1,3 +1,7 @@
+#[path = "tests/derivation.rs"]
+mod derivation;
+#[path = "tests/reassembly.rs"]
+mod reassembly;
 use super::*;
 
 #[test]

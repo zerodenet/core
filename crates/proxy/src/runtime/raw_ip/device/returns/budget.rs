@@ -1,6 +1,7 @@
 //! Credits remain attached to the same owned buffer, including after dequeue.
 use std::sync::{Arc, Mutex};
 use zero_traits::{PacketBuffer, PacketStorage};
+mod derived;
 
 #[derive(Clone)]
 pub(super) struct ReturnBudget(Arc<Inner>);
@@ -8,6 +9,7 @@ struct Inner {
     limits: (usize, usize),
     occupied: Mutex<(usize, usize)>,
     totals: Arc<PacketReturnTotals>,
+    changed: tokio::sync::Notify,
 }
 pub(crate) use zero_tun::packet_memory::PacketReturnTotals;
 impl Default for ReturnBudget {
@@ -28,6 +30,7 @@ impl ReturnBudget {
             limits: (frames, bytes),
             occupied: Mutex::new((0, 0)),
             totals,
+            changed: tokio::sync::Notify::new(),
         }))
     }
     pub(super) fn retain(&self, packet: PacketBuffer) -> Result<PacketBuffer, PacketBuffer> {
@@ -50,6 +53,8 @@ impl ReturnBudget {
                 bytes,
                 _total: total,
             },
+            derived: Mutex::new(None),
+            derivation_reserved: false,
         }))
     }
 }
@@ -69,11 +74,14 @@ impl Drop for Credit {
         occupied.0 -= 1;
         occupied.1 -= self.bytes;
         drop(occupied);
+        self.budget.0.changed.notify_waiters();
     }
 }
 struct Charged {
     packet: PacketBuffer,
     credit: Credit,
+    derived: Mutex<Option<derived::Prepared>>,
+    derivation_reserved: bool,
 }
 impl AsRef<[u8]> for Charged {
     fn as_ref(&self) -> &[u8] {
@@ -89,12 +97,21 @@ impl PacketStorage for Charged {
     fn allocation_bytes(&self) -> usize {
         self.packet.allocation_bytes()
     }
+    fn derive_zeroed<'a>(&'a self, lengths: &'a [usize]) -> zero_traits::PacketDerivation<'a> {
+        Box::pin(async move { derived::claim(self, lengths) })
+    }
     fn into_vec(self: Box<Self>) -> Vec<u8> {
-        let Self { packet, credit } = *self;
+        let Self {
+            packet,
+            credit,
+            derived,
+            derivation_reserved: _,
+        } = *self;
         // An explicit Vec-only consumer ends this owned view here. Standard
         // Packet queues preserve PacketBuffer through the real RX consumer.
         let bytes = packet.into_vec();
         drop(credit);
+        drop(derived);
         bytes
     }
 }

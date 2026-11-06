@@ -1,6 +1,8 @@
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
 
 use super::checksum;
+mod owned;
+pub use owned::{fragment_ip_packet_accounted, fragment_packet_lengths, PacketFragmentFailure};
 
 /// Whether a complete IPv4 packet permits router fragmentation.
 pub fn ipv4_fragmentation_allowed(packet: &[u8]) -> bool {

@@ -1,4 +1,5 @@
 //! Logical Packet views over this same one-driver/native original.
+mod delivery;
 mod io;
 mod returns;
 use super::*;
@@ -34,6 +35,7 @@ pub(super) struct Sessions {
 pub(super) struct Session {
     parent: Weak<Sessions>,
     facts: PacketFacts,
+    return_mtu: u16,
     source: zero_platform_tokio::contract::scope::TaskJoinWitness,
     cancel: CancellationToken,
     pending: AtomicUsize,
@@ -69,6 +71,12 @@ impl Sessions {
         context: OpenContext,
         source: zero_platform_tokio::contract::scope::TaskJoinWitness,
     ) -> PacketOpenResult<io::Tx, io::Rx, io::Control> {
+        let return_mtu = request.return_mtu.filter(|mtu| *mtu != 0).ok_or_else(|| {
+            error(
+                Reason::InvalidConfig,
+                "Packet Source omitted its actual return link MTU",
+            )
+        })?;
         let facts = context.packet_facts()?.clone();
         if request.endpoint != facts.endpoint
             || context.cancel.is_cancelled()
@@ -100,6 +108,7 @@ impl Sessions {
         let session = Arc::new(Session {
             parent: Arc::downgrade(self),
             facts: facts.clone(),
+            return_mtu,
             source,
             cancel: context.cancel.child_token(),
             pending: AtomicUsize::new(0),
@@ -237,57 +246,6 @@ impl Session {
         if let Some(parent) = self.parent.upgrade() {
             parent.changed.notify_one();
         }
-    }
-    fn deliver(&self, packet: IpPacket, native: bool) -> bool {
-        use zero_platform_tokio::contract::context::PacketIoFact;
-        if self.cancel.is_cancelled() {
-            return false;
-        }
-        let Some(parent) = self.parent.upgrade() else {
-            return false;
-        };
-        let association = packet.return_association.clone();
-        let bytes = packet.payload().len();
-        let storage = match parent.budget.retain_reply_buffer(packet.into_payload()) {
-            Ok(storage) => storage,
-            Err(_) => {
-                if let Some(observer) = &self.observer {
-                    observer.packet_io(
-                        &association,
-                        PacketIoFact::Dropped {
-                            bytes,
-                            reason: zero_traits::PacketDropReason::QueueFull,
-                        },
-                    );
-                }
-                return false;
-            }
-        };
-        let packet =
-            IpPacket::new(storage, association.clone()).expect("same validated IP envelope");
-        if native {
-            if let Some(observer) = &self.observer {
-                observer.packet_io(&association, PacketIoFact::Received { bytes });
-            }
-        }
-        let delivered = self
-            .replies
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner)
-            .as_ref()
-            .is_some_and(|replies| replies.try_send(packet).is_ok());
-        if !delivered {
-            if let Some(observer) = &self.observer {
-                observer.packet_io(
-                    &association,
-                    PacketIoFact::Dropped {
-                        bytes,
-                        reason: zero_traits::PacketDropReason::QueueClosed,
-                    },
-                );
-            }
-        }
-        delivered
     }
 }
 fn error(reason: Reason, message: &str) -> ChannelError {

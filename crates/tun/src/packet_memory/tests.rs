@@ -107,3 +107,39 @@ fn actual_retained_read_and_return_buffers_prevent_lower_limit_and_pause_refunds
     assert_eq!(root.returns().occupied.bytes, 0);
     root.install(1, 80).unwrap();
 }
+
+#[test]
+fn full_fragment_cache_cannot_take_the_original_io_next_read_credit() {
+    let root = root(2, 128);
+    let grant = root.native_grant(64).unwrap();
+    let mut input = grant.try_buffer().unwrap();
+    input.as_mut_bytes()[..3].copy_from_slice(b"one");
+    let input = match input.into_packet(3) {
+        Ok(packet) => packet,
+        Err(_) => panic!("valid original fragment length"),
+    };
+    let mut assembly = grant.try_assembly(64).unwrap();
+    assembly.as_mut_bytes()[..3].copy_from_slice(&input);
+    assert_eq!(root.native().occupied.frames, 2);
+    assert!(matches!(
+        root.native_grant(1),
+        Err(PacketMemoryError::Busy)
+    ));
+    drop(input); // Its actual data has entered the separately charged assembly.
+    let mut next = grant
+        .try_buffer()
+        .expect("same prepaid IO credit cannot be stolen by the full cache");
+    next.as_mut_bytes()[..3].copy_from_slice(b"two");
+    assembly.as_mut_bytes()[3..6].copy_from_slice(&next.as_bytes()[..3]);
+    assert_eq!(&assembly.as_bytes()[..6], b"onetwo");
+    grant.revoke();
+    assert_eq!(
+        root.native().occupied.frames,
+        2,
+        "revoking admission cannot refund real held allocations"
+    );
+    drop(next);
+    assert_eq!(root.native().occupied.frames, 1);
+    drop(assembly);
+    assert_eq!(root.native().occupied.frames, 0);
+}

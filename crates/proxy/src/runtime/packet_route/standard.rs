@@ -53,6 +53,7 @@ impl PacketRoleSessions {
         selected: RoleInstanceId,
         translated: bool,
         facts: Arc<PacketFacts>,
+        return_mtu: u16,
         packet: IpPacket,
         route: &InboundRouteRuntimeFactory,
         source: &InboundTaskAccess,
@@ -85,6 +86,7 @@ impl PacketRoleSessions {
                         facts.clone(),
                         PacketRequest {
                             endpoint: facts.endpoint,
+                            return_mtu: Some(return_mtu),
                             limits: PacketLimits {
                                 mtu: 65_535,
                                 families: vec![IpFamily::Ipv4, IpFamily::Ipv6],
