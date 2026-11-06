@@ -115,7 +115,7 @@ impl CarrierCandidates {
             .owner
             .upgrade()
             .and_then(|owner| owner.state().binding.clone())
-            .is_some_and(|bound| !bound.background_custody_available())
+            .is_some_and(|bound| !bound.service_candidates_available())
         {
             return Err(error(
                 grant.instance(),

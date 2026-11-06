@@ -46,6 +46,7 @@ impl HostResources {
             | ResourceDeclaration::ControlledServiceStream { max_sockets, .. }
             | ResourceDeclaration::ControlledAssociationPool { max_sockets, .. }
             | ResourceDeclaration::ControlledDatagramCarrier { max_sockets, .. }
+            | ResourceDeclaration::ControlledNodeCarrier { max_sockets, .. }
             | ResourceDeclaration::ControlledNodeStream { max_sockets, .. }
             | ResourceDeclaration::ControlledDirectStream { max_sockets, .. } => max_sockets,
             _ => return Err(self.denied()),

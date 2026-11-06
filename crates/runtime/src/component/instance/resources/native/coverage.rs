@@ -12,6 +12,7 @@ pub(in crate::component) enum DeclaredResourceKind {
     ControlledDirectStream,
     ControlledPacketDevice,
     ControlledNodeStream,
+    ControlledNodeCarrier,
     NativeIcmp,
     MetadataDatagram,
     ControlledMetadataDatagram,
@@ -84,6 +85,9 @@ impl CoverageBinding {
             }
             ResourceDeclaration::ControlledDatagramCarrier { .. } => {
                 Self::Carrier(DeclaredResourceKind::ControlledDatagramCarrier)
+            }
+            ResourceDeclaration::ControlledNodeCarrier { .. } => {
+                Self::Carrier(DeclaredResourceKind::ControlledNodeCarrier)
             }
             ResourceDeclaration::ControlledNodeStream { .. } => {
                 Self::Carrier(DeclaredResourceKind::ControlledNodeStream)
@@ -290,6 +294,7 @@ impl evidence::HostIoEvidence {
                             | DeclaredResourceKind::ControlledCarrierPool
                             | DeclaredResourceKind::ControlledServiceStream
                             | DeclaredResourceKind::ControlledDatagramCarrier
+                            | DeclaredResourceKind::ControlledNodeCarrier
                             | DeclaredResourceKind::ControlledNodeStream
                             | DeclaredResourceKind::ControlledDirectStream
                     ) =>

@@ -225,6 +225,7 @@ impl HostResources {
                 | ResourceDeclaration::ControlledMetadataDatagram { .. }
                 | ResourceDeclaration::ControlledMetadataCarrier { .. }
                 | ResourceDeclaration::ControlledDatagramCarrier { .. }
+                | ResourceDeclaration::ControlledNodeCarrier { .. }
                 | ResourceDeclaration::ControlledNodeStream { .. }
                 | ResourceDeclaration::ControlledDirectStream { .. }
                 | ResourceDeclaration::MetadataDatagram { .. } => {}

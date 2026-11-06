@@ -7,8 +7,8 @@ use std::{
     os::fd::AsRawFd,
     process::ExitStatus,
     sync::{
-        Arc, Mutex,
         atomic::{AtomicU64, Ordering},
+        Arc, Mutex,
     },
 };
 use tokio::io::unix::AsyncFd;
@@ -52,6 +52,7 @@ struct State {
     stop_sent: bool,
     first_error: Option<Arc<io::Error>>,
     closed: Option<Arc<ProcessTreeClosed>>,
+    budget: Option<Arc<super::ProcessBudget>>,
 }
 /// Debug never includes launch arguments, environment, paths or raw handles.
 pub struct OwnedProcess {
@@ -111,6 +112,7 @@ impl OwnedProcess {
                 stop_sent: false,
                 first_error: None,
                 closed: None,
+                budget: None,
             }),
         }))
     }
@@ -124,6 +126,54 @@ impl OwnedProcess {
     }
     pub fn closed(&self) -> Option<Arc<ProcessTreeClosed>> {
         self.lock().closed.clone()
+    }
+    pub(super) fn identity(&self) -> u64 {
+        self.token
+    }
+    pub(super) fn actor(&self) -> Option<TaskJoinWitness> {
+        self.lock().actor.clone()
+    }
+    pub(super) fn bind_budget(&self, budget: Arc<super::ProcessBudget>) -> io::Result<()> {
+        let mut state = self.lock();
+        if state.actor.is_some()
+            || state.stop
+            || state.budget.is_some()
+            || !state.originals.is_empty()
+        {
+            return Err(io::Error::new(
+                io::ErrorKind::PermissionDenied,
+                "process original is no longer cold",
+            ));
+        }
+        state.budget = Some(budget);
+        Ok(())
+    }
+    pub(super) fn release_budget(&self, budget: &super::ProcessBudget) {
+        let released = {
+            let mut state = self.lock();
+            if state
+                .budget
+                .as_ref()
+                .is_some_and(|actual| std::ptr::eq(actual.as_ref(), budget))
+            {
+                state.budget.take()
+            } else {
+                None
+            }
+        };
+        drop(released);
+    }
+    pub(super) fn budget_releasable(&self) -> bool {
+        let state = self.lock();
+        state
+            .closed
+            .as_ref()
+            .is_some_and(|closed| closed.matches(self))
+            && state.actor.as_ref().is_none_or(|actor| {
+                actor.try_joined().is_some_and(|joined| {
+                    actor.matches_joined(&joined) && joined.registration_released()
+                })
+            })
     }
     pub fn root_status(&self) -> Option<ExitStatus> {
         use std::os::unix::process::ExitStatusExt;

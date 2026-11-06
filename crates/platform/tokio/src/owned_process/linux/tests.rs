@@ -37,6 +37,11 @@ fn readable(fd: &OwnedFd) -> bool {
     poll.revents & libc::POLLIN != 0
 }
 async fn tree(natural: bool) {
+    let mut unrelated = tokio::process::Command::new("python3")
+        .args(["-c", "import time;time.sleep(60)"])
+        .kill_on_drop(true)
+        .spawn()
+        .unwrap();
     let wire = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let address = wire.local_addr().unwrap();
     let copied_listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
@@ -74,6 +79,21 @@ while True: time.sleep(60)
         NonZeroUsize::new(1).unwrap(),
     );
     let original = OwnedProcess::prepare(request, &scope.registrar()).unwrap();
+    let budget = super::super::ProcessBudget::new(super::super::ProcessBudgetLimits {
+        max_jobs: 1,
+        max_jobs_per_instance: 1,
+    })
+    .unwrap();
+    budget
+        .reserve(
+            zero_core::component::ComponentInstanceId {
+                component: zero_core::component::ComponentId(77),
+                generation: zero_core::component::ResourceGeneration(1),
+            },
+            &original,
+        )
+        .unwrap();
+    assert_eq!(budget.snapshot().charged_jobs, 1);
     let (begin, begun) = oneshot::channel();
     let (ready, startup) = oneshot::channel();
     let (returned, body) = oneshot::channel();
@@ -143,6 +163,7 @@ while True: time.sleep(60)
         original.try_finish().unwrap().is_none(),
         "physical tree ending cannot stand in for the actor join"
     );
+    assert_eq!(budget.snapshot().charged_jobs, 1);
     let exit = tokio::time::timeout_at(end(), scope.next_exit())
         .await
         .unwrap()
@@ -154,6 +175,16 @@ while True: time.sleep(60)
         .unwrap()
         .expect("all exact original gates completed");
     assert!(receipt.matches(&original));
+    assert_eq!(budget.snapshot().charged_jobs, 0);
+    assert!(
+        unrelated.try_wait().unwrap().is_none(),
+        "the supervisor may signal only its own validated children"
+    );
+    unrelated.start_kill().unwrap();
+    tokio::time::timeout_at(end(), unrelated.wait())
+        .await
+        .unwrap()
+        .unwrap();
     assert!(
         original.first_failure().is_none(),
         "{:?}",

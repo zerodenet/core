@@ -48,6 +48,8 @@ VLESS 入站仅登记实际标准 ComponentFactory/InboundSource，删除 adapte
 
 第二轮云端候选增加按实际 owner 消费的可选 DNS/Mieru/HY2/native-stream/VMess-gRPC/control 预算及 Direct Packet `write_queue`，旧省略字段导出形状保持。容量不足拒绝新增或对已有订阅背压，不驱逐活跃业务或有效 replay。内部 Rust 的原件观察、device cold/recovery/publication、同源 quota/TLS 和有限 FIFO 接口变化见 [兼容记录](../design/v0.0.3/compatibility.md#第二轮云端-rust-接口与可选预算迁移)。这不是完整架构、全部出站/Packet/process、跨平台或 GUI/面板资格通过的声明；未完成实现和 TEMP 债务仍单列。统计 sampler 已改用实际 blocking Scope join；endpoint 最终提交同时收尾 DNS token 并观察实际发布设备。对尚无原件关闭证明的 VMess gRPC/Mieru 跨执行方式切换，候选在源修改/停旧前拒绝并保留当前 revision 与旧 TCP；这是未完成迁移的明确限制。ControlledPacketDevice/owned PacketTx 是基础接口，普通 Direct Packet/TUN 生产 gate 未开启。
 
+Linux 进程原件续作增加内核 Rust 的 cold owned-process grant，保留实际 actor Scope 与原生进程树/描述符关闭分证据；公开 wire 与消费者无需改变。此时 SIP 生产消费、总体预算与其他平台仍有实现，接口出现和底层通过不代表完整迁移。详见上述兼容记录。
+
 ## 版本矩阵
 
 | 版本 | 影响面 | 迁移结论 |

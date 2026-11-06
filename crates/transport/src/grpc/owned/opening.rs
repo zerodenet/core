@@ -16,6 +16,7 @@ impl Managed {
         grant: CarrierGrant,
         waiting: Option<PendingCarrierObserver>,
         caller: Option<TaskJoinWitness>,
+        candidates: Option<Arc<super::candidates::Candidates>>,
     ) -> Result<CarrierDriver<crate::grpc::prepared::PreparedConnection>, ChannelError> {
         let call = CarrierContext {
             session: None,
@@ -51,15 +52,32 @@ impl Managed {
             return Err(error(self.instance, Stage::Prepare, Reason::StalePlan));
         }
         let io = if demand.binding.prefix.is_empty() {
-            self.wait(
-                &demand,
-                selected.acquire_controlled_stream(
-                    self.options.endpoint.clone(),
-                    call.clone(),
-                    grant,
-                ),
-            )
-            .await?
+            if let Some(candidates) = &candidates {
+                let prepared = self
+                    .wait(
+                        &demand,
+                        candidates.prepare(&selected, self.options.endpoint.clone(), grant),
+                    )
+                    .await?;
+                self.wait(&demand, async {
+                    Ok(prepared
+                        .open_with_deadline(demand.deadline)
+                        .await?
+                        .into_parts()
+                        .0)
+                })
+                .await?
+            } else {
+                self.wait(
+                    &demand,
+                    selected.acquire_controlled_stream(
+                        self.options.endpoint.clone(),
+                        call.clone(),
+                        grant,
+                    ),
+                )
+                .await?
+            }
         } else {
             let loan = self
                 .wait(

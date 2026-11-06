@@ -58,7 +58,7 @@ TEMP-WG-OUTER-UDP-01 仅原 outer_udp_proxy/reconnect 范围保留未关闭、�
 再次 fetch 的 `FETCH_HEAD` 仍为完整远端 integration
 `59615e69ea5a413d657a873157ea4adf8f204a90`；没有回退或强推。
 本地依赖以普通 merge/追加提交累积，尚未作为最终候选发布。
-实际验证锁现为 `3e9fea043e217bb125dcfe6040e8e2b60757ab403fa66f1d3719db8e86f33214`，
+此前组合实际验证锁为 `3e9fea043e217bb125dcfe6040e8e2b60757ab403fa66f1d3719db8e86f33214`，
 其中只接入实际 Packet backend 的现有本地依赖；最终归档仍须携带相同锁本体。
 
 | 实际调用者 / owner | 已有具体前置 | 尚须接通、删除与回归 |
@@ -85,7 +85,7 @@ B 保留其他协议/transport/process，C 保留设备/source，M 仍唯一串�
 协调 Draft [#133](https://github.com/zerodenet/core/pull/133) 的 base 为 integration，
 当前远端 head `ff7a1f7a69743701be63c9772f3f1fe571494205` 仅为阶段输入，
 没有最终候选资格。本地普通 merge/追加提交仍在继续；下列事实不表示任一域结题。
-验证锁仍为 `3e9fea043e217bb125dcfe6040e8e2b60757ab403fa66f1d3719db8e86f33214`。
+该组合验证锁为 `3e9fea043e217bb125dcfe6040e8e2b60757ab403fa66f1d3719db8e86f33214`。
 
 | 原调用者与真实 owner | 已组合的必要前置 | 剩余执行及删除门 |
 | --- | --- | --- |
@@ -103,3 +103,26 @@ B 保留其他协议/transport/process，C 保留设备/source，M 仍唯一串�
 开发仍只排必要构建/回归，原始失败日志留在仓库外。`4db6e4d5` 正构建所影响的 root/
 proxy/runtime lib 产物；新的本地提交不得借用该产物声称被测。最终统一检查、精确候选 CI、
 可下载原始归档及各域旧执行链归零检查尚未完成。TEMP-WG-OUTER-UDP-01 保原范围单列未关闭。
+
+
+## 后续实际调用者与原件检查（实现继续，未冻结最终候选）
+
+远端 integration 最近核对仍为完整 SHA
+`59615e69ea5a413d657a873157ea4adf8f204a90`。协调 Draft #133 仍非最终候选。
+现有 manifests 增加 zero-dns 对既有 zero-core 的直接依赖以匹配真实 Scope 身份，
+实际验证 Cargo.lock SHA-256 已更新为
+`9026e3253d6a42c91cd557ee3ff95c2b1e93e46ba7749c707dec592e055ca6a1`；
+没有改变任何第三方包版本、来源或校验和。仓外锁差异证明与每次原始输入记录均保留。
+最终仍须提供实际同锁本体及下载地址，不以本段替代归档或候选 CI。
+
+| 职责域 / 真实调用者 | 已取得的必要证据与后续前置 | 尚缺实现、删除或复验 |
+| --- | --- | --- |
+| DNS / 原 Node Query、持久 DoH 和 detour | `4abc0a63d2e66dfb2c58b4ccffe10c7d3a6e74c1` 上 ECH Domain 与跨 Default/Node 同物理 DoH 通过；UDP65 夹具原错把 EDNS 尾部当 question，`3ea3d50f` 修真实 question 解析 | VLESS gRPC 四项首次真实生产调用均在 native 前报缺 controlled grant；B `6073acca`/`59508ba7`、M `f59dd581`/`5fbe371c` 接原 Node opener 与完整候选，待同测试复验。`f47b8e1e` 同代 N1/N2 实际 peer 原池修复也待验证。全部 mixed/device donor 到位再删 ProxyDnsOutboundConnector/占位业务 Session/旧 exchange |
+| 出站 / taskless Service、Business、Relay、gRPC/其余 transport | 同 `4abc0a63` 的四协议 None-deadline N1 真 wire/cancel 通过，复用唯一原件与额度；gRPC CA/ECH/Business 六项均暴露同前置 grant 错误，原日志保留 | 所有 taskless Business 仍有 `inner.connect -> bare Node TCP` 旧链，SS 原件断言真实失败，B/M 正补同一个原件 owner 的严格双需求授权；全合法 Relay/MUX/transport 及跨执行方式继续迁移，不能放 gate 或增第二池代替 |
+| Packet、设备/TUN / 同 Source Native、原 Direct Packet provider | C `a15a83ee`（M 单取 `f6d3a429`）核同 EndpointIo/Live/listen/active lease，修新虚拟 Link 错停真实 Source；`4abc0a63` 配置/网络替换及普通 literal/domain 三项通过。Direct Packet 两个真实原件负向、TUN 一主任务额度在 native 前拒绝通过 | Packet 第四项停在新增夹具错误 tag，C `5c51a9e9`/M `193ca853` 修后待原强断言复验。独立 WG provider、原生读取/解密/重组及分片真实计额、Windows reader/helper、适用进程 lookup 和旧 TUN/Packet 执行链删除仍有实现；特权 TUN 原生资格继续明确 ignored |
+| 控制 / TLS、父输入、Named Pipe 与服务器 | 先前 Source TLS/父输入及真实 Linux 控制恢复证据保留；A `c704b97d` 增真实 Windows ping/订阅/失败再起原件测试，未运行 | 同原 ControlTask 登记窗口仍可能丢失已 spawn JoinHandle，A 正修唯一槽；Windows GNU 检查和真实 Windows 运行分别记录，不能互换资格 |
+| 预算 / SS Source、UDP 安全历史、进程和 Packet | `4abc0a63` 的 SS pure Source 与双 UDP Source 两项实际预算换代通过；Source acquisition idle 由真实 peer cleanup 唤醒。SS Business 第三项失败保留。Linux 原进程树 `6ab90ae1a9071dfdcabb36b742db3d9d690092b1` 三项真实回归通过；Host 原件/实际 Scope/原 max_starts 两项在 `2e3f9565cb61653fe5ccd5331605c489161f4233` 通过 | Linux Process provider 已接 Host/BoundResources 冷 grant，B 实际 SIP 调用者仍须接入；全局生产 process/transport、原 Packet return/native-read、WG/TUN worker 等额度投影仍缺。进程树、实际 actor join、原 fd closes 各自核对，不把 body/EOF/端口重绑当关闭证明；Windows/macOS process 仍是实现缺口 |
+
+以上为必要开发回归，不是统一候选资格；不同 SHA/feature 产物严格分开，失败/忽略均保留。
+最终五域调用者归零、普通装配、真实原件任务责任、旧链删除和必要回归完成后，
+才冻结统一输入做完整验收与精确 CI。TEMP-WG-OUTER-UDP-01 仍仅原 outer_udp_proxy 范围未关闭。

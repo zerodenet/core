@@ -168,3 +168,11 @@ System TUN 使用同 inbound registry 的 Source、实际原 Registrar 与原设
 TLS `OwnedPreparedClient` 接收实际授予的不可变 CA 材料，并沿用原 backend、安全策略及缓存隔离。
 这些内部接口的新增不构成 GUI/面板、特权设备或跨平台的组合资格；V1/FFI/events/CLI 验证仍以
 最终精确候选为准，未修改消费者。
+
+
+第二轮续作的 Linux `ResourceAccess::prepare_owned_process` 返回由原 Host 保留的 cold
+`OwnedProcess`；实际已登记 actor 执行启动/原生树清理，外层在该真实 actor join 后显式关闭
+原始 fd 并取得 matching `ProcessTreeClosed`。这属于内核 Rust 资源接口；V1 配置/API/events、
+CLI/FFI 和客户端面板不变。原 `spawn_process` 暂仅未迁调用者使用，直接 child reap 仍不能
+取得 Process 声明覆盖。生产 SIP 消费、总体预算与适用跨平台实现尚未完成，不能把这些
+接口或 Linux 底层回归视为全域迁移资格。
