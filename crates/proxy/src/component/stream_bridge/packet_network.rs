@@ -293,12 +293,8 @@ pub(in crate::component::stream_bridge) fn service_transport(
     pending: Option<zero_platform_tokio::contract::network::PendingCarrierObserver>,
     call: CarrierContext,
 ) -> Result<UpstreamTransport, ChannelError> {
-    let pending = pending.ok_or_else(|| {
-        invalid(
-            Reason::Unsupported,
-            "Packet background source requires its actual registered setup caller",
-        )
-    })?;
+    // Cold selection may capture binding/epoch before the actual setup task
+    // exists. IO and caller observation still require its real registration.
     Ok(UpstreamTransport::new(
         binding.clone(),
         Arc::new(ServicePacketOpener {
@@ -312,7 +308,7 @@ pub(in crate::component::stream_bridge) fn service_transport(
 struct ServicePacketOpener {
     services: UpstreamConnectServices,
     binding: UpstreamBinding,
-    pending: zero_platform_tokio::contract::network::PendingCarrierObserver,
+    pending: Option<zero_platform_tokio::contract::network::PendingCarrierObserver>,
     call: CarrierContext,
 }
 impl ServicePacketOpener {
@@ -338,7 +334,16 @@ impl ServicePacketOpener {
                 "Packet background caller binding changed",
             ));
         }
-        let actual = self.pending.packet_caller(identity, call)?;
+        let actual = self
+            .pending
+            .as_ref()
+            .ok_or_else(|| {
+                invalid(
+                    Reason::Unsupported,
+                    "Packet background has no actual setup caller",
+                )
+            })?
+            .packet_caller(identity, call)?;
         if actual.is_joined() || !actual.scope_identity().resource_open() {
             return Err(invalid(
                 Reason::Revoked,
@@ -373,7 +378,7 @@ impl UpstreamOpener for ServicePacketOpener {
         })
     }
     fn has_pending_carrier_observer(&self) -> bool {
-        true
+        self.pending.is_some()
     }
     fn pending_carrier_capacity(&self, binding: &UpstreamBinding) -> Option<usize> {
         (binding == &self.binding
@@ -395,7 +400,15 @@ impl UpstreamOpener for ServicePacketOpener {
                 "Packet background pending source changed",
             ));
         }
-        self.pending.retain(adoption)
+        self.pending
+            .as_ref()
+            .ok_or_else(|| {
+                invalid(
+                    Reason::Unsupported,
+                    "Packet background has no actual pending receiver",
+                )
+            })?
+            .retain(adoption)
     }
     fn open_stream(
         &self,
