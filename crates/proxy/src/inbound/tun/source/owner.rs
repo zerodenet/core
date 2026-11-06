@@ -36,9 +36,12 @@ impl ResourceLifecycle for Owner {
             _ = self.shared.cancel.cancelled() => return Err(error(Stage::Prepare, Reason::Revoked)),
             result = timeout_at(deadline, ready) => result.map_err(|source| error(Stage::Prepare, Reason::Timeout).with_source(source))?.map_err(|source| error(Stage::Prepare, Reason::Io).with_source(source))?,
         }
-        let grant = self
-            .resources
-            .open_packet_device(self.name.clone(), witness)?;
+        let grant = tokio::select! {
+            _ = self.shared.cancel.cancelled() => return Err(error(Stage::Prepare, Reason::Revoked)),
+            result = timeout_at(deadline, self.resources.open_packet_device(self.name.clone(), witness)) => {
+                result.map_err(|source| error(Stage::Prepare, Reason::Timeout).with_source(source))??
+            }
+        };
         let acquired = Acquired {
             interface: grant.interface.clone(),
             identity: grant.identity.clone(),
