@@ -76,8 +76,14 @@ impl std::fmt::Debug for InboundPeerTasks {
 impl InboundPeerTasks {
     /// Actual original peer/child tables only. Not native or Scope closure.
     pub(super) fn acquisition_quiescent(&self) -> bool {
-        let state=self.state.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
-        state.active.is_empty() && state.preparing == 0 && state.children.is_empty() && state.claiming.is_empty()
+        let state = self
+            .state
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        state.active.is_empty()
+            && state.preparing == 0
+            && state.children.is_empty()
+            && state.claiming.is_empty()
     }
 
     #[cfg(test)]
@@ -242,6 +248,13 @@ impl InboundPeerTasks {
                     .with_source(source),
                 );
                 binding.reject(source.clone());
+                if reason == Reason::Capacity {
+                    // This actual registrar rejected the task before polling
+                    // any native work. Release only its cold reservation;
+                    // later real joins may make the same live group usable.
+                    state.preparing -= 1;
+                    registration.accepted = true;
+                }
                 drop(state);
                 return Err(std::io::Error::other(retained(source)).into());
             }

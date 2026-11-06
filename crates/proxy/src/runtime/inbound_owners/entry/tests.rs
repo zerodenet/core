@@ -183,3 +183,7 @@ mod shadowsocks;
 
 #[cfg(feature = "mieru")]
 mod mieru;
+
+#[cfg(feature = "raw-ip-runtime")]
+#[path = "tests/system_tun_budget.rs"]
+mod system_tun_budget;
