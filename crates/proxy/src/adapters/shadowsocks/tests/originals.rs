@@ -65,6 +65,7 @@ pub(super) fn accepted(owner: &crate::runtime::inbound_owners::InboundOwner) -> 
     assert_eq!(closed.id(), claim.id());
     closed.id()
 }
+#[track_caller]
 pub(super) fn source_closed(
     owner: &crate::runtime::inbound_owners::InboundOwner,
     at_least_tasks: usize,
@@ -72,6 +73,8 @@ pub(super) fn source_closed(
     let closed = owner
         .terminal_for_test()
         .expect("actual Source native, users, resources and Scope all closed");
+    eprintln!("actual Source terminal check at {}: identity={:?} minimum_tasks={} joined_tasks={} closed_io={} actual_accepted_join={} failure={:?}",
+        std::panic::Location::caller(),owner.identity(),at_least_tasks,closed.joined_tasks(),closed.closed_io_receipts(),owner.accepted_join_for_test().is_some(),closed.failure());
     assert_eq!(closed.identity(), owner.identity());
     assert!(closed.failure().is_none());
     assert!(closed.task_failures().is_empty());

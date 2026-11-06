@@ -16,6 +16,26 @@ async fn socks(endpoint: std::net::SocketAddr) -> TcpStream {
     io
 }
 
+// Complete a recognized target-free request, so no new SS salt or target
+// original is needed merely to prove this replacement Source is usable.
+async fn fresh_source_control(endpoint: std::net::SocketAddr) {
+    let mut io = TcpStream::connect(endpoint).await.unwrap();
+    io.write_all(&[5, 1, 0]).await.unwrap();
+    let mut auth = [0; 2];
+    io.read_exact(&mut auth).await.unwrap();
+    assert_eq!(auth, [5, 0]);
+    io.write_all(&[5, 3, 0, 1, 0, 0, 0, 0, 0, 0]).await.unwrap();
+    let mut reply = [0; 10];
+    io.read_exact(&mut reply).await.unwrap();
+    assert_eq!(&reply[..4], &[5, 0, 0, 1]);
+    assert_ne!(u16::from_be_bytes([reply[8], reply[9]]), 0,
+        "actual accepted UDP original supplies the BND port");
+    io.shutdown().await.unwrap();
+    let mut byte = [0];
+    assert_eq!(io.read(&mut byte).await.unwrap(), 0,
+        "same actual control connection closed after its EOF");
+}
+
 #[tokio::test]
 async fn source_and_outbound_budget_change_rejects_before_revoking_any_admitted_original_user() {
     actual_budget_change(false).await;
@@ -170,6 +190,27 @@ async fn actual_budget_change(global: bool) {
             }
             let replacement = registry.owner("salt-source");
             let current_entry = registry.owner("entry").unwrap();
+            phase.watch(current_entry.clone());
+            if let Some(owner) = &replacement { phase.watch(owner.clone()); }
+            if global {
+                assert!(current_entry.accepted_closed_for_test().is_none(),
+                    "the fresh Source has not inherited an old accepted receipt");
+                let listening_charge = total.carrier.snapshot().charged;
+                phase.set("fresh replacement Source: actual greeting, UDP_ASSOCIATE and control EOF");
+                fresh_source_control(*current_entry.original_listener_address.get().unwrap()).await;
+                loop {
+                    if current_entry.accepted_closed_for_test().is_some()
+                        && current_entry.accepted_join_for_test().is_some_and(|joined|
+                            joined.result().is_ok() && joined.registration_released())
+                        && current_entry.acquisition_idle_for_test() { break; }
+                    tokio::task::yield_now().await;
+                }
+                originals::accepted(&current_entry);
+                assert_eq!(total.carrier.snapshot().charged, listening_charge,
+                    "fresh control TCP/UDP originals and actual accepted Scope credits all returned");
+                assert_eq!(proxy.engine().config().runtime.effective_ss_tcp_replay_max_salts(), initial_total);
+                assert!(Arc::ptr_eq(replay.as_ref().unwrap(), &replay_slot(&proxy)));
+            }
             phase.set("final original graph shutdown and matching receipts");
             running.shutdown().await.unwrap();
             phase.set("all original cleanup complete");
