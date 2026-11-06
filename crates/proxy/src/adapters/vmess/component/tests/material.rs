@@ -1,4 +1,5 @@
 //! Ordinary full TLS/H2/upgrade callers retain their exact native originals.
+#[path = "material/fixture.rs"]
 mod fixture;
 use fixture::*;
 #[tokio::test]
