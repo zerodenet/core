@@ -1,6 +1,6 @@
 //! The single temporary conversion from native proxy roles to legacy relay I/O.
 use super::{
-    instance::{invalid, ComponentSlot},
+    instance::{ComponentSlot, invalid},
     legacy_stream::LegacyStream,
 };
 use crate::{
@@ -9,12 +9,12 @@ use crate::{
     transport::{EstablishedTcpOutbound, TcpOutboundFailure},
 };
 use std::{error::Error, fmt, io, sync::Arc};
-use zero_core::{component::NetworkGeneration, request::Destination, Address, Session};
+use zero_core::{Address, Session, component::NetworkGeneration, request::Destination};
 use zero_platform_tokio::contract::{
+    ChannelError, Reason,
     context::OpenContext,
     network::{UpstreamBinding, UpstreamTransport},
     stream::ConnectRequest,
-    ChannelError, Reason,
 };
 #[cfg(any(
     feature = "upstream-association-runtime",
@@ -22,6 +22,7 @@ use zero_platform_tokio::contract::{
 ))]
 pub(crate) mod datagram;
 pub(in crate::component) mod network;
+mod packet_network;
 pub(crate) mod relay;
 mod traffic;
 pub(crate) use relay::connect as connect_relay;
@@ -32,6 +33,9 @@ pub(crate) async fn connect(
     slot: &Arc<ComponentSlot>,
     prepared: &PreparedTcpCandidate,
 ) -> Result<EstablishedTcpOutbound, TcpOutboundFailure> {
+    if prepared.endpoint.is_none() {
+        return packet_network::connect(services, session, slot, prepared).await;
+    }
     let endpoint = prepared
         .endpoint
         .clone()
