@@ -98,7 +98,15 @@ impl State {
         wake.polling.store(true, Ordering::Release);
         let _polling = Polling(wake);
         Self::drive(driver, wake);
-        let result = operation(Pin::new(stream), cx);
+        // Stream-capacity/response notifications belong to this same inline
+        // turn as native-driver readiness. The driver may grant capacity while
+        // it is already being polled here; waking the application directly in
+        // that case schedules an extra turn even when this operation consumes
+        // the grant synchronously. Keep the notification in WakeBoth and only
+        // forward a still-pending turn to the actual reader/writer below.
+        let operation_waker = waker_ref(wake);
+        let mut operation_context = Context::from_waker(&operation_waker);
+        let result = operation(Pin::new(stream), &mut operation_context);
         // Only a pending application operation is owed a future wake. Install
         // it before the post-drive turn; synchronous driver notifications stay
         // retained by Polling until after this registration. A successful
