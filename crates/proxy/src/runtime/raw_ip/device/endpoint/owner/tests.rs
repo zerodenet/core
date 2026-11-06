@@ -267,7 +267,7 @@ async fn software_ready_requires_actual_registered_driver_poll_and_keeps_origina
             .unwrap();
         assert_eq!(receipt.class(), TaskClass::Critical);
         assert!(receipt.result().is_ok());
-        assert!(original.matches_joined(&original.try_joined().unwrap()));
+        assert!(original.matches_joined(receipt.joined()));
         assert!(!original.try_joined().unwrap().registration_released());
         scope.acknowledge(&receipt).unwrap();
     });
