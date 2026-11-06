@@ -5,6 +5,7 @@ use tokio::{
     net::{TcpListener, TcpStream},
 };
 
+mod originals;
 mod phase;
 use phase::Phase;
 
@@ -57,15 +58,17 @@ async fn ordinary_source_projects_total_and_replaces_originals_on_runtime_only_b
         };
         phase.watch(original.clone());
         original.wait_ready().await.unwrap();
+        let handle = crate::ProxyHandle::new(zero_engine::EngineHandle::new(proxy.engine().clone()), proxy.clone());
+        handle.apply_runtime_config_and_wait((*proxy.engine().config()).clone(), Duration::from_secs(5)).await.unwrap();
         phase.set("first actual encrypted request and Direct target accept");
         let target = TcpListener::bind("127.0.0.1:0").await.unwrap();
         let mut first = client(endpoint, target.local_addr().unwrap()).await;
         let (mut accepted, _) = target.accept().await.unwrap();
         let mut bytes = [0;4]; accepted.read_exact(&mut bytes).await.unwrap();
         assert_eq!(&bytes, b"salt");
+        let first_direct = originals::Original::capture(&proxy, None);
         accepted.write_all(b"seen").await.unwrap();
         first.read_exact(&mut bytes).await.unwrap(); assert_eq!(&bytes,b"seen");
-        let handle = crate::ProxyHandle::new(zero_engine::EngineHandle::new(proxy.engine().clone()), proxy.clone());
         let mut busy = (*proxy.engine().config()).clone();
         busy.runtime.ss_tcp_replay_max_salts = Some(2);
         phase.set("active original user: await cold Busy rejection");
@@ -80,13 +83,16 @@ async fn ordinary_source_projects_total_and_replaces_originals_on_runtime_only_b
         drop(first); drop(accepted);
         phase.set("original user dropped: await actual Source main cleanup idle");
         loop { if original.accepted_join_for_test().is_some() && original.acquisition_idle_for_test() { break; } tokio::task::yield_now().await; }
+        originals::accepted(&original);
+        first_direct.assert_native_closed();
         let mut next = (*proxy.engine().config()).clone();
         next.runtime.ss_tcp_replay_max_salts = Some(2);
         phase.set("idle growth: await StopOld and replacement ACK");
         handle.apply_runtime_config_and_wait(next.clone(), Duration::from_secs(5)).await.unwrap();
         let closed = original.terminal_for_test().expect("old source closed before runtime-only budget ACK");
         assert!(closed.failure().is_none());
-        assert!(closed.closed_io_receipts() >= 4, "both original listeners and the accepted TCP/egress originals");
+        assert_eq!(closed.identity(), original.identity());
+        originals::source_closed(&original, 3);
         phase.set("growth ACK: old Source terminal/native facts");
         let current = registry.owner("salt-source").unwrap();
         phase.watch(current.clone());
@@ -96,7 +102,11 @@ async fn ordinary_source_projects_total_and_replaces_originals_on_runtime_only_b
         let second = client(endpoint, target.local_addr().unwrap()).await;
         let (mut accepted, _) = target.accept().await.unwrap();
         accepted.read_exact(&mut bytes).await.unwrap(); assert_eq!(&bytes,b"salt");
+        let second_direct = originals::Original::capture(&proxy, None);
         drop(second); drop(accepted);
+        loop { if current.acquisition_idle_for_test() { break; } tokio::task::yield_now().await; }
+        let successful_accepted = originals::accepted(&current);
+        second_direct.assert_native_closed();
         let mut too_small = next;
         too_small.runtime.ss_tcp_replay_max_salts = Some(1);
         phase.set("retained security debt: await shrink rejection");
@@ -122,12 +132,16 @@ async fn ordinary_source_projects_total_and_replaces_originals_on_runtime_only_b
             matches!(error.kind(), std::io::ErrorKind::ConnectionReset | std::io::ErrorKind::UnexpectedEof)));
         std::future::poll_fn(|cx| { assert!(pending.as_mut().poll(cx).is_pending()); Poll::Ready(()) }).await;
         drop(third);
+        loop { if current.acquisition_idle_for_test() { break; } tokio::task::yield_now().await; }
+        assert_ne!(successful_accepted, originals::accepted(&current), "rejected third salt still retires its distinct actual accepted original");
         phase.set("final original graph shutdown and matching receipts");
         running.shutdown().await.unwrap();
         phase.set("all original cleanup complete");
         let closed = current.terminal_for_test().expect("same replacement Source's final original receipts");
-        assert!(closed.closed_io_receipts() >= 5, "original listeners, both accepted sockets and successful Direct original");
-        assert!(closed.joined_tasks() >= 2, "source plus exact replay maintenance Scope task joined");
+        assert_eq!(closed.identity(), current.identity());
+        originals::source_closed(&current, 4);
+        first_direct.assert_owner_closed();
+        second_direct.assert_owner_closed();
     }).await.unwrap();
 }
 
