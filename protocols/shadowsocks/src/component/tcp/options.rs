@@ -32,6 +32,7 @@ pub struct PreparedTcp {
     pub(super) replay: Option<ReplayOptions>,
     identity: Arc<[u8]>,
     replay_view: Option<Arc<crate::shared::ReplaySaltPool>>,
+    pub(super) udp_security: LegacyReplay,
 }
 impl fmt::Debug for PreparedTcp {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -105,6 +106,7 @@ impl PreparedTcp {
             replay: shared,
             identity: identity.into(),
             replay_view: None,
+            udp_security: replay,
         })
     }
     /// Cold total-budget proposal over the same actual history. The real
@@ -121,6 +123,21 @@ impl PreparedTcp {
             identity.extend_from_slice(&total.to_le_bytes());
             self.identity = identity.into();
         }
+        Ok(self)
+    }
+    pub fn with_udp_budget_limits(
+        mut self,
+        limits: crate::udp::UdpBudgetLimits,
+    ) -> Result<Self, Error> {
+        self.udp_security = self.udp_security.with_udp_budget_limits(limits)?;
+        let mut identity = self.identity.to_vec();
+        static KEYS: OnceLock<[RandomState; 2]> = OnceLock::new();
+        for key in KEYS.get_or_init(|| [RandomState::new(), RandomState::new()]) {
+            let mut hash = key.build_hasher();
+            self.udp_security.udp_budget_identity().hash(&mut hash);
+            identity.extend_from_slice(&hash.finish().to_le_bytes());
+        }
+        self.identity = identity.into();
         Ok(self)
     }
     pub fn replay_options(&self) -> Option<&ReplayOptions> {

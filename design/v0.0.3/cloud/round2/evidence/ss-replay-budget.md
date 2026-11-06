@@ -35,3 +35,57 @@ unbounded responsibility. Ordinary Proxy constructs finite shared-budget state;
 it does not select those standalone defaults to bypass production accounting.
 Qualifying legacy transport/process callers and their worker-retirement barriers
 is tracked separately and must use that same adapter state.
+
+## UDP continuation: five actual protocol-state units
+
+The same ordinary `ShadowsocksAdapter` owns one `UdpReplayBudget`, shared by its
+inbound profile store and outbound transport state. This is distinct from its
+TCP2022 salt budget and from native socket, worker, packet and byte budgets.
+Production defaults are kernel policy choices, not upstream defaults:
+
+| Config field | Actual counted unit | Default | Release condition |
+| --- | --- | --- | --- |
+| `ss_udp_replay_max_windows` | One original 1024-byte replay bitmap for a credential/receiver family and wire session | 8192 | Original valid expiry and all same-source peer retirement tokens released |
+| `ss_udp_max_senders` | One actual randomized sender ID and monotonically increasing nonce counter | 8192 | Original flow disappears, or original response sender expires after all its peer tokens retire |
+| `ss_udp_max_associations` | One responder namespace + credential + wire session/legacy endpoint identity and roaming endpoint record | 8192 | Actual record expiry with no live same-generation peer token, or original responder destruction |
+| `ss_udp_max_return_bindings` | One existing proxy-session return-target binding | 65536 | Actual binding expiry after its original peer is no longer live, or original owner destruction |
+| `ss_udp_max_authenticated_codecs` | One actually AEAD-authenticated cached inbound codec | 4096 | Actual codec destruction, including existing idle cleanup after its bindings/peer users retire |
+
+Only the receiver bitmap payload at its default ceiling is 8 MiB. This is not an
+RSS limit; records, codecs, packets, cryptographic buffers and other owners have
+separate costs. A return binding is not an association: one association may use
+many targets. Plain and stream ciphers are not counted as AEAD-authenticated
+codecs. The native Source uses its existing authenticated association for
+replies; its native target queues are not renamed protocol return bindings.
+
+The original receiver and response-sender books are shared by policy/capacity
+views. Changing a view cannot reset accepted packet bits, sender ID or nonce
+counter. The adapter strongly retains original books; books and their charges
+hold weak backreferences, avoiding an ownership cycle. No valid history is
+copied, evicted for pressure, or discarded on profile removal. The existing
+300-second default and inclusive 61-second minimum replay protection remain.
+Shorter views cannot shorten an already protected original deadline.
+
+A real Source passes the already selected `AuthenticatedAssociation` identity
+and the same `DatagramPeerRetirement` token into the protocol's existing
+association, receiver and response sender. This is observation of the original
+peer, not a new receipt, registry or permission. Tokens are deduplicated by same
+original registration. Roaming/multiple peers preserve every still-live token;
+Drop, socket idleness and a last-peer overwrite do not release this pin.
+Unauthenticated trials are not cached as authenticated codecs, and empty trial
+book metadata is reclaimed only when no actual codec still references it.
+
+Cold candidate projection validates retained occupancy without installing new
+limits. Actual Source/Stream option identities include their original UDP
+budget identity and proposed limits. The existing component lifecycle installs
+the proposal only at actual start, behind the shared Source/Users StopOld
+barrier. Removing all SS consumers still validates retained debt. Configuration
+publication, a successful bind, a peer view returning, and security-budget
+refund are separate facts.
+
+The legacy SIP003 outbound-only process owner still needs B's actual owner
+migration before it can install custom UDP caps from its cold options. Its
+adapter default uses the finite same budget; there is no `onReload` live-cap
+swap. This is an implementation dependency, not environment qualification.
+Native/worker/queued-byte budgets, non-AEAD Bloom state, and the whole kernel
+combined budget remain separately tracked in the continuation owner table.

@@ -144,8 +144,38 @@ impl ShadowsocksInboundProfile {
         )
     }
 
+    pub(crate) fn udp_codec_for_user(&self, user: &ShadowsocksUser) -> ShadowsocksInboundUdpCodec {
+        let codec = match self.identity_password() {
+            Some(identity) => {
+                ShadowsocksInboundUdpCodec::new_eih(self.cipher, identity, user.password())
+            }
+            None => ShadowsocksInboundUdpCodec::new(self.cipher, user.password()),
+        }
+        .with_replay_guard(self.replay.clone())
+        .with_state_limits(self.limits);
+        #[cfg(feature = "blake3")]
+        let codec = codec
+            .with_receiver_history(self.replay.received_for_user(
+                format!("{:?}:{}", self.cipher, user.cache_key()),
+                self.limits,
+            ))
+            .with_response_history(self.replay.responses_for_user(
+                format!("{:?}:{}", self.cipher, user.cache_key()),
+                self.limits,
+            ));
+        codec
+    }
+
+    #[cfg(feature = "blake3")]
+    pub(crate) fn udp_replay_budget(&self) -> Arc<crate::udp::UdpReplayBudget> {
+        self.replay.udp_replay_budget()
+    }
+
     pub fn udp_codec(&self) -> ShadowsocksInboundUdpCodec {
         let users = self.users_snapshot();
+        if let Some(user) = users.first() {
+            return self.udp_codec_for_user(user);
+        }
         let password = users
             .first()
             .map(ShadowsocksUser::password)

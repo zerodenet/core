@@ -5,6 +5,8 @@ pub struct ShadowsocksInboundProfileStore {
     profiles: Arc<Mutex<HashMap<String, ShadowsocksInboundProfile>>>,
     #[cfg(feature = "blake3")]
     budget: Arc<crate::shared::ReplayBudget>,
+    #[cfg(feature = "blake3")]
+    udp_budget: Arc<crate::udp::UdpReplayBudget>,
 }
 
 #[cfg(feature = "crypto")]
@@ -39,6 +41,19 @@ impl PreparedInboundProfile {
         Ok(self)
     }
 
+    #[cfg(feature = "blake3")]
+    pub fn with_udp_budget_limits(
+        mut self,
+        limits: crate::udp::UdpBudgetLimits,
+    ) -> Result<Self, Error> {
+        self.profile.replay = self.profile.replay.with_udp_budget_limits(limits)?;
+        Ok(self)
+    }
+    #[cfg(feature = "blake3")]
+    pub(crate) fn udp_budget_identity(&self) -> (usize, Option<crate::udp::UdpBudgetLimits>) {
+        self.profile.replay.udp_budget_identity()
+    }
+
     /// Called by the owning component only after confirmed StopOld.
     pub fn activate(self) -> ShadowsocksInboundProfile {
         let mut profiles = self
@@ -66,9 +81,17 @@ impl PreparedInboundProfile {
 impl ShadowsocksInboundProfileStore {
     #[cfg(feature = "blake3")]
     pub fn with_replay_budget(budget: Arc<crate::shared::ReplayBudget>) -> Self {
+        Self::with_replay_budgets(budget, Default::default())
+    }
+    #[cfg(feature = "blake3")]
+    pub fn with_replay_budgets(
+        budget: Arc<crate::shared::ReplayBudget>,
+        udp_budget: Arc<crate::udp::UdpReplayBudget>,
+    ) -> Self {
         Self {
             profiles: Default::default(),
             budget,
+            udp_budget,
         }
     }
 
@@ -91,10 +114,15 @@ impl ShadowsocksInboundProfileStore {
                 .with_tcp_capacity(profile.limits.tcp_replay_capacity);
         }
         #[cfg(feature = "blake3")]
-        profile
-            .replay
-            .modern_pool()
-            .bind_budget(self.budget.clone())?;
+        {
+            profile.replay = profile
+                .replay
+                .with_udp_replay_budget(self.udp_budget.clone())?;
+            profile
+                .replay
+                .modern_pool()
+                .bind_budget(self.budget.clone())?;
+        }
         Ok(profile)
     }
 
@@ -161,10 +189,15 @@ impl ShadowsocksInboundProfileStore {
             profile.replay = previous.replay.clone().with_policy(profile.replay.policy());
         }
         #[cfg(feature = "blake3")]
-        profile
-            .replay
-            .modern_pool()
-            .bind_budget(self.budget.clone())?;
+        {
+            profile.replay = profile
+                .replay
+                .with_udp_replay_budget(self.udp_budget.clone())?;
+            profile
+                .replay
+                .modern_pool()
+                .bind_budget(self.budget.clone())?;
+        }
         profiles.insert(tag.to_owned(), profile.clone());
         Ok(profile)
     }

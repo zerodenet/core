@@ -113,3 +113,6 @@ async fn ordinary_source_projects_total_and_replaces_originals_on_runtime_only_b
 #[cfg(feature = "socks5")]
 #[path = "both_budget.rs"]
 mod both_budget;
+
+#[path = "udp_budget.rs"]
+mod udp_budget;

@@ -6,13 +6,23 @@ use crate::{shared::legacy_replay::LegacyReplay, validation::ReplayPolicy};
 pub struct ShadowsocksTransportState {
     #[cfg(feature = "blake3")]
     modern: std::sync::Arc<crate::shared::ReplaySaltPool>,
+    #[cfg(feature = "blake3")]
+    udp_replay: std::sync::Arc<crate::udp::UdpReplayBudget>,
     plugins: super::plugin::outbound::PluginPool,
     guards: std::sync::Mutex<std::collections::HashMap<ReplayPolicy, LegacyReplay>>,
 }
 impl ShadowsocksTransportState {
     #[cfg(feature = "blake3")]
     pub fn with_replay_budget(budget: std::sync::Arc<crate::shared::ReplayBudget>) -> Self {
+        Self::with_replay_budgets(budget, Default::default())
+    }
+    #[cfg(feature = "blake3")]
+    pub fn with_replay_budgets(
+        budget: std::sync::Arc<crate::shared::ReplayBudget>,
+        udp_replay: std::sync::Arc<crate::udp::UdpReplayBudget>,
+    ) -> Self {
         Self {
+            udp_replay,
             plugins: Default::default(),
             guards: Default::default(),
             modern: std::sync::Arc::new(crate::shared::ReplaySaltPool::configured_with_budget(
@@ -28,6 +38,14 @@ impl ShadowsocksTransportState {
     pub fn validate_tcp_replay_budget(&self, total: usize) -> Result<(), zero_core::Error> {
         self.modern.budget().validate(Some(total))
     }
+    #[cfg(feature = "blake3")]
+    pub fn validate_udp_budget(
+        &self,
+        limits: crate::udp::UdpBudgetLimits,
+    ) -> Result<(), zero_core::Error> {
+        self.udp_replay.validate(limits)
+    }
+
     /// Prepare protocol framing with this actual adapter's nonce history.
     /// No proxy Session, socket, child or maintenance task is created here.
     #[cfg(feature = "blake3")]
@@ -84,7 +102,10 @@ impl ShadowsocksTransportState {
             .or_insert_with(|| {
                 let guard = LegacyReplay::new(policy, false);
                 #[cfg(feature = "blake3")]
-                let guard = guard.with_modern_history(&self.modern);
+                let guard = guard
+                    .with_modern_history(&self.modern)
+                    .with_udp_replay_budget(self.udp_replay.clone())
+                    .expect("a fresh transport guard has no UDP security book");
                 guard
             })
             .clone()

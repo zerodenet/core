@@ -48,6 +48,16 @@ pub(crate) struct LegacyReplay {
     modern_capacity: Option<usize>,
     #[cfg(feature = "blake3")]
     modern: Arc<crate::shared::ReplaySaltPool>,
+    #[cfg(feature = "blake3")]
+    udp_budget: Arc<crate::udp::UdpReplayBudget>,
+    #[cfg(feature = "blake3")]
+    udp_limits: Option<crate::udp::UdpBudgetLimits>,
+    #[cfg(feature = "blake3")]
+    udp_received:
+        Arc<Mutex<std::collections::HashMap<String, crate::udp::session::ReceiveWindows>>>,
+    #[cfg(feature = "blake3")]
+    udp_responses:
+        Arc<Mutex<std::collections::HashMap<String, crate::udp::session::ResponseSessions>>>,
     // Allocate only when an enabled policy sees its first authenticated salt.
     state: Arc<Mutex<Option<Window>>>,
 }
@@ -87,6 +97,91 @@ impl LegacyReplay {
         self.modern = Arc::new(pool.alias(self.modern_capacity));
         self
     }
+    #[cfg(feature = "blake3")]
+    pub(crate) fn with_udp_replay_budget(
+        mut self,
+        budget: Arc<crate::udp::UdpReplayBudget>,
+    ) -> Result<Self, Error> {
+        if !Arc::ptr_eq(&self.udp_budget, &budget)
+            && (!self
+                .udp_received
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner)
+                .is_empty()
+                || !self
+                    .udp_responses
+                    .lock()
+                    .unwrap_or_else(std::sync::PoisonError::into_inner)
+                    .is_empty())
+        {
+            return Err(Error::Config("cannot fork retained SS UDP security books"));
+        }
+        self.udp_budget = budget;
+        Ok(self)
+    }
+    #[cfg(feature = "blake3")]
+    pub(crate) fn with_udp_budget_limits(
+        mut self,
+        limits: crate::udp::UdpBudgetLimits,
+    ) -> Result<Self, Error> {
+        self.udp_budget.validate(limits)?;
+        self.udp_limits = Some(limits);
+        Ok(self)
+    }
+    #[cfg(feature = "blake3")]
+    pub(crate) fn udp_budget_identity(&self) -> (usize, Option<crate::udp::UdpBudgetLimits>) {
+        (Arc::as_ptr(&self.udp_budget) as usize, self.udp_limits)
+    }
+    #[cfg(feature = "blake3")]
+    pub(crate) fn activate_udp_budget(&self) -> Result<(), Error> {
+        if let Some(limits) = self.udp_limits {
+            self.udp_budget.install(limits)?;
+        }
+        Ok(())
+    }
+    #[cfg(feature = "blake3")]
+    pub(crate) fn udp_replay_budget(&self) -> Arc<crate::udp::UdpReplayBudget> {
+        self.udp_budget.clone()
+    }
+    #[cfg(feature = "blake3")]
+    pub(crate) fn received_for_user(
+        &self,
+        key: String,
+        limits: crate::validation::StateLimits,
+    ) -> crate::udp::session::ReceiveWindows {
+        let mut books = self
+            .udp_received
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        books.retain(|_, original| !original.unused());
+        books
+            .entry(key)
+            .or_insert_with(|| {
+                crate::udp::session::ReceiveWindows::with_budget(limits, self.udp_budget.clone())
+            })
+            .clone()
+            .with_limits_view(limits)
+    }
+    #[cfg(feature = "blake3")]
+    pub(crate) fn responses_for_user(
+        &self,
+        key: String,
+        limits: crate::validation::StateLimits,
+    ) -> crate::udp::session::ResponseSessions {
+        let mut books = self
+            .udp_responses
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        books.retain(|_, original| !original.unused());
+        let mut original = books
+            .entry(key)
+            .or_insert_with(|| {
+                crate::udp::session::ResponseSessions::with_budget(limits, self.udp_budget.clone())
+            })
+            .clone();
+        original.set_limits(limits);
+        original
+    }
     pub(crate) fn with_tcp_capacity(mut self, capacity: Option<usize>) -> Self {
         if self.modern_capacity != capacity {
             self.modern_capacity = capacity;
@@ -117,6 +212,14 @@ impl LegacyReplay {
             modern_capacity: None,
             #[cfg(feature = "blake3")]
             modern: Arc::new(crate::shared::ReplaySaltPool::new()),
+            #[cfg(feature = "blake3")]
+            udp_budget: Default::default(),
+            #[cfg(feature = "blake3")]
+            udp_limits: None,
+            #[cfg(feature = "blake3")]
+            udp_received: Default::default(),
+            #[cfg(feature = "blake3")]
+            udp_responses: Default::default(),
             state: Default::default(),
         }
     }
