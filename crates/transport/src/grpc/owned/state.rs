@@ -34,6 +34,8 @@ pub(in crate::grpc) struct Managed {
     pub(super) epoch: Mutex<Option<super::epoch::Epoch>>,
     pub(super) totals: Mutex<Option<super::totals::Active>>,
     #[cfg(feature = "tls")]
+    pub(super) ech_resolver: Option<Arc<dyn crate::tls::ech::EchConfigResolver>>,
+    #[cfg(feature = "tls")]
     pub(super) prepared_tls: Mutex<Option<crate::tls::OwnedPreparedClient>>,
 }
 pub(super) struct Physical {
@@ -124,6 +126,7 @@ impl Managed {
         tasks: TaskRegistrar,
         cancel: CancellationToken,
         grants: CarrierGrants,
+        #[cfg(feature = "tls")] ech_resolver: Option<Arc<dyn crate::tls::ech::EchConfigResolver>>,
     ) -> Arc<Self> {
         Arc::new(Self {
             instance,
@@ -140,6 +143,8 @@ impl Managed {
             totals: Mutex::new(None),
             #[cfg(feature = "tls")]
             prepared_tls: Mutex::new(None),
+            #[cfg(feature = "tls")]
+            ech_resolver,
         })
     }
     pub(super) fn activate(&self) -> Result<(), ChannelError> {

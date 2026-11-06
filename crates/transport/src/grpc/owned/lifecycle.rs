@@ -50,76 +50,18 @@ impl ComponentFactory for NativePoolFactory {
         options: Arc<NativePoolOptions>,
         context: BuildContext,
     ) -> Result<ComponentInstance, BuildError> {
-        let instance = context.instance();
-        if context.dependencies.len()
-            != usize::from(options.totals.is_some()) + usize::from(options.node_dns.is_some())
-            || options
-                .node_dns
-                .is_some_and(|node| context.dependency(node).is_none())
-            || options.node_dns.is_some_and(|node| {
-                options
-                    .totals
-                    .as_ref()
-                    .is_some_and(|root| root.dependency == node)
-            })
-            || options
-                .totals
-                .as_ref()
-                .is_some_and(|totals| context.dependency(totals.dependency).is_none())
-            || context.roles != Default::default()
+        #[cfg(feature = "tls")]
         {
-            return Err(error(instance, Stage::Prepare, Reason::InvalidConfig));
+            self.build_owned(options, context, None)
         }
-        if options
-            .settings
-            .tls
-            .as_ref()
-            .is_some_and(|tls| tls.ca_cert_path.is_some())
-            != options.ca.is_some()
+        #[cfg(not(feature = "tls"))]
         {
-            return Err(error(instance, Stage::Prepare, Reason::InvalidConfig));
+            self.build_owned(options, context)
         }
-        if options.selected_background
-            && matches!(options.endpoint.address, zero_core::Address::Domain(_))
-            && options.node_dns.is_none()
-        {
-            return Err(error(instance, Stage::Prepare, Reason::InvalidConfig));
-        }
-        let upstream = context
-            .background_carrier
-            .clone()
-            .filter(|upstream| {
-                upstream.binding().prefix.is_empty()
-                    && upstream.binding().dial == options.settings.dial
-            })
-            .ok_or_else(|| error(instance, Stage::Prepare, Reason::InvalidConfig))?;
-        let pool = options
-            .pool
-            .upgrade()
-            .ok_or_else(|| error(instance, Stage::Prepare, Reason::Revoked))?;
-        let cancel = context.cancel.child_token();
-        let carriers = CarrierOwner::new(instance, options.carrier_limit, &cancel);
-        let managed = Managed::new(
-            instance,
-            options,
-            upstream,
-            context.tasks,
-            cancel,
-            carriers.grants(),
-        );
-        Ok(ComponentInstance {
-            roles: ComponentRoles::default(),
-            lifecycle: erase_lifecycle(Owner {
-                pool,
-                managed,
-                carriers,
-                resources: context.resources,
-                attempted: false,
-                claimed: false,
-            }),
-        })
     }
 }
+mod factory;
+
 struct Owner {
     pool: Arc<State>,
     managed: Arc<Managed>,
@@ -217,7 +159,7 @@ impl ResourceLifecycle for Owner {
                     .as_ref()
                     .map(|tls| {
                         crate::tls::OwnedPreparedClient::from_material(
-                            tls,
+                            &super::ech::validation_profile(tls)?,
                             None,
                             &self.managed.options.settings.server,
                             None,
@@ -229,7 +171,15 @@ impl ResourceLifecycle for Owner {
                             .with_source(source)
                     })?,
             };
-            *self.managed.prepared_tls.lock().unwrap() = prepared;
+            *self.managed.prepared_tls.lock().unwrap() =
+                if super::ech::dynamic(&self.managed.options).map_err(|source| {
+                    error(self.managed.instance, Stage::Prepare, Reason::InvalidConfig)
+                        .with_source(source)
+                })? {
+                    None
+                } else {
+                    prepared
+                };
         }
         self.carriers.start(deadline).await?;
         #[cfg(feature = "tls")]
