@@ -117,49 +117,75 @@ impl Managed {
         if let Some(waiting) = waiting.or_else(|| self.upstream.observed_pending_carrier()) {
             waiting.retain(physical.adoption.clone())?;
         }
-        let acquiring = self.upstream.acquire_controlled_stream(
-            self.options.endpoint.clone(),
-            CarrierContext {
-                session: None,
-                deadline: demand.deadline,
-                cancel: physical.stop.clone(),
-            },
-            grant,
-        );
-        let io = tokio::select! { biased;
-            _=physical.stop.cancelled()=>return Err(demand_error(self.instance,Reason::Cancelled)),
-            result=self.wait(demand, acquiring)=>result?,
+        let owner = self.clone();
+        let preparing_physical = physical.clone();
+        let operation_demand = Demand {
+            deadline: demand.deadline,
+            cancel: physical.stop.clone(),
+            binding: demand.binding.clone(),
         };
-        let preparing = io.prepare_driver(|io| async {
-            let io = zero_platform_tokio::TcpRelayStream::new(super::carrier::Exclusive::new(io));
-            #[cfg(feature = "tls")]
-            let io = match &self.options.settings.tls {
-                Some(tls) => {
-                    crate::tls::connect_tls_stream(io, tls, None, &self.options.settings.server)
-                        .await?
-                }
-                None => io,
+        let preparing = async move {
+            let physical = preparing_physical;
+            let acquiring = owner.upstream.acquire_controlled_stream(
+                owner.options.endpoint.clone(),
+                CarrierContext {
+                    session: None,
+                    deadline: operation_demand.deadline,
+                    cancel: physical.stop.clone(),
+                },
+                grant,
+            );
+            let io = tokio::select! { biased;
+                _=physical.stop.cancelled()=>return Err(demand_error(owner.instance,Reason::Cancelled)),
+                result=owner.wait(&operation_demand, acquiring)=>result?,
             };
-            let settings = io
-                .application_settings()
-                .filter(|settings| settings.protocol == b"h2")
-                .map(|settings| settings.peer.clone());
-            crate::grpc::prepared::prepare_connection(
-                io,
-                self.options.settings.grpc.clone(),
-                settings.as_deref(),
-            )
-            .await
-        });
-        let preparing = self.wait(demand, async {
-            preparing.await.map_err(|source| {
-                error(self.instance, Stage::Handshake, Reason::Io).with_source(source)
-            })
-        });
-        let prepared = tokio::select! { biased;
-            _=physical.stop.cancelled()=>return Err(demand_error(self.instance,Reason::Cancelled)),
-            result=preparing=>result?,
+            let preparing = io.prepare_driver(|io| async {
+                let io =
+                    zero_platform_tokio::TcpRelayStream::new(super::carrier::Exclusive::new(io));
+                #[cfg(feature = "tls")]
+                let io = match &owner.options.settings.tls {
+                    Some(tls) => {
+                        crate::tls::connect_tls_stream(
+                            io,
+                            tls,
+                            None,
+                            &owner.options.settings.server,
+                        )
+                        .await?
+                    }
+                    None => io,
+                };
+                let settings = io
+                    .application_settings()
+                    .filter(|settings| settings.protocol == b"h2")
+                    .map(|settings| settings.peer.clone());
+                crate::grpc::prepared::prepare_connection(
+                    io,
+                    owner.options.settings.grpc.clone(),
+                    settings.as_deref(),
+                )
+                .await
+            });
+            let preparing = owner.wait(&operation_demand, async {
+                preparing.await.map_err(|source| {
+                    error(owner.instance, Stage::Handshake, Reason::Io).with_source(source)
+                })
+            });
+            let prepared = tokio::select! { biased;
+                _=physical.stop.cancelled()=>return Err(demand_error(owner.instance,Reason::Cancelled)),
+                result=preparing=>result?,
+            };
+            Ok(prepared)
         };
+        let prepared = self
+            .wait(demand, async {
+                if self.options.scoped_preparation {
+                    super::setup::run(self, &physical, preparing).await
+                } else {
+                    preparing.await
+                }
+            })
+            .await?;
         let (client, driver) = prepared.split(|connection| {
             NativeClient::prepare(
                 connection,

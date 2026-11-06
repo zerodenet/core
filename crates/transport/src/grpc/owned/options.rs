@@ -1,17 +1,17 @@
 use super::*;
 use crate::{
-    RuntimeError,
-    grpc::{GrpcPool, pool::State},
+    grpc::{pool::State, GrpcPool},
     profile::{OwnedClientTlsProfile, OwnedGrpcProfile},
+    RuntimeError,
 };
 use std::{
     num::NonZeroUsize,
     sync::{
-        Arc, Weak,
         atomic::{AtomicU64, Ordering},
+        Arc, Weak,
     },
 };
-use zero_core::{Address, request::Destination};
+use zero_core::{request::Destination, Address};
 use zero_traits::DialPolicy;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -25,6 +25,7 @@ pub struct NativePoolSettings {
 #[derive(Clone)]
 pub struct NativePoolOptions {
     pub(super) pool: Weak<State>,
+    pub(super) scoped_preparation: bool,
     pub(super) settings: NativePoolSettings,
     pub(super) endpoint: Destination,
     pub(super) authority: String,
@@ -150,6 +151,7 @@ impl NativePoolOptions {
         };
         Ok(Self {
             pool: Arc::downgrade(&pool.0),
+            scoped_preparation: false,
             settings,
             endpoint,
             authority,
@@ -157,6 +159,18 @@ impl NativePoolOptions {
             stream_limit,
             identity,
         })
+    }
+    /// Ordinary hosted factories prepare in the same original Scope before its
+    /// driver. Fixed library recipes retain their original inline contract.
+    /// The owning TaskScope must actually consume initializer exits and ACKs.
+    pub fn with_scoped_preparation(mut self) -> Self {
+        if !self.scoped_preparation {
+            self.scoped_preparation = true;
+            let mut identity = self.identity.to_vec();
+            identity.extend_from_slice(b"grpc.scoped-preparation.v1");
+            self.identity = identity.into();
+        }
+        self
     }
     pub fn endpoint(&self) -> &Destination {
         &self.endpoint

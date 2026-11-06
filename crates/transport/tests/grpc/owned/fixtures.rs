@@ -50,6 +50,9 @@ impl Fixture {
         let pool = GrpcPool::default();
         Self::on_pool(pool, peer, carriers, streams, tls, observer)
     }
+    pub(super) fn scoped(peer: std::net::SocketAddr, streams: usize) -> Self {
+        Self::on_pool_setup(GrpcPool::default(), peer, 1, streams, None, (None, true))
+    }
     pub(super) fn on_pool(
         pool: GrpcPool,
         peer: std::net::SocketAddr,
@@ -58,6 +61,17 @@ impl Fixture {
         tls: Option<OwnedClientTlsProfile>,
         observer: Option<Arc<dyn zero_traits::IoObserver>>,
     ) -> Self {
+        Self::on_pool_setup(pool, peer, carriers, streams, tls, (observer, false))
+    }
+    fn on_pool_setup(
+        pool: GrpcPool,
+        peer: std::net::SocketAddr,
+        carriers: usize,
+        streams: usize,
+        tls: Option<OwnedClientTlsProfile>,
+        setup: (Option<Arc<dyn zero_traits::IoObserver>>, bool),
+    ) -> Self {
+        let (observer, scoped) = setup;
         let cap = NonZeroUsize::new(carriers).unwrap();
         let scope = TaskScope::new(tokio::runtime::Handle::current(), cap);
         let egress = Arc::new(EgressInterfaceControl::default());
@@ -84,25 +98,28 @@ impl Fixture {
                 .unwrap(),
             ),
         );
-        let options = Arc::new(
-            NativePoolOptions::from_pool(
-                &pool,
-                NativePoolSettings {
-                    server: peer.ip().to_string(),
-                    port: peer.port(),
-                    grpc: crate::profile::OwnedGrpcProfile {
-                        service_names: vec!["owned".into()],
-                        multi_mode: true,
-                        ..Default::default()
-                    },
-                    tls,
-                    dial: binding.dial.clone(),
+        let options = NativePoolOptions::from_pool(
+            &pool,
+            NativePoolSettings {
+                server: peer.ip().to_string(),
+                port: peer.port(),
+                grpc: crate::profile::OwnedGrpcProfile {
+                    service_names: vec!["owned".into()],
+                    multi_mode: true,
+                    ..Default::default()
                 },
-                cap,
-                NonZeroUsize::new(streams).unwrap(),
-            )
-            .unwrap(),
-        );
+                tls,
+                dial: binding.dial.clone(),
+            },
+            cap,
+            NonZeroUsize::new(streams).unwrap(),
+        )
+        .unwrap();
+        let options = Arc::new(if scoped {
+            options.with_scoped_preparation()
+        } else {
+            options
+        });
         let cancel = CancellationToken::new();
         let tasks = scope.registrar();
         let context = BuildContext {

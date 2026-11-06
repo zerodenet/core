@@ -13,6 +13,7 @@ mod budget;
 mod carrier;
 mod connect;
 mod logical;
+mod setup;
 mod stream;
 pub use stream::NativeGrpcStream;
 use tokio::time::Instant;
