@@ -170,3 +170,26 @@ socket、其余 transport 或共享池迁移责任。
 上述均为开发输入；所有五域仍按首节完整调用者清单持续收尾。当前 Draft PR #133
 仍是早期进度记录，尚无统一最终候选或该候选 CI 资格。最终锁文件、源码清单和
 原始日志必须以可下载归档交付；云端路径及分散输入结果均不替代该交付。
+
+
+## 当前接续检查点（继续实施，不是最终候选）
+
+源码输入 `ea953646d257ada18c0658e62ee5f69567b9cfcf`、Rust 1.99.0、上述同一
+Cargo.lock：原 Host initializer 首借用取消后继续推进与清理两项、真实 ProcessEndpoint
+预留/探测/原件/actor 四项，以及 Metadata 实际可写后同总体额度与 caller ACK 一项通过。
+先前 `5905c97b` 的原件总账五项中四项、ProcessBudget 真 RawWaker panic/延后 ACK 一项、
+Metadata driver/user graph 三项、双 reader SourcePause 一项通过；Metadata 非阻塞发送
+夹具首次 WouldBlock/超时保留，由 `d62e58c4` 等待同原 socket 可写后在上述输入复验。
+两次匹配零项的错误 filter 另记未执行，不能算通过。
+
+H2 原期限/一字节窗口/256KiB 断言未改。`5905c97b`、`55de5a53` 均仍三通过一超时，
+实际接收分别为 178701、183332 字节；继续定位，不提高期限、窗口或生产容量。
+进程监控两项失败分别归因为 canonical 模式冲突的错误分类及主动撤权不同于进程退出；
+B `f8c5ceec` 与 M `007a26dc` 已保留实际类型/真实 exit 23，尚待同输入复验。
+
+Carrier/Metadata/Bound 同 Host 原件总额、实际 Source/Direct 暂停、异步 SDK 获取及
+按需同进程启动已组合，仍须补完整普通生产投影、剩余 provider 与旧链删除。
+A 的总体额度 StopOld/DNS 委托，B 的完整 SS UDP/全部剩余 transport 与共享池，C 的
+独立 WG provider/前置 process lookup，以及控制末项与全域预算都继续实施。
+五个完整职责域尚未关闭；远端 integration 最近核对仍为 `59615e69ea5a413d657a873157ea4adf8f204a90`。
+Draft #133 仅保存可审阅的接续源码，无最终候选 CI 资格。TEMP-WG-OUTER-UDP-01 原范围不变。

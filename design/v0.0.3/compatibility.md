@@ -197,3 +197,24 @@ Packet 的内核 Rust 契约补充 `PacketRequest::return_mtu`、实际
 H2 客户端继续使用原 `connect_h2*` API，原连接由当前调用者推进，保留半关闭和真实
 流控；未新增第二执行宿主或公开替代协议 SPI。上述接口不改变 V1 JSON/API/events、
 CLI/FFI 或消费者，但全部生产路径和最终统一候选尚未取得完整资格。
+
+
+## 原 Packet source 与按需进程的 Rust 接线续作
+
+`ResourceAccess::open_packet_device` 返回原异步获取 future，调用者须在同实际
+Scope/driver 与原启动期限内 await；`GrantedPacketSourceDriver` 同时转交原 origin
+和唯一 checkpoint。暂停只限制新借用，并由实际 main/wire（Direct 为原单 driver）
+确认，不撤销已转交 I/O，也不提供 native close、任务 join 或预算退款凭据。
+`ResourcePreparation::prepare_component_recipe` 将既有完整 typed recipe 及其原 native
+binding 交给同一个冷分配器，保留失败后整次准备失效的规则。
+
+`ProcessEndpointStreamRequest` / `ProcessEndpointDatagramRequest` 的 `startup_deadline`
+由原协议启动责任给出，再受实际调用期限约束；同 Slot 保留唯一 initializer，首借用者
+取消后由现有 supervisor 推进。它不另建进程、池或清理任务。只读
+`shadowsocks::component::PluginRootExit::status()` 保留原退出状态的类型信息。
+
+新增可选 `runtime.ss_udp_max_pending_responses` 和
+`runtime.ss_udp_total_max_pending_responses` 均默认 4096、范围 1..65536、省略不导出；
+分别限制同实际 Flow 与同 adapter 账本的响应票据，pending、失败退休及收到未取走均计额。
+该 schema 的普通生产消费仍在同一轮实现，字段存在不代表该职责域取得资格。
+V1 信封、控制 ACK/revision、事件与计量、CLI/FFI 及客户端/面板工作流沿用现契约。

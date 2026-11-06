@@ -56,6 +56,12 @@ Linux 进程原件续作增加内核 Rust 的 cold owned-process grant，保留�
 的适配要求见兼容记录。真实 Windows/macOS、SIP、WG/TUN、剩余出站与全域预算仍逐项
 收尾，不能据此视作完整候选、客户端同产物或跨平台资格。
 
+原 Packet Source 的异步获取、唯一读任务 checkpoint 和按需同 Slot 进程初始化要求
+内核 Rust 构造者使用实际 Scope/native binding，并给出原协议启动期限。新增 SS UDP
+响应票据的每 Flow/总体可选字段省略不导出，普通生产消费尚在整轮组合。具体 API 和预算
+口径见上述兼容记录；本次没有改变 V1 wire、ACK/revision、事件、CLI 或 FFI，未取得
+完整候选或客户端同产物资格。
+
 ## 版本矩阵
 
 | 版本 | 影响面 | 迁移结论 |
