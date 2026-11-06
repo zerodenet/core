@@ -243,7 +243,7 @@ impl HostResources {
     }
 }
 impl ProcessDeclarations {
-    fn endpoint_evidence(&self) -> Vec<ProcessIoEvidence> {
+    pub(super) fn endpoint_evidence(&self) -> Vec<ProcessIoEvidence> {
         self.lock()
             .values()
             .filter_map(|entry| {
@@ -265,7 +265,7 @@ impl ProcessDeclarations {
             })
             .collect()
     }
-    fn report_endpoints(&self, component: ComponentId, report: &mut CloseReport) {
+    pub(super) fn report_endpoints(&self, component: ComponentId, report: &mut CloseReport) {
         for entry in self.lock().values_mut() {
             let Some(endpoint) = entry.endpoint.as_mut() else {
                 continue;
