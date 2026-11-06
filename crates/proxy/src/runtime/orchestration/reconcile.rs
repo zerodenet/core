@@ -159,15 +159,18 @@ impl OrchestrationState {
                 .await;
             return;
         }
-        if budget_changed {
-            if let Err(error) = self
-                .quiesce_dns_donors_for_reload(proxy, &new_snapshot, &components)
-                .await
-            {
-                self.reject_before_start(proxy, &new_snapshot, error.to_string(), true)
-                    .await;
-                return;
-            }
+        // A same-endpoint CA/transport/dependency replacement owns the same
+        // warm DNS loans as a budget edit. The exact candidate determines the
+        // replaced instance intersection; an empty intersection changes nothing.
+        if let Err(error) = self
+            .quiesce_dns_donors_for_reload(proxy, &new_snapshot, &components)
+            .await
+        {
+            // No Source/Host StopOld has run. Preserve the actual old query,
+            // restore only cold admission and discard this exact token/plan.
+            self.reject_before_start(proxy, &new_snapshot, error.to_string(), true)
+                .await;
+            return;
         }
         let _user_pause = if budget_changed {
             match proxy.protocols.try_pause_replacement_users(&components) {
