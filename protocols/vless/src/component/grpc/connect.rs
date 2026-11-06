@@ -80,7 +80,7 @@ impl Outbound {
             &self.admission,
             session,
             context,
-            zero_platform_tokio::TcpRelayStream::new(io),
+            zero_platform_tokio::TcpRelayStream::new(super::super::carrier::Carrier::new(io)),
             bytes,
         )
         .await?;
