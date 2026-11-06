@@ -40,7 +40,7 @@ struct JoinCell {
 pub(crate) struct HostPeerBinding {
     parent: ComponentInstanceId,
     registrar: zero_platform_tokio::contract::scope::WeakTaskRegistrar,
-    lookup_root: std::sync::Weak<zero_platform_tokio::CarrierOriginalTotals>,
+    lookup_root: std::sync::Weak<zero_platform_tokio::controlled_carrier::CarrierOriginalTotals>,
     process: Mutex<Option<Arc<zero_platform_tokio::LocalProcessLookup>>>,
     process_failure: Mutex<Option<zero_platform_tokio::contract::scope::TaskJoined>>,
     process_cleanup_failure: Mutex<Option<Arc<ChannelError>>>,
@@ -81,7 +81,7 @@ impl HostPeerBinding {
         parent: ComponentInstanceId,
         cancel: CancellationToken,
         registrar: zero_platform_tokio::contract::scope::WeakTaskRegistrar,
-        lookup_root: std::sync::Weak<zero_platform_tokio::CarrierOriginalTotals>,
+        lookup_root: std::sync::Weak<zero_platform_tokio::controlled_carrier::CarrierOriginalTotals>,
     ) -> Self {
         Self {
             parent,

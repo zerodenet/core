@@ -14,7 +14,6 @@ use std::{
 
 use async_trait::async_trait;
 use zero_core::Address;
-use zero_platform_tokio::TokioDatagramSocket;
 
 use crate::protocol_registry::PacketPathExecutionServices;
 use crate::runtime::udp_dispatch::packet_path_operation::PreparedUdpPacketPathOperation;
