@@ -1,6 +1,51 @@
 //! Check borrowed lineage against actual installed roles and original providers.
 use super::*;
 impl ComponentPlan {
+    /// Planning capacity only; retain still validates each installed original
+    /// through validate_carrier_adoption before it can enter the caller ledger.
+    pub fn pending_carrier_capacity(
+        &self,
+        roles: &[zero_core::component::RoleInstanceId],
+    ) -> Result<usize, ChannelError> {
+        use zero_platform_tokio::contract::component::ResourceDeclaration as R;
+        let mut pending = Vec::new();
+        for role in roles {
+            pending.push(
+                self.role_slot(*role)
+                    .ok_or_else(|| invalid(Reason::StalePlan, "pending role changed"))?
+                    .instance_id(),
+            );
+        }
+        let mut seen = std::collections::BTreeSet::new();
+        let mut capacity = 0usize;
+        while let Some(id) = pending.pop() {
+            if !seen.insert(id) {
+                continue;
+            }
+            let slot = self
+                .order
+                .iter()
+                .find(|slot| slot.instance_id() == id)
+                .ok_or_else(|| invalid(Reason::StalePlan, "pending provider changed"))?;
+            for resource in &slot.recipe.spec().resources {
+                let limit = match resource {
+                    R::ControlledCarrierPool { max_sockets, .. }
+                    | R::ControlledAssociationPool { max_sockets, .. }
+                    | R::ControlledNodeStream { max_sockets, .. }
+                    | R::ControlledDirectStream { max_sockets, .. }
+                    | R::ControlledOutboundStream { max_sockets, .. }
+                    | R::ControlledDatagramCarrier { max_sockets, .. } => max_sockets.get(),
+                    _ => 0,
+                };
+                capacity = capacity.checked_add(limit).ok_or_else(|| {
+                    invalid(Reason::Capacity, "pending original capacity overflow")
+                })?;
+            }
+            pending.extend(self.retirement_dependencies(slot));
+        }
+        Ok(capacity)
+    }
+
     /// Actual installed dynamic background stream/packet pools. Metadata QUIC roots do
     /// not acquire a new nonempty-prefix capability through this selector.
     pub fn has_background_carrier_pool(&self, role: zero_core::component::RoleInstanceId) -> bool {

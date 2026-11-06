@@ -80,6 +80,7 @@ impl TcpRuntimeServices {
                 datagram_returns: None,
                 components,
                 invocation: None,
+                pending_datagram: None,
                 ingress: None,
             },
             protocols,

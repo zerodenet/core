@@ -13,6 +13,20 @@ struct Selected {
     remote: std::sync::Mutex<Option<std::net::SocketAddr>>,
 }
 impl UpstreamOpener for Selected {
+    fn has_pending_carrier_observer(&self) -> bool {
+        self.upstream.observed_pending_carrier().is_some()
+    }
+    fn retain_pending_carrier(
+        &self,
+        binding: &UpstreamBinding,
+        adoption: zero_platform_tokio::controlled_carrier::CarrierAdoption,
+    ) -> Result<(), ChannelError> {
+        if binding != self.upstream.binding() {
+            return Err(invalid(Reason::StalePlan, "pooled pending binding changed"));
+        }
+        self.upstream.retain_pending_carrier(adoption)
+    }
+
     fn carrier_dns_generation(&self) -> Option<zero_platform_tokio::contract::dns::DnsGeneration> {
         self.upstream.carrier_dns_generation()
     }
@@ -102,7 +116,17 @@ pub(super) async fn open(
             cancel: invocation.cancellation(),
         },
     }
-    .select(services)
+    .select_observed(
+        services,
+        match services
+            .pending_datagram
+            .as_ref()
+            .and_then(std::sync::Weak::upgrade)
+        {
+            Some(pending) => pending.observer(binding.clone())?,
+            None => None,
+        },
+    )
     .await?;
     let selected = Arc::new(Selected {
         upstream,

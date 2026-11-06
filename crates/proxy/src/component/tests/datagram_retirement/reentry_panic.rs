@@ -1,8 +1,8 @@
 use super::*;
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn actual_pending_close_poll_panic_preserves_the_same_controller_and_never_acknowledges_closed(
-) {
+async fn actual_pending_close_poll_panic_preserves_the_same_controller_and_never_acknowledges_closed()
+ {
     let owner = owner(1);
     let (actual, eof, release, server) = tcp_control(false).await;
     let pending = Arc::new(AtomicBool::new(false));

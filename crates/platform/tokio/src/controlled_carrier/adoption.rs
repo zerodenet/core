@@ -23,7 +23,8 @@ pub struct CarrierClosed {
     slot: Arc<Slot>,
 }
 impl CarrierAdoption {
-    pub(crate) fn request_retirement(&self) {
+    /// Request stop only; this supplies no close/user/join receipt.
+    pub fn request_retirement(&self) {
         self.slot.cancel.cancel();
         self.slot.notify();
     }
