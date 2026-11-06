@@ -10,3 +10,10 @@ mod direct_stream;
 
 #[cfg(feature = "mieru")]
 mod mieru;
+
+#[cfg(all(
+    feature = "wireguard",
+    feature = "socks5",
+    feature = "managed-stream-runtime"
+))]
+mod wireguard_datagram;
