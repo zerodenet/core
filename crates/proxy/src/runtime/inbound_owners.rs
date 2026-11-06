@@ -6,6 +6,8 @@ pub(crate) use bind::tests::test_standard_datagram_listener;
 pub(crate) use bind::tests::test_standard_native_listener;
 mod entry;
 mod observers;
+#[cfg(feature = "raw-ip-runtime")]
+pub(crate) mod system_tun;
 pub(crate) use bind::LeasedInbound;
 pub(crate) use bind::NativeListenerView;
 pub(in crate::runtime) mod component;
@@ -19,12 +21,12 @@ mod recovery;
 mod state_recovery;
 #[cfg(all(test, feature = "managed-datagram-runtime"))]
 pub(crate) mod test_support;
-pub(crate) use preparing::{preparation_stopped, PreparingInbounds};
+pub(crate) use preparing::{PreparingInbounds, preparation_stopped};
 mod released_fault;
 use crate::inventory::ProtocolInventory;
 pub(crate) use entry::{
-    consume_reported_error, preserve_io_kind, ClosedInboundReceipt, InboundOwner, InboundReady,
-    InboundTaskAccess, InboundTerminal,
+    ClosedInboundReceipt, InboundOwner, InboundReady, InboundTaskAccess, InboundTerminal,
+    consume_reported_error, preserve_io_kind,
 };
 #[cfg(feature = "managed-datagram-runtime")]
 pub(crate) use peer_binding::{HostPeerBinding, JoinedPeer};
@@ -32,8 +34,8 @@ pub(crate) use peer_binding::{HostPeerBinding, JoinedPeer};
 pub(crate) use peers::MAX_DATAGRAM_PEERS;
 #[cfg(feature = "managed-datagram-runtime")]
 pub(crate) use peers::{
-    children::{PeerBoundDatagramAuthority, PeerBoundDatagramRegistration, PeerResourceContext},
     InboundPeerTasks,
+    children::{PeerBoundDatagramAuthority, PeerBoundDatagramRegistration, PeerResourceContext},
 };
 pub(crate) use released_fault::released_fault_identity;
 use std::{
@@ -44,7 +46,7 @@ use std::{
 use tokio::{sync::watch, time::Instant};
 use zero_core::component::ComponentInstanceId;
 use zero_engine::EngineError;
-use zero_platform_tokio::contract::{lifecycle::DynResourceLifecycle, CancellationToken};
+use zero_platform_tokio::contract::{CancellationToken, lifecycle::DynResourceLifecycle};
 
 #[derive(Default)]
 pub(crate) struct InboundOwnerRegistry {
@@ -93,6 +95,15 @@ impl InboundInstallContext {
     ) -> Result<ComponentInstanceId, EngineError> {
         let identity = self.protocols.allocate_resource_identity()?;
         self.entry.install_resource(identity, owner)?;
+        Ok(identity)
+    }
+    #[cfg(feature = "raw-ip-runtime")]
+    pub(crate) fn register_after_scope(
+        &self,
+        owner: Box<dyn DynResourceLifecycle>,
+    ) -> Result<ComponentInstanceId, EngineError> {
+        let identity = self.protocols.allocate_resource_identity()?;
+        self.entry.install_after_scope_resource(identity, owner)?;
         Ok(identity)
     }
     pub(crate) fn tasks(&self) -> InboundTaskAccess {

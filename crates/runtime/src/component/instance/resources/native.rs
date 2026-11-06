@@ -9,9 +9,9 @@ use tokio::sync::Mutex as AsyncMutex;
 use tokio::time::Instant;
 use zero_core::{component::ComponentId, request::Destination};
 use zero_platform_tokio::contract::{
+    BoxFuture, CancellationToken, ChannelError, Reason,
     component::{GrantedDatagramListener, ProcessRequest, ResourceAccess, ResourceDeclaration},
     packet::BoxPacketSession,
-    BoxFuture, CancellationToken, ChannelError, Reason,
 };
 
 pub struct HostResources {
@@ -30,7 +30,7 @@ pub struct HostResources {
     cleanup: AsyncMutex<()>,
 }
 impl HostResources {
-    pub(in crate::component) fn original_packet_owner(
+    pub fn original_packet_owner(
         &self,
         ordinal: usize,
     ) -> Option<zero_platform_tokio::controlled_carrier::PacketProviderRegistration> {
@@ -38,6 +38,10 @@ impl HostResources {
             .iter()
             .find(|owner| owner.ordinal == ordinal)?
             .original_registration()
+    }
+    /// The actual source borrows this same ICMP provider; no second pool.
+    pub fn icmp_probe_grant(&self) -> Option<super::icmp::HostIcmpProbeGrant> {
+        self.icmp.as_ref().map(|owner| owner.grant())
     }
     pub(in crate::component) fn original_metadata_owner(
         &self,
