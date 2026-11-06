@@ -82,18 +82,19 @@ impl UpstreamOpener for Opener {
             if self.transfer.caller.is_none() {
                 call.cancel = self.transfer.stop.clone();
             }
-            let mut grant = self.transfer.grant.lock().unwrap().take().ok_or_else(|| {
+            let grant = self.transfer.grant.lock().unwrap().take().ok_or_else(|| {
                 crate::component::instance::invalid(
                     Reason::StalePlan,
                     "protocol already consumed its actual carrier grant",
                 )
             })?;
             let business = self.transfer.caller.is_some();
-            let view = if business {
-                grant.claim_user_view()?
-            } else {
-                grant.claim_transferred_view()?
-            };
+            let view = self.transfer.view.lock().unwrap().take().ok_or_else(|| {
+                crate::component::instance::invalid(
+                    Reason::StalePlan,
+                    "original unique taskless view already transferred",
+                )
+            })?;
             let io = if business || binding.prefix.is_empty() {
                 self.upstream
                     .acquire_controlled_stream(endpoint, call, grant)

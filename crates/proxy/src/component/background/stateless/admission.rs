@@ -43,11 +43,17 @@ impl Outbound {
                 "actual taskless original or caller ACK still occupies capacity",
             ));
         }
-        let grant = self.grants.reserve()?;
+        let mut grant = self.grants.reserve()?;
+        let view = if caller.is_some() {
+            grant.claim_user_view()?
+        } else {
+            grant.claim_transferred_view()?
+        };
         let transfer = Arc::new(Transfer {
             stop: grant.cancellation(),
             adoption: grant.adoption(),
             grant: Mutex::new(Some(grant)),
+            view: Mutex::new(Some(view)),
             owner: tokio::sync::Mutex::new(None),
             caller,
             published: false.into(),
