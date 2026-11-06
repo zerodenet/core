@@ -16,13 +16,17 @@ async fn delivered(
                 assert!(!request.tcp);
                 let original = proxy.resolver.native_query_observations().into_iter().find(|record| record.original.as_ref().and_then(|original| original.endpoints()).is_some_and(|endpoints| endpoints.peer() == node.address)).expect("actual Node bootstrap original");
                 bootstrap.push(original);
-                request.answer(false,false);
+                request.answer_ips(false,false,&[IpAddress::V4([127,0,0,2]),IpAddress::V4([127,0,0,1])]);
             }
             request = dns.request() => break request,
             result = &mut query => panic!("domain VLESS gRPC failed before actual DNS delivery: {result:?}"),
         }
     };
-    assert!(!bootstrap.is_empty());
+    assert_eq!(
+        bootstrap.len(),
+        1,
+        "one actual Service invocation resolves Node once before candidate retry"
+    );
     for original in bootstrap {
         tokio::time::timeout_at(deadline(), original.task.wait())
             .await
@@ -38,6 +42,29 @@ async fn delivered(
     let caller = pending(proxy).await;
     let child = caller.original.as_ref().unwrap();
     let donor = child.parent().unwrap().clone();
+    let plan = proxy.tcp_runtime_services().components.clone().unwrap();
+    let slot = plan.component(donor.instance().component).unwrap();
+    let original = slot
+        .recipe
+        .spec()
+        .resources
+        .iter()
+        .enumerate()
+        .filter_map(|(ordinal, _)| slot.original_carrier_owner(ordinal))
+        .find_map(|owner| {
+            owner.observe().and_then(|held| {
+                held.slots()
+                    .iter()
+                    .find(|entry| {
+                        entry.driver().is_some_and(|(_, driver)| {
+                            driver.same_registration(donor.driver().unwrap())
+                        })
+                    })
+                    .map(|entry| (held.retained(), entry.ordinal()))
+            })
+        })
+        .expect("same actual canonical pool's successful native original");
+    assert_eq!(original, (1, 2), "failed original must have returned to the actual provider before the second candidate survives");
     assert_eq!(
         donor.selected_binding().unwrap().0.address,
         zero_core::Address::Domain("grpc.actual.node.test".into())
@@ -60,6 +87,13 @@ async fn delivered(
 async fn ordinary_domain_vless_grpc_dns_replaces_the_actual_node_dependency_before_its_next_pool() {
     tokio::time::timeout(Duration::from_secs(20), async {
         let remote = Remote::new(false).await;
+        let refused = tokio::net::TcpSocket::new_v4().unwrap();
+        refused
+            .bind(std::net::SocketAddr::from((
+                [127, 0, 0, 2],
+                remote.address.port(),
+            )))
+            .unwrap();
         let mut dns = crate::dns_fixture::Dns::new().await;
         let mut node = crate::dns_fixture::Dns::new().await;
         let mut next_node = crate::dns_fixture::Dns::new().await;
@@ -105,6 +139,7 @@ async fn ordinary_domain_vless_grpc_dns_replaces_the_actual_node_dependency_befo
         dns.close().await;
         node.close().await;
         next_node.close().await;
+        drop(refused);
     })
     .await
     .unwrap();
