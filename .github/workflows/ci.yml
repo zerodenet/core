@@ -13,6 +13,10 @@ on:
 permissions:
   contents: read
 
+env:
+  ZERO_ROUND2: ${{ github.base_ref == 'codex/v003-cloud-r2-integration' || startsWith(github.ref_name, 'codex/v003-cloud-r2-') }}
+  RUSTUP_TOOLCHAIN: ${{ (github.base_ref == 'codex/v003-cloud-r2-integration' || startsWith(github.ref_name, 'codex/v003-cloud-r2-')) && '1.99.0' || 'stable' }}
+
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
@@ -29,9 +33,28 @@ jobs:
     steps:
       - uses: actions/checkout@v5
         with:
+          ref: ${{ env.ZERO_ROUND2 == 'true' && github.event.pull_request.head.sha || github.sha }}
           fetch-depth: 0
+
+      - name: Freeze round2 source and lock inputs
+        if: env.ZERO_ROUND2 == 'true'
+        uses: ./.github/actions/round2-inputs
       - id: scope
         uses: ./.github/actions/ci-scope
+
+      - name: Verify round2 lock was unchanged
+        if: always() && env.ZERO_ROUND2 == 'true'
+        shell: bash
+        run: python scripts/round2-candidate-inputs.py --verify
+
+      - name: Retain exact round2 inputs
+        if: always() && env.ZERO_ROUND2 == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: round2-inputs-${{ github.job }}-${{ matrix.os || runner.os }}
+          path: .round2-evidence/
+          include-hidden-files: true
+          if-no-files-found: error
 
   static:
     name: Static checks (fmt + clippy)
@@ -41,9 +64,16 @@ jobs:
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@v5
-
-      - uses: dtolnay/rust-toolchain@stable
         with:
+          ref: ${{ env.ZERO_ROUND2 == 'true' && github.event.pull_request.head.sha || github.sha }}
+
+      - name: Freeze round2 source and lock inputs
+        if: env.ZERO_ROUND2 == 'true'
+        uses: ./.github/actions/round2-inputs
+
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: ${{ env.RUSTUP_TOOLCHAIN }}
           components: rustfmt, clippy
 
       - uses: Swatinem/rust-cache@v2
@@ -74,6 +104,20 @@ jobs:
           rustup target add thumbv7em-none-eabi
           cargo check --target thumbv7em-none-eabi -p zero-traits -p zero-core
 
+      - name: Verify round2 lock was unchanged
+        if: always() && env.ZERO_ROUND2 == 'true'
+        shell: bash
+        run: python scripts/round2-candidate-inputs.py --verify
+
+      - name: Retain exact round2 inputs
+        if: always() && env.ZERO_ROUND2 == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: round2-inputs-${{ github.job }}-${{ matrix.os || runner.os }}
+          path: .round2-evidence/
+          include-hidden-files: true
+          if-no-files-found: error
+
   check-and-test:
     name: Check & Test (Linux)
     runs-on: ubuntu-22.04
@@ -82,8 +126,16 @@ jobs:
     if: needs.scope.outputs.code == 'true'
     steps:
       - uses: actions/checkout@v5
+        with:
+          ref: ${{ env.ZERO_ROUND2 == 'true' && github.event.pull_request.head.sha || github.sha }}
 
-      - uses: dtolnay/rust-toolchain@stable
+      - name: Freeze round2 source and lock inputs
+        if: env.ZERO_ROUND2 == 'true'
+        uses: ./.github/actions/round2-inputs
+
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: ${{ env.RUSTUP_TOOLCHAIN }}
 
       - uses: Swatinem/rust-cache@v2
 
@@ -109,6 +161,20 @@ jobs:
           cargo check -p zero-proxy --no-default-features --features socks5,vless
           cargo check --no-default-features --features status-api,connector
 
+      - name: Verify round2 lock was unchanged
+        if: always() && env.ZERO_ROUND2 == 'true'
+        shell: bash
+        run: python scripts/round2-candidate-inputs.py --verify
+
+      - name: Retain exact round2 inputs
+        if: always() && env.ZERO_ROUND2 == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: round2-inputs-${{ github.job }}-${{ matrix.os || runner.os }}
+          path: .round2-evidence/
+          include-hidden-files: true
+          if-no-files-found: error
+
   tun-platform-check:
     name: TUN platform check (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
@@ -121,8 +187,16 @@ jobs:
         os: [ubuntu-22.04, macos-14, windows-2022]
     steps:
       - uses: actions/checkout@v5
+        with:
+          ref: ${{ env.ZERO_ROUND2 == 'true' && github.event.pull_request.head.sha || github.sha }}
 
-      - uses: dtolnay/rust-toolchain@stable
+      - name: Freeze round2 source and lock inputs
+        if: env.ZERO_ROUND2 == 'true'
+        uses: ./.github/actions/round2-inputs
+
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: ${{ env.RUSTUP_TOOLCHAIN }}
 
       - uses: Swatinem/rust-cache@v2
 
@@ -157,6 +231,20 @@ jobs:
         if: needs.scope.outputs.compatibility == 'true'
         run: cargo test --test tun_privileged_e2e --no-run
 
+      - name: Verify round2 lock was unchanged
+        if: always() && env.ZERO_ROUND2 == 'true'
+        shell: bash
+        run: python scripts/round2-candidate-inputs.py --verify
+
+      - name: Retain exact round2 inputs
+        if: always() && env.ZERO_ROUND2 == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: round2-inputs-${{ github.job }}-${{ matrix.os || runner.os }}
+          path: .round2-evidence/
+          include-hidden-files: true
+          if-no-files-found: error
+
   linux-musl-compat:
     name: Build Linux musl compatibility artifact
     runs-on: ubuntu-22.04
@@ -165,8 +253,16 @@ jobs:
     if: needs.scope.outputs.compatibility == 'true'
     steps:
       - uses: actions/checkout@v5
+        with:
+          ref: ${{ env.ZERO_ROUND2 == 'true' && github.event.pull_request.head.sha || github.sha }}
 
-      - uses: dtolnay/rust-toolchain@stable
+      - name: Freeze round2 source and lock inputs
+        if: env.ZERO_ROUND2 == 'true'
+        uses: ./.github/actions/round2-inputs
+
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: ${{ env.RUSTUP_TOOLCHAIN }}
 
       - uses: Swatinem/rust-cache@v2
 
@@ -201,6 +297,20 @@ jobs:
             exit 1
           fi
 
+      - name: Verify round2 lock was unchanged
+        if: always() && env.ZERO_ROUND2 == 'true'
+        shell: bash
+        run: python scripts/round2-candidate-inputs.py --verify
+
+      - name: Retain exact round2 inputs
+        if: always() && env.ZERO_ROUND2 == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: round2-inputs-${{ github.job }}-${{ matrix.os || runner.os }}
+          path: .round2-evidence/
+          include-hidden-files: true
+          if-no-files-found: error
+
   proxy-feature-compat:
     name: Proxy feature compatibility
     runs-on: ubuntu-22.04
@@ -209,8 +319,16 @@ jobs:
     if: needs.scope.outputs.code == 'true'
     steps:
       - uses: actions/checkout@v5
+        with:
+          ref: ${{ env.ZERO_ROUND2 == 'true' && github.event.pull_request.head.sha || github.sha }}
 
-      - uses: dtolnay/rust-toolchain@stable
+      - name: Freeze round2 source and lock inputs
+        if: env.ZERO_ROUND2 == 'true'
+        uses: ./.github/actions/round2-inputs
+
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: ${{ env.RUSTUP_TOOLCHAIN }}
 
       - uses: Swatinem/rust-cache@v2
 
@@ -249,6 +367,20 @@ jobs:
         if: ${{ !cancelled() }}
         run: cargo test -p zero-transport --no-default-features --features http_client --lib browser::tests
 
+      - name: Verify round2 lock was unchanged
+        if: always() && env.ZERO_ROUND2 == 'true'
+        shell: bash
+        run: python scripts/round2-candidate-inputs.py --verify
+
+      - name: Retain exact round2 inputs
+        if: always() && env.ZERO_ROUND2 == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: round2-inputs-${{ github.job }}-${{ matrix.os || runner.os }}
+          path: .round2-evidence/
+          include-hidden-files: true
+          if-no-files-found: error
+
   optional-surface-compat:
     name: Optional surface compatibility
     runs-on: ubuntu-22.04
@@ -257,8 +389,16 @@ jobs:
     if: needs.scope.outputs.exhaustive == 'true'
     steps:
       - uses: actions/checkout@v5
+        with:
+          ref: ${{ env.ZERO_ROUND2 == 'true' && github.event.pull_request.head.sha || github.sha }}
 
-      - uses: dtolnay/rust-toolchain@stable
+      - name: Freeze round2 source and lock inputs
+        if: env.ZERO_ROUND2 == 'true'
+        uses: ./.github/actions/round2-inputs
+
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: ${{ env.RUSTUP_TOOLCHAIN }}
 
       - uses: Swatinem/rust-cache@v2
 
@@ -281,6 +421,20 @@ jobs:
 
       - name: Check optional surface (grpc-api)
         run: cargo check --no-default-features --features grpc-api
+
+      - name: Verify round2 lock was unchanged
+        if: always() && env.ZERO_ROUND2 == 'true'
+        shell: bash
+        run: python scripts/round2-candidate-inputs.py --verify
+
+      - name: Retain exact round2 inputs
+        if: always() && env.ZERO_ROUND2 == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: round2-inputs-${{ github.job }}-${{ matrix.os || runner.os }}
+          path: .round2-evidence/
+          include-hidden-files: true
+          if-no-files-found: error
 
   result:
     name: CI result

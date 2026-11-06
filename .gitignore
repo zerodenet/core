@@ -20,3 +20,6 @@ __pycache__/
 # Test configs (may contain credentials)
 test_config.json
 AP_subdog.yaml
+
+# Candidate evidence is uploaded outside Git.
+/.round2-evidence/

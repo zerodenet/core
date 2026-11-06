@@ -2,6 +2,7 @@
 use super::*;
 impl<T: TaskOutput> ScopedSourceTasks<T> {
     pub(crate) fn quiescent(&self) -> bool {
+        self.reap_released();
         // UDP/TCP dispatchers retain their sole output consumer across reads.
         // That lease is not outstanding work. If it is borrowed, its actual
         // records still retain every registration until the same consumer
@@ -11,6 +12,7 @@ impl<T: TaskOutput> ScopedSourceTasks<T> {
                 self.consume(output);
             }
         }
+        self.reap_released();
         let state = self.inner.state.lock().unwrap();
         state.records.is_empty()
             && state.failure.is_empty()

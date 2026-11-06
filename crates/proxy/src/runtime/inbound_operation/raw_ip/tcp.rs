@@ -26,14 +26,22 @@ enum SourceInput {
 }
 impl TcpSourceTasks {
     pub(super) fn hosted(
-        dns: Option<crate::runtime::raw_ip::tasks::scoped::ScopedSourceTasks<Result<(), io::Error>>>,
+        dns: Option<
+            crate::runtime::raw_ip::tasks::scoped::ScopedSourceTasks<Result<(), io::Error>>,
+        >,
         admission: Arc<zero_platform_tokio::contract::packet::PacketSourcePause>,
     ) -> Self {
-        Self { dns, input: SourceInput::Hosted(admission) }
+        Self {
+            dns,
+            input: SourceInput::Hosted(admission),
+        }
     }
     #[cfg(test)]
     pub(super) fn fixture() -> Self {
-        Self { dns: None, input: SourceInput::ExplicitStackFixture }
+        Self {
+            dns: None,
+            input: SourceInput::ExplicitStackFixture,
+        }
     }
 }
 
@@ -47,9 +55,12 @@ pub(super) async fn accept(
     source_tasks: TcpSourceTasks,
 ) -> Result<(), EngineError> {
     let dns = &source_tasks.dns;
-    let mut dns_tasks=match dns {Some(dns)=>Some(dns.lock().await.map_err(std::io::Error::other)?),None=>None};
+    let mut dns_tasks = match dns {
+        Some(dns) => Some(dns.lock().await.map_err(std::io::Error::other)?),
+        None => None,
+    };
     loop {
-        let accepted=tokio::select! {
+        let accepted = tokio::select! {
             accepted=async {
                 match &source_tasks.input {
                     SourceInput::Hosted(admission) => {
@@ -81,14 +92,30 @@ pub(super) async fn accept(
                 "raw-IP TCP stack closed",
             )));
         };
-        if let Some(policy)=tun.as_ref().filter(|policy|policy.dns_hijack && destination.port==53) {
-            policy.dns_hijacked_queries.fetch_add(1,std::sync::atomic::Ordering::Relaxed);
-            let tasks=dns_tasks.as_mut().ok_or_else(||std::io::Error::other("actual device DNS task set was not declared"))?;
-            if tasks.len()>=crate::inbound::tun::MAX_TCP_DNS_CONNECTIONS {
-                tracing::warn!(active_dns_connections=tasks.len(),"rejecting TUN DNS TCP connection at the concurrency limit");
+        if let Some(policy) = tun
+            .as_ref()
+            .filter(|policy| policy.dns_hijack && destination.port == 53)
+        {
+            policy
+                .dns_hijacked_queries
+                .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+            let tasks = dns_tasks.as_mut().ok_or_else(|| {
+                std::io::Error::other("actual device DNS task set was not declared")
+            })?;
+            if tasks.len() >= crate::inbound::tun::MAX_TCP_DNS_CONNECTIONS {
+                tracing::warn!(
+                    active_dns_connections = tasks.len(),
+                    "rejecting TUN DNS TCP connection at the concurrency limit"
+                );
                 continue;
             }
-            tasks.spawn(crate::inbound::tun::serve_dns_tcp(runtime_factory.tun_dns_resolver(),stream)).map_err(std::io::Error::other)?;
+            let resolver = runtime_factory.tun_dns_resolver();
+            let native = native.clone();
+            tasks
+                .spawn_with_witness(move |caller| {
+                    crate::inbound::tun::serve_dns_tcp_owned(resolver, stream, native, caller)
+                })
+                .map_err(std::io::Error::other)?;
             continue;
         }
         if group.occupied() >= MAX_CONNECTIONS {
@@ -120,9 +147,11 @@ pub(super) async fn accept(
             let stop = binding.cancellation();
             native.bind_caller(binding).map_err(std::io::Error::other)?;
             let runtime = runtime.with_caller_native(native.registration());
-            let (session,stream)=if sniff {
-                crate::inbound::tun::sniff_tcp_target(session,stream).await
-            } else {(session,ReplayStream::new(stream,Vec::new()))};
+            let (session, stream) = if sniff {
+                crate::inbound::tun::sniff_tcp_target(session, stream).await
+            } else {
+                (session, ReplayStream::new(stream, Vec::new()))
+            };
             native.enter().map_err(std::io::Error::other)?;
             let protocol = NoClientResponseStreamProtocol::new();
             let result = tokio::select! { biased;

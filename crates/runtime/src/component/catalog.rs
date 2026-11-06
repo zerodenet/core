@@ -8,6 +8,9 @@ mod discard;
 mod maintenance;
 mod original_budgets;
 mod plan;
+#[cfg(all(test, target_os = "linux"))]
+#[path = "catalog/tests/process_accounting.rs"]
+mod process_accounting_tests;
 mod quiescence;
 pub use quiescence::ReplacementUsersPause;
 mod replacement;

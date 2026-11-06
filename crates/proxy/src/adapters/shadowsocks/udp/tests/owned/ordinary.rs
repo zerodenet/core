@@ -102,7 +102,10 @@ async fn ordinary_cached_datagrams_keep_one_original_for_reordered_targets_empty
         let codec=super::super::super::transport_leaf(&Default::default(),"ss",&config.outbounds[0].protocol).unwrap().udp_packet_path_plan().unwrap().carrier_codec();
         let proxy=Proxy::new(config).unwrap();let registry=proxy.system_tun_source_registry();let running=proxy.spawn();
         let entry=loop {if let Some(owner)=registry.owner("entry") {break owner;}tokio::task::yield_now().await;};
-        entry.wait_ready().await.unwrap();let endpoint=*entry.original_listener_address.get().unwrap();
+        entry.wait_ready().await.unwrap();
+        let ready=crate::ProxyHandle::new(zero_engine::EngineHandle::new(proxy.engine().clone()),proxy.clone());
+        ready.apply_runtime_config_and_wait((*proxy.engine().config()).clone(),Duration::from_secs(5)).await.unwrap();
+        let endpoint=*entry.original_listener_address.get().unwrap();
         let (_control,socket,relay)=associate(endpoint).await;
         send(&socket,relay,1,b"first").await;send(&socket,relay,2,b"").await;
         let mut buffer=[0;65536];let mut sender=None;let mut requests=std::collections::BTreeMap::new();

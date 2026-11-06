@@ -3,7 +3,10 @@ use std::net::IpAddr;
 use std::time::Duration;
 
 use ipnet::IpNet;
-use tokio::sync::{mpsc, oneshot, watch};
+#[cfg(any(test, not(feature = "raw-ip-runtime")))]
+use tokio::sync::watch;
+use tokio::sync::{mpsc, oneshot};
+#[cfg(any(test, not(feature = "raw-ip-runtime")))]
 use zero_engine::EngineError;
 use zero_tun::{
     strict_route_socket_mark, FamilyEgressState, RouteChangeMonitor, RouteInterface,

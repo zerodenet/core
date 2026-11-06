@@ -4,6 +4,8 @@ mod failure;
 mod guard;
 mod lifetime;
 mod quiescence;
+mod retirement;
+mod spawn;
 use super::{Source, TaskOutput};
 pub(crate) use failure::SourceJoinFailure;
 pub(crate) use guard::SourceTasksGuard;
@@ -41,6 +43,7 @@ struct State<T: TaskOutput> {
 struct Record<T: TaskOutput> {
     witness: OnceLock<TaskJoinWitness>,
     output: Mutex<Option<T>>,
+    delivered: std::sync::atomic::AtomicBool,
 }
 impl<T: TaskOutput> Clone for ScopedSourceTasks<T> {
     fn clone(&self) -> Self {
@@ -99,85 +102,17 @@ impl<T: TaskOutput> ScopedSourceTasks<T> {
             _lease: lease,
         })
     }
-    fn spawn(
-        &self,
-        future: impl Future<Output = T> + Send + 'static,
-    ) -> Result<TaskId, ChannelError> {
-        let scope = self
-            .inner
-            .scope
-            .get()
-            .ok_or_else(|| error(Reason::InvalidConfig))?;
-        let host_stop = scope.cancellation().ok_or_else(|| error(Reason::Revoked))?;
-        let record = Arc::new(Record {
-            witness: OnceLock::new(),
-            output: Mutex::new(None),
-        });
-        {
-            let mut state = self.inner.state.lock().unwrap();
-            if state.closing {
-                return Err(error(Reason::Revoked));
-            }
-            if state.records.len() >= self.inner.limit {
-                return Err(error(Reason::Capacity));
-            }
-            state.records.push(record.clone());
-        }
-        let output = record.clone();
-        let owner = self.inner.clone();
-        let registered = scope.spawn_tracked(self.inner.class, async move {
-            let mut result = tokio::select! {biased;
-                _=host_stop.cancelled()=>return Ok(()),
-                _=owner.stop.cancelled()=>return Ok(()),
-                output=future=>output,
-            };
-            // Expected Auxiliary outputs belong to their original receiver.
-            // Critical driver errors also reach the actual Scope supervisor.
-            let failure = if owner.class == TaskClass::Critical {
-                result.preserve_failure()
-            } else {
-                None
-            };
-            *output.output.lock().unwrap() = Some(result);
-            owner.changed.notify_waiters();
-            failure.map_or(Ok(()), |source| {
-                Err(error(Reason::Io).with_source(Reported(source)))
-            })
-        });
-        match registered {
-            Ok((id, witness)) => {
-                record
-                    .witness
-                    .set(witness)
-                    .expect("one actual Source worker registration");
-                self.inner.changed.notify_waiters();
-                Ok(id)
-            }
-            Err(source) => {
-                let reason = match source {
-                    zero_platform_tokio::contract::scope::SpawnError::Capacity => Reason::Capacity,
-                    _ => Reason::Revoked,
-                };
-                let mut state = self.inner.state.lock().unwrap();
-                state.records.retain(|entry| !Arc::ptr_eq(entry, &record));
-                // No task was accepted or polled. Capacity denial grants no
-                // replacement credit and is not a sticky cleanup fault.
-                if reason != Reason::Capacity {
-                    state.closing = true;
-                }
-                drop(state);
-                Err(ChannelError::new(Stage::Prepare, reason, Impact::Component)
-                    .with_source(source))
-            }
-        }
-    }
     fn take_joined(&self) -> Option<Result<T, SourceJoinFailure>> {
-        let mut state = self.inner.state.lock().unwrap();
-        let position = state
-            .records
-            .iter()
-            .position(|record| record.witness.get().is_some_and(TaskJoinWitness::is_joined))?;
-        let record = state.records.swap_remove(position);
+        self.reap_released();
+        let state = self.inner.state.lock().unwrap();
+        let position = state.records.iter().position(|record| {
+            !record.delivered.load(std::sync::atomic::Ordering::Acquire)
+                && record.witness.get().is_some_and(TaskJoinWitness::is_joined)
+        })?;
+        let record = state.records[position].clone();
+        record
+            .delivered
+            .store(true, std::sync::atomic::Ordering::Release);
         drop(state);
         let witness = record
             .witness
@@ -206,9 +141,19 @@ impl<T: TaskOutput> ScopedSourceTasks<T> {
             }
             let mut waits = records
                 .iter()
-                .filter_map(|record| record.witness.get())
-                .cloned()
-                .map(|witness| Box::pin(async move { witness.wait().await }))
+                .filter_map(|record| {
+                    record.witness.get().map(|witness| {
+                        let witness = witness.clone();
+                        let delivered = record.delivered.load(std::sync::atomic::Ordering::Acquire);
+                        Box::pin(async move {
+                            if delivered {
+                                witness.wait_registration_released().await
+                            } else {
+                                witness.wait().await
+                            }
+                        })
+                    })
+                })
                 .collect::<Vec<_>>();
             if waits.is_empty() {
                 changed.await;

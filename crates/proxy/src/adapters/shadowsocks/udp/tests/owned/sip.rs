@@ -44,6 +44,8 @@ async fn actual_sip_process_quota_keeps_other_business_alive_and_cold_node_retri
             let owner=loop {if let Some(owner)=registry.owner(tag) {break owner;}tokio::task::yield_now().await;};
             owner.wait_ready().await.unwrap();endpoints.push(*owner.original_listener_address.get().unwrap());owners.push(owner);
         }
+        let ready=ProxyHandle::new(zero_engine::EngineHandle::new(proxy.engine().clone()),proxy.clone());
+        ready.apply_runtime_config_and_wait((*proxy.engine().config()).clone(),Duration::from_secs(5)).await.unwrap();
         let roots=proxy.protocols.runtime_host().original_budgets();assert_eq!(roots.process.snapshot().charged_jobs,0);
         assert!(!directory.path().join("a").exists()&&!directory.path().join("b").exists(),"cold Ready cannot eagerly start unused SIP children");
         let plan=proxy.tcp_runtime_services().components.clone().unwrap();let cold_b=plan.configured("b").unwrap().instance_id();
