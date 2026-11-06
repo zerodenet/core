@@ -36,8 +36,14 @@ async fn actual_pending_parent_read_keeps_original_until_worker_and_scope_joins(
     assert!(report.failed_tasks.is_empty());
     assert!(lock(&owner.shared.worker).joined);
     assert!(lock(&owner.shared.witness).as_ref().unwrap().is_joined());
-    assert!(!is_open(original));
-    assert_eq!(io::Error::last_os_error().raw_os_error(), Some(libc::EBADF));
+    let closed = owner
+        .closed()
+        .expect("actual native close after both original joins");
+    assert!(closed.matches(&owner) && closed.had_native_acquisition());
+    assert!(
+        !closed.matches(&ParentInputOwner::new()),
+        "foreign owner cannot reuse this close receipt"
+    );
     writer.write_all(b"still borrowed").unwrap();
     let mut bytes = [0; 14];
     borrowed.read_exact(&mut bytes).unwrap();
@@ -61,7 +67,10 @@ async fn actual_parent_eof_still_requires_same_original_close_after_scope_join()
         .unwrap();
     assert!(report.is_complete(), "{report:?}");
     assert_eq!(report.exited_tasks.len(), 1);
-    assert!(!is_open(original));
+    let closed = owner
+        .closed()
+        .expect("EOF alone did not supply this receipt");
+    assert!(closed.matches(&owner) && closed.had_native_acquisition());
 }
 
 #[cfg(windows)]

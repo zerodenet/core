@@ -8,7 +8,7 @@ use std::{
     io,
     num::NonZeroUsize,
     sync::{
-        Arc, Condvar, Mutex,
+        Arc, Condvar, Mutex, OnceLock, Weak,
         atomic::{AtomicBool, Ordering},
     },
 };
@@ -27,9 +27,23 @@ pub struct ParentInputOwner {
     shared: Arc<Shared>,
     scope: AsyncMutex<TaskScope>,
 }
+/// Opaque receipt for this actual input duplicate and its joined worker.
+/// It grants no authority over the host's borrowed original stdin.
+pub struct ParentInputClosed {
+    original: Weak<Shared>,
+    acquired: bool,
+}
+impl ParentInputClosed {
+    pub fn had_native_acquisition(&self) -> bool {
+        self.acquired
+    }
+    pub fn matches(&self, owner: &ParentInputOwner) -> bool {
+        self.original.ptr_eq(&Arc::downgrade(&owner.shared))
+    }
+}
 struct Shared {
     stop: AtomicBool,
-    released: AtomicBool,
+    closed: OnceLock<Arc<ParentInputClosed>>,
     changed: Notify,
     native: Mutex<native::Input>,
     worker: Mutex<Worker>,
@@ -80,7 +94,7 @@ impl ParentInputOwner {
         Arc::new(Self {
             shared: Arc::new(Shared {
                 stop: AtomicBool::new(false),
-                released: AtomicBool::new(false),
+                closed: OnceLock::new(),
                 changed: Notify::new(),
                 native: Mutex::new(native::Input::default()),
                 worker: Mutex::new(Worker::default()),
@@ -209,7 +223,10 @@ impl ParentInputOwner {
         }
     }
     pub fn retirement_complete(&self) -> bool {
-        self.shared.released.load(Ordering::Acquire)
+        self.closed().is_some_and(|closed| closed.matches(self))
+    }
+    pub fn closed(&self) -> Option<Arc<ParentInputClosed>> {
+        self.shared.closed.get().cloned()
     }
     pub fn request_stop(&self) {
         self.shared.stop.store(true, Ordering::Release);
@@ -271,8 +288,14 @@ impl ParentInputOwner {
         if !report.is_complete() {
             return Ok(report);
         }
+        let acquired = lock(&self.shared.worker).started;
         lock(&self.shared.native).close()?;
-        self.shared.released.store(true, Ordering::Release);
+        self.shared.closed.get_or_init(|| {
+            Arc::new(ParentInputClosed {
+                original: Arc::downgrade(&self.shared),
+                acquired,
+            })
+        });
         report
             .released_resources
             .push("same original parent input duplicate released after std and Scope joins".into());
