@@ -21,6 +21,7 @@ struct Key {
     namespace: &'static str,
     identity: Arc<[u8]>,
     accounting_limit: Option<usize>,
+    process_limits: Option<super::recipe::accounting::ProcessLimits>,
 }
 
 /// A real host-assigned identity and its state-only resource recipe.
@@ -123,6 +124,7 @@ impl<'a> ResourcePreparation<'a> {
                 || !old.can_reuse()
                 || candidate.recipe.spec() != old.recipe.spec()
                 || candidate.recipe.carrier_total_limit() != old.recipe.carrier_total_limit()
+                || candidate.recipe.process_limits() != old.recipe.process_limits()
             {
                 return None;
             }
@@ -159,9 +161,13 @@ impl<'a> ResourcePreparation<'a> {
         let Ok(accounting_limit) = self.carrier_total_limit_for(spec) else {
             return false;
         };
+        let Ok(process_limits) = self.process_limits_for(spec) else {
+            return false;
+        };
         let key = Key {
             namespace,
             accounting_limit,
+            process_limits,
             identity: spec.static_identity.clone(),
         };
         if self
@@ -180,6 +186,7 @@ impl<'a> ResourcePreparation<'a> {
         if !old.can_reuse()
             || old.recipe.spec() != spec
             || old.recipe.carrier_total_limit() != accounting_limit
+            || old.recipe.process_limits() != process_limits
             || !old.matches_scope_identity(scope)
         {
             return false;
@@ -385,6 +392,7 @@ impl<'a> ResourcePreparation<'a> {
         let key = Key {
             namespace,
             accounting_limit: recipe.carrier_total_limit(),
+            process_limits: recipe.process_limits(),
             identity: recipe.spec().static_identity.clone(),
         };
         if let Some(existing) = self.resources.get(&key) {

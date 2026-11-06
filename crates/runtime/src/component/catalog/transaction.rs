@@ -55,7 +55,7 @@ impl ComponentCatalog {
         let plan = self
             .prepare(config.clone())
             .map_err(crate::component::instance::retained)?;
-        let changes_total = {
+        let changes_limits = {
             let state = self.state.lock().expect("component catalog poisoned");
             state.current.as_ref().is_some_and(|current| {
                 current
@@ -63,12 +63,19 @@ impl ComponentCatalog {
                     .runtime
                     .effective_carrier_max_total_originals()
                     != config.runtime.effective_carrier_max_total_originals()
+                    || current.config.runtime.effective_process_max_jobs()
+                        != config.runtime.effective_process_max_jobs()
+                    || current
+                        .config
+                        .runtime
+                        .effective_process_max_jobs_per_instance()
+                        != config.runtime.effective_process_max_jobs_per_instance()
             })
         };
         let already_paused = previous_replacement.as_ref().is_some_and(|original| {
             Arc::ptr_eq(&original.candidate, &plan) && original.retains_budget_pause()
         });
-        let budget_pause = if changes_total && !already_paused {
+        let budget_pause = if changes_limits && !already_paused {
             Some(self.try_pause_replacement_users(&plan)?)
         } else {
             None
