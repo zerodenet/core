@@ -182,9 +182,42 @@ async fn actual_failure(user_receives: bool) {
         drop(io);
         // This is the actual owner's no-user cleanup path as well as the
         // ordinary post-user path. It persists the same exit before local ACK.
-        let report = fixture.owner.lifecycle.shutdown(deadline()).await.unwrap();
-        assert!(report.is_complete(), "{report:?}");
+        let end = deadline();
+        let report = fixture.owner.lifecycle.shutdown(end).await.unwrap();
+        assert!(
+            !report.is_complete(),
+            "the same actual Host registration is not ACKed: {report:?}"
+        );
         assert_eq!(report.closed_io.len(), 1);
+        let first_native_closes = report.closed_io.len();
+        let native = physical
+            .adoption
+            .closed()
+            .expect("actual native TCP closed before Host ACK");
+        assert!(native.matches(&physical.adoption) && native.had_native_acquisition());
+        assert!(physical
+            .adoption
+            .users_closed()
+            .unwrap()
+            .matches(&physical.adoption));
+        let driver = physical.witness.lock().unwrap().clone().unwrap();
+        let joined = driver
+            .try_joined()
+            .expect("actual driver exit was consumed");
+        assert!(driver.matches_joined(&joined) && !joined.registration_released());
+        assert!(
+            !physical.closed(),
+            "native/users close cannot erase original Host registration debt"
+        );
+        assert!(
+            !fixture.pool.compact_closed_owner(),
+            "same owner/material remains retained until original Host ACK"
+        );
+        assert_eq!(
+            managed.budget.retained(),
+            1,
+            "actual logical/physical registration debt stays charged"
+        );
         let received = physical.received.lock().unwrap().clone().unwrap();
         assert_eq!(received.id(), receipt.id());
         assert_eq!(received.class(), receipt.class());
@@ -197,7 +230,6 @@ async fn actual_failure(user_receives: bool) {
         assert_eq!(failure.session, original.session);
         assert_eq!(failure.delivery, original.delivery);
         assert_eq!(failure.retry, original.retry);
-        assert!(physical.closed());
         assert!(receipt.local_failure_accepted());
         assert_eq!(
             fixture
@@ -207,6 +239,18 @@ async fn actual_failure(user_receives: bool) {
             Err(SpawnError::Capacity)
         );
         fixture.scope.acknowledge(&receipt).unwrap();
+        let released = driver.wait_registration_released().await;
+        assert!(driver.matches_joined(&released) && released.registration_released());
+        assert_eq!(Some(receipt.id()), driver.task_id());
+        let complete = fixture.owner.lifecycle.shutdown(end).await.unwrap();
+        assert!(complete.is_complete(), "{complete:?}");
+        assert_eq!(
+            first_native_closes + complete.closed_io.len(),
+            1,
+            "the second progress pass consumes no fabricated or duplicate native close"
+        );
+        assert!(physical.closed());
+        assert_eq!(managed.budget.retained(), 0);
         let healthy = fixture
             .scope
             .registrar()

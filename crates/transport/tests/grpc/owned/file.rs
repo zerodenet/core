@@ -11,7 +11,10 @@ fn actual_ca_file_recipe_is_cold_idempotent_bounded_and_distinct_from_the_fixed_
         let settings = NativePoolSettings {
             server: "127.0.0.1".into(),
             port: 443,
-            grpc: Default::default(),
+            grpc: crate::profile::OwnedGrpcProfile {
+                service_names: vec!["owned".into()],
+                ..Default::default()
+            },
             tls: Some(OwnedClientTlsProfile {
                 ca_cert_path: Some("ca.pem".into()),
                 options: zero_traits::ClientTlsOptions {

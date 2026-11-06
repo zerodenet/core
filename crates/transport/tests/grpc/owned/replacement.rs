@@ -61,7 +61,10 @@ async fn background_recipe_caps_are_immutable_and_domain_uses_the_actual_node_en
     let settings = NativePoolSettings {
         server: "node.example".into(),
         port: 443,
-        grpc: Default::default(),
+        grpc: crate::profile::OwnedGrpcProfile {
+            service_names: vec!["owned".into()],
+            ..Default::default()
+        },
         tls: None,
         dial: Default::default(),
     };
