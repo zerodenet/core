@@ -2,6 +2,15 @@
 use super::*;
 use zero_platform_tokio::contract::lifecycle::Unfinished;
 impl BoundDeclarations {
+    fn take_returned_io(&self) -> zero_platform_tokio::contract::lifecycle::CloseReport {
+        let mut report = zero_platform_tokio::contract::lifecycle::CloseReport::default();
+        for entry in self.entries.values() {
+            // Observe only this provider's already matching native receipts,
+            // returned views and actual driver joins. No new close or IO.
+            report.append(entry.provider.take_closed_io());
+        }
+        report
+    }
     pub(in crate::component::instance::resources::native) fn revoke(&self) {
         for entry in self.entries.values() {
             entry.provider.revoke();
@@ -27,5 +36,12 @@ impl BoundDeclarations {
             }
         }
         first
+    }
+}
+impl HostResources {
+    pub(in crate::component) fn take_returned_bound_io(
+        &self,
+    ) -> zero_platform_tokio::contract::lifecycle::CloseReport {
+        self.bounds.take_returned_io()
     }
 }

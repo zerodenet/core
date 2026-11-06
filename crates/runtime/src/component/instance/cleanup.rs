@@ -90,6 +90,10 @@ impl Owner {
             protocol?;
             io?;
         }
+        // Protocol cleanup can return the same Bound view after the concurrent
+        // provider branch observed the real wire exit. Retain its late receipt
+        // before asking that exact provider for final declaration evidence.
+        pending.io.append(resources.take_returned_bound_io());
         let evidence = resources.io_evidence();
         if let Some(source) = evidence.sticky_faults.first() {
             return Err(super::retained(source.clone()));
@@ -108,6 +112,11 @@ impl Owner {
         pending.report.append(pending.io);
         let mut report = pending.report;
         if !physically_closed {
+            #[cfg(test)]
+            eprintln!(
+                "actual component {} incomplete original declaration evidence: {:?}; retained report: {:?}",
+                component.0, evidence, report
+            );
             report.unfinished.push(Unfinished::Resource(format!(
                 "component {} declaration coverage remains unconfirmed",
                 component.0
