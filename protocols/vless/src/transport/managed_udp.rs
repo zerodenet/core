@@ -117,11 +117,14 @@ impl VlessManagedUdpFlowResume {
                     &self.mux_pool,
                     binding,
                     move |raw| async move {
-                        leaf.transport
-                            .open_relay(TcpRelayStream::new(
-                                zero_transport::pooled_driver::ExclusiveIo::new(raw),
-                            ))
-                            .await
+                        let io = TcpRelayStream::new(
+                            zero_transport::pooled_driver::ExclusiveIo::new(raw),
+                        );
+                        if leaf.mux_pool.native_stream_dependency()?.is_some() {
+                            leaf.transport.encrypt(io).await
+                        } else {
+                            leaf.transport.open_relay(io).await
+                        }
                     },
                 )
                 .await

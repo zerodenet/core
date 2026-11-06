@@ -1,3 +1,4 @@
+mod lender;
 mod production;
 use super::super::VlessAdapter;
 use crate::component::{
@@ -62,8 +63,27 @@ impl ComponentFactory for Factory {
         }
     }
 }
+pub(super) fn grpc_eligible(input: &OutboundConfig) -> bool {
+    let mut ordinary = input.clone();
+    let OutboundProtocolConfig::Vless {
+        mux_concurrency,
+        xudp_concurrency,
+        grpc: Some(_),
+        ..
+    } = &mut ordinary.protocol
+    else {
+        return false;
+    };
+    let mux = mux_concurrency.take();
+    if mux.is_none() || xudp_concurrency.take() != mux {
+        return false;
+    }
+    // Every transport/security setting remains in the real lower recipe. This
+    // probe removes only framing owned by the actual upper MUX driver.
+    super::grpc::eligible(&ordinary)
+}
 pub(crate) fn eligible(input: &OutboundConfig) -> bool {
-    if super::owned_input(input) || super::grpc::eligible(input) {
+    if super::owned_input(input) || super::grpc::eligible(input) || grpc_eligible(input) {
         return true;
     }
     let mut ordinary = input.clone();
@@ -192,23 +212,56 @@ impl VlessAdapter {
                 crate::component::native_dns::prepare_node(resources, factory.network.clone())?;
             prepared = prepared.with_node_dependency(node);
         }
-        let owner = resources.share(
-            "vless.mux.actual_pool",
-            factory,
-            Arc::new(pool::Options {
-                pool: prepared.pool_options().clone(),
-                tag: input.tag.clone(),
-                wire_endpoint: zero_core::request::Destination::new(
-                    zero_core::Address::Domain(server.clone()),
-                    *port,
-                ),
-            }),
-        )?;
-        let options = prepared.bind(owner);
-        Ok(Options::Mux(Arc::new(if stream_only {
-            options.stream_only()
+        let lower = if matches!(
+            &input.protocol,
+            OutboundProtocolConfig::Vless { grpc: Some(_), .. }
+        ) {
+            let mut carrier = input.clone();
+            let OutboundProtocolConfig::Vless {
+                mux_concurrency,
+                xudp_concurrency,
+                ..
+            } = &mut carrier.protocol
+            else {
+                unreachable!("owning protocol")
+            };
+            *mux_concurrency = None;
+            *xudp_concurrency = None;
+            let (grpc, dependency) = self.grpc_pool_options(&carrier, resources, &factory)?;
+            let options = Arc::new(grpc.pool_options().clone());
+            prepared = prepared.with_grpc_lender(dependency);
+            Some((dependency, options))
         } else {
-            options
-        })))
+            None
+        };
+        let cached_grpc_lender = lower.is_some();
+        let pool_options = Arc::new(pool::Options {
+            pool: prepared.pool_options().clone(),
+            tag: input.tag.clone(),
+            wire_endpoint: zero_core::request::Destination::new(
+                zero_core::Address::Domain(server.clone()),
+                *port,
+            ),
+        });
+        let owner = match lower {
+            Some((dependency, grpc)) => resources.share(
+                "vless.mux.actual_pool",
+                Arc::new(lender::Factory {
+                    background: factory,
+                    dependency,
+                    grpc,
+                }),
+                pool_options,
+            )?,
+            None => resources.share("vless.mux.actual_pool", factory, pool_options)?,
+        };
+        let options = prepared.bind(owner);
+        Ok(Options::Mux(Arc::new(
+            if stream_only && !cached_grpc_lender {
+                options.stream_only()
+            } else {
+                options
+            },
+        )))
     }
 }

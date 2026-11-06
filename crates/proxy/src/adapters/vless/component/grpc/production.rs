@@ -37,7 +37,7 @@ pub(crate) fn whole_selected(config: &RuntimeConfig, native: bool) -> bool {
         .collect::<Vec<_>>();
     !nodes.is_empty()
         && nodes.iter().all(|node| {
-            eligible(node)
+            (eligible(node) || super::super::mux::grpc_eligible(node))
                 && (!ech::needs_ip_backend(node)
                     || zero_dns::native::validate_node_config(config.runtime.dns.as_ref()).is_ok())
                 && config.outbound_groups.iter().all(|group| {
