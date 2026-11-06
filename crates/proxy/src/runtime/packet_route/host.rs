@@ -1,5 +1,7 @@
 //! Bidirectional host L3 I/O. The host supplies a dedicated configured device.
 mod driver;
+mod pause;
+pub(crate) use pause::NativeDevicePaused;
 mod legacy;
 mod policy;
 mod scoped;
@@ -33,6 +35,7 @@ enum Write {
     Owned(session::OwnedWrite),
 }
 pub(crate) struct HostPacketDevice {
+    read_pause: Option<Arc<pause::ReadPause>>,
     pub(crate) config: zero_config::DirectPacketDeviceConfig,
     writes: mpsc::Sender<Write>,
     returns: Arc<PacketReturns>,
@@ -106,7 +109,7 @@ impl HostPacketDevice {
                 .native_grant(65_536)
                 .expect("explicit independent fixture read owner");
             let (device, failure) =
-                driver::run(device, read, rx, packets, logical, stopped, activated)
+                driver::run(device, read, rx, packets, logical, stopped, activated, None)
                     .await
                     .parts();
             task::DriverResult {
@@ -115,6 +118,7 @@ impl HostPacketDevice {
             }
         });
         Arc::new(Self {
+            read_pause: None,
             activate,
             ready,
             config,

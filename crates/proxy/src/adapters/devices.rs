@@ -37,6 +37,16 @@ impl std::fmt::Debug for Devices {
 }
 #[cfg(feature = "raw-ip-runtime")]
 impl Devices {
+    pub(crate) async fn pause_direct_packet_if_idle(
+        &self,
+        deadline: tokio::time::Instant,
+    ) -> Result<Option<crate::runtime::packet_route::host::NativeDevicePaused>, EngineError> {
+        match &self.direct {
+            Some(direct) => direct.pause_packet_if_idle(deadline).await,
+            None => Ok(None),
+        }
+    }
+
     #[cfg(all(test, feature = "wireguard"))]
     pub(crate) fn test_current_wireguard_devices(
         &self,
