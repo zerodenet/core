@@ -1,7 +1,7 @@
 //! Every Bound declaration holds its one actual provider before any factory IO.
 use super::*;
 use crate::component::bound_datagram::{
-    evidence::BoundDatagramEvidence, HostBoundDatagramResources,
+    HostBoundDatagramResources, evidence::BoundDatagramEvidence,
 };
 use zero_core::component::{ComponentInstanceId, NetworkGeneration};
 use zero_platform_tokio::contract::{
@@ -110,6 +110,11 @@ impl BoundDeclarations {
                     "Bound UDP binding differs from this actual host provider",
                 )
             })
+    }
+    pub(super) fn retired(&self, ordinal: usize) -> bool {
+        self.entries
+            .get(&ordinal)
+            .is_some_and(|entry| entry.provider.retired(ordinal))
     }
     pub(super) fn evidence(&self) -> Vec<BoundDatagramEvidence> {
         self.entries

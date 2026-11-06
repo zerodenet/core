@@ -37,6 +37,7 @@ mod metadata_datagram;
 pub use metadata_datagram::{GrantedMetadataListener, MetadataDatagramRequest};
 
 use super::{
+    BoxFuture,
     datagram::DynDatagramOutbound,
     inbound::DynInboundSource,
     lifecycle::{BuildError, DynResourceLifecycle},
@@ -44,7 +45,6 @@ use super::{
     packet::{BoxPacketSession, DynPacketOutbound},
     scope::{TaskJoinWitness, TaskRegistrar},
     stream::DynStreamOutbound,
-    BoxFuture,
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -330,6 +330,12 @@ pub trait ResourceAccess: Send + Sync {
             super::Reason::Unsupported,
             super::Impact::Component,
         ))
+    }
+    /// Same exact declared original IO/view and, when present, its actual
+    /// wire registration ACK. This read grants no IO and is not whole-component
+    /// Scope or publication completion. Unknown/custom providers return false.
+    fn bound_datagram_retired(&self, _ordinal: usize) -> bool {
+        false
     }
     /// Activate only the same cold-installed finite native provider and its
     /// host-issued binding. The source supplies no policy, callback or issuer.

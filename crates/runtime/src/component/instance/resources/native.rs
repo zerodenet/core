@@ -9,9 +9,9 @@ use tokio::sync::Mutex as AsyncMutex;
 use tokio::time::Instant;
 use zero_core::{component::ComponentId, request::Destination};
 use zero_platform_tokio::contract::{
+    BoxFuture, CancellationToken, ChannelError, Reason,
     component::{GrantedDatagramListener, ProcessRequest, ResourceAccess, ResourceDeclaration},
     packet::BoxPacketSession,
-    BoxFuture, CancellationToken, ChannelError, Reason,
 };
 
 pub struct HostResources {
@@ -117,7 +117,7 @@ pub use listener::HostDatagramListenerOwner;
 mod read_workspaces;
 mod shutdown;
 mod sockets;
-pub use read_workspaces::{packet_datagram_read_spec, HostPacketReadReservation};
+pub use read_workspaces::{HostPacketReadReservation, packet_datagram_read_spec};
 
 /// Closing the grant phase does not claim that its children have exited.
 pub struct StartAccess(Arc<HostResources>);
@@ -221,6 +221,9 @@ impl ResourceAccess for HostResources {
             .ok_or_else(|| self.denied())
     }
 
+    fn bound_datagram_retired(&self, ordinal: usize) -> bool {
+        self.bounds.retired(ordinal)
+    }
     fn activate_bound_datagram(
         &self,
         ordinal: usize,

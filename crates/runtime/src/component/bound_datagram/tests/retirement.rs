@@ -137,10 +137,9 @@ async fn taskless_original_rotation_exceeds_native_bound_without_waiting_for_sha
 
 #[tokio::test]
 async fn scoped_wire_native_close_and_view_return_do_not_substitute_actual_join() {
-    let mut scope = TaskScope::new(
-        tokio::runtime::Handle::current(),
-        NonZeroUsize::new(1).unwrap(),
-    );
+    let mut scope =
+        TaskScope::suspended_hosted(tokio::runtime::Handle::current(), NonZeroUsize::new(1));
+    scope.enable_registration().unwrap();
     let provider = HostBoundDatagramResources::new_scoped(
         instance(),
         scope.registrar().scope_identity(),
@@ -209,7 +208,19 @@ async fn scoped_wire_native_close_and_view_return_do_not_substitute_actual_join(
     })
     .await;
     assert!(!witness.is_joined());
-    scope.next_exit().await.unwrap().result.unwrap();
+    let receipt = scope.next_receipt().await.unwrap();
+    receipt.result().unwrap();
     assert!(witness.is_joined());
+    assert!(!witness.try_joined().unwrap().registration_released());
     assert!(closing.await.unwrap().is_complete());
+    assert!(provider.evidence(0).physical_confirmed());
+    assert!(
+        !provider.retired(0),
+        "native/view/join cannot substitute the real Host registration ACK"
+    );
+    scope.acknowledge(&receipt).unwrap();
+    assert!(witness.try_joined().unwrap().registration_released());
+    assert!(provider.retired(0));
+    scope.begin_shutdown();
+    assert!(scope.next_receipt().await.is_none());
 }
