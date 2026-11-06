@@ -379,6 +379,23 @@ impl Proxy {
         self.tcp_runtime_services_for_snapshot(self.engine.runtime_snapshot())
     }
 
+    /// Select only an actually owned snapshot for this exact accepted config.
+    /// Source startup must retain its pending publication gate before the main
+    /// loop refreshes ordinary routing from the current committed snapshot.
+    pub(crate) fn tcp_runtime_services_for_owned_config(
+        &self,
+        config: &Arc<RuntimeConfig>,
+    ) -> Result<TcpRuntimeServices, zero_engine::EngineError> {
+        let snapshot = self.pending_configuration_snapshot()
+            .filter(|snapshot| Arc::ptr_eq(snapshot.config(), config))
+            .or_else(|| {
+                let current = self.engine.runtime_snapshot();
+                Arc::ptr_eq(current.config(), config).then_some(current)
+            })
+            .ok_or_else(|| std::io::Error::other("Source configuration has no matching owned snapshot"))?;
+        Ok(self.tcp_runtime_services_for_snapshot(snapshot))
+    }
+
     pub(crate) fn tcp_runtime_services_for_snapshot(
         &self,
         snapshot: Arc<zero_engine::EngineRuntimeSnapshot>,
