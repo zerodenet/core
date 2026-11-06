@@ -418,13 +418,19 @@ impl ResourceAccess for HostResources {
         &self,
         name: Arc<str>,
         driver: zero_platform_tokio::contract::scope::TaskJoinWitness,
-    ) -> Result<zero_platform_tokio::contract::component::GrantedPacketDevice, ChannelError> {
-        self.require_start()?;
-        self.packets
-            .iter()
-            .find(|owner| owner.name() == name.as_ref())
-            .ok_or_else(|| self.denied())?
-            .open(driver)
+    ) -> BoxFuture<
+        '_,
+        Result<zero_platform_tokio::contract::component::GrantedPacketDevice, ChannelError>,
+    > {
+        Box::pin(async move {
+            self.require_start()?;
+            self.packets
+                .iter()
+                .find(|owner| owner.name() == name.as_ref())
+                .ok_or_else(|| self.denied())?
+                .open(driver)
+                .await
+        })
     }
     fn open_device(&self, _: Arc<str>) -> BoxFuture<'_, Result<BoxPacketSession, ChannelError>> {
         Box::pin(async { Err(self.denied()) })

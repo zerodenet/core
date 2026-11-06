@@ -118,7 +118,7 @@ impl PacketDeviceOwner {
     pub(super) fn name(&self) -> &str {
         &self.name
     }
-    pub(super) fn open(
+    pub(super) async fn open(
         &self,
         driver: TaskJoinWitness,
     ) -> Result<GrantedPacketDevice, ChannelError> {
@@ -134,27 +134,30 @@ impl PacketDeviceOwner {
                 "Packet driver is not in this actual open Scope",
             ));
         }
-        #[cfg(feature = "raw-ip-runtime")]
-        let _callbacks = self.memory_callbacks();
-        let mut state = self
-            .state
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner);
-        if state.closing || state.attempted {
-            return Err(error(
-                self.identity.instance().component,
-                Reason::Revoked,
-                "Packet native reservation was already consumed",
-            ));
+        {
+            let mut state = self
+                .state
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner);
+            if state.closing || state.attempted {
+                return Err(error(
+                    self.identity.instance().component,
+                    Reason::Revoked,
+                    "Packet native reservation was already consumed",
+                ));
+            }
+            state.attempted = true;
+            state.driver = Some(driver.clone());
         }
-        state.attempted = true;
-        state.driver = Some(driver.clone());
-        drop(state);
         #[cfg(feature = "raw-ip-runtime")]
         {
-            let native_read = self
-                .memory
-                .prepare(&self.original, self.identity.instance().component)?;
+            // Deferral covers the real SDK task registration and witness
+            // installation only. Never hold hosted callbacks across await.
+            let native_read = {
+                let _callbacks = self.memory_callbacks();
+                self.memory
+                    .prepare(&self.original, self.identity.instance().component)?
+            };
             if self.cancel.is_cancelled() || !self.identity.scope().resource_open() {
                 self.memory.stop(&self.original);
                 return Err(error(
@@ -165,7 +168,14 @@ impl PacketDeviceOwner {
             }
             let acquired = self
                 .original
-                .acquire(&self.binding, self.identity.instance().component);
+                .acquire(&self.binding, self.identity.instance().component)
+                .await;
+            // The worker and original owner survive cancellation of this
+            // await. Before publishing its unique view, recheck the actual
+            // source/driver scope after the native receipt became available.
+            let revoked = self.cancel.is_cancelled()
+                || !self.identity.scope().resource_open()
+                || driver.is_joined();
             let mut state = self
                 .state
                 .lock()
@@ -173,6 +183,16 @@ impl PacketDeviceOwner {
             state.issued = self.original.issued();
             match acquired {
                 Ok(native) => {
+                    if revoked || state.closing {
+                        drop(state);
+                        drop(native);
+                        self.memory.stop(&self.original);
+                        return Err(error(
+                            self.identity.instance().component,
+                            Reason::Revoked,
+                            "Packet original Scope closed during acquisition",
+                        ));
+                    }
                     let original = zero_platform_tokio::controlled_carrier::PacketProviderRegistration::from_acquired(
                         self.identity.clone(),
                         state.issued.as_ref().expect("same acquired concrete native identity").clone(),

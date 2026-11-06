@@ -90,7 +90,7 @@ impl Original {
         #[cfg(target_os = "windows")]
         self.owner.stop();
     }
-    pub(super) fn acquire(
+    pub(super) async fn acquire(
         &self,
         binding: &PacketDeviceBinding,
         component: ComponentId,
@@ -132,13 +132,25 @@ impl Original {
         }
         #[cfg(target_os = "windows")]
         {
-            let acquired = match binding {
-                PacketDeviceBinding::Create { name, .. } => self.owner.create(name.as_deref()),
+            let request = match binding {
+                PacketDeviceBinding::Create {
+                    name,
+                    addresses,
+                    mtu,
+                } => zero_tun::OwnedWintunRequest::Create {
+                    name: name.clone(),
+                    addresses: addresses.clone(),
+                    mtu: *mtu,
+                },
                 PacketDeviceBinding::ExistingWindows {
                     interface,
                     addresses,
                     mtu,
-                } => self.owner.open_existing(interface, addresses, *mtu),
+                } => zero_tun::OwnedWintunRequest::Existing {
+                    interface: interface.clone(),
+                    addresses: addresses.clone(),
+                    mtu: *mtu,
+                },
                 PacketDeviceBinding::Descriptor { .. } => {
                     return Err(error(
                         component,
@@ -147,6 +159,10 @@ impl Original {
                     ));
                 }
             };
+            // The sole admitted SDK task owns acquisition, configuration,
+            // DAD and subsequent RX. Cancellation stops that same original;
+            // its actual witness and every native handle remain retained.
+            let acquired = self.owner.acquire_in_reader(request).await;
             let io = acquired.map_err(|source| {
                 let unknown = matches!(
                     self.owner.outcome(),
@@ -182,6 +198,7 @@ impl Original {
         binding: &PacketDeviceBinding,
         component: ComponentId,
     ) -> Result<NativeView, ChannelError> {
+        #[cfg(not(target_os = "windows"))]
         if let PacketDeviceBinding::Create { addresses, mtu, .. } = binding {
             // The original is already retained and its issued identity recorded.
             // Failure drops only this unique view; close stays with the original.
@@ -194,6 +211,10 @@ impl Original {
                 .with_source(source)
             })?;
         }
+        // Windows was fully configured on its same actual SDK worker before
+        // its acquisition receipt; do not run configuration again on runtime.
+        #[cfg(target_os = "windows")]
+        let _ = (binding, component);
         Ok(NativeView {
             interface: Arc::from(io.name()),
             io: Box::pin(io),

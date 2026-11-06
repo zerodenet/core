@@ -646,14 +646,16 @@ pub trait ResourceAccess: Send + Sync {
         &self,
         _name: Arc<str>,
         _driver: super::scope::TaskJoinWitness,
-    ) -> Result<GrantedPacketDevice, BuildError> {
-        let mut error = super::ChannelError::new(
-            super::Stage::Prepare,
-            super::Reason::Unsupported,
-            super::Impact::Component,
-        );
-        error.delivery = super::DeliveryState::NotSubmitted;
-        Err(error)
+    ) -> BoxFuture<'_, Result<GrantedPacketDevice, BuildError>> {
+        Box::pin(async {
+            let mut error = super::ChannelError::new(
+                super::Stage::Prepare,
+                super::Reason::Unsupported,
+                super::Impact::Component,
+            );
+            error.delivery = super::DeliveryState::NotSubmitted;
+            Err(error)
+        })
     }
     fn open_device(&self, name: Arc<str>) -> BoxFuture<'_, Result<BoxPacketSession, BuildError>>;
 }

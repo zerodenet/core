@@ -124,7 +124,10 @@ async fn foreign_scope_and_already_joined_registration_never_attempt_native_acqu
     let original = owner(&actual, i32::MAX, "not-a-tun");
     let (send, pending, wrong) = driver(&foreign);
     pending.await.unwrap();
-    assert_eq!(failed(original.open(wrong.clone())).reason, Reason::Revoked);
+    assert_eq!(
+        failed(original.open(wrong.clone()).await).reason,
+        Reason::Revoked
+    );
     assert!(!original.state.lock().unwrap().attempted);
     assert!(matches!(
         original.original.outcome(),
@@ -138,7 +141,7 @@ async fn foreign_scope_and_already_joined_registration_never_attempt_native_acqu
     pending.await.unwrap();
     drop(send);
     joined(&mut actual, &done).await;
-    assert_eq!(failed(original.open(done)).reason, Reason::Revoked);
+    assert_eq!(failed(original.open(done).await).reason, Reason::Revoked);
     assert!(!original.state.lock().unwrap().attempted);
     assert!(original.shutdown(deadline()).await.is_complete());
     actual.begin_shutdown();
@@ -152,7 +155,7 @@ async fn known_no_native_failure_retains_the_pending_original_driver_and_cancell
     let retained = original.original.clone();
     let (send, pending, witness) = driver(&actual);
     pending.await.unwrap();
-    let failure = failed(original.open(witness.clone()));
+    let failure = failed(original.open(witness.clone()).await);
     assert!(matches!(
         acquisition(&failure).outcome,
         TunAcquisitionOutcome::KnownNoNative
@@ -163,7 +166,7 @@ async fn known_no_native_failure_retains_the_pending_original_driver_and_cancell
         &retained.acquisition_failure().unwrap()
     ));
     assert_eq!(
-        failed(original.open(witness.clone())).reason,
+        failed(original.open(witness.clone()).await).reason,
         Reason::Revoked
     );
     assert!(
@@ -209,7 +212,7 @@ async fn invalid_device_validation_preserves_the_actual_duplicate_close_and_borr
     let original = owner(&actual, borrowed.as_raw_fd(), "not-a-tun");
     let (send, pending, witness) = driver(&actual);
     pending.await.unwrap();
-    let failure = failed(original.open(witness.clone()));
+    let failure = failed(original.open(witness.clone()).await);
     let TunAcquisitionOutcome::Closed(receipt) = &acquisition(&failure).outcome else {
         panic!("actual invalid-device duplicate was explicitly closed");
     };
@@ -255,6 +258,7 @@ async fn actual_tun_pending_read_joins_original_driver_before_matching_duplicate
     boot_pending.await.unwrap();
     let grant = original
         .open(witness.clone())
+        .await
         .unwrap_or_else(|error| panic!("actual dedicated TUN: {error}"));
     let provider = grant.original.clone();
     assert!(
