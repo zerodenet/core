@@ -79,7 +79,7 @@ impl Options {
     /// Ordinary resource-free SOCKS5 assembly retains its existing contract.
     pub fn with_carrier_limit(mut self, limit: std::num::NonZeroUsize) -> Self {
         let mut identity = self.identity[..16].to_vec();
-        identity.extend_from_slice(b"native-carrier");
+        identity.extend_from_slice(b"native-association-v1");
         identity.extend_from_slice(&limit.get().to_le_bytes());
         self.identity = identity.into();
         self.carrier_limit = Some(limit);

@@ -41,8 +41,8 @@ impl ComponentFactory for Factory {
             dependencies: vec![],
             static_identity: options.identity.clone(),
             resources: options.carrier_limit.into_iter().map(|max_sockets|
-                zero_platform_tokio::contract::component::ResourceDeclaration::ControlledCarrierPool {
-                    endpoint: options.endpoint.clone(), dial: options.dial.clone(), datagram: false, max_sockets,
+                zero_platform_tokio::contract::component::ResourceDeclaration::ControlledAssociationPool {
+                    endpoint: options.endpoint.clone(), dial: options.dial.clone(), max_sockets,
                 }).collect(),
             task_limit: None,
         }
@@ -61,21 +61,23 @@ impl ComponentFactory for Factory {
             )
         });
         let carriers = carrier.as_ref().map(|owner| owner.grants());
+        let associations = Arc::new(datagram::association::Associations::default());
         Ok(ComponentInstance {
             lifecycle: erase_lifecycle(owner::Owner {
                 session: owner,
                 carrier,
                 resources: context.resources,
                 tasks: context.tasks,
+                associations: associations.clone(),
             }),
             roles: ComponentRoles {
                 stream: Some(erase_stream(Outbound {
                     options: options.clone(),
                     admission: admission.clone(),
-                    carriers,
+                    carriers: carriers.clone(),
                 })),
                 datagram: Some(zero_platform_tokio::contract::datagram::erase_datagram(
-                    datagram::Outbound::new(options, admission),
+                    datagram::Outbound::new(options, admission, carriers, associations),
                 )),
                 ..Default::default()
             },
