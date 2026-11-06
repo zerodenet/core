@@ -92,7 +92,9 @@ pub(crate) trait RawIpWireCarrier: Send + Sync {
 
 mod hosted;
 pub(crate) use hosted::HostedRawIpWireCarrier;
+#[cfg(test)]
 mod direct;
+#[cfg(test)]
 pub(crate) use direct::DirectRawIpWireCarrier;
 
 /// An upstream carrier serves one configured peer. Address-bearing relays
