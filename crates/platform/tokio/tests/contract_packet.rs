@@ -103,6 +103,7 @@ async fn dynamic_packet_session_preserves_ip_envelope_correlation_and_mtu() {
     let mut session = outbound
         .open(
             PacketRequest {
+                return_mtu: None,
                 endpoint: EndpointId(1),
                 limits: PacketLimits {
                     mtu: 20,
@@ -219,6 +220,7 @@ async fn wrong_identity_plane_is_rejected_before_the_packet_backend_is_called() 
     let error = outbound
         .open(
             PacketRequest {
+                return_mtu: None,
                 endpoint: EndpointId(1),
                 limits: PacketLimits {
                     mtu: 20,

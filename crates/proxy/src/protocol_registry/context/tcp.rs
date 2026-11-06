@@ -80,6 +80,7 @@ impl TcpRuntimeServices {
                 datagram_returns: None,
                 components,
                 invocation: None,
+                pending_datagram: None,
                 ingress: None,
             },
             protocols,
@@ -90,6 +91,14 @@ impl TcpRuntimeServices {
         mut self,
         source: std::sync::Weak<crate::runtime::current_services::CurrentServiceSource>,
     ) -> Self {
+        #[cfg(feature = "tls-ech-runtime")]
+        if let Some(actual) = source.upgrade() {
+            self.execution.upstream = self
+                .execution
+                .upstream
+                .clone()
+                .with_original_ech_owner(actual.ech_owner.clone());
+        }
         self.execution.current_source = source;
         self
     }
@@ -154,6 +163,7 @@ impl TcpRuntimeServices {
                 caller_native: None,
                 admitted: None,
                 caller_accepted: None,
+                caller_probe: None,
                 identity: zero_platform_tokio::contract::context::RequestIdentity::Business(
                     Arc::new(crate::component::request::facts(session, ingress)),
                 ),

@@ -31,12 +31,18 @@ pub struct PreparedTcp {
     pub(super) dial: DialPolicy,
     pub(super) replay: Option<ReplayOptions>,
     identity: Arc<[u8]>,
+    replay_view: Option<Arc<crate::shared::ReplaySaltPool>>,
+    pub(super) udp_security: LegacyReplay,
 }
 impl fmt::Debug for PreparedTcp {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("PreparedShadowsocksTcp")
             .field("endpoint", &self.endpoint)
             .field("dial", &self.dial)
+            .field(
+                "replay_total",
+                &self.replay_view.as_ref().map(|pool| pool.proposed_total()),
+            )
             .finish_non_exhaustive()
     }
 }
@@ -90,7 +96,7 @@ impl PreparedTcp {
             format!("{:?}{:?}", input.replay_policy, input.limits).hash(&mut hash);
             input.dial.hash(&mut hash);
             // Same policy in a different adapter state must not bind to this pool.
-            (Arc::as_ptr(&replay.modern_pool()) as usize).hash(&mut hash);
+            replay.modern_pool().history_identity().hash(&mut hash);
             identity.extend_from_slice(&hash.finish().to_le_bytes());
         }
         Ok(Self {
@@ -99,7 +105,52 @@ impl PreparedTcp {
             dial: input.dial,
             replay: shared,
             identity: identity.into(),
+            replay_view: None,
+            udp_security: replay,
         })
+    }
+    /// Cold total-budget proposal over the same actual history. The real
+    /// ReplayFactory start installs it after the host's replacement barrier.
+    pub fn with_replay_budget_limit(mut self, total: usize) -> Result<Self, Error> {
+        if let Some(options) = &self.replay {
+            let pool = options
+                .pool()
+                .ok_or(Error::Protocol("SS replay owner was released"))?;
+            let view = Arc::new(pool.with_total(Some(total))?);
+            self.replay = Some(ReplayOptions::new(view.clone(), Default::default(), None));
+            self.replay_view = Some(view);
+            let mut identity = self.identity.to_vec();
+            identity.extend_from_slice(&total.to_le_bytes());
+            self.identity = identity.into();
+        }
+        Ok(self)
+    }
+    pub fn with_udp_budget_limits(
+        mut self,
+        limits: crate::udp::UdpBudgetLimits,
+    ) -> Result<Self, Error> {
+        self.udp_security = self.udp_security.with_udp_budget_limits(limits)?;
+        let mut identity = self.identity.to_vec();
+        static KEYS: OnceLock<[RandomState; 2]> = OnceLock::new();
+        for key in KEYS.get_or_init(|| [RandomState::new(), RandomState::new()]) {
+            let mut hash = key.build_hasher();
+            self.udp_security.udp_budget_identity().hash(&mut hash);
+            identity.extend_from_slice(&hash.finish().to_le_bytes());
+        }
+        self.identity = identity.into();
+        Ok(self)
+    }
+    pub fn with_legacy_replay_budget_limit(mut self, max_bytes: usize) -> Result<Self, Error> {
+        self.udp_security = self.udp_security.with_bloom_limit(max_bytes)?;
+        let mut identity = self.identity.to_vec();
+        static KEYS: OnceLock<[RandomState; 2]> = OnceLock::new();
+        for key in KEYS.get_or_init(|| [RandomState::new(), RandomState::new()]) {
+            let mut hash = key.build_hasher();
+            self.udp_security.bloom_identity().hash(&mut hash);
+            identity.extend_from_slice(&hash.finish().to_le_bytes());
+        }
+        self.identity = identity.into();
+        Ok(self)
     }
     pub fn replay_options(&self) -> Option<&ReplayOptions> {
         self.replay.as_ref()
@@ -119,6 +170,7 @@ impl PreparedTcp {
             prepared: self,
             replay_owner,
             identity: identity.into(),
+            udp: None,
         })
     }
 }
@@ -126,6 +178,26 @@ pub struct StreamOptions {
     pub(super) prepared: PreparedTcp,
     pub(super) replay_owner: Option<ComponentId>,
     pub(super) identity: Arc<[u8]>,
+    pub(super) udp: Option<crate::component::udp::role::RoleOptions>,
+}
+impl StreamOptions {
+    pub fn with_udp_pool(
+        mut self,
+        pool: &crate::component::udp::UdpPoolOptions,
+        owner: ComponentId,
+    ) -> Result<Self, Error> {
+        if self.prepared.endpoint != *pool.endpoint() || self.prepared.dial != pool.binding().dial {
+            return Err(Error::Config(
+                "SS TCP and UDP role endpoints or dial policy differ",
+            ));
+        }
+        self.udp = Some(pool.role(owner));
+        let mut identity = self.identity.to_vec();
+        identity.extend_from_slice(b"same-ss-udp-cache");
+        identity.extend_from_slice(&owner.0.to_le_bytes());
+        self.identity = identity.into();
+        Ok(self)
+    }
 }
 impl fmt::Debug for StreamOptions {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {

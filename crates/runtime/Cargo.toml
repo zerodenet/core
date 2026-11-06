@@ -12,7 +12,7 @@ homepage.workspace = true
 default = []
 managed-datagram-runtime = []
 datagram-route-runtime = []
-raw-ip-runtime = ["dep:zero-tun"]
+raw-ip-runtime = ["dep:zero-tun", "zero-platform-tokio/native-packet-origin"]
 # Explicit fixture access to the real hosted scope and native resource providers.
 test-support = []
 

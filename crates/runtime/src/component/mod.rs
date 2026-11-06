@@ -1,6 +1,7 @@
 //! Resource lifetimes, cold assembly and confirmed replacement, independent of protocols.
 mod admission;
 mod bindings;
+pub mod bound_datagram;
 pub mod catalog;
 pub mod dependencies;
 pub mod generations;

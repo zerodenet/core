@@ -13,30 +13,130 @@ use zero_traits::{IpAddress, SocketAddress, TcpStack};
 
 pub(super) const MAX_CONNECTIONS: usize = 4096;
 
+/// The existing DNS consumer plus this actual Source's input admission. The
+/// standalone stack fixture deliberately has no Source/native-wire identity.
+pub(super) struct TcpSourceTasks {
+    dns: Option<crate::runtime::raw_ip::tasks::scoped::ScopedSourceTasks<Result<(), io::Error>>>,
+    input: SourceInput,
+}
+enum SourceInput {
+    Hosted(Arc<zero_platform_tokio::contract::packet::PacketSourcePause>),
+    #[cfg(test)]
+    ExplicitStackFixture,
+}
+impl TcpSourceTasks {
+    pub(super) fn hosted(
+        dns: Option<
+            crate::runtime::raw_ip::tasks::scoped::ScopedSourceTasks<Result<(), io::Error>>,
+        >,
+        admission: Arc<zero_platform_tokio::contract::packet::PacketSourcePause>,
+    ) -> Self {
+        Self {
+            dns,
+            input: SourceInput::Hosted(admission),
+        }
+    }
+    #[cfg(test)]
+    pub(super) fn fixture() -> Self {
+        Self {
+            dns: None,
+            input: SourceInput::ExplicitStackFixture,
+        }
+    }
+}
+
 pub(super) async fn accept(
     tcp: Arc<UserTcpStack>,
     runtime_factory: InboundRouteRuntimeFactory,
     group: Arc<InboundPeerTasks>,
     host: InboundTaskAccess,
     native: super::native_obligations::NativeObligations,
+    tun: Option<crate::inbound::tun::TunIngressOptions>,
+    source_tasks: TcpSourceTasks,
 ) -> Result<(), EngineError> {
+    let dns = &source_tasks.dns;
+    let mut dns_tasks = match dns {
+        Some(dns) => Some(dns.lock().await.map_err(std::io::Error::other)?),
+        None => None,
+    };
     loop {
-        let Some((stream, source, destination)) = tcp.accept().await else {
+        let accepted = tokio::select! {
+            accepted=async {
+                match &source_tasks.input {
+                    SourceInput::Hosted(admission) => {
+                        let (accepted, acquisition) = crate::runtime::raw_ip::tasks::input::admitted(
+                            tcp.accept(), admission,
+                        ).await.map_err(io::Error::other)?;
+                        Ok::<_, EngineError>((accepted, Some(acquisition)))
+                    }
+                    #[cfg(test)]
+                    SourceInput::ExplicitStackFixture => Ok((tcp.accept().await, None)),
+                }
+            }=>accepted?,
+            completed=async {dns_tasks.as_mut().expect("declared device DNS receiver").join_next().await},if dns_tasks.as_ref().is_some_and(|tasks|tasks.len()!=0)=>{
+                match completed {
+                    Some(Ok(Ok(())))=>{},
+                    Some(Ok(Err(source)))=>tracing::warn!(error=%source,"TUN DNS TCP connection failed"),
+                    Some(Err(source))=>return Err(std::io::Error::other(dns.as_ref().expect("same DNS receiver").remember(source)).into()),
+                    None=>{},
+                }
+                continue;
+            }
+        };
+        // Keep the same admission across reserve and actual spawn_bound. A
+        // pause cannot ACK between accepted socket dequeue and its real owner.
+        let (accepted, _acquisition) = accepted;
+        let Some((stream, source, destination)) = accepted else {
             return Err(EngineError::Io(io::Error::new(
                 io::ErrorKind::UnexpectedEof,
                 "raw-IP TCP stack closed",
             )));
         };
+        if let Some(policy) = tun
+            .as_ref()
+            .filter(|policy| policy.dns_hijack && destination.port == 53)
+        {
+            policy
+                .dns_hijacked_queries
+                .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+            let tasks = dns_tasks.as_mut().ok_or_else(|| {
+                std::io::Error::other("actual device DNS task set was not declared")
+            })?;
+            if tasks.len() >= crate::inbound::tun::MAX_TCP_DNS_CONNECTIONS {
+                tracing::warn!(
+                    active_dns_connections = tasks.len(),
+                    "rejecting TUN DNS TCP connection at the concurrency limit"
+                );
+                continue;
+            }
+            let resolver = runtime_factory.tun_dns_resolver();
+            let native = native.clone();
+            if let Err(source) = tasks.spawn_with_witness(move |caller| {
+                crate::inbound::tun::serve_dns_tcp_owned(resolver, stream, native, caller)
+            }) {
+                if crate::runtime::raw_ip::tasks::capacity::before_work(&source) {
+                    continue;
+                }
+                return Err(std::io::Error::other(source).into());
+            }
+            continue;
+        }
         if group.occupied() >= MAX_CONNECTIONS {
             continue;
         }
-        let mut native = native
+        let mut native = match native
             .reserve_reclaimed(
                 super::native_obligations::ChildKind::Tcp,
                 tokio::time::Instant::now() + std::time::Duration::from_secs(5),
             )
             .await
-            .map_err(std::io::Error::other)?;
+        {
+            Ok(native) => native,
+            Err(source) if crate::runtime::raw_ip::tasks::capacity::before_work(&source) => {
+                continue
+            }
+            Err(source) => return Err(std::io::Error::other(source).into()),
+        };
         let source_addr = zero_platform_tokio::socket_address_to_socket_addr(source);
         // The existing Engine.prepare_session in serve mints the real identity
         // before dispatch; this preserves its full original admission/auth chain.
@@ -50,12 +150,17 @@ pub(super) async fn accept(
         session.inbound_peer_identity = stream.peer_identity();
         session.transparent_target = true;
         let runtime = runtime_factory.for_connection(Some(source_addr));
-        group.spawn_bound(&host, move |binding| async move {
+        let sniff = tun.is_some();
+        let registered = group.spawn_bound(&host, move |binding| async move {
             binding.wait_bound().await.map_err(std::io::Error::other)?;
             let stop = binding.cancellation();
             native.bind_caller(binding).map_err(std::io::Error::other)?;
             let runtime = runtime.with_caller_native(native.registration());
-            let stream = ReplayStream::new(stream, Vec::new());
+            let (session, stream) = if sniff {
+                crate::inbound::tun::sniff_tcp_target(session, stream).await
+            } else {
+                (session, ReplayStream::new(stream, Vec::new()))
+            };
             native.enter().map_err(std::io::Error::other)?;
             let protocol = NoClientResponseStreamProtocol::new();
             let result = tokio::select! { biased;
@@ -63,7 +168,13 @@ pub(super) async fn accept(
                 _ = stop.cancelled() => Ok(()),
             };
             native.consume_business_result(result)
-        })?;
+        });
+        if let Err(source) = registered {
+            if crate::runtime::raw_ip::tasks::capacity::source_admission(&source) {
+                continue;
+            }
+            return Err(source);
+        }
     }
 }
 

@@ -1,6 +1,24 @@
 use super::*;
 use zero_platform_tokio::controlled_carrier::{CarrierAdoption, CarrierIo};
+pub(crate) struct NativeTcpPreparation(
+    zero_platform_tokio::controlled_carrier::CarrierDriver<super::Prepared>,
+);
 impl ClientConnection {
+    pub(crate) async fn prepare_tcp_controlled(
+        io: CarrierIo,
+        username: &str,
+        password: &str,
+        options: &mieru_config::MieruTransportOptions,
+    ) -> io::Result<NativeTcpPreparation> {
+        io.prepare_driver(|io| async move {
+            let (io, source) = super::super::native_io::Capture::new(io);
+            prepare(io, username, password, options)
+                .await
+                .map_err(|error| source.recover(error))
+        })
+        .await
+        .map(NativeTcpPreparation)
+    }
     pub(crate) async fn tcp_controlled(
         io: CarrierIo,
         adoption: CarrierAdoption,
@@ -9,27 +27,30 @@ impl ClientConnection {
         options: &mieru_config::MieruTransportOptions,
         lease: super::super::pool::managed::CarrierLease,
     ) -> io::Result<Arc<Self>> {
+        let owner = lease.owner.clone();
+        let attempt_cancel = lease.cancellation();
+        let prepared = tokio::select! {biased;
+            _=attempt_cancel.cancelled()=>return Err(io::ErrorKind::Interrupted.into()),
+            _=owner.scope_cancel.cancelled()=>return Err(io::ErrorKind::Interrupted.into()),
+            result=Self::prepare_tcp_controlled(io,username,password,options)=>result?,
+        };
+        Self::start_tcp_controlled(prepared, adoption, lease)
+    }
+    pub(crate) fn start_tcp_controlled(
+        prepared: NativeTcpPreparation,
+        adoption: CarrierAdoption,
+        lease: super::super::pool::managed::CarrierLease,
+    ) -> io::Result<Arc<Self>> {
         use zero_platform_tokio::contract::{
             lifecycle::TaskClass, ChannelError, Impact, Reason, Stage,
         };
         let owner = lease.owner.clone();
-        let attempt_cancel = lease.cancellation();
-        let preparation = io.prepare_driver(|io| async move {
-            let (io, source) = super::super::native_io::Capture::new(io);
-            prepare(io, username, password, options)
-                .await
-                .map_err(|error| source.recover(error))
-        });
-        let prepared = tokio::select! {biased;
-            _=attempt_cancel.cancelled()=>return Err(io::ErrorKind::Interrupted.into()),
-            _=owner.scope_cancel.cancelled()=>return Err(io::ErrorKind::Interrupted.into()),
-            result=preparation=>result?,
-        };
         if !owner.ready() {
             return Err(io::ErrorKind::Interrupted.into());
         }
-        let ((first, opens), prepared) =
-            prepared.split(|prepared| ((prepared.first, prepared.opens), prepared.driver));
+        let ((first, opens), prepared) = prepared
+            .0
+            .split(|prepared| ((prepared.first, prepared.opens), prepared.driver));
         let driver = super::super::driver::ManagedDriver::new(lease.cancellation());
         let completion = driver.completion();
         let stop = driver.cancel.clone();

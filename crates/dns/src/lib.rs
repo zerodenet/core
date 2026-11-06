@@ -17,9 +17,14 @@ pub mod native;
 mod outbound;
 mod owned_root;
 use owned_root::OwnedDnsRoot;
+mod wire_call;
+pub use wire_call::{DnsQueryCall, DnsQueryCallClosed};
 mod query_tasks;
 pub use query_tasks::NativeSystemLookup;
-pub use query_tasks::{OwnedDnsQueryBudget, OwnedDnsQueryObservation, OwnedDnsQueryTasks};
+pub use query_tasks::{
+    OwnedDnsQueryBudget, OwnedDnsQueryFault, OwnedDnsQueryFaults, OwnedDnsQueryObservation,
+    OwnedDnsQueryTasks,
+};
 mod native_node;
 mod reverse;
 mod router;
@@ -44,7 +49,7 @@ use zero_traits::{AddressFamily, DnsResolver, IpAddress};
 use backends::ResolverBackend;
 use cache::{DnsCache, DnsWireCacheValue};
 use coordinator::{QueryCoordinator, QueryKey, QueryScope};
-pub use ech::EchDnsRecord;
+pub use ech::{EchDnsEndpoint, EchDnsRecord, EchRefresh};
 use fake_ip::FakeIpAllocator;
 pub use fake_ip::{default_fake_ip_state_path, FakeIpClearResult, FakeIpClearTarget, FakeIpStats};
 use reverse::RealIpReverseIndex;
@@ -213,6 +218,7 @@ impl DnsSystem {
     pub fn retire_native_queries(&self) {
         if let Some(node) = &self.node_queries {
             node.coordinator.cancel_pending();
+            node.wire.cancel_pending();
         }
         self.query_coordinator.cancel_pending();
         self.wire_query_coordinator.cancel_pending();
@@ -361,6 +367,9 @@ impl DnsSystem {
     }
 
     /// Install the runtime bridge used by DNS servers that specify a detour.
+    /// Configure explicit standalone detours. A resolver bound to an actual
+    /// native query source keeps all attempts with that source, including
+    /// admission failures; this is not a production fallback executor.
     pub fn set_outbound_connector(&self, connector: Arc<dyn DnsOutboundConnector>) {
         *self
             .outbound_connector

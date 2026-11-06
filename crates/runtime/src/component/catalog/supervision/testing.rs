@@ -13,7 +13,12 @@ impl<'a> TestContext<'a> {
             .iter()
             .find_map(|slot| slot.host_admission())
             .unwrap_or_default();
+        let originals = slots
+            .iter()
+            .find_map(|slot| slot.bound_original_budgets())
+            .unwrap_or_default();
         for slot in &slots {
+            slot.bind_original_budgets(originals.clone());
             slot.bind_admission(admission.clone());
         }
         admission.stage(

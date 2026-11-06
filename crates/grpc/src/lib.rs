@@ -68,6 +68,7 @@ pub fn prepare_with_budget(
         auth: security.auth,
         tls,
         started: AtomicBool::new(false),
+        retired: AtomicBool::new(false),
         shutdown: Mutex::new(None),
         task: ControlTask::empty(),
         originals: Arc::new(GrpcOriginals {
@@ -106,11 +107,16 @@ pub struct GrpcHandle {
     auth: Option<GrpcServerAuth>,
     tls: Option<tokio_rustls::TlsAcceptor>,
     started: AtomicBool,
+    retired: AtomicBool,
     shutdown: Mutex<Option<tokio::sync::oneshot::Sender<()>>>,
     task: ControlTask,
     originals: Arc<GrpcOriginals>,
 }
 impl GrpcHandle {
+    /// Completion only after exact server/worker joins and native/accepted close.
+    pub fn retirement_complete(&self) -> bool {
+        self.retired.load(Ordering::Acquire)
+    }
     pub fn local_addr(&self) -> SocketAddr {
         *self.local_addr.lock().unwrap()
     }
@@ -121,6 +127,7 @@ impl GrpcHandle {
         if self.started.swap(true, Ordering::AcqRel) {
             return Err(std::io::Error::other("gRPC original owner already started").into());
         }
+        let registration = self.task.reserve()?;
         let listener = self
             .originals
             .original
@@ -133,9 +140,16 @@ impl GrpcHandle {
         let originals = self.originals.clone();
         let auth = self.auth.clone();
         let tls = self.tls.clone();
-        self.task.install(tokio::spawn(async move {
+        let (begin, started) = tokio::sync::oneshot::channel();
+        registration.install(tokio::spawn(async move {
+            started
+                .await
+                .map_err(|_| std::io::Error::other("gRPC startup gate closed"))?;
             native::run(listener, handle, auth, tls, shutdown_rx, originals).await
-        }))?;
+        }));
+        begin
+            .send(())
+            .map_err(|_| std::io::Error::other("original gRPC task stopped during startup"))?;
         info!(listen = %self.local_addr(), "gRPC api server ready");
         Ok(())
     }
@@ -143,6 +157,7 @@ impl GrpcHandle {
         self.task.join().await
     }
     pub async fn shutdown(&self) -> std::io::Result<()> {
+        self.task.close_admission();
         self.originals
             .subscriptions
             .stop
@@ -166,15 +181,14 @@ impl GrpcHandle {
             .await
             .wait_closed(native::deadline())
             .await
-            .map_err(std::io::Error::other)?;
-        if !tasks.is_complete() || !native.is_complete() {
-            return Err(std::io::Error::other(
-                "gRPC actual Scope or native original remains retained",
-            ));
+            .map_err(std::io::Error::other)
+            .and_then(|report| tasks::confirmed_report("gRPC native", report));
+        let scope = tasks::confirmed_report("gRPC Scope", tasks);
+        if scope.is_ok() && native.is_ok() {
+            self.originals.connections.confirm_all_closed();
+            self.retired.store(true, Ordering::Release);
         }
-        self.originals.connections.confirm_all_closed();
-        server?;
-        jobs
+        tasks::finish([server, jobs, scope, native])
     }
 }
 impl Drop for GrpcHandle {
@@ -217,13 +231,11 @@ impl Subscriptions {
     }
     async fn join_all(&self) -> std::io::Result<()> {
         let tasks = self.jobs.lock().unwrap().clone();
-        let mut failure = None;
+        let mut outcomes = Vec::new();
         for job in tasks {
-            if let Err(error) = job.join().await {
-                failure.get_or_insert(error);
-            }
+            outcomes.push(job.join().await);
         }
-        failure.map_or(Ok(()), Err)
+        tasks::finish(outcomes)
     }
     async fn reap_completed(&self) -> std::io::Result<()> {
         let originals = self.jobs.lock().unwrap().clone();
@@ -357,47 +369,56 @@ where
         // The retained job waits with a finite idle wake and keeps a full
         // event until the bounded channel accepts it. Stop and disconnected
         // consumers never depend on another source event to unblock recv.
-        jobs.push(Arc::new(ControlTask::with_charge(
-            tokio::task::spawn_blocking(move || {
-                while !owner.stop.load(Ordering::Acquire) && !tx.is_closed() {
-                    let event = match subscriber.recv_timeout(Duration::from_millis(25)) {
-                        zero_api::EventStreamReceive::Event(event) => event,
-                        zero_api::EventStreamReceive::Timeout => continue,
-                        zero_api::EventStreamReceive::Closed => break,
-                    };
-                    let mut message = PbEvent {
-                        event_type: event.event_type,
-                        event_id: event.event_id,
-                        occurred_at: event.occurred_at_unix_ms,
-                        payload: Vec::new(),
-                    };
-                    let bytes = budget::frame_len(&message, &event.payload)?;
-                    let Some(charge) = budget::reserve(&owner, bytes, || tx.is_closed())? else {
+        let worker = Arc::new(ControlTask::empty());
+        let registration = match worker.reserve() {
+            Ok(registration) => registration,
+            Err(error) => return Err(Status::internal(error.to_string())),
+        };
+        jobs.push(worker.clone());
+        let (begin, started) = std::sync::mpsc::sync_channel(1);
+        let task = tokio::task::spawn_blocking(move || {
+            if started.recv().is_err() {
+                return Ok(());
+            }
+            while !owner.stop.load(Ordering::Acquire) && !tx.is_closed() {
+                let event = match subscriber.recv_timeout(Duration::from_millis(25)) {
+                    zero_api::EventStreamReceive::Event(event) => event,
+                    zero_api::EventStreamReceive::Timeout => continue,
+                    zero_api::EventStreamReceive::Closed => break,
+                };
+                let mut message = PbEvent {
+                    event_type: event.event_type,
+                    event_id: event.event_id,
+                    occurred_at: event.occurred_at_unix_ms,
+                    payload: Vec::new(),
+                };
+                let bytes = budget::frame_len(&message, &event.payload)?;
+                let Some(charge) = budget::reserve(&owner, bytes, || tx.is_closed())? else {
+                    return Ok(());
+                };
+                message.payload =
+                    serde_json::to_vec(&event.payload).map_err(std::io::Error::other)?;
+                let mut pending = budget::QueuedEvent {
+                    event: Ok(message),
+                    _charge: Some(charge),
+                };
+                loop {
+                    if owner.stop.load(Ordering::Acquire) {
                         return Ok(());
-                    };
-                    message.payload =
-                        serde_json::to_vec(&event.payload).map_err(std::io::Error::other)?;
-                    let mut pending = budget::QueuedEvent {
-                        event: Ok(message),
-                        _charge: Some(charge),
-                    };
-                    loop {
-                        if owner.stop.load(Ordering::Acquire) {
-                            return Ok(());
-                        }
-                        match tx.try_send(pending) {
-                            Ok(()) => break,
-                            Err(mpsc::error::TrySendError::Closed(_)) => return Ok(()),
-                            Err(mpsc::error::TrySendError::Full(event)) => pending = event,
-                        }
-                        std::thread::sleep(Duration::from_millis(25));
                     }
+                    match tx.try_send(pending) {
+                        Ok(()) => break,
+                        Err(mpsc::error::TrySendError::Closed(_)) => return Ok(()),
+                        Err(mpsc::error::TrySendError::Full(event)) => pending = event,
+                    }
+                    std::thread::sleep(Duration::from_millis(25));
                 }
-                Ok(())
-            }),
-            subscription_charge,
-        )));
+            }
+            Ok(())
+        });
+        registration.install_charged(task, subscription_charge);
         drop(jobs);
+        let _ = begin.send(());
 
         let stream = budget::Events(rx);
         Ok(Response::new(Box::pin(stream) as Self::SubscribeStream))

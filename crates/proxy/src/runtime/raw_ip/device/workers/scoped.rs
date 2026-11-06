@@ -32,13 +32,13 @@ enum Failure {
     Admission(Arc<ChannelError>),
 }
 impl ScopedWorkers {
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "explicit cold-device library path; production activation requires the owning replacement transaction"
-        )
-    )]
+    pub(super) fn matches_scope(
+        &self,
+        scope: &zero_platform_tokio::contract::scope::TaskScopeIdentity,
+    ) -> bool {
+        self.registrar.scope_identity().same_scope(scope) && scope.resource_open()
+    }
+
     pub(super) fn new(registrar: WeakTaskRegistrar) -> Self {
         Self {
             registrar,
@@ -50,6 +50,12 @@ impl ScopedWorkers {
         &self,
         future: impl Future<Output = Result<(), ComponentError>> + Send + 'static,
     ) -> Result<(), ChannelError> {
+        self.spawn_tracked(future).map(|_| ())
+    }
+    pub(super) fn spawn_tracked(
+        &self,
+        future: impl Future<Output = Result<(), ComponentError>> + Send + 'static,
+    ) -> Result<TaskJoinWitness, ChannelError> {
         self.reap();
         let record = Record::new();
         {
@@ -84,8 +90,8 @@ impl ScopedWorkers {
         });
         match registered {
             Ok((id, witness)) => {
-                record.install(id, witness);
-                Ok(())
+                record.install(id, witness.clone());
+                Ok(witness)
             }
             Err(source) => {
                 record.reject(); // This Result guarantees no task was registered.
@@ -122,13 +128,6 @@ impl ScopedWorkers {
             }
         }
     }
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "explicit cold-device library path; production activation requires the owning replacement transaction"
-        )
-    )]
     pub(super) fn first_failure(&self) -> Option<ChannelError> {
         failure(&self.state.lock().unwrap_or_else(|error| error.into_inner()))
     }

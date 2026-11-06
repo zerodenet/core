@@ -85,3 +85,7 @@ async fn cancelled_plan_shutdown_retains_actual_join_failure_after_report_consum
     }
     assert!(blocked.closed.load(Ordering::Acquire));
 }
+
+#[cfg(target_os = "linux")]
+#[path = "plan/demand_process.rs"]
+mod demand_process;

@@ -37,6 +37,7 @@ type PendingEndpointMap = Arc<PendingEndpointMapState>;
 
 #[derive(Default)]
 pub(crate) struct WireguardAdapter {
+    packet_return_totals: std::sync::OnceLock<Arc<crate::runtime::raw_ip::PacketReturnTotals>>,
     pool: Arc<RawIpDevicePool>,
     profiles: Arc<Mutex<HashMap<String, CachedProfile>>>,
     inbound_devices: Mutex<InboundDeviceMap>,
@@ -45,6 +46,7 @@ pub(crate) struct WireguardAdapter {
 }
 
 struct CachedProfile {
+    graph: Option<std::sync::Weak<lifecycle::StandaloneStackOptions>>,
     packet: crate::runtime::packet_route::PacketRouteOperations,
     identity: [u8; 32],
     device_identity: [u8; 32],
@@ -61,6 +63,17 @@ impl NamedProtocolAdapter for WireguardAdapter {
 }
 
 impl WireguardAdapter {
+    pub(super) fn set_packet_return_totals(
+        &self,
+        totals: Arc<crate::runtime::raw_ip::PacketReturnTotals>,
+    ) {
+        let actual = self.packet_return_totals.get_or_init(|| totals.clone());
+        assert!(
+            Arc::ptr_eq(actual, &totals),
+            "device assembly cannot replace its original Packet return totals"
+        );
+    }
+
     pub(crate) fn inbound_options(
         &self,
         inbound: &InboundConfig,
@@ -268,9 +281,9 @@ impl WireguardAdapter {
         let current = self.published_linked_endpoint(&inbound.tag, &inbound.listen);
         match (next, current) {
             (None, None) => false,
-            (Some(next), Some(current)) => next
-                .ready()
-                .is_none_or(|next| !Arc::ptr_eq(&next, &current)),
+            (Some(next), Some(current)) => next.ready().is_none_or(|next| {
+                !Arc::ptr_eq(&next, &current) && !next.retains_active_source(&current, inbound)
+            }),
             _ => true,
         }
     }
@@ -293,7 +306,9 @@ impl WireguardAdapter {
             .cloned();
         match (linked.as_ref(), currently_linked.as_ref()) {
             (Some(next), Some(current))
-                if Arc::ptr_eq(next, current) && Arc::ptr_eq(&live, &next.live) =>
+                if (Arc::ptr_eq(next, current)
+                    || next.retains_active_source(current, &inbound))
+                    && Arc::ptr_eq(&live, &next.live) =>
             {
                 // Prepared outbound state will replace the linked device on commit.
                 return Ok(true);

@@ -13,12 +13,13 @@ pub(super) struct State {
     pub(super) cached: Mutex<Option<Cached>>,
     pub(super) connecting: tokio::sync::Mutex<()>,
     pub(super) recipe: Mutex<Option<super::owned::Recipe>>,
+    pub(super) background_recipes: Mutex<Vec<std::sync::Weak<super::owned::Recipe>>>,
     pub(super) ownership: Mutex<super::owned::Ownership>,
 }
 #[derive(Clone)]
 pub(super) enum Cached {
     Legacy(Arc<Client>),
-    Owned(Arc<super::owned::NativeClient>),
+    Owned(Vec<Arc<super::owned::NativeClient>>),
 }
 impl std::fmt::Debug for GrpcPool {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -29,6 +30,15 @@ impl GrpcPool {
     /// Actual pool identity only; equality is not an ownership or close receipt.
     pub fn shares_state(&self, other: &Self) -> bool {
         Arc::ptr_eq(&self.0, &other.0)
+    }
+
+    /// Actual ownership classification only; it is not a live/close receipt.
+    /// Reload hooks must leave this owner to its actual Host lifecycle.
+    pub fn has_host_owner(&self) -> bool {
+        matches!(
+            &*self.0.ownership.lock().unwrap(),
+            super::owned::Ownership::Managed(_) | super::owned::Ownership::Retired(_)
+        )
     }
 
     pub fn retire(&self) {

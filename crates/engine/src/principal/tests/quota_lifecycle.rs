@@ -14,6 +14,7 @@ fn active_registration_retains_actual_worker_and_native_lease_after_registry_dro
     let path = dir.path().join("quota.json");
     let source = Arc::new(ConfigurationSource::default());
     let registry = PrincipalQuotaRegistry::open(Some(path.clone()), source.clone()).unwrap();
+    assert!(!registry.retirement_complete());
     let registration = registry.acquire(Some(&auth())).unwrap().unwrap();
     registration.consume(7);
     assert_eq!(
@@ -56,11 +57,13 @@ fn explicit_shutdown_joins_original_worker_before_matching_native_lease_close() 
     let path = dir.path().join("quota.json");
     let source = Arc::new(ConfigurationSource::default());
     let registry = PrincipalQuotaRegistry::open(Some(path.clone()), source.clone()).unwrap();
+    assert!(!registry.retirement_complete());
     let registration = registry.acquire(Some(&auth())).unwrap().unwrap();
     registration.consume(17);
     drop(registration);
     registry.shutdown().unwrap();
     registry.shutdown().unwrap();
+    assert!(registry.retirement_complete());
     let owner = registry.persistence.as_ref().unwrap();
     let worker = owner.worker.lock().unwrap();
     assert!(worker.original.is_none());

@@ -16,6 +16,8 @@ impl PreparedInboundBind {
     ) -> Result<Self, EngineError> {
         use zero_platform_tokio::contract::component::{ResourceOwner, RoleKind};
         let spec = recipe.spec();
+        crate::component::instance::packet_datagram_read_spec(&spec.resources, usize::MAX)
+            .map_err(std::io::Error::other)?;
         if spec.owner != ResourceOwner::Component
             || spec.roles != [RoleKind::Inbound]
             || !spec.dependencies.is_empty()
@@ -25,19 +27,20 @@ impl PreparedInboundBind {
         let metadata_destination;
         let destination = match spec.resources.as_slice() {
             #[cfg(feature = "raw-ip-runtime")]
-            [ResourceDeclaration::DatagramListener {
-                destination,
-                accepted: None,
-                max_pending_sends,
-                ..
-            }, ResourceDeclaration::NativeIcmp { .. }]
-                if spec.task_limit.is_some() && max_pending_sends.get() == 1 =>
-            {
-                destination
-            }
-            [ResourceDeclaration::MetadataDatagram { source, .. }, auxiliary @ ..]
-                if spec.task_limit.is_some() && valid_metadata_aux(auxiliary) =>
-            {
+            [
+                ResourceDeclaration::DatagramListener {
+                    destination,
+                    accepted: None,
+                    max_pending_sends,
+                    ..
+                },
+                ResourceDeclaration::NativeIcmp { .. },
+                ResourceDeclaration::PacketDatagramReads { datagram: 0, .. },
+            ] if spec.task_limit.is_some() && max_pending_sends.get() == 1 => destination,
+            [
+                ResourceDeclaration::MetadataDatagram { source, .. },
+                auxiliary @ ..,
+            ] if spec.task_limit.is_some() && valid_metadata_aux(auxiliary) => {
                 metadata_destination = zero_core::request::Destination::new(
                     match source.ip() {
                         std::net::IpAddr::V4(ip) => zero_core::Address::Ipv4(ip.octets()),
@@ -47,31 +50,33 @@ impl PreparedInboundBind {
                 );
                 &metadata_destination
             }
-            [ResourceDeclaration::DatagramListener {
-                destination,
-                accepted: Some(limits),
-                ..
-            }, auxiliary @ ..]
-                if limits.task_slots().is_some() && valid_associations(auxiliary) =>
-            {
-                destination
-            }
-            [ResourceDeclaration::TcpListener {
-                destination,
-                accepted: Some(limits),
-                ..
-            }, auxiliary @ ..]
-                if limits.task_slots().is_some() =>
-            {
+            [
+                ResourceDeclaration::DatagramListener {
+                    destination,
+                    accepted: Some(limits),
+                    ..
+                },
+                auxiliary @ ..,
+            ] if limits.task_slots().is_some() && valid_associations(auxiliary) => destination,
+            [
+                ResourceDeclaration::TcpListener {
+                    destination,
+                    accepted: Some(limits),
+                    ..
+                },
+                auxiliary @ ..,
+            ] if limits.task_slots().is_some() => {
                 match auxiliary {
                     [] => {}
                     auxiliary if valid_associations(auxiliary) => {}
                     _ if spec.task_limit.is_some() && valid_handoff(&spec.resources) => {}
-                    [ResourceDeclaration::DatagramListener {
-                        destination: datagram,
-                        accepted: Some(peers),
-                        ..
-                    }] if datagram == destination
+                    [
+                        ResourceDeclaration::DatagramListener {
+                            destination: datagram,
+                            accepted: Some(peers),
+                            ..
+                        },
+                    ] if datagram == destination
                         && limits.max_resources_per_socket == 0
                         && peers.task_slots().is_some() => {}
                     [ResourceDeclaration::AcceptedDatagram { .. }]

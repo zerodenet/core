@@ -13,6 +13,14 @@ impl ComponentSlot {
             return Err(self.failure(Reason::Timeout, "component start deadline elapsed"));
         }
         self.check_host_installation()?;
+        #[cfg(any(target_os = "linux", windows))]
+        {
+            let _admission = self
+                .owned_start_gate
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner);
+            self.pay_process_admission()?;
+        }
         if let Some(result) = self.live.get() {
             match result {
                 Ok(live) if live.started.get().is_none() => {}
@@ -42,13 +50,30 @@ impl ComponentSlot {
                 // persistent slot owns Live before any start future can suspend.
                 let runtime = tokio::runtime::Handle::current();
                 let tasks = TaskScope::suspended_hosted(runtime, self.recipe.spec().task_limit);
-                let resources = HostResources::new_for_instance(
+                let originals = self.original_budgets_for_start().map_err(Arc::new)?;
+                let resources = HostResources::new_hosted_with_packet_source(
                     self.instance_id(),
                     &self.recipe.spec().resources,
                     self.cancel.clone(),
-                    tasks.registrar().scope_identity(),
+                    tasks.registrar().downgrade(),
+                    originals,
+                    self.packet_source.clone(),
                 )
                 .map_err(Arc::new)?;
+                #[cfg(any(target_os = "linux", windows))]
+                if let Some(paid) = self.prepaid_process.get() {
+                    resources
+                        .install_prepaid_process(paid.clone())
+                        .map_err(Arc::new)?;
+                }
+                self.recipe
+                    .bind_native_datagrams(
+                        self.instance_id(),
+                        &resources,
+                        &tasks.registrar(),
+                        self.cancel.clone(),
+                    )
+                    .map_err(Arc::new)?;
                 let context = BuildContext {
                     component: self.id,
                     generation: self.generation,

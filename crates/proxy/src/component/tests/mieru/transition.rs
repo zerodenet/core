@@ -18,6 +18,7 @@ async fn open(proxy: &Proxy) -> zero_platform_tokio::TcpRelayStream {
     );
     let services = proxy.tcp_runtime_services().with_service_invocation(
         crate::component::direct_bridge::ServiceInvocation {
+            caller: None,
             deadline: deadline(),
             purpose: zero_core::request::ServicePurpose::DiagnosticProbe,
         },

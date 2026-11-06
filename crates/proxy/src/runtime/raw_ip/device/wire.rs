@@ -1,19 +1,58 @@
 //! A validated wire peer uses the same original client worker owner.
 use super::*;
+mod native;
+pub(crate) use native::PendingNativeWire;
+pub(super) use native::{NativeWireInput, WireReads};
+enum WireOriginal {
+    Existing(Arc<dyn RawIpWireCarrier>),
+    Hosted(NativeWireInput),
+}
 
 pub(crate) struct WireStackRecipe {
     local_addresses: Vec<IpAddr>,
     mtu: u16,
     endpoint: SocketAddr,
-    carrier: Arc<dyn RawIpWireCarrier>,
+    original: WireOriginal,
     tunnel: Box<dyn RawIpTunnel>,
     options: super::super::RawIpStackOptions,
 }
 impl WireStackRecipe {
+    pub(crate) fn prepare_hosted(
+        local_addresses: Vec<IpAddr>,
+        mtu: u16,
+        endpoint: SocketAddr,
+        tunnel: Box<dyn RawIpTunnel>,
+        options: super::super::RawIpStackOptions,
+    ) -> Result<
+        (
+            Self,
+            PendingNativeWire,
+            Arc<super::super::carrier::HostedRawIpWireCarrier>,
+        ),
+        EngineError,
+    > {
+        ClientUdpStack::validate_configuration(&local_addresses, mtu, options.udp_receive_queue)
+            .map_err(stack_udp_error)?;
+        let carrier = super::super::carrier::HostedRawIpWireCarrier::new();
+        let (input, pending) = NativeWireInput::channel(carrier.clone());
+        Ok((
+            Self {
+                local_addresses,
+                mtu,
+                endpoint,
+                original: WireOriginal::Hosted(input),
+                tunnel,
+                options,
+            },
+            pending,
+            carrier,
+        ))
+    }
+
     /// Native acquisition belongs to the original provider before this unique
     /// carrier view is transferred. This constructor starts no driver/task.
-    /// Only the scoped-wire regression uses this cold wrapper today; ordinary
-    /// standalone production still uses start_metered until its provider migrates.
+    /// Explicit library regressions supply their original carrier directly.
+    /// Ordinary standalone production uses the hosted unique-input recipe.
     #[cfg(test)]
     pub(crate) fn prepare(
         local_addresses: Vec<IpAddr>,
@@ -29,7 +68,7 @@ impl WireStackRecipe {
             local_addresses,
             mtu,
             endpoint,
-            carrier,
+            original: WireOriginal::Existing(carrier),
             tunnel,
             options,
         })
@@ -42,7 +81,7 @@ impl WireStackRecipe {
             self.local_addresses,
             self.mtu,
             self.endpoint,
-            self.carrier,
+            self.original,
             self.tunnel,
             self.options,
             workers,
@@ -99,7 +138,7 @@ impl SharedRawIpDevice {
             local_addresses,
             mtu,
             endpoint,
-            carrier,
+            WireOriginal::Existing(carrier),
             tunnel,
             options,
             task,
@@ -110,11 +149,23 @@ impl SharedRawIpDevice {
         local_addresses: Vec<IpAddr>,
         mtu: u16,
         endpoint: SocketAddr,
-        carrier: Arc<dyn RawIpWireCarrier>,
+        original: WireOriginal,
         tunnel: Box<dyn RawIpTunnel>,
         options: super::super::RawIpStackOptions,
         task: Arc<workers::DeviceWorkers>,
     ) -> Result<Arc<Self>, EngineError> {
+        let (carrier, input): (Arc<dyn RawIpWireCarrier>, Option<NativeWireInput>) = match original
+        {
+            WireOriginal::Existing(carrier) => (carrier, None),
+            WireOriginal::Hosted(mut input) => {
+                input.workers = Arc::downgrade(&task);
+                (input.carrier.clone(), Some(input))
+            }
+        };
+        let returns = Arc::new(
+            PacketReturns::with_drop_observer(Some(Arc::new(options.traffic.clone())))
+                .with_limits(&options)?,
+        );
         let traffic = options.traffic;
         let (outbound, raw_packets) =
             mpsc::channel::<zero_stack::packet_output::ObservedPacket>(128);
@@ -136,13 +187,12 @@ impl SharedRawIpDevice {
             )
             .map_err(stack_tcp_error)?,
         );
-        let returns = Arc::new(PacketReturns::with_drop_observer(Some(Arc::new(
-            traffic.clone(),
-        ))));
         let closed = Arc::new(AtomicBool::new(false));
         let health = Arc::new(Mutex::new(DeviceHealth::default()));
         let (ready_tx, ready) = watch::channel(None);
         let driver = Device {
+            users: task.flow_users(),
+            input,
             traffic,
             endpoint,
             carrier: carrier.clone(),

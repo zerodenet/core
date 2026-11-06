@@ -49,7 +49,7 @@ pub(crate) struct PreparedNativeTcpNode {
     pub(crate) slot: Arc<ComponentSlot>,
     pub(crate) tag: String,
     pub(crate) protocol: String,
-    pub(crate) endpoint: (String, u16),
+    pub(crate) endpoint: Option<(String, u16)>,
     pub(crate) dial: zero_traits::DialPolicy,
 }
 impl ProtocolInventory {
@@ -76,9 +76,7 @@ impl ProtocolInventory {
                 slot,
                 tag: candidate.tag.expect("native node has a configured tag"),
                 protocol: candidate.protocol,
-                endpoint: candidate
-                    .endpoint
-                    .expect("native node has a validated endpoint"),
+                endpoint: candidate.endpoint,
                 dial,
             });
         }

@@ -2,8 +2,10 @@
 //! Core activation waits for shared-resource planning and replacement ordering.
 use crate::{shared::ReplaySaltPool, validation::ReplayPolicy};
 use std::{
+    collections::hash_map::RandomState,
+    hash::{BuildHasher, Hash, Hasher},
     num::NonZeroUsize,
-    sync::{Arc, Weak},
+    sync::{Arc, OnceLock},
 };
 use tokio::{
     task::JoinHandle,
@@ -26,7 +28,7 @@ use zero_platform_tokio::contract::{
 /// Retired recipes cannot keep a host's salt storage alive.
 #[derive(Debug, Clone)]
 pub struct ReplayOptions {
-    pool: Weak<ReplaySaltPool>,
+    pool: crate::shared::ReplaySaltPoolWeak,
     identity: Arc<[u8]>,
     owner: Arc<str>,
 }
@@ -36,13 +38,24 @@ impl ReplayOptions {
     }
     pub(crate) fn new(
         pool: Arc<ReplaySaltPool>,
-        policy: ReplayPolicy,
-        capacity: Option<usize>,
+        _policy: ReplayPolicy,
+        _capacity: Option<usize>,
     ) -> Self {
-        let owner: Arc<str> = format!("shadowsocks.replay.{policy:?}.{capacity:?}").into();
+        let owner: Arc<str> = "shadowsocks.tcp2022.replay".into();
+        // Equal policy/capacity values are not the same actual security
+        // history. Never canonicalize an independent adapter's pool into the
+        // original worker bound to this weak recipe.
+        static KEYS: OnceLock<[RandomState; 2]> = OnceLock::new();
+        let mut identity = owner.as_bytes().to_vec();
+        for key in KEYS.get_or_init(|| [RandomState::new(), RandomState::new()]) {
+            let mut hash = key.build_hasher();
+            pool.history_identity().hash(&mut hash);
+            pool.proposed_total().hash(&mut hash);
+            identity.extend_from_slice(&hash.finish().to_le_bytes());
+        }
         Self {
-            pool: Arc::downgrade(&pool),
-            identity: owner.as_bytes().into(),
+            pool: pool.downgrade(),
+            identity: identity.into(),
             owner,
         }
     }
@@ -241,6 +254,21 @@ impl ResourceLifecycle for Owner {
                     Stage::Prepare,
                     Reason::Revoked,
                     "registered replay driver has already exited",
+                )
+                .with_source(source)
+            })?;
+        // Registration/readiness are fallible. Do not change the live total
+        // for a rejected scope; install only at the end of this real start.
+        self.pool
+            .as_ref()
+            .unwrap()
+            .install_total()
+            .map_err(|source| {
+                failure(
+                    self.component,
+                    Stage::Prepare,
+                    Reason::Capacity,
+                    "SS replay total cannot admit retained history",
                 )
                 .with_source(source)
             })?;

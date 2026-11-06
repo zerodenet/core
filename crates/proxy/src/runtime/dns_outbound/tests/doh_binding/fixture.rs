@@ -1,5 +1,4 @@
 use super::*;
-use crate::runtime::dns_outbound::ProxyDnsOutboundConnector;
 use std::{
     io,
     sync::{
@@ -81,19 +80,24 @@ fn terminal(result: io::Result<()>) -> io::Result<()> {
 }
 
 #[derive(Debug)]
-pub struct ObservedConnector {
-    actual: ProxyDnsOutboundConnector,
+pub struct StandaloneGuard {
     resolver: Weak<DnsSystem>,
     pub opens: AtomicUsize,
     pub witnesses: Mutex<Vec<DohPoolWitness>>,
 }
-impl DnsOutboundConnector for ObservedConnector {
+impl DnsOutboundConnector for StandaloneGuard {
     fn connect(
         &self,
         outbound: String,
         endpoint: std::net::SocketAddr,
     ) -> DnsOutboundConnectFuture {
-        self.actual.connect(outbound, endpoint)
+        let _ = (outbound, endpoint);
+        self.opens.fetch_add(1, Ordering::AcqRel);
+        Box::pin(async {
+            Err(io::Error::other(
+                "host-bound DNS entered a standalone connector",
+            ))
+        })
     }
     fn connect_carrier_with_context(
         &self,
@@ -117,23 +121,18 @@ impl DnsOutboundConnector for ObservedConnector {
         );
         self.witnesses.lock().unwrap().push(witness);
         self.opens.fetch_add(1, Ordering::AcqRel);
-        let work = self
-            .actual
-            .connect_carrier_with_context(outbound, endpoint, context);
-        Box::pin(async move {
-            let carrier = work.await?;
-            assert!(
-                carrier.binding.is_some(),
-                "fixture must traverse the real native producer"
-            );
-            Ok(carrier)
+        let _ = (outbound, endpoint, context);
+        Box::pin(async {
+            Err(io::Error::other(
+                "host-bound DNS entered a standalone carrier",
+            ))
         })
     }
 }
 
 pub struct Harness {
     pub proxy: Proxy,
-    pub connector: Arc<ObservedConnector>,
+    pub connector: Arc<StandaloneGuard>,
     pub running: crate::RunningProxy,
     pub handle: crate::ProxyHandle,
     pub socks: [SocksPeer; 2],
@@ -176,8 +175,7 @@ impl Harness {
             .unwrap();
         zero_dns::test_support::install_doh_ca(&proxy.resolver, "query", dns.certificate.clone())
             .unwrap();
-        let connector = Arc::new(ObservedConnector {
-            actual: ProxyDnsOutboundConnector::new(proxy.current_service_source()),
+        let connector = Arc::new(StandaloneGuard {
             resolver: Arc::downgrade(&proxy.resolver),
             opens: AtomicUsize::new(0),
             witnesses: Mutex::new(vec![]),

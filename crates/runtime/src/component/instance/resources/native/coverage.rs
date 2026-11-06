@@ -6,11 +6,14 @@ use super::*;
 pub(in crate::component) enum DeclaredResourceKind {
     ControlledOutboundStream,
     ControlledCarrierPool,
+    ControlledServiceStream,
     ControlledDatagramCarrier,
     ControlledOutboundDatagram,
     ControlledDirectStream,
     ControlledPacketDevice,
+    PacketDatagramReads,
     ControlledNodeStream,
+    ControlledNodeCarrier,
     NativeIcmp,
     MetadataDatagram,
     ControlledMetadataDatagram,
@@ -36,6 +39,11 @@ pub(in crate::component) enum DeclarationProvider {
     MetadataPool(usize),
     RootDatagram(usize),
     PacketDevice(usize),
+    PacketReads(usize),
+    BoundDatagram(usize),
+    Icmp,
+    #[cfg(any(target_os = "linux", windows))]
+    Process(usize),
     Unaccounted,
 }
 #[derive(Clone, Debug)]
@@ -52,6 +60,9 @@ pub(super) enum CoverageBinding {
     MetadataPool,
     RootDatagram,
     PacketDevice,
+    PacketReads,
+    BoundDatagram,
+    Icmp,
     File(PathBuf),
     Tcp(SocketAddr),
     Datagram(SocketAddr),
@@ -64,15 +75,23 @@ impl CoverageBinding {
     ) -> Result<Self, ChannelError> {
         Ok(match declaration {
             ResourceDeclaration::ControlledPacketDevice { .. } => Self::PacketDevice,
+            ResourceDeclaration::PacketDatagramReads { .. } => Self::PacketReads,
             ResourceDeclaration::ControlledOutboundDatagram { .. } => Self::RootDatagram,
-            ResourceDeclaration::ControlledCarrierPool { .. } => {
+            ResourceDeclaration::ControlledCarrierPool { .. }
+            | ResourceDeclaration::ControlledAssociationPool { .. } => {
                 Self::Carrier(DeclaredResourceKind::ControlledCarrierPool)
+            }
+            ResourceDeclaration::ControlledServiceStream { .. } => {
+                Self::Carrier(DeclaredResourceKind::ControlledServiceStream)
             }
             ResourceDeclaration::ControlledOutboundStream { .. } => {
                 Self::Carrier(DeclaredResourceKind::ControlledOutboundStream)
             }
             ResourceDeclaration::ControlledDatagramCarrier { .. } => {
                 Self::Carrier(DeclaredResourceKind::ControlledDatagramCarrier)
+            }
+            ResourceDeclaration::ControlledNodeCarrier { .. } => {
+                Self::Carrier(DeclaredResourceKind::ControlledNodeCarrier)
             }
             ResourceDeclaration::ControlledNodeStream { .. } => {
                 Self::Carrier(DeclaredResourceKind::ControlledNodeStream)
@@ -85,14 +104,12 @@ impl CoverageBinding {
                     component,
                     zero_platform_tokio::contract::Reason::Unsupported,
                     "listener handoff requires its actual inbound host originals",
-                ))
+                ));
             }
             ResourceDeclaration::MetadataDatagram { .. } => Self::Metadata,
             ResourceDeclaration::ControlledMetadataDatagram { .. }
             | ResourceDeclaration::ControlledMetadataCarrier { .. } => Self::MetadataPool,
-            ResourceDeclaration::NativeIcmp { .. } => {
-                Self::Unaccounted(DeclaredResourceKind::NativeIcmp)
-            }
+            ResourceDeclaration::NativeIcmp { .. } => Self::Icmp,
             ResourceDeclaration::FileTree { .. } => {
                 Self::Unaccounted(DeclaredResourceKind::FileTree)
             }
@@ -114,7 +131,9 @@ impl CoverageBinding {
             ResourceDeclaration::AcceptedDatagram { .. } => {
                 Self::Unaccounted(DeclaredResourceKind::AcceptedDatagram)
             }
-            ResourceDeclaration::Process { .. } => Self::Unaccounted(DeclaredResourceKind::Process),
+            ResourceDeclaration::Process { .. } | ResourceDeclaration::ProcessEndpoint { .. } => {
+                Self::Unaccounted(DeclaredResourceKind::Process)
+            }
             ResourceDeclaration::Device { .. } => Self::Unaccounted(DeclaredResourceKind::Device),
             ResourceDeclaration::BackgroundCarrier => {
                 Self::Unaccounted(DeclaredResourceKind::BackgroundCarrier)
@@ -122,9 +141,7 @@ impl CoverageBinding {
             ResourceDeclaration::OutboundDatagram { .. } => {
                 Self::Unaccounted(DeclaredResourceKind::OutboundDatagram)
             }
-            ResourceDeclaration::BoundOutboundDatagram { .. } => {
-                Self::Unaccounted(DeclaredResourceKind::BoundOutboundDatagram)
-            }
+            ResourceDeclaration::BoundOutboundDatagram { .. } => Self::BoundDatagram,
         })
     }
     pub(super) fn observe(
@@ -135,10 +152,13 @@ impl CoverageBinding {
     ) -> DeclarationEvidence {
         let (kind, provider) = match self {
             Self::Carrier(kind) => (*kind, None),
+            Self::Icmp => (DeclaredResourceKind::NativeIcmp, None),
             Self::Metadata => (DeclaredResourceKind::MetadataDatagram, None),
             Self::MetadataPool => (DeclaredResourceKind::ControlledMetadataDatagram, None),
             Self::RootDatagram => (DeclaredResourceKind::ControlledOutboundDatagram, None),
             Self::PacketDevice => (DeclaredResourceKind::ControlledPacketDevice, None),
+            Self::PacketReads => (DeclaredResourceKind::PacketDatagramReads, None),
+            Self::BoundDatagram => (DeclaredResourceKind::BoundOutboundDatagram, None),
             Self::File(path) => (
                 DeclaredResourceKind::File,
                 files
@@ -183,11 +203,48 @@ impl evidence::HostIoEvidence {
         let mut metadata = vec![false; self.metadata.len()];
         let mut roots = vec![false; self.roots.len()];
         let mut packets = vec![false; self.packets.len()];
+        let mut reads = vec![false; self.reads.len()];
+        let mut bounds = vec![false; self.bounds.len()];
+        #[cfg(any(target_os = "linux", windows))]
+        let mut processes = vec![false; self.processes.len()];
+        let mut icmp_seen = false;
         for (ordinal, declaration) in self.declarations.iter().enumerate() {
             if declaration.ordinal != ordinal {
                 return false;
             }
             let confirmed = match declaration.provider {
+                #[cfg(any(target_os = "linux", windows))]
+                DeclarationProvider::Process(index)
+                    if declaration.kind == DeclaredResourceKind::Process =>
+                {
+                    match (self.processes.get(index), processes.get_mut(index)) {
+                        (Some(owner), Some(seen))
+                            if !*seen && owner.ordinal == ordinal && owner.registered =>
+                        {
+                            *seen = true;
+                            owner.confirmed
+                        }
+                        _ => false,
+                    }
+                }
+                DeclarationProvider::Icmp
+                    if declaration.kind == DeclaredResourceKind::NativeIcmp && !icmp_seen =>
+                {
+                    icmp_seen = true;
+                    self.icmp == Some(true)
+                }
+                DeclarationProvider::BoundDatagram(index)
+                    if declaration.kind == DeclaredResourceKind::BoundOutboundDatagram =>
+                {
+                    match (self.bounds.get(index), bounds.get_mut(index)) {
+                        (Some(owner), Some(seen)) if !*seen && owner.ordinal == ordinal => {
+                            *seen = true;
+                            owner.physical_confirmed()
+                        }
+                        _ => false,
+                    }
+                }
+
                 DeclarationProvider::PacketDevice(index)
                     if declaration.kind == DeclaredResourceKind::ControlledPacketDevice =>
                 {
@@ -243,7 +300,9 @@ impl evidence::HostIoEvidence {
                         declaration.kind,
                         DeclaredResourceKind::ControlledOutboundStream
                             | DeclaredResourceKind::ControlledCarrierPool
+                            | DeclaredResourceKind::ControlledServiceStream
                             | DeclaredResourceKind::ControlledDatagramCarrier
+                            | DeclaredResourceKind::ControlledNodeCarrier
                             | DeclaredResourceKind::ControlledNodeStream
                             | DeclaredResourceKind::ControlledDirectStream
                     ) =>
@@ -256,6 +315,17 @@ impl evidence::HostIoEvidence {
                         {
                             *seen = true;
                             owner.physical_confirmed()
+                        }
+                        _ => false,
+                    }
+                }
+                DeclarationProvider::PacketReads(index)
+                    if declaration.kind == DeclaredResourceKind::PacketDatagramReads =>
+                {
+                    match (self.reads.get(index), reads.get_mut(index)) {
+                        (Some(owner), Some(seen)) if !*seen && owner.ordinal == ordinal => {
+                            *seen = true;
+                            owner.released
                         }
                         _ => false,
                     }
@@ -288,13 +358,20 @@ impl evidence::HostIoEvidence {
                 return false;
             }
         }
-        files.into_iter().all(|seen| seen)
+        #[cfg(any(target_os = "linux", windows))]
+        if !processes.into_iter().all(|seen| seen) {
+            return false;
+        }
+        icmp_seen == self.icmp.is_some()
+            && files.into_iter().all(|seen| seen)
             && metapools.into_iter().all(|seen| seen)
             && native.into_iter().all(|seen| seen)
             && carriers.into_iter().all(|seen| seen)
             && metadata.into_iter().all(|seen| seen)
             && roots.into_iter().all(|seen| seen)
             && packets.into_iter().all(|seen| seen)
+            && reads.into_iter().all(|seen| seen)
+            && bounds.into_iter().all(|seen| seen)
     }
 }
 

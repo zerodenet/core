@@ -10,7 +10,14 @@ impl ClientUdpStack {
         self.inner
             .closed
             .store(true, std::sync::atomic::Ordering::Release);
-        sockets.clear();
+        let retired = std::mem::take(&mut *sockets);
+        drop(sockets);
+        // Wake original pending sends only outside the table lock. A closed
+        // stack cannot leave a retained sender suspended on output capacity.
+        for entry in retired.values() {
+            entry.state.stop();
+        }
+        drop(retired);
     }
 
     /// Expire incomplete fragment assemblies and release oversized port-table

@@ -67,6 +67,12 @@ impl ControlledDatagramOwner {
         self.acquire_native(entry, source, preferred_port, v6_only, interface)
     }
     /// Bind an exact server address without outbound policy or port fallback.
+    pub(crate) fn bind_process_reservation(
+        &mut self,
+        source: SocketAddr,
+    ) -> Result<ControlledDatagramSocket, DatagramAcquisitionError> {
+        self.bind_native_listener(source)
+    }
     pub(super) fn bind_native_listener(
         &mut self,
         source: SocketAddr,
@@ -138,6 +144,9 @@ impl ControlledDatagramOwner {
             self.reap_confirmed(); // Persist actual confirmation before return.
             return Err(self.acquisition_error(Some(entry.id), outcome, source));
         }
+        entry
+            .view_live
+            .store(true, std::sync::atomic::Ordering::Release);
         Ok(ControlledDatagramSocket { entry, interface })
     }
     /// Typed internal registration. The original stays in its entry before

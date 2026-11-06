@@ -31,6 +31,12 @@ impl PrefixOpener {
             // The existing selected role remains fenced by the real host.
             // Background borrowing uses its own caller bound/token, without
             // retaining a business SessionId, cancellation or request facts.
+            let upstream = if self.context.session_identity()?.is_some() {
+                self.select_shorter(&carrier, self.context.upstream.observed_pending_carrier())
+                    .await?
+            } else {
+                self.context.upstream.clone()
+            };
             let context = OpenContext {
                 identity: RequestIdentity::Service(Arc::new(ServiceRequestFacts {
                     origin: ServiceOrigin::Runtime,
@@ -38,7 +44,7 @@ impl PrefixOpener {
                 })),
                 deadline: carrier.deadline,
                 cancel: carrier.cancel.clone(),
-                upstream: self.context.upstream.clone(),
+                upstream,
                 observer: None,
             };
             let operation = self.role.connect_carrier(

@@ -19,6 +19,17 @@ use journal::{RouteJournal, RouteLease};
 pub use leak::{strict_route_socket_mark, SystemLeakGuard};
 pub use monitor::RouteChangeMonitor;
 
+/// Concrete route installation inputs; this description starts no work.
+#[derive(Clone, Copy, Debug)]
+pub struct RouteInstallRequest<'a> {
+    pub tun_name: &'a str,
+    pub recovery_key: &'a str,
+    pub address: IpAddr,
+    pub netmask: IpAddr,
+    pub captured: &'a [IpNet],
+    pub excluded: &'a [IpAddr],
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct RouteInterface {
     name: String,
@@ -135,6 +146,21 @@ impl SystemRouteGuard {
             io::ErrorKind::Unsupported,
             "automatic TUN routes are unsupported on this platform",
         ))
+    }
+
+    pub fn install_retained_with_egress(
+        _original: &mut Option<Self>,
+        _request: RouteInstallRequest<'_>,
+        _publish_egress: impl FnOnce(&FamilyEgressState) -> io::Result<()>,
+    ) -> io::Result<()> {
+        Err(io::Error::new(
+            io::ErrorKind::Unsupported,
+            "automatic TUN routes are unsupported on this platform",
+        ))
+    }
+
+    pub fn close_retained(&mut self) -> io::Result<()> {
+        Ok(())
     }
 
     pub fn egress(&self) -> &RouteInterface {

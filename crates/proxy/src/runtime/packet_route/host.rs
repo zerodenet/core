@@ -1,6 +1,11 @@
 //! Bidirectional host L3 I/O. The host supplies a dedicated configured device.
 mod driver;
+pub(crate) mod pause;
+pub(crate) use pause::NativeDevicePaused;
+mod legacy;
 mod policy;
+mod scoped;
+mod session;
 mod task;
 use super::{PacketForwardObservation, PreparedPacketRouteOperation};
 use crate::runtime::raw_ip::PacketReturns;
@@ -12,30 +17,39 @@ use tokio::{
 };
 use zero_stack::packet;
 use zero_traits::IoObserver;
-struct Write {
+struct LegacyWrite {
     return_channel: zero_stack::packet_output::PacketSender,
     packet: zero_traits::PacketBuffer,
     observer: Option<Arc<dyn IoObserver>>,
     ack: oneshot::Sender<(zero_traits::PacketBuffer, io::Result<()>)>,
 }
-impl Write {
+impl LegacyWrite {
     fn discarded(&self) {
         if let Some(observer) = &self.observer {
             observer.dropped_reason(zero_traits::PacketDropReason::QueueClosed);
         }
     }
 }
+enum Write {
+    Legacy(LegacyWrite),
+    Owned(session::OwnedWrite),
+}
 pub(crate) struct HostPacketDevice {
+    read_pause: Option<Arc<pause::ReadPause>>,
     pub(crate) config: zero_config::DirectPacketDeviceConfig,
     writes: mpsc::Sender<Write>,
     returns: Arc<PacketReturns>,
+    sessions: Arc<session::Sessions>,
     stop: watch::Sender<bool>,
     worker: task::DriverTask,
     pub(crate) mtu: usize,
     activate: watch::Sender<bool>,
+    ready: watch::Receiver<bool>,
+    native_provider:
+        std::sync::OnceLock<zero_platform_tokio::controlled_carrier::PacketProviderRegistration>,
 }
 impl HostPacketDevice {
-    #[cfg(any(test, target_os = "windows"))]
+    #[cfg(test)]
     pub(crate) fn start<D: zero_tun::TunDevice + 'static>(
         device: D,
         config: zero_config::DirectPacketDeviceConfig,
@@ -44,51 +58,7 @@ impl HostPacketDevice {
         Self::start_with_close(device, config, mtu, |_| None)
     }
 
-    #[cfg(any(target_os = "linux", target_os = "macos"))]
-    pub(crate) fn start_adopted(
-        device: zero_tun::AdoptedTunIo,
-        original: Arc<zero_tun::AdoptedTunOwner>,
-        config: zero_config::DirectPacketDeviceConfig,
-        mtu: u16,
-    ) -> Arc<Self> {
-        let identity = device.owned_identity().clone();
-        Self::start_with_close(device, config, mtu, move |view| {
-            // The persistent original was installed before duplication. Return
-            // the unique I/O view only after the actual driver has finished.
-            drop(view);
-            Some(original.close().and_then(|receipt| {
-                if receipt.identity().same_owner(&identity) {
-                    Ok(receipt)
-                } else {
-                    Err(Arc::new(io::Error::new(
-                        io::ErrorKind::InvalidData,
-                        "host packet close returned a different adopted owner",
-                    )))
-                }
-            }))
-        })
-    }
-
-    #[cfg(target_os = "windows")]
-    pub(crate) fn start_wintun(
-        device: zero_tun::OwnedWintunIo,
-        original: Arc<zero_tun::OwnedWintunOwner>,
-        config: zero_config::DirectPacketDeviceConfig,
-        mtu: u16,
-    ) -> Arc<Self> {
-        let identity = device.owned_identity().clone();
-        Self::start_with_completion(device, config, mtu, move |view| async move {
-            drop(view);
-            Some(original.close().await.and_then(|receipt| match receipt {
-                Some(receipt) if receipt.identity().same_owner(&identity) => Ok(receipt),
-                _ => Err(Arc::new(io::Error::new(
-                    io::ErrorKind::InvalidData,
-                    "host Wintun close did not return this original's receipt",
-                ))),
-            }))
-        })
-    }
-
+    #[cfg(test)]
     fn start_with_close<D, C>(
         device: D,
         config: zero_config::DirectPacketDeviceConfig,
@@ -106,6 +76,7 @@ impl HostPacketDevice {
         })
     }
 
+    #[cfg(test)]
     fn start_with_completion<D, C, F>(
         device: D,
         config: zero_config::DirectPacketDeviceConfig,
@@ -122,32 +93,59 @@ impl HostPacketDevice {
     {
         let (writes, rx) = mpsc::channel::<Write>(config.write_queue.get());
         let returns = Arc::new(PacketReturns::default());
+        let sessions = session::Sessions::new(
+            returns.clone(),
+            config.router_addresses.clone(),
+            usize::from(mtu),
+        );
         let (stop, stopped) = watch::channel(false);
         let (activate, activated) = watch::channel(false);
+        let (_ready, ready) = watch::channel(true);
         let packets = returns.clone();
+        let logical = sessions.clone();
         let worker = task::DriverTask::new(async move {
-            let (device, failure) = driver::run(device, rx, packets, stopped, activated)
-                .await
-                .parts();
+            let root = Arc::new(zero_tun::packet_memory::PacketReturnTotals::default());
+            let read = root
+                .native_grant(65_536)
+                .expect("explicit independent fixture read owner");
+            let (device, failure) = driver::run(
+                device,
+                driver::NativeReadInput {
+                    grant: read,
+                    pause: None,
+                },
+                rx,
+                packets,
+                logical,
+                stopped,
+                activated,
+            )
+            .await
+            .parts();
             task::DriverResult {
                 failure,
                 native: close(device).await,
             }
         });
         Arc::new(Self {
+            read_pause: None,
             activate,
+            ready,
             config,
             writes,
             returns,
+            sessions,
             stop,
             worker,
             mtu: usize::from(mtu),
+            native_provider: std::sync::OnceLock::new(),
         })
     }
     pub(crate) fn activate(&self) {
         self.activate.send_replace(true);
     }
     pub(crate) fn close(&self) {
+        self.sessions.stop();
         self.stop.send_replace(true);
     }
     pub(crate) fn usable(&self) -> bool {
@@ -159,129 +157,28 @@ impl HostPacketDevice {
     }
     pub(crate) async fn wait_closed(&self) -> io::Result<()> {
         self.close();
+        if let Some(original) = self.native_provider.get() {
+            if let Some(driver) = self.worker.witness() {
+                driver.wait().await;
+            }
+            let closed = original
+                .closed()
+                .filter(|closed| closed.matches(original))
+                .ok_or_else(|| {
+                    io::Error::new(
+                        io::ErrorKind::WouldBlock,
+                        "same actual native Packet provider has not closed",
+                    )
+                })?;
+            let _ = closed;
+            return Ok(());
+        }
         self.worker.join_closed().await
     }
 }
 impl Drop for HostPacketDevice {
     fn drop(&mut self) {
         self.close();
-    }
-}
-#[async_trait::async_trait]
-impl PreparedPacketRouteOperation for Arc<HostPacketDevice> {
-    async fn forward(
-        &self,
-        packet: &mut zero_traits::PacketBuffer,
-        ingress_id: u64,
-        replies: zero_stack::packet_output::PacketSender,
-        _: u64,
-        observer: Option<Arc<dyn IoObserver>>,
-    ) -> io::Result<PacketForwardObservation> {
-        let hop = packet::ip_hop_limit(packet);
-        let result = self
-            .forward_inner(packet, ingress_id, replies, observer)
-            .await;
-        if result.is_err() && packet::ip_hop_limit(packet) != hop {
-            if let Some(hop) = hop {
-                packet::restore_ip_hop(packet, hop);
-            }
-        }
-        result
-    }
-}
-impl HostPacketDevice {
-    async fn forward_inner(
-        &self,
-        packet: &mut zero_traits::PacketBuffer,
-        ingress_id: u64,
-        replies: zero_stack::packet_output::PacketSender,
-        observer: Option<Arc<dyn IoObserver>>,
-    ) -> io::Result<PacketForwardObservation> {
-        if !self.usable() {
-            return Err(io::Error::new(
-                io::ErrorKind::BrokenPipe,
-                "host packet device stopped",
-            ));
-        }
-        let source = packet::ip_source(packet)
-            .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidInput, "invalid IP packet"))?;
-        let router = self
-            .config
-            .router_addresses
-            .iter()
-            .find(|ip| ip.is_ipv4() == source.is_ipv4());
-        if packet.len() > self.mtu && !packet::ipv4_fragmentation_allowed(packet) {
-            return Ok(PacketForwardObservation::local(router.and_then(|router| {
-                packet::build_icmp_mtu_error_response(packet, *router, self.mtu)
-            })));
-        }
-        let conversation = packet::packet_conversation_key(packet);
-        if packet::ip_hop_limit(packet).is_some_and(|limit| limit <= 1) {
-            return Ok(PacketForwardObservation::local(router.and_then(|router| {
-                packet::build_icmp_time_exceeded_response(packet, *router, self.mtu)
-            })));
-        }
-        if !packet::advance_ip_hop(packet) {
-            return Err(io::Error::new(
-                io::ErrorKind::InvalidInput,
-                "invalid IP packet",
-            ));
-        }
-        let fragmented = packet.len() > self.mtu;
-        let mut fragments = if fragmented {
-            packet::fragment_forwarded_packet(packet, self.mtu)
-                .into_iter()
-                .map(Into::into)
-                .collect::<Vec<zero_traits::PacketBuffer>>()
-        } else {
-            Vec::new()
-        };
-        if fragmented && fragments.is_empty() {
-            return Err(io::Error::new(
-                io::ErrorKind::InvalidInput,
-                "packet cannot be fragmented",
-            ));
-        }
-        let return_channel = replies.clone();
-        self.returns.register_observed(
-            source,
-            ingress_id,
-            replies,
-            observer.clone(),
-            conversation,
-        )?;
-        if !fragmented {
-            fragments.push(std::mem::take(packet));
-        }
-        for outgoing in fragments.drain(..) {
-            let (ack, done) = oneshot::channel();
-            let permit = match self.writes.try_reserve() {
-                Ok(permit) => permit,
-                Err(_) => {
-                    if !fragmented {
-                        *packet = outgoing;
-                    }
-                    return Err(io::Error::new(
-                        io::ErrorKind::WouldBlock,
-                        "host packet queue full",
-                    ));
-                }
-            };
-            permit.send(Write {
-                return_channel: return_channel.clone(),
-                packet: outgoing,
-                observer: observer.clone(),
-                ack,
-            });
-            let (outgoing, result) = done.await.map_err(|_| {
-                io::Error::new(io::ErrorKind::BrokenPipe, "host packet writer stopped")
-            })?;
-            if !fragmented {
-                *packet = outgoing;
-            }
-            result?;
-        }
-        Ok(PacketForwardObservation::forwarded(None))
     }
 }
 

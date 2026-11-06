@@ -9,6 +9,7 @@ use zero_platform_tokio::contract::{
 pub(super) struct NodeQueries {
     pub(super) source: Arc<native::NativeDnsSource>,
     pub(super) coordinator: QueryCoordinator<Vec<IpAddress>>,
+    pub(super) wire: QueryCoordinator<Vec<u8>>,
 }
 impl DnsSystem {
     /// Installs metadata only. The actual RuntimeHost must start its original
@@ -29,7 +30,11 @@ impl DnsSystem {
         let mut coordinator =
             QueryCoordinator::with_graph_and_tasks(self.query_coordinator.shared_graph(), None);
         coordinator.set_native_source(source.clone());
+        let mut wire =
+            QueryCoordinator::with_graph_and_tasks(self.query_coordinator.shared_graph(), None);
+        wire.set_native_source(source.clone());
         self.node_queries = Some(NodeQueries {
+            wire,
             source,
             coordinator,
         });
@@ -60,6 +65,7 @@ impl DnsSystem {
         if let Some(node) = &self.node_queries {
             if Arc::ptr_eq(&node.source, source) {
                 node.coordinator.cancel_pending();
+                node.wire.cancel_pending();
             }
         }
     }

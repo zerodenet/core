@@ -90,7 +90,11 @@ pub(crate) trait RawIpWireCarrier: Send + Sync {
     async fn send(&self, packet: &[u8], endpoint: SocketAddr) -> io::Result<()>;
 }
 
+mod hosted;
+pub(crate) use hosted::HostedRawIpWireCarrier;
+#[cfg(test)]
 mod direct;
+#[cfg(test)]
 pub(crate) use direct::DirectRawIpWireCarrier;
 
 /// An upstream carrier serves one configured peer. Address-bearing relays

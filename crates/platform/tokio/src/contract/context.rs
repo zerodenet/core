@@ -37,7 +37,28 @@ pub enum PacketIoFact {
 
 /// Implementations must record bounded facts synchronously, without blocking I/O.
 pub trait ConnectObserver: Send + Sync {
+    /// The existing outbound Inner observer for this actual request. This
+    /// conveys counting only, never a native grant or a completion witness.
+    fn packet_flow_io(&self) -> Option<Arc<dyn zero_traits::IoObserver>> {
+        None
+    }
     fn record(&self, session: Option<SessionId>, fact: ConnectFact);
+    /// Opaque actual device peer selection for the existing host accounting.
+    /// This observation grants neither IO nor lifecycle authority.
+    /// The same actual owned Packet submission selected this peer. The opaque
+    /// return cookie is observation provenance, never a native/caller grant.
+    fn packet_peer_selected_for(
+        &self,
+        _association: &zero_core::packet::ReturnAssociation,
+        _peer: zero_core::component::PeerId,
+    ) {}
+    fn packet_peer_selected(
+        &self,
+        _session: Option<SessionId>,
+        _peer: zero_core::component::PeerId,
+    ) {
+    }
+
     /// Native Packet driver facts for the original actual return association.
     /// Production Packet assembly adapts its existing Inner observer here.
     fn packet_io(&self, _association: &zero_core::packet::ReturnAssociation, _fact: PacketIoFact) {}

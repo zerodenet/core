@@ -20,7 +20,14 @@ fn slot(
     assert_eq!(resources.len(), 1);
     let prepared = &resources[0];
     let spec = prepared.recipe().spec();
-    assert!(spec.roles.is_empty());
+    assert_eq!(
+        spec.roles,
+        vec![
+            zero_platform_tokio::contract::component::RoleKind::Packet,
+            zero_platform_tokio::contract::component::RoleKind::Stream,
+            zero_platform_tokio::contract::component::RoleKind::Datagram
+        ]
+    );
     assert!(spec.resources.is_empty()); // virtual stacks own no listener socket
     assert_eq!(
         spec.task_limit.unwrap().get(),
@@ -238,7 +245,14 @@ async fn actual_cold_union_and_ordinary_service_start_cannot_grant_deferred_grap
         &plan,
         &catalog.prepare(config.clone()).unwrap()
     ));
-    assert!(slot.recipe.spec().roles.is_empty());
+    assert_eq!(
+        slot.recipe.spec().roles,
+        vec![
+            zero_platform_tokio::contract::component::RoleKind::Packet,
+            zero_platform_tokio::contract::component::RoleKind::Stream,
+            zero_platform_tokio::contract::component::RoleKind::Datagram
+        ]
+    );
     catalog.start(config.clone(), deadline()).await.unwrap();
     // This is the actual bound HostAdmission, not a fake registrar or a
     // temporary scope. The cold virtual-device node is absent from its grants.

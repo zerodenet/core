@@ -21,6 +21,7 @@ pub struct LoanDatagramIo {
     endpoint: Destination,
     limits: DatagramLimits,
     observer: Option<Arc<dyn zero_traits::IoObserver>>,
+    returned_by_parts: bool,
 }
 impl DatagramLoan {
     pub fn new_metadata_pool(
@@ -71,6 +72,7 @@ impl DatagramLoan {
                 endpoint,
                 limits: session.limits,
                 observer: None,
+                returned_by_parts: false,
             },
             owner: LoanOwner::new(session.control, original, state),
         }
@@ -173,7 +175,11 @@ impl Drop for LoanDatagramIo {
     fn drop(&mut self) {
         drop(self.tx.get_mut().take());
         drop(self.rx.get_mut().take());
-        self.state.returned.store(true, Ordering::Release);
-        self.state.changed.notify_waiters();
+        if !self.returned_by_parts {
+            self.state.returned.store(true, Ordering::Release);
+            self.state.changed.notify_waiters();
+        }
     }
 }
+
+mod session;

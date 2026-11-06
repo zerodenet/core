@@ -41,6 +41,10 @@ pub(super) fn spec(inbound: &InboundConfig) -> ComponentSpec {
             ResourceDeclaration::NativeIcmp {
                 max_sockets: NonZeroUsize::new(64).unwrap(),
             },
+            ResourceDeclaration::PacketDatagramReads {
+                datagram: 0,
+                workspaces: [NonZeroUsize::new(65_536).unwrap(); 2],
+            },
         ],
     }
 }

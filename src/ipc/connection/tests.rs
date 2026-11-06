@@ -1,11 +1,11 @@
 use super::{
-    command_can_run_concurrently, write_command_result, ConcurrentCommandTasks,
-    MAX_PENDING_CONCURRENT_IPC_COMMANDS,
+    ConcurrentCommandTasks, MAX_PENDING_CONCURRENT_IPC_COMMANDS, command_can_run_concurrently,
+    write_command_result,
 };
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::Arc;
+use std::{io, sync::Arc};
 use tokio::io::{AsyncBufReadExt, BufReader, BufWriter};
-use tokio::sync::{oneshot, Mutex};
+use tokio::sync::{Mutex, oneshot};
 use zero_api::{
     CommandRequest, CommandResponse, ConfigApplyCommand, DiagnosticsProbeOutboundCommand,
     ModeSetCommand, RawResponse,
@@ -59,7 +59,6 @@ async fn concurrent_commands_overlap_and_keep_response_ids_paired() {
                 }),
             )
             .await
-            .unwrap();
         }));
     }
 
@@ -108,14 +107,14 @@ async fn concurrent_command_queue_is_bounded_and_cancellable() {
     assert!(tasks.try_spawn(async move {
         let _guard = CancellationGuard(cancellation);
         started_tx.send(()).unwrap();
-        std::future::pending::<()>().await;
+        std::future::pending::<io::Result<()>>().await
     }));
     started_rx.await.unwrap();
 
     for _ in 1..MAX_PENDING_CONCURRENT_IPC_COMMANDS {
         assert!(tasks.try_spawn(std::future::pending()));
     }
-    assert!(!tasks.try_spawn(async {}));
+    assert!(!tasks.try_spawn(async { Ok(()) }));
 
     tasks.cancel_all().await.unwrap();
     assert!(cancelled.load(Ordering::SeqCst));

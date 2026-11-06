@@ -16,7 +16,10 @@ use zero_platform_tokio::contract::{
 
 pub(in crate::adapters::wireguard::lifecycle) struct LinkedStackFactory;
 pub(in crate::adapters::wireguard) struct LinkedStackOptions {
-    spec: ComponentSpec,
+    pub(super) plan: Arc<WireguardRawIpPlan>,
+    pub(super) carrier: OnceLock<std::sync::Weak<super::carrier::Carrier>>,
+    pub(super) resource: OnceLock<zero_core::component::ComponentId>,
+    pub(super) spec: ComponentSpec,
     tag: String,
     map: super::super::PendingEndpointMap,
     pub(super) pending: Arc<PendingLinkedEndpoint>,
@@ -32,9 +35,16 @@ impl LinkedStackOptions {
         task_limit: Option<NonZeroUsize>,
     ) -> Result<Self, EngineError> {
         Ok(Self {
+            plan: recipe.plan.clone(),
+            carrier: OnceLock::new(),
+            resource: OnceLock::new(),
             spec: ComponentSpec {
                 owner: ResourceOwner::Component,
-                roles: Vec::new(),
+                roles: vec![
+                    zero_platform_tokio::contract::component::RoleKind::Packet,
+                    zero_platform_tokio::contract::component::RoleKind::Stream,
+                    zero_platform_tokio::contract::component::RoleKind::Datagram,
+                ],
                 dependencies: recipe.dependencies.clone(),
                 static_identity: recipe.static_identity.clone(),
                 // These are virtual client stacks. The original inbound owns
@@ -65,11 +75,34 @@ impl LinkedStackOptions {
         self.spec.static_identity.as_ref() == identity
     }
     pub(super) fn matches_dependencies(&self, actual: &[ComponentInstanceId]) -> bool {
-        (self.spec.dependencies.is_empty() && actual.is_empty())
-            || self
-                .dependencies
-                .get()
-                .is_some_and(|installed| installed.as_ref() == actual)
+        if self.spec.dependencies.is_empty() && actual.is_empty() {
+            return true;
+        }
+        match self.dependencies.get() {
+            Some(installed) => installed.as_ref() == actual,
+            None => {
+                // Constructor validation may retain this genuinely unused cold
+                // Options before startup compiles the same union again. Its
+                // original catalog slot already records exact dependency
+                // instances; reusable_in checks those actual generations and
+                // fresh flags. Factory build still binds them before any IO.
+                self.scope
+                    .lock()
+                    .unwrap_or_else(|e| e.into_inner())
+                    .is_none()
+                    && self
+                        .stacks
+                        .lock()
+                        .unwrap_or_else(|e| e.into_inner())
+                        .is_some()
+                    && actual.len() == self.spec.dependencies.len()
+                    && self
+                        .spec
+                        .dependencies
+                        .iter()
+                        .all(|id| actual.iter().any(|instance| instance.component == *id))
+            }
+        }
     }
     fn bind_dependencies(&self, actual: &[ComponentInstanceId]) -> Result<(), EngineError> {
         if actual.len() != self.spec.dependencies.len()
@@ -170,8 +203,21 @@ impl ComponentFactory for LinkedStackFactory {
         options
             .bind(context.tasks.downgrade())
             .map_err(prepare_error)?;
+        let carrier = Arc::new(super::carrier::Carrier {
+            options: super::carrier::Graph::Linked(options.clone()),
+            resources: context.resources,
+            scope: context.tasks.scope_identity(),
+        });
+        options.carrier.set(Arc::downgrade(&carrier)).map_err(|_| {
+            prepare_error(invalid("linked roles cannot bind a second actual graph"))
+        })?;
         Ok(ComponentInstance {
-            roles: ComponentRoles::default(),
+            roles: ComponentRoles {
+                stream: Some(carrier.clone()),
+                datagram: Some(carrier.clone()),
+                packet: Some(carrier),
+                ..Default::default()
+            },
             lifecycle: erase_lifecycle(Owner { options }),
         })
     }
@@ -192,6 +238,12 @@ impl ResourceLifecycle for Owner {
     ) -> Result<CloseReport, BuildError> {
         let closed = self.options.pending.stop_peer_resources(deadline).await;
         if let Some(source) = closed.failures.first() {
+            #[cfg(test)]
+            eprintln!(
+                "same original linked peer graph {} cleanup source: {source:?}",
+                self.options.tag
+            );
+            tracing::warn!(tag = %self.options.tag, ?source, "same original linked peer cleanup failed");
             return Err(
                 ChannelError::new(Stage::Close, Reason::Io, Impact::Component)
                     .with_source(source.clone()),
@@ -211,4 +263,18 @@ impl ResourceLifecycle for Owner {
 }
 fn prepare_error(source: EngineError) -> ChannelError {
     ChannelError::new(Stage::Prepare, Reason::Io, Impact::Component).with_source(source)
+}
+
+#[cfg(test)]
+impl LinkedStackOptions {
+    pub(in crate::adapters::wireguard) fn test_actual_origin(
+        &self,
+    ) -> Option<zero_platform_tokio::controlled_carrier::CarrierOrigin> {
+        self.carrier
+            .get()?
+            .upgrade()?
+            .resources
+            .packet_carrier_origin()
+            .ok()
+    }
 }

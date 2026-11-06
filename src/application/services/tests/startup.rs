@@ -2,6 +2,7 @@ use super::*;
 use crate::application::services::{
     network::ApplicationEventSinkTcpDialer,
     startup::{ApplicationStartupSlot, StartupPause},
+    StatusMonitor,
 };
 use std::sync::Arc;
 
@@ -80,7 +81,7 @@ async fn startup_unknown_cleanup_retains_exact_original_and_rejects_next_startup
         cancel_after_original_worker_is_installed(directory.path()).await;
     {
         let mut state = original.state.lock().await;
-        state.status_monitor = Some(tokio::spawn(async {
+        state.status_monitor = Some(StatusMonitor::test_work(async {
             panic!("original startup monitor failed")
         }));
     }
@@ -92,7 +93,7 @@ async fn startup_unknown_cleanup_retains_exact_original_and_rejects_next_startup
         assert!(!state.network_generation_started); // distinct native close did complete
     }
     let next = ApplicationServices::start_with_network(
-        engine,
+        engine.clone(),
         None,
         zero_connector::EventDispatcherNetwork::new(Arc::new(ApplicationEventSinkTcpDialer::new(
             zero_platform_tokio::EgressInterfaceControl::default(),
@@ -102,5 +103,31 @@ async fn startup_unknown_cleanup_retains_exact_original_and_rejects_next_startup
     .await;
     assert!(next.is_err());
     assert!(Arc::ptr_eq(&original, &slot.original().unwrap()));
+    assert!(original.state.lock().await.cleanup_fault.is_some());
+    // The panic is retained diagnostic history, distinct from unknown native
+    // cleanup. Independently retire hooks/files/generation before any restart.
+    assert!(original.shutdown_dispatcher().await.is_err());
+    assert!(original.service_retirement_complete().await);
+    original.shutdown_control().await.unwrap();
+    assert!(original.control_retirement_complete());
+    assert!(original.parent_input_retirement_complete());
+    original.engine.shutdown_principal_quota_state().unwrap();
+    assert!(original.engine.principal_quota_retirement_complete());
+    slot.clear(&original);
+    assert!(slot.original().is_none());
+    let config = (*original.engine.config()).clone();
+    let fresh = ApplicationServices::start_with_network(
+        Engine::new(config).unwrap(),
+        None,
+        zero_connector::EventDispatcherNetwork::new(Arc::new(ApplicationEventSinkTcpDialer::new(
+            zero_platform_tokio::EgressInterfaceControl::default(),
+        ))),
+        &slot,
+    )
+    .await
+    .unwrap();
+    fresh.shutdown_status_monitor().await.unwrap();
+    fresh.shutdown_dispatcher().await.unwrap();
+    assert!(fresh.service_retirement_complete().await);
     assert!(original.state.lock().await.cleanup_fault.is_some());
 }

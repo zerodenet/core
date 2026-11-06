@@ -15,6 +15,8 @@ use zero_engine::{EndpointAdmission, EngineError};
 
 #[derive(Default)]
 pub(crate) struct Devices {
+    #[cfg(feature = "raw-ip-runtime")]
+    pub(crate) packet_return_totals: Arc<crate::runtime::raw_ip::PacketReturnTotals>,
     pub(super) network: Option<std::sync::Weak<crate::component::background::BackgroundNetwork>>,
     #[cfg(feature = "raw-ip-runtime")]
     pub(crate) direct: Option<Arc<super::direct::DirectAdapter>>,
@@ -35,6 +37,27 @@ impl std::fmt::Debug for Devices {
 }
 #[cfg(feature = "raw-ip-runtime")]
 impl Devices {
+    pub(crate) async fn pause_direct_packet_if_idle(
+        &self,
+        deadline: tokio::time::Instant,
+    ) -> Result<Option<crate::runtime::packet_route::host::NativeDevicePaused>, EngineError> {
+        match &self.direct {
+            Some(direct) => direct.pause_packet_if_idle(deadline).await,
+            None => Ok(None),
+        }
+    }
+
+    #[cfg(feature = "wireguard")]
+    pub(crate) async fn pause_standalone_packet_if_idle(
+        &self,
+        deadline: tokio::time::Instant,
+    ) -> Result<Vec<crate::runtime::packet_route::host::NativeDevicePaused>, EngineError> {
+        match &self.wireguard {
+            Some(wireguard) => wireguard.pause_standalone_if_idle(deadline).await,
+            None => Ok(Vec::new()),
+        }
+    }
+
     #[cfg(all(test, feature = "wireguard"))]
     pub(crate) fn test_current_wireguard_devices(
         &self,
@@ -43,6 +66,17 @@ impl Devices {
         self.wireguard
             .as_ref()
             .map(|owner| owner.test_current_devices(config))
+            .unwrap_or_default()
+    }
+
+    #[cfg(all(test, feature = "wireguard"))]
+    pub(crate) fn test_current_wireguard_sources(
+        &self,
+        config: &RuntimeConfig,
+    ) -> Vec<zero_platform_tokio::controlled_carrier::CarrierOrigin> {
+        self.wireguard
+            .as_ref()
+            .map(|adapter| adapter.test_standard_source_origins(config))
             .unwrap_or_default()
     }
 
@@ -75,7 +109,7 @@ impl Devices {
         #[cfg(not(feature = "wireguard"))]
         let _ = (config, admission);
         let direct = if let Some(owner) = &self.direct {
-            Some(owner.prepare_devices(context).await?)
+            Some(owner.prepare_hosted_packet(config, context).await?)
         } else {
             None
         };
@@ -168,6 +202,10 @@ impl Devices {
         network: Option<&std::sync::Arc<crate::component::background::BackgroundNetwork>>,
     ) {
         self.network = network.map(std::sync::Arc::downgrade);
+        #[cfg(feature = "wireguard")]
+        if let Some(adapter) = &self.wireguard {
+            adapter.set_packet_return_totals(self.packet_return_totals.clone());
+        }
     }
     pub(crate) fn prepare_inbound(
         &self,

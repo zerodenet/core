@@ -38,28 +38,50 @@ impl DatagramConnection {
         let slot = target.current_slot(execution)?;
         let reservation = execution.reserve_datagram().map_err(legacy)?;
         let association = reservation.association();
-        let (tag, server, port) = target.endpoint();
-        let address = match zero_core::address::parse_ip_literal(server) {
-            Some(std::net::IpAddr::V4(ip)) => Address::Ipv4(ip.octets()),
-            Some(std::net::IpAddr::V6(ip)) => Address::Ipv6(ip.octets()),
-            None => Address::Domain(server.into()),
+        let opening = reservation
+            .begin_open(
+                execution,
+                vec![slot.role_id()],
+                execution
+                    .invocation
+                    .as_ref()
+                    .map(|call| call.cancellation())
+                    .unwrap_or_default(),
+            )
+            .map_err(legacy)?;
+        let execution = execution.clone().with_pending_datagram(opening.pending());
+        let request = DatagramRequest {
+            association,
+            targets: DatagramTargets::Fixed(Destination::new(session.target.clone(), session.port)),
         };
-        let opened = crate::component::stream_bridge::datagram::open_flow(
-            execution,
-            &slot,
-            tag,
-            Destination::new(address, port),
-            DatagramRequest {
-                association,
-                targets: DatagramTargets::Fixed(Destination::new(
-                    session.target.clone(),
-                    session.port,
-                )),
-            },
-        )
-        .await
+        let opened = match target.endpoint() {
+            Some((server, port)) => {
+                let address = match zero_core::address::parse_ip_literal(server) {
+                    Some(std::net::IpAddr::V4(ip)) => Address::Ipv4(ip.octets()),
+                    Some(std::net::IpAddr::V6(ip)) => Address::Ipv6(ip.octets()),
+                    None => Address::Domain(server.into()),
+                };
+                crate::component::stream_bridge::datagram::open_flow(
+                    &execution,
+                    &slot,
+                    target.tag(),
+                    Destination::new(address, port),
+                    request,
+                )
+                .await
+            }
+            None => {
+                crate::component::stream_bridge::datagram::open_packet_flow(
+                    &execution,
+                    &slot,
+                    target.tag(),
+                    request,
+                )
+                .await
+            }
+        }
         .map_err(legacy)?;
-        Ok(Self::adopt(opened, reservation))
+        Ok(Self::adopt(opened, opening))
     }
     pub(super) async fn open_relay(
         execution: &TcpExecutionServices,
@@ -67,19 +89,38 @@ impl DatagramConnection {
         session: &Session,
     ) -> Result<Arc<Self>, EngineError> {
         let reservation = execution.reserve_datagram().map_err(legacy)?;
+        let association = reservation.association();
+        let mut roles: Vec<_> = prepared
+            .prefix
+            .iter()
+            .map(|node| node.slot.role_id())
+            .collect();
+        roles.push(prepared.target.current_slot(execution)?.role_id());
+        let opening = reservation
+            .begin_open(
+                execution,
+                roles,
+                execution
+                    .invocation
+                    .as_ref()
+                    .map(|call| call.cancellation())
+                    .unwrap_or_default(),
+            )
+            .map_err(legacy)?;
+        let execution = execution.clone().with_pending_datagram(opening.pending());
         let opened = crate::component::stream_bridge::relay::datagram::open(
-            execution,
+            &execution,
             prepared,
             session,
-            reservation.association(),
+            association,
         )
         .await
         .map_err(legacy)?;
-        Ok(Self::adopt(opened, reservation))
+        Ok(Self::adopt(opened, opening))
     }
     fn adopt(
         opened: crate::component::stream_bridge::datagram::Opened,
-        reservation: crate::component::datagram_retirement::DatagramReservation,
+        reservation: crate::component::datagram_retirement::DatagramOpening,
     ) -> Arc<Self> {
         let association = reservation.association();
         let channel = opened.channel;

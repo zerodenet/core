@@ -1,6 +1,8 @@
 //! DNS-owned persistent resources survive resolver publication and caller drop.
 //! This registry is state-only at construction and never creates a runtime.
 #[cfg(feature = "doh")]
+mod ech;
+#[cfg(feature = "doh")]
 use crate::backends::DohDriverOwner;
 #[cfg(feature = "doq")]
 use crate::backends::DoqEndpointOwner;
@@ -20,6 +22,10 @@ pub(crate) struct TransportOwners {
 #[cfg(feature = "doh")]
 #[derive(Default)]
 struct DohOwners {
+    endpoints: Vec<(
+        crate::ech::pool::DohKey,
+        Arc<crate::backends::ResolverBackend>,
+    )>,
     closing: bool,
     owners: Vec<Arc<DohDriverOwner>>,
 }

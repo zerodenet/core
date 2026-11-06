@@ -17,7 +17,9 @@ default = [
     "vless",
 ]
 host-network-stats = ["zero-platform-tokio/host-network-stats"]
-udp-runtime = []
+# Every existing UDP build also owns the neutral System TUN packet source.
+# raw-ip-runtime does not enable the WireGuard protocol.
+udp-runtime = ["raw-ip-runtime"]
 udp-response-runtime = ["udp-runtime"]
 managed-udp-runtime = ["udp-runtime"]
 managed-datagram-runtime = ["managed-udp-runtime", "upstream-association-runtime", "zero-runtime/managed-datagram-runtime"]

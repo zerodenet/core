@@ -5,6 +5,7 @@ pub use zero_transport::grpc::NativePoolFactory as PoolFactory;
 mod factory;
 pub use factory::StreamFactory;
 mod connect;
+mod datagram;
 
 #[cfg(test)]
 #[path = "../../tests/component/grpc/mod.rs"]

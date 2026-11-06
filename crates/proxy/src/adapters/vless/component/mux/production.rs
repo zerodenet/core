@@ -8,7 +8,10 @@ impl VlessAdapter {
         candidate: Option<&RuntimeConfig>,
         native: bool,
     ) -> bool {
-        if super::super::native_input(input) {
+        if super::super::grpc::eligible(input) {
+            return super::super::grpc::selected(input, candidate, native);
+        }
+        if super::super::owned_input(input) {
             return true;
         }
         if !eligible(input) || !crate::adapters::mux_prefix::qualified(input, candidate, native) {

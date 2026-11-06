@@ -10,6 +10,7 @@ pub struct ObservedPacket {
 }
 #[derive(Clone, Debug)]
 pub struct PacketSender {
+    return_mtu: Option<u16>,
     channel: Channel,
     observer: Option<Arc<dyn IoObserver>>,
 }
@@ -28,6 +29,7 @@ pub enum PacketPermit {
     ),
 }
 pub struct WeakPacketSender {
+    return_mtu: Option<u16>,
     channel: WeakChannel,
     observer: Option<Arc<dyn IoObserver>>,
 }
@@ -39,6 +41,7 @@ enum WeakChannel {
 impl From<mpsc::Sender<Vec<u8>>> for PacketSender {
     fn from(sender: mpsc::Sender<Vec<u8>>) -> Self {
         Self {
+            return_mtu: None,
             channel: Channel::Plain(sender),
             observer: None,
         }
@@ -47,6 +50,7 @@ impl From<mpsc::Sender<Vec<u8>>> for PacketSender {
 impl From<mpsc::Sender<ObservedPacket>> for PacketSender {
     fn from(sender: mpsc::Sender<ObservedPacket>) -> Self {
         Self {
+            return_mtu: None,
             channel: Channel::Observed(sender),
             observer: None,
         }
@@ -55,12 +59,32 @@ impl From<mpsc::Sender<ObservedPacket>> for PacketSender {
 impl From<mpsc::Sender<PacketBuffer>> for PacketSender {
     fn from(sender: mpsc::Sender<PacketBuffer>) -> Self {
         Self {
+            return_mtu: None,
             channel: Channel::Owned(sender),
             observer: None,
         }
     }
 }
 impl PacketSender {
+    /// Metadata from the original accepted Source; no native/role authority.
+    pub fn with_return_mtu(mut self, mtu: u16) -> Self {
+        self.return_mtu = Some(mtu);
+        self
+    }
+    pub fn return_mtu(&self) -> Option<u16> {
+        self.return_mtu
+    }
+
+    /// Identity of this existing bounded sink; observer wrappers grant no
+    /// authority to replace another live Source session's return channel.
+    pub fn same_channel(&self, other: &Self) -> bool {
+        match (&self.channel, &other.channel) {
+            (Channel::Plain(a), Channel::Plain(b)) => a.same_channel(b),
+            (Channel::Owned(a), Channel::Owned(b)) => a.same_channel(b),
+            (Channel::Observed(a), Channel::Observed(b)) => a.same_channel(b),
+            _ => false,
+        }
+    }
     /// Keep external storage owned until the receiver consumes or drops it.
     /// Vec-only compatibility channels convert only after capacity is reserved.
     pub async fn send_buffer(
@@ -208,6 +232,7 @@ impl PacketSender {
     }
     pub fn downgrade(&self) -> WeakPacketSender {
         WeakPacketSender {
+            return_mtu: self.return_mtu,
             observer: self.observer.clone(),
             channel: match &self.channel {
                 Channel::Plain(sender) => WeakChannel::Plain(sender.downgrade()),
@@ -220,6 +245,7 @@ impl PacketSender {
 impl WeakPacketSender {
     pub fn upgrade(&self) -> Option<PacketSender> {
         Some(PacketSender {
+            return_mtu: self.return_mtu,
             observer: self.observer.clone(),
             channel: match &self.channel {
                 WeakChannel::Plain(sender) => Channel::Plain(sender.upgrade()?),

@@ -47,8 +47,7 @@ async fn actual_doh_pool_network_change_confirms_old_original_before_new_physica
         drop(old_reply);
         running.shutdown().await.unwrap();
         closed(&fresh);
-        tls.stop.cancel();
-        tls.task.await.unwrap();
+        tls.close().await;
         plain.close().await;
     })
     .await
@@ -96,8 +95,7 @@ async fn actual_doh_pool_noop_keeps_original_and_dns_owner_replacement_closes_be
         running.shutdown().await.unwrap();
         assert!(fresh.task.is_joined());
         closed(&next);
-        tls.stop.cancel();
-        tls.task.await.unwrap();
+        tls.close().await;
         plain.close().await;
     })
     .await

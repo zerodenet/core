@@ -228,3 +228,6 @@ mod udp_queue;
 mod configuration;
 
 mod recipe;
+
+#[path = "tests/production.rs"]
+mod production;

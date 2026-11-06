@@ -107,7 +107,13 @@ impl DnsSystem {
             self.wire_query_coordinator.shutdown(deadline)
         );
         let node = match &self.node_queries {
-            Some(node) => node.coordinator.shutdown(deadline).await,
+            Some(node) => {
+                let (names, wire) = tokio::join!(
+                    node.coordinator.shutdown(deadline),
+                    node.wire.shutdown(deadline)
+                );
+                names.and(wire)
+            }
             None => Ok(()),
         };
         let system = self.transport_owners.shutdown_system(deadline).await;

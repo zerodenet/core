@@ -121,10 +121,20 @@ impl ApplicationServices {
                 state.engine_started_bootstrapped = true;
             }
             state.monitor_exit = None;
-            state.status_monitor = Some(spawn_status_monitor(
-                self.engine.clone(),
-                state.dispatcher.as_ref(),
-            ));
+            // Publish the actual cold original before registering its worker.
+            // No monitor allocation is needed with no configured dispatcher.
+            if state.dispatcher.is_some() {
+                state.status_monitor = Some(StatusMonitor::cold());
+                start_status_monitor(
+                    state.status_monitor.as_ref().unwrap(),
+                    self.engine.clone(),
+                    state.dispatcher.as_ref(),
+                )
+                .map_err(|error| error.to_string())?;
+            } else {
+                self.engine.update_sink_status(Vec::new());
+            }
+            self.monitor_changed.notify_waiters();
         }
 
         state.installed = true;

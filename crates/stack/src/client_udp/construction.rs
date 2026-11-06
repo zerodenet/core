@@ -125,9 +125,11 @@ impl ClientUdpStack {
                 self.inner.receive_queue.max_payload_bytes,
                 self.inner.receive_budget.clone(),
             );
+            let state = SocketState::new();
             sockets.insert(
                 endpoint,
                 SocketEntry {
+                    state: state.clone(),
                     sender,
                     budget,
                     last_destination: None,
@@ -136,6 +138,7 @@ impl ClientUdpStack {
                 },
             );
             return Ok(ClientUdpSocket {
+                state,
                 inner: Arc::clone(&self.inner),
                 endpoint,
                 receiver,

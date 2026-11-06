@@ -14,6 +14,13 @@ pub(crate) enum Options {
     Ordinary(Arc<super::grpc::Options>),
     Mux(Arc<::vmess::component::mux::Options>),
 }
+impl Options {
+    pub(crate) fn bind_node_dns(&mut self, dependency: zero_core::component::ComponentId) {
+        if let Self::Ordinary(options) = self {
+            Arc::make_mut(options).bind_node_dns(dependency);
+        }
+    }
+}
 pub(crate) struct Factory;
 impl ComponentFactory for Factory {
     type Options = Options;
@@ -37,7 +44,7 @@ impl ComponentFactory for Factory {
     }
 }
 pub(crate) fn eligible(input: &OutboundConfig) -> bool {
-    if super::grpc::eligible(input) && !super::grpc::is_domain(input) {
+    if super::grpc::owned_eligible(input) {
         return true;
     }
     let mut ordinary = input.clone();
@@ -108,9 +115,8 @@ impl VmessAdapter {
         };
         if mux_concurrency.is_none() {
             return self
-                .standard_options_for(input, resources.candidate())
-                .map(|options| Options::Ordinary(Arc::new(options)))
-                .map_err(RegistrationError::Options);
+                .owned_standard_options(input, resources, factory.network.clone())
+                .map(|options| Options::Ordinary(Arc::new(options)));
         }
         let input_refs =
             super::super::outbound_options(&input.tag, (server, *port), &input.protocol)

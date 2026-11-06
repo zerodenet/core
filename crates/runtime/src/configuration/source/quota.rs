@@ -80,6 +80,17 @@ impl ConfigurationSource {
         path: &Path,
         decode: impl FnOnce(&mut dyn std::io::Read) -> io::Result<T>,
     ) -> io::Result<(u64, io::Result<T>)> {
+        self.inspect_file_snapshot(path,decode)
+    }
+
+    /// Streaming inspection by the actual quota inspector and CLI binary hash.
+    /// The decoder only borrows Read; no original handle escapes, and results
+    /// return only after a matching native close on this same source's slot.
+    pub fn inspect_file_snapshot<T>(
+        self: &Arc<Self>,
+        path: &Path,
+        decode: impl FnOnce(&mut dyn std::io::Read) -> io::Result<T>,
+    ) -> io::Result<(u64, io::Result<T>)> {
         super::super::startup::with_source(self.clone(), || {
             self.ensure_resource_io_available()?;
             self.io.with_file(

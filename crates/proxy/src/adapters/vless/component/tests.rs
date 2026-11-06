@@ -22,7 +22,6 @@ fn resourceful_styles_are_explicitly_excluded_and_never_dropped_by_direct_option
         r#", "grpc":{"service_names":["native/Tun"],"multi_mode":false}"#,
         r#", "grpc":{"service_names":["native/Tun"],"multi_mode":true}"#,
         r#", "tls":{"server_name":"localhost"},"grpc":{"service_names":["native/Tun"]}"#,
-        r#", "h2":{"host":"front.example","path":"/native"}"#,
     ] {
         let input = input(extra);
         assert!(!native_input(&input), "{extra}");
@@ -41,6 +40,9 @@ fn ordinary_raw_tls_and_websocket_remain_selected_without_background_carrier_dri
         r#", "tls":{"server_name":"localhost"}"#,
         r#", "ws":{"path":"/native"}"#,
         r#", "tls":{"server_name":"localhost"},"ws":{"path":"/native"}"#,
+        r#", "h2":{"host":"front.example","path":"/native"}"#,
+        r#", "http_upgrade":{"host":"front.example","path":"/native"}"#,
+        r#", "tls":{"server_name":"localhost"},"h2":{"path":"/native"}"#,
     ] {
         let input = input(extra);
         assert!(native_input(&input), "{extra}");
@@ -157,3 +159,7 @@ fn ordinary_mux_prefix_registration_requires_qualified_root_and_complete_protoco
         assert!(!adapter.production_selected(&input, Some(&config), true));
     }
 }
+
+#[cfg(feature = "socks5")]
+#[path = "tests/material.rs"]
+mod material;

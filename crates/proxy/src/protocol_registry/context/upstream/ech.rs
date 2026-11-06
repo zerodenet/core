@@ -1,10 +1,11 @@
 use std::collections::{HashMap, VecDeque};
 use std::io;
-use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
-use tokio::sync::{Mutex as AsyncMutex, RwLock};
+use tokio::sync::RwLock;
+use zero_platform_tokio::contract::dns::DnsService;
+mod update;
 use zero_traits::EchForceQuery;
 use zero_transport::tls::ech::{EchConfigResolveFuture, EchConfigResolver};
 
@@ -41,6 +42,7 @@ impl RuntimeEchResolver {
             server,
             query_name,
             egress_generation: self.egress.generation(),
+            resolver_generation: self.dns.generation().resolver,
         };
         let entry = self.entry(key.clone());
         if let Some(record) = entry.record.read().await.clone() {
@@ -77,62 +79,40 @@ impl RuntimeEchResolver {
     }
 
     fn refresh(&self, key: CacheKey, entry: Arc<Entry>, force: EchForceQuery) {
-        if entry
-            .refreshing
-            .compare_exchange(false, true, Ordering::AcqRel, Ordering::Acquire)
-            .is_err()
-        {
-            return;
-        }
-        let resolver = self.clone();
-        tokio::spawn(async move {
-            let _ = resolver.update(key, entry.clone(), force).await;
-            entry.refreshing.store(false, Ordering::Release);
-        });
+        self.start_update(key, entry, force, true);
     }
-
     async fn update(
         &self,
         key: CacheKey,
         entry: Arc<Entry>,
         force: EchForceQuery,
     ) -> io::Result<Option<Vec<u8>>> {
-        let _update = entry.update.lock().await;
-        if let Some(record) = entry.record.read().await.clone() {
-            if record.expires > Instant::now() && record.failure.is_none() {
-                return apply_force(record, force);
+        let pending = self.start_update(key.clone(), entry.clone(), force, false);
+        let record = match pending.wait().await {
+            Ok(record) => record,
+            Err(source) => {
+                if force != EchForceQuery::Full
+                    && self.egress.generation() == key.egress_generation
+                    && self.dns.generation().resolver == key.resolver_generation
+                {
+                    *entry.record.write().await = Some(CacheRecord {
+                        material: None,
+                        expires: Instant::now() + DEFAULT_TTL,
+                        failure: Some(source.to_string()),
+                    });
+                }
+                return Err(update::query_failure(source));
             }
-        }
-        match self
-            .dns
-            .query_ech_config(&key.query_name, &key.server)
-            .await
+        };
+        if self.egress.generation() != key.egress_generation
+            || self.dns.generation().resolver != key.resolver_generation
         {
-            Ok(answer) => {
-                let ttl = if answer.ttl_seconds == 0 {
-                    DEFAULT_TTL
-                } else {
-                    Duration::from_secs(u64::from(answer.ttl_seconds))
-                };
-                let record = CacheRecord {
-                    material: answer.config_list,
-                    expires: Instant::now() + ttl,
-                    failure: None,
-                };
-                *entry.record.write().await = Some(record.clone());
-                apply_force(record, force)
-            }
-            Err(error) if force == EchForceQuery::Full => Err(query_error(error)),
-            Err(error) => {
-                let record = CacheRecord {
-                    material: None,
-                    expires: Instant::now() + DEFAULT_TTL,
-                    failure: Some(error.to_string()),
-                };
-                *entry.record.write().await = Some(record.clone());
-                apply_force(record, force)
-            }
+            return Err(io::Error::new(
+                io::ErrorKind::Interrupted,
+                "ECH cache result belongs to a retired generation",
+            ));
         }
+        apply_force(record, force)
     }
 }
 
@@ -163,13 +143,13 @@ struct CacheKey {
     server: String,
     query_name: String,
     egress_generation: u64,
+    resolver_generation: u64,
 }
 
 #[derive(Default)]
 struct Entry {
     record: RwLock<Option<CacheRecord>>,
-    update: AsyncMutex<()>,
-    refreshing: AtomicBool,
+    update: Mutex<Option<Arc<update::Update>>>,
 }
 
 #[derive(Clone)]

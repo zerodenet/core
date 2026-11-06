@@ -23,6 +23,7 @@ pub struct Options {
     pub(super) identity: Arc<[u8]>,
     pub(super) business: Option<Business>,
     pub(super) dns_dependency: Option<zero_core::component::ComponentId>,
+    pub(super) identity_tag: Option<Arc<str>>,
 }
 impl std::fmt::Debug for Options {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -38,6 +39,7 @@ pub(super) struct Business {
     pub(super) cleanup_budget: Duration,
 }
 struct Limits {
+    owned: bool,
     ca_max_bytes: Option<NonZeroUsize>,
     cap: NonZeroUsize,
     business: Option<Business>,
@@ -76,6 +78,7 @@ impl Options {
             dial,
             source_dir,
             Limits {
+                owned: false,
                 ca_max_bytes,
                 cap: carrier_limit,
                 business: None,
@@ -114,6 +117,7 @@ impl Options {
             binding.dial.clone(),
             source_dir,
             Limits {
+                owned: false,
                 ca_max_bytes,
                 cap: carrier_limit,
                 business: Some(Business {
@@ -137,6 +141,7 @@ impl Options {
         TGrpc: GrpcTransportProfile + ?Sized,
     {
         let Limits {
+            owned,
             ca_max_bytes,
             cap: carrier_limit,
             business,
@@ -154,8 +159,16 @@ impl Options {
                 grpc: None,
                 ..input
             };
-        let mut base =
-            super::super::Options::from_options_refs_at(ordinary, dial, source_dir, ca_max_bytes)?;
+        let mut base = if owned {
+            super::super::Options::from_owned_options_refs_at(
+                ordinary,
+                dial,
+                source_dir,
+                ca_max_bytes,
+            )?
+        } else {
+            super::super::Options::from_options_refs_at(ordinary, dial, source_dir, ca_max_bytes)?
+        };
         let ip = zero_core::address::parse_ip_literal(&base.server);
         if ip.is_none()
             && !business
@@ -168,7 +181,12 @@ impl Options {
         }
         // No unowned TLS side channels are admitted into this carrier owner.
         if let Some(tls) = &base.tls {
-            zero_transport::tls::PreparedClient::validate_profile(tls).map_err(|_| {
+            let validating = if owned {
+                zero_transport::tls::OwnedPreparedClient::validate_profile(tls)
+            } else {
+                zero_transport::tls::PreparedClient::validate_profile(tls)
+            };
+            validating.map_err(|_| {
                 Error::Unsupported("controlled VMess gRPC requires supported prepared TLS")
             })?;
         }
@@ -213,6 +231,7 @@ impl Options {
             identity,
             business,
             dns_dependency: None,
+            identity_tag: None,
         })
     }
 }

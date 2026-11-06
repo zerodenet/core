@@ -37,6 +37,12 @@ impl Options {
             let mut hash = key.build_hasher();
             listen.hash(&mut hash);
             private_identity.hash(&mut hash);
+            profile.legacy_replay_budget_identity().hash(&mut hash);
+            #[cfg(feature = "blake3")]
+            {
+                profile.replay_total().hash(&mut hash);
+                profile.udp_budget_identity().hash(&mut hash);
+            }
             identity.extend_from_slice(&hash.finish().to_le_bytes());
         }
         Self {
@@ -121,6 +127,7 @@ impl ComponentFactory for Factory {
                 context.cancel.clone(),
             )
         });
+        let security = profile.legacy_replay();
         let responder = Arc::new(Mutex::new(
             crate::udp::ShadowsocksInboundUdpResponder::from_profile(profile),
         ));
@@ -168,6 +175,7 @@ impl ComponentFactory for Factory {
                 plugin,
                 #[cfg(feature = "blake3")]
                 replay,
+                security,
             }),
             roles: ComponentRoles {
                 inbound: Some(erase_inbound(PairSource { tcp, udp })),
@@ -234,6 +242,7 @@ where
     }
 }
 struct PairOwner {
+    security: crate::shared::legacy_replay::LegacyReplay,
     #[cfg(feature = "blake3")]
     replay: Option<crate::component::replay::Owner>,
     plugin: Option<plugin::Owner>,
@@ -242,6 +251,12 @@ struct PairOwner {
 }
 impl zero_platform_tokio::contract::lifecycle::ResourceLifecycle for PairOwner {
     async fn start(&mut self, deadline: tokio::time::Instant) -> Result<(), BuildError> {
+        self.security
+            .activate_security_budgets()
+            .map_err(|source| {
+                ChannelError::new(Stage::Prepare, Reason::Capacity, Impact::Component)
+                    .with_source(source)
+            })?;
         #[cfg(feature = "blake3")]
         if let Some(replay) = &mut self.replay {
             replay.start(deadline).await?;

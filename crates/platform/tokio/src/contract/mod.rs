@@ -15,8 +15,8 @@ pub mod stream;
 pub use tokio_util::sync::CancellationToken;
 
 pub use zero_error::channel::{
-    ChannelError, CloseReason, DeliveryState, Impact, Reason, RetryClass, SendFailure, SendReceipt,
-    Stage,
+    ChannelError, CleanupFailureReceipt, CloseReason, DeliveryState, Impact, Reason, RetryClass,
+    SendFailure, SendReceipt, Stage,
 };
 
 pub type BoxFuture<'a, T> = std::pin::Pin<Box<dyn std::future::Future<Output = T> + Send + 'a>>;

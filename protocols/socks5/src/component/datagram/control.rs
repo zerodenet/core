@@ -30,6 +30,7 @@ pub struct Control {
     raw_closed: bool,
     report: CloseReport,
     reported_tcp: bool,
+    original: Option<Arc<super::association::Association>>,
 }
 impl Control {
     pub(super) fn new(shared: Arc<Shared>) -> Self {
@@ -39,7 +40,24 @@ impl Control {
             raw_closed: false,
             report: CloseReport::default(),
             reported_tcp: false,
+            original: None,
         }
+    }
+    pub(super) fn with_original(mut self, original: Arc<super::association::Association>) -> Self {
+        self.original = Some(original);
+        self
+    }
+    pub(super) fn original(
+        &self,
+    ) -> Option<zero_platform_tokio::controlled_carrier::CarrierOrigin> {
+        self.original
+            .as_ref()
+            .and_then(|original| original.origin())
+    }
+    pub(super) fn related_control(
+        &self,
+    ) -> Option<zero_platform_tokio::controlled_carrier::CarrierAdoption> {
+        self.original.as_ref().map(|original| original.parent())
     }
     fn poll_close(
         &mut self,
@@ -48,7 +66,16 @@ impl Control {
     ) -> Poll<Result<(), ChannelError>> {
         let mut failure = None;
         let mut state = self.shared.state.lock().expect("SOCKS5 session poisoned");
-        if !state.tcp_shutdown {
+        // A native association returns its unique byte view, then closes the
+        // original TCP controller explicitly. EOF is neither required nor used
+        // as native-close evidence. Library bare sessions keep their old FIN/EOF
+        // protocol path until their original provider is supplied.
+        let returned_tcp = if self.original.is_some() {
+            state.tcp.take()
+        } else {
+            None
+        };
+        if self.original.is_none() && !state.tcp_shutdown {
             match state
                 .tcp
                 .as_mut()
@@ -67,7 +94,7 @@ impl Control {
                 Poll::Pending => {}
             }
         }
-        if !state.tcp_eof {
+        if self.original.is_none() && !state.tcp_eof {
             let mut bytes = [0; 64];
             let mut read = ReadBuf::new(&mut bytes);
             match state
@@ -109,6 +136,7 @@ impl Control {
             }));
         }
         drop(state);
+        drop(returned_tcp);
         if let Some(closing) = self.closing.as_mut() {
             if let Poll::Ready((control, result)) = closing.as_mut().poll(cx) {
                 self.closing = None;
@@ -132,7 +160,7 @@ impl Control {
         if let Some(error) = failure {
             return Poll::Ready(Err(error));
         }
-        if self.raw_closed && self.reported_tcp {
+        if self.raw_closed && (self.reported_tcp || self.original.is_some()) {
             Poll::Ready(Ok(()))
         } else {
             Poll::Pending
@@ -161,7 +189,17 @@ impl ChannelControl for Control {
         self.cancel(CloseReason::Shutdown);
         match timeout_at(deadline, poll_fn(|cx| self.poll_close(cx, deadline))).await {
             Ok(Err(error)) => Err(error),
-            Ok(Ok(())) | Err(_) => Ok(self.take_report()),
+            Ok(Ok(())) => {
+                if let Some(original) = &self.original {
+                    let report = original.close(deadline).await?;
+                    if report.is_complete() {
+                        self.reported_tcp = true;
+                    }
+                    self.report.append(report);
+                }
+                Ok(self.take_report())
+            }
+            Err(_) => Ok(self.take_report()),
         }
     }
 }

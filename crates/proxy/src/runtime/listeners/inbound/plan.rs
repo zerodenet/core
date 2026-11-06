@@ -21,7 +21,7 @@ pub(super) fn prepare(
     protocols: &ProtocolInventory,
     runtime_factory: &InboundListenerRuntimeFactory,
     rollback_runtime_factory: &InboundListenerRuntimeFactory,
-    source_dir: Option<&Path>,
+    _source_dir: Option<&Path>,
     config: &RuntimeConfig,
     active: &HashMap<String, InboundConfig>,
 ) -> Result<Plan, EngineError> {
@@ -66,8 +66,11 @@ pub(super) fn prepare(
         let mode_changed = current.is_some()
             && protocols
                 .inbound_listener_requires_restart(&runtime_factory.listener_config(inbound))?;
+        let replay_budget_changed = inbound.protocol.protocol_name() == "shadowsocks"
+            && crate::runtime::orchestration::ss_source_budget_changed(&previous_config, config);
         let reuse = running
             && !mode_changed
+            && !replay_budget_changed
             && current.is_some_and(|current| {
                 !requires_listener_restart(
                     &rollback_runtime_factory.listener_config(current),
@@ -84,7 +87,8 @@ pub(super) fn prepare(
         let prepared = if reuse {
             None
         } else {
-            protocols.prepare_inbound_bind(runtime_factory.listener_config(inbound), source_dir)?
+            protocols
+                .prepare_inbound_bind_in_config(runtime_factory.listener_config(inbound), config)?
         };
         candidates.push(Candidate {
             inbound: inbound.clone(),
@@ -129,7 +133,12 @@ impl Plan {
                     .owner(&inbound.tag)
                     .expect("checked actual running inbound owner")
                     .wait_ready()
-                    .await?;
+                    .await
+                    .inspect_err(|source| {
+                        #[cfg(test)]
+                        eprintln!("actual reused listener {} readiness retained original failure: {source:#?}", inbound.tag);
+                        tracing::warn!(tag = %inbound.tag, ?source, "same retained listener readiness failed");
+                    })?;
                 state
                     .active_inbounds
                     .insert(inbound.tag.clone(), inbound.clone());

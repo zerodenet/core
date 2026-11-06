@@ -1,5 +1,7 @@
 mod access;
 mod model;
+#[cfg(feature = "raw-ip-runtime")]
+mod packet;
 mod serve;
 #[cfg(test)]
 mod tests;

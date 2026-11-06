@@ -42,6 +42,7 @@ fn wireguard_adapter_claims_without_mutating_published_profile() {
     adapter.profiles.lock().unwrap().insert(
         "wg".to_owned(),
         CachedProfile {
+            graph: None,
             packet: adapter.packet_operations(
                 "wg",
                 protocol_identity(&first.protocol).unwrap(),

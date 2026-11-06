@@ -144,3 +144,14 @@ impl ReplaySaltPool {
         }
     }
 }
+
+impl Drop for Maintenance {
+    fn drop(&mut self) {
+        // Standalone fallback only. Ordinary host owners transfer and join the
+        // exact legacy handle through claim_maintenance before activation.
+        if let Some(worker) = self.legacy.take() {
+            let _ = worker.stop.send(());
+            worker.task.abort();
+        }
+    }
+}

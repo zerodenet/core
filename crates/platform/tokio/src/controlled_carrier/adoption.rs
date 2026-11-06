@@ -23,7 +23,8 @@ pub struct CarrierClosed {
     slot: Arc<Slot>,
 }
 impl CarrierAdoption {
-    pub(crate) fn request_retirement(&self) {
+    /// Request stop only; this supplies no close/user/join receipt.
+    pub fn request_retirement(&self) {
         self.slot.cancel.cancel();
         self.slot.notify();
     }
@@ -33,6 +34,22 @@ impl CarrierAdoption {
         Arc::ptr_eq(&self.slot, &other.slot)
     }
 
+    /// Observe the exact weak original owner for finite cleanup bookkeeping.
+    /// This registration grants no native acquisition or driver permission.
+    pub fn cleanup_owner(&self) -> Option<super::CarrierOwnerRegistration> {
+        self.slot
+            .owner
+            .upgrade()
+            .map(|owner| super::CarrierOwnerRegistration::new(&owner))
+    }
+    /// Read-only registration provenance of this same original initializer.
+    pub fn matches_auxiliary(&self, caller: &TaskJoinWitness) -> bool {
+        self.slot
+            .state()
+            .auxiliary
+            .as_ref()
+            .is_some_and(|actual| actual.same_registration(caller))
+    }
     pub fn instance(&self) -> ComponentInstanceId {
         self.slot.instance
     }
@@ -54,6 +71,11 @@ impl CarrierAdoption {
         self.slot.cancel.cancel();
         self.slot.notify();
         super::owner::close_slot(&self.slot, deadline).await
+    }
+    /// Settle only already returned native/users/join facts, without waiting.
+    pub fn try_retire(&self) -> Result<crate::contract::lifecycle::CloseReport, ChannelError> {
+        self.request_retirement();
+        super::owner::try_close_slot(&self.slot)
     }
     /// Registers the protocol's existing one driver, not an extra worker. The
     /// original control already lives in the persistent slot. No await separates

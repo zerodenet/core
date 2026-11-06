@@ -3,6 +3,14 @@
 
 本文记录会影响 GUI、SDK、面板、事件 Sink 或进程内 Rust 集成的控制面语义变化。公开接口与事件说明由 [ZeroDeNet 文档仓库](https://github.com/zerodenet/docs)维护；本文只维护 Core 的版本边界和迁移要求。
 
+第二轮续作的内部 Rust 错误转发须保留 `ChannelError` 可选的结构化 cleanup receipt；
+同 payload 的显式交接不替代 native/view/Scope/用户关闭。实际 Registrar 的 Scope 退休
+观察和同 ConfigurationSource 的 quota 检查入口见
+[续作兼容说明](../design/v0.0.3/compatibility.md#同原件故障交接与控制-scope-续作)。
+Application 状态采样改由原 TaskScope 监督并等待真实 join，正常配置替换继续监督下一
+实例。保留 V1 配置/API/events、CLI/FFI、ACK/revision 与计量语义，不需要消费者改动。
+当前仍为开发中续作，历史局部限制/资格不代表当前完整迁移或最终候选已完成。
+
 ## 消费者如何判断兼容性
 
 外部消费者连接内核后应依次检查：
@@ -47,6 +55,20 @@ VLESS 入站仅登记实际标准 ComponentFactory/InboundSource，删除 adapte
 共享 carrier 继续保留真实 caller 的原始失败诊断；Auxiliary 业务任务因断开/撤销结束不再被提升为共享 native 故障，Critical worker 与真实 native 失败仍按原始来源报告并保留失败边界。
 
 第二轮云端候选增加按实际 owner 消费的可选 DNS/Mieru/HY2/native-stream/VMess-gRPC/control 预算及 Direct Packet `write_queue`，旧省略字段导出形状保持。容量不足拒绝新增或对已有订阅背压，不驱逐活跃业务或有效 replay。内部 Rust 的原件观察、device cold/recovery/publication、同源 quota/TLS 和有限 FIFO 接口变化见 [兼容记录](../design/v0.0.3/compatibility.md#第二轮云端-rust-接口与可选预算迁移)。这不是完整架构、全部出站/Packet/process、跨平台或 GUI/面板资格通过的声明；未完成实现和 TEMP 债务仍单列。统计 sampler 已改用实际 blocking Scope join；endpoint 最终提交同时收尾 DNS token 并观察实际发布设备。对尚无原件关闭证明的 VMess gRPC/Mieru 跨执行方式切换，候选在源修改/停旧前拒绝并保留当前 revision 与旧 TCP；这是未完成迁移的明确限制。ControlledPacketDevice/owned PacketTx 是基础接口，普通 Direct Packet/TUN 生产 gate 未开启。
+
+Linux 进程原件续作增加内核 Rust 的 cold owned-process grant，保留实际 actor Scope 与原生进程树/描述符关闭分证据；公开 wire 与消费者无需改变。此时 SIP 生产消费、总体预算与其他平台仍有实现，接口出现和底层通过不代表完整迁移。详见上述兼容记录。
+
+后续续作增加 Windows Job 原件、同 job 的真实端点预留/消费授权与可选 process job 预算，
+以及 Packet 的实际 MTU、预付读取与原存储派生契约。H2 客户端原入口改为同调用者推进
+原连接。省略配置字段及 V1/API/events/CLI/FFI 不变；内核 Rust 构造者和自定义 storage
+的适配要求见兼容记录。真实 Windows/macOS、SIP、WG/TUN、剩余出站与全域预算仍逐项
+收尾，不能据此视作完整候选、客户端同产物或跨平台资格。
+
+原 Packet Source 的异步获取、唯一读任务 checkpoint 和按需同 Slot 进程初始化要求
+内核 Rust 构造者使用实际 Scope/native binding，并给出原协议启动期限。新增 SS UDP
+响应票据的每 Flow/总体可选字段省略不导出，普通生产消费尚在整轮组合。具体 API 和预算
+口径见上述兼容记录；本次没有改变 V1 wire、ACK/revision、事件、CLI 或 FFI，未取得
+完整候选或客户端同产物资格。
 
 ## 版本矩阵
 
@@ -720,3 +742,11 @@ IPC、HTTP SSE 和 gRPC 的 wire 格式保持 `zero.api.v1` / `zero.event.v1`，
 开发期间只在版本矩阵和 `## Unreleased` 下登记，不预判最终发布版本，也不写入 Cargo 的 `-dev.N` 构建号。完整测试通过后，由 `Prepare Release` 工作流或 `scripts/release.sh` 将矩阵行、章节标题和 workspace 版本一起封板；禁止手工分别修改这些位置。
 
 Startup, supervision, reload and transaction-drain futures separate their heap-owned phases to fit the native Windows main stack. A one-MiB-thread regression reaches actual Ready and confirms shutdown; no larger process stack is required by the execution path.
+
+
+第二轮云端续作新增内部 Rust `ProbeCall`/`RuntimeHost::run_probe`、Direct Service 原件票据及
+同 supervisor 的已取消原 carrier 清理轮询。嵌入使用者应驱动实际 host 生命周期，不能把
+Service facts、body 完成或 Drop 当成原件关闭。System TUN ordinary Source、可选实际 owner
+预算和不可变授予 CA 的 TLS backend 接线正在组合；省略字段导出、V1 配置/API/events、CLI、
+FFI 和客户端面板工作流保持原契约，最终资格尚未取得。TEMP-WG-OUTER-UDP-01 未关闭，
+没有扩大其 outer_udp_proxy/reconnect 边界。未发布或部署。

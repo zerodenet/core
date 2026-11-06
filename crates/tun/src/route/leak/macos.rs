@@ -1,3 +1,4 @@
+mod owned;
 use std::io;
 use std::net::IpAddr;
 
@@ -26,31 +27,11 @@ impl SystemLeakGuard {
         protected: &[IpNet],
         excluded: &[IpAddr],
     ) -> io::Result<Self> {
-        validate_interface_name(tun_name)?;
-        verify_anchor_namespace()?;
-        let anchor = format!("com.apple/zero_{}", safe_resource_name(recovery_key));
-        let protected = normalized_prefixes(protected);
-        let excluded = normalized_exclusions(excluded);
-        apply_policy(&anchor, tun_name, &protected, &excluded)?;
-        // Establish ownership before fallible readback/activation, so failure
-        // rolls back the installed anchor through the normal cleanup handle.
-        let mut guard = Self {
-            anchor,
-            tun_name: tun_name.to_owned(),
-            protected,
-            excluded,
-            enable_tokens: Vec::new(),
-            installed_rules: String::new(),
-            active: true,
-        };
-        guard.installed_rules = super::audit::snapshot(&anchor_rules(&guard.anchor)?)?;
-        if !pf_enabled()? {
-            guard.enable_tokens.push(enable_pf()?);
-            if !pf_enabled()? {
-                return Err(io::Error::other("pf is still disabled after installation"));
-            }
-        }
-        Ok(guard)
+        let mut original = None;
+        Self::install_retained(&mut original, tun_name, recovery_key, protected, excluded)?;
+        Ok(original
+            .take()
+            .expect("same installed leak-protection original"))
     }
 
     pub fn reconcile(&mut self, protected: &[IpNet], excluded: &[IpAddr]) -> io::Result<bool> {
@@ -91,6 +72,10 @@ impl SystemLeakGuard {
     }
 
     pub fn close(mut self) -> io::Result<()> {
+        self.close_retained()
+    }
+
+    pub fn close_retained(&mut self) -> io::Result<()> {
         self.cleanup()
     }
 
