@@ -7,8 +7,8 @@ use std::{
     os::fd::AsRawFd,
     process::ExitStatus,
     sync::{
-        atomic::{AtomicU64, Ordering},
         Arc, Mutex,
+        atomic::{AtomicU64, Ordering},
     },
 };
 use tokio::io::unix::AsyncFd;
