@@ -19,18 +19,35 @@ pub(in crate::runtime) async fn run(
     let cancel = CancellationToken::new();
     let _stop = cancel.clone().drop_guard();
     let factory = runtime.route_factory();
+    let source_host = runtime.host_control();
+    let acquisition = source_host.map(|host| host.acquisition());
     let mut closing = FuturesUnordered::new();
     let work = async {
         loop {
             if *shutdown.borrow() {
                 return Ok(());
             }
+            let idle=closing.is_empty() && source_host.is_none_or(|host| host.peer_groups_quiescent());
+            if let Some(acquisition)=&acquisition { acquisition.observe_idle(idle); }
             tokio::select! { biased;
                 changed = shutdown.changed() => {
                     if changed.is_err() || *shutdown.borrow() { return Ok(()); }
                 }
                 result = closing.next(), if !closing.is_empty() => {
                     if let Some(result) = result { result?; }
+                }
+                request = async { match &acquisition { Some(acquisition)=>acquisition.requested().await, None=>std::future::pending().await } } => {
+                    // Only this next() acquisition was dropped. The original
+                    // accepted scopes, IO and cleanup futures remain running.
+                    let acquisition=acquisition.as_ref().unwrap();
+                    acquisition.acknowledge(request,idle);
+                    loop {
+                        tokio::select! { biased;
+                            changed=shutdown.changed()=>if changed.is_err() || *shutdown.borrow() {return Ok(());},
+                            _=acquisition.resumed(request)=>break,
+                            result=closing.next(),if !closing.is_empty()=>{if let Some(result)=result {result?;}},
+                        }
+                    }
                 }
                 pending = source.next(AcceptContext { deadline: None, cancel: cancel.clone() }), if closing.len() < limit.get() => {
                     let Some(pending) = pending.map_err(std::io::Error::other)? else { return Ok(()); };

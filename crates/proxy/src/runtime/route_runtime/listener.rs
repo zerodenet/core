@@ -86,7 +86,6 @@ impl InboundListenerRuntime {
         }
     }
 
-    #[cfg(feature = "managed-datagram-runtime")]
     pub(crate) fn host_control(
         &self,
     ) -> Option<&crate::runtime::inbound_owners::InboundTaskAccess> {
