@@ -107,7 +107,12 @@ impl OwnedProcess {
         if unsafe { libc::fcntl(sockets[0], libc::F_SETFL, libc::O_NONBLOCK) } < 0 {
             return Err(io::Error::last_os_error());
         }
-        state.control = Some(AsyncFd::new(View(sockets[0]))?);
+        // SAFETY: this same original remains in state.originals until finish
+        // removes the registration, then explicitly closes the original fd.
+        state.control = Some(
+            unsafe { AsyncFd::register(View(sockets[0])) }
+                .map_err(|failure| failure.into_parts().1)?,
+        );
         let code = unsafe {
             wire::send(
                 sockets[0],

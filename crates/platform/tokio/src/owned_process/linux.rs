@@ -81,7 +81,7 @@ impl OwnedProcess {
     /// not spawn a process, a task or a second Scope.
     pub fn prepare(request: ProcessRequest, tasks: &TaskRegistrar) -> io::Result<Arc<Self>> {
         let token = NEXT
-            .fetch_update(Ordering::AcqRel, Ordering::Acquire, |n| n.checked_add(1))
+            .try_update(Ordering::AcqRel, Ordering::Acquire, |n| n.checked_add(1))
             .map_err(|_| io::Error::other("process identity exhausted"))?;
         Ok(Arc::new(Self {
             token,

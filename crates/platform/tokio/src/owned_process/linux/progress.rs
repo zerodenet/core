@@ -197,5 +197,9 @@ pub(super) fn physical(state: &State) -> bool {
     if state.helper.is_none() {
         return state.actor.is_some();
     }
-    state.tree && state.conversation_valid && state.helper_status.is_some_and(libc::WIFEXITED)
+    state.tree
+        && state.conversation_valid
+        && state
+            .helper_status
+            .is_some_and(|status| libc::WIFEXITED(status))
 }
