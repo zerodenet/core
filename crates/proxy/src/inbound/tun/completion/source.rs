@@ -20,6 +20,14 @@ impl std::fmt::Debug for SourceCompletion {
     }
 }
 impl TunCompletion {
+    pub(in crate::inbound::tun) fn matches_source(
+        &self,
+        original: zero_core::component::ComponentInstanceId,
+    ) -> bool {
+        self.source
+            .as_ref()
+            .is_some_and(|source| source.original.identity() == original)
+    }
     #[cfg(test)]
     pub(in crate::inbound::tun) fn source_original(
         &self,
