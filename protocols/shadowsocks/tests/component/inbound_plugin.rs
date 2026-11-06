@@ -1,4 +1,4 @@
-//! Direct-child seam only: these tests do not certify process-tree closure.
+//! Same actor and original process tree; library direct-child seam stays explicit.
 use super::*;
 use std::{
     num::NonZeroUsize,
@@ -14,6 +14,8 @@ use zero_platform_tokio::contract::{
 #[derive(Default)]
 struct Grant {
     starts: AtomicUsize,
+    #[cfg(target_os = "linux")]
+    originals: std::sync::Mutex<Vec<Arc<zero_platform_tokio::owned_process::OwnedProcess>>>,
 }
 fn denied<T: Send + 'static>() -> BoxFuture<'static, Result<T, ChannelError>> {
     Box::pin(async {
@@ -32,6 +34,19 @@ impl ResourceAccess for Grant {
             stream: endpoint,
             datagram: endpoint,
         })
+    }
+    #[cfg(target_os = "linux")]
+    fn prepare_owned_process(
+        &self,
+        request: ProcessRequest,
+        tasks: &TaskRegistrar,
+    ) -> Result<Arc<zero_platform_tokio::owned_process::OwnedProcess>, ChannelError> {
+        assert_eq!(request.program, std::path::Path::new("python3"));
+        assert_eq!(self.starts.fetch_add(1, Ordering::SeqCst), 0);
+        let original = zero_platform_tokio::owned_process::OwnedProcess::prepare(request, tasks)
+            .map_err(|source| io(Stage::Prepare, source))?;
+        self.originals.lock().unwrap().push(original.clone());
+        Ok(original)
     }
     fn spawn_process(&self, request: ProcessRequest) -> Result<Child, ChannelError> {
         assert_eq!(request.program, std::path::Path::new("python3"));
@@ -98,7 +113,7 @@ async fn inbound_actor_reserves_its_real_task_before_process_start() {
     assert!(scope.shutdown(deadline()).await.is_complete());
 }
 #[tokio::test]
-async fn inbound_single_actor_matches_scope_join_and_reaps_its_original_child() {
+async fn inbound_single_actor_matches_scope_join_and_its_actual_native_backend_close() {
     tokio::time::timeout(Duration::from_secs(8), async {
         let mut scope = TaskScope::new(
             tokio::runtime::Handle::current(),
@@ -127,6 +142,16 @@ async fn inbound_single_actor_matches_scope_join_and_reaps_its_original_child() 
         let joined = actor.wait().await;
         assert!(actor.matches_joined(&joined));
         assert!(owner.shared.state.lock().unwrap().exited.is_some());
+        #[cfg(target_os = "linux")]
+        {
+            let originals = grant.originals.lock().unwrap();
+            assert_eq!(originals.len(), 1);
+            let receipt = originals[0]
+                .closed()
+                .expect("actual tree/parent-fd close after actor join");
+            assert!(receipt.matches(&originals[0]) && receipt.had_native_acquisition());
+        }
+
         assert!(owner.start(deadline()).await.is_err());
         assert_eq!(grant.starts.load(Ordering::SeqCst), 1);
     })

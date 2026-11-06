@@ -23,7 +23,7 @@ async fn open(
         .configured("a")
         .unwrap();
     let role = slot.stream(deadline()).await?;
-    let endpoint=slot.recipe.spec().resources.iter().find_map(|resource|match resource {zero_platform_tokio::contract::component::ResourceDeclaration::ControlledCarrierPool{endpoint,..}=>Some(endpoint.clone()),_=>None}).unwrap();
+    let endpoint=slot.recipe.spec().resources.iter().find_map(|resource|match resource {zero_platform_tokio::contract::component::ResourceDeclaration::ControlledNodeCarrier{endpoint,..}=>Some(endpoint.clone()),_=>None}).unwrap();
     let binding = UpstreamBinding {
         prefix: vec![],
         dial: slot.dial.clone(),

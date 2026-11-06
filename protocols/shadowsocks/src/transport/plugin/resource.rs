@@ -39,9 +39,19 @@ impl ShadowsocksPluginResource {
         &self,
         resources: std::sync::Arc<dyn zero_platform_tokio::contract::component::ResourceAccess>,
         claimed: std::sync::Arc<std::sync::atomic::AtomicBool>,
+        tasks: zero_platform_tokio::contract::scope::TaskRegistrar,
+        actor: zero_platform_tokio::contract::scope::TaskJoinWitness,
+        deadline: Instant,
     ) -> io::Result<SocketAddr> {
         self.plan
-            .acquire_authorized(self.plan.supports_tcp(), resources, claimed)
+            .acquire_authorized(
+                self.plan.supports_tcp(),
+                resources,
+                claimed,
+                tasks,
+                actor,
+                deadline,
+            )
             .await?
             .map(|lease| lease.endpoint())
             .ok_or_else(|| {
@@ -59,6 +69,13 @@ impl ShadowsocksPluginResource {
             .await
             .clone()
             .ok_or_else(|| io::Error::other("plugin child was not started"))?;
+        #[cfg(target_os = "linux")]
+        {
+            let original = lease.child.lock().unwrap().owned();
+            if let Some(original) = original {
+                return original.wait_root_exit().await;
+            }
+        }
         loop {
             if let Some(status) = lease.child.lock().unwrap().try_wait()? {
                 return Ok(status);
@@ -96,6 +113,26 @@ impl ShadowsocksPluginResource {
         let Some(lease) = slot.as_ref() else {
             return Ok(PluginTermination::NotStarted);
         };
+        #[cfg(target_os = "linux")]
+        {
+            let original = lease.child.lock().unwrap().owned();
+            if let Some(original) = original {
+                let receipt = original
+                    .wait_closed(deadline)
+                    .await?
+                    .filter(|receipt| receipt.matches(&original))
+                    .ok_or_else(timed_out)?;
+                if !receipt.had_native_acquisition() {
+                    return Ok(PluginTermination::NotStarted);
+                }
+                return original
+                    .root_status()
+                    .map(PluginTermination::Exited)
+                    .ok_or_else(|| {
+                        io::Error::other("closed original process lacks its root outcome")
+                    });
+            }
+        }
         {
             let mut child = lease.child.lock().unwrap();
             if let Some(status) = child.try_wait()? {
