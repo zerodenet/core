@@ -52,6 +52,21 @@ pub struct RuntimeOptionsConfig {
     /// Successfully authenticated UDP user codecs retained by the same SS adapter.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub ss_udp_max_authenticated_codecs: Option<usize>,
+    /// Actual physical carriers in one cached gRPC pool across every binding and retirement.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub grpc_pool_max_carriers: Option<usize>,
+    /// Actual logical streams in one cached gRPC pool including pending and retiring streams.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub grpc_pool_max_streams: Option<usize>,
+    /// Actual physical carriers across the same gRPC registry, including pending, failed and retiring originals.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub grpc_total_max_carriers: Option<usize>,
+    /// Actual logical streams across the same gRPC registry until worker and view return.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub grpc_total_max_streams: Option<usize>,
+    /// Actual diagnostic and health probes per kernel, including pending and retiring originals; the process-wide ceiling remains eight.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub diagnostic_max_operations: Option<usize>,
     /// Total retained TCP2022 replay salts in this actual SS adapter, across
     /// all inbound/outbound histories and per-profile capacity views. On demand,
     /// 500000 by default; live security history is never evicted for admission.
@@ -141,6 +156,11 @@ impl Default for RuntimeOptionsConfig {
             ss_udp_max_associations: None,
             ss_udp_max_return_bindings: None,
             ss_udp_max_authenticated_codecs: None,
+            grpc_pool_max_carriers: None,
+            grpc_pool_max_streams: None,
+            grpc_total_max_carriers: None,
+            grpc_total_max_streams: None,
+            diagnostic_max_operations: None,
             ss_tcp_replay_max_salts: None,
             hysteria2_max_entries: None,
             hysteria2_max_udp_sessions: None,
@@ -199,6 +219,21 @@ impl RuntimeOptionsConfig {
     }
     pub fn effective_ss_udp_max_authenticated_codecs(&self) -> usize {
         self.ss_udp_max_authenticated_codecs.unwrap_or(4096)
+    }
+    pub fn effective_grpc_pool_max_carriers(&self) -> usize {
+        self.grpc_pool_max_carriers.unwrap_or(4)
+    }
+    pub fn effective_grpc_pool_max_streams(&self) -> usize {
+        self.grpc_pool_max_streams.unwrap_or(256)
+    }
+    pub fn effective_grpc_total_max_carriers(&self) -> usize {
+        self.grpc_total_max_carriers.unwrap_or(16)
+    }
+    pub fn effective_grpc_total_max_streams(&self) -> usize {
+        self.grpc_total_max_streams.unwrap_or(1024)
+    }
+    pub fn effective_diagnostic_max_operations(&self) -> usize {
+        self.diagnostic_max_operations.unwrap_or(8)
     }
     pub fn effective_ss_tcp_replay_max_salts(&self) -> usize {
         self.ss_tcp_replay_max_salts.unwrap_or(500_000)

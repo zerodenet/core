@@ -16,7 +16,12 @@ fn actual_owner_budgets_are_optional_finite_and_preserve_omitted_export_shape() 
         usize,
         usize,
     );
-    let fields: [BudgetField; 22] = [
+    let fields: [BudgetField; 27] = [
+        ("grpc_pool_max_carriers", RuntimeOptionsConfig::effective_grpc_pool_max_carriers, 4, 4096),
+        ("grpc_pool_max_streams", RuntimeOptionsConfig::effective_grpc_pool_max_streams, 256, 65536),
+        ("grpc_total_max_carriers", RuntimeOptionsConfig::effective_grpc_total_max_carriers, 16, 4096),
+        ("grpc_total_max_streams", RuntimeOptionsConfig::effective_grpc_total_max_streams, 1024, 65536),
+        ("diagnostic_max_operations", RuntimeOptionsConfig::effective_diagnostic_max_operations, 8, 8),
         ("ss_udp_replay_max_windows", RuntimeOptionsConfig::effective_ss_udp_replay_max_windows, 8192, usize::MAX - 1),
         ("ss_udp_max_senders", RuntimeOptionsConfig::effective_ss_udp_max_senders, 8192, usize::MAX - 1),
         ("ss_udp_max_associations", RuntimeOptionsConfig::effective_ss_udp_max_associations, 8192, usize::MAX - 1),
