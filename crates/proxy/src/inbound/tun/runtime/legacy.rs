@@ -270,7 +270,7 @@ async fn feed_packets(
                     mtu
                 };
                 #[cfg(feature = "raw-ip-runtime")]
-                let handled = super::packet::try_forward(
+                let handled = super::super::packet::try_forward(
                     &mut packet,
                     &packet_route,
                     packet_ingress_id,
