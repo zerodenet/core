@@ -45,6 +45,56 @@ impl Managed {
             let retired = pool.cached.lock().unwrap().take();
             drop(retired);
         }
+        for record in &records {
+            // Cancellation requests are not exits. Observe the actual original
+            // initializer/driver and the Host's registration ACK before the
+            // reap predicate can become true. These observers never consume a
+            // join, grant another task or close a still-held logical view.
+            let auxiliary = self
+                .grants
+                .registration()
+                .observe()
+                .ok_or_else(|| error(self.instance, Stage::Close, Reason::Revoked))?
+                .slots()
+                .iter()
+                .filter_map(|slot| slot.auxiliary().cloned())
+                .find(|witness| record.adoption.matches_auxiliary(witness));
+            if let Some(auxiliary) = auxiliary {
+                let joined = self
+                    .wait(demand, record.adoption.accept_auxiliary())
+                    .await?;
+                if !joined
+                    .as_ref()
+                    .is_some_and(|joined| auxiliary.matches_joined(joined))
+                {
+                    return Err(error(self.instance, Stage::Close, Reason::Internal));
+                }
+                let released = self
+                    .wait(demand, async {
+                        Ok(auxiliary.wait_registration_released().await)
+                    })
+                    .await?;
+                if !auxiliary.matches_joined(&released) || !released.registration_released() {
+                    return Err(error(self.instance, Stage::Close, Reason::Internal));
+                }
+            }
+            let driver = record.witness.lock().unwrap().clone();
+            if let Some(driver) = driver {
+                let joined = self.wait(demand, async { Ok(driver.wait().await) }).await?;
+                if !driver.matches_joined(&joined) {
+                    return Err(error(self.instance, Stage::Close, Reason::Internal));
+                }
+                record.receive(joined);
+                let released = self
+                    .wait(demand, async {
+                        Ok(driver.wait_registration_released().await)
+                    })
+                    .await?;
+                if !driver.matches_joined(&released) || !released.registration_released() {
+                    return Err(error(self.instance, Stage::Close, Reason::Internal));
+                }
+            }
+        }
         self.wait(demand, self.reap_demand(demand.deadline)).await?;
         if !self.records.lock().unwrap().is_empty() || self.budget.retained() != 0 {
             return Err(error(self.instance, Stage::Prepare, Reason::Capacity));
