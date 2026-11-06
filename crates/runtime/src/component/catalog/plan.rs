@@ -1,5 +1,6 @@
 //! Dependency-ordered start and confirmed retirement of the actual owners.
 mod carrier;
+mod packet_source;
 use super::*;
 use zero_platform_tokio::contract::lifecycle::TaskFailure;
 
@@ -95,7 +96,7 @@ impl ComponentPlan {
             let slot = self
                 .role_slot(*role)
                 .ok_or_else(|| invalid(Reason::StalePlan, "background donor role changed"))?;
-            if self.deferred_devices.contains(&slot.id) {
+            if self.deferred_devices.contains(&slot.id) && !slot.device_carrier_ready() {
                 return Err(invalid(
                     Reason::Unsupported,
                     "background borrowing cannot depend on deferred native device start",

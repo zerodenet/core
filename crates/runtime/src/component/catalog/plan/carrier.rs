@@ -208,6 +208,9 @@ impl ComponentPlan {
                 .iter()
                 .find(|slot| slot.instance_id() == id)
                 .ok_or_else(fail)?;
+            if !origin.is_retired() && slot.matches_packet_source(origin) {
+                return Ok(());
+            }
             if id == origin.instance() && !origin.is_retired() {
                 let matches = slot.recipe.spec().resources.iter().enumerate().any(
                     |(ordinal, _)| match origin.owner() {
@@ -218,7 +221,7 @@ impl ComponentPlan {
                             .is_some_and(|owner| owner.same_owner(actual)),
                         zero_platform_tokio::controlled_carrier::CarrierOriginOwner::Listener(
                             _,
-                        ) => false,
+                        ) => slot.matches_bound_packet_origin(ordinal, origin),
                         zero_platform_tokio::controlled_carrier::CarrierOriginOwner::Carrier(
                             actual,
                         ) => slot

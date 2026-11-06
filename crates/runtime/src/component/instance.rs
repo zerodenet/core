@@ -2,6 +2,7 @@
 use super::{ComponentRecipe, ValidatedRecipe};
 mod business;
 mod cleanup;
+mod packet_source;
 mod resources;
 mod roles;
 mod start;
@@ -19,22 +20,22 @@ pub use resources::NoResources;
 #[cfg(feature = "raw-ip-runtime")]
 pub use resources::{HostIcmpProbeGrant, HostIcmpProbeOwner};
 use std::sync::{Arc, OnceLock};
-pub(in crate::component) use tasks::wake::WaitTarget;
 pub use tasks::ComponentTaskFault;
 use tasks::TaskMonitor;
+pub(in crate::component) use tasks::wake::WaitTarget;
 use tokio::{
     sync::{Mutex, OnceCell},
     time::Instant,
 };
 use zero_core::component::*;
 use zero_platform_tokio::contract::{
+    CancellationToken, ChannelError, CloseReason, DeliveryState, Impact, Reason, Stage,
     component::{BuildContext, ComponentInstance},
     datagram::DynDatagramOutbound,
     lifecycle::CloseReport,
     packet::DynPacketOutbound,
     scope::TaskScope,
     stream::DynStreamOutbound,
-    CancellationToken, ChannelError, CloseReason, DeliveryState, Impact, Reason, Stage,
 };
 
 pub type SharedError = Arc<ChannelError>;
@@ -67,6 +68,8 @@ pub struct ComponentSlot {
     admission_owner: Arc<()>,
     live: OnceCell<Result<Live, SharedError>>,
     start_gate: Mutex<()>,
+    packet_source:
+        OnceLock<zero_platform_tokio::controlled_datagram::provider::NativeDatagramOrigin>,
 }
 struct Live {
     packet: Option<Arc<dyn DynPacketOutbound>>,
@@ -193,6 +196,7 @@ impl ComponentSlot {
             admission_owner: Arc::new(()),
             live: OnceCell::new(),
             start_gate: Mutex::new(()),
+            packet_source: OnceLock::new(),
         }
     }
     /// Cold recipes remain reusable; revoked or failed runtime owners do not.

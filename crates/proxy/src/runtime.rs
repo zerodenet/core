@@ -141,6 +141,10 @@ pub(crate) struct TunControl {
 }
 
 impl Proxy {
+    #[cfg(feature = "raw-ip-runtime")]
+    pub(crate) fn system_tun_source_registry(&self) -> Arc<inbound_owners::InboundOwnerRegistry> {
+        self.inbound_owners.clone()
+    }
     pub fn new(config: RuntimeConfig) -> Result<Self, EngineError> {
         Self::from_engine(Engine::new(config)?)
     }

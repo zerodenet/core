@@ -45,3 +45,20 @@ impl HostBoundDatagramResources {
         }
     }
 }
+
+impl HostBoundDatagramResources {
+    pub(in crate::component) fn actual_origins(
+        &self,
+    ) -> Vec<zero_platform_tokio::controlled_datagram::provider::NativeDatagramOrigin> {
+        let controls: Vec<_> = self
+            .state()
+            .originals
+            .values()
+            .filter_map(|original| original.control.clone())
+            .collect();
+        controls
+            .iter()
+            .filter_map(|control| control.identity().provider()?.origin())
+            .collect()
+    }
+}

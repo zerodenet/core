@@ -56,6 +56,15 @@ impl BoundDeclarations {
         }
         Ok(Self { component, entries })
     }
+    pub(super) fn origins(
+        &self,
+        ordinal: usize,
+    ) -> Vec<zero_platform_tokio::controlled_datagram::provider::NativeDatagramOrigin> {
+        self.entries
+            .get(&ordinal)
+            .map(|entry| entry.provider.actual_origins())
+            .unwrap_or_default()
+    }
     pub(super) fn activate(
         &self,
         ordinal: usize,
@@ -108,6 +117,19 @@ impl BoundDeclarations {
     }
 }
 impl HostResources {
+    pub(in crate::component) fn bound_datagram_origin_available(&self, ordinal: usize) -> bool {
+        !self.bounds.origins(ordinal).is_empty()
+    }
+    pub(in crate::component) fn owns_bound_datagram_origin(
+        &self,
+        ordinal: usize,
+        actual: &zero_platform_tokio::controlled_datagram::provider::NativeDatagramOrigin,
+    ) -> bool {
+        self.bounds
+            .origins(ordinal)
+            .iter()
+            .any(|origin| origin.same_original(actual))
+    }
     /// Host assembly only: ResourceAccess cannot mint source policy or binding.
     /// Called for the same cold provider before its lifecycle's start phase.
     pub fn issue_bound_datagram_binding(
