@@ -4,10 +4,10 @@ use super::statistics::IngressTraffic;
 use super::*;
 use std::time::Instant;
 use zero_platform_tokio::contract::{
+    ChannelError, Impact, Reason, Stage,
     context::{HandshakeContext, SessionIdentitySource},
     inbound::{AcceptedRequest, PendingInbound, ReplyOutcome},
     packet::{self},
-    ChannelError, Impact, Reason, Stage,
 };
 use zero_stack::{FragmentReassembler, UserNetworkStack};
 mod send;
@@ -91,6 +91,15 @@ pub(in crate::runtime) async fn run(
     else {
         return Ok(());
     };
+    if let PacketSourceOriginal::Listener(original) = &context.original {
+        let actual = original
+            .provider()
+            .and_then(|provider| provider.origin())
+            .ok_or_else(|| {
+                std::io::Error::other("Packet source wire lacks its original registration")
+            })?;
+        route.bind_actual_packet_source(actual)?;
+    }
     let (sender, mut packet_rx) = send::Sender::take(session);
     let mut sender = Some(sender);
     let mut sending: Option<send::Pending> = None;
