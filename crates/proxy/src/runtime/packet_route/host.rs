@@ -136,9 +136,6 @@ impl HostPacketDevice {
     pub(crate) async fn wait_workers_stopped(&self) -> io::Result<()> {
         self.worker.join().await.map(|_| ())
     }
-    pub(crate) fn is_hosted(&self) -> bool {
-        self.native_provider.get().is_some() || self.worker.witness().is_some()
-    }
     pub(crate) async fn wait_closed(&self) -> io::Result<()> {
         self.close();
         if let Some(original) = self.native_provider.get() {
