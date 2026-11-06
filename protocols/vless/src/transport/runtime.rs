@@ -11,6 +11,7 @@ use super::VlessInboundUserRef;
 
 #[derive(Debug, Clone, Default)]
 pub struct VlessTransportRuntime {
+    pub(crate) client_material: crate::component::material::Registry,
     browser_dialers: browser_dialer::Registry,
     hysteria_pools: Arc<Mutex<HashMap<[u8; 32], zero_transport::hysteria::Pool>>>,
     xhttp_pools: Arc<xhttp::Pools>,

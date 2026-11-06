@@ -1,70 +1,17 @@
 //! Fixed-target VLESS UDP framing over the same actual pooled gRPC controller.
-mod control;
-mod response;
-mod rx;
-mod tx;
+use super::super::datagram::{self, response, Control, Rx, Tx};
 use super::factory::Outbound;
-use std::sync::{Arc, Mutex};
-use tokio::{io::AsyncWriteExt, sync::Notify};
-use zero_core::{
-    component::{AssociationId, SessionId},
-    request::{DatagramTargets, Destination},
+use tokio::io::AsyncWriteExt;
+use zero_core::request::DatagramTargets;
+use zero_platform_tokio::contract::{
+    context::{with_deadline, ConnectFact, OpenContext},
+    datagram::{DatagramOutbound, DatagramRequest, DatagramSession},
+    ChannelError, DeliveryState, Reason, Stage,
 };
-use zero_platform_tokio::{
-    contract::{
-        admission::SessionAdmission,
-        context::{with_deadline, ConnectFact, OpenContext},
-        datagram::{DatagramLimits, DatagramOutbound, DatagramRequest, DatagramSession},
-        CancellationToken, ChannelError, DeliveryState, Reason, Stage,
-    },
-    controlled_carrier::{
-        loan::{LoanIo, LoanOwner, StreamLoan},
-        CarrierOrigin,
-    },
-};
-struct State {
-    stream: Option<LoanIo>,
-    views: usize,
-}
-struct Shared {
-    state: Mutex<State>,
-    owner: tokio::sync::Mutex<LoanOwner>,
-    original: CarrierOrigin,
-    changed: Notify,
-    cancel: CancellationToken,
-    admission: Arc<SessionAdmission>,
-    session: Option<SessionId>,
-    association: AssociationId,
-    target: Destination,
-    observer: Option<Arc<dyn zero_platform_tokio::contract::context::ConnectObserver>>,
-}
-impl Shared {
-    fn error(&self, stage: Stage, reason: Reason, delivery: DeliveryState) -> ChannelError {
-        self.admission.error(self.session, stage, reason, delivery)
-    }
-    fn cancellation(&self) -> zero_platform_tokio::contract::BoxFuture<'static, ()> {
-        let cancel = self.cancel.clone();
-        let admission = self.admission.clone();
-        Box::pin(async move {
-            tokio::select! {_=cancel.cancelled()=>{},_=admission.cancelled()=>{}}
-        })
-    }
-    fn returned(&self) {
-        self.state.lock().unwrap().views -= 1;
-        self.changed.notify_waiters();
-    }
-    fn stop(&self, reason: zero_platform_tokio::contract::CloseReason) {
-        self.cancel.cancel();
-        self.changed.notify_waiters();
-        if let Ok(owner) = self.owner.try_lock() {
-            owner.cancel(reason);
-        }
-    }
-}
 impl DatagramOutbound for Outbound {
-    type Tx = tx::Tx;
-    type Rx = rx::Rx;
-    type Control = control::Control;
+    type Tx = Tx;
+    type Rx = Rx;
+    type Control = Control;
     async fn open(
         &self,
         request: DatagramRequest,
@@ -79,6 +26,7 @@ impl DatagramOutbound for Outbound {
                 DeliveryState::NotSubmitted,
             ));
         };
+        let target = target.clone();
         let bytes = crate::shared::build_request_to(
             &target.address,
             target.port,
@@ -124,33 +72,21 @@ impl DatagramOutbound for Outbound {
             observer.record(session, ConnectFact::PeerConfirmed);
             observer.protocol_traffic(session, response as u64, 0);
         }
-        let StreamLoan { io, owner } = StreamLoan::new(Box::pin(io), control, original.clone());
-        let limits = DatagramLimits {
-            max_payload: u16::MAX as usize,
-            targets: request.targets.clone(),
-            queued_bytes: u16::MAX as usize + 2,
-        };
-        let shared = Arc::new(Shared {
-            state: Mutex::new(State {
-                stream: Some(io),
-                views: 2,
-            }),
-            owner: tokio::sync::Mutex::new(owner),
-            original,
-            changed: Notify::new(),
-            cancel: context.cancel.child_token(),
-            admission: self.admission.clone(),
+        let loan = zero_platform_tokio::controlled_carrier::loan::StreamLoan::new(
+            Box::pin(io),
+            control,
+            original.clone(),
+        );
+        Ok(datagram::session(
+            Box::pin(loan.io),
+            Some(loan.owner),
+            Some(original),
+            request,
+            context,
+            self.admission.clone(),
             session,
-            association: request.association,
-            target: target.clone(),
-            observer: context.observer,
-        });
-        Ok(DatagramSession {
-            tx: tx::Tx::new(shared.clone(), limits.clone()),
-            rx: rx::Rx::new(shared.clone()),
-            control: control::Control(shared),
-            limits,
-        })
+            target.clone(),
+        ))
     }
     async fn open_carrier(
         &self,
@@ -158,9 +94,25 @@ impl DatagramOutbound for Outbound {
         context: OpenContext,
     ) -> Result<zero_platform_tokio::controlled_carrier::loan::DatagramLoan, ChannelError> {
         let association = request.association;
+        let session = context.session_identity()?;
         let channel = self.open(request, context).await?;
-        let original = channel.control.0.original.clone();
-        let target = channel.control.0.target.clone();
+        let original = channel.control.original().cloned().ok_or_else(|| {
+            self.admission.error(
+                session,
+                Stage::Prepare,
+                Reason::StalePlan,
+                DeliveryState::NotSubmitted,
+            )
+        })?;
+        let DatagramTargets::Fixed(target) = &channel.limits.targets else {
+            return Err(self.admission.error(
+                None,
+                Stage::Prepare,
+                Reason::StalePlan,
+                DeliveryState::NotSubmitted,
+            ));
+        };
+        let target = target.clone();
         Ok(
             zero_platform_tokio::controlled_carrier::loan::DatagramLoan::new(
                 zero_platform_tokio::contract::datagram::erase_session(channel),

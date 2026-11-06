@@ -52,7 +52,7 @@ impl Error for WireFailure {
             .map(|source| source as &(dyn Error + 'static))
     }
 }
-pub(super) async fn read(
+pub(in crate::component) async fn read(
     io: &mut TcpRelayStream,
     context: &OpenContext,
     admission: &SessionAdmission,
