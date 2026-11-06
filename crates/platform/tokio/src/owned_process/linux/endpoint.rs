@@ -47,7 +47,9 @@ impl OwnedProcess {
             ));
         }
         // Persistent before the association can escape, including failed bind.
-        state.endpoint = Some(endpoint.clone());
+        state.endpoint = Some(super::super::endpoint::RetainedEndpoint::new(
+            endpoint.clone(),
+        ));
         drop(state);
         endpoint.attach(self, &self.scope)
     }
@@ -65,7 +67,7 @@ impl OwnedProcess {
             || !state
                 .endpoint
                 .as_ref()
-                .is_some_and(|actual| Arc::ptr_eq(actual, endpoint))
+                .is_some_and(|actual| actual.matches(endpoint))
             || !state
                 .request
                 .as_ref()
@@ -83,6 +85,9 @@ impl OwnedProcess {
     pub(in crate::owned_process) fn endpoint(
         &self,
     ) -> Option<Arc<crate::owned_process::endpoint::ProcessEndpointHandoff>> {
-        self.lock().endpoint.clone()
+        self.lock()
+            .endpoint
+            .as_ref()
+            .map(|endpoint| endpoint.original())
     }
 }

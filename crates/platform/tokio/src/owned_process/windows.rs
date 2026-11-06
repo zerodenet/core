@@ -31,7 +31,7 @@ struct OriginalHandle {
 }
 struct State {
     request: Option<ProcessRequest>,
-    endpoint: Option<Arc<super::endpoint::ProcessEndpointHandoff>>,
+    endpoint: Option<super::endpoint::RetainedEndpoint>,
     endpoint_request_ready: bool,
     actor: Option<TaskJoinWitness>,
     attempted: bool,

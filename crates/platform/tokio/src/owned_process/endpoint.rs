@@ -3,6 +3,8 @@
 mod demand;
 mod probe;
 mod reservations;
+mod retained;
+pub(in crate::owned_process) use retained::RetainedEndpoint;
 mod retirement;
 pub use demand::ProcessEndpointDemand;
 pub use retirement::ProcessEndpointRetirement;

@@ -35,7 +35,7 @@ struct OriginalFd {
 }
 struct State {
     request: Option<ProcessRequest>,
-    endpoint: Option<Arc<super::endpoint::ProcessEndpointHandoff>>,
+    endpoint: Option<super::endpoint::RetainedEndpoint>,
     endpoint_request_ready: bool,
     actor: Option<TaskJoinWitness>,
     start_attempted: bool,
@@ -190,7 +190,7 @@ impl OwnedProcess {
     /// Stops business immediately. Neither this request nor helper EOF is a
     /// physical receipt. The same original retains all cleanup responsibility.
     pub fn request_stop(&self) {
-        let endpoint = { self.lock().endpoint.clone() };
+        let endpoint = self.endpoint();
         // Revoke derived admission and wake exact IO BEFORE the actual process
         // monitor is allowed to observe stop and retire its physical job.
         if let Some(endpoint) = endpoint {
