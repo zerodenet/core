@@ -22,6 +22,12 @@ impl ShadowsocksTransportState {
             )),
         }
     }
+    /// Cold validation of this actual adapter's retained security history,
+    /// including when the candidate removes every SS consumer. No live cap swap.
+    #[cfg(feature = "blake3")]
+    pub fn validate_tcp_replay_budget(&self, total: usize) -> Result<(), zero_core::Error> {
+        self.modern.budget().validate(Some(total))
+    }
     /// Prepare protocol framing with this actual adapter's nonce history.
     /// No proxy Session, socket, child or maintenance task is created here.
     #[cfg(feature = "blake3")]

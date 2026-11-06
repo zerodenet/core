@@ -87,6 +87,11 @@ async fn ordinary_source_projects_total_and_replaces_originals_on_runtime_only_b
             "two still-valid accepted salts forbid shrink to one");
         assert!(Arc::ptr_eq(&current, &registry.owner("salt-source").unwrap()));
         assert!(current.is_running());
+        let mut removed = (*proxy.engine().config()).clone();
+        removed.inbounds.clear(); removed.runtime.ss_tcp_replay_max_salts = Some(1);
+        assert!(handle.apply_runtime_config_and_wait(removed, Duration::from_secs(5)).await.is_err(),
+            "removing all consumers cannot discard two still-valid security salts");
+        assert!(Arc::ptr_eq(&current, &registry.owner("salt-source").unwrap()));
         assert_eq!(proxy.engine().config().runtime.effective_ss_tcp_replay_max_salts(), 2);
         // A third authenticated connection has free native admission, but no
         // salt entry. Its real target accept must stay Pending through failure.

@@ -115,6 +115,10 @@ impl NamedProtocolAdapter for ShadowsocksAdapter {
     const PROTOCOL_NAME: &'static str = "shadowsocks";
     const FEATURE_NAME: &'static str = "shadowsocks";
 
+    fn validate_runtime_candidate(&self, config: &zero_config::RuntimeConfig) -> Result<(), zero_engine::EngineError> {
+        self.outbound_state.validate_tcp_replay_budget(config.runtime.effective_ss_tcp_replay_max_salts())
+            .map_err(|source| std::io::Error::other(source).into())
+    }
     fn on_config_reloaded(&self, config: &zero_config::RuntimeConfig) {
         self.outbound_state.clear_plugins();
         for inbound in &config.inbounds {
