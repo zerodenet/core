@@ -93,7 +93,7 @@ impl State {
             }
         }
         self.native.retain(|client| {
-            !client.native.get().is_some_and(|native| native.closed())
+            !client.native.get().is_some_and(|native| native.retired())
                 || client.leases.load(std::sync::atomic::Ordering::Acquire) != 0
         });
         self.users

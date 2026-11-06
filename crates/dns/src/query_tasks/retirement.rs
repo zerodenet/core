@@ -78,6 +78,14 @@ impl Retirement {
                 None => return false,
             },
         };
+        // Positive native/join observations remain independently readable.
+        // Refund/remove only after this original registration's real ACK.
+        if joined
+            .as_ref()
+            .is_some_and(|joined| !joined.registration_released())
+        {
+            return false;
+        }
         let returned = self
             .capacity
             .lock()
