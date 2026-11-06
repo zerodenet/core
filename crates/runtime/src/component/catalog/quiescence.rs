@@ -1,5 +1,6 @@
 //! Pause actual retired user roots without revoking live I/O or claiming closure.
 use super::*;
+mod receiver;
 
 /// Retained by the real replacement transaction until commit or rollback.
 /// Dropping it only restores admission; normal StopOld still proves closure.
@@ -125,12 +126,16 @@ impl ComponentCatalog {
         };
         let mut roots = Vec::new();
         if let Some(old) = old {
-            for slot in &old.order {
-                if !candidate.order.iter().any(|next| Arc::ptr_eq(slot, next)) {
-                    // Each transferred dependent also leases its real dependency
-                    // roots. No guessed Session count or blanket host lock.
-                    roots.push(slot.own_user_root().try_pause()?);
-                }
+            let stopping = old
+                .order
+                .iter()
+                .filter(|slot| !candidate.order.iter().any(|next| Arc::ptr_eq(slot, next)))
+                .cloned()
+                .collect::<Vec<_>>();
+            for slot in &stopping {
+                roots.push(slot.own_user_root().try_pause_receivers(|lease| {
+                    receiver::retained(&old, slot, &stopping, lease)
+                })?);
             }
         }
         Ok(ReplacementUsersPause { _roots: roots })

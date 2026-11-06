@@ -11,6 +11,7 @@ pub struct LoanOwner {
     original: CarrierOrigin,
     state: Arc<State>,
     closed: bool,
+    pub(super) receiver: std::sync::OnceLock<Arc<super::receiver::Observation>>,
     first_close_failure: Option<Arc<ChannelError>>,
     pub(super) related: Option<Box<super::related::Cleanup>>,
 }
@@ -31,6 +32,7 @@ impl LoanOwner {
             original,
             state,
             closed: false,
+            receiver: Default::default(),
             first_close_failure: None,
             related: None,
         }

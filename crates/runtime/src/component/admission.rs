@@ -208,6 +208,7 @@ impl DynStreamOutbound for FencedStream {
                 _ = lease.revoked() => return Err(lease.failure(zero_platform_tokio::contract::Stage::Dial)),
                 result = inner.connect_carrier(request, context) => result?,
             };
+            lease.bind_receiver(connected.io.receiver_observation());
             connected.io.io.wrap(|io| lease.stream(io));
             Ok(connected)
         })
@@ -279,6 +280,7 @@ impl zero_platform_tokio::contract::datagram::DynDatagramOutbound for FencedData
                 return inner.open_carrier(request, context).await;
             };
             let mut loan = tokio::select! {biased;_=lease.revoked()=>return Err(lease.failure(zero_platform_tokio::contract::Stage::Dial)),result=inner.open_carrier(request,context)=>result?};
+            lease.bind_receiver(loan.receiver_observation());
             lease.datagram_loan(&mut loan);
             Ok(loan)
         })

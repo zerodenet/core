@@ -207,7 +207,9 @@ impl CarrierGrant {
                 state.control.is_none() && state.packet_owner.is_none() && state.loan.is_none(),
                 "sole unused carrier grant"
             );
-            state.loan = Some(Arc::new(Mutex::new(loan.owner)));
+            state.loan = Some(super::super::receiver::install_owner(
+                &self.slot, loan.owner,
+            ));
             state.loan_origin = Some(original.clone());
             state.loan_related = related;
             state.binding = Some(binding.clone());

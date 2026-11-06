@@ -16,6 +16,8 @@ mod reject;
 ))]
 mod stateless;
 mod udp_handoff;
+#[cfg(feature = "socks5")]
+mod warm;
 use crate::{Proxy, ProxyHandle};
 use fixtures::*;
 use std::{sync::atomic::Ordering, time::Duration};
