@@ -21,11 +21,11 @@ async fn pending_once<F: Future>(mut future: Pin<&mut F>) {
     .await;
 }
 #[tokio::test]
-async fn caller_without_application_reads_drives_real_h2_capacity_and_end_then_reads_reverse_after_halfclose()
- {
+async fn caller_without_application_reads_drives_real_h2_capacity_and_end_then_reads_reverse_after_halfclose(
+) {
     use std::sync::{
-        Arc,
         atomic::{AtomicUsize, Ordering},
+        Arc,
     };
     let received_progress = Arc::new(AtomicUsize::new(0));
     let phase = Arc::new(AtomicUsize::new(0));
@@ -164,3 +164,49 @@ async fn non_success_response_is_retained_on_subsequent_reads_and_drop_closes_th
 }
 #[path = "h2_owned/original.rs"]
 mod original;
+
+#[tokio::test]
+async fn actual_peer_reset_wakes_a_capacity_pending_writer_without_application_reads() {
+    tokio::time::timeout(Duration::from_secs(8), async {
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        let (sent, received) = oneshot::channel();
+        let (reset, requested) = oneshot::channel();
+        let server = tokio::spawn(async move {
+            let (peer, _) = listener.accept().await.unwrap();
+            let mut builder = h2::server::Builder::new();
+            builder.initial_window_size(1);
+            let mut connection = builder.handshake(peer).await.unwrap();
+            let (mut request, mut response) = connection.accept().await.unwrap().unwrap();
+            let application = async move {
+                assert_eq!(request.body_mut().data().await.unwrap().unwrap().len(), 1);
+                sent.send(()).unwrap();
+                requested.await.unwrap();
+                response.send_reset(h2::Reason::CANCEL);
+            };
+            let driver = async {
+                while let Some(next) = connection.accept().await {
+                    assert!(next.is_err());
+                }
+            };
+            tokio::join!(application, driver);
+        });
+        let raw = TcpStream::connect(address).await.unwrap();
+        let mut stream = connect_h2(raw, &profile(), "127.0.0.1", address.port()).await.unwrap();
+        let bytes = vec![0x53; 64 * 1024];
+        {
+            let writing = stream.write_all(&bytes); tokio::pin!(writing);
+            tokio::select! {
+                result = received => result.unwrap(),
+                result = &mut writing => panic!("writer bypassed actual one-byte credit: {result:?}"),
+            }
+            pending_once(writing.as_mut()).await;
+            reset.send(()).unwrap();
+            let source = writing.await.unwrap_err();
+            assert_eq!(source.kind(), std::io::ErrorKind::ConnectionReset);
+            assert!(source.get_ref().is_some(), "retain the actual H2 reset reason");
+        }
+        drop(stream);
+        server.await.unwrap();
+    }).await.unwrap();
+}
