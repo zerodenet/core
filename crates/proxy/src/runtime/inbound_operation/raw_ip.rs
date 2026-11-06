@@ -89,6 +89,7 @@ pub(crate) trait RawIpInboundDevice: Send {
 pub(crate) struct PacketSourceContext {
     pub original: PacketSourceOriginal,
     children: children::RawIpChildren,
+    pub(super) tun: Option<crate::inbound::tun::TunIngressOptions>,
 }
 pub(crate) enum PacketSourceOriginal {
     Listener(zero_platform_tokio::controlled_datagram::listener::DatagramListenerIdentity),
@@ -100,6 +101,15 @@ pub(crate) struct PreparedDevicePacketSource {
     children: children::RawIpChildren,
 }
 impl PreparedDevicePacketSource {
+    pub(crate) fn complete_tun(
+        self,
+        actual: &zero_platform_tokio::controlled_carrier::PacketProviderRegistration,
+        options: crate::inbound::tun::TunIngressOptions,
+    ) -> Result<PacketSourceContext, EngineError> {
+        let mut source = self.complete(actual)?;
+        source.tun = Some(options);
+        Ok(source)
+    }
     /// Complete only from the concrete acquired host provider; cold preparation
     /// cannot mint a PacketDeviceIdentity, native controller or device grant.
     pub(crate) fn complete(
@@ -118,6 +128,7 @@ impl PreparedDevicePacketSource {
         Ok(PacketSourceContext {
             original: PacketSourceOriginal::Device(actual.device().clone()),
             children: self.children,
+            tun: None,
         })
     }
 }
@@ -149,6 +160,7 @@ impl PacketSourceContext {
         Ok(Self {
             original: PacketSourceOriginal::Listener(original),
             children,
+            tun: None,
         })
     }
 }

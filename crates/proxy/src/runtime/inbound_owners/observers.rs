@@ -15,6 +15,10 @@ type Observers = JoinSet<Result<(), EngineError>>;
 pub(super) struct ObserverParking {
     parked: Mutex<Option<ObserverBatch>>,
     needs_retirement: AtomicBool,
+    // The API permits one System TUN owner. This is its original observer
+    // awaiting transfer into the same exclusive JoinSet, never a second set.
+    system_tun: Mutex<Option<Arc<InboundOwner>>>,
+    changed: tokio::sync::Notify,
 }
 impl Default for ObserverParking {
     fn default() -> Self {
@@ -25,6 +29,8 @@ impl Default for ObserverParking {
                 failure: None,
             })),
             needs_retirement: AtomicBool::new(false),
+            system_tun: Mutex::new(None),
+            changed: tokio::sync::Notify::new(),
         }
     }
 }
@@ -61,7 +67,57 @@ impl DerefMut for ListenerObservers {
             .tasks
     }
 }
+impl ObserverParking {
+    pub(super) fn enqueue_system_tun(&self, owner: Arc<InboundOwner>) -> Result<(), EngineError> {
+        let mut pending = self.system_tun.lock().unwrap();
+        if pending.is_some() {
+            return Err(
+                std::io::Error::other("original System TUN observer awaits transfer").into(),
+            );
+        }
+        *pending = Some(owner);
+        self.needs_retirement.store(true, Ordering::Release);
+        drop(pending);
+        self.changed.notify_one();
+        Ok(())
+    }
+}
 impl ListenerObservers {
+    fn transfer_system_tun(&mut self) {
+        let pending = self.parking.system_tun.lock().unwrap().take();
+        if let Some(owner) = pending {
+            self.owned
+                .as_mut()
+                .expect("live lease")
+                .tasks
+                .spawn(async move { owner.observe_listener().await });
+        }
+    }
+    pub(crate) fn is_empty(&self) -> bool {
+        self.owned.as_ref().expect("live lease").tasks.is_empty()
+            && self.parking.system_tun.lock().unwrap().is_none()
+    }
+    /// The steady orchestration waits even without configured listeners, so a
+    /// dynamic source joins through this original consumer while it is active.
+    pub(crate) async fn join_next_running(
+        &mut self,
+    ) -> Option<Result<Result<(), EngineError>, tokio::task::JoinError>> {
+        loop {
+            let parking = self.parking.clone();
+            let changed = parking.changed.notified();
+            tokio::pin!(changed);
+            changed.as_mut().enable();
+            self.transfer_system_tun();
+            if self.owned.as_ref().expect("live lease").tasks.is_empty() {
+                changed.await;
+                continue;
+            }
+            tokio::select! {
+                result = self.join_next() => return result,
+                _ = &mut changed => {},
+            }
+        }
+    }
     pub(crate) async fn join_next(
         &mut self,
     ) -> Option<Result<Result<(), EngineError>, tokio::task::JoinError>> {
@@ -72,6 +128,7 @@ impl ListenerObservers {
     pub(crate) async fn join_next_with_id(
         &mut self,
     ) -> Option<Result<(tokio::task::Id, Result<(), EngineError>), tokio::task::JoinError>> {
+        self.transfer_system_tun();
         let target = Arc::new(WaitTarget::default());
         let batch = self.owned.as_mut().expect("live observer ownership lease");
         let relay = batch.wake.clone();

@@ -18,6 +18,7 @@ pub(crate) struct SystemTunLease {
     installed: InboundInstallContext,
     recipe: ComponentRecipe,
     armed: bool,
+    observers: Arc<super::observers::ObserverParking>,
 }
 impl InboundOwnerRegistry {
     /// Called under the existing TUN operation/configuration transaction lock.
@@ -81,6 +82,7 @@ impl InboundOwnerRegistry {
             owner,
             recipe,
             armed: true,
+            observers: self.observers.clone(),
         })
     }
 }
@@ -94,6 +96,7 @@ impl SystemTunLease {
         mut self,
         runtime: crate::runtime::route_runtime::InboundListenerRuntime,
         shutdown: watch::Receiver<bool>,
+        ingress: crate::inbound::tun::TunIngressOptions,
     ) -> Result<Arc<InboundOwner>, EngineError> {
         let identity = self.owner.identity();
         let tasks = self.owner.accepted_registrar().clone();
@@ -155,7 +158,7 @@ impl SystemTunLease {
             let original = resources.original_packet_owner(0).ok_or_else(|| {
                 std::io::Error::other("System TUN start omitted its acquired original")
             })?;
-            let context = prepared.complete(&original)?;
+            let context = prepared.complete_tun(&original, ingress)?;
             {
                 let owner = owner.upgrade().ok_or_else(|| {
                     std::io::Error::other("actual System TUN owner retired before source install")
@@ -171,6 +174,7 @@ impl SystemTunLease {
             )
             .await
         })?;
+        self.observers.enqueue_system_tun(self.owner.clone())?;
         self.owner.seal_listener_installation();
         self.armed = false;
         Ok(self.owner.clone())
