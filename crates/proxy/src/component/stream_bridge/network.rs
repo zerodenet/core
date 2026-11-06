@@ -7,15 +7,16 @@ use std::{
 };
 use zero_core::request::Destination;
 use zero_platform_tokio::contract::{
-    BoxFuture, ChannelError, DeliveryState, Impact, Reason, Stage,
     datagram::{BoxDatagramSession, DatagramRequest},
     network::{CarrierContext, PendingCarrierObserver, UpstreamBinding, UpstreamOpener},
     stream::BoxStream,
+    BoxFuture, ChannelError, DeliveryState, Impact, Reason, Stage,
 };
 use zero_platform_tokio::controlled_carrier::{
     CarrierEndpointObserver, CarrierEndpoints, CarrierGrant, NativeCarrierOpener, PreparedCarrier,
 };
 
+mod candidates;
 mod dns;
 mod service_dns;
 use dns::Resolved;
@@ -39,6 +40,7 @@ pub(in crate::component) struct NodeOpener {
         )>,
     >,
     pending: Option<(UpstreamBinding, PendingCarrierObserver)>,
+    carrier_owner: Option<zero_core::component::ComponentInstanceId>,
 }
 impl NodeOpener {
     pub(in crate::component) fn new(
@@ -56,6 +58,7 @@ impl NodeOpener {
             service_call: None,
             service_candidates: tokio::sync::Mutex::new(None),
             pending: None,
+            carrier_owner: None,
         }
     }
     pub(in crate::component) fn with_service_call(mut self, call: CarrierContext) -> Self {
@@ -98,6 +101,17 @@ impl CarrierEndpointObserver for ConnectedEvidence {
     }
 }
 impl UpstreamOpener for NodeOpener {
+    fn resolve_controlled_carrier(
+        &self,
+        binding: &UpstreamBinding,
+        endpoint: Destination,
+        call: CarrierContext,
+    ) -> BoxFuture<
+        '_,
+        Result<zero_platform_tokio::controlled_carrier::CarrierCandidates, ChannelError>,
+    > {
+        self.resolve_background_candidates(binding.clone(), endpoint, call)
+    }
     fn packet_caller(
         &self,
         binding: &UpstreamBinding,
