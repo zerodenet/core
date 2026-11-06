@@ -35,11 +35,23 @@ pub(super) async fn run(
     let (mut socket, mut wire_sender) = super::socket::RawIpReceive::split(grant, egress);
     let mut traffic = WireTraffic::new(observer.clone());
     traffic.refresh(operation.device.as_ref());
+    #[cfg(test)]
+    eprintln!(
+        "actual Packet Source wire before proxy consumer lease: {:?}",
+        facts.inbound
+    );
     let mut proxied_tasks = operation
         .proxies
         .lock()
         .await
         .map_err(std::io::Error::other)?;
+    #[cfg(test)]
+    eprintln!(
+        "actual Packet Source wire got proxy consumer: {:?}",
+        facts.inbound
+    );
+    #[cfg(test)]
+    let first_receive_poll = std::sync::Once::new();
     let initial_endpoints = operation
         .endpoint
         .as_ref()
@@ -140,7 +152,7 @@ pub(super) async fn run(
             delivered=async { receiving.as_mut().expect("same original pending native frame").await }, if receiving.is_some()=> { receiving=None; delivered?; }
             received = async {
                 tokio::select! {
-                    direct = async { let receive=socket.recv_from(buffer.as_mut().expect("same original read allocation").as_mut_bytes());tokio::pin!(receive);std::future::poll_fn(|cx| { use std::future::Future;let polled=receive.as_mut().poll(cx);if polled.is_pending() || matches!(&polled,std::task::Poll::Ready(Ok(_))) { observer.ready(); }polled }).await } => direct.map(|(size, source)| (size, Some(source), None, peer_revision)),
+                    direct = async { let receive=socket.recv_from(buffer.as_mut().expect("same original read allocation").as_mut_bytes());tokio::pin!(receive);std::future::poll_fn(|cx| { use std::future::Future;let polled=receive.as_mut().poll(cx);if polled.is_pending() || matches!(&polled,std::task::Poll::Ready(Ok(_))) { #[cfg(test)] first_receive_poll.call_once(||eprintln!("actual Packet Source wire first native receive polled: {:?}, pending={}",facts.inbound,polled.is_pending())); observer.ready(); }polled }).await } => direct.map(|(size, source)| (size, Some(source), None, peer_revision)),
                     proxied = proxied_rx.recv() => match proxied {
                         Some(packet) => {
                             let size = packet.bytes.len();

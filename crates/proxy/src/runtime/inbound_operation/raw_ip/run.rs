@@ -100,6 +100,11 @@ pub(in crate::runtime) async fn run(
         ready: wire_ready,
         native_io: tun.as_ref().map(|policy| policy.native_io.clone()),
     });
+    #[cfg(test)]
+    eprintln!(
+        "actual Packet Source main before respond: {:?}",
+        facts.inbound
+    );
     let Some(session) = accepted
         .respond_observed(ReplyOutcome::LocalChannelReady, observer.clone())
         .await
@@ -116,6 +121,11 @@ pub(in crate::runtime) async fn run(
             })?;
         route.bind_actual_packet_source(actual)?;
     }
+    #[cfg(test)]
+    eprintln!(
+        "actual Packet Source main source projection completed: {:?}",
+        facts.inbound
+    );
     let (sender, mut packet_rx) = send::Sender::take(session);
     let mut sender = Some(sender);
     let mut sending: Option<send::Pending> = None;
@@ -130,11 +140,21 @@ pub(in crate::runtime) async fn run(
         )),
     )
     .into_parts();
+    #[cfg(test)]
+    eprintln!(
+        "actual Packet Source main before driver consumer lease: {:?}",
+        facts.inbound
+    );
     let mut tasks = children
         .drivers
         .lock()
         .await
         .map_err(std::io::Error::other)?;
+    #[cfg(test)]
+    eprintln!(
+        "actual Packet Source main got driver consumer, before original Main witness: {:?}",
+        facts.inbound
+    );
     tasks
         .spawn(tcp::accept(
             tcp.clone(),
@@ -151,12 +171,21 @@ pub(in crate::runtime) async fn run(
             tun.clone(),
             tcp::TcpSourceTasks::hosted(
                 children.tcp_dns.clone(),
-                children.host.as_ref()
+                children
+                    .host
+                    .as_ref()
                     .ok_or_else(|| std::io::Error::other("packet host absent"))?
-                    .packet_source_admission().await.map_err(std::io::Error::other)?,
+                    .packet_source_admission()
+                    .await
+                    .map_err(std::io::Error::other)?,
             ),
         ))
         .map_err(std::io::Error::other)?;
+    #[cfg(test)]
+    eprintln!(
+        "actual Packet Source main original Main witness observed: {:?}",
+        facts.inbound
+    );
     let udp_runtime = runtime.udp_runtime();
     let udp_stack = udp.clone();
     let udp_tag = route.inbound_tag().to_owned();
@@ -205,10 +234,20 @@ pub(in crate::runtime) async fn run(
         .host
         .as_ref()
         .ok_or_else(|| std::io::Error::other("Packet source main has no actual host"))?;
+    #[cfg(test)]
+    eprintln!(
+        "actual Packet Source main before same Main checkpoint take: {:?}",
+        facts.inbound
+    );
     let checkpoint = source_host
         .take_packet_main_checkpoint()
         .await
         .map_err(std::io::Error::other)?;
+    #[cfg(test)]
+    eprintln!(
+        "actual Packet Source main initialized before real route-loop poll: {:?}",
+        facts.inbound
+    );
     let ingress_id = crate::runtime::packet_route::next_ingress_id();
     let mut pins = route.packet_statistics_pins();
     let mut fragments = OwnedFragmentReassembler::new();

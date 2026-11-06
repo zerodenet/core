@@ -97,13 +97,28 @@ fn error(reason: Reason) -> ChannelError {
 }
 impl ResourceLifecycle for Owner {
     async fn start(&mut self, _: Instant) -> Result<(), ChannelError> {
+        #[cfg(test)]
+        eprintln!(
+            "actual Packet Source lifecycle before read-grant take: {:?}",
+            self.destination
+        );
         let reads = self.resources.take_packet_datagram_reads(0)?;
+        #[cfg(test)]
+        eprintln!(
+            "actual Packet Source lifecycle read-grants taken, before listener: {:?}",
+            self.destination
+        );
         self.shared.state.lock().unwrap().reads = Some(reads);
         let grant = self
             .resources
             .listen_datagram(self.destination.clone())
             .await?;
         self.shared.state.lock().unwrap().grant = Some(grant);
+        #[cfg(test)]
+        eprintln!(
+            "actual Packet Source lifecycle retained listener: {:?}",
+            self.destination
+        );
         Ok(())
     }
     fn revoke(&self, _: CloseReason) {
@@ -220,6 +235,11 @@ impl PacketReply for Reply {
             self.shared.stop.send_replace(true);
             return Ok(None);
         }
+        #[cfg(test)]
+        eprintln!(
+            "actual Packet Source respond before wire custody: {:?}",
+            self.facts.inbound
+        );
         let (wire, grant, reads) = {
             let mut state = self.shared.state.lock().unwrap();
             (
@@ -268,16 +288,32 @@ impl PacketReply for Reply {
                 result.map_err(|source| error(Reason::Io).with_source(source))
             })
             .map_err(|source| error(Reason::Capacity).with_source(source))?;
+        #[cfg(test)]
+        eprintln!(
+            "actual Packet Source wire registered: {:?}, task {:?}",
+            source_facts.inbound,
+            witness.task_id()
+        );
         *self.shared.done.lock().unwrap() = Some(witness.clone());
         let registered_driver = self
             .shared
             .resources
             .register_packet_source_driver(&original, &witness)?;
+        #[cfg(test)]
+        eprintln!(
+            "actual Packet Source native driver registration accepted: {:?}",
+            source_facts.inbound
+        );
         let checkpoint = registered_driver.checkpoint;
         checkpoint_sender
             .send(checkpoint)
             .map_err(|_| error(Reason::Revoked))?;
         registered.send(()).map_err(|_| error(Reason::Revoked))?;
+        #[cfg(test)]
+        eprintln!(
+            "actual Packet Source wire original gate released: {:?}",
+            source_facts.inbound
+        );
         Ok(Some(PacketSession {
             tx: Tx {
                 sender: PollSender::new(responses),
