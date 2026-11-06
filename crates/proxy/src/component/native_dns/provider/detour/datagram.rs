@@ -63,12 +63,14 @@ impl Provider {
                 self.pending.clone(),
                 caller.clone(),
                 cancel.clone(),
+                call.clone(),
                 execution.current_source.clone(),
                 binding.prefix.clone(),
             )
             .map_err(std::io::Error::other)?
             .observer_only(),
         );
+        root.track();
         plan.authorize_carrier_prefix(self.instance, &binding.prefix)
             .map_err(std::io::Error::other)?;
         let epoch = self.admit(&caller, cancel, end, 1).await?;

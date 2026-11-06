@@ -229,6 +229,7 @@ impl Provider {
                 self.pending.clone(),
                 caller.clone(),
                 cancel.clone(),
+                call.clone(),
                 execution.current_source.clone(),
                 binding.prefix.clone(),
             )
@@ -238,6 +239,7 @@ impl Provider {
             } else {
                 root
             });
+            root.track();
             components
                 .authorize_carrier_prefix(self.instance, &binding.prefix)
                 .map_err(std::io::Error::other)?;
