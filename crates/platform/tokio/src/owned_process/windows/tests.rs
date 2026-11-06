@@ -1,5 +1,8 @@
 use super::*;
-use crate::contract::scope::{TaskClass, TaskScope};
+use crate::contract::{
+    lifecycle::ChannelControl,
+    scope::{TaskClass, TaskScope},
+};
 use std::{
     num::NonZeroUsize,
     os::windows::io::{AsRawHandle, FromRawHandle, OwnedHandle},
@@ -73,7 +76,7 @@ async fn tree(natural: bool) {
     assert!(!event.is_null());
     let event = unsafe { OwnedHandle::from_raw_handle(event) };
     let mut request = request();
-    request.environment = vec![
+    request.environment = [
         ("ZERO_R2_PROCESS_FIXTURE".into(), Some("ROOT".into())),
         (
             "ZERO_R2_PROCESS_DIRECTORY".into(),
@@ -83,7 +86,9 @@ async fn tree(natural: bool) {
             "ZERO_R2_PROCESS_EVENT".into(),
             Some((event.as_raw_handle() as usize).to_string().into()),
         ),
-    ];
+    ]
+    .into_iter()
+    .collect();
     let mut scope = TaskScope::new(
         tokio::runtime::Handle::current(),
         NonZeroUsize::new(1).unwrap(),

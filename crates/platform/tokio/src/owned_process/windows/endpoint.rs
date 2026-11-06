@@ -26,13 +26,13 @@ impl OwnedProcess {
         state.actor = Some(actor);
         Ok(())
     }
-    pub(super) fn endpoint_is_running(&self) -> bool {
+    pub(in crate::owned_process) fn endpoint_is_running(&self) -> bool {
         let state = self.lock();
         state.started && !state.stop && state.root_status.is_none() && state.first_error.is_none()
     }
     pub fn attach_endpoint(
         self: &Arc<Self>,
-        endpoint: &Arc<super::endpoint::ProcessEndpointHandoff>,
+        endpoint: &Arc<crate::owned_process::endpoint::ProcessEndpointHandoff>,
     ) -> io::Result<()> {
         let mut state = self.lock();
         if state.attempted
@@ -58,7 +58,7 @@ impl OwnedProcess {
     pub fn install_endpoint_request(
         &self,
         request: ProcessRequest,
-        endpoint: &Arc<super::endpoint::ProcessEndpointHandoff>,
+        endpoint: &Arc<crate::owned_process::endpoint::ProcessEndpointHandoff>,
     ) -> io::Result<()> {
         let mut state = self.lock();
         if state.attempted
@@ -82,7 +82,9 @@ impl OwnedProcess {
         state.endpoint_request_ready = true;
         Ok(())
     }
-    pub(super) fn endpoint(&self) -> Option<Arc<super::endpoint::ProcessEndpointHandoff>> {
+    pub(in crate::owned_process) fn endpoint(
+        &self,
+    ) -> Option<Arc<crate::owned_process::endpoint::ProcessEndpointHandoff>> {
         self.lock().endpoint.clone()
     }
 }

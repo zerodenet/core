@@ -23,13 +23,31 @@ impl ProcessEndpointHandoff {
                 .collect()
         };
         // Same existing caller/Host cleanup; no task, detached future or reaper.
-        let results =
-            futures_util::future::join_all(users.iter().map(|user| user.retire(deadline))).await;
-        for result in results {
-            if let Err(error) = result {
-                faults.push(error);
+        let mut pending: Vec<_> = users
+            .iter()
+            .map(|user| Some(Box::pin(user.retire(deadline))))
+            .collect();
+        // Poll this finite set inline in the existing cleanup operation. Every
+        // original has already been revoked; no detached cleanup task is made.
+        std::future::poll_fn(|cx| {
+            use std::{future::Future, task::Poll};
+            for entry in &mut pending {
+                if let Some(future) = entry {
+                    if let Poll::Ready(result) = future.as_mut().poll(cx) {
+                        if let Err(error) = result {
+                            faults.push(error);
+                        }
+                        *entry = None;
+                    }
+                }
             }
-        }
+            if pending.iter().all(Option::is_none) {
+                Poll::Ready(())
+            } else {
+                Poll::Pending
+            }
+        })
+        .await;
         let users_closed = users.iter().all(|user| {
             user.closed().is_some_and(|closed| closed.matches(user))
                 && user

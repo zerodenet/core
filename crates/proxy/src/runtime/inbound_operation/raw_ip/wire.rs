@@ -2,12 +2,12 @@
 //! Raw packets cross the standard Packet session before host routing.
 use super::lifecycle::{peers_changed, receive_endpoint_packet, refresh_device_generation};
 use super::observation::WireTraffic;
-use super::outer::{peer_carrier, refresh_endpoint_peers, send_network_actions, ProxiedWirePacket};
+use super::outer::{ProxiedWirePacket, peer_carrier, refresh_endpoint_peers, send_network_actions};
 use super::*;
 use crate::runtime::raw_ip::timer::{self, PeerTimers};
 use std::time::Instant;
 use zero_api::TrafficPlane;
-use zero_stack::{packet, FragmentReassembler, OwnedFragmentOutcome};
+use zero_stack::{FragmentReassembler, OwnedFragmentOutcome, packet};
 
 pub(super) struct Wire {
     pub device: Box<dyn RawIpInboundDevice>,
@@ -222,7 +222,8 @@ pub(super) async fn run(
                         // native close and actual Scope joins remain host duties.
                         drop(original);
                         let reason = match cause {
-                            zero_traits::PacketDeriveError::Capacity | zero_traits::PacketDeriveError::Overflow => zero_platform_tokio::contract::Reason::Capacity,
+                            zero_traits::PacketDeriveError::Busy | zero_traits::PacketDeriveError::Capacity | zero_traits::PacketDeriveError::Overflow => zero_platform_tokio::contract::Reason::Capacity,
+                            zero_traits::PacketDeriveError::Revoked => zero_platform_tokio::contract::Reason::Revoked,
                             zero_traits::PacketDeriveError::Unreserved => zero_platform_tokio::contract::Reason::InvalidConfig,
                             zero_traits::PacketDeriveError::LayoutMismatch | zero_traits::PacketDeriveError::AlreadyDerived => zero_platform_tokio::contract::Reason::Protocol,
                         };
@@ -259,7 +260,8 @@ pub(super) async fn run(
                         // native close and actual Scope joins remain host duties.
                         drop(original);
                         let reason = match cause {
-                            zero_traits::PacketDeriveError::Capacity | zero_traits::PacketDeriveError::Overflow => zero_platform_tokio::contract::Reason::Capacity,
+                            zero_traits::PacketDeriveError::Busy | zero_traits::PacketDeriveError::Capacity | zero_traits::PacketDeriveError::Overflow => zero_platform_tokio::contract::Reason::Capacity,
+                            zero_traits::PacketDeriveError::Revoked => zero_platform_tokio::contract::Reason::Revoked,
                             zero_traits::PacketDeriveError::Unreserved => zero_platform_tokio::contract::Reason::InvalidConfig,
                             zero_traits::PacketDeriveError::LayoutMismatch | zero_traits::PacketDeriveError::AlreadyDerived => zero_platform_tokio::contract::Reason::Protocol,
                         };

@@ -180,8 +180,6 @@ impl UpstreamOpener for NativeCarrierOpener {
             let original = super::resolution::Source {
                 grantee: self.grantee,
                 related_parent: None,
-                #[cfg(any(target_os = "linux", windows))]
-                derived: None,
                 binding: self.binding.clone(),
                 endpoint: self.endpoint.clone(),
                 egress: self.egress.clone(),
@@ -233,8 +231,6 @@ impl UpstreamOpener for NativeCarrierOpener {
         let source = super::resolution::Source {
             grantee: self.grantee,
             related_parent: None,
-            #[cfg(any(target_os = "linux", windows))]
-            derived: None,
             binding: self.binding.clone(),
             endpoint: self.endpoint.clone(),
             egress: self.egress.clone(),
