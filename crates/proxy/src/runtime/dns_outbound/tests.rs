@@ -120,3 +120,6 @@ mod wireguard;
 
 #[cfg(feature = "vless")]
 mod vless_stream;
+
+#[cfg(all(feature = "shadowsocks", target_os = "linux"))]
+mod sip;
