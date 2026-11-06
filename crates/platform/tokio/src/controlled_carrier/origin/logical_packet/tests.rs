@@ -1,5 +1,5 @@
 use super::*;
-use crate::contract::scope::{TaskClass, TaskScope};
+use crate::contract::scope::{HostedScope, TaskClass, TaskScope};
 use std::{
     future::{Future, poll_fn},
     num::NonZeroUsize,
@@ -8,7 +8,7 @@ use std::{
 use tokio::io::AsyncReadExt;
 use zero_core::component::{ComponentId, ResourceGeneration};
 
-async fn software_original(component: u64) -> (TaskScope, LogicalPacketProviderRegistration) {
+async fn software_original(component: u64) -> (HostedScope, LogicalPacketProviderRegistration) {
     let mut scope =
         TaskScope::suspended_hosted(tokio::runtime::Handle::current(), Some(NonZeroUsize::MIN));
     scope.enable_registration().unwrap();
