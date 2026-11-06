@@ -5,6 +5,7 @@ use zero_config::{ConfigError, RuntimeOptionsConfig};
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct SsSecurityBudgetLimits {
     pub tcp_salts: usize,
+    pub legacy_bloom_bytes: usize,
     pub udp_receiver_windows: usize,
     pub udp_senders: usize,
     pub udp_associations: usize,
@@ -15,6 +16,7 @@ impl SsSecurityBudgetLimits {
     pub fn from_runtime(runtime: &RuntimeOptionsConfig) -> Result<Self, ConfigError> {
         let limits = Self {
             tcp_salts: runtime.effective_ss_tcp_replay_max_salts(),
+            legacy_bloom_bytes: runtime.effective_ss_legacy_replay_max_bytes(),
             udp_receiver_windows: runtime.effective_ss_udp_replay_max_windows(),
             udp_senders: runtime.effective_ss_udp_max_senders(),
             udp_associations: runtime.effective_ss_udp_max_associations(),
@@ -23,6 +25,7 @@ impl SsSecurityBudgetLimits {
         };
         for (owner, value) in [
             ("TCP2022 salts", limits.tcp_salts),
+            ("legacy Bloom bitmap bytes", limits.legacy_bloom_bytes),
             ("UDP receiver windows", limits.udp_receiver_windows),
             ("UDP sender identities/counters", limits.udp_senders),
             ("UDP authenticated associations", limits.udp_associations),

@@ -40,6 +40,10 @@ impl ShadowsocksAdapter {
                 prepared.with_replay_budget_limit(runtime.effective_ss_tcp_replay_max_salts())
             })
             .and_then(|prepared| prepared.with_udp_budget_limits(super::udp_budget_limits(runtime)))
+            .and_then(|prepared| {
+                prepared
+                    .with_legacy_replay_budget_limit(runtime.effective_ss_legacy_replay_max_bytes())
+            })
             .map_err(|source| zero_config::ConfigError::InvalidInbound(source.to_string()))?;
         let endpoint =
             zero_core::address::socket_addr(&inbound.listen.address, inbound.listen.port);
