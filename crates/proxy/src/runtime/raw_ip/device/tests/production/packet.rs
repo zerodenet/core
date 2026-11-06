@@ -75,16 +75,22 @@ async fn ordinary_packet_roles_return_original_source_and_retire_old_graph_witho
                 } else {
                     64
                 };
-            handle
+            if let Err(error) = handle
                 .apply_runtime_config_and_wait(changed, Duration::from_secs(5))
                 .await
-                .unwrap_or_else(|source| {
-                    panic!(
-                        "same actual graph replacement failed: {source:?}; original worker fault: {:?}; matching joined receipts: {:?}",
-                        previous[0].task.first_scoped_failure(),
-                        original_joins.iter().map(|witness| witness.try_joined()).collect::<Vec<_>>(),
-                    )
-                });
+            {
+                let actual_input = input_owner.wait_ready().await;
+                let output_owner = proxy.inbound_owners.owner("wg");
+                let actual_output = match &output_owner {
+                    Some(owner) => Some(owner.wait_ready().await),
+                    None => None,
+                };
+                panic!(
+                    "same actual graph replacement failed: {error:?}; original input Source readiness: {actual_input:#?}; actual output Source readiness: {actual_output:#?}; original worker fault: {:?}; matching joined receipts: {:?}",
+                    previous[0].task.first_scoped_failure(),
+                    original_joins.iter().map(|witness| witness.try_joined()).collect::<Vec<_>>(),
+                );
+            }
         }
         tokio::time::timeout_at(end(), async {
             loop {
