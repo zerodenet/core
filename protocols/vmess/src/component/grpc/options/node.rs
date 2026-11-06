@@ -218,4 +218,16 @@ impl Options {
         }
         Ok(inherited)
     }
+    pub fn remember_cold_material_identity(&self, identity: &[u8]) -> std::io::Result<()> {
+        self.base.remember_cold_material_identity(identity)
+    }
+    pub fn reuse_cold_file_material_from(&mut self, identity: &[u8]) -> std::io::Result<bool> {
+        let mut base = (*self.base).clone();
+        let inherited = base.reuse_cold_file_material_from(identity)?;
+        if inherited {
+            self.base = Arc::new(base);
+            self.refresh_node_identity();
+        }
+        Ok(inherited)
+    }
 }

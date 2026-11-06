@@ -91,10 +91,16 @@ impl PreparedGrpc {
         Ok(Self { protocol, pool })
     }
     pub fn reuse_file_material_from(
-        &self,
+        &mut self,
         previous: zero_core::component::ComponentInstanceId,
     ) -> Result<bool, RuntimeError> {
         self.pool.reuse_file_material_from(previous)
+    }
+    pub fn remember_cold_file_material(&self) -> Result<(), RuntimeError> {
+        self.pool.remember_cold_file_material()
+    }
+    pub fn reuse_cold_file_material_from(&mut self, identity: &[u8]) -> Result<bool, RuntimeError> {
+        self.pool.reuse_cold_file_material_from(identity)
     }
     pub fn with_file_owner(
         mut self,

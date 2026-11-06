@@ -13,6 +13,7 @@ use zero_transport::{
     profile::OwnedClientTlsProfile,
     tls::{OwnedClientRecipe, OwnedPreparedClient},
 };
+mod cold;
 mod registry;
 use registry::Census;
 pub(crate) use registry::Registry;
@@ -189,10 +190,13 @@ impl Material {
         }
     }
     fn reuse(&self, previous: ComponentInstanceId) -> std::io::Result<bool> {
-        let Some(file) = &self.file else {
+        let Some(previous) = self.census.previous(previous) else {
             return Ok(false);
         };
-        let Some(previous) = self.census.previous(previous) else {
+        self.inherit(&previous)
+    }
+    fn inherit(&self, previous: &Material) -> std::io::Result<bool> {
+        let Some(file) = &self.file else {
             return Ok(false);
         };
         let inherited = match &previous.file {
