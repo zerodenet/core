@@ -50,12 +50,13 @@ fn revoked() -> std_io::Error {
 /// The unique receive capability. Dropping it does not revoke other views.
 pub struct ControlledDatagramListenerRx {
     shared: Arc<Shared>,
+    _user: ListenerRxUser,
 }
 /// Send-only clones share one native writer and explicit admission capacity.
 /// No packet is copied or queued here; pending sends borrow caller storage.
-#[derive(Clone)]
 pub struct ControlledDatagramListenerTx {
     shared: Arc<Shared>,
+    user: ListenerTxUser,
 }
 /// The unique explicit retirement capability. Drop is not a close receipt.
 /// The original remains charged to `ControlledDatagramOwner` until OS close.
@@ -95,15 +96,29 @@ impl ControlledDatagramOwner {
             writer: AsyncMutex::new(()),
             sends: Semaphore::new(max_pending_sends.get()),
         });
-        Ok((
-            ControlledDatagramListenerRx {
-                shared: shared.clone(),
-            },
-            ControlledDatagramListenerTx {
-                shared: shared.clone(),
-            },
-            ControlledDatagramListenerControl { shared },
-        ))
+        let users = Arc::new(ListenerUsers {
+            rx: std::sync::atomic::AtomicBool::new(true),
+            tx: std::sync::atomic::AtomicUsize::new(1),
+            changed: shared.socket.entry.source_changed.clone(),
+        });
+        let rx = ControlledDatagramListenerRx {
+            shared: shared.clone(),
+            _user: ListenerRxUser(users.clone()),
+        };
+        let tx = ControlledDatagramListenerTx {
+            shared: shared.clone(),
+            user: ListenerTxUser(users.clone()),
+        };
+        assert!(
+            shared.socket.entry.listener_users.set(users).is_ok(),
+            "one actual UDP listener IO cohort"
+        );
+        shared
+            .socket
+            .entry
+            .source_published
+            .store(true, std::sync::atomic::Ordering::Release);
+        Ok((rx, tx, ControlledDatagramListenerControl { shared }))
     }
 }
 impl ControlledDatagramListenerRx {
@@ -224,5 +239,51 @@ impl ControlledDatagramListenerControl {
         drop(retired);
         super::observation::boundary(&observer, old);
         Ok(())
+    }
+}
+
+/// Only actual RX/TX capabilities count here. A native close controller or an
+/// observer may persist independently and cannot pretend to be an IO user.
+pub(super) struct ListenerUsers {
+    rx: std::sync::atomic::AtomicBool,
+    tx: std::sync::atomic::AtomicUsize,
+    changed: Arc<tokio::sync::Notify>,
+}
+impl ListenerUsers {
+    pub(super) fn returned(&self) -> bool {
+        !self.rx.load(std::sync::atomic::Ordering::Acquire)
+            && self.tx.load(std::sync::atomic::Ordering::Acquire) == 0
+    }
+}
+struct ListenerRxUser(Arc<ListenerUsers>);
+struct ListenerTxUser(Arc<ListenerUsers>);
+impl Drop for ListenerRxUser {
+    fn drop(&mut self) {
+        self.0.rx.store(false, std::sync::atomic::Ordering::Release);
+        self.0.changed.notify_waiters();
+    }
+}
+impl Drop for ListenerTxUser {
+    fn drop(&mut self) {
+        let before = self.0.tx.fetch_sub(1, std::sync::atomic::Ordering::AcqRel);
+        assert!(before != 0, "same actual UDP sender returned once");
+        self.0.changed.notify_waiters();
+    }
+}
+impl Clone for ControlledDatagramListenerTx {
+    fn clone(&self) -> Self {
+        self.user
+            .0
+            .tx
+            .fetch_update(
+                std::sync::atomic::Ordering::AcqRel,
+                std::sync::atomic::Ordering::Acquire,
+                |count| count.checked_add(1),
+            )
+            .expect("UDP sender identity capacity");
+        Self {
+            shared: self.shared.clone(),
+            user: ListenerTxUser(self.user.0.clone()),
+        }
     }
 }

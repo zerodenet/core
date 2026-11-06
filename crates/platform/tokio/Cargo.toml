@@ -10,6 +10,8 @@ homepage.workspace = true
 
 [features]
 default = []
+# Concrete native-registration suspension for original-custody regressions only.
+test-support = []
 host-network-stats = []
 native-packet-origin = ["dep:zero-tun"]
 

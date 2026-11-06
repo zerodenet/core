@@ -86,6 +86,36 @@ impl HostDatagramListenerOwner {
         self.originals = Some((originals, tasks));
         Ok(())
     }
+    pub fn bind_original_budgets_for_instance(
+        &mut self,
+        instance: zero_core::component::ComponentInstanceId,
+        originals: Arc<crate::HostOriginalBudgets>,
+        tasks: zero_platform_tokio::contract::scope::WeakTaskRegistrar,
+        stop: CancellationToken,
+    ) -> Result<(), ChannelError> {
+        if self.component != instance.component {
+            return Err(error(
+                self.component,
+                Reason::StalePlan,
+                "Source UDP instance does not match its original declaration",
+            ));
+        }
+        let scope = tasks.retirement_observation().ok_or_else(|| {
+            error(
+                self.component,
+                Reason::Revoked,
+                "Source UDP actual Scope disappeared",
+            )
+        })?;
+        let binding = zero_platform_tokio::controlled_datagram::SourceDatagramTotalsBinding::new(
+            &originals.carrier,
+            instance,
+            scope,
+            stop,
+        );
+        self.bind_original_budgets(originals, tasks)?;
+        self.native.bind_source_totals(binding)
+    }
     /// Read the actual original acquisition state; no native I/O or close grant.
     pub fn known_no_acquisition(&self) -> bool {
         self.native.known_no_acquisition()

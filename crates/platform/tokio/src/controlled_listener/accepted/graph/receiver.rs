@@ -163,6 +163,21 @@ impl Users {
             }
             drop(source);
         }
+        // Preserve this actual registration across local user/native closure.
+        // The existing Host's eventual ACK, not this receiver, refunds totals.
+        self.prune_original_acks();
+        {
+            let mut acks = self
+                .pending_acks
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner);
+            if !acks
+                .iter()
+                .any(|actual| actual.same_registration(&node.witness))
+            {
+                acks.push(node.witness.clone());
+            }
+        }
         let carrier = self.has_carrier_caller(&node.witness);
         let removed = {
             let mut state = self.state();
@@ -197,5 +212,40 @@ impl Users {
         drop(removed);
         self.changed.notify_waiters();
         Some(joined)
+    }
+}
+
+impl Users {
+    pub(in crate::controlled_listener::accepted) fn original_acks(&self) -> Vec<TaskJoinWitness> {
+        self.pending_acks
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .clone()
+    }
+    pub(in crate::controlled_listener::accepted) fn prune_original_acks(&self) {
+        let snapshot = self.original_acks();
+        let released = snapshot
+            .iter()
+            .filter(|witness| {
+                witness.try_joined().is_some_and(|joined| {
+                    witness.matches_joined(&joined) && joined.registration_released()
+                })
+            })
+            .collect::<Vec<_>>();
+        {
+            let mut acks = self
+                .pending_acks
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner);
+            acks.retain(|actual| {
+                !released
+                    .iter()
+                    .any(|witness| witness.same_registration(actual))
+            });
+        }
+        // Snapshot holds each removed witness through the original lock; its
+        // last source/controller destructor can only run here, outside it.
+        drop(released);
+        drop(snapshot);
     }
 }

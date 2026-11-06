@@ -24,22 +24,16 @@ impl HostResources {
             .entries
             .get(&ordinal)
             .ok_or_else(|| self.denied())?;
-        let mut native = entry.lock().ok_or_else(|| {
+        let native = entry.lock().ok_or_else(|| {
             error(
                 self.component,
                 Reason::Capacity,
                 "metadata users confirmation is busy",
             )
         })?;
-        let claim = native
-            .users
-            .iter_mut()
-            .find(|claim| claim.transferred && claim.issuer.validates_users(receipt, tasks))
-            .ok_or_else(|| self.denied())?;
-        // The opaque immutable ticket is retained before any other fallible
-        // action. Repetition is idempotent; it never closes native originals,
-        // acknowledges hosted publication, or rewrites the first native error.
-        claim.confirmed.get_or_insert_with(|| receipt.clone());
+        if !native.users.confirm(receipt, tasks) {
+            return Err(self.denied());
+        }
         Ok(())
     }
 }

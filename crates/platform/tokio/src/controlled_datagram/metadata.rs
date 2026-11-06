@@ -1,10 +1,13 @@
 //! Owned native UDP ancillary I/O. This is a library boundary, not a runtime.
 //! Every native original (including capability probes) has a persistent owner.
 mod io;
+mod native_close;
 mod observation;
 mod owner;
+pub use native_close::MetadataNativeClose;
 mod poller;
 mod probes;
+pub mod source_totals;
 #[cfg(test)]
 mod tests;
 mod types;
@@ -33,6 +36,7 @@ pub struct MetadataOwner {
     views: BTreeMap<DatagramReservationId, Arc<Shared>>,
     pending_main: Option<DatagramOwnerReport>,
     pending_probes: Option<DatagramOwnerReport>,
+    source_changed: Arc<tokio::sync::Notify>,
 }
 #[derive(Debug)]
 pub struct MetadataOwnerReport {

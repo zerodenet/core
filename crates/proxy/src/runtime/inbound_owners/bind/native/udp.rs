@@ -186,7 +186,12 @@ impl NativeDatagramGrant {
             .ok_or_else(|| std::io::Error::other("original UDP resolution is not installed"))?;
         if let (Some(originals), Some(tasks)) = (&self.originals, &self.scope) {
             owner
-                .bind_original_budgets(originals.clone(), tasks.downgrade())
+                .bind_original_budgets_for_instance(
+                    self.identity,
+                    originals.clone(),
+                    tasks.downgrade(),
+                    self.cancel.clone(),
+                )
                 .map_err(std::io::Error::other)?;
         }
         let addresses = self

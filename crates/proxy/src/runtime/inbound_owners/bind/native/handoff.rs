@@ -5,9 +5,9 @@ use std::{
     sync::{Mutex, OnceLock},
 };
 use zero_platform_tokio::contract::{
+    Impact, Reason, Stage,
     lifecycle::{CloseReport, ResourceLifecycle},
     scope::TaskRegistrar,
-    Impact, Reason, Stage,
 };
 mod probe;
 #[derive(Clone, Copy)]
@@ -26,6 +26,7 @@ pub(crate) struct Grant {
     declaration: ResourceDeclaration,
     identity: ComponentInstanceId,
     tasks: TaskRegistrar,
+    originals: OnceLock<Arc<zero_runtime::HostOriginalBudgets>>,
     host: Weak<InboundOwner>,
     cancel: CancellationToken,
     report: Mutex<CloseReport>,
@@ -49,11 +50,16 @@ impl Grant {
         tasks: TaskRegistrar,
         host: Weak<InboundOwner>,
     ) -> Result<Self, ChannelError> {
-        let [tcp @ ResourceDeclaration::TcpListener { .. }, ResourceDeclaration::DatagramListener { .. }, ResourceDeclaration::ListenerHandoff {
-            stream,
-            datagram,
-            max_probe_attempts,
-        }, ResourceDeclaration::Process { max_starts, .. }] = declarations
+        let [
+            tcp @ ResourceDeclaration::TcpListener { .. },
+            ResourceDeclaration::DatagramListener { .. },
+            ResourceDeclaration::ListenerHandoff {
+                stream,
+                datagram,
+                max_probe_attempts,
+            },
+            ResourceDeclaration::Process { max_starts, .. },
+        ] = declarations
         else {
             return Err(denied(
                 "handoff requires one paired listener and one process grant",
@@ -79,11 +85,27 @@ impl Grant {
             declaration: tcp.clone(),
             identity,
             tasks,
+            originals: OnceLock::new(),
             host,
             cancel,
             report: Mutex::new(Default::default()),
             probe: tokio::sync::Mutex::new(probe::Probe::new(*max_probe_attempts)),
         })
+    }
+    pub(super) fn bind_original_budgets(
+        &self,
+        roots: &Arc<zero_runtime::HostOriginalBudgets>,
+    ) -> Result<(), ChannelError> {
+        if let Some(actual) = self.originals.get() {
+            if !Arc::ptr_eq(actual, roots) {
+                return Err(denied("handoff cannot cross actual Host roots"));
+            }
+        } else {
+            self.originals
+                .set(roots.clone())
+                .map_err(|_| denied("handoff root already installed"))?;
+        }
+        self.outer.bind_original_budgets(roots, &self.tasks)
     }
     pub(super) fn bind(self: &Arc<Self>) -> Result<NativeListenerView, EngineError> {
         let outer = self.outer.bind()?;
@@ -116,6 +138,11 @@ impl Grant {
                 )
                 .map_err(std::io::Error::other)?,
             );
+            if let Some(roots) = self.originals.get() {
+                grant
+                    .bind_original_budgets(roots, &self.tasks)
+                    .map_err(std::io::Error::other)?;
+            }
             // Persist the actual owner and receiver before native creation.
             *self.inner.lock().unwrap() = Some(grant.clone());
             if let Some(receiver) = grant.accepted_task_receiver() {

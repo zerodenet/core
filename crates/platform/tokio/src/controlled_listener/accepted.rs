@@ -11,9 +11,10 @@ pub use graph::{
 mod owner;
 mod pool;
 mod relay;
+mod totals;
 mod view;
 use super::*;
-use crate::contract::{lifecycle::CloseReport, ChannelError, DeliveryState, Impact, Reason, Stage};
+use crate::contract::{ChannelError, DeliveryState, Impact, Reason, Stage, lifecycle::CloseReport};
 use crate::{ControlledTcpControl, ControlledTcpStream};
 use std::{collections::BTreeMap, num::NonZeroUsize, sync::OnceLock};
 use tokio::{sync::Mutex as AsyncMutex, time::Instant};
@@ -112,6 +113,7 @@ pub(super) struct Pool {
     state: Mutex<PoolState>,
     relay: Arc<relay::AcceptRelay>,
     graph: Option<graph::Authority>,
+    originals: OnceLock<super::totals::Binding>,
     logical_custody: Arc<std::sync::atomic::AtomicUsize>,
 }
 struct PoolState {

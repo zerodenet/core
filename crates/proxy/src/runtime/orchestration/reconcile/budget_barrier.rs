@@ -12,6 +12,23 @@ pub(in crate::runtime) fn carrier_budget_changed(
     old.runtime.effective_carrier_max_total_originals()
         != next.runtime.effective_carrier_max_total_originals()
 }
+/// Exactly the Source native classes now bound to the same Host total root.
+/// A packet device or role alias is not silently charged as a listener.
+pub(in crate::runtime) fn source_total_resources(
+    resources: &[zero_platform_tokio::contract::component::ResourceDeclaration],
+) -> bool {
+    use zero_platform_tokio::contract::component::ResourceDeclaration as R;
+    resources.iter().any(|resource| {
+        matches!(
+            resource,
+            R::TcpListener { .. }
+                | R::ListenerHandoff { .. }
+                | R::DatagramListener { .. }
+                | R::MetadataDatagram { .. }
+                | R::NativeIcmp { .. }
+        )
+    })
+}
 pub(in crate::runtime) fn ss_budget_changed(old: &RuntimeConfig, next: &RuntimeConfig) -> bool {
     if carrier_budget_changed(old, next) {
         return true;

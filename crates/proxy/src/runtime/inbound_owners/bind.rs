@@ -107,7 +107,7 @@ impl InboundOwnerRegistry {
         }, declaration @ zero_platform_tokio::contract::component::ResourceDeclaration::NativeIcmp { .. },
         zero_platform_tokio::contract::component::ResourceDeclaration::PacketDatagramReads { datagram: 0, .. }] = prepared.resources()
         {
-            owner.install_icmp_probe(declaration)?;
+            owner.install_icmp_probe(declaration, protocols.runtime_host().original_budgets())?;
         }
         reserved.config = Arc::downgrade(config);
         reserved.entries.insert(tag.to_owned(), owner.clone());

@@ -72,8 +72,14 @@ impl HostResources {
         )?;
         let roots =
             root_datagram::RootDeclarations::new(component, declarations, identity.clone())?;
-        let metadata =
-            metadata::MetadataDeclarations::new(component, declarations, identity.clone())?;
+        let metadata = metadata::MetadataDeclarations::new(
+            component,
+            declarations,
+            identity.clone(),
+            &originals,
+            original_tasks.as_ref(),
+            &cancel,
+        )?;
         let carriers = carrier::CarrierDeclarations::new(
             component,
             declarations,
@@ -141,11 +147,22 @@ impl HostResources {
                             "ICMP requires an actual instance and Scope",
                         )
                     })?;
-                    icmp = Some(super::super::icmp::HostIcmpProbeOwner::new_inbound_carrier(
+                    let owner = super::super::icmp::HostIcmpProbeOwner::new_inbound_carrier(
                         *instance,
                         declaration,
                         cancel.clone(),
-                    )?);
+                    )?;
+                    if let Some(tasks) = &original_tasks {
+                        let scope = tasks.retirement_observation().ok_or_else(|| {
+                            error(
+                                component,
+                                Reason::Revoked,
+                                "ICMP original Source Scope expired",
+                            )
+                        })?;
+                        owner.bind_original_budgets(&originals.carrier, scope)?;
+                    }
+                    icmp = Some(owner);
                 }
 
                 ResourceDeclaration::ProcessEndpoint { .. } => {
@@ -185,12 +202,29 @@ impl HostResources {
                         ));
                     }
                     let address = sockets::literal(component, destination)?;
+                    let mut native = zero_platform_tokio::ControlledTcpListenerOwner::new(
+                        declaration,
+                        *max_bind_attempts,
+                        cancel.clone(),
+                    )?;
+                    if let Some((instance, _)) = &identity {
+                        if let Some(tasks) = &original_tasks {
+                            let scope = tasks.retirement_observation().ok_or_else(|| {
+                                error(
+                                    component,
+                                    Reason::Revoked,
+                                    "actual listener Scope disappeared before root binding",
+                                )
+                            })?;
+                            native.bind_original_totals_observed(
+                                *instance,
+                                scope,
+                                &originals.carrier,
+                            )?;
+                        }
+                    }
                     let owner = sockets::TcpGrant {
-                        native: zero_platform_tokio::ControlledTcpListenerOwner::new(
-                            declaration,
-                            *max_bind_attempts,
-                            cancel.clone(),
-                        )?,
+                        native,
                         acquired: false,
                         attempted: false,
                     };
@@ -212,11 +246,21 @@ impl HostResources {
                     ..
                 } => {
                     let address = sockets::literal(component, destination)?;
-                    let owner = sockets::DatagramGrant::new(
+                    let mut owner = sockets::DatagramGrant::new(
                         component,
                         *max_bind_attempts,
                         *max_pending_sends,
                     )?;
+                    if let (Some((instance, _)), Some(tasks)) = (&identity, &original_tasks) {
+                        let scope = tasks.retirement_observation().ok_or_else(|| {
+                            error(
+                                component,
+                                Reason::Revoked,
+                                "actual UDP listener Scope disappeared",
+                            )
+                        })?;
+                        owner.bind_source_totals(zero_platform_tokio::controlled_datagram::SourceDatagramTotalsBinding::new(&originals.carrier,*instance,scope,cancel.clone()))?;
+                    }
                     if datagram
                         .insert(address, Arc::new(AsyncMutex::new(owner)))
                         .is_some()

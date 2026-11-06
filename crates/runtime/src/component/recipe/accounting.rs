@@ -7,7 +7,12 @@ pub(in crate::component) fn owns_carrier_custody(spec: &ComponentSpec) -> bool {
     spec.resources.iter().any(|resource| {
         matches!(
             resource,
-            R::ControlledCarrierPool { .. }
+            R::TcpListener { .. }
+                | R::ListenerHandoff { .. }
+                | R::DatagramListener { .. }
+                | R::MetadataDatagram { .. }
+                | R::NativeIcmp { .. }
+                | R::ControlledCarrierPool { .. }
                 | R::ControlledServiceStream { .. }
                 | R::ControlledAssociationPool { .. }
                 | R::ControlledDatagramCarrier { .. }

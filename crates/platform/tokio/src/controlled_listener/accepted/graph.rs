@@ -6,8 +6,8 @@ use crate::contract::scope::{
 use std::{
     future::Future,
     sync::{
-        atomic::{AtomicBool, Ordering},
         Weak,
+        atomic::{AtomicBool, Ordering},
     },
 };
 use zero_core::component::TaskId;
@@ -33,6 +33,10 @@ pub(super) struct Authority {
     pub(super) max_resources: usize,
 }
 impl Authority {
+    pub(super) fn matches_original_scope(&self, scope: &TaskScopeIdentity) -> bool {
+        self.scope.same_scope(scope)
+    }
+
     pub(super) fn new(registrar: &TaskRegistrar, max_tasks: NonZeroUsize) -> Self {
         Self {
             scope: registrar.scope_identity(),
@@ -54,6 +58,7 @@ pub(super) struct Users {
     logical_dirty: AtomicBool,
     carrier_cleanup: AsyncMutex<()>,
     local: OnceLock<std::net::SocketAddr>,
+    pending_acks: Mutex<Vec<TaskJoinWitness>>,
 }
 #[derive(Default)]
 struct State {
@@ -107,6 +112,7 @@ impl Users {
             logical_dirty: AtomicBool::new(false),
             carrier_cleanup: AsyncMutex::new(()),
             local: OnceLock::new(),
+            pending_acks: Mutex::default(),
         }
     }
     fn state(&self) -> std::sync::MutexGuard<'_, State> {

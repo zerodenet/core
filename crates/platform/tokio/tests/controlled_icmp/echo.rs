@@ -1,6 +1,6 @@
 use super::*;
 use std::net::{IpAddr, Ipv6Addr};
-async fn echo(view: &mut ControlledIcmpSocket, target: IpAddr, sequence: u16) {
+pub(super) async fn echo(view: &mut ControlledIcmpSocket, target: IpAddr, sequence: u16) {
     let local = view.connect(target).await.unwrap();
     let mut message = vec![if target.is_ipv4() { 8 } else { 128 }, 0, 0, 0, 0x45, 0x67];
     message.extend_from_slice(&sequence.to_be_bytes());

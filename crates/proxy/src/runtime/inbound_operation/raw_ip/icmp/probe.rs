@@ -19,6 +19,7 @@ pub(super) async fn owned(
     mtu: u16,
     egress: Option<&EgressInterface>,
     grant: Option<HostIcmpProbeGrant>,
+    caller: Option<zero_platform_tokio::contract::scope::TaskJoinWitness>,
 ) -> std::io::Result<Option<Vec<u8>>> {
     let grant = grant.ok_or_else(|| {
         std::io::Error::new(
@@ -31,8 +32,17 @@ pub(super) async fn owned(
     };
     // The sole canonical pool is installed and Live before this synchronous
     // acquisition. Every subsequent await retains its original in that pool.
-    let mut socket =
-        ProbeSocket::Controlled(grant.bind(bind, egress).map_err(std::io::Error::other)?);
+    let caller = caller.ok_or_else(|| {
+        std::io::Error::new(
+            std::io::ErrorKind::PermissionDenied,
+            "owned ICMP probe has no actual registered Source caller",
+        )
+    })?;
+    let mut socket = ProbeSocket::Controlled(
+        grant
+            .bind_for_task(bind, egress, &caller)
+            .map_err(std::io::Error::other)?,
+    );
     let operation = exchange(&mut socket, packet, mtu).await;
     let ProbeSocket::Controlled(view) = &socket else {
         unreachable!("same granted probe view")
@@ -45,7 +55,7 @@ pub(super) async fn owned(
             Ok(_) => {
                 break Err(std::io::Error::other(
                     "ICMP close receipt differs from the original probe",
-                ))
+                ));
             }
             Err(error) if error.reason == Reason::Capacity && close_attempts < MAX_ECHO_PROBES => {
                 // Busy means no close attempt touched the FD. Keep this exact

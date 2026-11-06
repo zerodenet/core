@@ -82,12 +82,29 @@ impl ControlledTcpListener {
             };
             // Preinstalled before Tokio's native accept AND its consuming child
             // registration. An unwind leaves this same sentinel charged.
-            reservation.entry.state().phase = Phase::Acquiring;
+            let charge = {
+                let mut entry = reservation.entry.state();
+                entry.phase = Phase::Acquiring;
+                match pool.reserve_original(&reservation.entry) {
+                    Ok(charge) => charge,
+                    Err(error) => {
+                        entry.phase = Phase::Waiting;
+                        drop(entry);
+                        drop(state);
+                        drop(critical);
+                        no_native();
+                        return Poll::Ready(Err(error));
+                    }
+                }
+            };
             match listener.poll_accept(cx) {
                 Poll::Pending => {
                     reservation.entry.state().phase = Phase::Waiting;
                     drop(state);
                     drop(critical);
+                    if let Some(charge) = charge {
+                        charge.release_settled();
+                    }
                     no_native();
                     Poll::Pending
                 }

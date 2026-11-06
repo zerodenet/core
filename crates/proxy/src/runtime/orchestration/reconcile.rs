@@ -4,7 +4,7 @@ mod recovery;
 use super::{logging::log_reload_reconciled, state::OrchestrationState};
 use crate::groups::UrlTestRuntime;
 use crate::runtime::route_runtime::{InboundListenerRuntimeFactory, SharedIngressRuntimeServices};
-use crate::runtime::{listeners, Proxy};
+use crate::runtime::{Proxy, listeners};
 use tracing::warn;
 
 impl OrchestrationState {
@@ -223,6 +223,27 @@ impl OrchestrationState {
         let start_retained = &retained_for_binding;
         let ss_source_budget_changed =
             budget_barrier::ss_source_budget_changed(self.applied_snapshot.config(), &new_config);
+        let mut charged_source_changes = std::collections::BTreeSet::new();
+        if budget_barrier::carrier_budget_changed(self.applied_snapshot.config(), &new_config) {
+            for input in &new_config.inbounds {
+                match proxy.protocols.prepare_inbound_bind_in_config(
+                    candidate_runtime_factory.listener_config(input),
+                    &new_config,
+                ) {
+                    Ok(Some(prepared))
+                        if budget_barrier::source_total_resources(prepared.resources()) =>
+                    {
+                        charged_source_changes.insert(input.tag.clone());
+                    }
+                    Ok(_) => {}
+                    Err(error) => {
+                        self.reject_before_start(proxy, &new_snapshot, error.to_string(), true)
+                            .await;
+                        return;
+                    }
+                }
+            }
+        }
         let output_resources = &mut prepared_resources;
         let inbound_result = listeners::reconcile_inbounds_with_before_bind(
             &proxy.protocols,
@@ -244,8 +265,9 @@ impl OrchestrationState {
                         )));
                     }
                     for input in start_retained {
-                        if ss_source_budget_changed
+                        if (ss_source_budget_changed
                             && input.1.protocol.protocol_name() == "shadowsocks"
+                            || charged_source_changes.contains(input.0))
                             && stopped.terminal(input.0).is_none()
                             && !stopped.owner_was_absent(input.0)
                         {

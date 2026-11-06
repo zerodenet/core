@@ -1,6 +1,6 @@
 use super::*;
 use zero_platform_tokio::controlled_datagram::{
-    metadata::GrantedMetadataDatagram, AcquisitionOutcome,
+    AcquisitionOutcome, metadata::GrantedMetadataDatagram,
 };
 impl HostResources {
     pub(in crate::component::instance::resources::native) fn bind_metadata(
@@ -84,11 +84,18 @@ impl HostResources {
                 "metadata bind attempt budget exhausted",
             ));
         }
+        if let Some(totals) = &native.totals {
+            totals.reserve()?;
+        }
         native.remaining -= 1;
         native.attempted = true;
         // The owner was installed during cold construction. Panics, failed
         // registration and later rejection cannot drop its actual originals.
-        let granted = native.owner.bind(entry.source);
+        let granted = native
+            .owner
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .bind(entry.source);
         let GrantedMetadataDatagram { rx, tx, control } = match granted {
             Ok(grant) => grant,
             Err(source) => {
@@ -132,11 +139,7 @@ impl HostResources {
         };
         // Persist the private original issuer before any observation transfer,
         // external callback, postcheck, or release of the unique public claim.
-        native.users.push(UsersClaim {
-            issuer,
-            transferred: false,
-            confirmed: None,
-        });
+        let claim_index = native.users.retain(issuer);
         let observation = match native
             .controls
             .last_mut()
@@ -166,17 +169,19 @@ impl HostResources {
         );
         if let Err(failure) = phase {
             native.closing = true;
-            native.close_originals(self.component);
+            let close = native.prepare_close();
+            drop(native);
+            let _original_failure = close.try_close();
+            if let Some(mut native) = entry.lock() {
+                native.observe_originals(self.component);
+            }
+            drop(close);
             return Err(failure);
         }
         native.observe_originals(self.component);
         // No callback/await lies between this durable transfer obligation and
         // returning the original views plus their unique claim to the caller.
-        native
-            .users
-            .last_mut()
-            .expect("installed original users issuer")
-            .transferred = true;
+        native.users.transferred(claim_index);
         Ok(GrantedMetadataListener {
             scope: scope.clone(),
             rx,

@@ -2,9 +2,9 @@
 use super::*;
 use crate::component::instance::{HostIcmpProbeGrant, HostIcmpProbeOwner};
 use zero_platform_tokio::contract::{
-    component::ResourceDeclaration,
-    lifecycle::{erase_lifecycle, CloseReport, ResourceLifecycle},
     ChannelError, CloseReason,
+    component::ResourceDeclaration,
+    lifecycle::{CloseReport, ResourceLifecycle, erase_lifecycle},
 };
 struct IcmpResource {
     native: HostIcmpProbeOwner,
@@ -16,6 +16,7 @@ impl InboundOwner {
     pub(super) fn install_icmp_probe(
         self: &Arc<Self>,
         declaration: &ResourceDeclaration,
+        originals: Arc<zero_runtime::HostOriginalBudgets>,
     ) -> Result<(), EngineError> {
         let native = HostIcmpProbeOwner::new(
             self.identity(),
@@ -23,6 +24,12 @@ impl InboundOwner {
             self.task_access().cancellation(),
         )
         .map_err(std::io::Error::other)?;
+        native
+            .bind_original_budgets(
+                &originals.carrier,
+                self.accepted_registrar().retirement_observation(),
+            )
+            .map_err(std::io::Error::other)?;
         let grant = native.grant();
         self.install_resource(
             self.identity(),

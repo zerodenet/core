@@ -1,7 +1,11 @@
 //! Bounded original UDP ownership, including acquisition failure and rotation.
 //! Dropping an I/O handle never releases its owner's native reservation.
 mod acquire;
+#[cfg(any(test, feature = "test-support"))]
+pub mod registration_test;
+mod source_totals;
 mod totals;
+pub use source_totals::SourceDatagramTotalsBinding;
 pub use totals::BoundDatagramTotalsBinding;
 pub(crate) use totals::BoundTotalsOriginal;
 mod control;
@@ -100,10 +104,19 @@ pub struct ControlledDatagramOwner {
     confirmed_closed: u64,
     known_no_native: u64,
     totals: Option<totals::BoundDatagramTotalsBinding>,
+    source_totals: Option<SourceDatagramTotalsBinding>,
+    #[cfg(any(test, feature = "test-support"))]
+    registration_pause: Option<Arc<registration_test::Gate>>,
 }
 struct Entry {
     id: DatagramReservationId,
     view_live: std::sync::atomic::AtomicBool,
+    source_charge: std::sync::OnceLock<source_totals::Charge>,
+    listener_users: std::sync::OnceLock<Arc<listener::ListenerUsers>>,
+    creation_running: std::sync::atomic::AtomicBool,
+    source_failed: std::sync::atomic::AtomicBool,
+    source_published: std::sync::atomic::AtomicBool,
+    source_changed: Arc<tokio::sync::Notify>,
     closed_receipt: Arc<std::sync::OnceLock<DatagramCloseReceipt>>,
     provider: std::sync::OnceLock<provider::DatagramProviderRegistration>,
     retired: tokio_util::sync::CancellationToken,
@@ -137,6 +150,7 @@ impl Entry {
 pub struct ControlledDatagramSocket {
     entry: Arc<Entry>,
     interface: Option<EgressInterface>,
+    acquiring: Option<AcquisitionGuard>,
 }
 impl fmt::Debug for ControlledDatagramOwner {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -169,6 +183,9 @@ impl ControlledDatagramOwner {
             confirmed_closed: 0,
             known_no_native: 0,
             totals: None,
+            source_totals: None,
+            #[cfg(any(test, feature = "test-support"))]
+            registration_pause: None,
         }
     }
     fn reap_confirmed(&mut self) {
@@ -193,7 +210,7 @@ impl ControlledDatagramOwner {
     pub fn retains(&self, id: DatagramReservationId) -> bool {
         self.entries.contains_key(&id)
     }
-    fn reserve(&mut self) -> Result<Arc<Entry>, DatagramAcquisitionError> {
+    fn reserve(&mut self) -> Result<(Arc<Entry>, AcquisitionGuard), DatagramAcquisitionError> {
         self.reap_confirmed();
         let denied = |message| {
             self.acquisition_error(
@@ -224,6 +241,12 @@ impl ControlledDatagramOwner {
         let entry = Arc::new(Entry {
             id,
             view_live: std::sync::atomic::AtomicBool::new(false),
+            creation_running: std::sync::atomic::AtomicBool::new(true),
+            source_charge: std::sync::OnceLock::new(),
+            listener_users: std::sync::OnceLock::new(),
+            source_failed: std::sync::atomic::AtomicBool::new(false),
+            source_published: std::sync::atomic::AtomicBool::new(false),
+            source_changed: Arc::new(tokio::sync::Notify::new()),
             closed_receipt: Arc::new(std::sync::OnceLock::new()),
             provider: std::sync::OnceLock::new(),
             retired: tokio_util::sync::CancellationToken::new(),
@@ -237,6 +260,7 @@ impl ControlledDatagramOwner {
             packet_failure: Mutex::new(None),
             wake_relay: wake_relay::WakeRelay::new(),
         });
+        let acquiring = AcquisitionGuard(entry.clone());
         if let Some(totals) = &self.totals {
             totals
                 .root
@@ -252,9 +276,22 @@ impl ControlledDatagramOwner {
                     )
                 })?;
         }
+        if let Some(binding) = &self.source_totals {
+            let charge = binding.reserve(&entry).map_err(|source| {
+                self.acquisition_error(
+                    None,
+                    AcquisitionOutcome::KnownNoNative,
+                    Arc::new(std_io::Error::new(std_io::ErrorKind::WouldBlock, source)),
+                )
+            })?;
+            assert!(
+                entry.source_charge.set(charge).is_ok(),
+                "one sameRoot charge per original"
+            );
+        }
         self.entries.insert(id, entry.clone());
         self.next = next;
-        Ok(entry)
+        Ok((entry, acquiring))
     }
     /// Report extraction does not clear unknown originals or their sources.
     /// The caller must persist returned successful receipts before suspension.
@@ -310,6 +347,12 @@ impl Entry {
     /// None is an actual in-progress native gate/close lease, never a receipt.
     fn try_close(&self) -> Option<Result<DatagramCloseReceipt, Arc<std_io::Error>>> {
         self.retire_io();
+        if self
+            .creation_running
+            .load(std::sync::atomic::Ordering::Acquire)
+        {
+            return None;
+        }
         let _claim = NativeCloseClaim::acquire(&self.close_running)?;
         let native = match self.native.try_lock() {
             Ok(native) => native,
@@ -395,5 +438,17 @@ impl<'a> NativeCloseClaim<'a> {
 impl Drop for NativeCloseClaim<'_> {
     fn drop(&mut self) {
         self.0.store(false, std::sync::atomic::Ordering::Release);
+    }
+}
+
+/// This only excludes an external closer from synchronous create/setup/register.
+/// Ending acquisition is neither native closure, user return nor a task receipt.
+struct AcquisitionGuard(Arc<Entry>);
+impl Drop for AcquisitionGuard {
+    fn drop(&mut self) {
+        self.0
+            .creation_running
+            .store(false, std::sync::atomic::Ordering::Release);
+        self.0.source_changed.notify_waiters();
     }
 }

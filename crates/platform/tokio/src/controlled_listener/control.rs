@@ -1,9 +1,9 @@
 use super::*;
 use crate::contract::{
-    lifecycle::{ChannelControl, CloseReport, Unfinished},
     ChannelError, CloseReason, DeliveryState, Impact, Reason, Stage,
+    lifecycle::{ChannelControl, CloseReport, Unfinished},
 };
-use tokio::time::{sleep_until, Duration, Instant};
+use tokio::time::{Duration, Instant, sleep_until};
 
 /// Owns confirmation for the original listener only, never its accepted sockets.
 /// Tokio deregistration failures consume the handle with an unconfirmed native
@@ -45,6 +45,11 @@ impl ChannelControl for ControlledTcpListenerControl {
                         match native::retry(source) {
                             Ok(true) => {
                                 state.confirmed += 1;
+                                if let Some(attempt) =
+                                    state.attempt.as_ref().and_then(std::sync::Weak::upgrade)
+                                {
+                                    attempt.native_closed();
+                                }
                                 state.error = None;
                             }
                             Ok(false) => {}

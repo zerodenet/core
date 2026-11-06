@@ -1,8 +1,8 @@
 use super::*;
 use std::net::IpAddr;
 use zero_platform_tokio::{
-    controlled_icmp::{ControlledIcmpSocket, IcmpAcquisitionOutcome, IcmpCloseReceipt},
     EgressInterface,
+    controlled_icmp::{ControlledIcmpSocket, IcmpAcquisitionOutcome, IcmpCloseReceipt},
 };
 impl HostIcmpProbeGrant {
     fn shared(&self) -> Result<Arc<Shared>, ChannelError> {
@@ -32,6 +32,24 @@ impl HostIcmpProbeGrant {
         bind: IpAddr,
         egress: Option<&EgressInterface>,
     ) -> Result<ControlledIcmpSocket, ChannelError> {
+        self.bind_inner(bind, egress, None)
+    }
+    /// Each live echo uses its own actual registered caller; refund does not
+    /// wait for the containing long-lived Source's whole Scope to shut down.
+    pub fn bind_for_task(
+        &self,
+        bind: IpAddr,
+        egress: Option<&EgressInterface>,
+        caller: &zero_platform_tokio::contract::scope::TaskJoinWitness,
+    ) -> Result<ControlledIcmpSocket, ChannelError> {
+        self.bind_inner(bind, egress, Some(caller))
+    }
+    fn bind_inner(
+        &self,
+        bind: IpAddr,
+        egress: Option<&EgressInterface>,
+        caller: Option<&zero_platform_tokio::contract::scope::TaskJoinWitness>,
+    ) -> Result<ControlledIcmpSocket, ChannelError> {
         let shared = self.shared()?;
         if shared.cancel.is_cancelled() {
             return Err(error(
@@ -58,7 +76,10 @@ impl HostIcmpProbeGrant {
                 "ICMP grant requires the installed live host owner",
             ));
         }
-        let result = state.native.bind(bind, egress);
+        let result = match caller {
+            Some(caller) => state.native.bind_for_task(bind, egress, caller),
+            None => state.native.bind(bind, egress),
+        };
         state.harvest();
         match result {
             Ok(view) => Ok(view),

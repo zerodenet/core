@@ -5,8 +5,8 @@ use std::{
     collections::BTreeMap,
     num::NonZeroUsize,
     sync::{
-        atomic::{AtomicBool, Ordering},
         Arc, Mutex,
+        atomic::{AtomicBool, Ordering},
     },
     task::Context,
 };
@@ -26,6 +26,7 @@ struct State {
     originals: BTreeMap<usize, Arc<dyn custody::CarrierCustody>>,
     metadata: Vec<Arc<dyn MetadataCustody>>,
     bound: Vec<Arc<dyn BoundCustody>>,
+    source: Vec<Arc<dyn SourceCustody>>,
 }
 struct Original {
     // Strong custody is deliberate until actual native/users/registration
@@ -45,6 +46,7 @@ impl Default for CarrierOriginalTotals {
                 originals: BTreeMap::new(),
                 metadata: Vec::new(),
                 bound: Vec::new(),
+                source: Vec::new(),
             }),
         }
     }
@@ -64,6 +66,7 @@ impl CarrierOriginalTotals {
                 originals: BTreeMap::new(),
                 metadata: Vec::new(),
                 bound: Vec::new(),
+                source: Vec::new(),
             }),
         })
     }
@@ -87,7 +90,8 @@ impl CarrierOriginalTotals {
         if state.limit != limit
             && (!state.originals.is_empty()
                 || !state.metadata.is_empty()
-                || !state.bound.is_empty())
+                || !state.bound.is_empty()
+                || !state.source.is_empty())
         {
             return Err(std::io::Error::new(
                 std::io::ErrorKind::WouldBlock,
@@ -102,7 +106,7 @@ impl CarrierOriginalTotals {
         let state = self.lock();
         CarrierOriginalTotalsSnapshot {
             limit: state.limit,
-            charged: state.originals.len() + state.metadata.len() + state.bound.len(),
+            charged: state.charged(),
         }
     }
     pub(super) fn reserve(
@@ -113,7 +117,7 @@ impl CarrierOriginalTotals {
         // Caller holds the actual owner lock. No witness getter, external wake,
         // source Drop or close operation occurs while this root lock is held.
         let mut state = self.lock();
-        if state.originals.len() + state.metadata.len() + state.bound.len() >= state.limit.get() {
+        if state.charged() >= state.limit.get() {
             return Err(error(
                 owner.instance,
                 Stage::Prepare,
@@ -168,6 +172,12 @@ impl CarrierOriginalTotals {
                 self.release_metadata(&original);
             }
         }
+        let source = self.lock().source.clone();
+        for original in source {
+            if original.released() {
+                self.release_source(&original);
+            }
+        }
         let bound = self.lock().bound.clone();
         for original in bound {
             if original.released() {
@@ -180,6 +190,14 @@ impl CarrierOriginalTotals {
     /// The root never revokes a live sibling, creates a task, or ACKs an exit.
     pub fn poll_cancelled_retirements(&self, cx: &mut Context<'_>) -> bool {
         let mut changed = false;
+        let source = self.lock().source.clone();
+        for original in source {
+            changed |= original.poll_retirement(cx);
+            if original.released() {
+                self.release_source(&original);
+                changed = true;
+            }
+        }
         let metadata = self.lock().metadata.clone();
         for original in metadata {
             changed |= original.poll_retirement(cx);
@@ -219,6 +237,7 @@ impl CarrierOriginalTotals {
     pub fn failures(&self) -> Vec<Arc<ChannelError>> {
         let metadata = self.lock().metadata.clone();
         let bound = self.lock().bound.clone();
+        let source = self.lock().source.clone();
         self.originals()
             .into_iter()
             .filter_map(|(_, original)| original.failure())
@@ -228,6 +247,7 @@ impl CarrierOriginalTotals {
                     .filter_map(|original| original.failure()),
             )
             .chain(bound.into_iter().filter_map(|original| original.failure()))
+            .chain(source.into_iter().filter_map(|original| original.failure()))
             .collect()
     }
 }
@@ -265,3 +285,11 @@ mod datagram;
 
 mod custody;
 pub(crate) use custody::{BoundCustody, MetadataCustody};
+
+mod source;
+pub(crate) use source::SourceCustody;
+impl State {
+    fn charged(&self) -> usize {
+        self.originals.len() + self.metadata.len() + self.bound.len() + self.source.len()
+    }
+}

@@ -54,3 +54,6 @@ fn checked_identity_never_wraps_and_pre_create_unwind_stays_unknown() {
         assert!(Arc::ptr_eq(&first, &report.unconfirmed[0].source));
     }
 }
+
+#[path = "../../tests/controlled_icmp/totals.rs"]
+mod totals;

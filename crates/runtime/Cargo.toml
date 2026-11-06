@@ -35,6 +35,7 @@ futures-util = "0.3"
 tracing.workspace = true
 
 [dev-dependencies]
+zero-platform-tokio = { path = "../platform/tokio", features = ["test-support"] }
 zero-proxy = { path = "../proxy", default-features = false }
 zero-transport = { path = "../transport" }
 zero-dns = { path = "../dns", features = ["test-support", "udp", "doh"] }

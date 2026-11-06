@@ -2,18 +2,18 @@ use super::*;
 use std::{
     net::SocketAddr,
     sync::{
-        atomic::{AtomicBool, Ordering},
         OnceLock,
+        atomic::{AtomicBool, Ordering},
     },
 };
 use tokio::sync::Mutex as AsyncMutex;
 use zero_platform_tokio::{
+    ControlledTcpListener, ControlledTcpListenerOwner,
     contract::{
+        CancellationToken, ChannelError, CloseReason, Impact, Reason, Stage,
         component::ResourceDeclaration,
         lifecycle::{CloseReport, ResourceLifecycle},
-        CancellationToken, ChannelError, CloseReason, Impact, Reason, Stage,
     },
-    ControlledTcpListener, ControlledTcpListenerOwner,
 };
 
 pub(super) struct NativeTcpGrant {
@@ -102,6 +102,17 @@ impl NativeTcpGrant {
             cancel,
             bound: AtomicBool::new(false),
         })
+    }
+    pub(super) fn bind_original_budgets(
+        &self,
+        roots: &Arc<zero_runtime::HostOriginalBudgets>,
+        tasks: &zero_platform_tokio::contract::scope::TaskRegistrar,
+    ) -> Result<(), ChannelError> {
+        let mut native = self
+            .native
+            .try_lock()
+            .map_err(|_| ChannelError::new(Stage::Prepare, Reason::Capacity, Impact::Component))?;
+        native.bind_original_totals(self.identity, tasks, &roots.carrier)
     }
     pub(super) fn accepted_task_receiver(
         &self,

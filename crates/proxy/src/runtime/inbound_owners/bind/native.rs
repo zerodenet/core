@@ -81,7 +81,10 @@ impl NativeBindGrant {
                 registrar.clone(),
                 owner,
             )
-            .map(Arc::new)
+            .and_then(|grant| {
+                grant.bind_original_budgets(&originals)?;
+                Ok(Arc::new(grant))
+            })
             .map(Self::Handoff);
         }
         match declaration {
@@ -104,6 +107,9 @@ impl NativeBindGrant {
                     originals.clone(),
                 )?;
                 let tcp = tcp_group::prepare(identity, declarations, attempts, cancel, registrar)?;
+                for (_, grant) in &tcp {
+                    grant.bind_original_budgets(&originals, registrar)?;
+                }
                 Ok(Self::Metadata { resources, tcp })
             }
             ResourceDeclaration::TcpListener { .. } => grant::NativeTcpGrant::new(
@@ -114,7 +120,10 @@ impl NativeBindGrant {
                 cancel,
                 registrar,
             )
-            .map(Arc::new)
+            .and_then(|grant| {
+                grant.bind_original_budgets(&originals, registrar)?;
+                Ok(Arc::new(grant))
+            })
             .map(Self::Tcp),
             #[cfg(feature = "datagram-route-runtime")]
             ResourceDeclaration::DatagramListener { .. } => udp::NativeDatagramGrant::new_scoped(

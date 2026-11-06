@@ -7,7 +7,7 @@ impl CarrierOriginalTotals {
         original: Arc<crate::controlled_datagram::metadata_pool::MetadataTotalsOriginal>,
     ) -> Result<(), ChannelError> {
         let mut state = self.lock();
-        if state.originals.len() + state.metadata.len() + state.bound.len() >= state.limit.get() {
+        if state.charged() >= state.limit.get() {
             return Err(error(
                 original.instance(),
                 Stage::Prepare,
@@ -37,7 +37,7 @@ impl CarrierOriginalTotals {
         original: Arc<crate::controlled_datagram::BoundTotalsOriginal>,
     ) -> Result<(), ChannelError> {
         let mut state = self.lock();
-        if state.originals.len() + state.metadata.len() + state.bound.len() >= state.limit.get() {
+        if state.charged() >= state.limit.get() {
             return Err(error(
                 original.instance(),
                 Stage::Prepare,

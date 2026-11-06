@@ -12,7 +12,9 @@ mod lifecycle;
 mod logging;
 mod pending_dns;
 mod reconcile;
-pub(in crate::runtime) use reconcile::budget_barrier::ss_source_budget_changed;
+pub(in crate::runtime) use reconcile::budget_barrier::{
+    carrier_budget_changed, source_total_resources, ss_source_budget_changed,
+};
 mod startup;
 mod state;
 pub(super) mod statistics;

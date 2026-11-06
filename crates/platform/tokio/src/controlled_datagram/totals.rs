@@ -1,8 +1,8 @@
 //! Original Bound UDP Entry custody in the same actual Host aggregate.
 use super::*;
 use crate::contract::{
-    scope::TaskJoinWitness, BoxFuture, CancellationToken, ChannelError, DeliveryState, Impact,
-    Reason, Stage,
+    BoxFuture, CancellationToken, ChannelError, DeliveryState, Impact, Reason, Stage,
+    scope::TaskJoinWitness,
 };
 use crate::controlled_carrier::CarrierOriginalTotals;
 use std::{
@@ -70,7 +70,7 @@ impl ControlledDatagramOwner {
             }
             return Ok(());
         }
-        if self.next != 0 || !self.entries.is_empty() {
+        if self.next != 0 || !self.entries.is_empty() || self.source_totals.is_some() {
             return Err(std_io::Error::new(
                 std_io::ErrorKind::InvalidInput,
                 "UDP total must bind before first original",
@@ -172,6 +172,7 @@ impl BoundTotalsOriginal {
 impl Drop for ControlledDatagramSocket {
     fn drop(&mut self) {
         self.entry.view_live.store(false, Ordering::Release);
+        self.entry.source_changed.notify_waiters();
     }
 }
 #[derive(Debug)]

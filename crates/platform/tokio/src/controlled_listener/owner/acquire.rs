@@ -4,6 +4,9 @@ type Failure = (&'static str, io::Error);
 pub(super) fn bind(state: &mut State, address: SocketAddr) -> Result<(), Failure> {
     let original = super::create::socket(address).map_err(|source| ("create_socket", source))?;
     state.raw = Some(original.into());
+    if let Some(attempt) = state.attempt.as_ref().and_then(std::sync::Weak::upgrade) {
+        attempt.acquired();
+    }
     {
         let original = socket2::SockRef::from(state.raw.as_ref().expect("installed original"));
         #[cfg(unix)]

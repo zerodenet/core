@@ -11,6 +11,15 @@ impl ControlledIcmpOwner {
         let entry = self.reserve(address.is_ipv6())?;
         self.bind_entry(entry, address, egress, || {})
     }
+    pub fn bind_for_task(
+        &mut self,
+        address: IpAddr,
+        egress: Option<&EgressInterface>,
+        caller: &crate::contract::scope::TaskJoinWitness,
+    ) -> Result<ControlledIcmpSocket, IcmpAcquisitionError> {
+        let entry = self.reserve_for(address.is_ipv6(), Some(caller.clone()))?;
+        self.bind_entry(entry, address, egress, || {})
+    }
     pub(super) fn bind_entry(
         &mut self,
         entry: Arc<Entry>,
@@ -18,6 +27,7 @@ impl ControlledIcmpOwner {
         egress: Option<&EgressInterface>,
         after_create: impl FnOnce(),
     ) -> Result<ControlledIcmpSocket, IcmpAcquisitionError> {
+        let _creation = totals::Creation(entry.clone());
         // A create unwind has no proven disposition. Only an actual returned
         // error may turn this sentinel into KnownNoNative.
         *entry.native() = Native::Unknown(entry.uncertain.clone());
@@ -93,6 +103,9 @@ impl ControlledIcmpOwner {
                 }
             }
         }
+        entry
+            .view_live
+            .store(true, std::sync::atomic::Ordering::Release);
         Ok(ControlledIcmpSocket { entry })
     }
     fn no_native(&mut self, entry: &Arc<Entry>, source: std_io::Error) -> IcmpAcquisitionError {

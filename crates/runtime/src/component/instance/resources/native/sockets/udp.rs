@@ -50,6 +50,19 @@ impl DatagramGrant {
             acquisition_source: None,
         })
     }
+    pub(in crate::component) fn bind_source_totals(
+        &mut self,
+        binding: zero_platform_tokio::controlled_datagram::SourceDatagramTotalsBinding,
+    ) -> Result<(), ChannelError> {
+        self.owner.bind_source_totals(binding).map_err(|source| {
+            ChannelError::new(
+                Stage::Prepare,
+                Reason::StalePlan,
+                zero_platform_tokio::contract::Impact::Component,
+            )
+            .with_source(source)
+        })
+    }
     pub(in crate::component) fn known_no_acquisition(&self) -> bool {
         !self.attempted
     }

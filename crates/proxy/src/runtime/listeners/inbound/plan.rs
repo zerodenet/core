@@ -66,11 +66,24 @@ pub(super) fn prepare(
         let mode_changed = current.is_some()
             && protocols
                 .inbound_listener_requires_restart(&runtime_factory.listener_config(inbound))?;
+        let accounting_prepared =
+            if crate::runtime::orchestration::carrier_budget_changed(&previous_config, config) {
+                protocols.prepare_inbound_bind_in_config(
+                    runtime_factory.listener_config(inbound),
+                    config,
+                )?
+            } else {
+                None
+            };
+        let source_total_changed = accounting_prepared.as_ref().is_some_and(|prepared| {
+            crate::runtime::orchestration::source_total_resources(prepared.resources())
+        });
         let replay_budget_changed = inbound.protocol.protocol_name() == "shadowsocks"
             && crate::runtime::orchestration::ss_source_budget_changed(&previous_config, config);
         let reuse = running
             && !mode_changed
             && !replay_budget_changed
+            && !source_total_changed
             && current.is_some_and(|current| {
                 !requires_listener_restart(
                     &rollback_runtime_factory.listener_config(current),
@@ -78,6 +91,7 @@ pub(super) fn prepare(
                 )
             });
         let update = running
+            && !source_total_changed
             && current.is_some_and(|current| {
                 current.listen == inbound.listen
                     && current.protocol.protocol_name() == inbound.protocol.protocol_name()
@@ -87,8 +101,13 @@ pub(super) fn prepare(
         let prepared = if reuse {
             None
         } else {
-            protocols
-                .prepare_inbound_bind_in_config(runtime_factory.listener_config(inbound), config)?
+            match accounting_prepared {
+                Some(prepared) => Some(prepared),
+                None => protocols.prepare_inbound_bind_in_config(
+                    runtime_factory.listener_config(inbound),
+                    config,
+                )?,
+            }
         };
         candidates.push(Candidate {
             inbound: inbound.clone(),

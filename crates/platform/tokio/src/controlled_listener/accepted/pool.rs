@@ -7,6 +7,7 @@ impl Pool {
             cancel,
             relay: Arc::new(relay::AcceptRelay::new()),
             graph: None,
+            originals: OnceLock::new(),
             logical_custody: Arc::new(std::sync::atomic::AtomicUsize::new(0)),
             state: Mutex::new(PoolState {
                 next: 0,

@@ -5,13 +5,13 @@ use std::{
     sync::{Mutex, OnceLock},
 };
 use zero_platform_tokio::contract::{
+    ChannelError, CloseReason, Impact, Reason, Stage,
     component::{
         BuildContext, ComponentFactory, ComponentInstance, ComponentRoles, ComponentSpec,
         ResourceOwner,
     },
-    lifecycle::{erase_lifecycle, BuildError, CloseReport, ResourceLifecycle, Unfinished},
+    lifecycle::{BuildError, CloseReport, ResourceLifecycle, Unfinished, erase_lifecycle},
     scope::WeakTaskRegistrar,
-    ChannelError, CloseReason, Impact, Reason, Stage,
 };
 
 pub(in crate::adapters::wireguard::lifecycle) struct LinkedStackFactory;
@@ -20,6 +20,7 @@ pub(in crate::adapters::wireguard) struct LinkedStackOptions {
     pub(super) carrier: OnceLock<std::sync::Weak<super::carrier::Carrier>>,
     pub(super) resource: OnceLock<zero_core::component::ComponentId>,
     pub(super) spec: ComponentSpec,
+    source_total_limit: Option<usize>,
     tag: String,
     map: super::super::PendingEndpointMap,
     pub(super) pending: Arc<PendingLinkedEndpoint>,
@@ -52,6 +53,7 @@ impl LinkedStackOptions {
                 resources: Vec::new(),
                 task_limit,
             },
+            source_total_limit: recipe.source_total_limit,
             tag: recipe.tag.clone(),
             map: recipe
                 .map
@@ -68,6 +70,12 @@ impl LinkedStackOptions {
         &self,
         resources: &crate::component::ResourcePreparation<'_>,
     ) -> bool {
+        let candidate_limit = resources
+            .candidate()
+            .map(|candidate| candidate.runtime.effective_carrier_max_total_originals());
+        if self.source_total_limit.is_none() || self.source_total_limit != candidate_limit {
+            return false;
+        }
         let scope = self.scope.lock().unwrap_or_else(|e| e.into_inner()).clone();
         resources.can_reuse_shared_resource(SHARED_NAMESPACE, &self.spec, scope.as_ref())
     }

@@ -181,10 +181,12 @@ async fn owner_shutdown_wakes_retained_receiver_and_failed_exact_bind_has_real_c
 #[test]
 fn actual_registration_panic_retains_unknown_source_and_charged_original() {
     let mut owner = ControlledDatagramOwner::new(bound(1));
-    assert!(std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-        let _ = owner.bind_listener(address(), bound(1));
-    }))
-    .is_err());
+    assert!(
+        std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            let _ = owner.bind_listener(address(), bound(1));
+        }))
+        .is_err()
+    );
     let first = owner.close_all();
     let retry = owner.close_all();
     assert!(!first.is_complete());
@@ -231,3 +233,5 @@ async fn oversized_native_send_keeps_source_and_listener_healthy() {
 mod observers;
 mod raw_waker;
 mod reentry;
+
+mod totals;

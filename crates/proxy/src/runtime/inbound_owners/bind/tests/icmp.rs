@@ -1,6 +1,6 @@
 //! No native ICMP permission is needed to verify cold/revoked authority gates.
 use super::*;
-use zero_platform_tokio::contract::{component::ResourceDeclaration, Reason};
+use zero_platform_tokio::contract::{Reason, component::ResourceDeclaration};
 
 #[tokio::test]
 async fn canonical_icmp_grant_is_same_instance_cold_and_revoked_before_native_io() {
@@ -26,9 +26,12 @@ async fn canonical_icmp_grant_is_same_instance_cold_and_revoked_before_native_io
         .unwrap();
     let actual = lease.owner();
     actual
-        .install_icmp_probe(&ResourceDeclaration::NativeIcmp {
-            max_sockets: NonZeroUsize::new(64).unwrap(),
-        })
+        .install_icmp_probe(
+            &ResourceDeclaration::NativeIcmp {
+                max_sockets: NonZeroUsize::new(64).unwrap(),
+            },
+            proxy.protocols.runtime_host().original_budgets(),
+        )
         .unwrap();
     lease.bind_native().unwrap();
     let (operation, view, installed) = lease.finish().unwrap().promote_native().unwrap();

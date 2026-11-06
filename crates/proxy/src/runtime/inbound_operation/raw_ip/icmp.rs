@@ -3,13 +3,13 @@
 use std::{
     net::{IpAddr, Ipv4Addr, Ipv6Addr},
     sync::{
-        atomic::{AtomicU16, Ordering},
         Arc,
+        atomic::{AtomicU16, Ordering},
     },
     time::Duration,
 };
 
-use tokio::sync::{watch, Semaphore};
+use tokio::sync::{Semaphore, watch};
 use zero_platform_tokio::{EgressInterface, IcmpSocket};
 use zero_stack::packet;
 
@@ -87,11 +87,11 @@ impl IcmpEchoRelay {
         let mut shutdown = self.shutdown.clone();
         let owned = self.tasks.is_some();
         let native = self.native.clone();
-        let probe = async move {
+        let make = move |caller: Option<zero_platform_tokio::contract::scope::TaskJoinWitness>| async move {
             let _permit = permit;
             let result = tokio::select! {
                 result = async {
-                    if owned { probe::owned(&packet, mtu, egress.as_ref(), native).await }
+                    if owned { probe::owned(&packet, mtu, egress.as_ref(), native, caller).await }
                     else { probe(&packet, mtu, egress.as_ref()).await }
                 } => result,
                 _ = shutdown.changed() => return,
@@ -120,9 +120,9 @@ impl IcmpEchoRelay {
                     }
                 }
             }
-            let _ = tasks.spawn(probe);
+            let _ = tasks.spawn_with_witness(move |witness| make(Some(witness)));
         } else {
-            tokio::spawn(probe); // Ordinary TUN retains its existing execution path.
+            tokio::spawn(make(None)); // Ordinary TUN retains its existing execution path.
         }
         true
     }

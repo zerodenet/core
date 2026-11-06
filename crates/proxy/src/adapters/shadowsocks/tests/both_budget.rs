@@ -21,8 +21,8 @@ async fn source_and_outbound_budget_change_rejects_before_revoking_any_admitted_
     actual_budget_change(false).await;
 }
 #[tokio::test]
-async fn whole_kernel_custody_shrink_pauses_all_sources_keeps_live_business_and_original_security_history(
-) {
+async fn whole_kernel_custody_shrink_pauses_all_sources_keeps_live_business_and_original_security_history()
+ {
     actual_budget_change(true).await;
 }
 async fn actual_budget_change(global: bool) {
@@ -127,14 +127,13 @@ async fn actual_budget_change(global: bool) {
             phase.set("growth ACK: original native and Scope facts");
             if let Some(owner) = &local {
                 if global {
+                    originals::source_closed(owner, 3);
                     let current = registry.owner("salt-source").unwrap();
-                    assert!(Arc::ptr_eq(owner, &current),"global-only cap does not replace an uncharged SS Source");
-                    assert_eq!(owner.identity(),current.identity());
-                    let original = local_scope.as_ref().unwrap();
-                    assert!(original.same_scope(&current.original_scope_for_test()));
-                    assert!(original.resource_open());
-                    assert!(owner.is_running());
-                    assert!(owner.terminal_for_test().is_none(),"retained Source is not fabricated as closed");
+                    assert!(!Arc::ptr_eq(owner, &current), "charged Source is actually replaced");
+                    assert_ne!(owner.identity(), current.identity());
+                    assert!(!local_scope.as_ref().unwrap().same_scope(&current.original_scope_for_test()));
+                    assert!(!local_scope.as_ref().unwrap().resource_open());
+                    assert!(current.is_running());
                 } else {
                 let closed = owner.terminal_for_test().expect("same old SS Source native/Scope retired before shared outbound budget ACK");
                 assert_eq!(closed.identity(), owner.identity());
@@ -147,22 +146,36 @@ async fn actual_budget_change(global: bool) {
             if global {
                 assert!(Arc::ptr_eq(&total,&proxy.protocols.runtime_host().original_budgets()));
                 assert_eq!(total.carrier.snapshot().limit.get(),8);
-                assert_eq!(total.carrier.snapshot().charged,0,"real old caller/driver ACK and native/users debts settled before cap install");
+                let current_config = proxy.engine().config();
+                let mut listener_originals = 0;
+                for input in &current_config.inbounds {
+                    let prepared = proxy.protocols.prepare_inbound_bind_in_config(input.clone(), &current_config)
+                        .unwrap().expect("same actual running source declaration");
+                    use zero_platform_tokio::contract::component::ResourceDeclaration as R;
+                    listener_originals += prepared.resources().iter().filter(|resource| matches!(resource,
+                        R::TcpListener { .. } | R::DatagramListener { .. } | R::MetadataDatagram { .. })).count();
+                }
+                assert_eq!(total.carrier.snapshot().charged, listener_originals,
+                    "only the new actual listening originals remain; old caller/driver ACK/native/user debts retired");
                 assert!(Arc::ptr_eq(replay.as_ref().unwrap(),&replay_slot(&proxy)),"same actual security book/maintenance survives accounting-only replacement");
                 let current = registry.owner("entry").unwrap();
-                assert!(Arc::ptr_eq(&entry, &current),"same uncharged non-SS listener retains its exact original owner");
-                assert_eq!(entry.identity(),current.identity());
-                assert!(entry_scope.same_scope(&current.original_scope_for_test()));
-                assert!(entry_scope.resource_open());
+                assert!(!Arc::ptr_eq(&entry, &current), "charged non-SS listener also requires real StopOld");
+                assert_ne!(entry.identity(), current.identity());
+                assert!(!entry_scope.same_scope(&current.original_scope_for_test()));
+                assert!(!entry_scope.resource_open());
                 assert_eq!(current.original_listener_address.get(),Some(&entry_native_address));
-                assert!(entry.is_running());
-                assert!(entry.terminal_for_test().is_none(),"pause is not a native or Scope close receipt");
+                assert!(current.is_running());
+                originals::source_closed(&entry, 2);
+
             }
             let replacement = registry.owner("salt-source");
+            let current_entry = registry.owner("entry").unwrap();
             phase.set("final original graph shutdown and matching receipts");
             running.shutdown().await.unwrap();
             phase.set("all original cleanup complete");
             originals::source_closed(&entry, 2);
+            originals::source_closed(&current_entry, 2);
+            assert_eq!(total.carrier.snapshot().charged, 0, "all actual Source originals/Scope ACKs closed on final shutdown");
             if let Some(owner) = local { originals::source_closed(&owner, 3); }
             if let Some(owner) = replacement { originals::source_closed(&owner, 2); }
             if let Some(original) = incoming_original { original.assert_owner_closed(); }

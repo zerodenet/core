@@ -5,7 +5,7 @@ pub(super) mod carrier;
 pub(super) mod component;
 mod invocation;
 pub(super) mod retained;
-use super::{inbound, invalid, PendingLinkedEndpoint, WireguardAdapter, WireguardRawIpPlan};
+use super::{PendingLinkedEndpoint, WireguardAdapter, WireguardRawIpPlan, inbound, invalid};
 use crate::{
     protocol_registry::UpstreamConnectServices,
     runtime::{
@@ -40,6 +40,7 @@ pub(super) struct LinkedEndpointRecipe {
     stacks: Vec<EndpointStackRecipe>,
     io: inbound::EndpointIoRecipe,
     static_identity: Arc<[u8]>,
+    source_total_limit: Option<usize>,
     reuse: Option<std::sync::Weak<LinkedStackOptions>>,
     dependencies: Vec<ComponentId>,
 }
@@ -84,7 +85,7 @@ impl LinkedEndpointRecipe {
             _ => {
                 return Err(invalid(
                     "cold linked recipe requires its actual plain linked WireGuard outbound",
-                ))
+                ));
             }
         }
         if !settings.stacks.is_empty() && settings.stacks.len() != plan.peer_count() {
@@ -200,6 +201,9 @@ impl LinkedEndpointRecipe {
             stacks,
             io,
             static_identity,
+            source_total_limit: resources
+                .and_then(|resources| resources.candidate())
+                .map(|candidate| candidate.runtime.effective_carrier_max_total_originals()),
             reuse,
             dependencies: settings
                 .dependencies

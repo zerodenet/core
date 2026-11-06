@@ -43,13 +43,13 @@ impl DatagramBindingAuthorization for NativePolicy {
     }
 }
 
-fn declaration() -> ResourceDeclaration {
+pub(super) fn declaration() -> ResourceDeclaration {
     ResourceDeclaration::BoundOutboundDatagram {
         max_sockets: NonZeroUsize::new(1).unwrap(),
         max_bindings: NonZeroUsize::new(1).unwrap(),
     }
 }
-fn instance() -> ComponentInstanceId {
+pub(super) fn instance() -> ComponentInstanceId {
     ComponentInstanceId {
         component: ComponentCatalog::default().allocate_id().unwrap(),
         generation: ResourceGeneration(1),
@@ -61,7 +61,10 @@ fn source() -> Arc<NativePolicy> {
         egress: EgressInterfaceControl::default(),
     })
 }
-fn request(provider: &HostBoundDatagramResources, peer: SocketAddr) -> BoundDatagramRequest {
+pub(super) fn request(
+    provider: &HostBoundDatagramResources,
+    peer: SocketAddr,
+) -> BoundDatagramRequest {
     let source = source();
     let generation = NetworkGeneration(source.egress.generation());
     BoundDatagramRequest {

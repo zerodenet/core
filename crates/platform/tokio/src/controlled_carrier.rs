@@ -4,7 +4,7 @@
 mod adoption;
 mod caller_credit;
 mod totals;
-pub(crate) use totals::{BoundCustody, MetadataCustody};
+pub(crate) use totals::{BoundCustody, MetadataCustody, SourceCustody};
 pub use totals::{CarrierOriginalTotals, CarrierOriginalTotalsSnapshot};
 mod auxiliary;
 mod binding;
