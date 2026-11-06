@@ -12,6 +12,8 @@ use super::services::ApplicationServices;
 use crate::http_adapter;
 use crate::{ipc, rule_set_fetch};
 
+#[cfg(feature="grpc-api")]
+mod control_material;
 mod control_failure;
 use control_failure::RunFailures;
 
@@ -290,6 +292,7 @@ fn status_server_spec(
         control,
         engine.config().source_dir(),
         &engine.configuration_source_owner(),
+        engine.config().runtime.effective_file_read_max_bytes(),
     )?;
 
     let control_listen = zero_core::address::format_socket_addr(&listen.address, listen.port);
@@ -310,6 +313,7 @@ fn grpc_server_security(
     control: &zero_config::ControlApiConfig,
     source_dir: Option<&std::path::Path>,
     source: &std::sync::Arc<zero_runtime::configuration::ConfigurationSource>,
+    max_bytes: usize,
 ) -> Result<zero_grpc::GrpcServerSecurity, Box<dyn Error>> {
     let grpc = control.grpc.as_ref().cloned().unwrap_or_default();
     let auth = if grpc.bearer_auth {
@@ -321,7 +325,7 @@ fn grpc_server_security(
     let tls = grpc
         .tls
         .as_ref()
-        .map(|tls| load_grpc_tls(tls, source_dir, source))
+        .map(|tls| load_grpc_tls(tls, source_dir, source, max_bytes))
         .transpose()?;
     Ok(zero_grpc::GrpcServerSecurity {
         auth,
@@ -335,30 +339,16 @@ fn load_grpc_tls(
     config: &zero_config::ControlGrpcTlsConfig,
     source_dir: Option<&std::path::Path>,
     source: &std::sync::Arc<zero_runtime::configuration::ConfigurationSource>,
+    max_bytes: usize,
 ) -> Result<zero_grpc::GrpcServerTls, Box<dyn Error>> {
     let cert_path = resolve_config_path(&config.cert_path, source_dir);
     let key_path = resolve_config_path(&config.key_path, source_dir);
-    let cert_pem = source.read_initial_material(&cert_path).map_err(|error| {
-        std::io::Error::other(format!(
-            "read gRPC TLS certificate `{}`: {error}",
-            cert_path.display()
-        ))
-    })?;
-    let key_pem = source.read_initial_material(&key_path).map_err(|error| {
-        std::io::Error::other(format!(
-            "read gRPC TLS private key `{}`: {error}",
-            key_path.display()
-        ))
-    })?;
+    let cert_pem = control_material::read(source,&cert_path,"TLS certificate",max_bytes)?;
+    let key_pem = control_material::read(source,&key_path,"TLS private key",max_bytes)?;
     let mut tls = zero_grpc::GrpcServerTls::new(cert_pem, key_pem);
     if let Some(path) = &config.client_ca_cert_path {
         let path = resolve_config_path(path, source_dir);
-        let client_ca = source.read_initial_material(&path).map_err(|error| {
-            std::io::Error::other(format!(
-                "read gRPC mTLS client CA `{}`: {error}",
-                path.display()
-            ))
-        })?;
+        let client_ca = control_material::read(source,&path,"mTLS client CA",max_bytes)?;
         tls = tls.with_client_ca(client_ca);
     }
     Ok(tls)
