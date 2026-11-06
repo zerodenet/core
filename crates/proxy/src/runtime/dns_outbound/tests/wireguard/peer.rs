@@ -1,5 +1,5 @@
 //! External WG peer forwards actual inner UDP/TCP to the held DNS fixture.
-use base64::{engine::general_purpose::STANDARD, Engine as _};
+use base64::{Engine as _, engine::general_purpose::STANDARD};
 use gotatun::x25519::{PublicKey, StaticSecret};
 use std::net::{Ipv4Addr, SocketAddr};
 use tokio::{
@@ -9,10 +9,10 @@ use tokio::{
 };
 use wireguard::{
     runtime::{PeerTunnel, TunnelAction},
-    validation::{validate_outbound, OutboundInput, PeerInput},
+    validation::{OutboundInput, PeerInput, validate_outbound},
 };
 use zero_platform_tokio::contract::CancellationToken;
-use zero_stack::{packet, UserNetworkStack};
+use zero_stack::{UserNetworkStack, packet};
 use zero_traits::TcpStack;
 pub(super) fn public(seed: u8) -> String {
     STANDARD.encode(PublicKey::from(&StaticSecret::from([seed; 32])).as_bytes())
@@ -24,6 +24,9 @@ pub(super) struct Peer {
 }
 impl Peer {
     pub async fn new(dns: SocketAddr) -> Self {
+        Self::with_tcp(dns, None).await
+    }
+    pub(super) async fn with_tcp(dns: SocketAddr, business: Option<SocketAddr>) -> Self {
         let socket = UdpSocket::bind((Ipv4Addr::LOCALHOST, 0)).await.unwrap();
         let address = socket.local_addr().unwrap();
         let private = STANDARD.encode([122; 32]);
@@ -59,11 +62,13 @@ impl Peer {
                     _=cancel.cancelled()=>break,
                     result=children.join_next(), if !children.is_empty()=>{result.unwrap().unwrap();continue;},
                     accepted=tcp.accept()=>{
-                        let (mut stream,_,_)=accepted.unwrap();
+                        let (mut stream,_,destination)=accepted.unwrap();
+                        let target = business.filter(|target|target.port()==destination.port).unwrap_or(dns);
+                        assert_eq!(destination.port,target.port());
                         let cancel=cancel.clone();
                         children.spawn(async move {
                             tokio::select! {biased;_=cancel.cancelled()=>{},_=async {
-                                let mut target=TcpStream::connect(dns).await.unwrap();
+                                let mut target=TcpStream::connect(target).await.unwrap();
                                 // EOF/reset at this external peer is not used
                                 // as any controller or Scope close evidence.
                                 let _wire=tokio::io::copy_bidirectional(&mut stream,&mut target).await;

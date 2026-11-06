@@ -33,8 +33,16 @@ async fn start_server(
 }
 async fn start_server_mode(
     peer: &peer::Peer,
+    backend: zero_config::DnsServerConfig,
+    linked: bool,
+) -> (Proxy, crate::RunningProxy) {
+    start_server_with_business(peer, backend, linked, false).await
+}
+async fn start_server_with_business(
+    peer: &peer::Peer,
     mut backend: zero_config::DnsServerConfig,
     linked: bool,
+    business: bool,
 ) -> (Proxy, crate::RunningProxy) {
     match &mut backend {
         zero_config::DnsServerConfig::Udp { host, detour, .. }
@@ -57,6 +65,17 @@ async fn start_server_mode(
             .as_object_mut()
             .unwrap()
             .remove("inbound_tag");
+    }
+    if business {
+        let inbounds = document
+            .as_object_mut()
+            .unwrap()
+            .entry("inbounds")
+            .or_insert_with(|| serde_json::json!([]))
+            .as_array_mut()
+            .unwrap();
+        inbounds.push(serde_json::json!({"tag":"entry","listen":{"address":"127.0.0.1","port":0},"protocol":{"type":"socks5"}}));
+        document["route"]["rules"] = serde_json::json!([{"condition":{"type":"inbound","values":["entry"]},"action":{"type":"route","outbound":"wg"}}]);
     }
     let config = zero_config::RuntimeConfig::parse(&document.to_string()).unwrap();
     let proxy = Proxy::new(config.clone()).unwrap();
@@ -190,3 +209,6 @@ async fn ordinary_linked_wireguard_truncated_dns_retires_udp_before_actual_frame
 mod encrypted;
 
 mod standalone;
+
+#[cfg(feature = "socks5")]
+mod warm;
