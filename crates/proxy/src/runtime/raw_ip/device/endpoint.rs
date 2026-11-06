@@ -1,4 +1,5 @@
 //! Active client stacks attached to a neutral bidirectional IP endpoint.
+mod readiness;
 
 #[cfg_attr(
     not(test),
@@ -116,7 +117,7 @@ impl SharedRawIpDevice {
         );
         let closed = Arc::new(AtomicBool::new(false));
         let health = Arc::new(Mutex::new(DeviceHealth::default()));
-        let (_ready_tx, ready) = watch::channel(Some(Ok(())));
+        let (ready_tx, ready) = watch::channel(None);
         let stack = EndpointStack {
             peer,
             endpoint,
@@ -127,10 +128,7 @@ impl SharedRawIpDevice {
             closed: closed.clone(),
             returns: returns.clone(),
         };
-        task.spawn_driver(async move {
-            run_endpoint_stack(stack).await;
-            Ok(())
-        })?;
+        task.spawn_driver(readiness::run(stack, ready_tx))?;
         Ok(Arc::new(Self {
             incarnation: super::super::next_incarnation(),
             udp,
@@ -228,7 +226,7 @@ struct EndpointStack {
     returns: Arc<PacketReturns>,
 }
 
-async fn run_endpoint_stack(stack: EndpointStack) {
+async fn run_endpoint_stack(stack: EndpointStack) -> Result<(), EngineError> {
     let EndpointStack {
         peer,
         mut endpoint,
@@ -255,7 +253,7 @@ async fn run_endpoint_stack(stack: EndpointStack) {
                 for packet in packets {
                     if !send_endpoint_packet(&mut endpoint, EndpointPacket { peer, packet: packet.into(), observer: observer.clone(), closed: closed.clone(), return_channel: None }).await {
                         closed.store(true, Ordering::Release);
-                        return;
+                        return Ok(());
                     }
                 }
             }
@@ -265,13 +263,14 @@ async fn run_endpoint_stack(stack: EndpointStack) {
                     if return_channel.is_closed() { if let Some(observer) = &observer { observer.dropped_reason(zero_traits::PacketDropReason::QueueClosed); } continue; }
                     if !send_endpoint_packet(&mut endpoint, EndpointPacket { peer, packet, observer: observer.clone(), closed: closed.clone(), return_channel: Some(return_channel.clone()) }).await {
                         closed.store(true, Ordering::Release);
-                        return;
+                        return Ok(());
                     }
                 }
             }
         }
     }
     closed.store(true, Ordering::Release);
+    Ok(())
 }
 
 async fn send_endpoint_packet(
