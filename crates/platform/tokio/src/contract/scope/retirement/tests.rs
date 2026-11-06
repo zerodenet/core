@@ -25,11 +25,19 @@ async fn same_scope_observation_waits_for_actual_join_and_deferred_host_ack() {
         !observation.is_drained(),
         "actual joined exit still awaits Host ACK"
     );
+    let waiting = observation.wait_drained();
+    tokio::pin!(waiting);
+    std::future::poll_fn(|cx| {
+        assert!(std::future::Future::poll(waiting.as_mut(), cx).is_pending());
+        Poll::Ready(())
+    })
+    .await;
     let callbacks = scope.defer_callbacks();
     scope.acknowledge(&receipt).unwrap();
     assert!(!observation.is_drained());
     drop(callbacks);
     assert!(observation.is_drained());
+    waiting.await;
     assert!(scope.next_receipt().await.is_none());
 }
 

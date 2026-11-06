@@ -28,6 +28,28 @@ impl ScopeRetirementObservation {
             && state.tasks.is_empty()
             && state.completed.is_empty()
     }
+    /// Passive wait on this original Scope's notification. Call outside owner
+    /// and Scope locks. It never polls JoinSet, consumes an exit or ACKs one.
+    pub async fn wait_drained(&self) {
+        loop {
+            let changed = self.0.changed.notified();
+            tokio::pin!(changed);
+            changed.as_mut().enable();
+            // A contended nonblocking read followed by waiting could miss the
+            // last change. This short exact census read observes it after the
+            // producer releases State, without needing another notification.
+            let drained = self.0.state.lock().is_ok_and(|state| {
+                state.closing
+                    && state.records.is_empty()
+                    && state.tasks.is_empty()
+                    && state.completed.is_empty()
+            });
+            if drained {
+                return;
+            }
+            changed.await;
+        }
+    }
 }
 impl TaskRegistrar {
     pub fn retirement_observation(&self) -> ScopeRetirementObservation {
