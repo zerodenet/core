@@ -453,7 +453,7 @@ pub(crate) fn compiled_registries_with_network(
                 move |input, resources| {
                     outbound_adapter
                         .linked_outbound_options(input, resources)
-                        .map_err(crate::component::RegistrationError::Options)
+                        .map_err(crate::component::RegistrationError::from)
                 },
             )
             .expect("unique canonical WireGuard outbound registration");

@@ -12,6 +12,36 @@ pub(super) struct PacketOpener {
     pub(super) binding: UpstreamBinding,
 }
 impl UpstreamOpener for PacketOpener {
+    fn open_stream(
+        &self,
+        _: &UpstreamBinding,
+        _: Destination,
+        _: CarrierContext,
+    ) -> BoxFuture<'_, Result<zero_platform_tokio::contract::stream::BoxStream, ChannelError>> {
+        Box::pin(async {
+            Err(invalid(
+                Reason::Unsupported,
+                "inner Packet resolver has no native Stream issuer",
+            ))
+        })
+    }
+    fn open_datagram(
+        &self,
+        _: &UpstreamBinding,
+        _: zero_platform_tokio::contract::datagram::DatagramRequest,
+        _: CarrierContext,
+    ) -> BoxFuture<
+        '_,
+        Result<zero_platform_tokio::contract::datagram::BoxDatagramSession, ChannelError>,
+    > {
+        Box::pin(async {
+            Err(invalid(
+                Reason::Unsupported,
+                "inner Packet resolver has no native Datagram issuer",
+            ))
+        })
+    }
+
     fn resolve_packet_target(
         &self,
         binding: &UpstreamBinding,
