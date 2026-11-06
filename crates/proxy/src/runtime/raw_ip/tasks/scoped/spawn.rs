@@ -12,6 +12,7 @@ impl<T: TaskOutput> ScopedSourceTasks<T> {
         F: FnOnce(TaskJoinWitness) -> Fut + Send + 'static,
         Fut: Future<Output = T> + Send + 'static,
     {
+        self.reap_released();
         let scope = self
             .inner
             .scope
@@ -21,6 +22,7 @@ impl<T: TaskOutput> ScopedSourceTasks<T> {
         let record = Arc::new(Record {
             witness: OnceLock::new(),
             output: Mutex::new(None),
+            delivered: std::sync::atomic::AtomicBool::new(false),
         });
         {
             let mut state = self.inner.state.lock().unwrap();
