@@ -117,3 +117,6 @@ mod vless_grpc;
 
 #[cfg(all(feature = "wireguard", feature = "raw-ip-runtime"))]
 mod wireguard;
+
+#[cfg(feature = "vless")]
+mod vless_stream;
