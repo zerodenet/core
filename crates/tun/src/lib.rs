@@ -17,6 +17,7 @@ mod adopt;
 mod channels;
 mod owned;
 mod owned_channels;
+pub mod packet_memory;
 pub use owned_channels::OwnedTunChannels;
 #[cfg(any(target_os = "linux", target_os = "macos"))]
 mod owned_adopt;
@@ -151,7 +152,8 @@ pub use macos_privilege::run_utun_create_helper;
 mod windows;
 #[cfg(target_os = "windows")]
 pub use windows::{
-    ExistingWindowsTun, OwnedWintunIo, OwnedWintunOwner, WindowsTun, WintunAcquisitionOutcome,
+    ExistingWindowsTun, OwnedWintunIo, OwnedWintunOwner, OwnedWintunReadWork, WindowsTun,
+    WintunAcquisitionOutcome,
 };
 
 /// Create a new TUN device for the current platform.

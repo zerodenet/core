@@ -1,3 +1,5 @@
+mod owned;
+pub use owned::OwnedFragmentReassembler;
 use std::collections::{BTreeMap, HashMap};
 use std::time::{Duration, Instant};
 

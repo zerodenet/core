@@ -1,7 +1,6 @@
 //! Actual host-fence capability for one original reservation, never ID-only authority.
 use super::{error, slot::Slot, CarrierGrant, CarrierOwnerBinding};
 use crate::contract::{
-    component::ControlledStreamDemandClass,
     network::{CarrierContext, UpstreamBinding},
     CancellationToken, ChannelError, DeliveryState, Reason, Stage,
 };
@@ -124,7 +123,7 @@ impl CarrierOwnerBinding {
         endpoint: Destination,
         upstream: UpstreamBinding,
     ) -> Result<CarrierBusinessIssuer, ChannelError> {
-        if self.demand() != ControlledStreamDemandClass::Business
+        if !self.supports_business()
             || !self.matches_host_cancel(host_fence)
             || self.host_cancelled()
             || !self.registration().matches_grant(grant)

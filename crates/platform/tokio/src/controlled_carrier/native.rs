@@ -1,17 +1,17 @@
 //! Explicit library provider for one literal empty-prefix root and one grantee.
 use super::{connect_error, error, grant::CarrierGrant, prepared::PreparedCarrier};
 use crate::{
+    EgressInterfaceControl, PendingTcpConnect,
     contract::{
+        BoxFuture, ChannelError, DeliveryState, Reason, Stage,
         datagram::{BoxDatagramSession, DatagramRequest},
         network::{CarrierContext, UpstreamBinding, UpstreamOpener},
         stream::BoxStream,
-        BoxFuture, ChannelError, DeliveryState, Reason, Stage,
     },
-    EgressInterfaceControl, PendingTcpConnect,
 };
 use std::{net::SocketAddr, sync::Arc, time::Duration};
 use tokio::{sync::Mutex, time::Instant};
-use zero_core::{component::ComponentInstanceId, request::Destination, Address};
+use zero_core::{Address, component::ComponentInstanceId, request::Destination};
 use zero_traits::IoObserver;
 mod packet;
 mod stream;
@@ -20,6 +20,8 @@ mod stream;
 pub struct NativeCarrierOpener {
     grantee: ComponentInstanceId,
     pub(super) related_parent: Option<super::CarrierAdoption>,
+    #[cfg(target_os = "linux")]
+    derived: Option<crate::owned_process::ProcessEndpointUse>,
     binding: UpstreamBinding,
     peer: SocketAddr,
     pub(super) endpoint: Destination,
@@ -32,6 +34,8 @@ pub struct NativeCarrierOpener {
         crate::contract::dns::DnsGeneration,
     )>,
 }
+#[cfg(target_os = "linux")]
+mod process_endpoint;
 mod relay;
 impl NativeCarrierOpener {
     pub fn new(
@@ -55,6 +59,8 @@ impl NativeCarrierOpener {
         Ok(Self {
             grantee,
             related_parent: None,
+            #[cfg(target_os = "linux")]
+            derived: None,
             binding,
             peer,
             endpoint: super::resolution::destination(peer),
@@ -84,7 +90,7 @@ impl NativeCarrierOpener {
                     Stage::Prepare,
                     Reason::Unsupported,
                     DeliveryState::NotSubmitted,
-                ))
+                ));
             }
         };
         let mut native = Self::new(
@@ -148,7 +154,7 @@ impl NativeCarrierOpener {
                     Stage::Prepare,
                     Reason::Unsupported,
                     DeliveryState::NotSubmitted,
-                ))
+                ));
             }
         };
         let mut native = Self::new(
@@ -174,6 +180,8 @@ impl UpstreamOpener for NativeCarrierOpener {
             let original = super::resolution::Source {
                 grantee: self.grantee,
                 related_parent: None,
+                #[cfg(target_os = "linux")]
+                derived: None,
                 binding: self.binding.clone(),
                 endpoint: self.endpoint.clone(),
                 egress: self.egress.clone(),
@@ -191,7 +199,7 @@ impl UpstreamOpener for NativeCarrierOpener {
                         Stage::Prepare,
                         Reason::Unsupported,
                         DeliveryState::NotSubmitted,
-                    ))
+                    ));
                 }
             };
             let address = SocketAddr::new(address, peer.port);
@@ -225,6 +233,8 @@ impl UpstreamOpener for NativeCarrierOpener {
         let source = super::resolution::Source {
             grantee: self.grantee,
             related_parent: None,
+            #[cfg(target_os = "linux")]
+            derived: None,
             binding: self.binding.clone(),
             endpoint: self.endpoint.clone(),
             egress: self.egress.clone(),

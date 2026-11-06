@@ -127,7 +127,9 @@ impl CoverageBinding {
             ResourceDeclaration::AcceptedDatagram { .. } => {
                 Self::Unaccounted(DeclaredResourceKind::AcceptedDatagram)
             }
-            ResourceDeclaration::Process { .. } => Self::Unaccounted(DeclaredResourceKind::Process),
+            ResourceDeclaration::Process { .. } | ResourceDeclaration::ProcessEndpoint { .. } => {
+                Self::Unaccounted(DeclaredResourceKind::Process)
+            }
             ResourceDeclaration::Device { .. } => Self::Unaccounted(DeclaredResourceKind::Device),
             ResourceDeclaration::BackgroundCarrier => {
                 Self::Unaccounted(DeclaredResourceKind::BackgroundCarrier)

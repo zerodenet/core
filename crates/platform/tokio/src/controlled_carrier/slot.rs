@@ -1,7 +1,7 @@
 use super::owner::Shared;
 use crate::{
-    contract::{scope::TaskJoinWitness, ChannelError},
     ControlledTcpControl,
+    contract::{ChannelError, scope::TaskJoinWitness},
 };
 use std::sync::{Arc, Mutex, Weak};
 use tokio::sync::{Mutex as AsyncMutex, Notify};
@@ -20,6 +20,8 @@ pub(super) struct Slot {
 }
 #[derive(Default)]
 pub(super) struct State {
+    #[cfg(target_os = "linux")]
+    pub(super) process_endpoint: Option<crate::owned_process::ProcessEndpointFence>,
     pub(super) related_parent: Option<Weak<Slot>>,
     pub(super) related_child: Option<Arc<Slot>>,
     pub(super) transferred_origin: bool,
@@ -54,6 +56,17 @@ pub(super) struct State {
     pub(super) closed: bool,
 }
 impl Slot {
+    pub(super) fn check_process_endpoint(&self) -> std::io::Result<()> {
+        #[cfg(target_os = "linux")]
+        {
+            let derived = { self.state().process_endpoint.clone() };
+            if let Some(derived) = derived {
+                derived.check()?;
+            }
+        }
+        Ok(())
+    }
+
     pub(super) fn state(&self) -> std::sync::MutexGuard<'_, State> {
         self.state
             .lock()
@@ -68,22 +81,46 @@ impl Slot {
     pub(super) fn notify(&self) {
         self.changed.notify_waiters();
     }
+    pub(super) fn confirm_native_closed(&self) {
+        let state = self.state();
+        assert!(
+            state.closed,
+            "only actual native retirement publishes completion"
+        );
+        let native = state.control.is_some()
+            || state.packet.is_some()
+            || matches!(
+                state.packet_disposition,
+                Some(crate::controlled_datagram::AcquisitionOutcome::Closed(_))
+            );
+        let _ = self.completion.set(native);
+    }
     pub(super) fn remove(self: &Arc<Self>) {
+        self.confirm_native_closed();
+        assert!(
+            super::caller_credit::released(self),
+            "actual caller registration still owns this native credit"
+        );
         let state = self.state();
         assert!(
             state.closed,
             "only confirmed original retirement removes a slot"
         );
-        let native = state.control.is_some() || state.packet.is_some();
-        let _ = self.completion.set(native);
         drop(state);
         if let Some(owner) = self.owner.upgrade() {
-            owner.state().slots.retain(|stored| !Arc::ptr_eq(stored, self));
+            owner
+                .state()
+                .slots
+                .retain(|stored| !Arc::ptr_eq(stored, self));
         }
         // An explicit close may win while its inline continuation is waiting
         // for the original close gate. Positive settlement breaks that exact
         // continuation's custody cycle outside all metadata locks.
-        let work=self.retirement.lock().unwrap_or_else(std::sync::PoisonError::into_inner).take_closed_work();
+        let work = self
+            .retirement
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .take_closed_work();
         drop(work);
     }
     pub(super) fn unused(self: &Arc<Self>) {

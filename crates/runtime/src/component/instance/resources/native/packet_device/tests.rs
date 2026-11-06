@@ -17,6 +17,14 @@ fn scope() -> HostedScope {
     scope
 }
 fn owner(scope: &HostedScope, fd: i32, interface: &str) -> PacketDeviceOwner {
+    owner_with_budget(scope, fd, interface, Arc::default())
+}
+fn owner_with_budget(
+    scope: &HostedScope,
+    fd: i32,
+    interface: &str,
+    roots: Arc<crate::HostOriginalBudgets>,
+) -> PacketDeviceOwner {
     PacketDeviceOwner::new(
         0,
         ComponentInstanceId {
@@ -30,6 +38,8 @@ fn owner(scope: &HostedScope, fd: i32, interface: &str) -> PacketDeviceOwner {
             interface: interface.into(),
         },
         CancellationToken::new(),
+        roots,
+        Some(scope.registrar().downgrade()),
     )
     .unwrap()
 }
@@ -300,3 +310,6 @@ async fn actual_tun_pending_read_joins_original_driver_before_matching_duplicate
     let receipt = borrowed.close_owned().unwrap();
     assert!(receipt.identity().same_owner(&identity));
 }
+
+#[path = "tests/budget.rs"]
+mod budget;

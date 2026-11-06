@@ -79,6 +79,17 @@ impl Original {
             .unwrap_or_else(std::sync::PoisonError::into_inner)
             .clone()
     }
+    #[cfg(target_os = "windows")]
+    pub(super) fn prepare_reader(
+        &self,
+        grant: zero_tun::packet_memory::NativeReadGrant,
+    ) -> std::io::Result<zero_tun::OwnedWintunReadWork> {
+        self.owner.prepare_read_work(grant)
+    }
+    pub(super) fn stop_reader(&self) {
+        #[cfg(target_os = "windows")]
+        self.owner.stop();
+    }
     pub(super) fn acquire(
         &self,
         binding: &PacketDeviceBinding,

@@ -7,11 +7,12 @@ use std::{
     os::fd::AsRawFd,
     process::ExitStatus,
     sync::{
-        atomic::{AtomicU64, Ordering},
         Arc, Mutex,
+        atomic::{AtomicU64, Ordering},
     },
 };
 use tokio::io::unix::AsyncFd;
+mod endpoint;
 mod finish;
 mod helper;
 mod prepare;
@@ -34,7 +35,10 @@ struct OriginalFd {
 }
 struct State {
     request: Option<ProcessRequest>,
+    endpoint: Option<Arc<super::endpoint::ProcessEndpointHandoff>>,
+    endpoint_request_ready: bool,
     actor: Option<TaskJoinWitness>,
+    start_attempted: bool,
     originals: Vec<OriginalFd>,
     control: Option<AsyncFd<View>>,
     control_index: Option<usize>,
@@ -94,7 +98,10 @@ impl OwnedProcess {
             changed: tokio::sync::Notify::new(),
             state: Mutex::new(State {
                 request: Some(request),
+                endpoint: None,
+                endpoint_request_ready: false,
                 actor: None,
+                start_attempted: false,
                 originals: Vec::new(),
                 control: None,
                 control_index: None,
@@ -121,6 +128,7 @@ impl OwnedProcess {
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner)
     }
+    /// Persist the exact already-registered actor before any job-related IO.
     pub fn first_failure(&self) -> Option<Arc<io::Error>> {
         self.lock().first_error.clone()
     }
@@ -182,6 +190,12 @@ impl OwnedProcess {
     /// Stops business immediately. Neither this request nor helper EOF is a
     /// physical receipt. The same original retains all cleanup responsibility.
     pub fn request_stop(&self) {
+        let endpoint = { self.lock().endpoint.clone() };
+        // Revoke derived admission and wake exact IO BEFORE the actual process
+        // monitor is allowed to observe stop and retire its physical job.
+        if let Some(endpoint) = endpoint {
+            endpoint.request_stop();
+        }
         self.lock().stop = true;
         self.changed.notify_waiters();
     }

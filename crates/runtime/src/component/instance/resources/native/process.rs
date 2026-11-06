@@ -11,6 +11,7 @@ use zero_platform_tokio::{
 };
 
 pub(super) struct ProcessDeclarations {
+    budget: Arc<zero_platform_tokio::owned_process::ProcessBudget>,
     identity: Option<(ComponentInstanceId, TaskScopeIdentity)>,
     entries: Mutex<BTreeMap<PathBuf, Entry>>,
 }
@@ -18,6 +19,7 @@ struct Entry {
     ordinal: usize,
     legacy: bool,
     jobs: Vec<Job>,
+    endpoint: Option<endpoint::Endpoint>,
 }
 struct Job {
     original: Arc<OwnedProcess>,
@@ -34,8 +36,9 @@ impl ProcessDeclarations {
     pub(super) fn new(
         declarations: &[ResourceDeclaration],
         identity: Option<(ComponentInstanceId, TaskScopeIdentity)>,
-    ) -> Self {
-        let entries = declarations
+        budget: Arc<zero_platform_tokio::owned_process::ProcessBudget>,
+    ) -> Result<Self, ChannelError> {
+        let mut entries: BTreeMap<PathBuf, Entry> = declarations
             .iter()
             .enumerate()
             .filter_map(|(ordinal, declaration)| {
@@ -48,14 +51,17 @@ impl ProcessDeclarations {
                         ordinal,
                         legacy: false,
                         jobs: Vec::new(),
+                        endpoint: None,
                     },
                 ))
             })
             .collect();
-        Self {
+        endpoint::prepare(declarations, &mut entries)?;
+        Ok(Self {
+            budget,
             identity,
             entries: Mutex::new(entries),
-        }
+        })
     }
     fn lock(&self) -> std::sync::MutexGuard<'_, BTreeMap<PathBuf, Entry>> {
         self.entries
@@ -72,8 +78,12 @@ impl ProcessDeclarations {
             .as_ref()
             .is_some_and(|(_, scope)| scope.matches(tasks) && scope.resource_open())
     }
+    pub(super) fn poll_budget(&self, cx: &mut std::task::Context<'_>) {
+        self.budget.poll_released(cx);
+    }
     pub(super) fn evidence(&self, component: ComponentId) -> Vec<ProcessIoEvidence> {
-        self.lock()
+        let mut evidence: Vec<_> = self
+            .lock()
             .values()
             .map(|entry| ProcessIoEvidence {
                 ordinal: entry.ordinal,
@@ -101,9 +111,20 @@ impl ProcessDeclarations {
                         )
                     }),
             })
-            .collect()
+            .collect();
+        evidence.extend(self.endpoint_evidence());
+        evidence
     }
     pub(super) async fn shutdown(&self, component: ComponentId, deadline: Instant) -> CloseReport {
+        let endpoints: Vec<_> = {
+            self.lock()
+                .values()
+                .filter_map(|entry| entry.endpoint.as_ref()?.original.clone())
+                .collect()
+        };
+        for endpoint in &endpoints {
+            endpoint.request_stop();
+        }
         let jobs: Vec<_> = self
             .lock()
             .values()
@@ -114,8 +135,16 @@ impl ProcessDeclarations {
         }
         // Structured progress in the same existing host cleanup, no provider
         // task, actor self-join, separate runtime or replacement pool.
-        futures_util::future::join_all(jobs.iter().map(|job| job.wait_closed(deadline))).await;
+        let (endpoint_results, _) = tokio::join!(
+            futures_util::future::join_all(
+                endpoints.iter().map(|endpoint| endpoint.shutdown(deadline))
+            ),
+            futures_util::future::join_all(jobs.iter().map(|job| job.wait_closed(deadline)))
+        );
         let mut report = CloseReport::default();
+        // Endpoint originals retain every original failure for io_evidence,
+        // independently of matching physical completion. No report text is proof.
+        drop(endpoint_results);
         for entry in self.lock().values_mut() {
             for job in &mut entry.jobs {
                 if let Some(closed) = job
@@ -137,82 +166,12 @@ impl ProcessDeclarations {
                 }
             }
         }
+        self.report_endpoints(component, &mut report);
         report
     }
 }
-impl HostResources {
-    pub(super) fn prepare_process(
-        &self,
-        request: ProcessRequest,
-        tasks: &TaskRegistrar,
-    ) -> Result<Arc<OwnedProcess>, ChannelError> {
-        // Original Scope observations occur outside host locks: upgrading a
-        // weak scope can deliver callbacks when its last owner is released.
-        if !self.processes.validate(tasks) {
-            return Err(self.denied());
-        }
-        let mut state = self
-            .state
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner);
-        if self.cancel.is_cancelled() || state.closed {
-            return Err(error(
-                self.component,
-                Reason::Revoked,
-                "native process owner revoked",
-            ));
-        }
-        let deadline = state.start_deadline.ok_or_else(|| {
-            error(
-                self.component,
-                Reason::InvalidConfig,
-                "owned process requires actual start phase",
-            )
-        })?;
-        if Instant::now() >= deadline {
-            return Err(error(
-                self.component,
-                Reason::Timeout,
-                "owned process start deadline elapsed",
-            ));
-        }
-        let remaining = state
-            .remaining
-            .get_mut(&request.program)
-            .ok_or_else(|| self.denied())?;
-        if *remaining == 0 {
-            return Err(error(
-                self.component,
-                Reason::Capacity,
-                "declared process original budget exhausted",
-            ));
-        }
-        let program = request.program.clone();
-        let mut entries = self.processes.lock();
-        let entry = entries.get_mut(&program).ok_or_else(|| self.denied())?;
-        if entry.legacy {
-            return Err(error(
-                self.component,
-                Reason::InvalidConfig,
-                "legacy process has no tree original",
-            ));
-        }
-        let original = OwnedProcess::prepare(request, tasks).map_err(|source| {
-            error(
-                self.component,
-                Reason::Io,
-                "cold process original preparation failed",
-            )
-            .with_source(source)
-        })?;
-        entry.jobs.push(Job {
-            original: original.clone(),
-            reported: false,
-        });
-        *remaining -= 1; // pending/failed/retiring reservations are not refunded
-        Ok(original)
-    }
-}
+mod acquire;
+mod endpoint;
 #[derive(Debug)]
 struct ProcessFailure(Arc<io::Error>);
 impl std::fmt::Display for ProcessFailure {

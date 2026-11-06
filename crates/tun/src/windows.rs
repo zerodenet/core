@@ -47,7 +47,7 @@ use crate::TunDevice;
 mod existing;
 pub use existing::ExistingWindowsTun;
 mod owned;
-pub use owned::{OwnedWintunIo, OwnedWintunOwner, WintunAcquisitionOutcome};
+pub use owned::{OwnedWintunIo, OwnedWintunOwner, OwnedWintunReadWork, WintunAcquisitionOutcome};
 
 const ADDRESS_READY_TIMEOUT: Duration = Duration::from_secs(10);
 const ADDRESS_READY_POLL_INTERVAL: Duration = Duration::from_millis(50);

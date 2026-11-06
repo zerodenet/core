@@ -213,7 +213,22 @@ pub(super) async fn run(
                     continue;
                 };
                 let carrier = peer_uses_proxy.get(outgoing.peer).copied().unwrap_or(false).then(|| peer_carrier(&operation.endpoint, outgoing.peer)).flatten();
-                let packets = packet::fragment_ip_packet_buffer(outgoing.packet, operation.device.mtu() as usize, fragment_id);
+                let packets = tokio::select! { biased;
+                    _ = shutdown.changed() => break Ok(()),
+                    result = packet::fragment_ip_packet_accounted(outgoing.packet, operation.device.mtu() as usize, fragment_id) => result.map_err(|failure| {
+                        let zero_stack::packet::PacketFragmentFailure { original, cause } = failure;
+                        // The real wire caller got back its unchanged original.
+                        // Retiring this failed operation releases only memory;
+                        // native close and actual Scope joins remain host duties.
+                        drop(original);
+                        let reason = match cause {
+                            zero_traits::PacketDeriveError::Capacity | zero_traits::PacketDeriveError::Overflow => zero_platform_tokio::contract::Reason::Capacity,
+                            zero_traits::PacketDeriveError::Unreserved => zero_platform_tokio::contract::Reason::InvalidConfig,
+                            zero_traits::PacketDeriveError::LayoutMismatch | zero_traits::PacketDeriveError::AlreadyDerived => zero_platform_tokio::contract::Reason::Protocol,
+                        };
+                        std::io::Error::other(zero_platform_tokio::contract::ChannelError::new(zero_platform_tokio::contract::Stage::Send, reason, zero_platform_tokio::contract::Impact::Packet).with_source(cause))
+                    })?,
+                };
                 fragment_id = fragment_id.wrapping_add(1);
                 for packet in packets {
                     let actions = operation.device.send_ip_packet(outgoing.peer, &packet).inspect_err(|_| { traffic.peer(Some(outgoing.peer)).error(TrafficPlane::Inner, true); traffic.peer(Some(outgoing.peer)).dropped_reason(TrafficPlane::Inner, true, zero_api::TrafficDropReason::IoFailure); })?;
@@ -235,7 +250,22 @@ pub(super) async fn run(
                 let Some(peer) = operation.device.peer_for_destination(destination) else { continue; };
                 let Some(endpoint) = endpoints.get(peer).and_then(|value| *value) else { continue; };
                 let carrier = peer_uses_proxy.get(peer).copied().unwrap_or(false).then(|| peer_carrier(&operation.endpoint, peer)).flatten();
-                let packets = packet::fragment_ip_packet_buffer(response, operation.device.mtu() as usize, fragment_id);
+                let packets = tokio::select! { biased;
+                    _ = shutdown.changed() => break Ok(()),
+                    result = packet::fragment_ip_packet_accounted(response, operation.device.mtu() as usize, fragment_id) => result.map_err(|failure| {
+                        let zero_stack::packet::PacketFragmentFailure { original, cause } = failure;
+                        // The real wire caller got back its unchanged original.
+                        // Retiring this failed operation releases only memory;
+                        // native close and actual Scope joins remain host duties.
+                        drop(original);
+                        let reason = match cause {
+                            zero_traits::PacketDeriveError::Capacity | zero_traits::PacketDeriveError::Overflow => zero_platform_tokio::contract::Reason::Capacity,
+                            zero_traits::PacketDeriveError::Unreserved => zero_platform_tokio::contract::Reason::InvalidConfig,
+                            zero_traits::PacketDeriveError::LayoutMismatch | zero_traits::PacketDeriveError::AlreadyDerived => zero_platform_tokio::contract::Reason::Protocol,
+                        };
+                        std::io::Error::other(zero_platform_tokio::contract::ChannelError::new(zero_platform_tokio::contract::Stage::Send, reason, zero_platform_tokio::contract::Impact::Packet).with_source(cause))
+                    })?,
+                };
                 tracing::trace!(fragments = packets.len(), "raw-IP inbound response fragments");
                 fragment_id = fragment_id.wrapping_add(1);
                 for fragment in packets {

@@ -253,8 +253,15 @@ pub enum ResourceDeclaration {
         max_bytes: usize,
     },
     BackgroundCarrier,
+    /// One same-job loopback handoff. It owns its actual TCP and optional
+    /// same-port UDP reservations, plus at most one inline readiness probe.
+    /// No task, user network grant or process start is implicit in this record.
+    ProcessEndpoint {
+        process_ordinal: usize,
+        spec: crate::owned_process::ProcessEndpointSpec,
+    },
     /// Native child starts for this component generation. Arguments and
-    /// environment remain protocol-owned; this is not descendant containment.
+    /// environment remain protocol-owned; containment belongs to its provider.
     Process {
         program: PathBuf,
         max_starts: NonZeroUsize,
@@ -525,6 +532,35 @@ pub trait ResourceAccess: Send + Sync {
             super::Impact::Component,
         )
         .with_source(std::io::Error::other("undeclared owned process")))
+    }
+    /// Start-only, same actual Process entry. The host stores this cold owner
+    /// before it creates either native reservation. No protocol environment is read.
+    #[cfg(target_os = "linux")]
+    fn reserve_process_endpoint(
+        &self,
+        _: usize,
+        _: &super::scope::TaskRegistrar,
+        _: &super::scope::TaskJoinWitness,
+    ) -> Result<std::sync::Arc<crate::owned_process::ProcessEndpointHandoff>, BuildError> {
+        Err(super::ChannelError::new(
+            super::Stage::Prepare,
+            super::Reason::Unsupported,
+            super::Impact::Component,
+        ))
+    }
+    /// Explicitly associates the exact prepared job with its actual handoff.
+    #[cfg(target_os = "linux")]
+    fn prepare_owned_process_with_endpoint(
+        &self,
+        _: ProcessRequest,
+        _: &super::scope::TaskRegistrar,
+        _: &std::sync::Arc<crate::owned_process::ProcessEndpointHandoff>,
+    ) -> Result<std::sync::Arc<crate::owned_process::OwnedProcess>, BuildError> {
+        Err(super::ChannelError::new(
+            super::Stage::Prepare,
+            super::Reason::Unsupported,
+            super::Impact::Component,
+        ))
     }
     fn select_bound_outbound_datagram(
         &self,

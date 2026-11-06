@@ -111,6 +111,9 @@ impl PacketLimits {
 #[derive(Debug, Clone)]
 pub struct PacketRequest {
     pub endpoint: EndpointId,
+    /// Actual original Source link MTU for reverse transmission. Independent
+    /// of envelope limits and any larger reassembled ingress datagram.
+    pub return_mtu: Option<u16>,
     pub limits: PacketLimits,
 }
 

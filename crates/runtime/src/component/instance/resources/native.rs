@@ -15,6 +15,8 @@ use zero_platform_tokio::contract::{
 };
 
 pub struct HostResources {
+    originals: Arc<crate::HostOriginalBudgets>,
+    original_tasks: Option<zero_platform_tokio::contract::scope::WeakTaskRegistrar>,
     packet_source: Arc<
         std::sync::OnceLock<
             zero_platform_tokio::controlled_datagram::provider::NativeDatagramOrigin,
@@ -83,6 +85,7 @@ mod files;
 mod listener;
 mod metadata;
 mod metapool;
+mod original_budgets;
 mod packet_device;
 mod prepare;
 #[cfg(target_os = "linux")]
@@ -351,6 +354,24 @@ impl ResourceAccess for HostResources {
     ) -> Result<Arc<zero_platform_tokio::owned_process::OwnedProcess>, ChannelError> {
         self.prepare_process(request, tasks)
     }
+    #[cfg(target_os = "linux")]
+    fn reserve_process_endpoint(
+        &self,
+        ordinal: usize,
+        tasks: &zero_platform_tokio::contract::scope::TaskRegistrar,
+        actor: &zero_platform_tokio::contract::scope::TaskJoinWitness,
+    ) -> Result<Arc<zero_platform_tokio::owned_process::ProcessEndpointHandoff>, ChannelError> {
+        self.reserve_endpoint(ordinal, tasks, actor)
+    }
+    #[cfg(target_os = "linux")]
+    fn prepare_owned_process_with_endpoint(
+        &self,
+        request: ProcessRequest,
+        tasks: &zero_platform_tokio::contract::scope::TaskRegistrar,
+        endpoint: &Arc<zero_platform_tokio::owned_process::ProcessEndpointHandoff>,
+    ) -> Result<Arc<zero_platform_tokio::owned_process::OwnedProcess>, ChannelError> {
+        self.prepare_process_with_endpoint(request, tasks, endpoint)
+    }
     fn read_file(
         &self,
         path: PathBuf,
@@ -400,6 +421,8 @@ impl HostResources {
         &self,
         cx: &mut std::task::Context<'_>,
     ) -> bool {
+        #[cfg(target_os = "linux")]
+        self.processes.poll_budget(cx);
         self.carriers.poll_cancelled(cx)
     }
 }

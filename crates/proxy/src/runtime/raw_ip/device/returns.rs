@@ -125,21 +125,50 @@ impl PacketReturns {
         );
         Ok(self)
     }
-    pub(crate) fn retain_reply_buffer(
+    pub(crate) fn retain_reply_buffer_for(
         &self,
         packet: zero_traits::PacketBuffer,
+        return_mtu: u16,
     ) -> Result<zero_traits::PacketBuffer, zero_traits::PacketBuffer> {
-        self.budget.retain(packet)
+        self.budget
+            .retain_for_return(packet, return_mtu)
+            .map_err(|failure| {
+                tracing::trace!(cause = ?failure.cause, bytes = failure.original.len(), "same original Packet return admission rejected");
+                failure.original
+            })
+    }
+    pub(crate) async fn retain_reply_buffer_wait(
+        &self,
+        packet: zero_traits::PacketBuffer,
+        return_mtu: u16,
+    ) -> Result<zero_traits::PacketBuffer, zero_traits::PacketDeriveError> {
+        self.budget
+            .retain_for_return_wait(packet, return_mtu)
+            .await
+            .map_err(|failure| {
+                failure
+                    .cause
+                    .expect("temporary occupancy is awaited by the same producing driver")
+            })
     }
     pub(super) fn queue_reply(
         &self,
         replies: &zero_stack::packet_output::PacketSender,
         packet: zero_traits::PacketBuffer,
     ) -> Result<(), mpsc::error::TrySendError<zero_traits::PacketBuffer>> {
-        let packet = self
-            .budget
-            .retain(packet)
-            .map_err(mpsc::error::TrySendError::Full)?;
+        let packet = match replies.return_mtu() {
+            Some(mtu) => self
+                .budget
+                .retain_for_return(packet, mtu)
+                .map_err(|failure| {
+                tracing::trace!(cause = ?failure.cause, bytes = failure.original.len(), "same original Packet return admission rejected");
+                failure.original
+            }),
+            // Explicit pre-standard library sinks only. Actual Source sinks
+            // carry their separately validated original link MTU.
+            None => self.budget.retain(packet),
+        }
+        .map_err(mpsc::error::TrySendError::Full)?;
         replies.try_send_buffer(packet)
     }
     fn discard(
@@ -190,6 +219,17 @@ impl PacketReturns {
         }
         self.deliver_native(NativePacket::Owned(packet))
             .map_err(NativePacket::into_owned)
+    }
+
+    pub(crate) async fn deliver_owned_wait(
+        &self,
+        packet: zero_traits::PacketBuffer,
+    ) -> Result<Option<zero_traits::PacketBuffer>, zero_platform_tokio::contract::ChannelError>
+    {
+        if self.deliver_correlated(&packet) {
+            return Ok(None);
+        }
+        self.deliver_native_wait(packet).await
     }
 
     pub(crate) fn deliver_correlated(&self, packet: &[u8]) -> bool {

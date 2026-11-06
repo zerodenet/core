@@ -204,3 +204,71 @@ async fn consumed_server_fault_still_returns_its_source_after_matching_native_re
     .await
     .unwrap();
 }
+
+#[tokio::test]
+async fn invalid_utf8_closes_only_its_actual_client_and_keeps_the_same_server_available() {
+    tokio::time::timeout(Duration::from_secs(5), async {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("frame.sock");
+        let proxy = zero_proxy::Proxy::new(
+            zero_config::RuntimeConfig::parse(r#"{"route":{"final":{"type":"direct"}}}"#).unwrap(),
+        )
+        .unwrap();
+        let engine = zero_engine::EngineHandle::new(proxy.engine().clone());
+        let server = spawn_ipc_server(ProxyHandle::new(engine, proxy), &path)
+            .await
+            .unwrap();
+        let mut invalid = tokio::net::UnixStream::connect(&path).await.unwrap();
+        let original = loop {
+            let actual = server
+                .originals
+                .active
+                .lock()
+                .unwrap()
+                .values()
+                .next()
+                .cloned();
+            if let Some(original) = actual {
+                break original;
+            }
+            tokio::task::yield_now().await;
+        };
+        invalid.write_all(&[0xff, b'\n']).await.unwrap();
+        assert_eq!(invalid.read(&mut [0]).await.unwrap(), 0);
+        loop {
+            if original.charge.lock().unwrap().is_none() {
+                break;
+            }
+            tokio::task::yield_now().await;
+        }
+        assert!(original
+            .control
+            .lock()
+            .await
+            .wait_closed(super::super::owner::close_deadline())
+            .await
+            .unwrap()
+            .is_complete());
+        let mut client = BufReader::new(tokio::net::UnixStream::connect(&path).await.unwrap());
+        client
+            .get_mut()
+            .write_all(b"{\"type\":\"ping\",\"id\":\"same-owner\"}\n")
+            .await
+            .unwrap();
+        let mut response = String::new();
+        client.read_line(&mut response).await.unwrap();
+        let response: serde_json::Value = serde_json::from_str(&response).unwrap();
+        assert_eq!(response["ok"], true);
+        assert_eq!(response["id"], "same-owner");
+        server.shutdown().await.unwrap();
+        assert!(server.retirement_complete());
+        let closed = server
+            .listener
+            .close(super::super::owner::close_deadline())
+            .await
+            .unwrap();
+        assert!(server.listener.matches_closed(&closed) && closed.had_native_acquisition());
+    })
+    .await
+    .unwrap();
+}

@@ -19,6 +19,7 @@ use zero_platform_tokio::controlled_carrier::{
 mod candidates;
 mod dns;
 mod service_dns;
+mod service_selection;
 use dns::Resolved;
 
 pub(in crate::component) struct Evidence {
@@ -101,6 +102,27 @@ impl CarrierEndpointObserver for ConnectedEvidence {
     }
 }
 impl UpstreamOpener for NodeOpener {
+    fn select_background_carrier(
+        &self,
+        binding: Option<UpstreamBinding>,
+        call: CarrierContext,
+    ) -> BoxFuture<
+        '_,
+        Result<zero_platform_tokio::contract::network::UpstreamTransport, ChannelError>,
+    > {
+        self.reselect_service(binding, call, None)
+    }
+    fn select_background_carrier_observed(
+        &self,
+        binding: Option<UpstreamBinding>,
+        call: CarrierContext,
+        waiting: PendingCarrierObserver,
+    ) -> BoxFuture<
+        '_,
+        Result<zero_platform_tokio::contract::network::UpstreamTransport, ChannelError>,
+    > {
+        self.reselect_service(binding, call, Some(waiting))
+    }
     fn resolve_controlled_carrier(
         &self,
         binding: &UpstreamBinding,

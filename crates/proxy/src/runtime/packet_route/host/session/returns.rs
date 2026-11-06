@@ -104,10 +104,13 @@ impl Returns {
         }
         Ok(())
     }
-    pub(in crate::runtime::packet_route::host) fn deliver_owned(
+    pub(in crate::runtime::packet_route::host) fn prepare_owned(
         &self,
         mut packet: zero_traits::PacketBuffer,
-    ) -> Result<(), zero_traits::PacketBuffer> {
+    ) -> Result<
+        zero_platform_tokio::contract::BoxFuture<'static, Result<(), ChannelError>>,
+        zero_traits::PacketBuffer,
+    > {
         let Some(destination) = packet::ip_destination(&packet) else {
             return Err(packet);
         };
@@ -131,15 +134,17 @@ impl Returns {
             return Err(packet);
         };
         let Some(session) = route.session.upgrade() else {
-            return Ok(());
+            return Ok(Box::pin(async { Ok(()) }));
         };
         if !packet::advance_ip_hop(&mut packet) {
-            return Ok(());
+            return Ok(Box::pin(async { Ok(()) }));
         }
-        if let Ok(packet) = IpPacket::new(packet, route.association) {
-            let _ = session.deliver(packet, true);
-        }
-        Ok(())
+        Ok(Box::pin(async move {
+            if let Ok(packet) = IpPacket::new(packet, route.association) {
+                session.deliver_wait(packet).await?;
+            }
+            Ok(())
+        }))
     }
     pub(in crate::runtime::packet_route::host) fn expire(&self) {
         let mut state = self

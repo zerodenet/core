@@ -58,6 +58,7 @@ impl ComponentCatalog {
             Arc<[Arc<crate::component::instance::users::Users>]>,
         > = BTreeMap::new();
         for slot in &plan.order {
+            slot.bind_original_budgets(self.original_budgets());
             let spec = slot.recipe.spec();
             let own =
                 spec.roles.is_empty() || !spec.resources.is_empty() || spec.task_limit.is_some();

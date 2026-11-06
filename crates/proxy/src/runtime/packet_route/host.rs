@@ -46,7 +46,7 @@ pub(crate) struct HostPacketDevice {
         std::sync::OnceLock<zero_platform_tokio::controlled_carrier::PacketProviderRegistration>,
 }
 impl HostPacketDevice {
-    #[cfg(any(test, target_os = "windows"))]
+    #[cfg(test)]
     pub(crate) fn start<D: zero_tun::TunDevice + 'static>(
         device: D,
         config: zero_config::DirectPacketDeviceConfig,
@@ -55,51 +55,7 @@ impl HostPacketDevice {
         Self::start_with_close(device, config, mtu, |_| None)
     }
 
-    #[cfg(any(target_os = "linux", target_os = "macos"))]
-    pub(crate) fn start_adopted(
-        device: zero_tun::AdoptedTunIo,
-        original: Arc<zero_tun::AdoptedTunOwner>,
-        config: zero_config::DirectPacketDeviceConfig,
-        mtu: u16,
-    ) -> Arc<Self> {
-        let identity = device.owned_identity().clone();
-        Self::start_with_close(device, config, mtu, move |view| {
-            // The persistent original was installed before duplication. Return
-            // the unique I/O view only after the actual driver has finished.
-            drop(view);
-            Some(original.close().and_then(|receipt| {
-                if receipt.identity().same_owner(&identity) {
-                    Ok(receipt)
-                } else {
-                    Err(Arc::new(io::Error::new(
-                        io::ErrorKind::InvalidData,
-                        "host packet close returned a different adopted owner",
-                    )))
-                }
-            }))
-        })
-    }
-
-    #[cfg(target_os = "windows")]
-    pub(crate) fn start_wintun(
-        device: zero_tun::OwnedWintunIo,
-        original: Arc<zero_tun::OwnedWintunOwner>,
-        config: zero_config::DirectPacketDeviceConfig,
-        mtu: u16,
-    ) -> Arc<Self> {
-        let identity = device.owned_identity().clone();
-        Self::start_with_completion(device, config, mtu, move |view| async move {
-            drop(view);
-            Some(original.close().await.and_then(|receipt| match receipt {
-                Some(receipt) if receipt.identity().same_owner(&identity) => Ok(receipt),
-                _ => Err(Arc::new(io::Error::new(
-                    io::ErrorKind::InvalidData,
-                    "host Wintun close did not return this original's receipt",
-                ))),
-            }))
-        })
-    }
-
+    #[cfg(test)]
     fn start_with_close<D, C>(
         device: D,
         config: zero_config::DirectPacketDeviceConfig,
@@ -117,6 +73,7 @@ impl HostPacketDevice {
         })
     }
 
+    #[cfg(test)]
     fn start_with_completion<D, C, F>(
         device: D,
         config: zero_config::DirectPacketDeviceConfig,
@@ -144,9 +101,14 @@ impl HostPacketDevice {
         let packets = returns.clone();
         let logical = sessions.clone();
         let worker = task::DriverTask::new(async move {
-            let (device, failure) = driver::run(device, rx, packets, logical, stopped, activated)
-                .await
-                .parts();
+            let root = Arc::new(zero_tun::packet_memory::PacketReturnTotals::default());
+            let read = root
+                .native_grant(65_536)
+                .expect("explicit independent fixture read owner");
+            let (device, failure) =
+                driver::run(device, read, rx, packets, logical, stopped, activated)
+                    .await
+                    .parts();
             task::DriverResult {
                 failure,
                 native: close(device).await,
@@ -178,9 +140,6 @@ impl HostPacketDevice {
     #[cfg(test)]
     pub(crate) async fn wait_workers_stopped(&self) -> io::Result<()> {
         self.worker.join().await.map(|_| ())
-    }
-    pub(crate) fn is_hosted(&self) -> bool {
-        self.native_provider.get().is_some() || self.worker.witness().is_some()
     }
     pub(crate) async fn wait_closed(&self) -> io::Result<()> {
         self.close();

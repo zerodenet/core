@@ -16,6 +16,14 @@ pub struct ProcessBudgetLimits {
     pub max_jobs: usize,
     pub max_jobs_per_instance: usize,
 }
+impl Default for ProcessBudgetLimits {
+    fn default() -> Self {
+        Self {
+            max_jobs: 64,
+            max_jobs_per_instance: 1,
+        }
+    }
+}
 impl ProcessBudgetLimits {
     pub fn validate(self) -> io::Result<Self> {
         if self.max_jobs == 0
@@ -37,6 +45,16 @@ pub struct ProcessBudgetSnapshot {
 }
 pub struct ProcessBudget {
     state: Mutex<State>,
+}
+impl Default for ProcessBudget {
+    fn default() -> Self {
+        Self {
+            state: Mutex::new(State {
+                limits: ProcessBudgetLimits::default(),
+                jobs: BTreeMap::new(),
+            }),
+        }
+    }
 }
 struct State {
     limits: ProcessBudgetLimits,
@@ -102,6 +120,9 @@ impl ProcessBudget {
                 self.release(id, &entry);
             }
         }
+    }
+    pub(super) fn reconcile(&self) {
+        self.reap();
     }
     pub fn snapshot(&self) -> ProcessBudgetSnapshot {
         self.reap();
@@ -229,3 +250,5 @@ impl ProcessBudget {
         }
     }
 }
+#[cfg(test)]
+mod tests;

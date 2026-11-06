@@ -7,6 +7,8 @@ use zero_platform_tokio::contract::{
     network::{CarrierContext, UpstreamOpener},
     BoxFuture,
 };
+mod inline_service;
+#[derive(Clone)]
 pub(super) struct PacketOpener {
     pub(super) services: UpstreamConnectServices,
     pub(super) binding: UpstreamBinding,
@@ -15,6 +17,21 @@ pub(super) struct PacketOpener {
     pub(super) slot: std::sync::Weak<ComponentSlot>,
 }
 impl UpstreamOpener for PacketOpener {
+    fn select_background_carrier(
+        &self,
+        binding: Option<UpstreamBinding>,
+        call: CarrierContext,
+    ) -> BoxFuture<'_, Result<UpstreamTransport, ChannelError>> {
+        self.select_inline_service(binding, call, None)
+    }
+    fn select_background_carrier_observed(
+        &self,
+        binding: Option<UpstreamBinding>,
+        call: CarrierContext,
+        waiting: zero_platform_tokio::contract::network::PendingCarrierObserver,
+    ) -> BoxFuture<'_, Result<UpstreamTransport, ChannelError>> {
+        self.select_inline_service(binding, call, Some(waiting))
+    }
     fn packet_caller(
         &self,
         binding: &UpstreamBinding,
@@ -324,10 +341,14 @@ pub(in crate::component::stream_bridge) fn service_transport(
             binding,
             pending,
             call,
+            _caller_owner: None,
         }),
     ))
 }
 struct ServicePacketOpener {
+    // Strong only for an actual inline projection while acquisition is in
+    // progress; its weak observer cannot otherwise outlive this temporary call.
+    _caller_owner: Option<UpstreamTransport>,
     services: UpstreamConnectServices,
     binding: UpstreamBinding,
     pending: Option<zero_platform_tokio::contract::network::PendingCarrierObserver>,

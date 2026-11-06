@@ -17,8 +17,12 @@ pub struct OwnedWintunIo {
     name: String,
     configure: bool,
     identity: OwnedTunIdentity,
-    rx: Option<mpsc::Receiver<io::Result<Vec<u8>>>>,
+    rx: Option<ReaderRx>,
     write_retry: Option<Pin<Box<tokio::time::Sleep>>>,
+}
+enum ReaderRx {
+    Library(mpsc::Receiver<io::Result<Vec<u8>>>),
+    Hosted(mpsc::Receiver<zero_traits::PacketBuffer>),
 }
 impl OwnedWintunIo {
     pub(super) fn new(
@@ -26,13 +30,14 @@ impl OwnedWintunIo {
         name: String,
         configure: bool,
         identity: OwnedTunIdentity,
+        hosted: Option<mpsc::Receiver<zero_traits::PacketBuffer>>,
     ) -> Self {
         Self {
             owner,
             name,
             configure,
             identity,
-            rx: None,
+            rx: hosted.map(ReaderRx::Hosted),
             write_retry: None,
         }
     }
@@ -79,7 +84,7 @@ impl OwnedWintunIo {
                 }
             })?;
         state.reader = Some(reader);
-        self.rx = Some(rx);
+        self.rx = Some(ReaderRx::Library(rx));
         Ok(())
     }
 }
@@ -93,7 +98,13 @@ impl AsyncRead for OwnedWintunIo {
             return Poll::Ready(Ok(()));
         }
         self.start_reader()?;
-        match self.rx.as_mut().unwrap().poll_recv(cx) {
+        let polled = match self.rx.as_mut().unwrap() {
+            ReaderRx::Library(rx) => rx
+                .poll_recv(cx)
+                .map(|item| item.map(|result| result.map(zero_traits::PacketBuffer::from))),
+            ReaderRx::Hosted(rx) => rx.poll_recv(cx).map(|item| item.map(Ok)),
+        };
+        match polled {
             Poll::Ready(Some(Ok(packet))) if packet.len() <= bytes.remaining() => {
                 bytes.put_slice(&packet);
                 Poll::Ready(Ok(()))
@@ -193,6 +204,15 @@ impl Drop for OwnedWintunIo {
         // This only returns the unique I/O view, waking a blocked delivery.
         // Native close and the original reader join remain in the same owner.
         drop(self.rx.take());
-        self.owner.state().view_live = false;
+        let hosted = {
+            let mut state = self.owner.state();
+            state.view_live = false;
+            state.prepared_reader.is_some()
+        };
+        if hosted {
+            // A returned hosted view requests the same blocked reader stop;
+            // this is no EndSession/Adapter close or task-join evidence.
+            self.owner.stop();
+        }
     }
 }

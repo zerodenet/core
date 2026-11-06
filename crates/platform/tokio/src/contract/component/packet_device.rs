@@ -56,4 +56,6 @@ pub struct GrantedPacketDevice {
     pub identity: PacketDeviceIdentity,
     pub original: crate::controlled_carrier::PacketProviderRegistration,
     pub interface: Arc<str>,
+    #[cfg(feature = "native-packet-origin")]
+    pub native_read: zero_tun::packet_memory::NativeReadGrant,
 }

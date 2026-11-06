@@ -4,7 +4,24 @@
 mod linux;
 #[cfg(target_os = "linux")]
 pub use linux::{OwnedProcess, ProcessTreeClosed};
-#[cfg(target_os = "linux")]
+#[cfg(windows)]
+mod windows;
+#[cfg(windows)]
+pub use windows::{OwnedProcess, ProcessTreeClosed};
+#[cfg(any(target_os = "linux", windows))]
 mod budget;
-#[cfg(target_os = "linux")]
+#[cfg(any(target_os = "linux", windows))]
 pub use budget::{ProcessBudget, ProcessBudgetLimits, ProcessBudgetSnapshot};
+
+mod endpoint_spec;
+pub use endpoint_spec::ProcessEndpointSpec;
+#[cfg(target_os = "linux")]
+mod endpoint;
+#[cfg(target_os = "linux")]
+pub use endpoint::{
+    ProcessEndpointClosed, ProcessEndpointDemand, ProcessEndpointHandoff, ProcessEndpointUse,
+    ProcessProbe, ProcessProbeClosed, ProcessReservationsClosed,
+};
+
+#[cfg(target_os = "linux")]
+pub(crate) use endpoint::ProcessEndpointFence;

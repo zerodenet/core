@@ -82,9 +82,6 @@ impl Devices {
         deadline: tokio::time::Instant,
         cancel: zero_platform_tokio::contract::CancellationToken,
     ) -> Result<(), EngineError> {
-        if let Some(direct) = &self.direct {
-            direct.retire_legacy_packet_original().await?;
-        }
         #[cfg(feature = "wireguard")]
         if let Some(owner) = &self.wireguard {
             owner

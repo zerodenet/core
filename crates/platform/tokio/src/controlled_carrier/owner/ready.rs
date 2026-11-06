@@ -114,6 +114,7 @@ pub(in crate::controlled_carrier) fn try_close_native_slot(
         state.closed = true;
         state.pending_close = Some(report);
         drop(state);
+        slot.confirm_native_closed();
         slot.notify();
         // Keep the actual report for the later full native/users settlement.
         Ok(Default::default())
@@ -169,6 +170,15 @@ pub(in crate::controlled_carrier) fn try_close_slot(
                 .unwrap_or_else(std::sync::PoisonError::into_inner)
                 .get_or_insert(joined);
         }
+    }
+    if !crate::controlled_carrier::caller_credit::released(slot) {
+        return Ok(CloseReport {
+            unfinished: vec![Unfinished::Resource(format!(
+                "{} caller registration ACK",
+                slot.label()
+            ))],
+            ..Default::default()
+        });
     }
     let report = slot.state().pending_close.take().unwrap_or_default();
     slot.remove();

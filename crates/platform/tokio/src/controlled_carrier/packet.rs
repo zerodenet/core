@@ -1,5 +1,5 @@
 //! Unique view over the original packet controller retained by the carrier owner.
-use super::{slot::Slot, CarrierDriver};
+use super::{CarrierDriver, slot::Slot};
 use crate::controlled_datagram::ControlledDatagramSocket;
 use std::{io, net::SocketAddr, sync::Arc};
 
@@ -16,6 +16,7 @@ impl CarrierDatagram {
         self.io.local_addr()
     }
     pub async fn send(&self, bytes: &[u8]) -> io::Result<()> {
+        self.slot.check_process_endpoint()?;
         if self.slot.cancel.is_cancelled() {
             return Err(io::ErrorKind::Interrupted.into());
         }
@@ -31,6 +32,7 @@ impl CarrierDatagram {
             _ = related => return Err(io::ErrorKind::Interrupted.into()),
             size = self.io.send_to_addr(bytes, self.peer) => size?,
         };
+        self.slot.check_process_endpoint()?;
         if size != bytes.len() {
             return Err(io::ErrorKind::WriteZero.into());
         }
@@ -38,6 +40,7 @@ impl CarrierDatagram {
     }
     pub async fn receive(&self, bytes: &mut [u8]) -> io::Result<usize> {
         loop {
+            self.slot.check_process_endpoint()?;
             if self.slot.cancel.is_cancelled() {
                 return Err(io::ErrorKind::Interrupted.into());
             }
@@ -53,6 +56,7 @@ impl CarrierDatagram {
                 _ = related => return Err(io::ErrorKind::Interrupted.into()),
                 value = self.io.recv_from_addr(bytes) => value?,
             };
+            self.slot.check_process_endpoint()?;
             if peer == self.peer {
                 return Ok(size);
             }

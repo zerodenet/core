@@ -149,7 +149,9 @@ impl PacketSourceContext {
 
     pub(crate) const MAX_ICMP_PROBES: usize = icmp::MAX_ECHO_PROBES;
     pub(crate) fn device_task_limit() -> usize {
-        Self::internal_task_limit() + crate::inbound::tun::MAX_TCP_DNS_CONNECTIONS
+        Self::internal_task_limit()
+            + crate::inbound::tun::MAX_TCP_DNS_CONNECTIONS
+            + usize::from(cfg!(target_os = "windows")) // actual same-Scope SDK reader
     }
     pub(crate) fn internal_task_limit() -> usize {
         tcp::MAX_CONNECTIONS

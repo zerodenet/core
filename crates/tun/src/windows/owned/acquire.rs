@@ -94,12 +94,18 @@ impl OwnedWintunOwner {
                     )?;
                 }
             }
+            let hosted = state
+                .prepared_reader
+                .as_mut()
+                .and_then(|reader| reader.receiver.take());
             state.view_live = true;
+            self.reader_ready.notify_all();
             Ok(OwnedWintunIo::new(
                 self.clone(),
                 name.to_owned(),
                 configure,
                 state.identity.clone().unwrap(),
+                hosted,
             ))
         })();
         match acquired {

@@ -1,13 +1,13 @@
 //! Bind the actual cold owner once; host registration remains separate authority.
-use super::{error, CarrierOwnerRegistration};
+use super::{CarrierOwnerRegistration, error};
 use crate::contract::{
+    CancellationToken, ChannelError, DeliveryState, Reason, Stage,
     component::{ControlledStreamDemandClass, ResourceDeclaration},
     network::{CarrierContext, UpstreamBinding},
     scope::{TaskRegistrar, TaskScopeIdentity, WeakTaskRegistrar},
-    CancellationToken, ChannelError, DeliveryState, Reason, Stage,
 };
 use std::sync::Arc;
-use zero_core::{request::Destination, Address};
+use zero_core::{Address, request::Destination};
 
 pub(super) struct BoundAuthority {
     declaration: ResourceDeclaration,
@@ -234,6 +234,7 @@ impl BoundAuthority {
     fn matches_node(&self, destination: &Destination, binding: &UpstreamBinding) -> bool {
         matches!(&self.declaration, ResourceDeclaration::ControlledNodeStream { endpoint, dial, .. }
             | ResourceDeclaration::ControlledNodeCarrier { endpoint, dial, .. }
+            | ResourceDeclaration::ControlledAssociationPool { endpoint, dial, .. }
             if endpoint == destination && dial == &binding.dial && binding.prefix.is_empty())
     }
     pub(super) fn permits_native(
@@ -249,9 +250,16 @@ impl BoundAuthority {
                     && binding.prefix.is_empty()
                     && context.session.is_none()
             }
-            ResourceDeclaration::ControlledCarrierPool { endpoint, dial, .. }
-            | ResourceDeclaration::ControlledAssociationPool { endpoint, dial, .. } => {
+            ResourceDeclaration::ControlledCarrierPool { endpoint, dial, .. } => {
                 endpoint == destination && dial == &binding.dial && context.session.is_none()
+            }
+            ResourceDeclaration::ControlledAssociationPool { endpoint, dial, .. } => {
+                // None keeps the same original Service/BND authority. Some
+                // still requires NativeCarrierOpener's sealed Business ticket
+                // and its actual bound caller before any native preparation.
+                endpoint == destination
+                    && dial == &binding.dial
+                    && context.session.is_none_or(|session| session.0 != 0)
             }
             ResourceDeclaration::ControlledOutboundStream {
                 endpoint,
@@ -331,6 +339,7 @@ impl BoundAuthority {
                 self.declaration,
                 ResourceDeclaration::ControlledServiceStream { .. }
                     | ResourceDeclaration::ControlledNodeCarrier { .. }
+                    | ResourceDeclaration::ControlledAssociationPool { .. }
             )
             && !self.host_cancel.is_cancelled()
             && self.scope.resource_open()
@@ -352,7 +361,7 @@ impl CarrierOwnerBinding {
     pub(super) fn matches_authority(&self, actual: &Arc<BoundAuthority>) -> bool {
         Arc::ptr_eq(&self.authority, actual)
     }
-    pub(super) fn registration(&self) -> &CarrierOwnerRegistration {
+    pub(crate) fn registration(&self) -> &CarrierOwnerRegistration {
         &self.registration
     }
     pub fn matches_host_cancel(&self, host_cancel: &Arc<CancellationToken>) -> bool {
@@ -385,6 +394,15 @@ impl CarrierOwnerBinding {
     }
     pub fn matches_node(&self, destination: &Destination, binding: &UpstreamBinding) -> bool {
         self.authority.matches_node(destination, binding)
+    }
+    /// Descriptor eligibility only. This never authorizes a Business session;
+    /// the host issuer still validates its exact original grant/caller/fence.
+    pub fn supports_business(&self) -> bool {
+        self.demand() == ControlledStreamDemandClass::Business
+            || matches!(
+                self.authority.declaration,
+                ResourceDeclaration::ControlledAssociationPool { .. }
+            )
     }
     pub fn demand(&self) -> ControlledStreamDemandClass {
         match &self.authority.declaration {

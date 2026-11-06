@@ -14,6 +14,9 @@ impl AsMut<[u8]> for EnginePacket {
     }
 }
 impl PacketStorage for EnginePacket {
+    fn allocation_bytes(&self) -> usize {
+        self.0.retained_allocation_bytes()
+    }
     fn into_vec(mut self: Box<Self>) -> Vec<u8> {
         // BytesMut transfers unique storage; shared/pool-backed storage falls
         // back to copying. Keep the original return guard alive throughout.

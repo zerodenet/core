@@ -42,11 +42,13 @@ impl ComponentSlot {
                 // persistent slot owns Live before any start future can suspend.
                 let runtime = tokio::runtime::Handle::current();
                 let tasks = TaskScope::suspended_hosted(runtime, self.recipe.spec().task_limit);
-                let resources = HostResources::new_for_instance_with_packet_source(
+                let originals = self.original_budgets_for_start().map_err(Arc::new)?;
+                let resources = HostResources::new_hosted_with_packet_source(
                     self.instance_id(),
                     &self.recipe.spec().resources,
                     self.cancel.clone(),
-                    tasks.registrar().scope_identity(),
+                    tasks.registrar().downgrade(),
+                    originals,
                     self.packet_source.clone(),
                 )
                 .map_err(Arc::new)?;

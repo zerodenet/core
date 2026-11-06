@@ -1,5 +1,5 @@
 use super::*;
-use crate::{dial, EgressSelection};
+use crate::{EgressSelection, dial};
 use std::net::SocketAddr;
 use zero_traits::{AddressFamily, DialPolicy};
 
@@ -67,6 +67,12 @@ impl ControlledDatagramOwner {
         self.acquire_native(entry, source, preferred_port, v6_only, interface)
     }
     /// Bind an exact server address without outbound policy or port fallback.
+    pub(crate) fn bind_process_reservation(
+        &mut self,
+        source: SocketAddr,
+    ) -> Result<ControlledDatagramSocket, DatagramAcquisitionError> {
+        self.bind_native_listener(source)
+    }
     pub(super) fn bind_native_listener(
         &mut self,
         source: SocketAddr,

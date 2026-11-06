@@ -131,9 +131,17 @@ impl HostPacketDevice {
                 name: grant.interface,
             };
             view_ready.send_replace(true);
-            let (returned, failure) = driver::run(view, rx, packets, logical, stopped, activated)
-                .await
-                .parts();
+            let (returned, failure) = driver::run(
+                view,
+                grant.native_read,
+                rx,
+                packets,
+                logical,
+                stopped,
+                activated,
+            )
+            .await
+            .parts();
             drop(returned); // Returns only the unique view, never native close.
             task::DriverResult {
                 failure,
