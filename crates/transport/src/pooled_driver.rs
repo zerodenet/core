@@ -6,6 +6,7 @@ mod control;
 pub mod datagram;
 pub mod datagram_queue;
 mod epoch;
+mod fixed;
 mod lifecycle;
 mod loan;
 mod managed;

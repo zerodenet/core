@@ -1,4 +1,5 @@
 //! Admission belongs to the same real carrier pool; views retain no live owner.
+mod options;
 use super::{failure, ManagedPool};
 use std::{
     collections::HashMap,
@@ -199,11 +200,13 @@ impl PoolControl {
             base_identity: identity,
             on_closed: None,
             dependencies: Vec::new(),
+            scoped_preparation: false,
         })
     }
 }
 #[derive(Clone)]
 pub struct PoolOptions {
+    pub(super) scoped_preparation: bool,
     pub(super) dependencies: Vec<zero_core::component::ComponentId>,
     pub(super) registry: Weak<Registry>,
     pub(super) key: Arc<str>,
@@ -225,33 +228,7 @@ impl std::fmt::Debug for PoolOptions {
             .finish_non_exhaustive()
     }
 }
-impl PoolOptions {
-    /// Actual Node/ECH source prepared by the owning protocol adapter. Cold
-    /// identity metadata never grants IO or substitutes for an actual provider.
-    pub fn with_node_dependency(mut self, dependency: zero_core::component::ComponentId) -> Self {
-        self.dependencies = vec![dependency];
-        let mut identity = self.base_identity.to_vec();
-        identity.extend_from_slice(b"actual-node-dependency");
-        identity.extend_from_slice(&dependency.0.to_le_bytes());
-        self.identity = identity.into();
-        self
-    }
-    /// Protocol-private cache reclamation runs only after actual closure. The
-    /// callback grants no I/O authority and supplies no closure evidence.
-    pub fn on_confirmed_close(
-        mut self,
-        reclaim: impl Fn(zero_core::component::ComponentInstanceId) + Send + Sync + 'static,
-    ) -> Self {
-        self.on_closed = Some(Arc::new(reclaim));
-        self
-    }
-    pub fn endpoint(&self) -> &Destination {
-        &self.endpoint
-    }
-    pub fn binding(&self) -> &UpstreamBinding {
-        &self.binding
-    }
-}
+
 impl Registry {
     pub(super) fn claim(
         &self,

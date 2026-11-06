@@ -92,9 +92,9 @@ impl ManagedPool {
         }
         Ok(())
     }
-    /// Fixed resourceful library callers still drive their actual TaskScope in
-    /// parallel; the setup and final driver use the same declared live-task N.
-    pub async fn open<C, F, Fut>(
+    /// Fixed resourceful library callers retain inline setup. Their original
+    /// protocol driver still belongs to their actual supplied TaskScope.
+    pub async fn open_owned<C, F, Fut>(
         self: &Arc<Self>,
         profile: &str,
         binding: &UpstreamBinding,
@@ -203,7 +203,13 @@ impl ManagedPool {
                     actual_prepare,
                 )
             };
-            let preparing = super::setup::run(self, &record, operation);
+            let preparing = async {
+                if self.options.scoped_preparation {
+                    super::setup::run(self, &record, move |caller| operation(Some(caller))).await
+                } else {
+                    operation(None).await
+                }
+            };
             let scope_cancel = self.tasks.cancellation();
             let result = tokio::select! {biased;
                 _=self.cancel.cancelled()=>Err(failure(self.instance,Stage::Prepare,Reason::Revoked)),

@@ -38,7 +38,7 @@ impl ManagedPool {
         call: CarrierContext,
         grant: CarrierGrant,
         waiting: Option<PendingCarrierObserver>,
-        caller: TaskJoinWitness,
+        caller: Option<TaskJoinWitness>,
         candidates: Option<Arc<super::candidates::Candidates>>,
         prepare: Arc<Mutex<Option<F>>>,
     ) -> Result<CarrierDriver<(C, Driver)>, ChannelError>
@@ -52,22 +52,29 @@ impl ManagedPool {
             deadline: call.deadline,
             cancel: physical.stop.clone(),
         };
-        let pending = super::pending::transport(
-            self.clone(),
-            physical.clone(),
-            binding.clone(),
-            physical_call.clone(),
-            waiting,
-            caller,
-        )?;
-        let selected = self
-            .upstream
-            .select_background_carrier_observed(
-                Some(binding.clone()),
+        let selected = if self.options.scoped_preparation {
+            let pending = super::pending::transport(
+                self.clone(),
+                physical.clone(),
+                binding.clone(),
                 physical_call.clone(),
-                pending.pending_carrier_observer(),
-            )
-            .await?;
+                waiting,
+                caller.ok_or_else(|| failure(self.instance, Stage::Prepare, Reason::StalePlan))?,
+            )?;
+            self.upstream
+                .select_background_carrier_observed(
+                    Some(binding.clone()),
+                    physical_call.clone(),
+                    pending.pending_carrier_observer(),
+                )
+                .await?
+        } else {
+            // The fixed library API already owns this inline preparation and
+            // its later original driver. No synthetic setup task or witness.
+            self.upstream
+                .select_background_carrier(Some(binding.clone()), physical_call.clone())
+                .await?
+        };
         if selected.binding() != &binding {
             return Err(failure(self.instance, Stage::Prepare, Reason::StalePlan));
         }
