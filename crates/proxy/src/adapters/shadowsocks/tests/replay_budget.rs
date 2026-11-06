@@ -58,12 +58,20 @@ async fn ordinary_source_projects_total_and_replaces_originals_on_runtime_only_b
         assert_eq!(&bytes, b"salt");
         accepted.write_all(b"seen").await.unwrap();
         first.read_exact(&mut bytes).await.unwrap(); assert_eq!(&bytes,b"seen");
-        drop(first); drop(accepted);
         let handle = crate::ProxyHandle::new(zero_engine::EngineHandle::new(proxy.engine().clone()), proxy.clone());
+        let mut busy = (*proxy.engine().config()).clone();
+        busy.runtime.ss_tcp_replay_max_salts = Some(2);
+        assert!(handle.apply_runtime_config_and_wait(busy, Duration::from_secs(5)).await.is_err(),
+            "pure Source budget change cannot stop an already admitted original user");
+        assert!(Arc::ptr_eq(&original, &registry.owner("salt-source").unwrap()));
+        first.write_all(b"stay").await.unwrap(); accepted.read_exact(&mut bytes).await.unwrap(); assert_eq!(&bytes,b"stay");
+        accepted.write_all(b"same").await.unwrap(); first.read_exact(&mut bytes).await.unwrap(); assert_eq!(&bytes,b"same");
+        drop(first); drop(accepted);
+        loop { if original.accepted_join_for_test().is_some() && original.acquisition_idle_for_test() { break; } tokio::task::yield_now().await; }
         let mut next = (*proxy.engine().config()).clone();
         next.runtime.ss_tcp_replay_max_salts = Some(2);
         handle.apply_runtime_config_and_wait(next.clone(), Duration::from_secs(5)).await.unwrap();
-        let closed = original.terminal().expect("old source closed before runtime-only budget ACK");
+        let closed = original.terminal_for_test().expect("old source closed before runtime-only budget ACK");
         assert!(closed.failure().is_none());
         assert!(closed.closed_io_receipts() >= 4, "both original listeners and the accepted TCP/egress originals");
         let current = registry.owner("salt-source").unwrap();
@@ -91,8 +99,12 @@ async fn ordinary_source_projects_total_and_replaces_originals_on_runtime_only_b
         std::future::poll_fn(|cx| { assert!(pending.as_mut().poll(cx).is_pending()); Poll::Ready(()) }).await;
         drop(third);
         running.shutdown().await.unwrap();
-        let closed = current.terminal().expect("same replacement Source's final original receipts");
+        let closed = current.terminal_for_test().expect("same replacement Source's final original receipts");
         assert!(closed.closed_io_receipts() >= 5, "original listeners, both accepted sockets and successful Direct original");
         assert!(closed.joined_tasks() >= 2, "source plus exact replay maintenance Scope task joined");
     }).await.unwrap();
 }
+
+#[cfg(feature = "socks5")]
+#[path = "both_budget.rs"]
+mod both_budget;
