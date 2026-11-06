@@ -4167,6 +4167,7 @@ dependencies = [
  "zero-api",
  "zero-config",
  "zero-platform-tokio",
+ "zero-runtime",
 ]
 
 [[package]]

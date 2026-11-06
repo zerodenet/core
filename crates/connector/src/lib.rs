@@ -34,7 +34,7 @@ pub use network::{
 #[cfg(feature = "event-dispatcher")]
 pub use state::{
     CONNECTOR_STATE_REPORT_SCHEMA, ConnectorStateFile, ConnectorStateReport, ConnectorStateStatus,
-    inspect_persistent_state,
+    ConnectorStateInspection, inspect_persistent_state, inspect_persistent_state_with_source,
 };
 
 #[cfg(feature = "event-dispatcher")]

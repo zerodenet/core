@@ -22,7 +22,9 @@ mod replay;
 mod tests;
 
 use recovery::{corruption_class, quarantine_journal};
+#[cfg(test)]
 pub(crate) use replay::inspect_path;
+pub(crate) use replay::inspect_snapshot;
 use replay::read_pending;
 
 pub(crate) type DeliveryKey = (String, String);
