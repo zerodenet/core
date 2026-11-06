@@ -61,19 +61,28 @@ impl ComponentSlot {
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner)
             .take();
-        let Some(mut operation) = operation else {
+        let Some(operation) = operation else {
             return false;
         };
         // Keep this exact Shared observer handle across Pending. Dropping an
         // ephemeral clone unregisters its wake and loses host-only progress.
         let deferred = self.start_wake.enter();
+        let mut observer = RestoreObserver {
+            host,
+            operation: Some(operation),
+        };
         self.start_wake.bind(target);
         let waker = Waker::from(self.start_wake.clone());
         let mut cx = Context::from_waker(&waker);
-        let ready = Pin::new(&mut operation).poll(&mut cx).is_ready();
-        *host
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner) = Some(operation);
+        let ready = Pin::new(
+            observer
+                .operation
+                .as_mut()
+                .expect("same host startup observer"),
+        )
+        .poll(&mut cx)
+        .is_ready();
+        drop(observer);
         drop(deferred);
         ready
     }
@@ -92,6 +101,23 @@ impl ComponentSlot {
                 })?;
         }
         Ok(())
+    }
+}
+struct RestoreObserver<'a> {
+    host: &'a std::sync::Mutex<Option<OwnedStart>>,
+    operation: Option<OwnedStart>,
+}
+impl Drop for RestoreObserver<'_> {
+    fn drop(&mut self) {
+        if let Some(operation) = self.operation.take() {
+            let previous = self
+                .host
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner)
+                .replace(operation);
+            // Any observer's captured error/waker is dropped after unlocking.
+            drop(previous);
+        }
     }
 }
 struct StartPanic(std::sync::Mutex<Box<dyn Any + Send>>);
