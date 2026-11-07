@@ -76,12 +76,6 @@ impl Packet {
         self.inner._source = Some(source);
         Ok(())
     }
-    pub(crate) fn has_owned_custody(&self) -> bool {
-        self.inner._custody.is_some()
-            || self.inner._prior.is_some()
-            || self.inner._cipher.is_some()
-            || self.inner._source.is_some()
-    }
     pub(crate) fn take_prepaid_cipher(&mut self, length: usize) -> Result<Option<Packet>, ()> {
         let Some(mut cipher) = self.inner._cipher.take() else {
             return Ok(None);
@@ -96,5 +90,14 @@ impl Packet {
     pub(crate) fn retain_prior(&mut self, prior: Packet) {
         assert!(self.inner._prior.is_none(), "one actual prior plaintext");
         self.inner._prior = Some(Box::new(prior));
+    }
+}
+
+impl<T: ?Sized> Packet<T> {
+    pub(crate) fn has_owned_custody(&self) -> bool {
+        self.inner._custody.is_some()
+            || self.inner._prior.is_some()
+            || self.inner._cipher.is_some()
+            || self.inner._source.is_some()
     }
 }

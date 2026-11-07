@@ -82,7 +82,7 @@ impl PacketTransmitEnvelope {
         reserved.total.bytes += add_bytes;
         Ok(())
     }
-    pub(super) fn return_credit(&self, mut credit: credit::Credit) {
+    pub(in crate::packet_memory) fn return_credit(&self, mut credit: credit::Credit) {
         let mut reserved = self
             .0
             .lock()
