@@ -4168,6 +4168,7 @@ dependencies = [
  "webpki-roots",
  "zero-api",
  "zero-config",
+ "zero-engine",
  "zero-platform-tokio",
  "zero-runtime",
 ]
