@@ -235,7 +235,17 @@ struct Owner {
 }
 impl ResourceLifecycle for Owner {
     async fn start(&mut self, deadline: tokio::time::Instant) -> Result<(), BuildError> {
+        #[cfg(test)]
+        eprintln!(
+            "actual linked graph {} start before original workers",
+            self.options.tag
+        );
         self.options.start_graph().map_err(prepare_error)?;
+        #[cfg(test)]
+        eprintln!(
+            "actual linked graph {} workers registered; waiting real Ready",
+            self.options.tag
+        );
         for peer in 0..self.options.peers {
             let device = self
                 .options
@@ -253,6 +263,11 @@ impl ResourceLifecycle for Owner {
                 })?
                 .map_err(prepare_error)?;
         }
+        #[cfg(test)]
+        eprintln!(
+            "actual linked graph {} original workers Ready",
+            self.options.tag
+        );
         Ok(())
     }
     fn revoke(&self, _: CloseReason) {

@@ -16,6 +16,8 @@ pub(super) async fn run(
         Poll::Pending => {
             if !initialized {
                 initialized = true;
+                #[cfg(test)]
+                eprintln!("actual endpoint software driver initialized Pending");
                 ready.send_replace(Some(Ok(())));
             }
             Poll::Pending
