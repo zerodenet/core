@@ -132,7 +132,7 @@ impl ControlledDatagramControl {
             native_closed: matches!(&*native, NativeHandleState::Closed),
             operation_pending: self.entry.close_running.load(Ordering::Acquire),
             unknown: match &*native {
-                NativeHandleState::Unknown(source) => Some(source.clone()),
+                NativeHandleState::Unknown(source) => Some(self.entry.close_failure_source(source)),
                 _ => None,
             },
         }

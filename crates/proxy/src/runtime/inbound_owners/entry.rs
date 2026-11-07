@@ -57,7 +57,7 @@ pub(crate) struct InboundOwner {
         Arc<OnceLock<Arc<zero_platform_tokio::contract::packet::PacketSourcePause>>>,
     #[cfg(all(feature = "raw-ip-runtime", feature = "datagram-route-runtime"))]
     pub(super) packet_native:
-        OnceLock<std::sync::Weak<super::bind::native::udp::NativeDatagramGrant>>,
+        Arc<OnceLock<std::sync::Weak<super::bind::native::udp::NativeDatagramGrant>>>,
     #[cfg(test)]
     pub(crate) original_listener_address: Arc<OnceLock<std::net::SocketAddr>>,
     #[cfg(test)]
@@ -136,6 +136,8 @@ pub(crate) struct InboundTaskAccess {
     main_registration: std::sync::Weak<MainRegistration>,
     #[cfg(feature = "raw-ip-runtime")]
     packet_pause: Arc<OnceLock<Arc<zero_platform_tokio::contract::packet::PacketSourcePause>>>,
+    #[cfg(all(feature = "raw-ip-runtime", feature = "datagram-route-runtime"))]
+    packet_native: Arc<OnceLock<std::sync::Weak<super::bind::native::udp::NativeDatagramGrant>>>,
     #[cfg(feature = "raw-ip-runtime")]
     packet_source: std::sync::Weak<
         Mutex<Option<crate::runtime::inbound_operation::raw_ip::PacketSourceContext>>,
@@ -301,7 +303,7 @@ impl InboundOwner {
             #[cfg(feature = "raw-ip-runtime")]
             packet_pause: Arc::default(),
             #[cfg(all(feature = "raw-ip-runtime", feature = "datagram-route-runtime"))]
-            packet_native: OnceLock::new(),
+            packet_native: Arc::new(OnceLock::new()),
             #[cfg(feature = "raw-ip-runtime")]
             source_input: OnceLock::new(),
             #[cfg(feature = "raw-ip-runtime")]
@@ -434,6 +436,8 @@ impl InboundOwner {
             main_registration: Arc::downgrade(&self.main_registration),
             #[cfg(feature = "raw-ip-runtime")]
             packet_pause: self.packet_pause.clone(),
+            #[cfg(all(feature = "raw-ip-runtime", feature = "datagram-route-runtime"))]
+            packet_native: self.packet_native.clone(),
             #[cfg(feature = "raw-ip-runtime")]
             packet_source: Arc::downgrade(&self.packet_source),
             cancel: self.cancel.clone(),

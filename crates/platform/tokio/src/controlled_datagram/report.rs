@@ -35,7 +35,7 @@ impl ControlledDatagramOwner {
                     };
                     report.unconfirmed.push(UnconfirmedDatagram {
                         reservation: entry.id,
-                        source: source.clone(),
+                        source: entry.close_failure_source(source),
                         acquisition_source: acquisition.clone(),
                     });
                 }

@@ -114,10 +114,20 @@ impl BoundTotalsOriginal {
         })
     }
     pub(crate) fn failure(&self) -> Option<Arc<ChannelError>> {
-        self.first_fault
+        let mut stored = self
+            .first_fault
             .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner)
-            .clone()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        if let Some(source) = self.entry.first_close_failure.get() {
+            stored.get_or_insert_with(|| {
+                let mut failure = ChannelError::new(Stage::Close, Reason::Io, Impact::Component)
+                    .with_source(OriginalSource(source.clone()));
+                failure.component = Some(self.binding.instance.component);
+                failure.delivery = DeliveryState::Unknown;
+                Arc::new(failure)
+            });
+        }
+        stored.clone()
     }
     pub(crate) fn poll_retirement(&self, cx: &mut Context<'_>) -> bool {
         let mut changed = false;

@@ -124,6 +124,9 @@ struct Entry {
     // Prepared before the original fd exists; installed before consuming OS
     // registration/close calls, including panic or cancellation of the caller.
     uncertain: Arc<std_io::Error>,
+    // One canonical actual close fault per original. Native Unknown separately
+    // retains the latest retryable SOCKET source; never retry using this history.
+    first_close_failure: std::sync::OnceLock<Arc<std_io::Error>>,
     close_running: std::sync::atomic::AtomicBool,
     control_issued: std::sync::atomic::AtomicBool,
     acquisition_failure: Mutex<Option<Arc<std_io::Error>>>,
@@ -224,7 +227,9 @@ impl ControlledDatagramOwner {
             .entries
             .values()
             .find_map(|entry| match &*entry.lock() {
-                NativeHandleState::Unknown(source) => Some((entry.id, source.clone())),
+                NativeHandleState::Unknown(source) => {
+                    Some((entry.id, entry.close_failure_source(source)))
+                }
                 _ => None,
             })
         {
@@ -251,6 +256,7 @@ impl ControlledDatagramOwner {
             provider: std::sync::OnceLock::new(),
             retired: tokio_util::sync::CancellationToken::new(),
             native: Mutex::new(NativeHandleState::Reserved),
+            first_close_failure: std::sync::OnceLock::new(),
             close_running: std::sync::atomic::AtomicBool::new(false),
             control_issued: std::sync::atomic::AtomicBool::new(false),
             uncertain: Arc::new(std_io::Error::other(
@@ -308,7 +314,7 @@ impl ControlledDatagramOwner {
                 NativeHandleState::Unknown(source) => {
                     report.unconfirmed.push(UnconfirmedDatagram {
                         reservation: entry.id,
-                        source: source.clone(),
+                        source: entry.close_failure_source(source),
                         acquisition_source: entry
                             .acquisition_failure
                             .lock()
@@ -383,7 +389,7 @@ impl Entry {
             }
             if let NativeHandleState::Unknown(source) = &*native {
                 if !TokioDatagramSocket::close_is_retryable(source) {
-                    return Err(source.clone());
+                    return Err(self.close_failure_source(source));
                 }
             }
             std::mem::replace(
@@ -413,10 +419,22 @@ impl Entry {
                 Ok(receipt)
             }
             Err(source) => {
-                *native = NativeHandleState::Unknown(source.clone());
-                Err(source)
+                // Keep the current exact retry owner in native state. The first
+                // diagnostic alone cannot identify a later retained SOCKET.
+                let first = self
+                    .first_close_failure
+                    .get_or_init(|| source.clone())
+                    .clone();
+                let old = std::mem::replace(&mut *native, NativeHandleState::Unknown(source));
+                drop(native);
+                // Foreign error payloads may reenter the owner in Drop.
+                drop(old);
+                Err(first)
             }
         }
+    }
+    fn close_failure_source(&self, current: &Arc<std_io::Error>) -> Arc<std_io::Error> {
+        self.first_close_failure.get().unwrap_or(current).clone()
     }
 }
 

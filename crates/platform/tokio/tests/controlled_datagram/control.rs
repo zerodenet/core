@@ -75,3 +75,101 @@ async fn original_controls_reuse_one_fd_slot_for_sixty_five_actual_acquisitions(
     }
     assert_eq!(owner.take_report().confirmed_closed, 65);
 }
+
+#[tokio::test]
+async fn native_fault_received_after_actual_close_still_requires_root_handoff_and_scope_ack() {
+    use super::super::totals::BoundDatagramTotalsBinding;
+    use crate::contract::{
+        scope::{TaskClass, TaskScope},
+        CancellationToken,
+    };
+    use crate::controlled_carrier::CarrierOriginalTotals;
+    tokio::time::timeout(std::time::Duration::from_secs(3), async {
+        let root = CarrierOriginalTotals::new(NonZeroUsize::new(1).unwrap());
+        let mut scope =
+            TaskScope::suspended_hosted(tokio::runtime::Handle::current(), NonZeroUsize::new(1));
+        scope.enable_registration().unwrap();
+        let stop = CancellationToken::new();
+        let actual_stop = stop.clone();
+        let (_, caller) = scope
+            .registrar()
+            .spawn_tracked(TaskClass::Critical, async move {
+                actual_stop.cancelled().await;
+                Ok(())
+            })
+            .unwrap();
+        let instance = zero_core::component::ComponentInstanceId {
+            component: zero_core::component::ComponentId(972),
+            generation: zero_core::component::ResourceGeneration(4),
+        };
+        let mut owner = ControlledDatagramOwner::new(NonZeroUsize::new(1).unwrap());
+        owner
+            .bind_bound_totals(
+                BoundDatagramTotalsBinding::prepare(&root, instance, &caller, &stop).unwrap(),
+            )
+            .unwrap();
+        let peer = tokio::net::UdpSocket::bind("127.0.0.1:0").await.unwrap();
+        let address = peer.local_addr().unwrap();
+        let policy = DialPolicy::default();
+        let selected = EgressInterfaceControl::default()
+            .select_for_peer_with_policy(address, &policy)
+            .unwrap();
+        let io = owner.acquire(address, None, &policy, &selected).unwrap();
+        let control = owner.take_control(&io).unwrap();
+        io.send_to_addr(b"same original", address).await.unwrap();
+        let mut wire = [0; 32];
+        let (read, _) = peer.recv_from(&mut wire).await.unwrap();
+        assert_eq!(&wire[..read], b"same original");
+        let missing = tempfile::tempdir()
+            .unwrap()
+            .path()
+            .join("missing-native-error-fixture");
+        let source = Arc::new(std::fs::File::open(missing).unwrap_err());
+        // Inject the native error return at its persistent storage boundary.
+        // This checks late Root delivery, not Windows closesocket behavior.
+        assert!(control
+            .entry
+            .first_close_failure
+            .set(source.clone())
+            .is_ok());
+        assert!(control.close().unwrap().matches(&control));
+        assert!(root.failures().len() == 1);
+        drop(io);
+        stop.cancel();
+        let joined = scope.next_receipt().await.unwrap();
+        assert!(caller.matches_joined(joined.joined()));
+        joined.result().unwrap();
+        assert_eq!(root.snapshot().charged, 1);
+        scope.acknowledge(&joined).unwrap();
+        assert!(joined.joined().registration_released());
+        assert_eq!(
+            root.snapshot().charged,
+            1,
+            "closed native and real Scope ACK do not acknowledge a fault"
+        );
+        let retained = root.resource_failures();
+        assert_eq!(retained.len(), 1);
+        let again = root.resource_failures();
+        assert!(Arc::ptr_eq(&retained[0], &again[0]));
+        let mut found_original = false;
+        let mut current: Option<&(dyn std::error::Error + 'static)> =
+            Some(retained[0].source.as_ref());
+        while let Some(error) = current {
+            if let Some(actual) = error.downcast_ref::<std::io::Error>() {
+                found_original |= std::ptr::eq(actual, source.as_ref());
+            }
+            current = error.source();
+        }
+        assert!(
+            found_original,
+            "same actual OS error Arc must survive a positive native receipt"
+        );
+        assert!(retained[0].acknowledge_retained(&retained[0]));
+        assert_eq!(root.snapshot().charged, 0);
+        scope.begin_shutdown();
+        assert!(scope.is_drained());
+        assert_eq!(owner.take_report().confirmed_closed, 1);
+    })
+    .await
+    .unwrap();
+}
