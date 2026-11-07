@@ -116,12 +116,16 @@ impl DatagramOutbound for Outbound {
         };
         let loan = tokio::select! {biased;_=context.cancel.cancelled()=>return Err(self.admission.error(session,Stage::Dial,Reason::Cancelled,DeliveryState::Unknown)),result=opening=>result?};
         let raw_endpoint = loan.io.endpoint().clone();
+        let wire_association = loan.io.wire_association();
         let (raw, original) = loan.into_session();
         context.upstream.observe_carrier_origin(&original);
         let channel = codec::wrap(
-            raw,
+            codec::Raw {
+                session: raw,
+                endpoint: raw_endpoint,
+                association: wire_association,
+            },
             request,
-            raw_endpoint,
             Arc::new(self.options.resume.codec()),
             context.cancel.clone(),
             context.observer.clone(),

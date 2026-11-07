@@ -1,4 +1,5 @@
 use super::*;
+mod transferred;
 use crate::{
     contract::{
         network::{CarrierContext, UpstreamBinding},
@@ -6,6 +7,7 @@ use crate::{
     },
     controlled_carrier::{error, slot::Slot, CarrierDriver, CarrierGrant},
 };
+use transferred::{Transferred, TransferredRx, TransferredTx};
 
 pub struct BorrowedDatagram {
     io: LoanDatagramIo,
@@ -39,6 +41,7 @@ impl BorrowedDatagram {
         let original = adoption.transferred_origin()?;
         let endpoint = self.io.endpoint.clone();
         let limits = self.io.limits.clone();
+        let wire_association = self.io.wire_association;
         let tx = self.io.tx.get_mut().take().expect("live packet sender");
         let rx = self.io.rx.get_mut().take().expect("live packet receiver");
         let observer = self.io.observer.clone();
@@ -66,7 +69,11 @@ impl BorrowedDatagram {
                 as Box<dyn crate::contract::lifecycle::DynChannelControl>,
             limits,
         };
-        Ok(DatagramLoan::new(session, original, association, endpoint))
+        let mut loan = DatagramLoan::new(session, original, association, endpoint);
+        // Same original Tx/Rx still expect their original wire association.
+        // A new logical receiver never rewrites a borrowed immutable payload.
+        loan.io.wire_association = wire_association;
+        Ok(loan)
     }
     /// A domain's eventual family is unknown here; retain conservative IPv6
     /// packet overhead without inventing a native peer or local socket.
@@ -113,81 +120,6 @@ impl BorrowedDatagram {
             slot: self.slot.clone(),
             io: self,
         }
-    }
-}
-// The original views are dropped before either shared custody reference. Only
-// the final actual Tx/Rx return drops BorrowedDatagram and its original loan IO.
-struct Transferred {
-    original: BorrowedDatagram,
-    _view: crate::controlled_carrier::CarrierUserView,
-}
-struct TransferredTx {
-    inner: Tx,
-    fence: crate::controlled_carrier::related::ViewCancellation,
-    send_pending: bool,
-    observer: Option<Arc<dyn zero_traits::IoObserver>>,
-    custody: Arc<Transferred>,
-}
-struct TransferredRx {
-    inner: Rx,
-    fence: crate::controlled_carrier::related::ViewCancellation,
-    observer: Option<Arc<dyn zero_traits::IoObserver>>,
-    custody: Arc<Transferred>,
-}
-impl DatagramTx for TransferredTx {
-    fn poll_send(
-        self: Pin<&mut Self>,
-        cx: &mut std::task::Context<'_>,
-        frame: &zero_core::packet::Datagram,
-    ) -> std::task::Poll<Result<crate::contract::SendReceipt, crate::contract::SendFailure>> {
-        let this = self.get_mut();
-        if this.fence.stopped(cx) {
-            let delivery = if this.send_pending {
-                DeliveryState::Unknown
-            } else {
-                DeliveryState::NotSubmitted
-            };
-            return std::task::Poll::Ready(Err(crate::contract::SendFailure::new(
-                error(
-                    this.custody.original.slot.instance,
-                    Stage::Send,
-                    Reason::Revoked,
-                    delivery,
-                ),
-                delivery,
-            )));
-        }
-        let result = this.inner.as_mut().poll_send(cx, frame);
-        this.send_pending = result.is_pending();
-        if let std::task::Poll::Ready(Ok(receipt)) = &result {
-            if let Some(observer) = &this.observer {
-                observer.sent(receipt.accepted_bytes);
-            }
-        }
-        result
-    }
-}
-impl DatagramRx for TransferredRx {
-    fn poll_recv(
-        self: Pin<&mut Self>,
-        cx: &mut std::task::Context<'_>,
-    ) -> std::task::Poll<Result<Option<zero_core::packet::Datagram>, ChannelError>> {
-        let this = self.get_mut();
-        if this.fence.stopped(cx) {
-            return std::task::Poll::Ready(Err(error(
-                this.custody.original.slot.instance,
-                Stage::Receive,
-                Reason::Revoked,
-                DeliveryState::NotSubmitted,
-            )));
-        }
-        let result = this.inner.as_mut().poll_recv(cx);
-        if let std::task::Poll::Ready(Ok(Some(frame))) = &result {
-            if let Some(observer) = &this.observer {
-                observer.received(frame.payload.len());
-            }
-        }
-        result
     }
 }
 impl Drop for BorrowedDatagram {

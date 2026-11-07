@@ -22,6 +22,9 @@ impl DatagramLoan {
     /// Move the actual views and controller, preserving this loan's one return
     /// barrier. A wrapped protocol can consume poll-based Tx/Rx directly; it
     /// receives neither a second native owner nor a fabricated close receipt.
+    /// This is the original raw wire session. A concrete codec reads
+    /// `io.wire_association()` before this move and binds its own already-owned
+    /// encoded frame to that ID, preserving its separate logical caller ID.
     pub fn into_session(self) -> (BoxDatagramSession, CarrierOrigin) {
         let Self { mut io, owner } = self;
         let original = owner.original().clone();
