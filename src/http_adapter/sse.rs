@@ -48,6 +48,8 @@ pub async fn run_sse_stream(
     let budget = ControlBudget::new(ControlBudgetLimits::from_runtime(
         &zero_config::RuntimeOptionsConfig::default(),
     ));
+    let _connection = budget.reserve(ControlCharge::Connection)?;
+    let local = _connection.connection_budget().unwrap();
     let _subscription = budget.reserve(ControlCharge::Subscription)?;
     run_sse_stream_with_budget(
         stream,
@@ -56,6 +58,7 @@ pub async fn run_sse_stream(
         heartbeat_interval,
         shutdown,
         budget,
+        local,
     )
     .await
 }
@@ -68,12 +71,45 @@ pub async fn run_sse_stream_with_budget(
     heartbeat_interval: Duration,
     shutdown: impl std::future::Future + Send,
     budget: Arc<ControlBudget>,
+    local: zero_runtime::configuration::ControlConnectionBudget,
 ) -> io::Result<()> {
     let mut shutdown = Box::pin(shutdown);
     let stop = CancellationToken::new();
     let worker_stop = stop.clone();
     let worker_budget = budget.clone();
-    let (event_tx, mut event_rx) = tokio::sync::mpsc::channel::<QueuedFrame>(32);
+    let worker_local = local.clone();
+    // This actual ordered catch-up operation reserves its one working frame
+    // before the existing worker can queue new events. It keeps that slot
+    // between catch-up frames, preventing N=1 from waiting on its own later queue.
+    let mut catchup_slot = if catch_up.is_empty() {
+        None
+    } else {
+        Some(local.reserve(zero_runtime::configuration::ControlConnectionCharge::SseFrame)?)
+    };
+    // Prepay the actual largest known catch-up frame before the worker may
+    // fill the same Root byte book. No buffer is preallocated at this bound.
+    // The ordered operation reuses this one working allowance until catch-up
+    // finishes; each Vec still allocates only its actual measured frame.
+    let catchup_bytes = catch_up.iter().try_fold(0usize, |maximum, event| {
+        frame_len(event).map(|size| maximum.max(size))
+    })?;
+    let mut catchup_charge = if catchup_bytes == 0 {
+        None
+    } else {
+        Some(loop {
+            let changed = budget.capacity_changed();
+            tokio::pin!(changed);
+            changed.as_mut().enable();
+            match budget.reserve(ControlCharge::QueuedEventBytes(catchup_bytes)) {
+                Ok(charge) => break charge,
+                Err(error) if error.kind() == io::ErrorKind::WouldBlock => {
+                    tokio::select! { _=&mut shutdown=>return Ok(()),_=changed=>{} }
+                }
+                Err(error) => return Err(error),
+            }
+        })
+    };
+    let (event_tx, mut event_rx) = tokio::sync::mpsc::channel::<QueuedFrame>(4096);
     let handle = tokio::task::spawn_blocking(move || {
         let mut last_event_at = std::time::Instant::now();
         while !worker_stop.is_cancelled() && !event_tx.is_closed() {
@@ -104,6 +140,20 @@ pub async fn run_sse_stream_with_budget(
             ) else {
                 break;
             };
+            let slot = loop {
+                if worker_stop.is_cancelled() || event_tx.is_closed() {
+                    return;
+                }
+                match worker_local
+                    .reserve(zero_runtime::configuration::ControlConnectionCharge::SseFrame)
+                {
+                    Ok(slot) => break slot,
+                    Err(error) if error.kind() == io::ErrorKind::WouldBlock => {
+                        std::thread::sleep(Duration::from_millis(25))
+                    }
+                    Err(_) => return,
+                }
+            };
             let bytes = match pending {
                 Some(event) => frame(&event).expect("measured event envelope serialization"),
                 None => b": heartbeat\n\n".to_vec(),
@@ -112,6 +162,7 @@ pub async fn run_sse_stream_with_budget(
                 .blocking_send(QueuedFrame {
                     bytes,
                     _charge: charge,
+                    _slot: slot,
                 })
                 .is_err()
             {
@@ -122,19 +173,11 @@ pub async fn run_sse_stream_with_budget(
     let result = crate::ipc::owner::catch_work(async {
         tokio::select! { _ = &mut shutdown => return Ok(()), result = stream.write_all(SSE_HEADERS.as_bytes()) => result? }
         for event in &catch_up {
-            let bytes = frame_len(event)?;
-            let _charge = loop {
-                match budget.reserve(ControlCharge::QueuedEventBytes(bytes)) {
-                    Ok(charge) => break charge,
-                    Err(error) if error.kind() == io::ErrorKind::WouldBlock => {
-                        tokio::select! { _ = &mut shutdown => return Ok(()), _ = tokio::time::sleep(Duration::from_millis(25)) => {} }
-                    }
-                    Err(error) => return Err(error),
-                }
-            };
-            let bytes = frame(event)?;
-            tokio::select! { _ = &mut shutdown => return Ok(()), result = stream.write_all(&bytes) => result? }
+            let frame=frame(event)?;
+            tokio::select! { _ = &mut shutdown => return Ok(()), result = stream.write_all(&frame) => result? }
         }
+        drop(catchup_charge.take());
+        drop(catchup_slot.take());
         loop {
             let item = tokio::select! { _ = &mut shutdown => break, item = event_rx.recv() => item };
             let Some(item) = item else { break; };
@@ -146,15 +189,13 @@ pub async fn run_sse_stream_with_budget(
     event_rx.close();
     drop(event_rx);
     let joined = handle.await.map_err(io::Error::other);
-    let result = match result {
-        Ok(result) => result,
-        Err(payload) => std::panic::resume_unwind(payload),
-    };
-    crate::ipc::owner::finish_work([result, joined])
+    crate::ipc::owner::finish_caught(result, [joined])
 }
+
 struct QueuedFrame {
     bytes: Vec<u8>,
     _charge: ControlBudgetPermit,
+    _slot: zero_runtime::configuration::ControlConnectionPermit,
 }
 #[cfg(test)]
 mod tests;

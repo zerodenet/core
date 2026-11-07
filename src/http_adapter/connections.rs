@@ -13,6 +13,11 @@ pub(super) struct Original {
     command: Mutex<Option<zero_runtime::configuration::ControlConnectionPermit>>,
 }
 impl Original {
+    pub(super) fn connection_budget(&self) -> zero_runtime::configuration::ControlConnectionBudget {
+        self.permit
+            .connection_budget()
+            .expect("same actual HTTP connection issuer")
+    }
     pub(super) fn reserve_command(&self) -> io::Result<()> {
         let mut command = self
             .command

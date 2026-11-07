@@ -112,3 +112,5 @@ async fn stalled_sse_receiver_does_not_prevent_shutdown() {
         .unwrap();
     drop(client);
 }
+
+mod local_frames;

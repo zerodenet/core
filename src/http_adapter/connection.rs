@@ -91,6 +91,7 @@ pub(super) async fn serve_connection(
                 Duration::from_secs(30),
                 stop.cancelled_owned(),
                 budget,
+                original.connection_budget(),
             )
             .await
         }
