@@ -1,11 +1,11 @@
 //! Two actual owner/Scope instances share the same existing original Root.
 use super::*;
-use crate::contract::scope::TaskJoinWitness;
+use crate::contract::scope::{HostedScope, TaskJoinWitness};
 
 struct JobFixture {
     original: CarrierAdoption,
     fixture: Fixture,
-    scope: TaskScope,
+    scope: HostedScope,
     driver: Option<TaskJoinWitness>,
     peer: TcpStream,
     request: tokio::sync::oneshot::Receiver<()>,
@@ -38,10 +38,9 @@ impl JobFixture {
                 .unwrap(),
             ),
         );
-        let mut scope = TaskScope::new(
-            tokio::runtime::Handle::current(),
-            NonZeroUsize::new(1).unwrap(),
-        );
+        let mut scope =
+            TaskScope::suspended_hosted(tokio::runtime::Handle::current(), NonZeroUsize::new(1));
+        scope.enable_registration().unwrap();
         let tasks = scope.registrar();
         fixture
             .owner
@@ -120,10 +119,18 @@ impl JobFixture {
             .unwrap();
         let (peer, _) = fixture.listener.accept().await.unwrap();
         let input = setup.await.unwrap();
-        let exit = scope.next_exit().await.unwrap();
-        assert_eq!(exit.id, auxiliary.try_joined().unwrap().id());
+        let exit = scope.next_receipt().await.unwrap();
+        assert!(auxiliary.matches_joined(exit.joined()));
         let received = original.accept_auxiliary().await.unwrap().unwrap();
-        assert!(received.result().is_err() && received.failure_accepted());
+        assert!(
+            received.result().is_err() && received.failure_accepted(),
+            "actual setup receipt: {:?}",
+            received.result()
+        );
+        assert!(!received.registration_released());
+        scope.acknowledge(&exit).unwrap();
+        let acknowledged = auxiliary.wait_registration_released().await;
+        assert!(auxiliary.matches_joined(&acknowledged));
         assert!(received.registration_released());
         let driver = if let Some(input) = input {
             let pending = original
@@ -171,10 +178,17 @@ impl JobFixture {
     async fn close(mut self, totals: &Arc<CarrierOriginalTotals>) {
         if let Some(driver) = self.driver {
             self.finish.take().unwrap().send(()).unwrap();
-            let exit = self.scope.next_exit().await.unwrap();
-            assert!(exit.result.is_ok());
-            assert_eq!(exit.id, driver.try_joined().unwrap().id());
-            assert!(driver.try_joined().unwrap().registration_released());
+            let exit = self.scope.next_receipt().await.unwrap();
+            assert!(
+                exit.result().is_ok(),
+                "actual job receipt: {:?}",
+                exit.result()
+            );
+            assert!(driver.matches_joined(exit.joined()));
+            assert!(!exit.joined().registration_released());
+            self.scope.acknowledge(&exit).unwrap();
+            let acknowledged = driver.wait_registration_released().await;
+            assert!(driver.matches_joined(&acknowledged) && acknowledged.registration_released());
             std::future::poll_fn(|cx| {
                 totals.poll_cancelled_retirements(cx);
                 if self.fixture.owner.retained() == 0 {
@@ -199,7 +213,8 @@ impl JobFixture {
             .await
             .unwrap()
             .is_complete());
-        assert!(self.scope.shutdown(deadline()).await.is_complete());
+        self.scope.begin_shutdown();
+        assert!(self.scope.is_drained());
     }
 }
 

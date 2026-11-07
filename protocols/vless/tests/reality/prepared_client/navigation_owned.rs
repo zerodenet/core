@@ -177,7 +177,11 @@ async fn verified_decoy_stays_on_the_original_until_same_scope_job_and_native_ac
         host.cancel();
         let receipt = scope.next_receipt().await.unwrap();
         assert!(driver.matches_joined(receipt.joined()));
-        assert!(receipt.result().is_ok());
+        assert!(
+            receipt.result().is_ok(),
+            "actual original job receipt: {:?}",
+            receipt.result()
+        );
         std::future::poll_fn(|cx| {
             totals.poll_cancelled_retirements(cx);
             if original
