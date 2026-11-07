@@ -112,6 +112,19 @@ impl PoolControl {
                 return Ok(owner);
             }
         }
+        let (mode, instance, ready) = match &*scope {
+            Mode::Cold => ("cold", None, false),
+            Mode::Legacy => ("legacy", None, false),
+            Mode::Retiring => ("retiring", None, false),
+            Mode::Owned(owner) => match owner.upgrade() {
+                Some(owner) => ("owned", Some(owner.instance), owner.ready()),
+                None => ("owned-lost", None, false),
+            },
+        };
+        drop(scope);
+        let registry = *self.registry.nonce.lock().unwrap();
+        tracing::debug!(target:"zero_transport::pooled_driver", ?registry, mode, ?instance, ready,
+            "actual original MUX lookup unavailable");
         Err(std::io::Error::new(
             std::io::ErrorKind::PermissionDenied,
             "native carrier pool generation is unavailable",
@@ -252,17 +265,33 @@ impl Registry {
             }
             *mode = Mode::Owned(Arc::downgrade(owner));
         }
+        drop(scopes);
+        let registry = *self.nonce.lock().unwrap();
+        tracing::debug!(target:"zero_transport::pooled_driver", ?registry, instance=?owner.instance,
+            "actual original MUX claim");
         Ok(scope)
     }
     pub(super) fn confirm(&self, key: &Arc<str>, actual: &Arc<Scope>) {
-        *actual.0.lock().unwrap() = Mode::Retiring;
+        let instance = {
+            let mut mode = actual.0.lock().unwrap();
+            let instance = match &*mode {
+                Mode::Owned(owner) => owner.upgrade().map(|owner| owner.instance),
+                _ => None,
+            };
+            *mode = Mode::Retiring;
+            instance
+        };
         let mut scopes = self.scopes.lock().unwrap();
-        if scopes
+        let removed = scopes
             .get(key)
-            .is_some_and(|current| Arc::ptr_eq(current, actual))
-        {
+            .is_some_and(|current| Arc::ptr_eq(current, actual));
+        if removed {
             scopes.remove(key);
         }
+        drop(scopes);
+        let registry = *self.nonce.lock().unwrap();
+        tracing::debug!(target:"zero_transport::pooled_driver", ?registry, ?instance, removed,
+            "actual original MUX confirmed retirement");
     }
 }
 
