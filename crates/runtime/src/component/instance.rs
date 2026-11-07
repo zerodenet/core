@@ -101,8 +101,9 @@ struct Live {
     resources: Arc<HostResources>,
 }
 struct Owner {
-    resource_failures:
-        [std::sync::OnceLock<Arc<zero_platform_tokio::contract::lifecycle::ResourceFailure>>; 2],
+    // Same actual lifecycle's stable pure receiver. Its payload is retained by
+    // the returned canonical CloseReport after this Owner is really retired.
+    protocol_failures: resources::DeclaredReceiver,
     instance: ComponentInstance,
     pending_close: Option<Box<PendingClose>>,
     protocol_closed: bool,

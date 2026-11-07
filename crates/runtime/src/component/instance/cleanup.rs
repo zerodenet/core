@@ -24,7 +24,7 @@ impl Owner {
             instance,
             pending_close,
             protocol_closed,
-            resource_failures,
+            protocol_failures,
         } = self;
         let pending = pending_close.get_or_insert_with(Box::default);
         pending.report.unfinished.clear();
@@ -52,11 +52,13 @@ impl Owner {
                         *protocol_closed = complete;
                         Ok(())
                     }
-                    Ok(Err(error)) => retain_resource_failure(
-                        &resource_failures[0], instance_id,
-                        zero_platform_tokio::contract::lifecycle::ResourceFailurePhase::ProtocolLifecycle,
-                        error,
-                    ),
+                    Ok(Err(error)) => {
+                        // Every actual independent source is received before
+                        // join! can suspend, including after a previous error.
+                        // Internal Timeout/Revoked are NOT reclassified here.
+                        protocol_failures.original(instance_id, std::sync::Arc::new(error));
+                        Ok::<(), ChannelError>(())
+                    }
                     Err(_) => {
                         persist(CloseReport {
                             unfinished: vec![Unfinished::Resource(format!(
@@ -120,16 +122,13 @@ impl Owner {
         }
         pending.report.append(pending.io);
         let mut report = pending.report;
-        for fault in resource_failures
-            .iter()
-            .filter_map(std::sync::OnceLock::get)
-        {
+        if let Some(fault) = protocol_failures.get() {
             if !report
                 .resource_failures
                 .iter()
-                .any(|same| std::sync::Arc::ptr_eq(same, fault))
+                .any(|same| std::sync::Arc::ptr_eq(same, &fault))
             {
-                report.resource_failures.push(fault.clone());
+                report.resource_failures.push(fault);
             }
         }
         resources.retain_resource_report(&mut report);
@@ -152,37 +151,4 @@ impl Owner {
         }
         Ok(report)
     }
-}
-
-// Persist each actual branch error before join! can suspend in another branch.
-// Receipt acceptance belongs to the existing Plan archive, not this observer.
-fn retain_resource_failure(
-    slot: &std::sync::OnceLock<
-        std::sync::Arc<zero_platform_tokio::contract::lifecycle::ResourceFailure>,
-    >,
-    instance: zero_core::component::ComponentInstanceId,
-    phase: zero_platform_tokio::contract::lifecycle::ResourceFailurePhase,
-    mut error: ChannelError,
-) -> Result<(), ChannelError> {
-    error.component.get_or_insert(instance.component);
-    let source = std::sync::Arc::new(error);
-    let actual = slot.get_or_init(|| {
-        std::sync::Arc::new(
-            zero_platform_tokio::contract::lifecycle::ResourceFailure::new(
-                instance,
-                phase,
-                source.clone(),
-            ),
-        )
-    });
-    if let Some(receipt) = source.cleanup_failure_receipt() {
-        if !actual
-            .source
-            .cleanup_failure_receipt()
-            .is_some_and(|same| same.same_receipt(receipt))
-        {
-            return Err(super::retained(source));
-        }
-    }
-    Ok(())
 }

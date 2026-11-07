@@ -124,3 +124,6 @@ async fn original_fault_blocks_reuse_without_fake_task_and_actual_close_allows_f
     assert_eq!(root.carrier.snapshot().charged, 0);
     assert!(Arc::ptr_eq(&fault, &report.resource_failures[0]));
 }
+
+#[path = "resource_fault_supervision/protocol.rs"]
+mod protocol;

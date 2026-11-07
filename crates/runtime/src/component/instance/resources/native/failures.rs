@@ -1,13 +1,13 @@
-//! One actual Host declaration graph's bounded, pure fault receiver.
-//! Its first fault stops new admissions. Later causes are bounded by the already
-//! admitted original graph and declared providers, not total historical queries.
+//! One actual Host controller's pure fault receiver.
+//! Concrete providers must supply stable per-original/phase source identities;
+//! sealing admission alone does not bound independent cleanup errors.
 use super::*;
 use std::{error::Error, fmt};
 use zero_platform_tokio::contract::lifecycle::{
     CloseReport, ResourceFailure, ResourceFailurePhase,
 };
-#[derive(Default)]
 pub(in crate::component) struct DeclaredReceiver {
+    controller: ResourceFailurePhase,
     canonical: std::sync::OnceLock<Arc<ResourceFailure>>,
     causes: Arc<Causes>,
 }
@@ -23,7 +23,7 @@ enum Cause {
 }
 impl fmt::Display for Causes {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.write_str("actual declared resource graph failure")
+        f.write_str("actual component resource controller failure")
     }
 }
 impl Error for Causes {
@@ -31,7 +31,22 @@ impl Error for Causes {
         self.first.get().map(|source| source.as_ref() as _)
     }
 }
+impl Default for DeclaredReceiver {
+    fn default() -> Self {
+        Self {
+            controller: ResourceFailurePhase::DeclaredResources,
+            canonical: Default::default(),
+            causes: Default::default(),
+        }
+    }
+}
 impl DeclaredReceiver {
+    pub(in crate::component) fn protocol() -> Self {
+        Self {
+            controller: ResourceFailurePhase::ProtocolLifecycle,
+            ..Self::default()
+        }
+    }
     fn canonical(
         &self,
         instance: zero_core::component::ComponentInstanceId,
@@ -50,16 +65,20 @@ impl DeclaredReceiver {
                 source.component = Some(instance.component);
                 Arc::new(ResourceFailure::new(
                     instance,
-                    ResourceFailurePhase::DeclaredResources,
+                    self.controller,
                     Arc::new(source),
                 ))
             })
             .clone()
     }
+    #[cfg(test)]
+    pub(in crate::component) fn source_count(&self) -> usize {
+        self.causes.sources.lock().unwrap().len()
+    }
     pub(in crate::component) fn get(&self) -> Option<Arc<ResourceFailure>> {
         self.canonical.get().cloned()
     }
-    fn original(
+    pub(in crate::component) fn original(
         &self,
         instance: zero_core::component::ComponentInstanceId,
         source: Arc<ChannelError>,
@@ -76,15 +95,22 @@ impl DeclaredReceiver {
             .sources
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner);
-        if !causes
-            .iter()
-            .any(|cause| matches!(cause, Cause::Original(same) if same_source(same, &source)))
-        {
+        if !causes.iter().any(|cause| match cause {
+            Cause::Original(same) => same_source(same, &source),
+            Cause::Child(same) => same_source(&same.source, &source),
+        }) {
             causes.push(Cause::Original(source.clone()));
         }
         drop(causes);
-        self.causes.first.get_or_init(|| source);
+        self.causes.first.get_or_init(|| source.clone());
         self.canonical(instance);
+        // The receiver owns this source or the same stable payload before its
+        // producer receives local acceptance. Never wait for the parent archive:
+        // the producer may need this handoff to finish actual cleanup. This is
+        // not NativeClosed, task completion, Host ACK or external publication.
+        if let Some(receipt) = source.cleanup_failure_receipt() {
+            let _ = receipt.acknowledge_retained(&source);
+        }
     }
     pub(in crate::component) fn child(
         &self,

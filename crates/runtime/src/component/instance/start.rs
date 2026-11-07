@@ -172,7 +172,7 @@ impl ComponentSlot {
                         }),
                     started: OnceLock::new(),
                     owner: Mutex::new(Owner {
-                        resource_failures: Default::default(),
+                        protocol_failures: resources::DeclaredReceiver::protocol(),
                         instance,
                         pending_close: None,
                         protocol_closed: false,
