@@ -181,6 +181,10 @@ pub struct RuntimeOptionsConfig {
     /// This bounds the existing4MiB-per-response payload, not total process RSS.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub navigation_max_requests: Option<usize>,
+    /// Actual kernel PacketRoute originals, including closing routes until
+    /// their execution lease and response worker both return. Default4096.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub packet_route_max_routes: Option<usize>,
     /// Actual diagnostic and health probes per kernel, including pending and retiring originals; the process-wide ceiling remains eight.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub diagnostic_max_operations: Option<usize>,

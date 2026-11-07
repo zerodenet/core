@@ -191,6 +191,7 @@ impl Engine {
             source.clone(),
         )?);
         let stats = EngineStats::shared();
+        let packet_route_limit = config.runtime.effective_packet_route_max_routes();
         let engine = Self {
             runtime_snapshot: Arc::new(std::sync::RwLock::new(Arc::new(EngineRuntimeSnapshot {
                 config_revision: Arc::new(AtomicU64::new(1)),
@@ -214,7 +215,7 @@ impl Engine {
             next_dial_generation,
             session_registry: SessionRegistry::shared(),
             endpoint_facts: Arc::new(endpoint::EndpointFacts::default()),
-            packet_routes: Arc::new(packet_route::PacketRoutes::default()),
+            packet_routes: Arc::new(packet_route::PacketRoutes::new(packet_route_limit)),
             principal_cancellations: Arc::new(PrincipalCancellationRegistry::default()),
             principal_devices: Arc::new(PrincipalDeviceRegistry::default()),
             principal_policies,

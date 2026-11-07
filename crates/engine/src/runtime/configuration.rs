@@ -123,6 +123,8 @@ impl Engine {
             config.runtime.effective_event_log_stats_max_bytes(),
             config.runtime.effective_event_subscriber_stats_max_bytes(),
         )?;
+        self.packet_routes
+            .prepare_limit(config.runtime.effective_packet_route_max_routes())?;
         let current = self.runtime_snapshot();
         if current.config.runtime.principal_quota_state_path
             != config.runtime.principal_quota_state_path
@@ -186,6 +188,9 @@ impl Engine {
         // Recheck under the actual byte books before mutating any selector,
         // mode, policy, capacity, configuration or publication state. Event
         // producers may have charged new bytes since the pure preparation.
+        let packet_limit = self
+            .packet_routes
+            .prepare_limit(snapshot.config.runtime.effective_packet_route_max_routes())?;
         self.event_log.configure_statistics_limits(
             snapshot
                 .config
@@ -215,7 +220,9 @@ impl Engine {
         self.event_log
             .set_capacity(snapshot.config.runtime.event_log_capacity);
         let publication = snapshot.publication.clone();
+        packet_limit.commit();
         *current = snapshot;
+        drop(packet_limit);
         drop(current);
         publication.publish();
         for waiter in waiters {

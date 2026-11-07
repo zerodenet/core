@@ -475,6 +475,11 @@ fn validate_runtime(
             runtime.effective_navigation_max_requests(),
             32,
         ),
+        (
+            "packet_route_max_routes",
+            runtime.effective_packet_route_max_routes(),
+            4096,
+        ),
     ] {
         if !(1..=maximum).contains(&value) {
             return Err(ConfigError::InvalidRuntime(format!(

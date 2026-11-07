@@ -3,19 +3,21 @@ use super::Engine;
 use std::{
     collections::BTreeMap,
     sync::{
-        atomic::{AtomicU64, Ordering},
+        atomic::{AtomicU64, AtomicUsize, Ordering},
         Arc, Mutex, Weak,
     },
 };
+mod limits;
 mod query;
 mod signal;
 pub(crate) use query::{PacketQueryGuard, PacketQueryRows};
 use signal::Signal;
 use zero_api::*;
 const MAX_ROUTES: usize = 4_096;
-#[derive(Debug, Default)]
+#[derive(Debug)]
 pub(super) struct PacketRoutes {
     next: AtomicU64,
+    limit: AtomicUsize,
     entries: Mutex<BTreeMap<String, Weak<Control>>>,
 }
 #[derive(Debug)]
@@ -66,7 +68,8 @@ impl PacketRouteControl {
     }
 }
 impl Engine {
-    /// Actual maximum live packet routes, also bounds pending close receipts.
+    /// Existing hard ceiling for the route-related task Scope. Actual route
+    /// admission also applies the configured limit on the same original map.
     pub fn packet_route_capacity(&self) -> std::num::NonZeroUsize {
         std::num::NonZeroUsize::new(MAX_ROUTES).expect("packet route capacity is nonzero")
     }
@@ -74,6 +77,9 @@ impl Engine {
         &self,
         mut snapshot: PacketRouteSnapshot,
     ) -> ApiResult<PacketRouteLease> {
+        // Capture the caller's actual generation before original membership.
+        // Publication takes the snapshot write guard before this same map.
+        let basis = self.runtime_snapshot();
         let mut entries = self
             .packet_routes
             .entries
@@ -83,7 +89,7 @@ impl Engine {
             e.upgrade()
                 .is_some_and(|c| !(c.released.get() && c.responses.get()))
         });
-        if entries.len() >= MAX_ROUTES {
+        if entries.len() >= self.packet_routes.limit.load(Ordering::Relaxed) {
             return Err(ApiError::new(
                 ApiErrorCode::Conflict,
                 "packet route limit reached",
@@ -95,7 +101,6 @@ impl Engine {
             self.packet_routes.next.fetch_add(1, Ordering::Relaxed)
         );
         snapshot.core_instance_id = self.core_instance_id().to_owned();
-        let basis = self.runtime_snapshot();
         snapshot.config_revision = basis.config_revision();
         snapshot.started_at_unix_ms = super::started_at_unix_ms();
         snapshot.endpoints = basis
