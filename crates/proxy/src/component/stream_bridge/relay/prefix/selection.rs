@@ -57,7 +57,11 @@ impl PrefixOpener {
                 })),
                 deadline: call.deadline,
                 cancel: call.cancel.clone(),
-                observer: None,
+                observer: if self.context.session_identity()?.is_none() {
+                    self.context.observer.clone()
+                } else {
+                    None
+                },
                 upstream: self.select_shorter(&call, waiting).await?,
             };
             let mut selected = PrefixOpener::for_service(

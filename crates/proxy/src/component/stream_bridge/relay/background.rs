@@ -171,6 +171,7 @@ impl BackgroundPath<'_> {
                     services.outbound_io(tag, zero_api::TrafficPlane::Outer)
                 },
             );
+            opener.plan = services.components.as_ref().ok().map(Arc::downgrade);
             opener.datagram_slot = Some(node.slot.clone());
             opener.health = (index == 0).then(|| {
                 FirstHopHealth::new(
