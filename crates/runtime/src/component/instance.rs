@@ -8,6 +8,7 @@ mod node_dns;
 mod observations;
 mod original_budgets;
 mod owned_start;
+mod packet_driver;
 mod packet_source;
 mod probe;
 #[cfg(any(target_os = "linux", windows))]

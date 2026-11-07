@@ -39,6 +39,7 @@ impl WireguardAdapter {
         &self,
         config: &Arc<zero_config::RuntimeConfig>,
         resources: &mut crate::component::ResourcePreparation<'_>,
+        registry: &crate::protocol_registry::ProtocolRegistry,
         generation: Option<u64>,
         network: Option<Arc<crate::component::background::BackgroundNetwork>>,
     ) -> Result<BTreeSet<ComponentId>, EngineError> {
@@ -141,6 +142,7 @@ impl WireguardAdapter {
             .filter(|used| *used <= crate::runtime::raw_ip::MAX_RAW_IP_DEVICES)
             .ok_or_else(|| invalid("actual cold WireGuard peer union exceeds the device bound"))?;
         let mut recipes = Vec::new();
+        let mut outer_materials = HashMap::new();
         let mut entries = HashMap::new();
         for outbound in outbounds {
             let OutboundProtocolConfig::Wireguard {
@@ -170,6 +172,27 @@ impl WireguardAdapter {
             } else {
                 Vec::new()
             };
+            // The actual owning cold pass computes the finite outer data and
+            // dependencies; no None default can hide a configured outer path.
+            // Today's linked producer admits plain sources explicitly above.
+            // When a real outer candidate is selected it must carry this exact
+            // same prepared material and dependency IDs, never a new decode.
+            let outer = super::recipe::outer::OuterPathRecipe::prepare(
+                outbound,
+                resources,
+                registry,
+                config,
+                network.as_ref(),
+                &mut outer_materials,
+            )?;
+            let mut dependencies = dependencies;
+            if let Some(outer) = &outer {
+                for (id, instance) in outer.dependencies(resources) {
+                    if !dependencies.iter().any(|(actual, _)| actual == &id) {
+                        dependencies.push((id, instance));
+                    }
+                }
+            }
             let identity = options.identity(
                 protocol_identity(&outbound.protocol)
                     .ok_or_else(|| invalid("cannot identify linked WireGuard outbound"))?,
@@ -197,6 +220,7 @@ impl WireguardAdapter {
                     identity,
                     network_generation: NetworkGeneration(generation),
                     stacks: vec![options.clone(); peers],
+                    outer,
                     dependencies,
                 },
                 resources,

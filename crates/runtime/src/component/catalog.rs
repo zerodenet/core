@@ -8,6 +8,7 @@ mod discard;
 mod maintenance;
 mod node_dns;
 mod original_budgets;
+mod packet_driver;
 mod plan;
 #[cfg(all(test, target_os = "linux"))]
 #[path = "catalog/tests/process_accounting.rs"]

@@ -17,6 +17,8 @@ use zero_platform_tokio::contract::{
 #[cfg(feature = "raw-ip-runtime")]
 mod native_progress;
 mod observation;
+#[cfg(all(feature = "raw-ip-runtime", feature = "datagram-route-runtime"))]
+mod packet_origin;
 #[cfg(feature = "managed-datagram-runtime")]
 mod peer_cleanup;
 mod pending_bound;
