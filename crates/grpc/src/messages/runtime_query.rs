@@ -40,6 +40,8 @@ impl Record {
                 | zero_api::QueryRequest::Flow(_)
                 | zero_api::QueryRequest::PrincipalFlows(_)
                 | zero_api::QueryRequest::Sinks(_)
+                | zero_api::QueryRequest::PacketRoutes(_)
+                | zero_api::QueryRequest::PacketRoute(_)
         ) {
             return None;
         }

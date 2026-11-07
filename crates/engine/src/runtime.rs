@@ -28,7 +28,7 @@ mod configuration;
 mod diagnostics;
 mod endpoint;
 mod observability;
-mod packet_route;
+pub(crate) mod packet_route;
 mod passive_health;
 mod policy;
 pub use packet_route::{PacketRouteControl, PacketRouteLease};

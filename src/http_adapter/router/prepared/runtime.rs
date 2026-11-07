@@ -11,6 +11,8 @@ pub(super) fn handles(request: &QueryRequest) -> bool {
             | QueryRequest::ActiveFlows(_)
             | QueryRequest::RecentFlows(_)
             | QueryRequest::Flow(_)
+            | QueryRequest::PacketRoutes(_)
+            | QueryRequest::PacketRoute(_)
     )
 }
 pub(super) fn prepare(

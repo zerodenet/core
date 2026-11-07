@@ -1,5 +1,34 @@
 use super::*;
 use zero_api::QueryService;
+
+#[test]
+fn typed_http_packet_route_uses_the_prepaid_flat_body_and_original_missing_error() {
+    let (handle, budget) = fixture();
+    for query in [
+        QueryRequest::PacketRoutes(Default::default()),
+        QueryRequest::PacketRoute(zero_api::PacketRouteGetQuery {
+            route_id: "missing-雪".into(),
+        }),
+    ] {
+        let payload = serde_json::to_vec(&query).unwrap();
+        let expected = handlers::serialize_query(handle.query(query)).unwrap();
+        let mut expected: serde_json::Value =
+            serde_json::from_slice(&expected.bytes_for_test()).unwrap();
+        let original = prepare(&handle, Selected::Typed(&payload), &budget).unwrap();
+        let actual: serde_json::Value = serde_json::from_slice(&original.bytes_for_test()).unwrap();
+        if let Some(page) = expected
+            .get_mut("result")
+            .filter(|p| p.get("observed_at_unix_ms").is_some())
+        {
+            page["observed_at_unix_ms"] = actual["result"]["observed_at_unix_ms"].clone();
+        }
+        assert_eq!(actual, expected);
+        assert_eq!(budget.usage().response_bytes, original.len().unwrap());
+        assert_eq!(budget.usage().request_bytes, 0);
+        drop(original);
+        assert_eq!(budget.usage().response_bytes, 0);
+    }
+}
 fn fixture() -> (ProxyHandle, Arc<ControlBudget>) {
     let proxy=zero_proxy::Proxy::new(zero_config::RuntimeConfig::parse(r#"{
         "outbounds":[{"tag":"a","protocol":{"type":"direct"}},{"tag":"long-雪","protocol":{"type":"direct"}}],

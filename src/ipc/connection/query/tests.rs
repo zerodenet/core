@@ -155,3 +155,40 @@ fn actual_runtime_and_stats_are_encoded_before_guards_leave_and_only_output_byte
 
 #[path = "tests/traffic.rs"]
 mod traffic;
+
+#[test]
+fn packet_route_queries_use_original_prepaid_rows_and_preserve_missing_wire() {
+    let handle = handle();
+    let budget = ControlBudget::new(ControlBudgetLimits::from_runtime(&Default::default()));
+    for request in [
+        QueryRequest::PacketRoutes(Default::default()),
+        QueryRequest::PacketRoute(zero_api::PacketRouteGetQuery {
+            route_id: "missing-雪".into(),
+        }),
+    ] {
+        assert!(handles(&request));
+        let id = Some(serde_json::json!("same-雪"));
+        let mut expected = match handle.query(request.clone()) {
+            Ok(response) => {
+                serde_json::to_value(ApiResponse::ok_with_id(id.clone(), response)).unwrap()
+            }
+            Err(error) => {
+                serde_json::to_value(ApiResponse::<()>::from_api_error(&error).with_id(id.clone()))
+                    .unwrap()
+            }
+        };
+        let original = prepare(&handle, &request, id, &budget).unwrap();
+        let actual: serde_json::Value = serde_json::from_slice(original.bytes()).unwrap();
+        if let Some(page) = expected
+            .get_mut("result")
+            .and_then(|r| r.get_mut("packet_routes"))
+        {
+            page["observed_at_unix_ms"] =
+                actual["result"]["packet_routes"]["observed_at_unix_ms"].clone();
+        }
+        assert_eq!(actual, expected);
+        assert_eq!(budget.usage().response_bytes, original.bytes().len());
+        drop(original);
+        assert_eq!(budget.usage().response_bytes, 0);
+    }
+}

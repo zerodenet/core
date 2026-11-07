@@ -24,6 +24,8 @@ enum Kind<'a> {
     Active(&'a zero_api::FlowListQuery),
     Recent(&'a zero_api::FlowListQuery),
     Flow { raw: &'a str, id: Option<u64> },
+    PacketList,
+    Packet,
 }
 /// Holds only original owner guards and the same immutable config generation.
 /// Measure/reserve/encode synchronously, then destroy this before any await or
@@ -36,6 +38,7 @@ pub struct EngineRuntimeQueryGuard<'a> {
     completed: Option<CompletedQueryGuard<'a>>,
     stats: Option<StatsQueryGuard<'a>>,
     sinks: Option<std::sync::MutexGuard<'a, Vec<zero_api::SinkStatus>>>,
+    packets: Option<crate::runtime::packet_route::PacketQueryGuard<'a>>,
 }
 /// Numeric rows are frozen once after every actual heap workspace is prepaid.
 pub struct EngineRuntimeQuery<'a> {
@@ -43,12 +46,21 @@ pub struct EngineRuntimeQuery<'a> {
     active: Option<ActiveQueryRows<'a>>,
     stats: Option<StatsQueryView<'a>>,
     principals: Option<crate::session::PrincipalQueryRows<'a>>,
+    packets: Option<crate::runtime::packet_route::PacketQueryRows<'a>>,
 }
 #[derive(Debug)]
-pub struct MissingFlow<'a>(&'a str);
+pub struct MissingFlow<'a>(Missing<'a>);
+#[derive(Clone, Copy, Debug)]
+enum Missing<'a> {
+    Flow(&'a str),
+    Packet,
+}
 impl MissingFlow<'_> {
     pub fn message_len(&self) -> Option<usize> {
-        self.0.len().checked_add("flow `` was not found".len())
+        match self.0 {
+            Missing::Flow(raw) => raw.len().checked_add("flow `` was not found".len()),
+            Missing::Packet => Some("packet route no longer active".len()),
+        }
     }
     pub fn message(&self) -> impl std::fmt::Display + '_ {
         FlowMessage(self.0)
@@ -60,10 +72,13 @@ impl MissingFlow<'_> {
         zero_api::ApiError::new(zero_api::ApiErrorCode::NotFound, text)
     }
 }
-struct FlowMessage<'a>(&'a str);
+struct FlowMessage<'a>(Missing<'a>);
 impl std::fmt::Display for FlowMessage<'_> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "flow `{}` was not found", self.0)
+        match self.0 {
+            Missing::Flow(raw) => write!(f, "flow `{raw}` was not found"),
+            Missing::Packet => f.write_str("packet route no longer active"),
+        }
     }
 }
 impl std::fmt::Debug for EngineRuntimeQueryGuard<'_> {
@@ -94,6 +109,8 @@ impl Engine {
                 raw: &q.flow_id,
                 id: canonical_id(&q.flow_id),
             },
+            QueryRequest::PacketRoutes(_) => Kind::PacketList,
+            QueryRequest::PacketRoute(_) => Kind::Packet,
             _ => return None,
         };
         let snapshot = self.runtime_snapshot();
@@ -110,6 +127,8 @@ impl Engine {
         let stats = matches!(kind, Kind::Runtime | Kind::Stats | Kind::Diagnostics)
             .then(|| stats.query_guard(!matches!(kind, Kind::Diagnostics)));
         let sinks = matches!(kind, Kind::Sinks).then(|| self.query_sink_status());
+        let packets =
+            matches!(kind, Kind::PacketList | Kind::Packet).then(|| self.packet_query(request));
         Some(EngineRuntimeQueryGuard {
             engine: self,
             snapshot,
@@ -118,6 +137,7 @@ impl Engine {
             completed,
             stats,
             sinks,
+            packets,
         })
     }
 }
@@ -146,7 +166,7 @@ impl EngineRuntimeQueryGuard<'_> {
                             .is_some_and(|h| h.iter(None, 1, Some(id)).next().is_some())
                 });
                 if !found {
-                    return Ok(Err(MissingFlow(raw)));
+                    return Ok(Err(MissingFlow(Missing::Flow(raw))));
                 }
                 (None, 1, id)
             }
@@ -175,11 +195,20 @@ impl EngineRuntimeQueryGuard<'_> {
             .as_ref()
             .map(|r| r.freeze(workspace))
             .transpose()?;
+        let packets = self
+            .packets
+            .as_ref()
+            .map(|p| p.freeze(workspace))
+            .transpose()?;
+        if packets.as_ref().is_some_and(|p| p.missing()) {
+            return Ok(Err(MissingFlow(Missing::Packet)));
+        }
         Ok(Ok(EngineRuntimeQuery {
             guard: self,
             active,
             stats,
             principals,
+            packets,
         }))
     }
 }
@@ -200,6 +229,8 @@ impl Serialize for EngineRuntimeQuery<'_> {
             Kind::Active(_) => "active_flows",
             Kind::Recent(_) => "recent_flows",
             Kind::Flow { .. } => "flow",
+            Kind::PacketList => "packet_routes",
+            Kind::Packet => "packet_route",
         };
         map.serialize_entry(key, &self.body())?;
         map.end()

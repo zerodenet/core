@@ -16,6 +16,8 @@ pub(super) fn handles(request: &zero_api::QueryRequest) -> bool {
             | zero_api::QueryRequest::Flow(_)
             | zero_api::QueryRequest::TrafficStat(_)
             | zero_api::QueryRequest::TrafficStats(_)
+            | zero_api::QueryRequest::PacketRoutes(_)
+            | zero_api::QueryRequest::PacketRoute(_)
     )
 }
 pub(super) fn prepare(

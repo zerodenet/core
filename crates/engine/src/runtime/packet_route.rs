@@ -7,7 +7,9 @@ use std::{
         Arc, Mutex, Weak,
     },
 };
+mod query;
 mod signal;
+pub(crate) use query::{PacketQueryGuard, PacketQueryRows};
 use signal::Signal;
 use zero_api::*;
 const MAX_ROUTES: usize = 4_096;

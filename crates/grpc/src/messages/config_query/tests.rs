@@ -90,6 +90,10 @@ async fn ordinary_native_grpc_uses_the_same_engine_view_and_original_error_shape
             }),
             zero_api::QueryRequest::PrincipalFlows(Default::default()),
             zero_api::QueryRequest::Sinks(Default::default()),
+            zero_api::QueryRequest::PacketRoutes(Default::default()),
+            zero_api::QueryRequest::PacketRoute(zero_api::PacketRouteGetQuery {
+                route_id: "missing-route-雪".into(),
+            }),
             zero_api::QueryRequest::Flow(zero_api::FlowGetQuery {
                 flow_id: "not-a-flow-雪".into(),
             }),
@@ -114,13 +118,18 @@ async fn ordinary_native_grpc_uses_the_same_engine_view_and_original_error_shape
                 )
                 .await;
             match engine.query(query) {
-                Ok(expected) => assert_eq!(
-                    serde_json::from_slice::<serde_json::Value>(
-                        &response.unwrap().into_inner().payload
+                Ok(expected) => {
+                    let actual = serde_json::from_slice::<serde_json::Value>(
+                        &response.unwrap().into_inner().payload,
                     )
-                    .unwrap(),
-                    serde_json::to_value(expected).unwrap()
-                ),
+                    .unwrap();
+                    let mut expected = serde_json::to_value(expected).unwrap();
+                    if let Some(page) = expected.get_mut("packet_routes") {
+                        page["observed_at_unix_ms"] =
+                            actual["packet_routes"]["observed_at_unix_ms"].clone();
+                    }
+                    assert_eq!(actual, expected);
+                }
                 Err(expected) => {
                     let actual = response.unwrap_err();
                     assert_eq!(actual.code(), tonic::Code::Internal);

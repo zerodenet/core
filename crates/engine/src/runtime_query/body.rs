@@ -6,6 +6,11 @@ impl Serialize for Body<'_> {
     fn serialize<S: Serializer>(&self, s: S) -> Result<S::Ok, S::Error> {
         let v = self.0;
         match v.guard.kind {
+            Kind::PacketList | Kind::Packet => v
+                .packets
+                .as_ref()
+                .expect("same original packet route rows")
+                .serialize(s),
             Kind::Runtime => Runtime(v).serialize(s),
             Kind::Sinks => {
                 let mut out = s.serialize_struct("SinkStatusSnapshot", 1)?;
