@@ -106,7 +106,7 @@ impl Actual {
         let stop = CancellationToken::new();
         let (mut grant, phase) = owner
             .grants()
-            .reserve_protocol_original(&scope.registrar(), Box::new(Inert(stop.clone())))
+            .reserve_protocol_original(&scope.registrar(), Box::new(Inert(stop.clone())).into())
             .unwrap();
         let original = grant.adoption();
         let view = grant.claim_transferred_view().unwrap();

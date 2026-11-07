@@ -1,5 +1,6 @@
 //! One original loan, the existing packet queues, and its actual Scope driver.
 use super::*;
+use crate::quic::owned::DriverExitReceiver;
 use zero_platform_tokio::{
     contract::scope::{TaskClass, TaskJoinWitness, TaskJoined},
     controlled_carrier::{loan::BorrowedDatagram, CarrierAdoption, CarrierDriver, CarrierUserView},
