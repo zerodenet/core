@@ -66,16 +66,10 @@ impl Pool {
                 .cloned()
                 .collect::<Vec<_>>();
             let users_changed = async {
-                use futures_util::StreamExt;
-                let mut waiting = waiting_users
-                    .into_iter()
-                    .map(|users| async move {
-                        users.wait_complete().await;
-                    })
-                    .collect::<futures_util::stream::FuturesUnordered<_>>();
-                if waiting.next().await.is_none() {
-                    std::future::pending::<()>().await;
-                }
+                any_changed(waiting_users.into_iter().map(|users| async move {
+                    users.wait_complete().await;
+                }))
+                .await;
             };
             let acks = closed
                 .iter()
@@ -84,16 +78,10 @@ impl Pool {
                 .filter(|witness| !acked(witness))
                 .collect::<Vec<_>>();
             let original_acks = async {
-                use futures_util::StreamExt;
-                let mut waiting = acks
-                    .into_iter()
-                    .map(|witness| async move {
-                        witness.wait_registration_released().await;
-                    })
-                    .collect::<futures_util::stream::FuturesUnordered<_>>();
-                if waiting.next().await.is_none() {
-                    std::future::pending::<()>().await;
-                }
+                any_changed(acks.into_iter().map(|witness| async move {
+                    witness.wait_registration_released().await;
+                }))
+                .await;
             };
             if local {
                 if let Some(root) = &root {
@@ -106,4 +94,19 @@ impl Pool {
             }
         }
     }
+}
+
+// Poll only this finite snapshot of actual users/witnesses. An empty snapshot
+// stays Pending alongside the original Pool notification/cancellation branches.
+async fn any_changed<F: std::future::Future>(waiting: impl Iterator<Item = F>) {
+    let mut waiting = waiting.map(Box::pin).collect::<Vec<_>>();
+    std::future::poll_fn(|cx| {
+        for original in &mut waiting {
+            if original.as_mut().poll(cx).is_ready() {
+                return std::task::Poll::Ready(());
+            }
+        }
+        std::task::Poll::Pending
+    })
+    .await;
 }
