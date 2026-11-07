@@ -63,3 +63,98 @@ async fn cancelled_accept_preserves_dequeued_connection() {
     assert_eq!(source.port, client_port);
     assert_eq!(destination.port, server_port);
 }
+
+#[tokio::test]
+async fn idle_accept_keeps_the_actual_queue_observable_for_source_pause() {
+    let (outbound, _responses) = mpsc::channel(256);
+    let stack = UserTcpStack::new(outbound, 1_500);
+    let mut accepting = Box::pin(stack.accept());
+    std::future::poll_fn(|cx| {
+        assert!(accepting.as_mut().poll(cx).is_pending());
+        Poll::Ready(())
+    })
+    .await;
+    // This is the same real accept consumer, still Pending. Its consumer lease
+    // is not queued work; no fabricated empty flag substitutes for the queue.
+    let mut census = Box::pin(stack.quiescent());
+    std::future::poll_fn(|cx| {
+        assert!(
+            matches!(census.as_mut().poll(cx), Poll::Ready(true)),
+            "idle Source census must read its actual queue without awaiting its own Pending accept"
+        );
+        Poll::Ready(())
+    })
+    .await;
+    drop(accepting);
+}
+
+#[tokio::test]
+async fn actual_ready_accept_wakes_after_queue_and_connection_locks_return() {
+    struct Reentrant {
+        stack: std::sync::Weak<UserTcpStack>,
+        woke: AtomicBool,
+        locked: AtomicBool,
+    }
+    impl std::task::Wake for Reentrant {
+        fn wake(self: Arc<Self>) {
+            self.wake_by_ref();
+        }
+        fn wake_by_ref(self: &Arc<Self>) {
+            let stack = self.stack.upgrade().expect("same actual stack");
+            if stack.connections.try_lock().is_err() || stack.accept_queue.try_lock().is_err() {
+                self.locked.store(true, Ordering::Release);
+            }
+            self.woke.store(true, Ordering::Release);
+        }
+    }
+    let (outbound, mut responses) = mpsc::channel(256);
+    let stack = Arc::new(UserTcpStack::new(outbound, 1_500));
+    let observer = Arc::new(Reentrant {
+        stack: Arc::downgrade(&stack),
+        woke: AtomicBool::new(false),
+        locked: AtomicBool::new(false),
+    });
+    let wake = std::task::Waker::from(observer.clone());
+    let mut context = Context::from_waker(&wake);
+    let mut accepting = Box::pin(stack.accept());
+    assert!(accepting.as_mut().poll(&mut context).is_pending());
+    let client_ip = "10.0.0.2".parse().unwrap();
+    let server_ip = "10.0.0.1".parse().unwrap();
+    stack
+        .feed(&packet::build_tcp_with_mss(
+            client_ip,
+            server_ip,
+            54_321,
+            443,
+            1_000,
+            0,
+            tcp_flags::SYN,
+            1_460,
+        ))
+        .await;
+    let response = responses.recv().await.expect("real SYN-ACK");
+    let sequence = packet::parse_tcp(&response).unwrap().seq;
+    stack
+        .feed(&packet::build_tcp(
+            client_ip,
+            server_ip,
+            54_321,
+            443,
+            1_001,
+            sequence.wrapping_add(1),
+            tcp_flags::ACK,
+            &[],
+        ))
+        .await;
+    assert!(observer.woke.load(Ordering::Acquire));
+    assert!(
+        !observer.locked.load(Ordering::Acquire),
+        "actual accept wake must leave both original owner locks before external reentry"
+    );
+    let Poll::Ready(Some((_stream, source, destination))) = accepting.as_mut().poll(&mut context)
+    else {
+        panic!("same original Pending accept did not receive the real completed handshake");
+    };
+    assert_eq!(source.port, 54_321);
+    assert_eq!(destination.port, 443);
+}

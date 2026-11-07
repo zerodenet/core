@@ -5,7 +5,7 @@ impl UserTcpStack {
         if !self.connections.lock().await.is_empty() {
             return false;
         }
-        let queue = self.accept_queue.lock().await;
+        let queue = self.accept_queue.lock().expect("TCP accept queue poisoned");
         queue.pending.is_none()
             && queue.receiver.is_empty()
             && self.control_packets.pending_packets() == 0
