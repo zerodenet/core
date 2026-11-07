@@ -119,29 +119,7 @@ pub(in crate::runtime) fn ss_source_budget_changed(
     {
         return true;
     }
-    let configured = old
-        .inbounds
-        .iter()
-        .chain(&next.inbounds)
-        .any(|input| input.protocol.protocol_name() == "shadowsocks")
-        || old
-            .outbounds
-            .iter()
-            .chain(&next.outbounds)
-            .any(|input| input.protocol.protocol_name() == "shadowsocks");
-    let responses_changed = old.runtime.effective_ss_udp_max_pending_responses()
-        != next.runtime.effective_ss_udp_max_pending_responses()
-        || old.runtime.effective_ss_udp_total_max_pending_responses()
-            != next.runtime.effective_ss_udp_total_max_pending_responses();
-    configured
-        && (responses_changed
-            || match (
-                zero_runtime::configuration::SsSecurityBudgetLimits::from_runtime(&old.runtime),
-                zero_runtime::configuration::SsSecurityBudgetLimits::from_runtime(&next.runtime),
-            ) {
-                (Ok(old), Ok(next)) => old != next,
-                _ => true,
-            })
+    crate::adapters::security_budgets::ss_source_resources_changed(old, next)
 }
 
 #[cfg(feature = "raw-ip-runtime")]

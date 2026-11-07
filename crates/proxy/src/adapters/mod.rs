@@ -14,6 +14,7 @@ pub(crate) mod mieru;
 pub(crate) mod mixed;
 #[cfg(any(feature = "vless", feature = "trojan", feature = "vmess"))]
 pub(crate) mod mux_prefix;
+pub(crate) mod security_budgets;
 #[cfg(feature = "shadowsocks")]
 pub(crate) mod shadowsocks;
 #[cfg(feature = "socks5")]
