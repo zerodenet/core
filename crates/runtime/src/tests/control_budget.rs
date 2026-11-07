@@ -1,4 +1,5 @@
 use super::*;
+#[path = "control_budget/encoded.rs"]
 mod encoded;
 fn limits() -> ControlBudgetLimits {
     ControlBudgetLimits {
