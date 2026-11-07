@@ -550,6 +550,19 @@ fn validate_runtime(
             "runtime.native_stream_max_originals must be between 1 and 4096".into(),
         ));
     }
+    for (name, limit) in [
+        (
+            "direct_max_originals",
+            runtime.effective_direct_max_originals(),
+        ),
+        ("direct_max_tasks", runtime.effective_direct_max_tasks()),
+    ] {
+        if !(1..=4096).contains(&limit) {
+            return Err(ConfigError::InvalidRuntime(format!(
+                "runtime.{name} must be between 1 and 4096"
+            )));
+        }
+    }
     if !(1..=4096).contains(&runtime.effective_process_max_jobs())
         || !(1..=runtime.effective_process_max_jobs())
             .contains(&runtime.effective_process_max_jobs_per_instance())

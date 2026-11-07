@@ -61,6 +61,17 @@ impl DirectOptions {
         });
         Ok(self)
     }
+    pub(crate) fn with_runtime_budgets(
+        mut self,
+        runtime: Option<&zero_config::RuntimeOptionsConfig>,
+    ) -> Self {
+        if let (Some(control), Some(runtime)) = (&mut self.control, runtime) {
+            // RuntimeConfig was validated before this cold producer runs.
+            control.max_sockets = NonZeroUsize::new(runtime.effective_direct_max_originals()).unwrap();
+            control.max_refresh_tasks = NonZeroUsize::new(runtime.effective_direct_max_tasks()).unwrap();
+        }
+        self
+    }
     pub fn policy(&self) -> &DialPolicy {
         &self.policy
     }
@@ -121,6 +132,8 @@ impl ComponentFactory for DirectFactory {
         if let Some(control) = &options.control {
             static_identity.extend_from_slice(b"controlled");
             static_identity.extend_from_slice(&control.retirement.as_nanos().to_be_bytes());
+            static_identity.extend_from_slice(&control.max_sockets.get().to_be_bytes());
+            static_identity.extend_from_slice(&control.max_refresh_tasks.get().to_be_bytes());
         }
         #[cfg(feature = "raw-ip-runtime")]
         if let Some(packet) = &options.packet {

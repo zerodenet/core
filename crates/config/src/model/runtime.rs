@@ -91,6 +91,14 @@ pub struct RuntimeOptionsConfig {
     /// Four by default, shared by its pending and delivered carrier uses.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub native_stream_max_originals: Option<usize>,
+    /// Actual TCP originals per Direct component generation, including pending,
+    /// failed and retiring candidates. On demand; default4096.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub direct_max_originals: Option<usize>,
+    /// Actual Direct initialization/refresh tasks in the same original Scope.
+    /// On demand; default256. Separate from the shared carrier total.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub direct_max_tasks: Option<usize>,
     /// Actual pending, failed and retiring carrier custody reservations across
     /// this one Host. Default1024, on demand. Distinct from FD/socket count,
     /// per-role N, per-protocol pool N and logical user/task/byte limits.
@@ -291,6 +299,8 @@ impl Default for RuntimeOptionsConfig {
             native_mux_max_carriers: None,
             native_stream_max_originals: None,
             carrier_max_total_originals: None,
+            direct_max_originals: None,
+            direct_max_tasks: None,
             process_max_jobs: None,
             process_max_jobs_per_instance: None,
             mieru_max_carriers: None,
@@ -399,6 +409,12 @@ impl RuntimeOptionsConfig {
         self.inbound_max_handoff_probe_attempts.unwrap_or(1000)
     }
 
+    pub fn effective_direct_max_originals(&self) -> usize {
+        self.direct_max_originals.unwrap_or(4096)
+    }
+    pub fn effective_direct_max_tasks(&self) -> usize {
+        self.direct_max_tasks.unwrap_or(256)
+    }
     pub fn effective_process_max_jobs(&self) -> usize {
         self.process_max_jobs.unwrap_or(64)
     }

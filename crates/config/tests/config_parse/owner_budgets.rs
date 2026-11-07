@@ -16,7 +16,19 @@ fn actual_owner_budgets_are_optional_finite_and_preserve_omitted_export_shape() 
         usize,
         usize,
     );
-    let fields: [BudgetField; 60] = [
+    let fields: [BudgetField; 62] = [
+        (
+            "direct_max_originals",
+            RuntimeOptionsConfig::effective_direct_max_originals,
+            4096,
+            4096,
+        ),
+        (
+            "direct_max_tasks",
+            RuntimeOptionsConfig::effective_direct_max_tasks,
+            256,
+            4096,
+        ),
         (
             "inbound_max_accepted_sockets",
             RuntimeOptionsConfig::effective_inbound_max_accepted_sockets,
@@ -406,10 +418,12 @@ fn control_event_payload_budget_preserves_omission_and_checks_real_byte_boundari
         defaults.effective_control_max_queued_event_bytes(),
         1024 * 1024
     );
-    assert!(serde_json::to_value(&defaults)
-        .unwrap()
-        .get("control_max_queued_event_bytes")
-        .is_none());
+    assert!(
+        serde_json::to_value(&defaults)
+            .unwrap()
+            .get("control_max_queued_event_bytes")
+            .is_none()
+    );
     for bytes in [1024, 1024 * 1024, 64 * 1024 * 1024] {
         let config = parse("control_max_queued_event_bytes", bytes).unwrap();
         assert_eq!(
@@ -426,10 +440,12 @@ fn control_event_payload_budget_preserves_omission_and_checks_real_byte_boundari
         );
     }
     for bytes in [0, 1023, 64 * 1024 * 1024 + 1, usize::MAX] {
-        assert!(parse("control_max_queued_event_bytes", bytes)
-            .unwrap_err()
-            .to_string()
-            .contains("control_max_queued_event_bytes"));
+        assert!(
+            parse("control_max_queued_event_bytes", bytes)
+                .unwrap_err()
+                .to_string()
+                .contains("control_max_queued_event_bytes")
+        );
     }
 }
 
@@ -474,10 +490,12 @@ fn inbound_resource_zero_and_actual_defaults_preserve_original_admission_meaning
             actual
         );
     }
-    assert!(serde_json::to_value(&defaults)
-        .unwrap()
-        .get("inbound_max_resources_per_carrier")
-        .is_none());
+    assert!(
+        serde_json::to_value(&defaults)
+            .unwrap()
+            .get("inbound_max_resources_per_carrier")
+            .is_none()
+    );
     let empty = parse("inbound_max_resources_per_carrier", 0).unwrap();
     assert_eq!(
         empty

@@ -44,15 +44,15 @@ pub(crate) fn compiled_registries_with_network(
                         crate::component::native_dns::prepare_node(resources, network.clone())?;
                     }
                     #[cfg(feature = "raw-ip-runtime")]
-                    {
-                        direct.direct_options(input, resources)
-                    }
+                    let options = direct.direct_options(input, resources)?;
                     #[cfg(not(feature = "raw-ip-runtime"))]
-                    {
+                    let options = {
                         let _ = &direct;
                         crate::adapters::direct::factory::decode(input)
-                            .map_err(crate::component::RegistrationError::Options)
-                    }
+                            .map_err(crate::component::RegistrationError::Options)?
+                    };
+                    Ok(options
+                        .with_runtime_budgets(resources.candidate().map(|config| &config.runtime)))
                 }
             },
         )
@@ -536,9 +536,9 @@ pub(crate) fn compiled_registries_with_network(
                         let native = node_network.is_some();
                         move |input| {
                             // Every adapter must exist before the one actual Packet Root is injected.
-    // The same network source contains only weak current services.
-    devices.set_node_network(device_network.as_ref());
-    (if native {
+                            // The same network source contains only weak current services.
+                            devices.set_node_network(device_network.as_ref());
+                            (if native {
                                 crate::adapters::vmess::component::grpc::owned_eligible(input)
                             } else {
                                 crate::adapters::vmess::component::grpc::eligible(input)
@@ -747,8 +747,8 @@ pub(crate) fn compiled_registries_with_network(
 }
 
 #[cfg(test)]
-pub(crate) fn component_registry(
-) -> crate::component::ComponentRegistry<zero_config::OutboundConfig> {
+pub(crate) fn component_registry()
+-> crate::component::ComponentRegistry<zero_config::OutboundConfig> {
     compiled_registries().1
 }
 

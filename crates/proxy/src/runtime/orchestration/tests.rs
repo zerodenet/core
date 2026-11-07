@@ -198,3 +198,6 @@ mod inbound_work_limits;
 
 #[cfg(all(feature = "hysteria2", feature = "socks5"))]
 mod h3_queues;
+
+#[cfg(feature = "socks5")]
+mod direct_budgets;
