@@ -214,3 +214,6 @@ mod direct_budgets;
     feature = "hysteria2"
 ))]
 mod source_limits;
+
+#[cfg(all(feature = "vless", feature = "hysteria2"))]
+mod inbound_targets;

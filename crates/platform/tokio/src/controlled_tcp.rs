@@ -1,4 +1,6 @@
 //! Byte I/O and explicit native close share one original TCP descriptor.
+mod inbound_target;
+pub use inbound_target::{InboundTargetClosed, InboundTargetNativeOwner, InboundTargetSocketPool};
 mod accepted;
 #[cfg(any(unix, windows))]
 pub(crate) mod connect;
