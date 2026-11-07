@@ -1,4 +1,5 @@
-//! Reversible admission pause, never cancellation, native closure or task ACK.
+//! Reversible registration fencing; a normal profile transition separately
+//! cancels original queries and observes their real native/join/ACK retirement.
 use super::*;
 #[must_use]
 pub(crate) struct QueryPause(OwnedDnsQueryTasks, bool);
