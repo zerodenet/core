@@ -35,6 +35,9 @@ pub(super) async fn prepare(
     )?;
     proxy
         .resolver
+        .prepare_fake_ip_journal_limit(&token, config.runtime.effective_file_read_max_bytes())?;
+    proxy
+        .resolver
         .retire_reload_resources(
             &token,
             tokio::time::Instant::now() + std::time::Duration::from_secs(5),

@@ -28,6 +28,7 @@ impl ComponentFactory for Factory {
                 spec: JournalSpec {
                     path: self.0.clone(),
                     max_bytes: NonZeroUsize::new(64).unwrap(),
+                    parent_private: false,
                 },
             }],
         }

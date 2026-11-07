@@ -4,6 +4,7 @@ fn spec(path: PathBuf, max: usize) -> JournalSpec {
     JournalSpec {
         path,
         max_bytes: NonZeroUsize::new(max).unwrap(),
+        parent_private: false,
     }
 }
 #[test]
@@ -162,3 +163,26 @@ fn a_file_over_the_recovery_limit_is_preserved_and_can_reopen_with_larger_explic
 }
 
 mod actual_fault;
+
+#[cfg(unix)]
+#[test]
+fn declared_parent_policy_preserves_generic_permissions_and_allows_explicit_private_storage() {
+    use std::os::unix::fs::PermissionsExt;
+    let directory = tempfile::tempdir().unwrap();
+    for (private, expected) in [(false, 0o770), (true, 0o700)] {
+        let parent = directory
+            .path()
+            .join(if private { "private" } else { "shared" });
+        std::fs::create_dir(&parent).unwrap();
+        std::fs::set_permissions(&parent, std::fs::Permissions::from_mode(0o770)).unwrap();
+        let mut declaration = spec(parent.join("journal"), 64);
+        declaration.parent_private = private;
+        let owner = JournalOwner::standalone(declaration).unwrap();
+        owner.start().unwrap();
+        assert_eq!(
+            std::fs::metadata(&parent).unwrap().permissions().mode() & 0o777,
+            expected
+        );
+        assert!(owner.matches_closed(&owner.try_close().unwrap().unwrap()));
+    }
+}

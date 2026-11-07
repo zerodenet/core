@@ -18,9 +18,13 @@ impl OrchestrationState {
         first: &Arc<ComponentPlan>,
         actual: Arc<ComponentPlan>,
     ) -> io::Result<()> {
-        let pending = self.pending_dns_reload.as_mut().filter(|pending| {
-            Arc::ptr_eq(snapshot, &pending.snapshot) && Arc::ptr_eq(first, &pending.components)
-        }).ok_or_else(|| io::Error::other("Source network restart lost its actual DNS token"))?;
+        let pending = self
+            .pending_dns_reload
+            .as_mut()
+            .filter(|pending| {
+                Arc::ptr_eq(snapshot, &pending.snapshot) && Arc::ptr_eq(first, &pending.components)
+            })
+            .ok_or_else(|| io::Error::other("Source network restart lost its actual DNS token"))?;
         pending.components = actual;
         Ok(())
     }
@@ -56,6 +60,10 @@ impl OrchestrationState {
                         slot.instance_id() == instance && slot.matches_live_scope(scope)
                     })
             },
+        )?;
+        proxy.resolver.prepare_fake_ip_journal_limit(
+            &resources,
+            config.runtime.effective_file_read_max_bytes(),
         )?;
         // No await or publication separates preparing the real backend map
         // from retaining its exact host snapshot/component association.

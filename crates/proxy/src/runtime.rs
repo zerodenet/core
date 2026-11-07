@@ -203,21 +203,13 @@ impl Proxy {
         let fake_ip_state_path = config
             .source_dir()
             .map(zero_dns::default_fake_ip_state_path);
-        let dns = match &background {
-            Some(network) => DnsSystem::build_with_native_queries(
-                config.runtime.dns.as_ref(),
-                dns_dispatch,
-                egress_interface.clone(),
-                fake_ip_state_path,
-                network.query_dns.clone(),
-            ),
-            None => DnsSystem::build_with_egress_dispatch_and_state(
-                config.runtime.dns.as_ref(),
-                dns_dispatch,
-                egress_interface.clone(),
-                fake_ip_state_path,
-            ),
-        }
+        let dns = DnsSystem::build_with_native_queries(
+            config.runtime.dns.as_ref(),
+            dns_dispatch,
+            egress_interface.clone(),
+            fake_ip_state_path,
+            node_network.query_dns.clone(),
+        )
         .map_err(EngineError::Io)?;
         let (orchestration_ready, _) = tokio::sync::watch::channel(false);
         let (configured_tun_failures, _) = tokio::sync::broadcast::channel(16);

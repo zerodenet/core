@@ -31,6 +31,9 @@ use slots::State;
 pub struct JournalSpec {
     pub path: PathBuf,
     pub max_bytes: NonZeroUsize,
+    /// Explicit permission to set this journal's containing directory to Unix
+    /// mode 0700. Generic callers pass false to preserve shared parents.
+    pub parent_private: bool,
 }
 #[derive(Clone)]
 pub struct JournalGrant(Arc<Core>);

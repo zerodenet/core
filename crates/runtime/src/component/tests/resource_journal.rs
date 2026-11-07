@@ -9,6 +9,7 @@ async fn exact_journal_declaration_stays_in_same_host_root_until_native_and_scop
     let spec = JournalSpec {
         path: directory.path().join("journal"),
         max_bytes: NonZeroUsize::new(64).unwrap(),
+        parent_private: false,
     };
     let actual = ComponentInstanceId {
         component: ComponentId(789),

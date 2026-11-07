@@ -47,7 +47,8 @@ impl OrchestrationState {
             #[cfg(feature = "raw-ip-runtime")]
             let tun_recovery = proxy.has_tun_packet_budget_recovery()
                 || ((rejected.config().runtime.tun != previous.config().runtime.tun
-                    || rejected.config().runtime.network.mtu != previous.config().runtime.network.mtu)
+                    || rejected.config().runtime.network.mtu
+                        != previous.config().runtime.network.mtu)
                     && (proxy.tun_control.lock().unwrap().is_some()
                         || previous.config().runtime.tun.is_some()));
             #[cfg(not(feature = "raw-ip-runtime"))]
@@ -110,7 +111,8 @@ impl OrchestrationState {
                     Err(error) => {
                         can_restore = false;
                         acknowledgement.push_str(&format!(
-                            "; System TUN original/Source/Root recovery remains owned: {error}"));
+                            "; System TUN original/Source/Root recovery remains owned: {error}"
+                        ));
                     }
                 }
             }
@@ -287,7 +289,8 @@ impl OrchestrationState {
                         #[cfg(feature = "raw-ip-runtime")]
                         if let Err(error) = proxy.confirm_tun_packet_budget(&previous_config) {
                             acknowledgement.push_str(&format!(
-                                "; System TUN recovery completion remains owned: {error}"));
+                                "; System TUN recovery completion remains owned: {error}"
+                            ));
                         }
                     }
                 }
@@ -320,6 +323,10 @@ async fn restore_dns(
                     })
             },
         )
+        .map_err(|error| error.to_string())?;
+    proxy
+        .resolver
+        .prepare_fake_ip_journal_limit(&token, config.runtime.effective_file_read_max_bytes())
         .map_err(|error| error.to_string())?;
     proxy
         .resolver

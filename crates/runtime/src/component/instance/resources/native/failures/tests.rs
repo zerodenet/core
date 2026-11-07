@@ -19,6 +19,7 @@ async fn two_actual_journal_faults_have_one_canonical_receiver_and_held_ack_keep
             spec: JournalSpec {
                 path: directory.path().join(name),
                 max_bytes: NonZeroUsize::new(64).unwrap(),
+                parent_private: false,
             },
         })
         .collect();
