@@ -17,7 +17,7 @@ pub(super) struct ControlService<H> {
     handle: H,
     auth: Option<GrpcServerAuth>,
     subscriptions: Arc<Subscriptions>,
-    engine: Option<zero_engine::EngineHandle>,
+    source: source::OriginalSource,
 }
 
 impl<H> ControlService<H> {
@@ -30,11 +30,11 @@ impl<H> ControlService<H> {
             handle,
             auth,
             subscriptions,
-            engine: None,
+            source: source::OriginalSource::default(),
         }
     }
-    pub(super) fn with_engine(mut self, engine: Option<zero_engine::EngineHandle>) -> Self {
-        self.engine = engine;
+    pub(super) fn with_source(mut self, source: source::OriginalSource) -> Self {
+        self.source = source;
         self
     }
 
@@ -74,7 +74,13 @@ where
                 .await)
             }
         };
-        if let (Some(engine), Some(original)) = (&self.engine, &original) {
+        #[cfg(feature = "proxy-control")]
+        if let (Some(proxy), Some(original)) = (&self.source.proxy, &original) {
+            if let Some(result) = original.proxy_query(proxy, &query) {
+                return result.map(|payload| Response::new(QueryResponse { payload }));
+            }
+        }
+        if let (Some(engine), Some(original)) = (&self.source.engine, &original) {
             if let Some(result) = original.config_query(engine, &query).await {
                 return result.map(|payload| Response::new(QueryResponse { payload }));
             }
@@ -165,7 +171,7 @@ where
             .budget
             .reserve(zero_runtime::configuration::ControlCharge::Subscription)
             .map_err(|error| Status::resource_exhausted(error.to_string()))?;
-        let subscribed = match &self.engine {
+        let subscribed = match &self.source.engine {
             Some(engine) => engine
                 .subscribe(filter)
                 .map(event_source::Subscriber::Engine),

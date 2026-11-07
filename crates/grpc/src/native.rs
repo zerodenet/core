@@ -67,7 +67,7 @@ pub(super) fn cold(addr: SocketAddr) -> io::Result<(TaskScope, ControlledTcpList
 pub(super) async fn run<H>(
     mut listener: ControlledTcpListener,
     handle: H,
-    engine: Option<zero_engine::EngineHandle>,
+    source: source::OriginalSource,
     auth: Option<GrpcServerAuth>,
     tls: Option<tokio_rustls::TlsAcceptor>,
     mut shutdown: tokio::sync::oneshot::Receiver<()>,
@@ -82,7 +82,7 @@ where
     let svc = tonic::transport::Server::builder()
         .add_service(
             ControlServer::new(
-                ControlService::new(handle, auth, owner.subscriptions.clone()).with_engine(engine),
+                ControlService::new(handle, auth, owner.subscriptions.clone()).with_source(source),
             )
             .max_decoding_message_size(256 * 1024 * 1024),
         )

@@ -4278,6 +4278,7 @@ dependencies = [
  "zero-core",
  "zero-engine",
  "zero-platform-tokio",
+ "zero-proxy",
  "zero-runtime",
 ]
 

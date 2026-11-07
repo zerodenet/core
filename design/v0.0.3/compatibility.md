@@ -417,3 +417,14 @@ Closing 原件仍计额。配置准备及最后发布都检查同一原表；低
 Scope 安全上界保留；这不是设备缓冲、Packet return 内存或关闭任务独立额度已全部完成的声明。
 Rust 的 RuntimeOptionsConfig 完整字面量新增该 Option 字段；使用 Default 省略构造不变。
 新增原表/真实双归还/最终发布竞态/回滚与三控制消费者回归，当前仍待串行编测。
+
+## 同 Proxy 原件的 gRPC 状态读取
+
+生产 grpc-api 启用 zero-grpc/proxy-control，只为同现有 ProxyHandle 增加具体只读源，
+不创建 Proxy/Host/池/任务执行器。GrpcHandle.start_with_proxy 接收同实际 ProxyHandle，
+TunStatus 在原 TunInfo/last_error/Egress guard 下计量并预付实际 protobuf/wire 输出，
+不经 generic H.query 深拷贝 DTO；所有 guard 在 await/退款前归还。HTTP/IPC 使用同视图。
+zero-grpc 的 standalone start/start_with_engine 保留真实库职责，无 proxy-control 时
+不引入 Proxy 运行依赖；zero-api/traits/platform 的依赖边界不变。现有 wire/CLI/FFI 不变。
+这需要 Cargo.lock 增加同 workspace 的 zero-proxy 依赖边，不升级协议或第三方依赖。
+实际 Native gRPC 原件/预算拒绝/同连接恢复回归已登记，仍待新同锁输入编测。

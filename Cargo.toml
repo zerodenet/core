@@ -41,7 +41,7 @@ event-dispatcher = [
 ]
 sink-jsonl = ["event-dispatcher", "zero-connector/sink-jsonl"]
 connector = ["event-dispatcher", "zero-connector/webhook"]
-grpc-api = ["dep:zero-grpc"]
+grpc-api = ["dep:zero-grpc", "zero-grpc/proxy-control"]
 
 [workspace]
 members = [

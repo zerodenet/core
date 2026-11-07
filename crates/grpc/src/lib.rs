@@ -26,6 +26,7 @@ mod event_source;
 mod messages;
 mod native;
 mod security;
+mod source;
 mod tasks;
 use tasks::ControlTask;
 
@@ -129,7 +130,8 @@ impl GrpcHandle {
     where
         H: CommandService + QueryService + EventSource + Clone + Send + Sync + 'static,
     {
-        self.start_original(handle, None).await
+        self.start_original(handle, source::OriginalSource::default())
+            .await
     }
     /// Borrow production configuration/policy values from this same Engine.
     pub async fn start_with_engine<H>(
@@ -140,12 +142,39 @@ impl GrpcHandle {
     where
         H: CommandService + QueryService + EventSource + Clone + Send + Sync + 'static,
     {
-        self.start_original(handle, Some(engine)).await
+        self.start_original(
+            handle,
+            source::OriginalSource {
+                engine: Some(engine),
+                ..Default::default()
+            },
+        )
+        .await
+    }
+    /// Use this exact production Proxy's guarded state and its same Engine.
+    #[cfg(feature = "proxy-control")]
+    pub async fn start_with_proxy<H>(
+        &self,
+        handle: H,
+        proxy: zero_proxy::ProxyHandle,
+    ) -> Result<(), Box<dyn std::error::Error>>
+    where
+        H: CommandService + QueryService + EventSource + Clone + Send + Sync + 'static,
+    {
+        let engine = proxy.engine_handle().clone();
+        self.start_original(
+            handle,
+            source::OriginalSource {
+                engine: Some(engine),
+                proxy: Some(proxy),
+            },
+        )
+        .await
     }
     async fn start_original<H>(
         &self,
         handle: H,
-        engine: Option<zero_engine::EngineHandle>,
+        source: source::OriginalSource,
     ) -> Result<(), Box<dyn std::error::Error>>
     where
         H: CommandService + QueryService + EventSource + Clone + Send + Sync + 'static,
@@ -171,7 +200,7 @@ impl GrpcHandle {
             started
                 .await
                 .map_err(|_| std::io::Error::other("gRPC startup gate closed"))?;
-            native::run(listener, handle, engine, auth, tls, shutdown_rx, originals).await
+            native::run(listener, handle, source, auth, tls, shutdown_rx, originals).await
         }));
         begin
             .send(())
