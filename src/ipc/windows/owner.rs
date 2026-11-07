@@ -3,6 +3,7 @@ use super::*;
 use std::sync::Mutex;
 use zero_runtime::configuration::{ControlBudgetPermit, ControlCharge};
 pub(super) struct Entry {
+    ordinal: u64,
     pub(super) original: ControlledPipeOwner,
     charge: Mutex<Option<(ControlBudgetPermit, ControlBudgetPermit)>>,
     pub(super) task: Mutex<Option<tokio::task::Id>>,
@@ -11,12 +12,14 @@ pub(super) struct Entry {
 impl Entry {
     /// The same first-open Connection charge issues one local book. No new
     /// connection, worker or workspace allocation is performed here.
-    pub(super) fn connection_budget(&self) -> Option<zero_runtime::configuration::ControlConnectionBudget> {
+    pub(super) fn connection_budget(
+        &self,
+    ) -> Option<zero_runtime::configuration::ControlConnectionBudget> {
         lock(&self.charge).as_ref()?.0.connection_budget()
     }
 }
 #[derive(Default)]
-pub(super) struct Originals(Mutex<Vec<Arc<Entry>>>);
+pub(super) struct Originals(Mutex<Vec<Arc<Entry>>>, AtomicU64);
 fn lock<T>(value: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
     value
         .lock()
@@ -42,7 +45,15 @@ impl Originals {
         let workspace = budget.reserve(ControlCharge::PipeWorkspaceBytes(
             ControlledPipeOwner::workspace_bytes(),
         ))?;
+        let ordinal = self
+            .1
+            .fetch_update(Ordering::AcqRel, Ordering::Acquire, |previous| {
+                previous.checked_add(1)
+            })
+            .map_err(|_| io::Error::other("original pipe sequence exhausted"))?
+            + 1;
         let entry = Arc::new(Entry {
+            ordinal,
             original: ControlledPipeOwner::new(path.to_owned(), tasks),
             charge: Mutex::new(Some((charge, workspace))),
             task: Mutex::new(None),
@@ -68,9 +79,21 @@ impl Originals {
         }
     }
     pub(super) async fn reap(&self, all: bool) -> io::Result<()> {
-        let originals = lock(&self.0).clone();
+        // Borrow one already charged original at a time. Do not allocate an
+        // uncharged snapshot proportional to every pending/failed connection.
+        // Concurrent cleanup may remove entries; immutable ordinals prevent
+        // that from skipping another original or admitting a replacement ABA.
+        let last = self.1.load(Ordering::Acquire);
+        let mut cursor = 0;
         let mut failures = Vec::new();
-        for entry in originals {
+        loop {
+            let next = lock(&self.0)
+                .iter()
+                .filter(|entry| entry.ordinal > cursor && entry.ordinal <= last)
+                .min_by_key(|entry| entry.ordinal)
+                .cloned();
+            let Some(entry) = next else { break };
+            cursor = entry.ordinal;
             if !all
                 && (!entry.joined.load(Ordering::Acquire)
                     || !entry.original.view_returned()
