@@ -76,6 +76,7 @@ async fn actual_ipc_root_budget_waits_before_accept_and_reuses_capacity_only_aft
                 subscriptions: 1,
                 queued_event_bytes: 1024,
                 pipe_workspace_bytes: 2 * 1024 * 1024,
+                messages: Default::default(),
             },
         );
         let held = budget

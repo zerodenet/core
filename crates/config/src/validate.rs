@@ -5,6 +5,7 @@ use crate::{ConfigError, EventSinkConfig, ModeConfig, RuntimeConfig, RuntimeOpti
 
 mod api;
 mod dial;
+mod control_messages;
 mod dns;
 mod fallback;
 mod group;
@@ -597,6 +598,7 @@ fn validate_runtime(
             )));
         }
     }
+    control_messages::validate(runtime)?;
     if !(1..=256 * 1024 * 1024).contains(&runtime.effective_control_pipe_max_workspace_bytes()) {
         return Err(ConfigError::InvalidRuntime(
             "runtime.control_pipe_max_workspace_bytes must be between 1 and 268435456".into(),

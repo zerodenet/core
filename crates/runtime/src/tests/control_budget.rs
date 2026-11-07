@@ -5,6 +5,7 @@ fn limits() -> ControlBudgetLimits {
         subscriptions: 1,
         queued_event_bytes: 4,
         pipe_workspace_bytes: 2 * 1024 * 1024,
+        messages: Default::default(),
     }
 }
 #[test]
@@ -75,3 +76,6 @@ fn pipe_workspaces_share_one_total_and_candidate_without_borrowing_event_bytes()
     owner.close_admission();
     owner.confirm_released().unwrap();
 }
+
+#[path = "control_budget/messages.rs"]
+mod messages;

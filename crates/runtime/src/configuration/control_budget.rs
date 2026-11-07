@@ -5,29 +5,18 @@ use std::{
     sync::{Arc, Mutex, Weak},
 };
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct ControlBudgetLimits {
-    pub connections: usize,
-    pub subscriptions: usize,
-    pub queued_event_bytes: usize,
-    pub pipe_workspace_bytes: usize,
-}
-impl ControlBudgetLimits {
-    pub fn from_runtime(runtime: &zero_config::RuntimeOptionsConfig) -> Self {
-        Self {
-            connections: runtime.effective_control_max_connections(),
-            subscriptions: runtime.effective_control_max_subscriptions(),
-            queued_event_bytes: runtime.effective_control_max_queued_event_bytes(),
-            pipe_workspace_bytes: runtime.effective_control_pipe_max_workspace_bytes(),
-        }
-    }
-}
+mod capacity;
+mod limits;
+pub use limits::{ControlBudgetLimits, ControlMessageLimits};
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct ControlBudgetUsage {
     pub connections: usize,
     pub subscriptions: usize,
     pub queued_event_bytes: usize,
     pub pipe_workspace_bytes: usize,
+    pub request_bytes: usize,
+    pub response_bytes: usize,
+    pub pending_commands: usize,
 }
 #[derive(Clone, Copy)]
 pub enum ControlCharge {
@@ -35,6 +24,9 @@ pub enum ControlCharge {
     Subscription,
     QueuedEventBytes(usize),
     PipeWorkspaceBytes(usize),
+    RequestBytes(usize),
+    ResponseBytes(usize),
+    PendingCommand,
 }
 #[derive(Debug)]
 struct Pending {
@@ -49,7 +41,7 @@ struct State {
     closed: bool,
 }
 #[derive(Debug)]
-pub struct ControlBudget(Mutex<State>);
+pub struct ControlBudget(Mutex<State>, Arc<tokio::sync::Notify>);
 /// Each live permit is retained by the actual original, not by a waiter. Its
 /// owner releases it only after matching native close / real worker and queue
 /// custody return, as appropriate to that charge.
@@ -75,15 +67,21 @@ fn fits(used: ControlBudgetUsage, limits: ControlBudgetLimits) -> bool {
         && used.subscriptions <= limits.subscriptions
         && used.queued_event_bytes <= limits.queued_event_bytes
         && used.pipe_workspace_bytes <= limits.pipe_workspace_bytes
+        && used.request_bytes <= limits.messages.request_bytes_total
+        && used.response_bytes <= limits.messages.response_bytes_total
+        && used.pending_commands <= limits.messages.pending_commands
 }
 impl ControlBudget {
     pub fn new(limits: ControlBudgetLimits) -> Arc<Self> {
-        Arc::new(Self(Mutex::new(State {
-            limits,
-            used: ControlBudgetUsage::default(),
-            pending: None,
-            closed: false,
-        })))
+        Arc::new(Self(
+            Mutex::new(State {
+                limits,
+                used: ControlBudgetUsage::default(),
+                pending: None,
+                closed: false,
+            }),
+            Arc::new(tokio::sync::Notify::new()),
+        ))
     }
     pub fn limits(&self) -> ControlBudgetLimits {
         self.0
@@ -114,6 +112,9 @@ impl ControlBudget {
             ControlCharge::Subscription => (&mut used.subscriptions, 1),
             ControlCharge::QueuedEventBytes(bytes) => (&mut used.queued_event_bytes, bytes),
             ControlCharge::PipeWorkspaceBytes(bytes) => (&mut used.pipe_workspace_bytes, bytes),
+            ControlCharge::RequestBytes(bytes) => (&mut used.request_bytes, bytes),
+            ControlCharge::ResponseBytes(bytes) => (&mut used.response_bytes, bytes),
+            ControlCharge::PendingCommand => (&mut used.pending_commands, 1),
         };
         *counter = counter.checked_add(cost).ok_or_else(capacity)?;
         if !fits(used, state.limits)
@@ -175,6 +176,7 @@ impl ControlBudget {
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner)
             .closed = true;
+        self.1.notify_waiters();
     }
     pub fn confirm_released(&self) -> io::Result<()> {
         let state = self
@@ -213,6 +215,8 @@ impl ControlBudgetCandidate {
             state.limits = self.limits;
         }
         state.pending = None;
+        drop(state);
+        owner.1.notify_waiters();
         Ok(())
     }
     pub fn commit(&self) -> io::Result<()> {
@@ -236,10 +240,15 @@ impl Drop for ControlBudgetPermit {
             ControlCharge::PipeWorkspaceBytes(bytes) => {
                 (&mut state.used.pipe_workspace_bytes, bytes)
             }
+            ControlCharge::RequestBytes(bytes) => (&mut state.used.request_bytes, bytes),
+            ControlCharge::ResponseBytes(bytes) => (&mut state.used.response_bytes, bytes),
+            ControlCharge::PendingCommand => (&mut state.used.pending_commands, 1),
         };
         *counter = counter
             .checked_sub(cost)
             .expect("same root control charge returned once");
+        drop(state);
+        self.owner.1.notify_waiters();
     }
 }
 #[cfg(test)]

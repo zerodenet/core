@@ -2,11 +2,11 @@
 mod compile;
 mod control_budget;
 mod ss_security_budget;
-pub use ss_security_budget::SsSecurityBudgetLimits;
 pub use control_budget::{
     ControlBudget, ControlBudgetCandidate, ControlBudgetLimits, ControlBudgetPermit,
-    ControlBudgetUsage, ControlCharge,
+    ControlBudgetUsage, ControlCharge, ControlMessageLimits,
 };
+pub use ss_security_budget::SsSecurityBudgetLimits;
 mod io;
 mod notifications;
 mod rule_sets;
@@ -15,8 +15,8 @@ mod startup;
 pub use compile::{DnsConfigPreparation, RuntimeConfigPreparation};
 pub use notifications::{ConfigurationReconcileChanges, ConfigurationReconcileNotifications};
 pub use source::{
-    ConfigurationSnapshotReader, ConfigurationSource, QuotaStorage, RuleSetCacheDownload, SourceDisposition, SourcePersistError,
-    SourceWriteObservation, MAX_RULE_SET_CACHE_BYTES,
+    ConfigurationSnapshotReader, ConfigurationSource, QuotaStorage, RuleSetCacheDownload,
+    SourceDisposition, SourcePersistError, SourceWriteObservation, MAX_RULE_SET_CACHE_BYTES,
 };
 use std::sync::Arc;
 use zero_config::{ConfigError, RuntimeConfig};
