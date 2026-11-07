@@ -377,3 +377,20 @@ PoolFactory.build_with_registration返回同一个cold ComponentInstance和其�
 登记观察，供VLESS/VMess真实start在可失败的材料准备前安装；它不Ready、claim或启动IO。
 原start仍检同原owner/Scope/ordinal，重复只允许同一实际登记；错误/空原件的真实关闭、
 驱动及Host ACK另验。V1配置/API/事件/消费者保持不变。
+
+## 同一 Engine 配置视图与 gRPC 状态存储续作
+
+内部 Rust 新增 `EngineRuntimeSnapshot::control_config_query`：Config/Policies/Policy
+同步借阅同一个真实快照和 group guards，先测量、再取得原响应额度、再编码；释放 guard
+之后才允许等待 I/O/容量或退款通知。HTTP 保持原 flat body，IPC/gRPC 保持既有
+QueryResponse 信封、错误消息、身份、revision 和 ACK 语义。公开 Engine-only 查询仍有
+原有进程内职责，不因此创建 Proxy、第二快照池或资源宿主。
+
+普通应用 gRPC 使用 `GrpcHandle::start_with_engine`，传入其 ProxyHandle 的同一
+EngineHandle；原 `start` 保留通用库服务职责。原始响应 Bytes/header 克隆持有同一
+ControlBudget credit；原请求实际 join 与 wire 所有权分别计额。该接线的局部定向结果
+不表示完整控制 DTO、H2/QUIC workspace 或 Z003-07 已完成。
+
+`PacketSegment::retire_final` 用于真实 endpoint users/drivers 退出后的最终 FIFO 封闭与
+排空；UDP hop 的 `retire` 保留同队列。Scope 取消先停止业务，原 Aux 保留已接受 native
+send，超时不授关闭/替换或退款凭据。四项真实 Packet 定向已验，普通 H3 尚待新输入复验。

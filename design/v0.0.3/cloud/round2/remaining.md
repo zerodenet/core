@@ -1,3 +1,37 @@
+## 2026-11-07 07:30 UTC：控制实际视图与原 H2 故障
+
+本节是开发输入索引，五域仍未完成；没有最终候选、同 head CI 或最终下载归档。
+同锁仍为 bb045365baf88f40277e4b87e2941e4990eb630841dd1cd2b2d0de3709d0b0fb。
+
+- `4f8270cf188710685d36678c01833c6e66d3d74b` 根目标 all-features bin/tests check
+  exit0/373.85s，日志 e82ad2ddbcf3273dc30096341f3b6ab7a5303145e1cfa60066dd2f77768dea57；
+  仅类型检查，尚未覆盖后来的 Engine 借阅生产消费者。
+- `81f6d2c874fe4d21c8a9371d2c4651224c5e4270` Engine/Grpc/Transport no-run
+  exit0/4.26s，日志 6a1e3617f5cf08d67734953c6973ea0b0872808015e2b0894341389105566a8e。
+  同产物 Engine borrowed config/policy/generation 3 PASS（a448cfca747f6f24f01280e94a4ab43e1bb766b683b3e1ef489d64a0bdf3bf4b），
+  gRPC19 PASS（0b0dcb8be63ebcc2bf3629e14958de1ac2361f8b5069800f7ebb5457fde91660）；
+  Transport gRPC42 PASS/2 FAIL，实际 GOAWAY 错误及 keepalive 原超时类型不符，
+  日志5a0dededfa9a3424ac2d0f13a9270af622ee87137e6ad49cea6954c807f8c2b6。
+- `0b0b54c3084bdc633fc84e3c46a5bc03c3d3a2ff` gRPC19 PASS，9.89s含build，
+  日志a36e1e2b1b8bd355e37531a629097accf3da09d22e0ff319479848ebb17e1941。
+  实际错误状态存储在格式化前预付，真实 quota Pending 后返还，header clone 在同 Scope
+  join 后仍持额度；请求、原物理 close 和输出存储分别验。
+- `70915945f5d0a9851b98291e27e8b125932a2f28` Transport gRPC44 PASS，44.75s含build，
+  日志f06b9d11b8d1b32a7afd5cc4c43b47a48199a30879f8c789dc9f2f62b4f7de97。
+  同原 Flushed 的第一物理故障传递给原 read/write，连接错误不丢已解码 worker/tail；
+  新真实 GOAWAY、旧 keepalive 原类型均通过。普通 VMess 尚待下一 Proxy 输入复验。
+
+前三份编译失败分别保留：0ae692 gRPC fixture 缺 protobuf method；756ed Engine 测试
+需借阅传参；3ca3 Engine 测试需先归还原 view。修复均追加提交，没有改目标/断言/期限。
+`a3abaa0eddcd49309283c396ce41f0cba29904f4` 已排实际 root bin 测试产物构建，尚无结果。
+该输入包含 A exact DNS normal profile cancellation d571e5f 与后续注释修正；预算/CA/material
+仍 active Busy。原 DNS 查询、Native/Scope/新 bootstrap 断言未改，尚未运行新 Proxy 资格。
+
+当前余项：A完整DNS detour/删除及 Runtime/Flows 等 DTO；B 全合法出站、QUIC/Nav、
+无observer/SOCKS/process、同Host队列字节配置；C完整Packet/Source/retainer/preflight/TUN；
+M共享接线/G8和剩余总额度。C外部完整草案未激活，B→C cold formatter v2待完整消费者。
+真实 GUI、特权 TUN、跨平台和1c1g另验，TEMP仍仅原outer_udp_proxy/重连历史。
+
 ## 2026-11-07 续作：7fff 实际 Proxy、f1e 控制与 4f827 清理
 
 本次再次核对 origin 为 `https://github.com/zerodenet/core.git`；远端 integration
