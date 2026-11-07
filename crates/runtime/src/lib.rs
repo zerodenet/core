@@ -5,8 +5,9 @@ pub mod configuration;
 mod embedded_commands;
 mod host;
 pub use embedded_commands::{
-    BlockingCommandFaults, EmbeddedCommandOwner, EmbeddedFaultSet as EmbeddedCommandFailures,
-    EmbeddedFaults as EmbeddedCommandFailure, FrontendCommand,
+    AsyncCommandPanic, BlockingCommandFaults, EmbeddedCommandOwner,
+    EmbeddedFaultSet as EmbeddedCommandFailures, EmbeddedFaults as EmbeddedCommandFailure,
+    FrontendCommand,
 };
 mod original_budgets;
 pub use apply_owner::{

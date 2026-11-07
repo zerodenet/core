@@ -866,3 +866,34 @@ consume these same books. Shrink is Busy while actual retained originals exceed
 the target; growth preserves the original channel/filter/event identities. Dead
 weak registration/vector allocation remains charged until actually destroyed or
 compacted. No live event, statistics history or filter is evicted to fit a limit.
+
+
+### Resourceful command diagnostics execute their original asynchronous work
+
+Acknowledged DNS lookup, route trace and fixed-target probe commands now await
+their original boxed asynchronous producer directly. The already asynchronous
+outbound-probe command uses that same path. They no longer occupy a blocking
+parent thread while waiting for a child lookup/material operation in the same
+blocking pool. Existing synchronous CommandService entry points still use the
+caller's existing Tokio runtime; no second runtime, pool or resolver is created.
+Fixed-target probing remains TCP connect-only with its original two-second limit,
+endpoint selection and egress. Command and response wire shapes are unchanged.
+
+CURRENT frontend work is strongly installed in its existing Host command row
+before the first await. The original caller and existing receipt monitor retain
+that exact work and cleanup continuation; no frontend execution task is added.
+NoCURRENT uses the existing finite command Scope's actual Auxiliary work and
+Critical cleanup registrations, retaining its one PendingCommand permission
+through actual joins and registration ACK. It does not create a blocking Tokio
+outcome for an asynchronous task. Original query/native/User receipts remain
+separate from command/task completion.
+
+A frontend's precise observing producer is handed off only after its actual
+registration, command custody and work continuation are installed. A separately
+captured producer remains a wait gate; merely holding a public observation or
+counter cannot issue that handoff. This removes complete->wait_joined waiting on
+its own outer reply observer. An async continuation panic retains its real opaque
+payload in AsyncCommandPanic and the existing finite row's typed fault receiver;
+it is not a fabricated blocking JoinError or TaskFailure. Unknown cleanup remains
+owned and never authorizes refund/reopen. Known physical retirement permits
+recovery while the returned original fault is still strongly retained.

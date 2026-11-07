@@ -3,16 +3,24 @@ pub(in crate::runtime::handle::command) fn execute_diagnostics_trace_route(
     handle: &ProxyHandle,
     cmd: &zero_api::DiagnosticsTraceRouteCommand,
 ) -> zero_api::ApiResult<zero_api::CommandResponse> {
-    let proxy = handle.proxy.clone();
-    let target = cmd.target.clone();
-    let port = cmd.port;
-    let inbound_tag = cmd.inbound_tag.clone();
-    let (protocol, network) = trace_protocol(cmd.protocol.as_deref())?;
-
     with_current_runtime("no tokio runtime available for trace_route command", |rt| {
-        rt.block_on(async move {
-            let actual = proxy.clone();
-            proxy.with_diagnostic_service(async move {
+        rt.block_on(trace(handle.clone(), cmd.clone()))
+    })
+}
+pub(super) fn trace(
+    handle: ProxyHandle,
+    cmd: zero_api::DiagnosticsTraceRouteCommand,
+) -> zero_platform_tokio::contract::BoxFuture<'static, zero_api::ApiResult<zero_api::CommandResponse>>
+{
+    Box::pin(async move {
+        let proxy = handle.proxy.clone();
+        let target = cmd.target.clone();
+        let port = cmd.port;
+        let inbound_tag = cmd.inbound_tag.clone();
+        let (protocol, network) = trace_protocol(cmd.protocol.as_deref())?;
+
+        let actual = proxy.clone();
+        proxy.with_diagnostic_service(async move {
             let proxy = actual;
             let mut session = Session::new(0, trace_target_address(&target), port, network, ProtocolType::UNKNOWN);
             session.inbound_tag = inbound_tag;
@@ -44,6 +52,5 @@ pub(in crate::runtime::handle::command) fn execute_diagnostics_trace_route(
                 })),
             })
             }).await.map_err(|source|zero_api::ApiError::new(zero_api::ApiErrorCode::Internal,source.to_string()))?
-        })
     })
 }

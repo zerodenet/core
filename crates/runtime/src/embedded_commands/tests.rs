@@ -200,3 +200,11 @@ mod limits;
 
 #[path = "tests/returned_scope.rs"]
 mod returned_scope;
+
+#[path = "tests/async_frontend.rs"]
+mod async_frontend;
+#[path = "tests/async_owned.rs"]
+mod async_owned;
+
+#[path = "tests/work_handoff.rs"]
+mod work_handoff;

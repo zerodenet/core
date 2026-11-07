@@ -7,6 +7,7 @@ use std::sync::{
     Weak,
 };
 use zero_platform_tokio::contract::BoxFuture;
+mod async_run;
 mod drive;
 mod registration;
 mod run;
@@ -33,6 +34,7 @@ pub(crate) struct Original {
     credit: Mutex<Option<Credit>>,
     request_bytes: Mutex<Vec<ControlBudgetPermit>>,
     raw_no_work: AtomicBool,
+    async_work: AtomicBool,
 }
 enum Credit {
     Root { _original: ControlBudgetPermit },
@@ -115,6 +117,7 @@ impl EmbeddedCommandOwner {
             credit: Mutex::new(Some(credit)),
             request_bytes: Mutex::new(request_bytes),
             raw_no_work: AtomicBool::new(false),
+            async_work: AtomicBool::new(false),
         });
         observation.install_frontend(Arc::downgrade(&original));
         let mut state = lock(&self.state);
@@ -144,7 +147,11 @@ impl Original {
                     .is_some_and(|joined| joined.registration_released())
                     && self.cleanup_complete.load(Ordering::Acquire)
             }
-            None => !self.creating.load(Ordering::Acquire),
+            None => {
+                !self.creating.load(Ordering::Acquire)
+                    && (!self.async_work.load(Ordering::Acquire)
+                        || self.cleanup_complete.load(Ordering::Acquire))
+            }
         }
     }
     pub(super) fn raw_witness(&self) -> Option<&TaskJoinWitness> {
@@ -199,7 +206,7 @@ impl Original {
         }
     }
     async fn finish_unstarted(&self) -> Result<(), ChannelError> {
-        if self.raw.get().is_some() {
+        if self.raw.get().is_some() || self.async_work.load(Ordering::Acquire) {
             loop {
                 let owner = self.owner.upgrade().ok_or_else(|| fault(Reason::Revoked))?;
                 let changed = owner.changed.notified();
@@ -211,7 +218,10 @@ impl Original {
                 changed.await;
             }
         }
-        if self.raw.get().is_none() && !self.creating.load(Ordering::Acquire) {
+        if self.raw.get().is_none()
+            && !self.async_work.load(Ordering::Acquire)
+            && !self.creating.load(Ordering::Acquire)
+        {
             let joined = self.observation.wait_joined().await;
             if let Some(source) = self.observation.completion_fault(joined.as_ref()) {
                 self.failure
@@ -225,6 +235,18 @@ impl Original {
 
 #[cfg(test)]
 impl FrontendCommand {
+    pub(super) fn test_async_started(&self) -> bool {
+        self.0.async_work.load(Ordering::Acquire)
+    }
+    pub(super) fn test_async_returned(&self) -> bool {
+        self.0.raw_scope_returned()
+    }
+    pub(super) fn test_async_failure(&self) -> Option<Arc<ChannelError>> {
+        self.0.raw_failure.get().cloned()
+    }
+    pub(super) fn test_blocking_id(&self) -> Option<tokio::task::Id> {
+        self.0.raw_id.get().copied()
+    }
     pub(super) fn test_raw_witness(&self) -> Option<TaskJoinWitness> {
         self.0.raw.get().cloned()
     }

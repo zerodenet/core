@@ -1,4 +1,4 @@
-//! Production acknowledged lookup/trace keep actual blocking and Query joins.
+//! Production acknowledged lookup/trace keep actual async command and Query joins.
 use crate::{Proxy, ProxyHandle};
 use tokio::time::{timeout, Duration};
 use zero_api::CommandService;
@@ -26,7 +26,10 @@ async fn actual_cancel(trace: bool) {
   for original in &originals{assert!(!original.task.is_joined());assert!(original.original.as_ref().unwrap().closed().is_none());}
   stop.cancel();assert!(request.await.unwrap().is_err());
   assert!(observation.wait_joined().await.is_none(),"no Apply was accepted in the already running Host");
-  assert!(observation.blocking_outcome().unwrap().failure().is_none(),"same real raw blocking job returned; not a fabricated Scope receipt");
+  assert!(observation.blocking_outcome().is_none(),"real async command must not fabricate a blocking outcome");
+  proxy.protocols.drive_component_supervision(proxy.embedded_command_owner().shutdown(tokio::time::Instant::now()+Duration::from_secs(5))).await.unwrap();
+  assert!(proxy.embedded_command_owner().retirement_complete());
+  assert_eq!(proxy.application_control_budget().usage().pending_commands,0);
   assert!(observation.completion_fault(None).is_none(),"ordinary caller cancellation is not an ownership fault");
   for original in &originals{
    let native=original.original.as_ref().unwrap();let closed=native.closed().unwrap();assert!(closed.matches(native)&&closed.had_native_acquisition());
@@ -39,10 +42,12 @@ async fn actual_cancel(trace: bool) {
  }).await.unwrap();
 }
 #[tokio::test]
-async fn acknowledged_lookup_cancellation_waits_same_raw_job_and_both_original_query_receipts() {
+async fn acknowledged_lookup_cancellation_waits_same_async_command_and_both_original_query_receipts(
+) {
     actual_cancel(false).await;
 }
 #[tokio::test]
-async fn acknowledged_trace_cancellation_waits_same_raw_job_and_both_original_query_receipts() {
+async fn acknowledged_trace_cancellation_waits_same_async_command_and_both_original_query_receipts()
+{
     actual_cancel(true).await;
 }

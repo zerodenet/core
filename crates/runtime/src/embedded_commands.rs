@@ -1,5 +1,6 @@
-//! Only the embedded Proxy command branch uses this actual Host duty. Frontend
-//! Work records already own their original jobs and never enter this Scope.
+//! This same finite Host duty retains embedded work and frontend continuations.
+//! Frontend actors keep their original Scope; actual raw children alone register
+//! here, and its existing monitor retains cleanup when a caller disappears.
 use crate::configuration::{ControlBudget, ControlBudgetPermit, ControlCharge};
 use crate::ApplyObservation;
 use std::{
@@ -17,10 +18,13 @@ use zero_platform_tokio::contract::{
 };
 pub(crate) mod frontend;
 pub use frontend::FrontendCommand;
+mod async_panic;
+mod async_run;
 mod initialize;
 pub(crate) mod limits;
 mod receipts;
 mod run;
+pub use async_panic::AsyncCommandPanic;
 pub use run::CommandTaskFaults as BlockingCommandFaults;
 
 #[derive(Default)]

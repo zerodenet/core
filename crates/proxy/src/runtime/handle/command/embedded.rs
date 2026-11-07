@@ -13,21 +13,35 @@ pub(super) async fn execute(
 ) -> zero_api::ApiResult<CommandResponse> {
     let proxy = handle.proxy.clone();
     let retained = proxy.clone();
-    let work = move || zero_api::CommandService::execute(&handle, command);
     let complete = move |observation| async move {
         retained
             .protocols
             .drive_component_supervision(settle(observation))
             .await
     };
-    let result = match current {
-        Some(current) => current.run_blocking(work, complete).await,
-        None => {
-            proxy
-                .host
-                .embedded_commands()
-                .run(proxy.host.control_budget(), work, complete)
-                .await
+    let result = match super::diagnostics::asynchronous(handle.clone(), command) {
+        Ok(work) => match current {
+            Some(current) => current.run_async(work, complete).await,
+            None => {
+                proxy
+                    .host
+                    .embedded_commands()
+                    .run_async(proxy.host.control_budget(), work, complete)
+                    .await
+            }
+        },
+        Err(command) => {
+            let work = move || zero_api::CommandService::execute(&handle, command);
+            match current {
+                Some(current) => current.run_blocking(work, complete).await,
+                None => {
+                    proxy
+                        .host
+                        .embedded_commands()
+                        .run(proxy.host.control_budget(), work, complete)
+                        .await
+                }
+            }
         }
     };
     result.map_err(|source| {

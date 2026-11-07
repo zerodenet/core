@@ -30,7 +30,10 @@ impl FrontendCommand {
             if state.closing || state.faulted || state.pause.is_some() {
                 return Err(fault(Reason::Revoked));
             }
-            if self.0.creating.swap(true, Ordering::AcqRel) {
+            if self.0.raw.get().is_some()
+                || self.0.async_work.load(Ordering::Acquire)
+                || self.0.creating.swap(true, Ordering::AcqRel)
+            {
                 return Err(fault(Reason::InvalidConfig));
             }
         }
@@ -49,6 +52,7 @@ impl FrontendCommand {
         let stop = ApplyObservation::caller_stop().unwrap_or_else(CancellationToken::new);
         let _ = entry.stop.set(stop.clone());
         let observation = entry.observation.clone();
+        let producer = observation.owned_work_producer();
         let (start, gate) = std::sync::mpsc::sync_channel(1);
         let (send, receive) = oneshot::channel();
         let (reply, response) = oneshot::channel();
@@ -62,13 +66,8 @@ impl FrontendCommand {
                     running.notify();
                     return Ok(());
                 }
-                let value = tokio::runtime::Handle::current().block_on(
-                    observation.scope_with_stop(stop, async {
-                        ApplyObservation::capture()
-                            .expect("same actual frontend Work")
-                            .run_sync(work)
-                    }),
-                );
+                let value = tokio::runtime::Handle::current()
+                    .block_on(observation.scope_with_stop(stop, async { producer.run_sync(work) }));
                 let _ = send.send(value);
                 Ok(())
             })
@@ -123,6 +122,7 @@ impl FrontendCommand {
         // Row, real witness, outcome receiver and cleanup continuation are all
         // retained by the Host before the original blocking gate opens.
         drop(callbacks);
+        entry.observation.handoff_current_producer();
         let _ = start.send(());
         owner.changed.notify_waiters();
         response

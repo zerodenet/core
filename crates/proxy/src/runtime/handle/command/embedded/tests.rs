@@ -1,4 +1,4 @@
-//! Production acknowledged lookup/trace keep actual blocking and Query joins.
+//! Production acknowledged lookup keeps the real async command and Query joins.
 use crate::{Proxy, ProxyHandle};
 use tokio::time::{timeout, Duration};
 use zero_api::CommandService;
@@ -37,6 +37,9 @@ async fn actual_cancel() {
  }).await.unwrap();
 }
 #[tokio::test]
-async fn embedded_lookup_caller_drop_retains_the_same_raw_job_and_both_actual_query_originals() {
+async fn embedded_lookup_caller_drop_retains_same_async_command_and_both_actual_query_originals() {
     actual_cancel().await;
 }
+
+#[path = "tests/target.rs"]
+mod target;

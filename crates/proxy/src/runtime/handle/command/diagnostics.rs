@@ -223,3 +223,32 @@ pub(super) use lookup::execute_diagnostics_dns_lookup;
 
 mod trace;
 pub(super) use trace::execute_diagnostics_trace_route;
+
+pub(super) fn asynchronous(
+    handle: ProxyHandle,
+    command: zero_api::CommandRequest,
+) -> Result<
+    zero_platform_tokio::contract::BoxFuture<
+        'static,
+        zero_api::ApiResult<zero_api::CommandResponse>,
+    >,
+    zero_api::CommandRequest,
+> {
+    match command {
+        zero_api::CommandRequest::DiagnosticsDnsLookup(request) => {
+            Ok(lookup::lookup(handle, request))
+        }
+        zero_api::CommandRequest::DiagnosticsTraceRoute(request) => {
+            Ok(trace::trace(handle, request))
+        }
+        zero_api::CommandRequest::DiagnosticsProbeTarget(request) => {
+            Ok(target::target(handle, request))
+        }
+        zero_api::CommandRequest::DiagnosticsProbeOutbound(request) => Ok(Box::pin(async move {
+            handle
+                .execute_diagnostics_probe_outbound_command(request)
+                .await
+        })),
+        other => Err(other),
+    }
+}

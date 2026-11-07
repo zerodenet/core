@@ -65,7 +65,9 @@ impl EmbeddedCommandOwner {
                         if let Err(source) = result {
                             entry.failure.get_or_init(|| Arc::new(source));
                         }
-                        entry.cleanup_complete.store(true, Ordering::Release);
+                        if !entry.poisoned.load(Ordering::Acquire) {
+                            entry.cleanup_complete.store(true, Ordering::Release);
+                        }
                         progress = true;
                     }
                     Poll::Pending => {}

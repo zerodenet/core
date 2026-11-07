@@ -8,6 +8,7 @@ use zero_platform_tokio::contract::{
 struct Invocation {
     observation: ApplyObservation,
     stop: Option<CancellationToken>,
+    producer: Arc<std::sync::atomic::AtomicBool>,
 }
 tokio::task_local! { static CURRENT: Invocation; }
 
@@ -37,7 +38,11 @@ enum Original {
 }
 /// Metadata held by the already existing original blocking worker, not a task
 /// or permission to create one. Dropping it never certifies a task joined.
-pub struct ApplyObservationGuard(ApplyObservation, Option<CancellationToken>);
+pub struct ApplyObservationGuard(
+    ApplyObservation,
+    Option<CancellationToken>,
+    Arc<std::sync::atomic::AtomicBool>,
+);
 impl Default for ApplyObservation {
     fn default() -> Self {
         Self::new()
@@ -72,7 +77,11 @@ impl ApplyObservation {
             .producers
             .checked_add(1)
             .expect("finite command producers");
-        ApplyObservationGuard(self.clone(), Self::caller_stop())
+        ApplyObservationGuard(
+            self.clone(),
+            Self::caller_stop(),
+            Arc::new(std::sync::atomic::AtomicBool::new(true)),
+        )
     }
     /// Poll the same existing command future in its own observation context.
     /// All normal, parse/error, cancellation and panic exits release this
@@ -121,6 +130,7 @@ impl ApplyObservation {
                 Invocation {
                     observation: self.clone(),
                     stop,
+                    producer: _producer.2.clone(),
                 },
                 work,
             )
@@ -245,6 +255,7 @@ impl ApplyObservationGuard {
             Invocation {
                 observation: self.0.clone(),
                 stop: self.1.clone(),
+                producer: self.2.clone(),
             },
             work,
         )
@@ -252,13 +263,10 @@ impl ApplyObservationGuard {
 }
 impl Drop for ApplyObservationGuard {
     fn drop(&mut self) {
-        {
-            let mut state = self.0 .0.state.lock().expect("apply observation poisoned");
-            state.producers -= 1;
-        }
-        self.0 .0.changed.notify_waiters();
+        self.0.release_producer(&self.2);
     }
 }
+mod producer;
 
 #[cfg(test)]
 #[path = "../tests/apply_owner/observation.rs"]
