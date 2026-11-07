@@ -2,11 +2,8 @@ use std::sync::atomic::Ordering;
 use std::sync::Arc;
 use std::time::Duration;
 
-use super::backlog::{MuxResponseBacklog, MuxResponseBacklogPolicy, MUX_RESPONSE_QUEUE_CAPACITY};
-use super::{
-    try_queue_mux_response, VmessInboundMuxWriter, VmessMuxConnectionPool, VmessMuxDownlink,
-    VmessMuxIdentity, VmessMuxPoolKey,
-};
+use super::backlog::{MuxResponseBacklog, MuxResponseBacklogPolicy};
+use super::{VmessInboundMuxWriter, VmessMuxConnectionPool, VmessMuxIdentity, VmessMuxPoolKey};
 use crate::VmessCipher;
 
 #[tokio::test]
@@ -135,42 +132,12 @@ fn inbound_writer_uses_configured_byte_limit() {
     assert!(error.to_string().contains("byte limit"));
 }
 
-#[tokio::test]
-async fn response_backlog_byte_overflow_is_explicit_and_releases_reserved_bytes() {
-    let backlog = MuxResponseBacklog::new(4);
-    let (tx, mut rx) = tokio::sync::mpsc::channel(3);
-
-    assert!(try_queue_mux_response(&backlog, &tx, b"full".to_vec(), 4,));
-    assert!(!try_queue_mux_response(&backlog, &tx, b"x".to_vec(), 1,));
-    assert_eq!(backlog.used(), 4);
-
-    let Some(VmessMuxDownlink::Data(response)) = rx.recv().await else {
-        panic!("expected buffered response");
-    };
-    assert_eq!(response.into_inner(), b"full");
-    assert_eq!(backlog.used(), 0);
-    assert!(matches!(rx.recv().await, Some(VmessMuxDownlink::Overflow)));
-}
-
-#[tokio::test]
-async fn slow_consumer_is_cut_off_at_the_frame_limit() {
-    let backlog = MuxResponseBacklog::new(1024);
-    let (tx, mut rx) = tokio::sync::mpsc::channel(MUX_RESPONSE_QUEUE_CAPACITY + 1);
-
-    for _ in 0..MUX_RESPONSE_QUEUE_CAPACITY {
-        assert!(try_queue_mux_response(&backlog, &tx, vec![1], 1,));
-    }
-    assert!(!try_queue_mux_response(&backlog, &tx, vec![2], 1,));
-
-    for _ in 0..MUX_RESPONSE_QUEUE_CAPACITY {
-        assert!(matches!(rx.recv().await, Some(VmessMuxDownlink::Data(_))));
-    }
-    assert!(matches!(rx.recv().await, Some(VmessMuxDownlink::Overflow)));
-}
-
 #[path = "tests/half_close.rs"]
 mod half_close;
 
 #[cfg(feature = "runtime")]
 #[path = "tests/cancelled.rs"]
 mod cancelled;
+
+#[path = "tests/response.rs"]
+mod response;

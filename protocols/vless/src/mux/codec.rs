@@ -263,44 +263,6 @@ where
 }
 
 #[cfg(feature = "reality")]
-pub(super) async fn read_frame_tokio<R>(reader: &mut R) -> Result<MuxFrame, Error>
-where
-    R: tokio::io::AsyncRead + Unpin,
-{
-    use tokio::io::AsyncReadExt;
-
-    let mut metadata_len = [0_u8; 2];
-    reader
-        .read_exact(&mut metadata_len)
-        .await
-        .map_err(|_| Error::Io("failed to read MUX metadata length"))?;
-    let metadata_len = u16::from_be_bytes(metadata_len) as usize;
-    if !(4..=MUX_MAX_METADATA).contains(&metadata_len) {
-        return Err(Error::Protocol("MUX metadata length is invalid"));
-    }
-    let mut metadata = alloc::vec![0_u8; metadata_len];
-    reader
-        .read_exact(&mut metadata)
-        .await
-        .map_err(|_| Error::Io("failed to read MUX metadata"))?;
-    let mut frame = parse_metadata(&metadata, false)?;
-    if frame.options & OPTION_DATA != 0 {
-        let mut data_len = [0_u8; 2];
-        reader
-            .read_exact(&mut data_len)
-            .await
-            .map_err(|_| Error::Io("failed to read MUX data length"))?;
-        let data_len = u16::from_be_bytes(data_len) as usize;
-        if data_len > MUX_MAX_PAYLOAD {
-            return Err(Error::Protocol("MUX frame payload is too large"));
-        }
-        frame.payload.resize(data_len, 0);
-        if data_len > 0 {
-            reader
-                .read_exact(&mut frame.payload)
-                .await
-                .map_err(|_| Error::Io("failed to read MUX frame payload"))?;
-        }
-    }
-    Ok(frame)
-}
+mod read_tokio;
+#[cfg(feature = "reality")]
+pub(crate) use read_tokio::{read_buffered_frame, read_frame_tokio, BufferedFrame};
