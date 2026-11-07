@@ -132,6 +132,7 @@ impl ApplicationServices {
         .await
     }
 
+    #[cfg(all(test, feature = "sink-jsonl"))]
     async fn start_with_network(
         engine: Engine,
         ipc_hook_socket: Option<&str>,

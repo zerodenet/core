@@ -2,7 +2,7 @@ use std::io;
 
 use zero_api::{
     ApiError, ApiErrorCode, AuthContext, CommandRequest, CommandService, EventFilter,
-    FlowListQuery, QueryRequest, QueryResponse, QueryService,
+    FlowListQuery, QueryResponse,
 };
 use zero_proxy::ProxyHandle;
 
