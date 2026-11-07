@@ -12,7 +12,9 @@ use crate::inbound::VmessAccept;
 use crate::shared::VmessOutboundSession;
 use crate::VmessCipher;
 mod confirmation;
+mod shutdown;
 use confirmation::Confirmation;
+use shutdown::NativeShutdown;
 
 enum ReadState {
     ResponseHeaderLength {
@@ -52,6 +54,8 @@ pub struct VmessAeadStream<S> {
     write_pos: usize,
     pending_write_len: Option<usize>,
     write_shutdown_sent: bool,
+    write_shutdown_flushed: bool,
+    native_shutdown: NativeShutdown,
     confirmation: Confirmation,
 }
 
@@ -341,6 +345,8 @@ impl<S> VmessAeadStream<S> {
             write_pos: 0,
             pending_write_len: None,
             write_shutdown_sent: false,
+            write_shutdown_flushed: false,
+            native_shutdown: NativeShutdown::default(),
             confirmation: Confirmation::default(),
         })
     }
@@ -483,7 +489,7 @@ where
                     Poll::Ready(()) => {
                         if encrypted_len.is_empty() {
                             self.read_state = ReadState::Eof;
-                            return Poll::Ready(Ok(()));
+                            return self.poll_framed_read_end(cx);
                         }
                         let expected_len = self
                             .reader
@@ -510,7 +516,7 @@ where
                         self.read_plain_pos = 0;
                         if self.read_plain.is_empty() {
                             self.read_state = ReadState::Eof;
-                            return Poll::Ready(Ok(()));
+                            return self.poll_framed_read_end(cx);
                         }
                         self.read_state = ReadState::Length {
                             buf: vec![0_u8; self.reader.length_frame_size()],
@@ -522,7 +528,7 @@ where
                     }
                 },
                 ReadState::Raw => return Pin::new(&mut self.inner).poll_read(cx, buf),
-                ReadState::Eof => return Poll::Ready(Ok(())),
+                ReadState::Eof => return self.poll_framed_read_end(cx),
             }
         }
     }
@@ -554,6 +560,12 @@ where
         if !self.chunk_stream {
             return Pin::new(&mut self.inner).poll_write(cx, buf);
         }
+        if self.write_shutdown_sent && !buf.is_empty() {
+            return Poll::Ready(Err(io::Error::new(
+                io::ErrorKind::BrokenPipe,
+                "vmess upload is already half-closed",
+            )));
+        }
         let had_pending = self.write_pos < self.write_buf.len();
         match self.poll_flush_pending(cx) {
             Poll::Ready(Ok(())) => {
@@ -583,31 +595,6 @@ where
             return Poll::Pending;
         }
         Poll::Ready(Ok(n))
-    }
-
-    fn poll_shutdown_encrypted(&mut self, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
-        if !self.chunk_stream {
-            return Pin::new(&mut self.inner).poll_shutdown(cx);
-        }
-        match self.poll_flush_pending(cx) {
-            Poll::Ready(Ok(())) => {}
-            other => return other,
-        }
-
-        if !self.write_shutdown_sent {
-            self.write_buf = self.writer.seal_chunk(&[]).map_err(protocol_error)?;
-            self.write_pos = 0;
-            self.write_shutdown_sent = true;
-            match self.poll_flush_pending(cx) {
-                Poll::Ready(Ok(())) => {}
-                other => return other,
-            }
-        }
-
-        match Pin::new(&mut self.inner).poll_flush(cx) {
-            Poll::Ready(Ok(())) => Pin::new(&mut self.inner).poll_shutdown(cx),
-            other => other,
-        }
     }
 }
 

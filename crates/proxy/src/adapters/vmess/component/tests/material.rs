@@ -129,3 +129,6 @@ mod relay;
 
 #[path = "material/domain.rs"]
 mod domain;
+
+#[path = "material/half_close.rs"]
+mod half_close;
