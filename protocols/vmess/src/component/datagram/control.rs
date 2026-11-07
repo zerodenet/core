@@ -12,6 +12,9 @@ pub struct Control {
     shared: Arc<Shared>,
     shutdown: bool,
     closed: bool,
+    read_done: bool,
+    failures: failure::Failures,
+    pending_report: CloseReport,
 }
 impl Control {
     pub(in crate::component) async fn return_carrier_before(&mut self, deadline: Instant) -> bool {
@@ -49,6 +52,9 @@ impl Control {
             shared,
             shutdown: false,
             closed: false,
+            read_done: false,
+            failures: failure::Failures::default(),
+            pending_report: CloseReport::default(),
         }
     }
 }
@@ -60,7 +66,7 @@ impl ChannelControl for Control {
     async fn wait_closed(&mut self, deadline: Instant) -> Result<CloseReport, ChannelError> {
         self.cancel(CloseReason::Shutdown);
         if self.closed {
-            return Ok(CloseReport::default());
+            return self.failures.finish(&mut self.pending_report);
         }
         let shared = self.shared.clone();
         let close = async {
@@ -76,48 +82,79 @@ impl ChannelControl for Control {
             poll_fn(|cx| {
                 let mut state = shared.state.lock().unwrap();
                 let stream = state.stream.as_mut().expect("retained VMess UDP original");
+                let mut progress = false;
                 if !self.shutdown {
-                    std::task::ready!(Pin::new(&mut *stream).poll_shutdown(cx)).map_err(
-                        |source| {
-                            shared
-                                .error(Stage::Close, Reason::Io, DeliveryState::Unknown)
-                                .with_source(source)
-                        },
-                    )?;
-                    self.shutdown = true;
+                    match Pin::new(&mut *stream).poll_shutdown(cx) {
+                        Poll::Pending => {}
+                        Poll::Ready(result) => {
+                            // This original direction is terminal after its
+                            // actual error. Never retry an uncertain END/write.
+                            self.shutdown = true;
+                            progress = true;
+                            if let Err(source) = result {
+                                self.failures.shutdown(
+                                    shared
+                                        .error(Stage::Close, Reason::Io, DeliveryState::Unknown)
+                                        .with_source(source),
+                                );
+                            }
+                        }
+                    }
                 }
-                let mut bytes = [0; 4096];
-                let mut buf = ReadBuf::new(&mut bytes);
-                std::task::ready!(Pin::new(stream).poll_read(cx, &mut buf)).map_err(|source| {
-                    shared
-                        .error(Stage::Close, Reason::Io, DeliveryState::Unknown)
-                        .with_source(source)
-                })?;
-                if buf.filled().is_empty() {
-                    drop(state.stream.take());
-                    Poll::Ready(Ok::<_, ChannelError>(()))
+                if !self.read_done {
+                    let mut bytes = [0; 4096];
+                    let mut buf = ReadBuf::new(&mut bytes);
+                    match Pin::new(stream).poll_read(cx, &mut buf) {
+                        Poll::Pending => {}
+                        Poll::Ready(Ok(())) => {
+                            self.read_done = buf.filled().is_empty();
+                            progress = true;
+                        }
+                        Poll::Ready(Err(source)) => {
+                            self.read_done = true;
+                            progress = true;
+                            self.failures.read(
+                                shared
+                                    .error(Stage::Close, Reason::Io, DeliveryState::Unknown)
+                                    .with_source(source),
+                            );
+                        }
+                    }
+                }
+                // No packet views remain. A fatal IO outcome ends this one
+                // logical stream; return its view to the actual donor, whose
+                // native/driver closure is independently owned by the SDK.
+                if self.failures.has_failure() || (self.shutdown && self.read_done) {
+                    let returned = state.stream.take();
+                    drop(state);
+                    drop(returned);
+                    Poll::Ready(())
                 } else {
-                    cx.waker().wake_by_ref();
+                    drop(state);
+                    if progress {
+                        cx.waker().wake_by_ref();
+                    }
                     Poll::Pending
                 }
             })
             .await
         };
         match timeout_at(deadline, close).await {
-            Ok(Err(error)) => Err(error),
-            Ok(Ok(())) => {
+            Ok(()) => {
                 self.closed = true;
-                Ok(CloseReport {
-                    closed_io: vec!["VMess UDP logical stream".into()],
-                    ..Default::default()
-                })
+                self.pending_report.unfinished.clear();
+                self.pending_report
+                    .closed_io
+                    .push("VMess UDP logical stream".into());
+                self.failures.finish(&mut self.pending_report)
             }
-            Err(_) => Ok(CloseReport {
-                unfinished: vec![Unfinished::Io(
+            Err(_) => {
+                self.pending_report.unfinished.clear();
+                self.pending_report.unfinished.push(Unfinished::Io(
                     "VMess UDP original stream or transferred views".into(),
-                )],
-                ..Default::default()
-            }),
+                ));
+                self.failures.finish(&mut self.pending_report)
+            }
         }
     }
 }
@@ -126,3 +163,5 @@ impl Drop for Control {
         self.shared.cancel.cancel();
     }
 }
+
+mod failure;

@@ -116,24 +116,12 @@ impl Query {
             .iter()
             .find_map(|delivery| delivery.joined.result().err())
         {
-            return Err(std::io::Error::other(OriginalFailure(source)));
+            return Err(std::io::Error::other(source));
         }
         Ok(state
             .closed
             .as_ref()
             .expect("confirmed same original")
             .clone())
-    }
-}
-#[derive(Debug)]
-struct OriginalFailure(Arc<zero_platform_tokio::contract::ChannelError>);
-impl std::fmt::Display for OriginalFailure {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        std::fmt::Display::fmt(self.0.as_ref(), f)
-    }
-}
-impl std::error::Error for OriginalFailure {
-    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
-        Some(self.0.as_ref())
     }
 }
