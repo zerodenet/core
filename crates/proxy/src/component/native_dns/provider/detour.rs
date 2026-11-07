@@ -232,6 +232,7 @@ impl Provider {
                 call.clone(),
                 execution.current_source.clone(),
                 binding.prefix.clone(),
+                self.cleanup_receiver(),
             )
             .map_err(std::io::Error::other)?;
             let direct_endpoint = (nodes[0].endpoint.is_none()

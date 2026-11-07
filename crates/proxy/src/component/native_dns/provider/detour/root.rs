@@ -10,6 +10,7 @@ mod direct;
 #[cfg(any(target_os = "linux", windows))]
 mod process;
 pub(super) struct Root {
+    receiver: super::super::failure::Receiver,
     native: Option<ResolvingCarrierOpener>,
     binding: UpstreamBinding,
     endpoint: Destination,
@@ -45,8 +46,10 @@ impl Root {
         invocation: CarrierContext,
         current: std::sync::Weak<crate::runtime::current_services::CurrentServiceSource>,
         roles: Vec<zero_core::component::RoleInstanceId>,
+        receiver: super::super::failure::Receiver,
     ) -> Result<Self, ChannelError> {
         Ok(Self {
+            receiver,
             native: Some(ResolvingCarrierOpener::new(
                 grants.registration().instance(),
                 binding.clone(),
@@ -358,6 +361,8 @@ impl UpstreamOpener for Root {
             ));
         }
         pending.push(Arc::new(custody::NativeUse {
+            receiver: self.receiver.clone(),
+            pending_report: Mutex::default(),
             task: self.caller.clone(),
             cancel: self.cancel.clone(),
             original: adoption,
@@ -497,6 +502,8 @@ impl UpstreamOpener for Root {
                 let mut grant = self.grants.reserve()?;
                 let view = grant.claim_transferred_view()?;
                 let entry = Arc::new(custody::NativeUse {
+                    receiver: self.receiver.clone(),
+                    pending_report: Mutex::default(),
                     task: self.caller.clone(),
                     cancel: self.cancel.clone(),
                     original: grant.adoption(),

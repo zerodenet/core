@@ -66,6 +66,7 @@ impl Provider {
                 call.clone(),
                 execution.current_source.clone(),
                 binding.prefix.clone(),
+                self.cleanup_receiver(),
             )
             .map_err(std::io::Error::other)?
             .observer_only(),
@@ -81,6 +82,8 @@ impl Provider {
             .claim_transferred_view()
             .map_err(std::io::Error::other)?;
         let entry = Arc::new(custody::NativeUse {
+            receiver: self.cleanup_receiver(),
+            pending_report: Mutex::default(),
             task: caller.clone(),
             cancel: cancel.clone(),
             original: grant.adoption(),

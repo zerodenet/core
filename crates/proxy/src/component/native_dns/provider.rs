@@ -170,6 +170,8 @@ impl Provider {
             .lock()
             .expect("DNS users poisoned")
             .push(Arc::new(custody::NativeUse {
+                receiver: self.cleanup_receiver(),
+                pending_report: Mutex::default(),
                 task: caller,
                 cancel,
                 original: grant.adoption(),
