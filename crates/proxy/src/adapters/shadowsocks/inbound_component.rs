@@ -57,8 +57,12 @@ impl ShadowsocksAdapter {
         );
         let identity = serde_json::to_vec(inbound)
             .map_err(|source| zero_config::ConfigError::InvalidInbound(source.to_string()))?;
-        ::shadowsocks::component::inbound::listener::Options::new(listen, prepared, &identity)
-            .with_plugin(plugin.clone())
+        let options =
+            ::shadowsocks::component::inbound::listener::Options::new(listen, prepared, &identity)
+                .with_plugin(plugin.clone());
+        let limits = crate::adapters::source_budgets::limits(runtime, options.source_limits());
+        options
+            .with_inbound_source_limits(limits)?
             .with_inbound_work_limits(
                 std::num::NonZeroUsize::new(runtime.effective_inbound_max_tasks_per_carrier(1))
                     .unwrap(),

@@ -38,5 +38,8 @@ pub(crate) fn component_options_in_runtime(
         std::num::NonZeroUsize::new(runtime.effective_inbound_max_tasks_per_carrier(1)).unwrap();
     options.accepted.max_resources_per_socket =
         runtime.effective_inbound_max_resources_per_carrier(0);
-    Ok(options)
+    let limits = crate::adapters::source_budgets::limits(runtime, options.source_limits());
+    options
+        .with_inbound_source_limits(limits)
+        .map_err(|source| zero_config::ConfigError::InvalidInbound(source.to_string()))
 }

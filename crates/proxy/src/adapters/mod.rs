@@ -1,5 +1,6 @@
 //! Concrete protocol capability bridges for each compiled-in protocol.
 pub(crate) mod inbound_work_budgets;
+pub(crate) mod source_budgets;
 
 pub(crate) mod direct;
 #[cfg(feature = "http")]

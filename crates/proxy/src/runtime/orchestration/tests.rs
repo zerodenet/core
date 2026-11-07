@@ -201,3 +201,16 @@ mod h3_queues;
 
 #[cfg(feature = "socks5")]
 mod direct_budgets;
+
+#[cfg(all(
+    feature = "http",
+    feature = "socks5",
+    feature = "mixed",
+    feature = "shadowsocks",
+    feature = "mieru",
+    feature = "vless",
+    feature = "vmess",
+    feature = "trojan",
+    feature = "hysteria2"
+))]
+mod source_limits;

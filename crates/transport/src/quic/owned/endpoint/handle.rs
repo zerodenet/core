@@ -61,6 +61,30 @@ impl OwnedEndpointHandle {
     }
     pub async fn accept_incoming(&self) -> Result<OwnedIncoming, ChannelError> {
         let (state, pending) = self.pending()?;
+        Self::accept_pending(state, pending).await
+    }
+    /// Same original endpoint, waiting without consuming a new raw incoming.
+    pub async fn accept_incoming_wait(&self) -> Result<OwnedIncoming, ChannelError> {
+        let state = self
+            .0
+            .upgrade()
+            .ok_or_else(|| error(Stage::Prepare, Reason::Revoked))?;
+        state.check()?;
+        let permit = state.users.acquire_wait().await?;
+        state.check()?;
+        let endpoint = state
+            .endpoint
+            .lock()
+            .unwrap()
+            .as_ref()
+            .cloned()
+            .ok_or_else(|| error(Stage::Prepare, Reason::Revoked))?;
+        Self::accept_pending(state, Pending { endpoint, permit }).await
+    }
+    async fn accept_pending(
+        state: Arc<Shared>,
+        pending: Pending,
+    ) -> Result<OwnedIncoming, ChannelError> {
         let connecting = loop {
             let incoming = tokio::select! {biased;
                 _=state.users.cancellation().cancelled()=>return Err(error(Stage::Prepare,Reason::Cancelled)),

@@ -15,6 +15,8 @@ use zero_platform_tokio::contract::{
     ChannelError, Impact, Reason, Stage,
 };
 pub struct Options {
+    source_limits: InboundSourceLimits,
+
     listen: Destination,
     request: TrojanInboundListenerRequest,
     update: Mutex<Option<TrojanInboundProfileUpdate>>,
@@ -23,6 +25,25 @@ pub struct Options {
     work_resources: usize,
 }
 impl Options {
+    pub fn source_limits(&self) -> InboundSourceLimits {
+        self.source_limits
+    }
+    pub fn with_inbound_source_limits(
+        mut self,
+        limits: InboundSourceLimits,
+    ) -> Result<Self, zero_platform_tokio::contract::ChannelError> {
+        let limits = limits.validate()?;
+        let used = vec![limits.accepted_sockets, limits.bind_attempts];
+        let mut identity = self.identity.to_vec();
+        identity.extend_from_slice(b"actual-source-limits-v1");
+        for value in used {
+            identity.extend_from_slice(&value.get().to_le_bytes());
+        }
+        self.identity = identity.into();
+        self.source_limits = limits;
+        Ok(self)
+    }
+
     /// Cold limits on this same original accepted/peer graph. No work starts.
     pub fn with_inbound_work_limits(
         mut self,
@@ -69,6 +90,7 @@ impl Options {
             identity: identity.into(),
             work_tasks: NonZeroUsize::new(516).unwrap(),
             work_resources: 257,
+            source_limits: InboundSourceLimits::default(),
         }
     }
 }
@@ -84,9 +106,9 @@ impl ComponentFactory for Factory {
             task_limit: None,
             resources: vec![ResourceDeclaration::TcpListener {
                 destination: options.listen.clone(),
-                max_bind_attempts: NonZeroUsize::new(50).unwrap(),
+                max_bind_attempts: options.source_limits.bind_attempts,
                 accepted: Some(AcceptedTcpLimits {
-                    max_sockets: NonZeroUsize::new(4096).unwrap(),
+                    max_sockets: options.source_limits.accepted_sockets,
                     // Parent, scoped gRPC carrier, real MUX reader/writer and 256 requests
                     // with an independent actual UDP driver per request.
                     max_tasks_per_socket: options.work_tasks,

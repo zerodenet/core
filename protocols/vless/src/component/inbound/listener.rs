@@ -3,6 +3,8 @@
 //! Cold state and credentials remain inert until confirmed StopOld and host Build.
 #[path = "quic.rs"]
 mod quic;
+#[path = "listener/source_limits.rs"]
+mod source_limits;
 #[path = "listener/work.rs"]
 mod work;
 use crate::transport::PreparedVlessInboundListenerRequest;
@@ -12,7 +14,6 @@ use std::{
     num::NonZeroUsize,
     sync::{Arc, Mutex, OnceLock},
 };
-use work::peer_limits;
 use zero_core::request::Destination;
 use zero_platform_tokio::contract::{
     component::*,
@@ -24,6 +25,8 @@ use zero_platform_tokio::contract::{
 #[path = "listener/limits.rs"]
 mod limits;
 pub struct Options {
+    source_limits: InboundSourceLimits,
+
     listen: Destination,
     udp: bool,
     quic: Option<zero_transport::quic::QuicServerConfig>,
@@ -70,6 +73,7 @@ impl Options {
             identity: identity.into(),
             work_tasks: NonZeroUsize::new(520).unwrap(),
             work_resources: 257,
+            source_limits: InboundSourceLimits::default(),
             metadata_probes: NonZeroUsize::new(2).unwrap(),
             metadata_attempts: NonZeroUsize::new(8).unwrap(),
             metadata_sends: NonZeroUsize::new(2).unwrap(),
@@ -143,23 +147,23 @@ impl ComponentFactory for Factory {
                     } else if options.udp {
                         ResourceDeclaration::DatagramListener {
                             destination: options.listen.clone(),
-                            max_bind_attempts: NonZeroUsize::new(50).unwrap(),
-                            max_pending_sends: NonZeroUsize::new(32).unwrap(),
+                            max_bind_attempts: options.source_limits.bind_attempts,
+                            max_pending_sends: options.source_limits.pending_sends,
                             accepted: Some(options.peer_limits()),
                         }
                     } else {
                         ResourceDeclaration::TcpListener {
                             destination: options.listen.clone(),
-                            max_bind_attempts: NonZeroUsize::new(50).unwrap(),
+                            max_bind_attempts: options.source_limits.bind_attempts,
                             accepted: Some(AcceptedTcpLimits {
-                                max_sockets: NonZeroUsize::new(4096).unwrap(),
+                                max_sockets: options.source_limits.accepted_sockets,
                                 max_tasks_per_socket: options.work_tasks,
                                 max_resources_per_socket: options.work_resources,
                             }),
                         }
                     },
                     ResourceDeclaration::DatagramAssociations {
-                        max_associations: NonZeroUsize::new(4096).unwrap(),
+                        max_associations: options.source_limits.datagram_associations,
                         max_tasks_per_association: options.work_tasks,
                         max_resources_per_association: options.work_resources,
                     },
@@ -176,13 +180,13 @@ impl ComponentFactory for Factory {
                 if let Some(root) = &options.file_root {
                     resources.push(ResourceDeclaration::FileTree {
                         root: root.clone(),
-                        max_sessions: NonZeroUsize::new(16).unwrap(),
+                        max_sessions: options.source_limits.file_sessions,
                     });
                 }
                 if !options.targets.is_empty() {
                     resources.push(ResourceDeclaration::InboundTargets {
                         endpoints: options.targets.clone(),
-                        max_sockets: NonZeroUsize::new(4096).unwrap(),
+                        max_sockets: options.source_limits.target_sockets,
                     });
                 }
                 resources
@@ -228,6 +232,7 @@ impl ComponentFactory for Factory {
                 request,
                 options.packet_masks.clone(),
                 options.metadata_limits(),
+                options.peer_limits(),
                 context,
             );
         }

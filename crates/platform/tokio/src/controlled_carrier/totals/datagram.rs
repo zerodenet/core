@@ -27,7 +27,11 @@ impl CarrierOriginalTotals {
                 .position(|actual| Arc::ptr_eq(actual, original))
                 .map(|index| state.metadata.swap_remove(index))
         };
+        let changed = removed.is_some();
         drop(removed);
+        if changed {
+            self.changed.notify_waiters();
+        }
     }
 }
 
@@ -57,6 +61,10 @@ impl CarrierOriginalTotals {
                 .position(|actual| Arc::ptr_eq(actual, original))
                 .map(|index| state.bound.swap_remove(index))
         };
+        let changed = removed.is_some();
         drop(removed);
+        if changed {
+            self.changed.notify_waiters();
+        }
     }
 }

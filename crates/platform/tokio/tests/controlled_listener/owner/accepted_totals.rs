@@ -1,8 +1,8 @@
 //! One accepted original returns global credit after its own real HostACK.
 use super::*;
 use crate::contract::{
-    ChannelError, Impact, Stage,
     scope::{TaskClass, TaskScope},
+    ChannelError, Impact, Stage,
 };
 #[tokio::test]
 async fn same_live_source_accepts_again_only_after_original_native_users_and_host_ack() {
@@ -102,12 +102,20 @@ async fn same_live_source_accepts_again_only_after_original_native_users_and_hos
                 "native+unique view+graph joins are independent of real HostACK"
             );
             assert!(!witness.try_joined().unwrap().registration_released());
+            assert_eq!(original.accepted_evidence().unwrap().retained,1,"local original row is still charged before actual HostACK");
+            {
+                let mut unacknowledged=Box::pin(listener.accept_owned_wait());
+                poll_fn(|cx|{assert!(unacknowledged.as_mut().poll(cx).is_pending(),"ordinary Source waits without accepting a new native before old original ACK");Poll::Ready(())}).await;
+            }
+            assert_eq!(original.accepted_evidence().unwrap().retained,1,"cancelling the waiter cannot release the original row");
+            assert_eq!(roots.snapshot().charged,2);
             scope.acknowledge(&receipt).unwrap();
             assert_eq!(
                 roots.snapshot().charged,
                 1,
                 "same live Source can reuse actual released global capacity"
             );
+            assert_eq!(original.accepted_evidence().unwrap().retained,0,"the same exact ACK releases the local row as well as global custody");
             assert!(!scope.is_drained() && scope.registrar().scope_identity().registration_open());
             assert_eq!(client.read(&mut echoed).await.unwrap(), 0);
         }

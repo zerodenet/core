@@ -5,6 +5,16 @@ use zero_config::{InboundConfig, RuntimeConfig};
 use zero_engine::EngineError;
 use zero_platform_tokio::contract::BoxFuture;
 
+pub(in crate::runtime) fn source_budget_changed(old: &RuntimeConfig, next: &RuntimeConfig) -> bool {
+    crate::adapters::source_budgets::changed(old, next)
+}
+pub(in crate::runtime) fn source_local_budget_changed(
+    input: &InboundConfig,
+    old: &RuntimeConfig,
+    next: &RuntimeConfig,
+) -> bool {
+    crate::adapters::source_budgets::source_changed(input, old, next)
+}
 pub(in crate::runtime) fn carrier_budget_changed(
     old: &RuntimeConfig,
     next: &RuntimeConfig,
@@ -90,7 +100,8 @@ pub(in crate::runtime) fn inbound_work_resources(
     })
 }
 pub(in crate::runtime) fn ss_budget_changed(old: &RuntimeConfig, next: &RuntimeConfig) -> bool {
-    if carrier_budget_changed(old, next)
+    if source_budget_changed(old, next)
+        || carrier_budget_changed(old, next)
         || crate::adapters::metadata::h3_budget_changed(old, next)
         || inbound_work_budget_changed(old, next)
         || old.inbounds.iter().chain(&next.inbounds).any(|input| {

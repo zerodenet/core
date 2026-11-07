@@ -262,7 +262,10 @@ pub(crate) fn compiled_registries_with_network(
                         // Explicit primitive fixture preparation has no Proxy candidate.
                         None => inbound_adapter.inbound_options(input, resources.source_dir()),
                     }?;
+                    let limits =
+                        crate::adapters::source_budgets::limits(runtime, options.source_limits());
                     options
+                        .with_inbound_source_limits(limits)?
                         .with_inbound_work_limits(
                             std::num::NonZeroUsize::new(
                                 runtime.effective_inbound_max_tasks_per_carrier(520),
@@ -317,7 +320,10 @@ pub(crate) fn compiled_registries_with_network(
                         ),
                         None => projected.inbound_options(input, resources.source_dir()),
                     }?;
+                    let limits =
+                        crate::adapters::source_budgets::limits(runtime, options.source_limits());
                     options
+                        .with_inbound_source_limits(limits)?
                         .with_inbound_work_limits(
                             std::num::NonZeroUsize::new(
                                 runtime.effective_inbound_max_tasks_per_carrier(520),
@@ -479,7 +485,10 @@ pub(crate) fn compiled_registries_with_network(
                         .map(|candidate| &candidate.runtime)
                         .unwrap_or(&defaults);
                     let options = inbound.inbound_options(input, resources.source_dir())?;
+                    let limits =
+                        crate::adapters::source_budgets::limits(runtime, options.source_limits());
                     options
+                        .with_inbound_source_limits(limits)?
                         .with_inbound_work_limits(
                             std::num::NonZeroUsize::new(
                                 runtime.effective_inbound_max_tasks_per_carrier(516),
@@ -593,7 +602,10 @@ pub(crate) fn compiled_registries_with_network(
                         .unwrap_or(&defaults);
                     let options =
                         inbound_adapter.inbound_options(inbound, resources.source_dir())?;
+                    let limits =
+                        crate::adapters::source_budgets::limits(runtime, options.source_limits());
                     options
+                        .with_inbound_source_limits(limits)?
                         .with_inbound_work_limits(
                             std::num::NonZeroUsize::new(
                                 runtime.effective_inbound_max_tasks_per_carrier(516),
@@ -627,7 +639,10 @@ pub(crate) fn compiled_registries_with_network(
                         .map(|candidate| &candidate.runtime)
                         .unwrap_or(&defaults);
                     let options = crate::adapters::mieru::inbound::options(input)?;
+                    let limits =
+                        crate::adapters::source_budgets::limits(runtime, options.source_limits());
                     options
+                        .with_inbound_source_limits(limits)?
                         .with_inbound_work_limits(
                             std::num::NonZeroUsize::new(
                                 runtime.effective_inbound_max_tasks_per_carrier(514),

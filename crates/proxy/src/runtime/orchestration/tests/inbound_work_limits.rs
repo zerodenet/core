@@ -8,7 +8,10 @@ use tokio::{
 };
 use zero_config::RuntimeConfig;
 use zero_platform_tokio::contract::component::ResourceDeclaration as R;
-async fn owner(proxy: &Proxy, tag: &str) -> Arc<crate::runtime::inbound_owners::InboundOwner> {
+pub(super) async fn owner(
+    proxy: &Proxy,
+    tag: &str,
+) -> Arc<crate::runtime::inbound_owners::InboundOwner> {
     timeout(Duration::from_secs(5), async {
         loop {
             if let Some(owner) = proxy.inbound_owners.owner(tag) {
@@ -21,7 +24,7 @@ async fn owner(proxy: &Proxy, tag: &str) -> Arc<crate::runtime::inbound_owners::
     .await
     .unwrap()
 }
-fn closed(owner: &crate::runtime::inbound_owners::InboundOwner) {
+pub(super) fn closed(owner: &crate::runtime::inbound_owners::InboundOwner) {
     let actual = owner
         .terminal_for_test()
         .expect("actual original Source native/users/Scope receipt");
@@ -110,7 +113,7 @@ async fn all_actual_inbound_accepted_and_peer_budgets_are_cold_frozen_and_preser
         );
     }
 }
-async fn socks(address: std::net::SocketAddr, port: u16) -> io::Result<TcpStream> {
+pub(super) async fn socks(address: std::net::SocketAddr, port: u16) -> io::Result<TcpStream> {
     let mut io = TcpStream::connect(address).await?;
     io.write_all(&[5, 1, 0]).await?;
     let mut auth = [0; 2];

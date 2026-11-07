@@ -20,6 +20,24 @@ pub struct InboundOptions {
     pub accepted: AcceptedTcpLimits,
     pub max_bind_attempts: NonZeroUsize,
 }
+impl InboundOptions {
+    pub fn source_limits(&self) -> zero_platform_tokio::contract::component::InboundSourceLimits {
+        zero_platform_tokio::contract::component::InboundSourceLimits {
+            accepted_sockets: self.accepted.max_sockets,
+            bind_attempts: self.max_bind_attempts,
+            ..Default::default()
+        }
+    }
+    pub fn with_inbound_source_limits(
+        mut self,
+        limits: zero_platform_tokio::contract::component::InboundSourceLimits,
+    ) -> Result<Self, ChannelError> {
+        let limits = limits.validate()?;
+        self.accepted.max_sockets = limits.accepted_sockets;
+        self.max_bind_attempts = limits.bind_attempts;
+        Ok(self)
+    }
+}
 pub struct InboundFactory;
 impl ComponentFactory for InboundFactory {
     type Options = InboundOptions;

@@ -1,6 +1,6 @@
 //! Strong custody of one actual accepted original, independent of Source life.
 use super::*;
-use crate::contract::{BoxFuture, scope::TaskJoinWitness};
+use crate::contract::{scope::TaskJoinWitness, BoxFuture};
 use crate::controlled_carrier::SourceCustody;
 use std::{sync::atomic::AtomicBool, task::Context};
 impl Pool {
@@ -88,10 +88,15 @@ impl SourceCustody for Original {
         if phase != Phase::Closed {
             return false;
         }
-        self.entry
+        let released = self
+            .entry
             .users
             .as_ref()
-            .is_some_and(|users| users.complete() && users.original_acks().iter().all(acked))
+            .is_some_and(|users| users.complete() && users.original_acks().iter().all(acked));
+        if released {
+            self.pool.confirm(&self.entry);
+        }
+        released
     }
     fn poll_retirement(&self, cx: &mut Context<'_>) -> bool {
         let Some(users) = &self.entry.users else {

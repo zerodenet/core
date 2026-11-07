@@ -322,6 +322,7 @@ impl OrchestrationState {
         let carrier_changed =
             budget_barrier::carrier_budget_changed(self.applied_snapshot.config(), &new_config);
         if carrier_changed
+            || budget_barrier::source_budget_changed(self.applied_snapshot.config(), &new_config)
             || crate::adapters::metadata::h3_budget_changed(
                 self.applied_snapshot.config(),
                 &new_config,
@@ -343,12 +344,22 @@ impl OrchestrationState {
                     self.applied_snapshot.config(),
                     &new_config,
                 );
+                let source_changed = budget_barrier::source_local_budget_changed(
+                    input,
+                    self.applied_snapshot.config(),
+                    &new_config,
+                );
                 let h3_changed = crate::adapters::metadata::h3_source_budget_changed(
                     input,
                     self.applied_snapshot.config(),
                     &new_config,
                 );
-                if !carrier_changed && !metadata_changed && !work_changed && !h3_changed {
+                if !carrier_changed
+                    && !metadata_changed
+                    && !work_changed
+                    && !h3_changed
+                    && !source_changed
+                {
                     continue;
                 }
                 match proxy.protocols.prepare_inbound_bind_in_config(
@@ -356,8 +367,12 @@ impl OrchestrationState {
                     &new_config,
                 ) {
                     Ok(Some(prepared))
-                        if (carrier_changed
+                        if (source_changed
                             && budget_barrier::source_total_resources(prepared.resources()))
+                            || (carrier_changed
+                                && budget_barrier::source_total_resources(
+                                    prepared.resources(),
+                                ))
                             || (metadata_changed
                                 && budget_barrier::metadata_source_resources(
                                     prepared.resources(),

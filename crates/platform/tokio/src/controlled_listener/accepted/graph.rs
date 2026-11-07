@@ -12,6 +12,7 @@ use std::{
 };
 use zero_core::component::TaskId;
 mod caller;
+mod capacity;
 mod peer;
 pub use peer::AcceptedPeerScope;
 mod carriers;

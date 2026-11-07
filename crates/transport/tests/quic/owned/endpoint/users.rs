@@ -287,3 +287,123 @@ async fn actual_three_view_admission_waits_without_closing_live_stream_or_consum
     .await
     .unwrap();
 }
+
+#[tokio::test]
+async fn ordinary_incoming_wait_preserves_existing_datagram_wire_and_returns_only_real_users() {
+    tokio::time::timeout(Duration::from_secs(10), async {
+        let mut scope = TaskScope::new(tokio::runtime::Handle::current(), bound(3));
+        let native = socket();
+        let retained = native.socket();
+        let (mut owner, mut receiver) = OwnedEndpointOwner::new(
+            native,
+            scope.registrar(),
+            OwnedEndpointLimits {
+                drivers: bound(3),
+                users: bound(2),
+            },
+        );
+        let (server_config, client_config) = configs();
+        let handle = owner
+            .start(Default::default(), Some(server_config), None)
+            .unwrap();
+        let address = handle.local_addr().unwrap();
+        let mut peer = quinn::Endpoint::client("127.0.0.1:0".parse().unwrap()).unwrap();
+        peer.set_default_client_config(client_config);
+        let (client, first) =
+            tokio::join!(peer.connect(address, "localhost").unwrap(), handle.accept());
+        let client = client.unwrap();
+        let first = first.unwrap();
+        let mut send = client.open_uni().await.unwrap();
+        send.write_all(b"view").await.unwrap();
+        let mut view = first.accept_uni().await.unwrap();
+        let mut bytes = [0; 4];
+        view.read_exact(&mut bytes).await.unwrap();
+        assert_eq!(&bytes, b"view");
+        assert_eq!(owner.active_users(), 2);
+        let mut next = Box::pin(peer.connect(address, "localhost").unwrap());
+        poll_fn(|cx| {
+            assert!(next.as_mut().poll(cx).is_pending());
+            Poll::Ready(())
+        })
+        .await;
+        let mut blocked = Box::pin(handle.accept_incoming_wait());
+        poll_fn(|cx| {
+            assert!(blocked.as_mut().poll(cx).is_pending());
+            Poll::Ready(())
+        })
+        .await;
+        client
+            .send_datagram(bytes::Bytes::from_static(b"old"))
+            .unwrap();
+        assert_eq!(&first.read_datagram().await.unwrap()[..], b"old");
+        first
+            .send_datagram(bytes::Bytes::from_static(b"yes"))
+            .unwrap();
+        assert_eq!(&client.read_datagram().await.unwrap()[..], b"yes");
+        assert_eq!(owner.active_users(), 2);
+        drop(blocked);
+        assert_eq!(
+            owner.active_users(),
+            2,
+            "cancel did not return either actual old user"
+        );
+        drop(view);
+        assert_eq!(owner.active_users(), 1);
+        let (client_next, incoming) = tokio::join!(next, async {
+            handle
+                .accept_incoming_wait()
+                .await
+                .unwrap()
+                .establish()
+                .await
+                .unwrap()
+        });
+        let client_next = client_next.unwrap();
+        assert_eq!(owner.active_users(), 2);
+        client_next
+            .send_datagram(bytes::Bytes::from_static(b"new"))
+            .unwrap();
+        assert_eq!(&incoming.read_datagram().await.unwrap()[..], b"new");
+        owner.begin_shutdown();
+        assert_eq!(
+            owner.shutdown(Instant::now()).await.unwrap_err().reason,
+            Reason::Timeout
+        );
+        assert!(retained.local_addr().is_ok());
+        drop(first);
+        drop(incoming);
+        drop(send);
+        drop(client);
+        drop(client_next);
+        peer.close(0u32.into(), b"original peer done");
+        peer.wait_idle().await;
+        assert_eq!(owner.active_users(), 0);
+        let (report, classes) = tokio::join!(
+            owner.shutdown(Instant::now() + Duration::from_secs(3)),
+            collect(&mut scope, &mut receiver, 3)
+        );
+        let report = report.unwrap();
+        assert!(report.is_complete());
+        assert_eq!(report.confirmed_main, 1);
+        assert_eq!(
+            classes
+                .iter()
+                .filter(|class| **class == TaskClass::Critical)
+                .count(),
+            1
+        );
+        assert_eq!(
+            classes
+                .iter()
+                .filter(|class| **class == TaskClass::Auxiliary)
+                .count(),
+            2
+        );
+        assert_eq!(
+            retained.local_addr().unwrap_err().kind(),
+            io::ErrorKind::NotConnected
+        );
+    })
+    .await
+    .unwrap();
+}

@@ -20,6 +20,7 @@ pub struct CarrierOriginalTotalsSnapshot {
 }
 pub struct CarrierOriginalTotals {
     state: Mutex<State>,
+    changed: tokio::sync::Notify,
 }
 struct State {
     limit: NonZeroUsize,
@@ -41,6 +42,7 @@ struct Original {
 impl Default for CarrierOriginalTotals {
     fn default() -> Self {
         Self {
+            changed: tokio::sync::Notify::new(),
             state: Mutex::new(State {
                 limit: NonZeroUsize::new(1024).expect("nonzero kernel policy"),
                 originals: BTreeMap::new(),
@@ -61,6 +63,7 @@ impl std::fmt::Debug for CarrierOriginalTotals {
 impl CarrierOriginalTotals {
     pub fn new(limit: NonZeroUsize) -> Arc<Self> {
         Arc::new(Self {
+            changed: tokio::sync::Notify::new(),
             state: Mutex::new(State {
                 limit,
                 originals: BTreeMap::new(),
@@ -99,6 +102,8 @@ impl CarrierOriginalTotals {
             ));
         }
         state.limit = limit;
+        drop(state);
+        self.changed.notify_waiters();
         Ok(())
     }
     /// Read-only actual original retirement check; Host must retain its
@@ -176,7 +181,11 @@ impl CarrierOriginalTotals {
         };
         // The exact original's controllers, typed faults and captured close
         // continuation may have destructors/wakers. Never drop under root lock.
+        let changed = released.is_some();
         drop(released);
+        if changed {
+            self.changed.notify_waiters();
+        }
     }
     pub(crate) fn reconcile(&self) {
         for (id, original) in self.originals() {
@@ -311,3 +320,5 @@ impl State {
         self.originals.len() + self.metadata.len() + self.bound.len() + self.source.len()
     }
 }
+
+mod capacity;

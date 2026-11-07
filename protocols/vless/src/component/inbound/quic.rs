@@ -64,9 +64,9 @@ pub(super) fn build_mkcp(
     request: crate::transport::VlessInboundListenerRequest,
     masks: Vec<zero_transport::finalmask::udp::Mask>,
     metadata: zero_platform_tokio::controlled_datagram::metadata::MetadataLimits,
+    limits: DatagramPeerLimits,
     context: BuildContext,
 ) -> Result<ComponentInstance, BuildError> {
-    let limits = super::peer_limits();
     let (lifecycle, source) = zero_transport::finalmask::owned::source::source(
         MetadataDatagramRequest {
             ordinal: 0,

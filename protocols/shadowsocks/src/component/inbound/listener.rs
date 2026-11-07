@@ -18,9 +18,12 @@ use zero_platform_tokio::{
     TcpRelayStream, TokioSocket,
 };
 mod datagram;
-mod work;
 mod plugin;
+mod source_limits;
+mod work;
 pub struct Options {
+    source_limits: InboundSourceLimits,
+
     listen: Destination,
     profile: PreparedInboundProfile,
     plugin: Option<crate::validation::PluginConfig>,
@@ -55,6 +58,11 @@ impl Options {
             identity: identity.into(),
             work_tasks: NonZeroUsize::new(1).unwrap(),
             work_resources: 0,
+            source_limits: InboundSourceLimits {
+                datagram_peers: NonZeroUsize::new(4096).unwrap(),
+                packets_per_peer: NonZeroUsize::new(32).unwrap(),
+                ..Default::default()
+            },
         }
     }
     pub fn with_plugin(mut self, plugin: Option<crate::validation::PluginConfig>) -> Self {
@@ -75,17 +83,17 @@ impl ComponentFactory for Factory {
             resources: vec![
                 ResourceDeclaration::TcpListener {
                     destination: options.listen.clone(),
-                    max_bind_attempts: NonZeroUsize::new(50).unwrap(),
+                    max_bind_attempts: options.source_limits.bind_attempts,
                     accepted: Some(AcceptedTcpLimits {
-                        max_sockets: NonZeroUsize::new(4096).unwrap(),
+                        max_sockets: options.source_limits.accepted_sockets,
                         max_tasks_per_socket: options.work_tasks,
                         max_resources_per_socket: options.work_resources,
                     }),
                 },
                 ResourceDeclaration::DatagramListener {
                     destination: options.listen.clone(),
-                    max_bind_attempts: NonZeroUsize::new(50).unwrap(),
-                    max_pending_sends: NonZeroUsize::new(32).unwrap(),
+                    max_bind_attempts: options.source_limits.bind_attempts,
+                    max_pending_sends: options.source_limits.pending_sends,
                     accepted: Some(options.peer_limits()),
                 },
             ],
@@ -96,7 +104,7 @@ impl ComponentFactory for Factory {
             spec.resources.push(ResourceDeclaration::ListenerHandoff {
                 stream: plugin.mode.tcp(),
                 datagram: plugin.mode.udp(),
-                max_probe_attempts: NonZeroUsize::new(1000).unwrap(),
+                max_probe_attempts: options.source_limits.handoff_probe_attempts,
             });
             spec.resources.push(ResourceDeclaration::Process {
                 program: plugin.command.clone().into(),
