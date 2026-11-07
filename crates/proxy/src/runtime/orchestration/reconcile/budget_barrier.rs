@@ -100,7 +100,9 @@ pub(in crate::runtime) fn inbound_work_resources(
     })
 }
 pub(in crate::runtime) fn ss_budget_changed(old: &RuntimeConfig, next: &RuntimeConfig) -> bool {
-    if source_budget_changed(old, next)
+    if old.runtime.effective_direct_max_originals() != next.runtime.effective_direct_max_originals()
+        || old.runtime.effective_direct_max_tasks() != next.runtime.effective_direct_max_tasks()
+        || source_budget_changed(old, next)
         || carrier_budget_changed(old, next)
         || crate::adapters::metadata::h3_budget_changed(old, next)
         || inbound_work_budget_changed(old, next)
@@ -187,7 +189,11 @@ pub(super) async fn pause_sources<'a>(
         };
         let needed = carrier_changed
             || input.protocol.protocol_name() == "shadowsocks"
-            || changed_sources.contains(&input.tag);
+            || changed_sources.contains(&input.tag)
+            || source_local_budget_changed(input, previous, next)
+            || inbound_work_source_changed(input, previous, next)
+            || crate::adapters::metadata::metadata_source_budget_changed(input, previous, next)
+            || crate::adapters::metadata::h3_source_budget_changed(input, previous, next);
         #[cfg(feature = "raw-ip-runtime")]
         let needed = needed || packet_changed && original.has_packet_source_pause();
         if !needed {
