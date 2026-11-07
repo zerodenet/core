@@ -110,6 +110,7 @@ fn same_view_keeps_its_actual_snapshot_after_a_new_configuration_is_installed() 
     engine.reload_config(next).unwrap();
     let query = snapshot.control_config_query(&request).unwrap().unwrap();
     assert_eq!(serde_json::to_vec(&query).unwrap(), expected);
+    drop(query);
     assert_ne!(
         serde_json::to_vec(&engine.query(request).unwrap()).unwrap(),
         expected
