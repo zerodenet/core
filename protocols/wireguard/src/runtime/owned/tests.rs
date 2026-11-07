@@ -214,10 +214,10 @@ fn missing_prepaid_cipher_preserves_same_plaintext_and_first_real_wire_counter()
     let pointer = original.as_ptr();
     let original = Packet::from_owned_buffer(original)
         .unwrap_or_else(|_| panic!("same unique admitted plaintext"));
-    let mut returned = server
-        .engine
-        .encapsulate_with_session(original)
-        .expect_err("owned plaintext lacks its prepaid cipher transfer");
+    let mut returned = match server.engine.encapsulate_with_session(original) {
+        Err(original) => original,
+        Ok(_) => panic!("owned plaintext lacks its prepaid cipher transfer"),
+    };
     assert_eq!(returned.as_ptr(), pointer);
     let cipher = returned
         .try_derive_owned_buffers(&[64])
