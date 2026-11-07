@@ -1,3 +1,37 @@
+## 2026-11-07 10:59 UTC：同 Packet/TUN 查询原件与新本地锁边
+
+五域仍继续，不是最终候选。当前实现冻结 `fe96fee6347c6d49d758140e11e1e8c93f566544`，
+Cargo/候选fixture已同为 `0c3a04f5d0a1ebb21f491dfac6b3e1ff993d4b9c3b8024678ec61d1974eefd82`。
+实际 cargo metadata --offline 解析仅在 zero-grpc dependencies 增一行 zero-proxy；
+没有第三方/协议版本变动，旧 bb 锁输入证据保持原摘要，不追认新锁。
+
+- PacketRoutes/PacketRoute 三控制前端改借同原表；原 Arc 工作区预付后冻结状态和
+  数值，原 owned query 留真实库角色。c60f20424 增可选 packet_route_max_routes，
+  默认4096/省略不导出，实际 lease+response双归还前 Closing 继续计额；纯准备/
+  最后发布同表复查与 rollback 恢复。新的真实原表/输出/拒绝/恢复回归尚待运行。
+- A TunStatus 完整 producer/HTTP/IPC 已普通合入；M 配上可选 proxy-control 的实际
+  gRPC Proxy源和Root启动。原 TunInfo/lastError/Egress metadata只读guard编码，不
+  复制 DTO，不创造 TUN 关闭凭据；None/Some字段、atomic一次冻结、native gRPC
+  预算拒绝/同连接恢复测试已注册，尚无运行资格。
+- shared IPC query.rs 的3way组合曾由未启set-e的命令过早提交冲突标记，3e29055d2
+  立即普通追加清除并保留Packet与Tun两组入口；该临时提交未构建/推送，不回退历史。
+- 6085主线 Root check 自然结束 exit101/351.42s，仅 Nav options.rs 两处相对父类型
+  位置错误；2bb78已窄修复。原日志SHA a49b6c73dfda64c9f69ef3a8162c46036449bc5733623e505d0217e8c70b2ded。
+- Source audit5a947 check 进入 libtests 后6条已知诊断来自4个fixture缺陷。实际窄修已
+  冻结，M 对精确rustc300559 SIGINT释放串行队列，1164.86s exit101；显式中断记录
+  和原日志SHA e41409681605475f0c9457a609a803733864a6d8523f060bc3c46048ace48e7b 保留，
+  不计完整类型检查资格。audit0d632加入实际fixture修复；b28279c93加入同cached原
+  driver custody交接，逐项核验不分配临时Vec；仍未合入/启gate，完整prefix/多phase
+  故障/Source原件责任继续实现。
+- fe96首个 --locked 命令因验证worktree保留ignored旧bb锁0.1s拒绝，未编译。原日志
+  SHA97923c18558dfad8ed668ebab2f7c4a5c7fd95a62762de8c115bb06073e69657；M核对旧新
+  摘要后同步同0c3候选fixture，第二次串行Root+Engine/Grpc/Platform/Runtime/DNS检查中。
+
+原REALITY目标www.cloudflare.com:443于10:55UTC只读解析仍errno-3，未改目标/期限/
+断言或系统网络。其环境待验与本轮仍未完成实现分开；唯一TEMP原范围保持未关闭。
+最新全部 ordinary Proxy/Root 回归、同候选CI和最终可下载归档仍待完成，不以局部结果
+替代域关闭或本地验收候选。
+
 ## 2026-11-07 10:40 UTC：完整调用者续作与同锁开发证据
 
 五域未完成，继续实现；没有最终候选、同 head CI 或可确认下载的最终归档。
