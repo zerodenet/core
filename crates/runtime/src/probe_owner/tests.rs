@@ -55,6 +55,8 @@ async fn body_and_actual_join_do_not_refund_the_same_probe_before_host_ack() {
         .unwrap();
         assert_eq!(result, 42);
         assert!(lock(&owner.entries).is_empty());
+        scope.begin_shutdown();
+        assert!(scope.next_receipt().await.is_none());
         assert!(scope.is_drained());
     })
     .await
