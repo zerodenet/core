@@ -39,6 +39,7 @@ impl Record {
                 | zero_api::QueryRequest::RecentFlows(_)
                 | zero_api::QueryRequest::Flow(_)
                 | zero_api::QueryRequest::PrincipalFlows(_)
+                | zero_api::QueryRequest::Sinks(_)
         ) {
             return None;
         }

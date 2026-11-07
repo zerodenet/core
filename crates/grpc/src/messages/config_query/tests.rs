@@ -82,6 +82,7 @@ async fn ordinary_native_grpc_uses_the_same_engine_view_and_original_error_shape
             zero_api::QueryRequest::ActiveFlows(Default::default()),
             zero_api::QueryRequest::RecentFlows(Default::default()),
             zero_api::QueryRequest::PrincipalFlows(Default::default()),
+            zero_api::QueryRequest::Sinks(Default::default()),
             zero_api::QueryRequest::Flow(zero_api::FlowGetQuery {
                 flow_id: "not-a-flow-雪".into(),
             }),
