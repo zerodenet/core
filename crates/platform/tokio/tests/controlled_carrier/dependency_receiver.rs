@@ -65,7 +65,7 @@ async fn direct_dependency_prefix_loan_requires_exact_actual_owner_binding_slot_
             }).unwrap();
             let original = lower_original.origin(&driver).unwrap();
             assert_eq!(original.selected_binding().unwrap(),(endpoint.clone(),binding.clone()));
-            let mut loan = Some(StreamLoan::new(Box::pin(logical),Box::new(ActualControl(lower_original.clone())),original));
+            let mut loan = Some(StreamLoan::new(Box::pin(logical),Box::new(ActualControl(lower_original.clone())).into(),original));
             let upper_id = ComponentInstanceId { component:ComponentId(773), ..instance() };
             let mut upper = CarrierOwner::new(upper_id,NonZeroUsize::new(2).unwrap(),&host);
             let upper_declaration = ResourceDeclaration::ControlledCarrierPool { endpoint:endpoint.clone(),dial:Default::default(),datagram:false,max_sockets:NonZeroUsize::new(2).unwrap() };

@@ -12,7 +12,7 @@ impl MetadataPoolGrants {
                 error
             })
     }
-    fn reserve_inner(
+    pub(super) fn reserve_inner(
         &self,
         query: Option<&TaskJoinWitness>,
         preparing: Option<&TaskRegistrar>,

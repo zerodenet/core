@@ -21,7 +21,7 @@ impl Wake for OriginalWake {
     }
 }
 impl Phase {
-    fn operation_wake(&self) {
+    pub(super) fn operation_wake(&self) {
         let deferred = {
             let mut state = self
                 .operation
