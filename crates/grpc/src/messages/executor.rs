@@ -51,12 +51,16 @@ where
                         // Keep the same accepted stream task and original
                         // command future through its real final ACK, even if
                         // Hyper has dropped the disconnected response handler.
-                        held.command.drain().await;
+                        let operation = held.command.drain().await;
                         if let Err(payload) = work {
                             std::panic::resume_unwind(payload);
                         }
+                        operation.map_err(|source| {
+                            ChannelError::new(Stage::Close, Reason::Io, Impact::Session)
+                                .with_source(source)
+                        })
                     })
-                    .await;
+                    .await?;
                 Ok(())
             }) {
             Ok((_, witness)) => {

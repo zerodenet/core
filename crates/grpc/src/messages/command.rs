@@ -5,7 +5,7 @@ use std::{
     pin::Pin,
     sync::{
         atomic::{AtomicBool, Ordering},
-        Mutex,
+        Mutex, OnceLock,
     },
     task::{Context, Poll},
 };
@@ -16,6 +16,8 @@ pub(super) struct Command {
     work: Mutex<Option<Work>>,
     credit: Mutex<Option<ControlBudgetPermit>>,
     fault: AtomicBool,
+    observation: zero_runtime::ApplyObservation,
+    operation: OnceLock<zero_platform_tokio::contract::scope::TaskJoined>,
 }
 impl Record {
     pub(crate) async fn execute<H>(
@@ -41,12 +43,15 @@ impl Record {
             }
             *retained = Some(credit);
         }
+        let observation = self.command.observation.clone();
         *self
             .command
             .work
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner) = Some(Box::pin(async move {
-            handle.execute_acknowledged(command).await
+            observation
+                .scope(async move { handle.execute_acknowledged(command).await })
+                .await
         }));
         std::future::poll_fn(|cx| self.command.poll(cx))
             .await
@@ -92,9 +97,18 @@ impl Command {
     pub(super) fn unknown(&self) -> bool {
         self.fault.load(Ordering::Acquire)
     }
-    pub(super) async fn drain(&self) {
-        if !self.unknown() {
-            let _ = std::future::poll_fn(|cx| self.poll(cx)).await;
+    pub(super) async fn drain(&self) -> std::io::Result<()> {
+        if self.unknown() {
+            return Ok(());
         }
+        let _ = std::future::poll_fn(|cx| self.poll(cx)).await;
+        // The existing wire timeout can already have returned an error while
+        // its same accepted Apply still owns work/compensation. Keep this
+        // original stream and its credits until that exact registration joins.
+        if let Some(joined) = self.observation.wait_joined().await {
+            let _ = self.operation.set(joined.clone());
+            joined.result().map_err(std::io::Error::other)?;
+        }
+        Ok(())
     }
 }

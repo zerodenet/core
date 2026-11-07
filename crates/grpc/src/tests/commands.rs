@@ -14,6 +14,8 @@ use std::{
     time::Duration,
 };
 use zero_runtime::configuration::{ControlBudget, ControlBudgetLimits};
+#[path = "operation.rs"]
+mod operation;
 
 #[derive(Clone, Default)]
 struct Commands {
