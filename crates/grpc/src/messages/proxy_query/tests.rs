@@ -105,6 +105,12 @@ async fn native_proxy_query_uses_same_original_status_and_recovers_from_output_b
             zero_api::QueryRequest::Health(Default::default()),
             zero_api::QueryRequest::Capabilities(Default::default()),
         ] {
+            // The response can arrive before the original H2 stream's actual
+            // join/ACK returns its encoder workspace. This low-total fixture
+            // admits one such original at a time, as in the TunStatus loop.
+            while book.usage().grpc_requests != 0 {
+                tokio::task::yield_now().await;
+            }
             let expected = serde_json::to_value(handle.query(request.clone()).unwrap()).unwrap();
             client.ready().await.unwrap();
             let response: tonic::Response<crate::QueryResponse> = client
