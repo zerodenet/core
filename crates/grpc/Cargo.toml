@@ -8,7 +8,7 @@ repository.workspace = true
 homepage.workspace = true
 
 [features]
-proxy-control = ["dep:zero-proxy"]
+proxy-control = ["dep:zero-proxy", "dep:serde"]
 
 [dependencies]
 futures-core = "0.3"
@@ -26,6 +26,7 @@ tokio-rustls = { version = "0.26", default-features = false }
 tower-service = "0.3"
 tracing.workspace = true
 serde_json.workspace = true
+serde = { workspace = true, optional = true }
 zero-api = { path = "../api" }
 zero-core = { path = "../core" }
 zero-engine = { path = "../engine" }
