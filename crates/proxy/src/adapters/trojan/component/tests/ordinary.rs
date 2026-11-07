@@ -134,10 +134,23 @@ async fn datagrams(
                             .iter()
                             .any(|flow| {
                                 flow.network == zero_core::Network::Udp
+                                    && flow.target == Address::Ipv4([127, 0, 0, 1])
+                                    && flow.port == target.port()
                                     && flow.failure.as_ref().is_some_and(|failure| {
-                                        failure.message.contains(
-                                            "Trojan MUX does not support empty raw UDP packets",
-                                        )
+                                        use zero_platform_tokio::contract::{
+                                            ChannelError, DeliveryState, Impact, Reason, Stage,
+                                        };
+                                        let mut expected = ChannelError::new(
+                                            Stage::Send,
+                                            Reason::Unsupported,
+                                            Impact::Datagram,
+                                        );
+                                        expected.delivery = DeliveryState::NotSubmitted;
+                                        // CompletedSession stores the actual ChannelError
+                                        // Display, rather than its diagnostic source chain.
+                                        failure.stage == "udp_logical_send"
+                                            && failure.code.as_deref() == Some("io")
+                                            && failure.message == expected.to_string()
                                     })
                             })
                         {
