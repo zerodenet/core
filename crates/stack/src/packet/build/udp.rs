@@ -20,6 +20,28 @@ impl UdpPacketSpec<'_> {
         }
         Ok(length)
     }
+    /// Exact IP fragment lengths, before building the UDP/IP payload.
+    pub fn fragment_lengths(&self, mtu: usize) -> Result<Vec<usize>, PacketDeriveError> {
+        let total = self.length()?;
+        if total <= mtu {
+            return Ok(Vec::new());
+        }
+        let header = ip_header(self.source, self.destination)?;
+        let fragment_header = if header == 40 { 48 } else { header };
+        let chunk = (mtu
+            .checked_sub(fragment_header)
+            .ok_or(PacketDeriveError::LayoutMismatch)?
+            / 8)
+            * 8;
+        if chunk == 0 {
+            return Err(PacketDeriveError::LayoutMismatch);
+        }
+        let payload = total - header;
+        Ok((0..payload)
+            .step_by(chunk)
+            .map(|offset| fragment_header + (payload - offset).min(chunk))
+            .collect())
+    }
     pub fn write_into(&self, output: &mut [u8]) -> Result<(), PacketDeriveError> {
         if output.len() != self.length()? {
             return Err(PacketDeriveError::LayoutMismatch);

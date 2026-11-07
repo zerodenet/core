@@ -48,21 +48,22 @@ impl ClientTcpStack {
                     conn.peer_mss.min(self.mss),
                 );
                 let stream = UserTcpStream::new(Arc::clone(&conn.receive_buffer), write);
-                let ack = packet::build_tcp_with_window(
-                    rev.0,
-                    rev.2,
-                    rev.1,
-                    rev.3,
-                    expected_ack,
-                    conn.rcv_nxt.load(Ordering::Acquire),
-                    tcp_flags::ACK,
-                    conn.receive_buffer.window(),
-                    &[],
-                );
+                let ack = packet::TcpPacketSpec {
+                    source: rev.0,
+                    destination: rev.2,
+                    source_port: rev.1,
+                    destination_port: rev.3,
+                    sequence: expected_ack,
+                    acknowledgment: conn.rcv_nxt.load(Ordering::Acquire),
+                    flags: tcp_flags::ACK,
+                    window: conn.receive_buffer.window(),
+                    mss: None,
+                    payload: &[],
+                };
                 self.control_packets
                     .clone()
                     .with_observer(conn.observer.clone())
-                    .try_send(ack);
+                    .try_send_spec(ack);
                 if let Some(waiter) = conn.connect_waiter.take() {
                     let _ = waiter.send(stream);
                 }

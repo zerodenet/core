@@ -15,16 +15,18 @@ mod icmp;
 mod identity;
 pub use fragment::{
     fragment_forwarded_packet, fragment_ip_packet, fragment_ip_packet_accounted,
-    fragment_ip_packet_buffer, fragment_ip_packet_owned, fragment_packet_lengths,
-    ipv4_fragmentation_allowed, parse_ip_fragment, rebuild_fragmented_packet,
-    write_packet_fragments, FragmentKey, PacketFragmentFailure, ParsedIpFragment,
+    fragment_ip_packet_buffer, fragment_ip_packet_owned, fragment_ip_packet_prepaid,
+    fragment_packet_lengths, ipv4_fragmentation_allowed, parse_ip_fragment,
+    rebuild_fragmented_packet, write_packet_fragments, FragmentKey, PacketFragmentFailure,
+    ParsedIpFragment,
 };
 pub use icmp::{
     build_icmp_echo_probe, build_icmp_echo_reply, build_icmp_echo_tunnel_probe,
     build_icmp_echo_unreachable_response, build_icmp_mtu_error_response, build_icmp_mtu_response,
     build_icmp_response, build_icmp_time_exceeded_response, build_local_icmp_echo_reply,
     build_udp_unreachable_response, echo_response_key, parse_icmp_echo_reply,
-    parse_icmp_echo_request, parse_icmp_error, restore_echo_response, translate_echo_request,
+    parse_icmp_echo_request, parse_icmp_error, restore_echo_response, restore_echo_response_into,
+    translate_echo_request, translate_echo_request_into, write_icmp_echo_probe, IcmpEchoPacketSpec,
     IcmpEchoReply, IcmpEchoRequest, IcmpErrorKind, IcmpErrorSpec, ParsedIcmpError,
 };
 pub use identity::{packet_conversation_key, packet_return_key, PacketConversationKey};

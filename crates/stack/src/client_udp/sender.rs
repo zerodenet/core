@@ -105,7 +105,14 @@ impl std::fmt::Display for ClientUdpSendError {
         )
     }
 }
-impl std::error::Error for ClientUdpSendError {}
+impl std::error::Error for ClientUdpSendError {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        match &self.kind {
+            ClientUdpStackError::PacketMemory(source) => Some(source),
+            _ => None,
+        }
+    }
+}
 impl ClientUdpSendError {
     fn closed(accepted_fragments: usize) -> Self {
         Self {
@@ -177,15 +184,50 @@ impl ClientUdpSender {
             }
             entry.path_mtu.unwrap_or(self.inner.mtu)
         };
-        let packet = packet::build_udp(
-            self.endpoint.ip,
-            destination.ip,
-            self.endpoint.port,
-            destination.port,
-            payload,
-        );
         let identification = self.inner.next_fragment_id.fetch_add(1, Ordering::Relaxed);
-        let fragments = packet::fragment_ip_packet_owned(packet, mtu, identification);
+        #[cfg(feature = "packet-memory")]
+        let owned = if self.inner.outbound.has_packet_memory() {
+            Some(
+                super::transmit::build(
+                    &self.inner.outbound,
+                    packet::UdpPacketSpec {
+                        source: self.endpoint.ip,
+                        destination: destination.ip,
+                        source_port: self.endpoint.port,
+                        destination_port: destination.port,
+                        payload,
+                    },
+                    mtu,
+                    identification,
+                )
+                .await
+                .map_err(|source| {
+                    ClientUdpSendError::before(ClientUdpStackError::PacketMemory(source))
+                })?,
+            )
+        } else {
+            None
+        };
+        #[cfg(not(feature = "packet-memory"))]
+        let owned: Option<Vec<zero_traits::PacketBuffer>> = None;
+        let fragments = match owned {
+            Some(fragments) => fragments,
+            None => {
+                // Explicit library senders have no Host memory binding. Every
+                // production Source/Device installs its actual Kernel binding.
+                let packet = packet::build_udp(
+                    self.endpoint.ip,
+                    destination.ip,
+                    self.endpoint.port,
+                    destination.port,
+                    payload,
+                );
+                packet::fragment_ip_packet_owned(packet, mtu, identification)
+                    .into_iter()
+                    .map(Into::into)
+                    .collect()
+            }
+        };
         if fragments.is_empty() {
             return Err(ClientUdpSendError::before(ClientUdpStackError::InvalidMtu));
         }
@@ -206,7 +248,7 @@ impl ClientUdpSender {
                     observe_discard(self.observer.as_ref(), self.inner.drop_observer.as_ref(), zero_traits::PacketDropReason::QueueClosed);
                     return Err(ClientUdpSendError::closed(accepted));
                 },
-                result = output.send(fragment) => result,
+                result = output.send_buffer(fragment) => result,
             };
             if result.is_err() {
                 observe_discard(

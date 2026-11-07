@@ -232,6 +232,24 @@ impl AsMut<[u8]> for Reassembled {
     }
 }
 impl PacketStorage for Reassembled {
+    fn prepare_transmit(
+        &mut self,
+        frames: usize,
+        bytes: usize,
+    ) -> Result<(), zero_traits::PacketDeriveError> {
+        self.storage.prepare_transmit(frames, bytes)
+    }
+    fn try_derive_zeroed(
+        &self,
+        lengths: &[usize],
+    ) -> Result<Vec<PacketBuffer>, zero_traits::PacketDeriveError> {
+        self.storage.try_derive_zeroed(lengths)
+    }
+    fn take_vec_allocation(&mut self) -> Option<Vec<u8>> {
+        let mut bytes = self.storage.take_vec_allocation()?;
+        bytes.truncate(self.length);
+        Some(bytes)
+    }
     fn allocation_bytes(&self) -> usize {
         self.storage.allocation_bytes()
     }

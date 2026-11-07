@@ -11,6 +11,8 @@ use tokio::sync::mpsc;
 mod construction;
 mod quiescence;
 mod sender;
+#[cfg(feature = "packet-memory")]
+mod transmit;
 use sender::SocketState;
 pub use sender::{ClientUdpCloseReceipt, ClientUdpSendError, ClientUdpSender};
 mod maintenance;
@@ -38,6 +40,7 @@ pub enum ClientUdpStackError {
     AddressFamilyMismatch,
     PayloadTooLarge,
     OutboundClosed,
+    PacketMemory(zero_traits::PacketDeriveError),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

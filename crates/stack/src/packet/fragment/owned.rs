@@ -180,6 +180,44 @@ pub async fn fragment_ip_packet_accounted(
         })
         .collect())
 }
+/// Production TX only claims storage prepaid before the FIFO. Unlike the
+/// explicit asynchronous library derivation, this can never reacquire Root
+/// capacity while the wire driver owns the queue head.
+pub fn fragment_ip_packet_prepaid(
+    packet: PacketBuffer,
+    mtu: usize,
+    identification: u32,
+) -> Result<Vec<PacketBuffer>, PacketFragmentFailure> {
+    if packet.len() <= mtu {
+        return Ok(vec![packet]);
+    }
+    let result = (|| {
+        let lengths = fragment_packet_lengths(&packet, mtu)?;
+        let mut outputs = packet.try_derive_zeroed(&lengths)?;
+        write_packet_fragments(&packet, mtu, identification, &mut outputs)?;
+        Ok(outputs)
+    })();
+    let outputs = match result {
+        Ok(outputs) => outputs,
+        Err(cause) => {
+            return Err(PacketFragmentFailure {
+                cause,
+                original: packet,
+            })
+        }
+    };
+    let original = Arc::new(packet);
+    Ok(outputs
+        .into_iter()
+        .map(|packet| {
+            PacketBuffer::from_owner(Derived {
+                packet,
+                _original: original.clone(),
+            })
+        })
+        .collect())
+}
+
 struct Derived {
     packet: PacketBuffer,
     _original: Arc<PacketBuffer>,
@@ -195,7 +233,21 @@ impl AsMut<[u8]> for Derived {
     }
 }
 impl PacketStorage for Derived {
+    fn prepare_transmit(&mut self, frames: usize, bytes: usize) -> Result<(), PacketDeriveError> {
+        self.packet.prepare_transmit(frames, bytes)
+    }
+    fn try_derive_zeroed(&self, lengths: &[usize]) -> Result<Vec<PacketBuffer>, PacketDeriveError> {
+        self.packet.try_derive_zeroed(lengths)
+    }
+    fn derive_zeroed<'a>(&'a self, lengths: &'a [usize]) -> zero_traits::PacketDerivation<'a> {
+        self.packet.derive_zeroed(lengths)
+    }
+    fn take_vec_allocation(&mut self) -> Option<Vec<u8>> {
+        self.packet.take_vec_allocation()
+    }
     fn allocation_bytes(&self) -> usize {
-        self.packet.allocation_bytes()
+        self.packet
+            .allocation_bytes()
+            .saturating_add(self._original.allocation_bytes())
     }
 }

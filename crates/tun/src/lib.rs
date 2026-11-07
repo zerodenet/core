@@ -4,29 +4,42 @@
 //! for virtual network interfaces across platforms.  Backends are selected
 //! at compile time via `#[cfg(target_os)]`.
 
+#[cfg(feature = "device")]
 use std::io;
+#[cfg(feature = "device")]
 use std::net::IpAddr;
 
+#[cfg(feature = "device")]
 use tokio::io::{AsyncRead, AsyncWrite};
 
+#[cfg(feature = "device")]
 type TunPacketSender = tokio::sync::mpsc::Sender<Vec<u8>>;
+#[cfg(feature = "device")]
 type TunPacketReceiver = tokio::sync::mpsc::Receiver<Vec<u8>>;
 
-#[cfg(any(target_os = "linux", target_os = "macos"))]
+#[cfg(all(feature = "device", any(target_os = "linux", target_os = "macos")))]
 mod adopt;
+#[cfg(feature = "device")]
 mod channels;
+#[cfg(feature = "device")]
 mod owned;
+#[cfg(feature = "device")]
 mod owned_channels;
+#[cfg(feature = "packet-memory")]
 pub mod packet_memory;
+#[cfg(feature = "device")]
 pub use owned_channels::OwnedTunChannels;
-#[cfg(any(target_os = "linux", target_os = "macos"))]
+#[cfg(all(feature = "device", any(target_os = "linux", target_os = "macos")))]
 mod owned_adopt;
-#[cfg(any(target_os = "linux", target_os = "macos"))]
+#[cfg(all(feature = "device", any(target_os = "linux", target_os = "macos")))]
 pub use adopt::adopt;
+#[cfg(feature = "device")]
 pub use owned::{OwnedTunClosed, OwnedTunDevice, OwnedTunIdentity, TunCloseReceipt};
-#[cfg(any(target_os = "linux", target_os = "macos"))]
+#[cfg(all(feature = "device", any(target_os = "linux", target_os = "macos")))]
 pub use owned_adopt::{AdoptedTunIo, AdoptedTunOwner, TunAcquisitionError, TunAcquisitionOutcome};
+#[cfg(feature = "device")]
 mod route;
+#[cfg(feature = "device")]
 pub use route::{
     capture_route_prefixes, capture_route_prefixes_with_exclusions, split_default_route_prefixes,
     strict_route_socket_mark, EgressUnavailableReason, FamilyEgressState, RouteChangeMonitor,
@@ -36,6 +49,7 @@ pub use route::{
 // ── Address helpers ───────────────────────────────────────────────────
 
 /// Convert an IP + prefix to a netmask.
+#[cfg(feature = "device")]
 pub fn prefix_to_mask(prefix: u8, v6: bool) -> IpAddr {
     if v6 {
         let mask = u128::MAX
@@ -51,6 +65,7 @@ pub fn prefix_to_mask(prefix: u8, v6: bool) -> IpAddr {
 }
 
 /// Convert a contiguous IPv4 or IPv6 netmask to its prefix length.
+#[cfg(feature = "device")]
 pub fn mask_to_prefix(mask: IpAddr) -> io::Result<u8> {
     let (normalized, prefix, width) = match mask {
         IpAddr::V4(mask) => {
@@ -83,6 +98,7 @@ pub fn mask_to_prefix(mask: IpAddr) -> io::Result<u8> {
 /// Reads produce raw IP packets (IPv4 or IPv6).  Writes send packets
 /// back into the tunnel.
 #[allow(async_fn_in_trait)]
+#[cfg(feature = "device")]
 pub trait TunDevice: AsyncRead + AsyncWrite + Send + Sync + Unpin {
     /// Bring the interface up with the given address, netmask, and MTU.
     fn configure(&self, addr: IpAddr, mask: IpAddr, mtu: u16) -> io::Result<()>;
@@ -134,23 +150,23 @@ pub trait TunDevice: AsyncRead + AsyncWrite + Send + Sync + Unpin {
 
 // ── Platform backends ─────────────────────────────────────────────────
 
-#[cfg(target_os = "linux")]
+#[cfg(all(feature = "device", target_os = "linux"))]
 mod linux;
-#[cfg(target_os = "linux")]
+#[cfg(all(feature = "device", target_os = "linux"))]
 pub use linux::LinuxTun;
 
-#[cfg(target_os = "macos")]
+#[cfg(all(feature = "device", target_os = "macos"))]
 mod macos;
-#[cfg(target_os = "macos")]
+#[cfg(all(feature = "device", target_os = "macos"))]
 mod macos_privilege;
-#[cfg(target_os = "macos")]
+#[cfg(all(feature = "device", target_os = "macos"))]
 pub use macos::Utun;
-#[cfg(target_os = "macos")]
+#[cfg(all(feature = "device", target_os = "macos"))]
 pub use macos_privilege::run_utun_create_helper;
 
-#[cfg(target_os = "windows")]
+#[cfg(all(feature = "device", target_os = "windows"))]
 mod windows;
-#[cfg(target_os = "windows")]
+#[cfg(all(feature = "device", target_os = "windows"))]
 pub use windows::{
     ExistingWindowsTun, OwnedWintunIo, OwnedWintunOwner, OwnedWintunReadControl,
     OwnedWintunReadPause, OwnedWintunReadWork, OwnedWintunRequest, WindowsTun,
@@ -160,6 +176,7 @@ pub use windows::{
 /// Create a new TUN device for the current platform.
 ///
 /// Returns `None` if the platform is not yet supported.
+#[cfg(feature = "device")]
 pub fn create(name: Option<&str>) -> io::Result<impl TunDevice> {
     #[cfg(target_os = "linux")]
     {

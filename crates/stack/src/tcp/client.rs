@@ -43,6 +43,7 @@ pub enum ClientTcpStackError {
     ConnectTimeout,
     ConnectionReset,
     DestinationUnreachable,
+    PacketMemory(zero_traits::PacketDeriveError),
 }
 
 impl std::fmt::Display for ClientTcpStackError {
@@ -50,7 +51,14 @@ impl std::fmt::Display for ClientTcpStackError {
         write!(f, "client TCP stack: {self:?}")
     }
 }
-impl std::error::Error for ClientTcpStackError {}
+impl std::error::Error for ClientTcpStackError {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        match self {
+            Self::PacketMemory(source) => Some(source),
+            _ => None,
+        }
+    }
+}
 
 pub struct ClientTcpStack {
     local_addresses: Vec<IpAddr>,
@@ -65,6 +73,11 @@ pub struct ClientTcpStack {
 }
 
 impl ClientTcpStack {
+    /// The original Source/Device driver observes this same retained cause.
+    pub fn output_failure(&self) -> Option<Arc<zero_traits::PacketDeriveError>> {
+        self.control_packets.failure()
+    }
+
     /// Actual active connection ceiling; retiring transferred users may still
     /// occupy their owning host's admission budget after this table drains.
     pub const CONNECTION_LIMIT: usize = MAX_TCP_CONNECTIONS;
@@ -115,6 +128,19 @@ impl ClientTcpStack {
         )
     }
 
+    pub fn new_output_with_task_owner(
+        local_addresses: Vec<IpAddr>,
+        outbound: crate::packet_output::PacketSender,
+        mtu: u16,
+        owner: Arc<dyn crate::TcpTaskOwner>,
+    ) -> Result<Self, ClientTcpStackError> {
+        Self::new_with_output_and_tasks(
+            local_addresses,
+            outbound,
+            mtu,
+            crate::task_owner::TcpTaskSpawner::owned(owner),
+        )
+    }
     fn new_with_output_and_tasks(
         local_addresses: Vec<IpAddr>,
         outbound: crate::packet_output::PacketSender,
@@ -204,17 +230,22 @@ impl ClientTcpStack {
         let (waiter, ready) = oneshot::channel();
         let receive_buffer = Arc::new(TcpReceiveBuffer::new(TCP_RECEIVE_BUFFER_BYTES));
         let send_control = Arc::new(TcpSendControl::new_network(iss, 0, self.mss));
-        let syn = packet::build_tcp_with_mss_and_window(
-            local_ip,
-            remote.ip(),
-            local_port,
-            remote.port(),
-            iss,
-            0,
-            tcp_flags::SYN,
-            self.mss,
-            receive_buffer.window(),
-        );
+        let syn = super::output::CachedPacket::build(
+            packet::TcpPacketSpec {
+                source: local_ip,
+                destination: remote.ip(),
+                source_port: local_port,
+                destination_port: remote.port(),
+                sequence: iss,
+                acknowledgment: 0,
+                flags: tcp_flags::SYN,
+                window: receive_buffer.window(),
+                mss: Some(self.mss),
+                payload: &[],
+            },
+            &self.outbound,
+        )
+        .map_err(ClientTcpStackError::PacketMemory)?;
         if let Some(original) = original {
             original.install(key, connection_id, send_control.clone())?;
         }
@@ -260,10 +291,13 @@ impl ClientTcpStack {
             .control_packets
             .clone()
             .with_observer(observer)
-            .try_send(syn)
+            .try_send_cached(&syn)
         {
             self.connections.lock().await.remove(&key);
-            return Err(ClientTcpStackError::OutboundClosed);
+            return Err(match self.control_packets.failure() {
+                Some(source) => ClientTcpStackError::PacketMemory(*source),
+                None => ClientTcpStackError::OutboundClosed,
+            });
         }
         let ready = async {
             match original {
@@ -388,6 +422,34 @@ impl ClientTcpStack {
         packet::fragment_ip_packet_owned(raw_packet, mtu, identification)
     }
 
+    /// Observed Host output retains its actual storage and prepaid transform
+    /// envelope through learned PMTU changes and every asynchronous send.
+    pub async fn fragment_outbound_packet_buffer(
+        &self,
+        packet: zero_traits::PacketBuffer,
+    ) -> Result<Vec<zero_traits::PacketBuffer>, packet::PacketFragmentFailure> {
+        #[cfg(feature = "packet-memory")]
+        if self.outbound.has_packet_memory() {
+            let Some(mtu) = self.outbound_packet_mtu(&packet).await else {
+                return Err(packet::PacketFragmentFailure {
+                    cause: zero_traits::PacketDeriveError::LayoutMismatch,
+                    original: packet,
+                });
+            };
+            let identification = self.next_fragment_id.fetch_add(1, Ordering::Relaxed);
+            return packet::fragment_ip_packet_prepaid(packet, mtu, identification);
+        }
+        // Explicit standalone Vec-channel constructors keep their existing
+        // library responsibility. Hosted assembly requires a memory binding
+        // before constructing this stack; Unreserved never selects this arm.
+        Ok(self
+            .fragment_outbound_packet_owned(packet.into_vec())
+            .await
+            .into_iter()
+            .map(Into::into)
+            .collect())
+    }
+
     async fn outbound_packet_mtu(&self, raw_packet: &[u8]) -> Option<usize> {
         let tcp = packet::parse_tcp(raw_packet)?;
         let key = (tcp.dst.ip, tcp.dst.port, tcp.src.ip, tcp.src.port);
@@ -405,17 +467,18 @@ impl ClientTcpStack {
         self.control_packets
             .clone()
             .with_observer(conn.observer.clone())
-            .try_send(packet::build_tcp_with_window(
-                rev.0,
-                rev.2,
-                rev.1,
-                rev.3,
-                conn.snd_nxt.load(Ordering::Acquire),
-                conn.rcv_nxt.load(Ordering::Acquire),
-                tcp_flags::ACK,
-                conn.receive_buffer.window(),
-                &[],
-            ));
+            .try_send_spec(packet::TcpPacketSpec {
+                source: rev.0,
+                destination: rev.2,
+                source_port: rev.1,
+                destination_port: rev.3,
+                sequence: conn.snd_nxt.load(Ordering::Acquire),
+                acknowledgment: conn.rcv_nxt.load(Ordering::Acquire),
+                flags: tcp_flags::ACK,
+                window: conn.receive_buffer.window(),
+                mss: None,
+                payload: &[],
+            });
     }
 
     /// Fence new client flows synchronously. This is not a worker join.

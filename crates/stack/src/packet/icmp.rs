@@ -5,7 +5,7 @@ use super::{checksum, transport_header, IPPROTO_ICMP, IPPROTO_ICMPV6, IPPROTO_TC
 mod echo;
 pub use echo::{
     build_icmp_echo_probe, build_icmp_echo_reply, build_icmp_echo_tunnel_probe,
-    build_local_icmp_echo_reply,
+    build_local_icmp_echo_reply, write_icmp_echo_probe, IcmpEchoPacketSpec,
 };
 mod error;
 mod error_spec;

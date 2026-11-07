@@ -14,6 +14,19 @@ impl AsMut<[u8]> for EnginePacket {
     }
 }
 impl PacketStorage for EnginePacket {
+    fn prepare_transmit(
+        &mut self,
+        frames: usize,
+        bytes: usize,
+    ) -> Result<(), zero_traits::PacketDeriveError> {
+        self.0.prepare_owned_transmit(frames, bytes)
+    }
+    fn try_derive_zeroed(
+        &self,
+        lengths: &[usize],
+    ) -> Result<Vec<PacketBuffer>, zero_traits::PacketDeriveError> {
+        self.0.try_derive_owned_buffers(lengths)
+    }
     fn allocation_bytes(&self) -> usize {
         self.0.retained_allocation_bytes()
     }
