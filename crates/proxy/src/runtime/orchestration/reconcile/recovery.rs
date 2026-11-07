@@ -98,10 +98,15 @@ impl OrchestrationState {
             let previous_config = self.applied_snapshot.config().clone();
             let mut dns_recovery = None;
             #[cfg(feature = "raw-ip-runtime")]
+            let mut _tun_recovery_resources = None;
+            #[cfg(feature = "raw-ip-runtime")]
             if can_restore && tun_recovery {
                 let snapshot = self.applied_snapshot.clone();
                 match self.restore_tun_resources(proxy, &snapshot).await {
-                    Ok(token) => dns_recovery = Some(token),
+                    Ok(resources) => {
+                        dns_recovery = Some(resources.dns.clone());
+                        _tun_recovery_resources = Some(resources);
+                    }
                     Err(error) => {
                         can_restore = false;
                         acknowledgement.push_str(&format!(

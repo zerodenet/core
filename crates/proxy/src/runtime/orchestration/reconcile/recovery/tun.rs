@@ -2,12 +2,19 @@
 use super::*;
 use std::{collections::BTreeSet, sync::Arc};
 
+pub(super) struct TunRecoveryResources {
+    pub(super) dns: zero_dns::DnsReloadResources,
+    _pause: Arc<crate::component::catalog::ReplacementUsersPause>,
+    _sources: budget_barrier::SourceBudgetPauses,
+    _first_cold: Arc<crate::component::catalog::ComponentPlan>,
+}
+
 impl OrchestrationState {
     pub(super) fn restore_tun_resources<'a>(
         &'a mut self,
         proxy: &'a Proxy,
         snapshot: &'a Arc<zero_engine::EngineRuntimeSnapshot>,
-    ) -> zero_platform_tokio::contract::BoxFuture<'a, Result<zero_dns::DnsReloadResources, String>> {
+    ) -> zero_platform_tokio::contract::BoxFuture<'a, Result<TunRecoveryResources, String>> {
         Box::pin(async move {
             let config = snapshot.config().clone();
             proxy.validate_tun_packet_budget(&config).map_err(|error| error.to_string())?;
@@ -18,7 +25,7 @@ impl OrchestrationState {
                 .map_err(|error| error.to_string())?);
             let changed: BTreeSet<_> = config.inbounds.iter().map(|input| input.tag.clone()).collect();
             let mut retirement = None;
-            let _sources = budget_barrier::pause_sources(proxy, &config, &config, &changed,
+            let sources = budget_barrier::pause_sources(proxy, &config, &config, &changed,
                 &components, pause.clone(), &mut retirement, true).await.map_err(|error| error.to_string())?;
             let services = proxy.tcp_runtime_services_for_snapshot(snapshot.clone());
             let runtime = InboundListenerRuntimeFactory::new(
@@ -75,7 +82,7 @@ impl OrchestrationState {
             self.urltest_runtime = UrlTestRuntime::new(services.with_prepared_components()
                 .map_err(|error| error.to_string())?);
             self.device_generation = proxy.egress_interface.generation();
-            Ok(dns)
+            Ok(TunRecoveryResources { dns, _pause: pause, _sources: sources, _first_cold: components })
         })
     }
 }
