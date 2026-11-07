@@ -277,6 +277,17 @@ pub(super) fn start_resources<'a>(
                 #[cfg(test)]
                 eprintln!("actual catalog StopOld original failure: {source:?}");
             })?;
+        start_deferred_resources(proxy, config, services, preparing, retained).await
+    })
+}
+fn start_deferred_resources<'a>(
+    proxy: &'a Proxy,
+    config: &'a Arc<RuntimeConfig>,
+    services: &'a crate::protocol_registry::TcpRuntimeServices,
+    preparing: &'a Arc<crate::runtime::inbound_owners::PreparingInbounds>,
+    retained: &'a HashMap<String, InboundConfig>,
+) -> BoxFuture<'a, Result<(), EngineError>> {
+    Box::pin(async move {
         #[cfg(feature = "raw-ip-runtime")]
         {
             proxy
@@ -317,15 +328,38 @@ pub(super) fn start_resources<'a>(
     })
 }
 
+#[cfg(feature = "raw-ip-runtime")]
+pub(super) fn restart_tun_and_resources<'a>(
+    proxy: &'a Proxy,
+    config: &'a Arc<RuntimeConfig>,
+    services: &'a crate::protocol_registry::TcpRuntimeServices,
+    preparing: &'a Arc<crate::runtime::inbound_owners::PreparingInbounds>,
+    retained: &'a HashMap<String, InboundConfig>,
+) -> BoxFuture<'a, Result<crate::protocol_registry::TcpRuntimeServices, EngineError>> {
+    Box::pin(async move {
+        proxy.stop_tun_for_packet_budget(config).await?;
+        let deadline = tokio::time::Instant::now() + std::time::Duration::from_secs(5);
+        let mut prepared = proxy.protocols.prepare_resource_start(config.clone(), deadline).await?;
+        preparing.ensure_open()?;
+        // Only this point has actual old Source and component original receipts
+        // and the target policy on the same roots, with BuildNew still sealed.
+        proxy.reconcile_configured_tun_for_config(config.clone()).await?;
+        proxy.protocols.refresh_prepared_device_components(&mut prepared, deadline).await?;
+        let services = services.with_prepared_components()?;
+        preparing.ensure_open()?;
+        prepared.start(deadline).await.map_err(std::io::Error::other)?;
+        start_deferred_resources(proxy, config, &services, preparing, retained).await?;
+        Ok(services)
+    })
+}
+
 pub(super) fn prepare_devices<'a>(
     proxy: &'a Proxy,
     config: &'a Arc<RuntimeConfig>,
     services: &'a crate::protocol_registry::TcpRuntimeServices,
 ) -> BoxFuture<'a, Result<ReloadDevices, EngineError>> {
     Box::pin(async move {
-        proxy
-            .reconcile_configured_tun(config.runtime.tun.as_ref(), config.runtime.network.mtu)
-            .await?;
+        proxy.reconcile_configured_tun_for_config(config.clone()).await?;
         #[cfg(feature = "raw-ip-runtime")]
         {
             proxy

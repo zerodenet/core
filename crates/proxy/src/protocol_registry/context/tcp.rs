@@ -112,6 +112,18 @@ impl TcpRuntimeServices {
         services
     }
 
+    /// Refresh only the exact already owned candidate after Source StopOld.
+    /// Preserve the target publication gate, ingress and caller bookkeeping.
+    pub(crate) fn with_prepared_components(&self) -> Result<Self, zero_engine::EngineError> {
+        let config = self.execution.snapshot.config();
+        let plan = self.protocols.prepared_components(config)
+            .ok_or_else(|| std::io::Error::other("actual candidate components were not retained"))?
+            .map_err(|source| std::io::Error::other(source))?;
+        let mut services = self.clone();
+        services.execution.components = Ok(plan);
+        Ok(services)
+    }
+
     pub(crate) fn with_service_invocation(
         mut self,
         invocation: crate::component::direct_bridge::ServiceInvocation,

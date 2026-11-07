@@ -203,6 +203,12 @@ impl super::ProtocolInventory {
     ) -> Result<Arc<ComponentPlan>, SharedError> {
         self.host.components().prepare(config)
     }
+    pub(crate) fn prepared_components(
+        &self,
+        config: &Arc<RuntimeConfig>,
+    ) -> Option<Result<Arc<ComponentPlan>, SharedError>> {
+        self.host.components().prepared_candidate(config)
+    }
     /// Accepted transactions alone extend the cold union with device recipes.
     /// Ordinary TcpRuntimeServices readers continue to reuse prepare_components.
     pub(crate) fn prepare_device_components(
@@ -240,6 +246,52 @@ impl super::ProtocolInventory {
         {
             self.prepare_components(config)
         }
+    }
+    #[cfg(feature = "raw-ip-runtime")]
+    pub(crate) fn prepare_restarting_device_components(
+        &self,
+        config: Arc<RuntimeConfig>,
+        recovering: bool,
+    ) -> Result<Arc<ComponentPlan>, SharedError> {
+        self.host.components().prepare_restarting_device_resources(
+            config.clone(), recovering, |resources| {
+                let deferred = self.devices.prepare_component_resources(&config, resources)?;
+                let sources = self.devices.source_component_dependencies(&config, resources)?;
+                resources.set_source_dependencies(sources)?;
+                if recovering {
+                    let aliases = self.devices.device_alias_overrides(&config, resources)?;
+                    resources.set_device_alias_overrides(aliases)?;
+                }
+                Ok(deferred)
+            },
+        )
+    }
+    #[cfg(feature = "raw-ip-runtime")]
+    pub(crate) async fn prepare_resource_start<'a>(
+        &'a self,
+        config: Arc<RuntimeConfig>,
+        deadline: tokio::time::Instant,
+    ) -> Result<zero_runtime::component::catalog::PreparedComponentStart<'a>, zero_engine::EngineError> {
+        self.finish_previous_device_publication(deadline).await?;
+        self.host.components().prepare_resource_start(config, deadline).await
+            .map_err(|source| std::io::Error::other(source).into())
+    }
+    #[cfg(feature = "raw-ip-runtime")]
+    pub(crate) async fn refresh_prepared_device_components(
+        &self,
+        prepared: &mut zero_runtime::component::catalog::PreparedComponentStart<'_>,
+        deadline: tokio::time::Instant,
+    ) -> Result<Arc<ComponentPlan>, zero_engine::EngineError> {
+        let config = prepared.config().clone();
+        // These are the first pass's actual never-built pending recipes, not
+        // the committed device publication. Release only their real wrappers.
+        self.devices.release_component_resources(&config)?;
+        prepared.refresh_device_resources(deadline, |resources| {
+            let deferred = self.devices.prepare_component_resources(&config, resources)?;
+            let sources = self.devices.source_component_dependencies(&config, resources)?;
+            resources.set_source_dependencies(sources)?;
+            Ok(deferred)
+        }).await.map_err(|source| std::io::Error::other(source).into())
     }
     pub(crate) fn prepare_recovered_device_components(
         &self,

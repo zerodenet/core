@@ -9,6 +9,21 @@ pub(super) struct PendingDnsReload {
     resources: zero_dns::DnsReloadResources,
 }
 impl OrchestrationState {
+    /// The same token already retired every affected donor for a complete
+    /// network restart. Refresh its exact component association only; backend
+    /// objects, Query Scopes and the original donor-pause custody stay intact.
+    pub(super) fn refresh_dns_component_candidate(
+        &mut self,
+        snapshot: &Arc<EngineRuntimeSnapshot>,
+        first: &Arc<ComponentPlan>,
+        actual: Arc<ComponentPlan>,
+    ) -> io::Result<()> {
+        let pending = self.pending_dns_reload.as_mut().filter(|pending| {
+            Arc::ptr_eq(snapshot, &pending.snapshot) && Arc::ptr_eq(first, &pending.components)
+        }).ok_or_else(|| io::Error::other("Source network restart lost its actual DNS token"))?;
+        pending.components = actual;
+        Ok(())
+    }
     pub(super) fn prepare_dns_for_reload(
         &mut self,
         proxy: &Proxy,

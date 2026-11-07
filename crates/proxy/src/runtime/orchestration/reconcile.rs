@@ -38,6 +38,28 @@ impl OrchestrationState {
                 self.applied_snapshot.config(),
                 new_snapshot.config(),
             );
+        #[cfg(feature = "raw-ip-runtime")]
+        let tun_restart = {
+            let old = self.applied_snapshot.config();
+            let next = new_snapshot.config();
+            let requested = proxy.has_tun_packet_budget_recovery()
+                || budget_barrier::packet_budget_changed(old, next)
+                || budget_barrier::carrier_budget_changed(old, next)
+                || old.runtime.system_tun_task_limit != next.runtime.system_tun_task_limit
+                || old.runtime.tun != next.runtime.tun
+                || old.runtime.network.mtu != next.runtime.network.mtu;
+            if requested {
+                match proxy.validate_tun_packet_budget(next) {
+                    Ok(present) => present || next.runtime.tun.is_some(),
+                    Err(error) => {
+                        self.reject_before_start(proxy, &new_snapshot, error.to_string(), true).await;
+                        return;
+                    }
+                }
+            } else { false }
+        };
+        #[cfg(not(feature = "raw-ip-runtime"))]
+        let tun_restart = false;
         // Only an accepted transaction's exact restore acknowledgement may
         // reconstruct its last-good listeners after shutdown. It is not a new
         // candidate and must not inherit the stopped candidate phase. Ordinary
@@ -103,7 +125,14 @@ impl OrchestrationState {
         }
         self.publish_reload_transitions(proxy, &new_snapshot);
         let new_config = new_snapshot.config().clone();
-        let prepared = if compensating {
+        #[cfg(feature = "raw-ip-runtime")]
+        let restarted = tun_restart.then(|| proxy.protocols
+            .prepare_restarting_device_components(new_config.clone(), compensating));
+        #[cfg(not(feature = "raw-ip-runtime"))]
+        let restarted: Option<Result<std::sync::Arc<crate::component::catalog::ComponentPlan>, crate::component::instance::SharedError>> = None;
+        let prepared = if let Some(restarted) = restarted {
+            restarted
+        } else if compensating {
             proxy
                 .protocols
                 .prepare_recovered_device_components(new_config.clone())
@@ -120,7 +149,7 @@ impl OrchestrationState {
                 return;
             }
         };
-        let source_dependency_changes = match proxy
+        let mut source_dependency_changes = match proxy
             .inbound_owners
             .changed_source_dependency_tags(&new_config, &components)
         {
@@ -131,7 +160,11 @@ impl OrchestrationState {
                 return;
             }
         };
-        let source_barrier = budget_changed || !source_dependency_changes.is_empty();
+        if tun_restart {
+            source_dependency_changes.extend(self.applied_snapshot.config().inbounds.iter()
+                .map(|input| input.tag.clone()));
+        }
+        let source_barrier = budget_changed || tun_restart || !source_dependency_changes.is_empty();
         let affected = proxy.protocols.affected_dns_detours(
             &proxy.engine,
             &self.applied_snapshot,
@@ -222,12 +255,14 @@ impl OrchestrationState {
             SharedIngressRuntimeServices::new(candidate_tcp_services.clone()),
             proxy.inbound_owners.clone(),
         );
+        let candidate_runtime_factory = if tun_restart {
+            candidate_runtime_factory.for_source_network_restart()
+        } else { candidate_runtime_factory };
         let candidate_runtime_factory = if compensating {
             candidate_runtime_factory.for_recovery()
         } else {
             candidate_runtime_factory.with_preparing(preparing.clone())
         };
-        let candidate_urltest_runtime = UrlTestRuntime::new(candidate_tcp_services.clone());
         #[cfg(feature = "managed-stream-runtime")]
         let prepared_services = match proxy.protocols.prepare_inbound_services(&new_config) {
             Ok(prepared) => prepared,
@@ -342,14 +377,24 @@ impl OrchestrationState {
                         }
                     }
                     drop(source_retirement);
-                    budget_barrier::start_resources(
+                    #[cfg(feature = "raw-ip-runtime")]
+                    let refreshed = if tun_restart {
+                        Some(budget_barrier::restart_tun_and_resources(
+                            proxy, start_config, start_services, start_preparing, start_retained,
+                        ).await?)
+                    } else { None };
+                    #[cfg(feature = "raw-ip-runtime")]
+                    let start_services = refreshed.as_ref().unwrap_or(start_services);
+                    if !tun_restart {
+                        budget_barrier::start_resources(
                         proxy,
                         start_config,
                         start_services,
                         start_preparing,
                         start_retained,
                     )
-                    .await?;
+                        .await?;
+                    }
                     *output_resources = Some(
                         budget_barrier::prepare_devices(proxy, start_config, start_services)
                             .await?,
@@ -372,6 +417,38 @@ impl OrchestrationState {
             drop(prepared_resources.take());
             self.reject_reload(proxy, &new_snapshot, message).await;
             return;
+        }
+        let candidate_tcp_services = if tun_restart {
+            match candidate_tcp_services.with_prepared_components() {
+                Ok(services) => services,
+                Err(error) => {
+                    self.reject_reload(proxy, &new_snapshot, error.to_string()).await;
+                    return;
+                }
+            }
+        } else { candidate_tcp_services };
+        let candidate_runtime_factory = if tun_restart {
+            match candidate_runtime_factory.with_prepared_components() {
+                Ok(factory) => factory,
+                Err(error) => {
+                    self.reject_reload(proxy, &new_snapshot, error.to_string()).await;
+                    return;
+                }
+            }
+        } else { candidate_runtime_factory };
+        let candidate_urltest_runtime = UrlTestRuntime::new(candidate_tcp_services.clone());
+        if tun_restart {
+            let actual = match &candidate_tcp_services.components {
+                Ok(actual) => actual.clone(),
+                Err(error) => {
+                    self.reject_reload(proxy, &new_snapshot, error.to_string()).await;
+                    return;
+                }
+            };
+            if let Err(error) = self.refresh_dns_component_candidate(&new_snapshot, &components, actual) {
+                self.reject_reload(proxy, &new_snapshot, error.to_string()).await;
+                return;
+            }
         }
         if let Err(error) = preparing.ensure_open() {
             #[cfg(feature = "raw-ip-runtime")]
@@ -437,6 +514,10 @@ impl OrchestrationState {
             if let Err(error) = proxy.protocols.finish_device_publication(&new_config).await {
                 self.finish_rejection(proxy, &new_snapshot, error.to_string(), true)
                     .await;
+                return;
+            }
+            if let Err(error) = proxy.confirm_tun_packet_budget(&new_config) {
+                self.finish_rejection(proxy, &new_snapshot, error.to_string(), true).await;
                 return;
             }
         }

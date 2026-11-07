@@ -105,6 +105,18 @@ impl OrchestrationState {
         self.preparing_inbounds.ensure_open()?;
         // Reuse the existing orchestration grace period. The migrated Direct
         // component starts no I/O or tasks; this is not a new admission budget.
+        #[cfg(feature = "raw-ip-runtime")]
+        if config.runtime.tun.is_some() {
+            let deadline = tokio::time::Instant::now() + std::time::Duration::from_secs(5);
+            let mut prepared = proxy.protocols.prepare_resource_start(config.clone(), deadline).await?;
+            proxy.reconcile_configured_tun_for_config(config.clone()).await?;
+            proxy.protocols.refresh_prepared_device_components(&mut prepared, deadline).await?;
+            prepared.start(deadline).await.map_err(std::io::Error::other)?;
+        } else {
+            proxy.protocols.start_components(config.clone(),
+                tokio::time::Instant::now() + std::time::Duration::from_secs(5)).await?;
+        }
+        #[cfg(not(feature = "raw-ip-runtime"))]
         proxy
             .protocols
             .start_components(
@@ -139,9 +151,7 @@ impl OrchestrationState {
         .with_preparing(self.preparing_inbounds.clone());
         #[cfg(feature = "managed-stream-runtime")]
         let prepared_services = proxy.protocols.prepare_inbound_services(&config)?;
-        proxy
-            .reconcile_configured_tun(config.runtime.tun.as_ref(), config.runtime.network.mtu)
-            .await?;
+        proxy.reconcile_configured_tun_for_config(config.clone()).await?;
         #[cfg(feature = "raw-ip-runtime")]
         let prepared_generation = proxy.egress_interface.generation();
         #[cfg(feature = "raw-ip-runtime")]
