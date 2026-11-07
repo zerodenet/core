@@ -133,3 +133,6 @@ impl Command {
         Ok(())
     }
 }
+
+#[cfg(test)]
+mod tests;
