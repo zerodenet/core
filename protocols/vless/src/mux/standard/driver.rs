@@ -80,7 +80,12 @@ where
         }
         let output = server.writer.clone();
         for (sid, state) in &mut server.streams.streams {
-            if state.upload.is_closed() && !state.ending {
+            if state
+                .upload
+                .as_ref()
+                .is_some_and(|upload| upload.is_closed())
+                && !state.ending
+            {
                 // Retain metadata until END reaches the same FIFO behind all
                 // previously accepted data. Removing it here would discard END.
                 state.ending = output.end_inbound_stream(*sid).is_ok();

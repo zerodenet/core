@@ -480,7 +480,7 @@ struct VlessInboundMuxStreamState {
     network: MuxNetwork,
     target: Address,
     port: u16,
-    upload: mpsc::UnboundedSender<Vec<u8>>,
+    upload: Option<mpsc::UnboundedSender<Vec<u8>>>,
     termination_probe: zero_core::InboundMuxUdpTerminationProbe,
 }
 
@@ -687,7 +687,7 @@ impl VlessInboundMuxStreams {
                 network,
                 target: session.target.clone(),
                 port: session.port,
-                upload: tx,
+                upload: Some(tx),
                 termination_probe: termination_probe.clone(),
             },
         );
@@ -716,7 +716,23 @@ impl VlessInboundMuxStreams {
                 crate::udp::encode_udp_flow_packet(&stream.target, stream.port, &payload)?
             }
         };
-        Ok(stream.upload.send(payload).is_ok())
+        Ok(stream
+            .upload
+            .as_ref()
+            .is_some_and(|upload| upload.send(payload).is_ok()))
+    }
+
+    fn end_inbound_upload(&mut self, session_id: u16) -> bool {
+        let Some(stream) = self.streams.get_mut(&session_id) else {
+            return false;
+        };
+        if stream.network == MuxNetwork::Tcp {
+            // Keep this same SID and downlink until its actual response END.
+            // Sender closure drains accepted DATA then exposes upload EOF.
+            stream.upload.take().is_some()
+        } else {
+            self.close_inbound_stream(session_id, true)
+        }
     }
 
     fn close_inbound_stream(&mut self, session_id: u16, explicit_end: bool) -> bool {
@@ -776,12 +792,13 @@ impl VlessInboundMuxStreams {
                 payload,
             } => {
                 if !self.push_stream_data(session_id, target, payload)? {
+                    self.close_inbound_stream(session_id, true);
                     mux.end_inbound_stream(stream, session_id).await?;
                 }
                 Ok(None)
             }
             VlessInboundMuxAction::End { session_id } => {
-                self.close_inbound_stream(session_id, true);
+                self.end_inbound_upload(session_id);
                 Ok(None)
             }
             VlessInboundMuxAction::Unknown { session_id } => {
