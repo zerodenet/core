@@ -149,6 +149,11 @@ impl ComponentCatalog {
         config: &Arc<RuntimeConfig>,
     ) -> Option<Result<Arc<ComponentPlan>, SharedError>> {
         let state = self.state.lock().expect("component catalog poisoned");
+        if let Some(candidate) = state.cold.as_ref().filter(|entry| entry.matches(config)) {
+            if candidate.plan.as_ref().map_or(true, |plan| plan.device_pass) {
+                return Some(candidate.plan.clone());
+            }
+        }
         state
             .current
             .iter()

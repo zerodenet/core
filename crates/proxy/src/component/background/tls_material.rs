@@ -1,6 +1,6 @@
 //! Retained TLS pools only borrow the actual current runtime ECH resolver.
-use super::*;
-use std::io;
+use super::BackgroundNetwork;
+use std::{io, sync::Arc};
 use zero_transport::tls::ech::{EchConfigResolveFuture, EchConfigResolver};
 pub(super) struct CurrentEch {
     pub(super) network: Arc<BackgroundNetwork>,
@@ -44,4 +44,12 @@ impl EchConfigResolver for CurrentEch {
             Ok(material)
         })
     }
+}
+
+/// Borrow the existing current resolver/cache for this same actual owner.
+pub(crate) fn resolver(
+    network: Arc<BackgroundNetwork>,
+    instance: zero_core::component::ComponentInstanceId,
+) -> Arc<dyn EchConfigResolver> {
+    Arc::new(CurrentEch { network, instance })
 }

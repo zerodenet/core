@@ -45,20 +45,11 @@ impl ComponentFactory for Factory {
         NativePoolFactory.build_with_ech_resolver(
             options.pool.clone(),
             context,
-            Arc::new(ech::CurrentEch {
-                network: self.network.clone(),
-                instance,
-            }),
+            tls_resolver(self.network.clone(), instance),
         )
     }
 }
 
-mod ech;
-
-/// Borrow the existing current resolver/cache for this same actual owner.
-pub(crate) fn tls_resolver(
-    network: Arc<BackgroundNetwork>,
-    instance: zero_core::component::ComponentInstanceId,
-) -> Arc<dyn zero_transport::tls::ech::EchConfigResolver> {
-    Arc::new(ech::CurrentEch { network, instance })
-}
+// The same canonical current resolver is shared with the VMess owner;
+// enabling VMess alone does not enable the VLESS protocol or a second cache.
+pub(crate) use super::tls_material::resolver as tls_resolver;

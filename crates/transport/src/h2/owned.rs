@@ -68,7 +68,6 @@ where
             pending: Bytes::new(),
             write_buffer: bytes::BytesMut::new(),
             requested_remaining: 0,
-            capacity_exhausted: false,
             ended: false,
             flush,
             target: 0,
@@ -108,8 +107,6 @@ struct State {
     write_buffer: bytes::BytesMut,
     // Remaining request intent only; actual capacity still gates every byte.
     requested_remaining: usize,
-    // Negative observation only: never reuse a cached positive H2 grant.
-    capacity_exhausted: bool,
     ended: bool,
     flush: Arc<Flushed>,
     target: u64,
@@ -242,75 +239,21 @@ impl AsyncWrite for OwnedH2Client {
             this.send.reserve_capacity(count);
             this.requested_remaining = count;
         }
-        // A newly delivered grant is the common path for a narrow real peer
-        // window. Consume that notification directly, avoiding an extra
-        // stream-store lock before every one-byte DATA frame. Pending still
-        // needs the actual remaining-credit check: notifications report changes
-        // and a previous successful write may have left credit available.
-        let available = loop {
-            match this.send.poll_capacity(cx) {
-                Poll::Ready(Some(result)) => {
-                    let available = result.map_err(io::Error::other)?;
-                    if available != 0 {
-                        break available;
-                    }
-                    this.capacity_exhausted = true;
-                }
-                Poll::Pending => {
-                    // poll_capacity already registered this original stream's
-                    // next credit/reset wake. If the previous real grant was
-                    // consumed completely, Pending means it has not increased:
-                    // do not lock the same h2 store again to rediscover zero.
-                    if this.capacity_exhausted {
-                        return Poll::Pending;
-                    }
-                    // A preceding write can leave assigned capacity without a
-                    // new increase notification. Read that actual capacity;
-                    // never treat a cached positive value as permission to IO.
-                    let available = this.send.capacity();
-                    if available != 0 {
-                        break available;
-                    }
-                    this.capacity_exhausted = true;
-                    // The preceding poll installed the real next-credit/reset
-                    // waker; no uncredited application byte is accepted.
-                    return Poll::Pending;
-                }
-                Poll::Ready(None) => {
-                    this.poll_reset(cx)?;
-                    return Poll::Ready(Err(io::ErrorKind::BrokenPipe.into()));
-                }
+        let n = match std::task::ready!(this.send.poll_send_data(
+            cx,
+            bytes,
+            &mut this.write_buffer,
+            count.min(this.requested_remaining),
+        )) {
+            Some(Ok(n)) => n,
+            Some(Err(source)) => {
+                return Poll::Ready(Err(match source.reason() {
+                    Some(reason) => io::Error::new(io::ErrorKind::ConnectionReset, Reset(reason)),
+                    None => io::Error::other(source),
+                }));
             }
+            None => return Poll::Ready(Err(io::ErrorKind::BrokenPipe.into())),
         };
-        let n = count.min(available).min(this.requested_remaining);
-        let frame = if n == 1 {
-            // A narrow peer window can fragment DATA into individual bytes.
-            // Those immutable values need neither a heap allocation nor a
-            // shared allocation header. Actual H2 credit still gates n above.
-            static VALUES: [u8; 256] = {
-                let mut values = [0; 256];
-                let mut index = 0;
-                while index < 256 {
-                    values[index] = index as u8;
-                    index += 1;
-                }
-                values
-            };
-            let value = usize::from(bytes[0]);
-            Bytes::from_static(&VALUES[value..value + 1])
-        } else {
-            this.write_buffer.reserve(n);
-            this.write_buffer.extend_from_slice(&bytes[..n]);
-            this.write_buffer.split().freeze()
-        };
-        if let Err(source) = this.send.send_data(frame, false) {
-            // Sending already checks the same stream state. Preserve the
-            // typed reset when present, without registering a redundant reset
-            // waiter for each successful credited DATA frame.
-            this.poll_reset(cx)?;
-            return Poll::Ready(Err(io::Error::other(source)));
-        }
-        this.capacity_exhausted = n == available;
         this.requested_remaining -= n;
         this.queued();
         Poll::Ready(Ok(n))

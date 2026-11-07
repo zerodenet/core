@@ -16,7 +16,19 @@ fn actual_owner_budgets_are_optional_finite_and_preserve_omitted_export_shape() 
         usize,
         usize,
     );
-    let fields: [BudgetField; 38] = [
+    let fields: [BudgetField; 40] = [
+        (
+            "event_log_stats_max_bytes",
+            RuntimeOptionsConfig::effective_event_log_stats_max_bytes,
+            8 * 1024 * 1024,
+            256 * 1024 * 1024,
+        ),
+        (
+            "event_subscriber_stats_max_bytes",
+            RuntimeOptionsConfig::effective_event_subscriber_stats_max_bytes,
+            1024 * 1024,
+            256 * 1024 * 1024,
+        ),
         (
             "event_network_max_tasks",
             RuntimeOptionsConfig::effective_event_network_max_tasks,

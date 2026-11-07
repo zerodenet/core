@@ -114,3 +114,5 @@ fn history_eviction_preserves_a_queued_event_and_allows_move_on_delivery() {
     assert_eq!(owned.payload["value"].as_str().unwrap().as_ptr(), original);
     assert_eq!(subscriber.budget.load(Ordering::Relaxed), 0);
 }
+
+mod limits;

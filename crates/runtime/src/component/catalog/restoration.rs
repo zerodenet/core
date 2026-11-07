@@ -70,6 +70,7 @@ impl ComponentCatalog {
         config: &RuntimeConfig,
         original: &Arc<ComponentPlan>,
         issued: &BTreeMap<ComponentId, ResourceGeneration>,
+        restarting: bool,
         prepare: impl FnOnce(
             &mut crate::component::ResourcePreparation<'_>,
         ) -> Result<std::collections::BTreeSet<ComponentId>, ChannelError>,
@@ -87,12 +88,16 @@ impl ComponentCatalog {
             &original.shared_identities,
         )
         .with_candidate(config)
+        .with_restart_resources(restarting)
         .with_previous_named(Some(&original.outbounds))
         .enable_device_alias_rebinding()
         .with_previous_slots(&original.order, self.admission.loan_snapshot().1);
         resources.reserve_primary_components(
             Some(original.builtin.id),
-            original.outbounds.iter().map(|(tag, slot)| (tag.clone(), Some(slot.id))),
+            original
+                .outbounds
+                .iter()
+                .map(|(tag, slot)| (tag.clone(), Some(slot.id))),
         )?;
         resources.inherit_canonical_resources(&original.order, &original.deferred_devices)?;
         let inherited: std::collections::BTreeSet<_> = resources
@@ -145,6 +150,11 @@ impl ComponentCatalog {
                 "resource_start",
             )));
         }
+        let nodes = if restarting {
+            super::cold::freshened_slots(nodes, &original.order)?
+        } else {
+            nodes
+        };
         let (borrowing_revision, loans) = self.admission.loan_snapshot();
         let order =
             super::super::generations::order_with_loans(nodes, &original.order, issued, &loans)?;

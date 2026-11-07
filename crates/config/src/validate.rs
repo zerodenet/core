@@ -613,6 +613,22 @@ fn validate_runtime(
             )));
         }
     }
+    for (name, limit) in [
+        (
+            "event_log_stats_max_bytes",
+            runtime.effective_event_log_stats_max_bytes(),
+        ),
+        (
+            "event_subscriber_stats_max_bytes",
+            runtime.effective_event_subscriber_stats_max_bytes(),
+        ),
+    ] {
+        if !(1..=256 * 1024 * 1024).contains(&limit) {
+            return Err(ConfigError::InvalidRuntime(format!(
+                "runtime.{name} must be between 1 and 268435456"
+            )));
+        }
+    }
     if runtime.event_log_capacity == 0 {
         return Err(ConfigError::InvalidRuntime(
             "`runtime.event_log_capacity` must be greater than 0".to_owned(),

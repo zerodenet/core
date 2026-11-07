@@ -119,6 +119,10 @@ impl Engine {
             routing,
             source: _,
         } = prepared;
+        self.event_log.validate_statistics_limits(
+            config.runtime.effective_event_log_stats_max_bytes(),
+            config.runtime.effective_event_subscriber_stats_max_bytes(),
+        )?;
         let current = self.runtime_snapshot();
         if current.config.runtime.principal_quota_state_path
             != config.runtime.principal_quota_state_path
@@ -179,6 +183,19 @@ impl Engine {
                     .to_owned(),
             });
         }
+        // Recheck under the actual byte books before mutating any selector,
+        // mode, policy, capacity, configuration or publication state. Event
+        // producers may have charged new bytes since the pure preparation.
+        self.event_log.configure_statistics_limits(
+            snapshot
+                .config
+                .runtime
+                .effective_event_log_stats_max_bytes(),
+            snapshot
+                .config
+                .runtime
+                .effective_event_subscriber_stats_max_bytes(),
+        )?;
         let waiters = if reconcile_live_choices
             && !Arc::ptr_eq(
                 &snapshot.outbound_group_state,

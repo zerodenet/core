@@ -16,6 +16,7 @@ impl OrchestrationState {
     pub(super) async fn new(proxy: &Proxy) -> Result<Self, EngineError> {
         let mut state = Self::assemble(proxy)?;
         if let Err(error) = state.start(proxy).await {
+            eprintln!("actual orchestration startup failure before original cleanup: {error:?}");
             return Err(state.finish(proxy, Err(error)).await.unwrap_err());
         }
         Ok(state)

@@ -13,7 +13,9 @@ impl ComponentCatalog {
         previous: Option<(&Arc<RuntimeConfig>, &Arc<ComponentPlan>)>,
         issued: &BTreeMap<ComponentId, ResourceGeneration>,
     ) -> Result<ComponentPlan, ChannelError> {
-        self.prepare_plan_inner(config, previous, issued, false, |_| Ok(Default::default()))
+        self.prepare_plan_inner(config, previous, issued, false, false, |_| {
+            Ok(Default::default())
+        })
     }
     pub(super) fn prepare_plan_with_devices(
         &self,
@@ -24,7 +26,18 @@ impl ComponentCatalog {
             &mut ResourcePreparation<'_>,
         ) -> Result<std::collections::BTreeSet<ComponentId>, ChannelError>,
     ) -> Result<ComponentPlan, ChannelError> {
-        self.prepare_plan_inner(config, previous, issued, true, prepare)
+        self.prepare_plan_inner(config, previous, issued, true, false, prepare)
+    }
+    pub(super) fn prepare_restart_plan_with_devices(
+        &self,
+        config: &RuntimeConfig,
+        previous: Option<(&Arc<RuntimeConfig>, &Arc<ComponentPlan>)>,
+        issued: &BTreeMap<ComponentId, ResourceGeneration>,
+        prepare: impl FnOnce(
+            &mut ResourcePreparation<'_>,
+        ) -> Result<std::collections::BTreeSet<ComponentId>, ChannelError>,
+    ) -> Result<ComponentPlan, ChannelError> {
+        self.prepare_plan_inner(config, previous, issued, true, true, prepare)
     }
     fn prepare_plan_inner(
         &self,
@@ -32,6 +45,7 @@ impl ComponentCatalog {
         previous: Option<(&Arc<RuntimeConfig>, &Arc<ComponentPlan>)>,
         issued: &BTreeMap<ComponentId, ResourceGeneration>,
         device_pass: bool,
+        restarting: bool,
         prepare: impl FnOnce(
             &mut ResourcePreparation<'_>,
         ) -> Result<std::collections::BTreeSet<ComponentId>, ChannelError>,
@@ -39,7 +53,8 @@ impl ComponentCatalog {
         if let Some(probes) = self.probes.get().and_then(std::sync::Weak::upgrade) {
             probes.validate_limit(config.runtime.effective_diagnostic_max_operations())?;
         }
-        let plan = self.compile_with_floor(config, previous, issued, device_pass, prepare)?;
+        let plan =
+            self.compile_with_policy(config, previous, issued, device_pass, restarting, prepare)?;
         // Keep this before returning a plan or binding any admission. A cold
         // shared graph is not stop-old confirmation, a native grant or Ready.
         for slot in &plan.order {
@@ -59,10 +74,19 @@ impl ComponentCatalog {
         > = BTreeMap::new();
         for slot in &plan.order {
             slot.bind_original_budgets(self.original_budgets());
-            let actual_dependencies: Arc<[_]> = slot.dependency_instances().iter().map(|id| {
-                Arc::downgrade(plan.order.iter().find(|actual| actual.instance_id() == *id)
-                    .expect("direct dependency has an actual topological slot"))
-            }).collect::<Vec<_>>().into();
+            let actual_dependencies: Arc<[_]> = slot
+                .dependency_instances()
+                .iter()
+                .map(|id| {
+                    Arc::downgrade(
+                        plan.order
+                            .iter()
+                            .find(|actual| actual.instance_id() == *id)
+                            .expect("direct dependency has an actual topological slot"),
+                    )
+                })
+                .collect::<Vec<_>>()
+                .into();
             slot.bind_dependency_slots(actual_dependencies);
             let spec = slot.recipe.spec();
             let own =
@@ -91,6 +115,7 @@ impl ComponentCatalog {
 
     /// Uses this catalog's real factories, state and monotonic allocator. This
     /// private cold result cannot enter current/staged or bypass prepare's gate.
+    #[cfg(test)]
     fn compile_with_floor(
         &self,
         config: &RuntimeConfig,
@@ -101,11 +126,25 @@ impl ComponentCatalog {
             &mut ResourcePreparation<'_>,
         ) -> Result<std::collections::BTreeSet<ComponentId>, ChannelError>,
     ) -> Result<ComponentPlan, ChannelError> {
+        self.compile_with_policy(config, previous, issued, device_pass, false, prepare)
+    }
+    fn compile_with_policy(
+        &self,
+        config: &RuntimeConfig,
+        previous: Option<(&Arc<RuntimeConfig>, &Arc<ComponentPlan>)>,
+        issued: &BTreeMap<ComponentId, ResourceGeneration>,
+        device_pass: bool,
+        restarting: bool,
+        prepare: impl FnOnce(
+            &mut ResourcePreparation<'_>,
+        ) -> Result<std::collections::BTreeSet<ComponentId>, ChannelError>,
+    ) -> Result<ComponentPlan, ChannelError> {
         let mut allocate = || self.allocate_id();
         let identities = previous
             .map(|(_, plan)| plan.shared_identities.clone())
             .unwrap_or_default();
         let mut resources = ResourcePreparation::with_identities(&mut allocate, &identities)
+            .with_restart_resources(restarting)
             .with_candidate(config)
             .with_primary_factories(self.factories())
             .with_previous_named(previous.map(|(_, plan)| &plan.outbounds))
@@ -214,6 +253,11 @@ impl ComponentCatalog {
         let old = previous
             .map(|(_, plan)| plan.order.as_slice())
             .unwrap_or_default();
+        let nodes = if restarting {
+            freshened_slots(nodes, old)?
+        } else {
+            nodes
+        };
         let (borrowing_revision, loans) = self.admission.loan_snapshot();
         let order = if loans.is_empty() {
             super::super::generations::order_with_floor(nodes, old, issued)?
@@ -267,7 +311,10 @@ impl ComponentCatalog {
         } else {
             self.factories()
                 .prepare_with_resources(input.protocol.protocol_name(), input, resources)
-                .map_err(|source| invalid(Reason::Internal, "component option validation failed").with_source(source))?
+                .map_err(|source| {
+                    invalid(Reason::Internal, "component option validation failed")
+                        .with_source(source)
+                })?
         };
         let generation = match previous {
             Some((unchanged, previous)) => {
@@ -350,4 +397,33 @@ pub(super) fn extend_deferred(order: &[Arc<ComponentSlot>], deferred: &mut BTree
             deferred.insert(slot.id);
         }
     }
+}
+
+/// Fresh cold Slot metadata only. Stateful one-use factories were already told
+/// not to reuse their old Options in this same pass. No owner/Scope starts here.
+pub(super) fn freshened_slots(
+    nodes: Vec<Arc<ComponentSlot>>,
+    old: &[Arc<ComponentSlot>],
+) -> Result<Vec<Arc<ComponentSlot>>, ChannelError> {
+    nodes
+        .into_iter()
+        .map(|slot| {
+            let generation = match old.iter().find(|previous| previous.id == slot.id) {
+                Some(previous) => slot.generation.max(
+                    previous
+                        .generation
+                        .checked_next()
+                        .ok_or_else(|| invalid(Reason::Capacity, "restart generation exhausted"))?,
+                ),
+                None => slot.generation,
+            };
+            Ok(Arc::new(ComponentSlot::from_recipe(
+                slot.id,
+                generation,
+                slot.recipe.clone(),
+                slot.dial.clone(),
+                slot.legacy_connect_stage(),
+            )))
+        })
+        .collect()
 }
