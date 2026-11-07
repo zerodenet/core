@@ -186,7 +186,7 @@ async fn ordinary_mux_borrows_the_same_cached_grpc_original_for_tcp_udp_and_retu
             control.write_all(&[5,3,0,1,0,0,0,0,0,0]).await.unwrap(); let mut bound=[0;10]; control.read_exact(&mut bound).await.unwrap(); assert_eq!(&bound[..4],&[5,0,0,1]);
             let relay=std::net::SocketAddr::from(([127,0,0,1],u16::from_be_bytes([bound[8],bound[9]])));
             let socket=UdpSocket::bind("127.0.0.1:0").await.unwrap(); let codec=socks5::udp::Socks5InboundUdpCodec;
-            for payload in [&b"same cached native"[..], &b""[..]] {
+            for payload in [&b""[..], &b"same cached native"[..], &b""[..]] {
                 let wire=codec.encode_response_to_client(&zero_core::Address::Ipv4([127,0,0,1]),target.local_addr().unwrap().port(),payload).unwrap();
                 eprintln!("actual gRPC MUX mode={multi} phase=UDP send bytes={}", payload.len());
                 socket.send_to(&wire,relay).await.unwrap(); let mut data=[0;65536];
