@@ -35,6 +35,12 @@ fn capture(client: &fixture::Running) -> Vec<Original> {
                 .driver()
                 .expect("same actual per-connection H2 driver");
             assert!(!driver.is_joined());
+            let setup = record.auxiliary().expect("same sequential setup Auxiliary");
+            let ready = setup
+                .try_joined()
+                .expect("preparation joined before driver delivery");
+            assert!(setup.matches_joined(&ready) && ready.registration_released());
+            assert!(setup.scope_identity().same_scope(&driver.scope_identity()));
             assert!(driver
                 .scope_identity()
                 .same_scope(&owner.bound().unwrap().scope_identity()));

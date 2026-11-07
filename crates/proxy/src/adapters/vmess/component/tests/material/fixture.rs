@@ -140,9 +140,7 @@ pub(super) fn capture(proxy: &Proxy) -> (CarrierOwnerRegistration, CarrierOrigin
             } else {
                 assert!(original.driver().is_none());
             }
-            if grpc {
-                assert!(original.auxiliary().is_none());
-            } else {
+            {
                 let auxiliary = original
                     .auxiliary()
                     .expect("same per-connection setup task");
