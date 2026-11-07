@@ -96,13 +96,23 @@ fn snapshot_workspace_refusal_returns_original_guards_without_allocating_a_dto()
 #[test]
 fn two_actual_prepaid_initial_snapshots_keep_distinct_event_ids_and_zero_publication_sequence() {
     let engine = engine();
-    assert_eq!(engine.latest_event_sequence(), 0);
+    let engine_sequence = engine.latest_event_sequence();
+    // The Engine legitimately published engine.started already. This genuine
+    // independent empty history supplies its own atomic revision and original
+    // zero-watermark SnapshotBasis, never a hand-built ID or sequence.
+    let revision = Arc::new(std::sync::atomic::AtomicU64::new(engine.config_revision()));
+    let log = crate::observability::EngineEventLog::shared(8, revision);
+    assert_eq!(log.latest_sequence(), 0);
     let book = ControlBudget::new(ControlBudgetLimits::from_runtime(&Default::default()));
     // Both retained identity strings are paid before their original allocation.
     // Every actual producer/view goes away before this credit can refund.
     let mut credit = book.reserve(ControlCharge::ResponseBytes(0)).unwrap();
     let capture = |credit: &mut ControlBudgetPermit| {
-        let guard = engine.control_flow_snapshot();
+        let (sessions, _, _) = engine.query_data_roots();
+        let guard = EngineFlowSnapshotGuard {
+            active: sessions.query_guard(),
+            basis: log.flow_snapshot_basis(),
+        };
         let view = guard.freeze(credit).unwrap();
         credit
             .grow(super::measure::display_len(view.event_id()).unwrap())
@@ -115,7 +125,8 @@ fn two_actual_prepaid_initial_snapshots_keep_distinct_event_ids_and_zero_publica
     assert_ne!(first.0, second.0);
     assert_eq!(first.1, Some(0));
     assert_eq!(second.1, Some(0));
-    assert_eq!(engine.latest_event_sequence(), 0);
+    assert_eq!(log.latest_sequence(), 0);
+    assert_eq!(engine.latest_event_sequence(), engine_sequence);
     assert_eq!(book.usage().response_bytes, first.0.len() + second.0.len());
     drop(first);
     drop(second);
