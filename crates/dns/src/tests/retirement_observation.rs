@@ -16,7 +16,7 @@ async fn real_join_deadline_observations_preserve_actual_host_ack_without_mintin
             OwnedDnsQueryTasks::new_critical_with_budget(&scope.registrar(), one, budget.clone());
         let (mut reader, _writer) = tokio::io::duplex(1);
         let (entered, pending) = tokio::sync::oneshot::channel();
-        let witness = tasks
+        tasks
             .spawn(
                 async move {
                     let mut entered = Some(entered);
@@ -39,6 +39,7 @@ async fn real_join_deadline_observations_preserve_actual_host_ack_without_mintin
                 CancellationToken::new(),
             )
             .unwrap();
+        let witness = tasks.observe().into_iter().next().unwrap().task;
         pending.await.unwrap();
         let first = tasks
             .wait_closed(tokio::time::Instant::now())
@@ -83,7 +84,8 @@ async fn real_join_deadline_observations_preserve_actual_host_ack_without_mintin
         );
         scope.acknowledge(&joined).unwrap();
         assert!(joined.joined().registration_released());
-        let next = fresh.spawn(async {}, CancellationToken::new()).unwrap();
+        fresh.spawn(async {}, CancellationToken::new()).unwrap();
+        let next = fresh.observe().into_iter().next().unwrap().task;
         let actual = scope.next_receipt().await.unwrap();
         assert!(next.matches_joined(actual.joined()));
         actual.result().unwrap();
