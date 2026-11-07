@@ -389,6 +389,7 @@ impl OrchestrationState {
                 }
             }
         }
+        let required_source_restarts = charged_source_changes.clone();
         let output_resources = &mut prepared_resources;
         let inbound_result = listeners::reconcile_inbounds_with_before_bind(
             &proxy.protocols,
@@ -396,6 +397,7 @@ impl OrchestrationState {
             &candidate_runtime_factory,
             &rollback_runtime_factory,
             &new_config,
+            &required_source_restarts,
             listeners::InboundReconcileState {
                 listener_stops: &mut self.listener_stops,
                 active_inbounds: &mut self.active_inbounds,
