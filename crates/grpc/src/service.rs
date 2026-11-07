@@ -151,19 +151,26 @@ where
             inbound_tags: Vec::new(),
         };
 
-        self.subscriptions
-            .reap_completed()
-            .await
-            .map_err(|error| Status::internal(error.to_string()))?;
+        if let Err(error) = self.subscriptions.reap_completed().await {
+            return Err(error_status(&original, tonic::Code::Internal, "", &error).await);
+        }
         let subscription_charge = self
             .subscriptions
             .budget
             .reserve(zero_runtime::configuration::ControlCharge::Subscription)
             .map_err(|error| Status::resource_exhausted(error.to_string()))?;
-        let subscriber = self
-            .handle
-            .subscribe(filter)
-            .map_err(|e: zero_api::ApiError| Status::internal(format!("subscribe failed: {e}")))?;
+        let subscriber = match self.handle.subscribe(filter) {
+            Ok(subscriber) => subscriber,
+            Err(error) => {
+                return Err(error_status(
+                    &original,
+                    tonic::Code::Internal,
+                    "subscribe failed: ",
+                    &error,
+                )
+                .await)
+            }
+        };
 
         let (tx, rx) = mpsc::channel::<budget::QueuedEvent>(64);
 
