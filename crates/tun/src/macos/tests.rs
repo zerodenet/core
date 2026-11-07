@@ -54,7 +54,8 @@ async fn owned_utun_descriptor_preserves_framing_and_closes_on_drop() {
         name: "test-utun".into(),
         owned: crate::OwnedTunIdentity::from_fd(fd.get_ref().as_raw_fd()),
         fd,
-        read_buffer: vec![0; 65_540],
+        read_buffer: super::memory::Buffer::library(),
+        write_buffer: super::memory::Buffer::library(),
         read_start: 0,
         read_end: 0,
     };
