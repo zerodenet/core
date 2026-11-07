@@ -67,18 +67,19 @@ impl TunCompletion {
         routes: Option<super::super::routes::owned::OwnedRoutes>,
         metadata: Arc<super::super::source::SystemTunSourceState>,
     ) -> Arc<Self> {
-        let mut completion = Self::new_inner(None, None);
-        Arc::get_mut(&mut completion)
-            .expect("unpublished completion")
-            .source = Some(SourceCompletion {
-            registry,
-            original,
-            collecting: Mutex::new(()),
-            terminal: std::sync::OnceLock::new(),
-            routes,
-            metadata,
-        });
-        completion
+        Arc::new(Self {
+            source: Some(SourceCompletion {
+                registry,
+                original,
+                collecting: Mutex::new(()),
+                terminal: std::sync::OnceLock::new(),
+                routes,
+                metadata,
+            }),
+            restart: std::sync::OnceLock::new(),
+            #[cfg(test)]
+            legacy: super::legacy::LegacyCompletion::new(None, None),
+        })
     }
 }
 impl SourceCompletion {
