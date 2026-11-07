@@ -23,7 +23,7 @@ impl RetainedEvent {
     pub(crate) fn from_queued(event: crate::observability::QueuedEvent) -> Self {
         Self(Original::Queued(event))
     }
-    fn into_event(self) -> RawApiEvent {
+    pub(super) fn into_event(self) -> RawApiEvent {
         match self.0 {
             Original::Queued(event) => event.into_event(),
             Original::Initial(event) => event,
