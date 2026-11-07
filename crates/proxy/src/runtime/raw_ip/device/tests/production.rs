@@ -22,9 +22,17 @@ fn traffic(proxy: &Proxy, scope: TrafficScope) -> TrafficSnapshot {
         .unwrap()
 }
 fn configuration(peer: SocketAddr, socks: u16, domain: bool) -> RuntimeConfig {
+    configuration_with_source(peer, socks, domain, "127.0.0.1")
+}
+fn configuration_with_source(
+    peer: SocketAddr,
+    socks: u16,
+    domain: bool,
+    source: &str,
+) -> RuntimeConfig {
     let mut config = serde_json::json!({
         "inbounds":[{"tag":"socks","listen":{"address":"127.0.0.1","port":socks},"protocol":{"type":"socks5"}}],
-        "endpoints":[{"tag":"wg","directions":{"inbound":true,"outbound":true},"listen":{"address":"127.0.0.1","port":0},"protocol":{
+        "endpoints":[{"tag":"wg","directions":{"inbound":true,"outbound":true},"listen":{"address":source,"port":0},"protocol":{
             "type":"wireguard","private_key":STANDARD.encode([121;32]),"addresses":["10.0.0.1/32"],
             "peers":[{"public_key":peer::public(122),"endpoint":peer.to_string(),"allowed_ips":["0.0.0.0/0"]}]
         }}],"route":{"rules":[],"final":{"type":"route","outbound":"wg"}}
