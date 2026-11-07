@@ -14,13 +14,17 @@ mod boundaries;
 mod endpoints;
 #[cfg(feature = "wireguard")]
 mod groups;
+mod owned_echo;
 
 struct Fixture {
     proxy: Proxy,
     route: InboundRouteRuntimeFactory,
     pins: PacketSessionPins,
     responses: PacketSender,
-    received: mpsc::Receiver<Vec<u8>>,
+    received: mpsc::Receiver<PacketBuffer>,
+    scope: zero_platform_tokio::contract::scope::HostedScope,
+    echo_tasks: crate::runtime::raw_ip::tasks::scoped::ScopedSourceTasks<()>,
+    _memory: zero_tun::packet_memory::NativeReadGrant,
     echo: IcmpEchoRelay,
     _shutdown: watch::Sender<bool>,
 }
@@ -32,16 +36,45 @@ impl Fixture {
             SharedIngressRuntimeServices::new(proxy.tcp_runtime_services()),
             "tun-test".into(),
         );
-        let (tx, received) = mpsc::channel::<Vec<u8>>(8);
-        let responses: PacketSender = tx.into();
+        let (tx, received) = mpsc::channel::<PacketBuffer>(8);
+        // Explicit standalone fixture memory: this grants no native TUN/ICMP
+        // authority and never publishes Source Ready or close evidence.
+        let root = std::sync::Arc::new(zero_tun::packet_memory::PacketReturnTotals::default());
+        let memory = root.native_grants(&[65_536]).unwrap().pop().unwrap();
+        let responses = PacketSender::from(tx)
+            .with_packet_memory_view(
+                memory.memory_view().unwrap(),
+                zero_stack::packet_output::memory::PacketWireMemory::Native,
+            )
+            .unwrap();
+        let mut scope = zero_platform_tokio::contract::scope::TaskScope::suspended_hosted(
+            tokio::runtime::Handle::current(),
+            std::num::NonZeroUsize::new(64),
+        );
+        scope.enable_registration().unwrap();
+        let echo_tasks = crate::runtime::raw_ip::tasks::scoped::ScopedSourceTasks::new(
+            "standalone routing ICMP",
+            64,
+            zero_platform_tokio::contract::scope::TaskClass::Critical,
+        );
+        echo_tasks.bind(scope.registrar().downgrade()).unwrap();
         let (_shutdown, shutdown) = watch::channel(false);
-        let echo = IcmpEchoRelay::new(responses.clone(), route.clone(), shutdown);
+        let echo = IcmpEchoRelay::new_owned(
+            responses.clone(),
+            route.clone(),
+            shutdown,
+            echo_tasks.clone(),
+            None,
+        );
         Self {
             pins: route.packet_statistics_pins(),
             proxy,
             route,
             responses,
             received,
+            scope,
+            echo_tasks,
+            _memory: memory,
             echo,
             _shutdown,
         }
